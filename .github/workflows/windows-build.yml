@@ -30,5 +30,6 @@ jobs:
 
     - name: Print msbuild log
       if: always()
+      shell: cmd
       run: |
-        if (Test-Path msbuild.log) { Get-Content msbuild.log }
+        if exist msbuild.log type msbuild.log
