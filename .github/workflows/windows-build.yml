@@ -26,3 +26,8 @@ jobs:
       with:
         name: msbuild-log
         path: msbuild.log
+
+    - name: Print msbuild log
+      if: always()
+      run: |
+        if (Test-Path msbuild.log) { Get-Content msbuild.log }
