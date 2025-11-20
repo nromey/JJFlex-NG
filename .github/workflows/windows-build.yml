@@ -15,7 +15,7 @@ jobs:
 
     - name: Restore NuGet packages
       run: |
-        nuget restore JJFlexRadio.sln
+        msbuild -t:restore JJFlexRadio.sln
 
     - name: Build solution (MSBuild)
       run: |
