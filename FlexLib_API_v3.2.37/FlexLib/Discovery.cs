@@ -13,18 +13,13 @@
 
 using System;
 using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-
+using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading;
-using System.Diagnostics;
-using System.Runtime.InteropServices;
-
-using Flex.Util;
+using System.Threading.Tasks;
 using Flex.Smoothlake.Vita;
-
+using Flex.Util;
 
 namespace Flex.Smoothlake.FlexLib
 {
@@ -34,32 +29,11 @@ namespace Flex.Smoothlake.FlexLib
     {
         private const int DISCOVERY_PORT = 4992;
         private static UdpClient udp;
-        private static bool active = false;        
 
-        //struct DiscoveryObject
-        //{
-        //    public uint ip;
-        //    public ushort port;
-        //    public ushort radios; // not used
-        //    public uint mask; // not used
-        //    public uint model_len;
-        //    [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)]
-        //    public string model;
-        //    public uint serial_len;
-        //    [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)]
-        //    public string serial;
-        //    public uint name_len;
-        //    [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)]
-        //    public string name;
-        //    public uint version_len;
-        //    [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)]
-        //    public string version;
-        //}
+        private static CancellationTokenSource _loopCts;
 
         public static void Start()
         {
-            active = true;
-
             bool done = false;
             int error_count = 0;
             while (!done)
@@ -80,103 +54,55 @@ namespace Flex.Smoothlake.FlexLib
                 }
             }
 
-            Thread t = new Thread(new ThreadStart(Receive));
-            t.Name = "FlexAPI Discovery Thread";
-            t.IsBackground = true;
-            t.Priority = ThreadPriority.BelowNormal;
-            t.Start();
+            _loopCts = new CancellationTokenSource();
+
+            Task.Run(Receive);
         }
 
         public static void Stop()
         {
-            active = false;
-            //udp.Close();
-            //udp = null;
+            _loopCts.Cancel();
         }
 
-        private static void Receive()
+        private static async void Receive()
         {
-            IPEndPoint ep = new IPEndPoint(IPAddress.Any, 0);
-
-            while (active)
+            //Stopwatch watch = new Stopwatch();
+            var token = _loopCts.Token;
+            
+            while (!token.IsCancellationRequested)
             {
-                byte[] data = udp.Receive(ref ep);
-                //Debug.WriteLine("UDP Received: " + buf.Length);
+                // TODO: Pass the cancellation token here when we move to .NET 6/8
+                var packet = await udp.ReceiveAsync();
+                //watch.Restart();
 
                 // since the call above is blocking, we need to check active again here
-                if (!active) break;
-
-                //bool vita_discovery = false;
+                if (token.IsCancellationRequested) 
+                    break;
 
                 // ensure that the packet is at least long enough to inspect for VITA info
-                if (data.Length >= 16)
-                {
-                    VitaPacketPreamble vita = new VitaPacketPreamble(data);
+                if (packet.Buffer.Length < 16)
+                    continue;
+                
+                var vita = new VitaPacketPreamble(packet.Buffer);
 
-                    // ensure the packet has our OUI in it -- looks like it came from us
-                    if (vita.class_id.OUI == VitaFlex.FLEX_OUI)
-                    {
-                        // handle discovery packets here
-                        switch (vita.header.pkt_type)
-                        {
-                            case VitaPacketType.ExtDataWithStream:
-                                switch (vita.class_id.PacketClassCode)
-                                {
-                                    case VitaFlex.SL_VITA_DISCOVERY_CLASS:
-                                        ProcessVitaDiscoveryDataPacket(new VitaDiscoveryPacket(data, data.Length));
-                                        //vita_discovery = true;
-                                        break;
-                                }
-                                break;
-                        }
-                    }
-                }
+                // Check for a valid discovery packet
+                if (vita.class_id.OUI != VitaFlex.FLEX_OUI ||vita.header.pkt_type != VitaPacketType.ExtDataWithStream ||
+                    vita.class_id.PacketClassCode != VitaFlex.SL_VITA_DISCOVERY_CLASS)
+                    continue;
 
-                /* No longer supporting older discovery protocol
-                 * 
-                // skip any further processing if it was a vita discovery packet
-                if (vita_discovery) continue;
+                Radio radio = ProcessVitaDiscoveryDataPacket(new VitaDiscoveryPacket(packet.Buffer, packet.Buffer.Length));
+                OnRadioDiscoveredEventHandler(radio);
 
-                DiscoveryObject obj;
-                if (data.Length != Marshal.SizeOf(typeof(DiscoveryObject))) continue;
-
-                try
-                {
-                    //GCHandle pinnedPacket = GCHandle.Alloc(buf, GCHandleType.Pinned);
-                    //obj = (DiscoveryObject)Marshal.PtrToStructure(
-                    //    pinnedPacket.AddrOfPinnedObject(),
-                    //    typeof(DiscoveryObject));
-                    //pinnedPacket.Free();
-
-                    obj.ip = ByteOrder.SwapBytes(BitConverter.ToUInt32(data, 0));
-                    obj.port = ByteOrder.SwapBytes(BitConverter.ToUInt16(data, 4));
-                    obj.radios = ByteOrder.SwapBytes(BitConverter.ToUInt16(data, 6));
-                    obj.mask = ByteOrder.SwapBytes(BitConverter.ToUInt32(data, 8));
-                    obj.model_len = ByteOrder.SwapBytes(BitConverter.ToUInt32(data, 12));
-                    obj.model = Encoding.UTF8.GetString(data, 16, 32).Trim('\0');
-                    obj.serial_len = ByteOrder.SwapBytes(BitConverter.ToUInt32(data, 48));
-                    obj.serial = Encoding.UTF8.GetString(data, 52, 32).Trim('\0');
-                    obj.name_len = ByteOrder.SwapBytes(BitConverter.ToUInt32(data, 84));
-                    obj.name = Encoding.UTF8.GetString(data, 88, 32).Trim('\0');
-                    obj.version_len = ByteOrder.SwapBytes(BitConverter.ToUInt32(data, 120));
-                    obj.version = Encoding.UTF8.GetString(data, 124, 32).Trim('\0');
-
-                    //Debug.WriteLine(DateTime.Now.ToLongTimeString() + " Model:" + obj.model + " ip:" + new IPAddress(obj.ip).ToString());
-                    OnRadioDiscoveredEventHandler(new Radio(obj.model, obj.serial, "", new IPAddress(obj.ip), obj.version));
-                }
-                catch (Exception ex)
-                {
-                    Debug.WriteLine("EXCEPTION: " + ex.ToString());
-                }
-                 * 
-                 */
+                //watch.Stop();
+                //if(radio.Serial == "3424-1213-8601-4043")
+                //    Debug.WriteLine(DateTime.Now.ToString("HH:mm:ss.fff")+": Discovery watch stop (" + watch.ElapsedMilliseconds + " ms)");
             }
 
             udp.Close();
             udp = null;
         }
 
-        private static void ProcessVitaDiscoveryDataPacket(VitaDiscoveryPacket packet)
+        private static Radio ProcessVitaDiscoveryDataPacket(VitaDiscoveryPacket packet)
         {
             Radio radio = new Radio();
             string guiClientProgramsCsv = null;
@@ -189,7 +115,7 @@ namespace Flex.Smoothlake.FlexLib
                 string[] tokens = kv.Split('=');
                 if (tokens.Length != 2)
                 {
-                    Debug.WriteLine("FlexLib::Discovery::ProcessVitaDiscoveryDataPacket: Invalid key/value pair (" + kv + ")");
+                    //Debug.WriteLine("FlexLib::Discovery::ProcessVitaDiscoveryDataPacket: Invalid key/value pair (" + kv + ")");
                     continue;
                 }
 
@@ -199,6 +125,45 @@ namespace Flex.Smoothlake.FlexLib
 
                 switch (key.ToLower())
                 {
+                    case "available_clients":
+                        {
+                            int temp;
+                            bool b = int.TryParse(value, out temp);
+                            if (!b)
+                            {
+                                //Debug.WriteLine("FlexLib::Discovery::ProcessVitaDiscoveryDataPacket: Invalid key/value pair (" + kv + ")");
+                                continue;
+                            }
+
+                            radio.AvailableClients = temp;
+                        }
+                        break;
+                    case "available_panadapters":
+                        {
+                            int temp;
+                            bool b = int.TryParse(value, out temp);
+                            if (!b)
+                            {
+                                //.WriteLine("FlexLib::Discovery::ProcessVitaDiscoveryDataPacket: Invalid key/value pair (" + kv + ")");
+                                continue;
+                            }
+
+                            radio.AvailablePanadapters = temp;
+                        }
+                        break;
+                    case "available_slices":
+                        {
+                            int temp;
+                            bool b = int.TryParse(value, out temp);
+                            if (!b)
+                            {
+                                //Debug.WriteLine("FlexLib::Discovery::ProcessVitaDiscoveryDataPacket: Invalid key/value pair (" + kv + ")");
+                                continue;
+                            }
+
+                            radio.AvailableSlices = temp;
+                        }
+                        break;
                     case "callsign":
                         radio.Callsign = value;
                         break;
@@ -245,11 +210,53 @@ namespace Flex.Smoothlake.FlexLib
                             bool b = IPAddress.TryParse(value, out temp);
                             if (!b)
                             {
-                                Debug.WriteLine("FlexLib::Discovery::ProcessVitaDiscoveryDataPacket: Invalid key/value pair (" + kv + ")");
+                                //Debug.WriteLine("FlexLib::Discovery::ProcessVitaDiscoveryDataPacket: Invalid key/value pair (" + kv + ")");
                                 continue;
                             }
 
                             radio.IP = temp;
+                        }
+                        break;
+                    case "licensed_clients":
+                        {
+                            int temp;
+                            bool b = int.TryParse(value, out temp);
+                            if (!b)
+                            {
+                                //Debug.WriteLine("FlexLib::Discovery::ProcessVitaDiscoveryDataPacket: Invalid key/value pair (" + kv + ")");
+                                continue;
+                            }
+
+                            radio.LicensedClients = temp;
+                        }
+                        break;
+                    case "max_licensed_version":
+                        radio.MaxLicensedVersion = StringHelper.Sanitize(value);
+                        break;
+                    case "max_panadapters":
+                        {
+                            int temp;
+                            bool b = int.TryParse(value, out temp);
+                            if (!b)
+                            {
+                                //Debug.WriteLine("FlexLib::Discovery::ProcessVitaDiscoveryDataPacket: Invalid key/value pair (" + kv + ")");
+                                continue;
+                            }
+
+                            radio.MaxPanadapters = temp;
+                        }
+                        break;
+                    case "max_slices":
+                        {
+                            int temp;
+                            bool b = int.TryParse(value, out temp);
+                            if (!b)
+                            {
+                                //Debug.WriteLine("FlexLib::Discovery::ProcessVitaDiscoveryDataPacket: Invalid key/value pair (" + kv + ")");
+                                continue;
+                            }
+
+                            radio.MaxSlices = temp;
                         }
                         break;
                     case "model":
@@ -264,13 +271,29 @@ namespace Flex.Smoothlake.FlexLib
                             bool b = ushort.TryParse(value, out temp);
                             if (!b)
                             {
-                                Debug.WriteLine("FlexLib::Discovery::ProcessVitaDiscoveryDataPacket: Invalid key/value pair (" + kv + ")");
+                                //Debug.WriteLine("FlexLib::Discovery::ProcessVitaDiscoveryDataPacket: Invalid key/value pair (" + kv + ")");
                                 continue;
                             }
 
                             radio.CommandPort = temp;
                         }
-                        break;                    
+                        break;
+                    case "radio_license_id":
+                        radio.RadioLicenseId = StringHelper.Sanitize(value);
+                        break;
+                    case "requires_additional_license":
+                        {
+                            uint temp;
+                            bool b = uint.TryParse(value, out temp);
+                            if (!b || temp > 1)
+                            {
+                                Debug.WriteLine("FlexLib::Discovery::ProcessVitaDiscoveryDataPacket: Invalid value (" + kv + ")");
+                                continue;
+                            }
+
+                            radio.RequiresAdditionalLicense = Convert.ToBoolean(temp);
+                        }
+                        break;
                     case "serial":
                         radio.Serial = StringHelper.Sanitize(value);
                         break;
@@ -289,26 +312,7 @@ namespace Flex.Smoothlake.FlexLib
 
                             radio.Version = temp;
                         }
-                        break;
-                    case "max_licensed_version":
-                        radio.MaxLicensedVersion = StringHelper.Sanitize(value);
-                        break;
-                    case "radio_license_id":
-                        radio.RadioLicenseId = StringHelper.Sanitize(value);
-                        break;
-                    case "requires_additional_license":
-                        {
-                            uint temp;
-                            bool b = uint.TryParse(value, out temp);
-                            if (!b || temp > 1)
-                            {
-                                Debug.WriteLine("FlexLib::Discovery::ProcessVitaDiscoveryDataPacket: Invalid value (" + kv + ")");
-                                continue;
-                            }
-
-                            radio.RequiresAdditionalLicense = Convert.ToBoolean(temp);
-                        }
-                        break;
+                        break;                    
                     case "wan_connected":
                         {
                             uint temp;
@@ -322,6 +326,15 @@ namespace Flex.Smoothlake.FlexLib
                             radio.IsInternetConnected = Convert.ToBoolean(temp);
                         }
                         break;
+                    case "external_port_link":
+                    {
+                        if (uint.TryParse(value, out var link))
+                        {
+                            radio.ExternalPortLink = link == 1;
+                        }
+
+                        break;
+                    }
                 }
             }
 
@@ -331,7 +344,7 @@ namespace Flex.Smoothlake.FlexLib
                 radio.GuiClients = guiClients;
             }
 
-            OnRadioDiscoveredEventHandler(radio);
+            return radio;
         }
 
         public static List<GUIClient> ParseGuiClientsFromDiscovery(string guiClientProgramsCsv, string guiClientStationCsv, string guiClientHandlesCsv)

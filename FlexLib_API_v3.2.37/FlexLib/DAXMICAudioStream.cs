@@ -25,10 +25,11 @@ using Flex.UiWpfFramework.Mvvm;
 using Flex.Util;
 using Flex.Smoothlake.Vita;
 using System.Threading;
+using Flex.Smoothlake.FlexLib.Interface;
 
 namespace Flex.Smoothlake.FlexLib
 {
-    public class DAXMICAudioStream : RXAudioStream
+    public class DAXMICAudioStream : RXAudioStream, IDaxRxStream
     {
         public DAXMICAudioStream(Radio radio) :base(radio)
         {
@@ -67,6 +68,19 @@ namespace Flex.Smoothlake.FlexLib
                 double db_max = +10.0;
                 double db = db_min + (_rxGain / 100.0) * (db_max - db_min);
                 _rxGainScalar = (float)Math.Pow(10.0, db / 20.0);
+            }
+        }
+        
+        public int Gain
+        {
+            get => RXGain;
+            set
+            {
+                if (RXGain == value)
+                    return;
+
+                RXGain = value;
+                RaisePropertyChanged("Gain");
             }
         }
 
@@ -123,13 +137,9 @@ namespace Flex.Smoothlake.FlexLib
             {
                 set_radio_ack = false;
                 RadioAck = true;
-                _radio.OnDAXMICAudioStreamAdded(this);                
+                _radio.OnDAXMICAudioStreamAdded(this);
 
-                Thread t = new Thread(new ThreadStart(UpdateRXRate));
-                t.Name = "DAXMICAudioStream UpdateRXRate Thread";
-                t.IsBackground = true;
-                t.Priority = ThreadPriority.Normal;
-                t.Start();
+                _statsTimer.Enabled = true;
             }
         }
     }

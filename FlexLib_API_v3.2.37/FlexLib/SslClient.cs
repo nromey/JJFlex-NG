@@ -60,9 +60,16 @@ namespace Flex.Smoothlake.FlexLib
         {
             lock (_writerLockObj)
             {
+                StreamWriter writer = _writer;
+                if (writer == null)
+                {
+                    Disconnect();
+                    return;
+                }
+
                 try
                 {
-                    _writer.WriteLine(message);
+                    writer.WriteLine(message);
                 }
                 catch (Exception)
                 {
@@ -81,7 +88,7 @@ namespace Flex.Smoothlake.FlexLib
         {
             try
             {
-                while (_writer != null)
+                while (_isConnected)
                 {
                     Write("ping from client");
                     Thread.Sleep(TCP_KEEPALIVE_PING_MS);

@@ -25,7 +25,7 @@ namespace Flex.Smoothlake.Vita
     /// Represents a single Vita IF Data Packet as defined in the Vita 49 Standard Section 6.1.
     /// Can also represent an Extended Data Packet as seen in Section 6.2.
     /// </summary>
-    public class VitaPacketPreamble
+    public struct VitaPacketPreamble
     {
         public Header header;
         public uint stream_id;
@@ -33,15 +33,15 @@ namespace Flex.Smoothlake.Vita
         public uint timestamp_int;
         public ulong timestamp_frac;
 
-        public VitaPacketPreamble()
-        {
-            header = new Header();
-            header.pkt_type = VitaPacketType.IFDataWithStream;
-            header.c = true;
-            header.t = true;
-            header.tsi = VitaTimeStampIntegerType.Other;
-            header.tsf = VitaTimeStampFractionalType.RealTime;
-        }
+        // public VitaPacketPreamble()
+        // {
+        //     header = new Header();
+        //     header.pkt_type = VitaPacketType.IFDataWithStream;
+        //     header.c = true;
+        //     header.t = true;
+        //     header.tsi = VitaTimeStampIntegerType.Other;
+        //     header.tsf = VitaTimeStampFractionalType.RealTime;
+        // }
 
         public VitaPacketPreamble(byte[] data)
         {
@@ -49,14 +49,16 @@ namespace Flex.Smoothlake.Vita
             uint temp = ByteOrder.SwapBytes(BitConverter.ToUInt32(data, index));
             index += 4;
 
-            header = new Header();
-            header.pkt_type = (VitaPacketType)(temp >> 28);
-            header.c = ((temp & 0x08000000) != 0);
-            header.t = ((temp & 0x04000000) != 0);
-            header.tsi = (VitaTimeStampIntegerType)((temp >> 22) & 0x03);
-            header.tsf = (VitaTimeStampFractionalType)((temp >> 20) & 0x03);
-            header.packet_count = (byte)((temp >> 16) & 0x0F);
-            header.packet_size = (ushort)(temp & 0xFFFF);
+            header = new Header
+            {
+                pkt_type = (VitaPacketType)(temp >> 28),
+                c = ((temp & 0x08000000) != 0),
+                t = ((temp & 0x04000000) != 0),
+                tsi = (VitaTimeStampIntegerType)((temp >> 22) & 0x03),
+                tsf = (VitaTimeStampFractionalType)((temp >> 20) & 0x03),
+                packet_count = (byte)((temp >> 16) & 0x0F),
+                packet_size = (ushort)(temp & 0xFFFF)
+            };
 
             // if packet is a type with a stream id, read/save it
             if (header.pkt_type == VitaPacketType.IFDataWithStream ||
@@ -64,6 +66,10 @@ namespace Flex.Smoothlake.Vita
             {
                 stream_id = ByteOrder.SwapBytes(BitConverter.ToUInt32(data, index));
                 index += 4;
+            }
+            else
+            {
+                stream_id = 0;
             }
 
             if (header.c)
@@ -77,17 +83,29 @@ namespace Flex.Smoothlake.Vita
                 class_id.InformationClassCode = (ushort)(temp >> 16);
                 class_id.PacketClassCode = (ushort)temp;
             }
+            else
+            {
+                class_id = new VitaClassID();
+            }
 
             if (header.tsi != VitaTimeStampIntegerType.None)
             {
                 timestamp_int = ByteOrder.SwapBytes(BitConverter.ToUInt32(data, index));
                 index += 4;
             }
+            else
+            {
+                timestamp_int = 0;
+            }
 
             if (header.tsf != VitaTimeStampFractionalType.None)
             {
                 timestamp_frac = ByteOrder.SwapBytes(BitConverter.ToUInt64(data, index));
                 index += 8;
+            }
+            else
+            {
+                timestamp_frac = 0;
             }
         }
 

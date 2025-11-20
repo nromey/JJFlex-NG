@@ -518,6 +518,35 @@ namespace Flex.Smoothlake.FlexLib
             }
         }
 
+        private int _noiseFloorPosition;
+        public int NoiseFloorPosition
+        {
+            get => _noiseFloorPosition;
+            set
+            {
+                if (_noiseFloorPosition == value)
+                    return;
+                _noiseFloorPosition = value;
+                _radio.SendCommand($"display pan set 0x{_streamID:X} pan_position={value}");
+                RaisePropertyChanged(nameof(NoiseFloorPosition));
+            }
+        }
+
+        private bool _noiseFloorPositionEnable;
+        public bool NoiseFloorPositionEnable
+        {
+            get => _noiseFloorPositionEnable;
+            set
+            {
+                if (_noiseFloorPositionEnable == value)
+                    return;
+                _noiseFloorPositionEnable = value;
+                _radio.SendCommand($"display pan set 0x{_streamID:X} pan_position_enable={Convert.ToByte(value)}");
+                RaisePropertyChanged(nameof(NoiseFloorPositionEnable));
+            }
+        }
+
+
         private int _average;
         public int Average
         {
@@ -651,14 +680,6 @@ namespace Flex.Smoothlake.FlexLib
         public string Preamp
         {
             get { return _preamp; }
-            set
-            {
-                if (_preamp != value)
-                {
-                    _preamp = value;
-                    RaisePropertyChanged("Preamp");
-                }
-            }
         }
 
         private bool _loopA;
@@ -984,6 +1005,35 @@ namespace Flex.Smoothlake.FlexLib
 
                             _fps = temp;
                             RaisePropertyChanged("FPS");
+                        }
+                        break;
+
+                    case "noise_floor_position":
+                        {
+                            if (!int.TryParse(value, out int temp))
+                            {
+                                Debug.WriteLine($"Panadapter::StatusUpdate: Invalid value ({kv})");
+                                continue;
+                            }
+
+                            if (_noiseFloorPosition == temp)
+                                continue;
+
+                            _noiseFloorPosition = temp;
+                            RaisePropertyChanged(nameof(NoiseFloorPosition));
+                        }
+                        break;
+
+                    case "noise_floor_position_enable":
+                        {
+                            if (!int.TryParse(value, out int temp))
+                            {
+                                Debug.WriteLine($"Panadapter::StatusUpdate: Invalid value ({kv})");
+                                continue;
+                            }
+
+                            NoiseFloorPositionEnable = Convert.ToBoolean(temp);
+                            RaisePropertyChanged(nameof(NoiseFloorPositionEnable));
                         }
                         break;
 

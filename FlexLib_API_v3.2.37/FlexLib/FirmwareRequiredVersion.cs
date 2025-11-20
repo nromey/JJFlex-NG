@@ -15,7 +15,7 @@ namespace Flex.Smoothlake.FlexLib
     public static class FirmwareRequiredVersion
     {
         // See FlexVersion.cs
-        private static ulong required_version = FlexVersion.Parse("3.1.8.145");
+        private static ulong required_version = FlexVersion.Parse("3.3.32.8203");
         public static ulong RequiredVersion
         {
             get { return required_version; }

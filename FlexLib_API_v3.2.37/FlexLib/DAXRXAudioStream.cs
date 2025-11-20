@@ -16,11 +16,12 @@ using System.Globalization;
 using System.Diagnostics;
 using System.Net;
 using System.Threading;
+using Flex.Smoothlake.FlexLib.Interface;
 using Flex.Util;
 
 namespace Flex.Smoothlake.FlexLib
 {
-    public class DAXRXAudioStream : RXAudioStream
+    public class DAXRXAudioStream : RXAudioStream, IDaxRxStream
     {
         public DAXRXAudioStream(Radio radio) : base(radio)
         {
@@ -86,6 +87,19 @@ namespace Flex.Smoothlake.FlexLib
                 {
                     RaisePropertyChanged("RXGain");
                 }
+            }
+        }
+        
+        public int Gain
+        {
+            get => RXGain;
+            set
+            {
+                if (RXGain == value && !_gainNeverSet)
+                    return;
+
+                RXGain = value;
+                RaisePropertyChanged("Gain");
             }
         }
 
@@ -186,13 +200,9 @@ namespace Flex.Smoothlake.FlexLib
             if (set_radio_ack)
             {
                 RadioAck = true;
-                _radio.OnAudioStreamAdded(this);                
+                _radio.OnAudioStreamAdded(this);
 
-                Thread t = new Thread(new ThreadStart(UpdateRXRate));
-                t.Name = "DAXRXAudioStream UpdateRXRate Thread";
-                t.IsBackground = true;
-                t.Priority = ThreadPriority.Normal;
-                t.Start();
+                _statsTimer.Enabled = true;
             }
         }
     }

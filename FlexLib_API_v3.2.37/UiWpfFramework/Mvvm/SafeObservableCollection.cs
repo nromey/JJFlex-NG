@@ -170,7 +170,7 @@ namespace Flex.UiWpfFramework.Mvvm
             }
             else
             {
-                dispatcher.BeginInvoke((Action)(() => { DoAdd(item); }));
+                dispatcher.BeginInvoke(() => { DoAdd(item); });
             }
         }
 
@@ -196,7 +196,7 @@ namespace Flex.UiWpfFramework.Mvvm
             }
             else
             {
-                dispatcher.BeginInvoke((Action)(() => { DoClear(); }));
+                dispatcher.BeginInvoke(() => { DoClear(); });
             }
         }
 
@@ -419,7 +419,7 @@ namespace Flex.UiWpfFramework.Mvvm
             }
             else
             {
-                dispatcher.BeginInvoke((Action)(() => { DoInsert(index, item); }));
+                dispatcher.BeginInvoke(() => { DoInsert(index, item); });
             }
         }
 
@@ -457,7 +457,7 @@ namespace Flex.UiWpfFramework.Mvvm
             }
             else
             {
-                dispatcher.BeginInvoke((Action)(() => { DoRemoveAt(index); }));
+                dispatcher.BeginInvoke(() => { DoRemoveAt(index); });
             }
         }
 
@@ -513,7 +513,7 @@ namespace Flex.UiWpfFramework.Mvvm
             }
             else
             {
-                dispatcher.BeginInvoke((Action)(() => { DoSet(index, item); }));
+                dispatcher.BeginInvoke(() => { DoSet(index, item); });
             }
         }
 

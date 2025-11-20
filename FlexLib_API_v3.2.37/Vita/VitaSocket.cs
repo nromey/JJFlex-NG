@@ -23,6 +23,8 @@ namespace Flex.Smoothlake.Vita
     {
         private VitaDataReceivedCallback callback;
         private Socket socket;
+        const int MIN_UDP_PORT = 1025;
+        const int MAX_UDP_PORT = 65535;
 
         private int port;
         public int Port
@@ -89,7 +91,9 @@ namespace Flex.Smoothlake.Vita
             // In addition to creating the VitaSocket, for WAN we must also send the 
             // 'client udp_register' command to the radio over the created UDP socket
 
-            RadioEndpoint = new IPEndPoint(radioIp, radioPort);
+            //ensure port is within range before assigning endpoint
+            if (radioPort >= MIN_UDP_PORT && radioPort <= MAX_UDP_PORT)
+                RadioEndpoint = new IPEndPoint(radioIp, radioPort);
         }
 
         /// <summary>

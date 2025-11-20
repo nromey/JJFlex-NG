@@ -1,0 +1,149 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="12.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+    <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
+    <ProductVersion>8.0.30703</ProductVersion>
+    <SchemaVersion>2.0</SchemaVersion>
+    <ProjectGuid>{7927817C-D5EF-4A9E-B38E-29668F308343}</ProjectGuid>
+    <OutputType>Library</OutputType>
+    <AppDesignerFolder>Properties</AppDesignerFolder>
+    <RootNamespace>Flex.Smoothlake.FlexLib</RootNamespace>
+    <AssemblyName>FlexLib</AssemblyName>
+    <TargetFrameworkVersion>v4.6.2</TargetFrameworkVersion>
+    <FileAlignment>512</FileAlignment>
+    <TargetFrameworkProfile>
+    </TargetFrameworkProfile>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
+    <DebugSymbols>true</DebugSymbols>
+    <DebugType>full</DebugType>
+    <Optimize>false</Optimize>
+    <OutputPath>bin\Debug\</OutputPath>
+    <DefineConstants>DEBUG;TRACE</DefineConstants>
+    <ErrorReport>prompt</ErrorReport>
+    <WarningLevel>4</WarningLevel>
+    <PlatformTarget>AnyCPU</PlatformTarget>
+    <Prefer32Bit>false</Prefer32Bit>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
+    <DebugType>pdbonly</DebugType>
+    <Optimize>true</Optimize>
+    <OutputPath>bin\Release\</OutputPath>
+    <DefineConstants>TRACE</DefineConstants>
+    <ErrorReport>prompt</ErrorReport>
+    <WarningLevel>4</WarningLevel>
+    <PlatformTarget>AnyCPU</PlatformTarget>
+    <Prefer32Bit>false</Prefer32Bit>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Debug|x86'">
+    <DebugSymbols>true</DebugSymbols>
+    <OutputPath>bin\x86\Debug\</OutputPath>
+    <DefineConstants>DEBUG;TRACE</DefineConstants>
+    <DebugType>full</DebugType>
+    <PlatformTarget>x86</PlatformTarget>
+    <ErrorReport>prompt</ErrorReport>
+    <CodeAnalysisIgnoreBuiltInRuleSets>true</CodeAnalysisIgnoreBuiltInRuleSets>
+    <CodeAnalysisIgnoreBuiltInRules>true</CodeAnalysisIgnoreBuiltInRules>
+    <Prefer32Bit>false</Prefer32Bit>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Release|x86'">
+    <OutputPath>bin\Release\</OutputPath>
+    <DefineConstants>TRACE</DefineConstants>
+    <Optimize>true</Optimize>
+    <DebugType>pdbonly</DebugType>
+    <PlatformTarget>x86</PlatformTarget>
+    <ErrorReport>prompt</ErrorReport>
+    <CodeAnalysisIgnoreBuiltInRuleSets>true</CodeAnalysisIgnoreBuiltInRuleSets>
+    <CodeAnalysisIgnoreBuiltInRules>true</CodeAnalysisIgnoreBuiltInRules>
+    <Prefer32Bit>false</Prefer32Bit>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="Ionic.Zip">
+      <HintPath>Libs\Ionic.Zip.dll</HintPath>
+    </Reference>
+    <Reference Include="PresentationCore" />
+    <Reference Include="PresentationFramework" />
+    <Reference Include="System" />
+    <Reference Include="System.Core" />
+    <Reference Include="Microsoft.CSharp" />
+    <Reference Include="System.Data" />
+    <Reference Include="System.Xaml" />
+    <Reference Include="System.Xml" />
+    <Reference Include="System.Xml.Linq" />
+    <Reference Include="WindowsBase" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="Amplifier.cs" />
+    <Compile Include="API.cs" />
+    <Compile Include="DAXIQStream.cs" />
+    <Compile Include="DAXRXAudioStream.cs" />
+    <Compile Include="GUIClient.cs" />
+    <Compile Include="Interface\ICommandCommunication.cs" />
+    <Compile Include="RapidM.cs" />
+    <Compile Include="RXRemoteAudioStream.cs" />
+    <Compile Include="RXAudioStream.cs" />
+    <Compile Include="Spot.cs" />
+    <Compile Include="SslClient.cs" />
+    <Compile Include="TcpCommandCommunication.cs" />
+    <Compile Include="Interface\IUsbBcdCable.cs" />
+    <Compile Include="Interface\IUsbBitCable.cs" />
+    <Compile Include="Interface\IUsbCable.cs" />
+    <Compile Include="Interface\IUsbCatCable.cs" />
+    <Compile Include="Interface\IUsbLdpaCable.cs" />
+    <Compile Include="NetCWStream.cs" />
+    <Compile Include="DAXMICAudioStream.cs" />
+    <Compile Include="TlsCommandCommunication.cs" />
+    <Compile Include="DAXTXAudioStream.cs" />
+    <Compile Include="Memory.cs" />
+    <Compile Include="TxBandSettings.cs" />
+    <Compile Include="TXRemoteAudioStream.cs" />
+    <Compile Include="CWX.cs" />
+    <Compile Include="TNF.cs" />
+    <Compile Include="Discovery.cs" />
+    <Compile Include="FirmwareRequiredVersion.cs" />
+    <Compile Include="Equalizer.cs" />
+    <Compile Include="Meter.cs" />
+    <Compile Include="Panadapter.cs" />
+    <Compile Include="Slice.cs" />
+    <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="Radio.cs" />
+    <Compile Include="UsbBcdCable.cs" />
+    <Compile Include="UsbBitCable.cs" />
+    <Compile Include="UsbCable.cs" />
+    <Compile Include="UsbCatCable.cs" />
+    <Compile Include="UsbLdpaCable.cs" />
+    <Compile Include="UsbOtherCable.cs" />
+    <Compile Include="WanServer.cs" />
+    <Compile Include="WanTestConnectionResults.cs" />
+    <Compile Include="WanUserSettings.cs" />
+    <Compile Include="Waterfall.cs" />
+    <Compile Include="Xvtr.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\UiWpfFramework\UiWpfFramework.csproj">
+      <Project>{9c0ad871-92fd-461b-84ff-3738d701814f}</Project>
+      <Name>UiWpfFramework</Name>
+    </ProjectReference>
+    <ProjectReference Include="..\Util\Util.csproj">
+      <Project>{38935dc9-ff48-470c-b876-473a3ae8bd32}</Project>
+      <Name>Util</Name>
+    </ProjectReference>
+    <ProjectReference Include="..\Vita\Vita.csproj">
+      <Project>{6ed364fb-7444-44da-9196-1d8679425b3e}</Project>
+      <Name>Vita</Name>
+    </ProjectReference>
+  </ItemGroup>
+  <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+  <PropertyGroup>
+    <PreBuildEvent>
+    </PreBuildEvent>
+  </PropertyGroup>
+  <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 
+       Other similar extension points exist, see Microsoft.Common.targets.
+  <Target Name="BeforeBuild">
+  </Target>
+  <Target Name="AfterBuild">
+  </Target>
+  -->
+</Project>

@@ -90,33 +90,59 @@ namespace Flex.Smoothlake.FlexLib
         }
 
 
-        internal override void ParseTypeSpecificStatus(int bitNumber, string key, string value)
+        internal override void ParseStatus(string s)
         {
-            switch (key)
+            if (String.IsNullOrEmpty(s)) return;
+
+            // split the status message on spaces
+            string[] words = s.Split(' ');
+
+            // is the first word a type that matches ldpa?
+            if (words.Length > 1 && words[0] == "type=ldpa")
             {
-                case "band":
+                // yes -- parse it here
+                foreach (string kv in words.Skip(1)) // skip parsing the type since we have already done that
+                {
+                    string[] tokens = kv.Split('=');
+                    if (tokens.Length != 2)
                     {
-                        _band = StringToLdpaBand(value);
-                        RaisePropertyChanged("Band");
+                        Debug.WriteLine("UsbBitCable::ParseStatus: Invalid key/value pair (" + kv + ")");
+                        continue;
                     }
-                    break;
 
-                case "preamp":
+                    string key = tokens[0];
+                    string value = tokens[1];
+
+                    switch (key)
                     {
-                        byte temp;
-                        bool b = byte.TryParse(value, out temp);
-
-                        if (!b)
-                        {
-                            Debug.WriteLine("UsbLdpaCable::ParseStatus - preamp: Invalid value (" + value + ")");
+                        case "band":
+                            {
+                                _band = StringToLdpaBand(value);
+                                RaisePropertyChanged("Band");
+                            }
                             break;
-                        }
 
-                        _isPreampOn = Convert.ToBoolean(temp);
-                        RaisePropertyChanged("IsPreampOn");
+                        case "preamp":
+                            {
+                                byte temp;
+                                bool b = byte.TryParse(value, out temp);
+
+                                if (!b)
+                                {
+                                    Debug.WriteLine("UsbLdpaCable::ParseStatus - preamp: Invalid value (" + value + ")");
+                                    break;
+                                }
+
+                                _isPreampOn = Convert.ToBoolean(temp);
+                                RaisePropertyChanged("IsPreampOn");
+                            }
+                            break;
                     }
-                    break;
+                }
             }
+
+            // Send to the base class to parse.
+            base.ParseStatus(s);
         }
 
         private LdpaBand StringToLdpaBand(string s)

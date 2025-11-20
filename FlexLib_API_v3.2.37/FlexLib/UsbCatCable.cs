@@ -183,7 +183,7 @@ namespace Flex.Smoothlake.FlexLib
                 if (_stopBits != value)
                 {
                     _stopBits = value;
-                    _radio.SendCommand("usb_cable set " + _serialNumber + " stop_bits=" + (_stopBits == SerialStopBits.one ? "1" : "2"));
+                    _radio.SendCommand("usb_cable set " + _serialNumber + " stop_bits=" + (_stopBits == SerialStopBits.One ? "1" : "2"));
                     RaisePropertyChanged("StopBits");
                 }
             }
@@ -287,101 +287,123 @@ namespace Flex.Smoothlake.FlexLib
             }
         }
 
-        internal override void ParseTypeSpecificStatus(int bitNumber, string key, string value)
+        internal override void ParseStatus(string s)
         {
-            switch (key)
-            {
-                case "auto_report":
-                    {
-                        byte temp;
-                        bool b = byte.TryParse(value, out temp);
+            if (String.IsNullOrEmpty(s)) return;
 
-                        if (!b)
+            // split the status message on spaces
+            string[] words = s.Split(' ');
+
+            // yes -- parse it here
+            foreach (string kv in words.Skip(1)) // skip parsing the type since we have already done that
+            {
+                string[] tokens = kv.Split('=');
+                if (tokens.Length != 2)
+                {
+                    Debug.WriteLine("UsbBitCable::ParseStatus: Invalid key/value pair (" + kv + ")");
+                    continue;
+                }
+
+                string key = tokens[0];
+                string value = tokens[1];
+
+                switch (key)
+                {
+                    case "auto_report":
                         {
-                            Debug.WriteLine("UsbCatCable::ParseStatus - enable: Invalid value (" + temp.ToString() + ")");
+                            byte temp;
+                            bool b = byte.TryParse(value, out temp);
+
+                            if (!b)
+                            {
+                                Debug.WriteLine("UsbCatCable::ParseStatus - enable: Invalid value (" + temp.ToString() + ")");
+                                break;
+                            }
+
+                            _autoReport = Convert.ToBoolean(temp);
+                            RaisePropertyChanged("AutoReport");
+                        }
+                        break;
+
+
+                    case "source":
+                        {
+                            UsbCableFreqSource source = StringToUsbCableFreqSource(value);
+
+                            _source = source;
+                            RaisePropertyChanged("Source");
+                        }
+                        break;
+
+                    case "source_rx_ant":
+                        {
+                            _selectedRxAnt = value;
+                            RaisePropertyChanged("SelectedRxAnt");
+                        }
+                        break;
+
+                    case "source_tx_ant":
+                        {
+                            _selectedTxAnt = value;
+                            RaisePropertyChanged("SelectedTxAnt");
+                        }
+                        break;
+
+                    case "source_slice":
+                        {
+                            _selectedSlice = value;
+                            RaisePropertyChanged("SelectedSlice");
+                        }
+                        break;
+
+                    case "speed":
+                        {
+                            _speed = StringToSerialSpeed(value);
+                            RaisePropertyChanged("Speed");
+                        }
+                        break;
+
+                    case "data_bits":
+                        {
+                            if (value == "7")
+                                _dataBits = SerialDataBits.seven;
+                            else if (value == "8")
+                                _dataBits = SerialDataBits.eight;
+
+                            RaisePropertyChanged("DataBits");
+                        }
+                        break;
+
+                    case "parity":
+                        {
+                            _parity = StringToSerialParity(value);
+                            RaisePropertyChanged("Parity");
+                        }
+                        break;
+
+                    case "stop_bits":
+                        {
+                            if (value == "1")
+                                _stopBits = SerialStopBits.One;
+                            else if (value == "2")
+                                _stopBits = SerialStopBits.Two;
+
+                            RaisePropertyChanged("StopBits");
                             break;
                         }
 
-                        _autoReport = Convert.ToBoolean(temp);
-                        RaisePropertyChanged("AutoReport");
-                    }
-                    break;
-
-
-                case "source":
-                    {
-                        UsbCableFreqSource source = StringToUsbCableFreqSource(value);
-
-                        _source = source;
-                        RaisePropertyChanged("Source");
-                    }
-                    break;
-
-                case "source_rx_ant":
-                    {
-                        _selectedRxAnt = value;
-                        RaisePropertyChanged("SelectedRxAnt");
-                    }
-                    break;
-
-                case "source_tx_ant":
-                    {
-                        _selectedTxAnt = value;
-                        RaisePropertyChanged("SelectedTxAnt");
-                    }
-                    break;
-
-                case "source_slice":
-                    {
-                        _selectedSlice = value;
-                        RaisePropertyChanged("SelectedSlice");
-                    }
-                    break;
-
-                case "speed":
-                    {
-                        _speed = StringToSerialSpeed(value);
-                        RaisePropertyChanged("Speed");
-                    }
-                    break;
-
-                case "data_bits":
-                    {
-                        if (value == "7")
-                            _dataBits = SerialDataBits.seven;
-                        else if (value == "8")
-                            _dataBits = SerialDataBits.eight;
-
-                        RaisePropertyChanged("DataBits");
-                    }
-                    break;
-
-                case "parity":
-                    {
-                        _parity = StringToSerialParity(value);
-                        RaisePropertyChanged("Parity");
-                    }
-                    break;
-
-                case "stop_bits":
-                    {
-                        if (value == "1")
-                            _stopBits = SerialStopBits.one;
-                        else if (value == "2")
-                            _stopBits = SerialStopBits.two;
-
-                        RaisePropertyChanged("StopBits");
+                    case "flow_control":
+                        {
+                            _flowControl = StringToFlowControl(value);
+                            RaisePropertyChanged("FlowControl");
+                        }
                         break;
-                    }
-
-                case "flow_control":
-                    {
-                        _flowControl = StringToFlowControl(value);
-                        RaisePropertyChanged("FlowControl");
-                    }
-                    break;
+                }
             }
-        }        
+
+            // Send to the base class to parse.
+            base.ParseStatus(s);
+        }
     }
 
     [TypeConverter(typeof(EnumDescriptionTypeConverter))]
@@ -458,8 +480,8 @@ namespace Flex.Smoothlake.FlexLib
     public enum SerialStopBits
     {
         [Description("1")]
-        one,
+        One,
         [Description("2")]
-        two
+        Two
     }
 }

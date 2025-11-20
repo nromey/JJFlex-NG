@@ -535,6 +535,7 @@ namespace Flex.Smoothlake.FlexLib
                     case "NFM":
                     case "DFM":
                     case "DSTR":
+                    case "AME":
                         if (new_cut < -12000) new_cut = -12000;
                         if (new_cut > -10) new_cut = -10;
                         break;
@@ -600,6 +601,7 @@ namespace Flex.Smoothlake.FlexLib
                     case "NFM":
                     case "DFM":
                     case "DSTR":
+                    case "AME":
                         if (new_cut > 12000) new_cut = 12000;
                         if (new_cut < 10) new_cut = 10;
                         break;
@@ -671,6 +673,7 @@ namespace Flex.Smoothlake.FlexLib
                 case "NFM":
                 case "DFM":
                 case "DSTR":
+                case "AME":
                     if (low < -12000) low = -12000;
                     if (high > 12000) high = 12000;
                     if (high - low < 50) high = low + 50;
@@ -898,8 +901,8 @@ namespace Flex.Smoothlake.FlexLib
                 }
                 else
                 {
-                    Debug.WriteLine("Cannot enable diversity this radio model (" + _radio.Model + ").  " +
-                        "FLEX-6700 or FLEX-6700R required.");
+                    Debug.WriteLine("Cannot enable diversity on this radio model (" + _radio.Model + ").  " +
+                        "FLEX-6600, 6700, 8600, or 6700R required.");
                 }
             }
         }
@@ -935,7 +938,7 @@ namespace Flex.Smoothlake.FlexLib
         /// <summary>
         /// The diversity Slice is associated with this Slice, if
         /// this Slice is a diversity Slice parent or child.
-        /// If this Slice is a diveristy parent, DiversitySlicePartner
+        /// If this Slice is a diversity parent, DiversitySlicePartner
         /// will be the diversity child Slice and vice versa.
         /// </summary>
         public Slice DiversitySlicePartner
@@ -948,6 +951,17 @@ namespace Flex.Smoothlake.FlexLib
                     _diversitySlicePartner = value;
                 }
             }
+        }
+
+        public void SendCWAutotuneCommand(bool? isIntermittent)
+        {
+            if (isIntermittent is null)
+            {
+                _radio.SendCommand($"slice auto_tune {Index}");
+                return;
+            }
+
+            _radio.SendCommand($"slice auto_tune {Index} int={Convert.ToByte(isIntermittent)}");
         }
 
         private bool _wnb_on = false;
@@ -974,7 +988,7 @@ namespace Flex.Smoothlake.FlexLib
         /// </summary>
         public bool NBOn
         {
-            get { return _nb_on; }
+            get => _nb_on;
             set
             {
                 if (_nb_on != value)
@@ -1019,7 +1033,7 @@ namespace Flex.Smoothlake.FlexLib
         /// </summary>
         public int NBLevel
         {
-            get { return _nb_level; }
+            get => _nb_level;
             set
             {
                 int new_val = value;
@@ -1046,7 +1060,7 @@ namespace Flex.Smoothlake.FlexLib
         /// </summary>
         public bool NROn
         {
-            get { return _nr_on; }
+            get => _nr_on;
             set
             {
                 if (_nr_on != value)
@@ -1064,7 +1078,7 @@ namespace Flex.Smoothlake.FlexLib
         /// </summary>
         public int NRLevel
         {
-            get { return _nr_level; }
+            get => _nr_level;
             set
             {
                 int new_val = value;
@@ -1080,6 +1094,218 @@ namespace Flex.Smoothlake.FlexLib
                 }
                 else if (new_val != value)
                     RaisePropertyChanged("NRLevel");
+            }
+        }
+
+        private bool _nrl_on = false;
+        /// <summary>
+        /// Enables or disables the lms legacy noise reduction (NRL) for the slice.
+        /// </summary>
+        public bool NRLOn
+        {
+            get => _nrl_on;
+            set 
+            { 
+                if (_nrl_on == value) return;
+
+                _nrl_on = value;
+                _radio.SendCommand($"slice set {_index} lms_nr={Convert.ToByte(_nrl_on)}");
+                RaisePropertyChanged(nameof(NRLOn));
+            }
+        }
+
+        private int _nrl_level;
+        /// <summary>
+        /// Gets or sets the lms legacy Noise Reduction (NRL) level from 0 to 100 for the slice.
+        /// </summary>
+        public int NRL_Level
+        {
+            get => _nrl_level;
+            set
+            {
+                if (value == _nrl_level) return;
+
+                int new_val = value;
+                // check the limits
+                if (new_val < 0) new_val = 0;
+                if (new_val > 100) new_val = 100;
+
+                if (_nrl_level != new_val)
+                {
+                    _nrl_level = new_val;
+                    _radio.SendCommand($"slice set {_index} lms_nr_level={_nrl_level}");
+                    RaisePropertyChanged(nameof(NRL_Level));
+                }
+                else if (new_val != value)
+                    RaisePropertyChanged(nameof(NRL_Level));
+            }
+        }
+
+        private bool _anfl_on = false;
+        /// <summary>
+        /// Enables or disables the lms legacy auto-notch filter (ANFL) for the slice.
+        /// </summary>
+        public bool ANFLOn
+        {
+            get => _anfl_on;
+            set
+            {
+                if (_anfl_on == value) return;
+
+                _anfl_on = value;
+                _radio.SendCommand($"slice set {_index} lms_anf={Convert.ToByte(_anfl_on)}");
+                RaisePropertyChanged(nameof(ANFLOn));
+            }
+        }
+
+        private int _anfl_level;
+        /// <summary>
+        /// Gets or sets the lms legacy auto-notch filter (ANFL) level from 0 to 100 for the slice.
+        /// </summary>
+        public int ANFL_Level
+        {
+            get => _anfl_level;
+            set
+            {
+                if (value == _anfl_level) return;
+
+                int new_val = value;
+                // check the limits
+                if (new_val < 0) new_val = 0;
+                if (new_val > 100) new_val = 100;
+
+                if (_anfl_level != new_val)
+                {
+                    _anfl_level = new_val;
+                    _radio.SendCommand($"slice set {_index} lms_anf_level={_anfl_level}");
+                    RaisePropertyChanged(nameof(ANFL_Level));
+                }
+                else if (new_val != value)
+                    RaisePropertyChanged(nameof(ANFL_Level));
+            }
+        }
+
+        private bool _nrs_on = false;
+        /// <summary>
+        /// Enables or disables spectral subtraction noise reduction (NRS) for the slice.
+        /// </summary>
+        public bool NRSOn
+        {
+            get => _nrs_on;
+            set
+            {
+                if (_nrs_on == value) return;
+
+                _nrs_on = value;
+                _radio.SendCommand($"slice set {_index} speex_nr={Convert.ToByte(_nrs_on)}");
+                RaisePropertyChanged(nameof(NRSOn));
+            }
+        }
+
+        private int _nrs_level;
+        /// <summary>
+        /// Gets or sets spectral subtraction noise reduction (NRS) level from 0 to 100 of the slice.
+        /// </summary>
+        public int NRSLevel
+        {
+            get => _nrs_level;
+            set 
+            {
+                if (value == _nrs_level) return;
+
+                int new_val = value;
+                // check the limits
+                if (new_val < 0) new_val = 0;
+                if (new_val > 100) new_val = 100;
+
+                if (_nrs_level != new_val)
+                {
+                    _nrs_level = new_val;
+                    _radio.SendCommand($"slice set {_index} speex_nr_level={_nrs_level}");
+                    RaisePropertyChanged(nameof(NRSLevel));
+                }
+                else if (new_val != value)
+                    RaisePropertyChanged(nameof(NRSLevel));
+
+            }
+        }
+
+        private bool _rnn_on = false;
+        /// <summary>
+        /// Enables or disables AI noise reduction (RNN) for the slice.
+        /// </summary>
+        public bool RNNOn
+        {
+            get => _rnn_on;
+            set
+            {
+                if (_rnn_on == value) return;
+
+                _rnn_on = value;
+                _radio.SendCommand($"slice set {_index} rnnoise={Convert.ToByte(_rnn_on)}");
+                RaisePropertyChanged(nameof(RNNOn));
+            }
+        }
+
+        private bool _anft_on = false;
+        /// <summary>
+        /// Enables or disables FFT-based automatic notch filter (ANFT) for the slice.
+        /// </summary>
+        public bool ANFTOn
+        {
+            get => _anft_on;
+            set
+            {
+                if (_anft_on == value) return;
+
+                _anft_on = value;
+                _radio.SendCommand($"slice set {_index} anft={Convert.ToByte(_anft_on)}");
+                RaisePropertyChanged(nameof(ANFTOn));
+            }
+        }
+
+        private bool _nrf_on = false;
+        /// <summary>
+        /// Enables or disables Noise Reduction w/ Filter (NRF, better NR) for the slice.
+        /// </summary>
+        public bool NRFOn
+        {
+            get => _nrf_on;
+            set
+            {
+                if (_nrf_on == value) return;
+
+                _nrf_on = value;
+                _radio.SendCommand($"slice set {_index} nrf={Convert.ToByte(_nrf_on)}");
+                RaisePropertyChanged(nameof(NRFOn));
+            }
+        }
+
+        private int _nrf_level;
+        /// <summary>
+        /// Gets or sets Noise Reduction w/ filter (NRF) level from 0 to 100 for the slice.
+        /// </summary>
+        public int NRFLevel
+        {
+            get => _nrf_level;
+            set
+            {
+                if (value == _nrf_level) return;
+
+                int new_val = value;
+                // check the limits
+                if (new_val < 0) new_val = 0;
+                if (new_val > 100) new_val = 100;
+
+                if (_nrf_level != new_val)
+                {
+                    _nrf_level = new_val;
+                    _radio.SendCommand($"slice set {_index} nrf_level={_nrf_level}");
+                    RaisePropertyChanged(nameof(NRFLevel));
+                }
+                else if (new_val != value)
+                    RaisePropertyChanged(nameof(NRFLevel));
+
             }
         }
 
@@ -1657,7 +1883,7 @@ namespace Flex.Smoothlake.FlexLib
         }
 
         #endregion
-                
+
         [Obsolete] // use Close
         public void Remove()
         {
@@ -1679,7 +1905,7 @@ namespace Flex.Smoothlake.FlexLib
 
         #region Meter Routines
 
-            internal void AddMeter(Meter m)
+        internal void AddMeter(Meter m)
         {
             if (!_meters.Contains(m))
             {
@@ -1773,7 +1999,7 @@ namespace Flex.Smoothlake.FlexLib
                     string[] tokens = kv.Split('=');
                     if (tokens.Length != 2)
                     {
-                        Debug.WriteLine("Slice::StatusUpdate: Invalid key/value pair (" + kv + ")");
+                        if (!string.IsNullOrEmpty(kv)) Debug.WriteLine($"Slice::StatusUpdate: Invalid key/value pair ({kv})");
                         continue;
                     }
 
@@ -1882,6 +2108,38 @@ namespace Flex.Smoothlake.FlexLib
 
                                 _anf_level = (int)temp;
                                 RaisePropertyChanged("ANFLevel");
+                            }
+                            break;
+
+                        case "anfl":
+                            {
+                                if (!uint.TryParse(value, out uint temp) || temp > 1)
+                                {
+                                    Debug.WriteLine("Slice::StatusUpdate: Invalid value (" + kv + ")");
+                                    continue;
+                                }
+
+                                if (_anfl_on == Convert.ToBoolean(temp))
+                                    continue;
+
+                                _anfl_on = Convert.ToBoolean(temp);
+                                RaisePropertyChanged(nameof(ANFLOn));
+                            }
+                            break;
+
+                        case "anft":
+                            {
+                                if (!uint.TryParse(value, out uint temp) || temp > 1)
+                                {
+                                    Debug.WriteLine("Slice::StatusUpdate: Invalid value (" + kv + ")");
+                                    continue;
+                                }
+
+                                if (_anft_on == Convert.ToBoolean(temp))
+                                    continue;
+
+                                _anft_on = Convert.ToBoolean(temp);
+                                RaisePropertyChanged(nameof(ANFTOn));
                             }
                             break;
 
@@ -2100,6 +2358,55 @@ namespace Flex.Smoothlake.FlexLib
                                 DiversityIndex = temp;
                             }
                             break;
+
+                        case "esc":
+                            {
+                                bool? temp = value?.ToLowerInvariant() switch
+                                {
+                                    "1" => true,
+                                    "on" => true,
+                                    "0" => false,
+                                    "off" => false,
+                                    _ => null
+                                };
+                                if (temp is null)
+                                {
+                                    Debug.WriteLine($"Slice::StatusUpdate: Invalid value ({kv})");
+                                }
+                                _escEnabled = temp ?? false;
+                                RaisePropertyChanged(nameof(ESCEnabled));
+                                break;
+                            }
+
+                        case "esc_gain":
+                            {
+                                if (!double.TryParse(value, out double temp))
+                                {
+                                    Debug.WriteLine($"Slice::StatusUpdate: Invalid value ({kv})");
+                                    continue;
+                                }
+                                if (!_escGain.HasValue && DEFAULT_ESC_GAIN != temp)
+                                {
+                                    _escGain = temp;
+                                    RaisePropertyChanged(nameof(ESCGain));
+                                }
+                                break;
+                            }
+
+                        case "esc_phase_shift":
+                            {
+                                if (!double.TryParse(value, out double temp))
+                                {
+                                    Debug.WriteLine($"Slice::StatusUpdate: Invalid value ({kv})");
+                                    continue;
+                                }
+                                if (!_escPhaseShift.HasValue && DEFAULT_ESC_PHASE_SHIFT != temp)
+                                {
+                                    _escPhaseShift = temp;
+                                    RaisePropertyChanged(nameof(ESCPhaseShift));
+                                }
+                                break;
+                            }
 
                         case "filter_lo":
                             {
@@ -2433,6 +2740,70 @@ namespace Flex.Smoothlake.FlexLib
 
                                 _nr_level = (int)temp;
                                 RaisePropertyChanged("NRLevel");
+                            }
+                            break;
+
+                        case "nrl":
+                            {
+                                if (!uint.TryParse(value, out uint temp) || temp > 1)
+                                {
+                                    Debug.WriteLine("Slice::StatusUpdate: Invalid value (" + kv + ")");
+                                    continue;
+                                }
+
+                                if (_nrl_on == Convert.ToBoolean(temp))
+                                    continue;
+
+                                _nrl_on = Convert.ToBoolean(temp);
+                                RaisePropertyChanged(nameof(NRLOn));
+                            }
+                            break;
+
+                        case "nrf":
+                            {
+                                if (!uint.TryParse(value, out uint temp) || temp > 1)
+                                {
+                                    Debug.WriteLine("Slice::StatusUpdate: Invalid value (" + kv + ")");
+                                    continue;
+                                }
+
+                                if (_nrf_on == Convert.ToBoolean(temp))
+                                    continue;
+
+                                _nrf_on = Convert.ToBoolean(temp);
+                                RaisePropertyChanged(nameof(NRFOn));
+                            }
+                            break;
+
+                        case "rnn":
+                            {
+                                if (!uint.TryParse(value, out uint temp) || temp > 1)
+                                {
+                                    Debug.WriteLine("Slice::StatusUpdate: Invalid value (" + kv + ")");
+                                    continue;
+                                }
+
+                                if (_rnn_on == Convert.ToBoolean(temp))
+                                    continue;
+
+                                _rnn_on = Convert.ToBoolean(temp);
+                                RaisePropertyChanged(nameof(RNNOn));
+                            }
+                            break;
+
+                        case "nrs":
+                            {
+                                if (!uint.TryParse(value, out uint temp) || temp > 1)
+                                {
+                                    Debug.WriteLine("Slice::StatusUpdate: Invalid value (" + kv + ")");
+                                    continue;
+                                }
+
+                                if (_nrs_on == Convert.ToBoolean(temp))
+                                    continue;
+
+                                _nrs_on = Convert.ToBoolean(temp);
+                                RaisePropertyChanged(nameof(NRSOn));
                             }
                             break;
 
@@ -2955,6 +3326,47 @@ namespace Flex.Smoothlake.FlexLib
         public override string ToString()
         {
             return _index + ": " + StringHelper.DoubleToString(_freq, "f6") + " " + _demodMode + " [" + _filterLow + "," + _filterHigh + "]";
+        }
+
+        private bool _escEnabled;
+        public bool ESCEnabled
+        {
+            get => _escEnabled;
+            set
+            {
+                if (value == _escEnabled) return;
+                _escEnabled = value;
+                _radio.SendCommand($"slice set {_index} esc={(_escEnabled ? "on" : "off")}");
+                RaisePropertyChanged(nameof(ESCEnabled));
+            }
+        }
+
+        private const double DEFAULT_ESC_PHASE_SHIFT = 0.0;
+        private double? _escPhaseShift;
+        public double ESCPhaseShift
+        {
+            get => _escPhaseShift ?? DEFAULT_ESC_PHASE_SHIFT;
+            set
+            {
+                if (value == _escPhaseShift) return;
+                _escPhaseShift = value;
+                _radio.SendCommand($"slice set {_index} esc_phase_shift={_escPhaseShift}");
+                RaisePropertyChanged(nameof(ESCPhaseShift));
+            }
+        }
+
+        private const double DEFAULT_ESC_GAIN = 1.0;
+        private double? _escGain;
+        public double ESCGain
+        {
+            get => _escGain ?? DEFAULT_ESC_GAIN;
+            set
+            {
+                if (value == _escGain) return;
+                _escGain = value;
+                _radio.SendCommand($"slice set {_index} esc_gain={_escGain}");
+                RaisePropertyChanged(nameof(ESCGain));
+            }
         }
     }
 }

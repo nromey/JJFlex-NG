@@ -17,6 +17,8 @@ using System.Linq;
 using System.Text;
 using System.Net;
 using System.Windows.Controls;
+using System.Windows.Data;
+using System.Reflection;
 
 namespace Flex.UiWpfFramework.Utils
 {
@@ -24,13 +26,17 @@ namespace Flex.UiWpfFramework.Utils
     {
         public override ValidationResult Validate (object value, System.Globalization.CultureInfo cultureInfo)
         {
-            if (value == null)
+
+            // Get and convert the value
+            string stringValue = GetBoundValue(value) as string;
+
+            if (stringValue == null)
             {
                 return new ValidationResult(false, "value cannot be empty.");
             }
             else
             {
-                string ipString = value.ToString();
+                string ipString = stringValue.ToString();
                 IPAddress ip;
 
                 if (!HasFourQuartets(ipString))
@@ -39,7 +45,7 @@ namespace Flex.UiWpfFramework.Utils
                     return new ValidationResult(false, "IP address only contain numbers.");
                 else if (!QuartetsAreInValidRange(ipString))
                     return new ValidationResult(false, "Quartets must be between 0 and 255.");
-                else if (!IPAddress.TryParse(value.ToString(), out ip))
+                else if (!IPAddress.TryParse(stringValue.ToString(), out ip))
                     return new ValidationResult(false, "Not a valid IP Address.");
             }
             return ValidationResult.ValidResult;
@@ -69,6 +75,34 @@ namespace Flex.UiWpfFramework.Utils
         {
             int x = 0;
             return int.TryParse(s, out x);
+        }
+
+        //https://stackoverflow.com/questions/10342715/validationrule-with-validationstep-updatedvalue-is-called-with-bindingexpressi
+        private object GetBoundValue(object value)
+        {
+            if (value is BindingExpression)
+            {
+                // ValidationStep was UpdatedValue or CommittedValue (Validate after setting)
+                // Need to pull the value out of the BindingExpression.
+                BindingExpression binding = (BindingExpression)value;
+
+                // Get the bound object and name of the property
+                string resolvedPropertyName = binding.GetType().GetProperty("ResolvedSourcePropertyName", BindingFlags.Public | BindingFlags.DeclaredOnly | BindingFlags.Instance).GetValue(binding, null).ToString();
+                object resolvedSource = binding.GetType().GetProperty("ResolvedSource", BindingFlags.Public | BindingFlags.DeclaredOnly | BindingFlags.Instance).GetValue(binding, null);
+
+                // Extract the value of the property
+                object propertyValue = resolvedSource.GetType().GetProperty(resolvedPropertyName).GetValue(resolvedSource, null);
+
+
+                // This is what we want.
+                return propertyValue;
+            }
+            else
+            {
+                // ValidationStep was RawProposedValue or ConvertedProposedValue
+                // The argument is already what we want!
+                return value;
+            }
         }
     }
 }

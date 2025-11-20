@@ -1125,6 +1125,9 @@ namespace Flex.Smoothlake.FlexLib
                     case "capacity":
                     case "available":
                     case "xvtr":
+                    case "band_zoom":
+                    case "segment_zoom":
+                    case "daxiq_channel":
                         // keep these from showing up in the debug output
                         break;
 

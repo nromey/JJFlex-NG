@@ -1,69 +1,37 @@
-﻿
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Net;
-using System.Net.NetworkInformation;
-using System.Text;
-using Flex.UiWpfFramework.Mvvm;
+﻿using Flex.UiWpfFramework.Mvvm;
+using Netify;
 
-namespace Util
+namespace Util;
+
+public class SmartSDRNetwork : ObservableObject, INetworkObserver
 {
-    public class SmartSDRNetwork : ObservableObject
+    private bool _isInternetAvailable;
+    private readonly NetworkStatusNotifier _networkStatusNotifier = new();
+
+    public SmartSDRNetwork()
     {
-        public SmartSDRNetwork()
-        {
-            NetworkChange.NetworkAddressChanged += new NetworkAddressChangedEventHandler(AddressChangedHandler);
-        }
+        _networkStatusNotifier.AddObserver(this);
+        IsInternetAvailable = _networkStatusNotifier.CheckNow() == ConnectivityStatus.Connected;
+        _networkStatusNotifier.Start();
+    }
 
-        private bool _isInternetAvailable = false;
-        public bool IsInternetAvailable
+    public bool IsInternetAvailable
+    {
+        get => _isInternetAvailable;
+        set
         {
-            get { return _isInternetAvailable; }                
-            set
+            if (_isInternetAvailable == value)
             {
-                if(_isInternetAvailable != value)
-                {
-                    _isInternetAvailable = value;
-                    RaisePropertyChanged("IsInternetAvailable");
-                }
+                return;
             }
-        }
 
-        public void UpdateIsInternetAvailable()
-        {
-            IsInternetAvailable = GetIsUriAvailble("https://www.amazon.com", timeout_ms: 3000);
+            _isInternetAvailable = value;
+            RaisePropertyChanged(nameof(IsInternetAvailable));
         }
+    }
 
-        private bool GetIsUriAvailble(string uri, int timeout_ms)
-        {
-            HttpWebResponse response = null;
-            HttpWebRequest request = (HttpWebRequest)WebRequest.Create(uri);
-            request.Timeout = timeout_ms;
-            request.Method = "GET";
-
-            bool isAvailable = true;
-            try
-            {
-                response = (HttpWebResponse)request.GetResponse();
-            }
-            catch (WebException)
-            {
-                isAvailable = false;
-            }
-            finally
-            {
-                if (response != null)
-                {
-                    response.Close();
-                }
-            }
-            return isAvailable;
-        }
-
-        private void AddressChangedHandler(object sender, EventArgs e)
-        {
-            UpdateIsInternetAvailable();
-        }
+    public void ConnectivityChanged(ConnectivityStatus status)
+    {
+        IsInternetAvailable = status == ConnectivityStatus.Connected;
     }
 }

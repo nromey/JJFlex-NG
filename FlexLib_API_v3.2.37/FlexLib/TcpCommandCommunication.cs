@@ -195,7 +195,14 @@ namespace Flex.Smoothlake.FlexLib
                         _tcpReadStringBuffer = _tcpReadStringBuffer.Substring(eom + 1);
 
                         // fire the event that signals new data is ready
-                        OnDataReceivedReady(s);
+                        try // ensure that any exceptions are caught so we don't have silent failures that kill this socket
+                        {
+                            OnDataReceivedReady(s);
+                        }
+                        catch (Exception ex)
+                        {
+                            Debug.WriteLine("Exception while processing TCP Data: " + s);
+                        }
                     }
                 }
 
@@ -215,19 +222,31 @@ namespace Flex.Smoothlake.FlexLib
 
         public void Disconnect()
         {
-            if (_isConnected)
+            if (!_isConnected) 
+                return;
+
+            if (_tcpClient != null && _tcpClient.Connected)
             {
-                if (_tcpClient != null && _tcpClient.Connected)
-                    _tcpClient.Close();
-
-                _tcpClient = null;
-                _isConnected = false;
-                OnIsConnectedChanged(_isConnected);
-
-                lock (_tcpReadSyncObj)
+                // We don't use the Write method here because it could call us if there's an exception, causing
+                // a loop
+                try
                 {
-                    _tcpReadStringBuffer = "";
+                    _tcpClient.GetStream()?.Write(new byte[] {0x04}, 0, 1);
+                    _tcpClient.Close();
                 }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"Exception disconnecting from radio: {ex}");
+                }
+            }
+
+            _tcpClient = null;
+            _isConnected = false;
+            OnIsConnectedChanged(_isConnected);
+
+            lock (_tcpReadSyncObj)
+            {
+                _tcpReadStringBuffer = "";
             }
         }
 

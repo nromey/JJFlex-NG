@@ -172,6 +172,9 @@ namespace Flex.Smoothlake.FlexLib
                 case "cat":
                     type = UsbCableType.CAT;
                     break;
+                case "passthrough":
+                    type = UsbCableType.Passthrough;
+                    break;
                 case "bcd":                    
                 case "vbcd":
                 case "bcd_vbcd":
@@ -179,6 +182,9 @@ namespace Flex.Smoothlake.FlexLib
                     break;
                 case "bit":
                     type = UsbCableType.Bit;
+                    break;
+                case "ldpa":
+                    type = UsbCableType.LDPA;
                     break;
                 case "invalid":
                     type = UsbCableType.Invalid;
@@ -208,6 +214,9 @@ namespace Flex.Smoothlake.FlexLib
                 case UsbCableType.LDPA:
                     typeString = "ldpa";
                     break;
+                case UsbCableType.Passthrough:
+                    typeString = "passthrough";
+                    break;
                 case UsbCableType.Invalid:
                     typeString = "invalid";
                     break;
@@ -224,22 +233,17 @@ namespace Flex.Smoothlake.FlexLib
             _radio.SendCommand("usb_cable remove " + _serialNumber);
         }
 
-        internal void ParseStatus(string s)
+        internal virtual void ParseStatus(string s)
         {
             // split the status message on spaces
             string[] words = s.Split(' ');
 
-            int bitNumber = -1;
-            bool bitFound = false;
-            if (words.Length >= 2)
-                bitFound = int.TryParse(words[1], out bitNumber);
-
             foreach (string kv in words)
             {
-                string[] tokens = kv.Split('=');
+                string[] tokens = kv.Split(new char[] { '=' }, 2);
                 if (tokens.Length != 2)
                 {
-                    Debug.WriteLine("UsbLdpaCable::ParseStatus: Invalid key/value pair (" + kv + ")");
+                    Debug.WriteLine("UsbCable::ParseStatus: Invalid key/value pair (" + kv + ")");
                     continue;
                 }
 
@@ -250,13 +254,8 @@ namespace Flex.Smoothlake.FlexLib
                 {
                     case "enable":
                         {
-                            // Bit cables also have an "enable" field per bit, so if this is a bit
-                            // status message, let it be handled at the bit level
-                            if (bitFound)
-                            {
-                                ParseTypeSpecificStatus(bitNumber, key, value);
-                                break;
-                            }
+                            // Bit cables also have an "enable" field per bit, but these are handled in the child class
+                            // and won't show up here
 
                             byte temp;
                             bool b = byte.TryParse(value, out temp);
@@ -320,8 +319,10 @@ namespace Flex.Smoothlake.FlexLib
                         }
                         break;
 
-                    default:
-                        ParseTypeSpecificStatus(bitNumber, key, value);
+                    case "type":
+                        {
+                            CableType = StringToUsbCableType(value);
+                        }
                         break;
                 }
             }
@@ -336,8 +337,6 @@ namespace Flex.Smoothlake.FlexLib
         {
             return value.Replace(' ', (char)(0x7F));
         }
-
-        internal abstract void ParseTypeSpecificStatus(int bitNumber, string key, string value);
     }
 
     public enum UsbCableType
@@ -346,7 +345,8 @@ namespace Flex.Smoothlake.FlexLib
         CAT,
         Bit,
         BCD,
-        LDPA
+        LDPA,
+        Passthrough
     }
 
     public enum BcdCableType

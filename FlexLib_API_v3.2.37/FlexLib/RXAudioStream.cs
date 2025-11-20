@@ -15,7 +15,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Threading;
-
+using System.Timers;
 using Flex.Smoothlake.Vita;
 using Flex.UiWpfFramework.Mvvm;
 
@@ -25,9 +25,12 @@ namespace Flex.Smoothlake.FlexLib
     public class RXAudioStream : ObservableObject
     {
         protected Radio _radio;
+        protected System.Timers.Timer _statsTimer = new System.Timers.Timer(1000);
         public RXAudioStream(Radio radio)
         {
             _radio = radio;
+            _statsTimer.AutoReset = true;
+            _statsTimer.Elapsed += UpdateRXRate;
         }
 
         protected uint _clientHandle;
@@ -64,18 +67,18 @@ namespace Flex.Smoothlake.FlexLib
             internal set { _streamId = value; }
         }
 
-        private double _byteSum = 0;
-        private double _bytesPerSecFromRadio;
-        public double BytesPerSecFromRadio
+        private int _byteSum = 0;
+        private int _bytesPerSecFromRadio;
+        public int BytesPerSecFromRadio
         {
-            get { return _bytesPerSecFromRadio; }
+            get => _bytesPerSecFromRadio;
             set
             {
-                if (_bytesPerSecFromRadio != value)
-                {
-                    _bytesPerSecFromRadio = value;
-                    RaisePropertyChanged("BytesPerSecFromRadio");
-                }
+                if (_bytesPerSecFromRadio == value)
+                    return;
+                
+                _bytesPerSecFromRadio = value;
+                RaisePropertyChanged("BytesPerSecFromRadio");
             }
         }
 
@@ -128,11 +131,7 @@ namespace Flex.Smoothlake.FlexLib
             if (total_count % 1000 == 0) PrintStats();
 #endif
 
-            lock (this)
-            {
-                _byteSum += packet.Length;
-                //Debug.WriteLine("packet.Length: " + packet.Length);
-            }
+            Interlocked.Add(ref _byteSum, packet.Length);
 
             int packet_count = packet.header.packet_count;
             OnRXDataReady(this, packet.payload);
@@ -165,11 +164,8 @@ namespace Flex.Smoothlake.FlexLib
             double timestamp_key = packet.timestamp_int + (packet.timestamp_frac / Math.Pow(2, 16));
 
             //Debug.WriteLine("OpusTimestampKey: " + timestamp_key);
-
-            lock (this)
-            {
-                _byteSum += packet.Length;
-            }
+            
+            Interlocked.Add(ref _byteSum, packet.Length);
 
             int packet_count = packet.header.packet_count;
 
@@ -189,11 +185,8 @@ namespace Flex.Smoothlake.FlexLib
                     _opusRXList.Add(timestamp_key, packet);
                 }
             }
-            else
-            {
-                // Old data we no longer care about
-                Debug.Write("o");
-            }
+            // else { TODO (SMART-11689) Clean up old data. }
+
             //normal case -- this is the next packet we are looking for, or it is the first one
             if (packet_count == (last_packet_count + 1) % 16 || last_packet_count == NOT_INITIALIZED)
             {
@@ -206,6 +199,8 @@ namespace Flex.Smoothlake.FlexLib
 
                 last_packet_count = packet_count;
             }
+
+            OnOpusPacketReceived();
         }
         
         protected bool _shouldApplyRxGainScalar = false;
@@ -230,19 +225,19 @@ namespace Flex.Smoothlake.FlexLib
             }
         }
 
-        protected void UpdateRXRate()
+        public delegate void OpusPacketReceivedEventHandler();
+        public event OpusPacketReceivedEventHandler OpusPacketReceived;
+        private void OnOpusPacketReceived()
         {
-            while (!_closing)
-            {
-                lock (this)
-                {
-                    _bytesPerSecFromRadio = _byteSum;
-                    _byteSum = 0;
-                }
-                RaisePropertyChanged("BytesPerSecFromRadio");
-                Thread.Sleep(1000);
-            }
+            OpusPacketReceived?.Invoke();
         }
 
+        protected void UpdateRXRate(Object source, ElapsedEventArgs e)
+        {
+            _bytesPerSecFromRadio = _byteSum;
+            _byteSum = 0;
+
+            RaisePropertyChanged("BytesPerSecFromRadio");
+        }
     }
 }

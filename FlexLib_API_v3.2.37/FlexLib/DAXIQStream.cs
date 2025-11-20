@@ -13,20 +13,21 @@
 
 using System;
 using System.Diagnostics;
-using System.Globalization;
-using System.Threading;
-
+using Flex.Smoothlake.FlexLib.Interface;
 using Flex.Util;
-
 
 namespace Flex.Smoothlake.FlexLib
 {
-    public class DAXIQStream : RXAudioStream
+    public class DAXIQStream : RXAudioStream, IDaxRxStream
     {
         public DAXIQStream(Radio radio) : base(radio)
         {
             _radio = radio;            
         }
+        
+        // TODO: This is not ideal.  This is only to satisfy the interface
+        //       We might want to refactor to see if I can work it out.
+        public int Gain { get; set; }
 
         private int _daxIQChannel = 1;
         public int DAXIQChannel
@@ -194,11 +195,7 @@ namespace Flex.Smoothlake.FlexLib
                 RadioAck = true;
                 _radio.OnDAXIQStreamAdded(this);
 
-                Thread t = new Thread(new ThreadStart(UpdateRXRate));
-                t.Name = "DAXIQStream UpdateRXRate Thread";
-                t.IsBackground = true;
-                t.Priority = ThreadPriority.Normal;
-                t.Start();
+                _statsTimer.Enabled = true;
             }
         }
     }

@@ -15,14 +15,14 @@ using System;
 using System.Globalization;
 using System.Diagnostics;
 using System.Net;
-
+using Flex.Smoothlake.FlexLib.Interface;
 using Flex.UiWpfFramework.Mvvm;
 using Flex.Smoothlake.Vita;
 using Flex.Util;
 
 namespace Flex.Smoothlake.FlexLib
 {
-    public class DAXTXAudioStream : ObservableObject
+    public class DAXTXAudioStream : ObservableObject, IDaxTxStream
     {
         private const int TX_SAMPLES_PER_PACKET = 128; // Samples can be mono-int or stereo-float
         private Radio _radio;
@@ -111,6 +111,19 @@ namespace Flex.Smoothlake.FlexLib
                 {
                     RaisePropertyChanged("TXGain");
                 }
+            }
+        }
+
+        public int Gain
+        {
+            get => TXGain;
+            set
+            {
+                if (_txGain == value)
+                    return;
+
+                TXGain = value;
+                RaisePropertyChanged("Gain");
             }
         }
 
