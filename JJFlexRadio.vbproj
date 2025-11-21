@@ -54,7 +54,7 @@
   <ItemGroup>
     <Reference Include="Ionic.Zip, Version=1.9.1.8, Culture=neutral, PublicKeyToken=edbe51ad942a3f5c, processorArchitecture=MSIL">
       <SpecificVersion>False</SpecificVersion>
-      <HintPath>..\..\libs\Ionic.Zip.dll</HintPath>
+      <HintPath>FlexLib_API_v3.2.37.bak\FlexLib\Libs\Ionic.Zip.dll</HintPath>
     </Reference>
     <Reference Include="System" />
     <Reference Include="System.Data" />
