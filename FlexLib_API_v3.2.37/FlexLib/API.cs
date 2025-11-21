@@ -259,7 +259,7 @@ public class API
     /// </summary>
     public static event RadioAddedEventHandler RadioAdded;
 
-    private static void OnRadioAddedEventHandler(Radio radio)
+    public static void OnRadioAddedEventHandler(Radio radio)
     {
         LogDiscovery($"7 API::OnRadioAddedEventHandler({radio})");
         RadioAdded?.Invoke(radio);
