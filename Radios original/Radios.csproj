@@ -54,7 +54,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="Ionic.Zip">
-      <HintPath>..\..\libs\Ionic.Zip.dll</HintPath>
+      <HintPath>..\FlexLib_API_v3.2.37.bak\FlexLib\Libs\Ionic.Zip.dll</HintPath>
     </Reference>
     <Reference Include="System" />
     <Reference Include="System.Core" />
