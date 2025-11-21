@@ -52,10 +52,8 @@
     <OptionInfer>On</OptionInfer>
   </PropertyGroup>
   <ItemGroup>
-    <Reference Include="Ionic.Zip, Version=1.9.1.8, Culture=neutral, PublicKeyToken=edbe51ad942a3f5c, processorArchitecture=MSIL">
-      <SpecificVersion>False</SpecificVersion>
-      <HintPath>FlexLib_API_v3.2.37.bak\FlexLib\Libs\Ionic.Zip.dll</HintPath>
-    </Reference>
+    <!-- Replaced local Ionic.Zip DLL reference with DotNetZip NuGet package
+         to avoid duplicate-type conflicts with FlexLib's DotNetZip package. -->
     <Reference Include="System" />
     <Reference Include="System.Data" />
     <Reference Include="System.Deployment" />
@@ -68,6 +66,7 @@
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="System.Collections.Immutable" Version="9.0.0" />
+    <PackageReference Include="DotNetZip" Version="1.16.0" />
   </ItemGroup>
   <ItemGroup>
     <Import Include="Microsoft.VisualBasic" />
