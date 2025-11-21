@@ -544,7 +544,10 @@
     <VisualStudio AllowExistingFolder="true" />
   </ProjectExtensions>
   <PropertyGroup>
-    <PostBuildEvent>call "$(ProjectDir)\install.bat" "$(ProjectDir)" "$(ConfigurationName)" "$(TargetName)"</PostBuildEvent>
+    <!-- Run installer only when explicitly requested. To enable, build with:
+         msbuild JJFlexRadio.vbproj /p:Configuration=Release /p:Platform=x86 /p:RunInstaller=true
+         or set the property in Visual Studio's MSBuild command line options. -->
+    <PostBuildEvent Condition="'$(RunInstaller)' == 'true'">call "$(ProjectDir)\install.bat" "$(ProjectDir)" "$(ConfigurationName)" "$(TargetName)"</PostBuildEvent>
   </PropertyGroup>
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 
        Other similar extension points exist, see Microsoft.Common.targets.
