@@ -600,7 +600,7 @@
     <VisualStudio AllowExistingFolder="true" />
   </ProjectExtensions>
   <PropertyGroup>
-    <PostBuildEvent>call "$(ProjectDir)\install.bat" "$(ProjectDir)" "$(ConfigurationName)" "$(TargetName)"</PostBuildEvent>
+    <PostBuildEvent Condition="'$(RunInstaller)' == 'true'">call "$(ProjectDir)\install.bat" "$(ProjectDir)" "$(ConfigurationName)" "$(TargetName)"</PostBuildEvent>
   </PropertyGroup>
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 
        Other similar extension points exist, see Microsoft.Common.targets.
