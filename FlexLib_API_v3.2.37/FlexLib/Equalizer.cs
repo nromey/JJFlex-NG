@@ -279,7 +279,10 @@ namespace Flex.Smoothlake.FlexLib
                 string[] tokens = kv.Split('=');
                 if (tokens.Length != 2)
                 {
-                    Debug.WriteLine("Equalizer::StatusUpdate: Invalid key/value pair (" + kv + ")");
+                    if (!string.IsNullOrEmpty(kv))
+                    {
+                        Debug.WriteLine($"Equalizer::StatusUpdate: Invalid key/value pair ({kv})");
+                    }
                     continue;
                 }
 

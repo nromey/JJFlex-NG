@@ -308,7 +308,51 @@ namespace Flex.Smoothlake.FlexLib
             return ret_val;
         }
 
-        internal override void ParseTypeSpecificStatus(int bitNumber, string key, string value)
+        internal override void ParseStatus(string s)
+        {
+            if (String.IsNullOrEmpty(s)) return;
+            
+            // split the status message on spaces
+            string[] words = s.Split(' ');
+
+            bool is_bit_status = (words.Length > 1 && words[0] == "bit");
+
+            // is this a bit status?
+            if (is_bit_status)
+            {
+                // yes -- parse the bit specific fields
+                int bitNumber = -1;
+                bool valid_bit = int.TryParse(words[1], out bitNumber);
+
+                if (!valid_bit || bitNumber < 0 || bitNumber > 7)
+                {
+                    Debug.WriteLine("UsbBitCable::ParseStatus: Invalid bit (" + words[1] + ")");
+                    return;
+                }
+
+                foreach (string kv in words)
+                {
+                    string[] tokens = kv.Split('=');
+                    if (tokens.Length != 2)
+                    {
+                        Debug.WriteLine("UsbBitCable::ParseStatus: Invalid key/value pair (" + kv + ")");
+                        continue;
+                    }
+
+                    string key = tokens[0];
+                    string value = tokens[1];
+
+                    ParseBitSpecificStatus(bitNumber, key, value);
+                }
+            }
+            else
+            {
+                // no -- parse regular UsbCable status
+                base.ParseStatus(s);
+            }
+        }
+
+        private void ParseBitSpecificStatus(int bitNumber, string key, string value)
         {
             int bit = bitNumber;
             if (bit < 0 || bit > 7) return;

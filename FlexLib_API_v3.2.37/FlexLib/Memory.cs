@@ -380,6 +380,7 @@ namespace Flex.Smoothlake.FlexLib
                     case "NFM":
                     case "DFM":
                     case "DSTR":
+                    case "AME":
                         if (new_cut < -12000) new_cut = -12000;
                         if (new_cut > -10) new_cut = -10;
                         break;
@@ -435,6 +436,7 @@ namespace Flex.Smoothlake.FlexLib
                     case "NFM":
                     case "DFM":
                     case "DSTR":
+                    case "AME":
                         if (new_cut > 12000) new_cut = 12000;
                         if (new_cut < 10) new_cut = 10;
                         break;

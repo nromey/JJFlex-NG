@@ -19,7 +19,7 @@ using System.Diagnostics;
 
 namespace Flex.Util
 {
-    public class FlexVersion
+    public static class FlexVersion
     {
         public static ulong Parse(string s)
         {

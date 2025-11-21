@@ -161,11 +161,7 @@ namespace Flex.Smoothlake.FlexLib
                 RadioAck = true;
                 _radio.OnRXRemoteAudioStreamAdded(this);
 
-                Thread t = new Thread(new ThreadStart(UpdateRXRate));
-                t.Name = "RXRemoteAudioStream UpdateRXRate Thread";
-                t.IsBackground = true;
-                t.Priority = ThreadPriority.Normal;
-                t.Start();
+                _statsTimer.Enabled = true;
             }
         }
     }

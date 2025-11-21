@@ -39,7 +39,7 @@ namespace Flex.Smoothlake.FlexLib
                 _radio.SendCommand("xvtr remove " + _index);
             }
         }
-
+        
         private int _index = -1;
         public int Index
         {

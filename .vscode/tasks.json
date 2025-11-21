@@ -1,0 +1,31 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "MSBuild: Restore",
+      "type": "shell",
+      "command": "msbuild -t:restore JJFlexRadio.sln",
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "MSBuild: Build Release",
+      "type": "shell",
+      "command": "msbuild JJFlexRadio.sln /p:Configuration=Release /p:Platform=x86 /m /nologo /clp:Summary /fileLoggerParameters:LogFile=msbuild.log",
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    }
+  ]
+}

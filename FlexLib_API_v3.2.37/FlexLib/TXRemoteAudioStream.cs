@@ -15,6 +15,7 @@ using System;
 using System.Globalization;
 using System.Diagnostics;
 using System.Net;
+using System.Threading;
 using Flex.UiWpfFramework.Mvvm;
 using Flex.Smoothlake.Vita;
 
@@ -70,7 +71,7 @@ namespace Flex.Smoothlake.FlexLib
             }
         }
 
-        private double _byteSumTX = 0;
+        private int _byteSumTX = 0;
         private double _bytesPerSecToRadio;
         public double BytesPerSecToRadio
         {
@@ -118,8 +119,7 @@ namespace Flex.Smoothlake.FlexLib
         private VitaOpusDataPacket _txPacket;
         public void AddTXData(byte[] tx_data)
         {
-            lock(this)
-                _byteSumTX += tx_data.Length;
+            Interlocked.Add(ref _byteSumTX, tx_data.Length);
 
             if (_txPacket == null)
             {
@@ -134,42 +134,25 @@ namespace Flex.Smoothlake.FlexLib
                 _txPacket.class_id.OUI = 0x001C2D;
                 _txPacket.class_id.InformationClassCode = 0x534C;
                 _txPacket.class_id.PacketClassCode = 0x8005;
-
-                _txPacket.payload = new byte[tx_data.Length];
             }
+            
+            _txPacket.payload = tx_data;
 
-            int samples_sent = 0;
+            // set the length of the packet
+            // packet_size is the 32 bit word length?
+            _txPacket.header.packet_size = (ushort)Math.Ceiling(_txPacket.payload.Length / 4.0 + 7.0); // 7*4=28 bytes of Vita overhead
 
-            while (samples_sent < tx_data.Length)
+            try
             {
-                // how many samples should we send?
-                //int num_samples_to_send = Math.Min(256, tx_data.Length - samples_sent);
-                int num_samples_to_send = Math.Min(tx_data.Length, tx_data.Length - samples_sent);
-                _txPacket.payload = new byte[tx_data.Length];
-                //int num_samples_to_send = tx_data.Length;
-
-                // copy the incoming data into the packet payload
-                Array.Copy(tx_data, samples_sent, _txPacket.payload, 0, num_samples_to_send);
-
-                // set the length of the packet
-                // packet_size is the 32 bit word length?
-                _txPacket.header.packet_size = (ushort)Math.Ceiling((double)num_samples_to_send / 4.0 + 7.0); // 7*4=28 bytes of Vita overhead
-
-                try
-                {
-                    // send the packet to the radio
-                    _radio.VitaSock.SendUDP(_txPacket.ToBytesTX());
-                }
-                catch (Exception e)
-                {
-                    Debug.WriteLine("TXRemoteAudioStream: AddTXData sendTo() exception = " + e.ToString());
-                }
-                // bump the packet count
-                _txPacket.header.packet_count = (byte)((_txPacket.header.packet_count + 1) % 16);
-
-                // adjust the samples sent
-                samples_sent += num_samples_to_send;
+                // send the packet to the radio
+                _radio.VitaSock.SendUDP(_txPacket.ToBytesTX());
             }
+            catch (Exception e)
+            {
+                Debug.WriteLine($"TXRemoteAudioStream: AddTXData sendTo() exception = {e}");
+            }
+            // bump the packet count
+            _txPacket.header.packet_count = (byte)((_txPacket.header.packet_count + 1) % 16);
         }
 
         private bool _isCompressed;

@@ -144,54 +144,80 @@ namespace Flex.Smoothlake.FlexLib
             return typeString;
         }
 
-        internal override void ParseTypeSpecificStatus(int bitNumber, string key, string value)
+        internal override void ParseStatus(string s)
         {
-            switch (key)
+            if (String.IsNullOrEmpty(s)) return;
+
+            // split the status message on spaces
+            string[] words = s.Split(' ');
+
+            // is the first word a type that matches bcd, vbcd, or vhf_bcd?
+            if (words.Length > 1 && words[0] == "type=bcd" || words[0] == "type=vbcd" || words[0] == "type=bcd_vbcd")
             {
-                case "polarity":
+                // yes -- parse it here
+                foreach (string kv in words.Skip(1)) // skip parsing the type since we have already done that
+                {
+                    string[] tokens = kv.Split('=');
+                    if (tokens.Length != 2)
                     {
-                        bool polarity;
-                        if (value == "active_high")
-                            polarity = true;
-                        else if (value == "active_low")
-                            polarity = false;
-                        else break;
-
-                        _isActiveHigh = polarity;
-                        RaisePropertyChanged("IsActiveHigh");
+                        Debug.WriteLine("UsbBitCable::ParseStatus: Invalid key/value pair (" + kv + ")");
+                        continue;
                     }
-                    break;
 
-                case "source":
+                    string key = tokens[0];
+                    string value = tokens[1];
+
+                    switch (key)
                     {
-                        UsbCableFreqSource source = StringToUsbCableFreqSource(value);
+                        case "polarity":
+                            {
+                                bool polarity;
+                                if (value == "active_high")
+                                    polarity = true;
+                                else if (value == "active_low")
+                                    polarity = false;
+                                else break;
 
-                        _source = source;
-                        RaisePropertyChanged("Source");
-                    }
-                    break;
+                                _isActiveHigh = polarity;
+                                RaisePropertyChanged("IsActiveHigh");
+                            }
+                            break;
 
-                case "source_rx_ant":
-                    {
-                        _selectedRxAnt = value;
-                        RaisePropertyChanged("SelectedRxAnt");
-                    }
-                    break;
+                        case "source":
+                            {
+                                UsbCableFreqSource source = StringToUsbCableFreqSource(value);
 
-                case "source_tx_ant":
-                    {
-                        _selectedTxAnt = value;
-                        RaisePropertyChanged("SelectedTxAnt");
-                    }
-                    break;
+                                _source = source;
+                                RaisePropertyChanged("Source");
+                            }
+                            break;
 
-                case "source_slice":
-                    {
-                        _selectedSlice = value;
-                        RaisePropertyChanged("SelectedSlice");
+                        case "source_rx_ant":
+                            {
+                                _selectedRxAnt = value;
+                                RaisePropertyChanged("SelectedRxAnt");
+                            }
+                            break;
+
+                        case "source_tx_ant":
+                            {
+                                _selectedTxAnt = value;
+                                RaisePropertyChanged("SelectedTxAnt");
+                            }
+                            break;
+
+                        case "source_slice":
+                            {
+                                _selectedSlice = value;
+                                RaisePropertyChanged("SelectedSlice");
+                            }
+                            break;
                     }
-                    break;
+                }
             }
+
+            // Send to the base class to parse.
+            base.ParseStatus(s);
         }
 
         private BcdCableType StringToBcdCableType(string s)

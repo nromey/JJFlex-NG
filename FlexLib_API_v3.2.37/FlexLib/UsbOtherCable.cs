@@ -24,11 +24,5 @@ namespace Flex.Smoothlake.FlexLib
         {
             _cableType = type;
         }
-
-        internal override void ParseTypeSpecificStatus(int bitNumber, string key, string value)
-        {
-            // There are no specific status messages for DSTAR or Invalid cables
-            return;
-        }
     }
 }

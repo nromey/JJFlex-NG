@@ -38,6 +38,9 @@ namespace Flex.Smoothlake.FlexLib
 
     public class Meter
     {
+        public const string SOURCE_SLICE = "SLC";
+        public const string SOURCE_AMPLIFIER = "AMP";
+
         internal Meter(Radio radio, int index)
         {
             this._radio = radio;

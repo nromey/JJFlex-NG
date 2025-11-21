@@ -61,6 +61,7 @@ namespace Flex.Smoothlake.FlexLib
 
         public void Connect()
         {
+            Debug.WriteLine($"Connecting to SmartLink on host {HostName}:{HostPort}");
             if (_sslClient == null)
             {
                 _sslClient = new SslClient(HostName, HostPort, src_port: 0, start_ping_thread: true, validate_cert: true);
@@ -110,6 +111,8 @@ namespace Flex.Smoothlake.FlexLib
 
         private void ParseMessage(string msg)
         {
+            if (string.IsNullOrEmpty(msg)) return; // prevent issues when debugging
+
             // radio list name=<> callsign=<> serial=<>|more radios|..."
             if (msg.StartsWith("radio list "))
             {
@@ -215,20 +218,23 @@ namespace Flex.Smoothlake.FlexLib
                 keyValuePairs.TryGetValue("gui_client_handles", out guiClientHandlesCsv);
 
                 string upnpSupportedString, publicTlsPortString, publicUdpPortString, publicUpnpTlsPortString, publicUpnpUdpPortString;
+                string licensedClientsString;
                 keyValuePairs.TryGetValue("upnp_supported", out upnpSupportedString);
                 upnpSupported = upnpSupportedString == "1";
-
 
                 int publicTlsPort = -1;
                 int publicUdpPort = -1;
                 int publicUpnpTlsPort = -1;
                 int publicUpnpUdpPort = -1;
+                int licensedClients = -1;
 
                 keyValuePairs.TryGetValue("public_tls_port", out publicTlsPortString);
                 keyValuePairs.TryGetValue("public_udp_port", out publicUdpPortString);
+                keyValuePairs.TryGetValue("licensed_clients", out licensedClientsString);
 
                 int.TryParse(publicTlsPortString, out publicTlsPort);
                 int.TryParse(publicUdpPortString, out publicUdpPort);
+                bool parsed_licensed_clients = int.TryParse(licensedClientsString, out licensedClients);
 
                 string maxLicensedVersion = "";
                 string radioLicenseId = "";
@@ -238,6 +244,28 @@ namespace Flex.Smoothlake.FlexLib
                     /* Default to V1 */
                     maxLicensedVersion = "v1";
                 }
+
+                // if we didn't get a good reference for licensed clients from the server, assume the answer from the license
+                if (!parsed_licensed_clients || licensedClients == -1)
+                {
+                    switch (maxLicensedVersion)
+                    {
+                        // v1 and v2 are pre-multiFLEX
+                        case "v1":
+                        case "v2":
+                            licensedClients = 1;
+                            break;
+                        // v3 and onward shall assume multiFLEX in the absence of better information
+                        case "v3":
+                        default:
+                            licensedClients = 2;
+                            break;                            
+                    }
+                }
+
+                // last ditch effort to set this to something reasonable
+                if (licensedClients == -1)
+                    licensedClients = 1;
 
                 bool requiresAdditionalLicense = true;
                 string requiresAdditionalLicenseStr;
@@ -326,6 +354,7 @@ namespace Flex.Smoothlake.FlexLib
                     RequiresHolePunch = requiresHolePunch,
                     NegotiatedHolePunchPort = -1, // This is invalid until negotiated
                     MaxLicensedVersion = maxLicensedVersion,
+                    LicensedClients = licensedClients,
                     RequiresAdditionalLicense = requiresAdditionalLicense,
                     RadioLicenseId = radioLicenseId,
                     LowBandwidthConnect = false, // This is defaulted unless the connect is specified later 
