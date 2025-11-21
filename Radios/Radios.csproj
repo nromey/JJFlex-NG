@@ -60,9 +60,7 @@
     <Prefer32Bit>false</Prefer32Bit>
   </PropertyGroup>
   <ItemGroup>
-    <Reference Include="Ionic.Zip">
-      <HintPath>..\FlexLib_API_v3.2.37.bak\FlexLib\Libs\Ionic.Zip.dll</HintPath>
-    </Reference>
+    <!-- Ionic.Zip local DLL removed to avoid duplicate type conflicts with DotNetZip NuGet package -->
     <Reference Include="System" />
     <Reference Include="System.Core" />
     <Reference Include="System.Drawing" />
