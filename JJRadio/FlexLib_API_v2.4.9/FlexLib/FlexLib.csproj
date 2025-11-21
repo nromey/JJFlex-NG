@@ -55,9 +55,7 @@
     <CodeAnalysisIgnoreBuiltInRules>true</CodeAnalysisIgnoreBuiltInRules>
   </PropertyGroup>
   <ItemGroup>
-    <Reference Include="Ionic.Zip">
-      <HintPath>..\..\..\FlexLib_API_v3.2.37.bak\FlexLib\Libs\Ionic.Zip.dll</HintPath>
-    </Reference>
+    <!-- Local Ionic.Zip DLL reference removed; use DotNetZip NuGet package instead -->
     <Reference Include="PresentationCore" />
     <Reference Include="PresentationFramework" />
     <Reference Include="System" />
@@ -124,6 +122,9 @@
       <Project>{6ed364fb-7444-44da-9196-1d8679425b3e}</Project>
       <Name>Vita</Name>
     </ProjectReference>
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="DotNetZip" Version="1.16.0" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <PropertyGroup>
