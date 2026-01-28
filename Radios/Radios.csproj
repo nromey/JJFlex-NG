@@ -81,7 +81,6 @@
     <Compile Include="AllRadios.cs" />
     <Compile Include="AllRadiosPanning.cs" />
     <Compile Include="AllRadiosUtils.cs" />
-    <Compile Include="StubRadios.cs" />
     <Compile Include="FlexRadio.cs" />
     <Compile Include="AuthForm.cs">
       <SubType>Form</SubType>

@@ -732,7 +732,7 @@ namespace Radios
             set { _TXMode = value; }
         }
         /// <summary>
-        /// Used if we need to get the TX mode by hand, see KenwoodTS2000.cs.
+        /// Used if we need to get the TX mode by hand.
         /// </summary>
         /// <returns></returns>
         internal virtual bool getTXMode() { return true; }
@@ -2616,17 +2616,8 @@ namespace Radios
     /// </summary>
     public static class RadioSelection
     {
-        // supported radio ids
+        // supported radio ids (Flex-only)
         public const int RIGIDNone = 0;
-        public const int RIGIDGeneric = 1;
-        public const int RIGIDGenericBinary = 2;
-        public const int RIGIDKenwood = 200;
-        public const int RIGIDKenwoodTS2000 = RIGIDKenwood + 14;
-        public const int RIGIDKenwoodTS590 = RIGIDKenwood + 31;
-        public const int RIGIDKenwoodTS590SG = RIGIDKenwood + 32;
-        public const int RIGIDKenwoodTS930 = RIGIDKenwood + 99;
-        public const int RIGIDIcom = 400;
-        public const int RIGIDIC9100 = RIGIDIcom + 1;
         public const int RIGIDFlex = 900;
         public const int RIGIDFlex6300 = RIGIDFlex + 7;
         public const int RIGIDFlex6400 = RIGIDFlex + 8;
@@ -2692,12 +2683,6 @@ namespace Radios
             }
         }
 
-        private static ComDefaults kenwoodComDefaults =
-            new ComDefaults(9600, Parity.None, 8, 1, Handshake.RequestToSend, true, false);
-        private static ComDefaults PIEXXComDefaults =
-            new ComDefaults(4800, Parity.None, 8, 2, Handshake.RequestToSend, false, false);
-        private static ComDefaults IcomComDefaults =
-            new ComDefaults(9600, Parity.None, 8, 1, Handshake.None, true, false);
         private static ComDefaults FlexComDefaults = new ComDefaults();
 
         /// <summary>

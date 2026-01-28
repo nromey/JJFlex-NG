@@ -1983,6 +1983,16 @@ namespace Radios
             new ToneCTCSSValue('0', "Off"),
             new ToneCTCSSValue('1', "CTCSS"),
         };
+
+        // Standard CTCSS tone frequencies (Hz)
+        internal static float[] myToneFrequencyTable =
+        {
+            67.0F, 69.3F, 71.9F, 74.4F, 77.0F, 79.7F, 82.5F, 85.4F, 88.5F, 91.5F,
+            94.8F, 97.4F, 100.0F, 103.5F, 107.2F, 110.9F, 114.8F, 118.8F, 123.0F,
+            127.3F, 131.8F, 136.5F, 141.3F, 146.2F, 151.4F, 156.7F, 162.2F, 167.9F,
+            173.8F, 179.9F, 186.2F, 192.8F, 203.5F, 206.5F, 210.7F, 218.1F, 225.7F,
+            229.1F, 233.6F, 241.8F, 250.3F, 254.1F, 1750F
+        };
         internal ToneCTCSSValue ToneModeToToneCTCSS(FMToneMode mode)
         {
             return myFMToneModes[(int)mode];
@@ -2735,8 +2745,7 @@ namespace Radios
             ModeTable = myModeTable;
 
             FMToneModes = myFMToneModes;
-            // Use the TS590 fm tone values.
-            ToneFrequencyTable = KenwoodTS590.myToneFrequencyTable;
+            ToneFrequencyTable = myToneFrequencyTable;
 
             q = new q_t();
         }
