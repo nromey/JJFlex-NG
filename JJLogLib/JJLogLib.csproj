@@ -8,11 +8,6 @@
     <UseWindowsForms>true</UseWindowsForms>
   </PropertyGroup>
 
-  <!-- Exclude backup file that duplicates LogProc.cs content -->
-  <ItemGroup>
-    <Compile Remove="LogProc_lookup.cs" />
-  </ItemGroup>
-
   <ItemGroup>
     <ProjectReference Include="..\adif\adif.csproj" />
     <ProjectReference Include="..\HamQTHLookup\HamQTHLookup.csproj" />

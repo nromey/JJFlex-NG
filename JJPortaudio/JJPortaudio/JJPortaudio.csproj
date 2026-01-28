@@ -9,12 +9,6 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
-  <!-- Exclude backup/test files that contain duplicate classes -->
-  <ItemGroup>
-    <Compile Remove="morse new.cs" />
-    <Compile Remove="Morse - Copy.cs" />
-  </ItemGroup>
-
   <ItemGroup>
     <ProjectReference Include="..\..\JJTrace\JJTrace.csproj" />
     <ProjectReference Include="..\..\P-Opus-master\POpusCodec.csproj" />

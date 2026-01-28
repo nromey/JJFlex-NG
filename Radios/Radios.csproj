@@ -9,33 +9,6 @@
     <RuntimeIdentifiers>win-x86</RuntimeIdentifiers>
   </PropertyGroup>
 
-  <!-- Exclude backup files, subfolders, and experimental code that weren't in the original project -->
-  <ItemGroup>
-    <Compile Remove="first cw send\**" />
-    <Compile Remove="new authForm\**" />
-    <Compile Remove="old authForm\**" />
-    <Compile Remove="old\**" />
-    <Compile Remove="queue attempt\**" />
-    <Compile Remove="FlexBase - Copy.cs" />
-    <Compile Remove="FlexBase with reconnect.cs" />
-    <Compile Remove="old FlexBase.cs" />
-    <Compile Remove="Flex6300Filters new.cs" />
-    <Compile Remove="FlexTNF new.cs" />
-    <Compile Remove="FlexWaterfall log.cs" />
-    <Compile Remove="PanRanges - Copy.cs" />
-    <Compile Remove="MemoriesVB designer.cs" />
-    <Compile Remove="MemoriesVB.cs" />
-    <Compile Remove="AllRadios atu.cs" />
-    <!-- Files not in original project - experimental audio stream implementations -->
-    <Compile Remove="AudioStream.cs" />
-    <Compile Remove="OpusStream.cs" />
-    <Compile Remove="TXAudioStream.cs" />
-    <Compile Remove="Flex6300.cs" />
-    <Compile Remove="Flex.cs" />
-    <Compile Remove="UserEnteredRemoteRigInfo.cs" />
-    <Compile Remove="UserEnteredRemoteRigInfo.Designer.cs" />
-  </ItemGroup>
-
   <ItemGroup>
     <PackageReference Include="System.Collections.Immutable" Version="9.0.0" />
   </ItemGroup>

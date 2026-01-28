@@ -1,4 +1,4 @@
-﻿; based on example2.nsi
+; based on example2.nsi
 ;
 ; This script is based on example1.nsi, but it remember the directory, 
 ; has uninstall support and (optionally) installs start menu shortcuts.

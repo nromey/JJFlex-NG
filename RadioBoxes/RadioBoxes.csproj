@@ -8,12 +8,6 @@
     <UseWindowsForms>true</UseWindowsForms>
   </PropertyGroup>
 
-  <!-- Exclude backup/old folders that contain duplicate classes -->
-  <ItemGroup>
-    <Compile Remove="old style\**" />
-    <Compile Remove="recognize keypress\**" />
-  </ItemGroup>
-
   <ItemGroup>
     <ProjectReference Include="..\JJTrace\JJTrace.csproj" />
   </ItemGroup>
