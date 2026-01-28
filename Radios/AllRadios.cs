@@ -140,7 +140,7 @@ namespace Radios
         /// </summary>
         public static void DiscoverRadios()
         {
-            Flex.DiscoverFlexRadios(null, false); // ignore the return value.
+            FlexDiscovery.DiscoverFlexRadios(null, false); // ignore the return value.
         }
 
         /// <summary>
@@ -150,7 +150,7 @@ namespace Radios
         /// <param name="existingInfo">(optional) existing info</param>
         public static RadioDiscoveredEventArgs ManualNetworkRadioInfo(RadioDiscoveredEventArgs existingInfo=null)
         {
-            return Flex.FlexManualNetworkRadioInfo(existingInfo);
+            return FlexDiscovery.FlexManualNetworkRadioInfo(existingInfo);
         }
 
         private bool _NetworkRadio = false;
@@ -2405,6 +2405,10 @@ namespace Radios
             public SendBytesRtn SendBytesRoutine { get; set; }
             public bool RawIO = false;
             /// <summary>
+            /// Optional description for the "next value 1" prompt (used by Kenwood rigs).
+            /// </summary>
+            public string NextValue1Description { get; set; }
+            /// <summary>
             /// routine to receive raw data
             /// </summary>
             public DDRcvr DirectDataReceiver { get; set; }
@@ -2621,12 +2625,16 @@ namespace Radios
         public const int RIGIDKenwoodTS590 = RIGIDKenwood + 31;
         public const int RIGIDKenwoodTS590SG = RIGIDKenwood + 32;
         public const int RIGIDKenwoodTS930 = RIGIDKenwood + 99;
-        public const int RIGIDElecraft = 300;
-        public const int RIGIDElecraftK3 = RIGIDElecraft + 1;
         public const int RIGIDIcom = 400;
         public const int RIGIDIC9100 = RIGIDIcom + 1;
         public const int RIGIDFlex = 900;
         public const int RIGIDFlex6300 = RIGIDFlex + 7;
+        public const int RIGIDFlex6400 = RIGIDFlex + 8;
+        public const int RIGIDFlex6500 = RIGIDFlex + 9;
+        public const int RIGIDFlex6600 = RIGIDFlex + 10;
+        public const int RIGIDFlex6700 = RIGIDFlex + 11;
+        public const int RIGIDFlex8600 = RIGIDFlex + 12;
+        public const int RIGIDAurora = RIGIDFlex + 13;
 
         public enum ComType
         {
@@ -2688,8 +2696,6 @@ namespace Radios
             new ComDefaults(9600, Parity.None, 8, 1, Handshake.RequestToSend, true, false);
         private static ComDefaults PIEXXComDefaults =
             new ComDefaults(4800, Parity.None, 8, 2, Handshake.RequestToSend, false, false);
-        private static ComDefaults elecraftComDefaults =
-            new ComDefaults(38400, Parity.None, 8, 1, Handshake.None, true, false);
         private static ComDefaults IcomComDefaults =
             new ComDefaults(9600, Parity.None, 8, 1, Handshake.None, true, false);
         private static ComDefaults FlexComDefaults = new ComDefaults();
@@ -2698,16 +2704,15 @@ namespace Radios
         /// Array of supported rigs.
         /// </summary>
         public static RigElement[] RigTable =
-            {//new RigElement(RIGIDNone, "None", typeof(AllRadios), null),
-             new RigElement(RIGIDGeneric, "Generic", typeof(Generic), null),
-             new RigElement(RIGIDGenericBinary, "Generic binary", typeof(GenericBinary), null),
-             //new RigElement(RIGIDKenwoodTS930, "TS930", typeof(KenwoodTS930), PIEXXComDefaults),
-             new RigElement(RIGIDKenwoodTS590, "TS590", typeof(KenwoodTS590), kenwoodComDefaults),
-             new RigElement(RIGIDKenwoodTS590SG, "TS590SG", typeof(KenwoodTS590SG), kenwoodComDefaults),
-             new RigElement(RIGIDKenwoodTS2000, "TS2000", typeof(KenwoodTS2000), kenwoodComDefaults),
-             new RigElement(RIGIDElecraftK3, "K3", typeof(ElecraftK3), elecraftComDefaults),
-             new RigElement(RIGIDIC9100, "IC9100", typeof(Icom9100), IcomComDefaults),
-             new RigElement(RIGIDFlex6300, "Flex6300", typeof(Flex6300), FlexComDefaults),
+            {
+                // Flex-only for JJFlex modernization
+                new RigElement(RIGIDFlex6300, "Flex6300", typeof(FlexRadio), FlexComDefaults),
+                new RigElement(RIGIDFlex6400, "Flex6400/6400M", typeof(FlexRadio), FlexComDefaults),
+                new RigElement(RIGIDFlex6500, "Flex6500", typeof(FlexRadio), FlexComDefaults),
+                new RigElement(RIGIDFlex6600, "Flex6600/6600M", typeof(FlexRadio), FlexComDefaults),
+                new RigElement(RIGIDFlex6700, "Flex6700/6700R", typeof(FlexRadio), FlexComDefaults),
+                new RigElement(RIGIDFlex8600, "Flex8600/8600M", typeof(FlexRadio), FlexComDefaults),
+                new RigElement(RIGIDAurora, "Flex Aurora (A520/A520M)", typeof(FlexRadio), FlexComDefaults),
             };
 
         /// <summary>

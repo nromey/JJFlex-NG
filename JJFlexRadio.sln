@@ -1,4 +1,4 @@
-﻿
+
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.6.33829.357
@@ -43,13 +43,13 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "JJFlexControl", "JJFlexCont
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "JJW2WattMeter", "JJW2WattMeter\JJW2WattMeter.csproj", "{381BE00E-67CE-4191-B3A0-4B195CD01DB9}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FlexLib", "FlexLib_API_v3.2.37\FlexLib\FlexLib.csproj", "{7927817C-D5EF-4A9E-B38E-29668F308343}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FlexLib", "FlexLib_API\FlexLib\FlexLib.csproj", "{7927817C-D5EF-4A9E-B38E-29668F308343}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "UiWpfFramework", "FlexLib_API_v3.2.37\UiWpfFramework\UiWpfFramework.csproj", "{9C0AD871-92FD-461B-84FF-3738D701814F}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "UiWpfFramework", "FlexLib_API\UiWpfFramework\UiWpfFramework.csproj", "{9C0AD871-92FD-461B-84FF-3738D701814F}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Util", "FlexLib_API_v3.2.37\Util\Util.csproj", "{38935DC9-FF48-470C-B876-473A3AE8BD32}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Util", "FlexLib_API\Util\Util.csproj", "{38935DC9-FF48-470C-B876-473A3AE8BD32}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Vita", "FlexLib_API_v3.2.37\Vita\Vita.csproj", "{6ED364FB-7444-44DA-9196-1D8679425B3E}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Vita", "FlexLib_API\Vita\Vita.csproj", "{6ED364FB-7444-44DA-9196-1D8679425B3E}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{B3D470D1-BF5E-4718-ACB0-F2092ECBF49D}"
 	ProjectSection(SolutionItems) = preProject

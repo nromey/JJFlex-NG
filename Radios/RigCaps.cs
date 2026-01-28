@@ -122,6 +122,17 @@ namespace Radios
         public Caps getCaps, setCaps;
         #endregion
 
+        public enum VFOs
+        {
+            None = -1,
+            VFOA = 0,
+            VFOB,
+            VFOC,
+            VFOD,
+        };
+
+        public int MaxVFO = (int)VFOs.VFOB; // default is VFO B
+
         /// <summary>
         /// Provide capabilities
         /// </summary>

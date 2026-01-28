@@ -17,11 +17,11 @@ Public Class RigSelector
         Public Property LowBW As Boolean
         Public ReadOnly Property Display As String
             Get
-                Dim lbw As String = ""
-                If LowBW Then
-                    lbw = "LowBW_"
-                End If
-                Return lbw & Rig.Name & " " & Rig.ModelName & " " & Rig.Serial
+                Dim lbw As String = If(LowBW, "LowBW_", "")
+                Dim namePart As String = If(String.IsNullOrWhiteSpace(Rig.Name), "Unknown", Rig.Name)
+                Dim modelPart As String = If(String.IsNullOrWhiteSpace(Rig.ModelName), "Unknown", Rig.ModelName)
+                Dim serialPart As String = If(String.IsNullOrWhiteSpace(Rig.Serial), "NoSerial", Rig.Serial)
+                Return $"{lbw}{namePart} {modelPart} {serialPart}"
             End Get
         End Property
         Public Sub New(r As FlexBase.RigData)
@@ -134,7 +134,6 @@ Public Class RigSelector
             Sub()
                 RadiosBox.DataSource = Nothing
                 RadiosBox.DisplayMember = "Display"
-                RadiosBox.ValueMember = "Value"
                 RadiosBox.DataSource = RadiosList
             End Sub)
     End Sub
@@ -148,7 +147,8 @@ Public Class RigSelector
     End Sub
 
     Private Sub setupRadiosBoxContext()
-        Dim radio As radio_t = CType(RadiosBox.SelectedValue, radio_t)
+        If RadiosBox.SelectedIndex = -1 Then Return
+        Dim radio As radio_t = CType(RadiosBox.SelectedItem, radio_t)
         ' setup for autoConnect on/off
         If radio.AutoConnect Then
             RadiosBoxAutoConnectMenuItem.Text = connectOffText
@@ -198,7 +198,7 @@ Public Class RigSelector
         End If
 
         ' This will exit this form.
-        Dim radio As radio_t = CType(RadiosBox.SelectedValue, radio_t)
+        Dim radio As radio_t = CType(RadiosBox.SelectedItem, radio_t)
         Tracing.TraceLine("ConnectButton_Click:" & radio.Rig.Serial & " " & radio.LowBW.ToString(), TraceLevel.Info)
         CurrentRig = radio.Rig
         If RigControl.Connect(CurrentRig.Serial, radio.LowBW) Then
@@ -214,7 +214,7 @@ Public Class RigSelector
             RadiosBox.Focus()
             Return
         End If
-        Dim radio As radio_t = CType(RadiosBox.SelectedValue, radio_t)
+        Dim radio As radio_t = CType(RadiosBox.SelectedItem, radio_t)
         radio.LowBW = Not radio.LowBW
         If (autoConnectItem.Serial = radio.Rig.Serial) Then
             autoConnectItem.LowBW = radio.LowBW
@@ -251,7 +251,7 @@ Public Class RigSelector
             Return
         End If
 
-        Dim radio As radio_t = CType(RadiosBox.SelectedValue, radio_t)
+        Dim radio As radio_t = CType(RadiosBox.SelectedItem, radio_t)
         Tracing.TraceLine("RadiosBoxAutoConnectMenuItem_Click:" & radio.Rig.Serial, TraceLevel.Info)
         ' setup the item
         ' Toggle if same item, otherwise new item.

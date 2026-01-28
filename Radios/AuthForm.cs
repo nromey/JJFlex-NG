@@ -8,6 +8,7 @@ using System.Linq;
 using System.Net;
 using System.Text;
 using System.Windows.Forms;
+using Microsoft.Win32;
 using JJTrace;
 
 namespace Radios
@@ -15,10 +16,28 @@ namespace Radios
     public partial class AuthForm : Form
     {
         public string[] Tokens;
+        private Label urlLabel;
 
         public AuthForm()
         {
             InitializeComponent();
+            // Keep the embedded browser quiet and sandboxed.
+            Browser.ScriptErrorsSuppressed = true;
+            Browser.IsWebBrowserContextMenuEnabled = false;
+            Browser.WebBrowserShortcutsEnabled = false;
+            Browser.AllowWebBrowserDrop = false;
+            // Add a small banner to show the auth URL for troubleshooting.
+            urlLabel = new Label();
+            urlLabel.AutoSize = false;
+            urlLabel.Dock = DockStyle.Top;
+            urlLabel.Height = 32;
+            urlLabel.Padding = new Padding(4);
+            urlLabel.TextAlign = ContentAlignment.MiddleLeft;
+            urlLabel.BackColor = Color.LightYellow;
+            urlLabel.ForeColor = Color.Black;
+            urlLabel.Font = new Font(SystemFonts.DefaultFont.FontFamily, SystemFonts.DefaultFont.Size, FontStyle.Bold);
+            Controls.Add(urlLabel);
+            Controls.SetChildIndex(urlLabel, 0); // keep it above the browser
         }
 
         private void AuthForm_Load(object sender, EventArgs e)
@@ -26,7 +45,18 @@ namespace Radios
             //DialogResult = DialogResult.None;
             try
             {
-                string uriString = "http://frtest.auth0.com/authorize?";
+                // Force the embedded browser to emulate IE11 so Auth0 pages run modern JS.
+                SetBrowserEmulation();
+
+                // Enforce TLS 1.2+ before hitting Auth0 and ensure we use HTTPS endpoints.
+                ServicePointManager.Expect100Continue = true;
+#if NET48
+                ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
+#else
+                ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12 | SecurityProtocolType.Tls13;
+#endif
+
+                string uriString = "https://frtest.auth0.com/authorize?";
                 uriString += "response_type=token&";
                 uriString += "client_id=4Y9fEIIsVYyQo5u6jr7yBWc4lV5ugC2m&";
                 uriString += "redirect_uri=https://frtest.auth0.com/mobile&";
@@ -42,6 +72,10 @@ namespace Radios
                 uriString += "state=" + state;
                 uriString += "&device=JJFlexRadio";
                 Tracing.TraceLine("AuthForm URI:" + uriString, TraceLevel.Info);
+                if (urlLabel != null)
+                {
+                    urlLabel.Text = uriString;
+                }
                 Uri uri = new Uri(uriString);
                 Browser.DocumentCompleted += documentLoadedHandler;
                 Browser.Navigate(uri);
@@ -50,6 +84,31 @@ namespace Radios
             {
                 Tracing.TraceLine("AuthForm Exception: " + ex.Message, TraceLevel.Error);
                 DialogResult = DialogResult.Abort;
+            }
+        }
+
+        /// <summary>
+        /// Ensure the WebBrowser control runs in IE11 emulation to avoid script compatibility errors.
+        /// </summary>
+        private void SetBrowserEmulation()
+        {
+            try
+            {
+                string exeName = Process.GetCurrentProcess().ProcessName + ".exe";
+                const string featureKey = @"Software\Microsoft\Internet Explorer\Main\FeatureControl\FEATURE_BROWSER_EMULATION";
+                using (RegistryKey key = Registry.CurrentUser.CreateSubKey(featureKey, true))
+                {
+                    const int ie11Mode = 11001;
+                    object current = key.GetValue(exeName);
+                    if (current == null || (int)current != ie11Mode)
+                    {
+                        key.SetValue(exeName, ie11Mode, RegistryValueKind.DWord);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("AuthForm SetBrowserEmulation failed: " + ex.Message, TraceLevel.Warning);
             }
         }
 

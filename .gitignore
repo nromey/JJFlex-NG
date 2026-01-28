@@ -396,3 +396,20 @@ FodyWeavers.xsd
 
 # JetBrains Rider
 *.sln.iml
+
+# Claude Code local settings
+.claude/
+
+# Installer executables
+Setup *.exe
+
+# Native library build sources (large)
+LibSources/
+
+# Crash dumps
+crash/
+
+# Build logs and temp files
+install_log.txt
+nuget.exe
+nul

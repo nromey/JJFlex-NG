@@ -42,6 +42,14 @@
             this.IPBox = new System.Windows.Forms.TextBox();
             this.DisplayControl = new RadioBoxes.Combo();
             this.DoneButton = new System.Windows.Forms.Button();
+            this.InfoTabs = new System.Windows.Forms.TabControl();
+            this.GeneralTab = new System.Windows.Forms.TabPage();
+            this.FeatureTab = new System.Windows.Forms.TabPage();
+            this.FeatureAvailabilityBox = new System.Windows.Forms.TextBox();
+            this.RefreshLicenseButton = new System.Windows.Forms.Button();
+            this.InfoTabs.SuspendLayout();
+            this.GeneralTab.SuspendLayout();
+            this.FeatureTab.SuspendLayout();
             this.SuspendLayout();
             // 
             // ModelLabel
@@ -176,6 +184,81 @@
             this.DisplayControl.UpdateDisplayFunction = null;
             this.DisplayControl.UpdateRigFunction = null;
             // 
+            // InfoTabs
+            // 
+            this.InfoTabs.AccessibleName = "Radio information tabs";
+            this.InfoTabs.AccessibleRole = System.Windows.Forms.AccessibleRole.PageTabList;
+            this.InfoTabs.Controls.Add(this.GeneralTab);
+            this.InfoTabs.Controls.Add(this.FeatureTab);
+            this.InfoTabs.Location = new System.Drawing.Point(8, 8);
+            this.InfoTabs.Name = "InfoTabs";
+            this.InfoTabs.SelectedIndex = 0;
+            this.InfoTabs.Size = new System.Drawing.Size(318, 200);
+            this.InfoTabs.TabIndex = 10;
+            // 
+            // GeneralTab
+            // 
+            this.GeneralTab.AccessibleName = "General";
+            this.GeneralTab.AccessibleRole = System.Windows.Forms.AccessibleRole.PageTab;
+            this.GeneralTab.Controls.Add(this.DisplayControl);
+            this.GeneralTab.Controls.Add(this.IPBox);
+            this.GeneralTab.Controls.Add(this.IPLabel);
+            this.GeneralTab.Controls.Add(this.NameLabel);
+            this.GeneralTab.Controls.Add(this.NameBox);
+            this.GeneralTab.Controls.Add(this.CallBox);
+            this.GeneralTab.Controls.Add(this.CallLabel);
+            this.GeneralTab.Controls.Add(this.SerialBox);
+            this.GeneralTab.Controls.Add(this.VersionBox);
+            this.GeneralTab.Controls.Add(this.VersionLabel);
+            this.GeneralTab.Controls.Add(this.ModelBox);
+            this.GeneralTab.Controls.Add(this.SerialLabel);
+            this.GeneralTab.Controls.Add(this.ModelLabel);
+            this.GeneralTab.Location = new System.Drawing.Point(4, 22);
+            this.GeneralTab.Name = "GeneralTab";
+            this.GeneralTab.Padding = new System.Windows.Forms.Padding(3);
+            this.GeneralTab.Size = new System.Drawing.Size(310, 174);
+            this.GeneralTab.TabIndex = 0;
+            this.GeneralTab.Text = "General";
+            this.GeneralTab.UseVisualStyleBackColor = true;
+            // 
+            // FeatureTab
+            // 
+            this.FeatureTab.AccessibleName = "Feature Availability";
+            this.FeatureTab.AccessibleRole = System.Windows.Forms.AccessibleRole.PageTab;
+            this.FeatureTab.Controls.Add(this.FeatureAvailabilityBox);
+            this.FeatureTab.Controls.Add(this.RefreshLicenseButton);
+            this.FeatureTab.Location = new System.Drawing.Point(4, 22);
+            this.FeatureTab.Name = "FeatureTab";
+            this.FeatureTab.Padding = new System.Windows.Forms.Padding(3);
+            this.FeatureTab.Size = new System.Drawing.Size(310, 174);
+            this.FeatureTab.TabIndex = 1;
+            this.FeatureTab.Text = "Feature Availability";
+            this.FeatureTab.UseVisualStyleBackColor = true;
+            // 
+            // FeatureAvailabilityBox
+            // 
+            this.FeatureAvailabilityBox.AccessibleName = "Feature availability list";
+            this.FeatureAvailabilityBox.AccessibleRole = System.Windows.Forms.AccessibleRole.Text;
+            this.FeatureAvailabilityBox.Location = new System.Drawing.Point(8, 8);
+            this.FeatureAvailabilityBox.Multiline = true;
+            this.FeatureAvailabilityBox.Name = "FeatureAvailabilityBox";
+            this.FeatureAvailabilityBox.ReadOnly = true;
+            this.FeatureAvailabilityBox.ScrollBars = System.Windows.Forms.ScrollBars.Vertical;
+            this.FeatureAvailabilityBox.Size = new System.Drawing.Size(292, 128);
+            this.FeatureAvailabilityBox.TabIndex = 10;
+            // 
+            // RefreshLicenseButton
+            // 
+            this.RefreshLicenseButton.AccessibleName = "Refresh license status";
+            this.RefreshLicenseButton.AccessibleRole = System.Windows.Forms.AccessibleRole.PushButton;
+            this.RefreshLicenseButton.Location = new System.Drawing.Point(180, 142);
+            this.RefreshLicenseButton.Name = "RefreshLicenseButton";
+            this.RefreshLicenseButton.Size = new System.Drawing.Size(120, 23);
+            this.RefreshLicenseButton.TabIndex = 20;
+            this.RefreshLicenseButton.Text = "Refresh Licenses";
+            this.RefreshLicenseButton.UseVisualStyleBackColor = true;
+            this.RefreshLicenseButton.Click += new System.EventHandler(this.RefreshLicenseButton_Click);
+            // 
             // DoneButton
             // 
             this.DoneButton.AccessibleRole = System.Windows.Forms.AccessibleRole.PushButton;
@@ -194,27 +277,19 @@
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.CancelButton = this.DoneButton;
             this.ClientSize = new System.Drawing.Size(334, 262);
+            this.Controls.Add(this.InfoTabs);
             this.Controls.Add(this.DoneButton);
-            this.Controls.Add(this.DisplayControl);
-            this.Controls.Add(this.IPBox);
-            this.Controls.Add(this.IPLabel);
-            this.Controls.Add(this.NameLabel);
-            this.Controls.Add(this.NameBox);
-            this.Controls.Add(this.CallBox);
-            this.Controls.Add(this.CallLabel);
-            this.Controls.Add(this.SerialBox);
-            this.Controls.Add(this.VersionBox);
-            this.Controls.Add(this.VersionLabel);
-            this.Controls.Add(this.ModelBox);
-            this.Controls.Add(this.SerialLabel);
-            this.Controls.Add(this.ModelLabel);
             this.Name = "FlexInfo";
             this.StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen;
             this.Text = "Flex Info";
             this.Activated += new System.EventHandler(this.FlexInfo_Activated);
             this.Load += new System.EventHandler(this.FlexInfo_Load);
+            this.InfoTabs.ResumeLayout(false);
+            this.GeneralTab.ResumeLayout(false);
+            this.GeneralTab.PerformLayout();
+            this.FeatureTab.ResumeLayout(false);
+            this.FeatureTab.PerformLayout();
             this.ResumeLayout(false);
-            this.PerformLayout();
 
         }
 
@@ -234,5 +309,10 @@
         private System.Windows.Forms.TextBox IPBox;
         private RadioBoxes.Combo DisplayControl;
         private System.Windows.Forms.Button DoneButton;
+        private System.Windows.Forms.TabControl InfoTabs;
+        private System.Windows.Forms.TabPage GeneralTab;
+        private System.Windows.Forms.TabPage FeatureTab;
+        private System.Windows.Forms.TextBox FeatureAvailabilityBox;
+        private System.Windows.Forms.Button RefreshLicenseButton;
     }
 }

@@ -9,8 +9,8 @@
 
 ; The name of the installer
 Name "MYPGM"
-; The file to write
-OutFile "Setup MYPGM.exe"
+; The file to write (version appended via MYVER)
+OutFile "Setup MYPGM_MYVER.exe"
 
 ; The default installation directory
 InstallDir "$PROGRAMFILES\jjshaffer\MYPGM"
@@ -23,11 +23,20 @@ InstallDirRegKey HKLM "Software\NSIS_MYPGM" "Install_Dir"
 RequestExecutionLevel admin
 
 
+; Version information for the installer bundle
+VIProductVersion "MYVER"
+VIFileVersion "MYVER"
+VIAddVersionKey /LANG=1033 "ProductVersion" "MYVER"
+VIAddVersionKey /LANG=1033 "FileVersion" "MYVER"
+VIAddVersionKey /LANG=1033 "ProductName" "MYPGM"
+VIAddVersionKey /LANG=1033 "FileDescription" "MYPGM installer"
+
+
 ; Get a welcome message
 Function .onInit
 MessageBox MB_OK "\
-Welcome to JJFlexRadio, an amateur radio monitoring/control program by Jim Shaffer, KE5AL.$\r\
-JJFlexRadio is designed with blind users in mind.$\r\
+Welcome to MYPGM, an amateur radio monitoring/control program by Jim Shaffer, KE5AL.$\r\
+MYPGM is designed with blind users in mind.$\r\
 It works best with a screen reader using a braille display."
 FunctionEnd
 
@@ -45,7 +54,7 @@ UninstPage instfiles
 ;--------------------------------
 
 ; The stuff to install
-Section "JJFlexRadio (required)"
+Section "MYPGM (required)"
 
   SectionIn RO
 
@@ -55,8 +64,8 @@ Section "JJFlexRadio (required)"
   ; Set output path to the installation directory.
   SetOutPath $INSTDIR
   
-  ; Put files there
-  File /x src "bin\release\*.*"
+  ; Put files there - recurse all built outputs
+  File /r /x "*.pdb" "MYOUTDIR\*.*"
   
   ; Write the installation path into the registry
   WriteRegStr HKLM "SOFTWARE\MYPGM" "Install_Dir" "$INSTDIR"

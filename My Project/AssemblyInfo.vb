@@ -12,7 +12,7 @@ Imports System.Runtime.InteropServices
 <Assembly: AssemblyDescription("Amateur Radio control for blind Flex Radio users")>
 <Assembly: AssemblyCompany("JJShaffer.com")>
 <Assembly: AssemblyProduct("JJFlexRadio")>
-<Assembly: AssemblyCopyright("J.J. Shaffer 2019 2020 2021")>
+<Assembly: AssemblyCopyright("J.J. Shaffer, Noel Romey 2019-2025 (GNU GPL)")>
 <Assembly: AssemblyTrademark("")> 
 
 <Assembly: ComVisible(False)> 
@@ -30,5 +30,6 @@ Imports System.Runtime.InteropServices
 ' You can specify all the values or you can default the Build and Revision Numbers 
 ' by using the '*' as shown below:
 
-<Assembly: AssemblyVersion("3.1.12.26")>
-<Assembly: AssemblyFileVersion("3.1.12.23")>
+<Assembly: AssemblyVersion("4.1.8.0")> 
+<Assembly: AssemblyFileVersion("4.1.8.0")> 
+<Assembly: AssemblyInformationalVersion("4.1.8")> 

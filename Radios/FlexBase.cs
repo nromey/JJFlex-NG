@@ -32,7 +32,7 @@ namespace Radios
     /// <summary>
     /// Flex superclass
     /// </summary>
-    public class FlexBase : IDisposable
+    public class FlexBase : AllRadios, IDisposable
     {
         private const string statusHdr = "Status";
         private const string importedMsg = "Import complete";
@@ -75,10 +75,16 @@ namespace Radios
         private void radioAddedHandler(Radio r)
         {
             Tracing.TraceLine("radioAddedHandler:" + r.Serial, TraceLevel.Info);
+            // Ignore entries without a serial; SmartLink returns unusable shells before auth completes.
+            if (string.IsNullOrWhiteSpace(r.Serial))
+            {
+                Tracing.TraceLine("radioAddedHandler: ignored radio with empty serial", TraceLevel.Warning);
+                return;
+            }
             myRadioList.Add(r);
             RigData rd = new RigData();
-            rd.Name = r.Nickname;
-            rd.ModelName = r.Model;
+            rd.Name = string.IsNullOrWhiteSpace(r.Nickname) ? "Unknown" : r.Nickname;
+            rd.ModelName = string.IsNullOrWhiteSpace(r.Model) ? "Unknown" : r.Model;
             rd.Serial = r.Serial;
             rd.Remote = r.IsWan;
             RaiseRadioFound(null, rd);
@@ -137,6 +143,14 @@ namespace Radios
         }
 
         internal Radio theRadio;
+        private FeatureLicense trackedFeatureLicense;
+        public event EventHandler FeatureLicenseChanged;
+        public string RadioModel => theRadio?.Model ?? string.Empty;
+        public bool NoiseReductionLicenseReported => theRadio?.FeatureLicense?.LicenseFeatNoiseReduction != null;
+        public bool NoiseReductionLicensed => theRadio?.FeatureLicense?.LicenseFeatNoiseReduction?.FeatureEnabled == true;
+        public bool DiversityLicenseReported => theRadio?.FeatureLicense?.LicenseFeatDivEsc != null;
+        public bool DiversityLicensed => theRadio?.FeatureLicense?.LicenseFeatDivEsc?.FeatureEnabled == true;
+        public bool DiversityHardwareSupported => theRadio?.DiversityIsAllowed == true;
         private Thread mainThread;
         /// <summary>
         /// Connect to the specified radio.
@@ -181,6 +195,7 @@ namespace Radios
             theRadio.TxBandSettingsAdded += new Radio.TxBandSettingsAddedEventHandler(txBandSettingsHandler);
             theRadio.RXRemoteAudioStreamAdded += new Radio.RXRemoteAudioStreamAddedEventHandler(opusOutputStreamAddedHandler);
             theRadio.TXRemoteAudioStreamAdded += new Radio.TXRemoteAudioStreamAddedEventHandler(opusInputStreamAddedHandler);
+            HookFeatureLicense(theRadio);
 
             theRadio.LowBandwidthConnect = lowBW;
 
@@ -374,7 +389,11 @@ namespace Radios
                 foreach (Radio r in lst)
                 {
                     Radio oldRadio = findRadioInAPI(r.Serial);
-                    if (oldRadio == null) API.OnRadioAddedEventHandler(r);
+                    if (oldRadio == null)
+                    {
+                        // In v4 API the helper is private; directly raise our local handler.
+                        radioAddedHandler(r);
+                    }
                     else
                     {
                         // only once
@@ -738,6 +757,33 @@ namespace Radios
         private string globalProfileDesired; // see GetProfileInfo().
         internal bool ExportComplete;
         internal string ExportException;
+        private void HookFeatureLicense(Radio radio)
+        {
+            if (trackedFeatureLicense != null)
+            {
+                trackedFeatureLicense.PropertyChanged -= FeatureLicense_PropertyChanged;
+                trackedFeatureLicense = null;
+            }
+
+            var license = radio?.FeatureLicense;
+            if (license != null)
+            {
+                trackedFeatureLicense = license;
+                trackedFeatureLicense.PropertyChanged += FeatureLicense_PropertyChanged;
+            }
+
+            RaiseFeatureLicenseChanged();
+        }
+
+        private void FeatureLicense_PropertyChanged(object sender, PropertyChangedEventArgs e)
+        {
+            RaiseFeatureLicenseChanged();
+        }
+
+        private void RaiseFeatureLicenseChanged()
+        {
+            FeatureLicenseChanged?.Invoke(this, EventArgs.Empty);
+        }
         private void radioPropertyChangedHandler(object sender, PropertyChangedEventArgs e)
         {
             Tracing.TraceLine("propertyChanged:Radio:" + e.PropertyName, TraceLevel.Verbose);
@@ -748,6 +794,9 @@ namespace Radios
             }
             switch (e.PropertyName)
             {
+                case "FeatureLicense":
+                    HookFeatureLicense(r);
+                    break;
                 case "ActiveSlice":
                     {
                         Slice s = r.ActiveSlice;
@@ -1777,6 +1826,81 @@ namespace Radios
             get { return (theRadio.ActiveSlice != null); }
         }
 
+        // Diversity readiness helper; ensure hardware, license, antennas, and slices
+        public bool DiversityReady
+        {
+            get
+            {
+                if (theRadio == null) return false;
+                bool hasHardware = theRadio.DiversityIsAllowed;
+                bool hasLicense = (theRadio.FeatureLicense != null) &&
+                                  (theRadio.FeatureLicense.LicenseFeatDivEsc != null) &&
+                                  theRadio.FeatureLicense.LicenseFeatDivEsc.FeatureEnabled;
+                bool hasAntennas = (theRadio.RXAntList != null) && (theRadio.RXAntList.Length >= 2);
+                bool hasSlices = theRadio.AvailableSlices >= 2;
+                return hasHardware && hasLicense && hasAntennas && hasSlices;
+            }
+        }
+
+        internal bool DiversityOn
+        {
+            get
+            {
+                return HasActiveSlice && theRadio.ActiveSlice.DiversityOn;
+            }
+            set
+            {
+                if (!HasActiveSlice) return;
+                if (!theRadio.DiversityIsAllowed) return;
+                q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.DiversityOn = value; }), "DiversityOn");
+            }
+        }
+
+        public string DiversityGateMessage
+        {
+            get
+            {
+                if (theRadio == null) return "Radio not ready";
+                if (!HasActiveSlice) return "Select a slice";
+                if (!theRadio.DiversityIsAllowed) return "Model lacks diversity support";
+                var licenseFeature = theRadio.FeatureLicense?.LicenseFeatDivEsc;
+                if (licenseFeature == null) return "Diversity license status pending";
+                if (!licenseFeature.FeatureEnabled)
+                {
+                    return licenseFeature.FeatureGatedMessage ?? "Purchase a diversity license to enable this feature";
+                }
+                if ((theRadio.RXAntList?.Length ?? 0) < 2) return "Need two RX antennas";
+                if (theRadio.AvailableSlices < 2) return "Need two slices for diversity";
+                return string.Empty;
+            }
+        }
+
+        internal string DiversityStatus
+        {
+            get
+            {
+                string gate = DiversityGateMessage;
+                if (!string.IsNullOrEmpty(gate)) return gate;
+                string status = DiversityOn ? "Diversity active" : "Diversity ready";
+                string ants = DiversityAntennas;
+                return string.IsNullOrEmpty(ants) ? status : status + " (" + ants + ")";
+            }
+        }
+
+        private string DiversityAntennas
+        {
+            get
+            {
+                if (!HasActiveSlice) return string.Empty;
+                string primary = theRadio.ActiveSlice.RXAnt ?? string.Empty;
+                string child = theRadio.ActiveSlice.DiversitySlicePartner?.RXAnt;
+                if (string.IsNullOrEmpty(child)) return primary;
+                if (string.Equals(primary, child, StringComparison.Ordinal)) return primary;
+                if (string.IsNullOrEmpty(primary)) return child;
+                return primary + "/" + child;
+            }
+        }
+
         // a VFO is really a slice index.
         internal Slice VFOToSlice(int vfo)
         {
@@ -2082,8 +2206,24 @@ namespace Radios
             }
             set
             {
+                _RXFrequency = value;
+                if (!ValidVFO(RXVFO))
+                {
+                    Tracing.TraceLine("RXFrequency: no valid RX slice", TraceLevel.Warning);
+                    return;
+                }
+                var slice = VFOToSlice(RXVFO);
+                if (slice == null)
+                {
+                    Tracing.TraceLine("RXFrequency: RX slice missing", TraceLevel.Warning);
+                    return;
+                }
                 double freq = LongFreqToLibFreq(value);
-                q.Enqueue((FunctionDel)(() => { VFOToSlice(RXVFO).Freq = freq; }), "RXFreq");
+                q.Enqueue((FunctionDel)(() =>
+                {
+                    var s = VFOToSlice(RXVFO);
+                    if (s != null) s.Freq = freq;
+                }), "RXFreq");
             }
         }
 
@@ -2096,11 +2236,24 @@ namespace Radios
             }
             set
             {
-                if (ValidVFO(TXVFO))
+                _TXFrequency = value;
+                if (!ValidVFO(TXVFO))
                 {
-                    double freq = LongFreqToLibFreq(value);
-                    q.Enqueue((FunctionDel)(() => { VFOToSlice(TXVFO).Freq = freq; }), "TXFreq");
+                    Tracing.TraceLine("TXFrequency: no valid TX slice", TraceLevel.Warning);
+                    return;
                 }
+                var slice = VFOToSlice(TXVFO);
+                if (slice == null)
+                {
+                    Tracing.TraceLine("TXFrequency: TX slice missing", TraceLevel.Warning);
+                    return;
+                }
+                double freq = LongFreqToLibFreq(value);
+                q.Enqueue((FunctionDel)(() =>
+                {
+                    var s = VFOToSlice(TXVFO);
+                    if (s != null) s.Freq = freq;
+                }), "TXFreq");
             }
         }
 
@@ -2584,6 +2737,141 @@ namespace Radios
         {
             get { return theRadio.ActiveSlice.NRLevel; }
             set { if (HasActiveSlice) q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.NRLevel = value; })); }
+        }
+
+        // Advanced Noise Reduction algorithms (FlexLib v4.0.1)
+        // Legacy LMS Noise Reduction (NRL)
+        internal const int NoiseReductionLegacyValueMin = 0;
+        internal const int NoiseReductionLegacyValueMax = 100;
+        internal const int NoiseReductionLegacyValueIncrement = 5;
+        public OffOnValues NoiseReductionLegacy
+        {
+            get
+            {
+                if (!HasActiveSlice || theRadio?.ActiveSlice == null) return OffOnValues.off;
+                return (theRadio.ActiveSlice.NRLOn) ? OffOnValues.on : OffOnValues.off;
+            }
+            set
+            {
+                if (HasActiveSlice && theRadio?.ActiveSlice != null)
+                {
+                    q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.NRLOn = (value == OffOnValues.on); }), "NRLOn");
+                }
+            }
+        }
+        internal int NoiseReductionLegacyLevel
+        {
+            get { return theRadio.ActiveSlice.NRL_Level; }
+            set { if (HasActiveSlice) q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.NRL_Level = value; }), "NRL_Level"); }
+        }
+
+        // Spectral Subtraction Noise Reduction (NRS)
+        internal const int SpectralNoiseReductionValueMin = 0;
+        internal const int SpectralNoiseReductionValueMax = 100;
+        internal const int SpectralNoiseReductionValueIncrement = 5;
+        public OffOnValues SpectralNoiseReduction
+        {
+            get
+            {
+                if (!HasActiveSlice || theRadio?.ActiveSlice == null) return OffOnValues.off;
+                return (theRadio.ActiveSlice.NRSOn) ? OffOnValues.on : OffOnValues.off;
+            }
+            set
+            {
+                if (HasActiveSlice && theRadio?.ActiveSlice != null)
+                {
+                    q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.NRSOn = (value == OffOnValues.on); }), "NRSOn");
+                }
+            }
+        }
+        internal int SpectralNoiseReductionLevel
+        {
+            get { return theRadio.ActiveSlice.NRSLevel; }
+            set { if (HasActiveSlice) q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.NRSLevel = value; }), "NRSLevel"); }
+        }
+
+        // Noise Reduction with Filter (NRF)
+        internal const int NoiseReductionFilterValueMin = 0;
+        internal const int NoiseReductionFilterValueMax = 100;
+        internal const int NoiseReductionFilterValueIncrement = 5;
+        public OffOnValues NoiseReductionFilter
+        {
+            get
+            {
+                if (!HasActiveSlice || theRadio?.ActiveSlice == null) return OffOnValues.off;
+                return (theRadio.ActiveSlice.NRFOn) ? OffOnValues.on : OffOnValues.off;
+            }
+            set
+            {
+                if (HasActiveSlice && theRadio?.ActiveSlice != null)
+                {
+                    q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.NRFOn = (value == OffOnValues.on); }), "NRFOn");
+                }
+            }
+        }
+        internal int NoiseReductionFilterLevel
+        {
+            get { return theRadio.ActiveSlice.NRFLevel; }
+            set { if (HasActiveSlice) q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.NRFLevel = value; }), "NRFLevel"); }
+        }
+
+        // Neural noise reduction (RNN) - toggle only
+        public OffOnValues NeuralNoiseReduction
+        {
+            get
+            {
+                if (!HasActiveSlice || theRadio?.ActiveSlice == null) return OffOnValues.off;
+                return (theRadio.ActiveSlice.RNNOn) ? OffOnValues.on : OffOnValues.off;
+            }
+            set
+            {
+                if (HasActiveSlice && theRadio?.ActiveSlice != null)
+                {
+                    q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.RNNOn = (value == OffOnValues.on); }), "RNNOn");
+                }
+            }
+        }
+
+        // FFT-based Auto Notch Filter (ANFT) - toggle only
+        public OffOnValues AutoNotchFFT
+        {
+            get
+            {
+                if (!HasActiveSlice || theRadio?.ActiveSlice == null) return OffOnValues.off;
+                return (theRadio.ActiveSlice.ANFTOn) ? OffOnValues.on : OffOnValues.off;
+            }
+            set
+            {
+                if (HasActiveSlice && theRadio?.ActiveSlice != null)
+                {
+                    q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.ANFTOn = (value == OffOnValues.on); }), "ANFTOn");
+                }
+            }
+        }
+
+        // Legacy LMS Auto-Notch Filter (ANFL)
+        internal const int AutoNotchLegacyLevelMin = 0;
+        internal const int AutoNotchLegacyLevelMax = 100;
+        internal const int AutoNotchLegacyLevelIncrement = 10;
+        public OffOnValues AutoNotchLegacy
+        {
+            get
+            {
+                if (!HasActiveSlice || theRadio?.ActiveSlice == null) return OffOnValues.off;
+                return (theRadio.ActiveSlice.ANFLOn) ? OffOnValues.on : OffOnValues.off;
+            }
+            set
+            {
+                if (HasActiveSlice && theRadio?.ActiveSlice != null)
+                {
+                    q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.ANFLOn = (value == OffOnValues.on); }), "ANFLOn");
+                }
+            }
+        }
+        internal int AutoNotchLegacyLevel
+        {
+            get { return theRadio.ActiveSlice.ANFL_Level; }
+            set { if (HasActiveSlice) q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.ANFL_Level = value; }), "ANFL_Level"); }
         }
 
         /// <summary>
@@ -4392,11 +4680,18 @@ namespace Radios
 
         private void stopOpusInputChannel()
         {
-            Tracing.TraceLine("stopOpusInputChannel:" +
-                opusInputChannel.Name + ' ' + opusInputChannel.Started.ToString(), TraceLevel.Info);
+            if (opusInputChannel == null)
+            {
+                return;
+            }
             lock (opusInputChannel)
             {
-                if (!opusInputChannel.Started) return;
+                if (!opusInputChannel.Started)
+                {
+                    return;
+                }
+                Tracing.TraceLine("stopOpusInputChannel:" +
+                    opusInputChannel.Name + ' ' + opusInputChannel.Started.ToString(), TraceLevel.Info);
                 opusInputChannel.PortAudioStream.StopAudio();
                 opusInputChannel.Started = false;
             }
@@ -4703,6 +4998,30 @@ namespace Radios
         /// Rig's capabilities
         /// </summary>
         public RigCaps MyCaps;
+
+        /// <summary>
+        /// True if the connected radio supports CW autotune.
+        /// </summary>
+        public bool SupportsCwAutotune => MyCaps?.HasCap(RigCaps.Caps.CWAutoTuneSet) == true;
+
+        /// <summary>
+        /// Invoke CW autotune on the active slice, if supported.
+        /// </summary>
+        /// <param name="isIntermittent">Optional intermittent flag (FlexLib slice auto_tune int=)</param>
+        public void CWAutotune(bool? isIntermittent = null)
+        {
+            if (!SupportsCwAutotune) return;
+            if (!HasActiveSlice) return;
+
+            try
+            {
+                theRadio.ActiveSlice.SendCWAutotuneCommand(isIntermittent);
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("CWAutotune error: " + ex.Message, TraceLevel.Error);
+            }
+        }
 
         protected Flex6300Filters FilterObj;
 

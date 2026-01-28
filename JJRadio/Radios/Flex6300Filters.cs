@@ -882,6 +882,8 @@ namespace Radios
         private void Filters_Load(object sender, EventArgs e)
         {
             Tracing.TraceLine("Flex6300Filters_load", TraceLevel.Info);
+            setupNoiseReductionMenu();
+            setupFiltersMenuStrip();
         }
 
         /// <summary>
@@ -1285,6 +1287,63 @@ namespace Radios
             OnKeyDown(e);
         }
 
+        protected override void OnKeyDown(KeyEventArgs e)
+        {
+            base.OnKeyDown(e);
+            // Alt+F: Noise Reduction quick selector (menu-like)
+            if (e.Alt && (e.KeyCode == Keys.F))
+            {
+                try
+                {
+                    string mode = rig.Mode.ToLowerInvariant();
+                    // Gate by mode: skip CW and FM variants
+                    if (mode.StartsWith("cw") || mode.Contains("fm")) return;
+
+                    // Cycle through NR algorithms: RNN -> Spectral -> Legacy -> Off
+                    bool rnn = rig.NeuralNoiseReduction;
+                    bool spec = rig.SpectralNoiseReduction;
+                    bool leg = rig.NoiseReductionLegacy;
+
+                    if (!rnn && !spec && !leg)
+                    {
+                        rig.NeuralNoiseReduction = true;
+                        rig.SpectralNoiseReduction = false;
+                        rig.NoiseReductionLegacy = false;
+                        JJTrace.Tracing.TraceLine("Alt+F: RNN enabled", JJTrace.TraceLevel.Info);
+                    }
+                    else if (rnn)
+                    {
+                        rig.NeuralNoiseReduction = false;
+                        rig.SpectralNoiseReduction = true;
+                        rig.NoiseReductionLegacy = false;
+                        JJTrace.Tracing.TraceLine("Alt+F: Spectral NR enabled", JJTrace.TraceLevel.Info);
+                    }
+                    else if (spec)
+                    {
+                        rig.NeuralNoiseReduction = false;
+                        rig.SpectralNoiseReduction = false;
+                        rig.NoiseReductionLegacy = true;
+                        JJTrace.Tracing.TraceLine("Alt+F: Legacy NR enabled", JJTrace.TraceLevel.Info);
+                    }
+                    else
+                    {
+                        rig.NeuralNoiseReduction = false;
+                        rig.SpectralNoiseReduction = false;
+                        rig.NoiseReductionLegacy = false;
+                        JJTrace.Tracing.TraceLine("Alt+F: Noise Reduction off", JJTrace.TraceLevel.Info);
+                    }
+
+                    // Refresh UI bindings
+                    updateBoxes();
+                    e.Handled = true;
+                }
+                catch (Exception ex)
+                {
+                    JJTrace.Tracing.TraceLine("Alt+F NR toggle error: " + ex.Message, JJTrace.TraceLevel.Error);
+                }
+            }
+        }
+
         private FloatPeakType micPeak;
         private void MicPeakBox_EnabledChanged(object sender, EventArgs e)
         {
@@ -1318,6 +1377,194 @@ namespace Radios
         private void TNFButton_Click(object sender, EventArgs e)
         {
             flexTNF.ShowDialog();
+        }
+
+        // Noise Reduction context menu (checkable items, multiple selection)
+        private ContextMenuStrip nrMenu;
+        private ToolStripMenuItem nrRoot;
+        private ToolStripMenuItem rnnItem;
+        private ToolStripMenuItem spectralItem;
+        private ToolStripMenuItem legacyNRItem;
+        private ToolStripMenuItem anfRoot;
+        private ToolStripMenuItem anfFftItem;
+        private ToolStripMenuItem anfLegacyItem;
+        private static void updateMenuAccessibility(ToolStripMenuItem item)
+        {
+            if (item == null) return;
+            string label = item.Text ?? string.Empty;
+            if (label.IndexOf('&') >= 0) label = label.Replace("&", "");
+            string state = (!item.Enabled) ? "unavailable" : (item.Checked ? "checked" : "not checked");
+            item.AccessibleRole = AccessibleRole.CheckButton;
+            item.AccessibleName = label + " " + state;
+            item.AccessibleDescription = state;
+        }
+        private void setupNoiseReductionMenu()
+        {
+            nrMenu = new ContextMenuStrip();
+            nrRoot = new ToolStripMenuItem("Noise Reduction");
+            rnnItem = new ToolStripMenuItem("Neural (RNN)") { CheckOnClick = true };
+            spectralItem = new ToolStripMenuItem("Spectral (NRF/NRS)") { CheckOnClick = true };
+            legacyNRItem = new ToolStripMenuItem("Legacy (NRL)") { CheckOnClick = true };
+            nrRoot.DropDownItems.Add(rnnItem);
+            nrRoot.DropDownItems.Add(spectralItem);
+            nrRoot.DropDownItems.Add(legacyNRItem);
+
+            anfRoot = new ToolStripMenuItem("Auto Notch");
+            anfFftItem = new ToolStripMenuItem("FFT (ANFT)") { CheckOnClick = true };
+            anfLegacyItem = new ToolStripMenuItem("Legacy (ANFL)") { CheckOnClick = true };
+            anfRoot.DropDownItems.Add(anfFftItem);
+            anfRoot.DropDownItems.Add(anfLegacyItem);
+
+            nrMenu.Items.Add(nrRoot);
+            nrMenu.Items.Add(anfRoot);
+
+            nrMenu.Opening += nrMenu_Opening;
+            rnnItem.CheckedChanged += (s, e) => { try { rig.NeuralNoiseReduction = rnnItem.Checked; updateBoxes(); } catch { } updateMenuAccessibility(rnnItem); };
+            spectralItem.CheckedChanged += (s, e) => { try { rig.SpectralNoiseReduction = spectralItem.Checked; updateBoxes(); } catch { } updateMenuAccessibility(spectralItem); };
+            legacyNRItem.CheckedChanged += (s, e) => { try { rig.NoiseReductionLegacy = legacyNRItem.Checked; updateBoxes(); } catch { } updateMenuAccessibility(legacyNRItem); };
+            anfFftItem.CheckedChanged += (s, e) => { try { rig.AutoNotchFFT = anfFftItem.Checked; updateBoxes(); } catch { } updateMenuAccessibility(anfFftItem); };
+            anfLegacyItem.CheckedChanged += (s, e) => { try { rig.AutoNotchLegacy = anfLegacyItem.Checked; updateBoxes(); } catch { } updateMenuAccessibility(anfLegacyItem); };
+
+            // Attach to the Filters user control (right-click)
+            this.ContextMenuStrip = nrMenu;
+        }
+        private void nrMenu_Opening(object sender, System.ComponentModel.CancelEventArgs e)
+        {
+            try
+            {
+                // Reflect current state
+                rnnItem.Checked = rig.NeuralNoiseReduction;
+                spectralItem.Checked = rig.SpectralNoiseReduction;
+                legacyNRItem.Checked = rig.NoiseReductionLegacy;
+                anfFftItem.Checked = rig.AutoNotchFFT;
+                anfLegacyItem.Checked = rig.AutoNotchLegacy;
+
+                // Mode-aware enablement: allow NR in SSB/AM/digital, disable in CW and FM variants
+                string mode = rig.Mode.ToLowerInvariant();
+                bool cwOrFm = mode.StartsWith("cw") || mode.Contains("fm");
+                rnnItem.Enabled = !cwOrFm;
+                spectralItem.Enabled = !cwOrFm;
+                legacyNRItem.Enabled = !cwOrFm;
+                // ANF gating: allow ANF in non-FM; disable on FM
+                bool fmMode = mode.Contains("fm");
+                anfFftItem.Enabled = !fmMode;
+                anfLegacyItem.Enabled = !fmMode;
+
+                // License-aware hints: if FeatureLicense unknown/disabled, keep enabled but annotate tooltip
+                var fl = rig.theRadio.FeatureLicense;
+                string tip = null;
+                if (fl == null)
+                {
+                    tip = "License info unavailable; actions will attempt and log.";
+                }
+                rnnItem.ToolTipText = tip;
+                spectralItem.ToolTipText = tip;
+                legacyNRItem.ToolTipText = tip;
+                anfFftItem.ToolTipText = tip;
+                anfLegacyItem.ToolTipText = tip;
+
+                updateMenuAccessibility(rnnItem);
+                updateMenuAccessibility(spectralItem);
+                updateMenuAccessibility(legacyNRItem);
+                updateMenuAccessibility(anfFftItem);
+                updateMenuAccessibility(anfLegacyItem);
+            }
+            catch (Exception ex)
+            {
+                JJTrace.Tracing.TraceLine("NR menu opening error: " + ex.Message, JJTrace.TraceLevel.Error);
+            }
+        }
+
+        // Top-level Filters menu with Noise Reduction submenu (mirrors context menu)
+        private MenuStrip filtersMenuStrip;
+        private ToolStripMenuItem filtersRoot;
+        private ToolStripMenuItem filtersNRRoot;
+        private ToolStripMenuItem filtersANFRoot;
+        private void setupFiltersMenuStrip()
+        {
+            filtersMenuStrip = new MenuStrip();
+            filtersRoot = new ToolStripMenuItem("Filters");
+
+            // Noise Reduction submenu
+            filtersNRRoot = new ToolStripMenuItem("Noise Reduction");
+            var rnn = new ToolStripMenuItem("Neural (RNN)") { CheckOnClick = true };
+            var spectral = new ToolStripMenuItem("Spectral (NRF/NRS)") { CheckOnClick = true };
+            var legacy = new ToolStripMenuItem("Legacy (NRL)") { CheckOnClick = true };
+            filtersNRRoot.DropDownItems.AddRange(new ToolStripItem[] { rnn, spectral, legacy });
+
+            // Auto Notch submenu
+            filtersANFRoot = new ToolStripMenuItem("Auto Notch");
+            var anfFft = new ToolStripMenuItem("FFT (ANFT)") { CheckOnClick = true };
+            var anfLegacy = new ToolStripMenuItem("Legacy (ANFL)") { CheckOnClick = true };
+            filtersANFRoot.DropDownItems.AddRange(new ToolStripItem[] { anfFft, anfLegacy });
+
+            // Bind actions
+            rnn.CheckedChanged += (s, e) => { try { rig.NeuralNoiseReduction = rnn.Checked; updateBoxes(); } catch { } updateMenuAccessibility(rnn); };
+            spectral.CheckedChanged += (s, e) => { try { rig.SpectralNoiseReduction = spectral.Checked; updateBoxes(); } catch { } updateMenuAccessibility(spectral); };
+            legacy.CheckedChanged += (s, e) => { try { rig.NoiseReductionLegacy = legacy.Checked; updateBoxes(); } catch { } updateMenuAccessibility(legacy); };
+            anfFft.CheckedChanged += (s, e) => { try { rig.AutoNotchFFT = anfFft.Checked; updateBoxes(); } catch { } updateMenuAccessibility(anfFft); };
+            anfLegacy.CheckedChanged += (s, e) => { try { rig.AutoNotchLegacy = anfLegacy.Checked; updateBoxes(); } catch { } updateMenuAccessibility(anfLegacy); };
+
+            // Opening sync and gating
+            filtersNRRoot.DropDownOpening += (s, e) => syncAndGateNRItems(rnn, spectral, legacy);
+            filtersANFRoot.DropDownOpening += (s, e) => syncAndGateANFItems(anfFft, anfLegacy);
+
+            filtersRoot.DropDownItems.Add(filtersNRRoot);
+            filtersRoot.DropDownItems.Add(filtersANFRoot);
+            filtersMenuStrip.Items.Add(filtersRoot);
+
+            // Add to control
+            this.Controls.Add(filtersMenuStrip);
+            filtersMenuStrip.Dock = DockStyle.Top;
+        }
+
+        private void syncAndGateNRItems(ToolStripMenuItem rnn, ToolStripMenuItem spectral, ToolStripMenuItem legacy)
+        {
+            try
+            {
+                rnn.Checked = rig.NeuralNoiseReduction;
+                spectral.Checked = rig.SpectralNoiseReduction;
+                legacy.Checked = rig.NoiseReductionLegacy;
+                string mode = rig.Mode.ToLowerInvariant();
+                bool cwOrFm = mode.StartsWith("cw") || mode.Contains("fm");
+                rnn.Enabled = !cwOrFm;
+                spectral.Enabled = !cwOrFm;
+                legacy.Enabled = !cwOrFm;
+                var fl = rig.theRadio.FeatureLicense;
+                string tip = (fl == null) ? "License info unavailable; actions will attempt and log." : null;
+                rnn.ToolTipText = tip; spectral.ToolTipText = tip; legacy.ToolTipText = tip;
+
+                updateMenuAccessibility(rnn);
+                updateMenuAccessibility(spectral);
+                updateMenuAccessibility(legacy);
+            }
+            catch (Exception ex)
+            {
+                JJTrace.Tracing.TraceLine("Filters NR menu sync error: " + ex.Message, JJTrace.TraceLevel.Error);
+            }
+        }
+
+        private void syncAndGateANFItems(ToolStripMenuItem anfFft, ToolStripMenuItem anfLegacy)
+        {
+            try
+            {
+                anfFft.Checked = rig.AutoNotchFFT;
+                anfLegacy.Checked = rig.AutoNotchLegacy;
+                string mode = rig.Mode.ToLowerInvariant();
+                bool fmMode = mode.Contains("fm");
+                anfFft.Enabled = !fmMode;
+                anfLegacy.Enabled = !fmMode;
+                var fl = rig.theRadio.FeatureLicense;
+                string tip = (fl == null) ? "License info unavailable; actions will attempt and log." : null;
+                anfFft.ToolTipText = tip; anfLegacy.ToolTipText = tip;
+
+                updateMenuAccessibility(anfFft);
+                updateMenuAccessibility(anfLegacy);
+            }
+            catch (Exception ex)
+            {
+                JJTrace.Tracing.TraceLine("Filters ANF menu sync error: " + ex.Message, JJTrace.TraceLevel.Error);
+            }
         }
 
         private void TNFEnableButton_Click(object sender, EventArgs e)

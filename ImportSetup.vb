@@ -1,6 +1,6 @@
 ﻿Imports System.IO
 Imports System.Windows.Forms
-Imports Ionic.Zip
+Imports System.IO.Compression
 
 Friend Class ImportSetup
     Private Const openDialogTitle As String = "Setup info archive"
@@ -22,11 +22,9 @@ Friend Class ImportSetup
         End If
         Dim outDir = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData)
 
-        Dim archive As ZipFile
         Try
-            archive = New ZipFile(openDialog.FileName)
-            ' get application data
-            archive.ExtractSelectedEntries("type = F", Nothing, outDir, ExtractExistingFileAction.OverwriteSilently)
+            ' Secure extraction: only files, prevent path traversal
+            ZipUtils.ExtractZipSecure(openDialog.FileName, outDir)
             rv = True
         Catch ex As Exception
             MessageBox.Show(ex.Message, ExceptionHdr, MessageBoxButtons.OK)

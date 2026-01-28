@@ -139,6 +139,10 @@ Public Class PersonalData
         ''' User's profiles
         ''' </summary>
         Public Profiles As List(Of Profile_t) = Nothing
+        ''' <summary>
+        ''' When true, keep daily trace logs (JJFlexRadioTraceYYYYMMDDHHMMSS.txt) and archive old days.
+        ''' </summary>
+        Public KeepDailyTraceLogs As Boolean = False
 
         Public Sub New()
             NumberOfLogs = NumberOfLogsDefault
@@ -159,6 +163,7 @@ Public Class PersonalData
             LogfileStack = p.LogfileStack
             LogFiles = LogfileStack.ToArray
             BrailleDisplaySize = p.BrailleDisplaySize
+            KeepDailyTraceLogs = p.KeepDailyTraceLogs
         End Sub
         Friend Sub New(p As personal)
             fileName = p.fileName
@@ -173,6 +178,7 @@ Public Class PersonalData
             LogfileStack = New Stack(Of String)(NumberOfLogs)
             LogFile = p.LogFile
             BrailleDisplaySize = p.BrailleDisplaySize
+            KeepDailyTraceLogs = False
         End Sub
     End Class
 

@@ -1,4 +1,4 @@
-﻿#Const LeaveBootTraceOn = 2
+#Const LeaveBootTraceOn = 2
 Imports System.Collections
 Imports System.Collections.Specialized
 Imports System.Configuration
@@ -101,6 +101,99 @@ Public Class Form1
     End Sub
 
     Private WithEvents testMenuItem As System.Windows.Forms.ToolStripMenuItem
+    ' Filters menu (moved to main Actions menu for accessibility)
+    Private filtersMenuItem As ToolStripMenuItem
+    Private filtersNoiseMenuItem As ToolStripMenuItem
+    Private filtersNRMenuItem As ToolStripMenuItem
+    Private filtersNRRnnItem As ToolStripMenuItem
+    Private filtersNRSpectralItem As ToolStripMenuItem
+    Private filtersNRLegacyItem As ToolStripMenuItem
+    Private filtersANFMenuItem As ToolStripMenuItem
+    Private filtersANFFftItem As ToolStripMenuItem
+    Private filtersANFLegacyItem As ToolStripMenuItem
+    Private filtersCWMenuItem As ToolStripMenuItem
+    Private filtersCWAutotuneItem As ToolStripMenuItem
+    Private keepDailyTraceMenuItem As ToolStripMenuItem
+    Private Enum AdvancedGateState
+        None
+        Pending
+        Disabled
+    End Enum
+
+    Private currentAdvancedGateState As AdvancedGateState
+    Private lastAdvancedGateMessage As String
+
+    ' Accessibility: describe menu item state (checked/unchecked/disabled) for screen readers.
+    Private Sub UpdateMenuAccessibilityStates()
+        If MenuStrip1 Is Nothing Then Return
+        For Each item As ToolStripItem In MenuStrip1.Items
+            AttachMenuAccessibilityHandlers(TryCast(item, ToolStripMenuItem))
+        Next
+    End Sub
+
+    Private Function StripMenuMnemonics(text As String) As String
+        If String.IsNullOrEmpty(text) Then Return text
+        Const placeholder As Char = ChrW(1)
+        Dim tmp = text.Replace("&&", placeholder)
+        tmp = tmp.Replace("&", "")
+        tmp = tmp.Replace(placeholder, "&")
+        Return tmp
+    End Function
+
+    Private Sub AttachMenuAccessibilityHandlers(menuItem As ToolStripMenuItem)
+        If menuItem Is Nothing Then Return
+        NormalizeMenuItemAccessibility(menuItem)
+        AddHandler menuItem.CheckedChanged,
+            Sub(sender As Object, args As EventArgs)
+                NormalizeMenuItemAccessibility(TryCast(sender, ToolStripMenuItem))
+            End Sub
+        AddHandler menuItem.EnabledChanged,
+            Sub(sender As Object, args As EventArgs)
+                NormalizeMenuItemAccessibility(TryCast(sender, ToolStripMenuItem))
+            End Sub
+        AddHandler menuItem.DropDownOpening,
+            Sub()
+                For Each child As ToolStripItem In menuItem.DropDownItems
+                    AttachMenuAccessibilityHandlers(TryCast(child, ToolStripMenuItem))
+                Next
+            End Sub
+        For Each child As ToolStripItem In menuItem.DropDownItems
+            AttachMenuAccessibilityHandlers(TryCast(child, ToolStripMenuItem))
+        Next
+    End Sub
+
+    Private Sub NormalizeMenuItemAccessibility(menuItem As ToolStripMenuItem)
+        If menuItem Is Nothing Then Return
+        Dim label = StripMenuMnemonics(menuItem.Text)
+        If Not String.Equals(menuItem.Text, label, StringComparison.Ordinal) Then
+            menuItem.Text = label
+        End If
+
+        Dim state As String = Nothing
+        If menuItem.CheckOnClick OrElse menuItem.Checked OrElse menuItem.CheckState <> CheckState.Unchecked Then
+            If Not menuItem.Enabled Then
+                state = "unavailable"
+            ElseIf menuItem.CheckState = CheckState.Indeterminate Then
+                state = "mixed"
+            ElseIf menuItem.Checked Then
+                state = "checked"
+            Else
+                state = "not checked"
+            End If
+            menuItem.AccessibleRole = AccessibleRole.CheckButton
+        ElseIf menuItem.AccessibleRole = AccessibleRole.None Then
+            menuItem.AccessibleRole = AccessibleRole.MenuItem
+        End If
+
+        If String.IsNullOrEmpty(state) Then
+            menuItem.AccessibleName = label
+            menuItem.AccessibleDescription = Nothing
+        Else
+            menuItem.AccessibleName = label & " " & state
+            menuItem.AccessibleDescription = state
+        End If
+    End Sub
+
     Private Sub Form1_Load(ByVal sender As System.Object, ByVal e As System.EventArgs) Handles MyBase.Load
         statusSetup() ' setup the status line.
 
@@ -142,9 +235,19 @@ Public Class Form1
         ' Turn off the screen saver.
         onExitScreenSaver = setScreenSaver(False)
 
+        InitFiltersActionsMenu()
+
         openTheRadio(True) ' initial call
 
         FreqOut.BringToFront()
+
+        ' Refresh menu accessibility state whenever the menu is activated so screen readers
+        ' hear native checked/disabled status.
+        AddHandler MenuStrip1.MenuActivate, Sub() UpdateMenuAccessibilityStates()
+        AttachMenuAccessibilityHandlers(ActionsToolStripMenuItem)
+        AttachMenuAccessibilityHandlers(ScreenFieldsMenu)
+        AttachMenuAccessibilityHandlers(OperationsMenuItem)
+        AttachMenuAccessibilityHandlers(HelpToolStripMenuItem)
     End Sub
 
     ''' <summary>
@@ -184,6 +287,8 @@ Public Class Form1
                 AddHandler RigControl.PowerStatus, AddressOf powerStatusHandler
                 AddHandler RigControl.NoSliceError, AddressOf noSliceErrorHandler
 
+                AddHandler RigControl.FeatureLicenseChanged, AddressOf RigControl_FeatureLicenseChanged
+
                 Tracing.TraceLine("OpenTheRadio:rig is starting", TraceLevel.Info)
                 rv = RigControl.Start()
                 If Not rv Then
@@ -194,6 +299,8 @@ Public Class Form1
             If rv Then
 
                 setupBoxes()
+                UpdateAdvancedFeatureMenus()
+                UpdateFiltersActionsMenu()
                 ' Rig dependent menu items.
                 ' disable window controls initially.
                 enableDisableWindowControls(False)
@@ -758,7 +865,7 @@ Public Class Form1
             Select Case p.k
                 Case Keys.D0, Keys.D1, Keys.D2, Keys.D3, Keys.D4, Keys.D5, Keys.D6, Keys.D7
                     Dim k = System.Int32.Parse(p.k) - 48
-                    RigControl.CopyVFO(p.ID, k)
+                    DirectCast(RigControl, FlexBase).CopyVFO(CInt(p.ID), CInt(k))
                 Case Keys.OemPeriod
                     If state = FlexBase.SliceStates.available Then
                         RigControl.NewSlice()
@@ -1018,6 +1125,9 @@ Public Class Form1
         If Ending Then
             Return
         End If
+        If RigControl IsNot Nothing Then
+            UpdateAdvancedFeatureMenus()
+        End If
         If (RigControl Is Nothing) OrElse Not RigControl.IsConnected Then
             'powerNowOff()
             Return
@@ -1139,6 +1249,7 @@ Public Class Form1
 #If LeaveBootTraceOn = 0 Then
                 turnTracingOff()
 #End If
+                StartDailyTraceIfEnabled()
                 SetupOperationsMenu()
                 setupFreqout()
             End Sub)
@@ -1876,6 +1987,248 @@ Public Class Form1
         ShowBands.ShowDialog()
     End Sub
 
+    Private Sub DiversityMenuItem_Click(sender As System.Object, e As System.EventArgs) Handles DiversityMenuItem.Click
+        Dim filters As Flex6300Filters = Nothing
+        If (RigControl IsNot Nothing) AndAlso (RigControl.RigFields IsNot Nothing) Then
+            filters = TryCast(RigControl.RigFields.RigControl, Flex6300Filters)
+        End If
+        If filters Is Nothing Then
+            Return
+        End If
+        filters.ToggleDiversity()
+    End Sub
+
+    Private Sub EscMenuItem_Click(sender As System.Object, e As System.EventArgs) Handles EscMenuItem.Click
+        Dim filters As Flex6300Filters = Nothing
+        If (RigControl IsNot Nothing) AndAlso (RigControl.RigFields IsNot Nothing) Then
+            filters = TryCast(RigControl.RigFields.RigControl, Flex6300Filters)
+        End If
+        If filters Is Nothing Then
+            Return
+        End If
+        filters.ShowEscDialog()
+    End Sub
+
+    Private Sub FeatureAvailabilityMenuItem_Click(sender As System.Object, e As System.EventArgs) Handles FeatureAvailabilityMenuItem.Click
+        If RigControl Is Nothing Then
+            Return
+        End If
+        Dim theForm As New FlexInfo(RigControl, FlexInfo.FlexInfoTab.FeatureAvailability)
+        theForm.ShowDialog()
+        theForm.Dispose()
+    End Sub
+
+    Private Sub UpdateAdvancedFeatureMenus()
+        Dim rig = RigControl
+        If rig Is Nothing Then
+            DiversityMenuItem.Enabled = False
+            EscMenuItem.Enabled = False
+            DiversityMenuItem.Visible = False
+            EscMenuItem.Visible = False
+            LogAdvancedGateState(AdvancedGateState.Disabled, "Diversity gating: radio not ready")
+            Return
+        End If
+
+        If Not rig.DiversityHardwareSupported Then
+            DiversityMenuItem.Enabled = False
+            EscMenuItem.Enabled = False
+            DiversityMenuItem.Visible = False
+            EscMenuItem.Visible = False
+            LogAdvancedGateState(AdvancedGateState.Disabled, "Diversity gating: model lacks diversity support")
+            Return
+        End If
+
+        Dim enableAdvanced As Boolean = rig.DiversityReady
+        DiversityMenuItem.Enabled = enableAdvanced
+        EscMenuItem.Enabled = enableAdvanced
+
+        Dim licenseReported As Boolean = rig.DiversityLicenseReported
+        Dim gateMessage = rig.DiversityGateMessage
+        Dim nextState As AdvancedGateState
+        Dim logMessage As String = Nothing
+        If Not String.IsNullOrEmpty(gateMessage) Then
+            nextState = If(licenseReported, AdvancedGateState.Disabled, AdvancedGateState.Pending)
+            logMessage = "Diversity gating: " & gateMessage
+        Else
+            nextState = AdvancedGateState.None
+        End If
+
+        LogAdvancedGateState(nextState, logMessage)
+
+        Dim showAdvancedItems As Boolean = (nextState = AdvancedGateState.None) AndAlso enableAdvanced
+        DiversityMenuItem.Visible = showAdvancedItems
+        EscMenuItem.Visible = showAdvancedItems
+    End Sub
+
+    Private Sub LogAdvancedGateState(nextState As AdvancedGateState, message As String)
+        If nextState = AdvancedGateState.None Then
+            currentAdvancedGateState = AdvancedGateState.None
+            lastAdvancedGateMessage = Nothing
+            Return
+        End If
+
+        If (currentAdvancedGateState <> nextState) OrElse (lastAdvancedGateMessage <> message) Then
+            If Not String.IsNullOrEmpty(message) Then
+                Tracing.TraceLine(message, TraceLevel.Info)
+            End If
+            currentAdvancedGateState = nextState
+            lastAdvancedGateMessage = message
+        End If
+    End Sub
+
+    Private Sub ActionsToolStripMenuItem_DropDownOpening(sender As Object, e As EventArgs) Handles ActionsToolStripMenuItem.DropDownOpening
+        UpdateAdvancedFeatureMenus()
+        UpdateFiltersActionsMenu()
+    End Sub
+
+    Private Sub RigControl_FeatureLicenseChanged(sender As Object, e As EventArgs)
+        If InvokeRequired Then
+            BeginInvoke(New Action(Sub()
+                                       UpdateAdvancedFeatureMenus()
+                                       UpdateFiltersActionsMenu()
+                                   End Sub))
+        Else
+            UpdateAdvancedFeatureMenus()
+            UpdateFiltersActionsMenu()
+        End If
+    End Sub
+
+    ''' <summary>
+    ''' Ensure the Filters submenu exists on the Actions menu and update its gating/checked state.
+    ''' </summary>
+    Private Sub InitFiltersActionsMenu()
+        If filtersMenuItem IsNot Nothing Then Return
+
+        filtersMenuItem = New ToolStripMenuItem("&Filters")
+        filtersMenuItem.AccessibleRole = AccessibleRole.MenuItem
+        filtersMenuItem.AccessibleName = "Filters"
+        filtersMenuItem.Visible = True
+
+        filtersNoiseMenuItem = New ToolStripMenuItem("Noise && Mitigation") With {.AccessibleRole = AccessibleRole.MenuItem}
+        filtersNRMenuItem = New ToolStripMenuItem("Noise &Reduction") With {.AccessibleRole = AccessibleRole.MenuItem}
+        filtersNRRnnItem = New ToolStripMenuItem("&Neural (RNN)") With {.CheckOnClick = True, .AccessibleRole = AccessibleRole.MenuItem}
+        filtersNRSpectralItem = New ToolStripMenuItem("&Spectral (NRF/NRS)") With {.CheckOnClick = True, .AccessibleRole = AccessibleRole.MenuItem}
+        filtersNRLegacyItem = New ToolStripMenuItem("&Legacy (NRL)") With {.CheckOnClick = True, .AccessibleRole = AccessibleRole.MenuItem}
+        filtersNRMenuItem.DropDownItems.AddRange(New ToolStripItem() {filtersNRRnnItem, filtersNRSpectralItem, filtersNRLegacyItem})
+
+        filtersANFMenuItem = New ToolStripMenuItem("Auto &Notch") With {.AccessibleRole = AccessibleRole.MenuItem}
+        filtersANFFftItem = New ToolStripMenuItem("FFT (ANFT)") With {.CheckOnClick = True, .AccessibleRole = AccessibleRole.MenuItem}
+        filtersANFLegacyItem = New ToolStripMenuItem("Legacy (ANFL)") With {.CheckOnClick = True, .AccessibleRole = AccessibleRole.MenuItem}
+        filtersANFMenuItem.DropDownItems.AddRange(New ToolStripItem() {filtersANFFftItem, filtersANFLegacyItem})
+
+        filtersNoiseMenuItem.DropDownItems.Add(filtersNRMenuItem)
+        filtersNoiseMenuItem.DropDownItems.Add(filtersANFMenuItem)
+
+        filtersCWMenuItem = New ToolStripMenuItem("C&W") With {.AccessibleRole = AccessibleRole.MenuItem}
+        filtersCWAutotuneItem = New ToolStripMenuItem("&Autotune") With {.AccessibleRole = AccessibleRole.MenuItem}
+        AddHandler filtersCWAutotuneItem.Click, Sub(sender, args)
+                                                    Try
+                                                        If RigControl IsNot Nothing Then
+                                                            RigControl.CWAutotune()
+                                                        End If
+                                                    Catch ex As Exception
+                                                        Tracing.TraceLine("CW Autotune error: " & ex.Message, TraceLevel.Error)
+                                                    End Try
+                                                End Sub
+        filtersCWMenuItem.DropDownItems.Add(filtersCWAutotuneItem)
+
+        filtersMenuItem.DropDownItems.Add(filtersNoiseMenuItem)
+        filtersMenuItem.DropDownItems.Add(filtersCWMenuItem)
+
+        AddHandler filtersNRRnnItem.CheckedChanged, Sub(sender, args)
+                                                        If RigControl IsNot Nothing Then RigControl.NeuralNoiseReduction = If(filtersNRRnnItem.Checked, Radios.FlexBase.OffOnValues.on, Radios.FlexBase.OffOnValues.off)
+                                                    End Sub
+        AddHandler filtersNRSpectralItem.CheckedChanged, Sub(sender, args)
+                                                             If RigControl IsNot Nothing Then RigControl.SpectralNoiseReduction = If(filtersNRSpectralItem.Checked, Radios.FlexBase.OffOnValues.on, Radios.FlexBase.OffOnValues.off)
+                                                         End Sub
+        AddHandler filtersNRLegacyItem.CheckedChanged, Sub(sender, args)
+                                                           If RigControl IsNot Nothing Then RigControl.NoiseReductionLegacy = If(filtersNRLegacyItem.Checked, Radios.FlexBase.OffOnValues.on, Radios.FlexBase.OffOnValues.off)
+                                                       End Sub
+        AddHandler filtersANFFftItem.CheckedChanged, Sub(sender, args)
+                                                        If RigControl IsNot Nothing Then RigControl.AutoNotchFFT = If(filtersANFFftItem.Checked, Radios.FlexBase.OffOnValues.on, Radios.FlexBase.OffOnValues.off)
+                                                    End Sub
+        AddHandler filtersANFLegacyItem.CheckedChanged, Sub(sender, args)
+                                                           If RigControl IsNot Nothing Then RigControl.AutoNotchLegacy = If(filtersANFLegacyItem.Checked, Radios.FlexBase.OffOnValues.on, Radios.FlexBase.OffOnValues.off)
+                                                       End Sub
+
+        ' Insert near the advanced items for visibility.
+        Dim insertIndex As Integer = ActionsToolStripMenuItem.DropDownItems.IndexOf(EscMenuItem)
+        If insertIndex < 0 Then insertIndex = ActionsToolStripMenuItem.DropDownItems.Count
+        ActionsToolStripMenuItem.DropDownItems.Insert(insertIndex, filtersMenuItem)
+    End Sub
+
+    Private Sub UpdateFiltersActionsMenu()
+        If ActionsToolStripMenuItem Is Nothing Then Return
+        InitFiltersActionsMenu()
+
+        Dim rig = RigControl
+        If rig Is Nothing Then
+            filtersMenuItem.Enabled = False
+            Exit Sub
+        End If
+        Dim hasRig As Boolean = (rig IsNot Nothing)
+        Dim mode As String = If(rig?.Mode, "").ToLowerInvariant()
+        Dim hasSlice As Boolean = hasRig AndAlso rig.HasActiveSlice
+        Dim cwOrFm As Boolean = mode.StartsWith("cw") OrElse mode.Contains("fm")
+        Dim fmMode As Boolean = mode.Contains("fm")
+
+        ' NR/ANF gating
+        Dim licenseReported As Boolean = If(hasRig, rig.NoiseReductionLicenseReported, False)
+        Dim licenseEnabled As Boolean = If(hasRig, rig.NoiseReductionLicensed, False)
+        Dim nrTip As String = ""
+        If Not hasSlice Then
+            nrTip = "No active slice."
+        ElseIf licenseReported AndAlso Not licenseEnabled Then
+            nrTip = "NR/ANF feature disabled by license."
+        ElseIf hasRig AndAlso Not licenseReported Then
+            nrTip = "NR/ANF license check pending."
+        End If
+
+        Dim nrAllowed As Boolean = hasSlice AndAlso licenseEnabled AndAlso Not cwOrFm
+        Dim anfAllowed As Boolean = hasSlice AndAlso licenseEnabled AndAlso Not fmMode
+
+        filtersNRRnnItem.Checked = hasRig AndAlso (rig.NeuralNoiseReduction = Radios.FlexBase.OffOnValues.on)
+        filtersNRSpectralItem.Checked = hasRig AndAlso (rig.SpectralNoiseReduction = Radios.FlexBase.OffOnValues.on)
+        filtersNRLegacyItem.Checked = hasRig AndAlso (rig.NoiseReductionLegacy = Radios.FlexBase.OffOnValues.on)
+        filtersANFFftItem.Checked = hasRig AndAlso (rig.AutoNotchFFT = Radios.FlexBase.OffOnValues.on)
+        filtersANFLegacyItem.Checked = hasRig AndAlso (rig.AutoNotchLegacy = Radios.FlexBase.OffOnValues.on)
+
+        Dim nrItems = New ToolStripMenuItem() {filtersNRRnnItem, filtersNRSpectralItem, filtersNRLegacyItem}
+        For Each item In nrItems
+            item.Enabled = nrAllowed
+            item.ToolTipText = nrTip
+        Next
+        Dim anfItems = New ToolStripMenuItem() {filtersANFFftItem, filtersANFLegacyItem}
+        For Each item In anfItems
+            item.Enabled = anfAllowed
+            item.ToolTipText = nrTip
+        Next
+
+        filtersNRMenuItem.Enabled = nrAllowed OrElse anfAllowed OrElse (nrTip <> "")
+        filtersANFMenuItem.Enabled = anfAllowed OrElse (nrTip <> "")
+        filtersNoiseMenuItem.Enabled = filtersNRMenuItem.Enabled OrElse filtersANFMenuItem.Enabled
+
+        ' CW Autotune gating
+        Dim cwCap As Boolean = hasRig AndAlso rig.SupportsCwAutotune
+        Dim cwMode As Boolean = mode.StartsWith("cw")
+        Dim cwTip As String = ""
+        If Not cwCap Then
+            cwTip = "CW autotune not supported on this radio."
+        ElseIf Not hasSlice Then
+            cwTip = "No active slice."
+        ElseIf Not cwMode Then
+            cwTip = "Switch to CW to use autotune."
+        End If
+        Dim cwEnable As Boolean = cwCap AndAlso hasSlice AndAlso cwMode
+
+        filtersCWAutotuneItem.Enabled = cwEnable
+        filtersCWAutotuneItem.ToolTipText = cwTip
+        filtersCWMenuItem.Enabled = cwEnable OrElse (cwTip <> "")
+
+        ' Parent Filters menu enabled if any subitems enabled or we have explanatory tooltip
+        filtersMenuItem.Enabled = filtersNoiseMenuItem.Enabled OrElse filtersCWMenuItem.Enabled
+    End Sub
+
 #If 0 Then
     Private Sub ReceiveTextBox_KeyDown(sender As System.Object, e As System.Windows.Forms.KeyEventArgs)
         ' Allow clipboard stuff
@@ -1910,20 +2263,41 @@ Public Class Form1
 
     Private Sub setupScreenFields()
         ScreenFieldsMenu.DropDownItems.Clear()
-        If (RigControl IsNot Nothing) AndAlso (RigControl.RigFields IsNot Nothing) AndAlso (RigControl.RigFields.ScreenFields IsNot Nothing) Then
-            For Each ctl As Control In RigControl.RigFields.ScreenFields
-                If ctl.Enabled Then
-                    Dim item = New ToolStripMenuItem
-                    item.Tag = ctl
-                    item.AccessibleRole = Windows.Forms.AccessibleRole.MenuItem
-                    'item.Size = New Size(227, 22)
-                    item.AutoSize = True
-                    item.Text = CStr(ctl.Tag)
-                    AddHandler item.Click, AddressOf ScreenField_Click
-                    ScreenFieldsMenu.DropDownItems.Add(item)
-                End If
-            Next
+        Dim rig = RigControl
+        If (rig Is Nothing) OrElse (rig.RigFields Is Nothing) OrElse (rig.RigFields.ScreenFields Is Nothing) Then
+            Return
         End If
+
+        Dim nrAllowed As Boolean = rig.NoiseReductionLicenseReported AndAlso rig.NoiseReductionLicensed AndAlso rig.HasActiveSlice
+        Dim diversityAllowed As Boolean = rig.DiversityReady AndAlso String.IsNullOrEmpty(rig.DiversityGateMessage)
+
+        For Each ctl As Control In rig.RigFields.ScreenFields
+            If ctl Is Nothing OrElse Not ctl.Enabled Then
+                Continue For
+            End If
+
+            Dim nameLower As String = If(ctl.Name, "").ToLowerInvariant()
+            Dim tagLower As String = If(If(ctl.Tag, "").ToString(), "").ToLowerInvariant()
+
+            Dim isNoiseFeature As Boolean = nameLower.Contains("noise") OrElse nameLower.Contains("anf") OrElse tagLower.Contains("noise") OrElse tagLower.Contains("anf") OrElse tagLower.Contains("n.r.")
+            Dim isDiversityFeature As Boolean = nameLower.Contains("diversity") OrElse tagLower.Contains("diversity")
+            Dim isEscFeature As Boolean = nameLower.Contains("esc") OrElse tagLower.Contains("esc")
+
+            If isNoiseFeature AndAlso Not nrAllowed Then
+                Continue For
+            End If
+            If (isDiversityFeature OrElse isEscFeature) AndAlso Not diversityAllowed Then
+                Continue For
+            End If
+
+            Dim item = New ToolStripMenuItem
+            item.Tag = ctl
+            item.AccessibleRole = Windows.Forms.AccessibleRole.MenuItem
+            item.AutoSize = True
+            item.Text = CStr(ctl.Tag)
+            AddHandler item.Click, AddressOf ScreenField_Click
+            ScreenFieldsMenu.DropDownItems.Add(item)
+        Next
     End Sub
 
     Private Sub ScreenField_Click(sender As Object, e As EventArgs)
@@ -1977,6 +2351,10 @@ Public Class Form1
             If keyItem.menuText = vbNullString Then
                 Exit For
             End If
+            ' Skip legacy JJ Radio "Menus" entry (not supported on JJFlexRadio).
+            If String.Equals(keyItem.menuText, "Menus", StringComparison.OrdinalIgnoreCase) Then
+                Continue For
+            End If
             Dim item = New ToolStripMenuItem
             item.Tag = keyItem
             item.AccessibleRole = Windows.Forms.AccessibleRole.MenuItem
@@ -1985,6 +2363,43 @@ Public Class Form1
             AddHandler item.Click, AddressOf OperationsMenuItem_Click
             OperationsMenuItem.DropDownItems.Add(item)
         Next
+
+        ' Only add the daily trace toggle if operator data is ready.
+        Dim haveOp As Boolean = (Operators IsNot Nothing) AndAlso (CurrentOp IsNot Nothing)
+        If Not haveOp Then
+            keepDailyTraceMenuItem = Nothing
+            Return
+        End If
+
+        ' Daily trace logging toggle
+        Dim keepDaily As Boolean = CurrentOp.KeepDailyTraceLogs
+        keepDailyTraceMenuItem = New ToolStripMenuItem("Keep Daily Trace Logs") With {
+            .AccessibleRole = AccessibleRole.MenuItem,
+            .CheckOnClick = True,
+            .Checked = keepDaily
+        }
+        AddHandler keepDailyTraceMenuItem.Click,
+            Sub()
+                If (Operators Is Nothing) OrElse (CurrentOp Is Nothing) Then
+                    Tracing.TraceLine("KeepDailyTrace toggle ignored: no current operator", TraceLevel.Warning)
+                    Return
+                End If
+                CurrentOp.KeepDailyTraceLogs = Not CurrentOp.KeepDailyTraceLogs
+                keepDailyTraceMenuItem.Checked = CurrentOp.KeepDailyTraceLogs
+                Operators.UpdateCurrentOp()
+                If CurrentOp.KeepDailyTraceLogs Then
+                    StartDailyTraceIfEnabled()
+                Else
+                    ' Stop automatic daily trace; manual traces remain untouched.
+                    If Tracing.On AndAlso Not String.IsNullOrEmpty(LastUserTraceFile) AndAlso LastUserTraceFile.Contains(ProgramName & "Trace") Then
+                        Tracing.TraceLine("Daily tracing disabled; stopping automatic trace", TraceLevel.Info)
+                        Tracing.On = False
+                        LastUserTraceFile = ""
+                    End If
+                End If
+            End Sub
+        OperationsMenuItem.DropDownItems.Add(New ToolStripSeparator())
+        OperationsMenuItem.DropDownItems.Add(keepDailyTraceMenuItem)
     End Sub
 
     Private Sub OperationsMenuItem_Click(sender As Object, e As EventArgs)
@@ -2089,3 +2504,4 @@ Public Class Form1
         ExportSetup.ExportSetup()
     End Sub
 End Class
+

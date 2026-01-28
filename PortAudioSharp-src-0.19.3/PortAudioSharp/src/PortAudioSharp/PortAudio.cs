@@ -341,7 +341,10 @@ namespace PortAudioSharp {
 	 	public static extern IntPtr IntPtr_Pa_GetDeviceInfo(int device);
 	 	
 	 	public static PaDeviceInfo Pa_GetDeviceInfo(int device) {
+            // Guard against invalid device IDs (-1 == paNoDevice) or a null pointer from PortAudio.
+            if (device < 0) return new PaDeviceInfo();
 	 		IntPtr structptr = IntPtr_Pa_GetDeviceInfo(device);
+            if (structptr == IntPtr.Zero) return new PaDeviceInfo();
 	 		return (PaDeviceInfo) Marshal.PtrToStructure(structptr, typeof(PaDeviceInfo));
 	 	}
 		

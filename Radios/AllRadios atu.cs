@@ -2618,6 +2618,12 @@ namespace Radios
         public const int RIGIDIC9100 = RIGIDIcom + 1;
         public const int RIGIDFlex = 900;
         public const int RIGIDFlex6300 = RIGIDFlex + 7;
+        public const int RIGIDFlex6400 = RIGIDFlex + 8;
+        public const int RIGIDFlex6500 = RIGIDFlex + 9;
+        public const int RIGIDFlex6600 = RIGIDFlex + 10;
+        public const int RIGIDFlex6700 = RIGIDFlex + 11;
+        public const int RIGIDFlex8600 = RIGIDFlex + 12;
+        public const int RIGIDAurora   = RIGIDFlex + 13;
 
         public enum ComType
         {
@@ -2698,7 +2704,14 @@ namespace Radios
              new RigElement(RIGIDKenwoodTS2000, "TS2000", typeof(KenwoodTS2000), kenwoodComDefaults),
              new RigElement(RIGIDElecraftK3, "K3", typeof(ElecraftK3), elecraftComDefaults),
              new RigElement(RIGIDIC9100, "IC9100", typeof(Icom9100), IcomComDefaults),
+             // Flex series (use Flex6300 implementation; capabilities gated dynamically)
              new RigElement(RIGIDFlex6300, "Flex6300", typeof(Flex6300), FlexComDefaults),
+             new RigElement(RIGIDFlex6400, "Flex6400/6400M", typeof(Flex6300), FlexComDefaults),
+             new RigElement(RIGIDFlex6500, "Flex6500", typeof(Flex6300), FlexComDefaults),
+             new RigElement(RIGIDFlex6600, "Flex6600/6600M", typeof(Flex6300), FlexComDefaults),
+             new RigElement(RIGIDFlex6700, "Flex6700/6700R", typeof(Flex6300), FlexComDefaults),
+             new RigElement(RIGIDFlex8600, "Flex8600/8600M", typeof(Flex6300), FlexComDefaults),
+             new RigElement(RIGIDAurora,   "Flex Aurora (A520/A520M)", typeof(Flex6300), FlexComDefaults),
             };
 
         /// <summary>

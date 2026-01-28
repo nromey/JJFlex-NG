@@ -47,11 +47,12 @@ Public NotInheritable Class About
                 Me.TextBoxDescription.Text &= vbCrLf & an.Name & ":" & an.Version.ToString
             End If
         Next
+        Me.TextBoxDescription.Text &= vbCrLf & "Contributors: J.J. Shaffer, K5NER"
 #If 0 Then
         Me.TextBoxDescription.Text = "dll versions:" & vbCrLf & _
             "Escapes.dll: " & Escapes.Escapes.Version.ToString & vbCrLf & _
             "HamBands.dll: " & HamBands.Bands.Version.ToString & vbCrLf & _
-            "JJLogio.dll: " & JJLogIO.LogIO.Version.ToString & vbCrLf & _
+            "JJLogio.dll: " & JJLogIO.LogIO.Version.ToString & vbCrLf & _ 
             "JJLogLib.dll: " & JJLogLib.Logs.Version.ToString & vbCrLf & _
             "RadioBoxes.dll: " & RadioBoxes.MainBox.Version.ToString & vbCrLf & _
             "Radios.dll: " & Radios.AllRadios.Version.ToString

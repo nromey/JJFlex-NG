@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
@@ -10,10 +10,10 @@ using JJTrace;
 
 namespace JJCountriesDB
 {
-    public class CountriesDB
+    public partial class CountriesDB
     {
         private const string dbName = "cty_wt.dat";
-        public List<Record> CountryInfo;
+        public List<Record> CountryRecords;
         internal List<KeyData> TheKeys;
         // Map first letter to TheKeys index.
         Dictionary<char, int> hasher;
@@ -136,7 +136,7 @@ namespace JJCountriesDB
         {
             Tracing.TraceLine("CountriesDB constructor", TraceLevel.Info);
             StreamReader sr = null;
-            CountryInfo = new List<Record>();
+            CountryRecords = new List<Record>();
             TheKeys = new List<KeyData>();
             List<KeyData> myKeys = new List<KeyData>();
             hasher = new Dictionary<char, int>();
@@ -150,7 +150,7 @@ namespace JJCountriesDB
                     {
                         rr.MainPrefix = rr.MainPrefix.ToUpper();
                         if (!string.IsNullOrEmpty(rr.OtherPrefix)) rr.OtherPrefix = rr.OtherPrefix.ToUpper();
-                        CountryInfo.Add(rr);
+                        CountryRecords.Add(rr);
 
                         // Get prefixes
                         List<KeyData> keyList = Record.buildKeys(rr.MainPrefix);
@@ -176,8 +176,8 @@ namespace JJCountriesDB
             {
                 if (sr != null) sr.Dispose();
             }
-            Tracing.TraceLine("CountriesDB #read:" + CountryInfo.Count.ToString(), TraceLevel.Info);
-            if (CountryInfo.Count == 0) throw new CountriesDB.NotCountries();
+            Tracing.TraceLine("CountriesDB #read:" + CountryRecords.Count.ToString(), TraceLevel.Info);
+            if (CountryRecords.Count == 0) throw new CountriesDB.NotCountries();
 
             // Now sort TheKeys.
             myKeys.Sort(KeyData.SortProc);
@@ -203,7 +203,7 @@ namespace JJCountriesDB
             }
 
             // Sort the countries by DXCC number.
-            CountryInfo.Sort(Record.SortByDXCC);
+            CountryRecords.Sort(Record.SortByDXCC);
         }
 
         // Used for slash processing.
@@ -226,7 +226,7 @@ namespace JJCountriesDB
                 // Change the form xxx/yyy to xxx or vice versa.
                 cs = (id > (cs.Length / 2)) ? slashLeft.Replace(cs, "") : slashRight.Replace(cs, "");
             }
-            if (string.IsNullOrEmpty(cs) | (CountryInfo == null)) return null;
+            if (string.IsNullOrEmpty(cs) | (CountryRecords == null)) return null;
             cs = cs.ToUpper();
 
             // Hash to starting point.
@@ -272,14 +272,14 @@ namespace JJCountriesDB
             //name = name.ToUpper();
             Record rv = null;
             int L = 0;
-            int H = CountryInfo.Count - 1;
+            int H = CountryRecords.Count - 1;
             int M = (int)(((Single)(H - L) / 2) + 0.5);
             int d = 0;
             int sanity = H;
             while (((M >= L) & (M <= H)) & (rv == null) & (sanity-- > 0))
             {
-                int c = String.Compare(arg, CountryInfo[M].CountryID);
-                if (c == 0) rv = CountryInfo[M];
+                int c = String.Compare(arg, CountryRecords[M].CountryID);
+                if (c == 0) rv = CountryRecords[M];
                 else if (c > 0)
                 {
                     L = M;

@@ -143,25 +143,34 @@ namespace JJPortaudio
                 goto done;
             }
 
-            // Get default devices, input then output.
+            // Get default devices, input then output. Some systems return -1 (paNoDevice) when
+            // no default exists; skip in that case instead of dereferencing a null pointer.
             infoType info = new infoType();
-            info.Info = PortAudio.Pa_GetDeviceInfo(PortAudio.Pa_GetDefaultInputDevice());
-            if (info.Info.maxInputChannels == 2)
+            int defaultInputId = PortAudio.Pa_GetDefaultInputDevice();
+            if (defaultInputId >= 0)
             {
-                info.IsDefault = true;
-                info.Type = Devices.DeviceTypes.input;
-                //info.DeviceID is set later.
-                InputDeviceList.Add(info);
+                info.Info = PortAudio.Pa_GetDeviceInfo(defaultInputId);
+                if (info.Info.maxInputChannels == 2 && !string.IsNullOrEmpty(info.Info.name))
+                {
+                    info.IsDefault = true;
+                    info.Type = Devices.DeviceTypes.input;
+                    //info.DeviceID is set later.
+                    InputDeviceList.Add(info);
+                }
             }
 
             info = new infoType();
-            info.Info = PortAudio.Pa_GetDeviceInfo(PortAudio.Pa_GetDefaultOutputDevice());
-            if (info.Info.maxOutputChannels == 2)
+            int defaultOutputId = PortAudio.Pa_GetDefaultOutputDevice();
+            if (defaultOutputId >= 0)
             {
-                info.IsDefault = true;
-                info.Type = Devices.DeviceTypes.output;
-                //info.DeviceID is set later.
-                OutputDeviceList.Add(info);
+                info.Info = PortAudio.Pa_GetDeviceInfo(defaultOutputId);
+                if (info.Info.maxOutputChannels == 2 && !string.IsNullOrEmpty(info.Info.name))
+                {
+                    info.IsDefault = true;
+                    info.Type = Devices.DeviceTypes.output;
+                    //info.DeviceID is set later.
+                    OutputDeviceList.Add(info);
+                }
             }
 
             for (int i = 0; i < numDevs; i++)
@@ -169,6 +178,10 @@ namespace JJPortaudio
                 info = new infoType();
                 // Get the system's device info.
                 info.Info = PortAudio.Pa_GetDeviceInfo(i);
+                if (string.IsNullOrEmpty(info.Info.name))
+                {
+                    continue;
+                }
                 info.DeviceID = i;
                 // must be a stereo input device.
                 if (info.CanInput && (info.Info.maxInputChannels == 2))
@@ -203,7 +216,11 @@ namespace JJPortaudio
                 }
             }
 
-            rv = ((InputDeviceList.Count > 0) | (OutputDeviceList.Count > 0));
+            rv = ((InputDeviceList.Count > 0) || (OutputDeviceList.Count > 0));
+            if (!rv)
+            {
+                MessageBox.Show("No audio devices were detected by PortAudio. Please attach/enable an input and output audio device and try again.", err, MessageBoxButtons.OK);
+            }
 
             done:
             PortAudio.Pa_Terminate();

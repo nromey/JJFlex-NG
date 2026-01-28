@@ -34,7 +34,7 @@ Friend Class DXCCData
     Friend Sub New()
         Dim fn As String = ProgramDirectory & "\" & fileBaseName
         Try
-            countryDB = New CountriesDB(fn)
+            countryDB = New CountriesDB()
         Catch ex As Exception
             Tracing.ErrMessageTrace(ex)
             countryDB = Nothing

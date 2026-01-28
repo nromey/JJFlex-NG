@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="12.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <PropertyGroup>
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
@@ -60,10 +60,12 @@
     <Prefer32Bit>false</Prefer32Bit>
   </PropertyGroup>
   <ItemGroup>
-    <!-- Ionic.Zip local DLL removed to avoid duplicate type conflicts with DotNetZip NuGet package -->
+    <!-- Removed DotNetZip to eliminate vulnerability; using System.IO.Compression instead -->
     <Reference Include="System" />
     <Reference Include="System.Core" />
     <Reference Include="System.Drawing" />
+    <Reference Include="System.IO.Compression" />
+    <Reference Include="System.IO.Compression.FileSystem" />
     <Reference Include="System.Windows.Forms" />
     <Reference Include="System.Xml.Linq" />
     <Reference Include="System.Data.DataSetExtensions" />
@@ -76,6 +78,11 @@
     <PackageReference Include="System.Collections.Immutable" Version="9.0.0" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="AllRadios.cs" />
+    <Compile Include="AllRadiosPanning.cs" />
+    <Compile Include="AllRadiosUtils.cs" />
+    <Compile Include="StubRadios.cs" />
+    <Compile Include="FlexRadio.cs" />
     <Compile Include="AuthForm.cs">
       <SubType>Form</SubType>
     </Compile>
@@ -84,6 +91,7 @@
     <Compile Include="Flex6300Filters.cs">
       <SubType>UserControl</SubType>
     </Compile>
+    <Compile Include="FlexFilters.cs" />
     <Compile Include="Flex6300Filters.designer.cs">
       <DependentUpon>Flex6300Filters.cs</DependentUpon>
     </Compile>
@@ -99,6 +107,12 @@
     </Compile>
     <Compile Include="FlexEq.Designer.cs">
       <DependentUpon>FlexEq.cs</DependentUpon>
+    </Compile>
+    <Compile Include="EscDialog.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="EscDialog.designer.cs">
+      <DependentUpon>EscDialog.cs</DependentUpon>
     </Compile>
     <Compile Include="FlexInfo.cs">
       <SubType>Form</SubType>
@@ -190,20 +204,20 @@
       <Project>{0d6f7843-33f7-46b0-ab2d-47baa967ef5e}</Project>
       <Name>escapes</Name>
     </ProjectReference>
-    <ProjectReference Include="..\FlexLib_API_v3.2.37\FlexLib\FlexLib.csproj">
+    <ProjectReference Include="..\FlexLib_API\FlexLib\FlexLib.csproj">
       <Project>{7927817c-d5ef-4a9e-b38e-29668f308343}</Project>
       <Name>FlexLib</Name>
       <EmbedInteropTypes>False</EmbedInteropTypes>
     </ProjectReference>
-    <ProjectReference Include="..\FlexLib_API_v3.2.37\UiWpfFramework\UiWpfFramework.csproj">
+    <ProjectReference Include="..\FlexLib_API\UiWpfFramework\UiWpfFramework.csproj">
       <Project>{9c0ad871-92fd-461b-84ff-3738d701814f}</Project>
       <Name>UiWpfFramework</Name>
     </ProjectReference>
-    <ProjectReference Include="..\FlexLib_API_v3.2.37\Util\Util.csproj">
+    <ProjectReference Include="..\FlexLib_API\Util\Util.csproj">
       <Project>{38935dc9-ff48-470c-b876-473a3ae8bd32}</Project>
       <Name>Util</Name>
     </ProjectReference>
-    <ProjectReference Include="..\FlexLib_API_v3.2.37\Vita\Vita.csproj">
+    <ProjectReference Include="..\FlexLib_API\Vita\Vita.csproj">
       <Project>{6ed364fb-7444-44da-9196-1d8679425b3e}</Project>
       <Name>Vita</Name>
     </ProjectReference>

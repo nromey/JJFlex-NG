@@ -43,6 +43,10 @@ Partial Class Form1
         Me.LOTWMergeMenuItem = New System.Windows.Forms.ToolStripMenuItem()
         Me.ExportSetupMenuItem = New System.Windows.Forms.ToolStripMenuItem()
         Me.ShowBandsMenuItem = New System.Windows.Forms.ToolStripMenuItem()
+        Me.ToolStripSeparator2 = New System.Windows.Forms.ToolStripSeparator()
+        Me.DiversityMenuItem = New System.Windows.Forms.ToolStripMenuItem()
+        Me.EscMenuItem = New System.Windows.Forms.ToolStripMenuItem()
+        Me.FeatureAvailabilityMenuItem = New System.Windows.Forms.ToolStripMenuItem()
         Me.ToolStripSeparator1 = New System.Windows.Forms.ToolStripSeparator()
         Me.CWMessageUpdateMenuItem = New System.Windows.Forms.ToolStripMenuItem()
         Me.ChangeKeysMenuItem = New System.Windows.Forms.ToolStripMenuItem()
@@ -125,7 +129,7 @@ Partial Class Form1
         'ActionsToolStripMenuItem
         '
         Me.ActionsToolStripMenuItem.AccessibleRole = System.Windows.Forms.AccessibleRole.MenuPopup
-        Me.ActionsToolStripMenuItem.DropDownItems.AddRange(New System.Windows.Forms.ToolStripItem() {Me.ListOperatorsMenuItem, Me.SelectRigMenuItem, Me.ProfilesMenuItem, Me.LocalPTTMenuItem, Me.StationNamesMenuItem, Me.FlexKnobMenuItem, Me.W2ConfigToolStripMenuItem, Me.LoggingMenuItem, Me.ExportSetupMenuItem, Me.ShowBandsMenuItem, Me.ToolStripSeparator1, Me.CWMessageUpdateMenuItem, Me.ChangeKeysMenuItem, Me.RestoreKeyMappingMenuItem, Me.ClearOptionalMenuItem, Me.ToolStripSeparator3, Me.ScreenSaverMenuItem, Me.FileExitToolStripMenuItem})
+        Me.ActionsToolStripMenuItem.DropDownItems.AddRange(New System.Windows.Forms.ToolStripItem() {Me.ListOperatorsMenuItem, Me.SelectRigMenuItem, Me.ProfilesMenuItem, Me.LocalPTTMenuItem, Me.StationNamesMenuItem, Me.FlexKnobMenuItem, Me.W2ConfigToolStripMenuItem, Me.LoggingMenuItem, Me.ExportSetupMenuItem, Me.ShowBandsMenuItem, Me.ToolStripSeparator2, Me.DiversityMenuItem, Me.EscMenuItem, Me.FeatureAvailabilityMenuItem, Me.ToolStripSeparator1, Me.CWMessageUpdateMenuItem, Me.ChangeKeysMenuItem, Me.RestoreKeyMappingMenuItem, Me.ClearOptionalMenuItem, Me.ToolStripSeparator3, Me.ScreenSaverMenuItem, Me.FileExitToolStripMenuItem})
         Me.ActionsToolStripMenuItem.Name = "ActionsToolStripMenuItem"
         Me.ActionsToolStripMenuItem.Size = New System.Drawing.Size(59, 20)
         Me.ActionsToolStripMenuItem.Text = "Actions"
@@ -227,6 +231,33 @@ Partial Class Form1
         Me.ShowBandsMenuItem.Name = "ShowBandsMenuItem"
         Me.ShowBandsMenuItem.Size = New System.Drawing.Size(227, 22)
         Me.ShowBandsMenuItem.Text = "Show &Bands and Frequencies"
+        '
+        'ToolStripSeparator2
+        '
+        Me.ToolStripSeparator2.Name = "ToolStripSeparator2"
+        Me.ToolStripSeparator2.Size = New System.Drawing.Size(224, 6)
+        '
+        'DiversityMenuItem
+        '
+        Me.DiversityMenuItem.AccessibleRole = System.Windows.Forms.AccessibleRole.MenuItem
+        Me.DiversityMenuItem.Name = "DiversityMenuItem"
+        Me.DiversityMenuItem.Size = New System.Drawing.Size(227, 22)
+        Me.DiversityMenuItem.Text = "Toggle &Diversity"
+        '
+        'EscMenuItem
+        '
+        Me.EscMenuItem.AccessibleRole = System.Windows.Forms.AccessibleRole.MenuItem
+        Me.EscMenuItem.Name = "EscMenuItem"
+        Me.EscMenuItem.Size = New System.Drawing.Size(227, 22)
+        Me.EscMenuItem.Text = "Open ESC &controls..."
+        '
+        'FeatureAvailabilityMenuItem
+        '
+        Me.FeatureAvailabilityMenuItem.AccessibleRole = System.Windows.Forms.AccessibleRole.MenuItem
+        Me.FeatureAvailabilityMenuItem.Name = "FeatureAvailabilityMenuItem"
+        Me.FeatureAvailabilityMenuItem.Size = New System.Drawing.Size(227, 22)
+        Me.FeatureAvailabilityMenuItem.Text = "Feature Availability..."
+        '
         '
         'ToolStripSeparator1
         '
@@ -497,6 +528,7 @@ Partial Class Form1
     Friend WithEvents W2ConfigToolStripMenuItem As System.Windows.Forms.ToolStripMenuItem
     Friend WithEvents HelpToolStripMenuItem As System.Windows.Forms.ToolStripMenuItem
     Friend WithEvents ToolStripSeparator1 As System.Windows.Forms.ToolStripSeparator
+    Friend WithEvents ToolStripSeparator2 As System.Windows.Forms.ToolStripSeparator
     Friend WithEvents ScanTmr As System.Windows.Forms.Timer
     Friend WithEvents ImportMenuItem As System.Windows.Forms.ToolStripMenuItem
     Friend WithEvents ExportMenuItem As System.Windows.Forms.ToolStripMenuItem
@@ -515,6 +547,9 @@ Partial Class Form1
     Friend WithEvents CWMessageUpdateMenuItem As System.Windows.Forms.ToolStripMenuItem
     Friend WithEvents TXTuneControl As RadioBoxes.Combo
     Friend WithEvents ShowBandsMenuItem As System.Windows.Forms.ToolStripMenuItem
+    Friend WithEvents DiversityMenuItem As System.Windows.Forms.ToolStripMenuItem
+    Friend WithEvents EscMenuItem As System.Windows.Forms.ToolStripMenuItem
+    Friend WithEvents FeatureAvailabilityMenuItem As System.Windows.Forms.ToolStripMenuItem
     Friend WithEvents ScreenFieldsMenu As System.Windows.Forms.ToolStripMenuItem
     Friend WithEvents ScreenFieldsDefaultItem As System.Windows.Forms.ToolStripMenuItem
     Friend WithEvents TraceOpenFileDialog As System.Windows.Forms.OpenFileDialog

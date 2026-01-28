@@ -1,4 +1,4 @@
-﻿Imports System.Collections
+Imports System.Collections
 Imports System.Drawing
 Imports JJTrace
 Imports Radios
@@ -18,8 +18,8 @@ Public Class Menus
                 End If
             End Get
         End Property
-        Private myMenus As AllRadios.MenuDescriptor(,)
-        Public ReadOnly Property Menus As AllRadios.MenuDescriptor(,)
+        Private myMenus As Radios.AllRadios.MenuDescriptor(,)
+        Public ReadOnly Property Menus As Radios.AllRadios.MenuDescriptor(,)
             Get
                 If myMenus Is Nothing Then
                     Return RigControl.Menus
@@ -55,7 +55,7 @@ Public Class Menus
         ''' </summary>
         ''' <param name="m">submenu array</param>
         ''' <param name="l">submenu location</param>
-        Public Sub New(m As AllRadios.MenuDescriptor(,), l As Point)
+        Public Sub New(m As Radios.AllRadios.MenuDescriptor(,), l As Point)
             Subm = True
             nBanks = 1
             myMenus = m
@@ -68,7 +68,7 @@ Public Class Menus
     Friend InvocationInfo As MenuInfo = Nothing
 
     Private Class menuSource
-        Private menu As AllRadios.MenuDescriptor
+        Private menu As Radios.AllRadios.MenuDescriptor
         Public ReadOnly Property Display As String
             Get
                 Dim rv As String
@@ -86,21 +86,21 @@ Public Class Menus
         End Property
         ' Note that the actual menu's value, menu.Value, is read 
         ' from the rig whenever used.
-        Public ReadOnly Property menuItem As AllRadios.MenuDescriptor
+        Public ReadOnly Property menuItem As Radios.AllRadios.MenuDescriptor
             Get
                 Return menu
             End Get
         End Property
-        Public Sub New(m As AllRadios.MenuDescriptor)
+        Public Sub New(m As Radios.AllRadios.MenuDescriptor)
             menu = m
         End Sub
     End Class
     Private menuList As ArrayList()
     Private menuBank As Integer
     Private Class changed
-        Public md As AllRadios.MenuDescriptor
+        Public md As Radios.AllRadios.MenuDescriptor
         Public newValue As Object
-        Public Sub New(m As AllRadios.MenuDescriptor, val As Object)
+        Public Sub New(m As Radios.AllRadios.MenuDescriptor, val As Object)
             md = m
             newValue = val
         End Sub
@@ -207,7 +207,7 @@ Public Class Menus
         MenuValueBox.Visible = False
         MenuValueText.Enabled = False
         MenuValueText.Visible = False
-        Dim md As AllRadios.MenuDescriptor = MenuListBox.SelectedValue
+        Dim md As Radios.AllRadios.MenuDescriptor = MenuListBox.SelectedValue
         If md Is Nothing Then
             ShowInternalError(MenuMalfunction)
             Return
@@ -292,7 +292,7 @@ Public Class Menus
         Dim valueID As Integer = MenuValueBox.SelectedIndex
         Tracing.TraceLine("Menus MenuValueBox_SelectedIndexChanged:" & listID.ToString & " " & valueID.ToString, TraceLevel.Info)
         If (listID <> -1) And (valueID <> -1) Then
-            Dim md As AllRadios.MenuDescriptor = MenuListBox.SelectedValue
+            Dim md As Radios.AllRadios.MenuDescriptor = MenuListBox.SelectedValue
             Select Case md.Type
                 Case AllRadios.MenuTypes.Enumerated
                     change = New changed(MenuListBox.SelectedValue,
@@ -357,7 +357,7 @@ Public Class Menus
     ''' </summary>
     Private Sub ValueBox_Enter(sender As System.Object, e As System.EventArgs) Handles ValueBox.Enter
         Tracing.TraceLine("Menus ValueBox_Enter:", TraceLevel.Info)
-        Dim md As AllRadios.MenuDescriptor = MenuListBox.SelectedValue
+        Dim md As Radios.AllRadios.MenuDescriptor = MenuListBox.SelectedValue
         ValueBox.BringToFront()
         If md.HasSubMenus Then
             ' Get submenu display location
@@ -365,7 +365,7 @@ Public Class Menus
             Dim loc As New Point(listLocation.X + r.X + (r.Width / 5),
                                  listLocation.Y + r.Y + r.Height)
             ' Make a 2-dimentional array of submenus
-            Dim subs As AllRadios.MenuDescriptor(,)
+            Dim subs As Radios.AllRadios.MenuDescriptor(,)
             ReDim subs(0, md.subMenus.Length - 1)
             For i As Integer = 0 To subs.GetLength(1) - 1
                 subs(0, i) = md.subMenus(i)

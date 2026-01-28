@@ -8,19 +8,28 @@
 ;--------------------------------
 
 ; The name of the installer
-Name "JJFlexRadio 3.2.37"
-; The file to write
-OutFile "Setup JJFlexRadio 3.2.37.exe"
+Name "JJFlexRadio"
+; The file to write (version appended via 4.1.8.0)
+OutFile "Setup JJFlexRadio_4.1.8.0.exe"
 
 ; The default installation directory
-InstallDir "$PROGRAMFILES\jjshaffer\JJFlexRadio 3.2.37"
+InstallDir "$PROGRAMFILES\jjshaffer\JJFlexRadio"
 
 ; Registry key to check for directory (so if you install again, it will 
 ; overwrite the old one automatically)
-InstallDirRegKey HKLM "Software\NSIS_JJFlexRadio 3.2.37" "Install_Dir"
+InstallDirRegKey HKLM "Software\NSIS_JJFlexRadio" "Install_Dir"
 
 ; Request application privileges for Windows Vista
 RequestExecutionLevel admin
+
+
+; Version information for the installer bundle
+VIProductVersion "4.1.8.0"
+VIFileVersion "4.1.8.0"
+VIAddVersionKey /LANG=1033 "ProductVersion" "4.1.8.0"
+VIAddVersionKey /LANG=1033 "FileVersion" "4.1.8.0"
+VIAddVersionKey /LANG=1033 "ProductName" "JJFlexRadio"
+VIAddVersionKey /LANG=1033 "FileDescription" "JJFlexRadio installer"
 
 
 ; Get a welcome message
@@ -55,17 +64,17 @@ Section "JJFlexRadio (required)"
   ; Set output path to the installation directory.
   SetOutPath $INSTDIR
   
-  ; Put files there
-  File /x src "bin\release\*.*"
+  ; Put files there - recurse all built outputs
+  File /r /x "*.pdb" "C:\dev\JJFlex-NG\bin\x86\Release\net48\win-x86\*.*"
   
   ; Write the installation path into the registry
-  WriteRegStr HKLM "SOFTWARE\JJFlexRadio 3.2.37" "Install_Dir" "$INSTDIR"
+  WriteRegStr HKLM "SOFTWARE\JJFlexRadio" "Install_Dir" "$INSTDIR"
   
   ; Write the uninstall keys for Windows
-  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\JJFlexRadio 3.2.37" "DisplayName" "JJFlexRadio 3.2.37"
-  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\JJFlexRadio 3.2.37" "UninstallString" '"$INSTDIR\uninstall.exe"'
-  WriteRegDWORD HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\JJFlexRadio 3.2.37" "NoModify" 1
-  WriteRegDWORD HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\JJFlexRadio 3.2.37" "NoRepair" 1
+  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\JJFlexRadio" "DisplayName" "JJFlexRadio"
+  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\JJFlexRadio" "UninstallString" '"$INSTDIR\uninstall.exe"'
+  WriteRegDWORD HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\JJFlexRadio" "NoModify" 1
+  WriteRegDWORD HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\JJFlexRadio" "NoRepair" 1
   WriteUninstaller "$INSTDIR\uninstall.exe"
   
 SectionEnd
@@ -79,7 +88,7 @@ Section "Start Menu Shortcuts"
   ; working dirrectory
   SetOutPath $INSTDIR
   
-  CreateShortcut "$SMPROGRAMS\JJFlexRadio 3.2.37.lnk" "$INSTDIR\JJFlexRadio 3.2.37.exe" ""
+  CreateShortcut "$SMPROGRAMS\JJFlexRadio.lnk" "$INSTDIR\JJFlexRadio.exe" ""
   
 SectionEnd
 
@@ -92,7 +101,7 @@ Section "Desktop Shortcuts"
   ; working dirrectory
   SetOutPath $INSTDIR
   
-  CreateShortcut "$DESKTOP\JJFlexRadio 3.2.37.lnk" "$INSTDIR\JJFlexRadio 3.2.37.exe" ""
+  CreateShortcut "$DESKTOP\JJFlexRadio.lnk" "$INSTDIR\JJFlexRadio.exe" ""
   
 SectionEnd
 ;--------------------------------
@@ -105,18 +114,19 @@ Section "Uninstall"
   SetShellVarContext all  
   
   ; Remove registry keys
-  DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\JJFlexRadio 3.2.37"
-  DeleteRegKey HKLM "SOFTWARE\JJFlexRadio 3.2.37"
+  DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\JJFlexRadio"
+  DeleteRegKey HKLM "SOFTWARE\JJFlexRadio"
 
   ; Remove files
 !include "deleteList.txt"
   Delete "$INSTDIR\uninstall.exe"
 
   ; Remove shortcuts, if any
-  Delete "$SMPROGRAMS\JJFlexRadio 3.2.37.lnk"
-  Delete "$DESKTOP\JJFlexRadio 3.2.37.lnk"
+  Delete "$SMPROGRAMS\JJFlexRadio.lnk"
+  Delete "$DESKTOP\JJFlexRadio.lnk"
 
   ; Remove directories used
   RMDir "$INSTDIR"
 
 SectionEnd
+

@@ -1,6 +1,6 @@
 ﻿Imports System.IO
 Imports System.Windows.Forms
-Imports Ionic.Zip
+Imports System.IO.Compression
 Imports JJTrace
 
 Friend Class DebugInfo
@@ -27,13 +27,12 @@ Friend Class DebugInfo
         End If
 
         File.Delete(openDialog.FileName)
-        Using archive As ZipFile = New ZipFile(openDialog.FileName)
-            'archive.CompressionMethod = CompressionMethod.None
+        Using archive As ZipArchive = ZipFile.Open(openDialog.FileName, ZipArchiveMode.Create)
             ' get application data
-            archive.AddDirectory(BaseConfigDir, ProgramName)
+            ZipUtils.AddDirectoryToArchive(archive, BaseConfigDir, ProgramName)
 
             ' get the program
-            archive.AddDirectory(".", "program")
+            ZipUtils.AddDirectoryToArchive(archive, ".", "program")
 
             Dim tempFileName = My.Computer.FileSystem.GetTempFileName
             Try
@@ -51,14 +50,12 @@ Friend Class DebugInfo
                         sw.WriteLine(txt)
                     Next
                 End Using
-                archive.AddFile(tempFileName, "riginfo")
+                ZipUtils.AddFileToArchive(archive, tempFileName, "riginfo")
             End If
 
             If LastUserTraceFile <> vbNullString Then
-                archive.AddFile(LastUserTraceFile, "")
+                ZipUtils.AddFileToArchive(archive, LastUserTraceFile, "")
             End If
-
-            archive.Save()
             File.Delete(tempFileName)
         End Using
         MessageBox.Show(infoGathered, MessageHdr, MessageBoxButtons.OK)

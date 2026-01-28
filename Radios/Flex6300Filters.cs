@@ -55,6 +55,53 @@ namespace Radios
         private FlexTNF flexTNF;
         private delegate void specialDel();
         private Collection<specialDel> specials;
+        private ToolTip licenseToolTip;
+        private bool licenseGateInitialized;
+        private bool lastHasSlice;
+        private bool lastLicenseReported;
+        private bool lastLicenseEnabled;
+        private bool lastReadOnly;
+        private string lastTooltip;
+        private bool lastDiversityReady;
+        private string lastDiversityGateMessage;
+
+        // Noise Reduction / ANF menus
+        private ContextMenuStrip nrMenu;
+        private ToolStripMenuItem nrRoot;
+        private ToolStripMenuItem rnnItem;
+        private ToolStripMenuItem spectralItem;
+        private ToolStripMenuItem legacyNRItem;
+        private ToolStripMenuItem anfRoot;
+        private ToolStripMenuItem anfFftItem;
+        private ToolStripMenuItem anfLegacyItem;
+        private MenuStrip filtersMenuStrip;
+        private ToolStripMenuItem filtersRoot;
+        private ToolStripMenuItem filtersNoiseRoot;
+        private ToolStripMenuItem filtersNRRoot;
+        private ToolStripMenuItem filtersANFRoot;
+        private ToolStripMenuItem filtersCWRoot;
+        private ToolStripMenuItem filtersCWAutotuneItem;
+        private static void updateMenuAccessibility(ToolStripMenuItem item)
+        {
+            if (item == null) return;
+            string label = item.Text ?? string.Empty;
+            if (label.IndexOf('&') >= 0) label = label.Replace("&", "");
+
+            if (item.CheckOnClick)
+            {
+                string state = item.Checked ? "checked" : "not checked";
+                if (!item.Enabled) state = "unavailable";
+                item.AccessibleRole = AccessibleRole.CheckButton;
+                item.AccessibleName = label + " " + state;
+                item.AccessibleDescription = state;
+            }
+            else
+            {
+                item.AccessibleRole = AccessibleRole.MenuItem;
+                item.AccessibleName = label;
+                item.AccessibleDescription = null;
+            }
+        }
 
         internal class trueFalseElement
         {
@@ -200,6 +247,7 @@ namespace Radios
         // Offset is in KHZ, and freq is only up to 6 meters.
         private ArrayList emphasisList, FM1750List;
         private ArrayList binauralList, playList, recordList, daxTXList;
+        private ArrayList diversityList;
 
         private const int txAntennaDisplayOffset = 1;
         private ArrayList rxAntList, TxAntList;
@@ -245,6 +293,14 @@ namespace Radios
             InitializeComponent();
 
             rig = r;
+            licenseToolTip = new ToolTip();
+
+            if (rig != null)
+            {
+                rig.FeatureLicenseChanged += Rig_FeatureLicenseChanged;
+            }
+
+            applyLicenseGating();
 
             // Get peroperator configuration items.
             getConfig();
@@ -685,6 +741,17 @@ namespace Radios
                 (object v) => { rig.RXAntenna = (string)v; };
             combos.Add(RXAntControl);
 
+            // Diversity
+            diversityList = new ArrayList();
+            diversityList.Add(new offOnElement(FlexBase.OffOnValues.off));
+            diversityList.Add(new offOnElement(FlexBase.OffOnValues.on));
+            DiversityControl.TheList = diversityList;
+            DiversityControl.UpdateDisplayFunction =
+                () => { return rig.DiversityOn ? FlexBase.OffOnValues.on : FlexBase.OffOnValues.off; };
+            DiversityControl.UpdateRigFunction =
+                (object v) => { rig.DiversityOn = ((FlexBase.OffOnValues)v) == FlexBase.OffOnValues.on; };
+            combos.Add(DiversityControl);
+
             // TX antenna
             TxAntList = new ArrayList();
             if ((theRadio != null) && (theRadio.ActiveSlice != null))
@@ -742,6 +809,10 @@ namespace Radios
             VoltsBox.UpdateDisplayFunction =
                 () => { return rig.Volts.ToString("F1"); };
             infoBoxes.Add(VoltsBox);
+
+            DiversityStatusControl.UpdateDisplayFunction =
+                () => { return rig.DiversityStatus; };
+            infoBoxes.Add(DiversityStatusControl);
 
             // FM tone or CTCSS mode.
             toneModeList = new ArrayList();
@@ -926,6 +997,7 @@ namespace Radios
             buttonControls.Add(RXEqButton);
             buttonControls.Add(TXEqButton);
             buttonControls.Add(InfoButton);
+            buttonControls.Add(EscButton);
             myControlsCount += buttonControls.Count;
 
             Control[] myControls = new Control[myControlsCount];
@@ -998,6 +1070,10 @@ namespace Radios
         private void Filters_Load(object sender, EventArgs e)
         {
             Tracing.TraceLine("Flex6300Filters_load", TraceLevel.Info);
+            setupNoiseReductionMenu();
+            setupFiltersMenuStrip();
+            applyLicenseGating();
+            applyDiversityGating();
         }
 
         /// <summary>
@@ -1138,11 +1214,237 @@ namespace Radios
                     if (InvokeRequired) Invoke(rtn);
                     else rtn();
                 }
+
+                applyLicenseGating();
+                applyDiversityGating();
             }
             catch (Exception ex)
             {
                 Tracing.TraceLine("updateBoxes exception:" + ex.Message + ex.StackTrace, TraceLevel.Error);
             }
+        }
+
+        private void setGate(Control c, bool enabled, bool readOnly, string tooltip)
+        {
+            if (c == null) return;
+
+            if (c.Enabled != enabled) c.Enabled = enabled;
+
+            if (c is RadioBoxes.Combo combo)
+            {
+                if (combo.ReadOnly != readOnly) combo.ReadOnly = readOnly;
+            }
+            else if (c is RadioBoxes.NumberBox numberBox)
+            {
+                if (numberBox.ReadOnly != readOnly) numberBox.ReadOnly = readOnly;
+            }
+
+            if (licenseToolTip != null)
+            {
+                var normalizedTooltip = string.IsNullOrEmpty(tooltip) ? string.Empty : tooltip;
+                var currentTip = licenseToolTip.GetToolTip(c) ?? string.Empty;
+                if (currentTip != normalizedTooltip)
+                {
+                    licenseToolTip.SetToolTip(c, normalizedTooltip);
+                }
+            }
+
+            if (!string.IsNullOrEmpty(tooltip))
+            {
+                c.Tag = string.IsNullOrEmpty(c.Tag as string) ? tooltip : (string)c.Tag;
+            }
+        }
+
+        private void setTooltip(Control c, string tooltip)
+        {
+            if (c == null || licenseToolTip == null) return;
+            var normalizedTooltip = string.IsNullOrEmpty(tooltip) ? string.Empty : tooltip;
+            var currentTip = licenseToolTip.GetToolTip(c) ?? string.Empty;
+            if (currentTip != normalizedTooltip)
+            {
+                licenseToolTip.SetToolTip(c, normalizedTooltip);
+            }
+        }
+
+        private class NrLicenseGate
+        {
+            public bool HasRadio;
+            public bool HasSlice;
+            public bool LicenseReported;
+            public bool LicenseEnabled;
+            public bool ReadOnly;
+            public bool Enabled;
+            public string Tooltip;
+        }
+
+        private NrLicenseGate GetNoiseReductionGate()
+        {
+            var gate = new NrLicenseGate();
+            var radio = theRadio;
+            gate.HasRadio = (rig != null) && (radio != null);
+            gate.HasSlice = gate.HasRadio && (radio.ActiveSlice != null);
+            var licenseFeature = radio?.FeatureLicense?.LicenseFeatNoiseReduction;
+            gate.LicenseReported = (licenseFeature != null);
+            gate.LicenseEnabled = licenseFeature?.FeatureEnabled == true;
+            gate.ReadOnly = gate.LicenseReported && !gate.LicenseEnabled;
+            gate.Enabled = gate.HasRadio && gate.HasSlice && gate.LicenseEnabled;
+
+            if (gate.LicenseReported && !gate.LicenseEnabled)
+            {
+                gate.Tooltip = licenseFeature.FeatureGatedMessage ?? "Purchase a noise reduction license to enable this control.";
+            }
+            else if (gate.HasRadio && !gate.LicenseReported)
+            {
+                gate.ReadOnly = true;
+                gate.Enabled = false;
+            }
+
+            return gate;
+        }
+
+        private void applyLicenseGating()
+        {
+            if (rig == null) return;
+
+            var gate = GetNoiseReductionGate();
+
+            bool noiseChanged = !licenseGateInitialized ||
+                (gate.HasSlice != lastHasSlice) ||
+                (gate.LicenseReported != lastLicenseReported) ||
+                (gate.LicenseEnabled != lastLicenseEnabled) ||
+                (gate.ReadOnly != lastReadOnly) ||
+                !string.Equals(gate.Tooltip, lastTooltip, StringComparison.Ordinal);
+
+            if (!noiseChanged)
+            {
+                return;
+            }
+
+            Control[] gateControls = {
+                ANFControl,
+                ANFLevelControl,
+                NoiseReductionControl,
+                NoiseReductionLevelControl,
+            };
+
+            foreach (Control ctrl in gateControls)
+            {
+                setGate(ctrl, gate.Enabled, gate.ReadOnly, gate.Tooltip);
+            }
+
+            gateNoiseMenus(gate);
+
+            lastHasSlice = gate.HasSlice;
+            lastLicenseReported = gate.LicenseReported;
+            lastLicenseEnabled = gate.LicenseEnabled;
+            lastReadOnly = gate.ReadOnly;
+            lastTooltip = gate.Tooltip;
+            licenseGateInitialized = true;
+
+            gateCwMenus();
+        }
+
+        private void applyDiversityGating()
+        {
+            if (DiversityControl == null && DiversityStatusControl == null && EscButton == null) return;
+
+            string gateMessage = "Radio not ready";
+            bool ready = false;
+
+            if (rig != null)
+            {
+                ready = rig.DiversityReady;
+                gateMessage = rig.DiversityGateMessage ?? string.Empty;
+            }
+
+            bool stateChanged = (ready != lastDiversityReady) ||
+                !string.Equals(gateMessage, lastDiversityGateMessage, StringComparison.Ordinal);
+
+            if (!stateChanged && !ready)
+            {
+                // Still update status text for stale display.
+                if (DiversityStatusControl != null)
+                {
+                    DiversityStatusControl.Text = rig != null ? rig.DiversityStatus : gateMessage;
+                }
+                return;
+            }
+
+            bool enableControls = ready;
+
+            setGate(DiversityControl, enableControls, !enableControls, gateMessage);
+            if (EscButton != null)
+            {
+                if (EscButton.Enabled != enableControls) EscButton.Enabled = enableControls;
+                setTooltip(EscButton, gateMessage);
+            }
+
+            if (DiversityStatusControl != null)
+            {
+                if (DiversityStatusControl.Enabled != enableControls) DiversityStatusControl.Enabled = enableControls;
+                setTooltip(DiversityStatusControl, gateMessage);
+                if (rig != null)
+                {
+                    DiversityStatusControl.UpdateDisplay(true);
+                }
+                else
+                {
+                    DiversityStatusControl.Text = gateMessage;
+                }
+            }
+
+            lastDiversityReady = ready;
+            lastDiversityGateMessage = gateMessage;
+        }
+
+        private void gateNoiseMenus(NrLicenseGate gate)
+        {
+            // Ensure menu items reflect license gating even if the drop-down isn't opened.
+            if (nrRoot != null)
+            {
+                gateMenuItem(rnnItem, gate);
+                gateMenuItem(spectralItem, gate);
+                gateMenuItem(legacyNRItem, gate);
+                gateMenuItem(anfFftItem, gate);
+                gateMenuItem(anfLegacyItem, gate);
+            }
+
+            if (filtersRoot != null)
+            {
+                gateMenuItem(filtersNoiseRoot, gate);
+                gateMenuItem(filtersNRRoot, gate);
+                gateMenuItem(filtersANFRoot, gate);
+            }
+        }
+
+        private void gateMenuItem(ToolStripMenuItem item, NrLicenseGate gate)
+        {
+            if (item == null) return;
+
+            bool newEnabled = gate.Enabled;
+            if (item.Enabled != newEnabled) item.Enabled = newEnabled;
+
+            string tip = gate.Tooltip ?? string.Empty;
+            if (!string.Equals(item.ToolTipText ?? string.Empty, tip, StringComparison.Ordinal))
+            {
+                item.ToolTipText = tip;
+            }
+        }
+
+        private void Rig_FeatureLicenseChanged(object sender, EventArgs e)
+        {
+            if (InvokeRequired)
+            {
+                BeginInvoke(new Action(() =>
+                {
+                    applyLicenseGating();
+                    applyDiversityGating();
+                }));
+                return;
+            }
+
+            applyLicenseGating();
+            applyDiversityGating();
         }
 
 #region ModeChange
@@ -1434,6 +1736,11 @@ namespace Radios
         }
         public void Cleanup()
         {
+            if (rig != null)
+            {
+                rig.FeatureLicenseChanged -= Rig_FeatureLicenseChanged;
+                licenseGateInitialized = false;
+            }
             flexTNF.Dispose();
         }
 
@@ -1442,11 +1749,276 @@ namespace Radios
             flexTNF.ShowDialog();
         }
 
+        // Noise Reduction context menu (checkable items, multiple selection)
+        private void setupNoiseReductionMenu()
+        {
+            nrMenu = new ContextMenuStrip();
+            nrRoot = new ToolStripMenuItem("Noise Reduction");
+            rnnItem = new ToolStripMenuItem("Neural (RNN)") { CheckOnClick = true };
+            spectralItem = new ToolStripMenuItem("Spectral (NRF/NRS)") { CheckOnClick = true };
+            legacyNRItem = new ToolStripMenuItem("Legacy (NRL)") { CheckOnClick = true };
+            nrRoot.DropDownItems.Add(rnnItem);
+            nrRoot.DropDownItems.Add(spectralItem);
+            nrRoot.DropDownItems.Add(legacyNRItem);
+
+            anfRoot = new ToolStripMenuItem("Auto Notch");
+            anfFftItem = new ToolStripMenuItem("FFT (ANFT)") { CheckOnClick = true };
+            anfLegacyItem = new ToolStripMenuItem("Legacy (ANFL)") { CheckOnClick = true };
+            anfRoot.DropDownItems.Add(anfFftItem);
+            anfRoot.DropDownItems.Add(anfLegacyItem);
+
+            nrMenu.Items.Add(nrRoot);
+            nrMenu.Items.Add(anfRoot);
+
+            nrMenu.Opening += nrMenu_Opening;
+            rnnItem.CheckedChanged += (s, e) => { try { rig.NeuralNoiseReduction = rnnItem.Checked ? FlexBase.OffOnValues.on : FlexBase.OffOnValues.off; updateBoxes(); } catch { } };
+            spectralItem.CheckedChanged += (s, e) => { try { rig.SpectralNoiseReduction = spectralItem.Checked ? FlexBase.OffOnValues.on : FlexBase.OffOnValues.off; updateBoxes(); } catch { } };
+            legacyNRItem.CheckedChanged += (s, e) => { try { rig.NoiseReductionLegacy = legacyNRItem.Checked ? FlexBase.OffOnValues.on : FlexBase.OffOnValues.off; updateBoxes(); } catch { } };
+            anfFftItem.CheckedChanged += (s, e) => { try { rig.AutoNotchFFT = anfFftItem.Checked ? FlexBase.OffOnValues.on : FlexBase.OffOnValues.off; updateBoxes(); } catch { } };
+            anfLegacyItem.CheckedChanged += (s, e) => { try { rig.AutoNotchLegacy = anfLegacyItem.Checked ? FlexBase.OffOnValues.on : FlexBase.OffOnValues.off; updateBoxes(); } catch { } };
+            rnnItem.CheckedChanged += (s, e) => updateMenuAccessibility(rnnItem);
+            spectralItem.CheckedChanged += (s, e) => updateMenuAccessibility(spectralItem);
+            legacyNRItem.CheckedChanged += (s, e) => updateMenuAccessibility(legacyNRItem);
+            anfFftItem.CheckedChanged += (s, e) => updateMenuAccessibility(anfFftItem);
+            anfLegacyItem.CheckedChanged += (s, e) => updateMenuAccessibility(anfLegacyItem);
+
+            // Attach to the Filters user control (right-click)
+            this.ContextMenuStrip = nrMenu;
+        }
+
+        private void nrMenu_Opening(object sender, System.ComponentModel.CancelEventArgs e)
+        {
+            try
+            {
+                var gate = GetNoiseReductionGate();
+
+                // Reflect current state
+                rnnItem.Checked = rig.NeuralNoiseReduction == FlexBase.OffOnValues.on;
+                spectralItem.Checked = rig.SpectralNoiseReduction == FlexBase.OffOnValues.on;
+                legacyNRItem.Checked = rig.NoiseReductionLegacy == FlexBase.OffOnValues.on;
+                anfFftItem.Checked = rig.AutoNotchFFT == FlexBase.OffOnValues.on;
+                anfLegacyItem.Checked = rig.AutoNotchLegacy == FlexBase.OffOnValues.on;
+
+                string mode = (rig.Mode ?? string.Empty).ToLowerInvariant();
+                bool cwOrFm = mode.StartsWith("cw") || mode.Contains("fm");
+                bool fmMode = mode.Contains("fm");
+
+                applyMenuGate(rnnItem, !cwOrFm, gate);
+                applyMenuGate(spectralItem, !cwOrFm, gate);
+                applyMenuGate(legacyNRItem, !cwOrFm, gate);
+                applyMenuGate(anfFftItem, !fmMode, gate);
+                applyMenuGate(anfLegacyItem, !fmMode, gate);
+
+                updateMenuAccessibility(rnnItem);
+                updateMenuAccessibility(spectralItem);
+                updateMenuAccessibility(legacyNRItem);
+                updateMenuAccessibility(anfFftItem);
+                updateMenuAccessibility(anfLegacyItem);
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("NR menu opening error: " + ex.Message, TraceLevel.Error);
+            }
+        }
+
+            // Top-level Filters menu with Noise Reduction submenu (mirrors context menu)
+        private void setupFiltersMenuStrip()
+        {
+            filtersMenuStrip = new MenuStrip();
+            filtersRoot = new ToolStripMenuItem("Filters");
+            filtersNoiseRoot = new ToolStripMenuItem("Noise and Mitigation");
+
+            filtersNRRoot = new ToolStripMenuItem("Noise Reduction");
+            var rnn = new ToolStripMenuItem("Neural (RNN)") { CheckOnClick = true };
+            var spectral = new ToolStripMenuItem("Spectral (NRF/NRS)") { CheckOnClick = true };
+            var legacy = new ToolStripMenuItem("Legacy (NRL)") { CheckOnClick = true };
+            filtersNRRoot.DropDownItems.AddRange(new ToolStripItem[] { rnn, spectral, legacy });
+
+            filtersANFRoot = new ToolStripMenuItem("Auto Notch");
+            var anfFft = new ToolStripMenuItem("FFT (ANFT)") { CheckOnClick = true };
+            var anfLegacy = new ToolStripMenuItem("Legacy (ANFL)") { CheckOnClick = true };
+            filtersANFRoot.DropDownItems.AddRange(new ToolStripItem[] { anfFft, anfLegacy });
+
+            rnn.CheckedChanged += (s, e) => { try { rig.NeuralNoiseReduction = rnn.Checked ? FlexBase.OffOnValues.on : FlexBase.OffOnValues.off; updateBoxes(); } catch { } };
+            spectral.CheckedChanged += (s, e) => { try { rig.SpectralNoiseReduction = spectral.Checked ? FlexBase.OffOnValues.on : FlexBase.OffOnValues.off; updateBoxes(); } catch { } };
+            legacy.CheckedChanged += (s, e) => { try { rig.NoiseReductionLegacy = legacy.Checked ? FlexBase.OffOnValues.on : FlexBase.OffOnValues.off; updateBoxes(); } catch { } };
+            anfFft.CheckedChanged += (s, e) => { try { rig.AutoNotchFFT = anfFft.Checked ? FlexBase.OffOnValues.on : FlexBase.OffOnValues.off; updateBoxes(); } catch { } };
+            anfLegacy.CheckedChanged += (s, e) => { try { rig.AutoNotchLegacy = anfLegacy.Checked ? FlexBase.OffOnValues.on : FlexBase.OffOnValues.off; updateBoxes(); } catch { } };
+            rnn.CheckedChanged += (s, e) => updateMenuAccessibility(rnn);
+            spectral.CheckedChanged += (s, e) => updateMenuAccessibility(spectral);
+            legacy.CheckedChanged += (s, e) => updateMenuAccessibility(legacy);
+            anfFft.CheckedChanged += (s, e) => updateMenuAccessibility(anfFft);
+            anfLegacy.CheckedChanged += (s, e) => updateMenuAccessibility(anfLegacy);
+
+            filtersNRRoot.DropDownOpening += (s, e) => syncAndGateNRItems(rnn, spectral, legacy);
+            filtersANFRoot.DropDownOpening += (s, e) => syncAndGateANFItems(anfFft, anfLegacy);
+
+            filtersNoiseRoot.DropDownItems.Add(filtersNRRoot);
+            filtersNoiseRoot.DropDownItems.Add(filtersANFRoot);
+
+            // CW submenu
+            filtersCWRoot = new ToolStripMenuItem("CW");
+            filtersCWAutotuneItem = new ToolStripMenuItem("Autotune");
+            filtersCWAutotuneItem.Click += (s, e) =>
+            {
+                try
+                {
+                    rig.CWAutotune();
+                }
+                catch (Exception ex)
+                {
+                    Tracing.TraceLine("CW Autotune error: " + ex.Message, TraceLevel.Error);
+                }
+            };
+            filtersCWRoot.DropDownItems.Add(filtersCWAutotuneItem);
+
+            filtersRoot.DropDownItems.Add(filtersNoiseRoot);
+            filtersRoot.DropDownItems.Add(filtersCWRoot);
+            filtersMenuStrip.Items.Add(filtersRoot);
+
+            updateMenuAccessibility(filtersRoot);
+            updateMenuAccessibility(filtersNoiseRoot);
+            updateMenuAccessibility(filtersNRRoot);
+            updateMenuAccessibility(filtersANFRoot);
+            updateMenuAccessibility(filtersCWRoot);
+
+            // Add to control
+            this.Controls.Add(filtersMenuStrip);
+            filtersMenuStrip.Dock = DockStyle.Top;
+        }
+
+        private void syncAndGateNRItems(ToolStripMenuItem rnn, ToolStripMenuItem spectral, ToolStripMenuItem legacy)
+        {
+            try
+            {
+                var gate = GetNoiseReductionGate();
+
+                rnn.Checked = rig.NeuralNoiseReduction == FlexBase.OffOnValues.on;
+                spectral.Checked = rig.SpectralNoiseReduction == FlexBase.OffOnValues.on;
+                legacy.Checked = rig.NoiseReductionLegacy == FlexBase.OffOnValues.on;
+
+                string mode = (rig.Mode ?? string.Empty).ToLowerInvariant();
+                bool cwOrFm = mode.StartsWith("cw") || mode.Contains("fm");
+
+                applyMenuGate(rnn, !cwOrFm, gate);
+                applyMenuGate(spectral, !cwOrFm, gate);
+                applyMenuGate(legacy, !cwOrFm, gate);
+
+                updateMenuAccessibility(rnn);
+                updateMenuAccessibility(spectral);
+                updateMenuAccessibility(legacy);
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("Filters NR menu sync error: " + ex.Message, TraceLevel.Error);
+            }
+        }
+
+        private void syncAndGateANFItems(ToolStripMenuItem anfFft, ToolStripMenuItem anfLegacy)
+        {
+            try
+            {
+                var gate = GetNoiseReductionGate();
+
+                anfFft.Checked = rig.AutoNotchFFT == FlexBase.OffOnValues.on;
+                anfLegacy.Checked = rig.AutoNotchLegacy == FlexBase.OffOnValues.on;
+
+                string mode = (rig.Mode ?? string.Empty).ToLowerInvariant();
+                bool fmMode = mode.Contains("fm");
+
+                applyMenuGate(anfFft, !fmMode, gate);
+                applyMenuGate(anfLegacy, !fmMode, gate);
+
+                updateMenuAccessibility(anfFft);
+                updateMenuAccessibility(anfLegacy);
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("Filters ANF menu sync error: " + ex.Message, TraceLevel.Error);
+            }
+        }
+
+        private void applyMenuGate(ToolStripMenuItem item, bool modeAllows, NrLicenseGate gate)
+        {
+            if (item == null) return;
+
+            bool enabled = gate.Enabled && modeAllows;
+            if (item.Enabled != enabled) item.Enabled = enabled;
+
+            string tip = gate.Tooltip ?? string.Empty;
+            if (!string.Equals(item.ToolTipText ?? string.Empty, tip, StringComparison.Ordinal))
+            {
+                item.ToolTipText = tip;
+            }
+            updateMenuAccessibility(item);
+        }
+
+        private void gateCwMenus()
+        {
+            if (filtersCWRoot == null) return;
+
+            bool hasSlice = rig?.HasActiveSlice == true;
+            string mode = (rig?.Mode ?? string.Empty).ToLowerInvariant();
+            bool cwMode = mode.StartsWith("cw");
+            bool cap = rig?.SupportsCwAutotune == true;
+
+            bool enabled = hasSlice && cwMode && cap;
+            string tip;
+            if (!cap)
+            {
+                tip = "CW autotune not supported on this radio.";
+            }
+            else if (!cwMode)
+            {
+                tip = "Switch to CW to use autotune.";
+            }
+            else if (!hasSlice)
+            {
+                tip = "No active slice.";
+            }
+            else tip = string.Empty;
+
+            setMenuState(filtersCWRoot, enabled, tip);
+            setMenuState(filtersCWAutotuneItem, enabled, tip);
+        }
+
+        private void setMenuState(ToolStripMenuItem item, bool enabled, string tooltip)
+        {
+            if (item == null) return;
+            if (item.Enabled != enabled) item.Enabled = enabled;
+            tooltip = tooltip ?? string.Empty;
+            if (!string.Equals(item.ToolTipText ?? string.Empty, tooltip, StringComparison.Ordinal))
+            {
+                item.ToolTipText = tooltip;
+            }
+            updateMenuAccessibility(item);
+        }
+
         private void TNFEnableButton_Click(object sender, EventArgs e)
         {
             bool newState = !rig.TNF;
             rig.TNF = newState;
             TNFEnableText(newState);
+        }
+
+        private void EscButton_Click(object sender, EventArgs e)
+        {
+            ShowEscDialog();
+        }
+
+        public void ShowEscDialog()
+        {
+            if (rig == null) return;
+            using (var esc = new EscDialog(rig))
+            {
+                esc.ShowDialog();
+            }
+        }
+
+        public void ToggleDiversity()
+        {
+            if (rig == null) return;
+            rig.DiversityOn = !rig.DiversityOn;
         }
 
         private void TNFEnableText()

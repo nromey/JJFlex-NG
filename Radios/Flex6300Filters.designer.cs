@@ -11,14 +11,15 @@
 		/// Clean up any resources being used.
 		/// </summary>
 		/// <param name="disposing">true if managed resources should be disposed; otherwise, false.</param>
-		protected override void Dispose(bool disposing)
-		{
-			if (disposing && (components != null))
-			{
-				components.Dispose();
-			}
-			base.Dispose(disposing);
-		}
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                components?.Dispose();
+                licenseToolTip?.Dispose();
+            }
+            base.Dispose(disposing);
+        }
 
 		#region Component Designer generated code
 
@@ -103,6 +104,9 @@
             this.RFGainControl = new RadioBoxes.NumberBox();
             this.OffsetDirectionControl = new RadioBoxes.Combo();
             this.TXAntControl = new RadioBoxes.Combo();
+            this.DiversityControl = new RadioBoxes.Combo();
+            this.EscButton = new System.Windows.Forms.Button();
+            this.DiversityStatusControl = new RadioBoxes.InfoBox();
             this.SuspendLayout();
             // 
             // PanBox
@@ -858,6 +862,34 @@
             this.RXAntControl.UpdateDisplayFunction = null;
             this.RXAntControl.UpdateRigFunction = null;
             // 
+            // DiversityControl
+            // 
+            this.DiversityControl.BoxStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
+            this.DiversityControl.ExpandedSize = new System.Drawing.Size(60, 56);
+            this.DiversityControl.Header = "Diversity";
+            this.DiversityControl.Location = new System.Drawing.Point(140, 240);
+            this.DiversityControl.Margin = new System.Windows.Forms.Padding(4);
+            this.DiversityControl.Name = "DiversityControl";
+            this.DiversityControl.ReadOnly = false;
+            this.DiversityControl.Size = new System.Drawing.Size(60, 36);
+            this.DiversityControl.SmallSize = new System.Drawing.Size(60, 36);
+            this.DiversityControl.TabIndex = 520;
+            this.DiversityControl.Tag = "Diversity";
+            this.DiversityControl.TheList = null;
+            this.DiversityControl.UpdateDisplayFunction = null;
+            this.DiversityControl.UpdateRigFunction = null;
+            // 
+            // EscButton
+            // 
+            this.EscButton.AccessibleRole = System.Windows.Forms.AccessibleRole.PushButton;
+            this.EscButton.Location = new System.Drawing.Point(210, 240);
+            this.EscButton.Name = "EscButton";
+            this.EscButton.Size = new System.Drawing.Size(60, 36);
+            this.EscButton.TabIndex = 525;
+            this.EscButton.Text = "ESC";
+            this.EscButton.UseVisualStyleBackColor = true;
+            this.EscButton.Click += new System.EventHandler(this.EscButton_Click);
+            // 
             // CWLControl
             // 
             this.CWLControl.BoxStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
@@ -1068,7 +1100,7 @@
             this.InfoButton.Name = "InfoButton";
             this.InfoButton.Size = new System.Drawing.Size(50, 23);
             this.InfoButton.TabIndex = 650;
-            this.InfoButton.Text = "RigInfo";
+            this.InfoButton.Text = "Radio Info";
             this.InfoButton.UseVisualStyleBackColor = true;
             this.InfoButton.Click += new System.EventHandler(this.InfoButton_Click);
             // 
@@ -1185,6 +1217,18 @@
             this.VoltsBox.UpdateDisplayFunction = null;
             this.VoltsBox.UpdateRigFunction = null;
             // 
+            // DiversityStatusControl
+            // 
+            this.DiversityStatusControl.Header = "Diversity";
+            this.DiversityStatusControl.Location = new System.Drawing.Point(630, 240);
+            this.DiversityStatusControl.Name = "DiversityStatusControl";
+            this.DiversityStatusControl.ReadOnly = false;
+            this.DiversityStatusControl.Size = new System.Drawing.Size(90, 36);
+            this.DiversityStatusControl.TabIndex = 590;
+            this.DiversityStatusControl.Tag = "DiversityStatus";
+            this.DiversityStatusControl.UpdateDisplayFunction = null;
+            this.DiversityStatusControl.UpdateRigFunction = null;
+            // 
             // RFGainControl
             // 
             this.RFGainControl.Header = "RFGain";
@@ -1240,6 +1284,7 @@
             this.Controls.Add(this.OffsetDirectionControl);
             this.Controls.Add(this.RFGainControl);
             this.Controls.Add(this.VoltsBox);
+            this.Controls.Add(this.DiversityStatusControl);
             this.Controls.Add(this.PATempBox);
             this.Controls.Add(this.TunePowerControl);
             this.Controls.Add(this.AutoprocLabel);
@@ -1262,6 +1307,8 @@
             this.Controls.Add(this.CompanderControl);
             this.Controls.Add(this.CWLControl);
             this.Controls.Add(this.RXAntControl);
+            this.Controls.Add(this.DiversityControl);
+            this.Controls.Add(this.EscButton);
             this.Controls.Add(this.ImportButton);
             this.Controls.Add(this.ExportButton);
             this.Controls.Add(this.RecordControl);
@@ -1372,6 +1419,8 @@
         private System.Windows.Forms.Button ExportButton;
         private System.Windows.Forms.Button ImportButton;
         private RadioBoxes.Combo RXAntControl;
+        private RadioBoxes.Combo DiversityControl;
+        private System.Windows.Forms.Button EscButton;
         private RadioBoxes.Combo CWLControl;
         private RadioBoxes.Combo CompanderControl;
         private RadioBoxes.NumberBox CompanderLevelControl;
@@ -1394,6 +1443,7 @@
         private RadioBoxes.NumberBox TunePowerControl;
         private RadioBoxes.InfoBox PATempBox;
         private RadioBoxes.InfoBox VoltsBox;
+        private RadioBoxes.InfoBox DiversityStatusControl;
         private RadioBoxes.NumberBox RFGainControl;
         private RadioBoxes.Combo OffsetDirectionControl;
         private RadioBoxes.Combo TXAntControl;

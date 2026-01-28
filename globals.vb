@@ -5,6 +5,8 @@ Imports System.Collections.ObjectModel
 'Imports System.Configuration
 Imports System.Diagnostics
 Imports System.IO
+Imports System.IO.Compression
+Imports System.Globalization
 Imports System.IO.Ports
 Imports System.Net
 Imports System.Reflection
@@ -162,18 +164,103 @@ Module globals
             If ProgramInstance > 1 Then
                 rv &= ProgramInstance.ToString
             End If
-            Return rv & "BootTrace.txt"
+            Return rv & "Trace.txt"
         End Get
     End Property
-    Private ReadOnly Property oldBootTraceFileName As String
+    Friend ReadOnly Property OldTraceFileName As String
         Get
             Dim rv As String = BaseConfigDir & "\" & ProgramName
             If ProgramInstance > 1 Then
                 rv &= ProgramInstance.ToString
             End If
-            Return rv & "BootTrace old.txt"
+            Return rv & "TraceOld.txt"
         End Get
     End Property
+    Friend ReadOnly Property TraceArchiveDir As String
+        Get
+            Return BaseConfigDir & "\Traces"
+        End Get
+    End Property
+    Friend ReadOnly Property DailyTraceFilePrefix As String
+        Get
+            Return ProgramName & "Trace"
+        End Get
+    End Property
+
+    Private Sub RotateBootTraceIfNeeded()
+        Dim tracePath As String = BootTraceFileName
+        If Not File.Exists(tracePath) Then
+            Return
+        End If
+
+        Try
+            If File.Exists(OldTraceFileName) Then
+                File.Delete(OldTraceFileName)
+            End If
+            File.Move(tracePath, OldTraceFileName)
+        Catch ex As Exception
+            Tracing.ErrMessageTrace(ex)
+        End Try
+    End Sub
+
+    Private Sub ArchiveTraceFile(tracePath As String, traceDate As Date)
+        Try
+            Dim yearDir As String = Path.Combine(TraceArchiveDir, traceDate.ToString("yyyy"))
+            Dim monthDir As String = Path.Combine(yearDir, traceDate.ToString("MM"))
+            Directory.CreateDirectory(monthDir)
+            Dim zipName As String = Path.Combine(monthDir, $"trace{traceDate:MMddyyyy}.zip")
+            If File.Exists(zipName) Then
+                File.Delete(zipName)
+            End If
+            Using archive As ZipArchive = ZipFile.Open(zipName, ZipArchiveMode.Create)
+                ZipUtils.AddFileToArchive(archive, tracePath, "")
+            End Using
+        Catch ex As Exception
+            Tracing.ErrMessageTrace(ex)
+        End Try
+    End Sub
+
+    Private Sub ArchiveOldDailyTraces()
+        If CurrentOp Is Nothing OrElse Not CurrentOp.KeepDailyTraceLogs Then Return
+        Try
+            If Not Directory.Exists(BaseConfigDir) Then Return
+            Dim today As Date = Date.Now.Date
+            For Each tracePath As String In Directory.GetFiles(BaseConfigDir, DailyTraceFilePrefix & "*.txt")
+                If tracePath.IndexOf("BootTrace", StringComparison.OrdinalIgnoreCase) >= 0 Then Continue For
+                Dim name As String = Path.GetFileNameWithoutExtension(tracePath)
+                Dim stampPart As String = name.Substring(DailyTraceFilePrefix.Length)
+                Dim stamp As DateTime
+                If Not DateTime.TryParseExact(stampPart, "yyyyMMddHHmmss", CultureInfo.InvariantCulture, DateTimeStyles.None, stamp) Then
+                    Continue For
+                End If
+                If stamp.Date < today Then
+                    ArchiveTraceFile(tracePath, stamp.Date)
+                    Try
+                        File.Delete(tracePath)
+                    Catch ex As Exception
+                        Tracing.ErrMessageTrace(ex)
+                    End Try
+                End If
+            Next
+        Catch ex As Exception
+            Tracing.ErrMessageTrace(ex)
+        End Try
+    End Sub
+
+    Friend Sub StartDailyTraceIfEnabled()
+        If CurrentOp Is Nothing OrElse Not CurrentOp.KeepDailyTraceLogs Then Return
+        ArchiveOldDailyTraces()
+        Try
+            Dim tracePath As String = Path.Combine(BaseConfigDir, $"{DailyTraceFilePrefix}{Date.Now:yyyyMMddHHmmss}.txt")
+            Tracing.TheSwitch.Level = TraceLevel.Info
+            Tracing.TraceFile = tracePath
+            Tracing.On = True
+            LastUserTraceFile = tracePath
+            Tracing.TraceLine($"Daily tracing on {Date.Now:O} level={Tracing.TheSwitch.Level}")
+        Catch ex As Exception
+            Tracing.ErrMessageTrace(ex)
+        End Try
+    End Sub
 
     Friend Power As Boolean = False
     Friend LastUserTraceFile As String ' Last user-started trace file (see DebugInfo)
@@ -244,13 +331,7 @@ Module globals
         BootTrace = (Not Debugger.IsAttached)
         'BootTrace = True
         If BootTrace Then
-            ' Save the previous bootTrace file if any.
-            If File.Exists(oldBootTraceFileName) Then
-                File.Delete(oldBootTraceFileName)
-            End If
-            If File.Exists(BootTraceFileName) Then
-                File.Move(BootTraceFileName, oldBootTraceFileName)
-            End If
+            RotateBootTraceIfNeeded()
             Dim bootLevel As TraceLevel = TraceLevel.Info
             Tracing.TheSwitch.Level = bootLevel
             Tracing.TraceFile = BootTraceFileName
@@ -264,7 +345,6 @@ Module globals
 
         ' Load keyboard command config data.
         Commands = New KeyCommands
-        Form1.SetupOperationsMenu()
 
         ' Load operator and rig data.
         Operators = New PersonalData(BaseConfigDir)
@@ -282,6 +362,9 @@ Module globals
 
         ' setup log file
         ConfigContactLog()
+
+        ' Now that the operator is known, rebuild the operations menu (for trace toggle).
+        Form1.SetupOperationsMenu()
 
         ' Check for W2 watt meter.
         W2ConfigFile = BaseConfigDir & "\" & W2ConfigFileBasename
@@ -1030,10 +1113,53 @@ Module globals
                 Return
             End If
             If RigControl.PCAudio <> value Then
+                If value AndAlso Not EnsureAudioDevicesConfigured(True) Then
+                    Return
+                End If
                 RigControl.PCAudio = value
             End If
         End Set
     End Property
+
+    Friend Function EnsureAudioDevicesConfigured(prompt As Boolean) As Boolean
+        If String.IsNullOrEmpty(AudioDevicesFile) Then
+            Return True
+        End If
+
+        Try
+            Dim devices As New JJPortaudio.Devices(AudioDevicesFile)
+            If Not devices.Setup() Then
+                Return False
+            End If
+
+            Dim inputDev = devices.GetConfiguredDevice(JJPortaudio.Devices.DeviceTypes.input, False)
+            Dim outputDev = devices.GetConfiguredDevice(JJPortaudio.Devices.DeviceTypes.output, False)
+
+            If (inputDev IsNot Nothing) AndAlso (outputDev IsNot Nothing) Then
+                Return True
+            End If
+
+            If Not prompt Then
+                Return False
+            End If
+
+            Dim msg = "Audio devices are not configured. Select input and output devices now?"
+            If MessageBox.Show(msg, MessageHdr, MessageBoxButtons.YesNo, MessageBoxIcon.Information) <> DialogResult.Yes Then
+                Return False
+            End If
+
+            InputAudioDevice = devices.getNewDevice(JJPortaudio.Devices.DeviceTypes.input)
+            If InputAudioDevice Is Nothing Then
+                Return False
+            End If
+
+            OutputAudioDevice = devices.getNewDevice(JJPortaudio.Devices.DeviceTypes.output)
+            Return (OutputAudioDevice IsNot Nothing)
+        Catch ex As Exception
+            Tracing.TraceLine("Audio device check failed: " & ex.Message, TraceLevel.Error)
+            Return False
+        End Try
+    End Function
 #End Region
 
     ' region - internal errors

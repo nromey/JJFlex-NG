@@ -1,59 +1,38 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
-<Project ToolsVersion="12.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+﻿<Project Sdk="Microsoft.NET.Sdk.WindowsDesktop">
   <PropertyGroup>
-    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
-    <Platform Condition=" '$(Platform)' == '' ">x86</Platform>
-    <ProjectGuid>{8A1589EC-8802-4638-815F-122D7F1F9E15}</ProjectGuid>
+    <TargetFramework>net48</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
     <OutputType>WinExe</OutputType>
-    <StartupObject>
-    </StartupObject>
+    <PlatformTarget>x86</PlatformTarget>
+    <Prefer32Bit>true</Prefer32Bit>
+    <Platforms>x86;x64</Platforms>
     <RootNamespace>JJRadio</RootNamespace>
-    <AssemblyName>JJFlexRadio 3.2.37</AssemblyName>
-    <FileAlignment>512</FileAlignment>
+    <AssemblyName>JJFlexRadio</AssemblyName>
+    <Version>4.1.8</Version>
+    <AssemblyVersion>4.1.8.0</AssemblyVersion>
+    <FileVersion>4.1.8.0</FileVersion>
     <MyType>WindowsForms</MyType>
-    <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
-    <RestoreProjectStyle>PackageReference</RestoreProjectStyle>
-    <TargetFrameworkProfile>
-    </TargetFrameworkProfile>
-  </PropertyGroup>
-  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|x86' ">
-    <DebugSymbols>true</DebugSymbols>
-    <DebugType>full</DebugType>
-    <DefineDebug>true</DefineDebug>
-    <DefineTrace>true</DefineTrace>
-    <OutputPath>bin\x86\debug\</OutputPath>
-    <NoWarn>42016,41999,42017,42018,42019,42032,42036,42020,42021,42022</NoWarn>
-    <PlatformTarget>x86</PlatformTarget>
-    <DocumentationFile>JJFlexRadio 3.2.37.xml</DocumentationFile>
-    <Optimize>true</Optimize>
-    <Prefer32Bit>false</Prefer32Bit>
-  </PropertyGroup>
-  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|x86' ">
-    <DebugType>pdbonly</DebugType>
-    <DefineDebug>false</DefineDebug>
-    <DefineTrace>true</DefineTrace>
-    <Optimize>true</Optimize>
-    <OutputPath>bin\Release\</OutputPath>
-    <NoWarn>42016,41999,42017,42018,42019,42032,42036,42020,42021,42022</NoWarn>
-    <PlatformTarget>x86</PlatformTarget>
-    <DocumentationFile>JJFlexRadio 3.2.37.xml</DocumentationFile>
-    <Prefer32Bit>false</Prefer32Bit>
-  </PropertyGroup>
-  <PropertyGroup>
     <OptionExplicit>On</OptionExplicit>
-  </PropertyGroup>
-  <PropertyGroup>
-    <OptionCompare>Binary</OptionCompare>
-  </PropertyGroup>
-  <PropertyGroup>
     <OptionStrict>Off</OptionStrict>
-  </PropertyGroup>
-  <PropertyGroup>
     <OptionInfer>On</OptionInfer>
+    <OptionCompare>Binary</OptionCompare>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <EnableDefaultEmbeddedResourceItems>false</EnableDefaultEmbeddedResourceItems>
+    <GenerateResourceUsePreserializedResources>true</GenerateResourceUsePreserializedResources>
+    <RuntimeIdentifiers>win;win-x86;win-x64</RuntimeIdentifiers>
+    <Copyright>J.J. Shaffer, Noel Romey 2019-2025 (GNU GPL)</Copyright>
+    <LegalCopyright>J.J. Shaffer, Noel Romey 2019-2025 (GNU GPL)</LegalCopyright>
   </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Platform)' == 'x86'">
+    <RuntimeIdentifier>win-x86</RuntimeIdentifier>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Platform)' == 'x64'">
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+  </PropertyGroup>
+
   <ItemGroup>
-    <!-- Replaced local Ionic.Zip DLL reference with DotNetZip NuGet package
-         to avoid duplicate-type conflicts with FlexLib's DotNetZip package. -->
     <Reference Include="System" />
     <Reference Include="System.Data" />
     <Reference Include="System.Deployment" />
@@ -63,11 +42,15 @@
     <Reference Include="System.Core" />
     <Reference Include="System.Xml.Linq" />
     <Reference Include="System.Data.DataSetExtensions" />
+    <Reference Include="System.IO.Compression" />
+    <Reference Include="System.IO.Compression.FileSystem" />
   </ItemGroup>
+
   <ItemGroup>
+    <PackageReference Include="System.Resources.Extensions" Version="8.0.0" />
     <PackageReference Include="System.Collections.Immutable" Version="9.0.0" />
-    <PackageReference Include="DotNetZip" Version="1.16.0" />
   </ItemGroup>
+
   <ItemGroup>
     <Import Include="Microsoft.VisualBasic" />
     <Import Include="System" />
@@ -80,13 +63,35 @@
     <Import Include="System.Linq" />
     <Import Include="System.Xml.Linq" />
   </ItemGroup>
+
   <ItemGroup>
+    <None Include="app.config" />
+    <None Include="install template.nsi" />
+    <None Include="notes.txt" />
+    <None Include="ship.txt" />
+    <None Include="src.sed" />
+    <None Include="My Project\app.manifest" />
+    <None Include="My Project\Application.myapp">
+      <Generator>MyApplicationCodeGenerator</Generator>
+      <LastGenOutput>Application.Designer.vb</LastGenOutput>
+    </None>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="CrashReporter.vb" />
+    <Compile Include="About.Designer.vb">
+      <DependentUpon>About.vb</DependentUpon>
+    </Compile>
+    <Compile Include="About.vb">
+      <SubType>Form</SubType>
+    </Compile>
     <Compile Include="AboutProgram.Designer.vb">
       <DependentUpon>AboutProgram.vb</DependentUpon>
     </Compile>
     <Compile Include="AboutProgram.vb">
       <SubType>Form</SubType>
     </Compile>
+    <Compile Include="ApplicationEvents.vb" />
     <Compile Include="CMDLine.Designer.vb">
       <DependentUpon>CMDLine.vb</DependentUpon>
     </Compile>
@@ -99,20 +104,23 @@
     <Compile Include="CWMessageAdd.vb">
       <SubType>Form</SubType>
     </Compile>
-    <Compile Include="CWMessages.vb" />
     <Compile Include="CWMessageUpdate.Designer.vb">
       <DependentUpon>CWMessageUpdate.vb</DependentUpon>
     </Compile>
     <Compile Include="CWMessageUpdate.vb">
       <SubType>Form</SubType>
     </Compile>
+    <Compile Include="CWMessages.vb" />
     <Compile Include="DebugInfo.vb" />
+    <Compile Include="ZipUtils.vb" />
     <Compile Include="DefineCommands.Designer.vb">
       <DependentUpon>DefineCommands.vb</DependentUpon>
     </Compile>
     <Compile Include="DefineCommands.vb">
       <SubType>Form</SubType>
     </Compile>
+    <Compile Include="DisplayBuilder.vb" />
+    <Compile Include="DXCCData.vb" />
     <Compile Include="ExportForm.Designer.vb">
       <DependentUpon>ExportForm.vb</DependentUpon>
     </Compile>
@@ -208,12 +216,12 @@
     <Compile Include="MemoryScan.vb">
       <SubType>Form</SubType>
     </Compile>
-    <Compile Include="My Project\Application.Designer.vb">
-      <AutoGen>True</AutoGen>
-      <DependentUpon>Application.myapp</DependentUpon>
-      <DesignTime>True</DesignTime>
+    <Compile Include="Menus.Designer.vb">
+      <DependentUpon>Menus.vb</DependentUpon>
     </Compile>
-    <Compile Include="My Project\AssemblyInfo.vb" />
+    <Compile Include="Menus.vb">
+      <SubType>Form</SubType>
+    </Compile>
     <Compile Include="PersonalData.vb" />
     <Compile Include="PersonalInfo.Designer.vb">
       <DependentUpon>PersonalInfo.vb</DependentUpon>
@@ -300,8 +308,18 @@
     <Compile Include="Welcome.vb">
       <SubType>Form</SubType>
     </Compile>
+    <Compile Include="My Project\Application.Designer.vb">
+      <AutoGen>True</AutoGen>
+      <DependentUpon>Application.myapp</DependentUpon>
+      <DesignTime>True</DesignTime>
+    </Compile>
+    <Compile Include="My Project\AssemblyInfo.vb" />
   </ItemGroup>
+
   <ItemGroup>
+    <EmbeddedResource Include="About.resx">
+      <DependentUpon>About.vb</DependentUpon>
+    </EmbeddedResource>
     <EmbeddedResource Include="AboutProgram.resx">
       <DependentUpon>AboutProgram.vb</DependentUpon>
     </EmbeddedResource>
@@ -359,6 +377,9 @@
     <EmbeddedResource Include="MemoryScan.resx">
       <DependentUpon>MemoryScan.vb</DependentUpon>
     </EmbeddedResource>
+    <EmbeddedResource Include="Menus.resx">
+      <DependentUpon>Menus.vb</DependentUpon>
+    </EmbeddedResource>
     <EmbeddedResource Include="PersonalInfo.resx">
       <DependentUpon>PersonalInfo.vb</DependentUpon>
     </EmbeddedResource>
@@ -402,155 +423,52 @@
       <DependentUpon>Welcome.vb</DependentUpon>
     </EmbeddedResource>
   </ItemGroup>
+
   <ItemGroup>
-    <Content Include="changes.txt" />
-    <Content Include="JJFlexRadioReadme.htm">
+    <Content Include="changelog.md">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
-    <Content Include="libopus.dll">
-      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-    </Content>
-    <None Include="app.config" />
+    <Content Include="changes.txt" />
+    <Content Include="JJFlexRadioReadme.htm" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="libopus.dll" CopyToOutputDirectory="Always" />
+    <Content Include="Opus Copying.txt" CopyToOutputDirectory="Always" />
+    <Content Include="PortAudio LICENSE.txt" CopyToOutputDirectory="Always" />
+    <Content Include="portaudio.dll" CopyToOutputDirectory="Always" />
+    <Content Include="PortAudioSharp License.txt" CopyToOutputDirectory="Always" />
+    <Content Include="runPgm.bat" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Welcome.txt" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="cty_wt.dat" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="install.bat" />
     <Content Include="install.nsi" />
-    <None Include="install template.nsi" />
-    <None Include="My Project\Application.myapp">
-      <Generator>MyApplicationCodeGenerator</Generator>
-      <LastGenOutput>Application.Designer.vb</LastGenOutput>
-    </None>
-    <None Include="notes.txt" />
-    <Content Include="Opus Copying.txt">
-      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-    </Content>
-    <Content Include="PortAudio LICENSE.txt">
-      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-    </Content>
-    <Content Include="portaudio.dll">
-      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-    </Content>
-    <Content Include="PortAudioSharp License.txt">
-      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-    </Content>
-    <Content Include="runPgm.bat">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-    <None Include="ship.txt" />
-    <Content Include="Welcome.txt">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-    <Content Include="src.sed" />
   </ItemGroup>
+
   <ItemGroup>
-    <Content Include="cty_wt.dat">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
+    <ProjectReference Include="adif\adif.csproj" />
+    <ProjectReference Include="escapes\escapes.csproj" />
+    <ProjectReference Include="FlexLib_API\FlexLib\FlexLib.csproj" />
+    <ProjectReference Include="FlexLib_API\UiWpfFramework\UiWpfFramework.csproj" />
+    <ProjectReference Include="FlexLib_API\Util\Util.csproj" />
+    <ProjectReference Include="FlexLib_API\Vita\Vita.csproj" />
+    <ProjectReference Include="HamBands\HamBands.csproj" />
+    <ProjectReference Include="HamQTHLookup\HamQTHLookup.csproj" />
+    <ProjectReference Include="JJArclusterLib\JJArclusterLib.csproj" />
+    <ProjectReference Include="JJCountriesDB\JJCountriesDB.csproj" />
+    <ProjectReference Include="JJFlexControl\JJFlexControl.csproj" />
+    <ProjectReference Include="JJLogIO\logio\JJLogIO.csproj" />
+    <ProjectReference Include="JJLogLib\JJLogLib.csproj" />
+    <ProjectReference Include="JJMinimalTelnet\JJMinimalTelnet.csproj" />
+    <ProjectReference Include="JJPortaudio\JJPortaudio\JJPortaudio.csproj" />
+    <ProjectReference Include="JJTrace\JJTrace.csproj" />
+    <ProjectReference Include="JJW2WattMeter\JJW2WattMeter.csproj" />
+    <ProjectReference Include="MsgLib\MsgLib.csproj" />
+    <ProjectReference Include="P-Opus-master\POpusCodec.csproj" />
+    <ProjectReference Include="PortAudioSharp-src-0.19.3\PortAudioSharp\PortAudioSharp.csproj" />
+    <ProjectReference Include="skcc\skcc.csproj" />
+    <ProjectReference Include="RadioBoxes\RadioBoxes.csproj" />
+    <ProjectReference Include="Radios\Radios.csproj" />
   </ItemGroup>
-  <ItemGroup>
-    <ProjectReference Include="adif\adif.csproj">
-      <Project>{cd39347b-b9b8-413c-8272-77e82597bf4d}</Project>
-      <Name>adif</Name>
-    </ProjectReference>
-    <ProjectReference Include="escapes\escapes.csproj">
-      <Project>{0d6f7843-33f7-46b0-ab2d-47baa967ef5e}</Project>
-      <Name>escapes</Name>
-    </ProjectReference>
-    <ProjectReference Include="FlexLib_API_v3.2.37\FlexLib\FlexLib.csproj">
-      <Project>{7927817c-d5ef-4a9e-b38e-29668f308343}</Project>
-      <Name>FlexLib</Name>
-    </ProjectReference>
-    <ProjectReference Include="FlexLib_API_v3.2.37\UiWpfFramework\UiWpfFramework.csproj">
-      <Project>{9c0ad871-92fd-461b-84ff-3738d701814f}</Project>
-      <Name>UiWpfFramework</Name>
-    </ProjectReference>
-    <ProjectReference Include="FlexLib_API_v3.2.37\Util\Util.csproj">
-      <Project>{38935dc9-ff48-470c-b876-473a3ae8bd32}</Project>
-      <Name>Util</Name>
-    </ProjectReference>
-    <ProjectReference Include="FlexLib_API_v3.2.37\Vita\Vita.csproj">
-      <Project>{6ed364fb-7444-44da-9196-1d8679425b3e}</Project>
-      <Name>Vita</Name>
-    </ProjectReference>
-    <ProjectReference Include="HamBands\HamBands.csproj">
-      <Project>{f8380a38-0cc4-45a7-9621-8dbcb188b758}</Project>
-      <Name>HamBands</Name>
-    </ProjectReference>
-    <ProjectReference Include="HamQTHLookup\HamQTHLookup.csproj">
-      <Project>{55051463-09ce-49fe-9759-dadab8a5139b}</Project>
-      <Name>HamQTHLookup</Name>
-    </ProjectReference>
-    <ProjectReference Include="JJArclusterLib\JJArclusterLib.csproj">
-      <Project>{7f7e4ecc-0ab1-40d1-b9e0-b0b0bcd7536c}</Project>
-      <Name>JJArclusterLib</Name>
-    </ProjectReference>
-    <ProjectReference Include="JJCountriesDB\JJCountriesDB.csproj">
-      <Project>{20306725-f87f-463b-b405-103f390bd68a}</Project>
-      <Name>JJCountriesDB</Name>
-    </ProjectReference>
-    <ProjectReference Include="JJFlexControl\JJFlexControl.csproj">
-      <Project>{d32cbaa0-892e-4811-9ade-14ebfd6afe19}</Project>
-      <Name>JJFlexControl</Name>
-    </ProjectReference>
-    <ProjectReference Include="JJLogIO\logio\JJLogIO.csproj">
-      <Project>{d75f5958-61d0-41b5-9459-bd233166dbb6}</Project>
-      <Name>JJLogIO</Name>
-    </ProjectReference>
-    <ProjectReference Include="JJLogLib\JJLogLib.csproj">
-      <Project>{9822674c-bc13-4502-9f9a-59b603c55827}</Project>
-      <Name>JJLogLib</Name>
-    </ProjectReference>
-    <ProjectReference Include="JJMinimalTelnet\JJMinimalTelnet.csproj">
-      <Project>{fa52fdf4-47f0-4093-b835-5fcc21f8c9fd}</Project>
-      <Name>JJMinimalTelnet</Name>
-    </ProjectReference>
-    <ProjectReference Include="JJPortaudio\JJPortaudio\JJPortaudio.csproj">
-      <Project>{ac0d237a-8224-4016-8001-3cf129cad335}</Project>
-      <Name>JJPortaudio</Name>
-    </ProjectReference>
-    <ProjectReference Include="JJTrace\JJTrace.csproj">
-      <Project>{eab82c71-8cc6-4002-ad7a-bb2d375c8159}</Project>
-      <Name>JJTrace</Name>
-    </ProjectReference>
-    <ProjectReference Include="JJW2WattMeter\JJW2WattMeter.csproj">
-      <Project>{381be00e-67ce-4191-b3a0-4b195cd01db9}</Project>
-      <Name>JJW2WattMeter</Name>
-    </ProjectReference>
-    <ProjectReference Include="MsgLib\MsgLib.csproj">
-      <Project>{c5b8ac00-ab97-4731-8c30-51df327cb6ae}</Project>
-      <Name>MsgLib</Name>
-    </ProjectReference>
-    <ProjectReference Include="P-Opus-master\POpusCodec.csproj">
-      <Project>{64c3706d-6620-44a7-ba18-e00832c7ea52}</Project>
-      <Name>POpusCodec</Name>
-    </ProjectReference>
-    <ProjectReference Include="PortAudioSharp-src-0.19.3\PortAudioSharp\PortAudioSharp.csproj">
-      <Project>{8199a26e-c92e-4f6a-9eee-95f7afc58847}</Project>
-      <Name>PortAudioSharp</Name>
-    </ProjectReference>
-    <ProjectReference Include="skcc\skcc.csproj">
-      <Project>{0402036e-aec8-4976-a484-b5b9bbdbbc93}</Project>
-      <Name>skcc</Name>
-    </ProjectReference>
-    <ProjectReference Include="RadioBoxes\RadioBoxes.csproj">
-      <Project>{c15f2768-3386-4703-ae1d-cc4e59348610}</Project>
-      <Name>RadioBoxes</Name>
-    </ProjectReference>
-    <ProjectReference Include="Radios\Radios.csproj">
-      <Project>{07e148aa-8a14-4e91-ba46-d29371b51f9d}</Project>
-      <Name>Radios</Name>
-    </ProjectReference>
-  </ItemGroup>
-  <Import Project="$(MSBuildToolsPath)\Microsoft.VisualBasic.Targets" />
-  <ProjectExtensions>
-    <VisualStudio AllowExistingFolder="true" />
-  </ProjectExtensions>
+
   <PropertyGroup>
-    <PostBuildEvent>call "$(ProjectDir)\install.bat" "$(ProjectDir)" "$(ConfigurationName)" "$(TargetName)"</PostBuildEvent>
+    <PostBuildEvent Condition="'$(Configuration)'=='Release' and '$(Platform)'=='x86' and '$(TargetFramework)'=='net48'">call "$(MSBuildProjectDirectory)\install.bat" "$(MSBuildProjectDirectory)" "$(ConfigurationName)" "$(TargetName)"</PostBuildEvent>
   </PropertyGroup>
-  <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 
-       Other similar extension points exist, see Microsoft.Common.targets.
-  <Target Name="BeforeBuild">
-  </Target>
-  <Target Name="AfterBuild">
-  </Target>
-  -->
 </Project>

@@ -21,6 +21,7 @@ Public Class AboutProgram
         TextBox1.Text &= " " & String.Format("Version {0}", My.Application.Info.Version.ToString)
         TextBox1.Text &= vbCrLf & "Copyright " & My.Application.Info.Copyright
         TextBox1.Text &= vbCrLf & My.Application.Info.CompanyName
+        TextBox1.Text &= vbCrLf & "Contributors: J.J. Shaffer, K5NER"
         TextBox1.Text &= vbCrLf & vbCrLf
         TextBox1.Text &= "dll versions:"
         Dim a As Assembly = Assembly.GetExecutingAssembly

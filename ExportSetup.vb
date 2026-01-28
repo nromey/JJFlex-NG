@@ -1,6 +1,6 @@
 ﻿Imports System.IO
 Imports System.Windows.Forms
-Imports Ionic.Zip
+Imports System.IO.Compression
 
 Friend Class ExportSetup
     Private Const openDialogTitle As String = "Setup info archive"
@@ -21,12 +21,9 @@ Friend Class ExportSetup
         End If
 
         File.Delete(openDialog.FileName)
-        Using archive As ZipFile = New ZipFile(openDialog.FileName)
-            ' get application data
-            archive.AddSelectedFiles("name != *trace*.txt", BaseConfigDir, ProgramName, True)
-            'archive.AddDirectory(BaseConfigDir, ProgramName)
-
-            archive.Save()
+        Using archive As ZipArchive = ZipFile.Open(openDialog.FileName, ZipArchiveMode.Create)
+            ' get application data, exclude trace files
+            ZipUtils.AddDirectoryToArchive(archive, BaseConfigDir, ProgramName, "*trace*.txt")
         End Using
         MessageBox.Show(infoGathered, MessageHdr, MessageBoxButtons.OK)
         openDialog.Dispose()

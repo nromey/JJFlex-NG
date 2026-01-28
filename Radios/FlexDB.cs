@@ -7,7 +7,7 @@ using System.Text;
 using System.Threading;
 using System.Windows.Forms;
 using Flex.Smoothlake.FlexLib;
-using Ionic.Zip;
+using System.IO.Compression;
 using JJTrace;
 
 namespace Radios
@@ -202,10 +202,18 @@ namespace Radios
                 // unzip the flex_payload and meta_data files into a temp directory.
                 if (Directory.Exists(tmpDir)) Directory.Delete(tmpDir, true);
                 Directory.CreateDirectory(tmpDir);
-                var options = new ReadOptions { StatusMessageWriter = System.Console.Out };
-                using (ZipFile zip = ZipFile.Read(theFile, options))
+                using (ZipArchive archive = ZipFile.OpenRead(theFile))
                 {
-                    zip.ExtractAll(tmpDir);
+                    foreach (var entry in archive.Entries)
+                    {
+                        string destinationPath = Path.GetFullPath(Path.Combine(tmpDir, entry.FullName));
+                        if (!destinationPath.StartsWith(Path.GetFullPath(tmpDir), StringComparison.OrdinalIgnoreCase))
+                            throw new InvalidDataException("Entry outside target dir: " + entry.FullName);
+                        string destDir = Path.GetDirectoryName(destinationPath);
+                        if (!string.IsNullOrEmpty(destDir) && !Directory.Exists(destDir)) Directory.CreateDirectory(destDir);
+                        if (string.IsNullOrEmpty(entry.Name)) continue; // skip directories
+                        entry.ExtractToFile(destinationPath, overwrite: true);
+                    }
                 }
                 if (!File.Exists(tmpDir + "\\meta_data"))
                 {
@@ -214,15 +222,14 @@ namespace Radios
                 // rename meta_data to meta_subset.
                 File.Move(tmpDir + "\\meta_data", tmpDir + "\\meta_subset");
                 // zip files to a temporary archive.
-                Directory.SetCurrentDirectory(tmpDir);
-                using (ZipFile zip = new ZipFile())
+                string tmpZip = Path.Combine(tmpDir, "archive.zip");
+                using (ZipArchive archive = ZipFile.Open(tmpZip, ZipArchiveMode.Create))
                 {
-                    string[] files = Directory.GetFiles(".");
-                    foreach (string f in files)
+                    foreach (string f in Directory.GetFiles(tmpDir))
                     {
-                        zip.AddFile(f);
+                        string entryName = Path.GetFileName(f);
+                        archive.CreateEntryFromFile(f, entryName, CompressionLevel.Optimal);
                     }
-                    zip.Save("archive.zip");
                 }
             }
             catch (Exception ex)
