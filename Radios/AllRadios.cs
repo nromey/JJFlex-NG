@@ -134,13 +134,33 @@ namespace Radios
                 RadioDiscoveredEvent(arg);
             }
         }
+        private static bool _discoveryInit = false;
+        private static void InitDiscovery()
+        {
+            if (!_discoveryInit)
+            {
+                API.RadioAdded -= OnRadioDiscovered;
+                API.RadioAdded += OnRadioDiscovered;
+                API.ProgramName = "JJRadio";
+                API.IsGUI = true;
+                API.Init();
+                _discoveryInit = true;
+            }
+        }
+
+        private static void OnRadioDiscovered(Radio radio)
+        {
+            var arg = new RadioDiscoveredEventArgs(radio.Nickname, radio.Model, radio.Serial);
+            RaiseRadioDiscovered(arg);
+        }
+
         /// <summary>
         /// Discover radios on the network.
         /// Data returned using the RadioDiscoveredEvent.
         /// </summary>
         public static void DiscoverRadios()
         {
-            FlexDiscovery.DiscoverFlexRadios(null, false); // ignore the return value.
+            InitDiscovery();
         }
 
         /// <summary>
@@ -150,7 +170,8 @@ namespace Radios
         /// <param name="existingInfo">(optional) existing info</param>
         public static RadioDiscoveredEventArgs ManualNetworkRadioInfo(RadioDiscoveredEventArgs existingInfo=null)
         {
-            return FlexDiscovery.FlexManualNetworkRadioInfo(existingInfo);
+            // Manual network radio info handled by FlexBase/rig selector
+            return existingInfo;
         }
 
         private bool _NetworkRadio = false;
@@ -2624,8 +2645,10 @@ namespace Radios
         public const int RIGIDFlex6500 = RIGIDFlex + 9;
         public const int RIGIDFlex6600 = RIGIDFlex + 10;
         public const int RIGIDFlex6700 = RIGIDFlex + 11;
-        public const int RIGIDFlex8600 = RIGIDFlex + 12;
-        public const int RIGIDAurora = RIGIDFlex + 13;
+        public const int RIGIDFlex8400 = RIGIDFlex + 12;
+        public const int RIGIDFlex8600 = RIGIDFlex + 13;
+        public const int RIGIDAurora510 = RIGIDFlex + 14;
+        public const int RIGIDAurora520 = RIGIDFlex + 15;
 
         public enum ComType
         {
@@ -2696,8 +2719,10 @@ namespace Radios
                 new RigElement(RIGIDFlex6500, "Flex6500", typeof(FlexRadio), FlexComDefaults),
                 new RigElement(RIGIDFlex6600, "Flex6600/6600M", typeof(FlexRadio), FlexComDefaults),
                 new RigElement(RIGIDFlex6700, "Flex6700/6700R", typeof(FlexRadio), FlexComDefaults),
+                new RigElement(RIGIDFlex8400, "Flex8400/8400M", typeof(FlexRadio), FlexComDefaults),
                 new RigElement(RIGIDFlex8600, "Flex8600/8600M", typeof(FlexRadio), FlexComDefaults),
-                new RigElement(RIGIDAurora, "Flex Aurora (A520/A520M)", typeof(FlexRadio), FlexComDefaults),
+                new RigElement(RIGIDAurora510, "Flex Aurora (AU-510/AU-510M)", typeof(FlexRadio), FlexComDefaults),
+                new RigElement(RIGIDAurora520, "Flex Aurora (AU-520/AU-520M)", typeof(FlexRadio), FlexComDefaults),
             };
 
         /// <summary>

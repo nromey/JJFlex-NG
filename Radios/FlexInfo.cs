@@ -473,7 +473,9 @@ namespace Radios
         private bool IsRnnModel(Radio radio)
         {
             var model = radio?.Model ?? string.Empty;
-            return model.StartsWith("FLEX-8", StringComparison.OrdinalIgnoreCase);
+            // 8000 series and Aurora AU-520 (based on 8600) support RNN
+            return model.StartsWith("FLEX-8", StringComparison.OrdinalIgnoreCase)
+                || model.StartsWith("AU-52", StringComparison.OrdinalIgnoreCase);
         }
 
         private void FlexInfo_Activated(object sender, EventArgs e)

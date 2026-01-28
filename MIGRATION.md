@@ -21,11 +21,11 @@ The installer is larger than older JJ versions because the repo now includes mul
 - **Wrappers updated:** `P-Opus-master` and `PortAudioSharp-src-0.19.3` converted to SDK-style projects targeting `net48;net8.0-windows` with x86/x64 platforms.
 - **Main app migration in progress:** `JJFlexRadio.vbproj` converted to SDK-style `net48;net8.0-windows`, WinForms, x86/x64. Post-build installer runs only for `Release|x86|net48` to preserve legacy packaging while we modernize.
 - **Known warnings:** net8 builds of FlexLib/UiWpfFramework emit reference-unification warnings (WindowsDesktop ref packs) but build completes.
-- **Radios library trimmed to Flex-only:** `AllRadios.RigTable` now exposes a single Flex entry (`FlexRadio : FlexBase`), discovery uses FlexLib `API.RadioAdded` via `FlexDiscovery` (no more Kenwood/Icom/Elecraft stubs). Build passes with the flex-only surface.
+- **Radios library trimmed to Flex-only:** `AllRadios.RigTable` now exposes Flex entries only (`FlexRadio : FlexBase`), discovery uses FlexLib `API.RadioAdded` directly in AllRadios (no more Kenwood/Icom/Elecraft stubs). Build passes with the flex-only surface.
 - **Rig selector:** Flex-only entries; Remote/Login (SmartLink) re-enabled and call the existing FlexBase SmartLink flow. If SmartLink needs further hardening, disable again and note here.
 
 ## Next steps
 - Update installer/packaging to include both x86 and x64 payloads (arch-detect or dual installers).
 - Ensure net8 builds copy the correct arch-specific native DLLs into output/publish.
 - Consider dropping net48 targeting once net8 is verified end-to-end.
-- Re-introduce SmartLink/manual entry UI on top of `FlexDiscovery` if remote WAN access is required.
+- Re-introduce SmartLink/manual entry UI on top of FlexBase if remote WAN access is required.
