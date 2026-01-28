@@ -1,264 +1,64 @@
-<?xml version="1.0" encoding="utf-8"?>
-<Project ToolsVersion="12.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
-    <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
-    <ProductVersion>8.0.30703</ProductVersion>
-    <SchemaVersion>2.0</SchemaVersion>
-    <ProjectGuid>{07E148AA-8A14-4E91-BA46-D29371B51F9D}</ProjectGuid>
-    <OutputType>Library</OutputType>
-    <AppDesignerFolder>Properties</AppDesignerFolder>
+    <TargetFramework>net48</TargetFramework>
+    <Platforms>AnyCPU;x86;x64</Platforms>
     <RootNamespace>Radios</RootNamespace>
     <AssemblyName>Radios</AssemblyName>
-    <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
-    <RestoreProjectStyle>PackageReference</RestoreProjectStyle>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <UseWindowsForms>true</UseWindowsForms>
     <RuntimeIdentifiers>win-x86</RuntimeIdentifiers>
-    <FileAlignment>512</FileAlignment>
-    <TargetFrameworkProfile>
-    </TargetFrameworkProfile>
   </PropertyGroup>
-  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
-    <DebugSymbols>true</DebugSymbols>
-    <DebugType>full</DebugType>
-    <Optimize>false</Optimize>
-    <OutputPath>bin\Debug\</OutputPath>
-    <DefineConstants>TRACE;DEBUG</DefineConstants>
-    <ErrorReport>prompt</ErrorReport>
-    <WarningLevel>4</WarningLevel>
-    <DocumentationFile>bin\Debug\Radios.XML</DocumentationFile>
-    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
-    <NoWarn>1591, 1522</NoWarn>
-    <Prefer32Bit>false</Prefer32Bit>
-  </PropertyGroup>
-  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
-    <DebugType>pdbonly</DebugType>
-    <Optimize>true</Optimize>
-    <OutputPath>bin\Release\</OutputPath>
-    <DefineConstants>TRACE</DefineConstants>
-    <ErrorReport>prompt</ErrorReport>
-    <WarningLevel>4</WarningLevel>
-    <Prefer32Bit>false</Prefer32Bit>
-  </PropertyGroup>
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Debug|x86'">
-    <DebugSymbols>true</DebugSymbols>
-    <OutputPath>bin\x86\Debug\</OutputPath>
-    <DefineConstants>TRACE;DEBUG</DefineConstants>
-    <DocumentationFile>bin\Debug\Radios.XML</DocumentationFile>
-    <NoWarn>1522,1591</NoWarn>
-    <DebugType>full</DebugType>
-    <PlatformTarget>x86</PlatformTarget>
-    <ErrorReport>prompt</ErrorReport>
-    <Prefer32Bit>false</Prefer32Bit>
-  </PropertyGroup>
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Release|x86'">
-    <OutputPath>bin\x86\Release\</OutputPath>
-    <DefineConstants>TRACE;Profile</DefineConstants>
-    <Optimize>true</Optimize>
-    <DebugType>pdbonly</DebugType>
-    <PlatformTarget>x86</PlatformTarget>
-    <ErrorReport>prompt</ErrorReport>
-    <Prefer32Bit>false</Prefer32Bit>
-  </PropertyGroup>
+
+  <!-- Exclude backup files, subfolders, and experimental code that weren't in the original project -->
   <ItemGroup>
-    <!-- Removed DotNetZip to eliminate vulnerability; using System.IO.Compression instead -->
-    <Reference Include="System" />
-    <Reference Include="System.Core" />
-    <Reference Include="System.Drawing" />
-    <Reference Include="System.IO.Compression" />
-    <Reference Include="System.IO.Compression.FileSystem" />
-    <Reference Include="System.Windows.Forms" />
-    <Reference Include="System.Xml.Linq" />
-    <Reference Include="System.Data.DataSetExtensions" />
-    <Reference Include="Microsoft.CSharp" />
-    <Reference Include="System.Data" />
-    <Reference Include="System.Xml" />
-    <Reference Include="WindowsBase" />
+    <Compile Remove="first cw send\**" />
+    <Compile Remove="new authForm\**" />
+    <Compile Remove="old authForm\**" />
+    <Compile Remove="old\**" />
+    <Compile Remove="queue attempt\**" />
+    <Compile Remove="FlexBase - Copy.cs" />
+    <Compile Remove="FlexBase with reconnect.cs" />
+    <Compile Remove="old FlexBase.cs" />
+    <Compile Remove="Flex6300Filters new.cs" />
+    <Compile Remove="FlexTNF new.cs" />
+    <Compile Remove="FlexWaterfall log.cs" />
+    <Compile Remove="PanRanges - Copy.cs" />
+    <Compile Remove="MemoriesVB designer.cs" />
+    <Compile Remove="MemoriesVB.cs" />
+    <Compile Remove="AllRadios atu.cs" />
+    <!-- Files not in original project - experimental audio stream implementations -->
+    <Compile Remove="AudioStream.cs" />
+    <Compile Remove="OpusStream.cs" />
+    <Compile Remove="TXAudioStream.cs" />
+    <Compile Remove="Flex6300.cs" />
+    <Compile Remove="Flex.cs" />
+    <Compile Remove="UserEnteredRemoteRigInfo.cs" />
+    <Compile Remove="UserEnteredRemoteRigInfo.Designer.cs" />
   </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="System.Collections.Immutable" Version="9.0.0" />
   </ItemGroup>
+
+  <!-- Removed DotNetZip to eliminate vulnerability; using System.IO.Compression instead -->
   <ItemGroup>
-    <Compile Include="AllRadios.cs" />
-    <Compile Include="AllRadiosPanning.cs" />
-    <Compile Include="AllRadiosUtils.cs" />
-    <Compile Include="FlexRadio.cs" />
-    <Compile Include="AuthForm.cs">
-      <SubType>Form</SubType>
-    </Compile>
-    <Compile Include="AuthForm.designer.cs" />
-    <Compile Include="FlexBase.cs" />
-    <Compile Include="Flex6300Filters.cs">
-      <SubType>UserControl</SubType>
-    </Compile>
-    <Compile Include="FlexFilters.cs" />
-    <Compile Include="Flex6300Filters.designer.cs">
-      <DependentUpon>Flex6300Filters.cs</DependentUpon>
-    </Compile>
-    <Compile Include="FlexATUMemories.cs">
-      <SubType>Form</SubType>
-    </Compile>
-    <Compile Include="FlexATUMemories.Designer.cs">
-      <DependentUpon>FlexATUMemories.cs</DependentUpon>
-    </Compile>
-    <Compile Include="FlexDB.cs" />
-    <Compile Include="FlexEq.cs">
-      <SubType>Form</SubType>
-    </Compile>
-    <Compile Include="FlexEq.Designer.cs">
-      <DependentUpon>FlexEq.cs</DependentUpon>
-    </Compile>
-    <Compile Include="EscDialog.cs">
-      <SubType>Form</SubType>
-    </Compile>
-    <Compile Include="EscDialog.designer.cs">
-      <DependentUpon>EscDialog.cs</DependentUpon>
-    </Compile>
-    <Compile Include="FlexInfo.cs">
-      <SubType>Form</SubType>
-    </Compile>
-    <Compile Include="FlexInfo.Designer.cs">
-      <DependentUpon>FlexInfo.cs</DependentUpon>
-    </Compile>
-    <Compile Include="FlexMemories.cs">
-      <SubType>Form</SubType>
-    </Compile>
-    <Compile Include="FlexMemories.Designer.cs">
-      <DependentUpon>FlexMemories.cs</DependentUpon>
-    </Compile>
-    <Compile Include="FlexTNF.cs">
-      <SubType>Form</SubType>
-    </Compile>
-    <Compile Include="FlexTNF.Designer.cs">
-      <DependentUpon>FlexTNF.cs</DependentUpon>
-    </Compile>
-    <Compile Include="FlexWaterfall.cs" />
-    <Compile Include="GetFile.cs">
-      <SubType>Form</SubType>
-    </Compile>
-    <Compile Include="GetFile.Designer.cs">
-      <DependentUpon>GetFile.cs</DependentUpon>
-    </Compile>
-    <Compile Include="OperatorConfig.cs" />
-    <Compile Include="PanListForm.cs">
-      <SubType>Form</SubType>
-    </Compile>
-    <Compile Include="PanListForm.Designer.cs">
-      <DependentUpon>PanListForm.cs</DependentUpon>
-    </Compile>
-    <Compile Include="PanRanges.cs" />
-    <Compile Include="PeakType.cs" />
-    <Compile Include="Profile_t.cs" />
-    <Compile Include="Properties\AssemblyInfo.cs" />
-    <Compile Include="Properties\Resources.Designer.cs">
-      <AutoGen>True</AutoGen>
-      <DesignTime>True</DesignTime>
-      <DependentUpon>Resources.resx</DependentUpon>
-    </Compile>
-    <Compile Include="RigCaps.cs" />
-    <Compile Include="silly.cs" />
-    <Compile Include="TXControls.cs">
-      <SubType>Form</SubType>
-    </Compile>
-    <Compile Include="TXControls.Designer.cs">
-      <DependentUpon>TXControls.cs</DependentUpon>
-    </Compile>
-    <Compile Include="WebBrowserHelper.cs" />
+    <Reference Include="System.IO.Compression" />
+    <Reference Include="System.IO.Compression.FileSystem" />
+    <Reference Include="WindowsBase" />
   </ItemGroup>
+
   <ItemGroup>
-    <EmbeddedResource Include="AuthForm.resx" />
-    <EmbeddedResource Include="Flex6300Filters.resx">
-      <DependentUpon>Flex6300Filters.cs</DependentUpon>
-    </EmbeddedResource>
-    <EmbeddedResource Include="FlexATUMemories.resx">
-      <DependentUpon>FlexATUMemories.cs</DependentUpon>
-    </EmbeddedResource>
-    <EmbeddedResource Include="FlexEq.resx">
-      <DependentUpon>FlexEq.cs</DependentUpon>
-    </EmbeddedResource>
-    <EmbeddedResource Include="FlexInfo.resx">
-      <DependentUpon>FlexInfo.cs</DependentUpon>
-    </EmbeddedResource>
-    <EmbeddedResource Include="FlexMemories.resx">
-      <DependentUpon>FlexMemories.cs</DependentUpon>
-    </EmbeddedResource>
-    <EmbeddedResource Include="FlexTNF.resx">
-      <DependentUpon>FlexTNF.cs</DependentUpon>
-    </EmbeddedResource>
-    <EmbeddedResource Include="GetFile.resx">
-      <DependentUpon>GetFile.cs</DependentUpon>
-    </EmbeddedResource>
-    <EmbeddedResource Include="PanListForm.resx">
-      <DependentUpon>PanListForm.cs</DependentUpon>
-    </EmbeddedResource>
-    <EmbeddedResource Include="Properties\Resources.resx">
-      <Generator>ResXFileCodeGenerator</Generator>
-      <LastGenOutput>Resources.Designer.cs</LastGenOutput>
-    </EmbeddedResource>
-    <EmbeddedResource Include="TXControls.resx">
-      <DependentUpon>TXControls.cs</DependentUpon>
-    </EmbeddedResource>
+    <ProjectReference Include="..\escapes\escapes.csproj" />
+    <ProjectReference Include="..\FlexLib_API\FlexLib\FlexLib.csproj" />
+    <ProjectReference Include="..\FlexLib_API\UiWpfFramework\UiWpfFramework.csproj" />
+    <ProjectReference Include="..\FlexLib_API\Util\Util.csproj" />
+    <ProjectReference Include="..\FlexLib_API\Vita\Vita.csproj" />
+    <ProjectReference Include="..\HamBands\HamBands.csproj" />
+    <ProjectReference Include="..\JJPortaudio\JJPortaudio\JJPortaudio.csproj" />
+    <ProjectReference Include="..\JJTrace\JJTrace.csproj" />
+    <ProjectReference Include="..\MsgLib\MsgLib.csproj" />
+    <ProjectReference Include="..\P-Opus-master\POpusCodec.csproj" />
+    <ProjectReference Include="..\PortAudioSharp-src-0.19.3\PortAudioSharp\PortAudioSharp.csproj" />
+    <ProjectReference Include="..\RadioBoxes\RadioBoxes.csproj" />
   </ItemGroup>
-  <ItemGroup>
-    <ProjectReference Include="..\escapes\escapes.csproj">
-      <Project>{0d6f7843-33f7-46b0-ab2d-47baa967ef5e}</Project>
-      <Name>escapes</Name>
-    </ProjectReference>
-    <ProjectReference Include="..\FlexLib_API\FlexLib\FlexLib.csproj">
-      <Project>{7927817c-d5ef-4a9e-b38e-29668f308343}</Project>
-      <Name>FlexLib</Name>
-      <EmbedInteropTypes>False</EmbedInteropTypes>
-    </ProjectReference>
-    <ProjectReference Include="..\FlexLib_API\UiWpfFramework\UiWpfFramework.csproj">
-      <Project>{9c0ad871-92fd-461b-84ff-3738d701814f}</Project>
-      <Name>UiWpfFramework</Name>
-    </ProjectReference>
-    <ProjectReference Include="..\FlexLib_API\Util\Util.csproj">
-      <Project>{38935dc9-ff48-470c-b876-473a3ae8bd32}</Project>
-      <Name>Util</Name>
-    </ProjectReference>
-    <ProjectReference Include="..\FlexLib_API\Vita\Vita.csproj">
-      <Project>{6ed364fb-7444-44da-9196-1d8679425b3e}</Project>
-      <Name>Vita</Name>
-    </ProjectReference>
-    <ProjectReference Include="..\HamBands\HamBands.csproj">
-      <Project>{f8380a38-0cc4-45a7-9621-8dbcb188b758}</Project>
-      <Name>HamBands</Name>
-    </ProjectReference>
-    <ProjectReference Include="..\JJPortaudio\JJPortaudio\JJPortaudio.csproj">
-      <Project>{ac0d237a-8224-4016-8001-3cf129cad335}</Project>
-      <Name>JJPortaudio</Name>
-    </ProjectReference>
-    <ProjectReference Include="..\JJTrace\JJTrace.csproj">
-      <Project>{EAB82C71-8CC6-4002-AD7A-BB2D375C8159}</Project>
-      <Name>JJTrace</Name>
-    </ProjectReference>
-    <ProjectReference Include="..\MsgLib\MsgLib.csproj">
-      <Project>{c5b8ac00-ab97-4731-8c30-51df327cb6ae}</Project>
-      <Name>MsgLib</Name>
-    </ProjectReference>
-    <ProjectReference Include="..\P-Opus-master\POpusCodec.csproj">
-      <Project>{64c3706d-6620-44a7-ba18-e00832c7ea52}</Project>
-      <Name>POpusCodec</Name>
-    </ProjectReference>
-    <ProjectReference Include="..\PortAudioSharp-src-0.19.3\PortAudioSharp\PortAudioSharp.csproj">
-      <Project>{8199a26e-c92e-4f6a-9eee-95f7afc58847}</Project>
-      <Name>PortAudioSharp</Name>
-    </ProjectReference>
-    <ProjectReference Include="..\RadioBoxes\RadioBoxes.csproj">
-      <Project>{C15F2768-3386-4703-AE1D-CC4E59348610}</Project>
-      <Name>RadioBoxes</Name>
-    </ProjectReference>
-  </ItemGroup>
-  <ItemGroup>
-    <None Include="changes.txt" />
-    <None Include="FlexScreen layout.txt" />
-  </ItemGroup>
-  <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
-  <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 
-       Other similar extension points exist, see Microsoft.Common.targets.
-  <Target Name="BeforeBuild">
-  </Target>
-  <Target Name="AfterBuild">
-  </Target>
-  -->
 </Project>

@@ -1,106 +1,17 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
-<Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
-  <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
+<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
-    <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
-    <ProjectGuid>{7F7E4ECC-0AB1-40D1-B9E0-B0B0BCD7536C}</ProjectGuid>
-    <OutputType>Library</OutputType>
-    <AppDesignerFolder>Properties</AppDesignerFolder>
+    <TargetFramework>net48</TargetFramework>
+    <Platforms>AnyCPU;x86;x64</Platforms>
     <RootNamespace>JJArclusterLib</RootNamespace>
     <AssemblyName>JJArclusterLib</AssemblyName>
-    <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
-    <FileAlignment>512</FileAlignment>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <UseWindowsForms>true</UseWindowsForms>
   </PropertyGroup>
-  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
-    <DebugSymbols>true</DebugSymbols>
-    <DebugType>full</DebugType>
-    <Optimize>false</Optimize>
-    <OutputPath>bin\Debug\</OutputPath>
-    <DefineConstants>DEBUG;TRACE</DefineConstants>
-    <ErrorReport>prompt</ErrorReport>
-    <WarningLevel>4</WarningLevel>
-  </PropertyGroup>
-  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
-    <DebugType>pdbonly</DebugType>
-    <Optimize>true</Optimize>
-    <OutputPath>bin\Release\</OutputPath>
-    <DefineConstants>TRACE</DefineConstants>
-    <ErrorReport>prompt</ErrorReport>
-    <WarningLevel>4</WarningLevel>
-  </PropertyGroup>
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Debug|x86'">
-    <DebugSymbols>true</DebugSymbols>
-    <OutputPath>bin\x86\Debug\</OutputPath>
-    <DefineConstants>DEBUG;TRACE</DefineConstants>
-    <DebugType>full</DebugType>
-    <PlatformTarget>x86</PlatformTarget>
-    <ErrorReport>prompt</ErrorReport>
-    <CodeAnalysisRuleSet>MinimumRecommendedRules.ruleset</CodeAnalysisRuleSet>
-  </PropertyGroup>
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Release|x86'">
-    <OutputPath>bin\x86\Release\</OutputPath>
-    <DefineConstants>TRACE</DefineConstants>
-    <Optimize>true</Optimize>
-    <DebugType>pdbonly</DebugType>
-    <PlatformTarget>x86</PlatformTarget>
-    <ErrorReport>prompt</ErrorReport>
-    <CodeAnalysisRuleSet>MinimumRecommendedRules.ruleset</CodeAnalysisRuleSet>
-  </PropertyGroup>
+
   <ItemGroup>
-    <Reference Include="System" />
-    <Reference Include="System.Core" />
-    <Reference Include="System.Drawing" />
-    <Reference Include="System.Windows.Forms" />
-    <Reference Include="System.Xml.Linq" />
-    <Reference Include="System.Data.DataSetExtensions" />
-    <Reference Include="Microsoft.CSharp" />
-    <Reference Include="System.Data" />
-    <Reference Include="System.Xml" />
+    <ProjectReference Include="..\escapes\escapes.csproj" />
+    <ProjectReference Include="..\JJTrace\JJTrace.csproj" />
+    <ProjectReference Include="..\JJMinimalTelnet\JJMinimalTelnet.csproj" />
+    <ProjectReference Include="..\MsgLib\MsgLib.csproj" />
   </ItemGroup>
-  <ItemGroup>
-    <Compile Include="ClusterForm.cs">
-      <SubType>Form</SubType>
-    </Compile>
-    <Compile Include="ClusterForm.designer.cs">
-      <DependentUpon>ClusterForm.cs</DependentUpon>
-    </Compile>
-    <Compile Include="Command.cs">
-      <SubType>Form</SubType>
-    </Compile>
-    <Compile Include="Command.designer.cs">
-      <DependentUpon>Command.cs</DependentUpon>
-    </Compile>
-    <Compile Include="Properties\AssemblyInfo.cs" />
-  </ItemGroup>
-  <ItemGroup>
-    <EmbeddedResource Include="ClusterForm.resx">
-      <DependentUpon>ClusterForm.cs</DependentUpon>
-    </EmbeddedResource>
-    <EmbeddedResource Include="Command.resx">
-      <DependentUpon>Command.cs</DependentUpon>
-    </EmbeddedResource>
-  </ItemGroup>
-  <ItemGroup>
-    <ProjectReference Include="..\escapes\escapes.csproj">
-      <Project>{0d6f7843-33f7-46b0-ab2d-47baa967ef5e}</Project>
-      <Name>escapes</Name>
-    </ProjectReference>
-    <ProjectReference Include="..\JJTrace\JJTrace.csproj">
-      <Project>{eab82c71-8cc6-4002-ad7a-bb2d375c8159}</Project>
-      <Name>JJTrace</Name>
-    </ProjectReference>
-    <ProjectReference Include="..\JJMinimalTelnet\JJMinimalTelnet.csproj">
-      <Project>{fa52fdf4-47f0-4093-b835-5fcc21f8c9fd}</Project>
-      <Name>JJMinimalTelnet</Name>
-    </ProjectReference>
-    <ProjectReference Include="..\MsgLib\MsgLib.csproj">
-      <Project>{c5b8ac00-ab97-4731-8c30-51df327cb6ae}</Project>
-      <Name>MsgLib</Name>
-    </ProjectReference>
-  </ItemGroup>
-  <ItemGroup>
-    <Content Include="changes.txt" />
-  </ItemGroup>
-  <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>
