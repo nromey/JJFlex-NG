@@ -7,10 +7,13 @@ Windows desktop application for controlling FlexRadio transceivers (6000/8000 se
 | Item | Value |
 |------|-------|
 | Solution | `JJFlexRadio.sln` |
-| Build (Release) | `msbuild /t:Rebuild /p:Configuration=Release /p:Platform=x86` |
-| Build (Debug) | `msbuild /t:Build /p:Configuration=Debug /p:Platform=x86` |
+| Build (Release) | `dotnet build JJFlexRadio.sln -c Release -p:Platform=x86` |
+| Build (Debug) | `dotnet build JJFlexRadio.sln -c Debug -p:Platform=x86` |
+| Rebuild (Release) | `dotnet build JJFlexRadio.sln -c Release -p:Platform=x86 --no-incremental` |
 | Installer | Run `install.bat` after Release build |
 | Output | `bin\Release\JJFlexRadio [version].exe` |
+
+**Note**: Use `dotnet build` (preferred) or `msbuild` if in VS Developer shell. Add `--verbosity minimal` to reduce output noise.
 
 **Important**: Close running JJFlexRadio before building (Radios.dll lock).
 
@@ -73,6 +76,18 @@ if (theRadio.AvailableSlices >= 2) { ... }
 Write entries in personal, first-person explanatory tone (see `docs/CHANGELOG.md`).
 
 ## Build Notes
+
+### Build Commands
+```batch
+# Preferred (works from any terminal)
+dotnet build JJFlexRadio.sln -c Release -p:Platform=x86
+
+# Alternative (requires VS Developer shell)
+msbuild /t:Rebuild /p:Configuration=Release /p:Platform=x86
+
+# Minimal output (recommended for CI/automation)
+dotnet build JJFlexRadio.sln -c Release -p:Platform=x86 --verbosity minimal
+```
 
 ### Platforms
 - Primary: x86 (Release|net48) for installer
