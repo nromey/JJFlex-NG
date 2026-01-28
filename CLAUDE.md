@@ -65,9 +65,9 @@ if (theRadio.AvailableSlices >= 2) { ... }
 
 ### Accessibility Guidelines
 - Remove `&` from menu labels (interferes with screen readers)
-- Set `AccessibleName` and `AccessibleRole` on controls
+- Always Set `AccessibleName` and `AccessibleRole` on controls
 - Keep unsupported/disabled controls out of tab order
-- Use Feature Availability tab to explain why features are unavailable
+- Use Feature Availability tab to explain why radio features are unavailable due to subscription unavailable or model spec deficiencies
 
 ### Changelog Conventions
 Write entries in personal, first-person explanatory tone (see `docs/CHANGELOG.md`).
@@ -96,16 +96,21 @@ Generates `install.nsi` from template, builds `deleteList.txt`, runs `makensis`.
 
 ## Radio Support
 
-| Model | SCUs | Diversity | Max Slices |
-|-------|------|-----------|------------|
-| FLEX-6300 | 1 | No | 2 |
-| FLEX-6400(M) | 1 | No | 2 |
-| FLEX-6500 | 1 | No | 4 |
-| FLEX-6600(M) | 2 | Yes | 4 |
-| FLEX-6700(R) | 2 | Yes | 8 |
-| FLEX-8600(M) | 2 | Yes | 8 |
+| Model | SCUs | Diversity | Max Slices | Notes |
+|-------|------|-----------|------------|-------|
+| FLEX-6300 | 1 | No | 2 | Entry-level, optional ATU |
+| FLEX-6400(M) | 1 | No | 2 | 3rd-order preselectors |
+| FLEX-6500 | 1 | No | 4 | 30dB bandpass filters |
+| FLEX-6600(M) | 2 | Yes | 4 | 7th-order filters, full duplex |
+| FLEX-6700(R) | 2 | Yes | 8 | Flagship 6000 series |
+| FLEX-8400(M) | 1 | No | 2 | 8000 series entry |
+| FLEX-8600(M) | 2 | Yes | 4 | 8000 series mid-range |
+| AU-510(M) | 1 | No | 2 | Aurora 500W, based on 8400 |
+| AU-520(M) | 2 | Yes | 4 | Aurora 500W, based on 8600 |
 
 Detection: Use `theRadio.Model`, `theRadio.DiversityIsAllowed`, `theRadio.MaxSlices` rather than hardcoding.
+
+**Note:** 8400/AU-510 and their M variants are not yet in the RigTable - see Phase 0.5 in `docs/barefoot-qrm-trap.md`.
 
 ## Related Documentation
 
@@ -115,6 +120,7 @@ Detection: Use `theRadio.Model`, `theRadio.DiversityIsAllowed`, `theRadio.MaxSli
 | `docs/remote-migration.md` | SmartLink/Remote restoration plan |
 | `docs/FlexLib-v4.0.1-Missing-Features.md` | Advanced features catalog (Diversity, RNN, etc.) |
 | `docs/CHANGELOG.md` | Version history |
+| `docs/barefoot-qrm-trap.md` | .NET 8.0 + 64-bit migration plan |
 | `Agent.md` | Recent work summary |
 
 ## Common Tasks
