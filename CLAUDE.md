@@ -143,3 +143,23 @@ Detection: Use `theRadio.Model`, `theRadio.DiversityIsAllowed`, `theRadio.MaxSli
 1. Check `AuthForm.cs` for Auth0 flow
 2. Verify TLS 1.2+ in network traces
 3. See `docs/remote-migration.md` for current state
+
+## Workflow
+
+### Commits
+- Commit and push after completing each phase or significant chunk of work
+- No PR required for work on feature branches
+- Use descriptive commit messages following existing style
+
+### Resuming Work
+If a session ends mid-task, tell Claude: "Resume [phase/task name] from `docs/barefoot-qrm-trap.md`"
+
+Claude will:
+1. Read the plan and `git status` to see what's done
+2. Check `Agent.md` for recent work context
+3. Continue from where work left off
+
+To help resumption, Claude should:
+- Update `Agent.md` with current progress before ending sessions
+- Commit partial work with clear "WIP:" prefix if mid-phase
+- Note the current step in commit messages when practical
