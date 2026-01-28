@@ -71,11 +71,8 @@ set "VIAPPVER=%APPVER%.0.0.0"
 for /f "tokens=1-4 delims=." %%a in ("%VIAPPVER%") do set "VIAPPVER=%%a.%%b.%%c.%%d"
 
 REM Generate install.nsi with the resolved program name.
-if defined SEDPATH (
-    type "install template.nsi" | "%SEDPATH%" -e "s/MYPGM/%pgm%/g" -e "s/MYVER/%VIAPPVER%/g" -e "s#MYOUTDIR#%OUTDIR%#g" > install.nsi || (echo sed failed & exit /b 5)
-) else (
-    powershell -NoProfile -Command "$c = Get-Content 'install template.nsi' -Raw; $c = $c.Replace('MYPGM','%pgm%').Replace('MYVER','%VIAPPVER%').Replace('MYOUTDIR','%OUTDIR%'); Set-Content -Encoding UTF8 'install.nsi' $c" || (echo PowerShell replace failed & exit /b 5)
-)
+REM Always use PowerShell for reliable path handling (avoids sed backslash issues)
+powershell -NoProfile -Command "$c = Get-Content 'install template.nsi' -Raw; $c = $c.Replace('MYPGM','%pgm%').Replace('MYVER','%VIAPPVER%').Replace('MYOUTDIR','%OUTDIR%'); Set-Content -Encoding ASCII 'install.nsi' $c" || (echo PowerShell replace failed & exit /b 5)
 
 REM produce a temporary file list and run sed against it
 pushd "!OUTDIR!" || (echo Cannot cd to output folder & exit /b 7)
