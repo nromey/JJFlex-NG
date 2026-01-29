@@ -174,13 +174,8 @@ namespace Flex.Smoothlake.FlexLib
                     new LocalCertificateSelectionCallback((a, b, c, d, e2) => { return null; }));
             }
 
-#if NETFRAMEWORK || NET462 || NET472 || NET48 || NET481
-            // .NET Framework 4.x does not expose Tls13 in SslProtocols; lock to 1.2.
-            const SslProtocols preferredProtocols = SslProtocols.Tls12;
-#else
-            // On modern runtimes, ask for TLS 1.3 but allow 1.2 fallback.
+            // On .NET 8+, ask for TLS 1.3 but allow 1.2 fallback.
             const SslProtocols preferredProtocols = SslProtocols.Tls13 | SslProtocols.Tls12;
-#endif
 
             // Require modern TLS (at least 1.2). If the negotiated set fails (e.g., 1.3 not available), fall back to 1.2.
             try

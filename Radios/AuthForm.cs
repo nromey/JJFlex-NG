@@ -64,11 +64,7 @@ namespace Radios
 
                 // Enforce TLS 1.2+ before hitting Auth0 and ensure we use HTTPS endpoints.
                 ServicePointManager.Expect100Continue = true;
-#if NET48
-                ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
-#else
                 ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12 | SecurityProtocolType.Tls13;
-#endif
 
                 string uriString = "https://frtest.auth0.com/authorize?";
                 uriString += "response_type=token&";
