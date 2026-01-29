@@ -9,11 +9,11 @@
 
 ; The name of the installer
 Name "JJFlexRadio"
-; The file to write (version appended via 4.1.8.0)
-OutFile "Setup JJFlexRadio_4.1.8.0.exe"
+; The file to write (version appended via 4.1.9.0)
+OutFile "Setup JJFlexRadio_4.1.9.0.exe"
 
-; The default installation directory
-InstallDir "$PROGRAMFILES\jjshaffer\JJFlexRadio"
+; The default installation directory (architecture-specific Program Files)
+InstallDir "$PROGRAMFILES64\jjshaffer\JJFlexRadio"
 
 ; Registry key to check for directory (so if you install again, it will 
 ; overwrite the old one automatically)
@@ -24,10 +24,10 @@ RequestExecutionLevel admin
 
 
 ; Version information for the installer bundle
-VIProductVersion "4.1.8.0"
-VIFileVersion "4.1.8.0"
-VIAddVersionKey /LANG=1033 "ProductVersion" "4.1.8.0"
-VIAddVersionKey /LANG=1033 "FileVersion" "4.1.8.0"
+VIProductVersion "4.1.9.0"
+VIFileVersion "4.1.9.0"
+VIAddVersionKey /LANG=1033 "ProductVersion" "4.1.9.0"
+VIAddVersionKey /LANG=1033 "FileVersion" "4.1.9.0"
 VIAddVersionKey /LANG=1033 "ProductName" "JJFlexRadio"
 VIAddVersionKey /LANG=1033 "FileDescription" "JJFlexRadio installer"
 
@@ -65,7 +65,7 @@ Section "JJFlexRadio (required)"
   SetOutPath $INSTDIR
   
   ; Put files there - recurse all built outputs
-  File /r /x "*.pdb" "C:\dev\JJFlex-NG\bin\x86\Release\net48\win-x86\*.*"
+  File /r /x "*.pdb" "C:\Users\nrome\.claude-worktrees\JJFlex-NG\quirky-franklin\bin\x64\Release\net8.0-windows\win-x64\*.*"
   
   ; Write the installation path into the registry
   WriteRegStr HKLM "SOFTWARE\JJFlexRadio" "Install_Dir" "$INSTDIR"

@@ -16,7 +16,41 @@
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2478.35" />
     <PackageReference Include="System.Collections.Immutable" Version="9.0.0" />
     <PackageReference Include="System.IO.Ports" Version="9.0.0" />
-    <PackageReference Include="TOWK.Utility.CrossSpeak" Version="1.0.0" />
+  </ItemGroup>
+
+  <!-- Tolk native DLLs - architecture-specific screen reader support -->
+  <ItemGroup Condition="'$(Platform)'=='x64'">
+    <ContentWithTargetPath Include="..\runtimes\win-x64\native\Tolk.dll">
+      <TargetPath>Tolk.dll</TargetPath>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </ContentWithTargetPath>
+    <ContentWithTargetPath Include="..\runtimes\win-x64\native\nvdaControllerClient64.dll">
+      <TargetPath>nvdaControllerClient64.dll</TargetPath>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </ContentWithTargetPath>
+    <ContentWithTargetPath Include="..\runtimes\win-x64\native\SAAPI64.dll">
+      <TargetPath>SAAPI64.dll</TargetPath>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </ContentWithTargetPath>
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(Platform)'=='x86'">
+    <ContentWithTargetPath Include="..\runtimes\win-x86\native\Tolk.dll">
+      <TargetPath>Tolk.dll</TargetPath>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </ContentWithTargetPath>
+    <ContentWithTargetPath Include="..\runtimes\win-x86\native\nvdaControllerClient32.dll">
+      <TargetPath>nvdaControllerClient32.dll</TargetPath>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </ContentWithTargetPath>
+    <ContentWithTargetPath Include="..\runtimes\win-x86\native\SAAPI32.dll">
+      <TargetPath>SAAPI32.dll</TargetPath>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </ContentWithTargetPath>
+    <ContentWithTargetPath Include="..\runtimes\win-x86\native\dolapi32.dll">
+      <TargetPath>dolapi32.dll</TargetPath>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </ContentWithTargetPath>
   </ItemGroup>
 
   <ItemGroup>
