@@ -458,13 +458,15 @@ namespace Radios
         {
             bool rv = false;
 
-            // Bringup auth form.  Must be in an sta thread.
+            // Show auth form directly on UI thread (WinForms UI thread is already STA)
+            // Form shows a loading message while WebView2 initializes asynchronously,
+            // keeping UI thread responsive for screen readers
             tokens = null;
-            Thread authThread = new Thread(authFormProc);
-            authThread.Name = "authThread";
-            authThread.SetApartmentState(ApartmentState.STA);
-            authThread.Start();
-            while (authThread.IsAlive) { Thread.Sleep(100); }
+            using (var form = (AuthFormWebView2)AuthForm.CreateAuthForm())
+            {
+                form.ShowDialog();
+                tokens = form.Tokens;
+            }
             if ((tokens == null) || (tokens.Length == 0))
             {
                 Tracing.TraceLine("setup Remote: no tokens returned from form", TraceLevel.Error);
@@ -532,15 +534,6 @@ namespace Radios
 
             setupRemoteDone:
             return rv;
-        }
-
-        private void authFormProc()
-        {
-            // Use WebView2-based auth form for modern browser support
-            var form = (AuthFormWebView2)AuthForm.CreateAuthForm();
-            form.ShowDialog();
-            tokens = form.Tokens;
-            form.Dispose();
         }
 
         private bool sendRemoteConnect(Radio r)

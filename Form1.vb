@@ -195,8 +195,9 @@ Public Class Form1
     End Sub
 
     Private Sub Form1_Load(ByVal sender As System.Object, ByVal e As System.EventArgs) Handles MyBase.Load
-        ' Welcome announcement for screen reader users (short so it completes before UI events).
+        ' Welcome announcement for screen reader users
         Radios.ScreenReaderOutput.Speak("Welcome to JJ Flex")
+        System.Threading.Thread.Sleep(1500) ' Give time for welcome message to complete
 
         statusSetup() ' setup the status line.
 

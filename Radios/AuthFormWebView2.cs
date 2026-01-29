@@ -65,39 +65,14 @@ namespace Radios
             this.StartPosition = FormStartPosition.CenterScreen;
             this.Text = "SmartLink Authentication";
             this.Load += AuthFormWebView2_Load;
-            this.Activated += AuthFormWebView2_Activated;
-            this.Shown += AuthFormWebView2_Shown;
 
             this.ResumeLayout(false);
-        }
-
-        private void AuthFormWebView2_Shown(object sender, EventArgs e)
-        {
-            // Set focus to WebView2 when form is first shown
-            if (webView != null && isInitialized)
-            {
-                webView.Focus();
-            }
-        }
-
-        private void AuthFormWebView2_Activated(object sender, EventArgs e)
-        {
-            // Restore focus to WebView2 when returning from Alt+Tab
-            if (webView != null && isInitialized)
-            {
-                webView.Focus();
-            }
         }
 
         private async void AuthFormWebView2_Load(object sender, EventArgs e)
         {
             try
             {
-                // TLS is handled by WebView2/Edge, no need for ServicePointManager config
-
-                // Announce to screen reader that we're loading (wait for it to finish)
-                await ScreenReaderOutput.SpeakAndWaitAsync("Loading SmartLink authentication, please wait.");
-
                 // Build Auth0 URL
                 string uriString = BuildAuth0Url();
                 Tracing.TraceLine("AuthFormWebView2 URI: " + uriString, TraceLevel.Info);
@@ -109,11 +84,11 @@ namespace Radios
 
                 // Initialize WebView2 with a user data folder in AppData
                 // This avoids "access denied" errors when running from Program Files
-                // Uses same base folder as JJTrace and CrashReporter (%APPDATA%\JJFlexRadio)
                 string userDataFolder = System.IO.Path.Combine(
                     Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
                     "JJFlexRadio", "WebView2");
 
+                // Async initialization keeps UI thread responsive for screen readers
                 var env = await CoreWebView2Environment.CreateAsync(null, userDataFolder, null);
                 await webView.EnsureCoreWebView2Async(env);
                 isInitialized = true;
@@ -178,19 +153,9 @@ namespace Radios
                 }
                 else
                 {
-                    // Login page loaded - announce and set focus
+                    // Login page loaded - announce to screen reader and set focus
                     ScreenReaderOutput.Speak("Login page ready. Enter your email address.", true);
-
-                    // Set focus to WebView2 so screen reader can navigate
                     webView.Focus();
-
-                    // Also try to focus the first input field in the page for better accessibility
-                    try
-                    {
-                        webView.CoreWebView2.ExecuteScriptAsync(
-                            "document.querySelector('input[type=email], input[type=text], input')?.focus();");
-                    }
-                    catch { /* ignore script errors */ }
                 }
             }
             catch (Exception ex)
