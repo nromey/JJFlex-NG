@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## 4.1.9.0 - The .NET 8 Migration Release
+This is a big one. I finally ripped the band-aid off and migrated the entire codebase from .NET Framework 4.8 to .NET 8.0. Here's what changed:
+
+- **Architecture**: JJFlexRadio now builds for both x64 (64-bit) and x86 (32-bit). The installer names include the architecture suffix so you know which one you're grabbing: `Setup JJFlexRadio_4.1.9_x64.exe` or `_x86.exe`.
+- **SDK-style projects**: All C# projects converted to the modern SDK-style format. Cleaner, faster builds, better tooling support.
+- **WebView2 for Auth0**: Replaced the ancient WebBrowser control with Microsoft Edge WebView2 for SmartLink authentication. This means modern TLS, better compatibility, and no more IE quirks.
+- **TLS 1.3 support**: Now negotiates TLS 1.3 where available, with TLS 1.2 fallback. Removed all the conditional compilation gymnastics for .NET 4.8.
+- **Native DLL loading**: Added `NativeLoader.vb` that automatically loads the correct architecture-specific native DLLs (Opus, PortAudio) at startup.
+- **GitHub Releases**: Set up automated release workflow. When I push a version tag like `v4.1.9`, GitHub Actions builds both architectures and publishes installers to the Releases page.
+- **Housekeeping**: Removed legacy radio support (Icom, Kenwood, Generic) since this is JJ*Flex*Radio after all. Also added FLEX-8400 and Aurora AU-510 to the rig table.
+
+The migration plan is documented in `docs/barefoot-qrm-trap.md` if you're curious about the gory details.
+
 ## 4.1.8.0
 - Added Feature Availability tab in the Radio Info dialog with per-feature status (Diversity, ESC, CW Autotune, NR/ANF variants) and a refresh licenses button. Now, the "radio info" dialog, button renames from rig to radio, has two tabs, the first tells you everything about your radio i.e. serial etc. The Feature availability tab is your window on the world of features that you have access to via your license. If Flex releases a new feature that changes radio operations/adds new goodies and you aren't a subscriber, the system will tell you what features you have and which ones are disabled due to your license. It does not tell you how long you have left on your sdr plus license or what type of license you have, SmartSDR can theoretically do that.
 - Added an item under the actions menu which will open the radio info dialog while focussing on and in the feature availability tab.

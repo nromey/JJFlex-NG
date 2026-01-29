@@ -168,6 +168,46 @@ See `docs/barefoot-qrm-trap.md` for original migration plan.
 | `docs/barefoot-qrm-trap.md` | .NET 8.0 + 64-bit migration plan |
 | `Agent.md` | Recent work summary (session context) |
 
+## Releases
+
+### Creating a Release
+JJFlexRadio uses Git tags to trigger automated releases via GitHub Actions:
+
+1. **Bump the version** in `JJFlexRadio.vbproj`:
+   ```xml
+   <Version>4.1.X</Version>
+   <AssemblyVersion>4.1.X.0</AssemblyVersion>
+   <FileVersion>4.1.X.0</FileVersion>
+   ```
+
+2. **Commit the version bump**:
+   ```batch
+   git add JJFlexRadio.vbproj
+   git commit -m "Bump version to 4.1.X"
+   ```
+
+3. **Create and push a tag**:
+   ```batch
+   git tag -a v4.1.X -m "Release 4.1.X - Brief description"
+   git push origin cool-mendel --tags
+   ```
+
+4. **GitHub Actions takes over**:
+   - Builds both x64 and x86 installers
+   - Creates a GitHub Release with auto-generated notes
+   - Uploads both installer executables to the Releases page
+
+### Workflow Files
+- `.github/workflows/release.yml` - Tag-triggered release (builds + publishes installers)
+- `.github/workflows/windows-build.yml` - CI build on push/PR (validation only)
+
+### Manual Local Build
+For local testing without triggering a release:
+```batch
+dotnet build JJFlexRadio.sln -c Release -p:Platform=x64
+```
+The installer runs automatically as a post-build step.
+
 ## Common Tasks
 
 ### Add new DSP feature
