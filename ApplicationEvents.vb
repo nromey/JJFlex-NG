@@ -8,6 +8,9 @@ Namespace My
     ''' </summary>
     Partial Friend Class MyApplication
         Private Sub MyApplication_Startup(sender As Object, e As ApplicationServices.StartupEventArgs) Handles Me.Startup
+            ' Initialize native library resolver FIRST (enables x86/x64 DLL loading)
+            NativeLoader.Initialize()
+
             ' Enforce a modern TLS floor for all outbound HTTPS/TLS traffic in the app domain.
             ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12 Or SecurityProtocolType.Tls13
 

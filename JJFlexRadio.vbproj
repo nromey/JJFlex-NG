@@ -62,6 +62,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Include="NativeLoader.vb" />
     <Compile Include="CrashReporter.vb" />
     <Compile Include="About.Designer.vb">
       <DependentUpon>About.vb</DependentUpon>
@@ -424,6 +425,18 @@
     <Content Include="cty_wt.dat" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="install.bat" />
     <Content Include="install.nsi" />
+  </ItemGroup>
+
+  <!-- Architecture-specific native DLLs (x86/x64) -->
+  <ItemGroup>
+    <Content Include="runtimes\win-x86\native\*.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>runtimes\win-x86\native\%(Filename)%(Extension)</Link>
+    </Content>
+    <Content Include="runtimes\win-x64\native\*.dll" Condition="Exists('runtimes\win-x64\native\')">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>runtimes\win-x64\native\%(Filename)%(Extension)</Link>
+    </Content>
   </ItemGroup>
 
   <ItemGroup>
