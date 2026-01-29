@@ -17,6 +17,14 @@ Namespace My
             ' Enable global crash capture and reporting.
             AddHandler System.Windows.Forms.Application.ThreadException, AddressOf CrashReporter.OnThreadException
             AddHandler AppDomain.CurrentDomain.UnhandledException, AddressOf CrashReporter.OnUnhandledException
+
+            ' Initialize screen reader output (CrossSpeak/Tolk) for accessibility announcements.
+            Radios.ScreenReaderOutput.Initialize()
+        End Sub
+
+        Private Sub MyApplication_Shutdown(sender As Object, e As System.EventArgs) Handles Me.Shutdown
+            ' Clean up screen reader resources.
+            Radios.ScreenReaderOutput.Shutdown()
         End Sub
     End Class
 End Namespace

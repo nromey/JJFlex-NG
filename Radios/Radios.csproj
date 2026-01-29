@@ -16,6 +16,7 @@
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2478.35" />
     <PackageReference Include="System.Collections.Immutable" Version="9.0.0" />
     <PackageReference Include="System.IO.Ports" Version="9.0.0" />
+    <PackageReference Include="TOWK.Utility.CrossSpeak" Version="1.0.0" />
   </ItemGroup>
 
   <ItemGroup>
