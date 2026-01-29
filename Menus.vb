@@ -121,7 +121,7 @@ Public Class Menus
         ' Initial menu setup check.
         If RigControl.MenuBank = AllRadios.MenuBankNotSetup Then
             Tracing.TraceLine("Menus not setup", TraceLevel.Error)
-            DialogResult = Windows.Forms.DialogResult.Abort
+            DialogResult = System.Windows.Forms.DialogResult.Abort
             Return
         End If
         If InvocationInfo Is Nothing Then
@@ -130,7 +130,7 @@ Public Class Menus
             ' Quit if no menus yet.
             If InvocationInfo.Menus Is Nothing Then
                 Tracing.TraceLine("menus:no menus yet", TraceLevel.Error)
-                DialogResult = Windows.Forms.DialogResult.Abort
+                DialogResult = System.Windows.Forms.DialogResult.Abort
                 Return
             End If
         End If
@@ -150,7 +150,7 @@ Public Class Menus
         End If
         ' setup the value group box.
         setupValueBox()
-        DialogResult = Windows.Forms.DialogResult.None
+        DialogResult = System.Windows.Forms.DialogResult.None
         wasActive = False
         ' Get the bank in use.
         menuBank = InvocationInfo.Bank
@@ -325,12 +325,12 @@ Public Class Menus
         Tracing.TraceLine("OKButton_Click", TraceLevel.Info)
         ' See if any menu change is needed.
         changeMenu()
-        DialogResult = Windows.Forms.DialogResult.OK
+        DialogResult = System.Windows.Forms.DialogResult.OK
     End Sub
 
     Private Sub CnclButton_Click(sender As System.Object, e As System.EventArgs) Handles CnclButton.Click
         Tracing.TraceLine("Menus Cancel:", TraceLevel.Info)
-        DialogResult = Windows.Forms.DialogResult.Cancel
+        DialogResult = System.Windows.Forms.DialogResult.Cancel
     End Sub
 
     Private Sub Menus_Activated(sender As System.Object, e As System.EventArgs) Handles MyBase.Activated

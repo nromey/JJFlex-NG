@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net48</TargetFramework>
+    <TargetFramework>net8.0-windows</TargetFramework>
     <Platforms>AnyCPU;x86;x64</Platforms>
     <RootNamespace>JJLogLib</RootNamespace>
     <AssemblyName>JJLogLib</AssemblyName>

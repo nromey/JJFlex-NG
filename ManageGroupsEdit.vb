@@ -46,7 +46,7 @@ Public Class ManageGroupsEdit
         End If
         ResumeLayout()
 
-        DialogResult = Windows.Forms.DialogResult.None
+        DialogResult = System.Windows.Forms.DialogResult.None
     End Sub
 
     Private Sub OkButton_Click(sender As System.Object, e As System.EventArgs) Handles OkButton.Click
@@ -67,6 +67,6 @@ Public Class ManageGroupsEdit
             items.Add(sortedMemories(id))
         Next
         Group = New FlexBase.ScanGroup(NameBox.Text, items)
-        DialogResult = Windows.Forms.DialogResult.OK
+        DialogResult = System.Windows.Forms.DialogResult.OK
     End Sub
 End Class

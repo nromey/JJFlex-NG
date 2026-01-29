@@ -188,7 +188,7 @@ Public Class PersonalData
         Public Ignore As Boolean
         Public Sub New()
         End Sub
-        Public Sub New(t As String, rslt As Windows.Forms.DialogResult, i As Boolean)
+        Public Sub New(t As String, rslt As System.Windows.Forms.DialogResult, i As Boolean)
             Tag = t
             Result = rslt
             Ignore = i

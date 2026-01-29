@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net48</TargetFramework>
+    <TargetFramework>net8.0-windows</TargetFramework>
     <Platforms>AnyCPU;x86;x64</Platforms>
     <RootNamespace>Radios</RootNamespace>
     <AssemblyName>Radios</AssemblyName>
@@ -11,13 +11,7 @@
 
   <ItemGroup>
     <PackageReference Include="System.Collections.Immutable" Version="9.0.0" />
-  </ItemGroup>
-
-  <!-- Removed DotNetZip to eliminate vulnerability; using System.IO.Compression instead -->
-  <ItemGroup>
-    <Reference Include="System.IO.Compression" />
-    <Reference Include="System.IO.Compression.FileSystem" />
-    <Reference Include="WindowsBase" />
+    <PackageReference Include="System.IO.Ports" Version="9.0.0" />
   </ItemGroup>
 
   <ItemGroup>

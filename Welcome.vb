@@ -13,19 +13,19 @@ Public Class Welcome
             MsgBox(ex.Message)
             End
         End Try
-        DialogResult = Windows.Forms.DialogResult.None
+        DialogResult = System.Windows.Forms.DialogResult.None
         WelcomeBox.SelectionStart = 0
     End Sub
 
     Private Sub DocButton_Click(sender As System.Object, e As System.EventArgs) Handles DocButton.Click
         System.Diagnostics.Process.Start(DocName)
         System.Threading.Thread.Sleep(0)
-        DialogResult = Windows.Forms.DialogResult.None
+        DialogResult = System.Windows.Forms.DialogResult.None
     End Sub
 
     Private Sub ConfigButton_Click(sender As System.Object, e As System.EventArgs) Handles ConfigButton.Click
         ' continue
-        DialogResult = Windows.Forms.DialogResult.OK
+        DialogResult = System.Windows.Forms.DialogResult.OK
     End Sub
 
     Private Sub ImportButton_Click(sender As Object, e As EventArgs) Handles ImportButton.Click
@@ -35,6 +35,6 @@ Public Class Welcome
     End Sub
 
     Private Sub QuitButton_Click(sender As System.Object, e As System.EventArgs) Handles QuitButton.Click
-        DialogResult = Windows.Forms.DialogResult.Abort
+        DialogResult = System.Windows.Forms.DialogResult.Abort
     End Sub
 End Class

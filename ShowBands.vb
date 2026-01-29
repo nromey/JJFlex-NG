@@ -42,7 +42,7 @@ Public Class ShowBands
     End Sub
 
     Private Sub ShowBands_Load(sender As System.Object, e As System.EventArgs) Handles MyBase.Load
-        DialogResult = Windows.Forms.DialogResult.None
+        DialogResult = System.Windows.Forms.DialogResult.None
         setupBoxes()
     End Sub
 
@@ -115,6 +115,6 @@ Public Class ShowBands
     End Function
 
     Private Sub CnclButton_Click(sender As System.Object, e As System.EventArgs) Handles CnclButton.Click
-        DialogResult = Windows.Forms.DialogResult.Cancel
+        DialogResult = System.Windows.Forms.DialogResult.Cancel
     End Sub
 End Class

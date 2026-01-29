@@ -5,7 +5,7 @@ Public Class ReverseBeacon
     Private webBaseAddress As String = "http://www.reversebeacon.net/dxsd1/dxsd1.php?f=0&t=dx&c="
 
     Private Sub ReverseBeacon_Load(sender As System.Object, e As System.EventArgs) Handles MyBase.Load
-        DialogResult = Windows.Forms.DialogResult.None
+        DialogResult = System.Windows.Forms.DialogResult.None
         CallBox.Text = CurrentOp.callSign
         CallBox.SelectionLength = CallBox.Text.Length
     End Sub
@@ -14,10 +14,10 @@ Public Class ReverseBeacon
         Dim addr As String = webBaseAddress & CallBox.Text
         Tracing.TraceLine("beacon:" & addr, TraceLevel.Info)
         Process.Start(addr)
-        DialogResult = Windows.Forms.DialogResult.OK
+        DialogResult = System.Windows.Forms.DialogResult.OK
     End Sub
 
     Private Sub CnclButton_Click(sender As System.Object, e As System.EventArgs) Handles CnclButton.Click
-        DialogResult = Windows.Forms.DialogResult.Cancel
+        DialogResult = System.Windows.Forms.DialogResult.Cancel
     End Sub
 End Class

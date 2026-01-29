@@ -3,10 +3,13 @@
 This document captures the recent work performed on the JJ-Flex repository and the current state needed for continuing flexlib integration.
 
 **Repository root:** `C:\dev\JJFlex-NG`
+**Worktree (active):** `C:\Users\nrome\.claude-worktrees\JJFlex-NG\cool-mendel`
+**Branch:** `cool-mendel`
 
 ## 1) Overview
 - Primary objectives: fix the failing post-build installer (`install.bat`) and prepare to integrate a newer `flexlib` (v4) into JJ-Flex.
 - Current state: Phase 0, 0.5, 1, and 2 of the .NET 8 migration plan are complete.
+- **Next up:** Phase 3 (Multi-targeting to net8.0-windows)
 
 ## 2) Technical Foundation
 - Solution: `JJFlexRadio.sln` (main solution).
@@ -56,16 +59,22 @@ All projects now use SDK-style format with:
 
 ## 5) Next Steps (Phase 3+)
 The following phases remain from `docs/barefoot-qrm-trap.md`:
-1. **Phase 3**: Multi-targeting (net48;net8.0-windows)
-2. **Phase 4**: TFM Update for already SDK-style FlexLib projects
-3. **Phase 5**: Main application (JJFlexRadio.vbproj) migration
-4. **Phase 6**: Testing and validation
+
+**Ready to start:**
+1. **Phase 3**: Update all SDK-style projects to target `net8.0-windows` only (drop net48/net462)
+
+**Remaining phases:**
+2. **Phase 4**: Native DLL 64-bit support (runtimes folder, NativeLoader.cs)
+3. **Phase 5**: WebView2 migration for Auth0 (replace WebBrowser control)
+4. **Phase 6**: Main application (JJFlexRadio.vbproj) migration to net8.0-windows x64
+5. **Phase 7**: Cleanup (remove conditional compilation, legacy files)
 
 ## 6) Useful Paths and Artifacts
 - Repo root: `C:\dev\JJFlex-NG`
-- FlexLib v4: `C:\dev\JJFlex-NG\FlexLib_API\`
-- Migration plan: `C:\dev\JJFlex-NG\docs\barefoot-qrm-trap.md`
-- Branch with all changes: `fix/install-bat-nsis`
+- Worktree: `C:\Users\nrome\.claude-worktrees\JJFlex-NG\cool-mendel`
+- FlexLib v4: `FlexLib_API/`
+- Migration plan: `docs/barefoot-qrm-trap.md`
+- Branch: `cool-mendel`
 
 ## 7) Commits Made This Session
 1. `chore: remove non-Flex radio support (Icom, Kenwood, Generic)`
@@ -83,6 +92,12 @@ The following phases remain from `docs/barefoot-qrm-trap.md`:
 
 ## 9) Changelog Tone
 - Write changelog entries in a personal, explanatory tone (first-person voice preferred).
+
+## 10) Session Notes (2026-01-28)
+- Session paused at 85% hourly usage before starting Phase 3
+- All work through Phase 2 committed and pushed
+- Build verified: `dotnet build JJFlexRadio.sln -c Release -p:Platform=x86` succeeds (0 errors)
+- To resume: "Resume Phase 3 from `docs/barefoot-qrm-trap.md`"
 
 ----
 

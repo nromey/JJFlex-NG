@@ -19,11 +19,11 @@ Public Class ManageGroups
         ' Setup for user groups.
         GroupsControl.ManageUserGroups = True
         If Not GroupsControl.Setup Then
-            DialogResult = Windows.Forms.DialogResult.Abort
+            DialogResult = System.Windows.Forms.DialogResult.Abort
             Return
         End If
 
-        DialogResult = Windows.Forms.DialogResult.None
+        DialogResult = System.Windows.Forms.DialogResult.None
     End Sub
 
     Private Sub ManageGroups_FormClosing(sender As System.Object, e As System.Windows.Forms.FormClosingEventArgs) Handles MyBase.FormClosing
@@ -36,18 +36,18 @@ Public Class ManageGroups
         theForm.Group = Nothing
         theForm.groupsControl = GroupsControl
         ' Add and save the group.
-        If theForm.ShowDialog = Windows.Forms.DialogResult.OK Then
+        If theForm.ShowDialog = System.Windows.Forms.DialogResult.OK Then
             GroupsControl.AddUserGroup(theForm.Group)
         End If
         theForm.Dispose()
         GroupsControl.Setup()
-        DialogResult = Windows.Forms.DialogResult.None
+        DialogResult = System.Windows.Forms.DialogResult.None
         GroupsControl.GroupsBox.Focus()
     End Sub
 
     Private Sub UpdateButton_Click(sender As System.Object, e As System.EventArgs) Handles UpdateButton.Click
         Tracing.TraceLine("UpdateButton_Click", TraceLevel.Info)
-        DialogResult = Windows.Forms.DialogResult.None
+        DialogResult = System.Windows.Forms.DialogResult.None
         If GroupsControl.SelectedGroup Is Nothing Then
             MsgBox(mustHaveGroup)
             GroupsControl.Focus()
@@ -57,18 +57,18 @@ Public Class ManageGroups
         theForm.Group = GroupsControl.SelectedGroup
         theForm.groupsControl = GroupsControl
         ' Add and save the group.
-        If theForm.ShowDialog = Windows.Forms.DialogResult.OK Then
+        If theForm.ShowDialog = System.Windows.Forms.DialogResult.OK Then
             GroupsControl.UpdateUserGroup(GroupsControl.SelectedGroup, theForm.Group)
         End If
         theForm.Dispose()
         GroupsControl.Setup()
-        DialogResult = Windows.Forms.DialogResult.None
+        DialogResult = System.Windows.Forms.DialogResult.None
         GroupsControl.GroupsBox.Focus()
     End Sub
 
     Private Sub DeleteButton_Click(sender As System.Object, e As System.EventArgs) Handles DeleteButton.Click
         Tracing.TraceLine("DeleteButton_Click", TraceLevel.Info)
-        DialogResult = Windows.Forms.DialogResult.None
+        DialogResult = System.Windows.Forms.DialogResult.None
         If GroupsControl.SelectedGroup Is Nothing Then
             MsgBox(mustHaveGroup)
             GroupsControl.Focus()
@@ -76,12 +76,12 @@ Public Class ManageGroups
         End If
         GroupsControl.DeleteUserGroup(GroupsControl.SelectedGroup)
         GroupsControl.Setup()
-        DialogResult = Windows.Forms.DialogResult.None
+        DialogResult = System.Windows.Forms.DialogResult.None
         GroupsControl.GroupsBox.Focus()
     End Sub
 
     Private Sub DoneButton_Click(sender As System.Object, e As System.EventArgs) Handles DoneButton.Click
-        DialogResult = Windows.Forms.DialogResult.OK
+        DialogResult = System.Windows.Forms.DialogResult.OK
     End Sub
 
     Private wasActive As Boolean

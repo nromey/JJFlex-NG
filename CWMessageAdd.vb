@@ -17,7 +17,7 @@ Public Class CWMessageAdd
     Private wasActive As Boolean
 
     Private Sub CWMessageForm_Load(sender As System.Object, e As System.EventArgs) Handles MyBase.Load
-        DialogResult = Windows.Forms.DialogResult.None
+        DialogResult = System.Windows.Forms.DialogResult.None
         wasActive = False
         If TheItem Is Nothing Then
             ' It's an add.
@@ -77,12 +77,12 @@ Public Class CWMessageAdd
             newItem.Label = LabelTextBox.Text
             newItem.message = MessageTextBox.Text
             TheItem = newItem
-            DialogResult = Windows.Forms.DialogResult.OK
+            DialogResult = System.Windows.Forms.DialogResult.OK
         End If
     End Sub
 
     Private Sub CnclButton_Click(sender As System.Object, e As System.EventArgs) Handles CnclButton.Click
-        DialogResult = Windows.Forms.DialogResult.Cancel
+        DialogResult = System.Windows.Forms.DialogResult.Cancel
     End Sub
 
     Private Sub CWMessageAdd_Activated(sender As System.Object, e As System.EventArgs) Handles MyBase.Activated

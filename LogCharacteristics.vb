@@ -117,7 +117,7 @@ Public Class LogCharacteristics
 
     Private Sub LogCharacteristics_Load(sender As System.Object, e As System.EventArgs) Handles MyBase.Load
         wasActive = False
-        DialogResult = Windows.Forms.DialogResult.None
+        DialogResult = System.Windows.Forms.DialogResult.None
         If Not setup() Then
             startupError = True
         End If
@@ -207,11 +207,11 @@ Public Class LogCharacteristics
         session.UpdateLogHeader()
         session.EndSession() ' closes the file.
 
-        DialogResult = Windows.Forms.DialogResult.OK
+        DialogResult = System.Windows.Forms.DialogResult.OK
     End Sub
 
     Private Sub CnclButton_Click(sender As System.Object, e As System.EventArgs) Handles CnclButton.Click
-        DialogResult = Windows.Forms.DialogResult.Cancel
+        DialogResult = System.Windows.Forms.DialogResult.Cancel
     End Sub
 
     Private Sub FirstSerialBox_Leave(sender As System.Object, e As System.EventArgs) Handles FirstSerialBox.Leave

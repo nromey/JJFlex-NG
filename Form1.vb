@@ -2292,7 +2292,7 @@ Public Class Form1
 
             Dim item = New ToolStripMenuItem
             item.Tag = ctl
-            item.AccessibleRole = Windows.Forms.AccessibleRole.MenuItem
+            item.AccessibleRole = System.Windows.Forms.AccessibleRole.MenuItem
             item.AutoSize = True
             item.Text = CStr(ctl.Tag)
             AddHandler item.Click, AddressOf ScreenField_Click
@@ -2357,7 +2357,7 @@ Public Class Form1
             End If
             Dim item = New ToolStripMenuItem
             item.Tag = keyItem
-            item.AccessibleRole = Windows.Forms.AccessibleRole.MenuItem
+            item.AccessibleRole = System.Windows.Forms.AccessibleRole.MenuItem
             item.AutoSize = True
             item.Text = keyItem.menuText
             AddHandler item.Click, AddressOf OperationsMenuItem_Click

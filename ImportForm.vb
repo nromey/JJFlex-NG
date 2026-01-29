@@ -38,13 +38,13 @@ Public Class ImportForm
         If ContactLog.Name = vbNullString Then
             MsgBox(mustHaveLog)
             Tracing.TraceLine("import_load:no log file", TraceLevel.Error)
-            DialogResult = Windows.Forms.DialogResult.Abort
+            DialogResult = System.Windows.Forms.DialogResult.Abort
             Return
         End If
         ' Cleanup all ContactLog sessions.
         If Not ContactLog.Cleanup Then
             ' Cleanup not allowed.
-            DialogResult = Windows.Forms.DialogResult.Abort
+            DialogResult = System.Windows.Forms.DialogResult.Abort
             Return
         End If
         ' Get the input file.

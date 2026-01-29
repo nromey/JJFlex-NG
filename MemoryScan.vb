@@ -18,23 +18,23 @@ Public Class MemoryScan
 
         ' Ensure the memory groups are current.
         If Not MemoryGroupControl.Setup Then
-            DialogResult = Windows.Forms.DialogResult.Abort
+            DialogResult = System.Windows.Forms.DialogResult.Abort
             Return
         End If
-        DialogResult = Windows.Forms.DialogResult.None
+        DialogResult = System.Windows.Forms.DialogResult.None
     End Sub
 
     Private beepLevel As Integer
     Private Sub StartButton_Click(sender As System.Object, e As System.EventArgs) Handles StartButton.Click
         If MemoryGroupControl.GroupsCheckBox.CheckedIndices.Count = 0 Then
             MsgBox(mustHaveGroups)
-            DialogResult = Windows.Forms.DialogResult.None
+            DialogResult = System.Windows.Forms.DialogResult.None
             MemoryGroupControl.GroupsCheckBox.Focus()
             Return
         End If
         If Not (IsNumeric(SpeedBox.Text) AndAlso (SpeedBox.Text > "0") AndAlso (SpeedBox.Text <= "600")) Then
             MsgBox(scan.SpeedError)
-            DialogResult = Windows.Forms.DialogResult.None
+            DialogResult = System.Windows.Forms.DialogResult.None
             SpeedBox.Focus()
             Return
         End If
@@ -46,7 +46,7 @@ Public Class MemoryScan
         Next
         If memories.Count = 0 Then
             MsgBox(noMemories)
-            DialogResult = Windows.Forms.DialogResult.None
+            DialogResult = System.Windows.Forms.DialogResult.None
             MemoryGroupControl.GroupsCheckBox.Focus()
             Return
         End If
@@ -76,7 +76,7 @@ Public Class MemoryScan
         scanTimer.Start()
 
         ' Leave this form.
-        DialogResult = Windows.Forms.DialogResult.OK
+        DialogResult = System.Windows.Forms.DialogResult.OK
     End Sub
 
     Friend Sub MemoryScanPause()
@@ -105,11 +105,11 @@ Public Class MemoryScan
     Private Sub ManageButton_Click(sender As System.Object, e As System.EventArgs) Handles ManageButton.Click
         ManageGroups.ShowDialog()
         MemoryGroupControl.Setup()
-        DialogResult = Windows.Forms.DialogResult.None
+        DialogResult = System.Windows.Forms.DialogResult.None
     End Sub
 
     Private Sub CnclButton_Click(sender As System.Object, e As System.EventArgs) Handles CnclButton.Click
-        DialogResult = Windows.Forms.DialogResult.Cancel
+        DialogResult = System.Windows.Forms.DialogResult.Cancel
     End Sub
 
     Private wasActive As Boolean

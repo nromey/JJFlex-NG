@@ -33,7 +33,7 @@ Public Class CWMessageUpdate
         If CWText.Length = 0 Then
             CWText.Add()
         End If
-        DialogResult = Windows.Forms.DialogResult.None
+        DialogResult = System.Windows.Forms.DialogResult.None
         wasActive = False
         setupList()
     End Sub
@@ -53,7 +53,7 @@ Public Class CWMessageUpdate
         ' CWMessageAdd handles an add or update.
         CWText.Update(id)
         setupList()
-        DialogResult = Windows.Forms.DialogResult.None
+        DialogResult = System.Windows.Forms.DialogResult.None
         KeysList.Focus()
     End Sub
 
@@ -66,15 +66,15 @@ Public Class CWMessageUpdate
         CWText.Remove(id)
         setupList()
         If CWText.Length > 0 Then
-            DialogResult = Windows.Forms.DialogResult.None
+            DialogResult = System.Windows.Forms.DialogResult.None
             KeysList.Focus()
         Else
-            DialogResult = Windows.Forms.DialogResult.Cancel
+            DialogResult = System.Windows.Forms.DialogResult.Cancel
         End If
     End Sub
 
     Private Sub CnclButton_Click(sender As System.Object, e As System.EventArgs) Handles CnclButton.Click
-        DialogResult = Windows.Forms.DialogResult.Cancel
+        DialogResult = System.Windows.Forms.DialogResult.Cancel
     End Sub
 
     Private Sub AddButton_Click(sender As System.Object, e As System.EventArgs) Handles AddButton.Click

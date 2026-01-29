@@ -54,7 +54,7 @@ Public Class TraceAdmin
     End Function
 
     Private Sub ToggleButton_Click(sender As System.Object, e As System.EventArgs) Handles ToggleButton.Click
-        DialogResult = Windows.Forms.DialogResult.None
+        DialogResult = System.Windows.Forms.DialogResult.None
         toggleState()
         If _toggleState = toggleStates.onn Then
             ' check values
@@ -77,18 +77,18 @@ Public Class TraceAdmin
             Tracing.On = False ' closes the file
         End If
         ' Exit the form
-        DialogResult = Windows.Forms.DialogResult.OK
+        DialogResult = System.Windows.Forms.DialogResult.OK
     End Sub
 
     Private Sub CnclButton_Click(sender As System.Object, e As System.EventArgs) Handles CnclButton.Click
-        DialogResult = Windows.Forms.DialogResult.Cancel
+        DialogResult = System.Windows.Forms.DialogResult.Cancel
     End Sub
 
     Private Sub BrowseButton_Click(sender As System.Object, e As System.EventArgs) Handles BrowseButton.Click
         ' Note the actual TraceFile is set when the trace is started.
         With OpenFileDialog
             .FileName = FileNameBox.Text
-            If .ShowDialog = Windows.Forms.DialogResult.OK Then
+            If .ShowDialog = System.Windows.Forms.DialogResult.OK Then
                 FileNameBox.Text = .FileName
             End If
         End With

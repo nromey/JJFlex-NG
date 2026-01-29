@@ -10,16 +10,16 @@ Public Class ExportForm
     Private session As LogSession
 
     Private Sub ExportForm_Load(ByVal sender As System.Object, ByVal e As System.EventArgs) Handles MyBase.Load
-        DialogResult = Windows.Forms.DialogResult.None
+        DialogResult = System.Windows.Forms.DialogResult.None
         If ContactLog.Name = vbNullString Then
             MsgBox(mustHaveLog)
             Tracing.TraceLine("import_load:no log file", TraceLevel.Error)
-            DialogResult = Windows.Forms.DialogResult.Abort
+            DialogResult = System.Windows.Forms.DialogResult.Abort
             Return
         End If
         session = New LogSession(ContactLog)
         If Not session.Start Then
-            DialogResult = Windows.Forms.DialogResult.Abort
+            DialogResult = System.Windows.Forms.DialogResult.Abort
             session = Nothing
             GoTo checkExit
         End If
@@ -69,7 +69,7 @@ Public Class ExportForm
             End If
         End With
 checkExit:
-        If DialogResult <> Windows.Forms.DialogResult.None Then
+        If DialogResult <> System.Windows.Forms.DialogResult.None Then
             Return
         End If
     End Sub
@@ -86,7 +86,7 @@ checkExit:
                 expFile.Write(ADIFstr)
             Catch ex As IOException
                 Tracing.ErrMessageTrace(ex)
-                DialogResult = Windows.Forms.DialogResult.Abort
+                DialogResult = System.Windows.Forms.DialogResult.Abort
                 Return
             End Try
         End If

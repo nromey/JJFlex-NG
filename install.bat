@@ -46,8 +46,13 @@ if not exist "install template.nsi" (
 echo Generating install.nsi by replacing MYPGM...
 REM If program name missing, try to infer from newest JJFlexRadio*.exe in OUTDIR after we find OUTDIR below.
 
-REM Prefer platform/TFM-specific output when present (CFG|x86|net48|win-x86), otherwise fall back.
-set "OUTDIR=%~1\bin\x86\%cfg%\net48\win-x86"
+REM Prefer platform/TFM-specific output when present (CFG|x86|net8.0-windows|win-x86), otherwise fall back.
+set "OUTDIR=%~1\bin\x86\%cfg%\net8.0-windows\win-x86"
+if not exist "%OUTDIR%\*" set "OUTDIR=%~1\bin\x86\%cfg%\net8.0-windows"
+if not exist "%OUTDIR%\*" set "OUTDIR=%~1\bin\%cfg%\net8.0-windows\win-x86"
+if not exist "%OUTDIR%\*" set "OUTDIR=%~1\bin\%cfg%\net8.0-windows"
+REM Legacy net48 fallbacks
+if not exist "%OUTDIR%\*" set "OUTDIR=%~1\bin\x86\%cfg%\net48\win-x86"
 if not exist "%OUTDIR%\*" set "OUTDIR=%~1\bin\x86\%cfg%\net48"
 if not exist "%OUTDIR%\*" set "OUTDIR=%~1\bin\%cfg%\net48"
 if not exist "%OUTDIR%\*" set "OUTDIR=%~1\bin\x86\%cfg%"

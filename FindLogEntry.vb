@@ -195,7 +195,7 @@ Public Class FindLogEntry
         If (Not searchThread.IsAlive) And (itemListSource.Count = 0) Then
             ' no items and no more coming
             MsgBox(noSearchItems)
-            DialogResult = Windows.Forms.DialogResult.Abort
+            DialogResult = System.Windows.Forms.DialogResult.Abort
         End If
     End Sub
 

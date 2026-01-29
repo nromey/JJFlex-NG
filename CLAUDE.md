@@ -125,7 +125,16 @@ Generates `install.nsi` from template, builds `deleteList.txt`, runs `makensis`.
 
 Detection: Use `theRadio.Model`, `theRadio.DiversityIsAllowed`, `theRadio.MaxSlices` rather than hardcoding.
 
-**Note:** 8400/AU-510 and their M variants are not yet in the RigTable - see Phase 0.5 in `docs/barefoot-qrm-trap.md`.
+## Migration Status (.NET 8 + x64)
+
+**Completed:**
+- Phase 0: Legacy cleanup (removed Icom, Kenwood, Generic radio support)
+- Phase 0.5: Added FLEX-8400 and Aurora AU-510 to RigTable
+- Phase 1-2: All C# projects converted to SDK-style
+
+**Next:** Phase 3 - Update TFMs to `net8.0-windows` only
+
+See `docs/barefoot-qrm-trap.md` for full plan, `Agent.md` for session details.
 
 ## Related Documentation
 
@@ -136,7 +145,7 @@ Detection: Use `theRadio.Model`, `theRadio.DiversityIsAllowed`, `theRadio.MaxSli
 | `docs/FlexLib-v4.0.1-Missing-Features.md` | Advanced features catalog (Diversity, RNN, etc.) |
 | `docs/CHANGELOG.md` | Version history |
 | `docs/barefoot-qrm-trap.md` | .NET 8.0 + 64-bit migration plan |
-| `Agent.md` | Recent work summary |
+| `Agent.md` | Recent work summary (session context) |
 
 ## Common Tasks
 

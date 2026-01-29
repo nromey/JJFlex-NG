@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net48</TargetFramework>
+    <TargetFramework>net8.0-windows</TargetFramework>
     <Platforms>AnyCPU;x86;x64</Platforms>
     <RootNamespace>JJTrace</RootNamespace>
     <AssemblyName>JJTrace</AssemblyName>
@@ -11,9 +11,9 @@
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
   </PropertyGroup>
 
-  <ItemGroup>
-    <Reference Include="System.Windows.Forms" />
-  </ItemGroup>
+  <PropertyGroup>
+    <UseWindowsForms>true</UseWindowsForms>
+  </PropertyGroup>
 
   <!-- Explicitly include source files (excludes JJTraceNet2.0 subfolder and backup files) -->
   <ItemGroup>

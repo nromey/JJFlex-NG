@@ -60,14 +60,14 @@ Public Class LOTWMerge
         With LOTWFileDialog
             .InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments)
             DialogResult = .ShowDialog()
-            If DialogResult <> Windows.Forms.DialogResult.OK Then
+            If DialogResult <> System.Windows.Forms.DialogResult.OK Then
                 Return
             End If
             LOTWFilename = .FileName
         End With
 
         ' Check for proper format and required tags.
-        DialogResult = Windows.Forms.DialogResult.None
+        DialogResult = System.Windows.Forms.DialogResult.None
         Dim goodLOTW As Boolean = True
         Dim LOTWRecPresent As Boolean = False
         Try
@@ -93,7 +93,7 @@ Public Class LOTWMerge
         ' the format must be good and must have one record.
         If Not goodLOTW Or Not LOTWRecPresent Then
             MsgBox(LOTWFileDeficient)
-            DialogResult = Windows.Forms.DialogResult.Abort
+            DialogResult = System.Windows.Forms.DialogResult.Abort
         Else
             ' restart the session.
             inSession = New AdifSession(LOTWFilename)
@@ -116,7 +116,7 @@ Public Class LOTWMerge
         End If
         If Not goodLog Then
             MsgBox(logFileDeficient)
-            DialogResult = Windows.Forms.DialogResult.Abort
+            DialogResult = System.Windows.Forms.DialogResult.Abort
         Else
             LogBox.Text = CurrentOp.LogFile
         End If
@@ -212,9 +212,9 @@ Public Class LOTWMerge
 
         ' Now we can close the form.
         If cancelling Then
-            RaiseEvent formEndEvent(Windows.Forms.DialogResult.Cancel)
+            RaiseEvent formEndEvent(System.Windows.Forms.DialogResult.Cancel)
         Else
-            RaiseEvent formEndEvent(Windows.Forms.DialogResult.OK)
+            RaiseEvent formEndEvent(System.Windows.Forms.DialogResult.OK)
         End If
     End Sub
 
@@ -231,7 +231,7 @@ Public Class LOTWMerge
         If (mergeThread IsNot Nothing) AndAlso mergeThread.IsAlive Then
             ' wait for thread to close and show status.
             cancelling = True
-            DialogResult = Windows.Forms.DialogResult.None
+            DialogResult = System.Windows.Forms.DialogResult.None
         End If
     End Sub
 
@@ -250,7 +250,7 @@ Public Class LOTWMerge
 
     Private Sub formEndHandler(rv As DialogResult)
         Tracing.TraceLine("formEndHandler:" & rv, TraceLevel.Info)
-        DialogResult = Windows.Forms.DialogResult.None
+        DialogResult = System.Windows.Forms.DialogResult.None
         CnclButton.Text = "Done"
         ProgressBox.Focus()
     End Sub
