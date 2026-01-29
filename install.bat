@@ -1,6 +1,7 @@
 @echo off
 REM Robust install.bat
 REM Usage: install.bat <solution_or_project_dir> <Configuration> <PackageName>
+REM Creates architecture-specific installers with _x64 or _x86 suffix
 
 REM capture inputs and provide sane defaults if missing
 set "cfg=%~2"
@@ -44,23 +45,35 @@ if not exist "install template.nsi" (
 )
 
 echo Generating install.nsi by replacing MYPGM...
-REM If program name missing, try to infer from newest JJFlexRadio*.exe in OUTDIR after we find OUTDIR below.
 
-REM Prefer platform/TFM-specific output when present (CFG|x86|net8.0-windows|win-x86), otherwise fall back.
-set "OUTDIR=%~1\bin\x86\%cfg%\net8.0-windows\win-x86"
-if not exist "%OUTDIR%\*" set "OUTDIR=%~1\bin\x86\%cfg%\net8.0-windows"
-if not exist "%OUTDIR%\*" set "OUTDIR=%~1\bin\%cfg%\net8.0-windows\win-x86"
+REM Detect architecture from output folder - prefer x64, fallback to x86
+set "ARCH=x64"
+set "OUTDIR=%~1\bin\x64\%cfg%\net8.0-windows\win-x64"
+if not exist "%OUTDIR%\*" set "OUTDIR=%~1\bin\x64\%cfg%\net8.0-windows"
+if not exist "%OUTDIR%\*" set "OUTDIR=%~1\bin\%cfg%\net8.0-windows\win-x64"
 if not exist "%OUTDIR%\*" set "OUTDIR=%~1\bin\%cfg%\net8.0-windows"
-REM Legacy net48 fallbacks
-if not exist "%OUTDIR%\*" set "OUTDIR=%~1\bin\x86\%cfg%\net48\win-x86"
-if not exist "%OUTDIR%\*" set "OUTDIR=%~1\bin\x86\%cfg%\net48"
-if not exist "%OUTDIR%\*" set "OUTDIR=%~1\bin\%cfg%\net48"
-if not exist "%OUTDIR%\*" set "OUTDIR=%~1\bin\x86\%cfg%"
+
+REM Check if we found x64, otherwise try x86
+if not exist "%OUTDIR%\*" (
+    set "ARCH=x86"
+    set "OUTDIR=%~1\bin\x86\%cfg%\net8.0-windows\win-x86"
+)
+if not exist "%OUTDIR%\*" set "OUTDIR=%~1\bin\x86\%cfg%\net8.0-windows"
 if not exist "%OUTDIR%\*" set "OUTDIR=%~1\bin\%cfg%"
+
 echo Using output folder: "%OUTDIR%"
+echo Detected architecture: %ARCH%
+
 if not exist "%OUTDIR%\*" (
     echo ERROR: Expected output folder "%OUTDIR%" not found. Please build the solution first.
     exit /b 6
+)
+
+REM Determine Program Files path based on architecture
+if "%ARCH%"=="x64" (
+    set "PROGFILES=$PROGRAMFILES64"
+) else (
+    set "PROGFILES=$PROGRAMFILES"
 )
 
 REM Always package the JJFlexRadio.exe we just built. Infer version for naming installers.
@@ -71,13 +84,13 @@ if not exist "%PGM_EXE%" (
 )
 set "APPVER=0.0.0.0"
 for /f "usebackq delims=" %%v in (`powershell -NoProfile -Command "(Get-Item '%PGM_EXE%').VersionInfo.ProductVersion"`) do set "APPVER=%%v"
-echo Program (final): %pgm%   Version: %APPVER%
+echo Program (final): %pgm%   Version: %APPVER%   Architecture: %ARCH%
 set "VIAPPVER=%APPVER%.0.0.0"
 for /f "tokens=1-4 delims=." %%a in ("%VIAPPVER%") do set "VIAPPVER=%%a.%%b.%%c.%%d"
 
-REM Generate install.nsi with the resolved program name.
+REM Generate install.nsi with the resolved program name and architecture-specific Program Files
 REM Always use PowerShell for reliable path handling (avoids sed backslash issues)
-powershell -NoProfile -Command "$c = Get-Content 'install template.nsi' -Raw; $c = $c.Replace('MYPGM','%pgm%').Replace('MYVER','%VIAPPVER%').Replace('MYOUTDIR','%OUTDIR%'); Set-Content -Encoding ASCII 'install.nsi' $c" || (echo PowerShell replace failed & exit /b 5)
+powershell -NoProfile -Command "$c = Get-Content 'install template.nsi' -Raw; $c = $c.Replace('MYPGM','%pgm%').Replace('MYVER','%VIAPPVER%').Replace('MYOUTDIR','%OUTDIR%').Replace('MYPROGFILES','%PROGFILES%'); Set-Content -Encoding ASCII 'install.nsi' $c" || (echo PowerShell replace failed & exit /b 5)
 
 REM produce a temporary file list and run sed against it
 pushd "!OUTDIR!" || (echo Cannot cd to output folder & exit /b 7)
@@ -110,12 +123,17 @@ echo Running makensis to create installer...
 "%MAKENSIS%" install.nsi
 echo makensis exit code: %ERRORLEVEL%
 
-set "LEGACY_SETUP=%~1\Setup %pgm%.exe"
-set "VERSIONED_SETUP=%~1\Setup %pgm%_%APPVER%.exe"
+REM Rename installer with architecture suffix
+set "VERSIONED_SETUP=%~1\Setup %pgm%_%VIAPPVER%.exe"
+set "ARCH_SETUP=%~1\Setup %pgm%_%APPVER%_%ARCH%.exe"
+set "LEGACY_SETUP=%~1\Setup %pgm%_%ARCH%.exe"
+
 if exist "%VERSIONED_SETUP%" (
-    echo Versioned installer created: "%VERSIONED_SETUP%"
+    echo Renaming installer with architecture suffix...
+    move /y "%VERSIONED_SETUP%" "%ARCH_SETUP%" >nul
+    echo Created: "%ARCH_SETUP%"
     echo Updating legacy installer "%LEGACY_SETUP%"...
-    copy /y "%VERSIONED_SETUP%" "%LEGACY_SETUP%" >nul
+    copy /y "%ARCH_SETUP%" "%LEGACY_SETUP%" >nul
 ) else (
     echo WARNING: expected versioned installer "%VERSIONED_SETUP%" not found.
 )
@@ -124,13 +142,3 @@ REM Remove legacy unversioned Setup .exe if it exists.
 if exist "%~1\Setup .exe" del /q "%~1\Setup .exe"
 
 exit /b %ERRORLEVEL%
-
-REM Also produce a versioned installer name (if versioned EXE exists) and normalize the app EXE name.
-for %%E in ("%OUTDIR%\JJFlexRadio 4.0.3.exe") do (
-    if exist "%%~fE" (
-        echo Normalizing app EXE name...
-        copy /y "%%~fE" "%OUTDIR%\JJFlexRadio.exe" >nul
-        echo Creating versioned installer Setup_4.0.3.exe...
-        if exist "%~1\Setup .exe" copy /y "%~1\Setup .exe" "%~1\Setup_4.0.3.exe" >nul
-    )
-)

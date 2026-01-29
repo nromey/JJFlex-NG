@@ -12,8 +12,8 @@ Name "MYPGM"
 ; The file to write (version appended via MYVER)
 OutFile "Setup MYPGM_MYVER.exe"
 
-; The default installation directory
-InstallDir "$PROGRAMFILES\jjshaffer\MYPGM"
+; The default installation directory (architecture-specific Program Files)
+InstallDir "MYPROGFILES\jjshaffer\MYPGM"
 
 ; Registry key to check for directory (so if you install again, it will 
 ; overwrite the old one automatically)

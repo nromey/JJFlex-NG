@@ -4,7 +4,7 @@ Imports System.Runtime.InteropServices
 
 ''' <summary>
 ''' Resolves native library paths based on processor architecture.
-''' Enables x86/x64 native DLLs to coexist in runtimes folder structure.
+''' Loads native DLLs from runtimes\win-x86 or win-x64\native folder.
 ''' </summary>
 Public Module NativeLoader
     Private _initialized As Boolean = False

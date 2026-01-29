@@ -3,7 +3,11 @@
     <TargetFramework>net8.0-windows</TargetFramework>
     <UseWindowsForms>true</UseWindowsForms>
     <OutputType>WinExe</OutputType>
-    <Platforms>x86;x64</Platforms>
+    <Platforms>x64;x86</Platforms>
+    <PlatformTarget Condition="'$(Platform)'=='x64'">x64</PlatformTarget>
+    <PlatformTarget Condition="'$(Platform)'=='x86'">x86</PlatformTarget>
+    <RuntimeIdentifier Condition="'$(Platform)'=='x64'">win-x64</RuntimeIdentifier>
+    <RuntimeIdentifier Condition="'$(Platform)'=='x86'">win-x86</RuntimeIdentifier>
     <RootNamespace>JJRadio</RootNamespace>
     <AssemblyName>JJFlexRadio</AssemblyName>
     <Version>4.1.8</Version>
@@ -18,16 +22,8 @@
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
     <EnableDefaultEmbeddedResourceItems>false</EnableDefaultEmbeddedResourceItems>
     <GenerateResourceUsePreserializedResources>true</GenerateResourceUsePreserializedResources>
-    <RuntimeIdentifiers>win;win-x86;win-x64</RuntimeIdentifiers>
     <Copyright>J.J. Shaffer, Noel Romey 2019-2025 (GNU GPL)</Copyright>
     <LegalCopyright>J.J. Shaffer, Noel Romey 2019-2025 (GNU GPL)</LegalCopyright>
-  </PropertyGroup>
-
-  <PropertyGroup Condition="'$(Platform)' == 'x86'">
-    <RuntimeIdentifier>win-x86</RuntimeIdentifier>
-  </PropertyGroup>
-  <PropertyGroup Condition="'$(Platform)' == 'x64'">
-    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
   </PropertyGroup>
 
   <ItemGroup>
@@ -427,15 +423,17 @@
     <Content Include="install.nsi" />
   </ItemGroup>
 
-  <!-- Architecture-specific native DLLs (x86/x64) -->
-  <ItemGroup>
+  <!-- Native DLLs - include architecture-specific versions -->
+  <ItemGroup Condition="'$(Platform)'=='x64'">
+    <Content Include="runtimes\win-x64\native\*.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>runtimes\win-x64\native\%(Filename)%(Extension)</Link>
+    </Content>
+  </ItemGroup>
+  <ItemGroup Condition="'$(Platform)'=='x86'">
     <Content Include="runtimes\win-x86\native\*.dll">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>runtimes\win-x86\native\%(Filename)%(Extension)</Link>
-    </Content>
-    <Content Include="runtimes\win-x64\native\*.dll" Condition="Exists('runtimes\win-x64\native\')">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <Link>runtimes\win-x64\native\%(Filename)%(Extension)</Link>
     </Content>
   </ItemGroup>
 
@@ -466,6 +464,6 @@
   </ItemGroup>
 
   <PropertyGroup>
-    <PostBuildEvent Condition="'$(Configuration)'=='Release' and '$(Platform)'=='x86' and '$(TargetFramework)'=='net8.0-windows'">call "$(MSBuildProjectDirectory)\install.bat" "$(MSBuildProjectDirectory)" "$(ConfigurationName)" "$(TargetName)"</PostBuildEvent>
+    <PostBuildEvent Condition="'$(Configuration)'=='Release' and ('$(Platform)'=='x64' or '$(Platform)'=='x86') and '$(TargetFramework)'=='net8.0-windows'">call "$(MSBuildProjectDirectory)\install.bat" "$(MSBuildProjectDirectory)" "$(ConfigurationName)" "$(TargetName)"</PostBuildEvent>
   </PropertyGroup>
 </Project>

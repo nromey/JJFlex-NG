@@ -1,12 +1,15 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>net8.0-windows</TargetFramework>
-    <Platforms>AnyCPU;x86;x64</Platforms>
+    <Platforms>x64;x86;AnyCPU</Platforms>
+    <PlatformTarget Condition="'$(Platform)'=='x64'">x64</PlatformTarget>
+    <PlatformTarget Condition="'$(Platform)'=='x86'">x86</PlatformTarget>
     <RootNamespace>Radios</RootNamespace>
     <AssemblyName>Radios</AssemblyName>
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
     <UseWindowsForms>true</UseWindowsForms>
-    <RuntimeIdentifiers>win-x86</RuntimeIdentifiers>
+    <RuntimeIdentifier Condition="'$(Platform)'=='x64'">win-x64</RuntimeIdentifier>
+    <RuntimeIdentifier Condition="'$(Platform)'=='x86'">win-x86</RuntimeIdentifier>
   </PropertyGroup>
 
   <ItemGroup>
