@@ -170,26 +170,61 @@ See `docs/barefoot-qrm-trap.md` for original migration plan.
 
 ## Releases
 
-### Creating a Release
-JJFlexRadio uses Git tags to trigger automated releases via GitHub Actions:
+### Version Bump Checklist (IMPORTANT!)
 
-1. **Bump the version** in `JJFlexRadio.vbproj`:
+**You MUST update BOTH files when bumping the version:**
+
+1. **`JJFlexRadio.vbproj`** - Update these three lines:
    ```xml
    <Version>4.1.X</Version>
    <AssemblyVersion>4.1.X.0</AssemblyVersion>
    <FileVersion>4.1.X.0</FileVersion>
    ```
 
+2. **`My Project\AssemblyInfo.vb`** - Update these three lines:
+   ```vb
+   <Assembly: AssemblyVersion("4.1.X.0")>
+   <Assembly: AssemblyFileVersion("4.1.X.0")>
+   <Assembly: AssemblyInformationalVersion("4.1.X")>
+   ```
+
+**Why both?** The AssemblyInfo.vb attributes override the project file settings. If you only update the .vbproj, the compiled exe will have the OLD version number. This has confused multiple AI assistants (Claude, Codex, Gemini) - don't let it confuse you too!
+
+### Building Clean Installers
+
+**Problem:** Incremental builds may use cached binaries with old version numbers.
+
+**Solution:** Always do a clean build when creating release installers:
+
+```batch
+# Option 1: Use the build script (recommended)
+build-installers.bat
+
+# Option 2: Manual clean build
+rmdir /s /q bin\x64\Release bin\x86\Release
+dotnet build JJFlexRadio.vbproj -c Release -p:Platform=x64 --no-incremental
+dotnet build JJFlexRadio.vbproj -c Release -p:Platform=x86 --no-incremental
+```
+
+**Verify the version before distributing:**
+```batch
+powershell -Command "(Get-Item 'bin\x64\Release\net8.0-windows\win-x64\JJFlexRadio.exe').VersionInfo.ProductVersion"
+```
+
+### Creating a GitHub Release
+
+1. **Bump version** in both files (see checklist above)
+
 2. **Commit the version bump**:
    ```batch
-   git add JJFlexRadio.vbproj
+   git add JJFlexRadio.vbproj "My Project\AssemblyInfo.vb"
    git commit -m "Bump version to 4.1.X"
    ```
 
 3. **Create and push a tag**:
    ```batch
    git tag -a v4.1.X -m "Release 4.1.X - Brief description"
-   git push origin cool-mendel --tags
+   git push origin main --tags
    ```
 
 4. **GitHub Actions takes over**:
@@ -201,12 +236,14 @@ JJFlexRadio uses Git tags to trigger automated releases via GitHub Actions:
 - `.github/workflows/release.yml` - Tag-triggered release (builds + publishes installers)
 - `.github/workflows/windows-build.yml` - CI build on push/PR (validation only)
 
-### Manual Local Build
-For local testing without triggering a release:
-```batch
-dotnet build JJFlexRadio.sln -c Release -p:Platform=x64
-```
-The installer runs automatically as a post-build step.
+### Local Build Scripts
+
+| Script | Purpose |
+|--------|---------|
+| `build-installers.bat` | Clean build + create both x64/x86 installers |
+| `build-installers.bat x64` | Build x64 installer only |
+| `build-installers.bat x86` | Build x86 installer only |
+| `install.bat` | Low-level installer script (called by build-installers.bat) |
 
 ## Common Tasks
 
