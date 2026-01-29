@@ -536,8 +536,9 @@ namespace Radios
 
         private void authFormProc()
         {
-            AuthForm form = new AuthForm();
-            ((Form)form).ShowDialog();
+            // Use WebView2-based auth form for modern browser support
+            var form = (AuthFormWebView2)AuthForm.CreateAuthForm();
+            form.ShowDialog();
             tokens = form.Tokens;
             form.Dispose();
         }

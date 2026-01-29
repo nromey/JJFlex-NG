@@ -13,10 +13,24 @@ using JJTrace;
 
 namespace Radios
 {
+    /// <summary>
+    /// Legacy Auth0 form using WebBrowser (IE) control.
+    /// Use CreateAuthForm() factory method which returns WebView2 version.
+    /// </summary>
+    [Obsolete("Use AuthForm.CreateAuthForm() which returns the WebView2 version")]
     public partial class AuthForm : Form
     {
         public string[] Tokens;
         private Label urlLabel;
+
+        /// <summary>
+        /// Factory method to create the appropriate auth form.
+        /// Returns WebView2-based form for modern browser support.
+        /// </summary>
+        public static Form CreateAuthForm()
+        {
+            return new AuthFormWebView2();
+        }
 
         public AuthForm()
         {
