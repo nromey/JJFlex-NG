@@ -8,28 +8,32 @@ on:
 jobs:
   build:
     runs-on: windows-latest
+    strategy:
+      matrix:
+        platform: [x64, x86]
+      fail-fast: false
 
     steps:
     - name: Checkout
       uses: actions/checkout@v4
 
+    - name: Setup .NET 8
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+
     - name: Restore NuGet packages
-      run: |
-        msbuild -t:restore JJFlexRadio.sln
+      run: dotnet restore JJFlexRadio.sln
 
-    - name: Build solution (MSBuild)
-      run: |
-        msbuild JJFlexRadio.sln /p:Configuration=Release /m /nologo /clp:Summary /fileLoggerParameters:LogFile=msbuild.log
+    - name: Build solution (${{ matrix.platform }})
+      run: dotnet build JJFlexRadio.sln -c Release -p:Platform=${{ matrix.platform }} --no-restore
 
-    - name: Upload msbuild log
-      if: always()
+    - name: Upload build artifacts
+      if: success()
       uses: actions/upload-artifact@v4
       with:
-        name: msbuild-log
-        path: msbuild.log
-
-    - name: Print msbuild log
-      if: always()
-      shell: cmd
-      run: |
-        if exist msbuild.log type msbuild.log
+        name: JJFlexRadio-${{ matrix.platform }}
+        path: |
+          bin/${{ matrix.platform }}/Release/net8.0-windows/win-${{ matrix.platform }}/JJFlexRadio.exe
+          bin/${{ matrix.platform }}/Release/net8.0-windows/win-${{ matrix.platform }}/*.dll
+        if-no-files-found: warn
