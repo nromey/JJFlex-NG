@@ -155,17 +155,13 @@ Detection: Use `theRadio.Model`, `theRadio.DiversityIsAllowed`, `theRadio.MaxSli
 - Phase 6: Dual x86/x64 build support with architecture-specific installers
 - Phase 7: Cleanup (removed conditional compilation, updated documentation)
 
-See `docs/barefoot-qrm-trap.md` for original migration plan.
-
 ## Related Documentation
 
 | File | Description |
 |------|-------------|
 | `MIGRATION.md` | FlexLib upgrade guide, TLS wrapper notes |
-| `docs/remote-migration.md` | SmartLink/Remote restoration plan |
-| `docs/FlexLib-v4.0.1-Missing-Features.md` | Advanced features catalog (Diversity, RNN, etc.) |
 | `docs/CHANGELOG.md` | Version history |
-| `docs/barefoot-qrm-trap.md` | .NET 8.0 + 64-bit migration plan |
+| `docs/planning/` | Product vision, design proposals, sprint plans |
 | `Agent.md` | Recent work summary (session context) |
 
 ## Releases
@@ -227,14 +223,20 @@ powershell -Command "(Get-Item 'bin\x64\Release\net8.0-windows\win-x64\JJFlexRad
    git push origin main --tags
    ```
 
-4. **GitHub Actions takes over**:
-   - Builds both x64 and x86 installers
-   - Creates a GitHub Release with auto-generated notes
-   - Uploads both installer executables to the Releases page
+4. **Build installers locally**:
+   ```batch
+   build-installers.bat
+   ```
 
-### Workflow Files
-- `.github/workflows/release.yml` - Tag-triggered release (builds + publishes installers)
-- `.github/workflows/windows-build.yml` - CI build on push/PR (validation only)
+5. **Create GitHub Release and upload**:
+   - Go to GitHub → Releases → "Create a new release"
+   - Select your tag, add release notes
+   - Upload the x64 and x86 installer .exe files
+   - Or use gh CLI:
+   ```batch
+   gh release create v4.1.X --title "JJFlexRadio 4.1.X" --notes "Release notes here"
+   gh release upload v4.1.X "Setup JJFlexRadio_4.1.X_x64.exe" "Setup JJFlexRadio_4.1.X_x86.exe"
+   ```
 
 ### Local Build Scripts
 
