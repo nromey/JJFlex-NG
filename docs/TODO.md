@@ -5,18 +5,18 @@ This document tracks feature ideas, improvements, and technical debt for future 
 ## High Priority
 
 ### Screen Reader / Accessibility
-- [ ] **Fix CrossSpeak IsSpeaking()** - Currently always returns false on Windows. Clone Tolk source and investigate why. Would allow proper speech completion detection instead of timing estimates.
-  - Source: https://github.com/dkager/tolk
-  - CrossSpeak wraps Tolk for .NET
-  - Test against NVDA first (best API support)
+- [ ] **Diversity status announcements** - Speak diversity on/off, antenna switching via Tolk. Options:
+  - Hotkey (e.g., Ctrl+Shift+D) to announce current diversity status
+  - Monitor mode: auto-announce when diversity state changes
+  - Requires 2-SCU radio (6600/6700/8600) to test
 
 - [ ] **Meter announcements** - Speak ALC peaks, SWR warnings, signal strength on demand. Use ScreenReaderOutput infrastructure already in place.
 
 ### SmartLink / Remote
-- [ ] **Save remote connection profiles** - Store email, refresh tokens (encrypted), radio nicknames in `%APPDATA%\JJFlexRadio\RemoteProfiles.json`. Allow quick reconnection without re-authenticating.
-  - Dropdown to select saved profile
-  - "Remember this connection" checkbox after successful auth
-  - Nickname field (e.g., "Don's 6600", "Margaret's 8600")
+- [ ] **Sprint 2: Seamless auto-connect** - See `docs/planning/agile/Sprint-02-Auto-Connect.md`
+  - User story: "As a remote operator, I want to seamlessly auto-connect to my preferred radio when I launch the app, so that I don't have to click through login screens every time."
+  - Integrate saved accounts (Sprint 1) with existing auto-connect feature
+  - Silent authentication on startup if configured
 
 ## Medium Priority
 
@@ -40,12 +40,20 @@ This document tracks feature ideas, improvements, and technical debt for future 
 
 ## Completed
 
+- [x] **Sprint 1: SmartLink saved accounts** - v4.1.10 (2026-01-31)
+  - PKCE authentication flow (more secure)
+  - DPAPI-encrypted token storage
+  - Account selector dialog
+  - Automatic token refresh
 - [x] **.NET 8 migration** - v4.1.9 (2026-01-29)
 - [x] **x64/x86 dual architecture** - v4.1.9
 - [x] **WebView2 for Auth0** - v4.1.9
 - [x] **Screen reader output (CrossSpeak/Tolk)** - v4.1.9
 - [x] **GitHub Actions release workflow** - v4.1.9
 - [x] **WebView2 access denied fix** - v4.1.9
+- [x] **Advanced DSP features** - v4.1.8
+  - Neural NR (RNN), Spectral NR, Legacy NR
+  - FFT Auto-Notch, Legacy Auto-Notch
 
 ---
 
