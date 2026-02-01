@@ -4,26 +4,26 @@ All notable changes to this project will be documented in this file.
 
 ## 4.1.10.0 - SmartLink Saved Accounts
 
-Finally! You can save your SmartLink login and stop typing credentials every single time you connect to a remote radio.
+Finally! This one's been on my list forever. You can now save your SmartLink login and stop typing credentials every single time you want to connect to a remote radio. I know, I know - it should have been there from day one.
 
-- **Saved SmartLink accounts**: After logging in, you'll be asked if you want to save the account. Give it a friendly name like "Don's 6600" or "Club Station" and next time you click Remote, just pick it from the list.
-- **Secure token storage**: Your login tokens are encrypted using Windows DPAPI - they're tied to your Windows user account and can't be decrypted if someone copies the file to another machine. No plaintext passwords ever.
-- **Automatic token refresh**: When your session expires, JJFlexRadio tries to refresh it automatically. If that fails, you'll be prompted to log in again, but your saved accounts stick around.
-- **Account management**: You can rename or delete saved accounts from the account selector dialog.
-- **PKCE authentication**: Under the hood, I upgraded from OAuth implicit flow to Authorization Code + PKCE. This is more secure (industry best practice) and enables the refresh token feature that makes saved accounts actually work.
+- **Saved SmartLink accounts**: After logging in, JJFlexRadio asks if you want to save the account. Give it a friendly name like "Don's 6600" or "Club Station" and next time you click Remote, just pick it from the list. No more hunting for passwords or waiting for two-factor codes while your DX window closes.
+- **Secure storage**: Your tokens are encrypted using Windows DPAPI - fancy talk for "tied to your Windows login." If someone copies the file to another machine, it's useless to them. No plaintext passwords, ever.
+- **Automatic refresh**: When your session expires (they do, eventually), JJFlexRadio quietly tries to refresh it. If that works, you won't even notice. If it fails, you'll need to log in again, but your saved accounts stick around.
+- **Account housekeeping**: You can rename or delete saved accounts from the selector. Made a typo in the name? Fixed in two clicks.
+- **PKCE under the hood**: I upgraded the auth flow from the old "implicit" method to Authorization Code + PKCE. If that means nothing to you, don't worry - it just means the login is more secure and actually allows the "remember me" feature to work properly. The old way literally couldn't do refresh tokens. Who knew?
 
-The account selector shows up when you click Remote and have saved accounts. If you want a fresh login, just click "New Login" in the selector.
+When you click Remote and have saved accounts, you'll see the account picker. Want to log in fresh? Just hit "New Login."
 
 ## 4.1.9.1 - WebView2 & Screen Reader Fixes
 
-This patch fixes some nasty issues that made SmartLink authentication painful, especially for screen reader users.
+This patch squashes some bugs that made SmartLink login a real pain, especially if you use a screen reader.
 
-- **Fixed WebView2 blocking the UI thread**: The auth form was hanging for several seconds on startup because WebView2 initialization was synchronous. Now it's async - you'll see "Authenticating with SmartLink..." while it loads, and screen readers stay responsive.
-- **Fixed the infamous 100ms focus bug**: NVDA users were getting stuck because we were stealing focus too aggressively after navigation. The auth form now waits for the page to fully load before announcing "Login page ready" and setting focus.
-- **Tolk integration**: Replaced CrossSpeak with direct Tolk integration for screen reader output. This gives us better compatibility with NVDA, JAWS, and other screen readers. The `ScreenReaderOutput` class now uses Tolk under the hood.
-- **WebView2 user data folder**: Moved WebView2's cache to `%APPDATA%\JJFlexRadio\WebView2` so it doesn't fail with "access denied" when running from Program Files.
+- **WebView2 no longer freezes everything**: The login window was locking up for several seconds while Edge initialized in the background. Now it loads asynchronously - you'll see "Authenticating with SmartLink..." while it warms up, and your screen reader keeps working. Much better.
+- **The 100ms focus bug is dead**: NVDA users were getting stuck in limbo because we were yanking focus around too aggressively. The login page now waits until it's actually ready before announcing "Login page ready." Patience is a virtue, even for code.
+- **Tolk instead of CrossSpeak**: Swapped out the screen reader library for better NVDA, JAWS, and SuperNova support. Same announcements, better compatibility.
+- **No more "access denied"**: Moved WebView2's cache folder to your AppData so it stops complaining when JJFlexRadio runs from Program Files.
 
-If SmartLink auth was hanging or your screen reader was going silent during login, this should fix it.
+If SmartLink was hanging or your screen reader went mysteriously silent during login, give this version a try.
 
 ## 4.1.9.0 - The .NET 8 Migration Release
 This is a big one. I finally ripped the band-aid off and migrated the entire codebase from .NET Framework 4.8 to .NET 8.0. Here's what changed:
