@@ -453,43 +453,248 @@ namespace Radios
             WanRadioConnectReadyReceived = true;
         }
 
+        // SmartLink account manager for saved credentials
+        private static SmartLinkAccountManager _accountManager;
+        private static SmartLinkAccountManager AccountManager
+        {
+            get
+            {
+                if (_accountManager == null)
+                {
+                    _accountManager = new SmartLinkAccountManager();
+                    _accountManager.LoadAccounts();
+                }
+                return _accountManager;
+            }
+        }
+
+        // Current SmartLink account (for token refresh on re-auth)
+        private SmartLinkAccount _currentAccount;
+
+        [Obsolete("Use setupRemote() which handles accounts automatically")]
         private string[] tokens;
+
         private bool setupRemote()
         {
             bool rv = false;
-
-            // Show auth form directly on UI thread (WinForms UI thread is already STA)
-            // Form shows a loading message while WebView2 initializes asynchronously,
-            // keeping UI thread responsive for screen readers
-            tokens = null;
-            using (var form = (AuthFormWebView2)AuthForm.CreateAuthForm())
-            {
-                form.ShowDialog();
-                tokens = form.Tokens;
-            }
-            if ((tokens == null) || (tokens.Length == 0))
-            {
-                Tracing.TraceLine("setup Remote: no tokens returned from form", TraceLevel.Error);
-                goto setupRemoteDone;
-            }
-
-            // Get the jwt.
             string jwt = null;
-            foreach (string keyVal in tokens)
+
+            // Check for saved accounts
+            var accounts = AccountManager.Accounts;
+
+            if (accounts.Count > 0)
             {
-                string[] vals = keyVal.Split(new char[] { '=' });
-                if (vals[0] == "id_token")
+                // Show account selector
+                using (var selector = new SmartLinkAccountSelector(AccountManager))
                 {
-                    jwt = vals[1];
-                    break;
+                    if (selector.ShowDialog() != DialogResult.OK)
+                    {
+                        Tracing.TraceLine("setupRemote: user cancelled account selection", TraceLevel.Info);
+                        goto setupRemoteDone;
+                    }
+
+                    if (selector.NewLoginRequested)
+                    {
+                        // User wants to log in with a new account
+                        jwt = PerformNewLogin();
+                    }
+                    else if (selector.SelectedAccount != null)
+                    {
+                        // Use saved account
+                        _currentAccount = selector.SelectedAccount;
+                        jwt = GetJwtFromSavedAccount(_currentAccount);
+                    }
                 }
             }
-            if (jwt == null)
+            else
             {
-                Tracing.TraceLine("setupRemote: no jwt", TraceLevel.Error);
+                // No saved accounts - go straight to login
+                jwt = PerformNewLogin();
+            }
+
+            if (string.IsNullOrEmpty(jwt))
+            {
+                Tracing.TraceLine("setupRemote: no jwt obtained", TraceLevel.Error);
                 goto setupRemoteDone;
             }
 
+            // Connect to SmartLink server
+            rv = ConnectToSmartLink(jwt);
+
+            setupRemoteDone:
+            return rv;
+        }
+
+        /// <summary>
+        /// Performs a new login via WebView2 and optionally saves the account.
+        /// </summary>
+        private string PerformNewLogin()
+        {
+            string jwt = null;
+
+            using (var form = (AuthFormWebView2)AuthForm.CreateAuthForm())
+            {
+                if (form.ShowDialog() != DialogResult.OK)
+                {
+                    Tracing.TraceLine("setupRemote: auth form cancelled or failed", TraceLevel.Info);
+                    return null;
+                }
+
+                jwt = form.IdToken;
+
+                if (string.IsNullOrEmpty(jwt))
+                {
+                    Tracing.TraceLine("setupRemote: no id_token from auth form", TraceLevel.Error);
+                    return null;
+                }
+
+                // Offer to save the account
+                if (!string.IsNullOrEmpty(form.RefreshToken))
+                {
+                    var saveResult = MessageBox.Show(
+                        $"Would you like to save this SmartLink account?\n\n" +
+                        $"Email: {form.Email}\n\n" +
+                        "You won't need to log in again next time.",
+                        "Save Account?",
+                        MessageBoxButtons.YesNo,
+                        MessageBoxIcon.Question,
+                        MessageBoxDefaultButton.Button1);
+
+                    if (saveResult == DialogResult.Yes)
+                    {
+                        // Prompt for friendly name
+                        string friendlyName = PromptForAccountName(form.Email);
+
+                        var account = new SmartLinkAccount
+                        {
+                            FriendlyName = friendlyName,
+                            Email = form.Email ?? string.Empty,
+                            IdToken = form.IdToken,
+                            RefreshToken = form.RefreshToken,
+                            ExpiresAt = DateTime.UtcNow.AddSeconds(form.ExpiresIn > 0 ? form.ExpiresIn : 86400),
+                            LastUsed = DateTime.UtcNow
+                        };
+
+                        AccountManager.SaveAccount(account);
+                        _currentAccount = account;
+
+                        ScreenReaderOutput.Speak("Account saved", true);
+                        Tracing.TraceLine($"setupRemote: saved account for {form.Email}", TraceLevel.Info);
+                    }
+                }
+
+                // Legacy compatibility
+                #pragma warning disable CS0618
+                tokens = new[] { $"id_token={jwt}" };
+                #pragma warning restore CS0618
+            }
+
+            return jwt;
+        }
+
+        /// <summary>
+        /// Gets JWT from a saved account, refreshing if necessary.
+        /// </summary>
+        private string GetJwtFromSavedAccount(SmartLinkAccount account)
+        {
+            // Check if token is expired or about to expire
+            if (AccountManager.IsTokenExpired(account))
+            {
+                Tracing.TraceLine("setupRemote: token expired, attempting refresh", TraceLevel.Info);
+                ScreenReaderOutput.Speak("Refreshing authentication token", true);
+
+                // Try to refresh
+                var refreshTask = AccountManager.RefreshTokenAsync(account);
+                refreshTask.Wait(TimeSpan.FromSeconds(30));
+
+                if (!refreshTask.Result)
+                {
+                    Tracing.TraceLine("setupRemote: token refresh failed, need re-auth", TraceLevel.Warning);
+
+                    MessageBox.Show(
+                        "Your saved login has expired and could not be refreshed.\n\n" +
+                        "Please log in again.",
+                        "Session Expired",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Information);
+
+                    // Fall back to new login
+                    return PerformNewLogin();
+                }
+
+                ScreenReaderOutput.Speak("Token refreshed successfully", true);
+            }
+
+            // Mark account as used
+            AccountManager.MarkAccountUsed(account);
+
+            return account.IdToken;
+        }
+
+        /// <summary>
+        /// Prompts user for a friendly name for the account.
+        /// </summary>
+        private string PromptForAccountName(string defaultEmail)
+        {
+            using (var inputForm = new Form())
+            {
+                inputForm.Text = "Name This Account";
+                inputForm.Size = new System.Drawing.Size(400, 150);
+                inputForm.FormBorderStyle = FormBorderStyle.FixedDialog;
+                inputForm.StartPosition = FormStartPosition.CenterParent;
+                inputForm.MaximizeBox = false;
+                inputForm.MinimizeBox = false;
+
+                var label = new Label
+                {
+                    Text = "Enter a friendly name for this account (e.g., \"Home Shack\"):",
+                    Location = new System.Drawing.Point(12, 12),
+                    AutoSize = true
+                };
+
+                var textBox = new TextBox
+                {
+                    Text = defaultEmail ?? "My SmartLink Account",
+                    Location = new System.Drawing.Point(12, 35),
+                    Size = new System.Drawing.Size(360, 23),
+                    AccessibleName = "Account name"
+                };
+                textBox.SelectAll();
+
+                var okButton = new Button
+                {
+                    Text = "OK",
+                    Location = new System.Drawing.Point(216, 70),
+                    Size = new System.Drawing.Size(75, 28),
+                    DialogResult = DialogResult.OK
+                };
+
+                var cancelButton = new Button
+                {
+                    Text = "Cancel",
+                    Location = new System.Drawing.Point(297, 70),
+                    Size = new System.Drawing.Size(75, 28),
+                    DialogResult = DialogResult.Cancel
+                };
+
+                inputForm.Controls.AddRange(new Control[] { label, textBox, okButton, cancelButton });
+                inputForm.AcceptButton = okButton;
+                inputForm.CancelButton = cancelButton;
+
+                if (inputForm.ShowDialog() == DialogResult.OK && !string.IsNullOrWhiteSpace(textBox.Text))
+                {
+                    return textBox.Text.Trim();
+                }
+            }
+
+            return defaultEmail ?? "SmartLink Account";
+        }
+
+        /// <summary>
+        /// Connects to SmartLink server with the given JWT.
+        /// </summary>
+        private bool ConnectToSmartLink(string jwt)
+        {
             try
             {
                 if (wan != null)
@@ -501,39 +706,74 @@ namespace Radios
 
                 wan = new WanServer();
                 wan.WanRadioConnectReady += new WanServer.WanRadioConnectReadyEventHandler(WanRadioConnectReadyHandler);
+                wan.WanApplicationRegistrationInvalid += WanApplicationRegistrationInvalidHandler;
 
                 wan.Connect();
                 if (!wan.IsConnected)
                 {
                     Tracing.TraceLine("setupRemote: not connected!", TraceLevel.Error);
-                    goto setupRemoteDone;
+                    return false;
                 }
 
-                Tracing.TraceLine("setupRemote: SendRegisterApplicationMessageToServer: " + API.ProgramName + ' ' + "Win10" + ' ' + jwt, TraceLevel.Info);
+                Tracing.TraceLine("setupRemote: SendRegisterApplicationMessageToServer: " + API.ProgramName + ' ' + "Win10" + ' ' + jwt.Substring(0, Math.Min(20, jwt.Length)) + "...", TraceLevel.Info);
                 WanServer.WanRadioRadioListRecieved += new WanServer.WanRadioRadioListRecievedEventHandler(wanRadioListReceivedHandler);
                 wanListReceived = false;
                 wan.SendRegisterApplicationMessageToServer(API.ProgramName, "Win10", jwt);
                 if (!await(() => { return wanListReceived; }, 5000))
                 {
                     Tracing.TraceLine("setupRemote: no radios found.", TraceLevel.Error);
-                    goto setupRemoteDone;
+                    return false;
                 }
 
                 if (radios.Count == 0)
                 {
                     Tracing.TraceLine("setupRemote: no radios found", TraceLevel.Error);
-                    goto setupRemoteDone;
+                    return false;
                 }
 
-                rv = true;
+                return true;
             }
             catch (Exception ex)
             {
-                Tracing.TraceLine("setupRemote: exception in setupThreadProc: " + ex.Message, TraceLevel.Error);
+                Tracing.TraceLine("setupRemote: exception in ConnectToSmartLink: " + ex.Message, TraceLevel.Error);
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Handles invalid token registration from SmartLink server.
+        /// </summary>
+        private void WanApplicationRegistrationInvalidHandler()
+        {
+            Tracing.TraceLine("WanApplicationRegistrationInvalid: token rejected by server", TraceLevel.Warning);
+
+            // If we have a current account, try to refresh and reconnect
+            if (_currentAccount != null && !string.IsNullOrEmpty(_currentAccount.RefreshToken))
+            {
+                Tracing.TraceLine("Attempting token refresh after registration invalid", TraceLevel.Info);
+
+                var refreshTask = AccountManager.RefreshTokenAsync(_currentAccount);
+                refreshTask.Wait(TimeSpan.FromSeconds(30));
+
+                if (refreshTask.Result)
+                {
+                    // Retry connection with new token
+                    Tracing.TraceLine("Token refreshed, retrying SmartLink registration", TraceLevel.Info);
+                    ScreenReaderOutput.Speak("Session refreshed, reconnecting", true);
+
+                    // Re-register with new token
+                    wan.SendRegisterApplicationMessageToServer(API.ProgramName, "Win10", _currentAccount.IdToken);
+                    return;
+                }
             }
 
-            setupRemoteDone:
-            return rv;
+            // Refresh failed or no account - notify user
+            MessageBox.Show(
+                "Your SmartLink session is no longer valid.\n\n" +
+                "Please close and reopen the Remote connection to log in again.",
+                "Session Invalid",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Warning);
         }
 
         private bool sendRemoteConnect(Radio r)
