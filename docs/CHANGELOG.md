@@ -2,6 +2,29 @@
 
 All notable changes to this project will be documented in this file.
 
+## 4.1.10.0 - SmartLink Saved Accounts
+
+Finally! You can save your SmartLink login and stop typing credentials every single time you connect to a remote radio.
+
+- **Saved SmartLink accounts**: After logging in, you'll be asked if you want to save the account. Give it a friendly name like "Don's 6600" or "Club Station" and next time you click Remote, just pick it from the list.
+- **Secure token storage**: Your login tokens are encrypted using Windows DPAPI - they're tied to your Windows user account and can't be decrypted if someone copies the file to another machine. No plaintext passwords ever.
+- **Automatic token refresh**: When your session expires, JJFlexRadio tries to refresh it automatically. If that fails, you'll be prompted to log in again, but your saved accounts stick around.
+- **Account management**: You can rename or delete saved accounts from the account selector dialog.
+- **PKCE authentication**: Under the hood, I upgraded from OAuth implicit flow to Authorization Code + PKCE. This is more secure (industry best practice) and enables the refresh token feature that makes saved accounts actually work.
+
+The account selector shows up when you click Remote and have saved accounts. If you want a fresh login, just click "New Login" in the selector.
+
+## 4.1.9.1 - WebView2 & Screen Reader Fixes
+
+This patch fixes some nasty issues that made SmartLink authentication painful, especially for screen reader users.
+
+- **Fixed WebView2 blocking the UI thread**: The auth form was hanging for several seconds on startup because WebView2 initialization was synchronous. Now it's async - you'll see "Authenticating with SmartLink..." while it loads, and screen readers stay responsive.
+- **Fixed the infamous 100ms focus bug**: NVDA users were getting stuck because we were stealing focus too aggressively after navigation. The auth form now waits for the page to fully load before announcing "Login page ready" and setting focus.
+- **Tolk integration**: Replaced CrossSpeak with direct Tolk integration for screen reader output. This gives us better compatibility with NVDA, JAWS, and other screen readers. The `ScreenReaderOutput` class now uses Tolk under the hood.
+- **WebView2 user data folder**: Moved WebView2's cache to `%APPDATA%\JJFlexRadio\WebView2` so it doesn't fail with "access denied" when running from Program Files.
+
+If SmartLink auth was hanging or your screen reader was going silent during login, this should fix it.
+
 ## 4.1.9.0 - The .NET 8 Migration Release
 This is a big one. I finally ripped the band-aid off and migrated the entire codebase from .NET Framework 4.8 to .NET 8.0. Here's what changed:
 
@@ -13,7 +36,7 @@ This is a big one. I finally ripped the band-aid off and migrated the entire cod
 - **GitHub Releases**: Set up automated release workflow. When I push a version tag like `v4.1.9`, GitHub Actions builds both architectures and publishes installers to the Releases page.
 - **Housekeeping**: Removed legacy radio support (Icom, Kenwood, Generic) since this is JJ*Flex*Radio after all. Also added FLEX-8400 and Aurora AU-510 to the rig table.
 
-The migration plan is documented in `docs/barefoot-qrm-trap.md` if you're curious about the gory details.
+The migration was a multi-phase effort documented in our sprint archives. It involved converting all projects to SDK-style, updating target frameworks, handling native DLL loading, and migrating WebView2 for auth.
 
 ## 4.1.8.0
 - Added Feature Availability tab in the Radio Info dialog with per-feature status (Diversity, ESC, CW Autotune, NR/ANF variants) and a refresh licenses button. Now, the "radio info" dialog, button renames from rig to radio, has two tabs, the first tells you everything about your radio i.e. serial etc. The Feature availability tab is your window on the world of features that you have access to via your license. If Flex releases a new feature that changes radio operations/adds new goodies and you aren't a subscriber, the system will tell you what features you have and which ones are disabled due to your license. It does not tell you how long you have left on your sdr plus license or what type of license you have, SmartSDR can theoretically do that.
@@ -65,7 +88,8 @@ I did a cleanup pass here but never shipped it. Think of this as a scratchpad re
 - Base: Start of 4.x line, compatibility with SmartSDR 4.0
 - Infra: Project file updates and initial docs for missing features
 
-## Unreleased
-- Track FlexLib 4.1.1 and SmartSDR 4.1 updates; evaluate API diffs and incorporate any new DSP/diversity features.
-- Added: Feature availability tab now lists per-algorithm NR/ANF statuses (Basic NR/ANF, RNN, NRF, NRS, NRL, ANFT, ANFL) with license/model gating.
+## Upcoming
+- **Sprint 2: Seamless Auto-Connect** - Working on making JJFlexRadio connect to your preferred radio automatically on startup, without any dialogs. See `docs/planning/agile/Sprint-02-Auto-Connect.md` for details.
+- Diversity status announcements for screen reader users
+- Meter announcements (ALC, SWR, signal strength) on demand
 
