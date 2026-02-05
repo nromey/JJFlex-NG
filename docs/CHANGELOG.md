@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## 4.1.11.0 - Seamless Auto-Connect & Audio Fix
+
+This one's about making JJFlexRadio feel like it knows you. Set up auto-connect once, and the app just connects to your radio when it starts - no clicking through selection screens, no hunting for your saved account. And we finally fixed the "why is this so quiet?" WAN audio problem.
+
+- **Seamless auto-connect**: Pick your radio, right-click, "Set as Auto-Connect," and you're done. Next time you launch JJFlexRadio, it connects automatically. Works for both local radios and SmartLink remotes.
+- **Friendly offline handling**: If your auto-connect radio isn't available (maybe Don finally turned his off), you get a proper dialog with choices: try again, pick a different radio, or disable auto-connect. No cryptic errors, no stuck screens.
+- **Single radio rule**: Only one radio can be the auto-connect target. Set it on Radio B? It clears on Radio A. No ambiguity about which radio will connect.
+- **Settings confirmation**: Before saving auto-connect, you see exactly what's being saved - radio name, low bandwidth preference, the works. No "wait, what did I just enable?" moments.
+- **Fixed WAN audio volume**: If your laptop speakers sounded anemic through SmartLink, you're not imagining things. The Opus decode path was bypassing all gain stages and outputting at ~16% of full scale. We added an OutputGain stage that boosts it to proper levels. Default is 8x (close to system unity), adjustable in a future update.
+- **Help page works again**: The .NET 8 migration broke the Help menu because Microsoft changed a default. Fixed with one line.
+- **Fresh native DLLs**: Rebuilt Opus 1.6.1 and PortAudio 19.7.0 from source with proper SIMD optimizations for both x64 and x86. The old x86 Opus DLL was suspiciously large (1.28MB vs 366KB now).
+- **Screen reader everywhere**: Connection states are all announced - connecting, connected, offline, disconnected. Nothing happens silently.
+
+If you've been frustrated by clicking through RigSelector every single launch, or by turning your laptop volume to 100% just to hear the radio, this is your update.
+
 ## 4.1.10.0 - SmartLink Saved Accounts
 
 Finally! This one's been on my list forever. You can now save your SmartLink login and stop typing credentials every single time you want to connect to a remote radio. I know, I know - it should have been there from day one.
@@ -89,7 +104,7 @@ I did a cleanup pass here but never shipped it. Think of this as a scratchpad re
 - Infra: Project file updates and initial docs for missing features
 
 ## Upcoming
-- **Sprint 2: Seamless Auto-Connect** - Working on making JJFlexRadio connect to your preferred radio automatically on startup, without any dialogs. See `docs/planning/agile/Sprint-02-Auto-Connect.md` for details.
+- **Sprint 3: Audio Controls** - Audio Boost menu and hotkey for adjusting PC Audio gain, Local Flex Audio volume control, and possibly audio device hot-swap. See `docs/TODO.md` for the full feature backlog.
 - Diversity status announcements for screen reader users
 - Meter announcements (ALC, SWR, signal strength) on demand
 

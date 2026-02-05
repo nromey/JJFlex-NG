@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
@@ -8,6 +9,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading.Tasks;
+using JJTrace;
 
 namespace Radios
 {
@@ -128,6 +130,19 @@ namespace Radios
         }
 
         /// <summary>
+        /// Gets an account by email address.
+        /// Used for auto-connect to find the saved account for a remote radio.
+        /// </summary>
+        public SmartLinkAccount? GetAccountByEmail(string email)
+        {
+            if (string.IsNullOrWhiteSpace(email))
+                return null;
+
+            return _accounts.FirstOrDefault(a =>
+                string.Equals(a.Email, email, StringComparison.OrdinalIgnoreCase));
+        }
+
+        /// <summary>
         /// Renames an account.
         /// </summary>
         public bool RenameAccount(string oldName, string newName)
@@ -155,6 +170,51 @@ namespace Radios
         }
 
         /// <summary>
+        /// Checks whether the id_token JWT's own exp claim has passed.
+        /// Auth0's frtest tenant does not return a new id_token on refresh,
+        /// so the saved JWT may have expired even if the refresh_token is valid.
+        /// Returns true if the JWT is expired or cannot be parsed.
+        /// </summary>
+        public static bool IsJwtExpired(string idToken)
+        {
+            if (string.IsNullOrEmpty(idToken))
+                return true;
+
+            try
+            {
+                var parts = idToken.Split('.');
+                if (parts.Length != 3)
+                    return true;
+
+                var payload = parts[1];
+                switch (payload.Length % 4)
+                {
+                    case 2: payload += "=="; break;
+                    case 3: payload += "="; break;
+                }
+                payload = payload.Replace('-', '+').Replace('_', '/');
+
+                var jsonBytes = Convert.FromBase64String(payload);
+                var jsonString = Encoding.UTF8.GetString(jsonBytes);
+
+                using var doc = JsonDocument.Parse(jsonString);
+                if (doc.RootElement.TryGetProperty("exp", out var expElement))
+                {
+                    var expUnix = expElement.GetInt64();
+                    var expTime = DateTimeOffset.FromUnixTimeSeconds(expUnix).UtcDateTime;
+                    // 2-minute buffer
+                    return expTime <= DateTime.UtcNow.AddMinutes(2);
+                }
+
+                return true; // no exp claim = treat as expired
+            }
+            catch
+            {
+                return true;
+            }
+        }
+
+        /// <summary>
         /// Attempts to refresh tokens using the refresh token.
         /// Returns true if successful, false if user must re-authenticate.
         /// </summary>
@@ -170,26 +230,53 @@ namespace Radios
                 {
                     ["grant_type"] = "refresh_token",
                     ["client_id"] = Auth0ClientId,
-                    ["refresh_token"] = account.RefreshToken
+                    ["refresh_token"] = account.RefreshToken,
+                    ["scope"] = "openid offline_access email profile"
                 });
 
                 var response = await client.PostAsync($"https://{Auth0Domain}/oauth/token", content);
 
                 if (!response.IsSuccessStatusCode)
                 {
-                    System.Diagnostics.Trace.WriteLine($"SmartLinkAccountManager: Token refresh failed: {response.StatusCode}");
+                    var errorBody = await response.Content.ReadAsStringAsync();
+                    Tracing.TraceLine($"SmartLinkAccountManager: Token refresh failed: {response.StatusCode} - {errorBody}", TraceLevel.Error);
                     return false;
                 }
 
                 var json = await response.Content.ReadAsStringAsync();
+                Tracing.TraceLine($"SmartLinkAccountManager: Token refresh response received, parsing", TraceLevel.Info);
                 var tokenResponse = JsonSerializer.Deserialize<TokenRefreshResponse>(json);
 
-                if (tokenResponse == null || string.IsNullOrEmpty(tokenResponse.IdToken))
+                if (tokenResponse == null)
+                {
+                    Tracing.TraceLine("SmartLinkAccountManager: Token refresh returned null response", TraceLevel.Error);
                     return false;
+                }
 
-                // Update the account with new tokens
-                account.IdToken = tokenResponse.IdToken;
-                account.ExpiresAt = DateTime.UtcNow.AddSeconds(tokenResponse.ExpiresIn);
+                // Auth0's frtest tenant does not return id_token on refresh_token grant.
+                // If we got a successful response (access_token + expires_in), the session
+                // is still valid — keep using the saved id_token and update expiry.
+                if (!string.IsNullOrEmpty(tokenResponse.IdToken))
+                {
+                    account.IdToken = tokenResponse.IdToken;
+                    Tracing.TraceLine("SmartLinkAccountManager: Token refresh returned new id_token", TraceLevel.Info);
+                }
+                else if (!string.IsNullOrEmpty(account.IdToken))
+                {
+                    // No id_token in response, but we have a saved one — keep it
+                    Tracing.TraceLine("SmartLinkAccountManager: No id_token in refresh response, keeping saved id_token", TraceLevel.Info);
+                }
+                else
+                {
+                    // No id_token anywhere — can't authenticate
+                    Tracing.TraceLine("SmartLinkAccountManager: Token refresh has no id_token and no saved id_token", TraceLevel.Error);
+                    return false;
+                }
+
+                if (tokenResponse.ExpiresIn > 0)
+                {
+                    account.ExpiresAt = DateTime.UtcNow.AddSeconds(tokenResponse.ExpiresIn);
+                }
 
                 // Refresh token may be rotated
                 if (!string.IsNullOrEmpty(tokenResponse.RefreshToken))
@@ -204,7 +291,7 @@ namespace Radios
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Trace.WriteLine($"SmartLinkAccountManager: Token refresh exception: {ex.Message}");
+                Tracing.TraceLine($"SmartLinkAccountManager: Token refresh exception: {ex.Message}", TraceLevel.Error);
                 return false;
             }
         }

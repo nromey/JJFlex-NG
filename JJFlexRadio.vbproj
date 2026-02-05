@@ -10,9 +10,9 @@
     <RuntimeIdentifier Condition="'$(Platform)'=='x86'">win-x86</RuntimeIdentifier>
     <RootNamespace>JJRadio</RootNamespace>
     <AssemblyName>JJFlexRadio</AssemblyName>
-    <Version>4.1.9</Version>
-    <AssemblyVersion>4.1.9.0</AssemblyVersion>
-    <FileVersion>4.1.9.0</FileVersion>
+    <Version>4.1.11</Version>
+    <AssemblyVersion>4.1.11.0</AssemblyVersion>
+    <FileVersion>4.1.11.0</FileVersion>
     <MyType>WindowsForms</MyType>
     <OptionExplicit>On</OptionExplicit>
     <OptionStrict>Off</OptionStrict>

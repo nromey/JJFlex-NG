@@ -68,6 +68,12 @@ namespace Radios
         /// </summary>
         public string Email { get; private set; }
 
+        /// <summary>
+        /// When true, forces Auth0 to show the login page even if a session already exists.
+        /// Use this when the user explicitly wants to log in with a different account.
+        /// </summary>
+        public bool ForceNewLogin { get; set; }
+
         public AuthFormWebView2()
         {
             InitializeComponent();
@@ -179,8 +185,23 @@ namespace Radios
                 await webView.EnsureCoreWebView2Async(env);
                 isInitialized = true;
 
+                // Clear Auth0 session cookies when user wants to log in with a different account
+                if (ForceNewLogin)
+                {
+                    var cookieManager = webView.CoreWebView2.CookieManager;
+                    var cookies = await cookieManager.GetCookiesAsync($"https://{Auth0Domain}");
+                    foreach (var cookie in cookies)
+                    {
+                        cookieManager.DeleteCookie(cookie);
+                    }
+                    Tracing.TraceLine("AuthFormWebView2: Cleared Auth0 cookies for new login", TraceLevel.Info);
+                }
+
                 // Handle navigation completed
                 webView.NavigationCompleted += WebView_NavigationCompleted;
+
+                // Listen for messages from injected JavaScript (login error detection)
+                webView.CoreWebView2.WebMessageReceived += WebView_WebMessageReceived;
 
                 // Navigate to Auth0
                 webView.CoreWebView2.Navigate(uriString);
@@ -211,6 +232,11 @@ namespace Radios
             sb.Append($"code_challenge={_codeChallenge}&");
             sb.Append("code_challenge_method=S256&");
             sb.Append("device=JJFlexRadio");
+
+            // Note: We do NOT use prompt=login here because it prevents Auth0 from
+            // navigating to the signup page. Instead, ForceNewLogin clears Auth0 cookies
+            // before navigating, which achieves the same fresh-session effect without
+            // locking the user into the login-only view.
 
             return sb.ToString();
         }
@@ -290,11 +316,116 @@ namespace Radios
                     // Login page loaded - announce to screen reader and set focus
                     ScreenReaderOutput.Speak("Login page ready. Enter your email address.", true);
                     webView.Focus();
+
+                    // Inject script to detect login errors shown inline by Auth0
+                    await InjectLoginErrorDetector();
                 }
             }
             catch (Exception ex)
             {
                 Tracing.TraceLine("AuthFormWebView2 NavigationCompleted error: " + ex.Message, TraceLevel.Warning);
+            }
+        }
+
+        /// <summary>
+        /// Injects JavaScript to detect Auth0 inline login errors (e.g., wrong password).
+        /// Auth0 doesn't navigate on failed login - it shows an error banner in the DOM.
+        /// We use a MutationObserver to watch for these and notify via WebMessage.
+        /// </summary>
+        private async Task InjectLoginErrorDetector()
+        {
+            try
+            {
+                const string script = @"
+(function() {
+    if (window._jjErrorObserverInstalled) return;
+    window._jjErrorObserverInstalled = true;
+    var lastReported = '';
+
+    function checkForErrors() {
+        // Look specifically for Auth0's error prompt banner (the element that shows '401'
+        // or 'Wrong email or password' above the login fields).
+        // Auth0 Universal Login uses #prompt-alert for top-level auth errors,
+        // and role=alert for accessible error announcements.
+        var selectors = [
+            '#prompt-alert',
+            '.ulp-alert',
+            '[data-error-code]',
+            'section[role=""alert""]',
+            'div[role=""alert""]',
+            'span[role=""alert""]'
+        ];
+        var errorElements = document.querySelectorAll(selectors.join(','));
+        for (var i = 0; i < errorElements.length; i++) {
+            var el = errorElements[i];
+            // Only match if the element is visible
+            if (el.offsetParent === null && el.style.display === 'none') continue;
+            var text = (el.textContent || '').trim();
+            // Must have text, be reasonably short, and not be something we already reported
+            if (text.length > 0 && text.length < 200 && text !== lastReported) {
+                lastReported = text;
+                window.chrome.webview.postMessage(JSON.stringify({ type: 'login_error', message: text }));
+                return;
+            }
+        }
+    }
+
+    var observer = new MutationObserver(function(mutations) {
+        // Only check if mutations added nodes (not just attribute changes on existing elements)
+        var dominated = false;
+        for (var i = 0; i < mutations.length; i++) {
+            if (mutations[i].addedNodes.length > 0) { dominated = true; break; }
+        }
+        if (!dominated) return;
+        // Small delay to let Auth0 finish rendering the error
+        setTimeout(checkForErrors, 300);
+    });
+
+    observer.observe(document.body, { childList: true, subtree: true });
+})();";
+
+                await webView.CoreWebView2.ExecuteScriptAsync(script);
+                Tracing.TraceLine("AuthFormWebView2: Login error detector injected", TraceLevel.Info);
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine($"AuthFormWebView2: Failed to inject error detector: {ex.Message}", TraceLevel.Warning);
+            }
+        }
+
+        private string _lastSpokenError = string.Empty;
+
+        private void WebView_WebMessageReceived(object sender, CoreWebView2WebMessageReceivedEventArgs e)
+        {
+            try
+            {
+                var json = e.TryGetWebMessageAsString();
+                if (string.IsNullOrEmpty(json)) return;
+
+                using var doc = JsonDocument.Parse(json);
+                var root = doc.RootElement;
+
+                if (root.TryGetProperty("type", out var typeEl) && typeEl.GetString() == "login_error")
+                {
+                    var message = root.TryGetProperty("message", out var msgEl) ? msgEl.GetString() : string.Empty;
+                    if (string.IsNullOrEmpty(message)) return;
+
+                    // Avoid repeating the same error
+                    if (message == _lastSpokenError) return;
+                    _lastSpokenError = message;
+
+                    Tracing.TraceLine($"AuthFormWebView2: Login error detected: {message}", TraceLevel.Info);
+                    ScreenReaderOutput.Speak("Incorrect login. Please try again.", true);
+
+                    if (urlLabel != null)
+                    {
+                        urlLabel.Text = "Login failed - please try again.";
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine($"AuthFormWebView2: WebMessage error: {ex.Message}", TraceLevel.Warning);
             }
         }
 

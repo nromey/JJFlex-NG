@@ -9,19 +9,20 @@ Imports Radios
 
 Public Class RigSelector
     Private Const mustSelect As String = "You must select a radio."
-    Private Const connectOnText As String = "Auto connect On"
-    Private Const connectOffText As String = "Auto connect Off"
+    Private Const connectOnText As String = "Auto-Connect Settings..."
+    Private Const connectOffText As String = "Auto-Connect Settings..."
     Private Class radio_t
         Public Rig As FlexBase.RigData
         Public Property AutoConnect As Boolean
         Public Property LowBW As Boolean
         Public ReadOnly Property Display As String
             Get
-                Dim lbw As String = If(LowBW, "LowBW_", "")
+                Dim autoConn As String = If(AutoConnect, "[AutoConnect] ", "")
+                Dim lbw As String = If(LowBW, "[LowBW] ", "")
                 Dim namePart As String = If(String.IsNullOrWhiteSpace(Rig.Name), "Unknown", Rig.Name)
                 Dim modelPart As String = If(String.IsNullOrWhiteSpace(Rig.ModelName), "Unknown", Rig.ModelName)
                 Dim serialPart As String = If(String.IsNullOrWhiteSpace(Rig.Serial), "NoSerial", Rig.Serial)
-                Return $"{lbw}{namePart} {modelPart} {serialPart}"
+                Return $"{autoConn}{lbw}{namePart} {modelPart} {serialPart}"
             End Get
         End Property
         Public Sub New(r As FlexBase.RigData)
@@ -45,6 +46,17 @@ Public Class RigSelector
         End Get
     End Property
 
+    ' New unified auto-connect config
+    Private _unifiedAutoConnectConfig As Radios.AutoConnectConfig
+    Private ReadOnly Property OperatorName As String
+        Get
+            Return PersonalData.UniqueOpName(CurrentOp)
+        End Get
+    End Property
+
+    ' Global auto-connect checkbox
+    Private WithEvents GlobalAutoConnectCheckbox As CheckBox
+
     ''' <summary>
     ''' set if initial bringup
     ''' Set externally before showDialog.
@@ -65,6 +77,29 @@ Public Class RigSelector
         initialBringup = init
         Callouts = cal
         mainWindow = mainWin
+
+        ' Load unified auto-connect config
+        _unifiedAutoConnectConfig = Radios.AutoConnectConfig.Load(BaseConfigDir, OperatorName)
+
+        ' Add global auto-connect checkbox
+        GlobalAutoConnectCheckbox = New CheckBox()
+        GlobalAutoConnectCheckbox.Text = "Enable auto-connect on startup"
+        GlobalAutoConnectCheckbox.Location = New System.Drawing.Point(12, 155)
+        GlobalAutoConnectCheckbox.Size = New System.Drawing.Size(250, 24)
+        GlobalAutoConnectCheckbox.Checked = _unifiedAutoConnectConfig.GlobalAutoConnectEnabled
+        GlobalAutoConnectCheckbox.AccessibleName = "Enable auto-connect on startup"
+        GlobalAutoConnectCheckbox.AccessibleRole = AccessibleRole.CheckButton
+        GlobalAutoConnectCheckbox.TabIndex = 15
+        Me.Controls.Add(GlobalAutoConnectCheckbox)
+
+        ' Update context menu accessibility
+        RadiosBoxAutoConnectMenuItem.AccessibleName = "Auto-connect settings for selected radio"
+        RadiosBoxAutoConnectMenuItem.Text = "Auto-Connect Settings..."
+
+        ' Hide the Login button - Remote button now handles account selection
+        ' (keeping the control in Designer for backward compatibility, just hiding it)
+        LoginButton.Visible = False
+        LoginButton.TabStop = False ' Ensure it's not reachable via Tab key
     End Sub
 
     Private Sub RigSelector_Load(sender As Object, e As EventArgs) Handles MyBase.Load
@@ -183,7 +218,13 @@ Public Class RigSelector
             ' select radio and connect.
             Tracing.TraceLine("autoConnect:" & radio.Rig.Serial & " " & radio.LowBW.ToString(), TraceLevel.Info)
             CurrentRig = radio.Rig
+
+            ' Announce connecting for screen reader users (legacy auto-connect path)
+            Dim radioName As String = If(String.IsNullOrWhiteSpace(radio.Rig.Name), "radio", radio.Rig.Name)
+            Radios.ScreenReaderOutput.Speak($"Connecting to {radioName}", True)
+
             If RigControl.Connect(CurrentRig.Serial, radio.LowBW) Then
+                Radios.ScreenReaderOutput.Speak($"Connected to {radioName}", True)
                 DialogResult = DialogResult.OK
                 Me.Close()
             End If
@@ -201,9 +242,16 @@ Public Class RigSelector
         Dim radio As radio_t = CType(RadiosBox.SelectedItem, radio_t)
         Tracing.TraceLine("ConnectButton_Click:" & radio.Rig.Serial & " " & radio.LowBW.ToString(), TraceLevel.Info)
         CurrentRig = radio.Rig
+
+        ' Announce connecting for screen reader users
+        Dim radioName As String = If(String.IsNullOrWhiteSpace(radio.Rig.Name), "radio", radio.Rig.Name)
+        Radios.ScreenReaderOutput.Speak($"Connecting to {radioName}", True)
+
         If RigControl.Connect(CurrentRig.Serial, radio.LowBW) Then
+            Radios.ScreenReaderOutput.Speak($"Connected to {radioName}", True)
             DialogResult = DialogResult.OK
         Else
+            Radios.ScreenReaderOutput.Speak($"Failed to connect to {radioName}", True)
             DialogResult = DialogResult.No
         End If
     End Sub
@@ -253,36 +301,137 @@ Public Class RigSelector
 
         Dim radio As radio_t = CType(RadiosBox.SelectedItem, radio_t)
         Tracing.TraceLine("RadiosBoxAutoConnectMenuItem_Click:" & radio.Rig.Serial, TraceLevel.Info)
-        ' setup the item
-        ' Toggle if same item, otherwise new item.
-        If (autoConnectItem.Serial = radio.Rig.Serial) Then
-            autoConnectItem.Desired = Not autoConnectItem.Desired
-        Else
-            autoConnectItem.Desired = True
-            autoConnectItem.Serial = radio.Rig.Serial
-            autoConnectItem.LowBW = radio.LowBW
-        End If
-        radio.AutoConnect = autoConnectItem.Desired
-        setupRadiosBoxContext()
 
-        ' save autoConnect config
-        Dim fs As Stream = Nothing
-        Try
-            fs = File.Open(autoConnectFileName, FileMode.Create)
-            Dim xs = New XmlSerializer(GetType(AutoConnectData))
-            xs.Serialize(fs, autoConnectItem)
-        Catch ex As Exception
-            MsgBox(ex.Message)
-        Finally
-            If fs IsNot Nothing Then
-                fs.Dispose()
+        ' Determine current state for this radio
+        Dim currentAutoConnect As Boolean = radio.AutoConnect
+        Dim currentLowBW As Boolean = radio.LowBW
+
+        ' Check if a DIFFERENT radio currently has auto-connect enabled
+        If _unifiedAutoConnectConfig IsNot Nothing AndAlso
+           _unifiedAutoConnectConfig.HasDifferentAutoConnectRadio(radio.Rig.Serial) AndAlso
+           Not currentAutoConnect Then
+            ' Show confirmation dialog
+            Dim currentRadioName = _unifiedAutoConnectConfig.RadioName
+            If String.IsNullOrEmpty(currentRadioName) Then currentRadioName = "Another radio"
+
+            Dim result = MessageBox.Show(
+                $"{currentRadioName} currently has auto-connect enabled." & vbCrLf & vbCrLf &
+                $"Switch auto-connect to {radio.Rig.Name}?",
+                "Switch Auto-Connect",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Question,
+                MessageBoxDefaultButton.Button1)
+
+            If result <> DialogResult.Yes Then
+                Return
             End If
-        End Try
+        End If
+
+        ' Show settings dialog
+        Dim newAutoConnect As Boolean = Not currentAutoConnect ' Toggle by default
+        Dim newLowBW As Boolean = currentLowBW
+
+        If Radios.AutoConnectSettingsDialog.ShowSettingsDialog(Me, radio.Rig.Name, newAutoConnect, newLowBW) Then
+            ' User confirmed - update settings
+
+            ' Clear auto-connect from any other radio in the list
+            If newAutoConnect Then
+                For Each r In RadiosList
+                    If r.Rig.Serial <> radio.Rig.Serial Then
+                        r.AutoConnect = False
+                    End If
+                Next
+            End If
+
+            ' Update this radio
+            radio.AutoConnect = newAutoConnect
+            radio.LowBW = newLowBW
+
+            ' Update legacy config
+            If newAutoConnect Then
+                autoConnectItem.Desired = True
+                autoConnectItem.Serial = radio.Rig.Serial
+                autoConnectItem.LowBW = newLowBW
+            Else
+                If autoConnectItem.Serial = radio.Rig.Serial Then
+                    autoConnectItem.Desired = False
+                End If
+            End If
+
+            ' Update unified config
+            If _unifiedAutoConnectConfig IsNot Nothing Then
+                If newAutoConnect Then
+                    _unifiedAutoConnectConfig.SetAutoConnectRadio(
+                        radio.Rig.Serial,
+                        radio.Rig.Name,
+                        radio.Rig.Remote,
+                        RigControl.CurrentSmartLinkEmail,
+                        newLowBW)
+                Else
+                    If _unifiedAutoConnectConfig.RadioSerial = radio.Rig.Serial Then
+                        _unifiedAutoConnectConfig.ClearAutoConnectRadio()
+                    End If
+                End If
+                Try
+                    _unifiedAutoConnectConfig.Save(BaseConfigDir, OperatorName)
+                Catch ex As Exception
+                    Tracing.TraceLine("Failed to save unified config: " & ex.Message, TraceLevel.Error)
+                End Try
+            End If
+
+            ' Save legacy config
+            Dim fs As Stream = Nothing
+            Try
+                fs = File.Open(autoConnectFileName, FileMode.Create)
+                Dim xs = New XmlSerializer(GetType(AutoConnectData))
+                xs.Serialize(fs, autoConnectItem)
+            Catch ex As Exception
+                MsgBox(ex.Message)
+            Finally
+                If fs IsNot Nothing Then
+                    fs.Dispose()
+                End If
+            End Try
+
+            ' Refresh the display
+            setupRadiosBoxContext()
+            redisplayRadiosBox()
+
+            ' Announce the change
+            If newAutoConnect Then
+                Radios.ScreenReaderOutput.Speak($"Auto-connect set for {radio.Rig.Name}", True)
+            Else
+                Radios.ScreenReaderOutput.Speak($"Auto-connect cleared for {radio.Rig.Name}", True)
+            End If
+        End If
     End Sub
 
     Private Sub RigSelector_FormClosing(sender As Object, e As FormClosingEventArgs) Handles MyBase.FormClosing
         Tracing.TraceLine("RigSelector_FormClosing", TraceLevel.Info)
         AutoConnectTimer.Dispose()
         RemoveHandler FlexBase.RadioFound, AddressOf radioFoundHandler
+    End Sub
+
+    ''' <summary>
+    ''' Handles the global auto-connect checkbox change.
+    ''' Saves the setting immediately.
+    ''' </summary>
+    Private Sub GlobalAutoConnectCheckbox_CheckedChanged(sender As Object, e As EventArgs) Handles GlobalAutoConnectCheckbox.CheckedChanged
+        If _unifiedAutoConnectConfig Is Nothing Then Return
+
+        _unifiedAutoConnectConfig.GlobalAutoConnectEnabled = GlobalAutoConnectCheckbox.Checked
+        Try
+            _unifiedAutoConnectConfig.Save(BaseConfigDir, OperatorName)
+            Tracing.TraceLine("GlobalAutoConnectEnabled changed to: " & GlobalAutoConnectCheckbox.Checked.ToString(), TraceLevel.Info)
+
+            ' Announce the change for screen reader users
+            If GlobalAutoConnectCheckbox.Checked Then
+                Radios.ScreenReaderOutput.Speak("Auto-connect on startup enabled", True)
+            Else
+                Radios.ScreenReaderOutput.Speak("Auto-connect on startup disabled", True)
+            End If
+        Catch ex As Exception
+            Tracing.TraceLine("Failed to save GlobalAutoConnectEnabled: " & ex.Message, TraceLevel.Error)
+        End Try
     End Sub
 End Class

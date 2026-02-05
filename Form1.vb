@@ -277,6 +277,23 @@ Public Class Form1
             OpenParms.License = CurrentOp.License
             OpenParms.Profiles = CurrentOp.Profiles
 
+            ' Check for auto-connect on initial startup
+            If initialCall Then
+                Dim autoConnectResult = TryAutoConnectOnStartup()
+                If autoConnectResult = AutoConnectStartupResult.Connected Then
+                    ' Auto-connect succeeded - skip RigSelector
+                    rv = True
+                    radioSelected = DialogResult.OK
+                    GoTo RadioConnected
+                ElseIf autoConnectResult = AutoConnectStartupResult.UserCancelled Then
+                    ' User cancelled from the failure dialog
+                    rv = False
+                    radioSelected = DialogResult.Cancel
+                    Return rv
+                End If
+                ' Otherwise (Failed or ShowSelector), fall through to show RigSelector
+            End If
+
             ' Note this creates a new rigControl object.
             selectorThread = New Thread(AddressOf selectorProc)
             selectorThread.Name = "selectorThread"
@@ -285,6 +302,8 @@ Public Class Form1
             selectorThread.Join()
             Me.Activate()
             rv = (radioSelected = DialogResult.OK)
+
+RadioConnected:
 
             If rv Then
                 ' add handlers for RigControl events.
@@ -330,6 +349,101 @@ Public Class Form1
         Catch ex As Exception
             Tracing.TraceLine("openTheRadio exception:" & ex.Message & Environment.NewLine & ex.StackTrace, TraceLevel.Error)
             Return False
+        End Try
+    End Function
+
+    ''' <summary>
+    ''' Result of auto-connect attempt on startup.
+    ''' </summary>
+    Private Enum AutoConnectStartupResult
+        ''' <summary>No auto-connect configured, show RigSelector.</summary>
+        ShowSelector
+        ''' <summary>Auto-connect succeeded.</summary>
+        Connected
+        ''' <summary>Auto-connect failed, but user chose to pick another radio.</summary>
+        Failed
+        ''' <summary>User cancelled from the failure dialog.</summary>
+        UserCancelled
+    End Enum
+
+    ''' <summary>
+    ''' Current auto-connect configuration (loaded on startup).
+    ''' </summary>
+    Private _autoConnectConfig As Radios.AutoConnectConfig
+
+    ''' <summary>
+    ''' Attempts to auto-connect to a saved radio on startup.
+    ''' </summary>
+    Private Function TryAutoConnectOnStartup() As AutoConnectStartupResult
+        Try
+            ' Load auto-connect configuration
+            Dim operatorName = PersonalData.UniqueOpName(CurrentOp)
+            _autoConnectConfig = Radios.AutoConnectConfig.Load(BaseConfigDir, operatorName)
+
+            If Not _autoConnectConfig.ShouldAutoConnect Then
+                Tracing.TraceLine("TryAutoConnectOnStartup: no auto-connect configured", TraceLevel.Info)
+                Return AutoConnectStartupResult.ShowSelector
+            End If
+
+            Tracing.TraceLine("TryAutoConnectOnStartup: attempting " & _autoConnectConfig.RadioName, TraceLevel.Info)
+
+            ' Create RigControl for the connection attempt
+            RigControl = New FlexBase(OpenParms)
+
+            ' Try to connect
+            Dim connected = RigControl.TryAutoConnect(_autoConnectConfig)
+
+            If connected Then
+                Tracing.TraceLine("TryAutoConnectOnStartup: success", TraceLevel.Info)
+                Return AutoConnectStartupResult.Connected
+            End If
+
+            ' Connection failed - show the failure dialog
+            Tracing.TraceLine("TryAutoConnectOnStartup: failed, showing dialog", TraceLevel.Info)
+            Dim dialogResult = Radios.AutoConnectFailedDialog.ShowDialog(Me, _autoConnectConfig.RadioName)
+
+            Select Case dialogResult
+                Case Radios.AutoConnectFailedResult.TryAgain
+                    ' Retry with a fresh RigControl to clear stale WAN state
+                    RigControl.Dispose()
+                    RigControl = New FlexBase(OpenParms)
+                    connected = RigControl.TryAutoConnect(_autoConnectConfig)
+                    If connected Then
+                        Return AutoConnectStartupResult.Connected
+                    End If
+                    ' Still failed - fall through to show selector
+                    RigControl.Dispose()
+                    RigControl = Nothing
+                    Return AutoConnectStartupResult.Failed
+
+                Case Radios.AutoConnectFailedResult.DisableAutoConnect
+                    ' Disable auto-connect for this radio
+                    _autoConnectConfig.Enabled = False
+                    _autoConnectConfig.Save(BaseConfigDir, operatorName)
+                    RigControl.Dispose()
+                    RigControl = Nothing
+                    Return AutoConnectStartupResult.ShowSelector
+
+                Case Radios.AutoConnectFailedResult.ChooseAnotherRadio
+                    ' User wants to pick a different radio
+                    RigControl.Dispose()
+                    RigControl = Nothing
+                    Return AutoConnectStartupResult.Failed
+
+                Case Else ' Cancel
+                    RigControl.Dispose()
+                    RigControl = Nothing
+                    Return AutoConnectStartupResult.UserCancelled
+            End Select
+
+            Return AutoConnectStartupResult.ShowSelector
+        Catch ex As Exception
+            Tracing.TraceLine("TryAutoConnectOnStartup exception: " & ex.Message, TraceLevel.Error)
+            If RigControl IsNot Nothing Then
+                RigControl.Dispose()
+                RigControl = Nothing
+            End If
+            Return AutoConnectStartupResult.ShowSelector
         End Try
     End Function
 
@@ -1367,6 +1481,13 @@ Public Class Form1
         Tracing.TraceLine("SelectRigMenuItem_Click", TraceLevel.Info)
         Try
             If RigControl IsNot Nothing Then
+                ' Announce disconnection for screen reader users
+                Dim radioName = RigControl.RadioNickname
+                If Not String.IsNullOrEmpty(radioName) Then
+                    Radios.ScreenReaderOutput.Speak("Disconnecting from " & radioName, True)
+                Else
+                    Radios.ScreenReaderOutput.Speak("Disconnecting from radio", True)
+                End If
                 CloseTheRadio()
             End If
             openTheRadio(False) ' a subsequent open
@@ -1542,7 +1663,9 @@ Public Class Form1
     Private Sub HelpPageItem_Click(ByVal sender As System.Object, ByVal e As System.EventArgs) Handles HelpPageItem.Click
         Dim fn As String =
             ProgramDirectory & "\JJFlexRadioReadme.htm"
-        System.Diagnostics.Process.Start(fn)
+        Dim psi As New System.Diagnostics.ProcessStartInfo(fn)
+        psi.UseShellExecute = True
+        System.Diagnostics.Process.Start(psi)
     End Sub
 
     Private Sub HelpKeysItem_Click(ByVal sender As System.Object, ByVal e As System.EventArgs) Handles HelpKeysItem.Click

@@ -21,6 +21,13 @@ namespace JJPortaudio
         private Audio aud = null;
 
         /// <summary>
+        /// Output gain scalar applied to decoded audio samples.
+        /// 1.0 = unity (no change), 2.0 = +6dB boost, etc.
+        /// Default is 1.0 (no gain applied).
+        /// </summary>
+        public float OutputGain { get; set; } = 1.0f;
+
+        /// <summary>
         /// buffer size used for this stream.
         /// </summary>
         public uint BufferSize { get { return aud.BufferSize; } }
@@ -125,9 +132,38 @@ namespace JJPortaudio
         /// Write opus data
         /// </summary>
         /// <param name="data">byte array</param>
+        private int _peakLogCounter = 0;
+        private float _peakSinceLastLog = 0f;
         public void WriteOpus(byte[] data)
         {
             float[] buf = aud.Decoder.DecodePacketFloat(data);
+
+            // Track peak level before gain for diagnostics
+            float prePeak = 0f;
+            for (int i = 0; i < buf.Length; i++)
+            {
+                float abs = Math.Abs(buf[i]);
+                if (abs > prePeak) prePeak = abs;
+            }
+
+            if (OutputGain != 1.0f)
+            {
+                for (int i = 0; i < buf.Length; i++)
+                {
+                    buf[i] *= OutputGain;
+                }
+            }
+
+            // Log peak levels every ~5 seconds (at ~100 packets/sec)
+            if (prePeak > _peakSinceLastLog) _peakSinceLastLog = prePeak;
+            if (++_peakLogCounter >= 500)
+            {
+                float postPeak = _peakSinceLastLog * OutputGain;
+                Tracing.TraceLine($"OpusAudio: raw peak={_peakSinceLastLog:F4}, gain={OutputGain:F1}x, output peak={postPeak:F4} ({20 * Math.Log10(postPeak + 1e-10):F1} dBFS)", TraceLevel.Info);
+                _peakLogCounter = 0;
+                _peakSinceLastLog = 0f;
+            }
+
             aud.TheQ.Enqueue(buf);
         }
 

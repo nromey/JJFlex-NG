@@ -20,7 +20,7 @@ namespace JJTrace
         {
             theLock = new Mutex();
             fileName = fName;
-            theFile = File.Create(fName);
+            theFile = new FileStream(fName, FileMode.Create, FileAccess.Write, FileShare.Read);
             theWriter = new StreamWriter(theFile);
             _pause = false;
         }
@@ -91,7 +91,7 @@ namespace JJTrace
             {
                 try
                 {
-                    theFile = File.Open(fileName, FileMode.Append);
+                    theFile = new FileStream(fileName, FileMode.Append, FileAccess.Write, FileShare.Read);
                     theWriter = new StreamWriter(theFile);
                     _pause = false;
                 }
