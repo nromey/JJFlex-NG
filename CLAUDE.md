@@ -276,6 +276,9 @@ powershell -Command "(Get-Item 'bin\x64\Release\net8.0-windows\win-x64\JJFlexRad
 - No PR required for work on feature branches
 - Use descriptive commit messages following existing style
 
+### Plan File Names
+Plan files are named with three random ham-radio-flavored words, e.g. `barefoot-qrm-trap`. Use ham radio terms (QRM, QSO, ragchew, barefoot, rig, shack, pileup, splatter, etc.) mixed with random fun words. Keep it lighthearted — this is a ham radio project!
+
 ### Resuming Work
 If a session ends mid-task, tell Claude: "Resume [phase/task name] from `docs/barefoot-qrm-trap.md`"
 
