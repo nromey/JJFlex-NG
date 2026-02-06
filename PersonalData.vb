@@ -160,7 +160,7 @@ Public Class PersonalData
         ''' <summary>
         ''' Validated UI mode. Returns Classic for unknown or not-yet-implemented values.
         ''' </summary>
-        <XmlIgnore()> Public Property CurrentUIMode As UIMode
+        <XmlIgnore()> Friend Property CurrentUIMode As UIMode
             Get
                 If UIModeSetting = CInt(UIMode.Modern) Then
                     Return UIMode.Modern

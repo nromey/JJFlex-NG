@@ -10,7 +10,7 @@ Windows desktop application for controlling FlexRadio transceivers (6000/8000 se
 | Build x64 (Release) | `dotnet build JJFlexRadio.sln -c Release -p:Platform=x64` |
 | Build x86 (Release) | `dotnet build JJFlexRadio.sln -c Release -p:Platform=x86` |
 | Build (Debug) | `dotnet build JJFlexRadio.sln -c Debug -p:Platform=x64` |
-| Rebuild (Release) | `dotnet build JJFlexRadio.sln -c Release -p:Platform=x64 --no-incremental` |
+| Rebuild (Release) | `dotnet clean JJFlexRadio.sln -c Release -p:Platform=x64 && dotnet build JJFlexRadio.sln -c Release -p:Platform=x64` |
 | Installer | Runs automatically after Release build |
 | Output x64 | `bin\x64\Release\net8.0-windows\win-x64\JJFlexRadio.exe` |
 | Output x86 | `bin\x86\Release\net8.0-windows\win-x86\JJFlexRadio.exe` |
@@ -93,7 +93,20 @@ dotnet build JJFlexRadio.sln -c Release -p:Platform=x86
 
 # Minimal output (recommended for CI/automation)
 dotnet build JJFlexRadio.sln -c Release -p:Platform=x64 --verbosity minimal
+
+# Clean + rebuild (guaranteed fresh output)
+dotnet clean JJFlexRadio.sln -c Release -p:Platform=x64 && dotnet build JJFlexRadio.sln -c Release -p:Platform=x64 --verbosity minimal
 ```
+
+### WARNING: `--no-incremental` Does NOT Guarantee Fresh Builds
+
+**Do NOT rely on `--no-incremental` to produce fresh binaries.** It only disables incremental *compilation* but the build system can still skip projects entirely if it believes outputs are up-to-date. This means:
+
+- Output files may retain old timestamps
+- The NSIS installer post-build step won't run (it only triggers when the project actually compiles)
+- You can end up distributing stale binaries
+
+**Always use `dotnet clean` before `dotnet build` when you need fresh output.** Or use `build-installers.bat` which deletes the output folder before building.
 
 ### Platforms
 - Primary: x64 (64-bit, recommended)
@@ -188,7 +201,7 @@ Detection: Use `theRadio.Model`, `theRadio.DiversityIsAllowed`, `theRadio.MaxSli
 
 ### Building Clean Installers
 
-**Problem:** Incremental builds may use cached binaries with old version numbers.
+**Problem:** Incremental builds may use cached binaries with old version numbers. The `--no-incremental` flag does NOT reliably fix this (see warning above).
 
 **Solution:** Always do a clean build when creating release installers:
 
@@ -197,9 +210,8 @@ Detection: Use `theRadio.Model`, `theRadio.DiversityIsAllowed`, `theRadio.MaxSli
 build-installers.bat
 
 # Option 2: Manual clean build
-rmdir /s /q bin\x64\Release bin\x86\Release
-dotnet build JJFlexRadio.vbproj -c Release -p:Platform=x64 --no-incremental
-dotnet build JJFlexRadio.vbproj -c Release -p:Platform=x86 --no-incremental
+dotnet clean JJFlexRadio.vbproj -c Release -p:Platform=x64 && dotnet build JJFlexRadio.vbproj -c Release -p:Platform=x64
+dotnet clean JJFlexRadio.vbproj -c Release -p:Platform=x86 && dotnet build JJFlexRadio.vbproj -c Release -p:Platform=x86
 ```
 
 **Verify the version before distributing:**

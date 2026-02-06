@@ -87,6 +87,20 @@ namespace Radios
         }
 
         /// <summary>
+        /// Opens the SmartLink Account Selector dialog for standalone account management
+        /// (rename, delete, view saved accounts). Called from the Modern UI menu.
+        /// </summary>
+        public static void ShowAccountManager(System.Windows.Forms.IWin32Window owner, string configDir, string callSign)
+        {
+            var mgr = new SmartLinkAccountManager();
+            mgr.LoadAccounts();
+            using (var selector = new SmartLinkAccountSelector(mgr))
+            {
+                selector.ShowDialog(owner);
+            }
+        }
+
+        /// <summary>
         /// Adds or updates an account. If an account with the same email exists, it is updated.
         /// </summary>
         public void SaveAccount(SmartLinkAccount account)
