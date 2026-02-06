@@ -9,7 +9,7 @@ This document captures the current state of JJ-Flex repository and active work.
 - JJFlexRadio: Windows desktop app for FlexRadio 6000/8000 series transceivers
 - **Migration complete:** .NET 8, dual x64/x86 architecture, WebView2 for Auth0
 - **Current version:** 4.1.11
-- **Last completed:** Sprint 3 - Classic/Modern Mode Foundation
+- **Last completed:** Sprint 3 - Classic/Modern Mode Foundation (tested & closed Feb 6, 2026)
 
 ## 2) Technical Foundation
 - Solution: `JJFlexRadio.sln`
@@ -76,15 +76,14 @@ See `docs/planning/` for detailed design docs.
 ## 5) Build Commands
 
 ```batch
-# 64-bit build (recommended)
-dotnet build JJFlexRadio.sln -c Release -p:Platform=x64
+# Clean + rebuild (guaranteed fresh output - use this!)
+dotnet clean JJFlexRadio.sln -c Release -p:Platform=x64 && dotnet build JJFlexRadio.sln -c Release -p:Platform=x64 --verbosity minimal
 
-# 32-bit build
-dotnet build JJFlexRadio.sln -c Release -p:Platform=x86
-
-# Debug build
-dotnet build JJFlexRadio.sln -c Debug -p:Platform=x64
+# Both installers
+build-installers.bat
 ```
+
+**WARNING:** Do not use `--no-incremental` expecting fresh output — it doesn't work. Always `dotnet clean` first. See CLAUDE.md for details.
 
 ## 6) Key Files
 
@@ -122,4 +121,4 @@ dotnet build JJFlexRadio.sln -c Debug -p:Platform=x64
 
 ---
 
-*Updated: Sprint 3 complete - Classic/Modern Mode Foundation*
+*Updated: Feb 6, 2026 — Sprint 3 tested & closed. Build process fixes committed. Ready for Sprint 4.*
