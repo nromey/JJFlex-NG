@@ -1,8 +1,0 @@
-﻿Richard mcDonald:
-    *Don't double-speak field prompts with JAWS.
-    Turn off rig's speech during a scan.
-    memory group scanning.
-    *Change antenna naming from 0-1 to 1-2 as per the manual.
-
-William Stachowiak:
-    Add transmit/receive button.

@@ -1,2 +1,0 @@
-SignTool Error: A certificate chain processed, but terminated in a root
-	certificate which is not trusted by the trust provider.

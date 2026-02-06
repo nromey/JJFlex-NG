@@ -1,4 +1,0 @@
-﻿Ensure boot trace is 0
-bootLevel is info
-dbg traces removed.
-Make sure versions up to date.

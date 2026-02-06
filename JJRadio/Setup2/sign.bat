@@ -1,1 +1,0 @@
-signtool.exe sign /v /f c:\cert\cert.cer /t http://timestamp.verisign.com/scripts/timstamp.dll jjradio.msi > signout.txt

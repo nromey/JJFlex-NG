@@ -1,0 +1,219 @@
+# EditorConfig for JJFlexRadio
+# https://editorconfig.org
+
+root = true
+
+# Default settings for all files
+[*]
+indent_style = space
+indent_size = 4
+end_of_line = crlf
+charset = utf-8
+trim_trailing_whitespace = true
+insert_final_newline = true
+
+# =============================================================================
+# C# and VB.NET analyzer rule configuration
+# =============================================================================
+#
+# Tier system:
+#   warning    = Fix these — security issues, real bugs, important quality
+#   suggestion = Good practice for new code, too noisy to enforce on legacy
+#   none       = Not applicable or fundamentally wrong for this project
+#
+# When writing NEW code, aim to have zero warnings and zero suggestions.
+# Existing code warnings will be cleaned up over time.
+# =============================================================================
+
+[*.{cs,vb}]
+
+# ---------------------------------------------------------------------------
+# KEEP AS WARNING — Security, real bugs, important issues
+# ---------------------------------------------------------------------------
+# (Default severity for CA2xxx security rules, S-security rules, etc.
+#  No overrides needed — they're already warnings by default.)
+
+# ---------------------------------------------------------------------------
+# NONE — Not applicable to this project
+# ---------------------------------------------------------------------------
+
+# CA1416: Platform compatibility (entire app is Windows-only)
+dotnet_diagnostic.CA1416.severity = none
+
+# ---------------------------------------------------------------------------
+# SUGGESTION — Good practice, enforce on new code, don't flood build on legacy
+# ---------------------------------------------------------------------------
+
+# --- Naming / Style (high volume, low impact) ---
+
+# CA1507: Use nameof instead of string literal (1840 hits)
+dotnet_diagnostic.CA1507.severity = suggestion
+
+# CA1051: Don't expose public fields (1086 hits)
+dotnet_diagnostic.CA1051.severity = suggestion
+
+# CA1707: Remove underscores from member names (666 hits)
+dotnet_diagnostic.CA1707.severity = suggestion
+
+# CA1711: Identifiers should not have incorrect suffix (240 hits)
+dotnet_diagnostic.CA1711.severity = suggestion
+
+# CA1805: Member explicitly initialized to default
+dotnet_diagnostic.CA1805.severity = suggestion
+
+# CA1822: Member can be marked static (noisy on WinForms/WPF)
+dotnet_diagnostic.CA1822.severity = suggestion
+
+# CA1852: Type can be sealed (164 hits)
+dotnet_diagnostic.CA1852.severity = suggestion
+
+# S101: Class naming conventions
+dotnet_diagnostic.S101.severity = suggestion
+
+# S1104: Fields should not have public accessibility (956 hits)
+dotnet_diagnostic.S1104.severity = suggestion
+
+# S2933: Fields that are only assigned in constructor should be readonly (478 hits)
+dotnet_diagnostic.S2933.severity = suggestion
+
+# S125: Remove commented-out code (452 hits)
+dotnet_diagnostic.S125.severity = suggestion
+
+# S2325: Methods/properties that don't access instance data should be static (234 hits)
+dotnet_diagnostic.S2325.severity = suggestion
+
+# S1125: Remove unnecessary boolean literal (126 hits)
+dotnet_diagnostic.S1125.severity = suggestion
+
+# S1144: Remove unused private members (124 hits)
+dotnet_diagnostic.S1144.severity = suggestion
+
+# S2292: Trivial properties should be auto-implemented (110 hits)
+dotnet_diagnostic.S2292.severity = suggestion
+
+# S1244: Floating point equality (118 hits — common in radio freq code)
+dotnet_diagnostic.S1244.severity = suggestion
+
+# S2178: Short-circuit evaluation should be used (174 hits)
+dotnet_diagnostic.S2178.severity = suggestion
+
+# S4200: Native methods should be wrapped (138 hits)
+dotnet_diagnostic.S4200.severity = suggestion
+
+# CS0108: Member hides inherited member (102 hits)
+dotnet_diagnostic.CS0108.severity = suggestion
+
+# --- Culture/Formatting (important but high volume) ---
+
+# MA0011: Use IFormatProvider with TryParse (872 hits)
+dotnet_diagnostic.MA0011.severity = suggestion
+
+# MA0006: Use string.Equals instead of == (870 hits)
+dotnet_diagnostic.MA0006.severity = suggestion
+
+# CA1305: Specify IFormatProvider (648 hits)
+dotnet_diagnostic.CA1305.severity = suggestion
+
+# CA1304: Specify CultureInfo (224 hits)
+dotnet_diagnostic.CA1304.severity = suggestion
+
+# CA1311: Specify culture for ToUpper/ToLower (224 hits)
+dotnet_diagnostic.CA1311.severity = suggestion
+
+# CA1310: Specify StringComparison (134 hits)
+dotnet_diagnostic.CA1310.severity = suggestion
+
+# MA0002: Use IEqualityComparer<string> (132 hits)
+dotnet_diagnostic.MA0002.severity = suggestion
+
+# --- Meziantou style/quality ---
+
+# MA0048: File name should match type name (354 hits)
+dotnet_diagnostic.MA0048.severity = suggestion
+
+# MA0051: Method too long (272 hits)
+dotnet_diagnostic.MA0051.severity = suggestion
+
+# MA0046: Use EventHandler<T> (272 hits)
+dotnet_diagnostic.MA0046.severity = suggestion
+
+# MA0016: Prefer returning collection abstraction (224 hits)
+dotnet_diagnostic.MA0016.severity = suggestion
+
+# MA0074: Avoid implicit culture-sensitive methods (130 hits)
+dotnet_diagnostic.MA0074.severity = suggestion
+
+# MA0037: Remove empty statement (downgrade from error)
+dotnet_diagnostic.MA0037.severity = suggestion
+
+# MA0049: Type name should not match namespace (downgrade from error)
+dotnet_diagnostic.MA0049.severity = suggestion
+
+# --- P/Invoke ---
+
+# CA1401: P/Invokes should not be visible (128 hits — by design in audio wrappers)
+dotnet_diagnostic.CA1401.severity = suggestion
+
+# --- Lock pattern (legacy) ---
+
+# S2445: Blocks should be synchronized on private fields (454 hits)
+dotnet_diagnostic.S2445.severity = suggestion
+
+# --- Additional style/noise rules (second pass) ---
+
+# S2223: Change static field visibility to private (72 hits — style)
+dotnet_diagnostic.S2223.severity = suggestion
+
+# CS0114: Member hides inherited member, missing override/new (70 hits)
+dotnet_diagnostic.CS0114.severity = suggestion
+
+# S4275: Property getter/setter type mismatch (52 hits — style)
+dotnet_diagnostic.S4275.severity = suggestion
+
+# S1905: Redundant cast (32 hits — style)
+dotnet_diagnostic.S1905.severity = suggestion
+
+# S3260: Private classes should be sealed (32 hits — style)
+dotnet_diagnostic.S3260.severity = suggestion
+
+# S1450: Private field only assigned in constructor, use local (32 hits)
+dotnet_diagnostic.S1450.severity = suggestion
+
+# S907: Don't use ref/out params (28 hits — by design in interop code)
+dotnet_diagnostic.S907.severity = suggestion
+
+# S1066: Collapsible if statements (26 hits — style)
+dotnet_diagnostic.S1066.severity = suggestion
+
+# S3267: Use LINQ instead of loop (26 hits — style)
+dotnet_diagnostic.S3267.severity = suggestion
+
+# CA1712: Don't prefix enum values with type name (34 hits — style)
+dotnet_diagnostic.CA1712.severity = suggestion
+
+# S1939: Redundant base class list (20 hits — style)
+dotnet_diagnostic.S1939.severity = suggestion
+
+# MA0069: Non-virtual instance method should not be public (24 hits)
+dotnet_diagnostic.MA0069.severity = suggestion
+
+# MA0005: Use Array.Empty<T> (22 hits — minor)
+dotnet_diagnostic.MA0005.severity = suggestion
+
+# MA0009: Add timeout to regex (22 hits)
+dotnet_diagnostic.MA0009.severity = suggestion
+
+# ---------------------------------------------------------------------------
+# P-Opus-master third-party code — reduce noise
+# ---------------------------------------------------------------------------
+[P-Opus-master/**.cs]
+dotnet_diagnostic.S1104.severity = none
+dotnet_diagnostic.CA1051.severity = none
+dotnet_diagnostic.CA1401.severity = none
+dotnet_diagnostic.CA1707.severity = none
+dotnet_diagnostic.S108.severity = none
+dotnet_diagnostic.S2223.severity = none
+dotnet_diagnostic.CS0114.severity = none
+dotnet_diagnostic.S4275.severity = none
+dotnet_diagnostic.CA2211.severity = none
+dotnet_diagnostic.MA0069.severity = none

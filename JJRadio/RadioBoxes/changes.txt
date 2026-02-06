@@ -1,2 +1,0 @@
-﻿1.4.3.1 - Changed the AccessibleRole of Box to none.
-1.4.4.1 09/30/2019 - Changed the AccessibleRole of box to Document for NVDA

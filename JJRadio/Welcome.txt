@@ -1,4 +1,0 @@
-﻿Welcome to JJRadio, an amateur radio monitoring/control program by Jim Shaffer, KE5AL.
-JJRadio is designed with blind users in mind.
-It works best with a screen reader using a braille display.
-To control/monitor the radio, the rig must be connected to your computer, and you must have a COM port, or virtual COM port, interface to it, or, in the case of the Flex radios, the rig may be on a network.

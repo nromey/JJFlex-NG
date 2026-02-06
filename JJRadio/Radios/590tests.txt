@@ -1,8 +1,0 @@
-﻿set VFO from memory and other tests.
-swr, comp, alc readings.
-fm mode.
-test start with 590, then generic, then back to 590.
-
-TS2000:
-test fm width.
-Don't run boot trace the entire time.

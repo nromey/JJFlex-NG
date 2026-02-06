@@ -1,0 +1,23 @@
+<Project>
+
+  <!--
+    Override for PortAudioSharp third-party code.
+    Same treatment as FlexLib_API vendor code.
+  -->
+
+  <PropertyGroup>
+    <NuGetAudit>true</NuGetAudit>
+    <NuGetAuditLevel>low</NuGetAuditLevel>
+    <NuGetAuditMode>all</NuGetAuditMode>
+    <AnalysisLevel>8.0-default</AnalysisLevel>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.CodeAnalysis.BannedApiAnalyzers" Version="3.3.4">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>
+    </PackageReference>
+    <AdditionalFiles Include="$(MSBuildThisFileDirectory)..\BannedSymbols.txt" Condition="Exists('$(MSBuildThisFileDirectory)..\BannedSymbols.txt')" />
+  </ItemGroup>
+
+</Project>

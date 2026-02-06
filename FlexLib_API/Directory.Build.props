@@ -1,0 +1,30 @@
+<Project>
+
+  <!--
+    Override for FlexLib_API vendor projects.
+    Keeps built-in .NET analyzers at default level but excludes
+    Sonar, Roslynator, and Meziantou to avoid noise in code we don't maintain.
+  -->
+
+  <PropertyGroup>
+    <!-- Keep NuGet auditing -->
+    <NuGetAudit>true</NuGetAudit>
+    <NuGetAuditLevel>low</NuGetAuditLevel>
+    <NuGetAuditMode>all</NuGetAuditMode>
+
+    <!-- Use default (not recommended) analysis to reduce noise on vendor code -->
+    <AnalysisLevel>8.0-default</AnalysisLevel>
+  </PropertyGroup>
+
+  <!-- Only BannedApiAnalyzers on vendor code (to catch DotNetZip etc.) -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.CodeAnalysis.BannedApiAnalyzers" Version="3.3.4">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>
+    </PackageReference>
+    <AdditionalFiles Include="$(MSBuildThisFileDirectory)..\BannedSymbols.txt" Condition="Exists('$(MSBuildThisFileDirectory)..\BannedSymbols.txt')" />
+  </ItemGroup>
+
+  <!-- No Sonar, Roslynator, or Meziantou on vendor code -->
+
+</Project>

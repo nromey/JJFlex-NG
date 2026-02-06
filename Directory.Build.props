@@ -1,0 +1,51 @@
+<Project>
+
+  <!--
+    Shared build properties for all projects in the JJFlexRadio solution.
+    This file is auto-imported by MSBuild for every .csproj and .vbproj.
+  -->
+
+  <PropertyGroup>
+    <!-- .NET 8 analysis level with recommended rules enabled -->
+    <AnalysisLevel>8.0-recommended</AnalysisLevel>
+
+    <!-- NuGet dependency auditing at build time -->
+    <NuGetAudit>true</NuGetAudit>
+    <NuGetAuditLevel>low</NuGetAuditLevel>
+    <NuGetAuditMode>all</NuGetAuditMode>
+  </PropertyGroup>
+
+  <!-- SonarAnalyzer for VB.NET projects -->
+  <ItemGroup Condition="'$(MSBuildProjectExtension)' == '.vbproj'">
+    <PackageReference Include="SonarAnalyzer.VisualBasic" Version="10.16.1.129956">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <!-- SonarAnalyzer + Roslynator + Meziantou for C# projects -->
+  <ItemGroup Condition="'$(MSBuildProjectExtension)' == '.csproj'">
+    <PackageReference Include="SonarAnalyzer.CSharp" Version="10.18.0.131500">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="Roslynator.Analyzers" Version="4.15.0">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="Meziantou.Analyzer" Version="2.0.296">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <!-- BannedApiAnalyzers for all projects (VB.NET and C#) -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.CodeAnalysis.BannedApiAnalyzers" Version="3.3.4">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>
+    </PackageReference>
+    <AdditionalFiles Include="$(MSBuildThisFileDirectory)BannedSymbols.txt" Condition="Exists('$(MSBuildThisFileDirectory)BannedSymbols.txt')" />
+  </ItemGroup>
+
+</Project>

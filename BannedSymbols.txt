@@ -1,0 +1,28 @@
+# Banned API Symbols for JJFlexRadio
+# Format: {Documentation ID}{;Reason}
+# See: https://github.com/dotnet/roslyn-analyzers/blob/main/src/Microsoft.CodeAnalysis.BannedApiAnalyzers/BannedApiAnalyzers.Help.md
+
+# === Security: Dangerous serialization ===
+T:System.Runtime.Serialization.Formatters.Binary.BinaryFormatter;Use System.Text.Json or Newtonsoft.Json instead (CVE risk)
+
+# === Security: Weak cryptography ===
+T:System.Security.Cryptography.MD5;Use SHA256 or stronger hashing
+T:System.Security.Cryptography.SHA1;Use SHA256 or stronger hashing
+T:System.Security.Cryptography.DES;Use AES instead
+T:System.Security.Cryptography.TripleDES;Use AES instead
+T:System.Security.Cryptography.RC2;Use AES instead
+
+# === Migration: DotNetZip (Zip Slip CVE) ===
+# Uncomment when ready to enforce migration to System.IO.Compression:
+# T:Ionic.Zip.ZipFile;Migrate to System.IO.Compression.ZipArchive (Zip Slip CVE)
+# T:Ionic.Zip.ZipEntry;Migrate to System.IO.Compression.ZipArchive
+# T:Ionic.Zip.ZipInputStream;Migrate to System.IO.Compression.ZipArchive
+# T:Ionic.Zip.ZipOutputStream;Migrate to System.IO.Compression.ZipArchive
+
+# === Modernization: Deprecated networking ===
+T:System.Net.WebClient;Use HttpClient instead
+T:System.Net.WebRequest;Use HttpClient instead
+T:System.Net.HttpWebRequest;Use HttpClient instead
+
+# === Modernization: Legacy IE browser control ===
+T:System.Windows.Forms.WebBrowser;Use WebView2 (Microsoft.Web.WebView2) instead
