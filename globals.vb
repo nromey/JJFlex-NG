@@ -24,6 +24,39 @@ Imports Radios
 
 Module globals
     Public Const CopyRight As String = "Copyright 2013 by J.J. Shaffer"
+
+    ''' <summary>
+    ''' UI mode: Classic preserves legacy menus, Modern provides reorganized slice-centric menus.
+    ''' Logging mode is reserved for a future sprint.
+    ''' Persisted as an integer in operator XML so adding values never breaks existing files.
+    ''' </summary>
+    Public Enum UIMode
+        Classic = 0
+        Modern = 1
+        Logging = 2   ' Reserved — falls back to Classic until the Logging sprint ships.
+    End Enum
+
+    ''' <summary>
+    ''' The active UI mode for the current operator.
+    ''' Reads from the current operator's persisted setting; falls back to Classic for unknown values.
+    ''' </summary>
+    Friend Property ActiveUIMode As UIMode
+        Get
+            If CurrentOp Is Nothing Then Return UIMode.Classic
+            Return CurrentOp.CurrentUIMode
+        End Get
+        Set(value As UIMode)
+            If CurrentOp Is Nothing Then Return
+            CurrentOp.UIModeSetting = CInt(value)
+            Operators.UpdateCurrentOp()
+        End Set
+    End Property
+
+    ''' <summary>
+    ''' Remembers Classic or Modern so toggling out of Logging returns to the right mode.
+    ''' Not persisted — resets to the operator's saved mode on startup.
+    ''' </summary>
+    Friend LastNonLogMode As UIMode = UIMode.Classic
     Friend Const ErrorHdr As String = "Error"
     Friend Const MessageHdr As String = "Message"
     Friend Const ExceptionHdr As String = "Exception"

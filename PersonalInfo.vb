@@ -29,6 +29,9 @@ Public Class PersonalInfo
             theOp = New PersonalData.personal_v1
             theOp.DefaultFlag = _
                 ((Operators Is Nothing) OrElse (Operators.Length = 0))
+            ' New operators default to Modern mode.
+            theOp.UIModeSetting = CInt(UIMode.Modern)
+            theOp.UIModeDismissed = True  ' No upgrade prompt needed for new operators.
             OKButton.Text = "Add"
             updateFlag = False
         Else

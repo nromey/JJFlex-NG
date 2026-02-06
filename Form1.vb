@@ -204,6 +204,9 @@ Public Class Form1
         ' Create main objects.
         GetConfigInfo()
 
+        ' One-time upgrade prompt: offer Modern mode to existing operators who predate the feature.
+        CheckUIModUpgradePrompt()
+
         ' set the station name.
         StationName = getStationName()
         Tracing.TraceLine("StationName:" & StationName, TraceLevel.Info)
@@ -252,6 +255,28 @@ Public Class Form1
         AttachMenuAccessibilityHandlers(ScreenFieldsMenu)
         AttachMenuAccessibilityHandlers(OperationsMenuItem)
         AttachMenuAccessibilityHandlers(HelpToolStripMenuItem)
+
+        ' --- UI Mode setup ---
+        ' Add "Switch to Modern UI" to the Classic Actions menu (before Exit).
+        Dim switchToModernItem = New ToolStripMenuItem() With {
+            .Text = "Switch to Modern UI",
+            .AccessibleName = "Switch to Modern UI",
+            .AccessibleRole = AccessibleRole.MenuItem
+        }
+        AddHandler switchToModernItem.Click, Sub(s As Object, ev As EventArgs) ToggleUIMode()
+        Dim exitIndex = ActionsToolStripMenuItem.DropDownItems.IndexOf(FileExitToolStripMenuItem)
+        If exitIndex >= 0 Then
+            ActionsToolStripMenuItem.DropDownItems.Insert(exitIndex, switchToModernItem)
+            ActionsToolStripMenuItem.DropDownItems.Insert(exitIndex + 1, New ToolStripSeparator())
+        Else
+            ActionsToolStripMenuItem.DropDownItems.Add(New ToolStripSeparator())
+            ActionsToolStripMenuItem.DropDownItems.Add(switchToModernItem)
+        End If
+        AttachMenuAccessibilityHandlers(switchToModernItem)
+
+        ' Build the Modern menu structure and apply the current operator's mode.
+        BuildModernMenus()
+        ApplyUIMode()
     End Sub
 
     ''' <summary>
@@ -1474,6 +1499,9 @@ RadioConnected:
         If RigControl IsNot Nothing Then
             RigControl.OperatorChangeHandler()
         End If
+
+        ' Apply the new operator's UI mode preference.
+        ApplyUIMode()
     End Sub
 
     Private selectorThread As Thread
@@ -2630,5 +2658,351 @@ RadioConnected:
     Private Sub ExportOperatorMenuItem_Click(sender As Object, e As EventArgs) Handles ExportSetupMenuItem.Click
         ExportSetup.ExportSetup()
     End Sub
+
+#Region "UI Mode (Classic / Modern)"
+
+    ' -----------------------------------------------------------------------
+    '  Modern menu references — created programmatically in BuildModernMenus.
+    '  Classic menus (ActionsToolStripMenuItem, ScreenFieldsMenu,
+    '  OperationsMenuItem, HelpToolStripMenuItem) are Designer-defined.
+    ' -----------------------------------------------------------------------
+    Private ModernRadioMenu As ToolStripMenuItem
+    Private ModernSliceMenu As ToolStripMenuItem
+    Private ModernFilterMenu As ToolStripMenuItem
+    Private ModernAudioMenu As ToolStripMenuItem
+    Private ModernToolsMenu As ToolStripMenuItem
+    ' Help menu is shared between both modes (HelpToolStripMenuItem).
+
+    ''' <summary>
+    ''' Show the one-time "Try Modern UI?" prompt for existing operators
+    ''' who predate the UIMode feature.
+    ''' </summary>
+    Private Sub CheckUIModUpgradePrompt()
+        If CurrentOp Is Nothing Then Return
+        If CurrentOp.UIModeDismissed Then Return
+
+        ' Mark it dismissed immediately so it never shows again regardless of answer.
+        CurrentOp.UIModeDismissed = True
+
+        Dim msg As String = "JJFlex now has a Modern UI mode with reorganized menus." & vbCrLf &
+                            "Want to try it? You can switch back anytime with Ctrl+Shift+M."
+        Dim result = MessageBox.Show(msg, "Try Modern Mode?", MessageBoxButtons.YesNo, MessageBoxIcon.Information)
+        If result = DialogResult.Yes Then
+            CurrentOp.UIModeSetting = CInt(UIMode.Modern)
+        Else
+            CurrentOp.UIModeSetting = CInt(UIMode.Classic)
+        End If
+
+        Operators.UpdateCurrentOp()
+    End Sub
+
+    ''' <summary>
+    ''' Build the Modern menu structure programmatically and add to MenuStrip1.
+    ''' Called once during Form1_Load. Menus start hidden; ApplyUIMode controls visibility.
+    ''' </summary>
+    Private Sub BuildModernMenus()
+        ' --- Radio menu ---
+        ModernRadioMenu = New ToolStripMenuItem() With {
+            .Name = "ModernRadioMenu",
+            .Text = "Radio",
+            .AccessibleRole = AccessibleRole.MenuPopup,
+            .Visible = False
+        }
+        ' Items that delegate to existing handlers
+        AddModernMenuItem(ModernRadioMenu, "Connect to Radio", AddressOf SelectRigMenuItem_Click)
+        AddModernMenuItem(ModernRadioMenu, "Manage SmartLink Accounts",
+            Sub(s As Object, ev As EventArgs)
+                Radios.SmartLinkAccountManager.ShowAccountManager(Me, BaseConfigDir, CurrentOp.callSign)
+            End Sub)
+        AddModernMenuItem(ModernRadioMenu, "Operators", AddressOf ListOperatorsMenuItem_Click)
+        AddModernMenuItem(ModernRadioMenu, "Profiles", AddressOf ProfilesMenuItem_Click)
+        AddModernMenuItem(ModernRadioMenu, "Connected Stations", AddressOf StationNamesMenuItem_Click)
+        ModernRadioMenu.DropDownItems.Add(New ToolStripSeparator())
+        AddModernMenuItem(ModernRadioMenu, "Disconnect",
+            Sub(s As Object, ev As EventArgs)
+                If RigControl IsNot Nothing Then
+                    Dim radioName = RigControl.RadioNickname
+                    If Not String.IsNullOrEmpty(radioName) Then
+                        Radios.ScreenReaderOutput.Speak("Disconnecting from " & radioName, True)
+                    Else
+                        Radios.ScreenReaderOutput.Speak("Disconnecting from radio", True)
+                    End If
+                    RigControl.Disconnect()
+                End If
+            End Sub)
+        AddModernMenuItem(ModernRadioMenu, "Exit", AddressOf FileExitToolStripMenuItem_Click)
+
+        ' --- Slice menu ---
+        ModernSliceMenu = New ToolStripMenuItem() With {
+            .Name = "ModernSliceMenu",
+            .Text = "Slice",
+            .AccessibleRole = AccessibleRole.MenuPopup,
+            .Visible = False
+        }
+        ' Selection submenu
+        Dim sliceSelection = AddModernSubmenu(ModernSliceMenu, "Selection")
+        AddModernStubItem(sliceSelection, "Select Slice")
+        AddModernStubItem(sliceSelection, "Next Slice")
+        AddModernStubItem(sliceSelection, "Previous Slice")
+        AddModernStubItem(sliceSelection, "Set TX Slice")
+        AddModernStubItem(sliceSelection, "Set Active Slice")
+        ' Mode submenu
+        Dim sliceMode = AddModernSubmenu(ModernSliceMenu, "Mode")
+        AddModernStubItem(sliceMode, "CW")
+        AddModernStubItem(sliceMode, "USB")
+        AddModernStubItem(sliceMode, "LSB")
+        AddModernStubItem(sliceMode, "AM")
+        AddModernStubItem(sliceMode, "FM")
+        AddModernStubItem(sliceMode, "DIGU")
+        AddModernStubItem(sliceMode, "DIGL")
+        ' Audio submenu
+        Dim sliceAudio = AddModernSubmenu(ModernSliceMenu, "Audio")
+        AddModernStubItem(sliceAudio, "Mute/Unmute")
+        AddModernStubItem(sliceAudio, "Volume Up")
+        AddModernStubItem(sliceAudio, "Volume Down")
+        AddModernStubItem(sliceAudio, "Pan Left")
+        AddModernStubItem(sliceAudio, "Pan Center")
+        AddModernStubItem(sliceAudio, "Pan Right")
+        ' Tuning submenu
+        Dim sliceTuning = AddModernSubmenu(ModernSliceMenu, "Tuning")
+        AddModernStubItem(sliceTuning, "RIT On/Off")
+        AddModernStubItem(sliceTuning, "RIT Value")
+        AddModernStubItem(sliceTuning, "XIT On/Off")
+        AddModernStubItem(sliceTuning, "XIT Value")
+        AddModernStubItem(sliceTuning, "Step Size")
+        ' Receiver submenu
+        Dim sliceReceiver = AddModernSubmenu(ModernSliceMenu, "Receiver")
+        AddModernStubItem(sliceReceiver, "AGC Mode")
+        AddModernStubItem(sliceReceiver, "AGC Threshold")
+        AddModernStubItem(sliceReceiver, "Squelch On/Off")
+        AddModernStubItem(sliceReceiver, "Squelch Level")
+        AddModernStubItem(sliceReceiver, "RF Gain")
+        ' DSP submenu
+        Dim sliceDSP = AddModernSubmenu(ModernSliceMenu, "DSP")
+        Dim dspNR = AddModernSubmenu(sliceDSP, "Noise Reduction")
+        AddModernStubItem(dspNR, "Neural NR (RNN)")
+        AddModernStubItem(dspNR, "Spectral NR (NRS)")
+        AddModernStubItem(dspNR, "Legacy NR")
+        Dim dspANF = AddModernSubmenu(sliceDSP, "Auto Notch")
+        AddModernStubItem(dspANF, "FFT Auto-Notch")
+        AddModernStubItem(dspANF, "Legacy Auto-Notch")
+        AddModernStubItem(sliceDSP, "Noise Blanker (NB)")
+        AddModernStubItem(sliceDSP, "Wideband NB (WNB)")
+        AddModernStubItem(sliceDSP, "Audio Peak Filter (APF)")
+        ' Antenna submenu
+        Dim sliceAntenna = AddModernSubmenu(ModernSliceMenu, "Antenna")
+        AddModernStubItem(sliceAntenna, "RX Antenna")
+        AddModernStubItem(sliceAntenna, "TX Antenna")
+        AddModernStubItem(sliceAntenna, "Diversity On/Off")
+        ' FM submenu
+        Dim sliceFM = AddModernSubmenu(ModernSliceMenu, "FM")
+        AddModernStubItem(sliceFM, "Repeater Offset")
+        AddModernStubItem(sliceFM, "Pre-De-Emphasis")
+        AddModernStubItem(sliceFM, "Tone")
+
+        ' --- Filter menu ---
+        ModernFilterMenu = New ToolStripMenuItem() With {
+            .Name = "ModernFilterMenu",
+            .Text = "Filter",
+            .AccessibleRole = AccessibleRole.MenuPopup,
+            .Visible = False
+        }
+        AddModernStubItem(ModernFilterMenu, "Narrow")
+        AddModernStubItem(ModernFilterMenu, "Widen")
+        AddModernStubItem(ModernFilterMenu, "Shift Low Edge")
+        AddModernStubItem(ModernFilterMenu, "Shift High Edge")
+        AddModernStubItem(ModernFilterMenu, "Presets")
+        AddModernStubItem(ModernFilterMenu, "Reset Filter")
+
+        ' --- Audio menu ---
+        ModernAudioMenu = New ToolStripMenuItem() With {
+            .Name = "ModernAudioMenu",
+            .Text = "Audio",
+            .AccessibleRole = AccessibleRole.MenuPopup,
+            .Visible = False
+        }
+        AddModernStubItem(ModernAudioMenu, "PC Audio Boost")
+        AddModernStubItem(ModernAudioMenu, "Local Audio")
+        AddModernStubItem(ModernAudioMenu, "Audio Test")
+        AddModernStubItem(ModernAudioMenu, "Record/Playback")
+        AddModernStubItem(ModernAudioMenu, "Route/DAX")
+
+        ' --- Tools menu ---
+        ModernToolsMenu = New ToolStripMenuItem() With {
+            .Name = "ModernToolsMenu",
+            .Text = "Tools",
+            .AccessibleRole = AccessibleRole.MenuPopup,
+            .Visible = False
+        }
+        AddModernStubItem(ModernToolsMenu, "Command Finder")
+        AddModernStubItem(ModernToolsMenu, "Speak Status")
+        AddModernStubItem(ModernToolsMenu, "Status Dialog")
+        ModernToolsMenu.DropDownItems.Add(New ToolStripSeparator())
+        AddModernMenuItem(ModernToolsMenu, "Switch to Classic UI",
+            Sub(s As Object, ev As EventArgs) ToggleUIMode())
+        ModernToolsMenu.DropDownItems.Add(New ToolStripSeparator())
+        AddModernStubItem(ModernToolsMenu, "Hotkey Editor")
+        AddModernMenuItem(ModernToolsMenu, "Band Plans", AddressOf ShowBandsMenuItem_Click)
+        AddModernMenuItem(ModernToolsMenu, "Feature Availability", AddressOf FeatureAvailabilityMenuItem_Click)
+
+        ' --- Add Modern menus to the menu strip ---
+        ' Insert before HelpToolStripMenuItem so Help stays rightmost.
+        Dim helpIndex As Integer = MenuStrip1.Items.IndexOf(HelpToolStripMenuItem)
+        If helpIndex < 0 Then helpIndex = MenuStrip1.Items.Count
+        MenuStrip1.Items.Insert(helpIndex, ModernRadioMenu)
+        MenuStrip1.Items.Insert(helpIndex + 1, ModernSliceMenu)
+        MenuStrip1.Items.Insert(helpIndex + 2, ModernFilterMenu)
+        MenuStrip1.Items.Insert(helpIndex + 3, ModernAudioMenu)
+        MenuStrip1.Items.Insert(helpIndex + 4, ModernToolsMenu)
+
+        ' Attach accessibility handlers to all Modern menus.
+        AttachMenuAccessibilityHandlers(ModernRadioMenu)
+        AttachMenuAccessibilityHandlers(ModernSliceMenu)
+        AttachMenuAccessibilityHandlers(ModernFilterMenu)
+        AttachMenuAccessibilityHandlers(ModernAudioMenu)
+        AttachMenuAccessibilityHandlers(ModernToolsMenu)
+    End Sub
+
+    ''' <summary>
+    ''' Add a menu item that delegates to an existing handler.
+    ''' </summary>
+    Private Function AddModernMenuItem(parent As ToolStripMenuItem, text As String, handler As EventHandler) As ToolStripMenuItem
+        Dim item = New ToolStripMenuItem() With {
+            .Text = text,
+            .AccessibleName = text.Replace("&", ""),
+            .AccessibleRole = AccessibleRole.MenuItem
+        }
+        AddHandler item.Click, handler
+        parent.DropDownItems.Add(item)
+        Return item
+    End Function
+
+    ''' <summary>
+    ''' Add a submenu (parent item with children) under a parent menu.
+    ''' </summary>
+    Private Function AddModernSubmenu(parent As ToolStripMenuItem, text As String) As ToolStripMenuItem
+        Dim item = New ToolStripMenuItem() With {
+            .Text = text,
+            .AccessibleName = text.Replace("&", ""),
+            .AccessibleRole = AccessibleRole.MenuItem
+        }
+        parent.DropDownItems.Add(item)
+        Return item
+    End Function
+
+    ''' <summary>
+    ''' Add a stub menu item that announces "coming soon" when clicked.
+    ''' </summary>
+    Private Function AddModernStubItem(parent As ToolStripMenuItem, text As String) As ToolStripMenuItem
+        Dim item = New ToolStripMenuItem() With {
+            .Text = text,
+            .AccessibleName = text.Replace("&", ""),
+            .AccessibleRole = AccessibleRole.MenuItem
+        }
+        AddHandler item.Click,
+            Sub(s As Object, ev As EventArgs)
+                Dim msg = text & " - coming soon"
+                Radios.ScreenReaderOutput.Speak(msg, True)
+                Tracing.TraceLine("Modern stub: " & msg, TraceLevel.Info)
+            End Sub
+        parent.DropDownItems.Add(item)
+        Return item
+    End Function
+
+    ''' <summary>
+    ''' Apply the current UI mode by showing/hiding the appropriate menus.
+    ''' Called from Form1_Load, powerNowOn, operator change, and toggle handler.
+    ''' </summary>
+    Friend Sub ApplyUIMode()
+        Dim mode = ActiveUIMode
+        Tracing.TraceLine("ApplyUIMode: " & mode.ToString(), TraceLevel.Info)
+
+        ' Initialize LastNonLogMode from the active mode on first call.
+        If mode <> UIMode.Logging Then
+            LastNonLogMode = mode
+        End If
+
+        If mode = UIMode.Modern Then
+            ShowModernUI()
+        Else
+            ShowClassicUI()
+        End If
+    End Sub
+
+    ''' <summary>
+    ''' Show Classic menus, hide Modern menus.
+    ''' </summary>
+    Private Sub ShowClassicUI()
+        ' Show Classic menus
+        ActionsToolStripMenuItem.Visible = True
+        ScreenFieldsMenu.Visible = True
+        OperationsMenuItem.Visible = True
+
+        ' Hide Modern menus
+        If ModernRadioMenu IsNot Nothing Then ModernRadioMenu.Visible = False
+        If ModernSliceMenu IsNot Nothing Then ModernSliceMenu.Visible = False
+        If ModernFilterMenu IsNot Nothing Then ModernFilterMenu.Visible = False
+        If ModernAudioMenu IsNot Nothing Then ModernAudioMenu.Visible = False
+        If ModernToolsMenu IsNot Nothing Then ModernToolsMenu.Visible = False
+
+        ' Help stays visible in both modes.
+        HelpToolStripMenuItem.Visible = True
+    End Sub
+
+    ''' <summary>
+    ''' Show Modern menus, hide Classic menus.
+    ''' </summary>
+    Private Sub ShowModernUI()
+        ' Hide Classic menus
+        ActionsToolStripMenuItem.Visible = False
+        ScreenFieldsMenu.Visible = False
+        OperationsMenuItem.Visible = False
+
+        ' Show Modern menus
+        If ModernRadioMenu IsNot Nothing Then ModernRadioMenu.Visible = True
+        If ModernSliceMenu IsNot Nothing Then ModernSliceMenu.Visible = True
+        If ModernFilterMenu IsNot Nothing Then ModernFilterMenu.Visible = True
+        If ModernAudioMenu IsNot Nothing Then ModernAudioMenu.Visible = True
+        If ModernToolsMenu IsNot Nothing Then ModernToolsMenu.Visible = True
+
+        ' Help stays visible in both modes.
+        HelpToolStripMenuItem.Visible = True
+    End Sub
+
+    ''' <summary>
+    ''' Toggle between Classic and Modern modes. Saves, applies, and speaks confirmation.
+    ''' Wired to Ctrl+Shift+M and to the menu items in both Classic and Modern menus.
+    ''' </summary>
+    Friend Sub ToggleUIMode()
+        If CurrentOp Is Nothing Then Return
+
+        Dim newMode As UIMode
+        If ActiveUIMode = UIMode.Modern Then
+            newMode = UIMode.Classic
+        Else
+            newMode = UIMode.Modern
+        End If
+
+        ActiveUIMode = newMode
+        ApplyUIMode()
+
+        Dim msg = "Switched to " & newMode.ToString() & " mode"
+        Radios.ScreenReaderOutput.Speak(msg, True)
+        Tracing.TraceLine("ToggleUIMode: " & msg, TraceLevel.Info)
+    End Sub
+
+    ''' <summary>
+    ''' Handle Ctrl+Shift+M as a global hotkey for mode toggle.
+    ''' </summary>
+    Protected Overrides Function ProcessCmdKey(ByRef msg As Message, keyData As Keys) As Boolean
+        If keyData = (Keys.Control Or Keys.Shift Or Keys.M) Then
+            ToggleUIMode()
+            Return True
+        End If
+        Return MyBase.ProcessCmdKey(msg, keyData)
+    End Function
+
+#End Region
+
 End Class
 

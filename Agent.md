@@ -8,7 +8,8 @@ This document captures the current state of JJ-Flex repository and active work.
 ## 1) Overview
 - JJFlexRadio: Windows desktop app for FlexRadio 6000/8000 series transceivers
 - **Migration complete:** .NET 8, dual x64/x86 architecture, WebView2 for Auth0
-- **Current sprint:** Sprint 1 - SmartLink Saved Accounts
+- **Current version:** 4.1.11
+- **Last completed:** Sprint 3 - Classic/Modern Mode Foundation
 
 ## 2) Technical Foundation
 - Solution: `JJFlexRadio.sln`
@@ -19,38 +20,58 @@ This document captures the current state of JJ-Flex repository and active work.
 
 ## 3) Completed Work
 
+### Sprint 3: Classic/Modern Mode Foundation
+- **UIMode enum** (Classic=0, Modern=1, Logging=2) in `globals.vb`
+- **Persistence:** `UIModeSetting` + `UIModeDismissed` in PersonalData.personal_v1, XML-serialized per operator
+- **New operators default to Modern** (PersonalInfo.vb)
+- **One-time upgrade prompt** for existing operators on first launch after upgrade
+- **Modern menu skeleton** built programmatically in `BuildModernMenus()`:
+  - Radio, Slice, Filter, Audio, Tools menus (with submenus for DSP, Antenna, FM, etc.)
+  - Items with existing handlers delegate to them; stub items announce "coming soon" via screen reader
+- **Mode toggle:** Ctrl+Shift+M global hotkey + menu items in both Classic and Modern
+- **ApplyUIMode()** called from Form1_Load, operatorChanged, toggle handler
+- **Accessibility:** All Modern menu items have AccessibleName/AccessibleRole; AttachMenuAccessibilityHandlers applied
+- **ProcessCmdKey override** for Ctrl+Shift+M (global, not routed through KeyCommands)
+
+### Code Quality: Analyzer Setup + Dead Code Cleanup
+- **Roslyn analyzers:** SonarAnalyzer (VB+C#), Roslynator, Meziantou, BannedApiAnalyzers
+- **Directory.Build.props:** Solution-wide config with vendor code exclusions
+- **.editorconfig:** Tiered severity (warning/suggestion/none), 1,130 baseline warnings
+- **BannedSymbols.txt:** Bans BinaryFormatter, MD5, SHA1, DES, WebClient, etc.
+- **Dead code cleanup:** Removed JJRadio, old Radios, rigSelector, orphaned tests, crash dumps, LibSources
+
+### Sprint 2: Auto-Connect (v4.1.11)
+- Unified auto-connect for local and remote radios
+- Friendly "radio offline" dialog with options
+- Auto-connect settings dialog with confirmation
+- Full screen reader announcements
+
+### Sprint 1: SmartLink Saved Accounts (v4.1.10)
+- PKCE authentication flow
+- DPAPI-encrypted token storage
+- Account selector dialog
+- Automatic token refresh
+
 ### .NET 8 Migration (All Phases Complete)
-- Phase 0: Removed non-Flex radio support (Icom, Kenwood, Generic)
-- Phase 0.5: Added FLEX-8400/8400M and Aurora AU-510/510M to RigTable
-- Phase 1-2: SDK-style conversion for all C# projects
-- Phase 3: All projects target `net8.0-windows`
-- Phase 4: Architecture-aware native DLL loading (`NativeLoader.vb`)
-- Phase 5: WebView2 for Auth0 (`AuthFormWebView2.cs`)
-- Phase 6: Dual x86/x64 installers with architecture suffix
-- Phase 7: Cleanup (removed conditional compilation)
+- SDK-style conversion, `net8.0-windows`, dual x64/x86
+- WebView2 for Auth0, native DLL loading, NSIS installers
 
-### Advanced DSP Features (Complete)
-UI controls and FlexBase properties implemented for:
-- Neural Noise Reduction (RNN)
-- Spectral Noise Reduction (NRS)
-- Legacy Noise Reduction (NRL)
-- Noise Reduction Filter (NRF)
-- FFT Auto-Notch (ANFT)
-- Legacy Auto-Notch (ANFL)
+### Advanced DSP Features
+- Neural NR (RNN), Spectral NR (NRS), Legacy NR, FFT Auto-Notch, Legacy Auto-Notch
 
-## 4) Current Sprint: SmartLink Saved Accounts
+## 4) Future Sprints (planned, not implemented)
 
-**Goal:** Enable users to save SmartLink credentials and reconnect without re-authenticating each session.
+| Sprint | Key Features |
+|--------|-------------|
+| Tuning & Band Nav | Fine/Medium/Coarse/Step tuning, band jump, license-aware entry |
+| Earcons | Tuning ticks, band edge beeps, speech throttle |
+| Audio | PC Audio Boost UI, Audio Test dialog, audio routing |
+| Logger | Logging Mode (3rd UI state), Jim's fast-logging, SKCC |
+| Hotkeys v2 | Layered keystroke system (Global/Classic/Modern/Logging) |
+| Command Finder | F12 search, leader key (Ctrl+J) |
+| Waterfall | Braille waterfall, panadapter sonification |
 
-**Tasks:**
-1. Create `SmartLinkAccountManager.cs` with DPAPI encryption
-2. Extract refresh token from Auth0 response
-3. Update `setupRemote()` to use saved accounts
-4. Build `SmartLinkAccountSelector` UI dialog
-5. Implement token refresh mechanism
-6. Wire up invalid token handler
-
-**Planning docs:** `docs/planning/agile/Sprint-01-SmartLink-Auth.md`
+See `docs/planning/` for detailed design docs.
 
 ## 5) Build Commands
 
@@ -67,10 +88,16 @@ dotnet build JJFlexRadio.sln -c Debug -p:Platform=x64
 
 ## 6) Key Files
 
+### UI Mode System (Sprint 3)
+- `globals.vb` — UIMode enum, ActiveUIMode property, LastNonLogMode
+- `PersonalData.vb` — UIModeSetting, UIModeDismissed, CurrentUIMode on personal_v1
+- `PersonalInfo.vb` — New operator defaults (Modern mode)
+- `Form1.vb` — BuildModernMenus, ApplyUIMode, ToggleUIMode, ProcessCmdKey, CheckUIModUpgradePrompt
+
 ### Authentication (SmartLink)
 - `Radios/AuthFormWebView2.cs` - WebView2-based Auth0 login
-- `Radios/FlexBase.cs` - `setupRemote()` method (lines 456-537)
-- `FlexLib_API/FlexLib/WanServer.cs` - SmartLink protocol
+- `Radios/FlexBase.cs` - `setupRemote()` method
+- `Radios/SmartLinkAccountManager.cs` - DPAPI-encrypted account storage
 
 ### DSP/Filters
 - `Radios/Flex6300Filters.cs` - DSP controls UI
@@ -78,18 +105,11 @@ dotnet build JJFlexRadio.sln -c Debug -p:Platform=x64
 
 ### Security
 - `FlexLib_API/FlexLib/SslClientTls12.cs` - TLS 1.2+ wrapper
-- `FlexLib_API/Util/StringCipher.cs` - Rijndael encryption (available)
 
 ## 7) GitHub Actions
 
 - **CI:** `.github/workflows/windows-build.yml` - Build on push/PR
 - **Release:** `.github/workflows/release.yml` - Tag-triggered release
-
-Create releases:
-```batch
-git tag -a v4.1.X -m "Release 4.1.X - description"
-git push origin main --tags
-```
 
 ## 8) Documentation
 
@@ -97,10 +117,9 @@ git push origin main --tags
 |------|-------------|
 | `CLAUDE.md` | Build commands, project structure, coding patterns |
 | `docs/TODO.md` | Feature backlog |
-| `docs/remote-migration.md` | SmartLink modernization status |
 | `docs/CHANGELOG.md` | Version history |
-| `docs/planning/agile/` | Sprint planning documents |
+| `docs/planning/` | Product vision, design proposals, sprint plans |
 
 ---
 
-*Updated: Sprint 1 kickoff - SmartLink Saved Accounts*
+*Updated: Sprint 3 complete - Classic/Modern Mode Foundation*

@@ -144,6 +144,36 @@ Public Class PersonalData
         ''' </summary>
         Public KeepDailyTraceLogs As Boolean = False
 
+        ''' <summary>
+        ''' Persisted UI mode (0=Classic, 1=Modern, 2=Logging).
+        ''' Stored as Integer for forward-compatible XML serialization.
+        ''' Missing field in old XML files defaults to 0 (Classic).
+        ''' </summary>
+        Public UIModeSetting As Integer = 0
+
+        ''' <summary>
+        ''' True after the one-time "Try Modern UI?" upgrade prompt has been shown.
+        ''' Prevents the prompt from appearing on every launch.
+        ''' </summary>
+        Public UIModeDismissed As Boolean = False
+
+        ''' <summary>
+        ''' Validated UI mode. Returns Classic for unknown or not-yet-implemented values.
+        ''' </summary>
+        <XmlIgnore()> Public Property CurrentUIMode As UIMode
+            Get
+                If UIModeSetting = CInt(UIMode.Modern) Then
+                    Return UIMode.Modern
+                End If
+                ' Logging mode falls back to Classic until the Logging sprint ships.
+                ' Unknown values also fall back to Classic.
+                Return UIMode.Classic
+            End Get
+            Set(value As UIMode)
+                UIModeSetting = CInt(value)
+            End Set
+        End Property
+
         Public Sub New()
             NumberOfLogs = NumberOfLogsDefault
             LogfileStack = New Stack(Of String)(NumberOfLogs)
@@ -164,6 +194,8 @@ Public Class PersonalData
             LogFiles = LogfileStack.ToArray
             BrailleDisplaySize = p.BrailleDisplaySize
             KeepDailyTraceLogs = p.KeepDailyTraceLogs
+            UIModeSetting = p.UIModeSetting
+            UIModeDismissed = p.UIModeDismissed
         End Sub
         Friend Sub New(p As personal)
             fileName = p.fileName
