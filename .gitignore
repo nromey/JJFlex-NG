@@ -413,3 +413,15 @@ crash/
 install_log.txt
 nuget.exe
 nul
+
+# Native library build trees (Opus, PortAudio from-source builds)
+build-native/
+
+# Stray build audit/debug files from AI sessions
+*build-audit*.txt
+*build-warnings*.txt
+
+# Local utility scripts (not part of the app)
+Prepare4Test.bat
+RestoreAfterTest.bat
+read-trace*.ps1
