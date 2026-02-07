@@ -8,8 +8,8 @@ This document captures the current state of JJ-Flex repository and active work.
 ## 1) Overview
 - JJFlexRadio: Windows desktop app for FlexRadio 6000/8000 series transceivers
 - **Migration complete:** .NET 8, dual x64/x86 architecture, WebView2 for Auth0
-- **Current version:** 4.1.11
-- **Active sprint:** Sprint 4 - Logging Mode (Phase 1 & 2 complete, Phase 3 next)
+- **Current version:** 4.1.12
+- **Last sprint:** Sprint 4 - Logging Mode (All 4 phases complete)
 
 ## 2) Technical Foundation
 - Solution: `JJFlexRadio.sln`
@@ -20,7 +20,7 @@ This document captures the current state of JJ-Flex repository and active work.
 
 ## 3) Completed Work
 
-### Sprint 4: Logging Mode (In Progress)
+### Sprint 4: Logging Mode (Complete — v4.1.12)
 - **Phase 1: Menu & Mode Switching** (commit `142dff9b`)
   - Ctrl+Shift+L toggles Logging Mode on/off from any base mode
   - Logging Mode menu bar: Log, Navigate, Mode, Help
@@ -41,10 +41,21 @@ This document captures the current state of JJ-Flex repository and active work.
   - Auto-fill from radio: freq, mode, band, UTC date/time
   - Tab order: Call(0) → RST Sent(1) → RST Rcvd(2) → Name(3) → QTH(4) → State(5) → Grid(6) → Comments(7)
 
-- **Phase 3: Recent QSOs Grid** — Next up
+- **Phase 3: Recent QSOs Grid + Previous Contact Lookup** (commit `0dfd82e0`)
   - DataGridView with UIA support (JAWS/NVDA arrow-key navigation)
-  - Columns: Time UTC, Call, Mode, Freq, RST Sent, RST Rcvd, Name
-  - Populated from log session, auto-updates on write
+  - 7 columns: Time UTC, Call, Mode, Freq, RST Sent, RST Rcvd, Name
+  - Forward-scan loads last 20 QSOs into grid, builds call sign index as side-effect
+  - `PreviousContactInfo` class: Count, LastDate, LastBand, LastMode, LastName, LastQTH
+  - CallSign tab-out triggers previous contact lookup — announces count, last date/band/mode via screen reader
+  - Auto-fills Name and QTH from previous contacts (zero extra file I/O)
+  - `PreviousContactBox` — tabbable read-only TextBox (TabIndex=8) for re-reading info
+  - Grid auto-updates when new QSO is logged
+
+- **Phase 4: Cleanup & Polish** (commit `0dfd82e0`)
+  - SKCC WES form removed from log type registry (files kept for reference)
+  - Mode switcher audit: all 7 methods verified correct
+  - Screen reader audit: all AccessibleName/AccessibleRole properties verified
+  - Version bump to 4.1.12
 
 - **Design doc:** `docs/planning/context-aware-hotkeys.md`
   - KeyScope enum: Global, Radio (Classic+Modern), Logging
@@ -98,7 +109,7 @@ This document captures the current state of JJ-Flex repository and active work.
 | Tuning & Band Nav | Fine/Medium/Coarse/Step tuning, band jump, license-aware entry |
 | Earcons | Tuning ticks, band edge beeps, speech throttle |
 | Audio | PC Audio Boost UI, Audio Test dialog, audio routing |
-| Logger | ~~Logging Mode~~ Sprint 4 in progress — Phase 3 & 4 remaining |
+| QRZ XML Lookup | Auto-fill from QRZ API, secure credential storage, session management |
 | Hotkeys v2 | Layered keystroke system — design doc at `docs/planning/context-aware-hotkeys.md` |
 | Command Finder | F12 search, leader key (Ctrl+J) |
 | Waterfall | Braille waterfall, panadapter sonification |
@@ -160,4 +171,4 @@ build-installers.bat
 
 ---
 
-*Updated: Feb 6, 2026 — Sprint 4 Phases 1 & 2 committed. Phase 3 (Recent QSOs Grid with DataGridView + UIA) next.*
+*Updated: Feb 7, 2026 — Sprint 4 complete (v4.1.12). All 4 phases committed. Next: QRZ XML Lookup sprint or Audio Controls.*

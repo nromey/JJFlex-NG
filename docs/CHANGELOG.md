@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## 4.1.12.0 - Logging Mode
+
+This is the one I've been building toward. JJFlexRadio now has a dedicated Logging Mode — press Ctrl+Shift+L from anywhere in the app and you're in a clean, focused QSO entry screen. No menus full of radio controls you don't need mid-QSO, no hunting for the right form. Just you, your log, and the radio.
+
+- **Quick-entry panel**: Call, RST Sent/Rcvd, Name, QTH, State, Grid, Comments — all in a tight Tab-order layout. Freq, mode, band, and UTC time auto-fill from the radio when you start a QSO. Press Enter to log, and the fields reset for the next one. It's the workflow I always wanted.
+- **Radio pane**: A slim status strip on the left showing frequency, mode, band, and tune step. Tab to any field and your screen reader reads it. Arrow keys tune the radio (Up/Down by step, Shift for coarse, Left/Right to change step size). Ctrl+F pops the manual frequency dialog. You don't have to leave Logging Mode just to nudge the VFO.
+- **Recent QSOs grid**: The bottom half of the screen shows your last 20 QSOs in a DataGridView — Time, Call, Mode, Freq, RST Sent, RST Rcvd, Name. JAWS and NVDA navigate it natively with arrow keys (row/column announcements, the whole deal). It auto-updates when you log a new contact.
+- **Previous contact lookup**: Tab out of the Call field and JJFlexRadio instantly checks your entire log. If you've worked them before, you'll hear something like "W1AW — 3 previous contacts, last on 2026-01-15, 20m CW" from your screen reader. Name and QTH auto-fill from the previous contact too. You can Tab to the info field to re-read it if you missed the announcement.
+- **Dup checking**: Still there from Phase 2 — if you've already worked a station on the same band and mode, you get a beep and a screen reader warning before you accidentally log a dupe.
+- **F6 pane switching**: Standard Windows F6/Shift+F6 toggles focus between the Radio pane and the Log entry pane. Feels natural.
+- **Mode round-trip**: Ctrl+Shift+L drops you into Logging Mode, and pressing it again takes you right back to Classic or Modern — whichever you were using. Your field values survive the round-trip too.
+- **SKCC WES form retired**: The old contest-specific SKCC WES log form is removed from the log type registry. Logging Mode replaces it with a general-purpose approach.
+- **Screen reader audit**: Every control has proper AccessibleName/AccessibleRole. Mode transitions, tune step changes, previous contact lookups — all announced. Nothing happens silently.
+- **Version bump**: 4.1.12.
+
+If you've been opening JJFlexRadio just to log a few CW QSOs and wished the UI would get out of the way, this is that update.
+
 ## 4.1.11.0 - Seamless Auto-Connect & Audio Fix
 
 This one's about making JJFlexRadio feel like it knows you. Set up auto-connect once, and the app just connects to your radio when it starts - no clicking through selection screens, no hunting for your saved account. And we finally fixed the "why is this so quiet?" WAN audio problem.
@@ -104,7 +121,9 @@ I did a cleanup pass here but never shipped it. Think of this as a scratchpad re
 - Infra: Project file updates and initial docs for missing features
 
 ## Upcoming
-- **Sprint 3: Audio Controls** - Audio Boost menu and hotkey for adjusting PC Audio gain, Local Flex Audio volume control, and possibly audio device hot-swap. See `docs/TODO.md` for the full feature backlog.
+- **Audio Controls** - Audio Boost menu and hotkey for adjusting PC Audio gain, Local Flex Audio volume control, and possibly audio device hot-swap. See `docs/TODO.md` for the full feature backlog.
+- **QRZ XML Lookup** - Auto-fill Name, QTH, State, Grid from QRZ on callsign tab-out. Secure credential storage via DPAPI.
 - Diversity status announcements for screen reader users
 - Meter announcements (ALC, SWR, signal strength) on demand
+- Configurable "Recent QSOs" grid size (currently 20, will be a setting)
 

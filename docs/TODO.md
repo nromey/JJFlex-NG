@@ -27,12 +27,12 @@ This document tracks feature ideas, improvements, and technical debt for future 
 
 ## Medium Priority
 
-### Logging Mode (Sprint 4 - Phases 1 & 2 Complete)
-- [x] **Phase 1: Menu & Mode Switching** - Ctrl+Shift+L toggle, Logging Mode menu bar, log items moved from Classic/Modern
-- [x] **Phase 2: Quick-Entry LogPanel + RadioPane** - SplitContainer layout, F6 pane switching, arrow-key tuning, dup checking, state preservation
-- [ ] **Phase 3: Recent QSOs Grid** - DataGridView with UIA/screen reader support, auto-updates on write
-- [ ] **Phase 4: Cleanup & Polish** - Remove SKCC WES form, screen reader audit, version bump to 4.1.12
-- See `docs/planning/agile/Sprint-04-Logging-Mode.md`
+### Logging Mode Enhancements (Post-Sprint 4)
+- [ ] **Configurable Recent QSOs grid size** - Add a setting for "number of QSOs to display in the Recent QSO list"
+  - Currently hardcoded as `MaxRecentQSOs = 20` in LogPanel.vb
+  - Store in operator config (PersonalData)
+  - Settings UI: text field or dropdown with common values (10, 20, 50, 100)
+  - Apply on Logging Mode entry / settings change
 
 ### QRZ XML Lookup (Future Sprint)
 - [ ] **QRZ callsign auto-fill** - On CallSign tab-out, query QRZ XML API for station data
@@ -97,6 +97,13 @@ This document tracks feature ideas, improvements, and technical debt for future 
 - [ ] **System.Drawing.Common conflicts** - Version mismatch warnings in build
 
 ## Completed
+
+- [x] **Sprint 4: Logging Mode** - v4.1.12 (2026-02-07)
+  - Phase 1: Menu & Mode Switching (Ctrl+Shift+L toggle, Logging Mode menu bar)
+  - Phase 2: Quick-Entry LogPanel + RadioPane (SplitContainer, F6 pane switching, arrow-key tuning, dup checking)
+  - Phase 3: Recent QSOs Grid + Previous Contact Lookup (DataGridView with UIA, call sign index, auto-fill Name/QTH)
+  - Phase 4: Cleanup & Polish (SKCC WES removal, screen reader audit, version bump)
+  - See `docs/planning/agile/Sprint-04-Logging-Mode.md`
 
 - [x] **Sprint 3: Classic/Modern UI Mode** - v4.1.11 (2026-02-06)
   - UIMode enum (Classic/Modern/Logging), persisted per operator
