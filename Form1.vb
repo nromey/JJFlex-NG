@@ -286,6 +286,7 @@ Public Class Form1
         ' Build menu structures and apply the current operator's mode.
         BuildModernMenus()
         BuildLoggingMenus()
+        BuildLoggingPanels()
         ApplyUIMode()
     End Sub
 
@@ -2692,6 +2693,12 @@ RadioConnected:
     Private LoggingModeMenu As ToolStripMenuItem
     ' Help menu is shared across all modes (HelpToolStripMenuItem).
 
+    ' Logging Mode panels — created in BuildLoggingPanels, shown/hidden by ShowXxxUI.
+    Private LoggingSplitContainer As SplitContainer
+    Private LoggingRadioPane As RadioPane
+    Private LoggingLogPanel As LogPanel
+    Private LoggingPanelSession As LogSession  ' Separate session for the embedded panel
+
     ''' <summary>
     ''' Show the one-time "Try Modern UI?" prompt for existing operators
     ''' who predate the UIMode feature.
@@ -2954,6 +2961,7 @@ RadioConnected:
 
     ''' <summary>
     ''' Show Classic menus, hide Modern and Logging menus.
+    ''' Show standard radio controls, hide Logging panels.
     ''' </summary>
     Private Sub ShowClassicUI()
         ' Show Classic menus
@@ -2968,16 +2976,21 @@ RadioConnected:
         If ModernAudioMenu IsNot Nothing Then ModernAudioMenu.Visible = False
         If ModernToolsMenu IsNot Nothing Then ModernToolsMenu.Visible = False
 
-        ' Hide Logging menus
+        ' Hide Logging menus and panels
         If LoggingLogMenu IsNot Nothing Then LoggingLogMenu.Visible = False
         If LoggingNavigateMenu IsNot Nothing Then LoggingNavigateMenu.Visible = False
         If LoggingModeMenu IsNot Nothing Then LoggingModeMenu.Visible = False
+        If LoggingSplitContainer IsNot Nothing Then LoggingSplitContainer.Visible = False
+
+        ' Show standard radio controls
+        ShowRadioControls(True)
 
         HelpToolStripMenuItem.Visible = True
     End Sub
 
     ''' <summary>
     ''' Show Modern menus, hide Classic and Logging menus.
+    ''' Show standard radio controls, hide Logging panels.
     ''' </summary>
     Private Sub ShowModernUI()
         ' Hide Classic menus
@@ -2992,16 +3005,21 @@ RadioConnected:
         If ModernAudioMenu IsNot Nothing Then ModernAudioMenu.Visible = True
         If ModernToolsMenu IsNot Nothing Then ModernToolsMenu.Visible = True
 
-        ' Hide Logging menus
+        ' Hide Logging menus and panels
         If LoggingLogMenu IsNot Nothing Then LoggingLogMenu.Visible = False
         If LoggingNavigateMenu IsNot Nothing Then LoggingNavigateMenu.Visible = False
         If LoggingModeMenu IsNot Nothing Then LoggingModeMenu.Visible = False
+        If LoggingSplitContainer IsNot Nothing Then LoggingSplitContainer.Visible = False
+
+        ' Show standard radio controls
+        ShowRadioControls(True)
 
         HelpToolStripMenuItem.Visible = True
     End Sub
 
     ''' <summary>
-    ''' Show Logging menus, hide Classic and Modern menus.
+    ''' Show Logging menus and panels, hide Classic and Modern menus.
+    ''' Hide standard radio controls — the RadioPane provides a minimal display.
     ''' </summary>
     Private Sub ShowLoggingUI()
         ' Hide Classic menus
@@ -3020,6 +3038,14 @@ RadioConnected:
         If LoggingLogMenu IsNot Nothing Then LoggingLogMenu.Visible = True
         If LoggingNavigateMenu IsNot Nothing Then LoggingNavigateMenu.Visible = True
         If LoggingModeMenu IsNot Nothing Then LoggingModeMenu.Visible = True
+
+        ' Hide standard radio controls, show Logging panels
+        ShowRadioControls(False)
+        If LoggingSplitContainer IsNot Nothing Then LoggingSplitContainer.Visible = True
+        If LoggingRadioPane IsNot Nothing Then LoggingRadioPane.UpdateFromRadio()
+
+        ' Initialize the LogPanel session if needed.
+        InitializeLoggingSession()
 
         HelpToolStripMenuItem.Visible = True
     End Sub
@@ -3068,17 +3094,23 @@ RadioConnected:
             ConfigContactLog()
         End If
 
+        ' Focus the log panel call sign field.
+        If LoggingLogPanel IsNot Nothing Then LoggingLogPanel.FocusCallSign()
+
         Radios.ScreenReaderOutput.Speak("Entering Logging Mode", True)
         Tracing.TraceLine("EnterLoggingMode: from " & LastNonLogMode.ToString(), TraceLevel.Info)
     End Sub
 
     ''' <summary>
     ''' Exit Logging Mode and return to the saved base mode (Classic or Modern).
-    ''' Log session stays open; QSO-in-progress state is preserved.
+    ''' Log session stays open; QSO-in-progress state is preserved via LogPanel.SaveState.
     ''' </summary>
     Friend Sub ExitLoggingMode()
         If CurrentOp Is Nothing Then Return
         If ActiveUIMode <> UIMode.Logging Then Return  ' Not in Logging Mode
+
+        ' Preserve in-progress QSO fields so re-entering Logging Mode restores them.
+        If LoggingLogPanel IsNot Nothing Then LoggingLogPanel.SaveState()
 
         Dim returnMode = LastNonLogMode
         ActiveUIMode = returnMode
@@ -3196,7 +3228,8 @@ RadioConnected:
     End Sub
 
     ''' <summary>
-    ''' Handle Ctrl+Shift+M (Classic/Modern toggle) and Ctrl+Shift+L (Logging Mode toggle).
+    ''' Handle Ctrl+Shift+M (Classic/Modern toggle), Ctrl+Shift+L (Logging Mode toggle),
+    ''' and F6/Shift+F6 (pane switching in Logging Mode).
     ''' </summary>
     Protected Overrides Function ProcessCmdKey(ByRef msg As Message, keyData As Keys) As Boolean
         If keyData = (Keys.Control Or Keys.Shift Or Keys.M) Then
@@ -3207,8 +3240,107 @@ RadioConnected:
             ToggleLoggingMode()
             Return True
         End If
+        ' F6 pane switching in Logging Mode.
+        If ActiveUIMode = UIMode.Logging Then
+            If keyData = Keys.F6 OrElse keyData = (Keys.F6 Or Keys.Shift) Then
+                ToggleLoggingPaneFocus()
+                Return True
+            End If
+        End If
         Return MyBase.ProcessCmdKey(msg, keyData)
     End Function
+
+    ''' <summary>
+    ''' Create the SplitContainer, RadioPane, and LogPanel for Logging Mode.
+    ''' Called once during Form1_Load. Panels start hidden; ShowLoggingUI controls visibility.
+    ''' </summary>
+    Private Sub BuildLoggingPanels()
+        ' Create the radio pane (left side).
+        LoggingRadioPane = New RadioPane()
+
+        ' Create the log entry panel (right side).
+        LoggingLogPanel = New LogPanel()
+
+        ' Create a split container to host both panes.
+        LoggingSplitContainer = New SplitContainer() With {
+            .Name = "LoggingSplitContainer",
+            .Dock = DockStyle.None,
+            .Location = New Drawing.Point(0, MenuStrip1.Bottom),
+            .Size = New Drawing.Size(Me.ClientSize.Width,
+                                     StatusBox.Top - MenuStrip1.Bottom),
+            .Anchor = AnchorStyles.Top Or AnchorStyles.Left Or AnchorStyles.Right Or AnchorStyles.Bottom,
+            .SplitterDistance = 200,
+            .FixedPanel = FixedPanel.Panel1,
+            .Orientation = Orientation.Vertical,
+            .Visible = False,
+            .AccessibleName = "Logging Mode",
+            .AccessibleRole = AccessibleRole.Pane
+        }
+        LoggingRadioPane.Dock = DockStyle.Fill
+        LoggingLogPanel.Dock = DockStyle.Fill
+        LoggingSplitContainer.Panel1.Controls.Add(LoggingRadioPane)
+        LoggingSplitContainer.Panel2.Controls.Add(LoggingLogPanel)
+
+        Me.Controls.Add(LoggingSplitContainer)
+        LoggingSplitContainer.BringToFront()
+    End Sub
+
+    ''' <summary>
+    ''' Initialize the LogPanel's session when entering Logging Mode.
+    ''' Creates a LogSession from the global ContactLog if needed.
+    ''' </summary>
+    Private Sub InitializeLoggingSession()
+        If LoggingLogPanel Is Nothing Then Return
+        If ContactLog Is Nothing Then Return
+
+        ' Create a new session if we don't have one yet.
+        If LoggingPanelSession Is Nothing Then
+            LoggingPanelSession = New LogSession(ContactLog)
+            Dim clean As New LogClass.cleanupClass("LogPanel",
+                Function() As Boolean
+                    ' Allow cleanup — the panel isn't modal.
+                    Return True
+                End Function)
+            If Not LoggingPanelSession.Start(CurrentOp, clean) Then
+                Tracing.TraceLine("InitializeLoggingSession: session start failed",
+                                  Diagnostics.TraceLevel.Error)
+                LoggingPanelSession = Nothing
+                Return
+            End If
+        End If
+        LoggingLogPanel.Initialize(LoggingPanelSession)
+    End Sub
+
+    ''' <summary>
+    ''' Show or hide the standard radio controls (used during mode transitions).
+    ''' </summary>
+    Private Sub ShowRadioControls(visible As Boolean)
+        FreqOut.Visible = visible
+        ModeControl.Visible = visible
+        TXTuneControl.Visible = visible
+        TransmitButton.Visible = visible
+        AntennaTuneButton.Visible = visible
+        ReceivedTextBox.Visible = visible
+        SentTextBox.Visible = visible
+        ReceiveLabel.Visible = visible
+        SendLabel.Visible = visible
+    End Sub
+
+    ''' <summary>
+    ''' Toggle focus between RadioPane and LogPanel in Logging Mode.
+    ''' F6 / Shift+F6 — standard Windows pane-switching convention.
+    ''' </summary>
+    Private Sub ToggleLoggingPaneFocus()
+        If LoggingRadioPane Is Nothing OrElse LoggingLogPanel Is Nothing Then Return
+
+        If LoggingRadioPane.ContainsFocus Then
+            LoggingLogPanel.FocusCallSign()
+            Radios.ScreenReaderOutput.Speak("Log entry pane", True)
+        Else
+            LoggingRadioPane.Focus()
+            Radios.ScreenReaderOutput.Speak("Radio pane", True)
+        End If
+    End Sub
 
 #End Region
 

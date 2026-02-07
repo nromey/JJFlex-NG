@@ -164,8 +164,10 @@
     <Compile Include="LoginName.vb">
       <SubType>UserControl</SubType>
     </Compile>
+    <Compile Include="LogPanel.vb" />
     <Compile Include="LogSession.vb" />
     <Compile Include="LogStats.vb" />
+    <Compile Include="RadioPane.vb" />
     <Compile Include="LOTWMerge.Designer.vb">
       <DependentUpon>LOTWMerge.vb</DependentUpon>
     </Compile>
