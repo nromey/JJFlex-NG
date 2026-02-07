@@ -367,7 +367,7 @@ Public Class KeyCommands
      New KeyDefType(Keys.D Or Keys.Alt, CommandValues.LogDateTime),
      New KeyDefType(Keys.D Or Keys.Control Or Keys.Shift, CommandValues.ArCluster),
      New KeyDefType(Keys.W Or Keys.Control, CommandValues.LogFinalize),
-     New KeyDefType(Keys.L Or Keys.Control Or Keys.Shift, CommandValues.LogFileName),
+     New KeyDefType(Keys.None, CommandValues.LogFileName),  ' Was Ctrl+Shift+L; freed for Logging Mode toggle
      New KeyDefType(Keys.None, CommandValues.LogMode),
      New KeyDefType(Keys.C Or Keys.Alt, CommandValues.LogCall),
      New KeyDefType(Keys.C Or Keys.Control, CommandValues.CWZeroBeat),

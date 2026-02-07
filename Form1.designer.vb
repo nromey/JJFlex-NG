@@ -129,7 +129,8 @@ Partial Class Form1
         'ActionsToolStripMenuItem
         '
         Me.ActionsToolStripMenuItem.AccessibleRole = System.Windows.Forms.AccessibleRole.MenuPopup
-        Me.ActionsToolStripMenuItem.DropDownItems.AddRange(New System.Windows.Forms.ToolStripItem() {Me.ListOperatorsMenuItem, Me.SelectRigMenuItem, Me.ProfilesMenuItem, Me.LocalPTTMenuItem, Me.StationNamesMenuItem, Me.FlexKnobMenuItem, Me.W2ConfigToolStripMenuItem, Me.LoggingMenuItem, Me.ExportSetupMenuItem, Me.ShowBandsMenuItem, Me.ToolStripSeparator2, Me.DiversityMenuItem, Me.EscMenuItem, Me.FeatureAvailabilityMenuItem, Me.ToolStripSeparator1, Me.CWMessageUpdateMenuItem, Me.ChangeKeysMenuItem, Me.RestoreKeyMappingMenuItem, Me.ClearOptionalMenuItem, Me.ToolStripSeparator3, Me.ScreenSaverMenuItem, Me.FileExitToolStripMenuItem})
+        ' Logging submenu removed from Actions — logging items live in Logging Mode now.
+        Me.ActionsToolStripMenuItem.DropDownItems.AddRange(New System.Windows.Forms.ToolStripItem() {Me.ListOperatorsMenuItem, Me.SelectRigMenuItem, Me.ProfilesMenuItem, Me.LocalPTTMenuItem, Me.StationNamesMenuItem, Me.FlexKnobMenuItem, Me.W2ConfigToolStripMenuItem, Me.ExportSetupMenuItem, Me.ShowBandsMenuItem, Me.ToolStripSeparator2, Me.DiversityMenuItem, Me.EscMenuItem, Me.FeatureAvailabilityMenuItem, Me.ToolStripSeparator1, Me.CWMessageUpdateMenuItem, Me.ChangeKeysMenuItem, Me.RestoreKeyMappingMenuItem, Me.ClearOptionalMenuItem, Me.ToolStripSeparator3, Me.ScreenSaverMenuItem, Me.FileExitToolStripMenuItem})
         Me.ActionsToolStripMenuItem.Name = "ActionsToolStripMenuItem"
         Me.ActionsToolStripMenuItem.Size = New System.Drawing.Size(59, 20)
         Me.ActionsToolStripMenuItem.Text = "Actions"

@@ -257,7 +257,13 @@ Public Class Form1
         AttachMenuAccessibilityHandlers(HelpToolStripMenuItem)
 
         ' --- UI Mode setup ---
-        ' Add "Switch to Modern UI" to the Classic Actions menu (before Exit).
+        ' Add "Enter Logging Mode" and "Switch to Modern UI" to the Classic Actions menu (before Exit).
+        Dim enterLoggingClassicItem = New ToolStripMenuItem() With {
+            .Text = "Enter Logging Mode",
+            .AccessibleName = "Enter Logging Mode",
+            .AccessibleRole = AccessibleRole.MenuItem
+        }
+        AddHandler enterLoggingClassicItem.Click, Sub(s As Object, ev As EventArgs) EnterLoggingMode()
         Dim switchToModernItem = New ToolStripMenuItem() With {
             .Text = "Switch to Modern UI",
             .AccessibleName = "Switch to Modern UI",
@@ -266,16 +272,20 @@ Public Class Form1
         AddHandler switchToModernItem.Click, Sub(s As Object, ev As EventArgs) ToggleUIMode()
         Dim exitIndex = ActionsToolStripMenuItem.DropDownItems.IndexOf(FileExitToolStripMenuItem)
         If exitIndex >= 0 Then
-            ActionsToolStripMenuItem.DropDownItems.Insert(exitIndex, switchToModernItem)
-            ActionsToolStripMenuItem.DropDownItems.Insert(exitIndex + 1, New ToolStripSeparator())
+            ActionsToolStripMenuItem.DropDownItems.Insert(exitIndex, enterLoggingClassicItem)
+            ActionsToolStripMenuItem.DropDownItems.Insert(exitIndex + 1, switchToModernItem)
+            ActionsToolStripMenuItem.DropDownItems.Insert(exitIndex + 2, New ToolStripSeparator())
         Else
             ActionsToolStripMenuItem.DropDownItems.Add(New ToolStripSeparator())
+            ActionsToolStripMenuItem.DropDownItems.Add(enterLoggingClassicItem)
             ActionsToolStripMenuItem.DropDownItems.Add(switchToModernItem)
         End If
+        AttachMenuAccessibilityHandlers(enterLoggingClassicItem)
         AttachMenuAccessibilityHandlers(switchToModernItem)
 
-        ' Build the Modern menu structure and apply the current operator's mode.
+        ' Build menu structures and apply the current operator's mode.
         BuildModernMenus()
+        BuildLoggingMenus()
         ApplyUIMode()
     End Sub
 
@@ -2510,6 +2520,10 @@ RadioConnected:
             If String.Equals(keyItem.menuText, "Menus", StringComparison.OrdinalIgnoreCase) Then
                 Continue For
             End If
+            ' Skip logging commands in Classic/Modern — they live in Logging Mode now.
+            If ActiveUIMode <> UIMode.Logging AndAlso keyItem.Group = KeyCommands.FunctionGroups.logging Then
+                Continue For
+            End If
             Dim item = New ToolStripMenuItem
             item.Tag = keyItem
             item.AccessibleRole = System.Windows.Forms.AccessibleRole.MenuItem
@@ -2659,10 +2673,11 @@ RadioConnected:
         ExportSetup.ExportSetup()
     End Sub
 
-#Region "UI Mode (Classic / Modern)"
+#Region "UI Mode (Classic / Modern / Logging)"
 
     ' -----------------------------------------------------------------------
     '  Modern menu references — created programmatically in BuildModernMenus.
+    '  Logging menu references — created programmatically in BuildLoggingMenus.
     '  Classic menus (ActionsToolStripMenuItem, ScreenFieldsMenu,
     '  OperationsMenuItem, HelpToolStripMenuItem) are Designer-defined.
     ' -----------------------------------------------------------------------
@@ -2671,7 +2686,11 @@ RadioConnected:
     Private ModernFilterMenu As ToolStripMenuItem
     Private ModernAudioMenu As ToolStripMenuItem
     Private ModernToolsMenu As ToolStripMenuItem
-    ' Help menu is shared between both modes (HelpToolStripMenuItem).
+
+    Private LoggingLogMenu As ToolStripMenuItem
+    Private LoggingNavigateMenu As ToolStripMenuItem
+    Private LoggingModeMenu As ToolStripMenuItem
+    ' Help menu is shared across all modes (HelpToolStripMenuItem).
 
     ''' <summary>
     ''' Show the one-time "Try Modern UI?" prompt for existing operators
@@ -2838,6 +2857,8 @@ RadioConnected:
         AddModernStubItem(ModernToolsMenu, "Speak Status")
         AddModernStubItem(ModernToolsMenu, "Status Dialog")
         ModernToolsMenu.DropDownItems.Add(New ToolStripSeparator())
+        AddModernMenuItem(ModernToolsMenu, "Enter Logging Mode",
+            Sub(s As Object, ev As EventArgs) EnterLoggingMode())
         AddModernMenuItem(ModernToolsMenu, "Switch to Classic UI",
             Sub(s As Object, ev As EventArgs) ToggleUIMode())
         ModernToolsMenu.DropDownItems.Add(New ToolStripSeparator())
@@ -2917,12 +2938,14 @@ RadioConnected:
         Dim mode = ActiveUIMode
         Tracing.TraceLine("ApplyUIMode: " & mode.ToString(), TraceLevel.Info)
 
-        ' Initialize LastNonLogMode from the active mode on first call.
+        ' Track the base mode (Classic or Modern) so we can restore it when leaving Logging.
         If mode <> UIMode.Logging Then
             LastNonLogMode = mode
         End If
 
-        If mode = UIMode.Modern Then
+        If mode = UIMode.Logging Then
+            ShowLoggingUI()
+        ElseIf mode = UIMode.Modern Then
             ShowModernUI()
         Else
             ShowClassicUI()
@@ -2930,7 +2953,7 @@ RadioConnected:
     End Sub
 
     ''' <summary>
-    ''' Show Classic menus, hide Modern menus.
+    ''' Show Classic menus, hide Modern and Logging menus.
     ''' </summary>
     Private Sub ShowClassicUI()
         ' Show Classic menus
@@ -2945,12 +2968,16 @@ RadioConnected:
         If ModernAudioMenu IsNot Nothing Then ModernAudioMenu.Visible = False
         If ModernToolsMenu IsNot Nothing Then ModernToolsMenu.Visible = False
 
-        ' Help stays visible in both modes.
+        ' Hide Logging menus
+        If LoggingLogMenu IsNot Nothing Then LoggingLogMenu.Visible = False
+        If LoggingNavigateMenu IsNot Nothing Then LoggingNavigateMenu.Visible = False
+        If LoggingModeMenu IsNot Nothing Then LoggingModeMenu.Visible = False
+
         HelpToolStripMenuItem.Visible = True
     End Sub
 
     ''' <summary>
-    ''' Show Modern menus, hide Classic menus.
+    ''' Show Modern menus, hide Classic and Logging menus.
     ''' </summary>
     Private Sub ShowModernUI()
         ' Hide Classic menus
@@ -2965,16 +2992,48 @@ RadioConnected:
         If ModernAudioMenu IsNot Nothing Then ModernAudioMenu.Visible = True
         If ModernToolsMenu IsNot Nothing Then ModernToolsMenu.Visible = True
 
-        ' Help stays visible in both modes.
+        ' Hide Logging menus
+        If LoggingLogMenu IsNot Nothing Then LoggingLogMenu.Visible = False
+        If LoggingNavigateMenu IsNot Nothing Then LoggingNavigateMenu.Visible = False
+        If LoggingModeMenu IsNot Nothing Then LoggingModeMenu.Visible = False
+
+        HelpToolStripMenuItem.Visible = True
+    End Sub
+
+    ''' <summary>
+    ''' Show Logging menus, hide Classic and Modern menus.
+    ''' </summary>
+    Private Sub ShowLoggingUI()
+        ' Hide Classic menus
+        ActionsToolStripMenuItem.Visible = False
+        ScreenFieldsMenu.Visible = False
+        OperationsMenuItem.Visible = False
+
+        ' Hide Modern menus
+        If ModernRadioMenu IsNot Nothing Then ModernRadioMenu.Visible = False
+        If ModernSliceMenu IsNot Nothing Then ModernSliceMenu.Visible = False
+        If ModernFilterMenu IsNot Nothing Then ModernFilterMenu.Visible = False
+        If ModernAudioMenu IsNot Nothing Then ModernAudioMenu.Visible = False
+        If ModernToolsMenu IsNot Nothing Then ModernToolsMenu.Visible = False
+
+        ' Show Logging menus
+        If LoggingLogMenu IsNot Nothing Then LoggingLogMenu.Visible = True
+        If LoggingNavigateMenu IsNot Nothing Then LoggingNavigateMenu.Visible = True
+        If LoggingModeMenu IsNot Nothing Then LoggingModeMenu.Visible = True
+
         HelpToolStripMenuItem.Visible = True
     End Sub
 
     ''' <summary>
     ''' Toggle between Classic and Modern modes. Saves, applies, and speaks confirmation.
     ''' Wired to Ctrl+Shift+M and to the menu items in both Classic and Modern menus.
+    ''' Ignored while in Logging Mode — user must exit Logging Mode first.
     ''' </summary>
     Friend Sub ToggleUIMode()
         If CurrentOp Is Nothing Then Return
+
+        ' Ignore while in Logging Mode.
+        If ActiveUIMode = UIMode.Logging Then Return
 
         Dim newMode As UIMode
         If ActiveUIMode = UIMode.Modern Then
@@ -2992,11 +3051,160 @@ RadioConnected:
     End Sub
 
     ''' <summary>
-    ''' Handle Ctrl+Shift+M as a global hotkey for mode toggle.
+    ''' Enter Logging Mode from Classic or Modern.
+    ''' Saves the current base mode, switches to Logging, auto-opens log if needed.
+    ''' </summary>
+    Friend Sub EnterLoggingMode()
+        If CurrentOp Is Nothing Then Return
+        If ActiveUIMode = UIMode.Logging Then Return  ' Already in Logging Mode
+
+        ' Remember which base mode we're in so ExitLoggingMode can restore it.
+        LastNonLogMode = ActiveUIMode
+        ActiveUIMode = UIMode.Logging
+        ApplyUIMode()
+
+        ' Auto-open the operator's last used log file if no session is active.
+        If ContactLog Is Nothing AndAlso Not String.IsNullOrEmpty(CurrentOp.LogFile) Then
+            ConfigContactLog()
+        End If
+
+        Radios.ScreenReaderOutput.Speak("Entering Logging Mode", True)
+        Tracing.TraceLine("EnterLoggingMode: from " & LastNonLogMode.ToString(), TraceLevel.Info)
+    End Sub
+
+    ''' <summary>
+    ''' Exit Logging Mode and return to the saved base mode (Classic or Modern).
+    ''' Log session stays open; QSO-in-progress state is preserved.
+    ''' </summary>
+    Friend Sub ExitLoggingMode()
+        If CurrentOp Is Nothing Then Return
+        If ActiveUIMode <> UIMode.Logging Then Return  ' Not in Logging Mode
+
+        Dim returnMode = LastNonLogMode
+        ActiveUIMode = returnMode
+        ApplyUIMode()
+
+        Dim msg = "Returning to " & returnMode.ToString() & " mode"
+        Radios.ScreenReaderOutput.Speak(msg, True)
+        Tracing.TraceLine("ExitLoggingMode: " & msg, TraceLevel.Info)
+    End Sub
+
+    ''' <summary>
+    ''' Toggle Logging Mode on/off. Wired to Ctrl+Shift+L.
+    ''' </summary>
+    Friend Sub ToggleLoggingMode()
+        If ActiveUIMode = UIMode.Logging Then
+            ExitLoggingMode()
+        Else
+            EnterLoggingMode()
+        End If
+    End Sub
+
+    ''' <summary>
+    ''' Build the Logging Mode menu structure programmatically.
+    ''' Called once during Form1_Load. Menus start hidden; ApplyUIMode controls visibility.
+    ''' </summary>
+    Private Sub BuildLoggingMenus()
+        ' --- Log menu ---
+        LoggingLogMenu = New ToolStripMenuItem() With {
+            .Name = "LoggingLogMenu",
+            .Text = "Log",
+            .AccessibleRole = AccessibleRole.MenuPopup,
+            .Visible = False
+        }
+        AddModernMenuItem(LoggingLogMenu, "New Entry",
+            Sub(s As Object, ev As EventArgs)
+                If Commands IsNot Nothing Then
+                    Commands.CommandId = KeyCommands.CommandValues.NewLogEntry
+                    Commands.KeyTable.First(Function(k) k.key.id = KeyCommands.CommandValues.NewLogEntry).rtn()
+                End If
+            End Sub)
+        AddModernMenuItem(LoggingLogMenu, "Write Entry",
+            Sub(s As Object, ev As EventArgs)
+                If Commands IsNot Nothing Then
+                    Commands.CommandId = KeyCommands.CommandValues.LogFinalize
+                    Commands.KeyTable.First(Function(k) k.key.id = KeyCommands.CommandValues.LogFinalize).rtn()
+                End If
+            End Sub)
+        AddModernMenuItem(LoggingLogMenu, "Search Log",
+            Sub(s As Object, ev As EventArgs)
+                If Commands IsNot Nothing Then Commands.SearchLogCmd()
+            End Sub)
+        LoggingLogMenu.DropDownItems.Add(New ToolStripSeparator())
+        AddModernMenuItem(LoggingLogMenu, "Log Characteristics", AddressOf LogCharacteristicsMenuItem_Click)
+        AddModernMenuItem(LoggingLogMenu, "Import Log", AddressOf ImportMenuItem_Click)
+        AddModernMenuItem(LoggingLogMenu, "Export Log", AddressOf ExportMenuItem_Click)
+        AddModernMenuItem(LoggingLogMenu, "LOTW Merge", AddressOf LOTWMergeMenuItem_Click)
+        LoggingLogMenu.DropDownItems.Add(New ToolStripSeparator())
+        AddModernMenuItem(LoggingLogMenu, "Log Statistics",
+            Sub(s As Object, ev As EventArgs)
+                If Commands IsNot Nothing Then
+                    Commands.CommandId = KeyCommands.CommandValues.LogStats
+                    Commands.KeyTable.First(Function(k) k.key.id = KeyCommands.CommandValues.LogStats).rtn()
+                End If
+            End Sub)
+
+        ' --- Navigate menu ---
+        LoggingNavigateMenu = New ToolStripMenuItem() With {
+            .Name = "LoggingNavigateMenu",
+            .Text = "Navigate",
+            .AccessibleRole = AccessibleRole.MenuPopup,
+            .Visible = False
+        }
+        AddModernStubItem(LoggingNavigateMenu, "First Entry")
+        AddModernStubItem(LoggingNavigateMenu, "Previous Entry")
+        AddModernStubItem(LoggingNavigateMenu, "Next Entry")
+        AddModernStubItem(LoggingNavigateMenu, "Last Entry")
+
+        ' --- Mode menu ---
+        LoggingModeMenu = New ToolStripMenuItem() With {
+            .Name = "LoggingModeMenu",
+            .Text = "Mode",
+            .AccessibleRole = AccessibleRole.MenuPopup,
+            .Visible = False
+        }
+        AddModernMenuItem(LoggingModeMenu, "Switch to Classic",
+            Sub(s As Object, ev As EventArgs)
+                ExitLoggingMode()
+                If ActiveUIMode <> UIMode.Classic Then
+                    ActiveUIMode = UIMode.Classic
+                    ApplyUIMode()
+                End If
+                Radios.ScreenReaderOutput.Speak("Switched to Classic mode", True)
+            End Sub)
+        AddModernMenuItem(LoggingModeMenu, "Switch to Modern",
+            Sub(s As Object, ev As EventArgs)
+                ExitLoggingMode()
+                If ActiveUIMode <> UIMode.Modern Then
+                    ActiveUIMode = UIMode.Modern
+                    ApplyUIMode()
+                End If
+                Radios.ScreenReaderOutput.Speak("Switched to Modern mode", True)
+            End Sub)
+
+        ' --- Add Logging menus to the menu strip (before Help) ---
+        Dim helpIndex As Integer = MenuStrip1.Items.IndexOf(HelpToolStripMenuItem)
+        If helpIndex < 0 Then helpIndex = MenuStrip1.Items.Count
+        MenuStrip1.Items.Insert(helpIndex, LoggingLogMenu)
+        MenuStrip1.Items.Insert(helpIndex + 1, LoggingNavigateMenu)
+        MenuStrip1.Items.Insert(helpIndex + 2, LoggingModeMenu)
+
+        ' Attach accessibility handlers.
+        AttachMenuAccessibilityHandlers(LoggingLogMenu)
+        AttachMenuAccessibilityHandlers(LoggingNavigateMenu)
+        AttachMenuAccessibilityHandlers(LoggingModeMenu)
+    End Sub
+
+    ''' <summary>
+    ''' Handle Ctrl+Shift+M (Classic/Modern toggle) and Ctrl+Shift+L (Logging Mode toggle).
     ''' </summary>
     Protected Overrides Function ProcessCmdKey(ByRef msg As Message, keyData As Keys) As Boolean
         If keyData = (Keys.Control Or Keys.Shift Or Keys.M) Then
             ToggleUIMode()
+            Return True
+        End If
+        If keyData = (Keys.Control Or Keys.Shift Or Keys.L) Then
+            ToggleLoggingMode()
             Return True
         End If
         Return MyBase.ProcessCmdKey(msg, keyData)

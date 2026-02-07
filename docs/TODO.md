@@ -27,21 +27,15 @@ This document tracks feature ideas, improvements, and technical debt for future 
 
 ## Medium Priority
 
-### Classic Mode vs. JJFlex Next Gen
-- [ ] **UI Mode toggle** - Allow users to choose between Classic and Next Gen interfaces:
-  - **Classic Mode**: Keep existing UI for users with muscle memory
-    - Big text box for status/tuning (type frequency directly)
-    - Letter shortcuts for slice control (A/B/M/V etc.)
-    - Logging fields in main form
-  - **Next Gen Mode**: Modern, menu-driven interface for new users
-    - Reorganized menus that make logical sense
-    - Slice control via menus (no memorizing letter codes)
-    - Slimmed down tuning interface
-    - Speak Status feature
-- [ ] **Logging options** - Make logging configurable:
-  - Toggle logging on/off
-  - Move logging to separate dialog (declutter main form)
-  - Option to hide/remove logging entirely for non-contesters
+### Logging Mode (Sprint 4 - In Progress)
+- [ ] **Logging Mode** - Focused keyboard-centric QSO entry UI:
+  - Logging Mode is a layer on top of Classic/Modern (Ctrl+Shift+L to enter/exit)
+  - Quick-entry panel: Call, RST, Name, QTH, auto-filled freq/mode/band
+  - Recent QSOs grid in main window
+  - Dup checking with screen reader alerts
+  - State preserved when switching out to radio mode and back
+  - Auto-opens last used log file on entry
+  - See `docs/planning/agile/Sprint-04-Logging-Mode.md`
 
 ### UI Improvements
 - [ ] **Menu cleanup** - Reorganize menus for better accessibility flow
@@ -76,7 +70,12 @@ This document tracks feature ideas, improvements, and technical debt for future 
 ## Low Priority / Nice to Have
 
 - [ ] **CW decode** - Investigate Fldigi integration or native decode
-- [ ] **FT8/Digital modes** - WSJT-X CAT control improvements
+- [ ] **FT8/Digital modes** - WSJT-X integration with logging-aware station selection:
+  - WSJT-X decodes signals → JJFlex checks each call against log
+  - Highlight new DXCC countries, new bands, new modes (band/mode slots)
+  - Accessible station picker: screen reader announces "new country" / "new band" etc.
+  - Auto-log completed FT8 QSOs using Jim's logging infrastructure
+  - CAT control improvements for frequency/mode coordination
 - [ ] **Macro/scripting** - Contest automation, scheduled recordings
 
 ## Technical Debt
@@ -89,6 +88,13 @@ This document tracks feature ideas, improvements, and technical debt for future 
 - [ ] **System.Drawing.Common conflicts** - Version mismatch warnings in build
 
 ## Completed
+
+- [x] **Sprint 3: Classic/Modern UI Mode** - v4.1.11 (2026-02-06)
+  - UIMode enum (Classic/Modern/Logging), persisted per operator
+  - Modern menu skeleton with programmatic menus
+  - Ctrl+Shift+M toggle, one-time upgrade prompt for existing operators
+  - New operators default to Modern mode
+  - See `docs/planning/agile/archive/Sprint-03-Classic-Modern-Mode.md`
 
 - [x] **Sprint 2: Seamless auto-connect** - v4.1.11 (2026-02-01)
   - Unified auto-connect for local and remote radios
