@@ -9,6 +9,14 @@ Imports Radios
 ''' Quick-entry logging panel for Logging Mode.
 ''' Embedded in Form1 via SplitContainer. Thin wrapper over LogSession —
 ''' manages its own TextBoxes and talks to LogSession via SetFieldText/GetFieldText.
+'''
+''' Layout: Entry fields at top (fixed height), Recent QSOs DataGridView below (fills).
+''' The grid uses Windows UI Automation — JAWS/NVDA arrow through rows,
+''' read column header + cell value automatically.
+'''
+''' Previous Contact lookup: when the operator tabs out of the Call Sign field,
+''' we check the in-memory call index (built during log scan) and show the last
+''' QSO with that station plus total contact count. Auto-fills Name if empty.
 ''' </summary>
 Friend Class LogPanel
     Inherits UserControl
@@ -31,10 +39,37 @@ Friend Class LogPanel
     Private SerialLabel As Label
     Private DupLabel As Label
 
+    ' --- Previous contact display (tabbable read-only TextBox) ---
+    Private PreviousContactBox As TextBox
+
+    ' --- Recent QSOs grid ---
+    Private WithEvents RecentGrid As DataGridView
+    Private Const MaxRecentQSOs As Integer = 20
+
+    ' --- Layout ---
+    Private EntryPanel As Panel        ' Fixed-height panel for entry fields + info labels
+    Private GridPanel As Panel         ' Fill panel for the DataGridView
+
     ' --- State ---
     Private session As LogSession
     Private currentCall As String = ""
     Private isDup As Boolean = False
+
+    ' --- Call sign index: built during log scan, used for instant previous-contact lookup ---
+    Private callIndex As New Dictionary(Of String, PreviousContactInfo)(StringComparer.OrdinalIgnoreCase)
+
+    ''' <summary>
+    ''' Tracks aggregate info about previous contacts with a specific call sign.
+    ''' Updated during the initial log scan and after each WriteEntry.
+    ''' </summary>
+    Private Class PreviousContactInfo
+        Public Count As Integer         ' Total number of QSOs with this call
+        Public LastDate As String       ' Date of most recent QSO (MM/dd/yyyy)
+        Public LastBand As String       ' Band of most recent QSO
+        Public LastMode As String       ' Mode of most recent QSO
+        Public LastName As String       ' Name from most recent QSO
+        Public LastQTH As String        ' QTH from most recent QSO
+    End Class
 
     ' --- Preserved state for mode-switch round-trip ---
     Private preservedFields As Dictionary(Of String, String) = Nothing
@@ -52,6 +87,7 @@ Friend Class LogPanel
     ''' </summary>
     Friend Sub Initialize(s As LogSession)
         session = s
+        LoadRecentQSOs()
         If preservedFields IsNot Nothing Then
             RestoreState()
         Else
@@ -72,6 +108,7 @@ Friend Class LogPanel
         DupLabel.Text = "Dup: 0"
         isDup = False
         currentCall = ""
+        ClearPreviousContact()
         CallSignBox.Focus()
     End Sub
 
@@ -104,6 +141,18 @@ Friend Class LogPanel
             session.SetFieldText(AdifTags.ADIF_TimeOff, dt.ToString("HHmm"))
         End If
 
+        ' Snapshot values for grid row BEFORE Append (which clears serial handling).
+        Dim gridTime = session.GetFieldText(AdifTags.ADIF_TimeOn)
+        Dim gridCall = session.GetFieldText(AdifTags.ADIF_Call)
+        Dim gridMode = session.GetFieldText(AdifTags.ADIF_Mode)
+        Dim gridFreq = session.GetFieldText(AdifTags.ADIF_RXFreq)
+        Dim gridRSTSent = session.GetFieldText(AdifTags.ADIF_HisRST)
+        Dim gridRSTRcvd = session.GetFieldText(AdifTags.ADIF_MyRST)
+        Dim gridName = session.GetFieldText(AdifTags.ADIF_Name)
+        Dim gridDate = session.GetFieldText(AdifTags.ADIF_DateOn)
+        Dim gridBand = session.GetFieldText(AdifTags.ADIF_Band)
+        Dim gridQTH = session.GetFieldText(AdifTags.ADIF_QTH, False)
+
         ' Call the log's WriteEntry delegate (updates stats).
         If session.FormData IsNot Nothing AndAlso session.FormData.WriteEntry IsNot Nothing Then
             session.FormData.WriteEntry(session.FieldDictionary, Nothing)
@@ -119,6 +168,14 @@ Friend Class LogPanel
         Dim ok = session.Append()
         If ok Then
             session.serial += 1
+
+            ' Add the just-saved QSO to the grid.
+            AddQSOToGrid(gridTime, gridCall, gridMode, gridFreq,
+                         gridRSTSent, gridRSTRcvd, gridName)
+
+            ' Update the call index with this new QSO.
+            UpdateCallIndex(gridCall, gridDate, gridBand, gridMode, gridName, gridQTH)
+
             ScreenReaderOutput.Speak("Saved " & callText, True)
             Tracing.TraceLine("LogPanel.WriteEntry: saved " & callText, Diagnostics.TraceLevel.Info)
             NewEntry()
@@ -175,6 +232,234 @@ Friend Class LogPanel
     Friend Sub FocusCallSign()
         CallSignBox.Focus()
     End Sub
+
+#Region "Previous Contact Lookup"
+
+    ''' <summary>
+    ''' Update the call index with a newly logged QSO.
+    ''' Called after successful WriteEntry.
+    ''' </summary>
+    Private Sub UpdateCallIndex(callSign As String, dateOn As String, band As String,
+                                 mode As String, name As String, qth As String)
+        If String.IsNullOrEmpty(callSign) Then Return
+        Dim upperCall = callSign.Trim().ToUpper()
+
+        Dim info As PreviousContactInfo = Nothing
+        If callIndex.TryGetValue(upperCall, info) Then
+            info.Count += 1
+            info.LastDate = dateOn
+            info.LastBand = band
+            info.LastMode = mode
+            If Not String.IsNullOrEmpty(name) Then info.LastName = name
+            If Not String.IsNullOrEmpty(qth) Then info.LastQTH = qth
+        Else
+            info = New PreviousContactInfo() With {
+                .Count = 1,
+                .LastDate = dateOn,
+                .LastBand = band,
+                .LastMode = mode,
+                .LastName = name,
+                .LastQTH = qth
+            }
+            callIndex(upperCall) = info
+        End If
+    End Sub
+
+    ''' <summary>
+    ''' Look up a call sign in the index and display/announce previous contact info.
+    ''' Auto-fills Name if the Name field is currently empty.
+    ''' </summary>
+    Private Sub ShowPreviousContact(callSign As String)
+        If String.IsNullOrEmpty(callSign) Then
+            ClearPreviousContact()
+            Return
+        End If
+
+        Dim info As PreviousContactInfo = Nothing
+        If Not callIndex.TryGetValue(callSign.Trim().ToUpper(), info) Then
+            ClearPreviousContact()
+            Return
+        End If
+
+        ' Build display text: "3 QSOs. Last: 01/15/2026, 40m CW, Bob"
+        Dim parts As New List(Of String)
+        parts.Add(info.Count & If(info.Count = 1, " QSO", " QSOs"))
+
+        Dim lastParts As New List(Of String)
+        If Not String.IsNullOrEmpty(info.LastDate) Then lastParts.Add(info.LastDate)
+        If Not String.IsNullOrEmpty(info.LastBand) Then lastParts.Add(info.LastBand)
+        If Not String.IsNullOrEmpty(info.LastMode) Then lastParts.Add(info.LastMode)
+        If Not String.IsNullOrEmpty(info.LastName) Then lastParts.Add(info.LastName)
+
+        Dim displayText As String
+        If lastParts.Count > 0 Then
+            displayText = String.Join(". ", parts) & ". Last: " & String.Join(", ", lastParts)
+        Else
+            displayText = String.Join(". ", parts)
+        End If
+
+        PreviousContactBox.Text = displayText
+        PreviousContactBox.AccessibleName = "Previous contact: " & displayText
+
+        ' Build screen reader announcement.
+        Dim announcement = "Previously worked, " & info.Count & If(info.Count = 1, " contact", " contacts")
+        If lastParts.Count > 0 Then
+            announcement &= ". Last: " & String.Join(", ", lastParts)
+        End If
+        ScreenReaderOutput.Speak(announcement, True)
+
+        ' Auto-fill Name if our field is empty and we have a name from the last QSO.
+        If String.IsNullOrEmpty(NameBox.Text.Trim()) AndAlso
+           Not String.IsNullOrEmpty(info.LastName) Then
+            NameBox.Text = info.LastName
+        End If
+
+        ' Auto-fill QTH if our field is empty and we have one.
+        If String.IsNullOrEmpty(QTHBox.Text.Trim()) AndAlso
+           Not String.IsNullOrEmpty(info.LastQTH) Then
+            QTHBox.Text = info.LastQTH
+        End If
+    End Sub
+
+    ''' <summary>
+    ''' Clear the previous contact display.
+    ''' </summary>
+    Private Sub ClearPreviousContact()
+        PreviousContactBox.Text = ""
+        PreviousContactBox.AccessibleName = "Previous contact: none"
+    End Sub
+
+#End Region
+
+#Region "Recent QSOs Grid"
+
+    ''' <summary>
+    ''' Load the last N QSOs from the log file into the grid.
+    ''' Also builds the call sign index for instant previous-contact lookup.
+    ''' Strategy: SeekToFirst, walk forward collecting ALL records. Keep last
+    ''' MaxRecentQSOs for the grid; index every record by call sign.
+    ''' </summary>
+    Private Sub LoadRecentQSOs()
+        RecentGrid.Rows.Clear()
+        callIndex.Clear()
+        If session Is Nothing Then Return
+
+        ' Walk forward from first record.
+        Dim records As New List(Of Dictionary(Of String, String))
+        Try
+            If Not session.SeekToFirst() Then Return  ' Empty log (no records after header).
+
+            While Not session.EOF
+                If Not session.NextRecord() Then Exit While
+
+                Dim recCall = session.GetFieldText(AdifTags.ADIF_Call, False)
+                Dim recDate = session.GetFieldText(AdifTags.ADIF_DateOn, False)
+                Dim recTime = session.GetFieldText(AdifTags.ADIF_TimeOn, False)
+                Dim recMode = session.GetFieldText(AdifTags.ADIF_Mode, False)
+                Dim recFreq = session.GetFieldText(AdifTags.ADIF_RXFreq, False)
+                Dim recBand = session.GetFieldText(AdifTags.ADIF_Band, False)
+                Dim recRSTSent = session.GetFieldText(AdifTags.ADIF_HisRST, False)
+                Dim recRSTRcvd = session.GetFieldText(AdifTags.ADIF_MyRST, False)
+                Dim recName = session.GetFieldText(AdifTags.ADIF_Name, False)
+                Dim recQTH = session.GetFieldText(AdifTags.ADIF_QTH, False)
+
+                ' Update call sign index (every record).
+                UpdateCallIndex(recCall, recDate, recBand, recMode, recName, recQTH)
+
+                ' Keep record for grid display (ring buffer of last MaxRecentQSOs).
+                Dim rec As New Dictionary(Of String, String) From {
+                    {"TIME", recTime},
+                    {"CALL", recCall},
+                    {"MODE", recMode},
+                    {"FREQ", recFreq},
+                    {"RST_SENT", recRSTSent},
+                    {"RST_RCVD", recRSTRcvd},
+                    {"NAME", recName}
+                }
+                records.Add(rec)
+                If records.Count > MaxRecentQSOs Then
+                    records.RemoveAt(0)
+                End If
+            End While
+        Catch ex As Exception
+            Tracing.TraceLine("LogPanel.LoadRecentQSOs: " & ex.Message,
+                              Diagnostics.TraceLevel.Warning)
+        End Try
+
+        ' Populate grid (records are already in chronological order, oldest first).
+        For Each rec In records
+            RecentGrid.Rows.Add(
+                FormatTimeForGrid(rec("TIME")),
+                rec("CALL"),
+                rec("MODE"),
+                rec("FREQ"),
+                rec("RST_SENT"),
+                rec("RST_RCVD"),
+                rec("NAME"))
+        Next
+
+        ' Scroll to the last (most recent) row.
+        ScrollToLastRow()
+
+        ' Update accessible name with row count.
+        Dim rowCount = RecentGrid.Rows.Count
+        If rowCount > 0 Then
+            RecentGrid.AccessibleName = "Recent QSOs, " & rowCount & " entries"
+        Else
+            RecentGrid.AccessibleName = "Recent QSOs, no entries"
+        End If
+
+        Tracing.TraceLine("LogPanel.LoadRecentQSOs: " & records.Count & " grid rows, " &
+                          callIndex.Count & " unique calls indexed",
+                          Diagnostics.TraceLevel.Info)
+    End Sub
+
+    ''' <summary>
+    ''' Add a single QSO row to the bottom of the grid (called after successful write).
+    ''' Trims oldest row if we exceed MaxRecentQSOs.
+    ''' </summary>
+    Private Sub AddQSOToGrid(timeOn As String, callSign As String, mode As String,
+                              freq As String, rstSent As String, rstRcvd As String,
+                              name As String)
+        ' Remove oldest row if at capacity.
+        If RecentGrid.Rows.Count >= MaxRecentQSOs Then
+            RecentGrid.Rows.RemoveAt(0)
+        End If
+
+        RecentGrid.Rows.Add(
+            FormatTimeForGrid(timeOn),
+            callSign,
+            mode,
+            freq,
+            rstSent,
+            rstRcvd,
+            name)
+
+        ScrollToLastRow()
+
+        ' Update accessible name with new count.
+        Dim rowCount = RecentGrid.Rows.Count
+        RecentGrid.AccessibleName = "Recent QSOs, " & rowCount & " entries"
+    End Sub
+
+    ''' <summary>
+    ''' Scroll the grid to show the last (most recent) row.
+    ''' </summary>
+    Private Sub ScrollToLastRow()
+        If RecentGrid.Rows.Count > 0 Then
+            RecentGrid.FirstDisplayedScrollingRowIndex = RecentGrid.Rows.Count - 1
+        End If
+    End Sub
+
+    ''' <summary>
+    ''' Format a time string (HHmm) for grid display as HH:mm.
+    ''' </summary>
+    Private Shared Function FormatTimeForGrid(timeStr As String) As String
+        If String.IsNullOrEmpty(timeStr) OrElse timeStr.Length < 4 Then Return timeStr
+        Return timeStr.Substring(0, 2) & ":" & timeStr.Substring(2, 2)
+    End Function
+
+#End Region
 
 #Region "Field Helpers"
 
@@ -290,6 +575,12 @@ Friend Class LogPanel
 
         ' Dup check.
         CheckDup(callText <> currentCall)
+
+        ' Previous contact lookup (always, even if dup checking is off).
+        If callText <> currentCall Then
+            ShowPreviousContact(callText)
+        End If
+
         currentCall = callText
     End Sub
 
@@ -312,17 +603,39 @@ Friend Class LogPanel
         End If
     End Sub
 
+    ''' <summary>
+    ''' When the grid receives focus, announce the row count so the operator
+    ''' knows how many QSOs are shown before they start arrowing through.
+    ''' </summary>
+    Private Sub RecentGrid_Enter(sender As Object, e As EventArgs) Handles RecentGrid.Enter
+        Dim rowCount = RecentGrid.Rows.Count
+        If rowCount > 0 Then
+            ScreenReaderOutput.Speak("Recent QSOs, " & rowCount & " entries", True)
+        Else
+            ScreenReaderOutput.Speak("Recent QSOs, empty", True)
+        End If
+    End Sub
+
 #End Region
 
 #Region "UI Construction"
 
     ''' <summary>
     ''' Build all controls programmatically. No designer file needed.
+    ''' Layout: EntryPanel (top, fixed height) + GridPanel (bottom, fills remaining space).
     ''' </summary>
     Private Sub BuildControls()
         Me.SuspendLayout()
 
-        ' --- Entry fields (left column: labels, right column: text boxes) ---
+        ' --- Top panel for entry fields and radio info (fixed height) ---
+        EntryPanel = New Panel() With {
+            .Dock = DockStyle.Top,
+            .Height = 320,
+            .AutoScroll = False
+        }
+        Me.Controls.Add(EntryPanel)
+
+        ' --- Entry fields (inside EntryPanel) ---
         Dim yPos As Integer = 8
         Const labelWidth As Integer = 75
         Const fieldWidth As Integer = 150
@@ -331,50 +644,65 @@ Friend Class LogPanel
         Const labelX As Integer = 4
         Const fieldX As Integer = 82
 
-        CallSignBox = AddEntryField("Call Sign", AdifTags.ADIF_Call, yPos, labelX, fieldX, labelWidth, fieldWidth, fieldHeight)
+        CallSignBox = AddEntryField(EntryPanel, "Call Sign", yPos, labelX, fieldX, labelWidth, fieldWidth, fieldHeight)
         yPos += rowSpacing
 
         ' RST side by side
-        RSTSentBox = AddEntryField("RST Sent", AdifTags.ADIF_HisRST, yPos, labelX, fieldX, labelWidth, 60, fieldHeight)
-        Dim rstRcvdLabel = AddLabel("RST Rcvd", fieldX + 68, yPos + 3, 60)
-        RSTRcvdBox = AddTextBox("RST Received", fieldX + 130, yPos, 60, fieldHeight)
+        RSTSentBox = AddEntryField(EntryPanel, "RST Sent", yPos, labelX, fieldX, labelWidth, 60, fieldHeight)
+        Dim rstRcvdLabel = AddLabel(EntryPanel, "RST Rcvd", fieldX + 68, yPos + 3, 60)
+        RSTRcvdBox = AddTextBox(EntryPanel, "RST Received", fieldX + 130, yPos, 60, fieldHeight)
         ' Dup display on same row
-        DupLabel = AddLabel("Dup: 0", fieldX + 200, yPos + 3, 80)
+        DupLabel = AddLabel(EntryPanel, "Dup: 0", fieldX + 200, yPos + 3, 80)
         DupLabel.AccessibleName = "Duplicate count"
         yPos += rowSpacing
 
-        NameBox = AddEntryField("Name", AdifTags.ADIF_Name, yPos, labelX, fieldX, labelWidth, fieldWidth, fieldHeight)
+        NameBox = AddEntryField(EntryPanel, "Name", yPos, labelX, fieldX, labelWidth, fieldWidth, fieldHeight)
         yPos += rowSpacing
 
-        QTHBox = AddEntryField("QTH", AdifTags.ADIF_QTH, yPos, labelX, fieldX, labelWidth, fieldWidth, fieldHeight)
+        QTHBox = AddEntryField(EntryPanel, "QTH", yPos, labelX, fieldX, labelWidth, fieldWidth, fieldHeight)
         yPos += rowSpacing
 
         ' State and Grid side by side
-        StateBox = AddEntryField("State", AdifTags.ADIF_State, yPos, labelX, fieldX, labelWidth, 50, fieldHeight)
-        Dim gridLabel = AddLabel("Grid", fieldX + 58, yPos + 3, 35)
-        GridBox = AddTextBox("Grid Square", fieldX + 95, yPos, 70, fieldHeight)
+        StateBox = AddEntryField(EntryPanel, "State", yPos, labelX, fieldX, labelWidth, 50, fieldHeight)
+        Dim gridLabel = AddLabel(EntryPanel, "Grid", fieldX + 58, yPos + 3, 35)
+        GridBox = AddTextBox(EntryPanel, "Grid Square", fieldX + 95, yPos, 70, fieldHeight)
         yPos += rowSpacing
 
-        CommentsBox = AddEntryField("Comments", AdifTags.ADIF_Comment, yPos, labelX, fieldX, labelWidth, 250, fieldHeight)
-        yPos += rowSpacing + 8
+        CommentsBox = AddEntryField(EntryPanel, "Comments", yPos, labelX, fieldX, labelWidth, 250, fieldHeight)
+        yPos += rowSpacing + 4
+
+        ' --- Previous contact info (read-only, tabbable so screen reader can reach it) ---
+        Dim prevLabel = AddLabel(EntryPanel, "Previous", labelX, yPos + 3, labelWidth)
+        PreviousContactBox = New TextBox() With {
+            .Location = New Point(fieldX, yPos),
+            .Size = New Size(300, fieldHeight),
+            .ReadOnly = True,
+            .BorderStyle = BorderStyle.None,
+            .BackColor = SystemColors.Control,
+            .TabStop = True,
+            .AccessibleName = "Previous contact: none",
+            .AccessibleRole = AccessibleRole.StaticText
+        }
+        EntryPanel.Controls.Add(PreviousContactBox)
+        yPos += rowSpacing
 
         ' --- Read-only radio info ---
         Dim infoY = yPos
-        FreqLabel = AddLabel("Freq: ---", labelX, infoY, 200)
+        FreqLabel = AddLabel(EntryPanel, "Freq: ---", labelX, infoY, 200)
         FreqLabel.AccessibleName = "Frequency"
         infoY += 18
-        ModeLabel = AddLabel("Mode: ---", labelX, infoY, 100)
+        ModeLabel = AddLabel(EntryPanel, "Mode: ---", labelX, infoY, 100)
         ModeLabel.AccessibleName = "Mode"
-        BandLabel = AddLabel("Band: ---", labelX + 110, infoY, 100)
+        BandLabel = AddLabel(EntryPanel, "Band: ---", labelX + 110, infoY, 100)
         BandLabel.AccessibleName = "Band"
         infoY += 18
-        DateTimeLabel = AddLabel("UTC: ---", labelX, infoY, 200)
+        DateTimeLabel = AddLabel(EntryPanel, "UTC: ---", labelX, infoY, 200)
         DateTimeLabel.AccessibleName = "Date and Time UTC"
         infoY += 18
-        SerialLabel = AddLabel("Serial: 0", labelX, infoY, 100)
+        SerialLabel = AddLabel(EntryPanel, "Serial: 0", labelX, infoY, 100)
         SerialLabel.AccessibleName = "Serial number"
 
-        ' Tab order (set TabIndex sequentially).
+        ' Tab order for entry fields.
         CallSignBox.TabIndex = 0
         RSTSentBox.TabIndex = 1
         RSTRcvdBox.TabIndex = 2
@@ -383,31 +711,141 @@ Friend Class LogPanel
         StateBox.TabIndex = 5
         GridBox.TabIndex = 6
         CommentsBox.TabIndex = 7
+        PreviousContactBox.TabIndex = 8
+
+        ' --- Bottom panel for the Recent QSOs grid (fills remaining space) ---
+        GridPanel = New Panel() With {
+            .Dock = DockStyle.Fill,
+            .Padding = New Padding(4, 4, 4, 4)
+        }
+        Me.Controls.Add(GridPanel)
+
+        ' Grid label
+        Dim gridHeaderLabel = New Label() With {
+            .Text = "Recent QSOs",
+            .Dock = DockStyle.Top,
+            .Height = 18,
+            .AutoSize = False,
+            .Font = New Font(Me.Font.FontFamily, 9, FontStyle.Bold)
+        }
+        GridPanel.Controls.Add(gridHeaderLabel)
+
+        ' Build the DataGridView.
+        BuildRecentGrid()
+        GridPanel.Controls.Add(RecentGrid)
+
+        ' Ensure correct Z-order: GridPanel (Fill) must be added BEFORE EntryPanel (Top)
+        ' so that Fill works correctly. WinForms docking order depends on Z-order.
+        GridPanel.BringToFront()
 
         Me.ResumeLayout(False)
     End Sub
 
-    Private Function AddEntryField(labelText As String, adifTag As String,
+    ''' <summary>
+    ''' Build the Recent QSOs DataGridView with columns and UIA-friendly settings.
+    ''' </summary>
+    Private Sub BuildRecentGrid()
+        RecentGrid = New DataGridView() With {
+            .Name = "RecentQSOsGrid",
+            .Dock = DockStyle.Fill,
+            .ReadOnly = True,
+            .AllowUserToAddRows = False,
+            .AllowUserToDeleteRows = False,
+            .AllowUserToResizeRows = False,
+            .AllowUserToOrderColumns = False,
+            .RowHeadersVisible = False,
+            .SelectionMode = DataGridViewSelectionMode.FullRowSelect,
+            .MultiSelect = False,
+            .AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
+            .BackgroundColor = SystemColors.Window,
+            .BorderStyle = BorderStyle.FixedSingle,
+            .StandardTab = True,
+            .AccessibleName = "Recent QSOs",
+            .AccessibleRole = AccessibleRole.Table
+        }
+
+        ' Disable editing.
+        RecentGrid.EditMode = DataGridViewEditMode.EditProgrammatically
+
+        ' Columns: Time UTC, Call, Mode, Freq, RST Sent, RST Rcvd, Name
+        Dim colTime As New DataGridViewTextBoxColumn() With {
+            .Name = "colTime",
+            .HeaderText = "Time UTC",
+            .FillWeight = 12,
+            .SortMode = DataGridViewColumnSortMode.NotSortable
+        }
+        colTime.HeaderCell.Style.Alignment = DataGridViewContentAlignment.MiddleLeft
+
+        Dim colCall As New DataGridViewTextBoxColumn() With {
+            .Name = "colCall",
+            .HeaderText = "Call",
+            .FillWeight = 18,
+            .SortMode = DataGridViewColumnSortMode.NotSortable
+        }
+
+        Dim colMode As New DataGridViewTextBoxColumn() With {
+            .Name = "colMode",
+            .HeaderText = "Mode",
+            .FillWeight = 10,
+            .SortMode = DataGridViewColumnSortMode.NotSortable
+        }
+
+        Dim colFreq As New DataGridViewTextBoxColumn() With {
+            .Name = "colFreq",
+            .HeaderText = "Freq",
+            .FillWeight = 18,
+            .SortMode = DataGridViewColumnSortMode.NotSortable
+        }
+
+        Dim colRSTSent As New DataGridViewTextBoxColumn() With {
+            .Name = "colRSTSent",
+            .HeaderText = "RST Sent",
+            .FillWeight = 12,
+            .SortMode = DataGridViewColumnSortMode.NotSortable
+        }
+
+        Dim colRSTRcvd As New DataGridViewTextBoxColumn() With {
+            .Name = "colRSTRcvd",
+            .HeaderText = "RST Rcvd",
+            .FillWeight = 12,
+            .SortMode = DataGridViewColumnSortMode.NotSortable
+        }
+
+        Dim colName As New DataGridViewTextBoxColumn() With {
+            .Name = "colName",
+            .HeaderText = "Name",
+            .FillWeight = 18,
+            .SortMode = DataGridViewColumnSortMode.NotSortable
+        }
+
+        RecentGrid.Columns.AddRange(colTime, colCall, colMode, colFreq,
+                                     colRSTSent, colRSTRcvd, colName)
+
+        ' The grid is one Tab stop after the previous contact box.
+        RecentGrid.TabIndex = 9
+    End Sub
+
+    Private Function AddEntryField(parent As Panel, labelText As String,
                                     y As Integer, labelX As Integer, fieldX As Integer,
                                     labelWidth As Integer, fieldWidth As Integer,
                                     fieldHeight As Integer) As TextBox
-        Dim lbl = AddLabel(labelText, labelX, y + 3, labelWidth)
-        Dim tb = AddTextBox(labelText, fieldX, y, fieldWidth, fieldHeight)
+        Dim lbl = AddLabel(parent, labelText, labelX, y + 3, labelWidth)
+        Dim tb = AddTextBox(parent, labelText, fieldX, y, fieldWidth, fieldHeight)
         Return tb
     End Function
 
-    Private Function AddLabel(text As String, x As Integer, y As Integer, w As Integer) As Label
+    Private Function AddLabel(parent As Panel, text As String, x As Integer, y As Integer, w As Integer) As Label
         Dim lbl As New Label() With {
             .Text = text,
             .Location = New Point(x, y),
             .Size = New Size(w, 16),
             .AutoSize = False
         }
-        Me.Controls.Add(lbl)
+        parent.Controls.Add(lbl)
         Return lbl
     End Function
 
-    Private Function AddTextBox(accessibleName As String, x As Integer, y As Integer,
+    Private Function AddTextBox(parent As Panel, accessibleName As String, x As Integer, y As Integer,
                                  w As Integer, h As Integer) As TextBox
         Dim tb As New TextBox() With {
             .Location = New Point(x, y),
@@ -415,7 +853,7 @@ Friend Class LogPanel
             .AccessibleName = accessibleName,
             .AccessibleRole = AccessibleRole.Text
         }
-        Me.Controls.Add(tb)
+        parent.Controls.Add(tb)
         Return tb
     End Function
 

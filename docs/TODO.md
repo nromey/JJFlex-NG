@@ -27,15 +27,24 @@ This document tracks feature ideas, improvements, and technical debt for future 
 
 ## Medium Priority
 
-### Logging Mode (Sprint 4 - In Progress)
-- [ ] **Logging Mode** - Focused keyboard-centric QSO entry UI:
-  - Logging Mode is a layer on top of Classic/Modern (Ctrl+Shift+L to enter/exit)
-  - Quick-entry panel: Call, RST, Name, QTH, auto-filled freq/mode/band
-  - Recent QSOs grid in main window
-  - Dup checking with screen reader alerts
-  - State preserved when switching out to radio mode and back
-  - Auto-opens last used log file on entry
-  - See `docs/planning/agile/Sprint-04-Logging-Mode.md`
+### Logging Mode (Sprint 4 - Phases 1 & 2 Complete)
+- [x] **Phase 1: Menu & Mode Switching** - Ctrl+Shift+L toggle, Logging Mode menu bar, log items moved from Classic/Modern
+- [x] **Phase 2: Quick-Entry LogPanel + RadioPane** - SplitContainer layout, F6 pane switching, arrow-key tuning, dup checking, state preservation
+- [ ] **Phase 3: Recent QSOs Grid** - DataGridView with UIA/screen reader support, auto-updates on write
+- [ ] **Phase 4: Cleanup & Polish** - Remove SKCC WES form, screen reader audit, version bump to 4.1.12
+- See `docs/planning/agile/Sprint-04-Logging-Mode.md`
+
+### QRZ XML Lookup (Future Sprint)
+- [ ] **QRZ callsign auto-fill** - On CallSign tab-out, query QRZ XML API for station data
+  - Auto-fill Name, QTH, State, Grid, Country from QRZ if not already known locally
+  - Only fires when local call index has no Name/QTH (local data takes priority)
+  - Requires QRZ XML subscription (paid)
+- [ ] **Secure credential storage** - Store QRZ username/password via Windows Credential Manager (DPAPI)
+  - Never store in plaintext settings XML
+  - Settings UI for entering/clearing credentials
+- [ ] **QRZ session management** - Session-key auth, auto-renewal on expiry, rate limiting
+- [ ] **Settings** - Enable/disable QRZ lookup, choose which fields to auto-fill
+- [ ] **Modernize FindLogEntry** - Replace ListBox with DataGridView for screen reader UIA support
 
 ### UI Improvements
 - [ ] **Menu cleanup** - Reorganize menus for better accessibility flow

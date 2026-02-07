@@ -150,7 +150,9 @@ namespace JJLogLib
                 { DefaultLogname4skcc, new LogElement(DefaultLogname4skcc, typeof(DefaultLog))},
                 { "Field Day Log", new LogElement("Field Day Log", typeof(FieldDay))},
                 { "NA Sprint Log", new LogElement("NA Sprint Log", typeof(NASprint))},
-                { "SKCC Wes Log", new LogElement("SKCC Wes Log", typeof(SKCCWESLog))},
+                // SKCCWESLog removed in Sprint 4 — Logging Mode replaces contest-specific forms.
+                // The SKCCWESLog.cs and SKCCWESLog.designer.cs files are still in the project
+                // but no longer registered. Remove the files in a future cleanup pass.
             };
         /// <summary>
         /// Get an string array containing the log names.

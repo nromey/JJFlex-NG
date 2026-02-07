@@ -9,7 +9,7 @@ This document captures the current state of JJ-Flex repository and active work.
 - JJFlexRadio: Windows desktop app for FlexRadio 6000/8000 series transceivers
 - **Migration complete:** .NET 8, dual x64/x86 architecture, WebView2 for Auth0
 - **Current version:** 4.1.11
-- **Last completed:** Sprint 3 - Classic/Modern Mode Foundation (tested & closed Feb 6, 2026)
+- **Active sprint:** Sprint 4 - Logging Mode (Phase 1 & 2 complete, Phase 3 next)
 
 ## 2) Technical Foundation
 - Solution: `JJFlexRadio.sln`
@@ -19,6 +19,38 @@ This document captures the current state of JJ-Flex repository and active work.
 - FlexLib v4: `FlexLib_API/`
 
 ## 3) Completed Work
+
+### Sprint 4: Logging Mode (In Progress)
+- **Phase 1: Menu & Mode Switching** (commit `142dff9b`)
+  - Ctrl+Shift+L toggles Logging Mode on/off from any base mode
+  - Logging Mode menu bar: Log, Navigate, Mode, Help
+  - Classic/Modern menus no longer show log-related items (except "Enter Logging Mode")
+  - Log menu items moved exclusively to Logging Mode
+  - `LastNonLogMode` tracks base mode for round-trip
+  - Screen reader announces mode transitions
+
+- **Phase 2: Quick-Entry LogPanel + RadioPane** (commit `c6cabe8b`)
+  - `LogPanel.vb` — Quick-entry UserControl with fields: Call, RST Sent/Rcvd, Name, QTH, State, Grid, Comments
+  - `RadioPane.vb` — Minimal radio status pane with tabbable read-only TextBoxes (Freq, Mode, Band, Tune Step)
+  - SplitContainer layout: RadioPane (left, 200px) + LogPanel (right)
+  - F6/Shift+F6 switches focus between panes (standard Windows convention)
+  - RadioPane arrow-key tuning: Up/Down = 1 step, Shift+Up/Down = 10 steps, Left/Right = change step size
+  - Ctrl+F in RadioPane opens FreqInput for manual frequency entry
+  - Dup checking on CallSign leave with screen reader + beep alert
+  - State preservation: field values survive mode switches (SaveState/RestoreState)
+  - Auto-fill from radio: freq, mode, band, UTC date/time
+  - Tab order: Call(0) → RST Sent(1) → RST Rcvd(2) → Name(3) → QTH(4) → State(5) → Grid(6) → Comments(7)
+
+- **Phase 3: Recent QSOs Grid** — Next up
+  - DataGridView with UIA support (JAWS/NVDA arrow-key navigation)
+  - Columns: Time UTC, Call, Mode, Freq, RST Sent, RST Rcvd, Name
+  - Populated from log session, auto-updates on write
+
+- **Design doc:** `docs/planning/context-aware-hotkeys.md`
+  - KeyScope enum: Global, Radio (Classic+Modern), Logging
+  - Same physical key can have different commands per scope
+  - Frees 7 Alt+letter keys for radio use by scoping logging commands
+  - CW messages → Ctrl+1..9 (Global), freeing F5-F11
 
 ### Sprint 3: Classic/Modern Mode Foundation
 - **UIMode enum** (Classic=0, Modern=1, Logging=2) in `globals.vb`
@@ -66,8 +98,8 @@ This document captures the current state of JJ-Flex repository and active work.
 | Tuning & Band Nav | Fine/Medium/Coarse/Step tuning, band jump, license-aware entry |
 | Earcons | Tuning ticks, band edge beeps, speech throttle |
 | Audio | PC Audio Boost UI, Audio Test dialog, audio routing |
-| Logger | Logging Mode (3rd UI state), Jim's fast-logging, SKCC |
-| Hotkeys v2 | Layered keystroke system (Global/Classic/Modern/Logging) |
+| Logger | ~~Logging Mode~~ Sprint 4 in progress — Phase 3 & 4 remaining |
+| Hotkeys v2 | Layered keystroke system — design doc at `docs/planning/context-aware-hotkeys.md` |
 | Command Finder | F12 search, leader key (Ctrl+J) |
 | Waterfall | Braille waterfall, panadapter sonification |
 
@@ -86,6 +118,13 @@ build-installers.bat
 **WARNING:** Do not use `--no-incremental` expecting fresh output — it doesn't work. Always `dotnet clean` first. See CLAUDE.md for details.
 
 ## 6) Key Files
+
+### Sprint 4: Logging Mode
+- `LogPanel.vb` — Quick-entry UserControl, thin wrapper over LogSession
+- `RadioPane.vb` — Minimal radio status with arrow-key tuning
+- `Form1.vb` — BuildLoggingPanels, ShowLoggingUI, InitializeLoggingSession, F6 pane switching
+- `docs/planning/agile/Sprint-04-Logging-Mode.md` — Sprint plan
+- `docs/planning/context-aware-hotkeys.md` — Hotkey scoping design
 
 ### UI Mode System (Sprint 3)
 - `globals.vb` — UIMode enum, ActiveUIMode property, LastNonLogMode
@@ -121,4 +160,4 @@ build-installers.bat
 
 ---
 
-*Updated: Feb 6, 2026 — Sprint 3 tested & closed. Build process fixes committed. Ready for Sprint 4.*
+*Updated: Feb 6, 2026 — Sprint 4 Phases 1 & 2 committed. Phase 3 (Recent QSOs Grid with DataGridView + UIA) next.*
