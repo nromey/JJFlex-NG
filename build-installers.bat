@@ -36,6 +36,16 @@ exit /b 1
 echo Building both x64 and x86 installers...
 echo.
 
+REM Clean slate: remove both output folders and old setup files
+echo Cleaning all previous builds and setup files...
+if exist "bin\x64\Release" rmdir /s /q "bin\x64\Release"
+if exist "bin\x86\Release" rmdir /s /q "bin\x86\Release"
+del /q "Setup JJFlexRadio_*_x64.exe" >nul 2>&1
+del /q "Setup JJFlexRadio_*_x86.exe" >nul 2>&1
+del /q "Setup JJFlexRadio_x64.exe" >nul 2>&1
+del /q "Setup JJFlexRadio_x86.exe" >nul 2>&1
+echo.
+
 :build_x64
 echo [x64] Cleaning previous build...
 if exist "bin\x64\Release" rmdir /s /q "bin\x64\Release"
@@ -47,17 +57,18 @@ if errorlevel 1 (
     exit /b 1
 )
 
-REM Temporarily hide x86 so install.bat picks up x64
-if exist "bin\x86\Release\net8.0-windows\win-x86\JJFlexRadio.exe" (
-    rename "bin\x86\Release\net8.0-windows\win-x86\JJFlexRadio.exe" "JJFlexRadio.exe.tmp"
+REM No x86 folder should exist at this point (cleaned above), so install.bat
+REM will find x64 automatically. If building x64-only, hide x86 just in case.
+if exist "bin\x86\Release" (
+    rename "bin\x86\Release" "Release.tmp"
 )
 
 echo [x64] Creating installer...
 call "%~dp0install.bat" "%~dp0" Release JJFlexRadio
 
-REM Restore x86 exe
-if exist "bin\x86\Release\net8.0-windows\win-x86\JJFlexRadio.exe.tmp" (
-    rename "bin\x86\Release\net8.0-windows\win-x86\JJFlexRadio.exe.tmp" "JJFlexRadio.exe"
+REM Restore x86 if we hid it
+if exist "bin\x86\Release.tmp" (
+    rename "bin\x86\Release.tmp" "Release"
 )
 
 echo.
@@ -74,17 +85,17 @@ if errorlevel 1 (
     exit /b 1
 )
 
-REM Temporarily hide x64 so install.bat picks up x86
-if exist "bin\x64\Release\net8.0-windows\win-x64\JJFlexRadio.exe" (
-    rename "bin\x64\Release\net8.0-windows\win-x64\JJFlexRadio.exe" "JJFlexRadio.exe.tmp"
+REM Hide the entire x64 Release folder so install.bat finds x86
+if exist "bin\x64\Release" (
+    rename "bin\x64\Release" "Release.tmp"
 )
 
 echo [x86] Creating installer...
 call "%~dp0install.bat" "%~dp0" Release JJFlexRadio
 
-REM Restore x64 exe
-if exist "bin\x64\Release\net8.0-windows\win-x64\JJFlexRadio.exe.tmp" (
-    rename "bin\x64\Release\net8.0-windows\win-x64\JJFlexRadio.exe.tmp" "JJFlexRadio.exe"
+REM Restore x64
+if exist "bin\x64\Release.tmp" (
+    rename "bin\x64\Release.tmp" "Release"
 )
 
 echo.
