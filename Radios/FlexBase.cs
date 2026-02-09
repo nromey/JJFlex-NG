@@ -4957,9 +4957,9 @@ namespace Radios
             // Boost Opus output to compensate for low remote audio levels.
             // The Opus decode path bypasses FlexLib's RXGain scalar, so decoded audio
             // is at raw codec level which is typically too quiet for laptop speakers.
-            // Raw Opus peaks ~0.16. 6x = clean, 8x = near NVDA level, 10x = hot.
-            // Default 8x; user can adjust via Settings > Audio Boost menu.
-            opusOutputChannel.PortAudioStream.OutputGain = 8.0f;
+            // Raw Opus peaks ~0.16. 4x = comfortable, 6x = clean, 8x = hot.
+            // Default 4x; user can adjust via Settings > Audio Boost menu.
+            opusOutputChannel.PortAudioStream.OutputGain = 4.0f;
             Tracing.TraceLine("remoteAudioProc:opusOutputChannel:" + opusOutputChannel.Name + " setup, OutputGain=" + opusOutputChannel.PortAudioStream.OutputGain, TraceLevel.Info);
 
             if (!startOpusOutputChannel())

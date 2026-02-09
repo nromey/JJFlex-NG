@@ -124,6 +124,16 @@ Friend Class LogPanel
             Return False
         End If
 
+        ' Validate required fields before saving.
+        Dim missing = GetMissingFields()
+        If missing.Count > 0 Then
+            Dim fieldList = String.Join(", ", missing)
+            ScreenReaderOutput.Speak("Missing " & fieldList, True)
+            Tracing.TraceLine("LogPanel.WriteEntry: missing fields: " & fieldList,
+                              Diagnostics.TraceLevel.Info)
+            Return False
+        End If
+
         ' Copy fields to session.
         FieldsToSession()
 
@@ -231,6 +241,26 @@ Friend Class LogPanel
     ''' </summary>
     Friend Sub FocusCallSign()
         CallSignBox.Focus()
+    End Sub
+
+    ''' <summary>
+    ''' Focus a specific entry field by name. Used by Form1 to handle
+    ''' Logging Mode field-jump hotkeys (Alt+C, Alt+R, etc.).
+    ''' </summary>
+    Friend Sub FocusField(fieldName As String)
+        Select Case fieldName.ToUpper()
+            Case "CALL" : CallSignBox.Focus()
+            Case "RSTSENT" : RSTSentBox.Focus()
+            Case "RSTRCVD" : RSTRcvdBox.Focus()
+            Case "NAME" : NameBox.Focus()
+            Case "QTH" : QTHBox.Focus()
+            Case "STATE" : StateBox.Focus()
+            Case "GRID" : GridBox.Focus()
+            Case "COMMENTS" : CommentsBox.Focus()
+            Case "PREVIOUS" : PreviousContactBox.Focus()
+            Case "RECENTGRID" : RecentGrid.Focus()
+            Case Else : CallSignBox.Focus()
+        End Select
     End Sub
 
 #Region "Previous Contact Lookup"
@@ -563,6 +593,99 @@ Friend Class LogPanel
 
 #End Region
 
+#Region "Validation"
+
+    ''' <summary>
+    ''' Check for missing required fields. Returns a list of human-readable
+    ''' field names that the operator still needs to fill in.
+    ''' For a basic (non-contest) QSO: frequency, mode, RST sent, RST received.
+    ''' Call sign is checked separately before this is called.
+    ''' </summary>
+    Private Function GetMissingFields() As List(Of String)
+        Dim missing As New List(Of String)
+
+        ' Frequency — comes from the radio via AutoFillFromRadio → session.
+        If session IsNot Nothing Then
+            Dim freq = session.GetFieldText(AdifTags.ADIF_RXFreq)
+            If String.IsNullOrEmpty(freq) OrElse freq = "0" Then
+                missing.Add("Frequency")
+            End If
+        Else
+            missing.Add("Frequency")
+        End If
+
+        ' Mode — comes from the radio via AutoFillFromRadio → session.
+        If session IsNot Nothing Then
+            Dim modeVal = session.GetFieldText(AdifTags.ADIF_Mode)
+            If String.IsNullOrEmpty(modeVal) Then
+                missing.Add("Mode")
+            End If
+        Else
+            missing.Add("Mode")
+        End If
+
+        ' RST Sent — user-entered field.
+        If String.IsNullOrEmpty(RSTSentBox.Text.Trim()) Then
+            missing.Add("RST Sent")
+        End If
+
+        ' RST Received — user-entered field.
+        If String.IsNullOrEmpty(RSTRcvdBox.Text.Trim()) Then
+            missing.Add("RST Received")
+        End If
+
+        Return missing
+    End Function
+
+    ''' <summary>
+    ''' Returns True if the operator has started entering a QSO (call sign is
+    ''' non-empty) but hasn't saved it yet. Used by Form1 to prompt before close.
+    ''' </summary>
+    Friend Function HasUnsavedEntry() As Boolean
+        Return Not String.IsNullOrEmpty(CallSignBox.Text.Trim())
+    End Function
+
+    ''' <summary>
+    ''' Prompt the user to save or discard an in-progress QSO.
+    ''' Returns True if OK to proceed (saved or discarded), False to cancel.
+    ''' </summary>
+    Friend Function PromptSaveBeforeClose() As Boolean
+        If Not HasUnsavedEntry() Then Return True
+
+        Dim callText = CallSignBox.Text.Trim().ToUpper()
+
+        ' Build the prompt — include missing field info so the user knows
+        ' what's needed before they click Yes.
+        Dim prompt = "You have an unsaved log entry for " & callText & "."
+        Dim missing = GetMissingFields()
+        If missing.Count > 0 Then
+            prompt &= vbCrLf & "Note: " & String.Join(", ", missing) & " must be filled before save."
+        End If
+        prompt &= vbCrLf & "Do you want to save it before closing?"
+
+        Dim result = MessageBox.Show(
+            prompt,
+            "Unsaved QSO",
+            MessageBoxButtons.YesNoCancel,
+            MessageBoxIcon.Question)
+
+        Select Case result
+            Case DialogResult.Yes
+                ' Try to save — if validation fails, cancel the close.
+                Dim ok = WriteEntry()
+                If Not ok Then Return False
+                Return True
+            Case DialogResult.No
+                ' Discard the entry.
+                Return True
+            Case Else
+                ' Cancel — don't close.
+                Return False
+        End Select
+    End Function
+
+#End Region
+
 #Region "Event Handlers"
 
     Private Sub CallSignBox_Leave(sender As Object, e As EventArgs) Handles CallSignBox.Leave
@@ -855,6 +978,68 @@ Friend Class LogPanel
         }
         parent.Controls.Add(tb)
         Return tb
+    End Function
+
+#End Region
+
+#Region "Key Handling"
+
+    ''' <summary>
+    ''' Handle Enter key to log the current QSO.
+    ''' Intercepts at the command-key level so it works from any field in the panel.
+    ''' </summary>
+    Protected Overrides Function ProcessCmdKey(ByRef msg As Message, keyData As Keys) As Boolean
+        ' Enter — save the QSO.
+        If keyData = Keys.Enter OrElse keyData = Keys.Return Then
+            If session IsNot Nothing AndAlso
+               Not String.IsNullOrEmpty(CallSignBox.Text.Trim()) Then
+                WriteEntry()
+                Return True
+            End If
+        End If
+
+        ' Escape — clear the form (confirm if data has been entered).
+        If keyData = Keys.Escape Then
+            If HasUnsavedEntry() Then
+                ' If the operator suppressed the confirmation, just clear silently.
+                If CurrentOp IsNot Nothing AndAlso CurrentOp.SuppressClearConfirm Then
+                    NewEntry()
+                    ScreenReaderOutput.Speak("Entry cleared", True)
+                Else
+                    ' Show a TaskDialog with a "Don't ask me again" checkbox.
+                    Dim callText = CallSignBox.Text.Trim().ToUpper()
+                    Dim page As New TaskDialogPage() With {
+                        .Caption = "Clear Entry",
+                        .Heading = "Clear the log entry for " & callText & "?",
+                        .Icon = TaskDialogIcon.Information,
+                        .AllowCancel = True
+                    }
+                    page.Verification = New TaskDialogVerificationCheckBox("Don't ask me again")
+                    page.Buttons.Add(TaskDialogButton.Yes)
+                    page.Buttons.Add(TaskDialogButton.No)
+
+                    Dim clicked = TaskDialog.ShowDialog(Me.FindForm(), page)
+
+                    If clicked = TaskDialogButton.Yes Then
+                        ' Save the "don't ask" preference if checked.
+                        If page.Verification.Checked Then
+                            If CurrentOp IsNot Nothing Then
+                                CurrentOp.SuppressClearConfirm = True
+                                Operators.UpdateCurrentOp()
+                            End If
+                        End If
+                        NewEntry()
+                        ScreenReaderOutput.Speak("Entry cleared", True)
+                    End If
+                End If
+            Else
+                ' Nothing to clear — just announce it.
+                ScreenReaderOutput.Speak("Entry is empty", True)
+            End If
+            Return True
+        End If
+
+        Return MyBase.ProcessCmdKey(msg, keyData)
     End Function
 
 #End Region

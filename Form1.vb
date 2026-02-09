@@ -320,6 +320,7 @@ Public Class Form1
                     ' Auto-connect succeeded - skip RigSelector
                     rv = True
                     radioSelected = DialogResult.OK
+                    Me.Activate()    ' Reclaim focus after WebView2 auth window
                     GoTo RadioConnected
                 ElseIf autoConnectResult = AutoConnectStartupResult.UserCancelled Then
                     ' User cancelled from the failure dialog
@@ -1456,10 +1457,18 @@ RadioConnected:
     Private Sub FileExitToolStripMenuItem_Click(ByVal sender As System.Object, ByVal e As System.EventArgs) Handles FileExitToolStripMenuItem.Click
         Tracing.TraceLine("Form1 FileExitToolstripMenuItem", TraceLevel.Info)
         Ending = True
-        ' Ask user to write an entry if necessary.
+
+        ' Check the Logging Mode panel for an unsaved QSO entry.
+        If LoggingLogPanel IsNot Nothing AndAlso Not LoggingLogPanel.PromptSaveBeforeClose() Then
+            Ending = False
+            Return
+        End If
+
+        ' Ask user to write an entry if necessary (Classic log entry form).
         ' If false is returned, they want to cancel the exit.
         ' Note that if no write is necessary, we'll exit w/o asking.
         If Not LogEntry.optionalWrite Then
+            Ending = False
             Return
         End If
         Try
@@ -1607,8 +1616,24 @@ RadioConnected:
     End Sub
 
     Private Sub LogCharacteristicsMenuItem_Click(ByVal sender As System.Object, ByVal e As System.EventArgs) Handles LogCharacteristicsMenuItem.Click
-        ' set log file characteristics.
+        ' Log Characteristics opens the log file independently to read/write the header.
+        ' Close all sessions on ContactLog so the file isn't locked, then re-open after.
+        Dim wasInLogging = (ActiveUIMode = UIMode.Logging AndAlso LoggingPanelSession IsNot Nothing)
+        If wasInLogging Then
+            LoggingLogPanel.SaveState()
+            LoggingPanelSession.EndSession()
+            LoggingPanelSession = Nothing
+        End If
+        LogEntry.EndSession()   ' Safe even if no session is active
+
+        ' Set log file characteristics.
         Commands.getLogFileName()
+
+        ' Re-open sessions that were active.
+        LogEntry.StartLogSession()
+        If wasInLogging Then
+            InitializeLoggingSession()
+        End If
     End Sub
 
     Delegate Sub setText(ByVal tb As TextBox, ByVal s As String,
@@ -1849,7 +1874,7 @@ RadioConnected:
         combos = New List(Of Combo)
         enableDisableControls = New List(Of Control)
 
-        ModeControl.Visible = True
+        ModeControl.Visible = (ActiveUIMode <> UIMode.Logging)
         ModeControl.Clear()
         ModeControl.Enabled = True
         modeList = New ArrayList
@@ -1880,7 +1905,7 @@ RadioConnected:
         Tracing.TraceLine("configVariableControls", TraceLevel.Info)
         enableDisableControls.Remove(TransmitButton)
         'TransmitButton.Enabled = False
-        TransmitButton.Visible = True
+        TransmitButton.Visible = (ActiveUIMode <> UIMode.Logging)
         If RigControl.MyCaps.HasCap(RigCaps.Caps.ManualTransmit) Then
             'TransmitButton.Enabled = True
             'TransmitButton.Visible = True
@@ -1889,9 +1914,9 @@ RadioConnected:
 
         setButtonText(AntennaTuneButton, antennaTuneButtonText)
         'TXTuneControl.Enabled = False
-        TXTuneControl.Visible = True
+        TXTuneControl.Visible = (ActiveUIMode <> UIMode.Logging)
         'AntennaTuneButton.Enabled = False
-        AntennaTuneButton.Visible = True
+        AntennaTuneButton.Visible = (ActiveUIMode <> UIMode.Logging)
         combos.Remove(TXTuneControl)
         enableDisableControls.Remove(TXTuneControl)
         enableDisableControls.Remove(AntennaTuneButton)
@@ -2071,6 +2096,16 @@ RadioConnected:
 
     Private Sub Form1_Activated(sender As System.Object, e As System.EventArgs) Handles MyBase.Activated
         BringToFront()
+    End Sub
+
+    Private Sub Form1_Shown(sender As Object, e As EventArgs) Handles MyBase.Shown
+        ' After initial display, reclaim focus in case another process grabbed it during load.
+        Me.Activate()
+        If ActiveUIMode = UIMode.Logging AndAlso LoggingLogPanel IsNot Nothing Then
+            LoggingLogPanel.FocusCallSign()
+        ElseIf FreqOut.Visible Then
+            FreqOut.Focus()
+        End If
     End Sub
 
     Private Sub CWMessageUpdateMenuItem_Click(sender As System.Object, e As System.EventArgs) Handles CWMessageUpdateMenuItem.Click
@@ -2982,7 +3017,7 @@ RadioConnected:
         If LoggingModeMenu IsNot Nothing Then LoggingModeMenu.Visible = False
         If LoggingSplitContainer IsNot Nothing Then LoggingSplitContainer.Visible = False
 
-        ' Show standard radio controls
+        ' Show standard radio controls (restores Visible and TabStop)
         ShowRadioControls(True)
 
         HelpToolStripMenuItem.Visible = True
@@ -3011,7 +3046,7 @@ RadioConnected:
         If LoggingModeMenu IsNot Nothing Then LoggingModeMenu.Visible = False
         If LoggingSplitContainer IsNot Nothing Then LoggingSplitContainer.Visible = False
 
-        ' Show standard radio controls
+        ' Show standard radio controls (restores Visible and TabStop)
         ShowRadioControls(True)
 
         HelpToolStripMenuItem.Visible = True
@@ -3022,6 +3057,8 @@ RadioConnected:
     ''' Hide standard radio controls — the RadioPane provides a minimal display.
     ''' </summary>
     Private Sub ShowLoggingUI()
+        Tracing.TraceLine("ShowLoggingUI", TraceLevel.Info)
+
         ' Hide Classic menus
         ActionsToolStripMenuItem.Visible = False
         ScreenFieldsMenu.Visible = False
@@ -3039,9 +3076,17 @@ RadioConnected:
         If LoggingNavigateMenu IsNot Nothing Then LoggingNavigateMenu.Visible = True
         If LoggingModeMenu IsNot Nothing Then LoggingModeMenu.Visible = True
 
-        ' Hide standard radio controls, show Logging panels
+        ' Hide standard radio controls (including TabStop), show Logging panels
         ShowRadioControls(False)
-        If LoggingSplitContainer IsNot Nothing Then LoggingSplitContainer.Visible = True
+        If LoggingSplitContainer IsNot Nothing Then
+            ' Recalculate size in case form layout changed since BuildLoggingPanels.
+            LoggingSplitContainer.Location = New Drawing.Point(0, MenuStrip1.Bottom)
+            LoggingSplitContainer.Size = New Drawing.Size(
+                Me.ClientSize.Width,
+                Me.ClientSize.Height - MenuStrip1.Height)
+            LoggingSplitContainer.Visible = True
+            LoggingSplitContainer.BringToFront()
+        End If
         If LoggingRadioPane IsNot Nothing Then LoggingRadioPane.UpdateFromRadio()
 
         ' Initialize the LogPanel session if needed.
@@ -3081,8 +3126,15 @@ RadioConnected:
     ''' Saves the current base mode, switches to Logging, auto-opens log if needed.
     ''' </summary>
     Friend Sub EnterLoggingMode()
-        If CurrentOp Is Nothing Then Return
-        If ActiveUIMode = UIMode.Logging Then Return  ' Already in Logging Mode
+        Tracing.TraceLine("EnterLoggingMode: ActiveUIMode=" & ActiveUIMode.ToString(), TraceLevel.Info)
+        If CurrentOp Is Nothing Then
+            Tracing.TraceLine("EnterLoggingMode: ABORT — no operator", TraceLevel.Warning)
+            Return
+        End If
+        If ActiveUIMode = UIMode.Logging Then
+            Tracing.TraceLine("EnterLoggingMode: ABORT — already in Logging Mode", TraceLevel.Warning)
+            Return
+        End If
 
         ' Remember which base mode we're in so ExitLoggingMode can restore it.
         LastNonLogMode = ActiveUIMode
@@ -3228,10 +3280,12 @@ RadioConnected:
     End Sub
 
     ''' <summary>
-    ''' Handle Ctrl+Shift+M (Classic/Modern toggle), Ctrl+Shift+L (Logging Mode toggle),
-    ''' and F6/Shift+F6 (pane switching in Logging Mode).
+    ''' Handle mode toggles, pane switching, and Logging Mode field-jump hotkeys.
+    ''' In Logging Mode, Classic log hotkeys are intercepted here and redirected
+    ''' to the LogPanel instead of opening the full-screen LogEntry form.
     ''' </summary>
     Protected Overrides Function ProcessCmdKey(ByRef msg As Message, keyData As Keys) As Boolean
+        ' --- Mode toggles (always active) ---
         If keyData = (Keys.Control Or Keys.Shift Or Keys.M) Then
             ToggleUIMode()
             Return True
@@ -3240,13 +3294,56 @@ RadioConnected:
             ToggleLoggingMode()
             Return True
         End If
-        ' F6 pane switching in Logging Mode.
-        If ActiveUIMode = UIMode.Logging Then
+
+        ' --- Logging Mode hotkeys (only when in Logging Mode) ---
+        If ActiveUIMode = UIMode.Logging AndAlso LoggingLogPanel IsNot Nothing Then
+            ' F6 pane switching.
             If keyData = Keys.F6 OrElse keyData = (Keys.F6 Or Keys.Shift) Then
                 ToggleLoggingPaneFocus()
                 Return True
             End If
+
+            ' Field-jump hotkeys — redirect Classic log keys to LogPanel fields.
+            Select Case keyData
+                Case Keys.C Or Keys.Alt               ' Alt+C → Call Sign
+                    LoggingLogPanel.FocusField("CALL")
+                    Return True
+                Case Keys.T Or Keys.Alt                ' Alt+T → RST Sent (senT)
+                    LoggingLogPanel.FocusField("RSTSENT")
+                    Return True
+                Case Keys.R Or Keys.Alt                ' Alt+R → RST Received
+                    LoggingLogPanel.FocusField("RSTRCVD")
+                    Return True
+                Case Keys.N Or Keys.Alt                ' Alt+N → Name
+                    LoggingLogPanel.FocusField("NAME")
+                    Return True
+                Case Keys.Q Or Keys.Alt                ' Alt+Q → QTH
+                    LoggingLogPanel.FocusField("QTH")
+                    Return True
+                Case Keys.S Or Keys.Alt                ' Alt+S → State
+                    LoggingLogPanel.FocusField("STATE")
+                    Return True
+                Case Keys.G Or Keys.Alt                ' Alt+G → Grid
+                    LoggingLogPanel.FocusField("GRID")
+                    Return True
+                Case Keys.E Or Keys.Alt                ' Alt+E → Comments
+                    LoggingLogPanel.FocusField("COMMENTS")
+                    Return True
+
+                ' Action hotkeys.
+                Case Keys.N Or Keys.Control            ' Ctrl+N → New Entry (clear form)
+                    LoggingLogPanel.NewEntry()
+                    Radios.ScreenReaderOutput.Speak("New entry", True)
+                    Return True
+                Case Keys.W Or Keys.Control            ' Ctrl+W → Write/Save Entry
+                    LoggingLogPanel.WriteEntry()
+                    Return True
+                Case Keys.N Or Keys.Control Or Keys.Shift  ' Ctrl+Shift+N → Log Characteristics
+                    LogCharacteristicsMenuItem_Click(Nothing, EventArgs.Empty)
+                    Return True
+            End Select
         End If
+
         Return MyBase.ProcessCmdKey(msg, keyData)
     End Function
 
@@ -3280,6 +3377,9 @@ RadioConnected:
         LoggingLogPanel.Dock = DockStyle.Fill
         LoggingSplitContainer.Panel1.Controls.Add(LoggingRadioPane)
         LoggingSplitContainer.Panel2.Controls.Add(LoggingLogPanel)
+
+        ' Prevent the splitter bar from getting Tab focus.
+        LoggingSplitContainer.TabStop = False
 
         Me.Controls.Add(LoggingSplitContainer)
         LoggingSplitContainer.BringToFront()
@@ -3316,14 +3416,31 @@ RadioConnected:
     ''' </summary>
     Private Sub ShowRadioControls(visible As Boolean)
         FreqOut.Visible = visible
+        FreqOut.TabStop = visible
         ModeControl.Visible = visible
+        ModeControl.TabStop = visible
         TXTuneControl.Visible = visible
+        TXTuneControl.TabStop = visible
         TransmitButton.Visible = visible
+        TransmitButton.TabStop = visible
         AntennaTuneButton.Visible = visible
+        AntennaTuneButton.TabStop = visible
         ReceivedTextBox.Visible = visible
+        ReceivedTextBox.TabStop = visible
         SentTextBox.Visible = visible
+        SentTextBox.TabStop = visible
         ReceiveLabel.Visible = visible
         SendLabel.Visible = visible
+        StatusBox.Visible = visible
+        StatusBox.TabStop = visible
+        RigFieldsBox.Visible = visible
+        RigFieldsBox.TabStop = visible
+        ' Also hide the dynamically-added RigFields panel (e.g. Flex6300Filters).
+        If RigControl IsNot Nothing AndAlso RigControl.RigFields IsNot Nothing AndAlso
+           RigControl.RigFields.RigControl IsNot Nothing Then
+            RigControl.RigFields.RigControl.Visible = visible
+            RigControl.RigFields.RigControl.TabStop = visible
+        End If
     End Sub
 
     ''' <summary>
@@ -3337,7 +3454,7 @@ RadioConnected:
             LoggingLogPanel.FocusCallSign()
             Radios.ScreenReaderOutput.Speak("Log entry pane", True)
         Else
-            LoggingRadioPane.Focus()
+            LoggingRadioPane.FocusFirst()
             Radios.ScreenReaderOutput.Speak("Radio pane", True)
         End If
     End Sub

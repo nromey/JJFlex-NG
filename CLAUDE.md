@@ -108,6 +108,16 @@ dotnet clean JJFlexRadio.sln -c Release -p:Platform=x64 && dotnet build JJFlexRa
 
 **Always use `dotnet clean` before `dotnet build` when you need fresh output.** Or use `build-installers.bat` which deletes the output folder before building.
 
+### CRITICAL: Verify Build Output After Every Build
+
+**After every build, verify the exe timestamp matches the current time.** Stale binaries have wasted entire testing sessions. Run:
+
+```batch
+powershell -Command "(Get-Item 'bin\x64\Release\net8.0-windows\win-x64\JJFlexRadio.exe').LastWriteTime.ToString('yyyy-MM-dd HH:mm:ss')"
+```
+
+If the timestamp doesn't match the current time, the build did NOT produce a fresh binary. Also note: building the **solution** (`JJFlexRadio.sln`) may skip the main project — always build the **project** directly (`JJFlexRadio.vbproj`) to be safe.
+
 ### Platforms
 - Primary: x64 (64-bit, recommended)
 - Legacy: x86 (32-bit, for older systems)
@@ -274,6 +284,12 @@ powershell -Command "(Get-Item 'bin\x64\Release\net8.0-windows\win-x64\JJFlexRad
 3. Update `TlsCommandCommunication.cs` to use wrapper
 4. Verify TLS negotiation in remote connect
 5. Update version references
+
+### Trace File Location
+- Boot trace: `%AppData%\JJFlexRadio\JJFlexRadioTrace.txt` (enabled when `BootTrace = True` in `globals.vb`)
+- Multi-instance: `%AppData%\JJFlexRadio\JJFlexRadio2Trace.txt` (instance 2+)
+- User-initiated trace: set via Operations → Tracing in the UI (`TraceAdmin.vb`)
+- Tracing code: `JJTrace\Tracing.cs`
 
 ### Debug Remote/SmartLink
 1. Check `AuthFormWebView2.cs` for Auth0 flow (uses WebView2/Edge)

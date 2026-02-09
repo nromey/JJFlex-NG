@@ -158,6 +158,13 @@ Public Class PersonalData
         Public UIModeDismissed As Boolean = False
 
         ''' <summary>
+        ''' When True, pressing Escape in Logging Mode clears the form without
+        ''' a confirmation dialog. Screen reader just says "Entry cleared".
+        ''' Handy during pileups when you don't want a dialog slowing you down.
+        ''' </summary>
+        Public SuppressClearConfirm As Boolean = False
+
+        ''' <summary>
         ''' Validated UI mode. Returns Classic for unknown or not-yet-implemented values.
         ''' </summary>
         <XmlIgnore()> Friend Property CurrentUIMode As UIMode
@@ -165,8 +172,7 @@ Public Class PersonalData
                 If UIModeSetting = CInt(UIMode.Modern) Then
                     Return UIMode.Modern
                 End If
-                ' Logging mode falls back to Classic until the Logging sprint ships.
-                ' Unknown values also fall back to Classic.
+                ' Unknown values (including stale Logging=2) fall back to Classic.
                 Return UIMode.Classic
             End Get
             Set(value As UIMode)
@@ -196,6 +202,7 @@ Public Class PersonalData
             KeepDailyTraceLogs = p.KeepDailyTraceLogs
             UIModeSetting = p.UIModeSetting
             UIModeDismissed = p.UIModeDismissed
+            SuppressClearConfirm = p.SuppressClearConfirm
         End Sub
         Friend Sub New(p As personal)
             fileName = p.fileName

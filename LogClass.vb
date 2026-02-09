@@ -160,7 +160,8 @@ Public Class LogClass
                 cleanups = New List(Of cleanupClass)
             Catch ex As Exception
                 Tracing.ErrMessageTrace(ex, False, False)
-                MsgBox(cantUseLog & Name)
+                MsgBox(cantUseLog & Name & ". Error type " & ex.GetType().Name & ". " & ex.Message,
+                       MsgBoxStyle.OkOnly, "Log File Error")
                 Return 0
             End Try
         Else
@@ -179,7 +180,8 @@ Public Class LogClass
     ''' </summary>
     ''' <returns>true on success.</returns>
     Public Function Close(id As Integer) As Boolean
-        Tracing.TraceLine("LogClass Close:" & id.ToString & " " & sessions.ToString, TraceLevel.Info)
+        Tracing.TraceLine("LogClass Close: id=" & id.ToString & " sessions=" & sessions.ToString &
+                          " file=" & If(Name, "null"), TraceLevel.Info)
         If sessions = 0 Then
             Return False
         End If

@@ -425,7 +425,7 @@ namespace JJLogIO
             EOF = false;
             try
             {
-                fs = new FileStream(fileName, FileMode.OpenOrCreate, FileAccess.ReadWrite);
+                fs = new FileStream(fileName, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.ReadWrite);
                 rfs = new BinaryReader(fs);
                 wfs = new BinaryWriter(fs);
             }

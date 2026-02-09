@@ -37,15 +37,30 @@ Module globals
     End Enum
 
     ''' <summary>
+    ''' Session-only flag — True while in Logging Mode overlay.
+    ''' Never touches UIModeSetting so the persisted Classic/Modern choice is preserved.
+    ''' </summary>
+    Private _isInLoggingMode As Boolean = False
+
+    ''' <summary>
     ''' The active UI mode for the current operator.
-    ''' Reads from the current operator's persisted setting; falls back to Classic for unknown values.
+    ''' Logging is a session-only overlay that never writes to the operator config.
+    ''' Classic/Modern persist normally.
     ''' </summary>
     Friend Property ActiveUIMode As UIMode
         Get
+            If _isInLoggingMode Then Return UIMode.Logging
             If CurrentOp Is Nothing Then Return UIMode.Classic
             Return CurrentOp.CurrentUIMode
         End Get
         Set(value As UIMode)
+            If value = UIMode.Logging Then
+                ' Logging is session-only — just set the flag, don't touch persisted settings.
+                _isInLoggingMode = True
+                Return
+            End If
+            ' Leaving Logging (or switching Classic/Modern) — clear the flag and persist.
+            _isInLoggingMode = False
             If CurrentOp Is Nothing Then Return
             CurrentOp.UIModeSetting = CInt(value)
             Operators.UpdateCurrentOp()

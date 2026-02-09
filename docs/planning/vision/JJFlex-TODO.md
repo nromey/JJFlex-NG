@@ -31,7 +31,19 @@ Last updated: 2026-01-31
 - [ ] 4O3A device integration plan (SDK/protocol + device matrix)
 - [ ] Tuner Genius support planning
 
+## Sprint 5 — QRZ + Logging Graduation
+- [ ] QRZ.com integration (callsign lookup, auto-fill from QRZ database)
+- [ ] Graduate LogPanel to full-featured: add record navigation (PageUp/Down browse)
+- [ ] Graduate LogPanel: edit existing records (load, modify, update)
+- [ ] Graduate LogPanel: search log (find QSOs by criteria)
+- [ ] Graduate LogPanel: load more records in Recent QSOs grid (batch/paging)
+- [ ] Modern Mode gets embedded LogPanel (split view like Logging Mode)
+- [ ] Classic Mode keeps full-screen LogEntry form (JJ's original design)
+- [ ] Settings tab for managing Logging Mode preferences (suppress confirmations, etc.)
+- [ ] Screen reader verbosity levels (concise vs. verbose announcements for pileup vs. ragchew)
+- [ ] Contest-specific exchange validation (Field Day, NA Sprint, etc. — each has different required fields)
+
 ## Long-term
 - [ ] RTL-SDR/Airspy/SDRplay source support planning
-- [ ] Braille + sonified waterfall “famous interface” implementation
+- [ ] Braille + sonified waterfall "famous interface" implementation
 - [ ] Multi-radio simultaneous operation (possible premium)

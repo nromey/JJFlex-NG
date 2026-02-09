@@ -33,9 +33,18 @@ Friend Class RadioPane
     Friend Sub New()
         MyBase.New()
         Me.Name = "RadioPane"
+        Me.TabStop = False            ' Reachable only via F6 (not Tab)
         Me.AccessibleName = "Radio pane"
         Me.AccessibleRole = AccessibleRole.Pane
         BuildControls()
+    End Sub
+
+    ''' <summary>
+    ''' Give keyboard focus to the first control in the RadioPane.
+    ''' Called by Form1's F6 pane-switching logic since TabStop is off.
+    ''' </summary>
+    Friend Sub FocusFirst()
+        FreqBox.Focus()
     End Sub
 
     ''' <summary>
@@ -45,7 +54,7 @@ Friend Class RadioPane
     Friend Sub UpdateFromRadio()
         If RigControl Is Nothing OrElse Not Power Then
             FreqBox.Text = "No radio"
-            FreqBox.AccessibleName = "Frequency: no radio connected"
+            FreqBox.AccessibleName = "Radio pane, Frequency: no radio connected"
             ModeBox.Text = "---"
             ModeBox.AccessibleName = "Mode: none"
             BandBox.Text = "---"
@@ -60,7 +69,7 @@ Friend Class RadioPane
         Dim rxFreq = RigControl.RXFrequency
         Dim freqText = FormatFreq(rxFreq)
         FreqBox.Text = freqText & " MHz"
-        FreqBox.AccessibleName = "Frequency " & freqText & " megahertz"
+        FreqBox.AccessibleName = "Radio pane, Frequency " & freqText & " megahertz"
 
         ' Mode
         Dim modeText = ""
@@ -192,10 +201,14 @@ Friend Class RadioPane
         Dim yPos As Integer = 8
 
         ' Frequency — read-only TextBox so Tab can reach it and screen reader reads it.
-        FreqBox = MakeReadOnlyField("Frequency", 8, yPos, 180, 24,
+        FreqBox = MakeReadOnlyField("Radio pane, Frequency", 8, yPos, 180, 24,
                                      New Font(Me.Font.FontFamily, 12, FontStyle.Bold))
         FreqBox.Text = "No radio"
         FreqBox.TabIndex = 0
+        ' Announce "Radio pane" when Tab first lands on FreqBox.
+        AddHandler FreqBox.Enter, Sub(s As Object, ev As EventArgs)
+                                      ScreenReaderOutput.Speak("Radio pane", True)
+                                  End Sub
         yPos += 30
 
         ' Mode
