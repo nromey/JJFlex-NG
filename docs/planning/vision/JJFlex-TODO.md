@@ -69,6 +69,10 @@ Last updated: 2026-02-09
 - [ ] 4O3A device integration plan (SDK/protocol + device matrix)
 - [ ] Tuner Genius support planning
 
+## Logging Mode Customization (future sprint)
+- [ ] Customizable LogPanel field layout: let operators choose which fields appear in the quick-entry logger. JJ's full LogEntry form remains available via Ctrl+Alt+L for all fields. The field picker must be fully accessible (screen-reader-friendly list with add/remove/reorder).
+- [ ] Contest designer / contest mode: review JJ's existing contest C# files in JJLogLib (FieldDay.cs, NASprint.cs, SKCCWESLog.cs), assess whether they work and are useful. Consider building a contest designer that lets operators define required exchange fields and contest rules. May be complex — research scope before committing. At minimum, validate existing contest exchange definitions work with LogPanel.
+
 ## Sprint 5 — QRZ + Logging Graduation
 - [ ] QRZ.com integration (callsign lookup, auto-fill from QRZ database)
 - [ ] Graduate LogPanel to full-featured: add record navigation (PageUp/Down browse)

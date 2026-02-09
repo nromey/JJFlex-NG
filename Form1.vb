@@ -3146,6 +3146,14 @@ RadioConnected:
             ConfigContactLog()
         End If
 
+        ' Initialize callbook lookup if configured.
+        If LoggingLogPanel IsNot Nothing AndAlso CurrentOp IsNot Nothing Then
+            LoggingLogPanel.InitializeCallbook(
+                CurrentOp.CallbookLookupSource,
+                CurrentOp.CallbookUsername,
+                CurrentOp.CallbookPassword)
+        End If
+
         ' Focus the log panel call sign field.
         If LoggingLogPanel IsNot Nothing Then LoggingLogPanel.FocusCallSign()
 
@@ -3162,7 +3170,10 @@ RadioConnected:
         If ActiveUIMode <> UIMode.Logging Then Return  ' Not in Logging Mode
 
         ' Preserve in-progress QSO fields so re-entering Logging Mode restores them.
-        If LoggingLogPanel IsNot Nothing Then LoggingLogPanel.SaveState()
+        If LoggingLogPanel IsNot Nothing Then
+            LoggingLogPanel.SaveState()
+            LoggingLogPanel.FinishCallbook()
+        End If
 
         Dim returnMode = LastNonLogMode
         ActiveUIMode = returnMode

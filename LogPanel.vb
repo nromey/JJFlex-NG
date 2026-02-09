@@ -55,6 +55,11 @@ Friend Class LogPanel
     Private currentCall As String = ""
     Private isDup As Boolean = False
 
+    ' --- Callbook lookup (QRZ or HamQTH) ---
+    Private qrzLookup As QrzLookup.QrzCallbookLookup = Nothing
+    Private hamqthLookup As HamQTHLookup.CallbookLookup = Nothing
+    Private lastLookedUpCall As String = ""
+
     ' --- Call sign index: built during log scan, used for instant previous-contact lookup ---
     Private callIndex As New Dictionary(Of String, PreviousContactInfo)(StringComparer.OrdinalIgnoreCase)
 
@@ -108,6 +113,7 @@ Friend Class LogPanel
         DupLabel.Text = "Dup: 0"
         isDup = False
         currentCall = ""
+        lastLookedUpCall = ""
         ClearPreviousContact()
         CallSignBox.Focus()
     End Sub
@@ -262,6 +268,132 @@ Friend Class LogPanel
             Case Else : CallSignBox.Focus()
         End Select
     End Sub
+
+#Region "Callbook Lookup"
+
+    ''' <summary>
+    ''' Initialize callbook lookup based on operator settings.
+    ''' Called from Form1.EnterLoggingMode() after Initialize().
+    ''' </summary>
+    Friend Sub InitializeCallbook(source As String, username As String, password As String)
+        FinishCallbook()  ' Clean up any previous instance.
+        lastLookedUpCall = ""
+
+        If String.IsNullOrEmpty(source) OrElse source = "None" Then Return
+        If String.IsNullOrEmpty(username) OrElse String.IsNullOrEmpty(password) Then Return
+
+        Select Case source
+            Case "QRZ"
+                qrzLookup = New QrzLookup.QrzCallbookLookup(username, password)
+                AddHandler qrzLookup.CallsignSearchEvent, AddressOf QrzResultHandler
+                Tracing.TraceLine("LogPanel: QRZ callbook lookup initialized", Diagnostics.TraceLevel.Info)
+            Case "HamQTH"
+                hamqthLookup = New HamQTHLookup.CallbookLookup(username, password)
+                AddHandler hamqthLookup.CallsignSearchEvent, AddressOf HamQTHResultHandler
+                Tracing.TraceLine("LogPanel: HamQTH callbook lookup initialized", Diagnostics.TraceLevel.Info)
+        End Select
+    End Sub
+
+    ''' <summary>
+    ''' Clean up callbook lookup resources. Called from Form1.ExitLoggingMode().
+    ''' </summary>
+    Friend Sub FinishCallbook()
+        If qrzLookup IsNot Nothing Then
+            RemoveHandler qrzLookup.CallsignSearchEvent, AddressOf QrzResultHandler
+            qrzLookup.Finished()
+            qrzLookup = Nothing
+        End If
+        If hamqthLookup IsNot Nothing Then
+            RemoveHandler hamqthLookup.CallsignSearchEvent, AddressOf HamQTHResultHandler
+            hamqthLookup.Finished()
+            hamqthLookup = Nothing
+        End If
+    End Sub
+
+    ''' <summary>
+    ''' Trigger a callbook lookup for the given call sign.
+    ''' Called from CallSignBox_Leave after local lookups.
+    ''' </summary>
+    Private Sub TriggerCallbookLookup(callSign As String)
+        If String.IsNullOrEmpty(callSign) Then Return
+        If callSign = lastLookedUpCall Then Return
+        lastLookedUpCall = callSign
+
+        If qrzLookup IsNot Nothing AndAlso qrzLookup.CanLookup Then
+            qrzLookup.LookupCall(callSign)
+        ElseIf hamqthLookup IsNot Nothing AndAlso hamqthLookup.CanLookup Then
+            hamqthLookup.LookupCall(callSign)
+        End If
+    End Sub
+
+    ''' <summary>
+    ''' Handle QRZ lookup result — convert to CallbookResult and apply.
+    ''' Called on a background thread; marshals to UI thread.
+    ''' </summary>
+    Private Sub QrzResultHandler(result As QrzLookup.QrzCallbookLookup.QrzDatabase)
+        If result Is Nothing OrElse result.Callsign Is Nothing Then Return
+        Dim cbr As New CallbookResult() With {
+            .Source = "QRZ",
+            .Name = If(result.Callsign.FirstName, ""),
+            .QTH = If(result.Callsign.City, ""),
+            .State = If(result.Callsign.State, ""),
+            .Grid = If(result.Callsign.Grid, ""),
+            .Country = If(result.Callsign.Country, "")
+        }
+        ApplyCallbookResult(cbr)
+    End Sub
+
+    ''' <summary>
+    ''' Handle HamQTH lookup result — convert to CallbookResult and apply.
+    ''' Called on a background thread; marshals to UI thread.
+    ''' </summary>
+    Private Sub HamQTHResultHandler(result As HamQTHLookup.CallbookLookup.HamQTH)
+        If result Is Nothing OrElse result.search Is Nothing Then Return
+        Dim cbr As New CallbookResult() With {
+            .Source = "HamQTH",
+            .Name = If(result.search.nick, ""),
+            .QTH = If(result.search.qth, If(result.search.adr_city, "")),
+            .State = If(result.search.State, ""),
+            .Grid = If(result.search.grid, ""),
+            .Country = If(result.search.country, "")
+        }
+        ApplyCallbookResult(cbr)
+    End Sub
+
+    ''' <summary>
+    ''' Apply a callbook result to empty fields. Marshals to UI thread if needed.
+    ''' Only fills fields that are currently empty (local data + user input takes priority).
+    ''' </summary>
+    Private Sub ApplyCallbookResult(result As CallbookResult)
+        If Me.InvokeRequired Then
+            Me.BeginInvoke(Sub() ApplyCallbookResult(result))
+            Return
+        End If
+
+        Dim filled As New List(Of String)
+        If FillIfEmpty(NameBox, result.Name) Then filled.Add("Name")
+        If FillIfEmpty(QTHBox, result.QTH) Then filled.Add("QTH")
+        If FillIfEmpty(StateBox, result.State) Then filled.Add("State")
+        If FillIfEmpty(GridBox, result.Grid) Then filled.Add("Grid")
+
+        ' Brief SR announcement: "QRZ: Name, QTH, Grid"
+        If filled.Count > 0 Then
+            ScreenReaderOutput.Speak(result.Source & ": " & String.Join(", ", filled), True)
+        End If
+    End Sub
+
+    ''' <summary>
+    ''' Fill a TextBox only if it's currently empty and the value is non-empty.
+    ''' Returns True if the field was filled.
+    ''' </summary>
+    Private Shared Function FillIfEmpty(tb As TextBox, value As String) As Boolean
+        If String.IsNullOrEmpty(value) Then Return False
+        If Not String.IsNullOrEmpty(tb.Text.Trim()) Then Return False
+        tb.Text = value
+        Return True
+    End Function
+
+#End Region
 
 #Region "Previous Contact Lookup"
 
@@ -702,6 +834,10 @@ Friend Class LogPanel
         If callText <> currentCall Then
             ShowPreviousContact(callText)
         End If
+
+        ' Callbook lookup (async — fills empty fields when results arrive).
+        ' Runs after local lookups so local data takes priority.
+        TriggerCallbookLookup(callText)
 
         currentCall = callText
     End Sub
