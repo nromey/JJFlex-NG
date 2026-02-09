@@ -68,7 +68,7 @@ Public Class PersonalInfo
             Dim srcIdx = CallbookSourceCombo.Items.IndexOf(If(.CallbookLookupSource, "None"))
             CallbookSourceCombo.SelectedIndex = If(srcIdx >= 0, srcIdx, 0)
             CallbookUsernameBox.Text = If(.CallbookUsername, "")
-            CallbookPasswordBox.Text = If(.CallbookPassword, "")
+            CallbookPasswordBox.Text = If(.DecryptedCallbookPassword, "")
             UpdateCallbookFieldsEnabled()
         End With
         ' Now use a new theOp for an update.
@@ -137,7 +137,7 @@ Public Class PersonalInfo
             .CallbookLookupSource = CallbookSourceCombo.SelectedItem?.ToString()
             If .CallbookLookupSource Is Nothing Then .CallbookLookupSource = "None"
             .CallbookUsername = CallbookUsernameBox.Text.Trim
-            .CallbookPassword = CallbookPasswordBox.Text.Trim
+            .DecryptedCallbookPassword = CallbookPasswordBox.Text.Trim
             Dim n As Integer
             ' Default the braille display size if none given.
             If BRLSizeBox.Text = "" Then

@@ -2,6 +2,8 @@
 Imports System.Collections.ObjectModel
 Imports System.IO
 Imports System.IO.Directory
+Imports System.Security.Cryptography
+Imports System.Text
 Imports System.Text.RegularExpressions
 Imports System.Xml.Serialization
 Imports HamBands
@@ -176,9 +178,24 @@ Public Class PersonalData
         Public CallbookUsername As String = ""
 
         ''' <summary>
-        ''' Password for the selected callbook service (QRZ or HamQTH).
+        ''' Plaintext password — kept for backward compatibility with old XML files.
+        ''' On load: if this is non-empty and CallbookPasswordEncrypted is empty,
+        ''' it's migrated to encrypted form and wiped. After migration, this field
+        ''' is always empty on disk. At runtime, use DecryptedCallbookPassword instead.
         ''' </summary>
         Public CallbookPassword As String = ""
+
+        ''' <summary>
+        ''' DPAPI-encrypted password stored in the operator XML file.
+        ''' Tied to the Windows user account — useless if copied to another machine/user.
+        ''' </summary>
+        Public CallbookPasswordEncrypted As String = ""
+
+        ''' <summary>
+        ''' Runtime plaintext password (decrypted from DPAPI on load).
+        ''' NOT serialized — use this property for all runtime access.
+        ''' </summary>
+        <XmlIgnore()> Public DecryptedCallbookPassword As String = ""
 
         ''' <summary>
         ''' Validated UI mode. Returns Classic for unknown or not-yet-implemented values.
@@ -195,6 +212,71 @@ Public Class PersonalData
                 UIModeSetting = CInt(value)
             End Set
         End Property
+
+        ''' <summary>
+        ''' Encrypt a plaintext string using Windows DPAPI (CurrentUser scope).
+        ''' Tied to the Windows login — copying the file to another user/machine is useless.
+        ''' </summary>
+        Friend Shared Function EncryptWithDpapi(plainText As String) As String
+            If String.IsNullOrEmpty(plainText) Then Return String.Empty
+            Dim plainBytes = Encoding.UTF8.GetBytes(plainText)
+            Dim encBytes = ProtectedData.Protect(plainBytes, Nothing, DataProtectionScope.CurrentUser)
+            Return Convert.ToBase64String(encBytes)
+        End Function
+
+        ''' <summary>
+        ''' Decrypt a DPAPI-encrypted Base64 string. Returns empty string on failure
+        ''' (wrong user, wrong machine, corrupted data).
+        ''' </summary>
+        Friend Shared Function DecryptWithDpapi(encryptedBase64 As String) As String
+            If String.IsNullOrEmpty(encryptedBase64) Then Return String.Empty
+            Try
+                Dim encBytes = Convert.FromBase64String(encryptedBase64)
+                Dim plainBytes = ProtectedData.Unprotect(encBytes, Nothing, DataProtectionScope.CurrentUser)
+                Return Encoding.UTF8.GetString(plainBytes)
+            Catch
+                ' Decryption failed — different user, different machine, or corrupted data.
+                Return String.Empty
+            End Try
+        End Function
+
+        ''' <summary>
+        ''' After deserialization, decrypt credentials and handle migration from plaintext.
+        ''' Call this after XmlSerializer.Deserialize() loads the object.
+        ''' Returns True if a write is needed (migration occurred).
+        ''' </summary>
+        Friend Function DecryptCredentials() As Boolean
+            Dim needsWrite As Boolean = False
+
+            If Not String.IsNullOrEmpty(CallbookPasswordEncrypted) Then
+                ' Normal path: decrypt the DPAPI blob into the runtime field.
+                DecryptedCallbookPassword = DecryptWithDpapi(CallbookPasswordEncrypted)
+            ElseIf Not String.IsNullOrEmpty(CallbookPassword) Then
+                ' Migration path: old plaintext password found, encrypt it.
+                DecryptedCallbookPassword = CallbookPassword
+                CallbookPasswordEncrypted = EncryptWithDpapi(CallbookPassword)
+                CallbookPassword = ""  ' Wipe plaintext from the object.
+                needsWrite = True
+                Tracing.TraceLine("PersonalData: migrated plaintext callbook password to DPAPI",
+                                  TraceLevel.Info)
+            End If
+
+            Return needsWrite
+        End Function
+
+        ''' <summary>
+        ''' Before serialization, encrypt the runtime password into the storage field
+        ''' and ensure the plaintext field is empty (never written to disk).
+        ''' </summary>
+        Friend Sub EncryptCredentials()
+            If Not String.IsNullOrEmpty(DecryptedCallbookPassword) Then
+                CallbookPasswordEncrypted = EncryptWithDpapi(DecryptedCallbookPassword)
+            Else
+                CallbookPasswordEncrypted = ""
+            End If
+            ' Never write plaintext to disk.
+            CallbookPassword = ""
+        End Sub
 
         Public Sub New()
             NumberOfLogs = NumberOfLogsDefault
@@ -222,6 +304,8 @@ Public Class PersonalData
             CallbookLookupSource = p.CallbookLookupSource
             CallbookUsername = p.CallbookUsername
             CallbookPassword = p.CallbookPassword
+            CallbookPasswordEncrypted = p.CallbookPasswordEncrypted
+            DecryptedCallbookPassword = p.DecryptedCallbookPassword
         End Sub
         Friend Sub New(p As personal)
             fileName = p.fileName
@@ -375,16 +459,27 @@ Public Class PersonalData
                 If err Then
                     Exit For
                 End If
+
+                ' Decrypt callbook credentials (or migrate plaintext → DPAPI).
+                Dim credentialsMigrated = p.DecryptCredentials()
+
                 ' Migrate old HamQTH credentials to new callbook fields if present.
                 If (p.HamqthID <> vbNullString) Or (p.HamqthPassword <> vbNullString) Then
                     If String.IsNullOrEmpty(p.CallbookUsername) AndAlso
                        Not String.IsNullOrEmpty(p.HamqthID) Then
                         p.CallbookLookupSource = "HamQTH"
                         p.CallbookUsername = p.HamqthID
-                        p.CallbookPassword = p.HamqthPassword
+                        ' Set the runtime password and encrypt it.
+                        p.DecryptedCallbookPassword = p.HamqthPassword
                     End If
                     p.HamqthID = ""
                     p.HamqthPassword = ""
+                    p.CallbookPassword = ""  ' Wipe any plaintext.
+                    credentialsMigrated = True
+                End If
+
+                ' Write if any migration occurred (DPAPI encryption or HamQTH migration).
+                If credentialsMigrated Then
                     write(p)
                 End If
             Next
@@ -577,6 +672,9 @@ Public Class PersonalData
     End Sub
 
     Friend Sub Write(ByVal op As personal_v1)
+        ' Encrypt credentials before writing to disk.
+        op.EncryptCredentials()
+
         Dim cfgFile As Stream = Nothing
         Try
             cfgFile = File.Open(op.pathName, FileMode.Create)
