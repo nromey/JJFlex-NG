@@ -3185,6 +3185,46 @@ RadioConnected:
     End Sub
 
     ''' <summary>
+    ''' Open JJ's full LogEntry form as a modal dialog from Logging Mode.
+    ''' Provides access to all ADIF fields and record navigation that the
+    ''' quick-entry LogPanel doesn't have.  Wired to Ctrl+Alt+L.
+    ''' After closing, the LogPanel's recent grid is refreshed.
+    ''' </summary>
+    Private Sub OpenFullLogEntry()
+        If ContactLog Is Nothing Then
+            Radios.ScreenReaderOutput.Speak("No log file is open", True)
+            Return
+        End If
+
+        ' Prompt to save in-progress LogPanel entry before opening the full form.
+        If LoggingLogPanel IsNot Nothing AndAlso LoggingLogPanel.HasUnsavedEntry() Then
+            Dim result = MessageBox.Show(
+                "Save the current log panel entry before opening the full log form?",
+                "Unsaved Entry",
+                MessageBoxButtons.YesNoCancel,
+                MessageBoxIcon.Question)
+            Select Case result
+                Case DialogResult.Yes
+                    If Not LoggingLogPanel.WriteEntry() Then Return  ' Validation failed, stay in LogPanel.
+                Case DialogResult.Cancel
+                    Return  ' User cancelled.
+                    ' DialogResult.No → discard, continue opening full form.
+            End Select
+        End If
+
+        ' Open the full LogEntry form — new entry at end of file.
+        LogEntry.FieldID = adif.AdifTags.ADIF_Call
+        LogEntry.FilePosition = -1
+        Radios.ScreenReaderOutput.Speak("Opening full log form", True)
+        LogEntry.ShowDialog()
+
+        ' Refresh LogPanel grid after returning (user may have logged QSOs in the full form).
+        If LoggingLogPanel IsNot Nothing AndAlso LoggingPanelSession IsNot Nothing Then
+            LoggingLogPanel.Initialize(LoggingPanelSession)
+        End If
+    End Sub
+
+    ''' <summary>
     ''' Toggle Logging Mode on/off. Wired to Ctrl+Shift+L.
     ''' </summary>
     Friend Sub ToggleLoggingMode()
@@ -3224,6 +3264,10 @@ RadioConnected:
         AddModernMenuItem(LoggingLogMenu, "Search Log",
             Sub(s As Object, ev As EventArgs)
                 If Commands IsNot Nothing Then Commands.SearchLogCmd()
+            End Sub)
+        AddModernMenuItem(LoggingLogMenu, "Full Log Form",
+            Sub(s As Object, ev As EventArgs)
+                OpenFullLogEntry()
             End Sub)
         LoggingLogMenu.DropDownItems.Add(New ToolStripSeparator())
         AddModernMenuItem(LoggingLogMenu, "Log Characteristics", AddressOf LogCharacteristicsMenuItem_Click)
@@ -3351,6 +3395,9 @@ RadioConnected:
                     Return True
                 Case Keys.N Or Keys.Control Or Keys.Shift  ' Ctrl+Shift+N → Log Characteristics
                     LogCharacteristicsMenuItem_Click(Nothing, EventArgs.Empty)
+                    Return True
+                Case Keys.L Or Keys.Control Or Keys.Alt  ' Ctrl+Alt+L → Full Log Entry form
+                    OpenFullLogEntry()
                     Return True
             End Select
         End If
