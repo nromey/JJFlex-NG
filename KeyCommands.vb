@@ -399,7 +399,7 @@ Public Class KeyCommands
      New KeyDefType(Keys.T Or Keys.Control Or Keys.Shift, CommandValues.LogStats),
      New KeyDefType(Keys.None, CommandValues.RemoteAudio),
      New KeyDefType(Keys.None, CommandValues.AudioSetup),
-     New KeyDefType(Keys.L Or Keys.Alt, CommandValues.StationLookup),
+     New KeyDefType(Keys.L Or Keys.Control, CommandValues.StationLookup),
      New KeyDefType(Keys.None, CommandValues.GatherDebug),
      New KeyDefType(Keys.None, CommandValues.ATUMemories),
      New KeyDefType(Keys.None, CommandValues.Reboot),

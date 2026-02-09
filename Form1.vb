@@ -3182,6 +3182,17 @@ RadioConnected:
 
     ''' <summary>
     ''' Open JJ's full LogEntry form as a modal dialog from Logging Mode.
+    ''' <summary>
+    ''' Open the Station Lookup dialog from Logging Mode.
+    ''' Reuses the existing KeyCommands StationLookup form via the global instance.
+    ''' </summary>
+    Private Sub stationLookupFromLogging()
+        If LookupStation Is Nothing Then
+            LookupStation = New StationLookup()
+        End If
+        LookupStation.ShowDialog()
+    End Sub
+
     ''' Provides access to all ADIF fields and record navigation that the
     ''' quick-entry LogPanel doesn't have.  Wired to Ctrl+Alt+L.
     ''' After closing, the LogPanel's recent grid is refreshed.
@@ -3264,6 +3275,10 @@ RadioConnected:
         AddModernMenuItem(LoggingLogMenu, "Full Log Form",
             Sub(s As Object, ev As EventArgs)
                 OpenFullLogEntry()
+            End Sub)
+        AddModernMenuItem(LoggingLogMenu, "Station Lookup",
+            Sub(s As Object, ev As EventArgs)
+                stationLookupFromLogging()
             End Sub)
         LoggingLogMenu.DropDownItems.Add(New ToolStripSeparator())
         AddModernMenuItem(LoggingLogMenu, "Log Characteristics", AddressOf LogCharacteristicsMenuItem_Click)
@@ -3400,6 +3415,9 @@ RadioConnected:
                     Return True
                 Case Keys.N Or Keys.Control Or Keys.Shift  ' Ctrl+Shift+N → Log Characteristics
                     LogCharacteristicsMenuItem_Click(Nothing, EventArgs.Empty)
+                    Return True
+                Case Keys.L Or Keys.Control               ' Ctrl+L → Station Lookup
+                    stationLookupFromLogging()
                     Return True
                 Case Keys.L Or Keys.Control Or Keys.Alt  ' Ctrl+Alt+L → Full Log Entry form
                     OpenFullLogEntry()
