@@ -369,20 +369,20 @@ Public Class KeyCommands
      New KeyDefType(Keys.W Or Keys.Control, CommandValues.LogFinalize),
      New KeyDefType(Keys.None, CommandValues.LogFileName),  ' Was Ctrl+Shift+L; freed for Logging Mode toggle
      New KeyDefType(Keys.None, CommandValues.LogMode),
-     New KeyDefType(Keys.C Or Keys.Alt, CommandValues.LogCall),
+     New KeyDefType(Keys.None, CommandValues.LogCall),  ' Was Alt+C; log entry moved to Logging Mode
      New KeyDefType(Keys.C Or Keys.Control, CommandValues.CWZeroBeat),
      New KeyDefType(Keys.C Or Keys.Control Or Keys.Shift, CommandValues.ClearRIT),
-     New KeyDefType(Keys.H Or Keys.Control, CommandValues.LogHisRST),
-     New KeyDefType(Keys.M Or Keys.Alt, CommandValues.LogMyRST),
-     New KeyDefType(Keys.Q Or Keys.Alt, CommandValues.LogQTH),
-     New KeyDefType(Keys.S Or Keys.Alt, CommandValues.LogState),
-     New KeyDefType(Keys.G Or Keys.Alt, CommandValues.LogGrid),
-     New KeyDefType(Keys.N Or Keys.Alt, CommandValues.LogHandle),
-     New KeyDefType(Keys.R Or Keys.Alt, CommandValues.LogRig),
+     New KeyDefType(Keys.None, CommandValues.LogHisRST),  ' Was Ctrl+H; log entry moved to Logging Mode
+     New KeyDefType(Keys.None, CommandValues.LogMyRST),  ' Was Alt+M; log entry moved to Logging Mode
+     New KeyDefType(Keys.None, CommandValues.LogQTH),  ' Was Alt+Q; log entry moved to Logging Mode
+     New KeyDefType(Keys.None, CommandValues.LogState),  ' Was Alt+S; log entry moved to Logging Mode
+     New KeyDefType(Keys.None, CommandValues.LogGrid),  ' Was Alt+G; log entry moved to Logging Mode
+     New KeyDefType(Keys.None, CommandValues.LogHandle),  ' Was Alt+N; log entry moved to Logging Mode
+     New KeyDefType(Keys.None, CommandValues.LogRig),  ' Was Alt+R; log entry moved to Logging Mode
      New KeyDefType(Keys.R Or Keys.Control Or Keys.Shift, CommandValues.ReverseBeacon),
-     New KeyDefType(Keys.A Or Keys.Control, CommandValues.LogAnt),
-     New KeyDefType(Keys.E Or Keys.Alt, CommandValues.LogComments),
-     New KeyDefType(Keys.N Or Keys.Control, CommandValues.NewLogEntry),
+     New KeyDefType(Keys.None, CommandValues.LogAnt),  ' Was Ctrl+A; log entry moved to Logging Mode
+     New KeyDefType(Keys.None, CommandValues.LogComments),  ' Was Alt+E; log entry moved to Logging Mode
+     New KeyDefType(Keys.None, CommandValues.NewLogEntry),  ' Was Ctrl+N; log entry moved to Logging Mode
      New KeyDefType(Keys.F Or Keys.Control Or Keys.Shift, CommandValues.SearchLog),
      New KeyDefType(Keys.P Or Keys.Control, CommandValues.DoPanning),
      New KeyDefType(Keys.S Or Keys.Control, CommandValues.StartScan),

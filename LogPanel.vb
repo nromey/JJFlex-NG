@@ -428,7 +428,6 @@ Friend Class LogPanel
                 rec("NAME"))
         Next
 
-        ' Scroll to the last (most recent) row.
         ScrollToLastRow()
 
         ' Update accessible name with row count.
@@ -891,6 +890,9 @@ Friend Class LogPanel
         RecentGrid.EditMode = DataGridViewEditMode.EditProgrammatically
 
         ' Columns: Time UTC, Call, Mode, Freq, RST Sent, RST Rcvd, Name
+        ' Note: DataGridView uses 0-based row indices in its accessibility provider.
+        ' NVDA/JAWS will announce "row 0" for the first data row. This is a WinForms
+        ' limitation — would require a custom AccessibleObject to override.
         Dim colTime As New DataGridViewTextBoxColumn() With {
             .Name = "colTime",
             .HeaderText = "Time UTC",
