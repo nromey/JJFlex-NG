@@ -302,14 +302,13 @@ This is a quick fix — just modifying the `AddModernStubItem()` function (~5 li
 ## Phase 7: Polish, Testing & Release
 
 ### 7a. Version bump to 4.1.13
-- `JJFlexRadio.vbproj`: Version, AssemblyVersion, FileVersion
-- `My Project/AssemblyInfo.vb`: AssemblyVersion, AssemblyFileVersion, AssemblyInformationalVersion
+**DEFERRED** — accumulating more features before a version bump.
 
-### 7b. Archive Sprint 4
-Move `docs/planning/agile/Sprint-04-Logging-Mode.md` → `docs/planning/agile/archive/`
+### 7b. Archive Sprint 4 ✅
+Moved `docs/planning/agile/Sprint-04-Logging-Mode.md` → `docs/planning/agile/archive/`
 
-### 7c. Changelog
-Update `docs/CHANGELOG.md` in personal first-person tone.
+### 7c. Changelog ✅
+Updated `docs/CHANGELOG.md` — added "Unreleased" section for Sprint 5 work.
 
 ---
 

@@ -9,7 +9,7 @@ This document captures the current state of JJ-Flex repository and active work.
 - JJFlexRadio: Windows desktop app for FlexRadio 6000/8000 series transceivers
 - **Migration complete:** .NET 8, dual x64/x86 architecture, WebView2 for Auth0
 - **Current version:** 4.1.12
-- **Last sprint:** Sprint 4 - Logging Mode (All 4 phases complete)
+- **Last sprint:** Sprint 5 - QRZ/HamQTH Lookup & Full Log Access (All 7 phases complete, no version bump)
 
 ## 2) Technical Foundation
 - Solution: `JJFlexRadio.sln`
@@ -102,6 +102,17 @@ This document captures the current state of JJ-Flex repository and active work.
 ### Advanced DSP Features
 - Neural NR (RNN), Spectral NR (NRS), Legacy NR, FFT Auto-Notch, Legacy Auto-Notch
 
+### Sprint 5: QRZ/HamQTH Lookup & Full Log Access (Complete — no version bump yet)
+- **Phase 1:** Removed 11 Classic/Modern log entry hotkeys (logging belongs in Logging Mode)
+- **Phase 2:** Created QRZ lookup library (`QrzLookup/QrzCallbookLookup.cs`) + unified `CallbookResult.vb`
+- **Phase 3:** Callbook credentials UI in PersonalData/PersonalInfo (source dropdown, username, password)
+- **Phase 4:** Wired callbook lookup into LogPanel (async trigger on CallSign leave, fills empty fields)
+- **Phase 5:** Full Log Access from Logging Mode (Ctrl+Alt+L opens JJ's LogEntry form as modal)
+- **Phase 6:** Parking lot — Reset Confirmations menu item, BUG-001 fix (disabled Modern stubs)
+- **Phase 7:** Sprint 4 archived, changelog updated (version bump deferred)
+- **Sprint plan:** `docs/planning/agile/Sprint-05-QRZ-Lookup.md`
+- **Key new files:** `QrzLookup/QrzCallbookLookup.cs`, `CallbookResult.vb`
+
 ## 4) Future Sprints (planned, not implemented)
 
 | Sprint | Key Features |
@@ -109,10 +120,11 @@ This document captures the current state of JJ-Flex repository and active work.
 | Tuning & Band Nav | Fine/Medium/Coarse/Step tuning, band jump, license-aware entry |
 | Earcons | Tuning ticks, band edge beeps, speech throttle |
 | Audio | PC Audio Boost UI, Audio Test dialog, audio routing |
-| QRZ XML Lookup | Auto-fill from QRZ API, secure credential storage, session management |
 | Hotkeys v2 | Layered keystroke system — design doc at `docs/planning/context-aware-hotkeys.md` |
 | Command Finder | F12 search, leader key (Ctrl+J) |
 | Waterfall | Braille waterfall, panadapter sonification |
+| Logger Customization | Customizable LogPanel fields, contest designer review |
+| Operator Profile | QRZ self-lookup, license class selection, band plan enforcement |
 
 See `docs/planning/` for detailed design docs.
 
@@ -130,11 +142,19 @@ build-installers.bat
 
 ## 6) Key Files
 
+### Sprint 5: QRZ/HamQTH Lookup
+- `QrzLookup/QrzCallbookLookup.cs` — QRZ.com XML API client (session auth, cache, background thread)
+- `CallbookResult.vb` — Unified callbook result class (source-agnostic)
+- `LogPanel.vb` — Callbook integration (InitializeCallbook, TriggerCallbookLookup, ApplyCallbookResult)
+- `PersonalData.vb` — CallbookLookupSource, CallbookUsername, CallbookPassword fields
+- `PersonalInfo.vb` / `.Designer.vb` — Callbook settings UI (source dropdown, credentials)
+- `Form1.vb` — OpenFullLogEntry (Ctrl+Alt+L), Reset Confirmations, BUG-001 fix
+
 ### Sprint 4: Logging Mode
 - `LogPanel.vb` — Quick-entry UserControl, thin wrapper over LogSession
 - `RadioPane.vb` — Minimal radio status with arrow-key tuning
 - `Form1.vb` — BuildLoggingPanels, ShowLoggingUI, InitializeLoggingSession, F6 pane switching
-- `docs/planning/agile/Sprint-04-Logging-Mode.md` — Sprint plan
+- `docs/planning/agile/archive/Sprint-04-Logging-Mode.md` — Sprint plan (archived)
 - `docs/planning/context-aware-hotkeys.md` — Hotkey scoping design
 
 ### UI Mode System (Sprint 3)
@@ -171,4 +191,4 @@ build-installers.bat
 
 ---
 
-*Updated: Feb 7, 2026 — Sprint 4 complete (v4.1.12). All 4 phases committed. Next: QRZ XML Lookup sprint or Audio Controls.*
+*Updated: Feb 9, 2026 — Sprint 5 complete (QRZ/HamQTH lookup, Ctrl+Alt+L full log access, BUG-001 fix). No version bump — accumulating features. R3 grid auto-scroll test still pending.*

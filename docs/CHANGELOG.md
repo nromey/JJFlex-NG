@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## Unreleased — QRZ/HamQTH Callbook Lookup & Logging Improvements
+
+Logging Mode keeps getting smarter. The headline feature this round is automatic callbook lookups — tab out of the call sign field and JJFlexRadio reaches out to QRZ.com or HamQTH to fill in the station's name, QTH, state, and grid square. Your screen reader announces what it found ("QRZ: Name, QTH, State, Grid") so you know exactly what happened without having to Tab through fields to check.
+
+- **Callbook auto-fill**: Supports both QRZ.com (XML API, requires subscription) and HamQTH.com (free). Configure which service to use in your operator profile under the new Callbook Lookup section. Credentials are stored per-operator. Auto-fill only touches empty fields — anything you've typed or that came from the previous-contact lookup stays put.
+- **Credential migration**: If you had HamQTH credentials from the old system, they automatically migrate to the new callbook settings on first load. No re-entering passwords.
+- **Full Log Form access (Ctrl+Alt+L)**: Need to enter a field that LogPanel doesn't have — rig, antenna, or some obscure ADIF tag? Press Ctrl+Alt+L to pop open JJ's full LogEntry form as a modal dialog. Also available from the Log menu as "Full Log Form." When you close it, the Recent QSOs grid refreshes to catch anything you logged in there. If you have an unsaved entry in LogPanel, it asks whether to save before opening.
+- **Classic/Modern log hotkeys removed**: The 11 hotkeys that used to open the old LogEntry form from Classic and Modern modes (Alt+C, Ctrl+N, etc.) are now disabled. All logging goes through Logging Mode. This was a clean break — if you're logging, you should be in Logging Mode.
+- **Reset Confirmations**: New menu item under Log in Logging Mode. If you checked "Don't ask me again" on the Escape-clear confirmation during a pileup and now want the safety net back, this restores it.
+- **Modern menu stub fix (BUG-001)**: The "coming soon" placeholder items in Modern mode menus were silent in JAWS — you'd press Enter and hear nothing. Fixed by disabling the items (grayed out) and putting "coming soon" right in the accessible name. Both JAWS and NVDA now announce the placeholder state without needing to click.
+
 ## 4.1.12.0 - Logging Mode
 
 This is the one I've been building toward. JJFlexRadio now has a dedicated Logging Mode — press Ctrl+Shift+L from anywhere in the app and you're in a clean, focused QSO entry screen. No menus full of radio controls you don't need mid-QSO, no hunting for the right form. Just you, your log, and the radio.
