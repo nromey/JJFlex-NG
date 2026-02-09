@@ -12,6 +12,7 @@ Logging Mode keeps getting smarter. The headline feature this round is automatic
 - **Classic/Modern log hotkeys removed**: The 11 hotkeys that used to open the old LogEntry form from Classic and Modern modes (Alt+C, Ctrl+N, etc.) are now disabled. All logging goes through Logging Mode. This was a clean break — if you're logging, you should be in Logging Mode.
 - **Reset Confirmations**: New menu item under Log in Logging Mode. If you checked "Don't ask me again" on the Escape-clear confirmation during a pileup and now want the safety net back, this restores it.
 - **Modern menu stub fix (BUG-001)**: The "coming soon" placeholder items in Modern mode menus were silent in JAWS — you'd press Enter and hear nothing. Fixed by disabling the items (grayed out) and putting "coming soon" right in the accessible name. Both JAWS and NVDA now announce the placeholder state without needing to click.
+- **Secure credential storage**: Callbook passwords (QRZ and HamQTH) are now encrypted using Windows DPAPI before saving to disk. Your password is tied to your Windows login — even if someone copies your operator file, they can't read it on another machine or user account. Existing plaintext passwords are automatically migrated to encrypted storage on first load. Same security approach used for SmartLink tokens.
 
 ## 4.1.12.0 - Logging Mode
 
