@@ -2,6 +2,7 @@
 Imports JJCountriesDB
 Imports JJTrace
 Imports MsgLib
+Imports Radios
 
 Public Class StationLookup
     Private hamqthLookup As CallbookLookup = Nothing

@@ -165,6 +165,7 @@
     <Compile Include="LoginName.vb">
       <SubType>UserControl</SubType>
     </Compile>
+    <Compile Include="CallbookResult.vb" />
     <Compile Include="LogPanel.vb" />
     <Compile Include="LogSession.vb" />
     <Compile Include="LogStats.vb" />
