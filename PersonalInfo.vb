@@ -138,6 +138,20 @@ Public Class PersonalInfo
             If .CallbookLookupSource Is Nothing Then .CallbookLookupSource = "None"
             .CallbookUsername = CallbookUsernameBox.Text.Trim
             .DecryptedCallbookPassword = CallbookPasswordBox.Text.Trim
+
+            ' Validate callbook credentials before saving.
+            If .CallbookLookupSource <> "None" AndAlso
+               Not String.IsNullOrEmpty(.CallbookUsername) AndAlso
+               Not String.IsNullOrEmpty(.DecryptedCallbookPassword) Then
+                If Not ValidateCallbookCredentials(.CallbookLookupSource,
+                                                    .CallbookUsername,
+                                                    .DecryptedCallbookPassword) Then
+                    ' User chose not to save — go back to form.
+                    CallbookUsernameBox.Focus()
+                    Return
+                End If
+            End If
+
             Dim n As Integer
             ' Default the braille display size if none given.
             If BRLSizeBox.Text = "" Then
@@ -203,4 +217,70 @@ Public Class PersonalInfo
     Private Sub CallbookSourceCombo_SelectedIndexChanged(sender As Object, e As EventArgs) Handles CallbookSourceCombo.SelectedIndexChanged
         UpdateCallbookFieldsEnabled()
     End Sub
+
+    ''' <summary>
+    ''' Validate callbook credentials by attempting a test login.
+    ''' Returns True if the user wants to proceed (login OK, or user chose to save anyway).
+    ''' Returns False if the user wants to go back and fix credentials.
+    ''' </summary>
+    Private Function ValidateCallbookCredentials(source As String, username As String, password As String) As Boolean
+        Me.Cursor = Cursors.WaitCursor
+        Me.Enabled = False
+        Application.DoEvents()  ' Let the cursor change render.
+
+        Try
+            Select Case source
+                Case "QRZ"
+                    Dim result = QrzLookup.QrzCallbookLookup.TestLogin(username, password)
+                    If result.Success Then
+                        ' Build a friendly success message.
+                        Dim msg = "QRZ login successful!"
+                        If Not String.IsNullOrEmpty(result.SubscriptionExpiry) Then
+                            msg &= vbCrLf & "XML subscription expires: " & result.SubscriptionExpiry
+                        End If
+                        If Not String.IsNullOrEmpty(result.Remark) Then
+                            msg &= vbCrLf & result.Remark
+                        End If
+                        MsgBox(msg, MsgBoxStyle.Information, "Callbook Credentials")
+                        Return True
+                    Else
+                        ' Build an error message with subscription info for QRZ.
+                        Dim msg = "QRZ login failed." & vbCrLf & vbCrLf
+                        If Not String.IsNullOrEmpty(result.ErrorMessage) Then
+                            msg &= "QRZ said: " & result.ErrorMessage & vbCrLf & vbCrLf
+                        End If
+                        msg &= "QRZ.com requires a paid XML subscription for callbook lookups." & vbCrLf
+                        msg &= "Subscription info: " & QrzLookup.QrzCallbookLookup.SubscriptionUrl & vbCrLf & vbCrLf
+                        msg &= "HamQTH.com is a free alternative that does not require a subscription." & vbCrLf & vbCrLf
+                        msg &= "Save these credentials anyway?"
+
+                        Dim answer = MsgBox(msg, MsgBoxStyle.YesNo Or MsgBoxStyle.Exclamation, "Callbook Credentials")
+                        Return (answer = MsgBoxResult.Yes)
+                    End If
+
+                Case "HamQTH"
+                    Dim result = HamQTHLookup.CallbookLookup.TestLogin(username, password)
+                    If result.Success Then
+                        MsgBox("HamQTH login successful!", MsgBoxStyle.Information, "Callbook Credentials")
+                        Return True
+                    Else
+                        Dim msg = "HamQTH login failed." & vbCrLf & vbCrLf
+                        If Not String.IsNullOrEmpty(result.ErrorMessage) Then
+                            msg &= "HamQTH said: " & result.ErrorMessage & vbCrLf & vbCrLf
+                        End If
+                        msg &= "Check your username and password at hamqth.com." & vbCrLf & vbCrLf
+                        msg &= "Save these credentials anyway?"
+
+                        Dim answer = MsgBox(msg, MsgBoxStyle.YesNo Or MsgBoxStyle.Exclamation, "Callbook Credentials")
+                        Return (answer = MsgBoxResult.Yes)
+                    End If
+
+                Case Else
+                    Return True
+            End Select
+        Finally
+            Me.Enabled = True
+            Me.Cursor = Cursors.Default
+        End Try
+    End Function
 End Class

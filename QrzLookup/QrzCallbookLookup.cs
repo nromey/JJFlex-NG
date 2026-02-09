@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Net.Http;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Xml.Serialization;
 using JJTrace;
 
@@ -336,6 +337,92 @@ namespace QrzLookup
 
             OnCallsignSearch(result);
         }
+
+        #endregion
+
+        #region Credential Validation
+
+        /// <summary>
+        /// Result of a credential test — success/failure, error detail, subscription info.
+        /// </summary>
+        public class TestLoginResult
+        {
+            public bool Success { get; set; }
+            public string ErrorMessage { get; set; }
+            public string SubscriptionExpiry { get; set; }
+            public string Remark { get; set; }
+        }
+
+        /// <summary>
+        /// Test QRZ credentials by attempting a login. Returns immediately with a result
+        /// object. Does NOT create a persistent session — use this for one-shot validation
+        /// in the settings dialog.
+        /// </summary>
+        public static TestLoginResult TestLogin(string username, string password)
+        {
+            var result = new TestLoginResult();
+            if (string.IsNullOrEmpty(username) || string.IsNullOrEmpty(password))
+            {
+                result.Success = false;
+                result.ErrorMessage = "Username and password are required.";
+                return result;
+            }
+
+            try
+            {
+                using var client = new HttpClient();
+                client.Timeout = TimeSpan.FromSeconds(15);
+
+                var url = $"{BaseUrl}?username={Uri.EscapeDataString(username)}" +
+                          $"&password={Uri.EscapeDataString(password)}" +
+                          $"&agent={AgentName}";
+
+                var response = client.GetStreamAsync(url).Result;
+                var serializer = new XmlSerializer(typeof(QrzDatabase));
+                var db = (QrzDatabase)serializer.Deserialize(response);
+
+                if (db?.Session == null)
+                {
+                    result.Success = false;
+                    result.ErrorMessage = "No response from QRZ.";
+                    return result;
+                }
+
+                if (!string.IsNullOrEmpty(db.Session.Error))
+                {
+                    result.Success = false;
+                    result.ErrorMessage = db.Session.Error;
+                    return result;
+                }
+
+                // Login succeeded.
+                result.Success = true;
+                result.SubscriptionExpiry = db.Session.SubExp;
+                result.Remark = db.Session.Remark;
+                return result;
+            }
+            catch (AggregateException aex) when (aex.InnerException is HttpRequestException)
+            {
+                result.Success = false;
+                result.ErrorMessage = "Could not reach QRZ.com. Check your internet connection.";
+                return result;
+            }
+            catch (AggregateException aex) when (aex.InnerException is TaskCanceledException)
+            {
+                result.Success = false;
+                result.ErrorMessage = "QRZ.com did not respond in time. Try again later.";
+                return result;
+            }
+            catch (Exception ex)
+            {
+                result.Success = false;
+                result.ErrorMessage = "Connection error: " + ex.Message;
+                return result;
+            }
+        }
+
+        /// <summary>URL for QRZ XML subscription info — shown when login fails due to subscription.</summary>
+        public const string SubscriptionUrl = "https://www.qrz.com/page/xml_data.html";
 
         #endregion
 

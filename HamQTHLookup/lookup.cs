@@ -322,5 +322,87 @@ namespace HamQTHLookup
             }
             catch { }
         }
+
+        #region Credential Validation
+
+        /// <summary>
+        /// Result of a credential test — success/failure and error detail.
+        /// </summary>
+        public class TestLoginResult
+        {
+            public bool Success { get; set; }
+            public string ErrorMessage { get; set; }
+        }
+
+        /// <summary>
+        /// Test HamQTH credentials by attempting a login. Returns immediately with a result
+        /// object. Does NOT create a persistent session — use this for one-shot validation
+        /// in the settings dialog.
+        /// </summary>
+        public static TestLoginResult TestLogin(string username, string password)
+        {
+            var result = new TestLoginResult();
+            if (string.IsNullOrEmpty(username) || string.IsNullOrEmpty(password))
+            {
+                result.Success = false;
+                result.ErrorMessage = "Username and password are required.";
+                return result;
+            }
+
+            WebClient web = null;
+            Stream page = null;
+            try
+            {
+                web = new WebClient();
+                web.BaseAddress = siteBaseAddress;
+                page = web.OpenRead("/xml.php?u=" + username + "&p=" + password);
+
+                var root = new XmlRootAttribute
+                {
+                    ElementName = "HamQTH",
+                    Namespace = "https://www.hamqth.com",
+                    IsNullable = true
+                };
+                var xs = new XmlSerializer(typeof(HamQTH), root);
+                var dat = (HamQTH)xs.Deserialize(page);
+
+                if (dat?.session == null)
+                {
+                    result.Success = false;
+                    result.ErrorMessage = "No response from HamQTH.";
+                    return result;
+                }
+
+                if (!string.IsNullOrEmpty(dat.session.error))
+                {
+                    result.Success = false;
+                    result.ErrorMessage = dat.session.error;
+                    return result;
+                }
+
+                // Login succeeded — we got a session ID.
+                result.Success = true;
+                return result;
+            }
+            catch (WebException)
+            {
+                result.Success = false;
+                result.ErrorMessage = "Could not reach HamQTH.com. Check your internet connection.";
+                return result;
+            }
+            catch (Exception ex)
+            {
+                result.Success = false;
+                result.ErrorMessage = "Connection error: " + ex.Message;
+                return result;
+            }
+            finally
+            {
+                if (page != null) page.Dispose();
+                if (web != null) web.Dispose();
+            }
+        }
+
+        #endregion
     }
 }
