@@ -113,6 +113,22 @@ This document captures the current state of JJ-Flex repository and active work.
 - **Sprint plan:** `docs/planning/agile/Sprint-05-QRZ-Lookup.md`
 - **Key new files:** `QrzLookup/QrzCallbookLookup.cs`, `CallbookResult.vb`
 
+### Post-Sprint 5: Credential Validation & Station Lookup Upgrade
+- **Credential validation on save:** `ValidateCallbookCredentials()` in PersonalInfo.vb tests credentials at save time
+  - QRZ: Shows subscription expiry on success; explains subscription requirement + URL on failure
+  - HamQTH: Shows success/error; both offer "Save anyway?" on failure
+  - `TestLogin` static methods added to both `QrzCallbookLookup.cs` and `HamQTHLookup/lookup.cs`
+- **DPAPI encryption:** Callbook passwords encrypted via `PersonalData.EncryptedCallbookPassword` / `DecryptedCallbookPassword`
+- **Station Lookup upgraded** (`StationLookup.vb`):
+  - Now uses operator's configured callbook source (QRZ or HamQTH), falls back to built-in HamQTH
+  - Added QRZ result handler with UI-thread marshaling
+  - Screen reader announces: name, QTH, and country (only for DX — different from operator's country)
+  - Operator's country looked up from JJCountriesDB at form load using operator's call sign
+  - Hotkey changed from Alt+L to Ctrl+L (`KeyCommands.vb`)
+  - Available from Logging Mode (Ctrl+L handler + menu item in Form1.vb)
+  - Available from Classic/Modern via KeyCommands (Ctrl+L) and menu
+- **Commits:** `d538b44d` (credential validation), `f2fb41f0` (Station Lookup upgrade)
+
 ## 4) Future Sprints (planned, not implemented)
 
 | Sprint | Key Features |
@@ -191,4 +207,4 @@ build-installers.bat
 
 ---
 
-*Updated: Feb 9, 2026 — Sprint 5 complete (QRZ/HamQTH lookup, Ctrl+Alt+L full log access, BUG-001 fix). No version bump — accumulating features. R3 grid auto-scroll test still pending.*
+*Updated: Feb 9, 2026 — Sprint 5 complete + post-sprint work (credential validation on save, Station Lookup upgraded with QRZ/HamQTH/DX country detection). No version bump — accumulating features. R3 grid auto-scroll test still pending.*

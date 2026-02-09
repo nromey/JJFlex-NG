@@ -3147,7 +3147,8 @@ RadioConnected:
             LoggingLogPanel.InitializeCallbook(
                 CurrentOp.CallbookLookupSource,
                 CurrentOp.CallbookUsername,
-                CurrentOp.DecryptedCallbookPassword)
+                CurrentOp.DecryptedCallbookPassword,
+                If(CurrentOp.callSign, ""))
         End If
 
         ' Focus the log panel call sign field.

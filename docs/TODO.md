@@ -34,16 +34,7 @@ This document tracks feature ideas, improvements, and technical debt for future 
   - Settings UI: text field or dropdown with common values (10, 20, 50, 100)
   - Apply on Logging Mode entry / settings change
 
-### QRZ XML Lookup (Future Sprint)
-- [ ] **QRZ callsign auto-fill** - On CallSign tab-out, query QRZ XML API for station data
-  - Auto-fill Name, QTH, State, Grid, Country from QRZ if not already known locally
-  - Only fires when local call index has no Name/QTH (local data takes priority)
-  - Requires QRZ XML subscription (paid)
-- [ ] **Secure credential storage** - Store QRZ username/password via Windows Credential Manager (DPAPI)
-  - Never store in plaintext settings XML
-  - Settings UI for entering/clearing credentials
-- [ ] **QRZ session management** - Session-key auth, auto-renewal on expiry, rate limiting
-- [ ] **Settings** - Enable/disable QRZ lookup, choose which fields to auto-fill
+### Logging Mode Enhancements (Post-Sprint 5)
 - [ ] **Modernize FindLogEntry** - Replace ListBox with DataGridView for screen reader UIA support
 
 ### UI Improvements
@@ -97,6 +88,18 @@ This document tracks feature ideas, improvements, and technical debt for future 
 - [ ] **System.Drawing.Common conflicts** - Version mismatch warnings in build
 
 ## Completed
+
+- [x] **Sprint 5: QRZ/HamQTH Lookup & Full Log Access** (2026-02-09, no version bump)
+  - Phase 1: Removed 11 Classic/Modern log entry hotkeys (freed Alt+C/S/G/N/R/E/M for future radio use)
+  - Phase 2: QRZ XML lookup library (`QrzLookup/QrzCallbookLookup.cs`) + unified `CallbookResult.vb`
+  - Phase 3: Callbook credentials UI in operator profile (source dropdown + username/password with DPAPI encryption)
+  - Phase 4: Callbook auto-fill in LogPanel (async, fills empty fields only, local data takes priority)
+  - Phase 5: Full Log Access from Logging Mode (Ctrl+Alt+L opens JJ's LogEntry form)
+  - Phase 6: Parking lot — Reset Confirmations, BUG-001 Modern menu stubs fix
+  - Phase 7: Sprint 4 archived, changelog updated
+  - **Post-sprint:** Credential validation on save (QRZ subscription check + HamQTH test login)
+  - **Post-sprint:** Station Lookup upgraded — QRZ/HamQTH support, Ctrl+L hotkey, DX country SR announcements
+  - See `docs/planning/agile/Sprint-05-QRZ-Lookup.md`
 
 - [x] **Sprint 4: Logging Mode** - v4.1.12 (2026-02-07)
   - Phase 1: Menu & Mode Switching (Ctrl+Shift+L toggle, Logging Mode menu bar)

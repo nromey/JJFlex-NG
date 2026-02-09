@@ -3,6 +3,7 @@ Imports System.Windows.Forms
 Imports adif
 Imports JJLogLib
 Imports JJTrace
+Imports JJCountriesDB
 Imports Radios
 
 ''' <summary>
@@ -59,6 +60,7 @@ Friend Class LogPanel
     Private qrzLookup As QrzLookup.QrzCallbookLookup = Nothing
     Private hamqthLookup As HamQTHLookup.CallbookLookup = Nothing
     Private lastLookedUpCall As String = ""
+    Private operatorCountry As String = ""
 
     ' --- Call sign index: built during log scan, used for instant previous-contact lookup ---
     Private callIndex As New Dictionary(Of String, PreviousContactInfo)(StringComparer.OrdinalIgnoreCase)
@@ -275,9 +277,23 @@ Friend Class LogPanel
     ''' Initialize callbook lookup based on operator settings.
     ''' Called from Form1.EnterLoggingMode() after Initialize().
     ''' </summary>
-    Friend Sub InitializeCallbook(source As String, username As String, password As String)
+    Friend Sub InitializeCallbook(source As String, username As String, password As String,
+                                   Optional operatorCallSign As String = "")
         FinishCallbook()  ' Clean up any previous instance.
         lastLookedUpCall = ""
+
+        ' Look up operator's country for DX comparison in callbook announcements.
+        operatorCountry = ""
+        If Not String.IsNullOrEmpty(operatorCallSign) Then
+            Try
+                Dim cdb As New CountriesDB()
+                Dim opRec = cdb.LookupByCall(operatorCallSign)
+                If opRec IsNot Nothing Then
+                    operatorCountry = If(opRec.Country, "")
+                End If
+            Catch
+            End Try
+        End If
 
         If String.IsNullOrEmpty(source) OrElse source = "None" Then Return
         If String.IsNullOrEmpty(username) OrElse String.IsNullOrEmpty(password) Then Return
@@ -370,15 +386,25 @@ Friend Class LogPanel
             Return
         End If
 
-        Dim filled As New List(Of String)
-        If FillIfEmpty(NameBox, result.Name) Then filled.Add("Name")
-        If FillIfEmpty(QTHBox, result.QTH) Then filled.Add("QTH")
-        If FillIfEmpty(StateBox, result.State) Then filled.Add("State")
-        If FillIfEmpty(GridBox, result.Grid) Then filled.Add("Grid")
+        ' Fill only empty fields (local data + user input takes priority).
+        FillIfEmpty(NameBox, result.Name)
+        FillIfEmpty(QTHBox, result.QTH)
+        FillIfEmpty(StateBox, result.State)
+        FillIfEmpty(GridBox, result.Grid)
 
-        ' Brief SR announcement: "QRZ: Name, QTH, Grid"
-        If filled.Count > 0 Then
-            ScreenReaderOutput.Speak(result.Source & ": " & String.Join(", ", filled), True)
+        ' Speak actual values: name, QTH, and country if DX.
+        Dim parts As New List(Of String)
+        If Not String.IsNullOrEmpty(result.Name) Then parts.Add(result.Name)
+        If Not String.IsNullOrEmpty(result.QTH) Then parts.Add(result.QTH)
+
+        ' Include country only when it differs from operator's country (DX station).
+        If Not String.IsNullOrEmpty(result.Country) AndAlso
+           Not result.Country.Equals(operatorCountry, StringComparison.OrdinalIgnoreCase) Then
+            parts.Add(result.Country)
+        End If
+
+        If parts.Count > 0 Then
+            ScreenReaderOutput.Speak(String.Join(", ", parts), True)
         End If
     End Sub
 
