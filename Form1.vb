@@ -2959,15 +2959,11 @@ RadioConnected:
     Private Function AddModernStubItem(parent As ToolStripMenuItem, text As String) As ToolStripMenuItem
         Dim item = New ToolStripMenuItem() With {
             .Text = text,
-            .AccessibleName = text.Replace("&", ""),
-            .AccessibleRole = AccessibleRole.MenuItem
+            .AccessibleName = text.Replace("&", "") & " - coming soon",
+            .AccessibleDescription = "Coming soon. Use Classic mode for full features.",
+            .AccessibleRole = AccessibleRole.MenuItem,
+            .Enabled = False
         }
-        AddHandler item.Click,
-            Sub(s As Object, ev As EventArgs)
-                Dim msg = text & " - coming soon"
-                Radios.ScreenReaderOutput.Speak(msg, True)
-                Tracing.TraceLine("Modern stub: " & msg, TraceLevel.Info)
-            End Sub
         parent.DropDownItems.Add(item)
         Return item
     End Function
@@ -3280,6 +3276,15 @@ RadioConnected:
                 If Commands IsNot Nothing Then
                     Commands.CommandId = KeyCommands.CommandValues.LogStats
                     Commands.KeyTable.First(Function(k) k.key.id = KeyCommands.CommandValues.LogStats).rtn()
+                End If
+            End Sub)
+        LoggingLogMenu.DropDownItems.Add(New ToolStripSeparator())
+        AddModernMenuItem(LoggingLogMenu, "Reset Confirmations",
+            Sub(s As Object, ev As EventArgs)
+                If CurrentOp IsNot Nothing Then
+                    CurrentOp.SuppressClearConfirm = False
+                    Operators.UpdateCurrentOp()
+                    Radios.ScreenReaderOutput.Speak("Confirmation dialogs restored", True)
                 End If
             End Sub)
 
