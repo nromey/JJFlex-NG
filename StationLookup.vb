@@ -124,7 +124,7 @@ Public Class StationLookup
         StateBox.Text = state
 
         ' Screen reader announcement.
-        AnnounceResult(name, qth, country)
+        AnnounceResult(name, qth, state, country)
     End Sub
 
     ''' <summary>
@@ -150,19 +150,20 @@ Public Class StationLookup
         StateBox.Text = state
 
         ' Screen reader announcement.
-        AnnounceResult(name, qth, country)
+        AnnounceResult(name, qth, state, country)
     End Sub
 
     ''' <summary>
     ''' Announce the lookup result via screen reader.
-    ''' Keeps it concise: name and QTH. Country is spoken only when the station
-    ''' is in a different country than the operator (DX). Details (state, grid,
+    ''' Speaks name, QTH, state (if available), and country only when the station
+    ''' is in a different country than the operator (DX). Details (grid,
     ''' zones, lat/long) are in the read-only fields for Tab-through.
     ''' </summary>
-    Private Sub AnnounceResult(name As String, qth As String, country As String)
+    Private Sub AnnounceResult(name As String, qth As String, state As String, country As String)
         Dim parts As New List(Of String)
         If name <> "" Then parts.Add(name)
         If qth <> "" Then parts.Add(qth)
+        If state <> "" Then parts.Add(state)
 
         ' Include country only when it differs from operator's country (DX station).
         If country <> "" AndAlso

@@ -392,10 +392,11 @@ Friend Class LogPanel
         FillIfEmpty(StateBox, result.State)
         FillIfEmpty(GridBox, result.Grid)
 
-        ' Speak actual values: name, QTH, and country if DX.
+        ' Speak actual values: name, QTH, state (if available), country if DX.
         Dim parts As New List(Of String)
         If Not String.IsNullOrEmpty(result.Name) Then parts.Add(result.Name)
         If Not String.IsNullOrEmpty(result.QTH) Then parts.Add(result.QTH)
+        If Not String.IsNullOrEmpty(result.State) Then parts.Add(result.State)
 
         ' Include country only when it differs from operator's country (DX station).
         If Not String.IsNullOrEmpty(result.Country) AndAlso
