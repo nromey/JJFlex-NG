@@ -63,6 +63,13 @@ Public Class PersonalInfo
             DefaultBox.Checked = .DefaultFlag
             ' Can't modify the default on an update if it's set.
             DefaultBox.Enabled = (Not (updateFlag And .DefaultFlag))
+
+            ' Callbook lookup settings.
+            Dim srcIdx = CallbookSourceCombo.Items.IndexOf(If(.CallbookLookupSource, "None"))
+            CallbookSourceCombo.SelectedIndex = If(srcIdx >= 0, srcIdx, 0)
+            CallbookUsernameBox.Text = If(.CallbookUsername, "")
+            CallbookPasswordBox.Text = If(.CallbookPassword, "")
+            UpdateCallbookFieldsEnabled()
         End With
         ' Now use a new theOp for an update.
         If updateFlag Then
@@ -126,6 +133,11 @@ Public Class PersonalInfo
             .HamqthID = HamqthIDBox.Text.Trim()
             .HamqthPassword = HamqthPasswordBox.Text.Trim
 #End If
+            ' Callbook lookup settings.
+            .CallbookLookupSource = CallbookSourceCombo.SelectedItem?.ToString()
+            If .CallbookLookupSource Is Nothing Then .CallbookLookupSource = "None"
+            .CallbookUsername = CallbookUsernameBox.Text.Trim
+            .CallbookPassword = CallbookPasswordBox.Text.Trim
             Dim n As Integer
             ' Default the braille display size if none given.
             If BRLSizeBox.Text = "" Then
@@ -174,5 +186,21 @@ Public Class PersonalInfo
         If ClusterLoginNameBox.Text = "" Then
             ClusterLoginNameBox.Text = CallSignBox.Text
         End If
+    End Sub
+
+    ''' <summary>
+    ''' Enable/disable callbook username and password based on the selected source.
+    ''' "None" disables the credential fields.
+    ''' </summary>
+    Private Sub UpdateCallbookFieldsEnabled()
+        Dim enabled = (CallbookSourceCombo.SelectedItem?.ToString() <> "None")
+        CallbookUsernameBox.Enabled = enabled
+        CallbookPasswordBox.Enabled = enabled
+        CallbookUsernameLabel.Enabled = enabled
+        CallbookPasswordLabel.Enabled = enabled
+    End Sub
+
+    Private Sub CallbookSourceCombo_SelectedIndexChanged(sender As Object, e As EventArgs) Handles CallbookSourceCombo.SelectedIndexChanged
+        UpdateCallbookFieldsEnabled()
     End Sub
 End Class

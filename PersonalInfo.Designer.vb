@@ -42,6 +42,12 @@ Partial Class PersonalInfo
         Me.ClusterLoginNameBox = New System.Windows.Forms.TextBox()
         Me.AddressLabel = New System.Windows.Forms.Label()
         Me.AddressBox = New System.Windows.Forms.TextBox()
+        Me.CallbookSourceLabel = New System.Windows.Forms.Label()
+        Me.CallbookSourceCombo = New System.Windows.Forms.ComboBox()
+        Me.CallbookUsernameLabel = New System.Windows.Forms.Label()
+        Me.CallbookUsernameBox = New System.Windows.Forms.TextBox()
+        Me.CallbookPasswordLabel = New System.Windows.Forms.Label()
+        Me.CallbookPasswordBox = New System.Windows.Forms.TextBox()
         Me.SuspendLayout()
         '
         'FullNameLabel
@@ -130,7 +136,7 @@ Partial Class PersonalInfo
         Me.OKButton.AccessibleRole = System.Windows.Forms.AccessibleRole.PushButton
         Me.OKButton.AutoSize = True
         Me.OKButton.AutoSizeMode = System.Windows.Forms.AutoSizeMode.GrowAndShrink
-        Me.OKButton.Location = New System.Drawing.Point(0, 406)
+        Me.OKButton.Location = New System.Drawing.Point(0, 465)
         Me.OKButton.Margin = New System.Windows.Forms.Padding(4)
         Me.OKButton.Name = "OKButton"
         Me.OKButton.Size = New System.Drawing.Size(6, 6)
@@ -142,7 +148,7 @@ Partial Class PersonalInfo
         Me.CnclButton.AccessibleRole = System.Windows.Forms.AccessibleRole.PushButton
         Me.CnclButton.AutoSize = True
         Me.CnclButton.DialogResult = System.Windows.Forms.DialogResult.Cancel
-        Me.CnclButton.Location = New System.Drawing.Point(133, 406)
+        Me.CnclButton.Location = New System.Drawing.Point(133, 465)
         Me.CnclButton.Margin = New System.Windows.Forms.Padding(4)
         Me.CnclButton.Name = "CnclButton"
         Me.CnclButton.Size = New System.Drawing.Size(100, 28)
@@ -154,7 +160,7 @@ Partial Class PersonalInfo
         '
         Me.DefaultBox.AccessibleRole = System.Windows.Forms.AccessibleRole.CheckButton
         Me.DefaultBox.AutoSize = True
-        Me.DefaultBox.Location = New System.Drawing.Point(0, 375)
+        Me.DefaultBox.Location = New System.Drawing.Point(0, 435)
         Me.DefaultBox.Margin = New System.Windows.Forms.Padding(4)
         Me.DefaultBox.Name = "DefaultBox"
         Me.DefaultBox.Size = New System.Drawing.Size(136, 21)
@@ -256,6 +262,70 @@ Partial Class PersonalInfo
         Me.AddressBox.Size = New System.Drawing.Size(132, 22)
         Me.AddressBox.TabIndex = 121
         '
+        'CallbookSourceLabel
+        '
+        Me.CallbookSourceLabel.AutoSize = True
+        Me.CallbookSourceLabel.Location = New System.Drawing.Point(0, 338)
+        Me.CallbookSourceLabel.Margin = New System.Windows.Forms.Padding(4, 0, 4, 0)
+        Me.CallbookSourceLabel.Name = "CallbookSourceLabel"
+        Me.CallbookSourceLabel.Size = New System.Drawing.Size(120, 17)
+        Me.CallbookSourceLabel.TabIndex = 140
+        Me.CallbookSourceLabel.Text = "Callbook lookup: "
+        '
+        'CallbookSourceCombo
+        '
+        Me.CallbookSourceCombo.AccessibleName = "Callbook lookup source"
+        Me.CallbookSourceCombo.AccessibleRole = System.Windows.Forms.AccessibleRole.ComboBox
+        Me.CallbookSourceCombo.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList
+        Me.CallbookSourceCombo.FormattingEnabled = True
+        Me.CallbookSourceCombo.Items.AddRange(New Object() {"None", "QRZ", "HamQTH"})
+        Me.CallbookSourceCombo.Location = New System.Drawing.Point(135, 338)
+        Me.CallbookSourceCombo.Margin = New System.Windows.Forms.Padding(4)
+        Me.CallbookSourceCombo.Name = "CallbookSourceCombo"
+        Me.CallbookSourceCombo.Size = New System.Drawing.Size(132, 24)
+        Me.CallbookSourceCombo.TabIndex = 141
+        '
+        'CallbookUsernameLabel
+        '
+        Me.CallbookUsernameLabel.AutoSize = True
+        Me.CallbookUsernameLabel.Location = New System.Drawing.Point(0, 370)
+        Me.CallbookUsernameLabel.Margin = New System.Windows.Forms.Padding(4, 0, 4, 0)
+        Me.CallbookUsernameLabel.Name = "CallbookUsernameLabel"
+        Me.CallbookUsernameLabel.Size = New System.Drawing.Size(130, 17)
+        Me.CallbookUsernameLabel.TabIndex = 150
+        Me.CallbookUsernameLabel.Text = "Callbook username: "
+        '
+        'CallbookUsernameBox
+        '
+        Me.CallbookUsernameBox.AccessibleName = "Callbook username"
+        Me.CallbookUsernameBox.AccessibleRole = System.Windows.Forms.AccessibleRole.Text
+        Me.CallbookUsernameBox.Location = New System.Drawing.Point(135, 370)
+        Me.CallbookUsernameBox.Margin = New System.Windows.Forms.Padding(4)
+        Me.CallbookUsernameBox.Name = "CallbookUsernameBox"
+        Me.CallbookUsernameBox.Size = New System.Drawing.Size(132, 22)
+        Me.CallbookUsernameBox.TabIndex = 151
+        '
+        'CallbookPasswordLabel
+        '
+        Me.CallbookPasswordLabel.AutoSize = True
+        Me.CallbookPasswordLabel.Location = New System.Drawing.Point(0, 400)
+        Me.CallbookPasswordLabel.Margin = New System.Windows.Forms.Padding(4, 0, 4, 0)
+        Me.CallbookPasswordLabel.Name = "CallbookPasswordLabel"
+        Me.CallbookPasswordLabel.Size = New System.Drawing.Size(130, 17)
+        Me.CallbookPasswordLabel.TabIndex = 160
+        Me.CallbookPasswordLabel.Text = "Callbook password: "
+        '
+        'CallbookPasswordBox
+        '
+        Me.CallbookPasswordBox.AccessibleName = "Callbook password"
+        Me.CallbookPasswordBox.AccessibleRole = System.Windows.Forms.AccessibleRole.Text
+        Me.CallbookPasswordBox.Location = New System.Drawing.Point(135, 400)
+        Me.CallbookPasswordBox.Margin = New System.Windows.Forms.Padding(4)
+        Me.CallbookPasswordBox.Name = "CallbookPasswordBox"
+        Me.CallbookPasswordBox.Size = New System.Drawing.Size(132, 22)
+        Me.CallbookPasswordBox.TabIndex = 161
+        Me.CallbookPasswordBox.UseSystemPasswordChar = True
+        '
         'PersonalInfo
         '
         Me.AccessibleRole = System.Windows.Forms.AccessibleRole.Window
@@ -263,7 +333,13 @@ Partial Class PersonalInfo
         Me.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font
         Me.AutoSize = True
         Me.CancelButton = Me.CnclButton
-        Me.ClientSize = New System.Drawing.Size(779, 421)
+        Me.ClientSize = New System.Drawing.Size(779, 500)
+        Me.Controls.Add(Me.CallbookPasswordBox)
+        Me.Controls.Add(Me.CallbookPasswordLabel)
+        Me.Controls.Add(Me.CallbookUsernameBox)
+        Me.Controls.Add(Me.CallbookUsernameLabel)
+        Me.Controls.Add(Me.CallbookSourceCombo)
+        Me.Controls.Add(Me.CallbookSourceLabel)
         Me.Controls.Add(Me.AddressBox)
         Me.Controls.Add(Me.AddressLabel)
         Me.Controls.Add(Me.ClusterLoginNameBox)
@@ -312,4 +388,10 @@ Partial Class PersonalInfo
     Friend WithEvents ClusterLoginNameBox As System.Windows.Forms.TextBox
     Friend WithEvents AddressLabel As System.Windows.Forms.Label
     Friend WithEvents AddressBox As System.Windows.Forms.TextBox
+    Friend WithEvents CallbookSourceLabel As System.Windows.Forms.Label
+    Friend WithEvents CallbookSourceCombo As System.Windows.Forms.ComboBox
+    Friend WithEvents CallbookUsernameLabel As System.Windows.Forms.Label
+    Friend WithEvents CallbookUsernameBox As System.Windows.Forms.TextBox
+    Friend WithEvents CallbookPasswordLabel As System.Windows.Forms.Label
+    Friend WithEvents CallbookPasswordBox As System.Windows.Forms.TextBox
 End Class

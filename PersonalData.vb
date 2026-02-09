@@ -165,6 +165,22 @@ Public Class PersonalData
         Public SuppressClearConfirm As Boolean = False
 
         ''' <summary>
+        ''' Callbook lookup source: "None", "QRZ", or "HamQTH".
+        ''' Controls which service is used for auto-fill in Logging Mode.
+        ''' </summary>
+        Public CallbookLookupSource As String = "None"
+
+        ''' <summary>
+        ''' Username for the selected callbook service (QRZ or HamQTH).
+        ''' </summary>
+        Public CallbookUsername As String = ""
+
+        ''' <summary>
+        ''' Password for the selected callbook service (QRZ or HamQTH).
+        ''' </summary>
+        Public CallbookPassword As String = ""
+
+        ''' <summary>
         ''' Validated UI mode. Returns Classic for unknown or not-yet-implemented values.
         ''' </summary>
         <XmlIgnore()> Friend Property CurrentUIMode As UIMode
@@ -203,6 +219,9 @@ Public Class PersonalData
             UIModeSetting = p.UIModeSetting
             UIModeDismissed = p.UIModeDismissed
             SuppressClearConfirm = p.SuppressClearConfirm
+            CallbookLookupSource = p.CallbookLookupSource
+            CallbookUsername = p.CallbookUsername
+            CallbookPassword = p.CallbookPassword
         End Sub
         Friend Sub New(p As personal)
             fileName = p.fileName
@@ -356,8 +375,14 @@ Public Class PersonalData
                 If err Then
                     Exit For
                 End If
-                ' We don't use the hamQTH data any more.
+                ' Migrate old HamQTH credentials to new callbook fields if present.
                 If (p.HamqthID <> vbNullString) Or (p.HamqthPassword <> vbNullString) Then
+                    If String.IsNullOrEmpty(p.CallbookUsername) AndAlso
+                       Not String.IsNullOrEmpty(p.HamqthID) Then
+                        p.CallbookLookupSource = "HamQTH"
+                        p.CallbookUsername = p.HamqthID
+                        p.CallbookPassword = p.HamqthPassword
+                    End If
                     p.HamqthID = ""
                     p.HamqthPassword = ""
                     write(p)

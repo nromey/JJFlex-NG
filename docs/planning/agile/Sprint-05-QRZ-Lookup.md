@@ -274,7 +274,16 @@ Document as pre-existing behavior: Ctrl+Shift+M blocked while Classic/Modern Log
 
 If retest R2 reveals row indexing issues (e.g., JAWS says "Row 2" for first data row because column headers count as Row 1), fix by adjusting the DataGridView accessibility or column header behavior.
 
-### 6e. Fix Modern menu "coming soon" stubs (BUG-001)
+### 6e. Retest R3: 20-entry grid auto-scroll
+
+Test the Recent QSOs grid with 20 entries, then log a 21st QSO. Verify:
+- Oldest entry is removed (grid stays at MaxRecentQSOs)
+- New entry appears at bottom
+- Grid auto-scrolls to show the new entry
+
+This was deferred from pre-sprint retest because we only had 5 entries at the time.
+
+### 6f. Fix Modern menu "coming soon" stubs (BUG-001)
 
 In `Form1.vb` `AddModernStubItem()`, fix the stub items so both JAWS and NVDA properly announce placeholder state:
 

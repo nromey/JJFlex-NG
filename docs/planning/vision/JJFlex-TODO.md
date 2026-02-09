@@ -59,6 +59,12 @@ Last updated: 2026-02-09
 - [ ] Recording/playback and “parrot” concept (design + feasibility)
 - [ ] DAX integration research and decision (use Flex manager vs internal config)
 
+## Operator Profile & Band Plans (future sprint)
+- [ ] QRZ self-lookup: if operator has a QRZ subscription and is logged in, auto-populate operator data (name, QTH, grid, etc.) from QRZ. Trigger from settings or on first callbook login.
+- [ ] License class selection: add license class field to operator profile. Provide a dropdown of license classes based on operator's country (US: Technician/General/Amateur Extra; UK: Foundation/Intermediate/Full; etc.). For countries without a built-in list, allow free-text entry.
+- [ ] Band plan enforcement/guidance: look up band plans by ITU region + license class. Show operator which bands/modes they're authorized for. Could highlight out-of-privilege operation. Research: ARRL band plan data, IARU region plans.
+- [ ] Internationalization of license classes for popular countries (US, UK, Canada, Germany, Japan, Australia, etc.)
+
 ## Ecosystem
 - [ ] 4O3A device integration plan (SDK/protocol + device matrix)
 - [ ] Tuner Genius support planning
