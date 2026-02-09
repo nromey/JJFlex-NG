@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Platforms>AnyCPU;x86;x64</Platforms>
+    <RootNamespace>QrzLookup</RootNamespace>
+    <AssemblyName>QrzLookup</AssemblyName>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\JJTrace\JJTrace.csproj" />
+  </ItemGroup>
+</Project>

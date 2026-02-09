@@ -448,6 +448,7 @@
     <ProjectReference Include="FlexLib_API\Vita\Vita.csproj" />
     <ProjectReference Include="HamBands\HamBands.csproj" />
     <ProjectReference Include="HamQTHLookup\HamQTHLookup.csproj" />
+    <ProjectReference Include="QrzLookup\QrzLookup.csproj" />
     <ProjectReference Include="JJArclusterLib\JJArclusterLib.csproj" />
     <ProjectReference Include="JJCountriesDB\JJCountriesDB.csproj" />
     <ProjectReference Include="JJFlexControl\JJFlexControl.csproj" />
