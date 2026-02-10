@@ -108,6 +108,11 @@ Friend Class LogPanel
     ''' </summary>
     Friend Sub NewEntry()
         ClearFields()
+        ' Clear session date/time so next AutoFillFromRadio gets fresh timestamp
+        If session IsNot Nothing Then
+            session.SetFieldText(AdifTags.ADIF_DateOn, "")
+            session.SetFieldText(AdifTags.ADIF_TimeOn, "")
+        End If
         AutoFillFromRadio()
         If session IsNot Nothing Then
             SerialLabel.Text = "Serial: " & CStr(session.serial)
@@ -404,8 +409,11 @@ Friend Class LogPanel
             parts.Add(result.Country)
         End If
 
+        ' Speak the callbook result without interrupting current field announcement.
+        ' This way if the operator has tabbed to the next field, they hear both
+        ' the field name and then the callbook data queued right after.
         If parts.Count > 0 Then
-            ScreenReaderOutput.Speak(String.Join(", ", parts), True)
+            ScreenReaderOutput.Speak(String.Join(", ", parts), False)
         End If
     End Sub
 
