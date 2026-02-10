@@ -34,6 +34,20 @@ Last updated: 2026-02-09
 - **Priority:** Low — Modern mode is still under construction
 - **Status:** Logged for future sprint
 
+### BUG-005: UTC timestamp stuck at first QSO time (found during Sprint 5 testing, 2026-02-10)
+- **Symptom:** In Logging Mode, after logging the first QSO, all subsequent QSOs logged in the same session showed the same UTC timestamp as the first entry (time didn't update).
+- **Root cause:** `NewEntry()` cleared text fields but didn't clear the session's DateOn/TimeOn ADIF fields. `AutoFillFromRadio()` only set timestamps "if empty", so the first timestamp persisted across all entries.
+- **Fix:** `NewEntry()` now explicitly clears session DateOn/TimeOn fields before calling `AutoFillFromRadio()`, ensuring each QSO gets a fresh timestamp.
+- **Priority:** High — affects log accuracy
+- **Status:** FIXED (commit 9591a835, 2026-02-10)
+
+### BUG-006: Callbook announcement interrupts field announcements (found during Sprint 5 testing, 2026-02-10)
+- **Symptom:** When operator tabs out of Call Sign field and quickly tabs to next field (RST Sent), the screen reader field announcement ("RST Sent edit") gets cut off by the async callbook result announcement ("Bob, Seattle").
+- **Root cause:** `ApplyCallbookResult()` used `ScreenReaderOutput.Speak(..., interrupt=True)`, which interrupted the screen reader's field announcement in progress.
+- **Fix:** Changed interrupt parameter to `False` in `ApplyCallbookResult()`. Screen reader now queues callbook data after field announcement, so operator hears both: "RST Sent edit" followed by "Bob, Seattle".
+- **Priority:** Medium — affects screen reader UX during fast tabbing
+- **Status:** FIXED (commit 9591a835, 2026-02-10)
+
 ## Near-term (next 1–3 sprints)
 - [ ] Hotkeys v2: profiles + conflict detection + explicit key recording UX
 - [ ] Modern UI Mode toggle (Modern default; Classic preserved)
