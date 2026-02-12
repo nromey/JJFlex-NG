@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased — QRZ/HamQTH Callbook Lookup & Logging Improvements
 
-Logging Mode keeps getting smarter. The headline feature this round is automatic callbook lookups — tab out of the call sign field and JJFlexRadio reaches out to QRZ.com or HamQTH to fill in the station's name, QTH, state, and grid square. Your screen reader announces what it found ("QRZ: Name, QTH, State, Grid") so you know exactly what happened without having to Tab through fields to check.
+Logging Mode keeps getting smarter. The headline feature this round is automatic callbook lookups — tab out of the call sign field and JJFlexRadio reaches out to QRZ.com or HamQTH to fill in the station's name, QTH, state, and grid square. Your screen reader announces what it found naturally — "Bob, San Francisco, California" for a domestic station, or "Hans, Berlin, Germany" for DX — so you know exactly who you're talking to without tabbing through fields to check.
 
 - **Callbook auto-fill**: Supports both QRZ.com (XML API, requires subscription) and HamQTH.com (free). Configure which service to use in your operator profile under the new Callbook Lookup section. Credentials are stored per-operator. Auto-fill only touches empty fields — anything you've typed or that came from the previous-contact lookup stays put.
 - **Credential migration**: If you had HamQTH credentials from the old system, they automatically migrate to the new callbook settings on first load. No re-entering passwords.
@@ -14,7 +14,11 @@ Logging Mode keeps getting smarter. The headline feature this round is automatic
 - **Modern menu stub fix (BUG-001)**: The "coming soon" placeholder items in Modern mode menus were silent in JAWS — you'd press Enter and hear nothing. Fixed by disabling the items (grayed out) and putting "coming soon" right in the accessible name. Both JAWS and NVDA now announce the placeholder state without needing to click.
 - **Secure credential storage**: Callbook passwords (QRZ and HamQTH) are now encrypted using Windows DPAPI before saving to disk. Your password is tied to your Windows login — even if someone copies your operator file, they can't read it on another machine or user account. Existing plaintext passwords are automatically migrated to encrypted storage on first load. Same security approach used for SmartLink tokens.
 - **Credential validation on save**: When you click Update in your operator profile, JJFlexRadio tests your callbook credentials right then and there. If QRZ login fails, the message explains that a paid XML subscription is required and points you to the QRZ subscription page — plus reminds you that HamQTH is free. If HamQTH login fails, it tells you what HamQTH said. Either way, you can still save the credentials if you want (maybe you're offline and know they're correct). No more wondering why lookups aren't working during a pileup.
-- **Station Lookup upgraded (Ctrl+L)**: JJ's existing Station Lookup dialog now uses your configured callbook service — QRZ or HamQTH, whichever you picked in your operator profile. If you haven't set one up, it falls back to the built-in HamQTH account. Hotkey changed from Alt+L to Ctrl+L so it works cleanly from all three modes (Classic, Modern, Logging). Your screen reader announces the name and QTH when results come in, plus the country if it's a DX station (different country than yours). All the detail fields — country, lat/long, CQ zone, ITU zone, GMT offset — are still there in read-only boxes for Tab-through.
+- **Station Lookup upgraded (Ctrl+L)**: JJ's existing Station Lookup dialog now uses your configured callbook service — QRZ or HamQTH, whichever you picked in your operator profile. If you haven't set one up, it falls back to the built-in HamQTH account. Hotkey changed from Alt+L to Ctrl+L, available from Classic and Modern modes. Your screen reader announces the name, QTH, and state when results come in, plus the country if it's a DX station (different country than yours). All the detail fields — country, lat/long, CQ zone, ITU zone, GMT offset — are still there in read-only boxes for Tab-through.
+- **Natural screen reader announcements**: Callbook results are spoken as actual values — "Robert, College Station, Texas" — not field names. DX stations get the country appended ("Hans, Berlin, Germany") while domestic stations don't (you don't need to hear "United States" for every US call). Same natural speech style in both LogPanel auto-fill and Station Lookup.
+- **UTC timestamp fix (BUG-005)**: Fixed a bug where all QSOs logged in the same session showed the same UTC timestamp as the first entry. Each QSO now gets a fresh timestamp.
+- **Callbook announcement queueing (BUG-006)**: Fixed callbook results interrupting screen reader field announcements during fast tabbing. The callbook announcement now queues after the field announcement, so you hear both: "RST Sent edit" followed by "Bob, San Francisco, California".
+- **"Returned to logging mode" announcement**: After closing the Full Log Form (Ctrl+Alt+L), your screen reader now announces "Returned to logging mode" and focus returns to the Call Sign field.
 
 ## 4.1.12.0 - Logging Mode
 
@@ -140,9 +144,11 @@ I did a cleanup pass here but never shipped it. Think of this as a scratchpad re
 - Infra: Project file updates and initial docs for missing features
 
 ## Upcoming
-- **Audio Controls** - Audio Boost menu and hotkey for adjusting PC Audio gain, Local Flex Audio volume control, and possibly audio device hot-swap. See `docs/TODO.md` for the full feature backlog.
-- **QRZ XML Lookup** - Auto-fill Name, QTH, State, Grid from QRZ on callsign tab-out. Secure credential storage via DPAPI.
+- **Callbook graceful degradation** - QRZ auto-fallback to HamQTH on login failure, built-in HamQTH for LogPanel when no personal credentials configured
+- **Audio Controls** - Audio Boost menu and hotkey for adjusting PC Audio gain, Local Flex Audio volume control, and possibly audio device hot-swap
+- Station Lookup: distance and bearing to station (for beam/rotator directionality)
+- Configurable "Recent QSOs" grid size (currently 20, will be a setting)
 - Diversity status announcements for screen reader users
 - Meter announcements (ALC, SWR, signal strength) on demand
-- Configurable "Recent QSOs" grid size (currently 20, will be a setting)
+- See `docs/TODO.md` and `docs/planning/vision/JJFlex-TODO.md` for the full feature backlog
 

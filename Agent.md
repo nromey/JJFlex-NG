@@ -8,8 +8,8 @@ This document captures the current state of JJ-Flex repository and active work.
 ## 1) Overview
 - JJFlexRadio: Windows desktop app for FlexRadio 6000/8000 series transceivers
 - **Migration complete:** .NET 8, dual x64/x86 architecture, WebView2 for Auth0
-- **Current version:** 4.1.12
-- **Last sprint:** Sprint 5 - QRZ/HamQTH Lookup & Full Log Access (All 7 phases complete, no version bump)
+- **Current version:** 4.1.12 (no version bump for Sprint 5 — accumulating features)
+- **Last sprint:** Sprint 5 - QRZ/HamQTH Lookup & Full Log Access (CLOSED, all phases + testing + fixes complete)
 
 ## 2) Technical Foundation
 - Solution: `JJFlexRadio.sln`
@@ -102,7 +102,7 @@ This document captures the current state of JJ-Flex repository and active work.
 ### Advanced DSP Features
 - Neural NR (RNN), Spectral NR (NRS), Legacy NR, FFT Auto-Notch, Legacy Auto-Notch
 
-### Sprint 5: QRZ/HamQTH Lookup & Full Log Access (Complete — no version bump yet)
+### Sprint 5: QRZ/HamQTH Lookup & Full Log Access (CLOSED — no version bump)
 - **Phase 1:** Removed 11 Classic/Modern log entry hotkeys (logging belongs in Logging Mode)
 - **Phase 2:** Created QRZ lookup library (`QrzLookup/QrzCallbookLookup.cs`) + unified `CallbookResult.vb`
 - **Phase 3:** Callbook credentials UI in PersonalData/PersonalInfo (source dropdown, username, password)
@@ -110,24 +110,19 @@ This document captures the current state of JJ-Flex repository and active work.
 - **Phase 5:** Full Log Access from Logging Mode (Ctrl+Alt+L opens JJ's LogEntry form as modal)
 - **Phase 6:** Parking lot — Reset Confirmations menu item, BUG-001 fix (disabled Modern stubs)
 - **Phase 7:** Sprint 4 archived, changelog updated (version bump deferred)
-- **Sprint plan:** `docs/planning/agile/Sprint-05-QRZ-Lookup.md`
-- **Key new files:** `QrzLookup/QrzCallbookLookup.cs`, `CallbookResult.vb`
-
-### Post-Sprint 5: Credential Validation & Station Lookup Upgrade
-- **Credential validation on save:** `ValidateCallbookCredentials()` in PersonalInfo.vb tests credentials at save time
-  - QRZ: Shows subscription expiry on success; explains subscription requirement + URL on failure
-  - HamQTH: Shows success/error; both offer "Save anyway?" on failure
-  - `TestLogin` static methods added to both `QrzCallbookLookup.cs` and `HamQTHLookup/lookup.cs`
-- **DPAPI encryption:** Callbook passwords encrypted via `PersonalData.EncryptedCallbookPassword` / `DecryptedCallbookPassword`
-- **Station Lookup upgraded** (`StationLookup.vb`):
-  - Now uses operator's configured callbook source (QRZ or HamQTH), falls back to built-in HamQTH
-  - Added QRZ result handler with UI-thread marshaling
-  - Screen reader announces: name, QTH, and country (only for DX — different from operator's country)
-  - Operator's country looked up from JJCountriesDB at form load using operator's call sign
-  - Hotkey changed from Alt+L to Ctrl+L (`KeyCommands.vb`)
-  - Available from Logging Mode (Ctrl+L handler + menu item in Form1.vb)
-  - Available from Classic/Modern via KeyCommands (Ctrl+L) and menu
-- **Commits:** `d538b44d` (credential validation), `f2fb41f0` (Station Lookup upgrade)
+- **Post-sprint:** Credential validation on save, DPAPI encryption, Station Lookup upgrade (QRZ/HamQTH + DX detection)
+- **Testing:** Full 60+ test matrix executed by operator (JAWS), most passed
+- **Test fixes applied:**
+  - Natural SR announcements: speak actual values ("Bob, San Francisco, California") not field names
+  - State included in both LogPanel and Station Lookup announcements
+  - Station Lookup scoped to Classic/Modern only (removed from Logging Mode — it's a radio utility)
+  - Station Lookup added to Modern Tools menu
+  - "Returned to logging mode" SR announcement after closing Full Log Form
+  - BUG-005 fix: UTC timestamp now refreshes per QSO (was stuck at first entry's time)
+  - BUG-006 fix: Callbook announcement queues after field announcements (no interruption)
+- **Bugs filed for Sprint 6:** BUG-007 (QRZ→HamQTH auto-fallback), BUG-008 (built-in HamQTH for LogPanel), BUG-009 (connected-radio retests)
+- **Sprint plan:** `docs/planning/agile/archive/Sprint-05-QRZ-Lookup.md`
+- **Key new files:** `QrzLookup/QrzCallbookLookup.cs`, `CallbookResult.vb`, `StationLookup.vb` (upgraded)
 
 ## 4) Future Sprints (planned, not implemented)
 
@@ -207,4 +202,4 @@ build-installers.bat
 
 ---
 
-*Updated: Feb 9, 2026 — Sprint 5 complete + post-sprint work (credential validation on save, Station Lookup upgraded with QRZ/HamQTH/DX country detection). No version bump — accumulating features. R3 grid auto-scroll test still pending.*
+*Updated: Feb 11, 2026 — Sprint 5 CLOSED. All phases complete, full test matrix executed (60+ tests), test-driven fixes applied. Bugs 005-006 fixed, bugs 007-009 filed for Sprint 6. No version bump yet — accumulating features for next release.*
