@@ -299,6 +299,14 @@ powershell -Command "(Get-Item 'bin\x64\Release\net8.0-windows\win-x64\JJFlexRad
 
 ## Workflow
 
+### Parallel Sprint Tracks
+When running multiple Claude Code sessions on different sprint tracks simultaneously, use `git worktree` so each session has its own working directory:
+```batch
+git worktree add ../jjflex-trackB sprint6/qrz-logbook
+git worktree add ../jjflex-trackC sprint6/hotkeys
+```
+Each session works in its own directory — no checkout races or file conflicts. Clean up when done: `git worktree remove ../jjflex-trackB`
+
 ### Commits
 - Commit and push after completing each phase or significant chunk of work
 - No PR required for work on feature branches
