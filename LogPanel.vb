@@ -387,11 +387,16 @@ Friend Class LogPanel
     ''' <summary>
     ''' Handle QRZ lookup result — convert to CallbookResult and apply.
     ''' Called on a background thread; marshals to UI thread.
+    ''' Distinguishes three cases:
+    '''   1. Valid result with callsign data → apply and reset failure counter.
+    '''   2. Valid session but callsign not found → no failure (QRZ is working fine).
+    '''   3. Null result or session error → real failure, count toward fallback threshold.
     ''' </summary>
     Private Sub QrzResultHandler(result As QrzLookup.QrzCallbookLookup.QrzDatabase)
-        ' QRZ returned a valid result — reset failure counter and apply.
+        ' Case 1: QRZ returned callsign data — reset failure counter and apply.
         If result IsNot Nothing AndAlso result.Callsign IsNot Nothing Then
             qrzConsecutiveFailures = 0
+            pendingCallSign = ""
             Dim cbr As New CallbookResult() With {
                 .Source = "QRZ",
                 .Name = If(result.Callsign.FirstName, ""),
@@ -404,7 +409,21 @@ Friend Class LogPanel
             Return
         End If
 
-        ' QRZ lookup failed — try HamQTH fallback if available.
+        ' Case 2: Valid session but callsign not in QRZ database — not a failure.
+        ' QRZ is working fine, the call just isn't listed. Try HamQTH as supplemental
+        ' lookup (not as a failure fallback), but don't count toward failure threshold.
+        If result IsNot Nothing AndAlso result.Session IsNot Nothing AndAlso
+           String.IsNullOrEmpty(result.Session.Error) Then
+            Tracing.TraceLine($"LogPanel: QRZ callsign not found (session OK), trying HamQTH supplement", Diagnostics.TraceLevel.Info)
+            If hamqthFallback IsNot Nothing AndAlso hamqthFallback.CanLookup AndAlso
+               Not String.IsNullOrEmpty(pendingCallSign) Then
+                hamqthFallback.LookupCall(pendingCallSign)
+            End If
+            Return
+        End If
+
+        ' Case 3: Real failure — null result, session error, or auth problem.
+        ' Count toward fallback threshold and try HamQTH.
         qrzConsecutiveFailures += 1
         Tracing.TraceLine($"LogPanel: QRZ lookup failed (consecutive failures: {qrzConsecutiveFailures})", Diagnostics.TraceLevel.Warning)
 
