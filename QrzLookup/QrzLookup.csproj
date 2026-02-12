@@ -9,5 +9,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\JJTrace\JJTrace.csproj" />
+    <ProjectReference Include="..\adif\adif.csproj" />
   </ItemGroup>
 </Project>

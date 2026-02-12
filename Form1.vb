@@ -3154,6 +3154,13 @@ RadioConnected:
                 CurrentOp.CallbookUsername,
                 CurrentOp.DecryptedCallbookPassword,
                 If(CurrentOp.callSign, ""))
+
+            ' Initialize QRZ Logbook upload if configured.
+            LoggingLogPanel.InitializeQrzLogbook(
+                CurrentOp.QrzLogbookEnabled,
+                CurrentOp.DecryptedQrzLogbookApiKey,
+                If(CurrentOp.callSign, ""),
+                myVersion.ToString())
         End If
 
         ' Focus the log panel call sign field.
@@ -3175,6 +3182,7 @@ RadioConnected:
         If LoggingLogPanel IsNot Nothing Then
             LoggingLogPanel.SaveState()
             LoggingLogPanel.FinishCallbook()
+            LoggingLogPanel.FinishQrzLogbook()
         End If
 
         Dim returnMode = LastNonLogMode

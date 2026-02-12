@@ -70,6 +70,11 @@ Public Class PersonalInfo
             CallbookUsernameBox.Text = If(.CallbookUsername, "")
             CallbookPasswordBox.Text = If(.DecryptedCallbookPassword, "")
             UpdateCallbookFieldsEnabled()
+
+            ' QRZ Logbook settings.
+            QrzLogbookEnabledBox.Checked = .QrzLogbookEnabled
+            QrzLogbookApiKeyBox.Text = If(.DecryptedQrzLogbookApiKey, "")
+            UpdateQrzLogbookFieldsEnabled()
         End With
         ' Now use a new theOp for an update.
         If updateFlag Then
@@ -138,6 +143,10 @@ Public Class PersonalInfo
             If .CallbookLookupSource Is Nothing Then .CallbookLookupSource = "None"
             .CallbookUsername = CallbookUsernameBox.Text.Trim
             .DecryptedCallbookPassword = CallbookPasswordBox.Text.Trim
+
+            ' QRZ Logbook settings.
+            .QrzLogbookEnabled = QrzLogbookEnabledBox.Checked
+            .DecryptedQrzLogbookApiKey = QrzLogbookApiKeyBox.Text.Trim()
 
             ' Validate callbook credentials before saving.
             If .CallbookLookupSource <> "None" AndAlso
@@ -283,4 +292,53 @@ Public Class PersonalInfo
             Me.Cursor = Cursors.Default
         End Try
     End Function
+
+    ''' <summary>
+    ''' Enable/disable QRZ Logbook API key and Validate button based on the checkbox.
+    ''' </summary>
+    Private Sub UpdateQrzLogbookFieldsEnabled()
+        Dim enabled = QrzLogbookEnabledBox.Checked
+        QrzLogbookApiKeyLabel.Enabled = enabled
+        QrzLogbookApiKeyBox.Enabled = enabled
+        QrzLogbookValidateButton.Enabled = enabled
+    End Sub
+
+    Private Sub QrzLogbookEnabledBox_CheckedChanged(sender As Object, e As EventArgs) Handles QrzLogbookEnabledBox.CheckedChanged
+        UpdateQrzLogbookFieldsEnabled()
+    End Sub
+
+    Private Sub QrzLogbookValidateButton_Click(sender As Object, e As EventArgs) Handles QrzLogbookValidateButton.Click
+        Dim apiKey = QrzLogbookApiKeyBox.Text.Trim()
+        If String.IsNullOrEmpty(apiKey) Then
+            MsgBox("Enter an API key first.", MsgBoxStyle.Information, "QRZ Logbook")
+            QrzLogbookApiKeyBox.Focus()
+            Return
+        End If
+
+        Me.Cursor = Cursors.WaitCursor
+        Me.Enabled = False
+        Application.DoEvents()
+
+        Try
+            Dim result = QrzLookup.QrzLogbookClient.ValidateApiKey(apiKey)
+            If result.Success Then
+                Dim msg = "QRZ Logbook key valid!" & vbCrLf &
+                          "Logbook call sign: " & result.LogbookCallSign & vbCrLf &
+                          "Total QSOs: " & result.TotalQSOs & vbCrLf &
+                          "Confirmed: " & result.ConfirmedQSOs & vbCrLf &
+                          "DXCC: " & result.DXCCCount
+                MsgBox(msg, MsgBoxStyle.Information, "QRZ Logbook")
+            Else
+                Dim msg = "QRZ Logbook key validation failed." & vbCrLf & vbCrLf
+                If Not String.IsNullOrEmpty(result.ErrorMessage) Then
+                    msg &= "QRZ said: " & result.ErrorMessage & vbCrLf & vbCrLf
+                End If
+                msg &= "Get your API key at https://logbook.qrz.com/logbook under Settings."
+                MsgBox(msg, MsgBoxStyle.Exclamation, "QRZ Logbook")
+            End If
+        Finally
+            Me.Enabled = True
+            Me.Cursor = Cursors.Default
+        End Try
+    End Sub
 End Class

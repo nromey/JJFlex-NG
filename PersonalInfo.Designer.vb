@@ -48,6 +48,10 @@ Partial Class PersonalInfo
         Me.CallbookUsernameBox = New System.Windows.Forms.TextBox()
         Me.CallbookPasswordLabel = New System.Windows.Forms.Label()
         Me.CallbookPasswordBox = New System.Windows.Forms.TextBox()
+        Me.QrzLogbookEnabledBox = New System.Windows.Forms.CheckBox()
+        Me.QrzLogbookApiKeyLabel = New System.Windows.Forms.Label()
+        Me.QrzLogbookApiKeyBox = New System.Windows.Forms.TextBox()
+        Me.QrzLogbookValidateButton = New System.Windows.Forms.Button()
         Me.SuspendLayout()
         '
         'FullNameLabel
@@ -136,7 +140,7 @@ Partial Class PersonalInfo
         Me.OKButton.AccessibleRole = System.Windows.Forms.AccessibleRole.PushButton
         Me.OKButton.AutoSize = True
         Me.OKButton.AutoSizeMode = System.Windows.Forms.AutoSizeMode.GrowAndShrink
-        Me.OKButton.Location = New System.Drawing.Point(0, 465)
+        Me.OKButton.Location = New System.Drawing.Point(0, 535)
         Me.OKButton.Margin = New System.Windows.Forms.Padding(4)
         Me.OKButton.Name = "OKButton"
         Me.OKButton.Size = New System.Drawing.Size(6, 6)
@@ -148,7 +152,7 @@ Partial Class PersonalInfo
         Me.CnclButton.AccessibleRole = System.Windows.Forms.AccessibleRole.PushButton
         Me.CnclButton.AutoSize = True
         Me.CnclButton.DialogResult = System.Windows.Forms.DialogResult.Cancel
-        Me.CnclButton.Location = New System.Drawing.Point(133, 465)
+        Me.CnclButton.Location = New System.Drawing.Point(133, 535)
         Me.CnclButton.Margin = New System.Windows.Forms.Padding(4)
         Me.CnclButton.Name = "CnclButton"
         Me.CnclButton.Size = New System.Drawing.Size(100, 28)
@@ -160,7 +164,7 @@ Partial Class PersonalInfo
         '
         Me.DefaultBox.AccessibleRole = System.Windows.Forms.AccessibleRole.CheckButton
         Me.DefaultBox.AutoSize = True
-        Me.DefaultBox.Location = New System.Drawing.Point(0, 435)
+        Me.DefaultBox.Location = New System.Drawing.Point(0, 505)
         Me.DefaultBox.Margin = New System.Windows.Forms.Padding(4)
         Me.DefaultBox.Name = "DefaultBox"
         Me.DefaultBox.Size = New System.Drawing.Size(136, 21)
@@ -326,6 +330,51 @@ Partial Class PersonalInfo
         Me.CallbookPasswordBox.TabIndex = 161
         Me.CallbookPasswordBox.UseSystemPasswordChar = True
         '
+        'QrzLogbookEnabledBox
+        '
+        Me.QrzLogbookEnabledBox.AccessibleRole = System.Windows.Forms.AccessibleRole.CheckButton
+        Me.QrzLogbookEnabledBox.AutoSize = True
+        Me.QrzLogbookEnabledBox.Location = New System.Drawing.Point(0, 435)
+        Me.QrzLogbookEnabledBox.Margin = New System.Windows.Forms.Padding(4)
+        Me.QrzLogbookEnabledBox.Name = "QrzLogbookEnabledBox"
+        Me.QrzLogbookEnabledBox.Size = New System.Drawing.Size(200, 21)
+        Me.QrzLogbookEnabledBox.TabIndex = 170
+        Me.QrzLogbookEnabledBox.Text = "Log QSOs to QRZ Logbook"
+        Me.QrzLogbookEnabledBox.UseVisualStyleBackColor = True
+        '
+        'QrzLogbookApiKeyLabel
+        '
+        Me.QrzLogbookApiKeyLabel.AutoSize = True
+        Me.QrzLogbookApiKeyLabel.Location = New System.Drawing.Point(0, 465)
+        Me.QrzLogbookApiKeyLabel.Margin = New System.Windows.Forms.Padding(4, 0, 4, 0)
+        Me.QrzLogbookApiKeyLabel.Name = "QrzLogbookApiKeyLabel"
+        Me.QrzLogbookApiKeyLabel.Size = New System.Drawing.Size(130, 17)
+        Me.QrzLogbookApiKeyLabel.TabIndex = 180
+        Me.QrzLogbookApiKeyLabel.Text = "QRZ Logbook API key: "
+        '
+        'QrzLogbookApiKeyBox
+        '
+        Me.QrzLogbookApiKeyBox.AccessibleName = "QRZ Logbook API key"
+        Me.QrzLogbookApiKeyBox.AccessibleRole = System.Windows.Forms.AccessibleRole.Text
+        Me.QrzLogbookApiKeyBox.Location = New System.Drawing.Point(135, 465)
+        Me.QrzLogbookApiKeyBox.Margin = New System.Windows.Forms.Padding(4)
+        Me.QrzLogbookApiKeyBox.Name = "QrzLogbookApiKeyBox"
+        Me.QrzLogbookApiKeyBox.Size = New System.Drawing.Size(200, 22)
+        Me.QrzLogbookApiKeyBox.TabIndex = 181
+        Me.QrzLogbookApiKeyBox.UseSystemPasswordChar = True
+        '
+        'QrzLogbookValidateButton
+        '
+        Me.QrzLogbookValidateButton.AccessibleName = "Validate QRZ Logbook key"
+        Me.QrzLogbookValidateButton.AccessibleRole = System.Windows.Forms.AccessibleRole.PushButton
+        Me.QrzLogbookValidateButton.Location = New System.Drawing.Point(343, 463)
+        Me.QrzLogbookValidateButton.Margin = New System.Windows.Forms.Padding(4)
+        Me.QrzLogbookValidateButton.Name = "QrzLogbookValidateButton"
+        Me.QrzLogbookValidateButton.Size = New System.Drawing.Size(100, 28)
+        Me.QrzLogbookValidateButton.TabIndex = 182
+        Me.QrzLogbookValidateButton.Text = "Validate"
+        Me.QrzLogbookValidateButton.UseVisualStyleBackColor = True
+        '
         'PersonalInfo
         '
         Me.AccessibleRole = System.Windows.Forms.AccessibleRole.Window
@@ -333,7 +382,11 @@ Partial Class PersonalInfo
         Me.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font
         Me.AutoSize = True
         Me.CancelButton = Me.CnclButton
-        Me.ClientSize = New System.Drawing.Size(779, 500)
+        Me.ClientSize = New System.Drawing.Size(779, 600)
+        Me.Controls.Add(Me.QrzLogbookValidateButton)
+        Me.Controls.Add(Me.QrzLogbookApiKeyBox)
+        Me.Controls.Add(Me.QrzLogbookApiKeyLabel)
+        Me.Controls.Add(Me.QrzLogbookEnabledBox)
         Me.Controls.Add(Me.CallbookPasswordBox)
         Me.Controls.Add(Me.CallbookPasswordLabel)
         Me.Controls.Add(Me.CallbookUsernameBox)
@@ -394,4 +447,8 @@ Partial Class PersonalInfo
     Friend WithEvents CallbookUsernameBox As System.Windows.Forms.TextBox
     Friend WithEvents CallbookPasswordLabel As System.Windows.Forms.Label
     Friend WithEvents CallbookPasswordBox As System.Windows.Forms.TextBox
+    Friend WithEvents QrzLogbookEnabledBox As System.Windows.Forms.CheckBox
+    Friend WithEvents QrzLogbookApiKeyLabel As System.Windows.Forms.Label
+    Friend WithEvents QrzLogbookApiKeyBox As System.Windows.Forms.TextBox
+    Friend WithEvents QrzLogbookValidateButton As System.Windows.Forms.Button
 End Class

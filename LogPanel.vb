@@ -62,6 +62,10 @@ Friend Class LogPanel
     Private lastLookedUpCall As String = ""
     Private operatorCountry As String = ""
 
+    ' --- QRZ Logbook upload ---
+    Private qrzLogbook As QrzLookup.QrzLogbookClient = Nothing
+    Private stationCallSign As String = ""
+
     ' --- Call sign index: built during log scan, used for instant previous-contact lookup ---
     Private callIndex As New Dictionary(Of String, PreviousContactInfo)(StringComparer.OrdinalIgnoreCase)
 
@@ -198,6 +202,24 @@ Friend Class LogPanel
 
             ' Update the call index with this new QSO.
             UpdateCallIndex(gridCall, gridDate, gridBand, gridMode, gridName, gridQTH)
+
+            ' Upload to QRZ Logbook if enabled (fire-and-forget).
+            ' Must snapshot fields BEFORE NewEntry() clears them.
+            If qrzLogbook IsNot Nothing Then
+                Try
+                    Dim fieldsCopy As New Dictionary(Of String, adif.LogFieldElement)
+                    For Each kvp In session.FieldDictionary
+                        fieldsCopy(kvp.Key) = New adif.LogFieldElement(kvp.Value)
+                    Next
+                    Dim adifRecord = QrzLookup.QrzLogbookClient.FieldsToAdifRecord(fieldsCopy, stationCallSign)
+                    If adifRecord IsNot Nothing Then
+                        qrzLogbook.UploadQSO(adifRecord, callText)
+                    End If
+                Catch ex As Exception
+                    Tracing.TraceLine("LogPanel: QRZ upload prep failed: " & ex.Message,
+                                      Diagnostics.TraceLevel.Warning)
+                End Try
+            End If
 
             ScreenReaderOutput.Speak("Saved " & callText, True)
             Tracing.TraceLine("LogPanel.WriteEntry: saved " & callText, Diagnostics.TraceLevel.Info)
@@ -427,6 +449,59 @@ Friend Class LogPanel
         tb.Text = value
         Return True
     End Function
+
+#End Region
+
+#Region "QRZ Logbook"
+
+    ''' <summary>
+    ''' Initialize QRZ Logbook upload client based on operator settings.
+    ''' Called from Form1.EnterLoggingMode() after InitializeCallbook().
+    ''' </summary>
+    Friend Sub InitializeQrzLogbook(enabled As Boolean, apiKey As String,
+                                     opCallSign As String, version As String)
+        FinishQrzLogbook()  ' Clean up any previous instance.
+        stationCallSign = If(opCallSign, "")
+
+        If Not enabled Then Return
+        If String.IsNullOrEmpty(apiKey) Then Return
+
+        qrzLogbook = New QrzLookup.QrzLogbookClient(apiKey, version)
+        AddHandler qrzLogbook.UploadResultEvent, AddressOf QrzLogbookResultHandler
+        Tracing.TraceLine("LogPanel: QRZ Logbook upload initialized", Diagnostics.TraceLevel.Info)
+    End Sub
+
+    ''' <summary>
+    ''' Clean up QRZ Logbook upload resources. Called from Form1.ExitLoggingMode().
+    ''' </summary>
+    Friend Sub FinishQrzLogbook()
+        If qrzLogbook IsNot Nothing Then
+            RemoveHandler qrzLogbook.UploadResultEvent, AddressOf QrzLogbookResultHandler
+            qrzLogbook.Finished()
+            qrzLogbook = Nothing
+        End If
+    End Sub
+
+    ''' <summary>
+    ''' Handle QRZ Logbook upload result. Called on a background thread;
+    ''' marshals to UI thread for screen reader announcement.
+    ''' </summary>
+    Private Sub QrzLogbookResultHandler(success As Boolean, callSign As String, errorMessage As String)
+        If Me.InvokeRequired Then
+            Me.BeginInvoke(Sub() QrzLogbookResultHandler(success, callSign, errorMessage))
+            Return
+        End If
+
+        If success Then
+            ScreenReaderOutput.Speak("Logged to QRZ", False)
+        Else
+            Dim msg = "QRZ upload failed"
+            If Not String.IsNullOrEmpty(errorMessage) Then
+                msg &= ": " & errorMessage
+            End If
+            ScreenReaderOutput.Speak(msg, False)
+        End If
+    End Sub
 
 #End Region
 
