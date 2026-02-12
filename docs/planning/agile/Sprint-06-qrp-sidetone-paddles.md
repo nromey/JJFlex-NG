@@ -1,8 +1,8 @@
 # Sprint 6: Bug Fixes, QRZ Logbook & Hotkey System
 
 **Plan file:** `qrp-sidetone-paddles`
-**Version target:** 4.1.14
-**Predecessor:** Sprint 5 — QRZ/HamQTH Lookup & Full Log Access (v4.1.13)
+**Version target:** 4.1.13
+**Predecessor:** Sprint 5 — QRZ/HamQTH Lookup & Full Log Access
 
 ## Context
 
@@ -280,11 +280,333 @@ Deferred to Sprint 7. Concept: checkbox in LogPanel or Settings that says "Log f
 ## Version Bump
 
 When all tracks merged and tested:
-- Bump to **4.1.14** in both `JJFlexRadio.vbproj` and `My Project\AssemblyInfo.vb`
+- Bump to **4.1.13** in both `JJFlexRadio.vbproj` and `My Project\AssemblyInfo.vb`
 - Update `docs/CHANGELOG.md`
 - Tag and release
 
 ---
+
+## What Shipped — Change Summary
+
+All three tracks have been merged to main and build clean (0 errors).
+
+### Track A: Bug Fixes
+
+**BUG-007 — QRZ callbook failure → HamQTH fallback**
+- QRZ lookup now distinguishes three outcomes: (1) call found, (2) call not in QRZ database but session OK, (3) real auth/network failure.
+- Only real failures count toward the 3-strike threshold that triggers fallback.
+- After 3 consecutive real failures, announces: "QRZ lookups are failing. Using HamQTH as fallback."
+- Files: `QrzLookup/QrzCallbookLookup.cs`, `LogPanel.vb`
+
+**BUG-008 — HamQTH built-in account**
+- When HamQTH is selected but operator has no personal credentials, falls back to built-in "JJRadio" account automatically.
+- File: `LogPanel.vb`
+
+**BUG-009 — Modern menu accessibility**
+- `AccessibleName` added to all Modern mode top-level menus and submenus so JAWS/NVDA announce them.
+- File: `Form1.vb`
+
+### Track B: QRZ Logbook Upload
+
+**New settings in Personal Information dialog:**
+- "Log QSOs to QRZ Logbook" checkbox
+- "QRZ Logbook API key" text field (masked with password dots, DPAPI-encrypted)
+- "Validate" button — calls QRZ Logbook STATUS API, shows logbook stats or error
+
+**Real-time upload:**
+- When enabled, each QSO saved in Logging Mode is immediately uploaded to QRZ Logbook (fire-and-forget).
+- Screen reader announces "Logged to QRZ" on success, error message on failure.
+- Local log is always saved first — QRZ upload failure never loses a QSO.
+- Circuit breaker: pauses uploads after 5 consecutive errors.
+- Files: `QrzLookup/QrzLogbookClient.cs` (new), `LogPanel.vb`, `PersonalData.vb`, `PersonalInfo.vb`, `PersonalInfo.Designer.vb`
+
+### Track C: Hotkey System Overhaul
+
+**Scope-aware hotkeys:**
+- New `KeyScope` enum: Global, Radio, Logging.
+- Same physical key can have different commands per UI mode:
+  - Alt+C = CW Zero Beat in Radio mode, Call Sign field in Logging mode
+  - Alt+S = Start Scan in Radio mode, State field in Logging mode
+  - Alt+R = Reverse Beacon in Radio, My RST in Logging mode
+  - Alt+D = DX Cluster in Radio, DateTime in Logging mode
+  - etc.
+- Global keys (F1 help, F12 stop CW, Ctrl+L station lookup, Ctrl+/ command finder) work everywhere.
+
+**CW message key migration:**
+- F5-F11 CW messages automatically remapped to Ctrl+1 through Ctrl+7 on first load.
+- Frees F-keys for future use. Migration is one-time and saved.
+
+**New Settings UI (Tools → Configure Hotkeys):**
+- Tabbed layout: Global, Radio, Logging tabs
+- Each tab shows commands grouped by function (General, Audio, CW, Logging, etc.)
+- Select a command → press a key to rebind
+- Scope-aware conflict detection (same key in Radio + Logging = OK; same key in same scope = conflict)
+- "Reset Selected" and "Reset All in Tab" buttons
+
+**New Command Finder dialog:**
+- Opened via **Ctrl+/** (slash on the forward-slash key)
+- Searches all commands by name, description, keywords, group, and menu text
+- Pre-filtered to current scope (Radio mode shows Radio+Global; Logging shows Logging+Global)
+- Select a result and press Enter (or double-click) to execute that command immediately
+- Fully accessible: announces result count as you type
+
+---
+
+## Hotkey Quick Reference
+
+### Global Hotkeys (work everywhere)
+
+| Key | Command |
+|-----|---------|
+| F1 | Show help |
+| F12 | Stop sending CW |
+| Ctrl+L | Station lookup |
+| Ctrl+/ | Open Command Finder |
+
+### Radio Hotkeys (Classic + Modern modes)
+
+| Key | Command |
+|-----|---------|
+| F2 | Show frequency / pause scan |
+| Shift+F2 | Resume scan |
+| F3 | Show received |
+| F4 | Show send |
+| Ctrl+F4 | Show send direct |
+| Ctrl+F | Enter frequency |
+| Ctrl+M | Show memory |
+| Ctrl+Shift+M | Memory scan |
+| Alt+C | CW zero beat |
+| Ctrl+Shift+C | Clear RIT |
+| Alt+S | Start scan |
+| Alt+D | DX Cluster |
+| Alt+R | Reverse Beacon |
+| Ctrl+P | Panning |
+| Ctrl+Shift+U | Saved scan |
+| Ctrl+Z | Stop scan |
+| Alt+PageUp | Audio gain up |
+| Alt+PageDown | Audio gain down |
+| Alt+Shift+PageUp | Headphones up |
+| Alt+Shift+PageDown | Headphones down |
+| Shift+PageUp | Line out up |
+| Shift+PageDown | Line out down |
+| Ctrl+F9 | Toggle 1 |
+| Ctrl+1 through Ctrl+7 | CW messages 1-7 (migrated from F5-F11) |
+
+### Logging Hotkeys (Logging Mode only)
+
+| Key | Command |
+|-----|---------|
+| Alt+C | Call sign field |
+| Alt+T | His RST |
+| Alt+R | My RST |
+| Alt+N | Name |
+| Alt+Q | QTH |
+| Alt+S | State |
+| Alt+G | Grid |
+| Alt+E | Comments |
+| Alt+D | Date/Time |
+| Ctrl+W | Write (save) entry |
+| Ctrl+N | New entry |
+| Ctrl+Shift+F | Search log |
+| Ctrl+Shift+T | Log stats |
+| F6 | Switch between radio and log panes |
+| Ctrl+Shift+N | Log characteristics dialog |
+| Ctrl+Alt+L | Open full log entry form |
+
+---
+
+## Step-by-Step Test Procedures
+
+### Test Setup
+
+1. Build: `dotnet clean JJFlexRadio.sln -c Release -p:Platform=x64 && dotnet build JJFlexRadio.sln -c Release -p:Platform=x64`
+2. Run the exe from `bin\x64\Release\net8.0-windows\win-x64\JJFlexRadio.exe`
+3. Connect to a radio (or use without radio for some tests)
+4. Have JAWS or NVDA running for accessibility tests
+
+### A. Callbook Fallback Tests
+
+**A1. QRZ with valid credentials**
+1. Settings → Personal Info → Callbook: QRZ, enter valid username/password → OK
+2. Enter Logging Mode (Ctrl+Shift+L)
+3. Type a known callsign (e.g. W1AW) and Tab out of Call field
+4. **Expected:** Name, QTH, Grid populate from QRZ. Screen reader says the callsign data.
+
+**A2. QRZ "not found" — supplemental HamQTH (no failure counted)**
+1. Same QRZ setup as A1
+2. Type a callsign that's NOT in QRZ (e.g. a very new or vanity call)
+3. Tab out of Call field
+4. **Expected:** No crash. If HamQTH has it, those fields fill in. No "QRZ failing" warning — this is not a failure.
+
+**A3. QRZ auth failure → HamQTH fallback**
+1. Settings → Personal Info → Callbook: QRZ, enter **wrong** password → OK
+2. Enter Logging Mode
+3. Type a callsign and Tab out — repeat 3+ times
+4. **Expected:** After 3 failures, hear "QRZ lookups are failing. Using HamQTH as fallback." Lookups continue via HamQTH.
+
+**A4. HamQTH with no personal credentials**
+1. Settings → Personal Info → Callbook: HamQTH, leave username/password blank → OK
+2. Enter Logging Mode, type a callsign, Tab out
+3. **Expected:** Lookup works using built-in "JJRadio" account. Fields populate.
+
+### B. Modern Menu Accessibility
+
+**B1. Modern menus speak with screen reader**
+1. Switch to Modern mode if not already
+2. Press Alt to activate menu bar
+3. Arrow through top-level menus (Radio, Slice, Audio, etc.)
+4. **Expected:** Each menu name is announced by JAWS/NVDA
+5. Open a submenu (e.g. Radio → arrow down)
+6. **Expected:** Items within the submenu are announced
+7. Navigate to any "coming soon" stub items
+8. **Expected:** "Coming soon" is announced
+
+### C. QRZ Logbook Upload
+
+**C1. Settings — enter and validate API key**
+1. Settings → Personal Info
+2. Check "Log QSOs to QRZ Logbook"
+3. Enter your QRZ Logbook API key (from qrz.com → Logbook → Settings → API)
+4. Press "Validate" button
+5. **Expected:** Message box shows logbook stats (total QSOs, confirmed, DXCC entities) — or error if key is bad.
+
+**C2. Real-time upload on QSO save**
+1. With QRZ Logbook enabled and valid key from C1
+2. Enter Logging Mode, fill in a QSO (call, RST, etc.)
+3. Press Ctrl+W to save
+4. **Expected:** Hear "Saved {callsign}" then shortly after "Logged to QRZ"
+5. Verify on qrz.com → Logbook that the QSO appeared
+
+**C3. QRZ upload with invalid key**
+1. Enter an invalid API key, save a QSO
+2. **Expected:** Local log saves normally ("Saved {callsign}"). Then hear "QRZ upload failed: {error}". QSO is NOT lost locally.
+
+**C4. QRZ logging disabled**
+1. Uncheck "Log QSOs to QRZ Logbook"
+2. Save a QSO
+3. **Expected:** Normal local save only, no QRZ announcement at all
+
+### D. Hotkey Scoping
+
+**D1. Same key, different modes**
+1. In Radio mode (Classic or Modern), press Alt+C
+2. **Expected:** CW Zero Beat command fires
+3. Enter Logging Mode (Ctrl+Shift+L), press Alt+C
+4. **Expected:** Focus jumps to Call Sign field (not CW zero beat)
+
+**D2. Alt+S scope test**
+1. Radio mode: Alt+S → **Expected:** Start Scan
+2. Logging mode: Alt+S → **Expected:** Focus to State field
+
+**D3. Global keys work in both modes**
+1. Radio mode: press F1 → **Expected:** Help
+2. Logging mode: press F1 → **Expected:** Help (same)
+3. Radio mode: Ctrl+/ → **Expected:** Command Finder opens
+4. Logging mode: Ctrl+/ → **Expected:** Command Finder opens
+
+**D4. CW messages on Ctrl+number**
+1. Verify Ctrl+1 sends first CW message (was F5 before migration)
+2. F5 should now be unbound (unless re-assigned)
+
+### E. Hotkey Settings UI
+
+**E1. Open and navigate**
+1. Tools → Configure Hotkeys (or however it's wired in the menu)
+2. **Expected:** Dialog opens with three tabs: Global, Radio, Logging
+3. Tab through — screen reader announces tab names and list contents
+
+**E2. Rebind a key**
+1. Select a command in the Radio tab
+2. Press a new key combination in the key-capture field
+3. **Expected:** New key shown, saved when OK pressed
+4. Test the rebound key in Radio mode — **Expected:** fires the newly assigned command
+
+**E3. Scope-aware conflict detection**
+1. Try assigning Alt+C in the Radio tab (already assigned to CW Zero Beat)
+2. **Expected:** Conflict warning shown
+3. Try assigning Alt+C in the Logging tab (already assigned to Call Sign)
+4. **Expected:** Conflict warning shown
+5. Assign a key used in Radio tab to a Logging tab command
+6. **Expected:** NO conflict — different scopes
+
+**E4. Reset buttons**
+1. Change a key binding, then press "Reset Selected"
+2. **Expected:** That single key reverts to default
+3. Press "Reset All in Tab"
+4. **Expected:** All keys in that tab revert to defaults
+
+### F. Command Finder
+
+**F1. Open and search**
+1. Press Ctrl+/ (forward slash)
+2. **Expected:** Command Finder dialog opens, focus in search box
+3. Type "slice" — **Expected:** results filter to slice-related commands, hear "{N} results"
+4. Type "freq" — **Expected:** results show frequency-related commands
+
+**F2. Execute from finder**
+1. Open Command Finder (Ctrl+/)
+2. Type "help", arrow down to "Show keys help", press Enter
+3. **Expected:** Command Finder closes, help command executes
+
+**F3. Scope filtering**
+1. In Radio mode, open Ctrl+/ → **Expected:** Shows Radio + Global commands (no Logging-only commands)
+2. In Logging mode, open Ctrl+/ → **Expected:** Shows Logging + Global commands (no Radio-only commands)
+
+**F4. Accessibility**
+1. Open Command Finder with screen reader running
+2. **Expected:** "Command Finder" dialog announced
+3. Type in search box → **Expected:** result count announced after each keystroke
+4. Arrow through results → **Expected:** Command name, key, scope announced per row
+
+### G. Regression Tests
+
+**G1. Logging Mode end-to-end**
+1. Enter Logging Mode, fill in a full QSO, save with Ctrl+W
+2. **Expected:** All fields work, QSO saved to log, "Saved" announced
+
+**G2. Classic/Modern mode basic operation**
+1. Check that existing radio hotkeys (F2, F3, F4, Ctrl+F, etc.) still work as before
+
+**G3. CW operation**
+1. Verify CW messages send on Ctrl+1 through Ctrl+7
+2. Verify F12 stops CW sending
+
+**G4. Legacy KeyDefs.xml**
+1. If upgrading from a previous version, existing custom key bindings should load and work
+2. All imported keys default to Global scope (backward compatible)
+
+---
+
+## Test Results
+
+| # | Test | Result | Notes |
+|---|------|--------|-------|
+| A1 | QRZ valid creds | | |
+| A2 | QRZ not-found (no failure) | | |
+| A3 | QRZ auth fail → HamQTH fallback | | |
+| A4 | HamQTH no creds → built-in | | |
+| B1 | Modern menus speak (JAWS) | | |
+| B1 | Modern menus speak (NVDA) | | |
+| C1 | QRZ Logbook validate key | | |
+| C2 | QRZ real-time upload | | |
+| C3 | QRZ upload invalid key | | |
+| C4 | QRZ logging disabled | | |
+| D1 | Alt+C scope (Radio vs Logging) | | |
+| D2 | Alt+S scope (Radio vs Logging) | | |
+| D3 | Global keys in both modes | | |
+| D4 | CW messages on Ctrl+number | | |
+| E1 | Hotkey Settings UI opens/tabs | | |
+| E2 | Rebind a key | | |
+| E3 | Scope conflict detection | | |
+| E4 | Reset buttons | | |
+| F1 | Command Finder search | | |
+| F2 | Execute from finder | | |
+| F3 | Scope filtering | | |
+| F4 | Command Finder accessibility | | |
+| G1 | Logging end-to-end | | |
+| G2 | Classic/Modern hotkeys | | |
+| G3 | CW operation | | |
+| G4 | Legacy KeyDefs.xml | | |
 
 ## Test Plan (Post-Merge Integration)
 
