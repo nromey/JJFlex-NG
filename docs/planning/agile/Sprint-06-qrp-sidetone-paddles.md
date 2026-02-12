@@ -608,6 +608,14 @@ All three tracks have been merged to main and build clean (0 errors).
 | G3 | CW operation | | |
 | G4 | Legacy KeyDefs.xml | | |
 
+## Lessons Learned
+
+**Use worktrees, not branches, for parallel CLI sessions.** Sprint 6 ran three CLI sessions on three branches (`sprint6/bug-fixes`, `sprint6/qrz-logbook`, `sprint6/hotkeys`) sharing the same working directory. This caused checkout races, file conflicts, and build issues. Future sprints must use `git worktree` so each CLI session gets its own directory. Updated CLAUDE.md to make this mandatory.
+
+**VB.NET keyword gotchas after merge.** `Global` is a reserved keyword in VB.NET — the C#-authored hotkey code used it as an enum value, which compiled fine in C# but broke in VB.NET callers. Required `[Global]` bracket escaping in 19 places. Also: VB.NET doesn't allow standalone comment lines inside array initializers with implicit line continuation. These only surfaced after merge when VB.NET compiled against the new types.
+
+---
+
 ## Test Plan (Post-Merge Integration)
 
 After all three tracks merge into main:

@@ -299,13 +299,27 @@ powershell -Command "(Get-Item 'bin\x64\Release\net8.0-windows\win-x64\JJFlexRad
 
 ## Workflow
 
-### Parallel Sprint Tracks
-When running multiple Claude Code sessions on different sprint tracks simultaneously, use `git worktree` so each session has its own working directory:
+### Parallel Sprint Tracks — MUST use worktrees
+
+**IMPORTANT: Always use `git worktree` for parallel CLI sessions.** Do NOT just check out different branches in the same working directory — CLI sessions will fight over files, lose changes, and produce checkout races.
+
 ```batch
-git worktree add ../jjflex-trackB sprint6/qrz-logbook
-git worktree add ../jjflex-trackC sprint6/hotkeys
+# Session 1 stays in main repo on sprint7/track-a (or main)
+# Session 2 gets its own directory:
+git worktree add ../jjflex-trackB sprint7/track-b
+# Session 3 gets its own directory:
+git worktree add ../jjflex-trackC sprint7/track-c
 ```
-Each session works in its own directory — no checkout races or file conflicts. Clean up when done: `git worktree remove ../jjflex-trackB`
+
+Each session works in its own directory with its own branch checked out. No file conflicts, no checkout races. Each session can build independently.
+
+```batch
+# Clean up after merge:
+git worktree remove ../jjflex-trackB
+git worktree remove ../jjflex-trackC
+```
+
+**Lesson learned (Sprint 6):** Using branches without worktrees caused CLI sessions to collide — multiple sessions sharing one working directory led to file corruption and build issues. Worktrees are mandatory, not optional.
 
 ### Commits
 - Commit and push after completing each phase or significant chunk of work
