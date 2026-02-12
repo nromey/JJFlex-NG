@@ -105,7 +105,7 @@ Public Class KeyCommands
     Public Class KeyDefType
         Public key As Keys
         Public i As Integer
-        Public Scope As KeyScope = KeyScope.Global
+        Public Scope As KeyScope = KeyScope.[Global]
         ' This is because the xml serializer on Vista doesn't handle enums.
         <XmlIgnore()> Public Property id As CommandValues
             Get
@@ -142,7 +142,7 @@ Public Class KeyCommands
     ''' Global = all modes; Radio = Classic + Modern; Logging = Logging Mode only.
     ''' </summary>
     Public Enum KeyScope
-        Global = 0    ' Active in all modes
+        [Global] = 0    ' Active in all modes
         Radio = 1     ' Classic + Modern only
         Logging = 2   ' Logging Mode only
     End Enum
@@ -176,7 +176,7 @@ Public Class KeyCommands
         Friend ADIFTag As String
         Friend UseWhenLogging As Boolean
         Friend Group As FunctionGroups
-        Friend Scope As KeyScope = KeyScope.Global
+        Friend Scope As KeyScope = KeyScope.[Global]
         Friend Description As String = Nothing
         Friend Keywords As String() = Nothing
         ' Use to copy an entry
@@ -196,7 +196,7 @@ Public Class KeyCommands
         ' for a command
         Friend Sub New(ByVal id As CommandValues, ByVal r As kFunc,
                        ByVal h As String, m As String, g As FunctionGroups,
-                       Optional sc As KeyScope = KeyScope.Global)
+                       Optional sc As KeyScope = KeyScope.[Global])
             key = New KeyDefType(Keys.None, id)
             KeyType = KeyTypes.Command
             rtn = r
@@ -210,7 +210,7 @@ Public Class KeyCommands
         ' use with a log field
         Friend Sub New(ByVal id As CommandValues, ByVal r As kFunc,
                        ByVal h As String, m As String, a As String, t As KeyTypes,
-                       g As FunctionGroups, Optional sc As KeyScope = KeyScope.Global)
+                       g As FunctionGroups, Optional sc As KeyScope = KeyScope.[Global])
             key = New KeyDefType(Keys.None, id)
             rtn = r
             helpText = h
@@ -224,7 +224,7 @@ Public Class KeyCommands
         ' Use for a macro
         Friend Sub New(ByVal id As CommandValues, ByVal t As KeyTypes,
                        ByVal r As kFunc, ByVal h As String, g As FunctionGroups,
-                       Optional sc As KeyScope = KeyScope.Global)
+                       Optional sc As KeyScope = KeyScope.[Global])
             key = New KeyDefType(Keys.None, id)
             KeyType = t
             rtn = r
@@ -239,7 +239,7 @@ Public Class KeyCommands
         Friend Sub New(ByVal id As CommandValues, ByVal t As KeyTypes,
                        ByVal r As kFunc, ByVal h As String, m As String,
                        u As Boolean, g As FunctionGroups,
-                       Optional sc As KeyScope = KeyScope.Global)
+                       Optional sc As KeyScope = KeyScope.[Global])
             key = New KeyDefType(Keys.None, id)
             KeyType = t
             rtn = r
@@ -254,7 +254,7 @@ Public Class KeyCommands
         Friend Sub New(ByVal id As CommandValues, ByVal t As KeyTypes,
                        ByVal r As kFunc, ByVal h As String, m As menuTextFuncDel,
                        u As Boolean, g As FunctionGroups,
-                       Optional sc As KeyScope = KeyScope.Global)
+                       Optional sc As KeyScope = KeyScope.[Global])
             key = New KeyDefType(Keys.None, id)
             KeyType = t
             rtn = r
@@ -273,7 +273,7 @@ Public Class KeyCommands
     ''' <remarks>It's in logical order, not CommandValues order</remarks>
     Friend KeyTable() As keyTbl = {
         New keyTbl(CommandValues.ShowHelp, AddressOf Form1.DisplayHelp,
-            "Show keys help", Nothing, FunctionGroups.help, KeyScope.Global),
+            "Show keys help", Nothing, FunctionGroups.help, KeyScope.[Global]),
         New keyTbl(CommandValues.ShowFreq, AddressOf displayFreqCmd,
             "Show frequency or pause scan", Nothing, FunctionGroups.routingScan, KeyScope.Radio),
         New keyTbl(CommandValues.ResumeTheScan, AddressOf resumeScanCmd,
@@ -287,7 +287,7 @@ Public Class KeyCommands
         New keyTbl(CommandValues.SmeterDBM, KeyTypes.Command, AddressOf smeterDisplayRTN,
             "Display SMeter in DBM or S-units", AddressOf sMeterMenuString, False, FunctionGroups.general, KeyScope.Radio),
         New keyTbl(CommandValues.StopCW, KeyTypes.Command, AddressOf stopCode,
-            "Stop sending CW", "cw stop", True, FunctionGroups.general, KeyScope.Global),
+            "Stop sending CW", "cw stop", True, FunctionGroups.general, KeyScope.[Global]),
         New keyTbl(CommandValues.SetFreq, AddressOf WriteFreq,
             "Enter frequency", "frequency", FunctionGroups.general, KeyScope.Radio),
         New keyTbl(CommandValues.ShowMemory, AddressOf DisplayMemory,
@@ -367,24 +367,23 @@ Public Class KeyCommands
         New keyTbl(CommandValues.AudioSetup, KeyTypes.Command, AddressOf audioSetupRtn,
             "Select audio device", "Select Audio Device", False, FunctionGroups.audio, KeyScope.Radio),
         New keyTbl(CommandValues.StationLookup, KeyTypes.Command, AddressOf stationLookupRtn,
-            "Station lookup", "Station lookup", False, FunctionGroups.logging, KeyScope.Global),
+            "Station lookup", "Station lookup", False, FunctionGroups.logging, KeyScope.[Global]),
         New keyTbl(CommandValues.GatherDebug, KeyTypes.Command, AddressOf gatherDebugRtn,
-            "Collect debug info", "Collect debug info", False, FunctionGroups.general, KeyScope.Global),
+            "Collect debug info", "Collect debug info", False, FunctionGroups.general, KeyScope.[Global]),
         New keyTbl(CommandValues.ATUMemories, KeyTypes.Command, AddressOf ATUMemoriesRtn,
             "Tuner memories", "Tuner memories", False, FunctionGroups.general, KeyScope.Radio),
         New keyTbl(CommandValues.Reboot, KeyTypes.Command, AddressOf rebootRtn,
             "Reboot the radio", "Reboot the radio", False, FunctionGroups.general, KeyScope.Radio),
         New keyTbl(CommandValues.TXControls, KeyTypes.Command, AddressOf TXControlsRtn,
             "Transmit controls", "Transmit controls", False, FunctionGroups.general, KeyScope.Radio),
-        ' Logging-only actions (scope-aware hotkeys)
-        New keyTbl(CommandValues.LogPaneSwitchF6, KeyTypes.Command, AddressOf logPaneSwitchRtn,
+        New keyTbl(CommandValues.LogPaneSwitchF6, KeyTypes.Command, AddressOf logPaneSwitchRtn, ' Logging-only actions (scope-aware hotkeys)
             "Switch between radio and log panes", "Switch panes", False, FunctionGroups.logging, KeyScope.Logging),
         New keyTbl(CommandValues.LogCharacteristicsDialog, KeyTypes.Command, AddressOf logCharacteristicsRtn,
             "Open log characteristics dialog", "Log characteristics", False, FunctionGroups.logging, KeyScope.Logging),
         New keyTbl(CommandValues.LogOpenFullForm, KeyTypes.Command, AddressOf logOpenFullFormRtn,
             "Open full log entry form", "Full log form", False, FunctionGroups.logging, KeyScope.Logging),
         New keyTbl(CommandValues.ContextHelp, KeyTypes.Command, AddressOf contextHelpRtn,
-            "Context-aware command finder", "Command finder", False, FunctionGroups.help, KeyScope.Global)}
+            "Context-aware command finder", "Command finder", False, FunctionGroups.help, KeyScope.[Global])}
 
     ' Deleted from KeyTable.
     ' New keyTbl(CommandValues.LogForm, AddressOf BringUpLogForm,
@@ -396,15 +395,12 @@ Public Class KeyCommands
 
     ' default key definitions — scope-aware
     ' Radio+Logging scoped keys share physical keys (e.g. Alt+C = CWZeroBeat in Radio, LogCall in Logging).
-    Private defaultKeys() As KeyDefType =
-    {
-     ' --- Global scope ---
-     New KeyDefType(Keys.F1, CommandValues.ShowHelp, KeyScope.Global),
-     New KeyDefType(Keys.F12, CommandValues.StopCW, KeyScope.Global),
-     New KeyDefType(Keys.L Or Keys.Control, CommandValues.StationLookup, KeyScope.Global),
-     New KeyDefType(Keys.None, CommandValues.GatherDebug, KeyScope.Global),
-     ' --- Radio scope ---
-     New KeyDefType(Keys.F2, CommandValues.ShowFreq, KeyScope.Radio),
+    Private defaultKeys() As KeyDefType = {
+     New KeyDefType(Keys.F1, CommandValues.ShowHelp, KeyScope.[Global]), ' --- Global scope ---
+     New KeyDefType(Keys.F12, CommandValues.StopCW, KeyScope.[Global]),
+     New KeyDefType(Keys.L Or Keys.Control, CommandValues.StationLookup, KeyScope.[Global]),
+     New KeyDefType(Keys.None, CommandValues.GatherDebug, KeyScope.[Global]),
+     New KeyDefType(Keys.F2, CommandValues.ShowFreq, KeyScope.Radio), ' --- Radio scope ---
      New KeyDefType(Keys.F2 Or Keys.Shift, CommandValues.ResumeTheScan, KeyScope.Radio),
      New KeyDefType(Keys.F3, CommandValues.ShowReceived, KeyScope.Radio),
      New KeyDefType(Keys.F4, CommandValues.ShowSend, KeyScope.Radio),
@@ -436,8 +432,7 @@ Public Class KeyCommands
      New KeyDefType(Keys.None, CommandValues.ATUMemories, KeyScope.Radio),
      New KeyDefType(Keys.None, CommandValues.Reboot, KeyScope.Radio),
      New KeyDefType(Keys.None, CommandValues.TXControls, KeyScope.Radio),
-     ' --- Logging scope ---
-     New KeyDefType(Keys.C Or Keys.Alt, CommandValues.LogCall, KeyScope.Logging),            ' Alt+C = Log Call in Logging
+     New KeyDefType(Keys.C Or Keys.Alt, CommandValues.LogCall, KeyScope.Logging), ' --- Logging scope ---            ' Alt+C = Log Call in Logging
      New KeyDefType(Keys.T Or Keys.Alt, CommandValues.LogHisRST, KeyScope.Logging),          ' Alt+T = Log His RST in Logging
      New KeyDefType(Keys.R Or Keys.Alt, CommandValues.LogMyRST, KeyScope.Logging),           ' Alt+R = Log My RST in Logging
      New KeyDefType(Keys.N Or Keys.Alt, CommandValues.LogHandle, KeyScope.Logging),          ' Alt+N = Log Name in Logging
@@ -457,7 +452,7 @@ Public Class KeyCommands
      New KeyDefType(Keys.F6, CommandValues.LogPaneSwitchF6, KeyScope.Logging),
      New KeyDefType(Keys.N Or Keys.Control Or Keys.Shift, CommandValues.LogCharacteristicsDialog, KeyScope.Logging),
      New KeyDefType(Keys.L Or Keys.Control Or Keys.Alt, CommandValues.LogOpenFullForm, KeyScope.Logging),
-     New KeyDefType(Keys.Oem2 Or Keys.Control, CommandValues.ContextHelp, KeyScope.Global)}
+     New KeyDefType(Keys.Oem2 Or Keys.Control, CommandValues.ContextHelp, KeyScope.[Global])}
 
     ''' <summary>
     ''' Dictionary to access the keytable using a key.
@@ -491,7 +486,7 @@ Public Class KeyCommands
     ''' </summary>
     Private Function ScopeMatchesMode(scope As KeyScope) As Boolean
         Select Case scope
-            Case KeyScope.Global
+            Case KeyScope.[Global]
                 Return True
             Case KeyScope.Radio
                 Return (ActiveUIMode = UIMode.Classic OrElse ActiveUIMode = UIMode.Modern)
@@ -521,7 +516,7 @@ Public Class KeyCommands
         Dim globalFallback As keyTbl = Nothing
         For Each item In entries
             If Not ScopeMatchesMode(item.Scope) Then Continue For
-            If item.Scope <> KeyScope.Global Then
+            If item.Scope <> KeyScope.[Global] Then
                 ' Scoped match wins over Global (more specific).
                 Return item
             End If

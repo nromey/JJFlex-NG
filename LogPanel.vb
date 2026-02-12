@@ -67,7 +67,7 @@ Friend Class LogPanel
     Private pendingCallSign As String = ""  ' Call sign for fallback retry
 
     ' --- QRZ Logbook upload ---
-    Private qrzLogbook As QrzLookup.QrzLogbookClient = Nothing
+    Private qrzLogbook As Global.QrzLookup.QrzLogbookClient = Nothing
     Private stationCallSign As String = ""
 
     ' --- Call sign index: built during log scan, used for instant previous-contact lookup ---
@@ -215,7 +215,7 @@ Friend Class LogPanel
                     For Each kvp In session.FieldDictionary
                         fieldsCopy(kvp.Key) = New adif.LogFieldElement(kvp.Value)
                     Next
-                    Dim adifRecord = QrzLookup.QrzLogbookClient.FieldsToAdifRecord(fieldsCopy, stationCallSign)
+                    Dim adifRecord = Global.QrzLookup.QrzLogbookClient.FieldsToAdifRecord(fieldsCopy, stationCallSign)
                     If adifRecord IsNot Nothing Then
                         qrzLogbook.UploadQSO(adifRecord, callText)
                     End If
@@ -541,7 +541,7 @@ Friend Class LogPanel
         If Not enabled Then Return
         If String.IsNullOrEmpty(apiKey) Then Return
 
-        qrzLogbook = New QrzLookup.QrzLogbookClient(apiKey, version)
+        qrzLogbook = New Global.QrzLookup.QrzLogbookClient(apiKey, version)
         AddHandler qrzLogbook.UploadResultEvent, AddressOf QrzLogbookResultHandler
         Tracing.TraceLine("LogPanel: QRZ Logbook upload initialized", Diagnostics.TraceLevel.Info)
     End Sub
