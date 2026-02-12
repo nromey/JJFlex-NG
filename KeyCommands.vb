@@ -766,6 +766,17 @@ Public Class KeyCommands
         End If
     End Sub
 
+    ''' <summary>
+    ''' Get the default KeyDefType for a given command.
+    ''' Used by the Reset button in DefineCommands.
+    ''' </summary>
+    Friend Function GetDefaultKey(cmdId As CommandValues) As KeyDefType
+        For Each def In defaultKeys
+            If def.id = cmdId Then Return def
+        Next
+        Return Nothing
+    End Function
+
     Private Sub murgeNewDefaults()
         ' Build checkDict, a keydef dictionary from keyDictionary.
         Dim checkDict = New Dictionary(Of CommandValues, keyTbl)
