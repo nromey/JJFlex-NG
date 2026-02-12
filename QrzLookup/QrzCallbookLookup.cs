@@ -311,11 +311,9 @@ namespace QrzLookup
                     }
                 }
 
-                // Validate we got callsign data.
-                if (result?.Callsign == null)
-                {
-                    result = null;
-                }
+                // Note: if result.Callsign is null, the callsign was not found in QRZ's
+                // database — but the session is still valid. We pass the full result through
+                // so the handler can distinguish "not found" from "auth/session failure".
             }
             catch (Exception ex)
             {

@@ -59,8 +59,12 @@ Friend Class LogPanel
     ' --- Callbook lookup (QRZ or HamQTH) ---
     Private qrzLookup As QrzLookup.QrzCallbookLookup = Nothing
     Private hamqthLookup As HamQTHLookup.CallbookLookup = Nothing
+    Private hamqthFallback As HamQTHLookup.CallbookLookup = Nothing  ' HamQTH fallback when QRZ is primary
     Private lastLookedUpCall As String = ""
     Private operatorCountry As String = ""
+    Private qrzConsecutiveFailures As Integer = 0
+    Private qrzFallbackNotified As Boolean = False
+    Private pendingCallSign As String = ""  ' Call sign for fallback retry
 
     ' --- Call sign index: built during log scan, used for instant previous-contact lookup ---
     Private callIndex As New Dictionary(Of String, PreviousContactInfo)(StringComparer.OrdinalIgnoreCase)
@@ -286,6 +290,9 @@ Friend Class LogPanel
                                    Optional operatorCallSign As String = "")
         FinishCallbook()  ' Clean up any previous instance.
         lastLookedUpCall = ""
+        qrzConsecutiveFailures = 0
+        qrzFallbackNotified = False
+        pendingCallSign = ""
 
         ' Look up operator's country for DX comparison in callbook announcements.
         operatorCountry = ""
@@ -300,18 +307,39 @@ Friend Class LogPanel
             End Try
         End If
 
-        If String.IsNullOrEmpty(source) OrElse source = "None" Then Return
-        If String.IsNullOrEmpty(username) OrElse String.IsNullOrEmpty(password) Then Return
+        ' Resolve effective source and credentials, falling back to built-in HamQTH
+        ' account when the operator hasn't configured (or has incomplete) credentials.
+        ' This mirrors the pattern used by StationLookup.
+        Dim effectiveSource As String = "HamQTH"
+        Dim effectiveUser As String = HamqthLookupID
+        Dim effectivePass As String = HamqthLookupPassword
 
-        Select Case source
+        If Not String.IsNullOrEmpty(source) AndAlso source <> "None" AndAlso
+           Not String.IsNullOrEmpty(username) AndAlso Not String.IsNullOrEmpty(password) Then
+            effectiveSource = source
+            effectiveUser = username
+            effectivePass = password
+        End If
+
+        Select Case effectiveSource
             Case "QRZ"
-                qrzLookup = New QrzLookup.QrzCallbookLookup(username, password)
+                qrzLookup = New QrzLookup.QrzCallbookLookup(effectiveUser, effectivePass)
                 AddHandler qrzLookup.CallsignSearchEvent, AddressOf QrzResultHandler
                 Tracing.TraceLine("LogPanel: QRZ callbook lookup initialized", Diagnostics.TraceLevel.Info)
-            Case "HamQTH"
-                hamqthLookup = New HamQTHLookup.CallbookLookup(username, password)
+
+                ' Also prepare a HamQTH fallback client for when QRZ fails.
+                hamqthFallback = New HamQTHLookup.CallbookLookup(HamqthLookupID, HamqthLookupPassword)
+                AddHandler hamqthFallback.CallsignSearchEvent, AddressOf HamQTHResultHandler
+                Tracing.TraceLine("LogPanel: HamQTH fallback initialized for QRZ failure recovery", Diagnostics.TraceLevel.Info)
+
+            Case Else  ' "HamQTH" or fallback
+                hamqthLookup = New HamQTHLookup.CallbookLookup(effectiveUser, effectivePass)
                 AddHandler hamqthLookup.CallsignSearchEvent, AddressOf HamQTHResultHandler
-                Tracing.TraceLine("LogPanel: HamQTH callbook lookup initialized", Diagnostics.TraceLevel.Info)
+                If effectiveUser = HamqthLookupID Then
+                    Tracing.TraceLine("LogPanel: HamQTH callbook lookup initialized (built-in account)", Diagnostics.TraceLevel.Info)
+                Else
+                    Tracing.TraceLine("LogPanel: HamQTH callbook lookup initialized", Diagnostics.TraceLevel.Info)
+                End If
         End Select
     End Sub
 
@@ -329,6 +357,11 @@ Friend Class LogPanel
             hamqthLookup.Finished()
             hamqthLookup = Nothing
         End If
+        If hamqthFallback IsNot Nothing Then
+            RemoveHandler hamqthFallback.CallsignSearchEvent, AddressOf HamQTHResultHandler
+            hamqthFallback.Finished()
+            hamqthFallback = Nothing
+        End If
     End Sub
 
     ''' <summary>
@@ -339,29 +372,71 @@ Friend Class LogPanel
         If String.IsNullOrEmpty(callSign) Then Return
         If callSign = lastLookedUpCall Then Return
         lastLookedUpCall = callSign
+        pendingCallSign = callSign
 
         If qrzLookup IsNot Nothing AndAlso qrzLookup.CanLookup Then
             qrzLookup.LookupCall(callSign)
         ElseIf hamqthLookup IsNot Nothing AndAlso hamqthLookup.CanLookup Then
             hamqthLookup.LookupCall(callSign)
+        ElseIf hamqthFallback IsNot Nothing AndAlso hamqthFallback.CanLookup Then
+            ' QRZ primary is unavailable; use HamQTH fallback directly.
+            hamqthFallback.LookupCall(callSign)
         End If
     End Sub
 
     ''' <summary>
     ''' Handle QRZ lookup result — convert to CallbookResult and apply.
     ''' Called on a background thread; marshals to UI thread.
+    ''' Distinguishes three cases:
+    '''   1. Valid result with callsign data → apply and reset failure counter.
+    '''   2. Valid session but callsign not found → no failure (QRZ is working fine).
+    '''   3. Null result or session error → real failure, count toward fallback threshold.
     ''' </summary>
     Private Sub QrzResultHandler(result As QrzLookup.QrzCallbookLookup.QrzDatabase)
-        If result Is Nothing OrElse result.Callsign Is Nothing Then Return
-        Dim cbr As New CallbookResult() With {
-            .Source = "QRZ",
-            .Name = If(result.Callsign.FirstName, ""),
-            .QTH = If(result.Callsign.City, ""),
-            .State = If(result.Callsign.State, ""),
-            .Grid = If(result.Callsign.Grid, ""),
-            .Country = If(result.Callsign.Country, "")
-        }
-        ApplyCallbookResult(cbr)
+        ' Case 1: QRZ returned callsign data — reset failure counter and apply.
+        If result IsNot Nothing AndAlso result.Callsign IsNot Nothing Then
+            qrzConsecutiveFailures = 0
+            pendingCallSign = ""
+            Dim cbr As New CallbookResult() With {
+                .Source = "QRZ",
+                .Name = If(result.Callsign.FirstName, ""),
+                .QTH = If(result.Callsign.City, ""),
+                .State = If(result.Callsign.State, ""),
+                .Grid = If(result.Callsign.Grid, ""),
+                .Country = If(result.Callsign.Country, "")
+            }
+            ApplyCallbookResult(cbr)
+            Return
+        End If
+
+        ' Case 2: Valid session but callsign not in QRZ database — not a failure.
+        ' QRZ is working fine, the call just isn't listed. Try HamQTH as supplemental
+        ' lookup (not as a failure fallback), but don't count toward failure threshold.
+        If result IsNot Nothing AndAlso result.Session IsNot Nothing AndAlso
+           String.IsNullOrEmpty(result.Session.Error) Then
+            Tracing.TraceLine($"LogPanel: QRZ callsign not found (session OK), trying HamQTH supplement", Diagnostics.TraceLevel.Info)
+            If hamqthFallback IsNot Nothing AndAlso hamqthFallback.CanLookup AndAlso
+               Not String.IsNullOrEmpty(pendingCallSign) Then
+                hamqthFallback.LookupCall(pendingCallSign)
+            End If
+            Return
+        End If
+
+        ' Case 3: Real failure — null result, session error, or auth problem.
+        ' Count toward fallback threshold and try HamQTH.
+        qrzConsecutiveFailures += 1
+        Tracing.TraceLine($"LogPanel: QRZ lookup failed (consecutive failures: {qrzConsecutiveFailures})", Diagnostics.TraceLevel.Warning)
+
+        If qrzConsecutiveFailures >= 3 AndAlso Not qrzFallbackNotified Then
+            qrzFallbackNotified = True
+            Radios.ScreenReaderOutput.Speak("QRZ lookups are failing. Using HamQTH as fallback. Check your QRZ subscription status.", False)
+        End If
+
+        If hamqthFallback IsNot Nothing AndAlso hamqthFallback.CanLookup AndAlso
+           Not String.IsNullOrEmpty(pendingCallSign) Then
+            Tracing.TraceLine($"LogPanel: Falling back to HamQTH for {pendingCallSign}", Diagnostics.TraceLevel.Info)
+            hamqthFallback.LookupCall(pendingCallSign)
+        End If
     End Sub
 
     ''' <summary>
