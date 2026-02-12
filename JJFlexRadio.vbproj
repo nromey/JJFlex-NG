@@ -95,6 +95,12 @@
     <Compile Include="CWMessages.vb" />
     <Compile Include="DebugInfo.vb" />
     <Compile Include="ZipUtils.vb" />
+    <Compile Include="CommandFinder.Designer.vb">
+      <DependentUpon>CommandFinder.vb</DependentUpon>
+    </Compile>
+    <Compile Include="CommandFinder.vb">
+      <SubType>Form</SubType>
+    </Compile>
     <Compile Include="DefineCommands.Designer.vb">
       <DependentUpon>DefineCommands.vb</DependentUpon>
     </Compile>

@@ -2895,7 +2895,12 @@ RadioConnected:
             .AccessibleRole = AccessibleRole.MenuPopup,
             .Visible = False
         }
-        AddModernStubItem(ModernToolsMenu, "Command Finder")
+        AddModernMenuItem(ModernToolsMenu, "Command Finder    Ctrl+/",
+            Sub(s As Object, ev As EventArgs)
+                Dim finder As New CommandFinder()
+                finder.PreFilterScope = ActiveUIMode
+                finder.ShowDialog()
+            End Sub)
         AddModernStubItem(ModernToolsMenu, "Speak Status")
         AddModernStubItem(ModernToolsMenu, "Status Dialog")
         AddModernMenuItem(ModernToolsMenu, "Station Lookup    Ctrl+L",
@@ -2909,7 +2914,10 @@ RadioConnected:
         AddModernMenuItem(ModernToolsMenu, "Switch to Classic UI",
             Sub(s As Object, ev As EventArgs) ToggleUIMode())
         ModernToolsMenu.DropDownItems.Add(New ToolStripSeparator())
-        AddModernStubItem(ModernToolsMenu, "Hotkey Editor")
+        AddModernMenuItem(ModernToolsMenu, "Hotkey Editor",
+            Sub(s As Object, ev As EventArgs)
+                DefineCommands.ShowDialog()
+            End Sub)
         AddModernMenuItem(ModernToolsMenu, "Band Plans", AddressOf ShowBandsMenuItem_Click)
         AddModernMenuItem(ModernToolsMenu, "Feature Availability", AddressOf FeatureAvailabilityMenuItem_Click)
 
@@ -3154,6 +3162,13 @@ RadioConnected:
                 CurrentOp.CallbookUsername,
                 CurrentOp.DecryptedCallbookPassword,
                 If(CurrentOp.callSign, ""))
+
+            ' Initialize QRZ Logbook upload if configured.
+            LoggingLogPanel.InitializeQrzLogbook(
+                CurrentOp.QrzLogbookEnabled,
+                CurrentOp.DecryptedQrzLogbookApiKey,
+                If(CurrentOp.callSign, ""),
+                myVersion.ToString())
         End If
 
         ' Focus the log panel call sign field.
@@ -3175,6 +3190,7 @@ RadioConnected:
         If LoggingLogPanel IsNot Nothing Then
             LoggingLogPanel.SaveState()
             LoggingLogPanel.FinishCallbook()
+            LoggingLogPanel.FinishQrzLogbook()
         End If
 
         Dim returnMode = LastNonLogMode
