@@ -87,6 +87,8 @@ Partial Class CommandFinder
         '
         'CommandFinder
         '
+        Me.AccessibleName = "Command Finder"
+        Me.AccessibleRole = System.Windows.Forms.AccessibleRole.Dialog
         Me.AutoScaleDimensions = New System.Drawing.SizeF(6.0!, 13.0!)
         Me.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font
         Me.ClientSize = New System.Drawing.Size(450, 370)

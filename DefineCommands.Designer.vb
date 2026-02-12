@@ -128,6 +128,7 @@ Partial Class DefineCommands
         '
         'ResetButton
         '
+        Me.ResetButton.AccessibleName = "Reset selected hotkey to default"
         Me.ResetButton.AccessibleRole = System.Windows.Forms.AccessibleRole.PushButton
         Me.ResetButton.Location = New System.Drawing.Point(290, 400)
         Me.ResetButton.Name = "ResetButton"
@@ -138,6 +139,7 @@ Partial Class DefineCommands
         '
         'ResetAllButton
         '
+        Me.ResetAllButton.AccessibleName = "Reset all hotkeys in current tab to defaults"
         Me.ResetAllButton.AccessibleRole = System.Windows.Forms.AccessibleRole.PushButton
         Me.ResetAllButton.Location = New System.Drawing.Point(410, 400)
         Me.ResetAllButton.Name = "ResetAllButton"

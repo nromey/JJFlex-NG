@@ -1596,15 +1596,15 @@ Public Class KeyCommands
     ' --- Logging-only action handlers (route to Form1) ---
 
     Private Sub logPaneSwitchRtn()
-        Form1.ToggleLoggingPaneFocusPublic()
+        Form1.ToggleLoggingPaneFocusForHotkey()
     End Sub
 
     Private Sub logCharacteristicsRtn()
-        Form1.LogCharacteristicsPublic()
+        Form1.LogCharacteristicsForHotkey()
     End Sub
 
     Private Sub logOpenFullFormRtn()
-        Form1.OpenFullLogEntryPublic()
+        Form1.OpenFullLogEntryForHotkey()
     End Sub
 
     Private Sub contextHelpRtn()

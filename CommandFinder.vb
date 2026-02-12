@@ -85,18 +85,8 @@ Public Class CommandFinder
     ''' Enter on a result executes the command and closes the dialog.
     ''' </summary>
     Private Sub ResultsListView_KeyDown(sender As Object, e As KeyEventArgs) Handles ResultsListView.KeyDown
-        If e.KeyCode = Keys.Enter AndAlso ResultsListView.SelectedItems.Count > 0 Then
-            Dim item = CType(ResultsListView.SelectedItems(0).Tag, KeyCommands.keyTbl)
-            Me.Close()
-            ' Execute the command.
-            If item.rtn IsNot Nothing Then
-                Commands.CommandId = item.key.id
-                Try
-                    item.rtn()
-                Catch ex As Exception
-                    JJTrace.Tracing.TraceLine("CommandFinder:execute:" & ex.Message, TraceLevel.Error)
-                End Try
-            End If
+        If e.KeyCode = Keys.Enter Then
+            ExecuteSelectedCommand()
             e.Handled = True
         End If
     End Sub
@@ -105,17 +95,25 @@ Public Class CommandFinder
     ''' Double-click on a result executes the command and closes the dialog.
     ''' </summary>
     Private Sub ResultsListView_DoubleClick(sender As Object, e As EventArgs) Handles ResultsListView.DoubleClick
-        If ResultsListView.SelectedItems.Count > 0 Then
-            Dim item = CType(ResultsListView.SelectedItems(0).Tag, KeyCommands.keyTbl)
-            Me.Close()
-            If item.rtn IsNot Nothing Then
-                Commands.CommandId = item.key.id
-                Try
-                    item.rtn()
-                Catch ex As Exception
-                    JJTrace.Tracing.TraceLine("CommandFinder:execute:" & ex.Message, TraceLevel.Error)
-                End Try
-            End If
+        ExecuteSelectedCommand()
+    End Sub
+
+    ''' <summary>
+    ''' Close the dialog and execute the currently selected command.
+    ''' Shared by Enter key and double-click handlers.
+    ''' </summary>
+    Private Sub ExecuteSelectedCommand()
+        If ResultsListView.SelectedItems.Count = 0 Then Return
+        Dim item = TryCast(ResultsListView.SelectedItems(0).Tag, KeyCommands.keyTbl)
+        If item Is Nothing Then Return
+        Me.Close()
+        If item.rtn IsNot Nothing Then
+            Commands.CommandId = item.key.id
+            Try
+                item.rtn()
+            Catch ex As Exception
+                JJTrace.Tracing.TraceLine("CommandFinder:execute:" & ex.Message, TraceLevel.Error)
+            End Try
         End If
     End Sub
 

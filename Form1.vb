@@ -3508,17 +3508,17 @@ RadioConnected:
         End If
     End Sub
 
-    ' --- Public wrappers for scope-aware hotkey routing (called from KeyCommands) ---
+    ' --- Hotkey wrappers: thin delegates for scope-aware key routing (called from KeyCommands) ---
 
-    Friend Sub ToggleLoggingPaneFocusPublic()
+    Friend Sub ToggleLoggingPaneFocusForHotkey()
         ToggleLoggingPaneFocus()
     End Sub
 
-    Friend Sub LogCharacteristicsPublic()
+    Friend Sub LogCharacteristicsForHotkey()
         LogCharacteristicsMenuItem_Click(Nothing, EventArgs.Empty)
     End Sub
 
-    Friend Sub OpenFullLogEntryPublic()
+    Friend Sub OpenFullLogEntryForHotkey()
         OpenFullLogEntry()
     End Sub
 
