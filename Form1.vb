@@ -185,6 +185,13 @@ Public Class Form1
             menuItem.AccessibleRole = AccessibleRole.MenuItem
         End If
 
+        ' If the item already has a custom AccessibleDescription (e.g., "coming soon"
+        ' stubs set in AddModernStubItem), preserve both AccessibleName and
+        ' AccessibleDescription rather than overwriting them.
+        If String.IsNullOrEmpty(state) AndAlso Not String.IsNullOrEmpty(menuItem.AccessibleDescription) Then
+            Return
+        End If
+
         If String.IsNullOrEmpty(state) Then
             menuItem.AccessibleName = label
             menuItem.AccessibleDescription = Nothing
@@ -2766,6 +2773,7 @@ RadioConnected:
         ModernRadioMenu = New ToolStripMenuItem() With {
             .Name = "ModernRadioMenu",
             .Text = "Radio",
+            .AccessibleName = "Radio",
             .AccessibleRole = AccessibleRole.MenuPopup,
             .Visible = False
         }
@@ -2797,6 +2805,7 @@ RadioConnected:
         ModernSliceMenu = New ToolStripMenuItem() With {
             .Name = "ModernSliceMenu",
             .Text = "Slice",
+            .AccessibleName = "Slice",
             .AccessibleRole = AccessibleRole.MenuPopup,
             .Visible = False
         }
@@ -2865,6 +2874,7 @@ RadioConnected:
         ModernFilterMenu = New ToolStripMenuItem() With {
             .Name = "ModernFilterMenu",
             .Text = "Filter",
+            .AccessibleName = "Filter",
             .AccessibleRole = AccessibleRole.MenuPopup,
             .Visible = False
         }
@@ -2879,6 +2889,7 @@ RadioConnected:
         ModernAudioMenu = New ToolStripMenuItem() With {
             .Name = "ModernAudioMenu",
             .Text = "Audio",
+            .AccessibleName = "Audio",
             .AccessibleRole = AccessibleRole.MenuPopup,
             .Visible = False
         }
@@ -2892,6 +2903,7 @@ RadioConnected:
         ModernToolsMenu = New ToolStripMenuItem() With {
             .Name = "ModernToolsMenu",
             .Text = "Tools",
+            .AccessibleName = "Tools",
             .AccessibleRole = AccessibleRole.MenuPopup,
             .Visible = False
         }
@@ -2952,7 +2964,7 @@ RadioConnected:
         Dim item = New ToolStripMenuItem() With {
             .Text = text,
             .AccessibleName = text.Replace("&", ""),
-            .AccessibleRole = AccessibleRole.MenuItem
+            .AccessibleRole = AccessibleRole.MenuPopup
         }
         parent.DropDownItems.Add(item)
         Return item
