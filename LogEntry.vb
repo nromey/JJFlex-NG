@@ -40,20 +40,22 @@ Friend Class LogEntry
             parent = p
             ' Set the keys for logging commands in my KeyTable.
             Dim dummy As KeyCommands.CommandValues = Nothing
-            For Each item As KeyCommands.keyTbl In Commands.KeyDictionary.Values
-                If (item.KeyType = KeyCommands.KeyTypes.log) Or _
-                   item.UseWhenLogging Or _
-                   myKeys.TryGetValue(item.key.id, dummy) Then
-                    Dim myItem = New KeyCommands.keyTbl(item)
-                    ' Note if UseWhenLogging is set, use the original handler.
-                    If Not myItem.UseWhenLogging Then
-                        myItem.rtn = AddressOf setFieldID
-                    ElseIf myItem.KeyType = KeyTypes.CWText Then
-                        ' Use the current version of the routine which uses CommandID.
-                        myItem.rtn = AddressOf sendCWMessage
+            For Each entries In Commands.KeyDictionary.Values
+                For Each item As KeyCommands.keyTbl In entries
+                    If (item.KeyType = KeyCommands.KeyTypes.log) Or _
+                       item.UseWhenLogging Or _
+                       myKeys.TryGetValue(item.key.id, dummy) Then
+                        Dim myItem = New KeyCommands.keyTbl(item)
+                        ' Note if UseWhenLogging is set, use the original handler.
+                        If Not myItem.UseWhenLogging Then
+                            myItem.rtn = AddressOf setFieldID
+                        ElseIf myItem.KeyType = KeyTypes.CWText Then
+                            ' Use the current version of the routine which uses CommandID.
+                            myItem.rtn = AddressOf sendCWMessage
+                        End If
+                        AddToKeyDictionary(myItem)
                     End If
-                    AddToKeyDictionary(myItem)
-                End If
+                Next
             Next
         End Sub
 
