@@ -53,25 +53,27 @@ Last updated: 2026-02-11
 - **Desired behavior:** On QRZ login failure, automatically fall back to built-in HamQTH ("JJRadio" account) so lookups keep working. After 3 failed QRZ logins, show a one-time dialog telling user HamQTH is being used as fallback. Also handle expired QRZ subscription as a distinct case with appropriate messaging. Recommend auto-switching the saved callbook source to HamQTH.
 - **Scope:** LogPanel callbook initialization + QRZ login failure handler + HamQTH fallback logic + user notification dialog
 - **Priority:** Medium — affects users whose QRZ subscriptions lapse
-- **Status:** Logged for Sprint 6
+- **Status:** FIXED in Sprint 6 (Track A)
 
 ### BUG-008: HamQTH LogPanel lookup requires personal account (found during Sprint 5 testing, 2026-02-11)
 - **Symptom:** When operator selects HamQTH as callbook source but has no personal HamQTH credentials, LogPanel lookups don't work. The built-in "JJRadio" HamQTH account is only used by StationLookup dialog, not by LogPanel.
-- **Desired behavior:** When source is HamQTH and credentials are empty, LogPanel should fall back to the built-in "JJRadio" account automatically. Related to BUG-007 (same theme: graceful callbook degradation).
+- **Fix:** LogPanel now falls back to the built-in "JJRadio" account automatically when HamQTH is selected but no personal credentials are configured.
 - **Priority:** Medium — blocks HamQTH users without personal accounts from getting auto-fill
-- **Status:** Logged for Sprint 6
+- **Status:** FIXED in Sprint 6 (Track A)
 
-### BUG-009: G1-G5 Escape-clear dialog and Modern menu stubs untestable (Sprint 5 testing, 2026-02-11)
-- **Symptom:** Unable to verify Escape-clear "Don't ask again" dialog behavior, Reset Confirmations menu item, or Modern menu stub accessibility without a connected radio. Modern menus (except Radio) show blank accessibility when disconnected.
-- **Action:** Retest with connected radio. Investigate why Modern menus other than Radio have no accessible text when disconnected — may need to set AccessibleName on stub items even when no radio is connected.
-- **Priority:** Low — requires connected radio to investigate
-- **Status:** Logged for Sprint 6
+### BUG-009: Modern menu submenus silent in JAWS/NVDA (Sprint 5 testing, 2026-02-11)
+- **Symptom:** In Modern mode, submenus don't speak at all with JAWS or NVDA. Top-level menus and "coming soon" stubs were also not announcing.
+- **Root cause:** Modern menus were missing `AccessibleName` on top-level menus and submenus.
+- **Fix:** Added `AccessibleName` to all Modern mode top-level menus and submenus in Form1.vb.
+- **Priority:** Medium — affects all screen reader users in Modern mode
+- **Status:** FIXED in Sprint 6 (Track A)
 
 ## Near-term (next 1–3 sprints)
-- [ ] Callbook graceful degradation: QRZ→HamQTH auto-fallback, built-in HamQTH for LogPanel (BUG-007, BUG-008)
+- [x] Callbook graceful degradation: QRZ→HamQTH auto-fallback, built-in HamQTH for LogPanel (BUG-007, BUG-008) — Sprint 6
+- [x] Hotkeys v2: scope-aware registry, conflict detection, Command Finder, tabbed Settings UI — Sprint 6
+- [ ] Station Lookup → Log Contact: "Log a contact with station" button on Station Lookup dialog. Enters Logging Mode with callsign/name/QTH/grid pre-filled from lookup. DX hunting workflow: lookup → call → log.
 - [ ] Station Lookup: add distance and bearing to station (for beam/rotator directionality)
 - [ ] Configurable Recent QSOs grid size (currently hardcoded at 20)
-- [ ] Hotkeys v2: profiles + conflict detection + explicit key recording UX
 - [ ] Modern UI Mode toggle (Modern default; Classic preserved)
 - [ ] Slice Menu + Filter Menu (slice-centric operating model)
 - [ ] Plain-English Status: Speak Status + Status Dialog (replace alphabet soup in Modern)
@@ -85,9 +87,9 @@ Last updated: 2026-02-11
 - [ ] Implement Speak Status (concise) + Status Dialog (full)
 
 ## Keyboard & Discoverability
-- [ ] Command Finder (F12) search by keywords/synonyms, returns key + can execute
+- [x] Command Finder (Ctrl+/) search by keywords/synonyms, returns key + can execute — Sprint 6
+- [x] Scope-aware conflict detection in Settings UI — Sprint 6
 - [ ] Contextual help: group help via H/?
-- [ ] Prevent accidental reassignment (explicit record mode; safe defaults)
 - [ ] Optional leader key design (Ctrl+J) + 2-step max
 
 ## Audio
