@@ -316,120 +316,120 @@ Updated `docs/CHANGELOG.md` — added "Unreleased" section for Sprint 5 work.
 
 ### A. Operator Profile — Callbook Settings & Credential Validation
 
-| # | Test | Expected |
-|---|------|----------|
-| A1 | Open PersonalInfo, tab to "Callbook lookup source" combo | Combo accessible as "Callbook lookup source", choices: None, QRZ, HamQTH |
-| A2 | Select "None" — check username/password fields | Username and password fields disabled |
-| A3 | Select "QRZ" — check username/password fields | Username and password fields enabled |
-| A4 | Select "HamQTH" — check username/password fields | Username and password fields enabled |
-| A5 | Tab to password field | Accessible as "Callbook password", characters masked (dots) |
-| A6 | Enter valid QRZ credentials, click Update | Message confirms login, shows subscription expiry date |
-| A7 | Enter wrong QRZ password, click Update | Error message mentions subscription requirement + QRZ URL, asks "Save anyway?" |
-| A8 | Click "No" on "Save anyway?" | Returns to form, username field focused |
-| A9 | Click "Yes" on "Save anyway?" | Saves despite failed validation, form closes |
-| A10 | Enter valid HamQTH credentials, click Update | Message confirms successful login |
-| A11 | Enter wrong HamQTH password, click Update | Error message from HamQTH, asks "Save anyway?" |
-| A12 | Source=None, click Update (no credentials needed) | No validation attempt, saves normally |
-| A13 | Reopen PersonalInfo after saving QRZ credentials | Source = QRZ, username preserved, password field shows masked text |
-| A14 | Close and reopen app, check saved credentials | Credentials persisted (DPAPI encrypted in XML) |
+| # | Test | Expected | Pass/Fail | Comments |
+|---|------|----------|-----------|----------|
+| A1 | Open PersonalInfo, tab to "Callbook lookup source" combo | Combo accessible as "Callbook lookup source", choices: None, QRZ, HamQTH | pass | |
+| A2 | Select "None" — check username/password fields | Username and password fields disabled | pass | |
+| A3 | Select "QRZ" — check username/password fields | Username and password fields enabled | pass | |
+| A4 | Select "HamQTH" — check username/password fields | Username and password fields enabled | pass| |
+| A5 | Tab to password field | Accessible as "Callbook password", characters masked (dots) | pass | |
+| A6 | Enter valid QRZ credentials, click Update | Message confirms login, shows subscription expiry date | pass| |
+| A7 | Enter wrong QRZ password, click Update | Error message mentions subscription requirement + QRZ URL, asks "Save anyway?" | pass | |
+| A8 | Click "No" on "Save anyway?" | Returns to form, username field focused | pass | |
+| A9 | Click "Yes" on "Save anyway?" | Saves despite failed validation, form closes | pass | |
+| A10 | Enter valid HamQTH credentials, click Update | Message confirms successful login | pass | |
+| A11 | Enter wrong HamQTH password, click Update | Error message from HamQTH, asks "Save anyway?" | pass | |
+| A12 | Source=None, click Update (no credentials needed) | No validation attempt, saves normally | pass | |
+| A13 | Reopen PersonalInfo after saving QRZ credentials | Source = QRZ, username preserved, password field shows masked text | pass | |
+| A14 | Close and reopen app, check saved credentials | Credentials persisted (DPAPI encrypted in XML) | pass | |
 
 ### B. Callbook Lookup in Logging Mode (QRZ)
 
-| # | Test | Expected |
-|---|------|----------|
-| B1 | Configure QRZ in settings, enter Logging Mode | QRZ initialized (no visible indicator, but lookup works) |
-| B2 | Type valid US callsign (W1AW), Tab out of call field | Empty fields fill with **first name** (not full name), QTH, State, Grid. SR speaks: "name, QTH" (actual values, no "QRZ:" prefix) |
-| B3 | Type a DX callsign (e.g., G3XYZ), Tab out | Fields fill. SR speaks: "name, QTH, country" (country included because DX) |
-| B4 | Type a US callsign (domestic), Tab out | SR speaks: "name, QTH" (country NOT spoken — same country as operator) |
-| B5 | Type callsign you've worked before, Tab out | Local fills Name/QTH first. SR announces previous contact info. Then QRZ fills remaining empty fields (State, Grid). SR speaks actual values |
-| B6 | Type callsign, manually type Name first, then Tab out | QRZ does NOT overwrite Name. Fills remaining empty fields only |
-| B7 | Invalid callsign (XXXXXX), Tab out | No error. No callbook announcement. Logging continues normally |
-| B8 | Same callsign Tab-out twice | Second time uses cache (instant, no network call) |
-| B9 | Network offline, type callsign, Tab out | Lookup silently fails. No crash. No error dialog. Previous contact still works |
-| B10 | Wrong QRZ password in settings, enter Logging Mode, Tab out of callsign | After 3 failed logins, stops trying. No error dialogs. Logging continues |
+| # | Test | Expected | Pass/Fail | Comments |
+|---|------|----------|-----------|----------|
+| B1 | Configure QRZ in settings, enter Logging Mode | QRZ initialized (no visible indicator, but lookup works) | pass | |
+| B2 | Type valid US callsign (W1AW), Tab out of call field | Empty fields fill with **first name** (not full name), QTH, State, Grid. SR speaks: "name, QTH" (actual values, no "QRZ:" prefix) | pass | |
+| B3 | Type a DX callsign (e.g., G3XYZ), Tab out | Fields fill. SR speaks: "name, QTH, country" (country included because DX) | pass | |	
+| B4 | Type a US callsign (domestic), Tab out | SR speaks: "name, QTH" (country NOT spoken — same country as operator) | pass| |
+| B5 | Type callsign you've worked before, Tab out | Local fills Name/QTH first. SR announces previous contact info. Then QRZ fills remaining empty fields (State, Grid). SR speaks actual values | pass | |
+| B6 | Type callsign, manually type Name first, then Tab out | QRZ does NOT overwrite Name. Fills remaining empty fields only | fail | I can't enter a name without tabbing which will ultimately use qrz to get a name. I think I can put in a name after the QRZ search though, not sure. |
+| B7 | Invalid callsign (XXXXXX), Tab out | No error. No callbook announcement. Logging continues normally | pass | |
+| B8 | Same callsign Tab-out twice | Second time uses cache (instant, no network call) | pass | |
+| B9 | Network offline, type callsign, Tab out | Lookup silently fails. No crash. No error dialog. Previous contact still works	| pass | |
+| B10 | Wrong QRZ password in settings, enter Logging Mode, Tab out of callsign | After 3 failed logins, stops trying. No error dialogs. Logging continues | pass, I think| I can't really test this because even with a wrong password, it works so that if it's an issue nothing changes i.e. no call is logged. Recommend that if qrz is unable to work but and QRZ fails, system should start using hamqth and the JJ provided login for searches. This should happen if qrz fails once, client should just automatically try hamqth. If system has to fall back to hamqth after three logins, stop trying qrz and show a dialog that says that hamqth is being used and that the user should fix a qrz password or set lookups to hamqth. I'm guessing that this would happen if sub expires. Check edge case for expired sub. If expired, switch to hamqth and let user know again but state qrz sub has expired. Recommend automatically setting and saving the call lookup setting to hamqth. Uesr notification could tell user that if they want qrz, they'll need to switch back to qrz with a fresh logon. |
 
 ### C. Callbook Lookup in Logging Mode (HamQTH)
 
-| # | Test | Expected |
-|---|------|----------|
-| C1 | Configure HamQTH in settings, enter Logging Mode | HamQTH initialized |
-| C2 | Type valid callsign, Tab out | Fields fill. SR speaks: "name, QTH" (actual values, no "HamQTH:" prefix) |
-| C3 | Type a DX callsign, Tab out | SR speaks: "name, QTH, country" (country because DX) |
-| C4 | Switch source from QRZ to HamQTH in settings, re-enter Logging Mode | New session uses HamQTH |
-| C5 | Source=None in settings, Tab out of callsign | No lookup attempted. Previous contact still works |
+| # | Test | Expected | Pass/Fail | Comments |
+|---|------|----------|-----------|----------|
+| C1 | Configure HamQTH in settings, enter Logging Mode | HamQTH initialized | I don't have a hamqth logon of my own. I know that JJ has a hardcoded hamqth, if no call and password is entered, hamqth should be used with jj's hard coded password | |
+| C2 | Type valid callsign, Tab out | Fields fill. SR speaks: "name, QTH" (actual values, no "HamQTH:" prefix) | fail | see c1 |
+| C3 | Type a DX callsign, Tab out | SR speaks: "name, QTH, country" (country because DX) | fail | see c1|
+| C4 | Switch source from QRZ to HamQTH in settings, re-enter Logging Mode | New session uses HamQTH | pass |  since I don't have a hamqth logon I know it's free, I think it works correctly but since I can't use JJ's call, I can only say that when I switched from qrz to hamqth it didn't give a call. |
+| C5 | Source=None in settings, Tab out of callsign | No lookup attempted. Previous contact still works | pass | |
 
 ### D. Station Lookup Dialog (Ctrl+L)
 
-| # | Test | Expected |
-|---|------|----------|
-| D1 | Press Ctrl+L in Logging Mode | Station Lookup dialog opens |
-| D2 | Press Ctrl+L in Classic mode | Station Lookup dialog opens |
-| D3 | Press Ctrl+L in Modern mode | Station Lookup dialog opens |
-| D4 | Type a valid US callsign, press Lookup (or Enter) | Name, QTH, State, Country, lat/long, CQ, ITU, GMT fields populate. SR speaks: "name, QTH" |
-| D5 | Look up a DX callsign | SR speaks: "name, QTH, country" (country because DX) |
-| D6 | Look up a domestic callsign | SR speaks: "name, QTH" (country NOT spoken) |
-| D7 | Tab through result fields after lookup | Read-only fields accessible: name, QTH, state, country, lat/long, CQ zone, ITU zone, GMT offset |
-| D8 | Press Done (or Escape) to close dialog | Dialog closes, returns to previous context |
-| D9 | Look up same callsign twice | Second lookup uses cache (instant) |
-| D10 | With QRZ configured: lookup uses QRZ data | Results match QRZ data |
-| D11 | With HamQTH configured: lookup uses HamQTH data | Results match HamQTH data |
-| D12 | With no callbook configured (Source=None): lookup uses built-in HamQTH | Still works using "JJRadio" built-in account |
-| D13 | Look up invalid callsign | No crash. Country database may still return country from prefix. No callbook data |
-| D14 | Station Lookup from Logging Mode Log menu → "Station Lookup" | Same as Ctrl+L |
+| # | Test | Expected | Pass/Fail | Comments |
+|---|------|----------|-----------|----------|
+| D1 | Press Ctrl+L in Logging Mode | Station Lookup dialog opens | pass | |
+| D2 | Press Ctrl+L in Classic mode | Station Lookup dialog opens | fail | it should fail because ctrl+l and all login stuff has been removed from the interfaces. Since ctrl+l is a radio function, recommend removing ctrl+l into classic and modern and removing from log. |
+| D3 | Press Ctrl+L in Modern mode | Station Lookup dialog opens | fail | see d2 |
+| D4 | Type a valid US callsign, press Lookup (or Enter) | Name, QTH, State, Country, lat/long, CQ, ITU, GMT fields populate. SR speaks: "name, QTH" | pass | recommend adding distance to station and baring for beam or rotater directionality |
+| D5 | Look up a DX callsign | SR speaks: "name, QTH, country" (country because DX) | pass | |
+| D6 | Look up a domestic callsign | SR speaks: "name, QTH" (country NOT spoken) | pass | |
+| D7 | Tab through result fields after lookup | Read-only fields accessible: name, QTH, state, country, lat/long, CQ zone, ITU zone, GMT offset | | pass | |
+| D8 | Press Done (or Escape) to close dialog | Dialog closes, returns to previous context | pass | |
+| D9 | Look up same callsign twice | Second lookup uses cache (instant) | pass | |
+| D10 | With QRZ configured: lookup uses QRZ data | Results match QRZ data | pass | |
+| D11 | With HamQTH configured: lookup uses HamQTH data | Results match HamQTH data | unknown | I don't have a hamqth logon, see previous hamqth fallback to using old JJ logon |
+| D12 | With no callbook configured (Source=None): lookup uses built-in HamQTH | Still works using "JJRadio" built-in account | pass | |
+| D13 | Look up invalid callsign | No crash. Country database may still return country from prefix. No callbook data | pass | |
+| D14 | Station Lookup from Logging Mode Log menu → "Station Lookup" | Same as Ctrl+L | pass | |
 
 ### E. Full Log Access (Ctrl+Alt+L)
 
-| # | Test | Expected |
-|---|------|----------|
-| E1 | Ctrl+Alt+L in Logging Mode | SR: "Opening full log entry". LogEntry form opens |
-| E2 | Close LogEntry form | SR: "Returned to logging mode". Focus on CallSign. Quick-entry fields preserved |
-| E3 | Add entry in LogEntry, close, check RecentGrid | New entry appears in Recent QSOs grid |
-| E4 | Ctrl+Alt+L outside Logging Mode | Nothing happens (ignored in Classic/Modern) |
-| E5 | Log menu → "Full Log Entry" | Same as Ctrl+Alt+L |
-| E6 | Type partial data in LogPanel, Ctrl+Alt+L, close LogEntry | Partial data preserved in LogPanel fields |
+| # | Test | Expected | Pass/Fail | Comments |
+|---|------|----------|-----------|----------|
+| E1 | Ctrl+Alt+L in Logging Mode | SR: "Opening full log entry". LogEntry form opens | pass | |
+| E2 | Close LogEntry form | SR: "Returned to logging mode". Focus on CallSign. Quick-entry fields preserved | fail | SR announces nothing |
+| E3 | Add entry in LogEntry, close, check RecentGrid | New entry appears in Recent QSOs grid | pass | |
+| E4 | Ctrl+Alt+L outside Logging Mode | Nothing happens (ignored in Classic/Modern) | pass | |
+| E5 | Log menu → "Full Log Entry" | Same as Ctrl+Alt+L | pass | |
+| E6 | Type partial data in LogPanel, Ctrl+Alt+L, close LogEntry | Partial data preserved in LogPanel fields | pass | |
 
 ### F. Classic/Modern Log Hotkey Removal
 
-| # | Test | Expected |
-|---|------|----------|
-| F1 | Ctrl+N in Classic mode | Does NOT open LogEntry form (hotkey removed) |
-| F2 | Alt+C in Classic mode | Does NOT open LogEntry form (freed for future radio use) |
-| F3 | Alt+M in Classic mode | Does NOT open LogEntry form (freed) |
-| F4 | Alt+Q in Classic mode | Does NOT open LogEntry form (freed) |
-| F5 | Alt+S in Classic mode | Does NOT open LogEntry form (freed) |
-| F6 | Alt+G in Classic mode | Does NOT open LogEntry form (freed) |
-| F7 | Alt+N in Classic mode | Does NOT open LogEntry form (freed) |
-| F8 | Alt+R in Classic mode | Does NOT open LogEntry form (freed) |
-| F9 | Alt+E in Classic mode | Does NOT open LogEntry form (freed) |
-| F10 | Ctrl+A in Classic mode | Does NOT open LogEntry form (freed) |
-| F11 | Ctrl+H in Classic mode | Does NOT open LogEntry form (freed) |
-| F12 | Ctrl+Shift+F in Classic/Modern | Search log still works (kept) |
-| F13 | Ctrl+Shift+L from Classic/Modern | Enters Logging Mode (unchanged) |
+| # | Test | Expected | Pass/Fail | Comments |
+|---|------|----------|-----------|----------|
+| F1 | Ctrl+N in Classic mode | Does NOT open LogEntry form (hotkey removed) | pass | |
+| F2 | Alt+C in Classic mode | Does NOT open LogEntry form (freed for future radio use) | pass |  pulls down the actions menu in classic |
+| F3 | Alt+M in Classic mode | Does NOT open LogEntry form (freed) | pass | pulls up actions menu as well in classic |
+| F4 | Alt+Q in Classic mode | Does NOT open LogEntry form (freed) | pass | pulls up actions menu again in classic. pulls up radio menu in modern. Seems to be effected by alt with letter pulling up first menu. |
+| F5 | Alt+S in Classic mode | Does NOT open LogEntry form (freed) | pass | same |
+| F6 | Alt+G in Classic mode | Does NOT open LogEntry form (freed) | pass | same |
+| F7 | Alt+N in Classic mode | Does NOT open LogEntry form (freed) | pass | same |
+| F8 | Alt+R in Classic mode | Does NOT open LogEntry form (freed) | pass | same |
+| F9 | Alt+E in Classic mode | Does NOT open LogEntry form (freed) | pass | same |
+| F10 | Ctrl+A in Classic mode | Does NOT open LogEntry form (freed) | pass | no extraneous menus or fields brought up for that one |
+| F11 | Ctrl+H in Classic mode | Does NOT open LogEntry form (freed) | pass | same as above |
+| F12 | Ctrl+Shift+F in Classic/Modern | Search log still works (kept) | pass | same as above |
+| F13 | Ctrl+Shift+L from Classic/Modern | Enters Logging Mode (unchanged) | pass | |
 
 ### G. Parking Lot & BUG-001
 
-| # | Test | Expected |
-|---|------|----------|
-| G1 | In Logging Mode, check "Don't ask" on Escape-clear, then Log menu → Reset Confirmations | SR: "Confirmation dialogs restored". Next Escape shows dialog again |
-| G2 | Reset persists across restart | After reset + restart, Escape dialog appears |
-| G3 | Navigate Modern menu, land on a "coming soon" item with JAWS | JAWS announces item as disabled / "coming soon" or "unavailable" |
-| G4 | Same test with NVDA | NVDA announces same info |
-| G5 | Press Enter on a disabled "coming soon" item | Nothing happens (item is disabled) |
+| # | Test | Expected | Pass/Fail | Comments |
+|---|------|----------|-----------|----------|
+| G1 | In Logging Mode, check "Don't ask" on Escape-clear, then Log menu → Reset Confirmations | SR: "Confirmation dialogs restored". Next Escape shows dialog again | unknown | still not able to get a dialog when escape/clear either that or unable to re-set the ask checkbox. |
+| G2 | Reset persists across restart | After reset + restart, Escape dialog appears | unknown | |
+| G3 | Navigate Modern menu, land on a "coming soon" item with JAWS | JAWS announces item as disabled / "coming soon" or "unavailable" | unknown | Don turned his radio off so wasn't able to test tihs. Right now, I get no output though. Even on radio disconnect if a menu expands, everything should be grayed out / spoken. Disconnected, I get sr accessibility in radio menu, but no where else. |
+| G4 | Same test with NVDA | NVDA announces same info | unknown | still reads blank accessibility for all menus but radio when disconnected |
+| G5 | Press Enter on a disabled "coming soon" item | Nothing happens (item is disabled) | unknown | |
 
 ### H. Regression
 
-| # | Test | Expected |
-|---|------|----------|
-| H1 | Tab through LogPanel fields | Same order as Sprint 4: Call → RST Sent → RST Rcvd → Name → QTH → State → Grid → Comments |
-| H2 | F6 pane switching | RadioPane ↔ LogPanel (unchanged, 2-stop) |
-| H3 | Enter saves QSO with callbook-filled fields | All fields saved including auto-filled data |
-| H4 | Dup checking still works | Dup beep on duplicate callsign |
-| H5 | Ctrl+Shift+L enter/exit round-trip | State preserved, callbook-filled fields survive |
-| H6 | Alt+F4 with unsaved entry | Save/discard/cancel dialog works |
-| H7 | Arrow-key tuning in RadioPane | Up/Down step, Shift+Up/Down 10x, Left/Right change step size |
-| H8 | Previous contact lookup (no callbook) | Tab out of call sign shows "Worked X times" if known |
-| H9 | Recent QSOs grid shows logged entries | Grid updates after logging a QSO |
-| H10 | Log a QSO when grid has 20 entries | Oldest removed, new at bottom, grid scrolls |
+| # | Test | Expected | Pass/Fail | Comments |
+|---|------|----------|-----------|----------|
+| H1 | Tab through LogPanel fields | Same order as Sprint 4: Call → RST Sent → RST Rcvd → Name → QTH → State → Grid → Comments | pass | |
+| H2 | F6 pane switching | RadioPane ↔ LogPanel (unchanged, 2-stop) | pass | |
+| H3 | Enter saves QSO with callbook-filled fields | All fields saved including auto-filled data | pass | |
+| H4 | Dup checking still works | Dup beep on duplicate callsign | pass | |
+| H5 | Ctrl+Shift+L enter/exit round-trip | State preserved, callbook-filled fields survive | pass | |
+| H6 | Alt+F4 with unsaved entry | Save/discard/cancel dialog works | pass | |
+| H7 | Arrow-key tuning in RadioPane | Up/Down step, Shift+Up/Down 10x, Left/Right change step size | pass | |
+| H8 | Previous contact lookup (no callbook) | Tab out of call sign shows "Worked X times" if known | pass | |
+| H9 | Recent QSOs grid shows logged entries | Grid updates after logging a QSO | pass | |
+| H10 | Log a QSO when grid has 20 entries | Oldest removed, new at bottom, grid scrolls | PASS | R3 passed - grid auto-scrolls correctly  consider making items in recent qo to be configurable |
 
 ---
 

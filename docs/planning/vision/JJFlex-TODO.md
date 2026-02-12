@@ -1,6 +1,6 @@
 # JJ Flex — TODO / Rolling Backlog
 
-Last updated: 2026-02-09
+Last updated: 2026-02-11
 
 ## Bug Reports
 
@@ -48,7 +48,29 @@ Last updated: 2026-02-09
 - **Priority:** Medium — affects screen reader UX during fast tabbing
 - **Status:** FIXED (commit 9591a835, 2026-02-10)
 
+### BUG-007: QRZ failure should auto-fallback to HamQTH (found during Sprint 5 testing, 2026-02-11)
+- **Symptom:** If QRZ login fails (wrong password, expired subscription), callbook lookups silently stop working. User gets no feedback during logging — just no auto-fill.
+- **Desired behavior:** On QRZ login failure, automatically fall back to built-in HamQTH ("JJRadio" account) so lookups keep working. After 3 failed QRZ logins, show a one-time dialog telling user HamQTH is being used as fallback. Also handle expired QRZ subscription as a distinct case with appropriate messaging. Recommend auto-switching the saved callbook source to HamQTH.
+- **Scope:** LogPanel callbook initialization + QRZ login failure handler + HamQTH fallback logic + user notification dialog
+- **Priority:** Medium — affects users whose QRZ subscriptions lapse
+- **Status:** Logged for Sprint 6
+
+### BUG-008: HamQTH LogPanel lookup requires personal account (found during Sprint 5 testing, 2026-02-11)
+- **Symptom:** When operator selects HamQTH as callbook source but has no personal HamQTH credentials, LogPanel lookups don't work. The built-in "JJRadio" HamQTH account is only used by StationLookup dialog, not by LogPanel.
+- **Desired behavior:** When source is HamQTH and credentials are empty, LogPanel should fall back to the built-in "JJRadio" account automatically. Related to BUG-007 (same theme: graceful callbook degradation).
+- **Priority:** Medium — blocks HamQTH users without personal accounts from getting auto-fill
+- **Status:** Logged for Sprint 6
+
+### BUG-009: G1-G5 Escape-clear dialog and Modern menu stubs untestable (Sprint 5 testing, 2026-02-11)
+- **Symptom:** Unable to verify Escape-clear "Don't ask again" dialog behavior, Reset Confirmations menu item, or Modern menu stub accessibility without a connected radio. Modern menus (except Radio) show blank accessibility when disconnected.
+- **Action:** Retest with connected radio. Investigate why Modern menus other than Radio have no accessible text when disconnected — may need to set AccessibleName on stub items even when no radio is connected.
+- **Priority:** Low — requires connected radio to investigate
+- **Status:** Logged for Sprint 6
+
 ## Near-term (next 1–3 sprints)
+- [ ] Callbook graceful degradation: QRZ→HamQTH auto-fallback, built-in HamQTH for LogPanel (BUG-007, BUG-008)
+- [ ] Station Lookup: add distance and bearing to station (for beam/rotator directionality)
+- [ ] Configurable Recent QSOs grid size (currently hardcoded at 20)
 - [ ] Hotkeys v2: profiles + conflict detection + explicit key recording UX
 - [ ] Modern UI Mode toggle (Modern default; Classic preserved)
 - [ ] Slice Menu + Filter Menu (slice-centric operating model)
@@ -87,8 +109,12 @@ Last updated: 2026-02-09
 - [ ] Customizable LogPanel field layout: let operators choose which fields appear in the quick-entry logger. JJ's full LogEntry form remains available via Ctrl+Alt+L for all fields. The field picker must be fully accessible (screen-reader-friendly list with add/remove/reorder).
 - [ ] Contest designer / contest mode: review JJ's existing contest C# files in JJLogLib (FieldDay.cs, NASprint.cs, SKCCWESLog.cs), assess whether they work and are useful. Consider building a contest designer that lets operators define required exchange fields and contest rules. May be complex — research scope before committing. At minimum, validate existing contest exchange definitions work with LogPanel.
 
-## Sprint 5 — QRZ + Logging Graduation
-- [ ] QRZ.com integration (callsign lookup, auto-fill from QRZ database)
+## Sprint 5 — QRZ + Logging Graduation (COMPLETED 2026-02-09)
+- [x] QRZ.com + HamQTH integration (callsign lookup, auto-fill from callbook)
+- [x] Credential validation on save (QRZ subscription check, HamQTH test login)
+- [x] Station Lookup upgraded (Ctrl+L, QRZ/HamQTH support, DX country SR)
+- [x] Full Log Access from Logging Mode (Ctrl+Alt+L)
+- [x] Removed 11 Classic/Modern log entry hotkeys
 - [ ] Graduate LogPanel to full-featured: add record navigation (PageUp/Down browse)
 - [ ] Graduate LogPanel: edit existing records (load, modify, update)
 - [ ] Graduate LogPanel: search log (find QSOs by criteria)

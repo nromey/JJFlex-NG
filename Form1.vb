@@ -2898,6 +2898,11 @@ RadioConnected:
         AddModernStubItem(ModernToolsMenu, "Command Finder")
         AddModernStubItem(ModernToolsMenu, "Speak Status")
         AddModernStubItem(ModernToolsMenu, "Status Dialog")
+        AddModernMenuItem(ModernToolsMenu, "Station Lookup    Ctrl+L",
+            Sub(s As Object, ev As EventArgs)
+                If LookupStation Is Nothing Then LookupStation = New StationLookup()
+                LookupStation.ShowDialog()
+            End Sub)
         ModernToolsMenu.DropDownItems.Add(New ToolStripSeparator())
         AddModernMenuItem(ModernToolsMenu, "Enter Logging Mode",
             Sub(s As Object, ev As EventArgs) EnterLoggingMode())
@@ -3229,7 +3234,10 @@ RadioConnected:
         ' Refresh LogPanel grid after returning (user may have logged QSOs in the full form).
         If LoggingLogPanel IsNot Nothing AndAlso LoggingPanelSession IsNot Nothing Then
             LoggingLogPanel.Initialize(LoggingPanelSession)
+            LoggingLogPanel.FocusCallSign()
         End If
+
+        Radios.ScreenReaderOutput.Speak("Returned to logging mode", True)
     End Sub
 
     ''' <summary>
@@ -3276,10 +3284,6 @@ RadioConnected:
         AddModernMenuItem(LoggingLogMenu, "Full Log Form",
             Sub(s As Object, ev As EventArgs)
                 OpenFullLogEntry()
-            End Sub)
-        AddModernMenuItem(LoggingLogMenu, "Station Lookup",
-            Sub(s As Object, ev As EventArgs)
-                stationLookupFromLogging()
             End Sub)
         LoggingLogMenu.DropDownItems.Add(New ToolStripSeparator())
         AddModernMenuItem(LoggingLogMenu, "Log Characteristics", AddressOf LogCharacteristicsMenuItem_Click)
@@ -3416,9 +3420,6 @@ RadioConnected:
                     Return True
                 Case Keys.N Or Keys.Control Or Keys.Shift  ' Ctrl+Shift+N → Log Characteristics
                     LogCharacteristicsMenuItem_Click(Nothing, EventArgs.Empty)
-                    Return True
-                Case Keys.L Or Keys.Control               ' Ctrl+L → Station Lookup
-                    stationLookupFromLogging()
                     Return True
                 Case Keys.L Or Keys.Control Or Keys.Alt  ' Ctrl+Alt+L → Full Log Entry form
                     OpenFullLogEntry()
