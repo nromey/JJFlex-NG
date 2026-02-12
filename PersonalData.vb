@@ -198,6 +198,30 @@ Public Class PersonalData
         <XmlIgnore()> Public DecryptedCallbookPassword As String = ""
 
         ''' <summary>
+        ''' When True, each QSO logged in Logging Mode is uploaded to the
+        ''' operator's QRZ.com logbook in real-time (fire-and-forget).
+        ''' </summary>
+        Public QrzLogbookEnabled As Boolean = False
+
+        ''' <summary>
+        ''' Plaintext API key — kept for backward compatibility with old XML files.
+        ''' On load: migrated to encrypted form and wiped, just like CallbookPassword.
+        ''' </summary>
+        Public QrzLogbookApiKey As String = ""
+
+        ''' <summary>
+        ''' DPAPI-encrypted API key stored in the operator XML file.
+        ''' Tied to the Windows user account.
+        ''' </summary>
+        Public QrzLogbookApiKeyEncrypted As String = ""
+
+        ''' <summary>
+        ''' Runtime plaintext API key (decrypted from DPAPI on load).
+        ''' NOT serialized — use this property for all runtime access.
+        ''' </summary>
+        <XmlIgnore()> Public DecryptedQrzLogbookApiKey As String = ""
+
+        ''' <summary>
         ''' Validated UI mode. Returns Classic for unknown or not-yet-implemented values.
         ''' </summary>
         <XmlIgnore()> Friend Property CurrentUIMode As UIMode
@@ -261,6 +285,18 @@ Public Class PersonalData
                                   TraceLevel.Info)
             End If
 
+            ' QRZ Logbook API key — same pattern as callbook password.
+            If Not String.IsNullOrEmpty(QrzLogbookApiKeyEncrypted) Then
+                DecryptedQrzLogbookApiKey = DecryptWithDpapi(QrzLogbookApiKeyEncrypted)
+            ElseIf Not String.IsNullOrEmpty(QrzLogbookApiKey) Then
+                DecryptedQrzLogbookApiKey = QrzLogbookApiKey
+                QrzLogbookApiKeyEncrypted = EncryptWithDpapi(QrzLogbookApiKey)
+                QrzLogbookApiKey = ""
+                needsWrite = True
+                Tracing.TraceLine("PersonalData: migrated plaintext QRZ logbook API key to DPAPI",
+                                  TraceLevel.Info)
+            End If
+
             Return needsWrite
         End Function
 
@@ -276,6 +312,14 @@ Public Class PersonalData
             End If
             ' Never write plaintext to disk.
             CallbookPassword = ""
+
+            ' QRZ Logbook API key — same pattern.
+            If Not String.IsNullOrEmpty(DecryptedQrzLogbookApiKey) Then
+                QrzLogbookApiKeyEncrypted = EncryptWithDpapi(DecryptedQrzLogbookApiKey)
+            Else
+                QrzLogbookApiKeyEncrypted = ""
+            End If
+            QrzLogbookApiKey = ""
         End Sub
 
         Public Sub New()
@@ -306,6 +350,10 @@ Public Class PersonalData
             CallbookPassword = p.CallbookPassword
             CallbookPasswordEncrypted = p.CallbookPasswordEncrypted
             DecryptedCallbookPassword = p.DecryptedCallbookPassword
+            QrzLogbookEnabled = p.QrzLogbookEnabled
+            QrzLogbookApiKey = p.QrzLogbookApiKey
+            QrzLogbookApiKeyEncrypted = p.QrzLogbookApiKeyEncrypted
+            DecryptedQrzLogbookApiKey = p.DecryptedQrzLogbookApiKey
         End Sub
         Friend Sub New(p As personal)
             fileName = p.fileName
@@ -391,6 +439,8 @@ Public Class PersonalData
             curID = value
             If curID <> -1 Then
                 CWText = New CWMessages(ops(curID).CWText)
+                ' One-time migration: F5-F11 → Ctrl+1..Ctrl+7
+                CWText.MigrateFKeysToCtrlNumber()
             End If
         End Set
     End Property

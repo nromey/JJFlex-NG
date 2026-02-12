@@ -67,6 +67,37 @@ Public Class CWMessages
         Operators.UpdateCWText(CurrentOp, messages.ToArray)
     End Sub
 
+    ' F-key to Ctrl+number migration map.
+    Private Shared ReadOnly FKeyMigration As Dictionary(Of Keys, Keys) = New Dictionary(Of Keys, Keys) From {
+        {Keys.F5, Keys.D1 Or Keys.Control},
+        {Keys.F6, Keys.D2 Or Keys.Control},
+        {Keys.F7, Keys.D3 Or Keys.Control},
+        {Keys.F8, Keys.D4 Or Keys.Control},
+        {Keys.F9, Keys.D5 Or Keys.Control},
+        {Keys.F10, Keys.D6 Or Keys.Control},
+        {Keys.F11, Keys.D7 Or Keys.Control}
+    }
+
+    ''' <summary>
+    ''' One-time migration: remap CW message keys from F5-F11 to Ctrl+1..Ctrl+7.
+    ''' Called on operator load. Returns True if any keys were migrated.
+    ''' </summary>
+    Friend Function MigrateFKeysToCtrlNumber() As Boolean
+        Dim changed As Boolean = False
+        For Each msg In messages
+            Dim newKey As Keys = Nothing
+            If FKeyMigration.TryGetValue(msg.key, newKey) Then
+                Tracing.TraceLine("CWMessages: migrating " & msg.key.ToString & " to " & newKey.ToString, TraceLevel.Info)
+                msg.key = newKey
+                changed = True
+            End If
+        Next
+        If changed Then
+            UpdateOperator()
+        End If
+        Return changed
+    End Function
+
     ''' <summary>
     ''' Add a new CW message
     ''' </summary>

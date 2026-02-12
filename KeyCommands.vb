@@ -73,6 +73,11 @@ Public Class KeyCommands
         TXControls
         showSendDirect
         SmeterDBM
+        ' Logging-only actions (added for scope-aware hotkeys)
+        LogPaneSwitchF6
+        LogCharacteristicsDialog
+        LogOpenFullForm
+        ContextHelp
     End Enum
     Friend Const FirstMessageCommandValue As Integer = 1000000
 
@@ -100,6 +105,7 @@ Public Class KeyCommands
     Public Class KeyDefType
         Public key As Keys
         Public i As Integer
+        Public Scope As KeyScope = KeyScope.Global
         ' This is because the xml serializer on Vista doesn't handle enums.
         <XmlIgnore()> Public Property id As CommandValues
             Get
@@ -116,6 +122,11 @@ Public Class KeyCommands
             key = k
             id = i
         End Sub
+        Public Sub New(k As Keys, i As CommandValues, s As KeyScope)
+            key = k
+            id = i
+            Scope = s
+        End Sub
     End Class
     Public ReadOnly Property nCommands As Integer
         Get
@@ -126,6 +137,16 @@ Public Class KeyCommands
 
     Delegate Sub kFunc()
     Delegate Function menuTextFuncDel() As String
+    ''' <summary>
+    ''' Scope determines when a hotkey binding is active.
+    ''' Global = all modes; Radio = Classic + Modern; Logging = Logging Mode only.
+    ''' </summary>
+    Public Enum KeyScope
+        Global = 0    ' Active in all modes
+        Radio = 1     ' Classic + Modern only
+        Logging = 2   ' Logging Mode only
+    End Enum
+
     Friend Enum FunctionGroups
         audio
         cwMessage
@@ -155,6 +176,9 @@ Public Class KeyCommands
         Friend ADIFTag As String
         Friend UseWhenLogging As Boolean
         Friend Group As FunctionGroups
+        Friend Scope As KeyScope = KeyScope.Global
+        Friend Description As String = Nothing
+        Friend Keywords As String() = Nothing
         ' Use to copy an entry
         Friend Sub New(ByVal k As keyTbl)
             key = k.key
@@ -165,10 +189,14 @@ Public Class KeyCommands
             ADIFTag = k.ADIFTag
             UseWhenLogging = k.UseWhenLogging
             Group = k.Group
+            Scope = k.Scope
+            Description = k.Description
+            Keywords = k.Keywords
         End Sub
         ' for a command
         Friend Sub New(ByVal id As CommandValues, ByVal r As kFunc,
-                       ByVal h As String, m As String, g As FunctionGroups)
+                       ByVal h As String, m As String, g As FunctionGroups,
+                       Optional sc As KeyScope = KeyScope.Global)
             key = New KeyDefType(Keys.None, id)
             KeyType = KeyTypes.Command
             rtn = r
@@ -177,11 +205,12 @@ Public Class KeyCommands
             ADIFTag = vbNullString
             UseWhenLogging = False
             Group = g
+            Scope = sc
         End Sub
         ' use with a log field
         Friend Sub New(ByVal id As CommandValues, ByVal r As kFunc,
                        ByVal h As String, m As String, a As String, t As KeyTypes,
-                       g As FunctionGroups)
+                       g As FunctionGroups, Optional sc As KeyScope = KeyScope.Global)
             key = New KeyDefType(Keys.None, id)
             rtn = r
             helpText = h
@@ -190,10 +219,12 @@ Public Class KeyCommands
             KeyType = t
             UseWhenLogging = False ' refers to non-logging commands
             Group = g
+            Scope = sc
         End Sub
         ' Use for a macro
         Friend Sub New(ByVal id As CommandValues, ByVal t As KeyTypes,
-                       ByVal r As kFunc, ByVal h As String, g As FunctionGroups)
+                       ByVal r As kFunc, ByVal h As String, g As FunctionGroups,
+                       Optional sc As KeyScope = KeyScope.Global)
             key = New KeyDefType(Keys.None, id)
             KeyType = t
             rtn = r
@@ -202,11 +233,13 @@ Public Class KeyCommands
             ADIFTag = vbNullString
             UseWhenLogging = True
             Group = g
+            Scope = sc
         End Sub
         ' Use for a non-logging key allowed during logging
         Friend Sub New(ByVal id As CommandValues, ByVal t As KeyTypes,
                        ByVal r As kFunc, ByVal h As String, m As String,
-                       u As Boolean, g As FunctionGroups)
+                       u As Boolean, g As FunctionGroups,
+                       Optional sc As KeyScope = KeyScope.Global)
             key = New KeyDefType(Keys.None, id)
             KeyType = t
             rtn = r
@@ -215,11 +248,13 @@ Public Class KeyCommands
             ADIFTag = vbNullString
             UseWhenLogging = u
             Group = g
+            Scope = sc
         End Sub
         ' Use for a command with a dynamic operations menu item.
         Friend Sub New(ByVal id As CommandValues, ByVal t As KeyTypes,
                        ByVal r As kFunc, ByVal h As String, m As menuTextFuncDel,
-                       u As Boolean, g As FunctionGroups)
+                       u As Boolean, g As FunctionGroups,
+                       Optional sc As KeyScope = KeyScope.Global)
             key = New KeyDefType(Keys.None, id)
             KeyType = t
             rtn = r
@@ -228,6 +263,7 @@ Public Class KeyCommands
             ADIFTag = vbNullString
             UseWhenLogging = u
             Group = g
+            Scope = sc
         End Sub
     End Class
 
@@ -237,109 +273,118 @@ Public Class KeyCommands
     ''' <remarks>It's in logical order, not CommandValues order</remarks>
     Friend KeyTable() As keyTbl = {
         New keyTbl(CommandValues.ShowHelp, AddressOf Form1.DisplayHelp,
-            "Show keys help", Nothing, FunctionGroups.help),
+            "Show keys help", Nothing, FunctionGroups.help, KeyScope.Global),
         New keyTbl(CommandValues.ShowFreq, AddressOf displayFreqCmd,
-            "Show frequency or pause scan", Nothing, FunctionGroups.routingScan),
+            "Show frequency or pause scan", Nothing, FunctionGroups.routingScan, KeyScope.Radio),
         New keyTbl(CommandValues.ResumeTheScan, AddressOf resumeScanCmd,
-            "Resume the scan.", "resume scan", FunctionGroups.scan),
+            "Resume the scan.", "resume scan", FunctionGroups.scan, KeyScope.Radio),
         New keyTbl(CommandValues.ShowReceived, AddressOf gotoReceive,
-            "goto the received text window", Nothing, FunctionGroups.routing),
+            "goto the received text window", Nothing, FunctionGroups.routing, KeyScope.Radio),
         New keyTbl(CommandValues.ShowSend, AddressOf gotoSend,
-            "go to the send text window", Nothing, FunctionGroups.routing),
+            "go to the send text window", Nothing, FunctionGroups.routing, KeyScope.Radio),
         New keyTbl(CommandValues.showSendDirect, AddressOf gotoSendDirect,
-            "go to the send text window and send direct from keyboard", Nothing, FunctionGroups.routing),
+            "go to the send text window and send direct from keyboard", Nothing, FunctionGroups.routing, KeyScope.Radio),
         New keyTbl(CommandValues.SmeterDBM, KeyTypes.Command, AddressOf smeterDisplayRTN,
-            "Display SMeter in DBM or S-units", AddressOf sMeterMenuString, False, FunctionGroups.general),
+            "Display SMeter in DBM or S-units", AddressOf sMeterMenuString, False, FunctionGroups.general, KeyScope.Radio),
         New keyTbl(CommandValues.StopCW, KeyTypes.Command, AddressOf stopCode,
-            "Stop sending CW", "cw stop", True, FunctionGroups.general),
+            "Stop sending CW", "cw stop", True, FunctionGroups.general, KeyScope.Global),
         New keyTbl(CommandValues.SetFreq, AddressOf WriteFreq,
-            "Enter frequency", "frequency", FunctionGroups.general),
+            "Enter frequency", "frequency", FunctionGroups.general, KeyScope.Radio),
         New keyTbl(CommandValues.ShowMemory, AddressOf DisplayMemory,
-            "Bring up the memory dialogue", "memories", FunctionGroups.dialog),
+            "Bring up the memory dialogue", "memories", FunctionGroups.dialog, KeyScope.Radio),
         New keyTbl(CommandValues.CycleContinuous, AddressOf cycleContinuous,
-            "Toggle continuous frequency display", Nothing, FunctionGroups.general),
+            "Toggle continuous frequency display", Nothing, FunctionGroups.general, KeyScope.Radio),
         New keyTbl(CommandValues.LogDateTime, AddressOf SetLogDateTime,
-            "Set log date/time", "log date/time", AdifTags.ADIF_DateOn, KeyTypes.log, FunctionGroups.logging),
+            "Set log date/time", "log date/time", AdifTags.ADIF_DateOn, KeyTypes.log, FunctionGroups.logging, KeyScope.Logging),
         New keyTbl(CommandValues.LogFinalize, AddressOf FinalizeLog,
-            "Write log entry", "log write", iADIF_Logwrite, KeyTypes.Command, FunctionGroups.logging),
+            "Write log entry", "log write", iADIF_Logwrite, KeyTypes.Command, FunctionGroups.logging, KeyScope.Logging),
         New keyTbl(CommandValues.LogFileName, AddressOf getLogFileName,
-            "Enter log file name", "log file name", iADIF_Logfile, KeyTypes.Command, FunctionGroups.logging),
+            "Enter log file name", "log file name", iADIF_Logfile, KeyTypes.Command, FunctionGroups.logging, KeyScope.Logging),
         New keyTbl(CommandValues.LogMode, AddressOf BringUpLogForm,
-            "Log the mode", "log mode", AdifTags.ADIF_Mode, KeyTypes.log, FunctionGroups.logging),
+            "Log the mode", "log mode", AdifTags.ADIF_Mode, KeyTypes.log, FunctionGroups.logging, KeyScope.Logging),
         New keyTbl(CommandValues.LogCall, AddressOf BringUpLogForm,
-            "Log callsign", "log call", AdifTags.ADIF_Call, KeyTypes.log, FunctionGroups.logging),
+            "Log callsign", "log call", AdifTags.ADIF_Call, KeyTypes.log, FunctionGroups.logging, KeyScope.Logging),
         New keyTbl(CommandValues.LogHisRST, AddressOf BringUpLogForm,
-            "Log his RST", "log his RST", AdifTags.ADIF_HisRST, KeyTypes.log, FunctionGroups.logging),
+            "Log his RST", "log his RST", AdifTags.ADIF_HisRST, KeyTypes.log, FunctionGroups.logging, KeyScope.Logging),
         New keyTbl(CommandValues.LogMyRST, AddressOf BringUpLogForm,
-            "Log my RST", "log my RST", AdifTags.ADIF_MyRST, KeyTypes.log, FunctionGroups.logging),
+            "Log my RST", "log my RST", AdifTags.ADIF_MyRST, KeyTypes.log, FunctionGroups.logging, KeyScope.Logging),
         New keyTbl(CommandValues.LogQTH, AddressOf BringUpLogForm,
-            "Log QTH", "log QTH", AdifTags.ADIF_QTH, KeyTypes.log, FunctionGroups.logging),
+            "Log QTH", "log QTH", AdifTags.ADIF_QTH, KeyTypes.log, FunctionGroups.logging, KeyScope.Logging),
         New keyTbl(CommandValues.LogState, AddressOf BringUpLogForm,
-            "Log state/province", "log state", AdifTags.ADIF_State, KeyTypes.log, FunctionGroups.logging),
+            "Log state/province", "log state", AdifTags.ADIF_State, KeyTypes.log, FunctionGroups.logging, KeyScope.Logging),
         New keyTbl(CommandValues.LogGrid, AddressOf BringUpLogForm,
-            "Log Grid square", "log Grid", AdifTags.ADIF_Grid, KeyTypes.log, FunctionGroups.logging),
+            "Log Grid square", "log Grid", AdifTags.ADIF_Grid, KeyTypes.log, FunctionGroups.logging, KeyScope.Logging),
         New keyTbl(CommandValues.LogHandle, AddressOf BringUpLogForm,
-            "Log name", "log name", AdifTags.ADIF_Name, KeyTypes.log, FunctionGroups.logging),
+            "Log name", "log name", AdifTags.ADIF_Name, KeyTypes.log, FunctionGroups.logging, KeyScope.Logging),
         New keyTbl(CommandValues.LogRig, AddressOf BringUpLogForm,
-            "Log rig", "log rig", AdifTags.ADIF_Rig, KeyTypes.log, FunctionGroups.logging),
+            "Log rig", "log rig", AdifTags.ADIF_Rig, KeyTypes.log, FunctionGroups.logging, KeyScope.Logging),
         New keyTbl(CommandValues.LogAnt, AddressOf BringUpLogForm,
-            "Log antenna", "log antenna", AdifTags.ADIF_Antenna, KeyTypes.log, FunctionGroups.logging),
+            "Log antenna", "log antenna", AdifTags.ADIF_Antenna, KeyTypes.log, FunctionGroups.logging, KeyScope.Logging),
         New keyTbl(CommandValues.LogComments, AddressOf BringUpLogForm,
-            "Log comments", "log comments", AdifTags.ADIF_Comment, KeyTypes.log, FunctionGroups.logging),
+            "Log comments", "log comments", AdifTags.ADIF_Comment, KeyTypes.log, FunctionGroups.logging, KeyScope.Logging),
         New keyTbl(CommandValues.NewLogEntry, AddressOf BringUpLogForm,
-            "New log entry", "new log entry", iADIF_LogNewEntry, KeyTypes.Command, FunctionGroups.logging),
+            "New log entry", "new log entry", iADIF_LogNewEntry, KeyTypes.Command, FunctionGroups.logging, KeyScope.Logging),
         New keyTbl(CommandValues.SearchLog, AddressOf SearchLogCmd,
-            "Find a log entry", "log search", iADIF_Logsearch, KeyTypes.Command, FunctionGroups.logging),
+            "Find a log entry", "log search", iADIF_Logsearch, KeyTypes.Command, FunctionGroups.logging, KeyScope.Logging),
         New keyTbl(CommandValues.DoPanning, AddressOf startPanning,
-            "Focus to panning", "panning", FunctionGroups.general),
+            "Focus to panning", "panning", FunctionGroups.general, KeyScope.Radio),
         New keyTbl(CommandValues.StartScan, AddressOf BeginScan,
-            "Start/stop scan", "start scan", FunctionGroups.scan),
+            "Start/stop scan", "start scan", FunctionGroups.scan, KeyScope.Radio),
         New keyTbl(CommandValues.SavedScan, AddressOf useSaved,
-            "Use a saved scan", "saved scan", FunctionGroups.scan),
+            "Use a saved scan", "saved scan", FunctionGroups.scan, KeyScope.Radio),
         New keyTbl(CommandValues.StopScan, AddressOf stopTheScan,
-            "Stop the current scan", "stop scan", FunctionGroups.scan),
+            "Stop the current scan", "stop scan", FunctionGroups.scan, KeyScope.Radio),
         New keyTbl(CommandValues.MemoryScan, AddressOf memScan,
-            "Memory scan", "memory scan", FunctionGroups.scan),
+            "Memory scan", "memory scan", FunctionGroups.scan, KeyScope.Radio),
         New keyTbl(CommandValues.ShowMenus, AddressOf ShowMenus,
-            "Show the rig's menus.", "menus", FunctionGroups.dialog),
+            "Show the rig's menus.", "menus", FunctionGroups.dialog, KeyScope.Radio),
         New keyTbl(CommandValues.AudioGainUp, KeyTypes.Command, AddressOf audioGainUp,
-            "Raise RF gain or Flex slice gain.", vbNullString, True, FunctionGroups.audio),
+            "Raise RF gain or Flex slice gain.", vbNullString, True, FunctionGroups.audio, KeyScope.Radio),
         New keyTbl(CommandValues.AudioGainDown, KeyTypes.Command, AddressOf audioGainDown,
-            "Lower RF gain or Flex slice gain.", vbNullString, True, FunctionGroups.audio),
+            "Lower RF gain or Flex slice gain.", vbNullString, True, FunctionGroups.audio, KeyScope.Radio),
         New keyTbl(CommandValues.HeadphonesUp, KeyTypes.Command, AddressOf headphonesUp,
-            "If supported, raise headphone gain.", vbNullString, True, FunctionGroups.audio),
+            "If supported, raise headphone gain.", vbNullString, True, FunctionGroups.audio, KeyScope.Radio),
         New keyTbl(CommandValues.HeadphonesDown, KeyTypes.Command, AddressOf headphonesDown,
-            "If supported, lower headphone gain.", vbNullString, True, FunctionGroups.audio),
+            "If supported, lower headphone gain.", vbNullString, True, FunctionGroups.audio, KeyScope.Radio),
         New keyTbl(CommandValues.LineoutUp, KeyTypes.Command, AddressOf lineoutUp,
-            "Raise audio gain or Flex lineout gain.", vbNullString, True, FunctionGroups.audio),
+            "Raise audio gain or Flex lineout gain.", vbNullString, True, FunctionGroups.audio, KeyScope.Radio),
         New keyTbl(CommandValues.LineoutDown, KeyTypes.Command, AddressOf lineoutDown,
-            "lower audio gain or Flex lineout gain.", vbNullString, True, FunctionGroups.audio),
+            "lower audio gain or Flex lineout gain.", vbNullString, True, FunctionGroups.audio, KeyScope.Radio),
         New keyTbl(CommandValues.CWZeroBeat, KeyTypes.Command, AddressOf zerobeatRtn,
-            "Zerobeat CW signal.", "Zerobeat CW signal", True, FunctionGroups.general),
+            "Zerobeat CW signal.", "Zerobeat CW signal", True, FunctionGroups.general, KeyScope.Radio),
         New keyTbl(CommandValues.ClearRIT, KeyTypes.Command, AddressOf clearRitRtn,
-            "Clear RIT.", "Clear Rit", True, FunctionGroups.general),
+            "Clear RIT.", "Clear Rit", True, FunctionGroups.general, KeyScope.Radio),
         New keyTbl(CommandValues.ReverseBeacon, KeyTypes.Command, AddressOf reverseBeaconCmd,
-            "Bring up a reverse beacon site for a call.", "Reverse Beacon", False, FunctionGroups.general),
+            "Bring up a reverse beacon site for a call.", "Reverse Beacon", False, FunctionGroups.general, KeyScope.Radio),
         New keyTbl(CommandValues.ArCluster, KeyTypes.Command, AddressOf arClusterCmd,
-            "Bring up the DX spotting cluster.", "DX cluster", False, FunctionGroups.general),
+            "Bring up the DX spotting cluster.", "DX cluster", False, FunctionGroups.general, KeyScope.Radio),
         New keyTbl(CommandValues.Toggle1, KeyTypes.Command, AddressOf toggle1,
-            "Next (rig-dependent field value 1).", "Next value 1", True, FunctionGroups.general),
+            "Next (rig-dependent field value 1).", "Next value 1", True, FunctionGroups.general, KeyScope.Radio),
         New keyTbl(CommandValues.LogStats, KeyTypes.Command, AddressOf logStatsRTN,
-            "Show log statistics", "Show log statistics", False, FunctionGroups.logging),
+            "Show log statistics", "Show log statistics", False, FunctionGroups.logging, KeyScope.Logging),
         New keyTbl(CommandValues.RemoteAudio, KeyTypes.Command, AddressOf PCAudioRtn,
-            "PC audio on/off", AddressOf audioMenuString, False, FunctionGroups.audio),
+            "PC audio on/off", AddressOf audioMenuString, False, FunctionGroups.audio, KeyScope.Radio),
         New keyTbl(CommandValues.AudioSetup, KeyTypes.Command, AddressOf audioSetupRtn,
-            "Select audio device", "Select Audio Device", False, FunctionGroups.audio),
+            "Select audio device", "Select Audio Device", False, FunctionGroups.audio, KeyScope.Radio),
         New keyTbl(CommandValues.StationLookup, KeyTypes.Command, AddressOf stationLookupRtn,
-            "Station lookup", "Station lookup", False, FunctionGroups.logging),
+            "Station lookup", "Station lookup", False, FunctionGroups.logging, KeyScope.Global),
         New keyTbl(CommandValues.GatherDebug, KeyTypes.Command, AddressOf gatherDebugRtn,
-            "Collect debug info", "Collect debug info", False, FunctionGroups.general),
+            "Collect debug info", "Collect debug info", False, FunctionGroups.general, KeyScope.Global),
         New keyTbl(CommandValues.ATUMemories, KeyTypes.Command, AddressOf ATUMemoriesRtn,
-            "Tuner memories", "Tuner memories", False, FunctionGroups.general),
+            "Tuner memories", "Tuner memories", False, FunctionGroups.general, KeyScope.Radio),
         New keyTbl(CommandValues.Reboot, KeyTypes.Command, AddressOf rebootRtn,
-            "Reboot the radio", "Reboot the radio", False, FunctionGroups.general),
+            "Reboot the radio", "Reboot the radio", False, FunctionGroups.general, KeyScope.Radio),
         New keyTbl(CommandValues.TXControls, KeyTypes.Command, AddressOf TXControlsRtn,
-            "Transmit controls", "Transmit controls", False, FunctionGroups.general)}
+            "Transmit controls", "Transmit controls", False, FunctionGroups.general, KeyScope.Radio),
+        ' Logging-only actions (scope-aware hotkeys)
+        New keyTbl(CommandValues.LogPaneSwitchF6, KeyTypes.Command, AddressOf logPaneSwitchRtn,
+            "Switch between radio and log panes", "Switch panes", False, FunctionGroups.logging, KeyScope.Logging),
+        New keyTbl(CommandValues.LogCharacteristicsDialog, KeyTypes.Command, AddressOf logCharacteristicsRtn,
+            "Open log characteristics dialog", "Log characteristics", False, FunctionGroups.logging, KeyScope.Logging),
+        New keyTbl(CommandValues.LogOpenFullForm, KeyTypes.Command, AddressOf logOpenFullFormRtn,
+            "Open full log entry form", "Full log form", False, FunctionGroups.logging, KeyScope.Logging),
+        New keyTbl(CommandValues.ContextHelp, KeyTypes.Command, AddressOf contextHelpRtn,
+            "Context-aware command finder", "Command finder", False, FunctionGroups.help, KeyScope.Global)}
 
     ' Deleted from KeyTable.
     ' New keyTbl(CommandValues.LogForm, AddressOf BringUpLogForm,
@@ -349,92 +394,151 @@ Public Class KeyCommands
     ' New keyTbl(CommandValues.SendLoggedName, AddressOf nameFromLog, _
     '        "send the logged name"), _
 
-    ' default key definitions
+    ' default key definitions — scope-aware
+    ' Radio+Logging scoped keys share physical keys (e.g. Alt+C = CWZeroBeat in Radio, LogCall in Logging).
     Private defaultKeys() As KeyDefType =
-    {New KeyDefType(Keys.F1, CommandValues.ShowHelp),
-     New KeyDefType(Keys.F2, CommandValues.ShowFreq),
-     New KeyDefType(Keys.F2 Or Keys.Shift, CommandValues.ResumeTheScan),
-     New KeyDefType(Keys.F3, CommandValues.ShowReceived),
-     New KeyDefType(Keys.F4, CommandValues.ShowSend),
-     New KeyDefType(Keys.Control Or Keys.F4, CommandValues.showSendDirect),
-     New KeyDefType(Keys.F12, CommandValues.StopCW),
-     New KeyDefType(Keys.F Or Keys.Control, CommandValues.SetFreq),
-     New KeyDefType(Keys.M Or Keys.Control, CommandValues.ShowMemory),
-     New KeyDefType(Keys.M Or Keys.Control Or Keys.Shift, CommandValues.MemoryScan),
-     New KeyDefType(Keys.None, CommandValues.SmeterDBM),
-     New KeyDefType(Keys.None, CommandValues.CycleContinuous),
-     New KeyDefType(Keys.None, CommandValues.LogForm),
-     New KeyDefType(Keys.D Or Keys.Alt, CommandValues.LogDateTime),
-     New KeyDefType(Keys.D Or Keys.Control Or Keys.Shift, CommandValues.ArCluster),
-     New KeyDefType(Keys.W Or Keys.Control, CommandValues.LogFinalize),
-     New KeyDefType(Keys.None, CommandValues.LogFileName),  ' Was Ctrl+Shift+L; freed for Logging Mode toggle
-     New KeyDefType(Keys.None, CommandValues.LogMode),
-     New KeyDefType(Keys.None, CommandValues.LogCall),  ' Was Alt+C; log entry moved to Logging Mode
-     New KeyDefType(Keys.C Or Keys.Control, CommandValues.CWZeroBeat),
-     New KeyDefType(Keys.C Or Keys.Control Or Keys.Shift, CommandValues.ClearRIT),
-     New KeyDefType(Keys.None, CommandValues.LogHisRST),  ' Was Ctrl+H; log entry moved to Logging Mode
-     New KeyDefType(Keys.None, CommandValues.LogMyRST),  ' Was Alt+M; log entry moved to Logging Mode
-     New KeyDefType(Keys.None, CommandValues.LogQTH),  ' Was Alt+Q; log entry moved to Logging Mode
-     New KeyDefType(Keys.None, CommandValues.LogState),  ' Was Alt+S; log entry moved to Logging Mode
-     New KeyDefType(Keys.None, CommandValues.LogGrid),  ' Was Alt+G; log entry moved to Logging Mode
-     New KeyDefType(Keys.None, CommandValues.LogHandle),  ' Was Alt+N; log entry moved to Logging Mode
-     New KeyDefType(Keys.None, CommandValues.LogRig),  ' Was Alt+R; log entry moved to Logging Mode
-     New KeyDefType(Keys.R Or Keys.Control Or Keys.Shift, CommandValues.ReverseBeacon),
-     New KeyDefType(Keys.None, CommandValues.LogAnt),  ' Was Ctrl+A; log entry moved to Logging Mode
-     New KeyDefType(Keys.None, CommandValues.LogComments),  ' Was Alt+E; log entry moved to Logging Mode
-     New KeyDefType(Keys.None, CommandValues.NewLogEntry),  ' Was Ctrl+N; log entry moved to Logging Mode
-     New KeyDefType(Keys.F Or Keys.Control Or Keys.Shift, CommandValues.SearchLog),
-     New KeyDefType(Keys.P Or Keys.Control, CommandValues.DoPanning),
-     New KeyDefType(Keys.S Or Keys.Control, CommandValues.StartScan),
-     New KeyDefType(Keys.U Or Keys.Control Or Keys.Shift, CommandValues.SavedScan),
-     New KeyDefType(Keys.Z Or Keys.Control, CommandValues.StopScan),
-     New KeyDefType(Keys.None, CommandValues.ShowMenus),
-     New KeyDefType(Keys.PageUp Or Keys.Alt, CommandValues.AudioGainUp),
-     New KeyDefType(Keys.PageDown Or Keys.Alt, CommandValues.AudioGainDown),
-     New KeyDefType(Keys.PageUp Or Keys.Alt Or Keys.Shift, CommandValues.HeadphonesUp),
-     New KeyDefType(Keys.PageDown Or Keys.Alt Or Keys.Shift, CommandValues.HeadphonesDown),
-     New KeyDefType(Keys.PageUp Or Keys.Shift, CommandValues.LineoutUp),
-     New KeyDefType(Keys.PageDown Or Keys.Shift, CommandValues.LineoutDown),
-     New KeyDefType(Keys.F9 Or Keys.Control, CommandValues.Toggle1),
-     New KeyDefType(Keys.T Or Keys.Control Or Keys.Shift, CommandValues.LogStats),
-     New KeyDefType(Keys.None, CommandValues.RemoteAudio),
-     New KeyDefType(Keys.None, CommandValues.AudioSetup),
-     New KeyDefType(Keys.L Or Keys.Control, CommandValues.StationLookup),
-     New KeyDefType(Keys.None, CommandValues.GatherDebug),
-     New KeyDefType(Keys.None, CommandValues.ATUMemories),
-     New KeyDefType(Keys.None, CommandValues.Reboot),
-     New KeyDefType(Keys.None, CommandValues.TXControls)}
+    {
+     ' --- Global scope ---
+     New KeyDefType(Keys.F1, CommandValues.ShowHelp, KeyScope.Global),
+     New KeyDefType(Keys.F12, CommandValues.StopCW, KeyScope.Global),
+     New KeyDefType(Keys.L Or Keys.Control, CommandValues.StationLookup, KeyScope.Global),
+     New KeyDefType(Keys.None, CommandValues.GatherDebug, KeyScope.Global),
+     ' --- Radio scope ---
+     New KeyDefType(Keys.F2, CommandValues.ShowFreq, KeyScope.Radio),
+     New KeyDefType(Keys.F2 Or Keys.Shift, CommandValues.ResumeTheScan, KeyScope.Radio),
+     New KeyDefType(Keys.F3, CommandValues.ShowReceived, KeyScope.Radio),
+     New KeyDefType(Keys.F4, CommandValues.ShowSend, KeyScope.Radio),
+     New KeyDefType(Keys.Control Or Keys.F4, CommandValues.showSendDirect, KeyScope.Radio),
+     New KeyDefType(Keys.F Or Keys.Control, CommandValues.SetFreq, KeyScope.Radio),
+     New KeyDefType(Keys.M Or Keys.Control, CommandValues.ShowMemory, KeyScope.Radio),
+     New KeyDefType(Keys.M Or Keys.Control Or Keys.Shift, CommandValues.MemoryScan, KeyScope.Radio),
+     New KeyDefType(Keys.None, CommandValues.SmeterDBM, KeyScope.Radio),
+     New KeyDefType(Keys.None, CommandValues.CycleContinuous, KeyScope.Radio),
+     New KeyDefType(Keys.None, CommandValues.LogForm, KeyScope.Radio),
+     New KeyDefType(Keys.C Or Keys.Alt, CommandValues.CWZeroBeat, KeyScope.Radio),          ' Alt+C = CW Zero Beat in Radio
+     New KeyDefType(Keys.C Or Keys.Control Or Keys.Shift, CommandValues.ClearRIT, KeyScope.Radio),
+     New KeyDefType(Keys.S Or Keys.Alt, CommandValues.StartScan, KeyScope.Radio),            ' Alt+S = Start Scan in Radio
+     New KeyDefType(Keys.D Or Keys.Alt, CommandValues.ArCluster, KeyScope.Radio),            ' Alt+D = DX Cluster in Radio
+     New KeyDefType(Keys.R Or Keys.Alt, CommandValues.ReverseBeacon, KeyScope.Radio),        ' Alt+R = Reverse Beacon in Radio
+     New KeyDefType(Keys.P Or Keys.Control, CommandValues.DoPanning, KeyScope.Radio),
+     New KeyDefType(Keys.U Or Keys.Control Or Keys.Shift, CommandValues.SavedScan, KeyScope.Radio),
+     New KeyDefType(Keys.Z Or Keys.Control, CommandValues.StopScan, KeyScope.Radio),
+     New KeyDefType(Keys.None, CommandValues.ShowMenus, KeyScope.Radio),
+     New KeyDefType(Keys.PageUp Or Keys.Alt, CommandValues.AudioGainUp, KeyScope.Radio),
+     New KeyDefType(Keys.PageDown Or Keys.Alt, CommandValues.AudioGainDown, KeyScope.Radio),
+     New KeyDefType(Keys.PageUp Or Keys.Alt Or Keys.Shift, CommandValues.HeadphonesUp, KeyScope.Radio),
+     New KeyDefType(Keys.PageDown Or Keys.Alt Or Keys.Shift, CommandValues.HeadphonesDown, KeyScope.Radio),
+     New KeyDefType(Keys.PageUp Or Keys.Shift, CommandValues.LineoutUp, KeyScope.Radio),
+     New KeyDefType(Keys.PageDown Or Keys.Shift, CommandValues.LineoutDown, KeyScope.Radio),
+     New KeyDefType(Keys.F9 Or Keys.Control, CommandValues.Toggle1, KeyScope.Radio),
+     New KeyDefType(Keys.None, CommandValues.RemoteAudio, KeyScope.Radio),
+     New KeyDefType(Keys.None, CommandValues.AudioSetup, KeyScope.Radio),
+     New KeyDefType(Keys.None, CommandValues.ATUMemories, KeyScope.Radio),
+     New KeyDefType(Keys.None, CommandValues.Reboot, KeyScope.Radio),
+     New KeyDefType(Keys.None, CommandValues.TXControls, KeyScope.Radio),
+     ' --- Logging scope ---
+     New KeyDefType(Keys.C Or Keys.Alt, CommandValues.LogCall, KeyScope.Logging),            ' Alt+C = Log Call in Logging
+     New KeyDefType(Keys.T Or Keys.Alt, CommandValues.LogHisRST, KeyScope.Logging),          ' Alt+T = Log His RST in Logging
+     New KeyDefType(Keys.R Or Keys.Alt, CommandValues.LogMyRST, KeyScope.Logging),           ' Alt+R = Log My RST in Logging
+     New KeyDefType(Keys.N Or Keys.Alt, CommandValues.LogHandle, KeyScope.Logging),          ' Alt+N = Log Name in Logging
+     New KeyDefType(Keys.Q Or Keys.Alt, CommandValues.LogQTH, KeyScope.Logging),             ' Alt+Q = Log QTH in Logging
+     New KeyDefType(Keys.S Or Keys.Alt, CommandValues.LogState, KeyScope.Logging),           ' Alt+S = Log State in Logging
+     New KeyDefType(Keys.G Or Keys.Alt, CommandValues.LogGrid, KeyScope.Logging),            ' Alt+G = Log Grid in Logging
+     New KeyDefType(Keys.E Or Keys.Alt, CommandValues.LogComments, KeyScope.Logging),        ' Alt+E = Log Comments in Logging
+     New KeyDefType(Keys.D Or Keys.Alt, CommandValues.LogDateTime, KeyScope.Logging),        ' Alt+D = Log DateTime in Logging
+     New KeyDefType(Keys.W Or Keys.Control, CommandValues.LogFinalize, KeyScope.Logging),    ' Ctrl+W = Write Entry in Logging
+     New KeyDefType(Keys.N Or Keys.Control, CommandValues.NewLogEntry, KeyScope.Logging),    ' Ctrl+N = New Entry in Logging
+     New KeyDefType(Keys.None, CommandValues.LogFileName, KeyScope.Logging),
+     New KeyDefType(Keys.None, CommandValues.LogMode, KeyScope.Logging),
+     New KeyDefType(Keys.None, CommandValues.LogRig, KeyScope.Logging),
+     New KeyDefType(Keys.None, CommandValues.LogAnt, KeyScope.Logging),
+     New KeyDefType(Keys.F Or Keys.Control Or Keys.Shift, CommandValues.SearchLog, KeyScope.Logging),
+     New KeyDefType(Keys.T Or Keys.Control Or Keys.Shift, CommandValues.LogStats, KeyScope.Logging),
+     New KeyDefType(Keys.F6, CommandValues.LogPaneSwitchF6, KeyScope.Logging),
+     New KeyDefType(Keys.N Or Keys.Control Or Keys.Shift, CommandValues.LogCharacteristicsDialog, KeyScope.Logging),
+     New KeyDefType(Keys.L Or Keys.Control Or Keys.Alt, CommandValues.LogOpenFullForm, KeyScope.Logging),
+     New KeyDefType(Keys.Oem2 Or Keys.Control, CommandValues.ContextHelp, KeyScope.Global)}
 
     ''' <summary>
     ''' Dictionary to access the keytable using a key.
+    ''' Each key maps to a list of keyTbl entries (one per scope).
     ''' </summary>
-    Friend KeyDictionary As Dictionary(Of Keys, keyTbl)
+    Friend KeyDictionary As Dictionary(Of Keys, List(Of keyTbl))
     ''' <summary>
-    ''' Add to the key dictionary if not already added.
+    ''' Add to the key dictionary. Rejects duplicate scope on same key.
     ''' </summary>
     ''' <param name="item">the keytbl entry to add</param>
-    ''' <returns>True if added, false if already there.</returns>
+    ''' <returns>True if added, false if duplicate scope on same key.</returns>
     Friend Function AddToKeyDictionary(item As keyTbl) As Boolean
         Dim k As Keys = item.key.key
-        ' Add if the key isn't already there.
-        Dim rv As Boolean = ((k <> Keys.None) AndAlso (lookup(k) Is Nothing))
-        If rv Then
-            KeyDictionary.Add(key:=k, value:=item)
+        If k = Keys.None Then Return False
+        Dim entries As List(Of keyTbl) = Nothing
+        If Not KeyDictionary.TryGetValue(k, entries) Then
+            entries = New List(Of keyTbl)
+            KeyDictionary.Add(k, entries)
+        Else
+            ' Reject duplicate scope on same key.
+            For Each existing In entries
+                If existing.Scope = item.Scope Then Return False
+            Next
         End If
-        Return rv
+        entries.Add(item)
+        Return True
     End Function
 
     ''' <summary>
-    ''' (Overloaded) Look for a defined key.
+    ''' Check if the given scope matches the current ActiveUIMode.
+    ''' </summary>
+    Private Function ScopeMatchesMode(scope As KeyScope) As Boolean
+        Select Case scope
+            Case KeyScope.Global
+                Return True
+            Case KeyScope.Radio
+                Return (ActiveUIMode = UIMode.Classic OrElse ActiveUIMode = UIMode.Modern)
+            Case KeyScope.Logging
+                Return (ActiveUIMode = UIMode.Logging)
+            Case Else
+                Return False
+        End Select
+    End Function
+
+    ''' <summary>
+    ''' (Overloaded) Look for a defined key, resolved by current scope.
     ''' </summary>
     ''' <param name="k">the key</param>
-    ''' <returns>a keytbl entry or nothing</returns>
+    ''' <returns>a keytbl entry matching current mode, or nothing</returns>
     Friend Function lookup(k As Keys) As keyTbl
-        Dim rv As keyTbl = Nothing
-        If Not KeyDictionary.TryGetValue(k, rv) Then
-            rv = Nothing
+        Dim entries As List(Of keyTbl) = Nothing
+        If Not KeyDictionary.TryGetValue(k, entries) Then
+            Return Nothing
         End If
-        Return rv
+        If entries.Count = 1 Then
+            ' Single entry: check scope match.
+            If ScopeMatchesMode(entries(0).Scope) Then Return entries(0)
+            Return Nothing
+        End If
+        ' Multiple entries: find exact scope match first, then Global fallback.
+        Dim globalFallback As keyTbl = Nothing
+        For Each item In entries
+            If Not ScopeMatchesMode(item.Scope) Then Continue For
+            If item.Scope <> KeyScope.Global Then
+                ' Scoped match wins over Global (more specific).
+                Return item
+            End If
+            globalFallback = item
+        Next
+        Return globalFallback
+    End Function
+
+    ''' <summary>
+    ''' Get all keyTbl entries across all keys (flattened).
+    ''' </summary>
+    Friend Function AllKeyDictionaryEntries() As IEnumerable(Of keyTbl)
+        Dim result = New List(Of keyTbl)
+        For Each entries In KeyDictionary.Values
+            result.AddRange(entries)
+        Next
+        Return result
     End Function
 
     ''' <summary>
@@ -495,7 +599,7 @@ Public Class KeyCommands
 
     Private Sub setupData()
         ' Setup the dictionaries.
-        KeyDictionary = New Dictionary(Of Keys, keyTbl)
+        KeyDictionary = New Dictionary(Of Keys, List(Of keyTbl))
         KeydefDictionary = New Dictionary(Of CommandValues, keyTbl)
         ' setup the KeydefDictionary of CommandValues.
         For Each k As keyTbl In KeyTable
@@ -628,13 +732,20 @@ Public Class KeyCommands
         Else
             ' Only clear the desired values to be replaced.
             Dim delCol = New List(Of keyTbl)
-            For Each item As keyTbl In KeyDictionary.Values
-                If (item.KeyType And mask) = item.KeyType Then
-                    delCol.Add(item)
-                End If
+            For Each entries In KeyDictionary.Values
+                For Each item As keyTbl In entries
+                    If (item.KeyType And mask) = item.KeyType Then
+                        delCol.Add(item)
+                    End If
+                Next
             Next
             For Each item As keyTbl In delCol
-                KeyDictionary.Remove(item.key.key)
+                ' Remove this specific entry from the list for its key.
+                Dim entries As List(Of keyTbl) = Nothing
+                If KeyDictionary.TryGetValue(item.key.key, entries) Then
+                    entries.Remove(item)
+                    If entries.Count = 0 Then KeyDictionary.Remove(item.key.key)
+                End If
             Next
         End If
         ' Now add in the keys
@@ -643,6 +754,8 @@ Public Class KeyCommands
             Dim t As keyTbl = lookup(def.id)
             If t IsNot Nothing Then
                 t.key.key = def.key
+                t.key.Scope = def.Scope
+                t.Scope = def.Scope
                 ' Add to the KeyDictionary.
                 AddToKeyDictionary(t)
             Else ' Probably an old format KeyDefs file with a depricated command.
@@ -656,8 +769,12 @@ Public Class KeyCommands
     Private Sub murgeNewDefaults()
         ' Build checkDict, a keydef dictionary from keyDictionary.
         Dim checkDict = New Dictionary(Of CommandValues, keyTbl)
-        For Each item As keyTbl In KeyDictionary.Values
-            checkDict.Add(item.key.id, item)
+        For Each entries In KeyDictionary.Values
+            For Each item As keyTbl In entries
+                If Not checkDict.ContainsKey(item.key.id) Then
+                    checkDict.Add(item.key.id, item)
+                End If
+            Next
         Next
         ' Find any key_id from keyDefDictionary that isn't in checkDict.
         Dim needWrite As Boolean = False
@@ -704,10 +821,11 @@ Public Class KeyCommands
             ' Remove old dictionary entries.
             For Each def As KeyDefType In CWMessageDefs
                 KeydefDictionary.Remove(def.id)
-                item = lookup(def.key)
-                ' Note:  If the key dups a command key, we'll keep the command.
-                If (item IsNot Nothing) AndAlso (item.KeyType = KeyTypes.CWText) Then
-                    KeyDictionary.Remove(def.key)
+                ' Remove CWText entries from the key dictionary list.
+                Dim entries As List(Of keyTbl) = Nothing
+                If KeyDictionary.TryGetValue(def.key, entries) Then
+                    entries.RemoveAll(Function(e) e.KeyType = KeyTypes.CWText)
+                    If entries.Count = 0 Then KeyDictionary.Remove(def.key)
                 End If
             Next
         End If
@@ -825,7 +943,7 @@ Public Class KeyCommands
                         ByRef keyTextValues As KeyDefType(), _
                         ByRef keyNames As String(), _
                         ByRef actions As String())
-        Dim len As Integer = KeyDictionary.Count
+        Dim len As Integer = AllKeyDictionaryEntries().Count()
         Dim commandCol = New List(Of KeyDefType)
         Dim textCol = New List(Of KeyDefType)
         Dim defdict = New Dictionary(Of CommandValues, KeyDefType)
@@ -834,27 +952,35 @@ Public Class KeyCommands
         keyCommandValues = Nothing
         keyTextValues = Nothing
         ' The command and log keys come first.
-        For Each item As keyTbl In KeyDictionary.Values
-            If (item.KeyType = KeyTypes.Command) Or (item.KeyType = KeyTypes.log) Then
-                ' Careful! KeyDefType is a reference type.
-                commandCol.Add(New KeyDefType(item.key.key, item.key.id))
-                keyNames(i) = KeyString(item.key.key)
-                actions(i) = item.helpText
-                ' Note all items with keys.
-                defdict.Add(item.key.id, Nothing)
-                i += 1
-            End If
+        For Each entries In KeyDictionary.Values
+            For Each item As keyTbl In entries
+                If (item.KeyType = KeyTypes.Command) Or (item.KeyType = KeyTypes.log) Then
+                    ' Careful! KeyDefType is a reference type.
+                    commandCol.Add(New KeyDefType(item.key.key, item.key.id))
+                    keyNames(i) = KeyString(item.key.key)
+                    actions(i) = item.helpText
+                    ' Note all items with keys.
+                    If Not defdict.ContainsKey(item.key.id) Then
+                        defdict.Add(item.key.id, Nothing)
+                    End If
+                    i += 1
+                End If
+            Next
         Next
-        For Each item As keyTbl In KeyDictionary.Values
-            If Not ((item.KeyType = KeyTypes.Command) Or (item.KeyType = KeyTypes.log)) Then
-                ' CW text
-                Dim j As Integer = i - commandCol.Count
-                Dim m As CWMessages.MessageItem = CWText(j)
-                textCol.Add(New KeyDefType(m.key, CWMessageDefs(j).id))
-                keyNames(i) = KeyString(m.key)
-                actions(i) = "CW Message: " & m.Label
-                i += 1
-            End If
+        For Each entries In KeyDictionary.Values
+            For Each item As keyTbl In entries
+                If Not ((item.KeyType = KeyTypes.Command) Or (item.KeyType = KeyTypes.log)) Then
+                    ' CW text
+                    Dim j As Integer = i - commandCol.Count
+                    If j >= 0 AndAlso j < CWText.Length Then
+                        Dim m As CWMessages.MessageItem = CWText(j)
+                        textCol.Add(New KeyDefType(m.key, CWMessageDefs(j).id))
+                        keyNames(i) = KeyString(m.key)
+                        actions(i) = "CW Message: " & m.Label
+                        i += 1
+                    End If
+                End If
+            Next
         Next
         If commandCol.Count > 0 Then
             keyCommandValues = commandCol.ToArray
@@ -958,12 +1084,45 @@ Public Class KeyCommands
     End Sub
 
     Private Sub BringUpLogForm()
+        ' In Logging Mode, redirect log field commands to the LogPanel.
+        If ActiveUIMode = UIMode.Logging AndAlso Form1.LoggingLogPanel IsNot Nothing Then
+            Dim adifTag As String = CommandIDToADIF(CommandId)
+            Dim fieldName As String = ADIFTagToFieldName(adifTag)
+            If fieldName IsNot Nothing Then
+                Form1.LoggingLogPanel.FocusField(fieldName)
+            ElseIf adifTag = iADIF_LogNewEntry Then
+                Form1.LoggingLogPanel.NewEntry()
+                Radios.ScreenReaderOutput.Speak("New entry", True)
+            End If
+            Return
+        End If
         LogEntry.FieldID = CommandIDToADIF(CommandId)
         Dim saveVisible As Boolean = Form1.Visible
         Form1.Visible = False
         LogEntry.ShowDialog()
         Form1.Visible = saveVisible
     End Sub
+
+    ''' <summary>
+    ''' Map ADIF tag to LogPanel field name for Logging Mode routing.
+    ''' </summary>
+    Private Function ADIFTagToFieldName(adifTag As String) As String
+        Select Case adifTag
+            Case adif.AdifTags.ADIF_Call : Return "CALL"
+            Case adif.AdifTags.ADIF_HisRST : Return "RSTSENT"
+            Case adif.AdifTags.ADIF_MyRST : Return "RSTRCVD"
+            Case adif.AdifTags.ADIF_Name : Return "NAME"
+            Case adif.AdifTags.ADIF_QTH : Return "QTH"
+            Case adif.AdifTags.ADIF_State : Return "STATE"
+            Case adif.AdifTags.ADIF_Grid : Return "GRID"
+            Case adif.AdifTags.ADIF_Comment : Return "COMMENTS"
+            Case adif.AdifTags.ADIF_DateOn : Return Nothing ' DateTime handled separately
+            Case adif.AdifTags.ADIF_Mode : Return "MODE"
+            Case adif.AdifTags.ADIF_Rig : Return "RIG"
+            Case adif.AdifTags.ADIF_Antenna : Return "ANTENNA"
+            Case Else : Return Nothing
+        End Select
+    End Function
 
     ''' <summary>
     ''' Get the ADIF tag for this key command id.
@@ -989,6 +1148,11 @@ Public Class KeyCommands
     End Sub
 
     Private Sub FinalizeLog()
+        ' In Logging Mode, write via the LogPanel.
+        If ActiveUIMode = UIMode.Logging AndAlso Form1.LoggingLogPanel IsNot Nothing Then
+            Form1.LoggingLogPanel.WriteEntry()
+            Return
+        End If
         LogEntry.Write()
     End Sub
 
@@ -1417,4 +1581,25 @@ Public Class KeyCommands
         End If
         Return txt
     End Function
+
+    ' --- Logging-only action handlers (route to Form1) ---
+
+    Private Sub logPaneSwitchRtn()
+        Form1.ToggleLoggingPaneFocusPublic()
+    End Sub
+
+    Private Sub logCharacteristicsRtn()
+        Form1.LogCharacteristicsPublic()
+    End Sub
+
+    Private Sub logOpenFullFormRtn()
+        Form1.OpenFullLogEntryPublic()
+    End Sub
+
+    Private Sub contextHelpRtn()
+        ' Opens the Command Finder dialog (implemented in Phase C3).
+        Dim finder As New CommandFinder()
+        finder.PreFilterScope = ActiveUIMode
+        finder.ShowDialog()
+    End Sub
 End Class

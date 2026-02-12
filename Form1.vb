@@ -2731,7 +2731,7 @@ RadioConnected:
     ' Logging Mode panels — created in BuildLoggingPanels, shown/hidden by ShowXxxUI.
     Private LoggingSplitContainer As SplitContainer
     Private LoggingRadioPane As RadioPane
-    Private LoggingLogPanel As LogPanel
+    Friend LoggingLogPanel As LogPanel
     Private LoggingPanelSession As LogSession  ' Separate session for the embedded panel
 
     ''' <summary>
@@ -3365,7 +3365,7 @@ RadioConnected:
     ''' to the LogPanel instead of opening the full-screen LogEntry form.
     ''' </summary>
     Protected Overrides Function ProcessCmdKey(ByRef msg As Message, keyData As Keys) As Boolean
-        ' --- Mode toggles (always active) ---
+        ' --- Mode toggles (always active, hard-wired meta-commands) ---
         If keyData = (Keys.Control Or Keys.Shift Or Keys.M) Then
             ToggleUIMode()
             Return True
@@ -3375,58 +3375,8 @@ RadioConnected:
             Return True
         End If
 
-        ' --- Logging Mode hotkeys (only when in Logging Mode) ---
-        If ActiveUIMode = UIMode.Logging AndAlso LoggingLogPanel IsNot Nothing Then
-            ' F6 pane switching.
-            If keyData = Keys.F6 OrElse keyData = (Keys.F6 Or Keys.Shift) Then
-                ToggleLoggingPaneFocus()
-                Return True
-            End If
-
-            ' Field-jump hotkeys — redirect Classic log keys to LogPanel fields.
-            Select Case keyData
-                Case Keys.C Or Keys.Alt               ' Alt+C → Call Sign
-                    LoggingLogPanel.FocusField("CALL")
-                    Return True
-                Case Keys.T Or Keys.Alt                ' Alt+T → RST Sent (senT)
-                    LoggingLogPanel.FocusField("RSTSENT")
-                    Return True
-                Case Keys.R Or Keys.Alt                ' Alt+R → RST Received
-                    LoggingLogPanel.FocusField("RSTRCVD")
-                    Return True
-                Case Keys.N Or Keys.Alt                ' Alt+N → Name
-                    LoggingLogPanel.FocusField("NAME")
-                    Return True
-                Case Keys.Q Or Keys.Alt                ' Alt+Q → QTH
-                    LoggingLogPanel.FocusField("QTH")
-                    Return True
-                Case Keys.S Or Keys.Alt                ' Alt+S → State
-                    LoggingLogPanel.FocusField("STATE")
-                    Return True
-                Case Keys.G Or Keys.Alt                ' Alt+G → Grid
-                    LoggingLogPanel.FocusField("GRID")
-                    Return True
-                Case Keys.E Or Keys.Alt                ' Alt+E → Comments
-                    LoggingLogPanel.FocusField("COMMENTS")
-                    Return True
-
-                ' Action hotkeys.
-                Case Keys.N Or Keys.Control            ' Ctrl+N → New Entry (clear form)
-                    LoggingLogPanel.NewEntry()
-                    Radios.ScreenReaderOutput.Speak("New entry", True)
-                    Return True
-                Case Keys.W Or Keys.Control            ' Ctrl+W → Write/Save Entry
-                    LoggingLogPanel.WriteEntry()
-                    Return True
-                Case Keys.N Or Keys.Control Or Keys.Shift  ' Ctrl+Shift+N → Log Characteristics
-                    LogCharacteristicsMenuItem_Click(Nothing, EventArgs.Empty)
-                    Return True
-                Case Keys.L Or Keys.Control Or Keys.Alt  ' Ctrl+Alt+L → Full Log Entry form
-                    OpenFullLogEntry()
-                    Return True
-            End Select
-        End If
-
+        ' All other hotkeys (including Logging Mode field-jumps, F6 pane switching,
+        ' and radio commands) now route through the scope-aware KeyCommands registry.
         Return MyBase.ProcessCmdKey(msg, keyData)
     End Function
 
@@ -3540,6 +3490,20 @@ RadioConnected:
             LoggingRadioPane.FocusFirst()
             Radios.ScreenReaderOutput.Speak("Radio pane", True)
         End If
+    End Sub
+
+    ' --- Public wrappers for scope-aware hotkey routing (called from KeyCommands) ---
+
+    Friend Sub ToggleLoggingPaneFocusPublic()
+        ToggleLoggingPaneFocus()
+    End Sub
+
+    Friend Sub LogCharacteristicsPublic()
+        LogCharacteristicsMenuItem_Click(Nothing, EventArgs.Empty)
+    End Sub
+
+    Friend Sub OpenFullLogEntryPublic()
+        OpenFullLogEntry()
     End Sub
 
 #End Region
