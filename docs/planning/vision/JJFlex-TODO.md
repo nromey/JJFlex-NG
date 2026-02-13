@@ -101,6 +101,20 @@ Last updated: 2026-02-12
 - **Priority:** Low — speech announcement works, just the audio beep is missing
 - **Status:** Logged for investigation
 
+### BUG-014: XmlSerializer corrupts combined Keys values in KeyDefs.xml (Sprint 6, 2026-02-12)
+- **Symptom:** Hotkey bindings with modifier keys (e.g., `Keys.C Or Keys.Alt`) get serialized as space-separated flag names ("LButton ShiftKey ...") that can't be parsed back, causing bindings to silently revert to `Keys.None` on next load.
+- **Root cause:** `XmlSerializer` treats `Keys` as a `[Flags]` enum and decomposes combined values. The decomposed names don't round-trip through `Enum.Parse`.
+- **Fix:** Store `Keys` as integer via XML proxy property (`keyAsString`). Backward-compatible: tries `Integer.TryParse` first, falls back to `Enum.Parse` for legacy files. Added contamination guard: if loaded key is `Keys.None` but built-in default has a real binding, preserve the default.
+- **Priority:** High — caused progressive hotkey data loss across app restarts
+- **Status:** FIXED in Sprint 6 (2026-02-12)
+
+### BUG-015: F6 double-announces "Radio pane" in Logging Mode (Sprint 6 testing, 2026-02-12)
+- **Symptom:** Pressing F6 to switch to RadioPane in Logging Mode announces "Radio pane" twice.
+- **Root cause:** `FreqBox.Enter` handler in `RadioPane.vb` explicitly calls `Speak("Radio pane")`, and the screen reader also reads `FreqBox.AccessibleName` which starts with "Radio pane". Both fire when focus lands on FreqBox.
+- **Fix:** Remove the explicit `Speak("Radio pane")` from the FreqBox Enter handler — the `AccessibleName` already provides the announcement naturally.
+- **Priority:** Low — cosmetic double-announcement
+- **Status:** Logged for Sprint 7
+
 ## Near-term (next 1–3 sprints)
 - [x] Callbook graceful degradation: QRZ→HamQTH auto-fallback, built-in HamQTH for LogPanel (BUG-007, BUG-008) — Sprint 6
 - [x] Hotkeys v2: scope-aware registry, conflict detection, Command Finder, tabbed Settings UI — Sprint 6
@@ -111,6 +125,8 @@ Last updated: 2026-02-12
 - [ ] Slice Menu + Filter Menu (slice-centric operating model)
 - [ ] Plain-English Status: Speak Status + Status Dialog (replace alphabet soup in Modern)
 - [ ] Audio management baseline: device selection + rig audio adjust entry point
+- [ ] CW hotkey feedback: Ctrl+1-7 and F12 should speak short message when no CW messages configured
+- [ ] BUG-015: Fix F6 double-announce "Radio pane" in Logging Mode (remove FreqBox Enter handler Speak call)
 - [ ] Update CHANGELOG discipline + code commenting guideline doc
 - [ ] WPF migration: LogPanel + Station Lookup (Sprint 7 — see WPF Migration section)
 - [ ] Recent QSOs grid: 1-based row indexing for screen readers (comes free with WPF DataGrid)

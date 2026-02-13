@@ -103,7 +103,41 @@ Public Class KeyCommands
     ''' Command key definition
     ''' </summary>
     Public Class KeyDefType
-        Public key As Keys
+        ' BUG-014 fix: Store Keys as integer to avoid XmlSerializer corruption.
+        ' XmlSerializer treats Keys as a [Flags] enum and decomposes combined
+        ' values (e.g. Keys.C Or Keys.Alt = 0x40043) into space-separated flag
+        ' names that can't be parsed back. Same pattern Jim used for CommandValues.
+        <XmlIgnore()> Public key As Keys
+
+        ''' <summary>
+        ''' XML proxy — stores the Keys value as an integer for reliable round-trip.
+        ''' Uses the same "key" element name as the old format for backward compatibility.
+        ''' Old files stored Keys as enum names (e.g. "F1", "LButton ShiftKey ...").
+        ''' On read we try Integer first; if that fails we fall back to Enum.Parse
+        ''' so legacy files still load (simple keys like "F1" parse fine).
+        ''' </summary>
+        <XmlElement("key")>
+        Public Property keyAsString As String
+            Get
+                Return CType(key, Integer).ToString()
+            End Get
+            Set(value As String)
+                ' Try integer first (new format).
+                Dim n As Integer
+                If Integer.TryParse(value, n) Then
+                    key = CType(n, Keys)
+                Else
+                    ' Legacy format: enum name(s). Simple names like "F1" work;
+                    ' corrupted multi-flag names will fall back to Keys.None.
+                    Try
+                        key = CType([Enum].Parse(GetType(Keys), value), Keys)
+                    Catch
+                        key = Keys.None
+                    End Try
+                End If
+            End Set
+        End Property
+
         Public i As Integer
         Public Scope As KeyScope = KeyScope.[Global]
         ' This is because the xml serializer on Vista doesn't handle enums.
@@ -744,19 +778,42 @@ Public Class KeyCommands
             Next
         End If
         ' Now add in the keys
+        Dim restoredDefaults As Boolean = False
         For Each def As KeyDefType In defs
             ' lookup in the keydefDictionary
             Dim t As keyTbl = lookup(def.id)
             If t IsNot Nothing Then
-                t.key.key = def.key
-                t.key.Scope = def.Scope
-                t.Scope = def.Scope
+                ' Migrate legacy KeyDefs.xml: if a key was saved without scope info it
+                ' deserializes as Global (the field default).  When the command's built-in
+                ' default scope is NOT Global, honour the built-in scope so that
+                ' Radio-only and Logging-only bindings stay separated.
+                Dim effectiveScope = def.Scope
+                Dim effectiveKey = def.key
+                Dim builtIn = GetDefaultKey(def.id)
+                If effectiveScope = KeyScope.[Global] Then
+                    If builtIn IsNot Nothing AndAlso builtIn.Scope <> KeyScope.[Global] Then
+                        effectiveScope = builtIn.Scope
+                    End If
+                End If
+                ' BUG-014 contamination guard: if the file has Keys.None but the
+                ' built-in default has a real binding, preserve the default.
+                ' This breaks the contamination loop where a previous run saved
+                ' zeros from a corrupted file, and the next launch loads those
+                ' zeros, overwriting good defaults.
+                If effectiveKey = Keys.None AndAlso builtIn IsNot Nothing AndAlso builtIn.key <> Keys.None Then
+                    effectiveKey = builtIn.key
+                    restoredDefaults = True
+                    Tracing.TraceLine("SetValues:restored default key for " & def.id.ToString & " = " & effectiveKey.ToString, TraceLevel.Info)
+                End If
+                t.key.key = effectiveKey
+                t.key.Scope = effectiveScope
+                t.Scope = effectiveScope
                 ' Add to the KeyDictionary.
                 AddToKeyDictionary(t)
             Else ' Probably an old format KeyDefs file with a depricated command.
             End If
         Next
-        If wrt Then
+        If wrt OrElse restoredDefaults Then
             write()
         End If
     End Sub
@@ -898,9 +955,12 @@ Public Class KeyCommands
             ' kt.rtn() can use CommandId to tell what command was entered.
             CommandId = kt.key.id
             Tracing.TraceLine("Docommand:" & CommandId.ToString, TraceLevel.Info)
+            ' Mark handled BEFORE calling the routine — even if it throws
+            ' (e.g. no radio connected), we still consumed the key so it
+            ' doesn't leak to the MenuStrip and open menus.
+            rv = True
             Try
                 kt.rtn()
-                rv = True
             Catch ex As Exception
                 If (RigControl Is Nothing) OrElse Not Power Then
                     Tracing.TraceLine("DoCommand:no rig setup", TraceLevel.Error)

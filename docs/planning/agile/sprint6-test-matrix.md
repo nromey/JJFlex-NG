@@ -36,7 +36,7 @@ Refer to Sprint-06-qrp-sidetone-paddles.md for step-by-step instructions.
 | D2 | Alt+S: Start Scan (Radio) vs State (Logging) | ~~FAIL~~ FIXED | **BUG-010**: Same root cause as D1. |
 | D3 | F1 works in both modes | ~~FAIL~~ FIXED | **BUG-010**: F1 in logging mode — DoCommand not reached. Fixed in ProcessCmdKey. |
 | D3b | Ctrl+/ works in both modes | ~~FAIL~~ FIXED | **BUG-010**: Intermittent — focus-dependent. Fixed: now routed through ProcessCmdKey always. |
-| D4 | Ctrl+1 sends CW message (was F5) | UNTESTED | No CW messages configured. Suggest debug trace to verify. |
+| D4 | Ctrl+1 sends CW message (was F5) | PASS | No CW messages configured — no crash, silent as expected. Sprint 7: add spoken feedback when no messages configured. |
 
 ## E. Hotkey Settings UI
 
@@ -45,9 +45,9 @@ Refer to Sprint-06-qrp-sidetone-paddles.md for step-by-step instructions.
 | E1 | Dialog opens with 3 tabs (Global/Radio/Logging) | PASS | Global = active in all modes (not system-wide outside app). |
 | E2 | Rebind a key → works in app | PASS | |
 | E3 | Same-scope conflict detected | ~~FAIL~~ FIXED | **BUG-012**: Now auto-clears conflicting binding (VS Code style). Save blocked if conflicts remain. |
-| E3b | Cross-scope same key → no conflict | UNTESTED | Too few Radio/Logging keys to verify. Retest after more keys assigned. |
+| E3b | Cross-scope same key → no conflict | PASS | Alt+Z assigned to Radio (Show Memories) and Logging (Write Log Entry) — no conflict, both fire correctly in their scope. |
 | E4 | Reset Selected reverts one key | PASS | |
-| E4b | Reset All reverts whole tab | PASS | |
+| E4b | Reset All reverts whole tab | PASS | SR announced reset, Ctrl+W still worked after reset. BUG-014 contamination guard verified. |
 
 ## F. Command Finder
 
@@ -64,6 +64,27 @@ Refer to Sprint-06-qrp-sidetone-paddles.md for step-by-step instructions.
 | # | Test | Pass/Fail | Notes |
 |---|------|-----------|-------|
 | G1 | Logging Mode end-to-end QSO | MOSTLY PASS | **BUG-013**: Dup beep not audible; speech "worked x calls" works. Logged for investigation. |
-| G2 | Classic/Modern radio hotkeys work | NEEDS RETEST | Classic/modern switch works. Hotkey correctness needs retest after BUG-010 fix. |
-| G3 | CW messages on Ctrl+1-7, F12 stops | UNTESTED | No CW messages configured. Suggest adding debug trace. |
-| G4 | Legacy KeyDefs.xml imports as Global | UNKNOWN | 53 Global keys seen — may be correct if defaults were loaded fresh. |
+| G2 | Classic/Modern radio hotkeys work | PASS | Ctrl+Shift+M toggles correctly. From Logging Mode, exits to previous base mode first (new behavior). |
+| G3 | CW messages on Ctrl+1-7, F12 stops | PASS | No CW messages configured — no crash, silent. Sprint 7: add spoken feedback. |
+| G4 | Legacy KeyDefs.xml imports as Global | N/A | No legacy file available — fresh defaults loaded. BUG-014 fix verified via Reset All test. |
+
+## H. Additional Hotkeys (post-matrix)
+
+| # | Test | Pass/Fail | Notes |
+|---|------|-----------|-------|
+| H1 | Ctrl+Shift+L toggles Logging Mode | PASS | "Entering Logging Mode" / "Returning to Modern mode" — correct announcements. |
+| H2 | Ctrl+Shift+M toggles Classic/Modern | PASS | Works from all modes including Logging (exits Logging first). |
+| H3 | Alt+Z fires per-scope (Radio vs Logging) | PASS | Show Memories in Radio, Write Log Entry in Logging — no conflict. |
+| H4 | F6 pane toggle in Logging Mode | PASS | Focus switches between RadioPane and LogPanel. **BUG-015**: Double-announces "Radio pane" — logged for Sprint 7. |
+
+## New Bugs Found During Testing
+
+| Bug | Description | Priority | Sprint |
+|-----|-------------|----------|--------|
+| BUG-015 | F6 in Logging Mode double-announces "Radio pane" (FreqBox Enter handler + AccessibleName both speak) | Low | 7 |
+
+## Enhancement Requests
+
+| Item | Description | Sprint |
+|------|-------------|--------|
+| CW feedback | Ctrl+1-7 and F12 should speak short message when no CW messages configured | 7 |

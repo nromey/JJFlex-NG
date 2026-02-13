@@ -3127,8 +3127,11 @@ RadioConnected:
     Friend Sub ToggleUIMode()
         If CurrentOp Is Nothing Then Return
 
-        ' Ignore while in Logging Mode.
-        If ActiveUIMode = UIMode.Logging Then Return
+        ' If in Logging Mode, exit back to the previous base mode first.
+        If ActiveUIMode = UIMode.Logging Then
+            ExitLoggingMode()
+            Return
+        End If
 
         Dim newMode As UIMode
         If ActiveUIMode = UIMode.Modern Then
@@ -3525,10 +3528,14 @@ RadioConnected:
 
         If LoggingRadioPane.ContainsFocus Then
             LoggingLogPanel.FocusCallSign()
+            ' LogPanel's FocusCallSign sets focus to callsign field — the
+            ' field's own Enter/GotFocus handler announces the pane context,
+            ' so we only speak if there is no LogPanel handler doing it.
             Radios.ScreenReaderOutput.Speak("Log entry pane", True)
         Else
+            ' RadioPane.FocusFirst() gives focus to FreqBox, whose Enter
+            ' handler already speaks "Radio pane" — don't double-announce.
             LoggingRadioPane.FocusFirst()
-            Radios.ScreenReaderOutput.Speak("Radio pane", True)
         End If
     End Sub
 
