@@ -78,6 +78,8 @@ Public Class KeyCommands
         LogCharacteristicsDialog
         LogOpenFullForm
         ContextHelp
+        SpeakStatus
+        ShowStatusDialog
     End Enum
     Friend Const FirstMessageCommandValue As Integer = 1000000
 
@@ -417,7 +419,11 @@ Public Class KeyCommands
         New keyTbl(CommandValues.LogOpenFullForm, KeyTypes.Command, AddressOf logOpenFullFormRtn,
             "Open full log entry form", "Full log form", False, FunctionGroups.logging, KeyScope.Logging),
         New keyTbl(CommandValues.ContextHelp, KeyTypes.Command, AddressOf contextHelpRtn,
-            "Context-aware command finder", "Command finder", False, FunctionGroups.help, KeyScope.[Global])}
+            "Context-aware command finder", "Command finder", False, FunctionGroups.help, KeyScope.[Global]),
+        New keyTbl(CommandValues.SpeakStatus, KeyTypes.Command, AddressOf speakStatusRtn,
+            "Speak radio status summary", "Speak status", False, FunctionGroups.general, KeyScope.[Global]),
+        New keyTbl(CommandValues.ShowStatusDialog, KeyTypes.Command, AddressOf showStatusDialogRtn,
+            "Show radio status dialog", "Status dialog", False, FunctionGroups.general, KeyScope.[Global])}
 
     ' Deleted from KeyTable.
     ' New keyTbl(CommandValues.LogForm, AddressOf BringUpLogForm,
@@ -486,7 +492,9 @@ Public Class KeyCommands
      New KeyDefType(Keys.F6, CommandValues.LogPaneSwitchF6, KeyScope.Logging),
      New KeyDefType(Keys.N Or Keys.Control Or Keys.Shift, CommandValues.LogCharacteristicsDialog, KeyScope.Logging),
      New KeyDefType(Keys.L Or Keys.Control Or Keys.Alt, CommandValues.LogOpenFullForm, KeyScope.Logging),
-     New KeyDefType(Keys.Oem2 Or Keys.Control, CommandValues.ContextHelp, KeyScope.[Global])}
+     New KeyDefType(Keys.Oem2 Or Keys.Control, CommandValues.ContextHelp, KeyScope.[Global]),
+     New KeyDefType(Keys.S Or Keys.Control Or Keys.Shift, CommandValues.SpeakStatus, KeyScope.[Global]),
+     New KeyDefType(Keys.None, CommandValues.ShowStatusDialog, KeyScope.[Global])}
 
     ''' <summary>
     ''' Dictionary to access the keytable using a key.
@@ -1667,5 +1675,20 @@ Public Class KeyCommands
         Dim finder As New CommandFinder()
         finder.PreFilterScope = ActiveUIMode
         finder.ShowDialog()
+    End Sub
+
+    Private Sub speakStatusRtn()
+        Dim msg = Radios.RadioStatusBuilder.BuildSpokenStatus(RigControl)
+        Radios.ScreenReaderOutput.Speak(msg, True)
+    End Sub
+
+    Private statusWindow As Radios.StatusWindow = Nothing
+    Private Sub showStatusDialogRtn()
+        If statusWindow IsNot Nothing AndAlso statusWindow.IsVisible Then
+            statusWindow.Activate()
+            Return
+        End If
+        statusWindow = New Radios.StatusWindow(RigControl)
+        statusWindow.Show()
     End Sub
 End Class

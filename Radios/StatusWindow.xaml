@@ -1,0 +1,133 @@
+<Window x:Class="Radios.StatusWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:auto="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        Title="Radio Status"
+        Width="420" Height="480"
+        WindowStartupLocation="CenterScreen"
+        ResizeMode="CanResizeWithGrip"
+        Background="{DynamicResource {x:Static SystemColors.ControlBrushKey}}"
+        KeyDown="Window_KeyDown"
+        AutomationProperties.Name="Radio Status">
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Title -->
+        <TextBlock Grid.Row="0" Text="Radio Status" FontSize="18" FontWeight="Bold" Margin="0,0,0,12"
+                   AutomationProperties.HeadingLevel="Level1" />
+
+        <!-- Status fields -->
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+            <StackPanel>
+                <!-- Connection section -->
+                <TextBlock Text="Connection" FontWeight="SemiBold" FontSize="14" Margin="0,0,0,4"
+                           AutomationProperties.HeadingLevel="Level2" />
+                <Grid Margin="8,0,0,12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="120"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Status:" VerticalAlignment="Center" Margin="0,2"/>
+                    <TextBlock Grid.Row="0" Grid.Column="1" x:Name="txtConnection" Text="Not connected" VerticalAlignment="Center" Margin="0,2"
+                               AutomationProperties.Name="Connection status" />
+                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Radio:" VerticalAlignment="Center" Margin="0,2"/>
+                    <TextBlock Grid.Row="1" Grid.Column="1" x:Name="txtRadioModel" Text="-" VerticalAlignment="Center" Margin="0,2"
+                               AutomationProperties.Name="Radio model" />
+                    <TextBlock Grid.Row="2" Grid.Column="0" Text="Nickname:" VerticalAlignment="Center" Margin="0,2"/>
+                    <TextBlock Grid.Row="2" Grid.Column="1" x:Name="txtNickname" Text="-" VerticalAlignment="Center" Margin="0,2"
+                               AutomationProperties.Name="Radio nickname" />
+                </Grid>
+
+                <!-- Frequency / Mode section -->
+                <TextBlock Text="Frequency and Mode" FontWeight="SemiBold" FontSize="14" Margin="0,0,0,4"
+                           AutomationProperties.HeadingLevel="Level2" />
+                <Grid Margin="8,0,0,12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="120"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Frequency:" VerticalAlignment="Center" Margin="0,2"/>
+                    <TextBlock Grid.Row="0" Grid.Column="1" x:Name="txtFrequency" Text="-" VerticalAlignment="Center" Margin="0,2"
+                               AutomationProperties.Name="Frequency" />
+                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Mode:" VerticalAlignment="Center" Margin="0,2"/>
+                    <TextBlock Grid.Row="1" Grid.Column="1" x:Name="txtMode" Text="-" VerticalAlignment="Center" Margin="0,2"
+                               AutomationProperties.Name="Mode" />
+                    <TextBlock Grid.Row="2" Grid.Column="0" Text="Band:" VerticalAlignment="Center" Margin="0,2"/>
+                    <TextBlock Grid.Row="2" Grid.Column="1" x:Name="txtBand" Text="-" VerticalAlignment="Center" Margin="0,2"
+                               AutomationProperties.Name="Band" />
+                </Grid>
+
+                <!-- Slice section -->
+                <TextBlock Text="Slice" FontWeight="SemiBold" FontSize="14" Margin="0,0,0,4"
+                           AutomationProperties.HeadingLevel="Level2" />
+                <Grid Margin="8,0,0,12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="120"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Active slice:" VerticalAlignment="Center" Margin="0,2"/>
+                    <TextBlock Grid.Row="0" Grid.Column="1" x:Name="txtSlice" Text="-" VerticalAlignment="Center" Margin="0,2"
+                               AutomationProperties.Name="Active slice" />
+                </Grid>
+
+                <!-- TX Status section -->
+                <TextBlock Text="Transmit Status" FontWeight="SemiBold" FontSize="14" Margin="0,0,0,4"
+                           AutomationProperties.HeadingLevel="Level2" />
+                <Grid Margin="8,0,0,12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="120"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <TextBlock Grid.Row="0" Grid.Column="0" Text="TX state:" VerticalAlignment="Center" Margin="0,2"/>
+                    <TextBlock Grid.Row="0" Grid.Column="1" x:Name="txtTXState" Text="-" VerticalAlignment="Center" Margin="0,2"
+                               AutomationProperties.Name="Transmit state" />
+                </Grid>
+
+                <!-- Signal section -->
+                <TextBlock Text="Signal" FontWeight="SemiBold" FontSize="14" Margin="0,0,0,4"
+                           AutomationProperties.HeadingLevel="Level2" />
+                <Grid Margin="8,0,0,12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="120"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Signal:" VerticalAlignment="Center" Margin="0,2"/>
+                    <TextBlock Grid.Row="0" Grid.Column="1" x:Name="txtSignal" Text="-" VerticalAlignment="Center" Margin="0,2"
+                               AutomationProperties.Name="Signal level" />
+                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Connection:" VerticalAlignment="Center" Margin="0,2"/>
+                    <TextBlock Grid.Row="1" Grid.Column="1" x:Name="txtRemote" Text="-" VerticalAlignment="Center" Margin="0,2"
+                               AutomationProperties.Name="Connection type" />
+                </Grid>
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- Close button -->
+        <Button Grid.Row="2" Content="Close" Width="80" HorizontalAlignment="Right" Margin="0,12,0,0"
+                IsCancel="True" Click="CloseButton_Click"
+                AutomationProperties.Name="Close status dialog" />
+    </Grid>
+</Window>
