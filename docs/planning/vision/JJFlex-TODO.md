@@ -212,8 +212,35 @@ Full design docs in `docs/planning/design/multislice-decode/`. Key features:
 - Accessibility-first: Tolk for confirmations, UIA live regions for passive, speech modes (off/active/background/events-only)
 - Safety: no auto-TX, no focus change during TX, pin override, undo last snap
 
-## Logging Mode Customization (future sprint)
-- [ ] Customizable LogPanel field layout: let operators choose which fields appear in the quick-entry logger. JJ's full LogEntry form remains available via Ctrl+Alt+L for all fields. The field picker must be fully accessible (screen-reader-friendly list with add/remove/reorder).
+## Logging Mode Customization (Sprint 9+)
+
+### Customizable Split Logger Field Layout
+JJ's vision: logging should be **blazing fast** with keyboard shortcuts. The split logger (Logging Mode) is the speed machine — minimal fields, every one reachable by hotkey. JJ's big logger (Ctrl+Alt+L) has everything.
+
+**Design:**
+- Operator selects which fields appear in the split logger from a curated list
+- **No "select all"** — the split logger must stay minimal and fast. Cap the max field count
+- Each field in JJ's big logger already has a default hotkey (Alt+letter). When a field is pulled into the split logger, **its hotkey comes with it** — inherited, not reassigned
+- Hotkeys are Logging-scope (already supported by Sprint 6 KeyScope system)
+- Tab order follows selected fields in display order
+- Operators can Tab sequentially OR jump directly with hotkeys — whichever is faster
+
+**Speed workflow example:**
+Alt+C → W1ABC → Alt+N → Bob → Alt+Q → Space (uncheck QRZ) → Ctrl+W → logged in 5 seconds
+
+**Field picker UI:**
+- Accessible list with add/remove/reorder (screen-reader-friendly)
+- Shows field name + its hotkey for each available field
+- Preview of tab order after changes
+- Reset to defaults button
+
+**Implementation notes:**
+- Research JJ's existing field hotkey assignments in the big logger (LogEntry form)
+- Map each LogEntry field to a Logging-scope hotkey
+- Split logger dynamically builds its UI from the operator's field selection
+- Store field selection in PersonalData (per-operator)
+
+### Contest Mode
 - [ ] Contest designer / contest mode: review JJ's existing contest C# files in JJLogLib (FieldDay.cs, NASprint.cs, SKCCWESLog.cs), assess whether they work and are useful. Consider building a contest designer that lets operators define required exchange fields and contest rules. May be complex — research scope before committing. At minimum, validate existing contest exchange definitions work with LogPanel.
 
 ## Sprint 5 — QRZ + Logging Graduation (COMPLETED 2026-02-09)
