@@ -2898,7 +2898,7 @@ namespace Radios
             }
         }
 
-        internal int FilterLow
+        public int FilterLow
         {
             get
             {
@@ -2910,7 +2910,7 @@ namespace Radios
             }
         }
 
-        internal int FilterHigh
+        public int FilterHigh
         {
             get
             {
@@ -3126,6 +3126,22 @@ namespace Radios
             }
         }
 
+        /// <summary>
+        /// Per-slice mute toggle. True = muted.
+        /// </summary>
+        public bool SliceMute
+        {
+            get
+            {
+                if (!HasActiveSlice) return false;
+                return theRadio.ActiveSlice.Mute;
+            }
+            set
+            {
+                if (HasActiveSlice) q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.Mute = value; }), "SliceMute");
+            }
+        }
+
         internal const int AudioGainMinValue = 0;
         internal const int AudioGainMaxValue = 100;
         public int AudioGain
@@ -3249,7 +3265,7 @@ namespace Radios
             set { if (HasActiveSlice) q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.NBLevel = value; }), "NBLevel"); }
         }
 
-        internal OffOnValues WidebandNoiseBlanker
+        public OffOnValues WidebandNoiseBlanker
         {
             get
             {
@@ -3891,7 +3907,7 @@ namespace Radios
             }
         }
 
-        internal OffOnValues APF
+        public OffOnValues APF
         {
             get { return (theRadio.ActiveSlice.APFOn) ? OffOnValues.on : OffOnValues.off; }
             //get { return (theRadio.APFMode) ? OffOnValues.on : OffOnValues.off; }

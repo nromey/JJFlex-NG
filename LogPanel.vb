@@ -4,6 +4,7 @@ Imports adif
 Imports JJLogLib
 Imports JJTrace
 Imports JJCountriesDB
+Imports System.Media
 Imports Radios
 
 ''' <summary>
@@ -1053,7 +1054,7 @@ Friend Class LogPanel
         DupLabel.Text = "Dup: " & CStr(ct)
         isDup = (ct > 1)
         If isDup Then
-            Console.Beep(880, 400)
+            SystemSounds.Exclamation.Play()
             ScreenReaderOutput.Speak("Duplicate, " & ct & " previous contacts", True)
         End If
     End Sub

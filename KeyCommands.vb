@@ -923,14 +923,19 @@ Public Class KeyCommands
     Friend Sub sendCWMessage()
         Dim id As Integer = CommandId - FirstMessageCommandValue
         If (id < 0) Or (id >= CWText.Length) Then
-            MsgBox(InternalError & BadMessageIDError)
+            Radios.ScreenReaderOutput.Speak("No CW message at this position", True)
         Else
+            Dim label As String = CWText(id).Label
             Dim msg As String = MacroItems.Expand(CWText(id).Message)
             If msg(msg.Length - 1) <> " " Then
                 msg &= " "
             End If
             RigControl.SendCW(msg)
             WriteTextX(WindowIDs.SendDataOut, msg, 0, False)
+            ' Speak the message label so the operator has audible confirmation.
+            If Not String.IsNullOrEmpty(label) Then
+                Radios.ScreenReaderOutput.Speak("Sending " & label, False)
+            End If
         End If
     End Sub
 
@@ -970,7 +975,17 @@ Public Class KeyCommands
                 End If
             End Try
         Else
-            Tracing.TraceLine("DoCommand:key not found:" & k.ToString, TraceLevel.Info)
+            ' If the key looks like a CW message hotkey (Ctrl+1-7) but no
+            ' CW messages are configured, give spoken feedback so the operator
+            ' knows why nothing happened.
+            Dim keyCode = k And Keys.KeyCode
+            Dim mods = k And Keys.Modifiers
+            If mods = Keys.Control AndAlso keyCode >= Keys.D1 AndAlso keyCode <= Keys.D7 AndAlso CWText.Length = 0 Then
+                Radios.ScreenReaderOutput.Speak("No CW messages configured", True)
+                rv = True
+            Else
+                Tracing.TraceLine("DoCommand:key not found:" & k.ToString, TraceLevel.Info)
+            End If
         End If
         Return rv
     End Function
@@ -1331,6 +1346,9 @@ Public Class KeyCommands
     Private Sub stopCode()
         If (RigControl IsNot Nothing) Then
             RigControl.StopCW()
+            Radios.ScreenReaderOutput.Speak("CW stopped", False)
+        Else
+            Radios.ScreenReaderOutput.Speak("No radio connected", True)
         End If
     End Sub
 
