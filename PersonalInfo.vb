@@ -71,6 +71,10 @@ Public Class PersonalInfo
             CallbookPasswordBox.Text = If(.DecryptedCallbookPassword, "")
             UpdateCallbookFieldsEnabled()
 
+            ' Recent QSOs grid size.
+            RecentQsoUpDown.Value = Math.Max(RecentQsoUpDown.Minimum,
+                Math.Min(RecentQsoUpDown.Maximum, .RecentQsoCount))
+
             ' QRZ Logbook settings.
             QrzLogbookEnabledBox.Checked = .QrzLogbookEnabled
             QrzLogbookApiKeyBox.Text = If(.DecryptedQrzLogbookApiKey, "")
@@ -143,6 +147,9 @@ Public Class PersonalInfo
             If .CallbookLookupSource Is Nothing Then .CallbookLookupSource = "None"
             .CallbookUsername = CallbookUsernameBox.Text.Trim
             .DecryptedCallbookPassword = CallbookPasswordBox.Text.Trim
+
+            ' Recent QSOs grid size.
+            .RecentQsoCount = CInt(RecentQsoUpDown.Value)
 
             ' QRZ Logbook settings.
             .QrzLogbookEnabled = QrzLogbookEnabledBox.Checked
