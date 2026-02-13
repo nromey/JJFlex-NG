@@ -3015,7 +3015,8 @@ RadioConnected:
         AddModernStubItem(ModernToolsMenu, "Status Dialog")
         AddModernMenuItem(ModernToolsMenu, "Station Lookup    Ctrl+L",
             Sub(s As Object, ev As EventArgs)
-                If LookupStation Is Nothing Then LookupStation = New StationLookup()
+                If LookupStation IsNot Nothing Then LookupStation.Finished()
+                LookupStation = CreateStationLookupWindow()
                 LookupStation.ShowDialog()
             End Sub)
         ModernToolsMenu.DropDownItems.Add(New ToolStripSeparator())
@@ -3338,12 +3339,10 @@ RadioConnected:
     ''' Open JJ's full LogEntry form as a modal dialog from Logging Mode.
     ''' <summary>
     ''' Open the Station Lookup dialog from Logging Mode.
-    ''' Reuses the existing KeyCommands StationLookup form via the global instance.
     ''' </summary>
     Private Sub stationLookupFromLogging()
-        If LookupStation Is Nothing Then
-            LookupStation = New StationLookup()
-        End If
+        If LookupStation IsNot Nothing Then LookupStation.Finished()
+        LookupStation = CreateStationLookupWindow()
         LookupStation.ShowDialog()
     End Sub
 

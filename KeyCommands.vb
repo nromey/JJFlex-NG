@@ -1599,10 +1599,11 @@ Public Class KeyCommands
 #End Region
 
     Private Sub stationLookupRtn()
-        If LookupStation Is Nothing Then
-
-            LookupStation = New StationLookup()
+        ' WPF windows can't be reshown after closing — create fresh each time.
+        If LookupStation IsNot Nothing Then
+            LookupStation.Finished()
         End If
+        LookupStation = CreateStationLookupWindow()
         LookupStation.ShowDialog()
     End Sub
 

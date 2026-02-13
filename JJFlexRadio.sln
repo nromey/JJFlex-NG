@@ -59,6 +59,10 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution 
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "QrzLookup", "QrzLookup\QrzLookup.csproj", "{360C2542-BD64-453F-B723-F6AFD63B5F8B}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "JJFlexWpf", "JJFlexWpf\JJFlexWpf.csproj", "{756699E6-5FD9-4C57-A8D0-B54C44B311AA}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "FlexLib_API", "FlexLib_API", "{943FAEAB-E636-802F-55DB-4C1EBA6B80C6}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -365,6 +369,18 @@ Global
 		{360C2542-BD64-453F-B723-F6AFD63B5F8B}.Release|x64.Build.0 = Release|x64
 		{360C2542-BD64-453F-B723-F6AFD63B5F8B}.Release|x86.ActiveCfg = Release|x86
 		{360C2542-BD64-453F-B723-F6AFD63B5F8B}.Release|x86.Build.0 = Release|x86
+		{756699E6-5FD9-4C57-A8D0-B54C44B311AA}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{756699E6-5FD9-4C57-A8D0-B54C44B311AA}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{756699E6-5FD9-4C57-A8D0-B54C44B311AA}.Debug|x64.ActiveCfg = Debug|x64
+		{756699E6-5FD9-4C57-A8D0-B54C44B311AA}.Debug|x64.Build.0 = Debug|x64
+		{756699E6-5FD9-4C57-A8D0-B54C44B311AA}.Debug|x86.ActiveCfg = Debug|x86
+		{756699E6-5FD9-4C57-A8D0-B54C44B311AA}.Debug|x86.Build.0 = Debug|x86
+		{756699E6-5FD9-4C57-A8D0-B54C44B311AA}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{756699E6-5FD9-4C57-A8D0-B54C44B311AA}.Release|Any CPU.Build.0 = Release|Any CPU
+		{756699E6-5FD9-4C57-A8D0-B54C44B311AA}.Release|x64.ActiveCfg = Release|x64
+		{756699E6-5FD9-4C57-A8D0-B54C44B311AA}.Release|x64.Build.0 = Release|x64
+		{756699E6-5FD9-4C57-A8D0-B54C44B311AA}.Release|x86.ActiveCfg = Release|x86
+		{756699E6-5FD9-4C57-A8D0-B54C44B311AA}.Release|x86.Build.0 = Release|x86
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
