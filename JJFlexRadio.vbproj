@@ -2,6 +2,9 @@
   <PropertyGroup>
     <TargetFramework>net8.0-windows</TargetFramework>
     <UseWindowsForms>true</UseWindowsForms>
+    <UseWPF>true</UseWPF>
+    <EnableDefaultPageItems>false</EnableDefaultPageItems>
+    <EnableDefaultApplicationDefinitionItems>false</EnableDefaultApplicationDefinitionItems>
     <OutputType>WinExe</OutputType>
     <Platforms>x64;x86</Platforms>
     <PlatformTarget Condition="'$(Platform)'=='x64'">x64</PlatformTarget>
@@ -281,12 +284,9 @@
     <Compile Include="ShowStationNames.vb">
       <SubType>Form</SubType>
     </Compile>
-    <Compile Include="StationLookup.Designer.vb">
-      <DependentUpon>StationLookup.vb</DependentUpon>
-    </Compile>
-    <Compile Include="StationLookup.vb">
-      <SubType>Form</SubType>
-    </Compile>
+    <!-- StationLookup replaced by JJFlexWpf.StationLookupWindow (WPF) -->
+    <!-- <Compile Include="StationLookup.Designer.vb"><DependentUpon>StationLookup.vb</DependentUpon></Compile> -->
+    <!-- <Compile Include="StationLookup.vb"><SubType>Form</SubType></Compile> -->
     <Compile Include="TraceAdmin.Designer.vb">
       <DependentUpon>TraceAdmin.vb</DependentUpon>
     </Compile>
@@ -404,9 +404,7 @@
     <EmbeddedResource Include="ShowStationNames.resx">
       <DependentUpon>ShowStationNames.vb</DependentUpon>
     </EmbeddedResource>
-    <EmbeddedResource Include="StationLookup.resx">
-      <DependentUpon>StationLookup.vb</DependentUpon>
-    </EmbeddedResource>
+    <!-- <EmbeddedResource Include="StationLookup.resx"><DependentUpon>StationLookup.vb</DependentUpon></EmbeddedResource> -->
     <EmbeddedResource Include="TraceAdmin.resx">
       <DependentUpon>TraceAdmin.vb</DependentUpon>
     </EmbeddedResource>
@@ -472,6 +470,7 @@
     <ProjectReference Include="skcc\skcc.csproj" />
     <ProjectReference Include="RadioBoxes\RadioBoxes.csproj" />
     <ProjectReference Include="Radios\Radios.csproj" />
+    <ProjectReference Include="JJFlexWpf\JJFlexWpf.csproj" />
   </ItemGroup>
 
   <PropertyGroup>

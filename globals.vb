@@ -114,7 +114,7 @@ Module globals
     Friend ProgramDirectory As String ' This program's directory.
     Friend Commands As KeyCommands
     Friend ContactLog As LogClass
-    Friend LookupStation As StationLookup = Nothing
+    Friend LookupStation As JJFlexWpf.StationLookupWindow = Nothing
 
     Friend Dups As LogDupChecking
     ''' <summary>
@@ -344,6 +344,26 @@ Module globals
 
     Friend Const HamqthLookupID As String = "JJRadio"
     Friend Const HamqthLookupPassword As String = "JJRadio"
+
+    ''' <summary>
+    ''' Create a new StationLookupWindow, passing current operator callbook settings.
+    ''' WPF windows can't be reshown after closing, so create a new one each time.
+    ''' </summary>
+    Friend Function CreateStationLookupWindow() As JJFlexWpf.StationLookupWindow
+        Dim source As String = ""
+        Dim username As String = ""
+        Dim password As String = ""
+        Dim opCall As String = ""
+
+        If CurrentOp IsNot Nothing Then
+            source = If(CurrentOp.CallbookLookupSource, "")
+            username = If(CurrentOp.CallbookUsername, "")
+            password = If(CurrentOp.DecryptedCallbookPassword, "")
+            opCall = If(CurrentOp.callSign, "")
+        End If
+
+        Return New JJFlexWpf.StationLookupWindow(source, username, password, opCall)
+    End Function
 
     ''' <summary>
     ''' W2 wattmeter.

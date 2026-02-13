@@ -1,5 +1,6 @@
 Imports System.Drawing
 Imports System.Windows.Forms
+Imports System.Windows.Forms.Integration
 Imports adif
 Imports JJLogLib
 Imports JJTrace
@@ -9,11 +10,11 @@ Imports Radios
 ''' <summary>
 ''' Quick-entry logging panel for Logging Mode.
 ''' Embedded in Form1 via SplitContainer. Thin wrapper over LogSession —
-''' manages its own TextBoxes and talks to LogSession via SetFieldText/GetFieldText.
+''' manages its own entry fields and talks to LogSession via SetFieldText/GetFieldText.
 '''
-''' Layout: Entry fields at top (fixed height), Recent QSOs DataGridView below (fills).
-''' The grid uses Windows UI Automation — JAWS/NVDA arrow through rows,
-''' read column header + cell value automatically.
+''' Layout: WPF LogEntryControl hosted via ElementHost. Entry fields at top,
+''' Recent QSOs DataGrid below. WPF provides native UI Automation — JAWS/NVDA
+''' get proper "label for" relationships and DataGrid announces row/column headers.
 '''
 ''' Previous Contact lookup: when the operator tabs out of the Call Sign field,
 ''' we check the in-memory call index (built during log scan) and show the last
@@ -22,39 +23,15 @@ Imports Radios
 Friend Class LogPanel
     Inherits UserControl
 
-    ' --- Entry fields ---
-    Private WithEvents CallSignBox As TextBox
-    Private RSTSentBox As TextBox
-    Private RSTRcvdBox As TextBox
-    Private NameBox As TextBox
-    Private QTHBox As TextBox
-    Private StateBox As TextBox
-    Private GridBox As TextBox
-    Private CommentsBox As TextBox
-
-    ' --- Read-only display labels ---
-    Private FreqLabel As Label
-    Private ModeLabel As Label
-    Private BandLabel As Label
-    Private DateTimeLabel As Label
-    Private SerialLabel As Label
-    Private DupLabel As Label
-
-    ' --- Previous contact display (tabbable read-only TextBox) ---
-    Private PreviousContactBox As TextBox
-
-    ' --- Recent QSOs grid ---
-    Private WithEvents RecentGrid As DataGridView
-    Private Const MaxRecentQSOs As Integer = 20
-
-    ' --- Layout ---
-    Private EntryPanel As Panel        ' Fixed-height panel for entry fields + info labels
-    Private GridPanel As Panel         ' Fill panel for the DataGridView
+    ' --- WPF hosted control ---
+    Private wpfHost As ElementHost
+    Private wpfControl As JJFlexWpf.LogEntryControl
 
     ' --- State ---
     Private session As LogSession
     Private currentCall As String = ""
     Private isDup As Boolean = False
+    Private Const MaxRecentQSOs As Integer = 20
 
     ' --- Callbook lookup (QRZ or HamQTH) ---
     Private qrzLookup As QrzLookup.QrzCallbookLookup = Nothing
@@ -123,14 +100,14 @@ Friend Class LogPanel
         End If
         AutoFillFromRadio()
         If session IsNot Nothing Then
-            SerialLabel.Text = "Serial: " & CStr(session.serial)
+            wpfControl.SetSerialLabel("Serial: " & CStr(session.serial))
         End If
-        DupLabel.Text = "Dup: 0"
+        wpfControl.SetDupLabel("Dup: 0")
         isDup = False
         currentCall = ""
         lastLookedUpCall = ""
         ClearPreviousContact()
-        CallSignBox.Focus()
+        FocusCallSign()
     End Sub
 
     ''' <summary>
@@ -139,7 +116,7 @@ Friend Class LogPanel
     ''' </summary>
     Friend Function WriteEntry() As Boolean
         If session Is Nothing Then Return False
-        Dim callText = CallSignBox.Text.Trim().ToUpper()
+        Dim callText = wpfControl.GetFieldText("CALL").Trim().ToUpper()
         If String.IsNullOrEmpty(callText) Then
             ScreenReaderOutput.Speak("No call sign entered", True)
             Return False
@@ -240,19 +217,19 @@ Friend Class LogPanel
     ''' Returns Nothing if no call sign is entered (nothing worth preserving).
     ''' </summary>
     Friend Function SaveState() As Dictionary(Of String, String)
-        If String.IsNullOrEmpty(CallSignBox.Text.Trim()) Then
+        If String.IsNullOrEmpty(wpfControl.GetFieldText("CALL").Trim()) Then
             preservedFields = Nothing
             Return Nothing
         End If
         Dim state As New Dictionary(Of String, String) From {
-            {AdifTags.ADIF_Call, CallSignBox.Text},
-            {AdifTags.ADIF_HisRST, RSTSentBox.Text},
-            {AdifTags.ADIF_MyRST, RSTRcvdBox.Text},
-            {AdifTags.ADIF_Name, NameBox.Text},
-            {AdifTags.ADIF_QTH, QTHBox.Text},
-            {AdifTags.ADIF_State, StateBox.Text},
-            {AdifTags.ADIF_Grid, GridBox.Text},
-            {AdifTags.ADIF_Comment, CommentsBox.Text}
+            {AdifTags.ADIF_Call, wpfControl.GetFieldText("CALL")},
+            {AdifTags.ADIF_HisRST, wpfControl.GetFieldText("RSTSENT")},
+            {AdifTags.ADIF_MyRST, wpfControl.GetFieldText("RSTRCVD")},
+            {AdifTags.ADIF_Name, wpfControl.GetFieldText("NAME")},
+            {AdifTags.ADIF_QTH, wpfControl.GetFieldText("QTH")},
+            {AdifTags.ADIF_State, wpfControl.GetFieldText("STATE")},
+            {AdifTags.ADIF_Grid, wpfControl.GetFieldText("GRID")},
+            {AdifTags.ADIF_Comment, wpfControl.GetFieldText("COMMENTS")}
         }
         preservedFields = state
         Return state
@@ -269,17 +246,18 @@ Friend Class LogPanel
         Next
         AutoFillFromRadio()  ' Refresh radio display
         If session IsNot Nothing Then
-            SerialLabel.Text = "Serial: " & CStr(session.serial)
+            wpfControl.SetSerialLabel("Serial: " & CStr(session.serial))
         End If
         preservedFields = Nothing
-        CallSignBox.Focus()
+        FocusCallSign()
     End Sub
 
     ''' <summary>
     ''' Focus the call sign field.
     ''' </summary>
     Friend Sub FocusCallSign()
-        CallSignBox.Focus()
+        wpfHost.Focus()
+        wpfControl.FocusCallSign()
     End Sub
 
     ''' <summary>
@@ -287,19 +265,8 @@ Friend Class LogPanel
     ''' Logging Mode field-jump hotkeys (Alt+C, Alt+R, etc.).
     ''' </summary>
     Friend Sub FocusField(fieldName As String)
-        Select Case fieldName.ToUpper()
-            Case "CALL" : CallSignBox.Focus()
-            Case "RSTSENT" : RSTSentBox.Focus()
-            Case "RSTRCVD" : RSTRcvdBox.Focus()
-            Case "NAME" : NameBox.Focus()
-            Case "QTH" : QTHBox.Focus()
-            Case "STATE" : StateBox.Focus()
-            Case "GRID" : GridBox.Focus()
-            Case "COMMENTS" : CommentsBox.Focus()
-            Case "PREVIOUS" : PreviousContactBox.Focus()
-            Case "RECENTGRID" : RecentGrid.Focus()
-            Case Else : CallSignBox.Focus()
-        End Select
+        wpfHost.Focus()
+        wpfControl.FocusField(fieldName)
     End Sub
 
 #Region "Callbook Lookup"
@@ -489,10 +456,10 @@ Friend Class LogPanel
         End If
 
         ' Fill only empty fields (local data + user input takes priority).
-        FillIfEmpty(NameBox, result.Name)
-        FillIfEmpty(QTHBox, result.QTH)
-        FillIfEmpty(StateBox, result.State)
-        FillIfEmpty(GridBox, result.Grid)
+        FillIfEmpty("NAME", result.Name)
+        FillIfEmpty("QTH", result.QTH)
+        FillIfEmpty("STATE", result.State)
+        FillIfEmpty("GRID", result.Grid)
 
         ' Speak actual values: name, QTH, state (if available), country if DX.
         Dim parts As New List(Of String)
@@ -507,21 +474,19 @@ Friend Class LogPanel
         End If
 
         ' Speak the callbook result without interrupting current field announcement.
-        ' This way if the operator has tabbed to the next field, they hear both
-        ' the field name and then the callbook data queued right after.
         If parts.Count > 0 Then
             ScreenReaderOutput.Speak(String.Join(", ", parts), False)
         End If
     End Sub
 
     ''' <summary>
-    ''' Fill a TextBox only if it's currently empty and the value is non-empty.
+    ''' Fill a field via WPF control only if it's currently empty and the value is non-empty.
     ''' Returns True if the field was filled.
     ''' </summary>
-    Private Shared Function FillIfEmpty(tb As TextBox, value As String) As Boolean
+    Private Function FillIfEmpty(fieldName As String, value As String) As Boolean
         If String.IsNullOrEmpty(value) Then Return False
-        If Not String.IsNullOrEmpty(tb.Text.Trim()) Then Return False
-        tb.Text = value
+        If Not String.IsNullOrEmpty(wpfControl.GetFieldText(fieldName).Trim()) Then Return False
+        wpfControl.SetFieldText(fieldName, value)
         Return True
     End Function
 
@@ -645,8 +610,7 @@ Friend Class LogPanel
             displayText = String.Join(". ", parts)
         End If
 
-        PreviousContactBox.Text = displayText
-        PreviousContactBox.AccessibleName = "Previous contact: " & displayText
+        wpfControl.SetPreviousContact(displayText, "Previous contact: " & displayText)
 
         ' Build screen reader announcement.
         Dim announcement = "Previously worked, " & info.Count & If(info.Count = 1, " contact", " contacts")
@@ -656,15 +620,15 @@ Friend Class LogPanel
         ScreenReaderOutput.Speak(announcement, True)
 
         ' Auto-fill Name if our field is empty and we have a name from the last QSO.
-        If String.IsNullOrEmpty(NameBox.Text.Trim()) AndAlso
+        If String.IsNullOrEmpty(wpfControl.GetFieldText("NAME").Trim()) AndAlso
            Not String.IsNullOrEmpty(info.LastName) Then
-            NameBox.Text = info.LastName
+            wpfControl.SetFieldText("NAME", info.LastName)
         End If
 
         ' Auto-fill QTH if our field is empty and we have one.
-        If String.IsNullOrEmpty(QTHBox.Text.Trim()) AndAlso
+        If String.IsNullOrEmpty(wpfControl.GetFieldText("QTH").Trim()) AndAlso
            Not String.IsNullOrEmpty(info.LastQTH) Then
-            QTHBox.Text = info.LastQTH
+            wpfControl.SetFieldText("QTH", info.LastQTH)
         End If
     End Sub
 
@@ -672,8 +636,7 @@ Friend Class LogPanel
     ''' Clear the previous contact display.
     ''' </summary>
     Private Sub ClearPreviousContact()
-        PreviousContactBox.Text = ""
-        PreviousContactBox.AccessibleName = "Previous contact: none"
+        wpfControl.ClearPreviousContact()
     End Sub
 
 #End Region
@@ -687,7 +650,7 @@ Friend Class LogPanel
     ''' MaxRecentQSOs for the grid; index every record by call sign.
     ''' </summary>
     Private Sub LoadRecentQSOs()
-        RecentGrid.Rows.Clear()
+        wpfControl.ClearGrid()
         callIndex.Clear()
         If session Is Nothing Then Return
 
@@ -735,24 +698,22 @@ Friend Class LogPanel
 
         ' Populate grid (records are already in chronological order, oldest first).
         For Each rec In records
-            RecentGrid.Rows.Add(
+            wpfControl.AddQsoRow(New JJFlexWpf.RecentQsoRow(
                 FormatTimeForGrid(rec("TIME")),
                 rec("CALL"),
                 rec("MODE"),
                 rec("FREQ"),
                 rec("RST_SENT"),
                 rec("RST_RCVD"),
-                rec("NAME"))
+                rec("NAME")))
         Next
 
-        ScrollToLastRow()
-
         ' Update accessible name with row count.
-        Dim rowCount = RecentGrid.Rows.Count
+        Dim rowCount = wpfControl.GridRowCount
         If rowCount > 0 Then
-            RecentGrid.AccessibleName = "Recent QSOs, " & rowCount & " entries"
+            wpfControl.SetGridAccessibleName("Recent QSOs, " & rowCount & " entries")
         Else
-            RecentGrid.AccessibleName = "Recent QSOs, no entries"
+            wpfControl.SetGridAccessibleName("Recent QSOs, no entries")
         End If
 
         Tracing.TraceLine("LogPanel.LoadRecentQSOs: " & records.Count & " grid rows, " &
@@ -762,39 +723,22 @@ Friend Class LogPanel
 
     ''' <summary>
     ''' Add a single QSO row to the bottom of the grid (called after successful write).
-    ''' Trims oldest row if we exceed MaxRecentQSOs.
     ''' </summary>
     Private Sub AddQSOToGrid(timeOn As String, callSign As String, mode As String,
                               freq As String, rstSent As String, rstRcvd As String,
                               name As String)
-        ' Remove oldest row if at capacity.
-        If RecentGrid.Rows.Count >= MaxRecentQSOs Then
-            RecentGrid.Rows.RemoveAt(0)
-        End If
-
-        RecentGrid.Rows.Add(
+        wpfControl.AddQsoRow(New JJFlexWpf.RecentQsoRow(
             FormatTimeForGrid(timeOn),
             callSign,
             mode,
             freq,
             rstSent,
             rstRcvd,
-            name)
-
-        ScrollToLastRow()
+            name))
 
         ' Update accessible name with new count.
-        Dim rowCount = RecentGrid.Rows.Count
-        RecentGrid.AccessibleName = "Recent QSOs, " & rowCount & " entries"
-    End Sub
-
-    ''' <summary>
-    ''' Scroll the grid to show the last (most recent) row.
-    ''' </summary>
-    Private Sub ScrollToLastRow()
-        If RecentGrid.Rows.Count > 0 Then
-            RecentGrid.FirstDisplayedScrollingRowIndex = RecentGrid.Rows.Count - 1
-        End If
+        Dim rowCount = wpfControl.GridRowCount
+        wpfControl.SetGridAccessibleName("Recent QSOs, " & rowCount & " entries")
     End Sub
 
     ''' <summary>
@@ -810,47 +754,40 @@ Friend Class LogPanel
 #Region "Field Helpers"
 
     Private Sub ClearFields()
-        CallSignBox.Text = ""
-        RSTSentBox.Text = ""
-        RSTRcvdBox.Text = ""
-        NameBox.Text = ""
-        QTHBox.Text = ""
-        StateBox.Text = ""
-        GridBox.Text = ""
-        CommentsBox.Text = ""
-        FreqLabel.Text = "Freq: ---"
-        ModeLabel.Text = "Mode: ---"
-        BandLabel.Text = "Band: ---"
-        DateTimeLabel.Text = "UTC: ---"
-        DupLabel.Text = "Dup: 0"
+        wpfControl.ClearAllFields()
+        wpfControl.SetFreqLabel("Freq: ---")
+        wpfControl.SetModeLabel("Mode: ---")
+        wpfControl.SetBandLabel("Band: ---")
+        wpfControl.SetDateTimeLabel("UTC: ---")
+        wpfControl.SetDupLabel("Dup: 0")
     End Sub
 
     Private Sub SetFieldByTag(tag As String, value As String)
         Select Case tag
-            Case AdifTags.ADIF_Call : CallSignBox.Text = value
-            Case AdifTags.ADIF_HisRST : RSTSentBox.Text = value
-            Case AdifTags.ADIF_MyRST : RSTRcvdBox.Text = value
-            Case AdifTags.ADIF_Name : NameBox.Text = value
-            Case AdifTags.ADIF_QTH : QTHBox.Text = value
-            Case AdifTags.ADIF_State : StateBox.Text = value
-            Case AdifTags.ADIF_Grid : GridBox.Text = value
-            Case AdifTags.ADIF_Comment : CommentsBox.Text = value
+            Case AdifTags.ADIF_Call : wpfControl.SetFieldText("CALL", value)
+            Case AdifTags.ADIF_HisRST : wpfControl.SetFieldText("RSTSENT", value)
+            Case AdifTags.ADIF_MyRST : wpfControl.SetFieldText("RSTRCVD", value)
+            Case AdifTags.ADIF_Name : wpfControl.SetFieldText("NAME", value)
+            Case AdifTags.ADIF_QTH : wpfControl.SetFieldText("QTH", value)
+            Case AdifTags.ADIF_State : wpfControl.SetFieldText("STATE", value)
+            Case AdifTags.ADIF_Grid : wpfControl.SetFieldText("GRID", value)
+            Case AdifTags.ADIF_Comment : wpfControl.SetFieldText("COMMENTS", value)
         End Select
     End Sub
 
     ''' <summary>
-    ''' Copy panel TextBox values into the LogSession's field dictionary.
+    ''' Copy panel field values into the LogSession's field dictionary.
     ''' </summary>
     Private Sub FieldsToSession()
         If session Is Nothing Then Return
-        session.SetFieldText(AdifTags.ADIF_Call, CallSignBox.Text.Trim().ToUpper())
-        session.SetFieldText(AdifTags.ADIF_HisRST, RSTSentBox.Text.Trim())
-        session.SetFieldText(AdifTags.ADIF_MyRST, RSTRcvdBox.Text.Trim())
-        session.SetFieldText(AdifTags.ADIF_Name, NameBox.Text.Trim())
-        session.SetFieldText(AdifTags.ADIF_QTH, QTHBox.Text.Trim())
-        session.SetFieldText(AdifTags.ADIF_State, StateBox.Text.Trim().ToUpper())
-        session.SetFieldText(AdifTags.ADIF_Grid, GridBox.Text.Trim().ToUpper())
-        session.SetFieldText(AdifTags.ADIF_Comment, CommentsBox.Text.Trim())
+        session.SetFieldText(AdifTags.ADIF_Call, wpfControl.GetFieldText("CALL").Trim().ToUpper())
+        session.SetFieldText(AdifTags.ADIF_HisRST, wpfControl.GetFieldText("RSTSENT").Trim())
+        session.SetFieldText(AdifTags.ADIF_MyRST, wpfControl.GetFieldText("RSTRCVD").Trim())
+        session.SetFieldText(AdifTags.ADIF_Name, wpfControl.GetFieldText("NAME").Trim())
+        session.SetFieldText(AdifTags.ADIF_QTH, wpfControl.GetFieldText("QTH").Trim())
+        session.SetFieldText(AdifTags.ADIF_State, wpfControl.GetFieldText("STATE").Trim().ToUpper())
+        session.SetFieldText(AdifTags.ADIF_Grid, wpfControl.GetFieldText("GRID").Trim().ToUpper())
+        session.SetFieldText(AdifTags.ADIF_Comment, wpfControl.GetFieldText("COMMENTS").Trim())
     End Sub
 
     ''' <summary>
@@ -858,16 +795,16 @@ Friend Class LogPanel
     ''' </summary>
     Private Sub AutoFillFromRadio()
         If RigControl Is Nothing OrElse Not Power Then
-            FreqLabel.Text = "Freq: no radio"
-            ModeLabel.Text = "Mode: ---"
-            BandLabel.Text = "Band: ---"
+            wpfControl.SetFreqLabel("Freq: no radio")
+            wpfControl.SetModeLabel("Mode: ---")
+            wpfControl.SetBandLabel("Band: ---")
             Return
         End If
 
         ' Frequency
         Dim rxFreq = RigControl.RXFrequency
         Dim txFreq = RigControl.TXFrequency
-        FreqLabel.Text = "Freq: " & FormatFreq(rxFreq) & " MHz"
+        wpfControl.SetFreqLabel("Freq: " & FormatFreq(rxFreq) & " MHz")
 
         ' Mode — normalize for ADIF
         Dim modeText = ""
@@ -879,12 +816,12 @@ Friend Class LogPanel
                 Case "FSK", "FSKR" : modeText = "RTTY"
             End Select
         End If
-        ModeLabel.Text = "Mode: " & modeText
+        wpfControl.SetModeLabel("Mode: " & modeText)
 
         ' Band
         Dim bandItem = HamBands.Bands.Query(txFreq)
         Dim bandText = If(bandItem IsNot Nothing, bandItem.Name, "---")
-        BandLabel.Text = "Band: " & bandText
+        wpfControl.SetBandLabel("Band: " & bandText)
 
         ' Push to session for dup checking and log write.
         If session IsNot Nothing Then
@@ -898,7 +835,7 @@ Friend Class LogPanel
 
         ' Date/Time
         Dim dt = Date.UtcNow
-        DateTimeLabel.Text = "UTC: " & dt.ToString("yyyy-MM-dd HH:mm")
+        wpfControl.SetDateTimeLabel("UTC: " & dt.ToString("yyyy-MM-dd HH:mm"))
         If session IsNot Nothing Then
             If String.IsNullOrEmpty(session.GetFieldText(AdifTags.ADIF_DateOn)) Then
                 session.SetFieldText(AdifTags.ADIF_DateOn, dt.ToString("MM/dd/yyyy"))
@@ -941,12 +878,12 @@ Friend Class LogPanel
         End If
 
         ' RST Sent — user-entered field.
-        If String.IsNullOrEmpty(RSTSentBox.Text.Trim()) Then
+        If String.IsNullOrEmpty(wpfControl.GetFieldText("RSTSENT").Trim()) Then
             missing.Add("RST Sent")
         End If
 
         ' RST Received — user-entered field.
-        If String.IsNullOrEmpty(RSTRcvdBox.Text.Trim()) Then
+        If String.IsNullOrEmpty(wpfControl.GetFieldText("RSTRCVD").Trim()) Then
             missing.Add("RST Received")
         End If
 
@@ -958,7 +895,7 @@ Friend Class LogPanel
     ''' non-empty) but hasn't saved it yet. Used by Form1 to prompt before close.
     ''' </summary>
     Friend Function HasUnsavedEntry() As Boolean
-        Return Not String.IsNullOrEmpty(CallSignBox.Text.Trim())
+        Return Not String.IsNullOrEmpty(wpfControl.GetFieldText("CALL").Trim())
     End Function
 
     ''' <summary>
@@ -968,7 +905,7 @@ Friend Class LogPanel
     Friend Function PromptSaveBeforeClose() As Boolean
         If Not HasUnsavedEntry() Then Return True
 
-        Dim callText = CallSignBox.Text.Trim().ToUpper()
+        Dim callText = wpfControl.GetFieldText("CALL").Trim().ToUpper()
 
         ' Build the prompt — include missing field info so the user knows
         ' what's needed before they click Yes.
@@ -1004,10 +941,10 @@ Friend Class LogPanel
 
 #Region "Event Handlers"
 
-    Private Sub CallSignBox_Leave(sender As Object, e As EventArgs) Handles CallSignBox.Leave
-        Dim callText = CallSignBox.Text.Trim().ToUpper()
+    Private Sub OnCallSignLeave(sender As Object, e As EventArgs)
+        Dim callText = wpfControl.GetFieldText("CALL").Trim().ToUpper()
         If String.IsNullOrEmpty(callText) Then Return
-        CallSignBox.Text = callText  ' Normalize to uppercase
+        wpfControl.SetFieldText("CALL", callText)  ' Normalize to uppercase
 
         ' Auto-fill radio data on first field exit.
         AutoFillFromRadio()
@@ -1031,14 +968,14 @@ Friend Class LogPanel
         If Not isDupChecking OrElse session Is Nothing Then Return
 
         ' Push current values to session for dup key construction.
-        session.SetFieldText(AdifTags.ADIF_Call, CallSignBox.Text.Trim().ToUpper())
+        session.SetFieldText(AdifTags.ADIF_Call, wpfControl.GetFieldText("CALL").Trim().ToUpper())
         session.SetFieldText(AdifTags.ADIF_Mode, session.GetFieldText(AdifTags.ADIF_Mode))
         session.SetFieldText(AdifTags.ADIF_Band, session.GetFieldText(AdifTags.ADIF_Band))
 
         Dim key = New LogDupChecking.keyElement(session, DupType)
         Dim ct = Dups.DupTest(key)
         ct += 1  ' Count the current entry being worked.
-        DupLabel.Text = "Dup: " & CStr(ct)
+        wpfControl.SetDupLabel("Dup: " & CStr(ct))
         isDup = (ct > 1)
         If isDup Then
             Console.Beep(880, 400)
@@ -1046,12 +983,54 @@ Friend Class LogPanel
         End If
     End Sub
 
-    ''' <summary>
-    ''' When the grid receives focus, announce the row count so the operator
-    ''' knows how many QSOs are shown before they start arrowing through.
-    ''' </summary>
-    Private Sub RecentGrid_Enter(sender As Object, e As EventArgs) Handles RecentGrid.Enter
-        Dim rowCount = RecentGrid.Rows.Count
+    Private Sub OnEnterPressed(sender As Object, e As EventArgs)
+        If session IsNot Nothing AndAlso
+           Not String.IsNullOrEmpty(wpfControl.GetFieldText("CALL").Trim()) Then
+            WriteEntry()
+        End If
+    End Sub
+
+    Private Sub OnEscapePressed(sender As Object, e As EventArgs)
+        If HasUnsavedEntry() Then
+            ' If the operator suppressed the confirmation, just clear silently.
+            If CurrentOp IsNot Nothing AndAlso CurrentOp.SuppressClearConfirm Then
+                NewEntry()
+                ScreenReaderOutput.Speak("Entry cleared", True)
+            Else
+                ' Show a TaskDialog with a "Don't ask me again" checkbox.
+                Dim callText = wpfControl.GetFieldText("CALL").Trim().ToUpper()
+                Dim page As New TaskDialogPage() With {
+                    .Caption = "Clear Entry",
+                    .Heading = "Clear the log entry for " & callText & "?",
+                    .Icon = TaskDialogIcon.Information,
+                    .AllowCancel = True
+                }
+                page.Verification = New TaskDialogVerificationCheckBox("Don't ask me again")
+                page.Buttons.Add(TaskDialogButton.Yes)
+                page.Buttons.Add(TaskDialogButton.No)
+
+                Dim clicked = TaskDialog.ShowDialog(Me.FindForm(), page)
+
+                If clicked = TaskDialogButton.Yes Then
+                    ' Save the "don't ask" preference if checked.
+                    If page.Verification.Checked Then
+                        If CurrentOp IsNot Nothing Then
+                            CurrentOp.SuppressClearConfirm = True
+                            Operators.UpdateCurrentOp()
+                        End If
+                    End If
+                    NewEntry()
+                    ScreenReaderOutput.Speak("Entry cleared", True)
+                End If
+            End If
+        Else
+            ' Nothing to clear — just announce it.
+            ScreenReaderOutput.Speak("Entry is empty", True)
+        End If
+    End Sub
+
+    Private Sub OnRecentGridGotFocus(sender As Object, e As EventArgs)
+        Dim rowCount = wpfControl.GridRowCount
         If rowCount > 0 Then
             ScreenReaderOutput.Speak("Recent QSOs, " & rowCount & " entries", True)
         Else
@@ -1064,301 +1043,51 @@ Friend Class LogPanel
 #Region "UI Construction"
 
     ''' <summary>
-    ''' Build all controls programmatically. No designer file needed.
-    ''' Layout: EntryPanel (top, fixed height) + GridPanel (bottom, fills remaining space).
+    ''' Build the WPF-hosted control via ElementHost.
     ''' </summary>
     Private Sub BuildControls()
         Me.SuspendLayout()
 
-        ' --- Top panel for entry fields and radio info (fixed height) ---
-        EntryPanel = New Panel() With {
-            .Dock = DockStyle.Top,
-            .Height = 320,
-            .AutoScroll = False
-        }
-        Me.Controls.Add(EntryPanel)
+        ' Create the WPF control.
+        wpfControl = New JJFlexWpf.LogEntryControl()
 
-        ' --- Entry fields (inside EntryPanel) ---
-        Dim yPos As Integer = 8
-        Const labelWidth As Integer = 75
-        Const fieldWidth As Integer = 150
-        Const fieldHeight As Integer = 22
-        Const rowSpacing As Integer = 28
-        Const labelX As Integer = 4
-        Const fieldX As Integer = 82
+        ' Wire WPF events to VB.NET handlers.
+        AddHandler wpfControl.CallSignLeave, AddressOf OnCallSignLeave
+        AddHandler wpfControl.EnterPressed, AddressOf OnEnterPressed
+        AddHandler wpfControl.EscapePressed, AddressOf OnEscapePressed
 
-        CallSignBox = AddEntryField(EntryPanel, "Call Sign", yPos, labelX, fieldX, labelWidth, fieldWidth, fieldHeight)
-        yPos += rowSpacing
-
-        ' RST side by side
-        RSTSentBox = AddEntryField(EntryPanel, "RST Sent", yPos, labelX, fieldX, labelWidth, 60, fieldHeight)
-        Dim rstRcvdLabel = AddLabel(EntryPanel, "RST Rcvd", fieldX + 68, yPos + 3, 60)
-        RSTRcvdBox = AddTextBox(EntryPanel, "RST Received", fieldX + 130, yPos, 60, fieldHeight)
-        ' Dup display on same row
-        DupLabel = AddLabel(EntryPanel, "Dup: 0", fieldX + 200, yPos + 3, 80)
-        DupLabel.AccessibleName = "Duplicate count"
-        yPos += rowSpacing
-
-        NameBox = AddEntryField(EntryPanel, "Name", yPos, labelX, fieldX, labelWidth, fieldWidth, fieldHeight)
-        yPos += rowSpacing
-
-        QTHBox = AddEntryField(EntryPanel, "QTH", yPos, labelX, fieldX, labelWidth, fieldWidth, fieldHeight)
-        yPos += rowSpacing
-
-        ' State and Grid side by side
-        StateBox = AddEntryField(EntryPanel, "State", yPos, labelX, fieldX, labelWidth, 50, fieldHeight)
-        Dim gridLabel = AddLabel(EntryPanel, "Grid", fieldX + 58, yPos + 3, 35)
-        GridBox = AddTextBox(EntryPanel, "Grid Square", fieldX + 95, yPos, 70, fieldHeight)
-        yPos += rowSpacing
-
-        CommentsBox = AddEntryField(EntryPanel, "Comments", yPos, labelX, fieldX, labelWidth, 250, fieldHeight)
-        yPos += rowSpacing + 4
-
-        ' --- Previous contact info (read-only, tabbable so screen reader can reach it) ---
-        Dim prevLabel = AddLabel(EntryPanel, "Previous", labelX, yPos + 3, labelWidth)
-        PreviousContactBox = New TextBox() With {
-            .Location = New Point(fieldX, yPos),
-            .Size = New Size(300, fieldHeight),
-            .ReadOnly = True,
-            .BorderStyle = BorderStyle.None,
-            .BackColor = SystemColors.Control,
-            .TabStop = True,
-            .AccessibleName = "Previous contact: none",
-            .AccessibleRole = AccessibleRole.StaticText
-        }
-        EntryPanel.Controls.Add(PreviousContactBox)
-        yPos += rowSpacing
-
-        ' --- Read-only radio info ---
-        Dim infoY = yPos
-        FreqLabel = AddLabel(EntryPanel, "Freq: ---", labelX, infoY, 200)
-        FreqLabel.AccessibleName = "Frequency"
-        infoY += 18
-        ModeLabel = AddLabel(EntryPanel, "Mode: ---", labelX, infoY, 100)
-        ModeLabel.AccessibleName = "Mode"
-        BandLabel = AddLabel(EntryPanel, "Band: ---", labelX + 110, infoY, 100)
-        BandLabel.AccessibleName = "Band"
-        infoY += 18
-        DateTimeLabel = AddLabel(EntryPanel, "UTC: ---", labelX, infoY, 200)
-        DateTimeLabel.AccessibleName = "Date and Time UTC"
-        infoY += 18
-        SerialLabel = AddLabel(EntryPanel, "Serial: 0", labelX, infoY, 100)
-        SerialLabel.AccessibleName = "Serial number"
-
-        ' Tab order for entry fields.
-        CallSignBox.TabIndex = 0
-        RSTSentBox.TabIndex = 1
-        RSTRcvdBox.TabIndex = 2
-        NameBox.TabIndex = 3
-        QTHBox.TabIndex = 4
-        StateBox.TabIndex = 5
-        GridBox.TabIndex = 6
-        CommentsBox.TabIndex = 7
-        PreviousContactBox.TabIndex = 8
-
-        ' --- Bottom panel for the Recent QSOs grid (fills remaining space) ---
-        GridPanel = New Panel() With {
+        ' Create the ElementHost to bridge WPF into WinForms.
+        wpfHost = New ElementHost() With {
             .Dock = DockStyle.Fill,
-            .Padding = New Padding(4, 4, 4, 4)
+            .Child = wpfControl
         }
-        Me.Controls.Add(GridPanel)
-
-        ' Grid label
-        Dim gridHeaderLabel = New Label() With {
-            .Text = "Recent QSOs",
-            .Dock = DockStyle.Top,
-            .Height = 18,
-            .AutoSize = False,
-            .Font = New Font(Me.Font.FontFamily, 9, FontStyle.Bold)
-        }
-        GridPanel.Controls.Add(gridHeaderLabel)
-
-        ' Build the DataGridView.
-        BuildRecentGrid()
-        GridPanel.Controls.Add(RecentGrid)
-
-        ' Ensure correct Z-order: GridPanel (Fill) must be added BEFORE EntryPanel (Top)
-        ' so that Fill works correctly. WinForms docking order depends on Z-order.
-        GridPanel.BringToFront()
+        Me.Controls.Add(wpfHost)
 
         Me.ResumeLayout(False)
     End Sub
-
-    ''' <summary>
-    ''' Build the Recent QSOs DataGridView with columns and UIA-friendly settings.
-    ''' </summary>
-    Private Sub BuildRecentGrid()
-        RecentGrid = New DataGridView() With {
-            .Name = "RecentQSOsGrid",
-            .Dock = DockStyle.Fill,
-            .ReadOnly = True,
-            .AllowUserToAddRows = False,
-            .AllowUserToDeleteRows = False,
-            .AllowUserToResizeRows = False,
-            .AllowUserToOrderColumns = False,
-            .RowHeadersVisible = False,
-            .SelectionMode = DataGridViewSelectionMode.FullRowSelect,
-            .MultiSelect = False,
-            .AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
-            .BackgroundColor = SystemColors.Window,
-            .BorderStyle = BorderStyle.FixedSingle,
-            .StandardTab = True,
-            .AccessibleName = "Recent QSOs",
-            .AccessibleRole = AccessibleRole.Table
-        }
-
-        ' Disable editing.
-        RecentGrid.EditMode = DataGridViewEditMode.EditProgrammatically
-
-        ' Columns: Time UTC, Call, Mode, Freq, RST Sent, RST Rcvd, Name
-        ' Note: DataGridView uses 0-based row indices in its accessibility provider.
-        ' NVDA/JAWS will announce "row 0" for the first data row. This is a WinForms
-        ' limitation — would require a custom AccessibleObject to override.
-        Dim colTime As New DataGridViewTextBoxColumn() With {
-            .Name = "colTime",
-            .HeaderText = "Time UTC",
-            .FillWeight = 12,
-            .SortMode = DataGridViewColumnSortMode.NotSortable
-        }
-        colTime.HeaderCell.Style.Alignment = DataGridViewContentAlignment.MiddleLeft
-
-        Dim colCall As New DataGridViewTextBoxColumn() With {
-            .Name = "colCall",
-            .HeaderText = "Call",
-            .FillWeight = 18,
-            .SortMode = DataGridViewColumnSortMode.NotSortable
-        }
-
-        Dim colMode As New DataGridViewTextBoxColumn() With {
-            .Name = "colMode",
-            .HeaderText = "Mode",
-            .FillWeight = 10,
-            .SortMode = DataGridViewColumnSortMode.NotSortable
-        }
-
-        Dim colFreq As New DataGridViewTextBoxColumn() With {
-            .Name = "colFreq",
-            .HeaderText = "Freq",
-            .FillWeight = 18,
-            .SortMode = DataGridViewColumnSortMode.NotSortable
-        }
-
-        Dim colRSTSent As New DataGridViewTextBoxColumn() With {
-            .Name = "colRSTSent",
-            .HeaderText = "RST Sent",
-            .FillWeight = 12,
-            .SortMode = DataGridViewColumnSortMode.NotSortable
-        }
-
-        Dim colRSTRcvd As New DataGridViewTextBoxColumn() With {
-            .Name = "colRSTRcvd",
-            .HeaderText = "RST Rcvd",
-            .FillWeight = 12,
-            .SortMode = DataGridViewColumnSortMode.NotSortable
-        }
-
-        Dim colName As New DataGridViewTextBoxColumn() With {
-            .Name = "colName",
-            .HeaderText = "Name",
-            .FillWeight = 18,
-            .SortMode = DataGridViewColumnSortMode.NotSortable
-        }
-
-        RecentGrid.Columns.AddRange(colTime, colCall, colMode, colFreq,
-                                     colRSTSent, colRSTRcvd, colName)
-
-        ' The grid is one Tab stop after the previous contact box.
-        RecentGrid.TabIndex = 9
-    End Sub
-
-    Private Function AddEntryField(parent As Panel, labelText As String,
-                                    y As Integer, labelX As Integer, fieldX As Integer,
-                                    labelWidth As Integer, fieldWidth As Integer,
-                                    fieldHeight As Integer) As TextBox
-        Dim lbl = AddLabel(parent, labelText, labelX, y + 3, labelWidth)
-        Dim tb = AddTextBox(parent, labelText, fieldX, y, fieldWidth, fieldHeight)
-        Return tb
-    End Function
-
-    Private Function AddLabel(parent As Panel, text As String, x As Integer, y As Integer, w As Integer) As Label
-        Dim lbl As New Label() With {
-            .Text = text,
-            .Location = New Point(x, y),
-            .Size = New Size(w, 16),
-            .AutoSize = False
-        }
-        parent.Controls.Add(lbl)
-        Return lbl
-    End Function
-
-    Private Function AddTextBox(parent As Panel, accessibleName As String, x As Integer, y As Integer,
-                                 w As Integer, h As Integer) As TextBox
-        Dim tb As New TextBox() With {
-            .Location = New Point(x, y),
-            .Size = New Size(w, h),
-            .AccessibleName = accessibleName,
-            .AccessibleRole = AccessibleRole.Text
-        }
-        parent.Controls.Add(tb)
-        Return tb
-    End Function
 
 #End Region
 
 #Region "Key Handling"
 
     ''' <summary>
-    ''' Handle Enter key to log the current QSO.
-    ''' Intercepts at the command-key level so it works from any field in the panel.
+    ''' Handle keys that need to be caught at the WinForms level.
+    ''' Enter and Escape are handled by WPF PreviewKeyDown and forwarded via events.
+    ''' This override catches any keys that escape the WPF handling.
     ''' </summary>
     Protected Overrides Function ProcessCmdKey(ByRef msg As Message, keyData As Keys) As Boolean
-        ' Enter — save the QSO.
+        ' Enter — save the QSO (fallback if WPF didn't catch it).
         If keyData = Keys.Enter OrElse keyData = Keys.Return Then
             If session IsNot Nothing AndAlso
-               Not String.IsNullOrEmpty(CallSignBox.Text.Trim()) Then
+               Not String.IsNullOrEmpty(wpfControl.GetFieldText("CALL").Trim()) Then
                 WriteEntry()
                 Return True
             End If
         End If
 
-        ' Escape — clear the form (confirm if data has been entered).
+        ' Escape — clear the form (fallback if WPF didn't catch it).
         If keyData = Keys.Escape Then
-            If HasUnsavedEntry() Then
-                ' If the operator suppressed the confirmation, just clear silently.
-                If CurrentOp IsNot Nothing AndAlso CurrentOp.SuppressClearConfirm Then
-                    NewEntry()
-                    ScreenReaderOutput.Speak("Entry cleared", True)
-                Else
-                    ' Show a TaskDialog with a "Don't ask me again" checkbox.
-                    Dim callText = CallSignBox.Text.Trim().ToUpper()
-                    Dim page As New TaskDialogPage() With {
-                        .Caption = "Clear Entry",
-                        .Heading = "Clear the log entry for " & callText & "?",
-                        .Icon = TaskDialogIcon.Information,
-                        .AllowCancel = True
-                    }
-                    page.Verification = New TaskDialogVerificationCheckBox("Don't ask me again")
-                    page.Buttons.Add(TaskDialogButton.Yes)
-                    page.Buttons.Add(TaskDialogButton.No)
-
-                    Dim clicked = TaskDialog.ShowDialog(Me.FindForm(), page)
-
-                    If clicked = TaskDialogButton.Yes Then
-                        ' Save the "don't ask" preference if checked.
-                        If page.Verification.Checked Then
-                            If CurrentOp IsNot Nothing Then
-                                CurrentOp.SuppressClearConfirm = True
-                                Operators.UpdateCurrentOp()
-                            End If
-                        End If
-                        NewEntry()
-                        ScreenReaderOutput.Speak("Entry cleared", True)
-                    End If
-                End If
-            Else
-                ' Nothing to clear — just announce it.
-                ScreenReaderOutput.Speak("Entry is empty", True)
-            End If
+            OnEscapePressed(Me, EventArgs.Empty)
             Return True
         End If
 
