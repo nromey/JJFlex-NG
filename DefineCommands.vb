@@ -53,12 +53,15 @@ Public Class DefineCommands
     ''' Same scope = CONFLICT. Global + anything = CONFLICT.
     ''' Radio + Logging = OK (never simultaneous).
     ''' </summary>
-    Private Function CheckConflict(k As Keys, scope As KeyCommands.KeyScope) As String
+    ''' <param name="k">The key to check</param>
+    ''' <param name="scope">The scope of the command being assigned</param>
+    ''' <param name="excludeIndex">Index in theKeys to exclude (the entry being edited)</param>
+    Private Function CheckConflict(k As Keys, scope As KeyCommands.KeyScope, excludeIndex As Integer) As String
         If k = Keys.None Then Return Nothing
         For i As Integer = 0 To theKeys.Length - 1
+            If i = excludeIndex Then Continue For
             Dim other = theKeys(i)
             If other.key.key <> k Then Continue For
-            If other.Scope = scope Then Continue For ' same entry (will be caught by caller)
             ' Check if scopes conflict.
             Dim conflicts As Boolean = False
             If scope = KeyCommands.KeyScope.Global OrElse other.Scope = KeyCommands.KeyScope.Global Then
@@ -66,7 +69,7 @@ Public Class DefineCommands
             ElseIf scope = other.Scope Then
                 conflicts = True
             End If
-            ' Radio + Logging = no conflict.
+            ' Radio + Logging = no conflict (different scopes, never simultaneous).
             If conflicts Then
                 Return KeyString(k) & " conflicts with " & other.helpText & " in " & other.Scope.ToString() & " scope"
             End If
@@ -162,18 +165,48 @@ Public Class DefineCommands
         If k = Keys.Delete Then
             k = Keys.None
         End If
+
+        ' Auto-clear any conflicting binding before assigning.
+        ' This prevents duplicate keys from ever existing — the standard approach
+        ' used by VS Code, IntelliJ, etc.
+        If k <> Keys.None Then
+            Dim conflict = CheckConflict(k, theKeys(idx).Scope, idx)
+            If conflict IsNot Nothing Then
+                ' Find and clear the conflicting entry.
+                For ci As Integer = 0 To theKeys.Length - 1
+                    If ci = idx Then Continue For
+                    If theKeys(ci).key.key <> k Then Continue For
+                    ' Check if scopes actually conflict.
+                    Dim s1 = theKeys(idx).Scope
+                    Dim s2 = theKeys(ci).Scope
+                    Dim isConflict = (s1 = s2) OrElse
+                                     (s1 = KeyCommands.KeyScope.Global) OrElse
+                                     (s2 = KeyCommands.KeyScope.Global)
+                    If isConflict Then
+                        Dim oldCmd = theKeys(ci).helpText
+                        theKeys(ci).key.key = Keys.None
+                        ' Update the ListView if the cleared entry is visible.
+                        For Each otherLvi As ListViewItem In CommandsListView.Items
+                            If CInt(otherLvi.Tag) = ci Then
+                                otherLvi.SubItems(0).Text = KeyString(Keys.None)
+                                Exit For
+                            End If
+                        Next
+                        ConflictLabel.Text = "Cleared " & KeyString(k) & " from " & oldCmd
+                        ScreenReaderOutput.Speak("Cleared " & KeyString(k) & " from " & oldCmd, True)
+                        commandChanges = True
+                    End If
+                Next
+            End If
+        End If
+
         theKeys(idx).key.key = k
         Dim str As String = KeyString(k)
         lvi.SubItems(0).Text = str
         ValueBox.Text = str
 
-        ' Check for conflicts.
-        ConflictLabel.Text = ""
-        Dim conflict = CheckConflict(k, theKeys(idx).Scope)
-        If conflict IsNot Nothing Then
-            ConflictLabel.Text = conflict
-            ScreenReaderOutput.Speak(conflict, True)
-        Else
+        ' Announce the assignment (conflict message was already spoken above if applicable).
+        If ConflictLabel.Text = "" Then
             ScreenReaderOutput.Speak(str & " assigned to " & theKeys(idx).helpText, True)
         End If
 
@@ -198,14 +231,13 @@ Public Class DefineCommands
     Private Sub OKButton_Click(ByVal sender As System.Object, ByVal e As System.EventArgs) Handles OKButton.Click
         If commandChanges Or messageChanges Then
             If HasAnyConflicts() Then
-                DialogResult = MessageBox.Show(dupMessage, dupTitle, MessageBoxButtons.YesNo)
-                If DialogResult <> DialogResult.Yes Then
-                    DialogResult = DialogResult.None
-                    Return
-                Else
-                    Tracing.TraceLine("DefineKeys Ok:exiting with conflicts", TraceLevel.Error)
-                    DialogResult = DialogResult.OK
-                End If
+                ' Block saving — conflicts should never reach this point due to auto-clear,
+                ' but if they do, refuse to save and tell the user.
+                MessageBox.Show("There are conflicting key assignments. Please resolve them before saving.",
+                                dupTitle, MessageBoxButtons.OK, MessageBoxIcon.Warning)
+                ScreenReaderOutput.Speak("Cannot save. Conflicting key assignments exist. Please resolve them first.", True)
+                DialogResult = DialogResult.None
+                Return
             Else
                 DialogResult = DialogResult.OK
             End If

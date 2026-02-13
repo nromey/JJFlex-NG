@@ -2,23 +2,43 @@
 
 All notable changes to this project will be documented in this file.
 
-## Unreleased — QRZ/HamQTH Callbook Lookup & Logging Improvements
+## 4.1.13.0 — Sprint 6: Callbook Fallback, QRZ Logbook, Hotkeys v2
 
-Logging Mode keeps getting smarter. The headline feature this round is automatic callbook lookups — tab out of the call sign field and JJFlexRadio reaches out to QRZ.com or HamQTH to fill in the station's name, QTH, state, and grid square. Your screen reader announces what it found naturally — "Bob, San Francisco, California" for a domestic station, or "Hans, Berlin, Germany" for DX — so you know exactly who you're talking to without tabbing through fields to check.
+This release packs two full feature tracks plus a major hotkey overhaul. The callbook system got a safety net (QRZ goes down? HamQTH picks up automatically), QRZ Logbook uploads your QSOs in real time, and every hotkey in the app now works reliably in every mode. That last part sounds like it should have always been true — turns out the menu system was quietly eating our Alt-key shortcuts. Not anymore.
+
+### Callbook Fallback (Track A)
 
 - **Callbook auto-fill**: Supports both QRZ.com (XML API, requires subscription) and HamQTH.com (free). Configure which service to use in your operator profile under the new Callbook Lookup section. Credentials are stored per-operator. Auto-fill only touches empty fields — anything you've typed or that came from the previous-contact lookup stays put.
-- **Credential migration**: If you had HamQTH credentials from the old system, they automatically migrate to the new callbook settings on first load. No re-entering passwords.
-- **Full Log Form access (Ctrl+Alt+L)**: Need to enter a field that LogPanel doesn't have — rig, antenna, or some obscure ADIF tag? Press Ctrl+Alt+L to pop open JJ's full LogEntry form as a modal dialog. Also available from the Log menu as "Full Log Form." When you close it, the Recent QSOs grid refreshes to catch anything you logged in there. If you have an unsaved entry in LogPanel, it asks whether to save before opening.
-- **Classic/Modern log hotkeys removed**: The 11 hotkeys that used to open the old LogEntry form from Classic and Modern modes (Alt+C, Ctrl+N, etc.) are now disabled. All logging goes through Logging Mode. This was a clean break — if you're logging, you should be in Logging Mode.
-- **Reset Confirmations**: New menu item under Log in Logging Mode. If you checked "Don't ask me again" on the Escape-clear confirmation during a pileup and now want the safety net back, this restores it.
-- **Modern menu stub fix (BUG-001)**: The "coming soon" placeholder items in Modern mode menus were silent in JAWS — you'd press Enter and hear nothing. Fixed by disabling the items (grayed out) and putting "coming soon" right in the accessible name. Both JAWS and NVDA now announce the placeholder state without needing to click.
-- **Secure credential storage**: Callbook passwords (QRZ and HamQTH) are now encrypted using Windows DPAPI before saving to disk. Your password is tied to your Windows login — even if someone copies your operator file, they can't read it on another machine or user account. Existing plaintext passwords are automatically migrated to encrypted storage on first load. Same security approach used for SmartLink tokens.
-- **Credential validation on save**: When you click Update in your operator profile, JJFlexRadio tests your callbook credentials right then and there. If QRZ login fails, the message explains that a paid XML subscription is required and points you to the QRZ subscription page — plus reminds you that HamQTH is free. If HamQTH login fails, it tells you what HamQTH said. Either way, you can still save the credentials if you want (maybe you're offline and know they're correct). No more wondering why lookups aren't working during a pileup.
-- **Station Lookup upgraded (Ctrl+L)**: JJ's existing Station Lookup dialog now uses your configured callbook service — QRZ or HamQTH, whichever you picked in your operator profile. If you haven't set one up, it falls back to the built-in HamQTH account. Hotkey changed from Alt+L to Ctrl+L, available from Classic and Modern modes. Your screen reader announces the name, QTH, and state when results come in, plus the country if it's a DX station (different country than yours). All the detail fields — country, lat/long, CQ zone, ITU zone, GMT offset — are still there in read-only boxes for Tab-through.
-- **Natural screen reader announcements**: Callbook results are spoken as actual values — "Robert, College Station, Texas" — not field names. DX stations get the country appended ("Hans, Berlin, Germany") while domestic stations don't (you don't need to hear "United States" for every US call). Same natural speech style in both LogPanel auto-fill and Station Lookup.
-- **UTC timestamp fix (BUG-005)**: Fixed a bug where all QSOs logged in the same session showed the same UTC timestamp as the first entry. Each QSO now gets a fresh timestamp.
-- **Callbook announcement queueing (BUG-006)**: Fixed callbook results interrupting screen reader field announcements during fast tabbing. The callbook announcement now queues after the field announcement, so you hear both: "RST Sent edit" followed by "Bob, San Francisco, California".
-- **"Returned to logging mode" announcement**: After closing the Full Log Form (Ctrl+Alt+L), your screen reader now announces "Returned to logging mode" and focus returns to the Call Sign field.
+- **QRZ → HamQTH auto-fallback (BUG-007)**: If QRZ login fails three times in a row, JJFlexRadio silently switches to the built-in HamQTH account so lookups keep working. You get a one-time notification explaining the fallback. No more silent lookup failures when your QRZ subscription lapses.
+- **HamQTH built-in account for LogPanel (BUG-008)**: If you select HamQTH as your callbook but don't have personal credentials, LogPanel now falls back to the built-in "JJRadio" HamQTH account automatically.
+- **Credential migration**: If you had HamQTH credentials from the old system, they automatically migrate to the new callbook settings on first load.
+- **Credential validation on save**: Operator profile tests your credentials when you click Update. Clear error messages for QRZ subscription issues and HamQTH login failures.
+- **Secure credential storage**: Callbook passwords encrypted using Windows DPAPI.
+
+### QRZ Logbook Upload (Track B)
+
+- **Real-time QRZ Logbook**: Log a QSO in Logging Mode and it automatically uploads to your QRZ.com logbook. Enable in operator settings with your QRZ API key.
+- **Validate button**: Test your QRZ Logbook API key right from settings — shows your QRZ log stats (total QSOs, etc.) to confirm everything's connected.
+- **Circuit breaker**: If QRZ's server has problems, uploads pause after 5 consecutive errors and resume automatically later. Your local log is always saved regardless.
+- **Graceful degradation**: Invalid API key? QRZ down? Your QSO still saves locally with no errors. QRZ issues are logged silently — you'll see them in the trace if you look, but they won't interrupt your operating.
+
+### Hotkeys v2 (Track C)
+
+- **Scope-aware hotkeys**: Every hotkey now belongs to a scope — Global (works everywhere), Radio (Classic + Modern only), or Logging (Logging Mode only). The same physical key can do different things depending on your mode: Alt+C is CW Zero Beat in Radio mode but jumps to the Call Sign field in Logging mode.
+- **Central key dispatcher (BUG-010)**: Rewrote the keyboard routing so ALL hotkeys go through the scope-aware registry BEFORE the menu system sees them. This fixed F6 not switching panes in Logging Mode, Alt+C/Alt+S opening menus instead of executing commands, F1 not working in Logging, and Ctrl+/ (Command Finder) being intermittent.
+- **Command Finder (Ctrl+/)**: Type a few characters and it searches all available commands by name, keywords, and synonyms. Shows the current hotkey binding next to each match. Select one and press Enter to execute it immediately. The result list updates as you type and announces the count to your screen reader. Scope-aware — Radio commands don't clutter the list when you're in Logging Mode.
+- **Tabbed Hotkey Editor**: Three tabs — Global, Radio, Logging. Select a command, press the new key you want, done. Conflict detection auto-clears the old binding (VS Code style) so you can never save duplicate keys (BUG-012).
+- **CW message migration**: F5–F11 CW messages automatically migrated to Ctrl+1–7 (one-time, transparent). F12 still stops CW. The old F-keys are freed up for future features.
+
+### Other Fixes
+
+- **"Coming soon" stubs speak (BUG-011)**: Modern mode placeholder menu items now include "coming soon" directly in the menu text so all screen readers announce it. Previously only AccessibleName had the suffix, which JAWS and NVDA ignored on disabled items.
+- **Full Log Form access (Ctrl+Alt+L)**: Pop open JJ's full LogEntry form as a modal from Logging Mode.
+- **Station Lookup upgraded (Ctrl+L)**: Uses your configured callbook service with DX country announcements.
+- **Natural screen reader announcements**: Callbook results spoken as values — "Robert, College Station, Texas" — not field names.
+- **UTC timestamp fix (BUG-005)**: Each QSO now gets a fresh timestamp (was stuck at first QSO's time).
+- **Callbook announcement queueing (BUG-006)**: Callbook results queue after field announcements during fast tabbing.
+- **Modern menu accessibility (BUG-009)**: All Modern mode menus and submenus now have proper AccessibleName.
 
 ## 4.1.12.0 - Logging Mode
 

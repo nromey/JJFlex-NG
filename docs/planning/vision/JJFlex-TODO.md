@@ -1,6 +1,6 @@
 # JJ Flex — TODO / Rolling Backlog
 
-Last updated: 2026-02-11
+Last updated: 2026-02-12
 
 ## Bug Reports
 
@@ -11,6 +11,7 @@ Last updated: 2026-02-11
 - **Root cause:** `AddModernStubItem()` in Form1.vb creates enabled menu items that speak "coming soon" via Tolk on click. JAWS doesn't reliably surface Tolk speech in menu context. No `AccessibleDescription` is set.
 - **Fix:** Set `AccessibleDescription = "coming soon"` on stub items, or disable them with `.Enabled = False` and set description to "Not yet available". Either way, both screen readers should announce the placeholder state.
 - **Priority:** Medium — affects JAWS users navigating Modern menus
+- **Status:** Superseded by BUG-011 — "coming soon" now in Text property directly
 
 ### BUG-002: Brief rig audio leak on remote connect (reported by Don, 2026-02-09)
 - **Symptom:** When a remote user connects to Don's radio via SmartLink, Don hears 2-3 seconds of rig audio through his local speakers before the remote connection fully establishes and local audio goes silent. Remote audio works fine for the connecting user — this is a local-side issue at the radio owner's end.
@@ -67,6 +68,38 @@ Last updated: 2026-02-11
 - **Fix:** Added `AccessibleName` to all Modern mode top-level menus and submenus in Form1.vb.
 - **Priority:** Medium — affects all screen reader users in Modern mode
 - **Status:** FIXED in Sprint 6 (Track A)
+
+### BUG-010: Hotkeys not firing — ProcessCmdKey bypassed by MenuStrip (Sprint 6 testing, 2026-02-12)
+- **Symptom:** Multiple hotkey failures across all modes:
+  - F6 doesn't switch panes in Logging Mode (test D1/F3)
+  - Alt+C opens Radio menu instead of CW Zero Beat / Log Call (test D1)
+  - Alt+S opens Radio menu instead of Start Scan / Log State (test D2)
+  - F1 doesn't work in Logging Mode (test D3)
+  - Ctrl+/ (Command Finder) intermittent — works only when focus is on certain controls (test D3b/F1)
+- **Root cause:** `ProcessCmdKey` in Form1.vb delegated ALL keys to `MyBase.ProcessCmdKey()` which let the MenuStrip eat Alt+letter combinations before `DoCommand` could see them. Additionally, `DoCommand` was only wired to specific controls via `doCommand_KeyDown` — if focus was on LogPanel, SplitContainer, or any other control, hotkeys never reached the scope-aware registry.
+- **Fix:** Route ALL keys through `Commands.DoCommand(keyData)` in `ProcessCmdKey` BEFORE falling through to `MyBase.ProcessCmdKey`. This ensures scope-aware hotkeys always fire regardless of focus and take priority over menu accelerators.
+- **Priority:** High — blocked most hotkeys in Logging Mode and some in Modern Mode
+- **Status:** FIXED in Sprint 6 (2026-02-12)
+
+### BUG-011: "Coming soon" stubs don't announce in JAWS or NVDA (Sprint 6 testing, 2026-02-12)
+- **Symptom:** In Modern mode, stub menu items announce their label ("Select Slice") but NOT the "coming soon" suffix. Both JAWS and NVDA affected. (test B3)
+- **Root cause:** Screen readers read the `.Text` property of disabled ToolStripMenuItems, not `.AccessibleName`. The " - coming soon" suffix was only in `AccessibleName` and `AccessibleDescription`, not in `Text`.
+- **Fix:** Put "coming soon" directly in the `.Text` property: `"Select Slice - coming soon"`. Also set matching `AccessibleName`. All screen readers now announce the full label.
+- **Priority:** Medium — affects Modern mode navigation for all screen reader users
+- **Status:** FIXED in Sprint 6 (2026-02-12)
+- **Note:** Supersedes BUG-001 (same menu items, different symptom)
+
+### BUG-012: Hotkey conflict detection allows saving duplicates (Sprint 6 testing, 2026-02-12)
+- **Symptom:** In Hotkey Editor, assigning the same key to two functions in the same scope shows a conflict warning but still allows saving via the OK button. User can save conflicting bindings. Also, after declining to save, the conflict remains in the UI with no way to undo. (test E3)
+- **Root cause:** (a) `CheckConflict()` skipped same-scope entries (line 61: `If other.Scope = scope Then Continue For`), so same-scope duplicates weren't caught during assignment. (b) `OKButton_Click` only warned with Yes/No dialog — didn't block save.
+- **Fix:** (a) Auto-clear conflicting bindings on assignment (industry standard — like VS Code). When you assign a key that's already used, the OLD binding is cleared to `None` and the user is told. (b) Block save entirely if conflicts somehow still exist (belt and suspenders). (c) Fixed `CheckConflict` to use `excludeIndex` parameter instead of scope comparison for self-exclusion.
+- **Priority:** Medium — prevents confusing key binding states
+- **Status:** FIXED in Sprint 6 (2026-02-12)
+
+### BUG-013: Duplicate QSO beep not audible (Sprint 6 testing, 2026-02-12)
+- **Symptom:** When logging a duplicate QSO, "worked x calls" is announced but the duplicate warning beep is not heard. (test G1)
+- **Priority:** Low — speech announcement works, just the audio beep is missing
+- **Status:** Logged for investigation
 
 ## Near-term (next 1–3 sprints)
 - [x] Callbook graceful degradation: QRZ→HamQTH auto-fallback, built-in HamQTH for LogPanel (BUG-007, BUG-008) — Sprint 6

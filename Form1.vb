@@ -2979,12 +2979,15 @@ RadioConnected:
     End Function
 
     ''' <summary>
-    ''' Add a stub menu item that announces "coming soon" when clicked.
+    ''' Add a stub menu item that announces "coming soon" when navigated.
+    ''' Text includes "coming soon" directly so all screen readers announce it
+    ''' regardless of whether they read Text, AccessibleName, or AccessibleDescription.
     ''' </summary>
     Private Function AddModernStubItem(parent As ToolStripMenuItem, text As String) As ToolStripMenuItem
+        Dim cleanText = text.Replace("&", "")
         Dim item = New ToolStripMenuItem() With {
-            .Text = text,
-            .AccessibleName = text.Replace("&", "") & " - coming soon",
+            .Text = cleanText & " - coming soon",
+            .AccessibleName = cleanText & " - coming soon",
             .AccessibleDescription = "Coming soon. Use Classic mode for full features.",
             .AccessibleRole = AccessibleRole.MenuItem,
             .Enabled = False
@@ -3388,9 +3391,10 @@ RadioConnected:
     End Sub
 
     ''' <summary>
-    ''' Handle mode toggles, pane switching, and Logging Mode field-jump hotkeys.
-    ''' In Logging Mode, Classic log hotkeys are intercepted here and redirected
-    ''' to the LogPanel instead of opening the full-screen LogEntry form.
+    ''' Central keyboard dispatcher — routes ALL hotkeys through the scope-aware
+    ''' KeyCommands registry BEFORE letting MenuStrip process accelerator keys.
+    ''' This ensures hotkeys (F6, Alt+C, Alt+S, Ctrl+/, F1, etc.) fire correctly
+    ''' regardless of which control has focus and regardless of menu accelerators.
     ''' </summary>
     Protected Overrides Function ProcessCmdKey(ByRef msg As Message, keyData As Keys) As Boolean
         ' --- Mode toggles (always active, hard-wired meta-commands) ---
@@ -3403,8 +3407,16 @@ RadioConnected:
             Return True
         End If
 
-        ' All other hotkeys (including Logging Mode field-jumps, F6 pane switching,
-        ' and radio commands) now route through the scope-aware KeyCommands registry.
+        ' --- Route through scope-aware KeyCommands registry ---
+        ' This must happen BEFORE MyBase.ProcessCmdKey so that:
+        '   (a) Alt+letter hotkeys (Alt+C, Alt+S, etc.) aren't eaten by MenuStrip
+        '   (b) F-keys and Ctrl+combos work regardless of focused control
+        '   (c) Scope filtering (Global/Radio/Logging) is respected
+        If Commands IsNot Nothing AndAlso Commands.DoCommand(keyData) Then
+            Return True
+        End If
+
+        ' Fall through to MenuStrip accelerators and default key processing.
         Return MyBase.ProcessCmdKey(msg, keyData)
     End Function
 
