@@ -3339,11 +3339,42 @@ RadioConnected:
     ''' Open JJ's full LogEntry form as a modal dialog from Logging Mode.
     ''' <summary>
     ''' Open the Station Lookup dialog from Logging Mode.
+    ''' If the user clicks "Log Contact", pre-fill LogPanel fields.
     ''' </summary>
     Private Sub stationLookupFromLogging()
         If LookupStation IsNot Nothing Then LookupStation.Finished()
         LookupStation = CreateStationLookupWindow()
         LookupStation.ShowDialog()
+
+        HandleLogContactResult()
+    End Sub
+
+    ''' <summary>
+    ''' Check whether the user clicked "Log Contact" in the Station Lookup dialog.
+    ''' If so, enter Logging Mode (if not already) and pre-fill LogPanel fields.
+    ''' Called from both stationLookupFromLogging() and KeyCommands.stationLookupRtn().
+    ''' </summary>
+    Friend Sub HandleLogContactResult()
+        If LookupStation Is Nothing Then Return
+        If Not LookupStation.WantsLogContact Then Return
+        If LookupStation.LookupData Is Nothing Then Return
+
+        Dim data = LookupStation.LookupData
+
+        ' Enter Logging Mode if not already in it.
+        If ActiveUIMode <> UIMode.Logging Then
+            EnterLoggingMode()
+        End If
+
+        ' Pre-fill LogPanel fields from the lookup result.
+        If LoggingLogPanel IsNot Nothing Then
+            LoggingLogPanel.PreFillFromLookup(
+                data.CallSign, data.Name, data.QTH,
+                data.State, data.Grid)
+        End If
+
+        Radios.ScreenReaderOutput.Speak(
+            "Entering Logging Mode with " & data.CallSign & " pre-filled", True)
     End Sub
 
     ''' Provides access to all ADIF fields and record navigation that the

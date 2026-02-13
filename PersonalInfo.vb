@@ -44,6 +44,7 @@ Public Class PersonalInfo
             CallSignBox.Text = .callSign
             HandleBox.Text = .handl
             QTHBox.Text = .qth
+            GridSquareBox.Text = If(.GridSquare, "")
             LicenseList.SelectedIndex = .License
             BRLSizeBox.Text = .BrailleDisplaySize
             AddressBox.Text = .ClusterHostname
@@ -122,6 +123,7 @@ Public Class PersonalInfo
             End If
             .callSign = Trim(CallSignBox.Text)
             .qth = Trim(QTHBox.Text)
+            .GridSquare = Trim(GridSquareBox.Text).ToUpper()
             If LicenseList.SelectedIndex = -1 Then
                 .License = Bands.Licenses.none
             Else

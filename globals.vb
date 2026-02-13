@@ -354,15 +354,17 @@ Module globals
         Dim username As String = ""
         Dim password As String = ""
         Dim opCall As String = ""
+        Dim opGrid As String = ""
 
         If CurrentOp IsNot Nothing Then
             source = If(CurrentOp.CallbookLookupSource, "")
             username = If(CurrentOp.CallbookUsername, "")
             password = If(CurrentOp.DecryptedCallbookPassword, "")
             opCall = If(CurrentOp.callSign, "")
+            opGrid = If(CurrentOp.GridSquare, "")
         End If
 
-        Return New JJFlexWpf.StationLookupWindow(source, username, password, opCall)
+        Return New JJFlexWpf.StationLookupWindow(source, username, password, opCall, opGrid)
     End Function
 
     ''' <summary>

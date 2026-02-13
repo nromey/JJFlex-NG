@@ -1605,6 +1605,9 @@ Public Class KeyCommands
         End If
         LookupStation = CreateStationLookupWindow()
         LookupStation.ShowDialog()
+
+        ' If the user clicked "Log Contact", hand off to Form1's handler.
+        Form1.HandleLogContactResult()
     End Sub
 
     Private Sub gatherDebugRtn()

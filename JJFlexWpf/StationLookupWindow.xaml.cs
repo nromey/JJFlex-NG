@@ -1,11 +1,25 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using HamQTHLookup;
 using JJCountriesDB;
 using JJTrace;
 using Radios;
 
 namespace JJFlexWpf;
+
+/// <summary>
+/// Data collected from a station lookup, used to pre-fill Logging Mode fields.
+/// </summary>
+public class StationLookupResult
+{
+    public string CallSign { get; set; } = "";
+    public string Name { get; set; } = "";
+    public string QTH { get; set; } = "";
+    public string State { get; set; } = "";
+    public string Grid { get; set; } = "";
+    public string Country { get; set; } = "";
+}
 
 /// <summary>
 /// WPF replacement for the WinForms StationLookup form.
@@ -30,19 +44,38 @@ public partial class StationLookupWindow : Window
     private readonly string _callbookUsername;
     private readonly string _callbookPassword;
     private readonly string _operatorCallSign;
+    private readonly string _operatorGridSquare;
+
+    /// <summary>
+    /// Raw grid square from the most recent callbook lookup (not embedded in QTH).
+    /// </summary>
+    private string _lastLookupGrid = "";
+
+    /// <summary>
+    /// True if the user clicked "Log Contact" (vs. "Done").
+    /// Check this after ShowDialog() returns.
+    /// </summary>
+    public bool WantsLogContact { get; private set; }
+
+    /// <summary>
+    /// Lookup data to pre-fill in Logging Mode. Populated when "Log Contact" is clicked.
+    /// </summary>
+    public StationLookupResult? LookupData { get; private set; }
 
     /// <summary>
     /// Creates a StationLookupWindow with operator callbook settings.
-    /// Pass the operator's callbook source, username, password, and call sign.
+    /// Pass the operator's callbook source, username, password, call sign, and grid square.
     /// If any are empty, falls back to built-in HamQTH account.
     /// </summary>
     public StationLookupWindow(string callbookSource = "", string callbookUsername = "",
-                                string callbookPassword = "", string operatorCallSign = "")
+                                string callbookPassword = "", string operatorCallSign = "",
+                                string operatorGridSquare = "")
     {
         _callbookSource = callbookSource;
         _callbookUsername = callbookUsername;
         _callbookPassword = callbookPassword;
         _operatorCallSign = operatorCallSign;
+        _operatorGridSquare = operatorGridSquare;
         InitializeComponent();
     }
 
@@ -110,6 +143,9 @@ public partial class StationLookupWindow : Window
         CQBox.Text = "";
         ITUBox.Text = "";
         GMTBox.Text = "";
+        GridBox.Text = "";
+        DistanceBox.Text = "";
+        _lastLookupGrid = "";
 
         // Callbook lookup (async — results arrive via handler).
         if (qrzLookup != null && qrzLookup.CanLookup)
@@ -158,6 +194,11 @@ public partial class StationLookupWindow : Window
             if (grid != "") QTHBox.Text += " (" + grid + ")";
             StateBox.Text = state;
 
+            // Store grid separately for distance/bearing and Log Contact.
+            _lastLookupGrid = grid;
+            GridBox.Text = grid;
+            UpdateDistanceBearing(grid);
+
             AnnounceResult(name, qth, state, country);
         });
     }
@@ -179,20 +220,60 @@ public partial class StationLookupWindow : Window
             if (grid != "") QTHBox.Text += " (" + grid + ")";
             StateBox.Text = state;
 
+            // Store grid separately for distance/bearing and Log Contact.
+            _lastLookupGrid = grid;
+            GridBox.Text = grid;
+            UpdateDistanceBearing(grid);
+
             AnnounceResult(name, qth, state, country);
         });
     }
 
+    /// <summary>
+    /// Calculate and display distance and bearing from operator to station.
+    /// </summary>
+    private void UpdateDistanceBearing(string stationGrid)
+    {
+        DistanceBox.Text = "";
+
+        if (string.IsNullOrEmpty(_operatorGridSquare))
+        {
+            DistanceBox.Text = "Set your grid square in Settings";
+            return;
+        }
+
+        if (string.IsNullOrEmpty(stationGrid))
+            return;
+
+        if (!MaidenheadUtil.GridToLatLon(_operatorGridSquare, out var opLat, out var opLon) ||
+            !MaidenheadUtil.GridToLatLon(stationGrid, out var stLat, out var stLon))
+            return;
+
+        double miles = MaidenheadUtil.DistanceMiles(opLat, opLon, stLat, stLon);
+        double km = MaidenheadUtil.DistanceKm(opLat, opLon, stLat, stLon);
+        double bearing = MaidenheadUtil.Bearing(opLat, opLon, stLat, stLon);
+
+        DistanceBox.Text = $"{miles:F0} mi ({km:F0} km), bearing {bearing:F0}\u00B0";
+    }
+
     private void AnnounceResult(string name, string qth, string state, string country)
     {
-        var parts = new List<string>();
+        var parts = new System.Collections.Generic.List<string>();
         if (name != "") parts.Add(name);
         if (qth != "") parts.Add(qth);
         if (state != "") parts.Add(state);
 
         // Include country only when it differs from operator's country (DX station).
-        if (country != "" && !country.Equals(operatorCountry, StringComparison.OrdinalIgnoreCase))
+        if (country != "" && !country.Equals(operatorCountry, System.StringComparison.OrdinalIgnoreCase))
             parts.Add(country);
+
+        // Include distance/bearing if available.
+        if (!string.IsNullOrEmpty(DistanceBox.Text) &&
+            !DistanceBox.Text.StartsWith("Set"))
+        {
+            // Replace degree symbol with "degrees" for speech.
+            parts.Add(DistanceBox.Text.Replace("\u00B0", " degrees"));
+        }
 
         if (parts.Count > 0)
         {
@@ -204,6 +285,30 @@ public partial class StationLookupWindow : Window
     private void DoneButton_Click(object sender, RoutedEventArgs e)
     {
         DialogResult = true;
+    }
+
+    private void LogContactButton_Click(object sender, RoutedEventArgs e)
+    {
+        WantsLogContact = true;
+        LookupData = new StationLookupResult
+        {
+            CallSign = CallsignBox.Text.Trim().ToUpper(),
+            Name = NameBox.Text.Trim(),
+            QTH = QTHBox.Text.Trim(),
+            State = StateBox.Text.Trim(),
+            Grid = _lastLookupGrid,
+            Country = CountryBox.Text.Trim()
+        };
+        DialogResult = true;
+    }
+
+    private void Window_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Enter && (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control)
+        {
+            LogContactButton_Click(sender, e);
+            e.Handled = true;
+        }
     }
 
     private void TextBox_GotFocus(object sender, RoutedEventArgs e)

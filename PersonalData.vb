@@ -57,6 +57,11 @@ Public Class PersonalData
             End Get
         End Property
         Public qth As String
+        ''' <summary>
+        ''' Operator's Maidenhead grid square (e.g., "FN31pr").
+        ''' Used for distance/bearing calculation in Station Lookup.
+        ''' </summary>
+        Public GridSquare As String = ""
         <XmlIgnore()> Public Const NumberOfLogsDefault As Integer = 4
         Public NumberOfLogs As Integer
         Public LogFiles As String()
@@ -342,6 +347,7 @@ Public Class PersonalData
             fullName = p.fullName
             handl = p.handl
             qth = p.qth
+            GridSquare = p.GridSquare
             License = p.License
             CWText = p.CWText
             NumberOfLogs = p.NumberOfLogs
