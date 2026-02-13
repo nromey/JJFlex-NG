@@ -2375,6 +2375,16 @@ namespace Radios
             get { return (theRadio.ActiveSlice != null); }
         }
 
+        /// <summary>
+        /// Letter of the active (RX) slice, e.g. "A". Empty if no active slice.
+        /// </summary>
+        public string ActiveSliceLetter => theRadio?.ActiveSlice?.Letter ?? "";
+
+        /// <summary>
+        /// Letter of the TX slice. Empty if no TX slice.
+        /// </summary>
+        public string TXSliceLetter => VFOToSlice(TXVFO)?.Letter ?? "";
+
         // Diversity readiness helper; ensure hardware, license, antennas, and slices
         public bool DiversityReady
         {
