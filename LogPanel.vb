@@ -45,7 +45,19 @@ Friend Class LogPanel
 
     ' --- Recent QSOs grid ---
     Private WithEvents RecentGrid As DataGridView
-    Private Const MaxRecentQSOs As Integer = 20
+
+    ''' <summary>
+    ''' Maximum recent QSOs to show in the grid, from operator settings.
+    ''' Falls back to 20 if no operator is loaded.
+    ''' </summary>
+    Private ReadOnly Property MaxRecentQSOs As Integer
+        Get
+            If CurrentOp IsNot Nothing AndAlso CurrentOp.RecentQsoCount >= 5 Then
+                Return CurrentOp.RecentQsoCount
+            End If
+            Return PersonalData.personal_v1.RecentQsoCountDefault
+        End Get
+    End Property
 
     ' --- Layout ---
     Private EntryPanel As Panel        ' Fixed-height panel for entry fields + info labels

@@ -167,6 +167,13 @@ Public Class PersonalData
         Public SuppressClearConfirm As Boolean = False
 
         ''' <summary>
+        ''' Number of recent QSOs to display in the Logging Mode grid.
+        ''' Range: 5–100. Default: 20.
+        ''' </summary>
+        Public Const RecentQsoCountDefault As Integer = 20
+        Public RecentQsoCount As Integer = RecentQsoCountDefault
+
+        ''' <summary>
         ''' Callbook lookup source: "None", "QRZ", or "HamQTH".
         ''' Controls which service is used for auto-fill in Logging Mode.
         ''' </summary>
@@ -345,6 +352,7 @@ Public Class PersonalData
             UIModeSetting = p.UIModeSetting
             UIModeDismissed = p.UIModeDismissed
             SuppressClearConfirm = p.SuppressClearConfirm
+            RecentQsoCount = p.RecentQsoCount
             CallbookLookupSource = p.CallbookLookupSource
             CallbookUsername = p.CallbookUsername
             CallbookPassword = p.CallbookPassword
