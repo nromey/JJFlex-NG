@@ -52,6 +52,8 @@ Partial Class PersonalInfo
         Me.QrzLogbookApiKeyLabel = New System.Windows.Forms.Label()
         Me.QrzLogbookApiKeyBox = New System.Windows.Forms.TextBox()
         Me.QrzLogbookValidateButton = New System.Windows.Forms.Button()
+        Me.GridSquareLabel = New System.Windows.Forms.Label()
+        Me.GridSquareBox = New System.Windows.Forms.TextBox()
         Me.RecentQsoLabel = New System.Windows.Forms.Label()
         Me.RecentQsoUpDown = New System.Windows.Forms.NumericUpDown()
         CType(Me.RecentQsoUpDown, System.ComponentModel.ISupportInitialize).BeginInit()
@@ -138,12 +140,32 @@ Partial Class PersonalInfo
         Me.QTHBox.Size = New System.Drawing.Size(132, 22)
         Me.QTHBox.TabIndex = 31
         '
+        'GridSquareLabel
+        '
+        Me.GridSquareLabel.AutoSize = True
+        Me.GridSquareLabel.Location = New System.Drawing.Point(48, 138)
+        Me.GridSquareLabel.Margin = New System.Windows.Forms.Padding(4, 0, 4, 0)
+        Me.GridSquareLabel.Name = "GridSquareLabel"
+        Me.GridSquareLabel.Size = New System.Drawing.Size(85, 17)
+        Me.GridSquareLabel.TabIndex = 32
+        Me.GridSquareLabel.Text = "Grid Square: "
+        '
+        'GridSquareBox
+        '
+        Me.GridSquareBox.AccessibleName = "Grid Square"
+        Me.GridSquareBox.AccessibleRole = System.Windows.Forms.AccessibleRole.Text
+        Me.GridSquareBox.Location = New System.Drawing.Point(135, 138)
+        Me.GridSquareBox.Margin = New System.Windows.Forms.Padding(4)
+        Me.GridSquareBox.Name = "GridSquareBox"
+        Me.GridSquareBox.Size = New System.Drawing.Size(70, 22)
+        Me.GridSquareBox.TabIndex = 33
+        '
         'OKButton
         '
         Me.OKButton.AccessibleRole = System.Windows.Forms.AccessibleRole.PushButton
         Me.OKButton.AutoSize = True
         Me.OKButton.AutoSizeMode = System.Windows.Forms.AutoSizeMode.GrowAndShrink
-        Me.OKButton.Location = New System.Drawing.Point(0, 565)
+        Me.OKButton.Location = New System.Drawing.Point(0, 593)
         Me.OKButton.Margin = New System.Windows.Forms.Padding(4)
         Me.OKButton.Name = "OKButton"
         Me.OKButton.Size = New System.Drawing.Size(6, 6)
@@ -155,7 +177,7 @@ Partial Class PersonalInfo
         Me.CnclButton.AccessibleRole = System.Windows.Forms.AccessibleRole.PushButton
         Me.CnclButton.AutoSize = True
         Me.CnclButton.DialogResult = System.Windows.Forms.DialogResult.Cancel
-        Me.CnclButton.Location = New System.Drawing.Point(133, 565)
+        Me.CnclButton.Location = New System.Drawing.Point(133, 593)
         Me.CnclButton.Margin = New System.Windows.Forms.Padding(4)
         Me.CnclButton.Name = "CnclButton"
         Me.CnclButton.Size = New System.Drawing.Size(100, 28)
@@ -167,7 +189,7 @@ Partial Class PersonalInfo
         '
         Me.DefaultBox.AccessibleRole = System.Windows.Forms.AccessibleRole.CheckButton
         Me.DefaultBox.AutoSize = True
-        Me.DefaultBox.Location = New System.Drawing.Point(0, 535)
+        Me.DefaultBox.Location = New System.Drawing.Point(0, 563)
         Me.DefaultBox.Margin = New System.Windows.Forms.Padding(4)
         Me.DefaultBox.Name = "DefaultBox"
         Me.DefaultBox.Size = New System.Drawing.Size(136, 21)
@@ -178,7 +200,7 @@ Partial Class PersonalInfo
         'LogButton
         '
         Me.LogButton.AccessibleRole = System.Windows.Forms.AccessibleRole.PushButton
-        Me.LogButton.Location = New System.Drawing.Point(0, 187)
+        Me.LogButton.Location = New System.Drawing.Point(0, 215)
         Me.LogButton.Margin = New System.Windows.Forms.Padding(4)
         Me.LogButton.Name = "LogButton"
         Me.LogButton.Size = New System.Drawing.Size(100, 28)
@@ -189,7 +211,7 @@ Partial Class PersonalInfo
         'LicenseLabel
         '
         Me.LicenseLabel.AutoSize = True
-        Me.LicenseLabel.Location = New System.Drawing.Point(32, 138)
+        Me.LicenseLabel.Location = New System.Drawing.Point(32, 166)
         Me.LicenseLabel.Margin = New System.Windows.Forms.Padding(4, 0, 4, 0)
         Me.LicenseLabel.Name = "LicenseLabel"
         Me.LicenseLabel.Size = New System.Drawing.Size(101, 17)
@@ -202,7 +224,7 @@ Partial Class PersonalInfo
         Me.LicenseList.AccessibleRole = System.Windows.Forms.AccessibleRole.List
         Me.LicenseList.FormattingEnabled = True
         Me.LicenseList.ItemHeight = 16
-        Me.LicenseList.Location = New System.Drawing.Point(135, 138)
+        Me.LicenseList.Location = New System.Drawing.Point(135, 166)
         Me.LicenseList.Margin = New System.Windows.Forms.Padding(4)
         Me.LicenseList.Name = "LicenseList"
         Me.LicenseList.Size = New System.Drawing.Size(159, 36)
@@ -212,7 +234,7 @@ Partial Class PersonalInfo
         '
         Me.BRLSizeLabel.AccessibleRole = System.Windows.Forms.AccessibleRole.Text
         Me.BRLSizeLabel.AutoSize = True
-        Me.BRLSizeLabel.Location = New System.Drawing.Point(0, 228)
+        Me.BRLSizeLabel.Location = New System.Drawing.Point(0, 256)
         Me.BRLSizeLabel.Margin = New System.Windows.Forms.Padding(4, 0, 4, 0)
         Me.BRLSizeLabel.Name = "BRLSizeLabel"
         Me.BRLSizeLabel.Size = New System.Drawing.Size(136, 17)
@@ -223,7 +245,7 @@ Partial Class PersonalInfo
         '
         Me.BRLSizeBox.AccessibleName = "braille display size"
         Me.BRLSizeBox.AccessibleRole = System.Windows.Forms.AccessibleRole.Text
-        Me.BRLSizeBox.Location = New System.Drawing.Point(135, 228)
+        Me.BRLSizeBox.Location = New System.Drawing.Point(135, 256)
         Me.BRLSizeBox.Margin = New System.Windows.Forms.Padding(4)
         Me.BRLSizeBox.Name = "BRLSizeBox"
         Me.BRLSizeBox.Size = New System.Drawing.Size(39, 22)
@@ -232,7 +254,7 @@ Partial Class PersonalInfo
         'RecentQsoLabel
         '
         Me.RecentQsoLabel.AutoSize = True
-        Me.RecentQsoLabel.Location = New System.Drawing.Point(0, 258)
+        Me.RecentQsoLabel.Location = New System.Drawing.Point(0, 286)
         Me.RecentQsoLabel.Margin = New System.Windows.Forms.Padding(4, 0, 4, 0)
         Me.RecentQsoLabel.Name = "RecentQsoLabel"
         Me.RecentQsoLabel.Size = New System.Drawing.Size(130, 17)
@@ -243,7 +265,7 @@ Partial Class PersonalInfo
         '
         Me.RecentQsoUpDown.AccessibleName = "Number of recent QSOs to display"
         Me.RecentQsoUpDown.AccessibleRole = System.Windows.Forms.AccessibleRole.SpinButton
-        Me.RecentQsoUpDown.Location = New System.Drawing.Point(135, 258)
+        Me.RecentQsoUpDown.Location = New System.Drawing.Point(135, 286)
         Me.RecentQsoUpDown.Margin = New System.Windows.Forms.Padding(4)
         Me.RecentQsoUpDown.Maximum = New Decimal(New Integer() {100, 0, 0, 0})
         Me.RecentQsoUpDown.Minimum = New Decimal(New Integer() {5, 0, 0, 0})
@@ -255,7 +277,7 @@ Partial Class PersonalInfo
         'ClusterLoginNameLabel
         '
         Me.ClusterLoginNameLabel.AutoSize = True
-        Me.ClusterLoginNameLabel.Location = New System.Drawing.Point(0, 332)
+        Me.ClusterLoginNameLabel.Location = New System.Drawing.Point(0, 360)
         Me.ClusterLoginNameLabel.Margin = New System.Windows.Forms.Padding(4, 0, 4, 0)
         Me.ClusterLoginNameLabel.Name = "ClusterLoginNameLabel"
         Me.ClusterLoginNameLabel.Size = New System.Drawing.Size(92, 17)
@@ -266,7 +288,7 @@ Partial Class PersonalInfo
         '
         Me.ClusterLoginNameBox.AccessibleName = "login name"
         Me.ClusterLoginNameBox.AccessibleRole = System.Windows.Forms.AccessibleRole.Text
-        Me.ClusterLoginNameBox.Location = New System.Drawing.Point(135, 332)
+        Me.ClusterLoginNameBox.Location = New System.Drawing.Point(135, 360)
         Me.ClusterLoginNameBox.Margin = New System.Windows.Forms.Padding(4)
         Me.ClusterLoginNameBox.Name = "ClusterLoginNameBox"
         Me.ClusterLoginNameBox.Size = New System.Drawing.Size(132, 22)
@@ -275,7 +297,7 @@ Partial Class PersonalInfo
         'AddressLabel
         '
         Me.AddressLabel.AutoSize = True
-        Me.AddressLabel.Location = New System.Drawing.Point(0, 295)
+        Me.AddressLabel.Location = New System.Drawing.Point(0, 323)
         Me.AddressLabel.Margin = New System.Windows.Forms.Padding(4, 0, 4, 0)
         Me.AddressLabel.Name = "AddressLabel"
         Me.AddressLabel.Size = New System.Drawing.Size(115, 17)
@@ -286,7 +308,7 @@ Partial Class PersonalInfo
         '
         Me.AddressBox.AccessibleName = "cluster address"
         Me.AddressBox.AccessibleRole = System.Windows.Forms.AccessibleRole.Text
-        Me.AddressBox.Location = New System.Drawing.Point(135, 295)
+        Me.AddressBox.Location = New System.Drawing.Point(135, 323)
         Me.AddressBox.Margin = New System.Windows.Forms.Padding(4)
         Me.AddressBox.Name = "AddressBox"
         Me.AddressBox.Size = New System.Drawing.Size(132, 22)
@@ -295,7 +317,7 @@ Partial Class PersonalInfo
         'CallbookSourceLabel
         '
         Me.CallbookSourceLabel.AutoSize = True
-        Me.CallbookSourceLabel.Location = New System.Drawing.Point(0, 368)
+        Me.CallbookSourceLabel.Location = New System.Drawing.Point(0, 396)
         Me.CallbookSourceLabel.Margin = New System.Windows.Forms.Padding(4, 0, 4, 0)
         Me.CallbookSourceLabel.Name = "CallbookSourceLabel"
         Me.CallbookSourceLabel.Size = New System.Drawing.Size(120, 17)
@@ -309,7 +331,7 @@ Partial Class PersonalInfo
         Me.CallbookSourceCombo.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList
         Me.CallbookSourceCombo.FormattingEnabled = True
         Me.CallbookSourceCombo.Items.AddRange(New Object() {"None", "QRZ", "HamQTH"})
-        Me.CallbookSourceCombo.Location = New System.Drawing.Point(135, 368)
+        Me.CallbookSourceCombo.Location = New System.Drawing.Point(135, 396)
         Me.CallbookSourceCombo.Margin = New System.Windows.Forms.Padding(4)
         Me.CallbookSourceCombo.Name = "CallbookSourceCombo"
         Me.CallbookSourceCombo.Size = New System.Drawing.Size(132, 24)
@@ -318,7 +340,7 @@ Partial Class PersonalInfo
         'CallbookUsernameLabel
         '
         Me.CallbookUsernameLabel.AutoSize = True
-        Me.CallbookUsernameLabel.Location = New System.Drawing.Point(0, 400)
+        Me.CallbookUsernameLabel.Location = New System.Drawing.Point(0, 428)
         Me.CallbookUsernameLabel.Margin = New System.Windows.Forms.Padding(4, 0, 4, 0)
         Me.CallbookUsernameLabel.Name = "CallbookUsernameLabel"
         Me.CallbookUsernameLabel.Size = New System.Drawing.Size(130, 17)
@@ -329,7 +351,7 @@ Partial Class PersonalInfo
         '
         Me.CallbookUsernameBox.AccessibleName = "Callbook username"
         Me.CallbookUsernameBox.AccessibleRole = System.Windows.Forms.AccessibleRole.Text
-        Me.CallbookUsernameBox.Location = New System.Drawing.Point(135, 400)
+        Me.CallbookUsernameBox.Location = New System.Drawing.Point(135, 428)
         Me.CallbookUsernameBox.Margin = New System.Windows.Forms.Padding(4)
         Me.CallbookUsernameBox.Name = "CallbookUsernameBox"
         Me.CallbookUsernameBox.Size = New System.Drawing.Size(132, 22)
@@ -338,7 +360,7 @@ Partial Class PersonalInfo
         'CallbookPasswordLabel
         '
         Me.CallbookPasswordLabel.AutoSize = True
-        Me.CallbookPasswordLabel.Location = New System.Drawing.Point(0, 430)
+        Me.CallbookPasswordLabel.Location = New System.Drawing.Point(0, 458)
         Me.CallbookPasswordLabel.Margin = New System.Windows.Forms.Padding(4, 0, 4, 0)
         Me.CallbookPasswordLabel.Name = "CallbookPasswordLabel"
         Me.CallbookPasswordLabel.Size = New System.Drawing.Size(130, 17)
@@ -349,7 +371,7 @@ Partial Class PersonalInfo
         '
         Me.CallbookPasswordBox.AccessibleName = "Callbook password"
         Me.CallbookPasswordBox.AccessibleRole = System.Windows.Forms.AccessibleRole.Text
-        Me.CallbookPasswordBox.Location = New System.Drawing.Point(135, 430)
+        Me.CallbookPasswordBox.Location = New System.Drawing.Point(135, 458)
         Me.CallbookPasswordBox.Margin = New System.Windows.Forms.Padding(4)
         Me.CallbookPasswordBox.Name = "CallbookPasswordBox"
         Me.CallbookPasswordBox.Size = New System.Drawing.Size(132, 22)
@@ -360,7 +382,7 @@ Partial Class PersonalInfo
         '
         Me.QrzLogbookEnabledBox.AccessibleRole = System.Windows.Forms.AccessibleRole.CheckButton
         Me.QrzLogbookEnabledBox.AutoSize = True
-        Me.QrzLogbookEnabledBox.Location = New System.Drawing.Point(0, 465)
+        Me.QrzLogbookEnabledBox.Location = New System.Drawing.Point(0, 493)
         Me.QrzLogbookEnabledBox.Margin = New System.Windows.Forms.Padding(4)
         Me.QrzLogbookEnabledBox.Name = "QrzLogbookEnabledBox"
         Me.QrzLogbookEnabledBox.Size = New System.Drawing.Size(200, 21)
@@ -371,7 +393,7 @@ Partial Class PersonalInfo
         'QrzLogbookApiKeyLabel
         '
         Me.QrzLogbookApiKeyLabel.AutoSize = True
-        Me.QrzLogbookApiKeyLabel.Location = New System.Drawing.Point(0, 495)
+        Me.QrzLogbookApiKeyLabel.Location = New System.Drawing.Point(0, 523)
         Me.QrzLogbookApiKeyLabel.Margin = New System.Windows.Forms.Padding(4, 0, 4, 0)
         Me.QrzLogbookApiKeyLabel.Name = "QrzLogbookApiKeyLabel"
         Me.QrzLogbookApiKeyLabel.Size = New System.Drawing.Size(130, 17)
@@ -382,7 +404,7 @@ Partial Class PersonalInfo
         '
         Me.QrzLogbookApiKeyBox.AccessibleName = "QRZ Logbook API key"
         Me.QrzLogbookApiKeyBox.AccessibleRole = System.Windows.Forms.AccessibleRole.Text
-        Me.QrzLogbookApiKeyBox.Location = New System.Drawing.Point(135, 495)
+        Me.QrzLogbookApiKeyBox.Location = New System.Drawing.Point(135, 523)
         Me.QrzLogbookApiKeyBox.Margin = New System.Windows.Forms.Padding(4)
         Me.QrzLogbookApiKeyBox.Name = "QrzLogbookApiKeyBox"
         Me.QrzLogbookApiKeyBox.Size = New System.Drawing.Size(200, 22)
@@ -393,7 +415,7 @@ Partial Class PersonalInfo
         '
         Me.QrzLogbookValidateButton.AccessibleName = "Validate QRZ Logbook key"
         Me.QrzLogbookValidateButton.AccessibleRole = System.Windows.Forms.AccessibleRole.PushButton
-        Me.QrzLogbookValidateButton.Location = New System.Drawing.Point(343, 493)
+        Me.QrzLogbookValidateButton.Location = New System.Drawing.Point(343, 521)
         Me.QrzLogbookValidateButton.Margin = New System.Windows.Forms.Padding(4)
         Me.QrzLogbookValidateButton.Name = "QrzLogbookValidateButton"
         Me.QrzLogbookValidateButton.Size = New System.Drawing.Size(100, 28)
@@ -408,7 +430,7 @@ Partial Class PersonalInfo
         Me.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font
         Me.AutoSize = True
         Me.CancelButton = Me.CnclButton
-        Me.ClientSize = New System.Drawing.Size(779, 630)
+        Me.ClientSize = New System.Drawing.Size(779, 658)
         Me.Controls.Add(Me.RecentQsoUpDown)
         Me.Controls.Add(Me.RecentQsoLabel)
         Me.Controls.Add(Me.QrzLogbookValidateButton)
@@ -433,6 +455,8 @@ Partial Class PersonalInfo
         Me.Controls.Add(Me.DefaultBox)
         Me.Controls.Add(Me.CnclButton)
         Me.Controls.Add(Me.OKButton)
+        Me.Controls.Add(Me.GridSquareBox)
+        Me.Controls.Add(Me.GridSquareLabel)
         Me.Controls.Add(Me.QTHBox)
         Me.Controls.Add(Me.HandleBox)
         Me.Controls.Add(Me.CallSignBox)
@@ -480,6 +504,8 @@ Partial Class PersonalInfo
     Friend WithEvents QrzLogbookApiKeyLabel As System.Windows.Forms.Label
     Friend WithEvents QrzLogbookApiKeyBox As System.Windows.Forms.TextBox
     Friend WithEvents QrzLogbookValidateButton As System.Windows.Forms.Button
+    Friend WithEvents GridSquareLabel As System.Windows.Forms.Label
+    Friend WithEvents GridSquareBox As System.Windows.Forms.TextBox
     Friend WithEvents RecentQsoLabel As System.Windows.Forms.Label
     Friend WithEvents RecentQsoUpDown As System.Windows.Forms.NumericUpDown
 End Class

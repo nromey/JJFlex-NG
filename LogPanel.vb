@@ -124,6 +124,40 @@ Friend Class LogPanel
     End Sub
 
     ''' <summary>
+    ''' Pre-fill fields from a Station Lookup result.
+    ''' Called when the user clicks "Log Contact" in Station Lookup.
+    ''' Clears current entry first, then populates fields and focuses RST Sent.
+    ''' </summary>
+    Friend Sub PreFillFromLookup(callSign As String, name As String,
+                                  qth As String, state As String, grid As String)
+        NewEntry()  ' Clear and reset
+
+        If Not String.IsNullOrEmpty(callSign) Then
+            wpfControl.SetFieldText("CALL", callSign.Trim().ToUpper())
+        End If
+        If Not String.IsNullOrEmpty(name) Then
+            wpfControl.SetFieldText("NAME", name)
+        End If
+        If Not String.IsNullOrEmpty(qth) Then
+            wpfControl.SetFieldText("QTH", qth)
+        End If
+        If Not String.IsNullOrEmpty(state) Then
+            wpfControl.SetFieldText("STATE", state)
+        End If
+        If Not String.IsNullOrEmpty(grid) Then
+            wpfControl.SetFieldText("GRID", grid)
+        End If
+
+        ' Trigger dup check and previous contact lookup for the pre-filled call.
+        currentCall = callSign.Trim().ToUpper()
+        ShowPreviousContact(currentCall)
+        CheckDup(True)
+
+        ' Focus RST Sent (the next logical field after call sign pre-fill).
+        wpfControl.FocusField("RSTSENT")
+    End Sub
+
+    ''' <summary>
     ''' Write the current entry to the log file.
     ''' Returns True on success.
     ''' </summary>
