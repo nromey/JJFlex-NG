@@ -120,16 +120,23 @@ Last updated: 2026-02-12
 - [x] Hotkeys v2: scope-aware registry, conflict detection, Command Finder, tabbed Settings UI — Sprint 6
 - [ ] Station Lookup → Log Contact: "Log a contact with station" button on Station Lookup dialog. Enters Logging Mode with callsign/name/QTH/grid pre-filled from lookup. DX hunting workflow: lookup → call → log.
 - [ ] Station Lookup: add distance and bearing to station (for beam/rotator directionality)
-- [ ] Configurable Recent QSOs grid size (currently hardcoded at 20)
+- [ ] Configurable QSO grid size (currently hardcoded at 20) — Sprint 7 Track E
 - [ ] Modern UI Mode toggle (Modern default; Classic preserved)
-- [ ] Slice Menu + Filter Menu (slice-centric operating model)
-- [ ] Plain-English Status: Speak Status + Status Dialog (replace alphabet soup in Modern)
+- [ ] Plain-English Status: Speak Status + Status Dialog (replace alphabet soup in Modern) — Sprint 7 Track D
 - [ ] Audio management baseline: device selection + rig audio adjust entry point
-- [ ] CW hotkey feedback: Ctrl+1-7 and F12 should speak short message when no CW messages configured
-- [ ] BUG-015: Fix F6 double-announce "Radio pane" in Logging Mode (remove FreqBox Enter handler Speak call)
-- [ ] Update CHANGELOG discipline + code commenting guideline doc
-- [ ] WPF migration: LogPanel + Station Lookup (Sprint 7 — see WPF Migration section)
-- [ ] Recent QSOs grid: 1-based row indexing for screen readers (comes free with WPF DataGrid)
+- [ ] CW hotkey feedback: Ctrl+1-7 and F12 should speak short message when no CW messages configured — Sprint 7 Track A
+- [ ] BUG-015: Fix F6 double-announce "Radio pane" in Logging Mode — Sprint 7 Track A
+- [ ] Update CHANGELOG discipline + code commenting guideline doc — Sprint 7 Track A
+- [ ] WPF migration: LogPanel + Station Lookup (Sprint 7 Track B — see WPF Migration section)
+- [ ] Station Lookup → Log Contact + distance/bearing — Sprint 7 Track C
+- [ ] Slice Menu + Filter Menu (slice-centric operating model) — Sprint 8
+- [ ] QSO Grid: full filtering (band, mode, country, date range, callsign) + paging — Sprint 8
+- [ ] QSO Grid: row-0→1 indexing fix (comes free with WPF DataGrid) — Sprint 8
+- [ ] WPF migration: Command Finder + DefineCommands — Sprint 8
+- [ ] QRZ per-QSO upload checkbox in LogPanel tab order (Alt+Q) — Sprint 9
+- [ ] QRZ confirmation status check/request from QSO Grid — Sprint 9
+- [ ] QRZ data import (bulk sync) — Sprint 9
+- [ ] WPF migration: PersonalInfo + LogCharacteristics — Sprint 9
 
 ## Slice UI & Status
 - [ ] Define ActiveSlice rules and announce/earcon behaviors
@@ -157,6 +164,53 @@ Last updated: 2026-02-12
 ## Ecosystem
 - [ ] 4O3A device integration plan (SDK/protocol + device matrix)
 - [ ] Tuner Genius support planning
+
+## QSO Grid — Full-Featured Log Viewer (Sprint 8)
+
+Rename "Recent QSOs grid" → "QSO Grid". Default view: filter to recent (preserves current behavior).
+
+- [ ] Filter bar: band, mode, country, date range, callsign, free-text search
+- [ ] Apply filter → paged results with accessible announcement: "Loaded N more, showing X of Y"
+- [ ] Down arrow at bottom of grid → load next page (10-20 rows)
+- [ ] Row-0→1 indexing (WPF DataGrid gives this for free)
+- [ ] Configurable default page size (from Sprint 7 Track E setting)
+- [ ] Screen reader: announce filter results count, page loads, selected row details
+- [ ] Clear filter → return to "recent" default view
+
+## QRZ Deep Integration (Sprint 9)
+
+Per-QSO upload with operator control, plus data import and confirmation features.
+
+### Per-QSO Upload Checkbox
+- Add "Upload to QRZ" checkbox as **last field in LogPanel tab order** (after Comments)
+- Hotkey: **Alt+Q** jumps directly to checkbox (quick toggle for ragchew QSOs)
+- Default state driven by operator settings: "Upload QSOs to QRZ by default" checkbox in PersonalInfo
+- If settings checked → checkbox pre-checked on every new QSO
+- Operator can uncheck per-QSO (e.g., another QSO with Don — he'll never confirm anyway)
+- On Ctrl+W (save): if checked → save locally AND push to QRZ API; if unchecked → save locally only
+- Screen reader: "Upload to QRZ, checked" / "Upload to QRZ, unchecked"
+- Tab order: Call(Alt+C) → RST Sent → RST Rcvd → Name → QTH → State → Grid → Comments → Upload to QRZ(Alt+Q) → Ctrl+W saves
+
+### QRZ Confirmation
+- Check confirmation status from QSO Grid (hotkey on selected QSO)
+- Request confirmation if QRZ API supports it
+- Bulk confirmation status check (filter unconfirmed QSOs)
+
+### Data Import
+- Bulk upload existing log to QRZ Logbook
+- Import QSOs from QRZ into local log (sync)
+- Settings-driven: enable/disable auto-upload globally
+
+## Multi-Slice Decode & Auto Snap (future — multiple sprints)
+
+Full design docs in `docs/planning/design/multislice-decode/`. Key features:
+- Per-slice CW + digital decoding with structured DecodeEvent pipeline
+- DecodeAggregator: unified stacked feed (CW / Digital / All tabs)
+- Auto Slice Snap policy engine: Trigger → Eligibility → ActionSet → Confirmation
+- Five snap levels (0: highlight → 4: contest mode) — never auto-TX
+- Keyboard-first navigation: Up/Down signals, Enter to snap, F6 toggle panes, J/Shift+J jump CQs
+- Accessibility-first: Tolk for confirmations, UIA live regions for passive, speech modes (off/active/background/events-only)
+- Safety: no auto-TX, no focus change during TX, pin override, undo last snap
 
 ## Logging Mode Customization (future sprint)
 - [ ] Customizable LogPanel field layout: let operators choose which fields appear in the quick-entry logger. JJ's full LogEntry form remains available via Ctrl+Alt+L for all fields. The field picker must be fully accessible (screen-reader-friendly list with add/remove/reorder).

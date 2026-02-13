@@ -1,0 +1,325 @@
+{
+  "doc": {
+    "id": "jjflex-multislice-decode-autosnap",
+    "title": "JJ Flex Multi-Slice Decode + Auto Snap Model",
+    "version": "0.1.0",
+    "status": "draft",
+    "last_updated": "2026-02-13",
+    "notes": [
+      "Accessibility is a semantic layer independent of visuals.",
+      "Automation assists but must remain operator-controlled and reversible.",
+      "No feature may cause automatic transmission."
+    ]
+  },
+  "goals": [
+    "Simultaneous decoding per slice (CW + digital).",
+    "Unified stacked decode feed with per-slice tagging.",
+    "Fast keyboard-first navigation across signals and decode lines.",
+    "Configurable Auto Slice Snap behaviors with safety rails.",
+    "Screen reader-friendly speech strategy using Tolk plus optional UIA live regions."
+  ],
+  "non_goals": [
+    "Automatic transmission or auto-keying.",
+    "Forcing focus changes while TX is active.",
+    "Relying on visuals alone for meaning."
+  ],
+  "data_model": {
+    "slice": {
+      "fields": [
+        "sliceId",
+        "mode",
+        "frequencyHz",
+        "filterWidthHz",
+        "isPinned",
+        "isPrimary",
+        "signalStrength",
+        "snr",
+        "decoderEnabled",
+        "lastHeardSummary"
+      ]
+    },
+    "decodeEvent": {
+      "fields": [
+        "eventId",
+        "sliceId",
+        "mode",
+        "frequencyHz",
+        "timestampUtc",
+        "decodedText",
+        "confidence",
+        "tags"
+      ],
+      "tags_examples": [
+        "CQ",
+        "MYCALL",
+        "WATCHLIST",
+        "CALLSIGN_DETECTED",
+        "EXCHANGE",
+        "LOW_CONFIDENCE"
+      ]
+    },
+    "qso": {
+      "fields": [
+        "qsoId",
+        "timestampUtc",
+        "callsign",
+        "band",
+        "mode",
+        "frequencyHz",
+        "rstSent",
+        "rstRcvd",
+        "country",
+        "grid",
+        "notes"
+      ]
+    }
+  },
+  "components": {
+    "decoders": {
+      "per_slice": true,
+      "threading": {
+        "run_off_ui_thread": true,
+        "non_blocking_publish": true
+      },
+      "outputs": [
+        "decodeEvent"
+      ]
+    },
+    "decodeAggregator": {
+      "responsibilities": [
+        "Subscribe to all slice decoders.",
+        "Normalize/tag DecodeEvents by slice.",
+        "Maintain stacked feed (All) and per-mode feeds (CW/Digital).",
+        "Optional filtering by slice/mode/tags.",
+        "Optional coalescing/throttling for speech."
+      ],
+      "feeds": [
+        "cwFeed",
+        "digitalFeed",
+        "allFeed"
+      ]
+    },
+    "ui": {
+      "tabs": [
+        "CW",
+        "Digital",
+        "All"
+      ],
+      "panes_per_tab": [
+        {
+          "name": "signalsList",
+          "purpose": "List of active decoders/signals (typically per slice).",
+          "primary_navigation": [
+            "Up",
+            "Down",
+            "Enter"
+          ]
+        },
+        {
+          "name": "decodeLinesList",
+          "purpose": "Decode lines for selected signal OR stacked feed (All tab).",
+          "primary_navigation": [
+            "Up",
+            "Down",
+            "Enter"
+          ]
+        }
+      ],
+      "hotkeys_suggested": {
+        "switch_tab_next": "Ctrl+Tab",
+        "switch_tab_prev": "Ctrl+Shift+Tab",
+        "toggle_pane": "F6",
+        "toggle_snap": "Ctrl+Alt+S",
+        "pin_slice": "Ctrl+Alt+P",
+        "undo_snap": "Ctrl+Alt+Z",
+        "repeat_last_decode": "R",
+        "jump_next_cq": "J",
+        "jump_prev_cq": "Shift+J"
+      }
+    },
+    "accessibility": {
+      "principles": [
+        "Do not steal focus automatically for streaming updates.",
+        "Provide stable structure (list/grid) for navigation.",
+        "Announce significant changes once per action."
+      ],
+      "speech": {
+        "tolk": {
+          "use_for": [
+            "Snap confirmations",
+            "Errors and auth failures",
+            "Critical state changes (connect/disconnect, TX start/stop)",
+            "Paging announcements (Loaded N more...)"
+          ]
+        },
+        "uia_live_regions": {
+          "use_for": [
+            "Passive updates (optional)",
+            "Status banners",
+            "Non-critical notifications"
+          ],
+          "note": "Live regions should be throttled; do not spam character-by-character decode."
+        },
+        "modes": [
+          {
+            "id": "off",
+            "description": "No automatic speech for decode lines."
+          },
+          {
+            "id": "active_only",
+            "description": "Speak only the active slice\u2019s decode stream."
+          },
+          {
+            "id": "active_plus_background_prefixed",
+            "description": "Speak active + background with slice prefix (e.g., 'Slice B: ...')."
+          },
+          {
+            "id": "events_only",
+            "description": "Speak only tagged events (CQ, MYCALL, WATCHLIST)."
+          }
+        ]
+      }
+    },
+    "snapPolicyEngine": {
+      "model": "Trigger -> Eligibility -> ActionSet -> Confirmation",
+      "state": {
+        "snapEnabled": true,
+        "snapLevel": 2,
+        "pinnedSlicesBlockSnap": true,
+        "undoStackEnabled": true
+      },
+      "triggers": [
+        "USER_ACTIVATE_DECODE_LINE",
+        "USER_ACTIVATE_SIGNAL",
+        "DETECT_CQ",
+        "DETECT_MYCALL",
+        "WATCHLIST_MATCH",
+        "SNR_THRESHOLD_CROSSED",
+        "SPOT_MATCH"
+      ],
+      "eligibility_checks": [
+        {
+          "id": "NOT_TRANSMITTING",
+          "rule": "snap is blocked if txActive == true"
+        },
+        {
+          "id": "NOT_MANUAL_TUNING",
+          "rule": "snap is blocked if manualTuneInProgress == true"
+        },
+        {
+          "id": "SLICE_NOT_PINNED",
+          "rule": "snap is blocked if targetSlice.isPinned == true"
+        },
+        {
+          "id": "CONFIDENCE_OK",
+          "rule": "snap is blocked if decodeEvent.confidence < confidenceThreshold"
+        }
+      ],
+      "snap_levels": [
+        {
+          "level": 0,
+          "name": "HighlightOnly",
+          "actions": [
+            "VISUAL_HIGHLIGHT_TARGET",
+            "OPTIONAL_SPEECH_CANDIDATE"
+          ]
+        },
+        {
+          "level": 1,
+          "name": "FocusOnly",
+          "actions": [
+            "SET_SLICE_PRIMARY",
+            "OPTIONAL_SPEECH_FOCUSED"
+          ]
+        },
+        {
+          "level": 2,
+          "name": "FocusPlusFilter",
+          "actions": [
+            "SET_SLICE_PRIMARY",
+            "APPLY_MODE_DEFAULT_FILTER",
+            "ZERO_BEAT_TO_SIDETONE",
+            "OPTIONAL_SPEECH_FILTER_CHANGED"
+          ]
+        },
+        {
+          "level": 3,
+          "name": "FullAssist",
+          "actions": [
+            "SET_SLICE_PRIMARY",
+            "APPLY_MODE_DEFAULT_FILTER",
+            "ZERO_BEAT_TO_SIDETONE",
+            "OPTIONAL_PANADAPTER_FOLLOWS_FOCUS",
+            "OPTIONAL_WATERFALL_FOLLOWS_FOCUS",
+            "OPTIONAL_SPEECH_ASSIST_SUMMARY"
+          ]
+        },
+        {
+          "level": 4,
+          "name": "ContestMode",
+          "actions": [
+            "QUEUE_TARGETS_FROM_TRIGGERS",
+            "SET_SLICE_PRIMARY_ON_EXPLICIT_USER_ACTION",
+            "OPTIONAL_PRIORITY_RULES",
+            "SPEECH_EVENTS_ONLY_BY_DEFAULT"
+          ],
+          "constraints": [
+            "NO_AUTO_TX",
+            "REQUIRES_USER_CONFIRM_FOR_TX_ARM"
+          ]
+        }
+      ],
+      "safety_rules": [
+        "NO_AUTO_TRANSMIT",
+        "NO_FOCUS_CHANGE_DURING_TX",
+        "PINNED_SLICES_NEVER_TOUCHED",
+        "UNDO_LAST_SNAP_AVAILABLE",
+        "OPTIONAL_CONFIRM_IF_RETUNE_DELTA_EXCEEDS_THRESHOLD"
+      ]
+    },
+    "_note_qsoPaging": "QSO paging/filtering moved to QSO Grid feature (Sprint 8) — see JJFlex-TODO.md",
+    "followTail": {
+      "purpose": "Optional 'follow newest' behavior for live-updating streams.",
+      "modes": [
+        "OFF",
+        "VISUAL_ONLY",
+        "VISUAL_PLUS_SPEECH"
+      ],
+      "rules": [
+        "Never move focus automatically.",
+        "Prefer announcing 'new items available' unless user explicitly enables follow."
+      ]
+    }
+  },
+  "backlog_seed": {
+    "epics": [
+      {
+        "id": "EPIC-DECODE-MULTISLICE",
+        "title": "Multi-slice decode pipeline",
+        "stories": [
+          "Per-slice decoder interface + event publishing",
+          "DecodeAggregator with CW/Digital/All feeds",
+          "Stacked decode UI with tabbed signals + lines panes",
+          "Speech chunking and throttling rules"
+        ]
+      },
+      {
+        "id": "EPIC-SNAP-POLICY",
+        "title": "Auto Slice Snap policy engine",
+        "stories": [
+          "Snap triggers + eligibility checks",
+          "Snap levels 0\u20132 MVP (Highlight/Focus/Focus+Filter)",
+          "Pin slice + Undo last snap",
+          "User settings for snap + speech modes"
+        ]
+      },
+      {
+        "id": "EPIC-QSO-PAGING",
+        "title": "Paged QSOs view (MOVED to QSO Grid — Sprint 8)",
+        "stories": [
+          "See JJFlex-TODO.md > QSO Grid section"
+        ]
+      }
+    ]
+  }
+}
