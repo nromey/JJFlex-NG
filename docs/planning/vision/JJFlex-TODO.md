@@ -79,6 +79,8 @@ Last updated: 2026-02-11
 - [ ] Plain-English Status: Speak Status + Status Dialog (replace alphabet soup in Modern)
 - [ ] Audio management baseline: device selection + rig audio adjust entry point
 - [ ] Update CHANGELOG discipline + code commenting guideline doc
+- [ ] WPF migration: LogPanel + Station Lookup (Sprint 7 — see WPF Migration section)
+- [ ] Recent QSOs grid: 1-based row indexing for screen readers (comes free with WPF DataGrid)
 
 ## Slice UI & Status
 - [ ] Define ActiveSlice rules and announce/earcon behaviors
@@ -126,6 +128,40 @@ Last updated: 2026-02-11
 - [ ] Settings tab for managing Logging Mode preferences (suppress confirmations, etc.)
 - [ ] Screen reader verbosity levels (concise vs. verbose announcements for pileup vs. ragchew)
 - [ ] Contest-specific exchange validation (Field Day, NA Sprint, etc. — each has different required fields)
+
+## WPF Migration (incremental, ongoing)
+
+**Goal:** Replace WinForms controls with WPF for better native UI Automation, screen reader support, and modern UI capabilities. Migrate incrementally — 2 forms per sprint, new forms always WPF. WinForms shell (Form1) stays until most content is WPF.
+
+**Why:** WinForms uses MSAA accessibility bridge which causes quirks (DataGridView row-0 indexing, menu items needing manual `AccessibleName`, etc.). WPF has native UIA support — controls expose automation properties automatically. JAWS/NVDA work more reliably with WPF.
+
+**Rules going forward:**
+- All NEW forms/dialogs → WPF from day one
+- Existing forms → convert 2 per sprint alongside feature work
+- WPF controls hosted in WinForms via `ElementHost` during transition
+- Test each conversion with JAWS + NVDA before marking done
+
+**Migration roadmap:**
+
+| Priority | Form | Why | Sprint |
+|----------|------|-----|--------|
+| 1 | LogPanel (QSO grid + entry fields) | Biggest a11y win — fixes row-0, field nav | 7 |
+| 2 | Station Lookup (+ Log Contact button) | Small form, DX workflow, validates approach | 7 |
+| 3 | Command Finder | Already new, natural WPF fit | 8 |
+| 4 | DefineCommands (hotkey settings) | Tabbed UI, benefits from WPF TabControl | 8 |
+| 5 | PersonalInfo (settings) | Straightforward form conversion | 9 |
+| 6 | LogCharacteristics | Small dialog | 9 |
+| 7 | Modern menus → WPF Menu control | Eliminates AccessibleName workarounds | 10 |
+| 8 | StationLookup full redesign | Distance/bearing, richer layout | 10 |
+| — | Form1 shell | Last — when most content is WPF | Future |
+
+**Acceptance criteria per conversion:**
+- [ ] WPF control/window created with proper AutomationProperties
+- [ ] Hosted via ElementHost (or standalone WPF Window for dialogs)
+- [ ] JAWS announces all controls, grids show 1-based rows
+- [ ] NVDA announces all controls, same behavior
+- [ ] Tab order logical, focus management correct across WinForms↔WPF boundary
+- [ ] No regression in existing functionality
 
 ## Long-term
 - [ ] RTL-SDR/Airspy/SDRplay source support planning
