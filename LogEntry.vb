@@ -1,6 +1,7 @@
 ﻿Imports System.Collections.Generic
 Imports System.Collections.ObjectModel
 Imports System.IO
+Imports System.Media
 Imports System.Threading
 Imports adif
 Imports JJLogLib
@@ -722,7 +723,7 @@ Friend Class LogEntry
         setFieldText(AdifTags.iADIF_DupCount, CStr(ct))
         isDup = (ct > 1)
         If isDup Then
-            Console.Beep(880, 400)
+            SystemSounds.Exclamation.Play()
         End If
     End Sub
 

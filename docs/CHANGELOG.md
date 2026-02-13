@@ -33,12 +33,15 @@ This release packs two full feature tracks plus a major hotkey overhaul. The cal
 ### Other Fixes
 
 - **"Coming soon" stubs speak (BUG-011)**: Modern mode placeholder menu items now include "coming soon" directly in the menu text so all screen readers announce it. Previously only AccessibleName had the suffix, which JAWS and NVDA ignored on disabled items.
+- **Hotkey XML corruption (BUG-014)**: Combined Keys values (e.g., Ctrl+C) were getting decomposed by XmlSerializer into unparseable flag names, silently losing your bindings on restart. Hotkeys are now stored as integers with a contamination guard — if a loaded key is Keys.None but the built-in default has a real binding, the default is preserved.
 - **Full Log Form access (Ctrl+Alt+L)**: Pop open JJ's full LogEntry form as a modal from Logging Mode.
 - **Station Lookup upgraded (Ctrl+L)**: Uses your configured callbook service with DX country announcements.
 - **Natural screen reader announcements**: Callbook results spoken as values — "Robert, College Station, Texas" — not field names.
 - **UTC timestamp fix (BUG-005)**: Each QSO now gets a fresh timestamp (was stuck at first QSO's time).
 - **Callbook announcement queueing (BUG-006)**: Callbook results queue after field announcements during fast tabbing.
 - **Modern menu accessibility (BUG-009)**: All Modern mode menus and submenus now have proper AccessibleName.
+- **Ctrl+Shift+M in Logging Mode**: Previously ignored the toggle. Now exits Logging Mode first, then switches Classic/Modern as expected.
+- **F6 pane switch cleanup**: Removed a duplicate Speak call and ensured the key is marked as handled before the routine runs, preventing edge cases where F6 could leak to the MenuStrip.
 
 ## 4.1.12.0 - Logging Mode
 
@@ -163,12 +166,12 @@ I did a cleanup pass here but never shipped it. Think of this as a scratchpad re
 - Base: Start of 4.x line, compatibility with SmartSDR 4.0
 - Infra: Project file updates and initial docs for missing features
 
-## Upcoming
-- **Callbook graceful degradation** - QRZ auto-fallback to HamQTH on login failure, built-in HamQTH for LogPanel when no personal credentials configured
-- **Audio Controls** - Audio Boost menu and hotkey for adjusting PC Audio gain, Local Flex Audio volume control, and possibly audio device hot-swap
-- Station Lookup: distance and bearing to station (for beam/rotator directionality)
-- Configurable "Recent QSOs" grid size (currently 20, will be a setting)
-- Diversity status announcements for screen reader users
-- Meter announcements (ALC, SWR, signal strength) on demand
-- See `docs/TODO.md` and `docs/planning/vision/JJFlex-TODO.md` for the full feature backlog
+## Upcoming (Sprint 7+)
+- **WPF migration**: LogPanel and Station Lookup converting from WinForms to WPF for native UIA support — fixes DataGridView row-0 indexing, automatic AutomationProperties, better JAWS/NVDA reliability
+- **Station Lookup enhancements**: "Log Contact" button (pre-fills Logging Mode from lookup), distance and bearing calculation from operator grid to station grid
+- **Plain-English Status**: Speak Status hotkey for concise spoken radio summary, Status Dialog for full accessible display
+- **Configurable QSO grid size**: Choose how many recent QSOs appear in Logging Mode (currently hardcoded at 20)
+- **Slice Menu**: Full slice operating model in Modern mode (Sprint 8)
+- **QSO Grid**: Filtering, paging, and row-1 indexing (Sprint 8)
+- See `docs/planning/vision/JJFlex-TODO.md` for the full feature backlog
 

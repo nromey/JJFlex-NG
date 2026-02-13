@@ -205,10 +205,6 @@ Friend Class RadioPane
                                      New Font(Me.Font.FontFamily, 12, FontStyle.Bold))
         FreqBox.Text = "No radio"
         FreqBox.TabIndex = 0
-        ' Announce "Radio pane" when Tab first lands on FreqBox.
-        AddHandler FreqBox.Enter, Sub(s As Object, ev As EventArgs)
-                                      ScreenReaderOutput.Speak("Radio pane", True)
-                                  End Sub
         yPos += 30
 
         ' Mode

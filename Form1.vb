@@ -2825,14 +2825,49 @@ RadioConnected:
         AddModernStubItem(sliceMode, "FM")
         AddModernStubItem(sliceMode, "DIGU")
         AddModernStubItem(sliceMode, "DIGL")
-        ' Audio submenu
+        ' Audio submenu — wired to FlexBase slice audio properties
         Dim sliceAudio = AddModernSubmenu(ModernSliceMenu, "Audio")
-        AddModernStubItem(sliceAudio, "Mute/Unmute")
-        AddModernStubItem(sliceAudio, "Volume Up")
-        AddModernStubItem(sliceAudio, "Volume Down")
-        AddModernStubItem(sliceAudio, "Pan Left")
-        AddModernStubItem(sliceAudio, "Pan Center")
-        AddModernStubItem(sliceAudio, "Pan Right")
+        AddModernMenuItem(sliceAudio, "Mute/Unmute",
+            Sub(s As Object, ev As EventArgs)
+                If Not ModernMenuRequireSlice() Then Return
+                Dim muted = Not RigControl.SliceMute
+                RigControl.SliceMute = muted
+                Radios.ScreenReaderOutput.Speak(If(muted, "Muted", "Unmuted"), True)
+            End Sub)
+        AddModernMenuItem(sliceAudio, "Volume Up",
+            Sub(s As Object, ev As EventArgs)
+                If Not ModernMenuRequireSlice() Then Return
+                Dim gain = Math.Min(RigControl.AudioGain + 5, 100)
+                RigControl.AudioGain = gain
+                Radios.ScreenReaderOutput.Speak("Volume " & gain, True)
+            End Sub)
+        AddModernMenuItem(sliceAudio, "Volume Down",
+            Sub(s As Object, ev As EventArgs)
+                If Not ModernMenuRequireSlice() Then Return
+                Dim gain = Math.Max(RigControl.AudioGain - 5, 0)
+                RigControl.AudioGain = gain
+                Radios.ScreenReaderOutput.Speak("Volume " & gain, True)
+            End Sub)
+        AddModernMenuItem(sliceAudio, "Pan Left",
+            Sub(s As Object, ev As EventArgs)
+                If Not ModernMenuRequireSlice() Then Return
+                Dim pan = Math.Max(RigControl.AudioPan - 10, 0)
+                RigControl.AudioPan = pan
+                Radios.ScreenReaderOutput.Speak("Pan " & pan, True)
+            End Sub)
+        AddModernMenuItem(sliceAudio, "Pan Center",
+            Sub(s As Object, ev As EventArgs)
+                If Not ModernMenuRequireSlice() Then Return
+                RigControl.AudioPan = 50
+                Radios.ScreenReaderOutput.Speak("Pan centered", True)
+            End Sub)
+        AddModernMenuItem(sliceAudio, "Pan Right",
+            Sub(s As Object, ev As EventArgs)
+                If Not ModernMenuRequireSlice() Then Return
+                Dim pan = Math.Min(RigControl.AudioPan + 10, 100)
+                RigControl.AudioPan = pan
+                Radios.ScreenReaderOutput.Speak("Pan " & pan, True)
+            End Sub)
         ' Tuning submenu
         Dim sliceTuning = AddModernSubmenu(ModernSliceMenu, "Tuning")
         AddModernStubItem(sliceTuning, "RIT On/Off")
@@ -2847,18 +2882,58 @@ RadioConnected:
         AddModernStubItem(sliceReceiver, "Squelch On/Off")
         AddModernStubItem(sliceReceiver, "Squelch Level")
         AddModernStubItem(sliceReceiver, "RF Gain")
-        ' DSP submenu
+        ' DSP submenu — wired to FlexBase DSP toggle properties
         Dim sliceDSP = AddModernSubmenu(ModernSliceMenu, "DSP")
         Dim dspNR = AddModernSubmenu(sliceDSP, "Noise Reduction")
-        AddModernStubItem(dspNR, "Neural NR (RNN)")
-        AddModernStubItem(dspNR, "Spectral NR (NRS)")
-        AddModernStubItem(dspNR, "Legacy NR")
+        AddModernMenuItem(dspNR, "Neural NR (RNN)",
+            Sub(s As Object, ev As EventArgs)
+                If Not ModernMenuRequireSlice() Then Return
+                RigControl.NeuralNoiseReduction = RigControl.ToggleOffOn(RigControl.NeuralNoiseReduction)
+                Radios.ScreenReaderOutput.Speak("Neural NR " & If(RigControl.NeuralNoiseReduction = Radios.FlexBase.OffOnValues.on, "on", "off"), True)
+            End Sub)
+        AddModernMenuItem(dspNR, "Spectral NR (NRS)",
+            Sub(s As Object, ev As EventArgs)
+                If Not ModernMenuRequireSlice() Then Return
+                RigControl.SpectralNoiseReduction = RigControl.ToggleOffOn(RigControl.SpectralNoiseReduction)
+                Radios.ScreenReaderOutput.Speak("Spectral NR " & If(RigControl.SpectralNoiseReduction = Radios.FlexBase.OffOnValues.on, "on", "off"), True)
+            End Sub)
+        AddModernMenuItem(dspNR, "Legacy NR",
+            Sub(s As Object, ev As EventArgs)
+                If Not ModernMenuRequireSlice() Then Return
+                RigControl.NoiseReductionLegacy = RigControl.ToggleOffOn(RigControl.NoiseReductionLegacy)
+                Radios.ScreenReaderOutput.Speak("Legacy NR " & If(RigControl.NoiseReductionLegacy = Radios.FlexBase.OffOnValues.on, "on", "off"), True)
+            End Sub)
         Dim dspANF = AddModernSubmenu(sliceDSP, "Auto Notch")
-        AddModernStubItem(dspANF, "FFT Auto-Notch")
-        AddModernStubItem(dspANF, "Legacy Auto-Notch")
-        AddModernStubItem(sliceDSP, "Noise Blanker (NB)")
-        AddModernStubItem(sliceDSP, "Wideband NB (WNB)")
-        AddModernStubItem(sliceDSP, "Audio Peak Filter (APF)")
+        AddModernMenuItem(dspANF, "FFT Auto-Notch",
+            Sub(s As Object, ev As EventArgs)
+                If Not ModernMenuRequireSlice() Then Return
+                RigControl.AutoNotchFFT = RigControl.ToggleOffOn(RigControl.AutoNotchFFT)
+                Radios.ScreenReaderOutput.Speak("FFT Auto-Notch " & If(RigControl.AutoNotchFFT = Radios.FlexBase.OffOnValues.on, "on", "off"), True)
+            End Sub)
+        AddModernMenuItem(dspANF, "Legacy Auto-Notch",
+            Sub(s As Object, ev As EventArgs)
+                If Not ModernMenuRequireSlice() Then Return
+                RigControl.AutoNotchLegacy = RigControl.ToggleOffOn(RigControl.AutoNotchLegacy)
+                Radios.ScreenReaderOutput.Speak("Legacy Auto-Notch " & If(RigControl.AutoNotchLegacy = Radios.FlexBase.OffOnValues.on, "on", "off"), True)
+            End Sub)
+        AddModernMenuItem(sliceDSP, "Noise Blanker (NB)",
+            Sub(s As Object, ev As EventArgs)
+                If Not ModernMenuRequireSlice() Then Return
+                RigControl.NoiseBlanker = RigControl.ToggleOffOn(RigControl.NoiseBlanker)
+                Radios.ScreenReaderOutput.Speak("Noise Blanker " & If(RigControl.NoiseBlanker = Radios.FlexBase.OffOnValues.on, "on", "off"), True)
+            End Sub)
+        AddModernMenuItem(sliceDSP, "Wideband NB (WNB)",
+            Sub(s As Object, ev As EventArgs)
+                If Not ModernMenuRequireSlice() Then Return
+                RigControl.WidebandNoiseBlanker = RigControl.ToggleOffOn(RigControl.WidebandNoiseBlanker)
+                Radios.ScreenReaderOutput.Speak("Wideband NB " & If(RigControl.WidebandNoiseBlanker = Radios.FlexBase.OffOnValues.on, "on", "off"), True)
+            End Sub)
+        AddModernMenuItem(sliceDSP, "Audio Peak Filter (APF)",
+            Sub(s As Object, ev As EventArgs)
+                If Not ModernMenuRequireSlice() Then Return
+                RigControl.APF = RigControl.ToggleOffOn(RigControl.APF)
+                Radios.ScreenReaderOutput.Speak("Audio Peak Filter " & If(RigControl.APF = Radios.FlexBase.OffOnValues.on, "on", "off"), True)
+            End Sub)
         ' Antenna submenu
         Dim sliceAntenna = AddModernSubmenu(ModernSliceMenu, "Antenna")
         AddModernStubItem(sliceAntenna, "RX Antenna")
@@ -2878,10 +2953,33 @@ RadioConnected:
             .AccessibleRole = AccessibleRole.MenuPopup,
             .Visible = False
         }
-        AddModernStubItem(ModernFilterMenu, "Narrow")
-        AddModernStubItem(ModernFilterMenu, "Widen")
-        AddModernStubItem(ModernFilterMenu, "Shift Low Edge")
-        AddModernStubItem(ModernFilterMenu, "Shift High Edge")
+        ' Filter menu items — wired to FlexBase filter properties (50 Hz step)
+        AddModernMenuItem(ModernFilterMenu, "Narrow",
+            Sub(s As Object, ev As EventArgs)
+                If Not ModernMenuRequireSlice() Then Return
+                RigControl.FilterLow = RigControl.FilterLow + 50
+                RigControl.FilterHigh = RigControl.FilterHigh - 50
+                Radios.ScreenReaderOutput.Speak("Filter " & RigControl.FilterLow & " to " & RigControl.FilterHigh, True)
+            End Sub)
+        AddModernMenuItem(ModernFilterMenu, "Widen",
+            Sub(s As Object, ev As EventArgs)
+                If Not ModernMenuRequireSlice() Then Return
+                RigControl.FilterLow = RigControl.FilterLow - 50
+                RigControl.FilterHigh = RigControl.FilterHigh + 50
+                Radios.ScreenReaderOutput.Speak("Filter " & RigControl.FilterLow & " to " & RigControl.FilterHigh, True)
+            End Sub)
+        AddModernMenuItem(ModernFilterMenu, "Shift Low Edge",
+            Sub(s As Object, ev As EventArgs)
+                If Not ModernMenuRequireSlice() Then Return
+                RigControl.FilterLow = RigControl.FilterLow + 50
+                Radios.ScreenReaderOutput.Speak("Low edge " & RigControl.FilterLow, True)
+            End Sub)
+        AddModernMenuItem(ModernFilterMenu, "Shift High Edge",
+            Sub(s As Object, ev As EventArgs)
+                If Not ModernMenuRequireSlice() Then Return
+                RigControl.FilterHigh = RigControl.FilterHigh + 50
+                Radios.ScreenReaderOutput.Speak("High edge " & RigControl.FilterHigh, True)
+            End Sub)
         AddModernStubItem(ModernFilterMenu, "Presets")
         AddModernStubItem(ModernFilterMenu, "Reset Filter")
 
@@ -2950,6 +3048,22 @@ RadioConnected:
         AttachMenuAccessibilityHandlers(ModernAudioMenu)
         AttachMenuAccessibilityHandlers(ModernToolsMenu)
     End Sub
+
+    ''' <summary>
+    ''' Guard for Modern menu items that need a connected radio with an active slice.
+    ''' Returns True if ready, False (with spoken feedback) if not.
+    ''' </summary>
+    Private Function ModernMenuRequireSlice() As Boolean
+        If RigControl Is Nothing OrElse Not Power Then
+            Radios.ScreenReaderOutput.Speak("No radio connected", True)
+            Return False
+        End If
+        If Not RigControl.HasActiveSlice Then
+            Radios.ScreenReaderOutput.Speak("No active slice", True)
+            Return False
+        End If
+        Return True
+    End Function
 
     ''' <summary>
     ''' Add a menu item that delegates to an existing handler.
