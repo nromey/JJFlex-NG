@@ -329,6 +329,9 @@ git worktree remove ../jjflex-trackC
 ### Plan File Names
 Plan files are named with three random ham-radio-flavored words, e.g. `barefoot-qrm-trap`. Use ham radio terms (QRM, QSO, ragchew, barefoot, rig, shack, pileup, splatter, etc.) mixed with random fun words. Keep it lighthearted — this is a ham radio project!
 
+### Test Matrices
+Create a separate test matrix file for each sprint: `docs/planning/agile/sprintN-test-matrix.md`. This keeps the test checklist accessible during testing without having to dig through the full sprint plan. Include per-track functional tests, integration tests, and a screen reader matrix (JAWS + NVDA). Archive alongside the sprint plan when done.
+
 ### Resuming Work
 If a session ends mid-task, tell Claude: "Resume [phase/task name] from `docs/barefoot-qrm-trap.md`"
 
