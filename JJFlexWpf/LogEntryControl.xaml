@@ -5,11 +5,11 @@
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              mc:Ignorable="d"
              d:DesignHeight="500" d:DesignWidth="450"
-             Focusable="True"
+             Focusable="False"
              PreviewKeyDown="UserControl_PreviewKeyDown">
-    <DockPanel LastChildFill="True">
+    <DockPanel LastChildFill="True" AutomationProperties.Name="">
         <!-- Top: Entry fields (fixed height) -->
-        <Grid DockPanel.Dock="Top" Margin="4">
+        <Grid DockPanel.Dock="Top" Margin="4" AutomationProperties.Name="">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="80"/>
                 <ColumnDefinition Width="150"/>

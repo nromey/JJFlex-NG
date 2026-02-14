@@ -82,8 +82,11 @@ Friend Class LogPanel
     Friend Sub New()
         MyBase.New()
         Me.Name = "LogPanel"
-        Me.AccessibleName = "Log entry pane"
-        Me.AccessibleRole = AccessibleRole.Pane
+        Me.AccessibleName = ""
+        ' Use Client role to make this container transparent to screen readers.
+        ' The WPF content inside has proper AutomationProperties for individual
+        ' controls — we don't want the SR announcing container names on focus.
+        Me.AccessibleRole = AccessibleRole.Client
         BuildControls()
     End Sub
 
@@ -303,7 +306,11 @@ Friend Class LogPanel
     ''' Focus the call sign field.
     ''' </summary>
     Friend Sub FocusCallSign()
-        wpfHost.Focus()
+        ' Set WinForms focus to ElementHost, then immediately set WPF keyboard
+        ' focus to CallSignBox. Do NOT call wpfHost.Focus() separately — the
+        ' two-step focus causes JAWS to announce intermediate container names
+        ' ("contact", "unknown") before landing on the TextBox.
+        If wpfHost IsNot Nothing Then wpfHost.Select()
         wpfControl.FocusCallSign()
     End Sub
 
@@ -312,8 +319,16 @@ Friend Class LogPanel
     ''' Logging Mode field-jump hotkeys (Alt+C, Alt+R, etc.).
     ''' </summary>
     Friend Sub FocusField(fieldName As String)
-        wpfHost.Focus()
+        If wpfHost IsNot Nothing Then wpfHost.Select()
         wpfControl.FocusField(fieldName)
+    End Sub
+
+    ''' <summary>
+    ''' Clear WPF keyboard focus so the hidden ElementHost stops intercepting
+    ''' keystrokes. Call this before hiding the Logging SplitContainer.
+    ''' </summary>
+    Friend Sub ClearWpfFocus()
+        wpfControl?.ClearFocus()
     End Sub
 
 #Region "Callbook Lookup"
@@ -1102,11 +1117,17 @@ Friend Class LogPanel
         AddHandler wpfControl.CallSignLeave, AddressOf OnCallSignLeave
         AddHandler wpfControl.EnterPressed, AddressOf OnEnterPressed
         AddHandler wpfControl.EscapePressed, AddressOf OnEscapePressed
+        AddHandler wpfControl.ToggleLoggingModePressed, AddressOf OnToggleLoggingMode
+        AddHandler wpfControl.ToggleUIModePressed, AddressOf OnToggleUIMode
 
         ' Create the ElementHost to bridge WPF into WinForms.
+        ' Set AccessibleRole to None so screen readers don't announce "pane"
+        ' when focus enters the ElementHost — they'll skip straight to the
+        ' WPF content which has proper AutomationProperties.
         wpfHost = New ElementHost() With {
             .Dock = DockStyle.Fill,
-            .Child = wpfControl
+            .Child = wpfControl,
+            .AccessibleRole = AccessibleRole.None
         }
         Me.Controls.Add(wpfHost)
 
@@ -1118,11 +1139,52 @@ Friend Class LogPanel
 #Region "Key Handling"
 
     ''' <summary>
+    ''' Forward Ctrl+Shift+L from WPF to Form1's ToggleLoggingMode.
+    ''' ElementHost doesn't reliably propagate Ctrl+Shift+letter to ProcessCmdKey.
+    ''' Uses BeginInvoke to defer the mode switch until after WPF's keyboard
+    ''' event completes — changing UI mode inside an ElementHost key event
+    ''' can cause reentrancy and focus issues.
+    ''' </summary>
+    Private Sub OnToggleLoggingMode(sender As Object, e As EventArgs)
+        BeginInvoke(Sub()
+                        Dim frm = TryCast(FindForm(), Form1)
+                        If frm IsNot Nothing Then frm.ToggleLoggingMode()
+                    End Sub)
+    End Sub
+
+    ''' <summary>
+    ''' Forward Ctrl+Shift+M from WPF to Form1's ToggleUIMode.
+    ''' </summary>
+    Private Sub OnToggleUIMode(sender As Object, e As EventArgs)
+        BeginInvoke(Sub()
+                        Dim frm = TryCast(FindForm(), Form1)
+                        If frm IsNot Nothing Then frm.ToggleUIMode()
+                    End Sub)
+    End Sub
+
+    ''' <summary>
     ''' Handle keys that need to be caught at the WinForms level.
     ''' Enter and Escape are handled by WPF PreviewKeyDown and forwarded via events.
     ''' This override catches any keys that escape the WPF handling.
     ''' </summary>
     Protected Overrides Function ProcessCmdKey(ByRef msg As Message, keyData As Keys) As Boolean
+        ' Mode-switching combos — catch at UserControl level as fallback.
+        ' These may not reach Form1.ProcessCmdKey when ElementHost has focus.
+        If keyData = (Keys.Control Or Keys.Shift Or Keys.L) Then
+            BeginInvoke(Sub()
+                            Dim frm = TryCast(FindForm(), Form1)
+                            If frm IsNot Nothing Then frm.ToggleLoggingMode()
+                        End Sub)
+            Return True
+        End If
+        If keyData = (Keys.Control Or Keys.Shift Or Keys.M) Then
+            BeginInvoke(Sub()
+                            Dim frm = TryCast(FindForm(), Form1)
+                            If frm IsNot Nothing Then frm.ToggleUIMode()
+                        End Sub)
+            Return True
+        End If
+
         ' Enter — save the QSO (fallback if WPF didn't catch it).
         If keyData = Keys.Enter OrElse keyData = Keys.Return Then
             If session IsNot Nothing AndAlso

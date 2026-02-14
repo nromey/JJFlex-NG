@@ -2885,54 +2885,66 @@ RadioConnected:
         ' DSP submenu — wired to FlexBase DSP toggle properties
         Dim sliceDSP = AddModernSubmenu(ModernSliceMenu, "DSP")
         Dim dspNR = AddModernSubmenu(sliceDSP, "Noise Reduction")
+        ' DSP toggle pattern: compute new value, set it, speak the new value.
+        ' We must speak the computed value (not re-read the property) because
+        ' the setter enqueues the command asynchronously — the getter still
+        ' returns the old value until the radio responds.
         AddModernMenuItem(dspNR, "Neural NR (RNN)",
             Sub(s As Object, ev As EventArgs)
                 If Not ModernMenuRequireSlice() Then Return
-                RigControl.NeuralNoiseReduction = RigControl.ToggleOffOn(RigControl.NeuralNoiseReduction)
-                Radios.ScreenReaderOutput.Speak("Neural NR " & If(RigControl.NeuralNoiseReduction = Radios.FlexBase.OffOnValues.on, "on", "off"), True)
+                Dim newVal = RigControl.ToggleOffOn(RigControl.NeuralNoiseReduction)
+                RigControl.NeuralNoiseReduction = newVal
+                Radios.ScreenReaderOutput.Speak("Neural NR " & If(newVal = Radios.FlexBase.OffOnValues.on, "on", "off"), True)
             End Sub)
         AddModernMenuItem(dspNR, "Spectral NR (NRS)",
             Sub(s As Object, ev As EventArgs)
                 If Not ModernMenuRequireSlice() Then Return
-                RigControl.SpectralNoiseReduction = RigControl.ToggleOffOn(RigControl.SpectralNoiseReduction)
-                Radios.ScreenReaderOutput.Speak("Spectral NR " & If(RigControl.SpectralNoiseReduction = Radios.FlexBase.OffOnValues.on, "on", "off"), True)
+                Dim newVal = RigControl.ToggleOffOn(RigControl.SpectralNoiseReduction)
+                RigControl.SpectralNoiseReduction = newVal
+                Radios.ScreenReaderOutput.Speak("Spectral NR " & If(newVal = Radios.FlexBase.OffOnValues.on, "on", "off"), True)
             End Sub)
         AddModernMenuItem(dspNR, "Legacy NR",
             Sub(s As Object, ev As EventArgs)
                 If Not ModernMenuRequireSlice() Then Return
-                RigControl.NoiseReductionLegacy = RigControl.ToggleOffOn(RigControl.NoiseReductionLegacy)
-                Radios.ScreenReaderOutput.Speak("Legacy NR " & If(RigControl.NoiseReductionLegacy = Radios.FlexBase.OffOnValues.on, "on", "off"), True)
+                Dim newVal = RigControl.ToggleOffOn(RigControl.NoiseReductionLegacy)
+                RigControl.NoiseReductionLegacy = newVal
+                Radios.ScreenReaderOutput.Speak("Legacy NR " & If(newVal = Radios.FlexBase.OffOnValues.on, "on", "off"), True)
             End Sub)
         Dim dspANF = AddModernSubmenu(sliceDSP, "Auto Notch")
         AddModernMenuItem(dspANF, "FFT Auto-Notch",
             Sub(s As Object, ev As EventArgs)
                 If Not ModernMenuRequireSlice() Then Return
-                RigControl.AutoNotchFFT = RigControl.ToggleOffOn(RigControl.AutoNotchFFT)
-                Radios.ScreenReaderOutput.Speak("FFT Auto-Notch " & If(RigControl.AutoNotchFFT = Radios.FlexBase.OffOnValues.on, "on", "off"), True)
+                Dim newVal = RigControl.ToggleOffOn(RigControl.AutoNotchFFT)
+                RigControl.AutoNotchFFT = newVal
+                Radios.ScreenReaderOutput.Speak("FFT Auto-Notch " & If(newVal = Radios.FlexBase.OffOnValues.on, "on", "off"), True)
             End Sub)
         AddModernMenuItem(dspANF, "Legacy Auto-Notch",
             Sub(s As Object, ev As EventArgs)
                 If Not ModernMenuRequireSlice() Then Return
-                RigControl.AutoNotchLegacy = RigControl.ToggleOffOn(RigControl.AutoNotchLegacy)
-                Radios.ScreenReaderOutput.Speak("Legacy Auto-Notch " & If(RigControl.AutoNotchLegacy = Radios.FlexBase.OffOnValues.on, "on", "off"), True)
+                Dim newVal = RigControl.ToggleOffOn(RigControl.AutoNotchLegacy)
+                RigControl.AutoNotchLegacy = newVal
+                Radios.ScreenReaderOutput.Speak("Legacy Auto-Notch " & If(newVal = Radios.FlexBase.OffOnValues.on, "on", "off"), True)
             End Sub)
         AddModernMenuItem(sliceDSP, "Noise Blanker (NB)",
             Sub(s As Object, ev As EventArgs)
                 If Not ModernMenuRequireSlice() Then Return
-                RigControl.NoiseBlanker = RigControl.ToggleOffOn(RigControl.NoiseBlanker)
-                Radios.ScreenReaderOutput.Speak("Noise Blanker " & If(RigControl.NoiseBlanker = Radios.FlexBase.OffOnValues.on, "on", "off"), True)
+                Dim newVal = RigControl.ToggleOffOn(RigControl.NoiseBlanker)
+                RigControl.NoiseBlanker = newVal
+                Radios.ScreenReaderOutput.Speak("Noise Blanker " & If(newVal = Radios.FlexBase.OffOnValues.on, "on", "off"), True)
             End Sub)
         AddModernMenuItem(sliceDSP, "Wideband NB (WNB)",
             Sub(s As Object, ev As EventArgs)
                 If Not ModernMenuRequireSlice() Then Return
-                RigControl.WidebandNoiseBlanker = RigControl.ToggleOffOn(RigControl.WidebandNoiseBlanker)
-                Radios.ScreenReaderOutput.Speak("Wideband NB " & If(RigControl.WidebandNoiseBlanker = Radios.FlexBase.OffOnValues.on, "on", "off"), True)
+                Dim newVal = RigControl.ToggleOffOn(RigControl.WidebandNoiseBlanker)
+                RigControl.WidebandNoiseBlanker = newVal
+                Radios.ScreenReaderOutput.Speak("Wideband NB " & If(newVal = Radios.FlexBase.OffOnValues.on, "on", "off"), True)
             End Sub)
         AddModernMenuItem(sliceDSP, "Audio Peak Filter (APF)",
             Sub(s As Object, ev As EventArgs)
                 If Not ModernMenuRequireSlice() Then Return
-                RigControl.APF = RigControl.ToggleOffOn(RigControl.APF)
-                Radios.ScreenReaderOutput.Speak("Audio Peak Filter " & If(RigControl.APF = Radios.FlexBase.OffOnValues.on, "on", "off"), True)
+                Dim newVal = RigControl.ToggleOffOn(RigControl.APF)
+                RigControl.APF = newVal
+                Radios.ScreenReaderOutput.Speak("Audio Peak Filter " & If(newVal = Radios.FlexBase.OffOnValues.on, "on", "off"), True)
             End Sub)
         ' Antenna submenu
         Dim sliceAntenna = AddModernSubmenu(ModernSliceMenu, "Antenna")
@@ -2957,28 +2969,34 @@ RadioConnected:
         AddModernMenuItem(ModernFilterMenu, "Narrow",
             Sub(s As Object, ev As EventArgs)
                 If Not ModernMenuRequireSlice() Then Return
-                RigControl.FilterLow = RigControl.FilterLow + 50
-                RigControl.FilterHigh = RigControl.FilterHigh - 50
-                Radios.ScreenReaderOutput.Speak("Filter " & RigControl.FilterLow & " to " & RigControl.FilterHigh, True)
+                Dim newLow = RigControl.FilterLow + 50
+                Dim newHigh = RigControl.FilterHigh - 50
+                RigControl.FilterLow = newLow
+                RigControl.FilterHigh = newHigh
+                Radios.ScreenReaderOutput.Speak("Filter " & newLow & " to " & newHigh, True)
             End Sub)
         AddModernMenuItem(ModernFilterMenu, "Widen",
             Sub(s As Object, ev As EventArgs)
                 If Not ModernMenuRequireSlice() Then Return
-                RigControl.FilterLow = RigControl.FilterLow - 50
-                RigControl.FilterHigh = RigControl.FilterHigh + 50
-                Radios.ScreenReaderOutput.Speak("Filter " & RigControl.FilterLow & " to " & RigControl.FilterHigh, True)
+                Dim newLow = RigControl.FilterLow - 50
+                Dim newHigh = RigControl.FilterHigh + 50
+                RigControl.FilterLow = newLow
+                RigControl.FilterHigh = newHigh
+                Radios.ScreenReaderOutput.Speak("Filter " & newLow & " to " & newHigh, True)
             End Sub)
         AddModernMenuItem(ModernFilterMenu, "Shift Low Edge",
             Sub(s As Object, ev As EventArgs)
                 If Not ModernMenuRequireSlice() Then Return
-                RigControl.FilterLow = RigControl.FilterLow + 50
-                Radios.ScreenReaderOutput.Speak("Low edge " & RigControl.FilterLow, True)
+                Dim newLow = RigControl.FilterLow + 50
+                RigControl.FilterLow = newLow
+                Radios.ScreenReaderOutput.Speak("Low edge " & newLow, True)
             End Sub)
         AddModernMenuItem(ModernFilterMenu, "Shift High Edge",
             Sub(s As Object, ev As EventArgs)
                 If Not ModernMenuRequireSlice() Then Return
-                RigControl.FilterHigh = RigControl.FilterHigh + 50
-                Radios.ScreenReaderOutput.Speak("High edge " & RigControl.FilterHigh, True)
+                Dim newHigh = RigControl.FilterHigh + 50
+                RigControl.FilterHigh = newHigh
+                Radios.ScreenReaderOutput.Speak("High edge " & newHigh, True)
             End Sub)
         AddModernStubItem(ModernFilterMenu, "Presets")
         AddModernStubItem(ModernFilterMenu, "Reset Filter")
@@ -3102,11 +3120,16 @@ RadioConnected:
         Dim cleanText = text.Replace("&", "")
         Dim item = New ToolStripMenuItem() With {
             .Text = cleanText & " - coming soon",
-            .AccessibleName = cleanText & " - coming soon",
+            .AccessibleName = cleanText & ", coming soon",
             .AccessibleDescription = "Coming soon. Use Classic mode for full features.",
-            .AccessibleRole = AccessibleRole.MenuItem,
-            .Enabled = False
+            .AccessibleRole = AccessibleRole.MenuItem
         }
+        ' Keep enabled so screen readers announce the item (disabled items are
+        ' often skipped by JAWS/NVDA). Click handler speaks the stub message.
+        AddHandler item.Click,
+            Sub(s As Object, ev As EventArgs)
+                Radios.ScreenReaderOutput.Speak(cleanText & ", coming soon", True)
+            End Sub
         parent.DropDownItems.Add(item)
         Return item
     End Function
@@ -3304,10 +3327,12 @@ RadioConnected:
                 myVersion.ToString())
         End If
 
-        ' Focus the log panel call sign field.
-        If LoggingLogPanel IsNot Nothing Then LoggingLogPanel.FocusCallSign()
+        ' Speak the full announcement including the field name so the user
+        ' gets immediate feedback. Then focus the call sign field directly.
+        Radios.ScreenReaderOutput.Speak("Entering Logging Mode, Call Sign", True)
 
-        Radios.ScreenReaderOutput.Speak("Entering Logging Mode", True)
+        ' Focus immediately — no BeginInvoke delay.
+        If LoggingLogPanel IsNot Nothing Then LoggingLogPanel.FocusCallSign()
         Tracing.TraceLine("EnterLoggingMode: from " & LastNonLogMode.ToString(), TraceLevel.Info)
     End Sub
 
@@ -3326,6 +3351,21 @@ RadioConnected:
             LoggingLogPanel.FinishQrzLogbook()
         End If
 
+        ' CRITICAL ORDER: Clear WPF focus → move WinForms focus → then hide.
+        ' If we hide first, the ElementHost retains WPF Keyboard.FocusedElement
+        ' and continues intercepting keystrokes even though it's invisible.
+
+        ' 1) Clear WPF keyboard focus so the hidden control stops intercepting keys.
+        If LoggingLogPanel IsNot Nothing Then LoggingLogPanel.ClearWpfFocus()
+
+        ' 2) Move WinForms focus to a visible control BEFORE hiding the SplitContainer.
+        If FreqOut IsNot Nothing AndAlso FreqOut.Visible Then
+            Me.ActiveControl = FreqOut
+        Else
+            Me.ActiveControl = Nothing
+        End If
+
+        ' 3) Now switch the UI mode (hides SplitContainer, shows radio controls).
         Dim returnMode = LastNonLogMode
         ActiveUIMode = returnMode
         ApplyUIMode()
@@ -3590,13 +3630,19 @@ RadioConnected:
             .FixedPanel = FixedPanel.Panel1,
             .Orientation = Orientation.Vertical,
             .Visible = False,
-            .AccessibleName = "Logging Mode",
-            .AccessibleRole = AccessibleRole.Pane
+            .AccessibleName = "",
+            .AccessibleRole = AccessibleRole.Client
         }
         LoggingRadioPane.Dock = DockStyle.Fill
         LoggingLogPanel.Dock = DockStyle.Fill
         LoggingSplitContainer.Panel1.Controls.Add(LoggingRadioPane)
         LoggingSplitContainer.Panel2.Controls.Add(LoggingLogPanel)
+
+        ' Make the SplitContainer panels transparent to screen readers.
+        LoggingSplitContainer.Panel1.AccessibleRole = AccessibleRole.Client
+        LoggingSplitContainer.Panel1.AccessibleName = ""
+        LoggingSplitContainer.Panel2.AccessibleRole = AccessibleRole.Client
+        LoggingSplitContainer.Panel2.AccessibleName = ""
 
         ' Prevent the splitter bar from getting Tab focus.
         LoggingSplitContainer.TabStop = False
@@ -3671,11 +3717,10 @@ RadioConnected:
         If LoggingRadioPane Is Nothing OrElse LoggingLogPanel Is Nothing Then Return
 
         If LoggingRadioPane.ContainsFocus Then
-            LoggingLogPanel.FocusCallSign()
-            ' LogPanel's FocusCallSign sets focus to callsign field — the
-            ' field's own Enter/GotFocus handler announces the pane context,
-            ' so we only speak if there is no LogPanel handler doing it.
+            ' Speak pane name only — the screen reader will announce
+            ' "Call Sign, edit" when focus lands on the WPF TextBox.
             Radios.ScreenReaderOutput.Speak("Log entry pane", True)
+            LoggingLogPanel.FocusCallSign()
         Else
             ' RadioPane.FocusFirst() gives focus to FreqBox, whose Enter
             ' handler already speaks "Radio pane" — don't double-announce.

@@ -24,6 +24,12 @@ public partial class LogEntryControl : UserControl
     /// <summary>Raised when Escape is pressed in any field.</summary>
     public event EventHandler? EscapePressed;
 
+    /// <summary>Raised when Ctrl+Shift+L is pressed (toggle Logging Mode).</summary>
+    public event EventHandler? ToggleLoggingModePressed;
+
+    /// <summary>Raised when Ctrl+Shift+M is pressed (toggle UI Mode).</summary>
+    public event EventHandler? ToggleUIModePressed;
+
     public LogEntryControl()
     {
         InitializeComponent();
@@ -143,6 +149,16 @@ public partial class LogEntryControl : UserControl
         Keyboard.Focus(CallSignBox);
     }
 
+    /// <summary>
+    /// Clear WPF keyboard focus so that the hidden ElementHost stops intercepting
+    /// keystrokes after the parent SplitContainer is hidden.
+    /// </summary>
+    public void ClearFocus()
+    {
+        Keyboard.ClearFocus();
+        FocusManager.SetFocusedElement(this, null);
+    }
+
     public void FocusField(string fieldName)
     {
         var tb = fieldName.ToUpperInvariant() switch
@@ -175,6 +191,30 @@ public partial class LogEntryControl : UserControl
 
     private void UserControl_PreviewKeyDown(object sender, KeyEventArgs e)
     {
+        // Mode-switching combos must be forwarded explicitly because
+        // ElementHost doesn't reliably propagate Ctrl+Shift+letter
+        // back to the WinForms ProcessCmdKey chain.
+        // WPF may report the actual key or Key.System for modifier combos,
+        // so check both e.Key and e.SystemKey.
+        var actualKey = e.Key == Key.System ? e.SystemKey : e.Key;
+        var mods = Keyboard.Modifiers;
+
+        if (mods.HasFlag(ModifierKeys.Control) && mods.HasFlag(ModifierKeys.Shift))
+        {
+            if (actualKey == Key.L)
+            {
+                e.Handled = true;
+                ToggleLoggingModePressed?.Invoke(this, EventArgs.Empty);
+                return;
+            }
+            if (actualKey == Key.M)
+            {
+                e.Handled = true;
+                ToggleUIModePressed?.Invoke(this, EventArgs.Empty);
+                return;
+            }
+        }
+
         if (e.Key == Key.Enter || e.Key == Key.Return)
         {
             EnterPressed?.Invoke(this, EventArgs.Empty);
