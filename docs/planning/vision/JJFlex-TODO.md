@@ -115,28 +115,112 @@ Last updated: 2026-02-12
 - **Priority:** Low — cosmetic double-announcement
 - **Status:** Logged for Sprint 7
 
+### BUG-016: RNN toggles on radios that don't support it — no feature gating in Modern menu (Sprint 7 testing, 2026-02-14)
+- **Symptom:** Neural NR (RNN) can be toggled via Modern menu on a FLEX-6300, which doesn't support RNN. Should be grayed out or blocked based on radio model/subscription.
+- **Root cause:** Modern menu DSP toggles don't check `Radio.FeatureLicense` or radio capabilities before toggling. The Classic Filters form does gate these features.
+- **Fix:** Add feature gating checks before each DSP toggle in Modern menu. If feature unavailable, speak "Neural NR not available on this radio" or similar. Check both hardware capability and license subscription.
+- **Priority:** Medium — allows toggling unsupported features, confusing behavior
+- **Status:** Open
+
+### BUG-017: APF toggle always says "on" — doesn't actually toggle off (Sprint 7 testing, 2026-02-14)
+- **Symptom:** Audio Peak Filter in Modern menu says "Audio Peak Filter on" every time it's pressed — never says "off". May not actually be toggling the radio state. Tested in LSB mode on Don's 6300.
+- **Root cause:** Needs investigation — may be mode-dependent (APF is CW-only on some radios?) or the FlexLib property may not toggle correctly.
+- **Priority:** Medium — broken toggle
+- **Status:** Open
+
+### BUG-018: Dup count inconsistent between tab and shift-tab (Sprint 7 testing, 2026-02-14)
+- **Symptom:** When entering a duplicate callsign (WA2IWC), pressing Tab says "worked 6 times" but Shift-Tab says "3 contacts". The two announcements give different counts for the same call.
+- **Root cause:** Needs investigation — may be reading from different data sources (previous contact lookup vs dup check).
+- **Priority:** Medium — confusing for operator
+- **Status:** Open
+
+### BUG-019: Log Contact doesn't announce pre-fill (Sprint 7 testing, 2026-02-14)
+- **Symptom:** Clicking "Log Contact" in Station Lookup enters Logging Mode with fields pre-filled, but no screen reader announcement like "Entering Logging Mode with [call] pre-filled".
+- **Root cause:** The speech announcement was expected but never implemented.
+- **Fix:** Add `Speak("Entering Logging Mode with [call] pre-filled")` when Log Contact triggers mode entry.
+- **Priority:** Low — functional, just missing feedback
+- **Status:** Open
+
+### BUG-020: Status Dialog not accessible — can't tab, no close button, appears outside app (Sprint 7 testing, 2026-02-14)
+- **Symptom:** Status Dialog (Ctrl+Alt+S) opens but: (a) can't tab through fields, (b) no OK button or Enter-to-close, (c) window appears outside the main JJFlex window. NVDA can force-read the dialog content but keyboard navigation is broken.
+- **Root cause:** WPF Window likely missing tab stops, focusable elements, and window ownership/placement.
+- **Fix:** Set `Owner` to Form1's WPF interop handle, add OK/Close button with Enter as default, ensure all TextBlocks/labels are in tab order or use a single selectable TextBox with the full status text.
+- **Priority:** High — completely inaccessible dialog
+- **Status:** Open
+
+### BUG-021: QSO grid count setting doesn't take effect (Sprint 7 testing, 2026-02-14)
+- **Symptom:** Changed operator's Recent QSOs setting to 10, but grid still shows 20. Setting doesn't apply until some unknown trigger (possibly app restart or new session).
+- **Root cause:** Needs investigation — LogPanel may read the count only at session initialization, not on settings change. Or the setting may not be saved/loaded correctly.
+- **Priority:** Medium — setting appears broken
+- **Status:** Open
+
+### BUG-022: QSO grid rows announce WPF type name instead of English (Sprint 7 testing, 2026-02-14)
+- **Symptom:** When arrowing through QSO grid rows, screen reader announces "JJFlexWPF.RecentQsoRowDataItem" instead of a meaningful label like "QSO 1" or just the callsign.
+- **Root cause:** WPF DataGrid row automation name defaults to the `ToString()` of the data item, which returns the type name. Need to override `ToString()` on `RecentQsoRowDataItem` or set `AutomationProperties.Name` on DataGrid rows.
+- **Fix:** Override `ToString()` on `RecentQsoRowDataItem` to return the callsign (e.g., "W1AW") or implement an `AutomationPeer` for the row.
+- **Priority:** Medium — bad screen reader experience in QSO grid
+- **Status:** Open
+
+### BUG-023: Connect to Radio while already connected has messy flow (Sprint 7 testing, 2026-02-14)
+- **Symptom:** Clicking Radio → Connect to Radio while already connected disconnects without asking, opens rig selector, then SmartLink reconnect flow shows "session invalid" repeatedly. User has to click "No" multiple times to get back to a connected state.
+- **Root cause:** No guard to ask "You're already connected — disconnect first?" before proceeding. The disconnect + reconnect sequence has error handling issues with stale SmartLink sessions.
+- **Fix:** Add a confirmation dialog: "You are currently connected to [radio]. Disconnect and choose a new radio?" If No, cancel. If Yes, clean disconnect then open selector.
+- **Priority:** Medium — confusing and potentially destructive flow
+- **Status:** Open
+
 ## Near-term (next 1–3 sprints)
+
+### Completed in Sprint 7
 - [x] Callbook graceful degradation: QRZ→HamQTH auto-fallback, built-in HamQTH for LogPanel (BUG-007, BUG-008) — Sprint 6
 - [x] Hotkeys v2: scope-aware registry, conflict detection, Command Finder, tabbed Settings UI — Sprint 6
-- [ ] Station Lookup → Log Contact: "Log a contact with station" button on Station Lookup dialog. Enters Logging Mode with callsign/name/QTH/grid pre-filled from lookup. DX hunting workflow: lookup → call → log.
-- [ ] Station Lookup: add distance and bearing to station (for beam/rotator directionality)
-- [ ] Configurable QSO grid size (currently hardcoded at 20) — Sprint 7 Track E
-- [ ] Modern UI Mode toggle (Modern default; Classic preserved)
-- [ ] Plain-English Status: Speak Status + Status Dialog (replace alphabet soup in Modern) — Sprint 7 Track D
+- [x] Station Lookup → Log Contact button + distance/bearing — Sprint 7 Track C
+- [x] WPF migration: LogPanel + Station Lookup — Sprint 7 Track B
+- [x] Plain-English Status: Speak Status + Status Dialog — Sprint 7 Track D
+- [x] Configurable QSO grid size — Sprint 7 Track E
+- [x] CW hotkey feedback — Sprint 7 Track A
+- [x] Modern UI Mode toggle (Modern default; Classic preserved)
+- [x] DSP toggle state inversion fix — Sprint 7 Track A
+- [x] Ctrl+Shift+L/M key forwarding through WPF — Sprint 7 Track A
+
+### Sprint 8 — Form1 WPF Conversion (boring but necessary)
+- [ ] Convert Form1 from WinForms to WPF Window (kills all interop issues)
+- [ ] Eliminate ElementHost — all WPF controls native in WPF Window
+- [ ] Fix R1 "unknown" interop artifact (goes away with pure WPF)
+- [ ] Remove the FreqOut radio box from Modern mode. A charming relic of JJ's circa-1947 UI philosophy and Don's personal favorite control, this thing freqks the current developer out. It will be replaced by proper keyboard tuning commands once Modern mode has its own tuning keystrokes. Don will survive — he can switch to Classic mode whenever he wishes to get nostalgic.
+
+### Sprint 9 — Remaining Forms WPF Conversion (boring but necessary)
+- [ ] Convert all remaining dialog forms to WPF (in stages)
+- [ ] WPF migration: Command Finder + DefineCommands
+- [ ] WPF migration: PersonalInfo + LogCharacteristics
+- [ ] WPF migration: remaining dialogs
+
+### Sprint 10 (was Sprint 8)
+- [ ] Slice Menu + Filter Menu (slice-centric operating model)
+- [ ] QSO Grid: full filtering (band, mode, country, date range, callsign) + paging
+- [ ] QSO Grid: row-0→1 indexing fix (comes free with WPF DataGrid)
+
+### Sprint 11 (was Sprint 9)
+- [ ] QRZ per-QSO upload checkbox in LogPanel tab order (Alt+Q)
+- [ ] QRZ confirmation status check/request from QSO Grid
+- [ ] QRZ data import (bulk sync)
+
+### Sprint 12 (was Sprint 10)
+- [ ] Modern menus → WPF Menu control (eliminates AccessibleName workarounds)
+- [ ] StationLookup full redesign (distance/bearing, richer layout)
+
+### Backlog — New Items (Sprint 7 testing, 2026-02-14)
+- [ ] "Update Current Operator" menu item in Modern and Logging — opens PersonalInfo directly for current operator (skip select step)
+- [ ] Rename "Operators" to "Edit or Change Operators" in Modern and Logging menus (leave Classic as-is)
+- [ ] GPS grid from FlexLib — query radio GPS for operator grid square (works mobile!). Add Speak GPS and View GPS hotkeys/dialog. Fallback: lookup operator call via QRZ/HamQTH for grid.
+- [ ] Grid refresh button in Station Lookup or PersonalInfo — re-lookup operator grid from callbook or GPS
+- [ ] Include slice number in mute/unmute speech ("Muted slice A" / "Unmuted slice A")
 - [ ] Audio management baseline: device selection + rig audio adjust entry point
-- [ ] CW hotkey feedback: Ctrl+1-7 and F12 should speak short message when no CW messages configured — Sprint 7 Track A
-- [ ] BUG-015: Fix F6 double-announce "Radio pane" in Logging Mode — Sprint 7 Track A
-- [ ] Update CHANGELOG discipline + code commenting guideline doc — Sprint 7 Track A
-- [ ] WPF migration: LogPanel + Station Lookup (Sprint 7 Track B — see WPF Migration section)
-- [ ] Station Lookup → Log Contact + distance/bearing — Sprint 7 Track C
-- [ ] Slice Menu + Filter Menu (slice-centric operating model) — Sprint 8
-- [ ] QSO Grid: full filtering (band, mode, country, date range, callsign) + paging — Sprint 8
-- [ ] QSO Grid: row-0→1 indexing fix (comes free with WPF DataGrid) — Sprint 8
-- [ ] WPF migration: Command Finder + DefineCommands — Sprint 8
-- [ ] QRZ per-QSO upload checkbox in LogPanel tab order (Alt+Q) — Sprint 9
-- [ ] QRZ confirmation status check/request from QSO Grid — Sprint 9
-- [ ] QRZ data import (bulk sync) — Sprint 9
-- [ ] WPF migration: PersonalInfo + LogCharacteristics — Sprint 9
+- [ ] Filter presets / filter presets by mode
+- [ ] Earcon/tone beeps — replace SystemSounds with configurable tone-based audio cues
+- [ ] DSP current state display — show on/off state when arrowing through DSP menu items
+- [ ] Hotkeys for Modern menu DSP/filter items
+- [ ] "No stations connected" message in Connected Stations listbox when empty
+- [ ] BUG-015: Fix F6 double-announce "Radio pane" in Logging Mode
 
 ## Slice UI & Status
 - [ ] Define ActiveSlice rules and announce/earcon behaviors
@@ -271,19 +355,19 @@ Alt+C → W1ABC → Alt+N → Bob → Alt+Q → Space (uncheck QRZ) → Ctrl+W �
 - WPF controls hosted in WinForms via `ElementHost` during transition
 - Test each conversion with JAWS + NVDA before marking done
 
-**Migration roadmap:**
+**Migration roadmap (REVISED — Form1 first to kill interop issues):**
 
 | Priority | Form | Why | Sprint |
 |----------|------|-----|--------|
-| 1 | LogPanel (QSO grid + entry fields) | Biggest a11y win — fixes row-0, field nav | 7 |
-| 2 | Station Lookup (+ Log Contact button) | Small form, DX workflow, validates approach | 7 |
-| 3 | Command Finder | Already new, natural WPF fit | 8 |
-| 4 | DefineCommands (hotkey settings) | Tabbed UI, benefits from WPF TabControl | 8 |
-| 5 | PersonalInfo (settings) | Straightforward form conversion | 9 |
-| 6 | LogCharacteristics | Small dialog | 9 |
-| 7 | Modern menus → WPF Menu control | Eliminates AccessibleName workarounds | 10 |
-| 8 | StationLookup full redesign | Distance/bearing, richer layout | 10 |
-| — | Form1 shell | Last — when most content is WPF | Future |
+| 1 | LogPanel (QSO grid + entry fields) | Biggest a11y win — fixes row-0, field nav | 7 ✅ |
+| 2 | Station Lookup (+ Log Contact button) | Small form, DX workflow, validates approach | 7 ✅ |
+| **3** | **Form1 shell → WPF Window** | **Kills all WPF-in-WinForms interop issues** | **8** |
+| 4 | Command Finder | Already new, natural WPF fit | 9 |
+| 5 | DefineCommands (hotkey settings) | Tabbed UI, benefits from WPF TabControl | 9 |
+| 6 | PersonalInfo (settings) | Straightforward form conversion | 9 |
+| 7 | LogCharacteristics | Small dialog | 9 |
+| 8 | All remaining dialogs | Finish the job | 9 |
+| 9 | Modern menus → WPF Menu control | Eliminates AccessibleName workarounds | 12 |
 
 **Acceptance criteria per conversion:**
 - [ ] WPF control/window created with proper AutomationProperties
