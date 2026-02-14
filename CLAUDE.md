@@ -79,7 +79,13 @@ if (theRadio.AvailableSlices >= 2) { ... }
 - Use Feature Availability tab to explain why radio features are unavailable due to subscription unavailable or model spec deficiencies
 
 ### Changelog Conventions
-Write entries in personal, first-person explanatory tone (see `docs/CHANGELOG.md`).
+The changelog (`docs/CHANGELOG.md`) is **user-facing** — it's read by hams, not developers. Write it accordingly:
+
+- **Warm, personal, first-person tone**: "I fixed...", "You can now...", "This one's been on my list forever." The voice is a funny nerdy ham radio developer talking to friends. Read the existing entries for the vibe.
+- **No internal jargon**: No track labels (Track A/B/C), sprint numbers, bug IDs (BUG-017), WPF, WinForms, ElementHost, async patterns, AutomationPeer, interop, or framework names. Users don't care about the plumbing.
+- **Explain the *what*, not the *how***: "DSP toggles now tell you on or off" — not "Fixed async property pattern using local variable to capture toggled state before FlexLib round-trip."
+- **Screen reader details are OK**: Our users *are* screen reader users. "Your screen reader now announces the callsign" is fine. Just don't say "added AutomationProperties.Name to the DataGrid row template."
+- **Technical details live in planning docs**: Sprint plans, test matrices, `JJFlex-TODO.md`, and `Agent.md` are the developer record. The changelog is the user record.
 
 ## Build Notes
 
