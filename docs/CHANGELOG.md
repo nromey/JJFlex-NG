@@ -4,7 +4,34 @@ All notable changes to this project will be documented in this file.
 
 ## 4.1.114.0 — Sprint 7: Modern Menu, Logging Polish, Bug Fixes (Don's Birthday Release 🎂)
 
-Sprint 7 wrapped up the Modern menu build-out and put Logging Mode through its paces. Released on 2/14 — Valentine's Day and Don's birthday. Happy birthday Don! Five tracks merged to main — Modern menu DSP/filter controls, operator menu improvements, logging mode fixes, slice management, and connected-stations cleanup. Then testing found 8 bugs, 5 of which are fixed in this release. The other 3 are deferred to Sprints 8-9 when we move to pure WPF.
+Sprint 7 wrapped up the Modern menu build-out and put Logging Mode through its paces. Released on 2/14 — Valentine's Day and Don's birthday. Happy birthday Don! Five tracks merged to main, testing found 8 bugs, 5 fixed in this release — the other 3 deferred to Sprints 8-9 when we move to pure WPF.
+
+### Modern Menu DSP & Filters (Track A)
+
+- **DSP toggle speech**: All Modern menu DSP items (NR, NB, ANF, Neural NR, etc.) now speak their actual toggled state — "Noise Reduction on" / "Noise Reduction off". Previously they'd always say "on" because FlexLib's async property pattern returns stale values. Fixed with local variable pattern across all toggles.
+- **Filter controls**: Narrow, Widen, and Shift filter menu items now speak the resulting filter width or shift value after each adjustment. Same async pattern fix.
+- **"Coming soon" stubs**: Modern menu placeholders now speak "coming in a future update" when clicked, instead of silently doing nothing. Items stay enabled so screen readers can discover them.
+- **CW hotkey feedback**: Ctrl+1 through Ctrl+7 CW message slots and F12 CW Stop now give feedback when no CW messages are configured.
+
+### WPF Migration (Track B)
+
+- **LogPanel → WPF**: The Logging Mode entry panel is now a WPF UserControl hosted via ElementHost. Tab order, field navigation, and screen reader announcements all work through the WPF control. The Recent QSOs grid is a proper WPF DataGrid with row-level screen reader support.
+- **Station Lookup → WPF**: Station Lookup dialog rebuilt as a WPF Window with AutomationProperties on all controls.
+- **Focus management**: Keyboard focus properly clears when switching between WPF and WinForms contexts — no more stuck focus or phantom key interception.
+
+### Station Lookup Enhancements (Track C)
+
+- **Log Contact button**: Look up a callsign in Station Lookup, click "Log Contact", and you drop straight into Logging Mode with call, name, QTH, state, and grid pre-filled. Dup check and previous contact lookup fire automatically for the pre-filled call.
+- **Distance and bearing**: Station Lookup calculates great-circle distance and bearing from your operator grid square to the looked-up station's grid. Uses Haversine formula with Maidenhead grid conversion.
+
+### Speak Status (Track D)
+
+- **Speak Status hotkey**: Quick summary of current radio state — frequency, mode, band, and active slice — spoken to the screen reader on demand.
+- **Status Dialog**: Planned as a full accessible WPF dialog with organized sections, but disabled for this release due to accessibility issues (BUG-020). Will be rebuilt properly in Sprint 8+.
+
+### Configurable QSO Grid (Track E)
+
+- **Adjustable grid size**: Set your preferred Recent QSOs count (5–100, default 20) in operator settings. The Logging Mode grid respects your choice instead of hardcoding 20.
 
 ### Bug Fixes
 
