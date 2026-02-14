@@ -2,6 +2,31 @@
 
 All notable changes to this project will be documented in this file.
 
+## 4.1.114.0 — Sprint 7: Modern Menu, Logging Polish, Bug Fixes (Don's Birthday Release 🎂)
+
+Sprint 7 wrapped up the Modern menu build-out and put Logging Mode through its paces. Released on 2/14 — Valentine's Day and Don's birthday. Happy birthday Don! Five tracks merged to main — Modern menu DSP/filter controls, operator menu improvements, logging mode fixes, slice management, and connected-stations cleanup. Then testing found 8 bugs, 5 of which are fixed in this release. The other 3 are deferred to Sprints 8-9 when we move to pure WPF.
+
+### Bug Fixes
+
+- **APF mode guard (BUG-017)**: Audio Peak Filter is a CW-only feature, but the toggle happily said "on" in SSB and other modes without actually doing anything. Now it tells you straight: "Audio Peak Filter is only available in CW mode." No more phantom toggles.
+- **Dup count speech cleanup (BUG-018)**: The dup check and previous-contact lookup were both speaking at once with different numbers — "6 contacts" from one, "2 duplicates" from the other. Turns out they measure different things (total QSOs vs. matches on current band/mode), but hearing both was confusing. Silenced the dup speech for now; the "Previously worked, N contacts" announcement is the primary feedback, and the exclamation beep still alerts you to dups. Full unification comes in Sprint 8 with pure WPF.
+- **Log Contact silence (BUG-019)**: Clicking "Log Contact" in Station Lookup used to stutter through a garbled speech attempt. You clicked "Log Contact" — you know you're entering Logging Mode. Now it enters silently and the screen reader naturally reads the pre-filled call sign field. Clean.
+- **Status Dialog disabled (BUG-020)**: The Status Dialog was completely inaccessible — no tab stops, no close button, appeared off-screen. Rather than ship a broken dialog, Ctrl+Alt+S now speaks "Status Dialog coming in a future update. Use Speak Status for a quick summary." Will rebuild properly in pure WPF.
+- **QSO grid count (BUG-021)**: The Recent QSOs grid was hardcoded to show 20 rows regardless of your operator setting. Now it respects whatever count you've configured.
+- **QSO grid row announcements (BUG-022)**: Arrow through QSO grid rows and your screen reader said "JJFlexWPF.RecentQsoRow" instead of the callsign. Added a `ToString()` override so up/down arrow announces the callsign (e.g., "W1AW"). Left/right cell navigation works but NVDA double-reads cell values — that's a known WPF-in-WinForms interop quirk that'll be fixed with custom AutomationPeers in Sprint 8.
+
+### Known Issues
+
+- **"Unknown" on logging mode entry (R1)**: Screen reader briefly says "unknown" when entering Logging Mode. This is a WPF-in-WinForms ElementHost interop limitation — the WPF control's automation tree momentarily confuses the SR. Will resolve naturally with Sprint 8's full WPF conversion.
+- **NVDA DataGrid cell double-read**: Left/right arrow in the QSO grid announces cell values twice in NVDA (e.g., "SSB SSB mode"). JAWS handles it correctly. Fixable with custom AutomationPeers once we're pure WPF.
+- **Focus-on-launch**: App doesn't grab focus when launched from Explorer — you stay on the Explorer window. Will address post-Sprint 9.
+
+### Deferred to Sprint 8-9 (WPF Conversion)
+
+- **BUG-016**: Logging Mode exit focus sometimes lands on wrong control
+- **BUG-020**: Full Status Dialog rebuild as accessible WPF dialog
+- **BUG-023**: Connect-while-connected flow is messy
+
 ## 4.1.13.0 — Sprint 6: Callbook Fallback, QRZ Logbook, Hotkeys v2
 
 This release packs two full feature tracks plus a major hotkey overhaul. The callbook system got a safety net (QRZ goes down? HamQTH picks up automatically), QRZ Logbook uploads your QSOs in real time, and every hotkey in the app now works reliably in every mode. That last part sounds like it should have always been true — turns out the menu system was quietly eating our Alt-key shortcuts. Not anymore.

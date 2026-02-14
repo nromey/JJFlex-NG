@@ -123,43 +123,46 @@ Last updated: 2026-02-12
 - **Status:** Open
 
 ### BUG-017: APF toggle always says "on" — doesn't actually toggle off (Sprint 7 testing, 2026-02-14)
-- **Symptom:** Audio Peak Filter in Modern menu says "Audio Peak Filter on" every time it's pressed — never says "off". May not actually be toggling the radio state. Tested in LSB mode on Don's 6300.
-- **Root cause:** Needs investigation — may be mode-dependent (APF is CW-only on some radios?) or the FlexLib property may not toggle correctly.
+- **Symptom:** Audio Peak Filter in Modern menu says "Audio Peak Filter on" every time it's pressed — never says "off". Tested in LSB mode on Don's 6300.
+- **Root cause:** APF is CW-only (FlexBase.cs line 4277 confirms). Non-CW modes silently ignored the toggle.
+- **Fix:** Added CW mode check — non-CW modes now announce "Audio Peak Filter is only available in CW mode".
 - **Priority:** Medium — broken toggle
-- **Status:** Open
+- **Status:** Fixed (Sprint 7)
 
 ### BUG-018: Dup count inconsistent between tab and shift-tab (Sprint 7 testing, 2026-02-14)
-- **Symptom:** When entering a duplicate callsign (WA2IWC), pressing Tab says "worked 6 times" but Shift-Tab says "3 contacts". The two announcements give different counts for the same call.
-- **Root cause:** Needs investigation — may be reading from different data sources (previous contact lookup vs dup check).
+- **Symptom:** When entering a duplicate callsign (WA2IWC), pressing Tab says "6 contacts" but second tab says "2 duplicates". Two competing speech sources gave different counts.
+- **Root cause:** `ShowPreviousContact` counts all QSOs with call (6 total), while `CheckDup` counts by dup key (call+band+mode = 2). Both spoke, creating confusion.
+- **Fix:** Silenced CheckDup speech — ShowPreviousContact's "Previously worked, N contacts" is the primary announcement. Exclamation sound still plays for dups. Visual "Dup: N" label still set. Full unification deferred to Sprint 8+ (pure WPF).
 - **Priority:** Medium — confusing for operator
-- **Status:** Open
+- **Status:** Fixed (Sprint 7, partial — speech unified, full dup UX in WPF)
 
 ### BUG-019: Log Contact doesn't announce pre-fill (Sprint 7 testing, 2026-02-14)
-- **Symptom:** Clicking "Log Contact" in Station Lookup enters Logging Mode with fields pre-filled, but no screen reader announcement like "Entering Logging Mode with [call] pre-filled".
-- **Root cause:** The speech announcement was expected but never implemented.
-- **Fix:** Add `Speak("Entering Logging Mode with [call] pre-filled")` when Log Contact triggers mode entry.
+- **Symptom:** Clicking "Log Contact" in Station Lookup enters Logging Mode with fields pre-filled, but speech stuttered ("eh...") from competing announcements.
+- **Root cause:** Generic "Entering Logging Mode" speech competed with pre-fill announcement through WPF-WinForms interop layer, causing garbled output.
+- **Fix:** Removed all speech from Log Contact path — user clicked "Log Contact" so mode entry is expected. SR naturally announces the pre-filled Call Sign field when focus arrives. Clean and stutter-free.
 - **Priority:** Low — functional, just missing feedback
-- **Status:** Open
+- **Status:** Fixed (Sprint 7)
 
 ### BUG-020: Status Dialog not accessible — can't tab, no close button, appears outside app (Sprint 7 testing, 2026-02-14)
-- **Symptom:** Status Dialog (Ctrl+Alt+S) opens but: (a) can't tab through fields, (b) no OK button or Enter-to-close, (c) window appears outside the main JJFlex window. NVDA can force-read the dialog content but keyboard navigation is broken.
-- **Root cause:** WPF Window likely missing tab stops, focusable elements, and window ownership/placement.
-- **Fix:** Set `Owner` to Form1's WPF interop handle, add OK/Close button with Enter as default, ensure all TextBlocks/labels are in tab order or use a single selectable TextBox with the full status text.
+- **Symptom:** Status Dialog (Ctrl+Alt+S) opens but: (a) can't tab through fields, (b) no OK button or Enter-to-close, (c) window appears outside the main JJFlex window.
+- **Root cause:** WPF Window missing tab stops, focusable elements, and window ownership/placement.
+- **Fix:** Disabled dialog entirely for this release. Ctrl+Alt+S now speaks "Status Dialog coming in a future update. Use Speak Status for a quick summary." Will rebuild properly in pure WPF (Sprint 8+).
 - **Priority:** High — completely inaccessible dialog
-- **Status:** Open
+- **Status:** Fixed (Sprint 7, disabled — full rebuild in WPF)
 
 ### BUG-021: QSO grid count setting doesn't take effect (Sprint 7 testing, 2026-02-14)
-- **Symptom:** Changed operator's Recent QSOs setting to 10, but grid still shows 20. Setting doesn't apply until some unknown trigger (possibly app restart or new session).
-- **Root cause:** Needs investigation — LogPanel may read the count only at session initialization, not on settings change. Or the setting may not be saved/loaded correctly.
-- **Priority:** Medium — setting appears broken
-- **Status:** Open
+- **Symptom:** Changed operator's Recent QSOs setting to 10, but grid still shows 20.
+- **Root cause:** `LogEntryControl.xaml.cs` had hardcoded `const int MaxRecentQSOs = 20` that ignored operator settings.
+- **Fix:** Replaced with mutable `_maxRecentQSOs` field + `SetMaxRecentQSOs()` setter. LogPanel now passes operator setting via `wpfControl.SetMaxRecentQSOs(MaxRecentQSOs)` at build time and when loading recent QSOs.
+- **Priority:** Medium — setting appeared broken
+- **Status:** Fixed (Sprint 7)
 
 ### BUG-022: QSO grid rows announce WPF type name instead of English (Sprint 7 testing, 2026-02-14)
-- **Symptom:** When arrowing through QSO grid rows, screen reader announces "JJFlexWPF.RecentQsoRowDataItem" instead of a meaningful label like "QSO 1" or just the callsign.
-- **Root cause:** WPF DataGrid row automation name defaults to the `ToString()` of the data item, which returns the type name. Need to override `ToString()` on `RecentQsoRowDataItem` or set `AutomationProperties.Name` on DataGrid rows.
-- **Fix:** Override `ToString()` on `RecentQsoRowDataItem` to return the callsign (e.g., "W1AW") or implement an `AutomationPeer` for the row.
+- **Symptom:** When arrowing through QSO grid rows, screen reader announces "JJFlexWPF.RecentQsoRow" instead of a meaningful label.
+- **Root cause:** WPF DataGrid row automation defaults to `ToString()` of the data item, which returned the type name.
+- **Fix:** Added `ToString()` override on `RecentQsoRow` to return the callsign. Up/down arrow now announces the callsign (e.g., "W1AW"). Left/right cell navigation has minor NVDA double-read quirk (see backlog — fixable with custom AutomationPeer in pure WPF).
 - **Priority:** Medium — bad screen reader experience in QSO grid
-- **Status:** Open
+- **Status:** Fixed (Sprint 7)
 
 ### BUG-023: Connect to Radio while already connected has messy flow (Sprint 7 testing, 2026-02-14)
 - **Symptom:** Clicking Radio → Connect to Radio while already connected disconnects without asking, opens rig selector, then SmartLink reconnect flow shows "session invalid" repeatedly. User has to click "No" multiple times to get back to a connected state.
@@ -221,6 +224,8 @@ Last updated: 2026-02-12
 - [ ] Hotkeys for Modern menu DSP/filter items
 - [ ] "No stations connected" message in Connected Stations listbox when empty
 - [ ] BUG-015: Fix F6 double-announce "Radio pane" in Logging Mode
+- [ ] Focus-on-launch: App doesn't grab focus when launched from Explorer. Needs `Activate()`/`BringToFront()` or WPF equivalent after Sprint 9.
+- [ ] WPF DataGrid cell announcements: NVDA double-reads cell values (e.g., "SSB SSB mode"). JAWS handles it fine. Fixable with custom `AutomationPeer` in pure WPF (Sprint 8+).
 
 ## Slice UI & Status
 - [ ] Define ActiveSlice rules and announce/earcon behaviors

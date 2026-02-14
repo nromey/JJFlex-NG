@@ -494,7 +494,7 @@ Public Class KeyCommands
      New KeyDefType(Keys.L Or Keys.Control Or Keys.Alt, CommandValues.LogOpenFullForm, KeyScope.Logging),
      New KeyDefType(Keys.Oem2 Or Keys.Control, CommandValues.ContextHelp, KeyScope.[Global]),
      New KeyDefType(Keys.S Or Keys.Control Or Keys.Shift, CommandValues.SpeakStatus, KeyScope.[Global]),
-     New KeyDefType(Keys.None, CommandValues.ShowStatusDialog, KeyScope.[Global])}
+     New KeyDefType(Keys.S Or Keys.Control Or Keys.Alt, CommandValues.ShowStatusDialog, KeyScope.[Global])}
 
     ''' <summary>
     ''' Dictionary to access the keytable using a key.
@@ -1704,13 +1704,11 @@ Public Class KeyCommands
         Radios.ScreenReaderOutput.Speak(msg, True)
     End Sub
 
-    Private statusWindow As Radios.StatusWindow = Nothing
     Private Sub showStatusDialogRtn()
-        If statusWindow IsNot Nothing AndAlso statusWindow.IsVisible Then
-            statusWindow.Activate()
-            Return
-        End If
-        statusWindow = New Radios.StatusWindow(RigControl)
-        statusWindow.Show()
+        ' BUG-020: Status Dialog disabled — not accessible (can't tab, no close
+        ' button, appears outside app). Will be rebuilt as proper WPF dialog
+        ' in Sprint 8/9. Speak Status hotkey still works.
+        Radios.ScreenReaderOutput.Speak(
+            "Status Dialog coming in a future update. Use Speak Status for a quick summary.", True)
     End Sub
 End Class

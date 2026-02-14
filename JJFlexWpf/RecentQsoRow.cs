@@ -26,4 +26,10 @@ public class RecentQsoRow
         RSTRcvd = rstRcvd;
         Name = name;
     }
+
+    /// <summary>
+    /// Screen readers use ToString() to announce DataGrid rows.
+    /// Returns the callsign so JAWS/NVDA say "W1AW" instead of the type name.
+    /// </summary>
+    public override string ToString() => Call;
 }

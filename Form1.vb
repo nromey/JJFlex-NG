@@ -2942,6 +2942,11 @@ RadioConnected:
         AddModernMenuItem(sliceDSP, "Audio Peak Filter (APF)",
             Sub(s As Object, ev As EventArgs)
                 If Not ModernMenuRequireSlice() Then Return
+                ' APF is only available in CW mode.
+                If Not RigControl.Mode.StartsWith("CW") Then
+                    Radios.ScreenReaderOutput.Speak("Audio Peak Filter is only available in CW mode", True)
+                    Return
+                End If
                 Dim newVal = RigControl.ToggleOffOn(RigControl.APF)
                 RigControl.APF = newVal
                 Radios.ScreenReaderOutput.Speak("Audio Peak Filter " & If(newVal = Radios.FlexBase.OffOnValues.on, "on", "off"), True)
@@ -3290,7 +3295,7 @@ RadioConnected:
     ''' Enter Logging Mode from Classic or Modern.
     ''' Saves the current base mode, switches to Logging, auto-opens log if needed.
     ''' </summary>
-    Friend Sub EnterLoggingMode()
+    Friend Sub EnterLoggingMode(Optional suppressSpeech As Boolean = False)
         Tracing.TraceLine("EnterLoggingMode: ActiveUIMode=" & ActiveUIMode.ToString(), TraceLevel.Info)
         If CurrentOp Is Nothing Then
             Tracing.TraceLine("EnterLoggingMode: ABORT — no operator", TraceLevel.Warning)
@@ -3327,9 +3332,10 @@ RadioConnected:
                 myVersion.ToString())
         End If
 
-        ' Speak the full announcement including the field name so the user
-        ' gets immediate feedback. Then focus the call sign field directly.
-        Radios.ScreenReaderOutput.Speak("Entering Logging Mode, Call Sign", True)
+        ' Speak the announcement unless suppressed (e.g., Log Contact provides its own).
+        If Not suppressSpeech Then
+            Radios.ScreenReaderOutput.Speak("Entering Logging Mode, Call Sign", True)
+        End If
 
         ' Focus immediately — no BeginInvoke delay.
         If LoggingLogPanel IsNot Nothing Then LoggingLogPanel.FocusCallSign()
@@ -3402,8 +3408,10 @@ RadioConnected:
         Dim data = LookupStation.LookupData
 
         ' Enter Logging Mode if not already in it.
+        ' Suppress the generic "Entering Logging Mode, Call Sign" speech —
+        ' we provide our own announcement with the pre-filled callsign below.
         If ActiveUIMode <> UIMode.Logging Then
-            EnterLoggingMode()
+            EnterLoggingMode(suppressSpeech:=True)
         End If
 
         ' Pre-fill LogPanel fields from the lookup result.
@@ -3413,8 +3421,9 @@ RadioConnected:
                 data.State, data.Grid)
         End If
 
-        Radios.ScreenReaderOutput.Speak(
-            "Entering Logging Mode with " & data.CallSign & " pre-filled", True)
+        ' No speech here — the user clicked "Log Contact", so entering Logging Mode
+        ' is expected. The screen reader will announce the pre-filled Call Sign field
+        ' naturally when focus lands on it.
     End Sub
 
     ''' Provides access to all ADIF fields and record navigation that the

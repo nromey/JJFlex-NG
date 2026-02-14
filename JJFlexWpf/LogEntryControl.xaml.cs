@@ -13,7 +13,16 @@ namespace JJFlexWpf;
 public partial class LogEntryControl : UserControl
 {
     private readonly ObservableCollection<RecentQsoRow> _recentQsos = new();
-    private const int MaxRecentQSOs = 20;
+    private int _maxRecentQSOs = 20;
+
+    /// <summary>
+    /// Set the maximum number of QSOs shown in the Recent QSOs grid.
+    /// Called from LogPanel when the operator's setting is loaded.
+    /// </summary>
+    public void SetMaxRecentQSOs(int count)
+    {
+        _maxRecentQSOs = Math.Max(5, count);
+    }
 
     /// <summary>Raised when the Call Sign field loses focus.</summary>
     public event EventHandler? CallSignLeave;
@@ -115,7 +124,7 @@ public partial class LogEntryControl : UserControl
 
     public void AddQsoRow(RecentQsoRow row)
     {
-        if (_recentQsos.Count >= MaxRecentQSOs)
+        if (_recentQsos.Count >= _maxRecentQSOs)
             _recentQsos.RemoveAt(0);
         _recentQsos.Add(row);
         ScrollToEnd();

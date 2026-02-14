@@ -712,6 +712,8 @@ Friend Class LogPanel
     ''' MaxRecentQSOs for the grid; index every record by call sign.
     ''' </summary>
     Private Sub LoadRecentQSOs()
+        ' Refresh the WPF grid limit in case the operator changed their setting.
+        wpfControl.SetMaxRecentQSOs(MaxRecentQSOs)
         wpfControl.ClearGrid()
         callIndex.Clear()
         If session Is Nothing Then Return
@@ -1036,12 +1038,18 @@ Friend Class LogPanel
 
         Dim key = New LogDupChecking.keyElement(session, DupType)
         Dim ct = Dups.DupTest(key)
-        ct += 1  ' Count the current entry being worked.
-        wpfControl.SetDupLabel("Dup: " & CStr(ct))
-        isDup = (ct > 1)
+        ' ct is the number of PREVIOUS QSOs matching the dup key — don't add +1
+        ' for "current entry being worked" since that confuses the count vs
+        ' ShowPreviousContact which reports raw historical count (BUG-018).
+        wpfControl.SetDupLabel(If(ct > 0, "Dup: " & CStr(ct), ""))
+        isDup = (ct > 0)
         If isDup Then
             SystemSounds.Exclamation.Play()
-            ScreenReaderOutput.Speak("Duplicate, " & ct & " previous contacts", True)
+            ' BUG-018: Suppress dup speech for now — it competes with
+            ' ShowPreviousContact which already announces the total QSO count.
+            ' The exclamation sound provides an audio cue; the visual "Dup: N"
+            ' label is still set above. Revisit in Sprint 8+ (pure WPF) where
+            ' we can unify the two into a single coherent announcement.
         End If
     End Sub
 
@@ -1110,8 +1118,9 @@ Friend Class LogPanel
     Private Sub BuildControls()
         Me.SuspendLayout()
 
-        ' Create the WPF control.
+        ' Create the WPF control and pass operator's QSO grid size setting.
         wpfControl = New JJFlexWpf.LogEntryControl()
+        wpfControl.SetMaxRecentQSOs(MaxRecentQSOs)
 
         ' Wire WPF events to VB.NET handlers.
         AddHandler wpfControl.CallSignLeave, AddressOf OnCallSignLeave
