@@ -103,56 +103,31 @@ namespace Radios
             }
         }
 
-        internal class trueFalseElement
+        // Type aliases — canonical definitions moved to FilterTypes.cs (Sprint 11)
+        internal class trueFalseElement : Radios.trueFalseElement
         {
-            private bool val;
-            public string Display { get { return val.ToString(); } }
-            public bool RigItem { get { return val; } }
-            public trueFalseElement(bool v)
-            {
-                val = v;
-            }
+            public trueFalseElement(bool v) : base(v) { }
+        }
+        internal class offOnElement : Radios.offOnElement
+        {
+            public offOnElement(Radios.FlexBase.OffOnValues v) : base(v) { }
+        }
+        internal class toneCTCSSElement : Radios.toneCTCSSElement
+        {
+            public toneCTCSSElement(FlexBase.ToneCTCSSValue v) : base(v) { }
+        }
+        internal class toneCTCSSFreqElement : Radios.toneCTCSSFreqElement
+        {
+            public toneCTCSSFreqElement(float v) : base(v) { }
         }
 
-        internal class offOnElement
-        {
-            private Radios.FlexBase.OffOnValues val;
-            public string Display { get { return val.ToString(); } }
-            public Radios.FlexBase.OffOnValues RigItem { get { return val; } }
-            public offOnElement(Radios.FlexBase.OffOnValues v)
-            {
-                val = v;
-            }
-        }
-
-        internal class toneCTCSSElement
-        {
-            private FlexBase.ToneCTCSSValue val;
-            public string Display { get { return val.ToString(); } }
-            public FlexBase.ToneCTCSSValue RigItem { get { return val; } }
-            public toneCTCSSElement(FlexBase.ToneCTCSSValue v)
-            {
-                val = v;
-            }
-        }
-
-        internal class toneCTCSSFreqElement
-        {
-            private float val;
-            public string Display { get { return val.ToString(); } }
-            public float RigItem { get { return val; } }
-            public toneCTCSSFreqElement(float v)
-            {
-                val = v;
-            }
-        }
-
-        internal const int filterLowMinimum = -12000;
-        internal const int filterLowMaximum = 12000;
-        internal const int filterLowIncrement = 50;
-        internal const int filterHighMinimum = -12000;
-        internal const int filterHighMaximum = 12000;
-        internal const int filterHighIncrement = 50;
+        // Constants forwarded from FilterConstants (Sprint 11)
+        internal const int filterLowMinimum = FilterConstants.filterLowMinimum;
+        internal const int filterLowMaximum = FilterConstants.filterLowMaximum;
+        internal const int filterLowIncrement = FilterConstants.filterLowIncrement;
+        internal const int filterHighMinimum = FilterConstants.filterHighMinimum;
+        internal const int filterHighMaximum = FilterConstants.filterHighMaximum;
+        internal const int filterHighIncrement = FilterConstants.filterHighIncrement;
 
         private class AGCSpeedElement
         {
@@ -226,15 +201,10 @@ namespace Radios
         private ArrayList toneFrequencyList;
         private ArrayList squelchList;
 
-        internal class offsetDirectionElement
+        // Type alias — canonical definition moved to FilterTypes.cs (Sprint 11)
+        internal class offsetDirectionElement : Radios.offsetDirectionElement
         {
-            private FlexBase.OffsetDirections val;
-            public string Display { get { return val.ToString(); } }
-            public FlexBase.OffsetDirections RigItem { get { return val; } }
-            public offsetDirectionElement(FlexBase.OffsetDirections v)
-            {
-                val = v;
-            }
+            public offsetDirectionElement(FlexBase.OffsetDirections v) : base(v) { }
         }
         internal static offsetDirectionElement[] offsetDirectionValues =
         {
@@ -1060,8 +1030,8 @@ namespace Radios
             modeChange = new modeChangeClass(this, buildModeChange(), modeChangeSpecials);
 
             rig.Callouts.PanField = PanBox;
-            Form memdisp = new FlexMemories(rig);
-            rig.RigFields = new FlexBase.RigFields_t(this, updateBoxes, memdisp, null, myControls);
+            var memdisp = new FlexMemories(rig);
+            rig.RigFields = new FlexBase.RigFields_t(this, updateBoxes, (IMemoryManager)memdisp, null, myControls);
 
             // Set routine to get SWR text.
             rig.Callouts.GetSWRText = SWRText;
@@ -1137,14 +1107,6 @@ namespace Radios
             {
                 if (configFile != null) configFile.Dispose();
             }
-        }
-
-        // Operator change
-        public void OperatorChangeHandler()
-        {
-            getConfig();
-            panRanges = new PanRanges(rig, OperatorsDirectory);
-            RXFreqChange(rig.VFOToSlice(rig.RXVFO));
         }
 
         private void updateBoxes()
@@ -2055,11 +2017,7 @@ namespace Radios
         public new void Close()
         {
             Tracing.TraceLine("Flex6300Filters.Close", TraceLevel.Info);
-            if ((rig != null) && (theRadio != null))
-            {
-                if (panadapter != null) panadapter.DataReady -= panDataHandler;
-                if (waterfall != null) waterfall.DataReady -= waterfallDataHandler;
-            }
+            panManager?.Close();
         }
 
         private void RXEqButton_Click(object sender, EventArgs e)
@@ -2135,22 +2093,9 @@ namespace Radios
             autoprocFunc(Flex6300Filters.rig);
         }
 
-        // Panning region
+        // Panning region — pan logic extracted to PanAdapterManager (Sprint 11)
 #region panning
-        private Panadapter panadapter { get { return rig.Panadapter; } }
-        private Waterfall waterfall { get { return rig.Waterfall; } }
-        private PanRanges panRanges;
-
-#if zero
-        private delegate void panTextDel(TextBox tb, string txt);
-        panTextDel panText = (TextBox tb, string txt) =>
-        { tb.Text = txt; };
-        private void showPanText(TextBox tb, string txt)
-        {
-            if (tb.InvokeRequired) tb.Invoke(panText, new object[] { tb, txt });
-            else panText(tb, txt);
-        }
-#endif
+        private PanAdapterManager panManager;
 
         private void panControlSetup()
         {
@@ -2165,7 +2110,6 @@ namespace Radios
         }
 
         // Called when ready to handle the pan adapter.
-        internal bool PanReady = false;
         public void PanSetup()
         {
             Tracing.TraceLine("panSetup", TraceLevel.Info);
@@ -2177,432 +2121,57 @@ namespace Radios
 
             ((FlexMemories)rig.RigFields.Memories).FlexMemories_Setup();
 
-            brailleWidth = rig.Callouts.BrailleCells;
-            // If no cells, there's no pan adapter.
-            if (brailleWidth <= 0)
-            {
-                brailleWidth = brailleWidthDefault;
-                Tracing.TraceLine("panSetup:no braille cells given, using " + brailleWidth, TraceLevel.Error);
-            }
-
-            panRanges = new PanRanges(rig, OperatorsDirectory);
-            currentPanData = new PanData(brailleWidth);
-            PanReady = true;
-        }
-
-        const int fps = 1;
-        const int lowDBM = -121;
-        const int highDBM = -21;
-        const int brailleWidthDefault = 40;
-        private int brailleWidth;
-        const int brailleScaleup = 50; // How far to scale up the pan width
-        const int brailleUpdateSeconds = 1;
-        //const ulong stepSizeScalerDefault = 1000; // KHZ
-        //private ulong stepSizeScaler = stepSizeScalerDefault;
-        private ulong stepSize;
-
-        private object segmentLock = new object();
-        private PanRanges.PanRange segment = null;
-        private uint generation = 0;
-        private FlexWaterfall flexPan;
-
-        // Called when the active slice, or active slice's mode or freq changes.
-        // Also called to copy a panadapter/waterfall.
-        public void RXFreqChange(object o)
-        {
-            // get out if pan adapter isn't ready.
-            if (!PanReady) return;
-
-            // See if it's a copy.
-            if (o is List<Slice>)
-            {
-                // First parm is the input.
-                List<Slice> sList = (List<Slice>)o;
-                copyPan(sList[0].Panadapter, sList[1].Panadapter);
-                return;
-            }
-
-            Slice s = (Slice)o;
-            // This should always be the active slice.
-            if ((s == null) || !s.Active) return;
-
-            //Tracing.TraceLine("RXFreqChange:" + s.Freq.ToString(), TraceLevel.Info);
-            iRXFreqChange(s.Freq);
-        }
-
-        internal void iRXFreqChange(double f)
-        {
-            ulong freq = rig.LibFreqtoLong(f);
-            Tracing.TraceLine("iRXFreqChange:" + freq.ToString(), TraceLevel.Info);
-            FlexBase.DbgTrace("segmentLock1");
-            lock (segmentLock)
-            {
-                // Return if a user segment.
-                if ((segment != null) && segment.User)
+            // Create PanAdapterManager with display callbacks
+            panManager = new PanAdapterManager(rig, OperatorsDirectory, rig.Callouts.BrailleCells,
+                (line, pos) =>
                 {
-                    Tracing.TraceLine("iRXFreqChange:user segment", TraceLevel.Info);
-                    return;
-                }
-
-                Tracing.TraceLine("iRXFreqChange:current freq:" + rig.RXFrequency.ToString(), TraceLevel.Info);
-
-                PanRanges.PanRange seg = panRanges.Query(freq);
-                if (seg == null)
-                {
-                    Tracing.TraceLine("iRXFreqChange:segment not found", TraceLevel.Info);
-                    // make this brailleWidth KHZ wide.
-                    ulong low = freq - (((ulong)brailleWidth * 1000) / 2);
-                    seg = new PanRanges.PanRange(low, low + ((ulong)brailleWidth * 1000), PanRanges.PanRangeStates.temp);
-                }
-                FlexBase.DbgTrace("dbg1:" + seg.ToString());
-
-                //if (seg != segment)
-                if ((segment == null) || ((seg.Low != segment.Low) | (seg.High != segment.High)))
-                {
-                    segment = seg;
-                    invalidateOldSegment();
-                    Tracing.TraceLine("iRXFreqChange:new segment:" + generation + ' ' + segment.ToString(), TraceLevel.Info);
-                    // start panning.
-                    panParameterSetup();
-                }
-            }
-            FlexBase.DbgTrace("segmentLock1 done");
-        }
-
-        private void panParameterSetup()
-        {
-            Tracing.TraceLine("PanParameterSetup", TraceLevel.Info);
-            try
-            {
-                if ((panadapter == null) || (waterfall == null)) return;
-                //int rf = panadapter.RFGain;
-                //int rl = panadapter.RFGainLow;
-                //int rh = panadapter.RFGainHigh;
-
-                // Remove all panadapter and waterfall handlers.
-                for (int i = 0; i < rig.MyNumSlices; i++)
-                {
-                    if (rig.mySlices[i].Panadapter != null)
+                    TextOut.PerformGenericFunction(PanBox, () =>
                     {
-                        rig.mySlices[i].Panadapter.DataReady -= panDataHandler;
-                    }
-                }
-                lock (rig.waterfallList)
-                {
-                    foreach (Waterfall w in rig.waterfallList)
-                    {
-                        w.DataReady -= waterfallDataHandler;
-                    }
-                }
-
-                if (flexPan != null) flexPan.Stop();
-                flexPan = null;
-                // Display the low and high.
-                TextOut.DisplayText(PanLowBox, rig.Callouts.FormatFreq(segment.Low), false, true);
-                TextOut.DisplayText(PanHighBox, rig.Callouts.FormatFreq(segment.High), false, true);
-                lock (currentPanData)
-                {
-                    currentPanData.LowFreq = rig.LongFreqToLibFreq(segment.Low);
-                    currentPanData.HighFreq = rig.LongFreqToLibFreq(segment.High);
-                }
-
-                stepSize = (ulong)((float)segment.Width / (float)brailleWidth); // hz / cell
-                if (stepSize == 0) stepSize = 1;
-
-                panadapter.Width = (brailleWidth * brailleScaleup) + brailleWidth;
-                //waterfall.Width = (brailleWidth * brailleScaleup) + brailleWidth;
-                panadapter.Height = 700;
-                panadapter.FPS = fps;
-                panadapter.CenterFreq = segmentCenter(segment);
-                waterfall.CenterFreq = panadapter.CenterFreq;
-                FlexBase.DbgTrace("dbg setup:" + waterfall.CenterFreq.ToString());
-                panadapter.Bandwidth = rig.LongFreqToLibFreq((ulong)segment.Width + stepSize);
-                waterfall.Bandwidth = panadapter.Bandwidth;
-                panadapter.LowDbm = lowDBM;
-                panadapter.HighDbm = highDBM;
-                flexPan = new FlexWaterfall(this, segment.Low, segment.High, rig.Callouts.BrailleCells);
-                panadapter.DataReady += panDataHandler;
-                waterfall.DataReady += waterfallDataHandler;
-            }
-            catch (Exception ex)
-            {
-                // Can happen if active slice changes.
-                Tracing.TraceLine("panParameterSetup exception" + ex.Message + ex.StackTrace, TraceLevel.Error);
-            }
-        }
-
-        private void copyPan(Panadapter inPan, Panadapter outPan)
-        {
-            Tracing.TraceLine("copyPan", TraceLevel.Info);
-            Waterfall inFall = rig.GetPanadaptersWaterfall(inPan);
-            Waterfall outFall = rig.GetPanadaptersWaterfall(outPan);
-            rig.q.Enqueue((FlexBase.FunctionDel)null, "copyPan start");
-            rig.q.Enqueue((FlexBase.FunctionDel)(() => { outPan.Width = inPan.Width; }));
-            rig.q.Enqueue((FlexBase.FunctionDel)(() => { outPan.Height = inPan.Height; }));
-            rig.q.Enqueue((FlexBase.FunctionDel)(() => { outPan.FPS = inPan.FPS; }));
-            rig.q.Enqueue((FlexBase.FunctionDel)(() => { outPan.CenterFreq = inPan.CenterFreq; }));
-            rig.q.Enqueue((FlexBase.FunctionDel)(() => { outFall.CenterFreq = inFall.CenterFreq; }));
-            rig.q.Enqueue((FlexBase.FunctionDel)(() => { outPan.Bandwidth = outPan.Bandwidth; }));
-            rig.q.Enqueue((FlexBase.FunctionDel)(() => { outFall.Bandwidth = inFall.Bandwidth; }));
-            rig.q.Enqueue((FlexBase.FunctionDel)(() => { outPan.LowDbm = inPan.LowDbm; }));
-            rig.q.Enqueue((FlexBase.FunctionDel)(() => { outPan.HighDbm = inPan.HighDbm; }));
-            rig.q.Enqueue((FlexBase.FunctionDel)null, "copyPan done");
-        }
-
-        private void invalidateOldSegment()
-        {
-            segment.Generation = ++generation;
-        }
-
-        private double segmentCenter(PanRanges.PanRange segment)
-        {
-            return rig.LongFreqToLibFreq(segment.Low + (ulong)(segment.Width / 2));
-        }
-
-        internal class PanData
-        {
-            public int Cells;
-            public string Line; // braille line
-            public double[] frequencies;
-            public double LowFreq, HighFreq;
-            public double HZPerCell { get { return (HighFreq - LowFreq) / Cells; } }
-            public int EntryPosition;
-            public PanData(int cells)
-            {
-                Cells = cells;
-                frequencies = new double[cells];
-            }
-            public int FreqToCell(double f)
-            {
-                if (f < LowFreq) f = LowFreq;
-                else if (f > HighFreq) f = HighFreq;
-                double relFreq = f - LowFreq;
-                int rv = (int)(relFreq / HZPerCell);
-                if (rv == Cells) rv--;
-                return rv;
-            }
-            public double CellToFreq(int c)
-            {
-                if (c < 0) c = 0;
-                else if (c > Cells - 1) c = Cells - 1;
-                return LowFreq + (c * HZPerCell);
-            }
-        }
-        private PanData currentPanData;
-
-        private ushort[] oldPanData;
-        private DateTime lastPanTime = DateTime.Now;
-        private TimeSpan panInterval = new TimeSpan(10000 * 400 / fps); // 0.4 sec / fps
-        private bool rapidReturn = false;
-        private uint rapidStreamID;
-        private int rapidFPS;
-        private void panDataHandler(Panadapter pan, ushort[] data)
-        {
-            if (rig.Disconnecting | (flexPan == null))
-            {
-                return;
-            }
-
-            // Prevent rapid calls.
-            TimeSpan delta = DateTime.Now - lastPanTime;
-            if ((delta < panInterval) & (pan.FPS != fps))
-            {
-                rapidReturn = true;
-                rapidFPS = pan.FPS;
-                rapidStreamID = pan.StreamID;
-                // FPS change.
-                Tracing.TraceLine("panDataHandler:changing FPS:" + pan.FPS + ' ' + fps + ' ' + delta.ToString(), TraceLevel.Info);
-                //rig.q.Enqueue((FlexBase.FunctionDel)(() => { panadapter.FPS = fps; }), "panadapter.FPS");
-                panadapter.FPS = fps;
-                return; // too rapid
-            }
-            else
-            {
-                bool diff = ((oldPanData == null) || (oldPanData.Length != data.Length));
-                if (!diff)
-                {
-                    for (int i = 0; i < data.Length; i++)
-                    {
-                        if (data[i] != oldPanData[i])
+                        if (!rig.Disconnecting)
                         {
-                            oldPanData = data;
-                            diff = true;
-                            break;
+                            PanBox.Text = line;
+                            PanBox.SelectionStart = pos;
                         }
-                    }
-                }
-            }
+                    });
+                });
 
-            lastPanTime = DateTime.Now;
-            if (rapidReturn)
+            // Wire segment display callback
+            panManager.SegmentDisplayCallback = (lowText, highText) =>
             {
-                rapidReturn = false;
-                Tracing.TraceLine("panDataHandler:rapid calls:" +rapidStreamID + ' ' + rapidFPS, TraceLevel.Error);
-            }
-
-            try
-            {
-                //Tracing.TraceLine("panDataHandler:" + pan.StreamID + ' ' + pan.FPS, TraceLevel.Info);
-                PanData panOut = flexPan.Read();
-                if ((panOut != null) && (panOut.Line.Length > 0))
-                {
-                    Tracing.TraceLine("panData:" + panOut.Line.Length.ToString() + ' ' + panOut.Line, TraceLevel.Verbose);
-                    int pos = 0;
-                    lock (currentPanData)
-                    {
-                        // Preserve the pan data for gotoFreq.
-                        Array.Copy(panOut.frequencies, currentPanData.frequencies, panOut.frequencies.Length);
-                        currentPanData.Line = string.Copy(panOut.Line);
-                        pos = currentPanData.EntryPosition;
-                    }
-                    TextOut.PerformGenericFunction(PanBox,
-                         () => {
-                             if (!rig.Disconnecting)
-                             {
-                                 PanBox.Text = panOut.Line;
-                                 PanBox.SelectionStart = pos;
-                             }
-                         });
-                }
-            }
-            catch (Exception ex)
-            {
-                Tracing.TraceLine("panDataHandler exception:" + ex.Message, TraceLevel.Error);
-            }
+                TextOut.DisplayText(PanLowBox, lowText, false, true);
+                TextOut.DisplayText(PanHighBox, highText, false, true);
+            };
         }
-        private bool centerChangeSent = false;
-        private void waterfallDataHandler(Waterfall w, WaterfallTile tile)
+
+        // Forwarding methods to PanAdapterManager
+        public void RXFreqChange(object o) => panManager?.RXFreqChange(o);
+        public ulong ZeroBeatFreq() => panManager?.ZeroBeatFreq() ?? 0;
+
+        public void OperatorChangeHandler()
         {
-            if (rig.Disconnecting | (flexPan == null))
-            {
-                FlexBase.DbgTrace("waterfallDataHandler:disconnecting or flexPan is null");
-                return;
-            }
-
-            FlexBase.DbgTrace("segmentLock2");
-            lock (segmentLock)
-            {
-                // Check for a stale segment.
-                // This may ignore the first call after a new segment.
-                if (segment.Generation != generation)
-                {
-                    Tracing.TraceLine("waterfallDataHandler:returning:" + generation, TraceLevel.Info);
-                    FlexBase.DbgTrace("segmentLock2 Done");
-                    return;
-                }
-
-                // Check center freq
-                double center = segmentCenter(segment);
-                if (w.CenterFreq != center)
-                {
-                    Tracing.TraceLine("waterfallDataHandler:center not equal:" + w.CenterFreq.ToString() + ' ' + center.ToString() + ' ' + centerChangeSent.ToString(), TraceLevel.Info);
-                    // only do this once.
-                    if (!centerChangeSent)
-                    {
-                        Tracing.TraceLine("waterfallDataHandler:center:" + center.ToString(), TraceLevel.Info);
-                        rig.q.Enqueue((FlexBase.FunctionDel)(() =>
-                        {
-                            panParameterSetup();
-                        }), "center change");
-                        centerChangeSent = true;
-                        FlexBase.DbgTrace("segmentLock2 Done");
-                        return;
-                    }
-                }
-                    centerChangeSent = false;
-
-                flexPan.Write(tile);
-            }
-            FlexBase.DbgTrace("segmentLock2 Done");
+            panManager?.OperatorChangeHandler();
         }
 
-        private void gotoFreq(double freq)
-        {
-            //Tracing.TraceLine("gotoFreq:" + freq.ToString() + ' ' + stepSize.ToString() + ' ' + segment.Low.ToString(), TraceLevel.Info);
-            Tracing.TraceLine("gotoFreq:" + freq.ToString() + ' ' + stepSize.ToString(), TraceLevel.Info);
-            //freq = Math.Round(freq, 4); // round to the nearest 100 hz.
-            // may want to change the transmit freq if split and showing xmit
-            if (rig.ShowingXmitFrequency)
-            {
-                rig.q.Enqueue((FlexBase.FunctionDel)(() => { rig.mySlices[rig.TXVFO].Freq = freq; }), "[rig.TXVFO].Freq");
-            }
-            else
-            {
-                rig.q.Enqueue((FlexBase.FunctionDel)(() => { theRadio.ActiveSlice.Freq = freq; }), "ActiveSlice.Freq");
-            }
-            rig.q.Enqueue((FlexBase.FunctionDel)(() => { rig.Callouts.GotoHome(); }), "goto home");
-        }
-
-        private bool checkForRangeJump(Keys key)
-        {
-            bool rv = false;
-
-            FlexBase.DbgTrace("segmentLock3");
-            lock (segmentLock)
-            {
-                if (segment != null)
-                {
-                    PanRanges.PanRange newRange;
-                    switch (key)
-                    {
-                        case Keys.PageUp:
-                            if ((newRange = panRanges.PriorRange(segment)) != null)
-                            {
-                                segment = newRange;
-                                invalidateOldSegment();
-                                panParameterSetup();
-                                rv = true;
-                            }
-                            break;
-                        case Keys.PageDown:
-                            if ((newRange = panRanges.NextRange(segment)) != null)
-                            {
-                                segment = newRange;
-                                invalidateOldSegment();
-                                rv = true;
-                                panParameterSetup();
-                            }
-                            break;
-#if zero
-                        case Keys.L:
-                            rv = true; // just means we handled the key.
-                            // List
-                            Collection<PanRanges.PanRange> r = panRanges.QueryPertinentRanges(rig.LibFreqtoLong(theRadio.ActiveSlice.Freq));
-                            if (r.Count > 0)
-                            {
-                                PanListForm f = new PanListForm(r);
-                                if (f.ShowDialog() == DialogResult.OK)
-                                {
-                                    segment = f.SelectedRange;
-                                    invalidateOldSegment();
-                                    panParameterSetup();
-                                }
-                                f.Dispose();
-                            }
-                            break;
-#endif
-                    }
-                }
-            }
-            FlexBase.DbgTrace("segmentLock3 done");
-            return rv;
-        }
+        // WinForms event handlers — delegate to panManager
 
         private void PanBox_KeyDown(object sender, KeyEventArgs e)
         {
-            e.SuppressKeyPress = checkForRangeJump(e.KeyData);
+            if (panManager != null)
+                e.SuppressKeyPress = panManager.checkForRangeJump((int)e.KeyData);
         }
 
         private void PanBox_MouseClick(object sender, MouseEventArgs e)
         {
+            if (panManager == null) return;
             int pos = PanBox.GetCharIndexFromPosition(e.Location);
             Tracing.TraceLine("PanBox_MouseClick:" + pos, TraceLevel.Info);
             double freq;
-            lock (currentPanData)
+            var panData = panManager.CurrentPanData;
+            lock (panData)
             {
-                freq = currentPanData.frequencies[pos];
+                freq = panData.frequencies[pos];
             }
-            gotoFreq(freq);
+            panManager.gotoFreq(freq);
         }
 
         private const int panTimerInterval = 20;
@@ -2611,13 +2180,14 @@ namespace Radios
 
         private void PanBox_Enter(object sender, EventArgs e)
         {
+            if (panManager == null) return;
             int pos = 0;
-            lock (currentPanData)
+            var panData = panManager.CurrentPanData;
+            lock (panData)
             {
-                pos = currentPanData.FreqToCell(theRadio.ActiveSlice.Freq);
+                pos = panData.FreqToCell(theRadio.ActiveSlice.Freq);
                 Tracing.TraceLine("PanBox_Enter:" + pos, TraceLevel.Info);
-                // save this position.
-                currentPanData.EntryPosition = pos;
+                panData.EntryPosition = pos;
             }
             if (pos < PanBox.Text.Length)
             {
@@ -2626,7 +2196,6 @@ namespace Radios
             }
             else Tracing.TraceLine("Flex6300Filters.PanBox_enter text length:" + pos + ' ' + PanBox.Text.Length, TraceLevel.Error);
 
-            // Start looking for a cursor position change.
             panTimer = new System.Threading.Timer(panTimerHandler, null, panTimerInitialDelay, panTimerInterval);
         }
 
@@ -2639,66 +2208,58 @@ namespace Radios
             }
         }
 
-        // look for a cursor position change.
         private void panTimerHandler(object state)
         {
-            if (panTimer == null) return; // timer inactive
+            if (panTimer == null || panManager == null) return;
             bool go = false;
-            // Get cursor's current position.
             int pos = 0;
             TextOut.PerformGenericFunction(PanBox, () => { pos = PanBox.SelectionStart; });
             double freq = 0;
-            lock (currentPanData)
+            var panData = panManager.CurrentPanData;
+            lock (panData)
             {
-                // Set go switch if position changed.
-                go = (pos != currentPanData.EntryPosition);
+                go = (pos != panData.EntryPosition);
                 if (go)
                 {
-                    currentPanData.EntryPosition = pos;
-                    freq = currentPanData.frequencies[pos];
+                    panData.EntryPosition = pos;
+                    freq = panData.frequencies[pos];
                 }
             }
             if (go)
             {
                 Tracing.TraceLine("panTimerHandler:" + pos + ' ' + freq.ToString(), TraceLevel.Info);
-                gotoFreq(freq);
+                panManager.gotoFreq(freq);
             }
         }
 
         private void PanLowBox_KeyDown(object sender, KeyEventArgs e)
         {
+            if (panManager == null) return;
             if (!e.Control && !e.Alt && !e.Shift &&
                 !((e.KeyCode >= Keys.D0) && (e.KeyCode <= Keys.D9)))
             {
-                e.SuppressKeyPress = checkForRangeJump(e.KeyData);
+                e.SuppressKeyPress = panManager.checkForRangeJump((int)e.KeyData);
                 if (e.SuppressKeyPress)
                 {
-                    ulong low;
-                    FlexBase.DbgTrace("segmentLock4");
-                    lock (segmentLock)
-                    {
-                        low = segment.Low;
-                    }
-                    TextOut.DisplayText(PanLowBox, rig.Callouts.FormatFreq(low), false, true);
+                    var seg = panManager.CurrentSegment;
+                    if (seg != null)
+                        TextOut.DisplayText(PanLowBox, rig.Callouts.FormatFreq(seg.Low), false, true);
                 }
             }
         }
 
         private void PanHighBox_KeyDown(object sender, KeyEventArgs e)
         {
+            if (panManager == null) return;
             if (!e.Control && !e.Alt && !e.Shift &&
                 !((e.KeyCode >= Keys.D0) && (e.KeyCode <= Keys.D9)))
             {
-                e.SuppressKeyPress = checkForRangeJump(e.KeyData);
+                e.SuppressKeyPress = panManager.checkForRangeJump((int)e.KeyData);
                 if (e.SuppressKeyPress)
                 {
-                    ulong high;
-                    FlexBase.DbgTrace("segmentLock5");
-                    lock (segmentLock)
-                    {
-                        high = segment.High;
-                    }
-                    TextOut.DisplayText(PanHighBox, rig.Callouts.FormatFreq(high), false, true);
+                    var seg = panManager.CurrentSegment;
+                    if (seg != null)
+                        TextOut.DisplayText(PanHighBox, rig.Callouts.FormatFreq(seg.High), false, true);
                 }
             }
         }
@@ -2717,105 +2278,17 @@ namespace Radios
                 MessageBox.Show(badHighFreq, "error", MessageBoxButtons.OK);
                 return;
             }
-
-            FlexBase.DbgTrace("segmentLock6");
-            lock (segmentLock)
-            {
-                segment = new PanRanges.PanRange(low, high);
-                invalidateOldSegment();
-                panParameterSetup();
-            }
+            panManager?.SetUserSegment(low, high);
         }
 
         private void SaveButton_Click(object sender, EventArgs e)
         {
-            FlexBase.DbgTrace("segmentLock7");
-            lock (segmentLock)
-            {
-                if ((segment != null) && !segment.Saved)
-                {
-                    panRanges.Insert(segment);
-                }
-            }
+            panManager?.SaveSegment();
         }
 
         private void EraseButton_Click(object sender, EventArgs e)
         {
-            FlexBase.DbgTrace("segmentLock8");
-            lock (segmentLock)
-            {
-                if (segment.Saved & !segment.Permanent) panRanges.Remove(segment);
-
-                // Try a new segment.
-                segment = null;
-                RXFreqChange(rig.VFOToSlice(rig.RXVFO));
-            }
-        }
-
-        private Thread zeroBeatThread;
-        private ulong zeroBeatValue;
-        public ulong ZeroBeatFreq()
-        {
-            zeroBeatValue = 0;
-            if (flexPan != null)
-            {
-                zeroBeatThread = new Thread(zeroBeatProc);
-                zeroBeatThread.Name = "zeroBeatThread";
-                zeroBeatThread.Start();
-                FlexBase.await(() => { return !zeroBeatThread.IsAlive; }, 1100);
-            }
-            Tracing.TraceLine("FlexFilter ZeroBeatFreq:" + zeroBeatValue.ToString(), TraceLevel.Info);
-            return zeroBeatValue;
-        }
-        private const int totalTime = 1000;
-        private const int iterations = 10;
-        class freqCount
-        {
-            public ulong Freq;
-            public int Count;
-            public freqCount(ulong f, int c)
-            {
-                Freq = f;
-                Count = c;
-            }
-        }
-        private void zeroBeatProc()
-        {
-            int sanity = iterations;
-            Dictionary<ulong, freqCount> freqs = new Dictionary<ulong, freqCount>();
-            // Find freq with the most high points.
-            while (sanity-- != 0)
-            {
-                freqCount freqCT = new freqCount(flexPan.ZeroBeatFreq(), 1);
-                if (freqs.Keys.Contains(freqCT.Freq))
-                {
-                    freqs[freqCT.Freq].Count++;
-                    // If won't find a bigger one...
-                    if (freqCT.Count == (iterations / 2))
-                    {
-                        zeroBeatValue = freqCT.Freq;
-                        break;
-                    }
-                }
-                else freqs.Add(freqCT.Freq, freqCT);
-                Thread.Sleep(totalTime / iterations);
-            }
-            // Note that zeroBeatValue is initially 0.
-            // If set above, we don't need to do this,
-            // otherwise use the highest count.
-            if (zeroBeatValue == 0)
-            {
-                int maxCount = 0;
-                foreach (freqCount fc in freqs.Values)
-                {
-                    if (fc.Count > maxCount)
-                    {
-                        maxCount = fc.Count;
-                        zeroBeatValue = fc.Freq;
-                    }
-                }
-            }
-            Tracing.TraceLine("zeroBeatProc finished:" + zeroBeatValue.ToString(), TraceLevel.Info);
+            panManager?.EraseSegment();
         }
 #endregion
     }

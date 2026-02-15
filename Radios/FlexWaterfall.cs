@@ -15,8 +15,8 @@ namespace Radios
 {
     class FlexWaterfall
     {
-        private Flex6300Filters parent;
-        private FlexBase rig { get { return Flex6300Filters.rig; } }
+        private PanAdapterManager parent;
+        private FlexBase rig;
 #if Average
         class avg
         {
@@ -120,10 +120,11 @@ namespace Radios
         // It was set experimentally for about s9.
         private const int swampThreshold = 25000;
 
-        public FlexWaterfall(Flex6300Filters p, ulong l, ulong h, int c)
+        public FlexWaterfall(PanAdapterManager p, FlexBase r, ulong l, ulong h, int c)
         {
             Tracing.TraceLine("FlexWaterfall:" + l.ToString() + ' ' + h.ToString() + ' ' + c.ToString(), TraceLevel.Info);
             parent = p;
+            rig = r;
             low = (double)l / 1e6;
             high = (double)h / 1e6;
             cells = c;
@@ -253,10 +254,10 @@ namespace Radios
             return rv;
         }
 
-        public Flex6300Filters.PanData Read()
+        public PanAdapterManager.PanData Read()
         {
             //string logTxt = "";
-            Flex6300Filters.PanData rv = new Flex6300Filters.PanData(cells);
+            PanAdapterManager.PanData rv = new PanAdapterManager.PanData(cells);
             ushort[] brlArray = new ushort[cells];
             double lowFreq = low;
             ushort floor = ushort.MaxValue;
