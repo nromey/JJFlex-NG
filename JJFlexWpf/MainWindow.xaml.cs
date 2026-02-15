@@ -31,6 +31,11 @@ public partial class MainWindow : Window
     /// </summary>
     private bool _isClosing;
 
+    /// <summary>
+    /// Menu builder — constructs and manages all 3 menu sets.
+    /// </summary>
+    private MenuBuilder _menuBuilder = null!;
+
     public MainWindow()
     {
         InitializeComponent();
@@ -61,8 +66,14 @@ public partial class MainWindow : Window
         // 1. Screen reader greeting (matches Form1_Load line 206)
         Radios.ScreenReaderOutput.Speak("Welcome to JJ Flex");
 
-        // 2-10. Remaining init steps are wired in as phases are completed.
-        // Each phase adds its initialization here.
+        // 8. Menu construction (Phase 8.5)
+        _menuBuilder = new MenuBuilder(this);
+        _menuBuilder.BuildAllMenus(MainMenu);
+
+        // 10. Apply UI mode — show correct menu set
+        // Phase 8.6+: Read saved mode from CurrentOp.ActiveUIMode
+        // For now, default to Modern mode
+        ApplyUIMode(UIMode.Modern);
 
         // Update status
         StatusText.Text = "Ready — no radio connected";
@@ -264,6 +275,150 @@ public partial class MainWindow : Window
             control.IsEnabled = enabled;
         }
         Tracing.TraceLine($"EnableDisableWindowControls: {enabled}", TraceLevel.Info);
+    }
+
+    #endregion
+
+    #region UI Mode Management — Phase 8.5
+
+    /// <summary>
+    /// UI mode enum — mirrors globals.vb UIMode.
+    /// </summary>
+    public enum UIMode
+    {
+        Classic,
+        Modern,
+        Logging
+    }
+
+    /// <summary>
+    /// Current active UI mode.
+    /// </summary>
+    public UIMode ActiveUIMode { get; private set; } = UIMode.Modern;
+
+    /// <summary>
+    /// Last non-logging mode (Classic or Modern). Restored when exiting Logging Mode.
+    /// Matches globals.vb LastNonLogMode.
+    /// </summary>
+    public UIMode LastNonLogMode { get; set; } = UIMode.Modern;
+
+    /// <summary>
+    /// Apply the specified UI mode — show/hide menus and panels.
+    /// Central dispatcher matching Form1.ApplyUIMode().
+    /// </summary>
+    public void ApplyUIMode(UIMode mode)
+    {
+        ActiveUIMode = mode;
+        Tracing.TraceLine($"ApplyUIMode: {mode}", TraceLevel.Info);
+
+        switch (mode)
+        {
+            case UIMode.Classic:
+                ShowClassicUI();
+                break;
+            case UIMode.Modern:
+                ShowModernUI();
+                break;
+            case UIMode.Logging:
+                ShowLoggingUI();
+                break;
+        }
+    }
+
+    /// <summary>
+    /// Show Classic mode: Classic menus, radio controls visible, logging hidden.
+    /// </summary>
+    private void ShowClassicUI()
+    {
+        _menuBuilder.SetClassicMenusVisible(true);
+        _menuBuilder.SetModernMenusVisible(false);
+        _menuBuilder.SetLoggingMenusVisible(false);
+
+        RadioControlsPanel.Visibility = Visibility.Visible;
+        SetTextAreasVisible(true);
+        LoggingPanel.Visibility = Visibility.Collapsed;
+    }
+
+    /// <summary>
+    /// Show Modern mode: Modern menus, radio controls visible, logging hidden.
+    /// </summary>
+    private void ShowModernUI()
+    {
+        _menuBuilder.SetClassicMenusVisible(false);
+        _menuBuilder.SetModernMenusVisible(true);
+        _menuBuilder.SetLoggingMenusVisible(false);
+
+        RadioControlsPanel.Visibility = Visibility.Visible;
+        SetTextAreasVisible(true);
+        LoggingPanel.Visibility = Visibility.Collapsed;
+    }
+
+    /// <summary>
+    /// Show Logging mode: Logging menus, radio controls hidden, log panel visible.
+    /// </summary>
+    private void ShowLoggingUI()
+    {
+        _menuBuilder.SetClassicMenusVisible(false);
+        _menuBuilder.SetModernMenusVisible(false);
+        _menuBuilder.SetLoggingMenusVisible(true);
+
+        // Hide standard radio controls (tab stop off for accessibility)
+        RadioControlsPanel.Visibility = Visibility.Collapsed;
+        SetTextAreasVisible(false);
+
+        // Show logging panel (Phase 8.8 will populate with LogEntryControl + RadioPane)
+        LoggingPanel.Visibility = Visibility.Visible;
+    }
+
+    /// <summary>
+    /// Toggle between Classic and Modern modes.
+    /// Matches Form1.ToggleUIMode().
+    /// </summary>
+    public void ToggleUIMode()
+    {
+        if (ActiveUIMode == UIMode.Logging)
+        {
+            // Phase 8.8: ExitLoggingMode() first
+            return;
+        }
+
+        var newMode = ActiveUIMode == UIMode.Classic ? UIMode.Modern : UIMode.Classic;
+        LastNonLogMode = newMode;
+        ApplyUIMode(newMode);
+        Radios.ScreenReaderOutput.Speak($"Switched to {newMode} mode");
+    }
+
+    /// <summary>
+    /// Enter Logging Mode from either Classic or Modern.
+    /// Matches Form1.EnterLoggingMode().
+    /// </summary>
+    public void EnterLoggingMode()
+    {
+        if (ActiveUIMode == UIMode.Logging)
+            return;
+
+        LastNonLogMode = ActiveUIMode;
+        ApplyUIMode(UIMode.Logging);
+
+        // Phase 8.8: Open log file, init callbook, focus CallSign field
+        Radios.ScreenReaderOutput.Speak("Entering Logging Mode, Call Sign");
+    }
+
+    /// <summary>
+    /// Exit Logging Mode, returning to last non-logging mode.
+    /// Matches Form1.ExitLoggingMode().
+    /// </summary>
+    public void ExitLoggingMode()
+    {
+        if (ActiveUIMode != UIMode.Logging)
+            return;
+
+        // Phase 8.8: Save LogPanel state
+
+        ApplyUIMode(LastNonLogMode);
+        Radios.ScreenReaderOutput.Speak($"Returning to {LastNonLogMode} mode");
+
+        // Phase 8.8: Focus FreqOut display
     }
 
     #endregion
