@@ -1,0 +1,68 @@
+<local:JJFlexDialog x:Class="JJFlexWpf.Dialogs.EscDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:JJFlexWpf"
+        Title="ESC Controls"
+        Width="380" SizeToContent="Height"
+        ResizeMode="NoResize">
+
+    <StackPanel Margin="12">
+        <!-- ESC Enable -->
+        <CheckBox x:Name="EscEnabledCheckBox" Content="Enhanced Signal Clarity (ESC) enabled"
+                  Margin="0,0,0,8"
+                  AutomationProperties.Name="Enhanced Signal Clarity enabled"
+                  Checked="EscEnabledCheckBox_Changed" Unchecked="EscEnabledCheckBox_Changed"/>
+
+        <!-- Phase Shift -->
+        <TextBlock Text="Phase shift:" Margin="0,0,0,4"/>
+        <Slider x:Name="PhaseSlider" Minimum="0" Maximum="360"
+                TickFrequency="30" TickPlacement="BottomRight"
+                IsSnapToTickEnabled="False" SmallChange="1" LargeChange="10"
+                AutomationProperties.Name="Phase shift in degrees"
+                ValueChanged="PhaseSlider_ValueChanged"/>
+        <StackPanel Orientation="Horizontal" Margin="0,4,0,4">
+            <TextBox x:Name="PhaseValueBox" Width="96"
+                     AutomationProperties.Name="Phase shift value"
+                     KeyDown="PhaseValueBox_KeyDown" LostFocus="PhaseValueBox_LostFocus"/>
+            <TextBlock Text=" degrees" VerticalAlignment="Center"/>
+        </StackPanel>
+
+        <!-- Phase Presets -->
+        <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+            <Button Content="90 degrees" MinWidth="60" Margin="0,0,8,0"
+                    AutomationProperties.Name="Set phase to 90 degrees"
+                    Click="Preset90Button_Click"/>
+            <Button Content="180 degrees" MinWidth="60"
+                    AutomationProperties.Name="Set phase to 180 degrees"
+                    Click="Preset180Button_Click"/>
+        </StackPanel>
+
+        <!-- Gain -->
+        <TextBlock Text="ESC gain:" Margin="0,0,0,4"/>
+        <Slider x:Name="GainSlider" Minimum="0" Maximum="80"
+                TickFrequency="8" TickPlacement="BottomRight"
+                IsSnapToTickEnabled="False" SmallChange="1" LargeChange="5"
+                AutomationProperties.Name="ESC gain"
+                ValueChanged="GainSlider_ValueChanged"/>
+        <StackPanel Orientation="Horizontal" Margin="0,4,0,8">
+            <TextBox x:Name="GainValueBox" Width="96"
+                     AutomationProperties.Name="ESC gain value"
+                     KeyDown="GainValueBox_KeyDown" LostFocus="GainValueBox_LostFocus"/>
+            <TextBlock Text=" gain" VerticalAlignment="Center"/>
+        </StackPanel>
+
+        <!-- Status -->
+        <Border BorderBrush="Gray" BorderThickness="1" Padding="4" Margin="0,0,0,8"
+                MinHeight="32">
+            <TextBlock x:Name="StatusLabel" Text="status" VerticalAlignment="Center"
+                       AutomationProperties.Name="ESC status"
+                       AutomationProperties.LiveSetting="Polite"/>
+        </Border>
+
+        <!-- Close -->
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button Content="Close" MinWidth="88" IsDefault="True" IsCancel="True"
+                    AutomationProperties.Name="Close" Click="CloseButton_Click"/>
+        </StackPanel>
+    </StackPanel>
+</local:JJFlexDialog>

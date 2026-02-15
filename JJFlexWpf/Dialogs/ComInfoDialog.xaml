@@ -1,0 +1,24 @@
+<local:JJFlexDialog x:Class="JJFlexWpf.Dialogs.ComInfoDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:JJFlexWpf"
+        Title="Knob's Port Info"
+        Width="300" SizeToContent="Height"
+        ResizeMode="NoResize">
+
+    <StackPanel Margin="12">
+        <TextBlock Text="Com Ports" Margin="0,0,0,4"/>
+        <ListBox x:Name="ComPortList" Height="100" Margin="0,0,0,12"
+                 AutomationProperties.Name="COM ports"/>
+
+        <!-- Buttons -->
+        <StackPanel Orientation="Horizontal">
+            <Button Content="Select" MinWidth="75" Margin="0,0,8,0" IsDefault="True"
+                    AutomationProperties.Name="Select COM port"
+                    Click="SelectButton_Click"/>
+            <Button Content="Cancel" MinWidth="75" IsCancel="True"
+                    AutomationProperties.Name="Cancel"
+                    Click="CancelButton_Click"/>
+        </StackPanel>
+    </StackPanel>
+</local:JJFlexDialog>
