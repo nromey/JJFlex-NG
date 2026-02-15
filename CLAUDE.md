@@ -305,27 +305,131 @@ powershell -Command "(Get-Item 'bin\x64\Release\net8.0-windows\win-x64\JJFlexRad
 
 ## Workflow
 
-### Parallel Sprint Tracks — MUST use worktrees
+### Sprint Lifecycle (Standard Operating Procedure)
 
-**IMPORTANT: Always use `git worktree` for parallel CLI sessions.** Do NOT just check out different branches in the same working directory — CLI sessions will fight over files, lose changes, and produce checkout races.
+Every sprint follows this lifecycle. Claude (in the Desktop/orchestrator session) drives planning, setup, and merging. The user spawns CLI sessions to execute tracks.
 
-```batch
-# Session 1 stays in main repo on sprint7/track-a (or main)
-# Session 2 gets its own directory:
-git worktree add ../jjflex-trackB sprint7/track-b
-# Session 3 gets its own directory:
-git worktree add ../jjflex-trackC sprint7/track-c
-```
+#### Phase 1: Planning (Claude Desktop + User)
+1. **Scope discussion** — User and Claude discuss what the sprint should accomplish
+2. **Plan file creation** — Claude writes a detailed sprint plan to `docs/planning/` (named with ham-radio words, e.g. `barefoot-qrm-trap.md`)
+3. **Track decomposition** — Claude analyzes the work and splits it into parallel tracks:
+   - Identify independent work units (dialogs, features, files that don't overlap)
+   - Group into tracks (max 6 concurrent tracks)
+   - Identify dependencies between tracks (e.g., "Track A must complete Phase X before B/C can start")
+   - Identify merge order (which tracks merge first, any conflict-prone areas)
+4. **User approval** — User reviews track split, adjusts if needed
 
-Each session works in its own directory with its own branch checked out. No file conflicts, no checkout races. Each session can build independently.
+#### Phase 2: Setup (Claude Desktop)
+Claude performs ALL setup before the user spawns any CLI sessions:
 
-```batch
-# Clean up after merge:
-git worktree remove ../jjflex-trackB
-git worktree remove ../jjflex-trackC
-```
+1. **Create branches** from the current base (usually `main`):
+   ```batch
+   git checkout -b sprintN/track-a
+   ```
+
+2. **Create worktrees** for each parallel track:
+   ```batch
+   # Track A stays in main repo: C:\dev\JJFlex-NG
+   git worktree add ../jjflex-Nb sprintN/track-a -b sprintN/track-b
+   git worktree add ../jjflex-Nc sprintN/track-a -b sprintN/track-c
+   # ... up to 6 tracks
+   ```
+   **Naming convention:** `../jjflex-Nx` where N = sprint number, x = track letter.
+
+3. **Write TRACK-INSTRUCTIONS.md** in each worktree root:
+   - Complete file list with WinForms source → WPF target mapping (or equivalent)
+   - Architecture rules and patterns to follow
+   - Build commands specific to that worktree
+   - Commit strategy (how often, what message format)
+   - Any track-specific notes (dependencies, gotchas, special handling)
+
+4. **Update the plan file** with track assignments, worktree paths, and branch names
+
+5. **Report to user — MUST include execution order AND merge plan:**
+   - Number of tracks to run
+   - **Execution order** — Claude MUST explicitly tell the user which tracks to start first and which to start later:
+     - If tracks have dependencies: specify the order (e.g., "Start Track A first. When Track A reports Phase 9.0 committed, start Tracks B and C.")
+     - If all tracks are independent: say "Start all N tracks simultaneously."
+     - If mixed: group them (e.g., "Start A and B now. Start C after A completes Step 1.")
+   - The directory to `cd` into for each track
+   - The exact prompt to type in each CLI session (always just: `Start Sprint N Track X from TRACK-INSTRUCTIONS.md`)
+   - **Merge plan** — Claude MUST tell the user the planned merge order if it's non-trivial:
+     - Which track is the merge target (usually Track A)
+     - Whether merges can happen as tracks complete or must wait for all tracks
+     - Any merge order constraints (e.g., "Track B must merge before Track C because C depends on B's DataGrid patterns")
+     - If merge order doesn't matter: say "Tracks merge in any order as they complete."
+     - This lets the user know what to expect and whether completing Track C before Track B changes anything
+
+#### Phase 3: Execution (User spawns CLI sessions)
+User opens Claude CLI sessions (one per track) following the execution order Claude specified.
+
+Each CLI session:
+- User `cd`s to the track's worktree directory
+- User types: `Start Sprint N Track X from TRACK-INSTRUCTIONS.md`
+- CLI reads its own `TRACK-INSTRUCTIONS.md` for full context
+- Works independently in its own worktree directory
+- Builds and commits within its own branch
+- Reports completion when done
+
+**The user reports track completion to Claude Desktop:** "Track A is done" / "Track B is done" etc.
+
+#### Phase 4: Merging (Claude Desktop)
+As tracks complete, Claude Desktop handles merges and keeps the user informed:
+
+1. **Merge order** — Claude follows the merge plan communicated in Phase 2. If circumstances change (unexpected conflicts, track completing out of order), Claude informs the user before proceeding with an adjusted merge strategy.
+2. **Standard merge process:**
+   ```batch
+   git checkout sprintN/track-a
+   git merge sprintN/track-b --no-ff -m "Merge Track B into Track A"
+   # Resolve conflicts if any (Claude Desktop handles this)
+   git merge sprintN/track-c --no-ff -m "Merge Track C into Track A"
+   ```
+3. **Post-merge build verification** — clean build after each merge to catch integration issues. If build fails, Claude fixes conflicts/issues before merging the next track.
+4. **Status updates** — Claude tells the user after each merge completes (e.g., "Track B merged into A, build clean. Waiting for Track C.")
+5. **Final merge to main:**
+   ```batch
+   git checkout main
+   git merge sprintN/track-a --no-ff -m "Sprint N: [description]"
+   ```
+
+#### Phase 5: Cleanup (Claude Desktop)
+1. **Remove worktrees:**
+   ```batch
+   git worktree remove ../jjflex-Nb
+   git worktree remove ../jjflex-Nc
+   ```
+2. **Delete track branches** (optional, after merge is confirmed good)
+3. **Delete TRACK-INSTRUCTIONS.md** files (they're in git history if needed)
+4. **Final cleanup phase** (sprint-specific: delete dead code, update docs, etc.)
+5. **Clean build** both x64 and x86, verify installers
+6. **Update Agent.md** with sprint completion status
+7. **Archive sprint plan** to `docs/planning/agile/archive/`
+8. **Create test matrix** at `docs/planning/agile/sprintN-test-matrix.md`
+
+---
+
+### Parallel Track Rules
+
+**CRITICAL: Always use `git worktree` for parallel CLI sessions.** Do NOT just check out different branches in the same working directory — CLI sessions will fight over files, lose changes, and produce checkout races.
 
 **Lesson learned (Sprint 6):** Using branches without worktrees caused CLI sessions to collide — multiple sessions sharing one working directory led to file corruption and build issues. Worktrees are mandatory, not optional.
+
+| Rule | Details |
+|------|---------|
+| Max concurrent tracks | 6 (practical limit for Claude CLI sessions) |
+| Worktree naming | `../jjflex-Nx` (N=sprint, x=track letter a-f) |
+| Branch naming | `sprintN/track-x` |
+| Track instructions | `TRACK-INSTRUCTIONS.md` in each worktree root |
+| CLI prompt format | `Start Sprint N Track X from TRACK-INSTRUCTIONS.md` |
+| Build isolation | Each worktree builds independently |
+| Commit style | Track-specific prefix: `Sprint N Track X: description` |
+
+### Track Dependency Handling
+
+When tracks have dependencies (e.g., Track A creates a base class that B and C need):
+- **Option 1:** Track A completes the shared work first, user reports done, Claude merges into B/C branches, then user starts B/C
+- **Option 2:** Dependent tracks create a minimal stub version and note in their instructions that Track A's version is canonical at merge time
+- **Option 3:** Serial-then-parallel — Track A runs solo first, then B/C/D/E/F run in parallel after A merges
 
 ### Commits
 - Commit and push after completing each phase or significant chunk of work
