@@ -10,13 +10,13 @@ This release wraps up the Modern menu build-out, polishes Logging Mode, and adds
 
 ### What's New
 
-- **Modern menu DSP controls actually talk back now**: All the DSP toggles in the Modern menu — NR, NB, ANF, Neural NR, the whole gang — now tell you whether they're on or off when you toggle them. Before, they'd cheerfully say "on" every single time, even when you were turning them off. That's fixed. Same goes for the filter controls (Narrow, Widen, Shift) — they now announce the resulting filter width or shift value.
+- **Modern menu DSP controls actually talk back now**: All the DSP toggles in the Modern menu — NR, NB, ANF, Neural NR, the whole gang — now tell you whether they're on or off when you toggle them. Before, they'd cheerfully say "on" every single time, even when you were turning them off. That's fixed. Same goes for the filter controls (Narrow, Widen, Shift) — they now announce the resulting filter width or shift value. Keep in mind, that as we remodel the living room and the kitchen, that while in reconstruction mode, you'll have to use the tools menu, and select available features if you want to know what features your radio supports. Upcoming filters will become sadly unavailable if your radio is not subscribed to that particular feature or mode. You'll also notice, later, that you'll be able to hear what hotkeys to press to activate your menu item as you arrow through the place. Be patient with us, this reconstruction ain't the most fun thing in the world, but it will definitely allow us to really shine when it comes to accessibility, and, at the same time, not confuse you with ... confusing announcements, keystrokes, and speaking kerfuffles along the way. I hate to tell you that it's gonna be great before it's great, but ... really ... truly ... IT'S GONNA BE GREAT, REALLY GREAT, MAN!
 - **"Coming soon" items speak up**: Those placeholder items in the Modern menu that didn't do anything? They now tell you "coming in a future update" when you click them. At least now you know *why* nothing happened.
 - **CW message feedback**: Ctrl+1 through Ctrl+7 play your stored CW messages on the air with the built-in keyer. F12 stops CW. If you haven't set up any CW messages yet, these hotkeys now tell you that instead of doing nothing.
 - **Log Contact button in Station Lookup**: Look up a callsign (Ctrl+L), click "Log Contact," and boom — you're in Logging Mode with the call, name, QTH, state, and grid already filled in. Dup check and previous contact lookup fire automatically. It's the workflow: hear a station, look them up, log the contact — three steps, no retyping.
-- **Distance and bearing in Station Lookup**: After a lookup, you'll see how far away the station is and what direction to point your beam (or wish you had a beam). Calculated from your operator grid square to theirs.
+- **Distance and bearing in Station Lookup**: After a lookup, you'll see how far away the station is and what direction to point your beam (or wish you had a beam). Calculated from your operator grid square to theirs. For now, access your operator settings within the operator menu, and enter your gridsquare to be able to look this snazzy info up. Trust us, it'll get way easier soon!
 - **Speak Status hotkey**: Get a quick spoken summary of your radio's current state — frequency, mode, band, active slice — without navigating anywhere.
-- **Status Dialog (disabled for now)**: I built a full status dialog, but honestly it was a mess — couldn't tab through it, no close button, window appeared somewhere in outer space. Rather than ship something broken, Ctrl+Alt+S now just tells you it's coming in a future update and suggests using Speak Status instead. I'll rebuild it properly in a future release.
+- **Status Dialog (disabled for now)**: I built a full status dialog, but honestly it was a mess — couldn't tab through it, no close button, window appeared somewhere in outer space. Rather than ship something broken, Ctrl+Alt+S now just tells you it's coming in a future update and suggests using Speak Status instead. I'll rebuild it properly in a future release. Remember that construction I told you about earlier, construction's just ... messy. At least I told you so you don't open a door and fall out into space, then down, down, down .... splat.
 - **Configurable QSO grid size**: Go to your operator settings and set how many recent QSOs you want to see in Logging Mode — anywhere from 5 to 100 (default is still 20). The grid now actually respects this setting instead of ignoring it.
 - **Audio Peak Filter mode guard**: APF is a CW-only feature, but JJFlexRadio used to happily toggle it in SSB mode without doing anything. Now if you try it outside CW, you get a clear message: "Audio Peak Filter is only available in CW mode."
 
@@ -24,12 +24,12 @@ This release wraps up the Modern menu build-out, polishes Logging Mode, and adds
 
 - **QSO grid rows announce callsigns**: Arrow through the Recent QSOs grid and your screen reader now says the callsign (e.g., "W1AW") instead of some cryptic internal type name. Left/right arrow to navigate individual cells within a row still works. NVDA has a quirk where it reads cell values twice — working on that for the next release.
 - **Dup count no longer argues with itself**: When you entered a duplicate callsign, two different things were speaking at once — "6 contacts" from one source, "2 duplicates" from another. Turns out they were counting different things (total QSOs vs. matches on the current band and mode), but hearing both was just confusing. Cleaned it up so you hear one clear "Previously worked, N contacts" announcement, plus the warning beep.
-- **Log Contact doesn't stutter anymore**: Clicking "Log Contact" used to produce a garbled speech attempt as multiple announcements tripped over each other. You clicked "Log Contact" — you know you're going to Logging Mode. Now it enters quietly and your screen reader just reads the pre-filled call sign field. Much cleaner.
+- **Log Contact doesn't stutter anymore**: Clicking "Log Contact" used to produce a garbled speech attempt as multiple announcements tripped over each other. You clicked "Log Contact" — you know you're going to Logging Mode. Now it enters quietly and your screen reader just reads the pre-filled call sign field. Much cleaner, much cooler I think.
 
 ### Known Quirks
 
 - **"Unknown" on logging mode entry**: Your screen reader might briefly say "unknown" when entering Logging Mode. This is a side effect of mixing two different UI technologies together and will go away in the next major release when I finish converting the app to a single technology.
-- **NVDA double-reads in QSO grid**: If you arrow left/right through QSO grid cells in NVDA, it reads cell values twice (e.g., "SSB SSB mode"). JAWS handles it fine. Will fix this properly in the next release.
+- **NVDA double-reads in QSO grid**: If you arrow left/right through QSO grid cells in NVDA, it reads cell values twice (e.g., "SSB SSB mode"). JAWS handles it fine, so if you wanna see where we're going soon, run JAWS and you'll hear a spreadsheet-like experience where you'll hear rows and columns read, an informational nirvana, and a sneak peek into future grids we've got planned for ya. Will fix this properly in the next release.
 - **App doesn't grab focus on launch**: If you double-click the exe in Explorer, the app starts but focus stays on the Explorer window. Annoying — on my list to fix.
 
 ## 4.1.13.0 — Callbook Fallback, QRZ Logbook, Hotkeys v2
@@ -42,12 +42,12 @@ This release packs two full feature sets plus a major hotkey overhaul. The callb
 - **QRZ to HamQTH auto-fallback**: If QRZ login fails three times in a row, JJFlexRadio silently switches to the built-in HamQTH account so lookups keep working. You get a one-time notification explaining the fallback. No more silent lookup failures when your QRZ subscription lapses.
 - **HamQTH built-in account**: If you select HamQTH as your callbook but don't have personal credentials, JJFlexRadio falls back to its built-in HamQTH account automatically.
 - **Credential migration**: If you had HamQTH credentials from the old system, they automatically migrate to the new callbook settings on first load.
-- **Credential validation on save**: Your operator profile tests your credentials when you click Update. Clear error messages for QRZ subscription issues and HamQTH login failures.
-- **Secure credential storage**: Callbook passwords encrypted using Windows DPAPI — tied to your Windows login, useless if someone copies the file.
+- **Credential validation on save**: Your operator profile tests your credentials when you click Update. Clear error messages for QRZ subscription issues and HamQTH login failures are all yours if you need them, and you know you need them, right?
+- **Secure credential storage**: Callbook passwords are now encrypted using Windows DPAPI — a nifty Microsoft feature that ties encryption to your Windows login, useless if someone copies the file, but if you're logged in, we autodecrypt the file.
 
 ### QRZ Logbook Upload
 
-- **Real-time QRZ Logbook**: Log a QSO in Logging Mode and it automatically uploads to your QRZ.com logbook. Enable in operator settings with your QRZ API key.
+- **Real-time QRZ Logbook**: Log a QSO in Logging Mode and it automatically uploads to your QRZ.com logbook. Enable in operator settings with your QRZ API key. To find your key, login to Qrz.com, click your callsign, this may require that you use your virtual mouse to double click it, then select your logbook. Select settings. Find the first table on the page. That table contains the API for your logbook. If you have multiple logbooks, each of them has their own API, make sure you use the API for the logbook you want JJFlexRadio to have access to. Enter the listed API into JJFlexRadio and click validate.
 - **Validate button**: Test your QRZ Logbook API key right from settings — shows your QRZ log stats (total QSOs, etc.) to confirm everything's connected.
 - **Circuit breaker**: If QRZ's server has problems, uploads pause after 5 consecutive errors and resume automatically later. Your local log is always saved regardless.
 - **Graceful degradation**: Invalid API key? QRZ down? Your QSO still saves locally with no errors. QRZ issues are logged silently — you'll see them in the trace if you look, but they won't interrupt your operating.
@@ -56,17 +56,17 @@ This release packs two full feature sets plus a major hotkey overhaul. The callb
 
 - **Scope-aware hotkeys**: Every hotkey now belongs to a scope — Global (works everywhere), Radio (Classic + Modern only), or Logging (Logging Mode only). The same physical key can do different things depending on your mode: Alt+C is CW Zero Beat in Radio mode but jumps to the Call Sign field in Logging mode.
 - **Keyboard routing rewrite**: ALL hotkeys now go through the scope-aware registry BEFORE the menu system sees them. This fixed F6 not switching panes in Logging Mode, Alt+C/Alt+S opening menus instead of executing commands, F1 not working in Logging, and Ctrl+/ (Command Finder) being intermittent.
-- **Command Finder (Ctrl+/)**: Type a few characters and it searches all available commands by name, keywords, and synonyms. Shows the current hotkey binding next to each match. Select one and press Enter to execute it immediately. The result list updates as you type and announces the count to your screen reader. Only shows commands relevant to your current mode.
+- **Command Finder (Ctrl+/)**: This cool little search utility can be the unsung hero while you're operating in a contest and want to know what key to press when, when you want to do what in JJFlexRadio. Type a few characters and it searches all available commands by name, keywords, and synonyms. Shows the current hotkey binding next to each match. Select one and press Enter to execute it immediately. The result list updates as you type and announces the count to your screen reader. Only shows commands relevant to your current mode.
 - **Tabbed Hotkey Editor**: Three tabs — Global, Radio, Logging. Select a command, press the new key you want, done. Conflict detection auto-clears the old binding so you can never save duplicate keys.
 - **CW message migration**: F5-F11 CW messages automatically migrated to Ctrl+1-7 (one-time, transparent). F12 still stops CW. The old F-keys are freed up for future features.
 
 ### Other Fixes
 
-- **"Coming soon" stubs speak**: Modern mode placeholder menu items now include "coming soon" directly in the menu text so all screen readers announce it.
+- **"Coming soon" stubs speak**: Modern mode placeholder menu items now include "coming soon" directly in the menu text so all screen readers announce it. We thought they did before, but nope.
 - **Hotkey corruption on restart**: Your key bindings were getting corrupted when saved, silently reverting to defaults. Fixed — your custom hotkeys now survive restarts.
-- **Full Log Form access (Ctrl+Alt+L)**: Pop open JJ's full LogEntry form as a modal from Logging Mode.
-- **Station Lookup upgraded (Ctrl+L)**: Uses your configured callbook service with DX country announcements.
-- **Natural screen reader announcements**: Callbook results spoken as values — "Robert, College Station, Texas" — not field names.
+- **Full Log Form access (Ctrl+Alt+L)**: Pop open JJ's full LogEntry form as a modal from Logging Mode if you need or want to access or edit all aspects of your log.
+- **Station Lookup upgraded (Ctrl+L)**: Uses your configured callbook service with DX country announcements to "look" up data about a station. Simply enter the station's call "What country is he from?" and whammo, get contact data you can use at your fingertips.
+- **Natural screen reader announcements**: Callbook results spoken as values — "Santa, North Pole" — not field names.
 - **UTC timestamp fix**: Each QSO now gets a fresh timestamp (was stuck at first QSO's time).
 - **Callbook announcement queueing**: Callbook results queue after field announcements during fast tabbing, so things don't talk over each other.
 - **Modern menu accessibility**: All Modern mode menus and submenus now have proper screen reader labels.
@@ -86,33 +86,46 @@ This is the one I've been building toward. JJFlexRadio now has a dedicated Loggi
 - **Mode round-trip**: Ctrl+Shift+L drops you into Logging Mode, and pressing it again takes you right back to Classic or Modern — whichever you were using. Your field values survive the round-trip too.
 - **Close protection**: Try to close the app with an unsaved entry and you'll get a save/discard/cancel dialog. If fields are missing, the dialog tells you what's needed before you click Yes.
 - **Escape to clear**: Press Escape to clear the form. First time it asks for confirmation with a "Don't ask me again" checkbox for pileup mode.
-- **Log Characteristics in Logging Mode**: Ctrl+Shift+N opens Log Characteristics without file conflicts. Previously this would crash because the log file was locked. Fixed.
-- **SKCC WES form retired**: The old contest-specific SKCC WES log form is removed. Logging Mode replaces it with a general-purpose approach.
+- **Log Characteristics in Logging Mode**: Ctrl+Shift+N opens Log Characteristics without file conflicts. Previously this would crash because the log file was locked. Log characteristics allow you to edit characteristics of your log and create a new log file if you need to do that.
+- **SKCC WES form retired**: The old contest-specific SKCC WES log form is removed. Logging Mode replaces it with a general-purpose approach. We're looking into a contest creator/configurator that you might just see somewhere down the road.
 - **Screen reader audit**: Every control has proper labels and roles. Mode transitions, tune step changes, previous contact lookups — all announced. Nothing happens silently.
 
 If you've been opening JJFlexRadio just to log a few CW QSOs and wished the UI would get out of the way, this is that update.
 
-## 4.1.11.0 — Seamless Auto-Connect & Audio Fix
+## 4.1.11.0 — Classic/Modern Mode, Auto-Connect & Audio Fix
 
-This one's about making JJFlexRadio feel like it knows you. Set up auto-connect once, and the app just connects to your radio when it starts — no clicking through selection screens, no hunting for your saved account. And we finally fixed the "why is this so quiet?" WAN audio problem.
+This one's about giving you choices. JJFlexRadio now has two UI modes — Classic for the "if it ain't broke" crowd, and Modern for those of us who want a cleaner, more accessible interface that's built for screen readers from the ground up. Plus, auto-connect means the app just connects to your radio when it starts, and we finally fixed the "why is this so quiet?" WAN audio problem.
+
+### Classic vs. Modern Mode
+
+This is a big one for how JJFlexRadio feels day to day. You now have two ways to use the app:
+
+- **Classic mode**: Everything you're used to. Same menus, same layout, same muscle memory. If you've been using JJFlexRadio for years and you like it the way it is, Classic is your friend. Nothing changes, nothing moves, nothing breaks. Don loves Classic mode, and honestly, we respect that.
+- **Modern mode**: A brand new menu structure designed from scratch with screen reader accessibility as priority number one. Menus are organized by what you're actually doing — Radio, Slice, Filter, Audio, Tools — instead of the legacy layout. Every item has proper screen reader labels, checked/unchecked states, and clear announcements. It's where all the new features land first.
+- **Ctrl+Shift+M** toggles between Classic and Modern instantly. No restart needed, no settings to dig through. Try Modern, don't like it? One keystroke back to Classic. Your preference is saved per operator, so if Don wants Classic and you want Modern on the same install, everybody's happy.
+- **New installs default to Modern**, but you'll get a one-time prompt asking which you prefer. Existing users stay on Classic until they decide to switch.
+
+Think of it like this: Classic is the cozy old shack with the tubes glowing in the corner. Modern is the new shack with the flat screens and the ergonomic chair. Same radio, same bands, same fun — just a different way to get to the controls. And you can walk between the two shacks anytime you want.
+
+### Auto-Connect & Audio
 
 - **Seamless auto-connect**: Pick your radio, right-click, "Set as Auto-Connect," and you're done. Next time you launch JJFlexRadio, it connects automatically. Works for both local radios and SmartLink remotes.
 - **Friendly offline handling**: If your auto-connect radio isn't available (maybe Don finally turned his off), you get a proper dialog with choices: try again, pick a different radio, or disable auto-connect. No cryptic errors, no stuck screens.
 - **Single radio rule**: Only one radio can be the auto-connect target. Set it on Radio B? It clears on Radio A. No ambiguity about which radio will connect.
 - **Settings confirmation**: Before saving auto-connect, you see exactly what's being saved — radio name, low bandwidth preference, the works. No "wait, what did I just enable?" moments.
 - **Fixed WAN audio volume**: If your laptop speakers sounded anemic through SmartLink, you're not imagining things. The remote audio path was outputting at about 16% of full scale. We added gain staging that boosts it to proper levels. Default is 4x (comfortable listening), adjustable in a future update.
-- **Help page works again**: The .NET 8 migration broke the Help menu. Fixed with one line.
-- **Fresh native DLLs**: Rebuilt Opus and PortAudio from source with proper optimizations for both 64-bit and 32-bit.
+- **Help page works again**: The .NET 8 migration broke the Help menu. Fixed with one line of smart code wizardry, thank you Claude.
+- **Fresh native DLLs**: Rebuilt Opus and PortAudio from source with proper optimizations for both 64-bit and 32-bit architectures in mind.
 - **Screen reader everywhere**: Connection states are all announced — connecting, connected, offline, disconnected. Nothing happens silently.
 
 If you've been frustrated by clicking through the radio selector every single launch, or by turning your laptop volume to 100% just to hear the radio, this is your update.
 
 ## 4.1.10.0 — SmartLink Saved Accounts
 
-Finally! This one's been on my list forever. You can now save your SmartLink login and stop typing credentials every single time you want to connect to a remote radio. I know, I know — it should have been there from day one.
+Finally! This one's been on my list forever. You can now save your SmartLink login and stop typing credentials every ... single ... time you want to connect to a remote radio. I know, I know — it should have been there from day one.
 
-- **Saved SmartLink accounts**: After logging in, JJFlexRadio asks if you want to save the account. Give it a friendly name like "Don's 6600" or "Club Station" and next time you click Remote, just pick it from the list. No more hunting for passwords or waiting for two-factor codes while your DX window closes.
-- **Secure storage**: Your tokens are encrypted using Windows DPAPI — tied to your Windows login. If someone copies the file to another machine, it's useless to them. No plaintext passwords, ever.
+- **Saved SmartLink accounts**: After logging in, JJFlexRadio asks if you want to save the account. Give it a friendly name like "Main ISS Flex Radio" (I can dream, right?), or "Club Station" and next time you click Remote, just pick it from the list. No more hunting for passwords or waiting for two-factor codes while your DX window closes.
+- **Secure storage**: Your login tokens, little pieces of data that tell Flex Systems that you are in fact you, are encrypted using Windows DPAPI — tied to your Windows login. If someone copies the file to another machine, it's useless to them. No plaintext passwords, ever, not anymore that is.
 - **Automatic refresh**: When your session expires (they do, eventually), JJFlexRadio quietly tries to refresh it. If that works, you won't even notice. If it fails, you'll need to log in again, but your saved accounts stick around.
 - **Account housekeeping**: You can rename or delete saved accounts from the selector. Made a typo in the name? Fixed in two clicks.
 - **Improved auth security**: I upgraded the auth flow to a more modern method that's more secure and actually allows the "remember me" feature to work properly. The old way literally couldn't do refresh tokens. Who knew?
