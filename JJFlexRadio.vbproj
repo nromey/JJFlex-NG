@@ -175,10 +175,8 @@
       <SubType>UserControl</SubType>
     </Compile>
     <Compile Include="CallbookResult.vb" />
-    <Compile Include="LogPanel.vb" />
     <Compile Include="LogSession.vb" />
     <Compile Include="LogStats.vb" />
-    <Compile Include="RadioPane.vb" />
     <Compile Include="LOTWMerge.Designer.vb">
       <DependentUpon>LOTWMerge.vb</DependentUpon>
     </Compile>
@@ -465,7 +463,6 @@
     <ProjectReference Include="P-Opus-master\POpusCodec.csproj" />
     <ProjectReference Include="PortAudioSharp-src-0.19.3\PortAudioSharp\PortAudioSharp.csproj" />
     <ProjectReference Include="skcc\skcc.csproj" />
-    <ProjectReference Include="RadioBoxes\RadioBoxes.csproj" />
     <ProjectReference Include="Radios\Radios.csproj" />
     <ProjectReference Include="JJFlexWpf\JJFlexWpf.csproj" />
   </ItemGroup>

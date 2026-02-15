@@ -67,6 +67,5 @@
     <ProjectReference Include="..\MsgLib\MsgLib.csproj" />
     <ProjectReference Include="..\P-Opus-master\POpusCodec.csproj" />
     <ProjectReference Include="..\PortAudioSharp-src-0.19.3\PortAudioSharp\PortAudioSharp.csproj" />
-    <ProjectReference Include="..\RadioBoxes\RadioBoxes.csproj" />
   </ItemGroup>
 </Project>

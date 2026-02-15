@@ -620,7 +620,7 @@ public partial class MainWindow : Window
         // Wire memory dialog delegate
         if (RigControl != null)
         {
-            RigControl.ShowMemoryDialog = ShowMemoryDialog;
+            RigControl.ShowMemoriesDialog = ShowMemoriesDialog;
         }
 
         // Disable controls initially — PowerNowOn enables them when radio powers on
@@ -1020,7 +1020,7 @@ public partial class MainWindow : Window
     /// Show the WPF MemoriesDialog with delegates wired to the current radio.
     /// Sprint 11 Phase 11.7: Replaces FlexMemories.ShowDialog() call in KeyCommands.
     /// </summary>
-    private void ShowMemoryDialog()
+    private void ShowMemoriesDialog()
     {
         if (RigControl?.RigFields?.Memories == null) return;
 
