@@ -45,7 +45,7 @@ Namespace My
             ' Wire up the keyboard command handler so WPF PreviewKeyDown
             ' can route keystrokes to the VB.NET KeyCommands system.
             ' This replaces the ElementHost→Form1 forwarding chain.
-            WpfMainWindow.DoCommandHandler = AddressOf Commands.DoCommand
+            ' Note: DoCommandHandler wiring deferred to after GetConfigInfo creates Commands.
 
             ' Sprint 10: Wire scan timer tick to dispatch between linear and memory scan.
             ' Replaces Form1.ScanTimer_Tick (Handles ScanTmr.Tick).
@@ -58,7 +58,21 @@ Namespace My
                     End If
                 End Sub
 
+            ' Sprint 11 Phase 11.8: Wire exit callback so MainWindow_Closing
+            ' can trigger the VB-side shutdown sequence.
+            WpfMainWindow.AppExitCallback = AddressOf ExitApplication
+
+            ' Sprint 11 Phase 11.8: Wire "Connect to Radio" callback for menu item.
+            WpfMainWindow.SelectRadioCallback = AddressOf SelectRadio
+
             WpfMainWindow.Show()
+
+            ' Sprint 11 Phase 11.8: Run VB-side initialization (moved from Form1_Load).
+            ' Must run after Show() so WPF window is visible and Dispatcher is active.
+            InitializeApplication()
+
+            ' Wire DoCommandHandler AFTER GetConfigInfo (which creates Commands).
+            WpfMainWindow.DoCommandHandler = AddressOf Commands.DoCommand
         End Sub
 
         Private Sub MyApplication_Shutdown(sender As Object, e As System.EventArgs) Handles Me.Shutdown

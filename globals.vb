@@ -1293,4 +1293,371 @@ Module globals
     Friend Const SessionADIFNotFound As Integer = 21 ' required session.FieldDictionary item not found.
     Friend Const BadCommandID As Integer = 22 ' invalid CommandID.
 #End Region
+
+#Region "Form1 → globals migration (Sprint 11 Phase 11.8)"
+
+    ' Constants moved from Form1
+    Private Const notConnected As String = "The radio didn't connect."
+
+    ' Screen saver state — saved on startup, restored on exit.
+    Private onExitScreenSaver As Boolean
+
+    Private Function setScreenSaver(val As Boolean) As Boolean
+        Dim orig As Boolean = JJLogIO.ScreenSaver.GetScreenSaverActive
+        JJLogIO.ScreenSaver.SetScreenSaverActive(val)
+        Return orig
+    End Function
+
+    Private Sub turnTracingOff()
+        If BootTrace Then
+            Tracing.TraceLine("Boot tracing off")
+            Tracing.On = False
+            BootTrace = False
+        End If
+    End Sub
+
+    Private Function currentOperatorName() As String
+        Return CurrentOp.UserBasename
+    End Function
+
+    ''' <summary>
+    ''' Show the one-time "Try Modern UI?" prompt for existing operators
+    ''' who predate the UIMode feature.
+    ''' </summary>
+    Friend Sub CheckUIModUpgradePrompt()
+        If CurrentOp Is Nothing Then Return
+        If CurrentOp.UIModeDismissed Then Return
+
+        CurrentOp.UIModeDismissed = True
+
+        Dim msg As String = "JJFlex now has a Modern UI mode with reorganized menus." & vbCrLf &
+                            "Want to try it? You can switch back anytime with Ctrl+Shift+M."
+        Dim result = MessageBox.Show(msg, "Try Modern Mode?", MessageBoxButtons.YesNo, MessageBoxIcon.Information)
+        If result = DialogResult.Yes Then
+            CurrentOp.UIModeSetting = CInt(UIMode.Modern)
+        Else
+            CurrentOp.UIModeSetting = CInt(UIMode.Classic)
+        End If
+
+        Operators.UpdateCurrentOp()
+    End Sub
+
+    ''' <summary>
+    ''' Operator change handler — wired to Operators.ConfigEvent.
+    ''' Moved from Form1 during Sprint 11 Phase 11.8.
+    ''' </summary>
+    Private Sub operatorChanged(sender As Object, e As ConfigArgs)
+        If CurrentOp IsNot Nothing Then
+            While (ContactLog IsNot Nothing) AndAlso (Not ContactLog.Cleanup)
+            End While
+            ConfigContactLog()
+        End If
+
+        If RigControl IsNot Nothing Then
+            RigControl.OperatorChangeHandler()
+        End If
+
+        ' Apply the new operator's UI mode preference via WPF.
+        If WpfMainWindow IsNot Nothing Then
+            WpfMainWindow.ApplyUIMode(CType(ActiveUIMode, JJFlexWpf.MainWindow.UIMode))
+        End If
+    End Sub
+
+    ' ── Radio open / close ──────────────────────────────────
+
+    Private Enum AutoConnectStartupResult
+        ShowSelector
+        Connected
+        Failed
+        UserCancelled
+    End Enum
+
+    Private _autoConnectConfig As Radios.AutoConnectConfig
+
+    ''' <summary>
+    ''' Attempts to auto-connect to a saved radio on startup.
+    ''' </summary>
+    Private Function TryAutoConnectOnStartup() As AutoConnectStartupResult
+        Try
+            Dim operatorName = PersonalData.UniqueOpName(CurrentOp)
+            _autoConnectConfig = Radios.AutoConnectConfig.Load(BaseConfigDir, operatorName)
+
+            If Not _autoConnectConfig.ShouldAutoConnect Then
+                Tracing.TraceLine("TryAutoConnectOnStartup: no auto-connect configured", TraceLevel.Info)
+                Return AutoConnectStartupResult.ShowSelector
+            End If
+
+            Tracing.TraceLine("TryAutoConnectOnStartup: attempting " & _autoConnectConfig.RadioName, TraceLevel.Info)
+
+            RigControl = New FlexBase(OpenParms)
+            Dim connected = RigControl.TryAutoConnect(_autoConnectConfig)
+
+            If connected Then
+                Tracing.TraceLine("TryAutoConnectOnStartup: success", TraceLevel.Info)
+                Return AutoConnectStartupResult.Connected
+            End If
+
+            Tracing.TraceLine("TryAutoConnectOnStartup: failed, showing dialog", TraceLevel.Info)
+            Dim dialogResult = Radios.AutoConnectFailedDialog.ShowDialog(Nothing, _autoConnectConfig.RadioName)
+
+            Select Case dialogResult
+                Case Radios.AutoConnectFailedResult.TryAgain
+                    RigControl.Dispose()
+                    RigControl = New FlexBase(OpenParms)
+                    connected = RigControl.TryAutoConnect(_autoConnectConfig)
+                    If connected Then
+                        Return AutoConnectStartupResult.Connected
+                    End If
+                    RigControl.Dispose()
+                    RigControl = Nothing
+                    Return AutoConnectStartupResult.Failed
+
+                Case Radios.AutoConnectFailedResult.DisableAutoConnect
+                    _autoConnectConfig.Enabled = False
+                    _autoConnectConfig.Save(BaseConfigDir, operatorName)
+                    RigControl.Dispose()
+                    RigControl = Nothing
+                    Return AutoConnectStartupResult.ShowSelector
+
+                Case Radios.AutoConnectFailedResult.ChooseAnotherRadio
+                    RigControl.Dispose()
+                    RigControl = Nothing
+                    Return AutoConnectStartupResult.Failed
+
+                Case Else
+                    RigControl.Dispose()
+                    RigControl = Nothing
+                    Return AutoConnectStartupResult.UserCancelled
+            End Select
+
+            Return AutoConnectStartupResult.ShowSelector
+        Catch ex As Exception
+            Tracing.TraceLine("TryAutoConnectOnStartup exception: " & ex.Message, TraceLevel.Error)
+            If RigControl IsNot Nothing Then
+                RigControl.Dispose()
+                RigControl = Nothing
+            End If
+            Return AutoConnectStartupResult.ShowSelector
+        End Try
+    End Function
+
+    Private radioSelected As DialogResult
+    Private selectorThread As Thread
+
+    Private Sub selectorProc(o As Object)
+        Dim initialCall = CType(o, Boolean)
+        Dim selector As RigSelector = New RigSelector(initialCall, OpenParms, Nothing)
+        Dim theForm As Form = CType(selector, Form)
+        RigControl = New FlexBase(OpenParms)
+        radioSelected = theForm.ShowDialog()
+        If radioSelected <> DialogResult.OK Then
+            RigControl.Dispose()
+            RigControl = Nothing
+        End If
+        theForm.Dispose()
+    End Sub
+
+    ''' <summary>
+    ''' Open the radio — builds OpenParms, runs selector, wires MainWindow.
+    ''' Moved from Form1 during Sprint 11 Phase 11.8.
+    ''' </summary>
+    Friend Function openTheRadio(initialCall As Boolean) As Boolean
+        Try
+            Dim rv As Boolean
+            OpenParms = New FlexBase.OpenParms()
+            OpenParms.ProgramName = ProgramName
+            OpenParms.CWTextReceiver = AddressOf Commands.DisplayDecodedText
+            OpenParms.FormatFreqForRadio = AddressOf UlongFreq
+            OpenParms.FormatFreq = AddressOf FormatFreqUlong
+            OpenParms.GotoHome = AddressOf WpfMainWindow.gotoHome
+            OpenParms.ConfigDirectory = BaseConfigDir & "\Radios"
+            OpenParms.AudioDevicesFile = AudioDevicesFile
+            OpenParms.GetOperatorName = AddressOf currentOperatorName
+            OpenParms.StationName = StationName
+            OpenParms.BrailleCells = CurrentOp.BrailleDisplaySize
+            OpenParms.License = CurrentOp.License
+            OpenParms.Profiles = CurrentOp.Profiles
+
+            ' Check for auto-connect on initial startup
+            If initialCall Then
+                Dim autoConnectResult = TryAutoConnectOnStartup()
+                If autoConnectResult = AutoConnectStartupResult.Connected Then
+                    rv = True
+                    radioSelected = DialogResult.OK
+                    WpfMainWindow?.Activate()
+                    GoTo RadioConnected
+                ElseIf autoConnectResult = AutoConnectStartupResult.UserCancelled Then
+                    rv = False
+                    radioSelected = DialogResult.Cancel
+                    Return rv
+                End If
+            End If
+
+            selectorThread = New Thread(AddressOf selectorProc)
+            selectorThread.Name = "selectorThread"
+            selectorThread.SetApartmentState(ApartmentState.STA)
+            selectorThread.Start(initialCall)
+            selectorThread.Join()
+            WpfMainWindow?.Activate()
+            rv = (radioSelected = DialogResult.OK)
+
+RadioConnected:
+            If rv Then
+                WpfMainWindow.RigControl = RigControl
+                WpfMainWindow.OpenParms = OpenParms
+                WpfMainWindow.CloseRadioCallback = AddressOf CloseTheRadio
+                WpfMainWindow.PowerOnCallback = Sub()
+                                                    SetupKnob()
+                                                    StartDailyTraceIfEnabled()
+                                                End Sub
+                WpfMainWindow.WireRadioEvents()
+
+                Tracing.TraceLine("OpenTheRadio:rig is starting", TraceLevel.Info)
+                rv = RigControl.Start()
+                If Not rv Then
+                    radioSelected = DialogResult.Abort
+                End If
+            End If
+
+            If rv Then
+                WpfMainWindow.OnRadioStarted()
+            Else
+                Tracing.TraceLine("OpenTheRadio:rig's open failed", TraceLevel.Error)
+                If radioSelected = DialogResult.Abort Then
+                    CloseTheRadio()
+                ElseIf radioSelected = DialogResult.No Then
+                    MessageBox.Show(notConnected, ErrorHdr, MessageBoxButtons.OK)
+                Else
+#If LeaveBootTraceOn = 0 Then
+                    turnTracingOff()
+#End If
+                End If
+            End If
+            Return rv
+        Catch ex As Exception
+            Tracing.TraceLine("openTheRadio exception:" & ex.Message & Environment.NewLine & ex.StackTrace, TraceLevel.Error)
+            Return False
+        End Try
+    End Function
+
+    ''' <summary>
+    ''' Close the radio and unwire all events.
+    ''' Moved from Form1 during Sprint 11 Phase 11.8.
+    ''' </summary>
+    Friend Sub CloseTheRadio()
+        Tracing.TraceLine("CloseTheRadio", TraceLevel.Info)
+
+        WpfMainWindow?.UnwireRadioEvents()
+
+        StopKnob()
+        If SMeter IsNot Nothing Then
+            SMeter.Peak = False
+        End If
+        If RigControl IsNot Nothing Then
+            Power = False
+            RigControl.Dispose()
+            RigControl = Nothing
+            If WpfMainWindow IsNot Nothing Then
+                WpfMainWindow.RigControl = Nothing
+            End If
+        End If
+    End Sub
+
+    ''' <summary>
+    ''' Select a different radio — disconnect current, open new.
+    ''' Moved from Form1.SelectRigMenuItem_Click during Sprint 11 Phase 11.8.
+    ''' </summary>
+    Friend Sub SelectRadio()
+        Tracing.TraceLine("SelectRadio", TraceLevel.Info)
+        Try
+            If RigControl IsNot Nothing Then
+                Dim radioName = RigControl.RadioNickname
+                If Not String.IsNullOrEmpty(radioName) Then
+                    Radios.ScreenReaderOutput.Speak("Disconnecting from " & radioName, True)
+                Else
+                    Radios.ScreenReaderOutput.Speak("Disconnecting from radio", True)
+                End If
+                CloseTheRadio()
+            End If
+            openTheRadio(False)
+        Catch ex As Exception
+            Tracing.TraceLine("SelectRadio:exception " & ex.Message, TraceLevel.Error)
+        End Try
+    End Sub
+
+    ''' <summary>
+    ''' Application exit sequence — cleanup and shutdown.
+    ''' Moved from Form1.FileExitToolStripMenuItem_Click during Sprint 11 Phase 11.8.
+    ''' Returns False to cancel exit, True to proceed.
+    ''' </summary>
+    Friend Function ExitApplication() As Boolean
+        Ending = True
+
+        ' Check for unsaved QSO
+        If Not LogEntry.optionalWrite() Then
+            Ending = False
+            Return False
+        End If
+
+        Try
+            LogEntry.Close()
+            Logs.Done()
+            If LookupStation IsNot Nothing Then
+                LookupStation.Finished()
+            End If
+            If Commands IsNot Nothing Then
+                Commands.ClusterShutdown()
+            End If
+            CloseTheRadio()
+            If W2WattMeter IsNot Nothing Then
+                W2WattMeter.Dispose()
+            End If
+            setScreenSaver(onExitScreenSaver)
+            Tracing.TraceLine("exit:screen saver set:" & onExitScreenSaver.ToString, TraceLevel.Info)
+        Catch ex As Exception
+            Tracing.TraceLine("ExitApplication:" & ex.Message, TraceLevel.Error)
+        End Try
+        Tracing.TraceLine("End.")
+        Tracing.On = False
+        Return True
+    End Function
+
+    ''' <summary>
+    ''' Application initialization — runs after WPF MainWindow is loaded.
+    ''' Moved from Form1_Load during Sprint 11 Phase 11.8.
+    ''' </summary>
+    Friend Sub InitializeApplication()
+        Tracing.TraceLine("InitializeApplication: starting", TraceLevel.Info)
+
+        GetConfigInfo()
+        CheckUIModUpgradePrompt()
+
+        StationName = getStationName()
+        Tracing.TraceLine("StationName:" & StationName, TraceLevel.Info)
+
+        ' Wire operator change handler
+        AddHandler Operators.ConfigEvent, AddressOf operatorChanged
+
+        ' Wire WriteText delegates to MainWindow
+        WriteText = Sub(tbid, text, clearFlag)
+                        WpfMainWindow.WriteText(CType(tbid, JJFlexWpf.MainWindow.WindowIDs), text, 0, clearFlag)
+                    End Sub
+        WriteTextX = Sub(tbid, s, cur, c)
+                         WpfMainWindow.WriteText(CType(tbid, JJFlexWpf.MainWindow.WindowIDs), s, cur, c)
+                     End Sub
+
+        ProgramDirectory = IO.Directory.GetCurrentDirectory()
+        onExitScreenSaver = setScreenSaver(False)
+
+        ' Apply the correct UI mode now that operators are loaded
+        If WpfMainWindow IsNot Nothing AndAlso CurrentOp IsNot Nothing Then
+            WpfMainWindow.ApplyUIMode(CType(ActiveUIMode, JJFlexWpf.MainWindow.UIMode))
+        End If
+
+        openTheRadio(True)
+
+        Tracing.TraceLine("InitializeApplication: complete", TraceLevel.Info)
+    End Sub
+
+#End Region
 End Module
