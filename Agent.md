@@ -149,10 +149,14 @@ Converting all remaining WinForms dialogs to WPF. Plan: `frolicking-forging-map.
 - LogEntry, FindLogEntry, Export, Import, scan
 - EscDialog, FlexEq, FlexTNF, ComInfo, Menus
 
-### Track C — Low-Priority + Library Dialogs (30 forms) ⬜
+### Track C — Low-Priority + Library Dialogs (33 items → 30 WPF dialogs) ✅
 - Worktree: `C:\dev\jjflex-9c`
-- 21 root-level dialogs (About, FreqInput, ShowBands, CW macros, etc.)
-- 9 library dialogs (MessageForm, ClusterForm, SetupKeys, log templates, etc.)
+- **Phase 9.3 Batch 1:** 7 trivial dialogs (FreqInput, ScanName, ShowStationNames, ReverseBeacon, CMDLine, SelectScan, AboutProgram)
+- **Phase 9.3 Batch 2:** 7 simple dialogs (About, ShowHelp, CWMessageUpdate, CWMessageAdd, ManageGroups, TraceAdmin, ManageGroupsEdit)
+- **Phase 9.3 Batch 3:** 7 medium dialogs (ShowBands, MemoryScan, CommandFinder, Lister, MemoryGroup, LogCharacteristics, LOTWMerge)
+- **Phase 9.4:** 9 library dialogs (MessageForm, SetupKeys, ShowKeys, ClusterForm, ATUMemories, PanList, GetFile, LogTemplate[×4], WattMeterConfig)
+- All 30 dialogs inherit from JJFlexDialog, use delegate-based rig wiring, have AutomationProperties.Name on all interactive controls
+- Clean build x64 and x86 Debug verified (0 errors)
 
 ### Phase 9.5 — Final Cleanup ⬜ (after all tracks merge)
 - Delete Form1.vb, LogPanel.vb, RadioPane.vb, RadioBoxes/, StationLookup.vb
@@ -239,4 +243,4 @@ build-installers.bat
 
 ---
 
-*Updated: Feb 14, 2026 — Sprint 9 IN PROGRESS. Phase 9.0 (dialog base) next, then 3 parallel tracks. CLAUDE.md updated with Sprint Lifecycle SOP for parallel track workflow.*
+*Updated: Feb 15, 2026 — Sprint 9 Track C COMPLETE. 30 WPF dialogs created covering all 33 tracked items (4 log templates share one configurable dialog). All inherit from JJFlexDialog, use delegate-based rig wiring, have accessibility markup. Clean build verified on x64 and x86.*
