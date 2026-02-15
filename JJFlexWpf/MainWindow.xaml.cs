@@ -423,6 +423,69 @@ public partial class MainWindow : Window
 
     #endregion
 
+    #region Keyboard Routing — Phase 8.6
+
+    /// <summary>
+    /// Delegate for routing keyboard commands to the VB.NET KeyCommands system.
+    /// Set by ApplicationEvents.vb after creating the KeyCommands instance.
+    /// Takes a WinForms Keys value, returns true if the key was consumed.
+    /// </summary>
+    public Func<System.Windows.Forms.Keys, bool>? DoCommandHandler { get; set; }
+
+    /// <summary>
+    /// Window-level PreviewKeyDown — intercepts ALL keys before child controls.
+    /// Replaces Form1.ProcessCmdKey override.
+    ///
+    /// Priority order:
+    /// 1. Hard-wired meta-commands (Ctrl+Shift+M/L for mode switching)
+    /// 2. Scope-aware KeyCommands.DoCommand() via DoCommandHandler delegate
+    /// 3. Pass through to focused control (WPF default behavior)
+    ///
+    /// This is THE fix for the ElementHost keyboard forwarding hack.
+    /// In pure WPF, PreviewKeyDown on the Window sees every key, period.
+    /// No more PreviewKeyDown→BeginInvoke→Form1 chain.
+    /// </summary>
+    private void MainWindow_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        // 1. Hard-wired meta-commands (always active, any mode)
+        if (Keyboard.Modifiers == (ModifierKeys.Control | ModifierKeys.Shift))
+        {
+            var key = e.Key == Key.System ? e.SystemKey : e.Key;
+
+            if (key == Key.M)
+            {
+                ToggleUIMode();
+                e.Handled = true;
+                return;
+            }
+
+            if (key == Key.L)
+            {
+                if (ActiveUIMode == UIMode.Logging)
+                    ExitLoggingMode();
+                else
+                    EnterLoggingMode();
+                e.Handled = true;
+                return;
+            }
+        }
+
+        // 2. Route through scope-aware KeyCommands registry
+        if (DoCommandHandler != null)
+        {
+            var winFormsKey = WpfKeyConverter.ToWinFormsKeys(e);
+            if (winFormsKey != System.Windows.Forms.Keys.None && DoCommandHandler(winFormsKey))
+            {
+                e.Handled = true;
+                return;
+            }
+        }
+
+        // 3. Fall through to focused control (default WPF behavior)
+    }
+
+    #endregion
+
     #region Radio Control Button Handlers — Phase 8.2
 
     /// <summary>

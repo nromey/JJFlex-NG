@@ -15,6 +15,10 @@ Public Class DefineCommands
     ''' Get the scope for the currently selected tab.
     ''' </summary>
     Private Function SelectedScope() As KeyCommands.KeyScope
+        ' Sprint 8 Phase 8.6: 5-scope system (Global, Radio, Classic, Modern, Logging).
+        ' Current tab control has 3 tabs. Sprint 9 will add Classic + Modern tabs
+        ' when DefineCommands is converted to WPF. Until then, Classic/Modern scoped
+        ' keys (if any) are not visible in this editor.
         Select Case ScopeTabControl.SelectedIndex
             Case 0 : Return KeyCommands.KeyScope.Global
             Case 1 : Return KeyCommands.KeyScope.Radio

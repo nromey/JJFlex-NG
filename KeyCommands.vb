@@ -175,12 +175,22 @@ Public Class KeyCommands
     Delegate Function menuTextFuncDel() As String
     ''' <summary>
     ''' Scope determines when a hotkey binding is active.
-    ''' Global = all modes; Radio = Classic + Modern; Logging = Logging Mode only.
+    ''' 5-scope system (Sprint 8 Phase 8.6):
+    '''   Global  = all modes
+    '''   Radio   = Classic + Modern (both — existing keys stay here, zero migration)
+    '''   Classic = Classic mode only
+    '''   Modern  = Modern mode only
+    '''   Logging = Logging Mode only
+    '''
+    ''' All existing Radio-scoped bindings continue working in both Classic and Modern.
+    ''' New mode-specific features use Classic or Modern scope to avoid key conflicts.
     ''' </summary>
     Public Enum KeyScope
         [Global] = 0    ' Active in all modes
-        Radio = 1     ' Classic + Modern only
-        Logging = 2   ' Logging Mode only
+        Radio = 1       ' Classic + Modern (both — shared, zero migration for existing keys)
+        Classic = 2     ' Classic mode only
+        Modern = 3      ' Modern mode only
+        Logging = 4     ' Logging Mode only
     End Enum
 
     Friend Enum FunctionGroups
@@ -525,6 +535,10 @@ Public Class KeyCommands
 
     ''' <summary>
     ''' Check if the given scope matches the current ActiveUIMode.
+    ''' 5-scope matching:
+    '''   Classic mode matches: Global, Radio, Classic
+    '''   Modern mode matches:  Global, Radio, Modern
+    '''   Logging mode matches: Global, Logging
     ''' </summary>
     Private Function ScopeMatchesMode(scope As KeyScope) As Boolean
         Select Case scope
@@ -532,6 +546,10 @@ Public Class KeyCommands
                 Return True
             Case KeyScope.Radio
                 Return (ActiveUIMode = UIMode.Classic OrElse ActiveUIMode = UIMode.Modern)
+            Case KeyScope.Classic
+                Return (ActiveUIMode = UIMode.Classic)
+            Case KeyScope.Modern
+                Return (ActiveUIMode = UIMode.Modern)
             Case KeyScope.Logging
                 Return (ActiveUIMode = UIMode.Logging)
             Case Else

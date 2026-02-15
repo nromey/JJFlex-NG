@@ -11,7 +11,8 @@
         WindowStartupLocation="CenterScreen"
         AutomationProperties.Name="JJFlexRadio Main Window"
         AutomationProperties.AutomationId="MainWindow"
-        FocusManager.FocusedElement="{Binding ElementName=MainContent}">
+        FocusManager.FocusedElement="{Binding ElementName=MainContent}"
+        PreviewKeyDown="MainWindow_PreviewKeyDown">
 
     <!-- Sprint 8 Main Layout:
          DockPanel
