@@ -89,15 +89,15 @@ namespace Radios
         /// <summary>
         /// Opens the SmartLink Account Selector dialog for standalone account management
         /// (rename, delete, view saved accounts). Called from the Modern UI menu.
+        /// Sprint 10: Uses delegate to decouple from WinForms SmartLinkAccountSelector form.
         /// </summary>
+        public static Action<SmartLinkAccountManager> ShowAccountManagerDialog { get; set; }
+
         public static void ShowAccountManager(System.Windows.Forms.IWin32Window owner, string configDir, string callSign)
         {
             var mgr = new SmartLinkAccountManager();
             mgr.LoadAccounts();
-            using (var selector = new SmartLinkAccountSelector(mgr))
-            {
-                selector.ShowDialog(owner);
-            }
+            ShowAccountManagerDialog?.Invoke(mgr);
         }
 
         /// <summary>
