@@ -143,11 +143,13 @@ Converting all remaining WinForms dialogs to WPF. Plan: `frolicking-forging-map.
 - AutoConnect dialogs, SmartLink, LoginName, ProfileWorker
 - Plus: migrate 24 Form1 refs in KeyCommands.vb → WpfMainWindow
 
-### Track B — Radio Operation Dialogs (13 forms) ⬜
+### Track B — Radio Operation Dialogs (13 forms) ✅
 - Worktree: `C:\dev\jjflex-9b`
-- FlexMemories, TXControls, DefineCommands (expand to 5 scope tabs)
-- LogEntry, FindLogEntry, Export, Import, scan
-- EscDialog, FlexEq, FlexTNF, ComInfo, Menus
+- All 13 dialogs converted to WPF, builds clean (0 errors)
+- **Commit 1:** MemoriesDialog, TXControlsDialog
+- **Commit 2:** DefineCommandsDialog (5-scope), LogEntryDialog, FindLogEntryDialog
+- **Commit 3:** ExportDialog, ImportDialog, ScanDialog
+- **Commit 4:** EscDialog, EqualizerDialog, TNFDialog, ComInfoDialog, MenusDialog
 
 ### Track C — Low-Priority + Library Dialogs (30 forms) ⬜
 - Worktree: `C:\dev\jjflex-9c`
@@ -239,4 +241,4 @@ build-installers.bat
 
 ---
 
-*Updated: Feb 14, 2026 — Sprint 9 IN PROGRESS. Phase 9.0 (dialog base) next, then 3 parallel tracks. CLAUDE.md updated with Sprint Lifecycle SOP for parallel track workflow.*
+*Updated: Feb 14, 2026 — Sprint 9 Track B COMPLETE. 13 WPF dialogs (26 files) committed on sprint9/track-b branch. Full solution builds clean (0 errors). Ready for merge.*
