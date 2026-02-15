@@ -1,5 +1,8 @@
+using System;
 using System.ComponentModel;
 using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Input;
 using JJTrace;
 
 namespace JJFlexWpf;
@@ -128,6 +131,179 @@ public partial class MainWindow : Window
     {
         Tracing.TraceLine("TransmitButton_Click", System.Diagnostics.TraceLevel.Info);
         // Phase 8.4+: toggleTransmit()
+    }
+
+    #endregion
+
+    #region Text Area Support — Phase 8.3
+
+    /// <summary>
+    /// Window IDs matching Form1.WindowIDs enum for text routing.
+    /// </summary>
+    public enum WindowIDs
+    {
+        ReceiveDataOut,
+        SendDataOut
+    }
+
+    /// <summary>
+    /// Map a WindowID to its TextBox control.
+    /// Matches Form1.TBIDToTB().
+    /// </summary>
+    private TextBox WindowIdToTextBox(WindowIDs id)
+    {
+        return id switch
+        {
+            WindowIDs.ReceiveDataOut => ReceivedTextBox,
+            WindowIDs.SendDataOut => SentTextBox,
+            _ => ReceivedTextBox
+        };
+    }
+
+    /// <summary>
+    /// Write text to a text area. Thread-safe via Dispatcher.
+    /// Matches Form1.WriteText/WriteTextX pattern.
+    /// </summary>
+    /// <param name="id">Which text area to write to</param>
+    /// <param name="text">Text to write or append</param>
+    /// <param name="cursor">Cursor position:
+    ///   -1 = preserve current position,
+    ///    0 = move to end,
+    ///   &gt;0 = set to specific position,
+    ///   &lt;-1 = buffer limit (negative of max length, trims from start)</param>
+    /// <param name="clearFirst">True to replace all text, false to append</param>
+    public void WriteText(WindowIDs id, string text, int cursor = 0, bool clearFirst = false)
+    {
+        if (_isClosing)
+            return;
+
+        if (!Dispatcher.CheckAccess())
+        {
+            Dispatcher.Invoke(() => WriteText(id, text, cursor, clearFirst));
+            return;
+        }
+
+        try
+        {
+            var tb = WindowIdToTextBox(id);
+            WriteToTextBox(tb, text, cursor, clearFirst);
+        }
+        catch (Exception ex)
+        {
+            Tracing.TraceLine($"WriteText error: {ex.Message}", System.Diagnostics.TraceLevel.Error);
+        }
+    }
+
+    /// <summary>
+    /// Core text writing logic — matches Form1.toTextbox().
+    /// Handles append, replace, cursor positioning, and buffer limiting.
+    /// </summary>
+    private static void WriteToTextBox(TextBox tb, string text, int cursor, bool clearFirst)
+    {
+        string finalText;
+        if (clearFirst)
+        {
+            finalText = text;
+        }
+        else
+        {
+            finalText = tb.Text + text; // Append
+        }
+
+        // Handle cursor positioning
+        if (cursor == -1)
+        {
+            // Preserve current position
+            cursor = tb.SelectionStart;
+        }
+        else if (cursor < -1)
+        {
+            // Buffer limit: negative value = max length
+            int maxLen = -cursor;
+            if (finalText.Length > maxLen)
+            {
+                finalText = finalText.Substring(finalText.Length - maxLen);
+            }
+            cursor = finalText.Length;
+        }
+        else if (cursor == 0)
+        {
+            // Move to end
+            cursor = finalText.Length;
+        }
+
+        tb.Text = finalText;
+
+        // Set cursor and scroll into view
+        if (cursor <= tb.Text.Length)
+        {
+            tb.SelectionStart = cursor;
+            tb.SelectionLength = 0;
+        }
+
+        // Scroll to cursor (WPF equivalent of ScrollToCaret)
+        tb.ScrollToLine(tb.GetLineIndexFromCharacterIndex(
+            Math.Min(tb.SelectionStart, Math.Max(0, tb.Text.Length - 1))));
+    }
+
+    /// <summary>
+    /// Set visibility of the text areas (hidden in Logging Mode).
+    /// Matches Form1 show/hide pattern for ReceivedTextBox + SentTextBox.
+    /// </summary>
+    public void SetTextAreasVisible(bool visible)
+    {
+        var vis = visible ? Visibility.Visible : Visibility.Collapsed;
+        ReceiveLabel.Visibility = vis;
+        ReceivedTextBox.Visibility = vis;
+        SendLabel.Visibility = vis;
+        SentTextBox.Visibility = vis;
+
+        // Tab stop matches visibility
+        ReceivedTextBox.IsTabStop = visible;
+        SentTextBox.IsTabStop = visible;
+    }
+
+    #endregion
+
+    #region Text Area Event Handlers — Phase 8.3
+
+    /// <summary>
+    /// ReceivedTextBox keyboard handler — forwards function keys and modified keys.
+    /// Clipboard operations (Ctrl+C, Ctrl+X) handled naturally by WPF TextBox.
+    /// </summary>
+    private void ReceivedTextBox_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        // Forward function keys to keyboard routing (Phase 8.6)
+        if (e.Key >= Key.F1 && e.Key <= Key.F24)
+        {
+            // Phase 8.6: Commands.DoCommand(e)
+            e.Handled = true;
+        }
+    }
+
+    /// <summary>
+    /// SentTextBox keyboard handler — handles CW shortcuts and function keys.
+    /// Matches Form1.SentTextBox_KeyDown.
+    /// </summary>
+    private void SentTextBox_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        // Forward function keys to keyboard routing (Phase 8.6)
+        if (e.Key >= Key.F1 && e.Key <= Key.F24)
+        {
+            // Phase 8.6: Commands.DoCommand(e)
+            e.Handled = true;
+        }
+
+        // Phase 8.4+: Ctrl+Enter sends CW, other shortcuts
+    }
+
+    /// <summary>
+    /// SentTextBox text input handler — for CW character transmission.
+    /// Matches Form1.SentTextBox_KeyPress for direct CW send.
+    /// </summary>
+    private void SentTextBox_PreviewTextInput(object sender, TextCompositionEventArgs e)
+    {
+        // Phase 8.4+: Route typed characters to CW transmit
     }
 
     #endregion

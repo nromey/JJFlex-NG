@@ -101,19 +101,59 @@
 
             </StackPanel>
 
-            <!-- Content Area — Phase 8.3 -->
+            <!-- Content Area — Phase 8.3: Received/Sent text, rig fields debug view -->
             <Grid Grid.Row="1" x:Name="ContentArea" Margin="4">
                 <Grid.RowDefinitions>
-                    <RowDefinition Height="*" />  <!-- Received text -->
-                    <RowDefinition Height="Auto" /> <!-- Received label -->
-                    <RowDefinition Height="*" />  <!-- Send text -->
-                    <RowDefinition Height="Auto" /> <!-- Send label -->
+                    <RowDefinition Height="Auto" />  <!-- Received label -->
+                    <RowDefinition Height="*" />     <!-- Received text -->
+                    <RowDefinition Height="Auto" />  <!-- Send label -->
+                    <RowDefinition Height="*" />     <!-- Send text -->
                 </Grid.RowDefinitions>
 
-                <!-- Phase 8.3: ReceivedTextBox, SentTextBox, labels go here -->
-                <TextBlock Grid.Row="0" Text="[Content Area — Phase 8.3]"
-                           HorizontalAlignment="Center" VerticalAlignment="Center"
-                           Foreground="Gray" FontSize="14" />
+                <!-- Received Text Label -->
+                <TextBlock Grid.Row="0" x:Name="ReceiveLabel" Text="Received Text"
+                           Margin="4,2" FontSize="11" Foreground="Gray" />
+
+                <!-- Received Text Box — displays decoded CW/digital text from the radio -->
+                <TextBox Grid.Row="1" x:Name="ReceivedTextBox"
+                         AcceptsReturn="True"
+                         IsReadOnly="False"
+                         TextWrapping="Wrap"
+                         VerticalScrollBarVisibility="Auto"
+                         FontFamily="Consolas"
+                         FontSize="12"
+                         Margin="4,0"
+                         AutomationProperties.Name="Received text"
+                         PreviewKeyDown="ReceivedTextBox_PreviewKeyDown" />
+
+                <!-- Send Text Label -->
+                <TextBlock Grid.Row="2" x:Name="SendLabel" Text="Sending Text"
+                           Margin="4,2" FontSize="11" Foreground="Gray" />
+
+                <!-- Send Text Box — user types CW/digital text to transmit -->
+                <TextBox Grid.Row="3" x:Name="SentTextBox"
+                         AcceptsReturn="True"
+                         IsReadOnly="False"
+                         TextWrapping="Wrap"
+                         VerticalScrollBarVisibility="Auto"
+                         AllowDrop="True"
+                         FontFamily="Consolas"
+                         FontSize="12"
+                         Margin="4,0"
+                         AutomationProperties.Name="Sent Text"
+                         PreviewKeyDown="SentTextBox_PreviewKeyDown"
+                         PreviewTextInput="SentTextBox_PreviewTextInput" />
+
+                <!-- Rig Fields debug display (hidden, low priority) -->
+                <TextBox x:Name="RigFieldsBox"
+                         Grid.Row="1" Grid.RowSpan="3"
+                         IsReadOnly="True"
+                         TextWrapping="Wrap"
+                         VerticalScrollBarVisibility="Auto"
+                         FontFamily="Consolas"
+                         FontSize="10"
+                         Visibility="Collapsed"
+                         AutomationProperties.Name="Rig Fields Debug" />
             </Grid>
 
             <!-- Logging Mode Panel — Phase 8.8 (hidden by default) -->
