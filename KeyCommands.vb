@@ -1157,17 +1157,12 @@ Public Class KeyCommands
     End Sub
 
     Private Sub DisplayMemory()
-        If RigControl IsNot Nothing Then
-            Dim memObj = CType(RigControl.RigFields.Memories, FlexMemories)
-            Try
-                memObj.ShowDialog()
-                If memObj.ShowFreq Then
-                    WpfMainWindow.gotoHome()
-                End If
-            Catch ex As Exception
-                Tracing.TraceLine("memory display:" & ex.Message, TraceLevel.Error)
-            End Try
-        End If
+        If RigControl Is Nothing Then Return
+        Try
+            RigControl.ShowMemoriesDialog?.Invoke()
+        Catch ex As Exception
+            Tracing.TraceLine("memory display:" & ex.Message, TraceLevel.Error)
+        End Try
     End Sub
 
     Private Sub cycleContinuous()
@@ -1663,14 +1658,8 @@ Public Class KeyCommands
     End Sub
 
     Private Sub TXControlsRtn()
-        If RigControl Is Nothing Then
-            Return
-        End If
-
-        Dim theForm As TXControls
-        theForm = New TXControls(RigControl)
-        theForm.ShowDialog()
-        theForm.Dispose()
+        If RigControl Is Nothing Then Return
+        RigControl.ShowTXControlsDialog?.Invoke()
         displayFreqCmd()
     End Sub
 

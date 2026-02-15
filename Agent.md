@@ -3,16 +3,45 @@
 This document captures the current state of JJ-Flex repository and active work.
 
 **Repository root:** `C:\dev\JJFlex-NG`
-**Branch:** `sprint10/decoupling`
+**Branch:** `sprint11/track-c`
 
 ## 1) Overview
 - JJFlexRadio: Windows desktop app for FlexRadio 6000/8000 series transceivers
 - **Migration complete:** .NET 8, dual x64/x86 architecture, WebView2 for Auth0
 - **Current version:** 4.1.114 (Don's Birthday Release)
+- **Sprint 11:** IN PROGRESS — WPF adapters + dead code deletion
+- **Sprint 10:** COMPLETE — FlexBase.cs decoupling
 - **Sprint 9:** COMPLETE — all remaining WinForms dialogs converted to WPF
 - **Sprint 8:** COMPLETE — Form1 → WPF MainWindow conversion
 
-## 2) Sprint 9 Status — COMPLETE (pending merge to main)
+## 2) Sprint 11 Track C Status — COMPLETE
+
+**Goal:** Delete dead WinForms code from Radios/ and clean up references.
+
+### Phase 11.9 — Delete Dead WinForms Files ✅
+- Deleted 7 WinForms file sets from Radios/ (21 files, ~8,150 lines):
+  - Flex6300Filters, FlexMemories, FlexATUMemories, FlexEq, FlexTNF, TXControls, FlexInfo
+- Removed RadioBoxes ProjectReference from Radios.csproj
+- **Not deleted (still live):** LogPanel.vb, RadioPane.vb, RadioBoxes project (Form1 depends on them — Track B handles)
+
+### Phase 11.10 — Cleanup ✅
+- Fixed broken references in Form1.vb and KeyCommands.vb:
+  - DiversityMenuItem → FlexBase.ToggleDiversity() (new public method)
+  - EscMenuItem → Radios.EscDialog directly (still exists)
+  - FeatureAvailability → FlexBase.ShowRadioInfoDialog delegate
+  - DisplayMemory → FlexBase.ShowMemoriesDialog delegate
+  - TXControls → FlexBase.ShowTXControlsDialog delegate
+- Added delegate properties on FlexBase (follows ShowATUMemoriesDialog pattern)
+- Both x64 and x86 build clean (0 errors)
+- Both installers generated
+
+### Deferred to post-Track-B-merge
+- Delete RadioBoxes project (Form1.designer.vb still uses RadioBoxes types)
+- Delete LogPanel.vb and RadioPane.vb (still live in Form1.vb)
+- Remove RadioBoxes from JJFlexRadio.sln and JJFlexRadio.vbproj
+- Fix About.vb RadioBoxes.MainBox.Version reference
+
+## 3) Sprint 9 Status — COMPLETE (pending merge to main)
 
 Converted all remaining WinForms dialogs to WPF using 3 parallel tracks with git worktrees.
 All tracks merged into sprint9/track-a. Clean build verified x64 + x86 Release (0 errors).
