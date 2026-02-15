@@ -1,8 +1,12 @@
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Threading;
+using JJFlexWpf.Controls;
 using JJTrace;
 
 namespace JJFlexWpf;
@@ -80,9 +84,11 @@ public partial class MainWindow : Window
 
         try
         {
+            // Stop polling
+            PollTimerEnabled = false;
+
             // Phase 8.8: Check logging panel for unsaved QSO
-            // Phase 8.2+: Disconnect radio, close cluster, etc.
-            // For now, just clean exit.
+            // Phase 8.4+: Disconnect radio, close cluster, etc.
 
             Tracing.TraceLine("MainWindow_Closing: shutdown complete", System.Diagnostics.TraceLevel.Info);
         }
@@ -96,6 +102,171 @@ public partial class MainWindow : Window
     {
         Close();
     }
+
+    #region PollTimer — Phase 8.4
+
+    /// <summary>
+    /// Poll interval in milliseconds. Matches Form1.pollTimerInterval (100ms = 10 FPS).
+    /// </summary>
+    private const int PollTimerIntervalMs = 100;
+
+    /// <summary>
+    /// WPF DispatcherTimer replacing System.Windows.Forms.Timer.
+    /// Fires on UI thread — no InvokeRequired checks needed.
+    /// </summary>
+    private DispatcherTimer? _pollTimer;
+
+    /// <summary>
+    /// List of RadioComboBox controls to poll each tick.
+    /// Matches Form1.combos list pattern.
+    /// </summary>
+    private readonly List<RadioComboBox> _comboControls = new();
+
+    /// <summary>
+    /// List of controls to enable/disable based on radio power state.
+    /// Matches Form1.enableDisableControls pattern.
+    /// </summary>
+    private readonly List<UIElement> _enableDisableControls = new();
+
+    /// <summary>
+    /// Track whether radio power is on — gates the update cycle.
+    /// </summary>
+    private bool _radioPowerOn;
+
+    /// <summary>
+    /// Previous SWR text for change detection.
+    /// </summary>
+    private string _oldSwr = "";
+
+    /// <summary>
+    /// Start or stop the poll timer.
+    /// Matches Form1.PollTimer property pattern.
+    /// </summary>
+    public bool PollTimerEnabled
+    {
+        get => _pollTimer?.IsEnabled ?? false;
+        set
+        {
+            if (value)
+            {
+                if (_pollTimer == null)
+                {
+                    _pollTimer = new DispatcherTimer(DispatcherPriority.Normal)
+                    {
+                        Interval = TimeSpan.FromMilliseconds(PollTimerIntervalMs)
+                    };
+                    _pollTimer.Tick += PollTimer_Tick;
+                }
+                _pollTimer.Start();
+                Tracing.TraceLine("PollTimer: started", TraceLevel.Info);
+            }
+            else
+            {
+                if (_pollTimer != null)
+                {
+                    _pollTimer.Stop();
+                    _pollTimer.Tick -= PollTimer_Tick;
+                    _pollTimer = null;
+                    Tracing.TraceLine("PollTimer: stopped", TraceLevel.Info);
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// 100ms poll tick — calls UpdateStatus().
+    /// Mirrors Form1.PollTimer_Tick.
+    /// </summary>
+    private void PollTimer_Tick(object? sender, EventArgs e)
+    {
+        UpdateStatus();
+    }
+
+    /// <summary>
+    /// Main status update — called every 100ms when radio is connected.
+    /// Reads current rig state and updates all UI controls.
+    ///
+    /// Matches Form1.UpdateStatus() flow:
+    /// 1. Check advanced feature menus (Diversity/ESC)
+    /// 2. Gate on power status
+    /// 3. Update frequency display
+    /// 4. Update combo boxes (Mode, Tuner)
+    /// 5. Update rig-specific fields (DSP/filters via RigFields.RigUpdate)
+    /// 6. Update SWR display (if manual tuning)
+    /// 7. Refresh status bar if changed
+    ///
+    /// Radio wiring connects in Phase 8.4+ when RigControl is available.
+    /// </summary>
+    public void UpdateStatus()
+    {
+        Tracing.TraceLine("UpdateStatus", TraceLevel.Verbose);
+
+        if (_isClosing)
+            return;
+
+        // Phase 8.5+: UpdateAdvancedFeatureMenus() — check Diversity/ESC availability
+
+        // Phase 8.4+: Check RigControl connection
+        // if (RigControl == null || !RigControl.IsConnected) return;
+
+        try
+        {
+            if (_radioPowerOn)
+            {
+                // Phase 8.4+: showFrequency() — update FreqOut display
+
+                // Update all combo controls (Mode, Tuner, etc.)
+                Tracing.TraceLine("UpdateStatus: doing combos", TraceLevel.Verbose);
+                foreach (var combo in _comboControls)
+                {
+                    if (combo.IsEnabled)
+                    {
+                        combo.UpdateDisplay();
+                    }
+                }
+
+                // Phase 8.4+: RigControl.RigFields.RigUpdate() — DSP/filter controls
+
+                // Phase 8.4+: SWR meter update for manual tuner
+            }
+
+            // Update status bar if FreqOut (used as StatusBox) has changes
+            if (FreqOut.Changed)
+            {
+                FreqOut.Display();
+            }
+        }
+        catch (Exception ex)
+        {
+            if (!_radioPowerOn)
+            {
+                Tracing.TraceLine("UpdateStatus: power is off", TraceLevel.Error);
+            }
+            else
+            {
+                Tracing.TraceLine($"UpdateStatus error: {ex.Message}", TraceLevel.Error);
+                // Phase 8.4+: powerNowOff() — emergency shutdown on critical error
+            }
+        }
+
+        Tracing.TraceLine("UpdateStatus: done", TraceLevel.Verbose);
+    }
+
+    /// <summary>
+    /// Enable or disable radio-dependent controls based on power state.
+    /// Matches Form1.enableDisableWindowControls().
+    /// </summary>
+    public void EnableDisableWindowControls(bool enabled)
+    {
+        _radioPowerOn = enabled;
+        foreach (var control in _enableDisableControls)
+        {
+            control.IsEnabled = enabled;
+        }
+        Tracing.TraceLine($"EnableDisableWindowControls: {enabled}", TraceLevel.Info);
+    }
+
+    #endregion
 
     #region Radio Control Button Handlers — Phase 8.2
 
