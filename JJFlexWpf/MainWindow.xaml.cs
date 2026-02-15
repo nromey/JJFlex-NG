@@ -93,4 +93,42 @@ public partial class MainWindow : Window
     {
         Close();
     }
+
+    #region Radio Control Button Handlers — Phase 8.2
+
+    /// <summary>
+    /// Antenna Tune button — toggles FlexTunerOn.
+    /// Wired to RigControl in Phase 8.4+.
+    /// </summary>
+    private void AntennaTuneButton_Click(object sender, RoutedEventArgs e)
+    {
+        Tracing.TraceLine("AntennaTuneButton_Click", System.Diagnostics.TraceLevel.Info);
+        // Phase 8.4+: RigControl.FlexTunerOn = !RigControl.FlexTunerOn
+    }
+
+    /// <summary>
+    /// Show SWR/tuner status on hover (matches WinForms Enter/Leave pattern).
+    /// </summary>
+    private void AntennaTuneButton_MouseEnter(object sender, System.Windows.Input.MouseEventArgs e)
+    {
+        // Phase 8.4+: Update button text with SWR or tuner status
+    }
+
+    private void AntennaTuneButton_MouseLeave(object sender, System.Windows.Input.MouseEventArgs e)
+    {
+        // Phase 8.4+: Restore button text to "Tune"
+        AntennaTuneButton.Content = "Tune";
+    }
+
+    /// <summary>
+    /// Transmit button — toggles PTT.
+    /// Wired to RigControl in Phase 8.4+.
+    /// </summary>
+    private void TransmitButton_Click(object sender, RoutedEventArgs e)
+    {
+        Tracing.TraceLine("TransmitButton_Click", System.Diagnostics.TraceLevel.Info);
+        // Phase 8.4+: toggleTransmit()
+    }
+
+    #endregion
 }

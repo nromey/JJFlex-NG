@@ -1,0 +1,24 @@
+<UserControl x:Class="JJFlexWpf.Controls.FrequencyDisplay"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d"
+             d:DesignWidth="600" d:DesignHeight="24"
+             AutomationProperties.Name="Frequency Display"
+             Focusable="True"
+             IsTabStop="True">
+
+    <!-- WPF replacement for RadioBoxes.MainBox (FreqOut).
+         Multi-field display: SMeter, Split, VOX, VFO, Freq, Offset, RIT, XIT, Slices.
+         Uses a read-only TextBox for screen reader compatibility (Document role).
+         Keyboard handlers route to field-specific delegates. -->
+    <TextBox x:Name="DisplayBox"
+             IsReadOnly="True"
+             FontFamily="Consolas"
+             FontSize="14"
+             BorderThickness="1"
+             VerticalContentAlignment="Center"
+             AutomationProperties.Name="Frequency and VFO Display"
+             PreviewKeyDown="DisplayBox_PreviewKeyDown" />
+</UserControl>

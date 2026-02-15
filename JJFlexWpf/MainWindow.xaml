@@ -3,6 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:controls="clr-namespace:JJFlexWpf.Controls"
         mc:Ignorable="d"
         Title="JJFlexRadio"
         Width="800" Height="600"
@@ -31,11 +32,27 @@
             </MenuItem>
         </Menu>
 
-        <!-- ═══ STATUS BAR ═══ Phase 8.2 will add StatusBarItems for Power, Scan, etc. -->
+        <!-- ═══ STATUS BAR ═══ Replacement for RadioBoxes.MainBox StatusBox -->
         <StatusBar DockPanel.Dock="Bottom" x:Name="MainStatusBar"
                    AutomationProperties.Name="Radio Status">
             <StatusBarItem>
-                <TextBlock x:Name="StatusText" Text="Ready" />
+                <TextBlock x:Name="StatusText" Text="Ready — no radio connected" />
+            </StatusBarItem>
+            <Separator />
+            <StatusBarItem AutomationProperties.Name="Power">
+                <TextBlock x:Name="StatusPower" Text="" />
+            </StatusBarItem>
+            <Separator />
+            <StatusBarItem AutomationProperties.Name="Memory">
+                <TextBlock x:Name="StatusMemory" Text="" />
+            </StatusBarItem>
+            <Separator />
+            <StatusBarItem AutomationProperties.Name="Scan">
+                <TextBlock x:Name="StatusScan" Text="" />
+            </StatusBarItem>
+            <Separator />
+            <StatusBarItem AutomationProperties.Name="Log File">
+                <TextBlock x:Name="StatusLogFile" Text="" />
             </StatusBarItem>
         </StatusBar>
 
@@ -53,9 +70,35 @@
             <!-- Radio Controls Panel — Phase 8.2 -->
             <StackPanel Grid.Row="0" x:Name="RadioControlsPanel" Orientation="Horizontal"
                         Margin="4" AutomationProperties.Name="Radio Controls">
-                <!-- Phase 8.2: FrequencyDisplay, ModeControl, TXTuneControl, buttons go here -->
-                <TextBlock Text="[Radio Controls — Phase 8.2]" VerticalAlignment="Center"
-                           Foreground="Gray" Margin="8,4" />
+
+                <!-- Frequency Display (replacement for RadioBoxes.MainBox FreqOut) -->
+                <controls:FrequencyDisplay x:Name="FreqOut" Margin="4,2"
+                    AutomationProperties.Name="Frequency and VFO Display" />
+
+                <!-- Mode selector (replacement for RadioBoxes.Combo ModeControl) -->
+                <controls:RadioComboBox x:Name="ModeControl" Margin="4,2"
+                    AutomationProperties.Name="Operating Mode" />
+
+                <!-- TX/Tune selector (replacement for RadioBoxes.Combo TXTuneControl) -->
+                <controls:RadioComboBox x:Name="TXTuneControl" Margin="4,2"
+                    AutomationProperties.Name="Transmit Tune" />
+
+                <!-- Antenna Tune button -->
+                <Button x:Name="AntennaTuneButton" Content="Tune"
+                        Margin="4,2" Padding="8,4" MinWidth="60"
+                        AutomationProperties.Name="Antenna Tuner"
+                        Click="AntennaTuneButton_Click"
+                        MouseEnter="AntennaTuneButton_MouseEnter"
+                        MouseLeave="AntennaTuneButton_MouseLeave"
+                        IsEnabled="False" />
+
+                <!-- Transmit button -->
+                <Button x:Name="TransmitButton" Content="Transmit"
+                        Margin="4,2" Padding="8,4" MinWidth="70"
+                        AutomationProperties.Name="Transmit"
+                        Click="TransmitButton_Click"
+                        IsEnabled="False" />
+
             </StackPanel>
 
             <!-- Content Area — Phase 8.3 -->

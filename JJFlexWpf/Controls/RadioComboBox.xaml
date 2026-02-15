@@ -1,0 +1,23 @@
+<UserControl x:Class="JJFlexWpf.Controls.RadioComboBox"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d"
+             d:DesignWidth="120" d:DesignHeight="36"
+             Focusable="True"
+             IsTabStop="True">
+
+    <!-- WPF replacement for RadioBoxes.Combo (ModeControl, TXTuneControl).
+         Header label + ComboBox with rig-aware update delegates. -->
+    <StackPanel Orientation="Vertical">
+        <TextBlock x:Name="HeaderLabel" FontSize="10"
+                   Foreground="Gray" Margin="2,0,0,0" />
+        <ComboBox x:Name="TheComboBox"
+                  IsReadOnly="True"
+                  FontSize="12"
+                  MinWidth="80"
+                  SelectionChanged="TheComboBox_SelectionChanged"
+                  PreviewKeyDown="TheComboBox_PreviewKeyDown" />
+    </StackPanel>
+</UserControl>
