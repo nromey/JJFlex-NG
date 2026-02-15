@@ -1,0 +1,39 @@
+<Window x:Class="JJFlexWpf.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d"
+        Title="JJFlexRadio"
+        Width="800" Height="600"
+        WindowStartupLocation="CenterScreen"
+        AutomationProperties.Name="JJFlexRadio Main Window">
+
+    <!-- Phase 8.0: Minimal shell — just proves WPF app bootstrap works.
+         Phase 8.1+ will add DockPanel layout, menus, status bar, etc. -->
+    <DockPanel>
+        <!-- Menu placeholder — Phase 8.5 -->
+        <Menu DockPanel.Dock="Top" x:Name="MainMenu"
+              AutomationProperties.Name="Main Menu">
+            <MenuItem Header="_File">
+                <MenuItem Header="E_xit" Click="Exit_Click"
+                          AutomationProperties.Name="Exit JJFlexRadio" />
+            </MenuItem>
+        </Menu>
+
+        <!-- Status bar placeholder — Phase 8.2 (StatusBox replacement) -->
+        <StatusBar DockPanel.Dock="Bottom" x:Name="MainStatusBar"
+                   AutomationProperties.Name="Radio Status">
+            <StatusBarItem>
+                <TextBlock x:Name="StatusText" Text="JJFlexRadio — Sprint 8 WPF Bootstrap" />
+            </StatusBarItem>
+        </StatusBar>
+
+        <!-- Main content area — Phase 8.1+ will populate -->
+        <Grid x:Name="MainContent">
+            <TextBlock Text="JJFlexRadio WPF Shell — Phase 8.0 Complete"
+                       HorizontalAlignment="Center" VerticalAlignment="Center"
+                       FontSize="16" />
+        </Grid>
+    </DockPanel>
+</Window>

@@ -5,8 +5,15 @@ Imports System.Windows.Forms
 Namespace My
     ''' <summary>
     ''' Application-level events and initialization helpers.
+    ''' Sprint 8: Launches WPF MainWindow instead of WinForms Form1.
+    ''' The My.Application framework is preserved for My.* namespace compatibility.
     ''' </summary>
     Partial Friend Class MyApplication
+        ''' <summary>
+        ''' The WPF main window — replaces Form1 as the primary UI.
+        ''' </summary>
+        Friend Shared WpfMainWindow As JJFlexWpf.MainWindow
+
         Private Sub MyApplication_Startup(sender As Object, e As ApplicationServices.StartupEventArgs) Handles Me.Startup
             ' Initialize native library resolver FIRST (enables x86/x64 DLL loading)
             NativeLoader.Initialize()
@@ -20,6 +27,22 @@ Namespace My
 
             ' Initialize screen reader output (CrossSpeak/Tolk) for accessibility announcements.
             Radios.ScreenReaderOutput.Initialize()
+
+            ' ── Sprint 8: Launch WPF MainWindow ───────────────────────
+            ' The My.Application framework runs a WinForms message loop with a hidden bridge form.
+            ' We create the WPF MainWindow here and show it. When it closes, we close the bridge form.
+            WpfMainWindow = New JJFlexWpf.MainWindow()
+
+            ' When the WPF window closes, shut down the WinForms bridge form too.
+            AddHandler WpfMainWindow.Closed,
+                Sub(s, args)
+                    ' Close the hidden bridge MainForm to end the My.Application message loop.
+                    If Me.MainForm IsNot Nothing AndAlso Not Me.MainForm.IsDisposed Then
+                        Me.MainForm.Close()
+                    End If
+                End Sub
+
+            WpfMainWindow.Show()
         End Sub
 
         Private Sub MyApplication_Shutdown(sender As Object, e As System.EventArgs) Handles Me.Shutdown

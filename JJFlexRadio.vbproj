@@ -16,6 +16,8 @@
     <Version>4.1.114</Version>
     <AssemblyVersion>4.1.114.0</AssemblyVersion>
     <FileVersion>4.1.114.0</FileVersion>
+    <!-- Sprint 8: Still WindowsForms MyType to preserve My.* namespace (My.Application, My.Computer).
+         OnCreateMainForm bridges to WPF MainWindow. Full MyType migration in Sprint 9 cleanup. -->
     <MyType>WindowsForms</MyType>
     <OptionExplicit>On</OptionExplicit>
     <OptionStrict>Off</OptionStrict>

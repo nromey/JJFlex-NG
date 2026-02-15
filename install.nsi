@@ -9,8 +9,8 @@
 
 ; The name of the installer
 Name "JJFlexRadio"
-; The file to write (version appended via 4.1.13.0)
-OutFile "Setup JJFlexRadio_4.1.13.0.exe"
+; The file to write (version appended via 4.1.114.0)
+OutFile "Setup JJFlexRadio_4.1.114.0.exe"
 
 ; The default installation directory (architecture-specific Program Files)
 InstallDir "$PROGRAMFILES64\jjshaffer\JJFlexRadio"
@@ -24,10 +24,10 @@ RequestExecutionLevel admin
 
 
 ; Version information for the installer bundle
-VIProductVersion "4.1.13.0"
-VIFileVersion "4.1.13.0"
-VIAddVersionKey /LANG=1033 "ProductVersion" "4.1.13.0"
-VIAddVersionKey /LANG=1033 "FileVersion" "4.1.13.0"
+VIProductVersion "4.1.114.0"
+VIFileVersion "4.1.114.0"
+VIAddVersionKey /LANG=1033 "ProductVersion" "4.1.114.0"
+VIAddVersionKey /LANG=1033 "FileVersion" "4.1.114.0"
 VIAddVersionKey /LANG=1033 "ProductName" "JJFlexRadio"
 VIAddVersionKey /LANG=1033 "FileDescription" "JJFlexRadio installer"
 
