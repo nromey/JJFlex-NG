@@ -2421,6 +2421,15 @@ namespace Radios
             }
         }
 
+        /// <summary>
+        /// Toggle diversity on/off for the active slice.
+        /// Sprint 11: Replaces Flex6300Filters.ToggleDiversity().
+        /// </summary>
+        public void ToggleDiversity()
+        {
+            DiversityOn = !DiversityOn;
+        }
+
         public string DiversityGateMessage
         {
             get
@@ -3135,6 +3144,25 @@ namespace Radios
         {
             ShowATUMemoriesDialog?.Invoke();
         }
+
+        /// <summary>
+        /// Delegate to show the Radio Info dialog. Returns nothing.
+        /// Sprint 11: Replaces direct FlexInfo form creation.
+        /// Parameter: tab index (0=General, 1=FeatureAvailability).
+        /// </summary>
+        public Action<int> ShowRadioInfoDialog { get; set; }
+
+        /// <summary>
+        /// Delegate to show the Memories dialog. Returns true if user selected a memory (ShowFreq).
+        /// Sprint 11: Replaces direct FlexMemories form creation.
+        /// </summary>
+        public Func<bool> ShowMemoriesDialog { get; set; }
+
+        /// <summary>
+        /// Delegate to show the TX Controls dialog. Wired externally.
+        /// Sprint 11: Replaces direct TXControls form creation.
+        /// </summary>
+        public Action ShowTXControlsDialog { get; set; }
 
         public bool FlexTunerUsingMemoryNow
         {

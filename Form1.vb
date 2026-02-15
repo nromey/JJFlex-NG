@@ -2197,34 +2197,20 @@ RadioConnected:
     End Sub
 
     Private Sub DiversityMenuItem_Click(sender As System.Object, e As System.EventArgs) Handles DiversityMenuItem.Click
-        Dim filters As Flex6300Filters = Nothing
-        If (RigControl IsNot Nothing) AndAlso (RigControl.RigFields IsNot Nothing) Then
-            filters = TryCast(RigControl.RigFields.RigControl, Flex6300Filters)
-        End If
-        If filters Is Nothing Then
-            Return
-        End If
-        filters.ToggleDiversity()
+        If RigControl Is Nothing Then Return
+        RigControl.ToggleDiversity()
     End Sub
 
     Private Sub EscMenuItem_Click(sender As System.Object, e As System.EventArgs) Handles EscMenuItem.Click
-        Dim filters As Flex6300Filters = Nothing
-        If (RigControl IsNot Nothing) AndAlso (RigControl.RigFields IsNot Nothing) Then
-            filters = TryCast(RigControl.RigFields.RigControl, Flex6300Filters)
-        End If
-        If filters Is Nothing Then
-            Return
-        End If
-        filters.ShowEscDialog()
+        If RigControl Is Nothing Then Return
+        Using esc As New Radios.EscDialog(RigControl)
+            esc.ShowDialog()
+        End Using
     End Sub
 
     Private Sub FeatureAvailabilityMenuItem_Click(sender As System.Object, e As System.EventArgs) Handles FeatureAvailabilityMenuItem.Click
-        If RigControl Is Nothing Then
-            Return
-        End If
-        Dim theForm As New FlexInfo(RigControl, FlexInfo.FlexInfoTab.FeatureAvailability)
-        theForm.ShowDialog()
-        theForm.Dispose()
+        If RigControl Is Nothing Then Return
+        RigControl.ShowRadioInfoDialog?.Invoke(1)
     End Sub
 
     Private Sub UpdateAdvancedFeatureMenus()
