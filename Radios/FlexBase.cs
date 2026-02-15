@@ -1198,7 +1198,7 @@ namespace Radios
                 if (RigFields != null)
                 {
                     // The caller should have removed the user control from their form.
-                    ((Flex6300Filters)RigFields.RigControl).Close(); // Remove int handlers
+                    FilterObj?.Close(); // Remove event handlers
                     RigFields.Close();
                     RigFields = null;
                 }
@@ -5604,7 +5604,7 @@ namespace Radios
             }
         }
 
-        protected Flex6300Filters FilterObj;
+        protected IFilterControl FilterObj;
 
         internal class q_t
         {

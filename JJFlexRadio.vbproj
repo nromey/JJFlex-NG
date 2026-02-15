@@ -66,6 +66,7 @@
   <ItemGroup>
     <Compile Include="NativeLoader.vb" />
     <Compile Include="CrashReporter.vb" />
+    <Compile Include="StatusBoxAdapter.vb" />
     <Compile Include="About.Designer.vb">
       <DependentUpon>About.vb</DependentUpon>
     </Compile>
