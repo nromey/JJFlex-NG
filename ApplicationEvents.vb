@@ -47,6 +47,17 @@ Namespace My
             ' This replaces the ElementHost→Form1 forwarding chain.
             WpfMainWindow.DoCommandHandler = AddressOf Commands.DoCommand
 
+            ' Sprint 10: Wire scan timer tick to dispatch between linear and memory scan.
+            ' Replaces Form1.ScanTimer_Tick (Handles ScanTmr.Tick).
+            AddHandler WpfMainWindow.ScanTimerTick,
+                Sub(s, args)
+                    If scanstate = scans.linear Then
+                        scan.ScanTimer_Tick(s, args)
+                    Else
+                        MemoryScan.ScanTimer_Tick(s, args)
+                    End If
+                End Sub
+
             WpfMainWindow.Show()
         End Sub
 

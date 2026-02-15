@@ -72,7 +72,7 @@ Public Class MemoryScan
         ' Start the scan
         memoryID = 0
         RigControl.SelectMemoryByName(memories(memoryID))
-        scanTimer.Interval = SpeedBox.Text * 100
+        scanTimer.Interval = TimeSpan.FromMilliseconds(CInt(SpeedBox.Text) * 100)
         scanTimer.Start()
 
         ' Leave this form.

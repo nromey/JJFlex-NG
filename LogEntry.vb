@@ -245,7 +245,8 @@ Friend Class LogEntry
     Private Function startLogForm(pos As Long) As Boolean
         ' The active log is positioned at the position, or at the end if -1.
         Dim rv As Boolean
-        Form1.StatusBox.Write("LogFile",
+        ' Sprint 10: Route to WPF StatusBar via globals.StatusBox adapter.
+        StatusBox?.Write("LogFile",
             LogCharacteristics.TrimmedFilename(ContactLog.Name, 20))
         setupForm()
         If pos = -1 Then

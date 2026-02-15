@@ -445,7 +445,8 @@ Module globals
         ConfigContactLog()
 
         ' Now that the operator is known, rebuild the operations menu (for trace toggle).
-        Form1.SetupOperationsMenu()
+        ' Sprint 10: Route to WPF MainWindow instead of Form1.
+        If WpfMainWindow IsNot Nothing Then WpfMainWindow.SetupOperationsMenu()
 
         ' Check for W2 watt meter.
         W2ConfigFile = BaseConfigDir & "\" & W2ConfigFileBasename
@@ -534,7 +535,8 @@ Module globals
     ''' </summary>
     Private Sub logSetup()
         ' Can't do this if there's no log.
-        Form1.StatusBox.Write("LogFile", " ")
+        ' Sprint 10: Route to WPF StatusBar via StatusBox adapter.
+        StatusBox?.Write("LogFile", " ")
         If (ContactLog.Name = vbNullString) Or (Not File.Exists(ContactLog.Name)) Then
             Return
         End If
@@ -543,7 +545,7 @@ Module globals
             Tracing.TraceLine("startDupChecking couldn't start session", TraceLevel.Error)
             Return
         End If
-        Form1.StatusBox.Write("LogFile", LogCharacteristics.TrimmedFilename(ContactLog.Name, 20))
+        StatusBox?.Write("LogFile", LogCharacteristics.TrimmedFilename(ContactLog.Name, 20))
         ' Set the keys from the log form.
         Dim defs = New Collection(Of KeyCommands.KeyDefType)
         For Each fld As LogField In session.FormData.Fields.Values
@@ -756,21 +758,32 @@ Module globals
     Friend scanstate As scans = scans.none
     Friend ReadOnly Property ScanInProcess As Boolean
         Get
-            Return Form1.ScanTmr.Enabled
+            Return If(WpfMainWindow IsNot Nothing, WpfMainWindow.ScanTimerEnabled, False)
         End Get
     End Property
     Friend MemoryGroupControl As MemoryGroup
     Friend speechStatus, autoModeStatus As Boolean
     Friend modeStatus As String
-    ' Note the scan timer and statusline are defined in Form1.
-    Friend ReadOnly Property scanTimer
+    ''' <summary>
+    ''' Sprint 10: Scan timer routed to WPF MainWindow.ScanTimer (DispatcherTimer).
+    ''' Replaces old Form1.ScanTmr (WinForms Timer) dependency.
+    ''' </summary>
+    Friend ReadOnly Property scanTimer As System.Windows.Threading.DispatcherTimer
         Get
-            Return Form1.ScanTmr
+            Return If(WpfMainWindow IsNot Nothing, WpfMainWindow.ScanTimer, Nothing)
         End Get
     End Property
-    Friend ReadOnly Property StatusBox As RadioBoxes.MainBox
+    ''' <summary>
+    ''' Sprint 10: Status writer routed to WPF MainWindow.WriteStatus().
+    ''' Replaces old Form1.StatusBox (RadioBoxes.MainBox) dependency.
+    ''' </summary>
+    Private _statusBoxAdapter As StatusBoxAdapter
+    Friend ReadOnly Property StatusBox As StatusBoxAdapter
         Get
-            Return Form1.StatusBox
+            If _statusBoxAdapter Is Nothing AndAlso WpfMainWindow IsNot Nothing Then
+                _statusBoxAdapter = New StatusBoxAdapter(WpfMainWindow)
+            End If
+            Return _statusBoxAdapter
         End Get
     End Property
 #End Region
