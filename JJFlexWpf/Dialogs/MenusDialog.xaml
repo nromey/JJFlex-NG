@@ -1,0 +1,44 @@
+<local:JJFlexDialog x:Class="JJFlexWpf.Dialogs.MenusDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:JJFlexWpf"
+        Title="Menus"
+        Width="600" SizeToContent="Height"
+        ResizeMode="NoResize">
+
+    <StackPanel Margin="12">
+        <!-- Menu Bank Selector -->
+        <StackPanel x:Name="BankPanel" Orientation="Horizontal" Margin="0,0,0,8">
+            <TextBlock Text="Menu bank:" VerticalAlignment="Center" Margin="0,0,8,0"/>
+            <ComboBox x:Name="BankCombo" Width="50"
+                      AutomationProperties.Name="Menu bank"
+                      SelectionChanged="BankCombo_SelectionChanged"/>
+        </StackPanel>
+
+        <!-- Menu List -->
+        <ListBox x:Name="MenuListBox" Height="300" Margin="0,0,0,8"
+                 AutomationProperties.Name="Menu items"
+                 SelectionChanged="MenuListBox_SelectionChanged"/>
+
+        <!-- Value Editor -->
+        <GroupBox x:Name="ValueGroup" Header="Menu value" Margin="0,0,0,8"
+                  AutomationProperties.Name="Menu value">
+            <StackPanel Margin="4">
+                <ComboBox x:Name="MenuValueCombo" Visibility="Collapsed"
+                          AutomationProperties.Name="Menu value selection"
+                          SelectionChanged="MenuValueCombo_SelectionChanged"/>
+                <TextBox x:Name="MenuValueText" Visibility="Collapsed"
+                         AutomationProperties.Name="Menu text value"
+                         LostFocus="MenuValueText_LostFocus"/>
+            </StackPanel>
+        </GroupBox>
+
+        <!-- Buttons -->
+        <StackPanel Orientation="Horizontal">
+            <Button Content="OK" MinWidth="75" Margin="0,0,8,0" IsDefault="True"
+                    AutomationProperties.Name="OK" Click="OKButton_Click"/>
+            <Button Content="Cancel" MinWidth="75" IsCancel="True"
+                    AutomationProperties.Name="Cancel" Click="CancelButton_Click"/>
+        </StackPanel>
+    </StackPanel>
+</local:JJFlexDialog>
