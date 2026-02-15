@@ -412,7 +412,7 @@ namespace Radios
         /// </summary>
         public bool Start()
         {
-            FilterObj = new Flex6300Filters(this); // Sets up RigFields.
+            FilterObj = new WpfFilterAdapter(this);
 
             await(() =>
             {
