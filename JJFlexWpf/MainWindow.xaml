@@ -6,13 +6,23 @@
         mc:Ignorable="d"
         Title="JJFlexRadio"
         Width="800" Height="600"
+        MinWidth="640" MinHeight="400"
         WindowStartupLocation="CenterScreen"
-        AutomationProperties.Name="JJFlexRadio Main Window">
+        AutomationProperties.Name="JJFlexRadio Main Window"
+        AutomationProperties.AutomationId="MainWindow"
+        FocusManager.FocusedElement="{Binding ElementName=MainContent}">
 
-    <!-- Phase 8.0: Minimal shell — just proves WPF app bootstrap works.
-         Phase 8.1+ will add DockPanel layout, menus, status bar, etc. -->
+    <!-- Sprint 8 Main Layout:
+         DockPanel
+           ├─ Menu (Top)           — Phase 8.5: Classic/Modern/Logging menu sets
+           ├─ StatusBar (Bottom)   — Phase 8.2: StatusBox replacement (Power, Scan, etc.)
+           └─ Grid (Fill)
+                Row 0: RadioControls  — Phase 8.2: FreqOut, ModeControl, TXTuneControl, buttons
+                Row 1: ContentArea    — Phase 8.3: Received/Sent text, rig fields
+                Row 2: LoggingPanel   — Phase 8.8: LogEntryControl + RadioPane (Collapsed by default)
+    -->
     <DockPanel>
-        <!-- Menu placeholder — Phase 8.5 -->
+        <!-- ═══ MENU BAR ═══ Phase 8.5 will replace with full 3-mode menu system -->
         <Menu DockPanel.Dock="Top" x:Name="MainMenu"
               AutomationProperties.Name="Main Menu">
             <MenuItem Header="_File">
@@ -21,19 +31,53 @@
             </MenuItem>
         </Menu>
 
-        <!-- Status bar placeholder — Phase 8.2 (StatusBox replacement) -->
+        <!-- ═══ STATUS BAR ═══ Phase 8.2 will add StatusBarItems for Power, Scan, etc. -->
         <StatusBar DockPanel.Dock="Bottom" x:Name="MainStatusBar"
                    AutomationProperties.Name="Radio Status">
             <StatusBarItem>
-                <TextBlock x:Name="StatusText" Text="JJFlexRadio — Sprint 8 WPF Bootstrap" />
+                <TextBlock x:Name="StatusText" Text="Ready" />
             </StatusBarItem>
         </StatusBar>
 
-        <!-- Main content area — Phase 8.1+ will populate -->
+        <!-- ═══ MAIN CONTENT GRID ═══ -->
         <Grid x:Name="MainContent">
-            <TextBlock Text="JJFlexRadio WPF Shell — Phase 8.0 Complete"
-                       HorizontalAlignment="Center" VerticalAlignment="Center"
-                       FontSize="16" />
+            <Grid.RowDefinitions>
+                <!-- Row 0: Radio controls (frequency, mode, tuner, buttons) — Phase 8.2 -->
+                <RowDefinition Height="Auto" />
+                <!-- Row 1: Text content (received, sent, rig fields) — Phase 8.3 -->
+                <RowDefinition Height="*" />
+                <!-- Row 2: Logging mode overlay (collapsed by default) — Phase 8.8 -->
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <!-- Radio Controls Panel — Phase 8.2 -->
+            <StackPanel Grid.Row="0" x:Name="RadioControlsPanel" Orientation="Horizontal"
+                        Margin="4" AutomationProperties.Name="Radio Controls">
+                <!-- Phase 8.2: FrequencyDisplay, ModeControl, TXTuneControl, buttons go here -->
+                <TextBlock Text="[Radio Controls — Phase 8.2]" VerticalAlignment="Center"
+                           Foreground="Gray" Margin="8,4" />
+            </StackPanel>
+
+            <!-- Content Area — Phase 8.3 -->
+            <Grid Grid.Row="1" x:Name="ContentArea" Margin="4">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*" />  <!-- Received text -->
+                    <RowDefinition Height="Auto" /> <!-- Received label -->
+                    <RowDefinition Height="*" />  <!-- Send text -->
+                    <RowDefinition Height="Auto" /> <!-- Send label -->
+                </Grid.RowDefinitions>
+
+                <!-- Phase 8.3: ReceivedTextBox, SentTextBox, labels go here -->
+                <TextBlock Grid.Row="0" Text="[Content Area — Phase 8.3]"
+                           HorizontalAlignment="Center" VerticalAlignment="Center"
+                           Foreground="Gray" FontSize="14" />
+            </Grid>
+
+            <!-- Logging Mode Panel — Phase 8.8 (hidden by default) -->
+            <Grid Grid.Row="2" x:Name="LoggingPanel" Visibility="Collapsed"
+                  AutomationProperties.Name="Logging Mode">
+                <!-- Phase 8.8: Grid with GridSplitter hosting RadioPane + LogEntryControl -->
+            </Grid>
         </Grid>
     </DockPanel>
 </Window>
