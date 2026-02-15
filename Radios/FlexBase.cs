@@ -3153,10 +3153,10 @@ namespace Radios
         public Action<int> ShowRadioInfoDialog { get; set; }
 
         /// <summary>
-        /// Delegate to show the Memories dialog. Returns true if user selected a memory (ShowFreq).
+        /// Delegate to show the Memories dialog. Wired externally.
         /// Sprint 11: Replaces direct FlexMemories form creation.
         /// </summary>
-        public Func<bool> ShowMemoriesDialog { get; set; }
+        public Action ShowMemoriesDialog { get; set; }
 
         /// <summary>
         /// Delegate to show the TX Controls dialog. Wired externally.

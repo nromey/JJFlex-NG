@@ -1159,10 +1159,7 @@ Public Class KeyCommands
     Private Sub DisplayMemory()
         If RigControl Is Nothing Then Return
         Try
-            Dim showFreq = RigControl.ShowMemoriesDialog?.Invoke()
-            If showFreq.HasValue AndAlso showFreq.Value Then
-                WpfMainWindow.gotoHome()
-            End If
+            RigControl.ShowMemoriesDialog?.Invoke()
         Catch ex As Exception
             Tracing.TraceLine("memory display:" & ex.Message, TraceLevel.Error)
         End Try

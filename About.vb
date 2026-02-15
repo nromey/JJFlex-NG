@@ -54,7 +54,6 @@ Public NotInheritable Class About
             "HamBands.dll: " & HamBands.Bands.Version.ToString & vbCrLf & _
             "JJLogio.dll: " & JJLogIO.LogIO.Version.ToString & vbCrLf & _ 
             "JJLogLib.dll: " & JJLogLib.Logs.Version.ToString & vbCrLf & _
-            "RadioBoxes.dll: " & RadioBoxes.MainBox.Version.ToString & vbCrLf & _
             "Radios.dll: " & Radios.AllRadios.Version.ToString
 #End If
     End Sub
