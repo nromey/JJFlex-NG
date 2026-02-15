@@ -1030,8 +1030,8 @@ namespace Radios
             modeChange = new modeChangeClass(this, buildModeChange(), modeChangeSpecials);
 
             rig.Callouts.PanField = PanBox;
-            Form memdisp = new FlexMemories(rig);
-            rig.RigFields = new FlexBase.RigFields_t(this, updateBoxes, memdisp, null, myControls);
+            var memdisp = new FlexMemories(rig);
+            rig.RigFields = new FlexBase.RigFields_t(this, updateBoxes, (IMemoryManager)memdisp, null, myControls);
 
             // Set routine to get SWR text.
             rig.Callouts.GetSWRText = SWRText;
