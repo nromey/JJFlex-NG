@@ -15,7 +15,7 @@ using RadioBoxes;
 
 namespace Radios
 {
-    public partial class FlexMemories : Form
+    public partial class FlexMemories : Form, IMemoryManager
     {
         private const string warning = "Warning";
         private const string dupName =
@@ -26,7 +26,7 @@ namespace Radios
         private FlexBase rig;
         private Radio theRadio { get { return rig.theRadio; } }
 
-        public class MemoryElement
+        public class MemoryElement : IMemoryElement
         {
             private Memory memory;
             public MemoryElement(Memory m)
@@ -56,6 +56,12 @@ namespace Radios
         {
             get { return _SortedMemories; }
             set { _SortedMemories = value; }
+        }
+
+        // Explicit interface implementation for IMemoryManager.SortedMemories.
+        IReadOnlyList<IMemoryElement> IMemoryManager.SortedMemories
+        {
+            get { return _SortedMemories; }
         }
         private List<MemoryElement> sortMemories()
         {
@@ -105,7 +111,7 @@ namespace Radios
         }
 
         private int _CurrentMemoryChannel = -1;
-        internal int CurrentMemoryChannel
+        public int CurrentMemoryChannel
         {
             get { return _CurrentMemoryChannel; }
             set
@@ -116,7 +122,7 @@ namespace Radios
             }
         }
 
-        internal int NumberOfMemories
+        public int NumberOfMemories
         {
             get { return _SortedMemories.Count; }
         }
@@ -130,7 +136,7 @@ namespace Radios
             }
         }
 
-        internal bool SelectMemory()
+        public bool SelectMemory()
         {
             bool rv = (selectedMemory != null);
             Tracing.TraceLine("SelectMemory:" + rv, TraceLevel.Info);
@@ -148,7 +154,7 @@ namespace Radios
         /// Select memory by name
         /// </summary>
         /// <param name="name">FullName of memory</param>
-        internal bool SelectMemoryByName(string name)
+        public bool SelectMemoryByName(string name)
         {
             for (int i=0;i<_SortedMemories.Count;i++)
             {
@@ -165,7 +171,7 @@ namespace Radios
         /// <summary>
         /// Get sorted list of full memory names.
         /// </summary>
-        internal List<string> MemoryNames()
+        public List<string> MemoryNames()
         {
             List<string> rv = new List<string>();
             foreach(MemoryElement el in _SortedMemories)

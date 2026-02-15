@@ -6411,7 +6411,7 @@ namespace Radios
 
             // Get list of all the rig's groups.
             List<string> myGroups = new List<string>();
-            foreach(FlexMemories.MemoryElement el in memoryHandling.SortedMemories)
+            foreach(IMemoryElement el in memoryHandling.SortedMemories)
             {
                 Memory m = el.Value;
                 // if (!string.IsNullOrEmpty(m.Group) && !myGroups.Contains(m.Group))
@@ -6427,7 +6427,7 @@ namespace Radios
             foreach(string group in myGroups)
             {
                 List<string> memories = new List<string>();
-                foreach(FlexMemories.MemoryElement el in memoryHandling.SortedMemories)
+                foreach(IMemoryElement el in memoryHandling.SortedMemories)
                 {
                     Memory m = el.Value;
                     if (m.Group == group) memories.Add(FullMemoryName(m));
@@ -6523,9 +6523,9 @@ namespace Radios
             internal set;
         }
 
-        private FlexMemories memoryHandling
+        private IMemoryManager memoryHandling
         {
-            get { return ((RigFields != null) && (RigFields.Memories != null)) ? (FlexMemories)RigFields.Memories : null; }
+            get { return ((RigFields != null) && (RigFields.Memories != null)) ? (IMemoryManager)RigFields.Memories : null; }
         }
 
         /// <summary>
