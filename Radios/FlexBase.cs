@@ -412,7 +412,7 @@ namespace Radios
         /// </summary>
         public bool Start()
         {
-            FilterObj = new Flex6300Filters(this); // Sets up RigFields.
+            FilterObj = new WpfFilterAdapter(this);
 
             await(() =>
             {
@@ -6457,7 +6457,7 @@ namespace Radios
         public class RigFields_t
         {
             /// <summary>
-            /// RigFields form control
+            /// RigFields form control (WinForms — null for WPF adapter).
             /// </summary>
             public Control RigControl;
             /// <summary>
@@ -6465,36 +6465,32 @@ namespace Radios
             /// </summary>
             public updateDel RigUpdate;
             /// <summary>
-            /// Memory info and display form.
+            /// Memory manager instance.
             /// </summary>
-            public Form Memories;
+            public IMemoryManager Memories;
             /// <summary>
-            /// Menu display form (unused)
+            /// Menu display form (unused).
             /// </summary>
             public Form Menus;
             /// <summary>
-            /// Screen fields list.
+            /// Screen fields list (WinForms — null for WPF adapter).
             /// </summary>
             public Control[] ScreenFields;
-            internal RigFields_t(Control c, updateDel rtn)
+
+            /// <summary>
+            /// Simplified constructor for WPF adapters (no WinForms controls).
+            /// </summary>
+            public RigFields_t(updateDel rtn, IMemoryManager mem)
             {
-                setup(c, rtn, null, null, null);
+                RigUpdate = rtn;
+                Memories = mem;
             }
-            internal RigFields_t(Control c, updateDel rtn, Form f)
-            {
-                setup(c, rtn, f, null, null);
-            }
-            internal RigFields_t(Control c, updateDel rtn, Form mem, Form mnu)
-            {
-                setup(c, rtn, mem, mnu, null);
-            }
-            internal RigFields_t(Control c, updateDel rtn, Form mem, Form mnu,
+
+            /// <summary>
+            /// Full constructor for WinForms (Flex6300Filters compatibility).
+            /// </summary>
+            internal RigFields_t(Control c, updateDel rtn, IMemoryManager mem, Form mnu,
                 Control[] s)
-            {
-                setup(c, rtn, mem, mnu, s);
-            }
-            private void setup(Control c, updateDel rtn,
-                Form mem, Form mnu, Control[] s)
             {
                 RigControl = c;
                 RigUpdate = rtn;
@@ -6502,8 +6498,9 @@ namespace Radios
                 Menus = mnu;
                 ScreenFields = s;
             }
+
             /// <summary>
-            /// Close down the forms.
+            /// Close down resources.
             /// </summary>
             internal void Close()
             {
@@ -6512,11 +6509,11 @@ namespace Radios
                     RigControl.Dispose();
                     RigControl = null;
                 }
-                if (Memories != null)
+                if (Memories is IDisposable d)
                 {
-                    Memories.Dispose();
-                    Memories = null;
+                    d.Dispose();
                 }
+                Memories = null;
                 if (Menus != null)
                 {
                     Menus.Dispose();
@@ -6535,7 +6532,7 @@ namespace Radios
 
         private IMemoryManager memoryHandling
         {
-            get { return ((RigFields != null) && (RigFields.Memories != null)) ? (IMemoryManager)RigFields.Memories : null; }
+            get { return (RigFields != null) ? RigFields.Memories : null; }
         }
 
         /// <summary>

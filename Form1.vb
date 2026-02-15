@@ -516,13 +516,12 @@ RadioConnected:
             SMeter.Peak = False
         End If
         If RigControl IsNot Nothing Then
-            If RigControl.RigFields IsNot Nothing Then
-                If RigControl.RigFields.RigControl IsNot Nothing Then
-                    If enableDisableControls IsNot Nothing Then
-                        enableDisableControls.Remove(RigControl.RigFields.RigControl)
-                    End If
-                    Controls.Remove(RigControl.RigFields.RigControl)
+            If RigControl.RigFields IsNot Nothing AndAlso
+               RigControl.RigFields.RigControl IsNot Nothing Then
+                If enableDisableControls IsNot Nothing Then
+                    enableDisableControls.Remove(RigControl.RigFields.RigControl)
                 End If
+                Controls.Remove(RigControl.RigFields.RigControl)
                 RemoveHandler RigControl.RigFields.RigControl.KeyDown, AddressOf doCommand_KeyDown
             End If
             ' We need to turn power off explicitly here, not via interrupt.
@@ -1308,7 +1307,8 @@ RadioConnected:
                 Next
 
                 ' Update the rig-dependent fields.
-                If (RigControl.RigFields IsNot Nothing) AndAlso RigControl.RigFields.RigControl.Enabled Then
+                If (RigControl.RigFields IsNot Nothing) AndAlso
+                   (RigControl.RigFields.RigControl Is Nothing OrElse RigControl.RigFields.RigControl.Enabled) Then
                     Tracing.TraceLine("UpdateStatus:doing RigFields", TraceLevel.Verbose)
                     RigControl.RigFields.RigUpdate()
                 End If
@@ -1397,8 +1397,9 @@ RadioConnected:
         Tracing.TraceLine("Form1 powerNowOn", TraceLevel.Error)
         TextOut.PerformGenericFunction(FreqOut,
             Sub()
-                ' setup filter box
-                If RigControl.RigFields IsNot Nothing Then
+                ' setup filter box (RigControl is null for WPF adapter)
+                If RigControl.RigFields IsNot Nothing AndAlso
+                   RigControl.RigFields.RigControl IsNot Nothing Then
                     SuspendLayout()
                     RigControl.RigFields.RigControl.Location = RigFieldsBox.Location
                     RigControl.RigFields.RigControl.Size = RigFieldsBox.Size
@@ -2686,7 +2687,9 @@ RadioConnected:
         For Each ctl As Control In Me.Controls
             rv.Add(ctl)
         Next
-        rv.AddRange(RigControl.RigFields.ScreenFields)
+        If RigControl?.RigFields?.ScreenFields IsNot Nothing Then
+            rv.AddRange(RigControl.RigFields.ScreenFields)
+        End If
         Return rv
     End Function
 
