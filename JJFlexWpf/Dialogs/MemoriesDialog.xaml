@@ -1,0 +1,128 @@
+<local:JJFlexDialog x:Class="JJFlexWpf.Dialogs.MemoriesDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:JJFlexWpf"
+        Title="Flex Memories"
+        Width="680" Height="440"
+        SizeToContent="Height">
+
+    <Grid Margin="12">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="180"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+
+        <!-- Left panel: Memory list + buttons -->
+        <DockPanel Grid.Column="0" Margin="0,0,12,0">
+            <TextBlock DockPanel.Dock="Top" Text="Memories" FontWeight="Bold" Margin="0,0,0,4"/>
+
+            <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,8,0,0">
+                <Button x:Name="AddButton" Content="Add" MinWidth="55" Margin="0,0,6,0"
+                        AutomationProperties.Name="Add Memory"
+                        Click="AddButton_Click"/>
+                <Button x:Name="DeleteButton" Content="Delete" MinWidth="55" Margin="0,0,6,0"
+                        AutomationProperties.Name="Delete Memory"
+                        Click="DeleteButton_Click"/>
+                <Button x:Name="DoneButton" Content="Done" MinWidth="55"
+                        AutomationProperties.Name="Done" IsCancel="True"
+                        Click="DoneButton_Click"/>
+            </StackPanel>
+
+            <ListBox x:Name="MemoryList"
+                     AutomationProperties.Name="Memory List"
+                     SelectionChanged="MemoryList_SelectionChanged"
+                     KeyDown="MemoryList_KeyDown"/>
+        </DockPanel>
+
+        <!-- Right panel: Memory details -->
+        <StackPanel Grid.Column="1">
+            <!-- Frequency -->
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                <TextBlock Text="Frequency:" VerticalAlignment="Center" Width="75"/>
+                <TextBox x:Name="FreqBox" Width="120"
+                         AutomationProperties.Name="Frequency"
+                         KeyDown="FreqBox_KeyDown" LostFocus="FreqBox_LostFocus"/>
+            </StackPanel>
+
+            <!-- Mode -->
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                <TextBlock Text="Mode:" VerticalAlignment="Center" Width="75"/>
+                <ComboBox x:Name="ModeCombo" Width="100"
+                          AutomationProperties.Name="Mode"
+                          SelectionChanged="ModeCombo_Changed"/>
+            </StackPanel>
+
+            <!-- Filters -->
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                <TextBlock Text="Filter Low:" VerticalAlignment="Center" Width="75"/>
+                <TextBox x:Name="FilterLowBox" Width="70"
+                         AutomationProperties.Name="Filter Low"
+                         PreviewKeyDown="NumberBox_PreviewKeyDown"
+                         LostFocus="FilterLowBox_LostFocus"/>
+                <TextBlock Text="High:" VerticalAlignment="Center" Margin="12,0,6,0"/>
+                <TextBox x:Name="FilterHighBox" Width="70"
+                         AutomationProperties.Name="Filter High"
+                         PreviewKeyDown="NumberBox_PreviewKeyDown"
+                         LostFocus="FilterHighBox_LostFocus"/>
+            </StackPanel>
+
+            <!-- FM Controls (visibility toggled by mode) -->
+            <StackPanel x:Name="FMControlsPanel" Margin="0,0,0,6">
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                    <TextBlock Text="Tone Mode:" VerticalAlignment="Center" Width="75"/>
+                    <ComboBox x:Name="ToneModeCombo" Width="100"
+                              AutomationProperties.Name="Tone Mode"
+                              SelectionChanged="ToneModeCombo_Changed"/>
+                    <TextBlock Text="Tone Freq:" VerticalAlignment="Center" Margin="12,0,6,0"/>
+                    <ComboBox x:Name="ToneFreqCombo" Width="80"
+                              AutomationProperties.Name="Tone Frequency"
+                              SelectionChanged="ToneFreqCombo_Changed"/>
+                </StackPanel>
+
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                    <TextBlock Text="Squelch:" VerticalAlignment="Center" Width="75"/>
+                    <ComboBox x:Name="SquelchCombo" Width="70"
+                              AutomationProperties.Name="Squelch"
+                              SelectionChanged="SquelchCombo_Changed"/>
+                    <TextBlock Text="Level:" VerticalAlignment="Center" Margin="12,0,6,0"/>
+                    <TextBox x:Name="SquelchLevelBox" Width="60"
+                             AutomationProperties.Name="Squelch Level"
+                             PreviewKeyDown="NumberBox_PreviewKeyDown"
+                             LostFocus="SquelchLevelBox_LostFocus"/>
+                </StackPanel>
+
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="Offset Dir:" VerticalAlignment="Center" Width="75"/>
+                    <ComboBox x:Name="OffsetDirCombo" Width="80"
+                              AutomationProperties.Name="Offset Direction"
+                              SelectionChanged="OffsetDirCombo_Changed"/>
+                    <TextBlock Text="Offset:" VerticalAlignment="Center" Margin="12,0,6,0"/>
+                    <TextBox x:Name="OffsetBox" Width="70"
+                             AutomationProperties.Name="Repeater Offset"
+                             PreviewKeyDown="NumberBox_PreviewKeyDown"
+                             LostFocus="OffsetBox_LostFocus"/>
+                </StackPanel>
+            </StackPanel>
+
+            <!-- Name/Owner/Group -->
+            <StackPanel Orientation="Horizontal" Margin="0,8,0,4">
+                <TextBlock Text="Name:" VerticalAlignment="Center" Width="50"/>
+                <TextBox x:Name="NameBox" Width="100"
+                         AutomationProperties.Name="Memory Name"
+                         KeyDown="TextFieldKeyDown" LostFocus="NameBox_LostFocus"/>
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                <TextBlock Text="Owner:" VerticalAlignment="Center" Width="50"/>
+                <TextBox x:Name="OwnerBox" Width="100"
+                         AutomationProperties.Name="Memory Owner"
+                         KeyDown="TextFieldKeyDown" LostFocus="OwnerBox_LostFocus"/>
+            </StackPanel>
+            <StackPanel Orientation="Horizontal">
+                <TextBlock Text="Group:" VerticalAlignment="Center" Width="50"/>
+                <TextBox x:Name="GroupBox" Width="100"
+                         AutomationProperties.Name="Memory Group"
+                         KeyDown="TextFieldKeyDown" LostFocus="GroupBox_LostFocus"/>
+            </StackPanel>
+        </StackPanel>
+    </Grid>
+</local:JJFlexDialog>
