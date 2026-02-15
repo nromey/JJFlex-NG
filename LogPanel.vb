@@ -1148,27 +1148,19 @@ Friend Class LogPanel
 #Region "Key Handling"
 
     ''' <summary>
-    ''' Forward Ctrl+Shift+L from WPF to Form1's ToggleLoggingMode.
-    ''' ElementHost doesn't reliably propagate Ctrl+Shift+letter to ProcessCmdKey.
-    ''' Uses BeginInvoke to defer the mode switch until after WPF's keyboard
-    ''' event completes — changing UI mode inside an ElementHost key event
-    ''' can cause reentrancy and focus issues.
+    ''' Forward Ctrl+Shift+L to WPF MainWindow's ToggleLoggingMode.
+    ''' Uses BeginInvoke to defer the mode switch until after the keyboard
+    ''' event completes — avoids reentrancy and focus issues.
     ''' </summary>
     Private Sub OnToggleLoggingMode(sender As Object, e As EventArgs)
-        BeginInvoke(Sub()
-                        Dim frm = TryCast(FindForm(), Form1)
-                        If frm IsNot Nothing Then frm.ToggleLoggingMode()
-                    End Sub)
+        BeginInvoke(Sub() WpfMainWindow?.ToggleLoggingMode())
     End Sub
 
     ''' <summary>
-    ''' Forward Ctrl+Shift+M from WPF to Form1's ToggleUIMode.
+    ''' Forward Ctrl+Shift+M to WPF MainWindow's ToggleUIMode.
     ''' </summary>
     Private Sub OnToggleUIMode(sender As Object, e As EventArgs)
-        BeginInvoke(Sub()
-                        Dim frm = TryCast(FindForm(), Form1)
-                        If frm IsNot Nothing Then frm.ToggleUIMode()
-                    End Sub)
+        BeginInvoke(Sub() WpfMainWindow?.ToggleUIMode())
     End Sub
 
     ''' <summary>
@@ -1178,19 +1170,12 @@ Friend Class LogPanel
     ''' </summary>
     Protected Overrides Function ProcessCmdKey(ByRef msg As Message, keyData As Keys) As Boolean
         ' Mode-switching combos — catch at UserControl level as fallback.
-        ' These may not reach Form1.ProcessCmdKey when ElementHost has focus.
         If keyData = (Keys.Control Or Keys.Shift Or Keys.L) Then
-            BeginInvoke(Sub()
-                            Dim frm = TryCast(FindForm(), Form1)
-                            If frm IsNot Nothing Then frm.ToggleLoggingMode()
-                        End Sub)
+            BeginInvoke(Sub() WpfMainWindow?.ToggleLoggingMode())
             Return True
         End If
         If keyData = (Keys.Control Or Keys.Shift Or Keys.M) Then
-            BeginInvoke(Sub()
-                            Dim frm = TryCast(FindForm(), Form1)
-                            If frm IsNot Nothing Then frm.ToggleUIMode()
-                        End Sub)
+            BeginInvoke(Sub() WpfMainWindow?.ToggleUIMode())
             Return True
         End If
 
