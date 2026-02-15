@@ -42,6 +42,11 @@ Namespace My
                     End If
                 End Sub
 
+            ' Wire up the keyboard command handler so WPF PreviewKeyDown
+            ' can route keystrokes to the VB.NET KeyCommands system.
+            ' This replaces the ElementHost→Form1 forwarding chain.
+            WpfMainWindow.DoCommandHandler = AddressOf Commands.DoCommand
+
             WpfMainWindow.Show()
         End Sub
 

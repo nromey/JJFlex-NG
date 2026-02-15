@@ -342,6 +342,17 @@ Module globals
     Friend OpenParms As FlexBase.OpenParms
     Friend StationName As String
 
+    ''' <summary>
+    ''' Sprint 8: Convenience accessor for the WPF MainWindow.
+    ''' Used by VB.NET code that previously referenced Form1 directly.
+    ''' Returns the WPF MainWindow instance from ApplicationEvents.
+    ''' </summary>
+    Friend ReadOnly Property WpfMainWindow As JJFlexWpf.MainWindow
+        Get
+            Return My.MyApplication.WpfMainWindow
+        End Get
+    End Property
+
     Friend Const HamqthLookupID As String = "JJRadio"
     Friend Const HamqthLookupPassword As String = "JJRadio"
 

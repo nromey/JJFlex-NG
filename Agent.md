@@ -118,7 +118,15 @@ Converting Form1 from WinForms to pure WPF Window. Plan: `frolicking-forging-map
   - Keyboard routing works natively (Window PreviewKeyDown)
 - Full solution builds clean (0 errors)
 
-### Phase 8.9 — Integration, Cleanup & Build (NEXT)
+### Phase 8.9 — Integration, Cleanup & Build ✅
+- Wired DoCommandHandler in ApplicationEvents.vb (KeyCommands.DoCommand → WPF PreviewKeyDown)
+- Added WpfMainWindow accessor property in globals.vb
+- Clean builds both x64 and x86 Release (0 errors)
+- Verified fresh exe timestamps on both platforms
+- NSIS installer generation confirmed working
+- **Note:** Form1.vb remains compiled but never instantiated (dead code).
+  Full removal requires migrating 24 Form1 references in KeyCommands.vb to
+  WpfMainWindow — deferred to Sprint 9 integration phase.
 
 ## Sprint 8-12 Roadmap
 - **Sprint 8:** Convert Form1 from WinForms to WPF Window (kills interop root cause)
@@ -201,4 +209,4 @@ build-installers.bat
 
 ---
 
-*Updated: Feb 14, 2026 — Sprint 8 Phases 8.0–8.8 complete. All ElementHost interop eliminated. Phase 8.9 (Integration & Build) next.*
+*Updated: Feb 14, 2026 — Sprint 8 COMPLETE. All 10 phases (8.0–8.9) done. WPF MainWindow replaces Form1, all controls converted, both platforms build clean. Sprint 9 (dialog conversions) next.*
