@@ -1,0 +1,39 @@
+<local:JJFlexDialog x:Class="JJFlexWpf.Dialogs.SetupKeysDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:JJFlexWpf"
+        Title="Setup Keys and Actions"
+        Width="500" Height="420"
+        ResizeMode="CanResizeWithGrip">
+    <DockPanel Margin="12">
+        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal"
+                    HorizontalAlignment="Right" Margin="0,8,0,0">
+            <Button Content="Done" MinWidth="80" Height="28" Margin="0,0,8,0"
+                    IsDefault="True" Click="DoneButton_Click"
+                    AutomationProperties.Name="Done" />
+            <Button Content="Cancel" MinWidth="80" Height="28"
+                    IsCancel="True"
+                    AutomationProperties.Name="Cancel" />
+        </StackPanel>
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="8" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <DockPanel Grid.Column="0">
+                <Label DockPanel.Dock="Top" Content="Keys" Padding="0,0,0,4" />
+                <ListBox x:Name="KeysListBox"
+                         AutomationProperties.Name="Available keys"
+                         SelectionChanged="KeysListBox_SelectionChanged"
+                         KeyDown="KeysListBox_KeyDown" />
+            </DockPanel>
+            <DockPanel Grid.Column="2">
+                <Label DockPanel.Dock="Top" Content="Actions" Padding="0,0,0,4" />
+                <ListBox x:Name="ActionsBox"
+                         AutomationProperties.Name="Available actions"
+                         SelectionChanged="ActionsBox_SelectionChanged" />
+            </DockPanel>
+        </Grid>
+    </DockPanel>
+</local:JJFlexDialog>
