@@ -71,12 +71,38 @@ Converting Form1 from WinForms to pure WPF Window. Plan: `frolicking-forging-map
 - StatusBar expanded with Power, Memory, Scan, LogFile items
 - Full solution builds clean (Debug x64)
 
-### Phase 8.3 — Main Content Area (NEXT)
-### Phase 8.4 — PollTimer → DispatcherTimer
-### Phase 8.5 — Menu System (All 3 Modes)
-### Phase 8.6 — Keyboard Routing + 5-Scope Hotkeys
-### Phase 8.7 — Flex6300Filters → WPF UserControl
-### Phase 8.8 — Logging Mode Panels (Native WPF)
+### Phase 8.3 — Main Content Area ✅
+- ReceivedTextBox, SentTextBox, labels, RigFieldsBox (debug hidden)
+- WriteText(), WriteToTextBox(), SetTextAreasVisible() helpers
+- Keyboard event handler stubs for text boxes
+
+### Phase 8.4 — PollTimer → DispatcherTimer ✅
+- DispatcherTimer (100ms) replacing WinForms Timer
+- PollTimerEnabled property, UpdateStatus(), EnableDisableWindowControls()
+- Combo and enable/disable control lists for poll cycle
+
+### Phase 8.5 — Menu System (All 3 Modes) ✅
+- **MenuBuilder.cs** — constructs Classic, Modern, Logging menu hierarchies
+- UIMode enum, ApplyUIMode(), mode switching methods
+- ShowClassicUI/ShowModernUI/ShowLoggingUI, ToggleUIMode
+- EnterLoggingMode/ExitLoggingMode with visibility toggling
+
+### Phase 8.6 — Keyboard Routing + 5-Scope Hotkeys ✅
+- Expanded KeyScope from 3→5: Global, Radio, Classic, Modern, Logging
+- Updated ScopeMatchesMode for 5-scope matching (Radio = both Classic+Modern)
+- **WpfKeyConverter.cs** — WPF Key → WinForms Keys conversion
+- MainWindow PreviewKeyDown with Ctrl+Shift+M/L meta-commands
+- DoCommandHandler delegate pattern (avoids circular project reference)
+
+### Phase 8.7 — FiltersDspControl (was Flex6300Filters) ✅
+- **FiltersDspControl.xaml** — 7 GroupBox sections replacing 2,822-line WinForms control
+- **FiltersDspControl.xaml.cs** — headers, ranges, collections, UpdateAllControls()
+- Renamed from Flex6300Filters (6300-specific) to FiltersDspControl (all models)
+- Button delegates: Narrow/Widen/Shift, TNF, ESC, Info, RX/TX EQ
+- Cleanup() unhooks all rig delegates on disconnect
+- Full solution builds clean
+
+### Phase 8.8 — Logging Mode Panels (NEXT)
 ### Phase 8.9 — Integration, Cleanup & Build
 
 ## Sprint 8-12 Roadmap
@@ -149,11 +175,14 @@ build-installers.bat
 | `Form1.vb` | Original WinForms main form (being replaced) |
 | `LogPanel.vb` | WinForms UC hosting WPF LogEntryControl via ElementHost |
 | `JJFlexWpf/LogEntryControl.xaml(.cs)` | WPF log entry form |
-| `KeyCommands.vb` | Scope-aware hotkey registry (Phase 8.6: expand to 5 scopes) |
+| `JJFlexWpf/MenuBuilder.cs` | Constructs all 3 menu hierarchies |
+| `JJFlexWpf/WpfKeyConverter.cs` | WPF Key → WinForms Keys conversion |
+| `JJFlexWpf/Controls/FiltersDspControl.xaml(.cs)` | DSP/filter controls (replaces Flex6300Filters.cs) |
+| `KeyCommands.vb` | Scope-aware hotkey registry (5 scopes: Global/Radio/Classic/Modern/Logging) |
 | `globals.vb` | UIMode enum, ActiveUIMode, LastNonLogMode |
 | `docs/planning/agile/sprint7-test-matrix.md` | Sprint 7 test matrix (complete) |
 | Plan file | `frolicking-forging-map.md` — Sprint 8-9 plan |
 
 ---
 
-*Updated: Feb 14, 2026 — Sprint 8 Phase 8.2 complete. All RadioBoxes WPF controls created and building. Phases 8.0-8.2 done, 8.3 next.*
+*Updated: Feb 14, 2026 — Sprint 8 Phases 8.0–8.7 complete. FiltersDspControl replaces Flex6300Filters. Phase 8.8 (Logging Mode Panels) next.*

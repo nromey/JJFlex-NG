@@ -1,0 +1,192 @@
+<UserControl x:Class="JJFlexWpf.Controls.FiltersDspControl"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:controls="clr-namespace:JJFlexWpf.Controls"
+             mc:Ignorable="d"
+             d:DesignWidth="800" d:DesignHeight="400"
+             AutomationProperties.Name="DSP and Filter Controls"
+             Focusable="True"
+             IsTabStop="False">
+
+    <!-- WPF replacement for Radios\Flex6300Filters.cs (2,822 lines).
+         Organized into tabbed sections matching the control categories.
+         Uses RadioComboBox, RadioNumberBox, RadioInfoBox from Phase 8.2.
+
+         Control structure only — rig delegate wiring happens when radio connects.
+         Sprint 8 Phase 8.7. -->
+
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Orientation="Vertical" Margin="4">
+
+            <!-- === DSP Section === -->
+            <GroupBox Header="DSP / Filters" AutomationProperties.Name="DSP and Filters"
+                      Margin="2" Padding="4">
+                <WrapPanel Orientation="Horizontal">
+                    <!-- Filter boundaries -->
+                    <controls:RadioNumberBox x:Name="FilterLowBox" Margin="4,2"
+                        AutomationProperties.Name="Filter Low" />
+                    <controls:RadioNumberBox x:Name="FilterHighBox" Margin="4,2"
+                        AutomationProperties.Name="Filter High" />
+
+                    <!-- Filter action buttons -->
+                    <Button x:Name="NarrowButton" Content="Narrow" Margin="4,2" Padding="6,2"
+                            AutomationProperties.Name="Narrow Filter" />
+                    <Button x:Name="WidenButton" Content="Widen" Margin="4,2" Padding="6,2"
+                            AutomationProperties.Name="Widen Filter" />
+                    <Button x:Name="ShiftButton" Content="Shift" Margin="4,2" Padding="6,2"
+                            AutomationProperties.Name="Shift Filter" />
+
+                    <!-- AGC -->
+                    <controls:RadioComboBox x:Name="AGCSpeedControl" Margin="4,2"
+                        AutomationProperties.Name="AGC Speed" />
+                    <controls:RadioNumberBox x:Name="AGCThresholdBox" Margin="4,2"
+                        AutomationProperties.Name="AGC Threshold" />
+
+                    <!-- RF Gain -->
+                    <controls:RadioNumberBox x:Name="RFGainBox" Margin="4,2"
+                        AutomationProperties.Name="RF Gain" />
+                </WrapPanel>
+            </GroupBox>
+
+            <!-- === Noise Reduction Section === -->
+            <GroupBox Header="Noise Reduction" AutomationProperties.Name="Noise Reduction"
+                      Margin="2" Padding="4">
+                <WrapPanel Orientation="Horizontal">
+                    <controls:RadioComboBox x:Name="NRControl" Margin="4,2"
+                        AutomationProperties.Name="Noise Reduction" />
+                    <controls:RadioNumberBox x:Name="NRLevelBox" Margin="4,2"
+                        AutomationProperties.Name="NR Level" />
+
+                    <controls:RadioComboBox x:Name="ANFControl" Margin="4,2"
+                        AutomationProperties.Name="Auto Notch Filter" />
+                    <controls:RadioNumberBox x:Name="ANFLevelBox" Margin="4,2"
+                        AutomationProperties.Name="ANF Level" />
+
+                    <controls:RadioComboBox x:Name="NBControl" Margin="4,2"
+                        AutomationProperties.Name="Noise Blanker" />
+                    <controls:RadioNumberBox x:Name="NBLevelBox" Margin="4,2"
+                        AutomationProperties.Name="NB Level" />
+
+                    <controls:RadioComboBox x:Name="WNBControl" Margin="4,2"
+                        AutomationProperties.Name="Wideband Noise Blanker" />
+                    <controls:RadioNumberBox x:Name="WNBLevelBox" Margin="4,2"
+                        AutomationProperties.Name="WNB Level" />
+
+                    <controls:RadioComboBox x:Name="APFControl" Margin="4,2"
+                        AutomationProperties.Name="Audio Peak Filter" />
+                    <controls:RadioNumberBox x:Name="APFLevelBox" Margin="4,2"
+                        AutomationProperties.Name="APF Level" />
+                </WrapPanel>
+            </GroupBox>
+
+            <!-- === CW/Keyer Section === -->
+            <GroupBox Header="CW / Keyer" AutomationProperties.Name="CW and Keyer"
+                      Margin="2" Padding="4">
+                <WrapPanel Orientation="Horizontal">
+                    <controls:RadioComboBox x:Name="KeyerModeControl" Margin="4,2"
+                        AutomationProperties.Name="Keyer Mode" />
+                    <controls:RadioNumberBox x:Name="KeyerSpeedBox" Margin="4,2"
+                        AutomationProperties.Name="Keyer Speed" />
+                    <controls:RadioComboBox x:Name="CWReverseControl" Margin="4,2"
+                        AutomationProperties.Name="CW Reverse" />
+                    <controls:RadioNumberBox x:Name="SidetonePitchBox" Margin="4,2"
+                        AutomationProperties.Name="Sidetone Pitch" />
+                    <controls:RadioNumberBox x:Name="SidetoneGainBox" Margin="4,2"
+                        AutomationProperties.Name="Sidetone Gain" />
+                    <controls:RadioComboBox x:Name="CWLControl" Margin="4,2"
+                        AutomationProperties.Name="CW Listener" />
+                    <controls:RadioNumberBox x:Name="BreakinDelayBox" Margin="4,2"
+                        AutomationProperties.Name="Breakin Delay" />
+                </WrapPanel>
+            </GroupBox>
+
+            <!-- === Transmit Section === -->
+            <GroupBox Header="Transmit" AutomationProperties.Name="Transmit Settings"
+                      Margin="2" Padding="4">
+                <WrapPanel Orientation="Horizontal">
+                    <controls:RadioNumberBox x:Name="TXPowerBox" Margin="4,2"
+                        AutomationProperties.Name="TX Power" />
+                    <controls:RadioNumberBox x:Name="TunePowerBox" Margin="4,2"
+                        AutomationProperties.Name="Tune Power" />
+                    <controls:RadioNumberBox x:Name="TXFilterLowBox" Margin="4,2"
+                        AutomationProperties.Name="TX Filter Low" />
+                    <controls:RadioNumberBox x:Name="TXFilterHighBox" Margin="4,2"
+                        AutomationProperties.Name="TX Filter High" />
+
+                    <controls:RadioComboBox x:Name="CompanderControl" Margin="4,2"
+                        AutomationProperties.Name="Compander" />
+                    <controls:RadioNumberBox x:Name="CompanderLevelBox" Margin="4,2"
+                        AutomationProperties.Name="Compander Level" />
+
+                    <controls:RadioComboBox x:Name="SpeechProcControl" Margin="4,2"
+                        AutomationProperties.Name="Speech Processor" />
+                </WrapPanel>
+            </GroupBox>
+
+            <!-- === Audio/Microphone Section === -->
+            <GroupBox Header="Audio / Microphone" AutomationProperties.Name="Audio and Microphone"
+                      Margin="2" Padding="4">
+                <WrapPanel Orientation="Horizontal">
+                    <controls:RadioNumberBox x:Name="MicGainBox" Margin="4,2"
+                        AutomationProperties.Name="Mic Gain" />
+                    <controls:RadioComboBox x:Name="MicBoostControl" Margin="4,2"
+                        AutomationProperties.Name="Mic Boost" />
+                    <controls:RadioComboBox x:Name="MicBiasControl" Margin="4,2"
+                        AutomationProperties.Name="Mic Bias" />
+                    <controls:RadioInfoBox x:Name="MicPeakInfo" Margin="4,2"
+                        AutomationProperties.Name="Mic Peak" />
+
+                    <controls:RadioNumberBox x:Name="MonitorPanBox" Margin="4,2"
+                        AutomationProperties.Name="Monitor Pan" />
+                    <controls:RadioNumberBox x:Name="MonitorLevelBox" Margin="4,2"
+                        AutomationProperties.Name="Monitor Level" />
+                    <controls:RadioComboBox x:Name="MonitorModeControl" Margin="4,2"
+                        AutomationProperties.Name="Monitor Mode" />
+
+                    <Button x:Name="RXEqualizer" Content="RX EQ" Margin="4,2" Padding="6,2"
+                            AutomationProperties.Name="RX Equalizer" />
+                    <Button x:Name="TXEqualizer" Content="TX EQ" Margin="4,2" Padding="6,2"
+                            AutomationProperties.Name="TX Equalizer" />
+                </WrapPanel>
+            </GroupBox>
+
+            <!-- === Antenna Section === -->
+            <GroupBox Header="Antenna" AutomationProperties.Name="Antenna Settings"
+                      Margin="2" Padding="4">
+                <WrapPanel Orientation="Horizontal">
+                    <controls:RadioComboBox x:Name="RXAntennaControl" Margin="4,2"
+                        AutomationProperties.Name="RX Antenna" />
+                    <controls:RadioComboBox x:Name="TXAntennaControl" Margin="4,2"
+                        AutomationProperties.Name="TX Antenna" />
+                    <controls:RadioComboBox x:Name="DiversityControl" Margin="4,2"
+                        AutomationProperties.Name="Diversity" />
+                    <controls:RadioInfoBox x:Name="DiversityStatusInfo" Margin="4,2"
+                        AutomationProperties.Name="Diversity Status" />
+                </WrapPanel>
+            </GroupBox>
+
+            <!-- === Status/Info Section === -->
+            <GroupBox Header="Radio Status" AutomationProperties.Name="Radio Status Information"
+                      Margin="2" Padding="4">
+                <WrapPanel Orientation="Horizontal">
+                    <controls:RadioInfoBox x:Name="SWRInfo" Margin="4,2"
+                        AutomationProperties.Name="SWR" />
+                    <controls:RadioInfoBox x:Name="PATempInfo" Margin="4,2"
+                        AutomationProperties.Name="PA Temperature" />
+                    <controls:RadioInfoBox x:Name="VoltsInfo" Margin="4,2"
+                        AutomationProperties.Name="Voltage" />
+
+                    <Button x:Name="TNFButton" Content="TNF" Margin="4,2" Padding="6,2"
+                            AutomationProperties.Name="Tracking Notch Filter" />
+                    <Button x:Name="ESCButton" Content="ESC" Margin="4,2" Padding="6,2"
+                            AutomationProperties.Name="Emergency Signal Cancel" />
+                    <Button x:Name="InfoButton" Content="Info" Margin="4,2" Padding="6,2"
+                            AutomationProperties.Name="Feature Availability" />
+                </WrapPanel>
+            </GroupBox>
+
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>
