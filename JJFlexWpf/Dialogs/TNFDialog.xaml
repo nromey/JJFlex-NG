@@ -1,0 +1,59 @@
+<local:JJFlexDialog x:Class="JJFlexWpf.Dialogs.TNFDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:JJFlexWpf"
+        Title="Tracking Notch Filters"
+        Width="300" SizeToContent="Height"
+        ResizeMode="NoResize">
+
+    <StackPanel Margin="12">
+        <!-- TNF List -->
+        <TextBlock Text="Filters" Margin="0,0,0,4"/>
+        <ListBox x:Name="TNFList" Height="100" Margin="0,0,0,8"
+                 AutomationProperties.Name="Tracking notch filters"
+                 SelectionChanged="TNFList_SelectionChanged"/>
+
+        <!-- TNF Properties -->
+        <Grid Margin="0,0,0,8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <TextBlock Grid.Row="0" Grid.Column="0" Text="Width:" VerticalAlignment="Center" Margin="0,0,8,4"/>
+            <TextBox x:Name="WidthBox" Grid.Row="0" Grid.Column="1" Margin="0,0,0,4"
+                     AutomationProperties.Name="TNF width in Hz"
+                     PreviewKeyDown="WidthBox_PreviewKeyDown" LostFocus="WidthBox_LostFocus"/>
+
+            <TextBlock Grid.Row="1" Grid.Column="0" Text="Depth:" VerticalAlignment="Center" Margin="0,0,8,4"/>
+            <TextBox x:Name="DepthBox" Grid.Row="1" Grid.Column="1" Margin="0,0,0,4"
+                     AutomationProperties.Name="TNF depth, 1 to 3"
+                     PreviewKeyDown="DepthBox_PreviewKeyDown" LostFocus="DepthBox_LostFocus"/>
+
+            <TextBlock Grid.Row="2" Grid.Column="0" Text="Permanent:" VerticalAlignment="Center" Margin="0,0,8,0"/>
+            <ComboBox x:Name="PermanentCombo" Grid.Row="2" Grid.Column="1"
+                      AutomationProperties.Name="TNF permanent"
+                      SelectionChanged="PermanentCombo_SelectionChanged">
+                <ComboBoxItem Content="False"/>
+                <ComboBoxItem Content="True"/>
+            </ComboBox>
+        </Grid>
+
+        <!-- Buttons -->
+        <StackPanel Orientation="Horizontal">
+            <Button Content="Add" MinWidth="60" Margin="0,0,8,0"
+                    AutomationProperties.Name="Add tracking notch filter"
+                    Click="AddButton_Click"/>
+            <Button Content="Remove" MinWidth="60" Margin="0,0,8,0"
+                    AutomationProperties.Name="Remove selected tracking notch filter"
+                    Click="RemoveButton_Click"/>
+            <Button Content="Done" MinWidth="75" IsCancel="True"
+                    AutomationProperties.Name="Done" Click="DoneButton_Click"/>
+        </StackPanel>
+    </StackPanel>
+</local:JJFlexDialog>

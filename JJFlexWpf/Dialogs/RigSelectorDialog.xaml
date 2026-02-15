@@ -1,0 +1,69 @@
+<local:JJFlexDialog x:Class="JJFlexWpf.Dialogs.RigSelectorDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:JJFlexWpf"
+        Title="Select Radio"
+        Width="480" Height="320"
+        ResizeMode="NoResize"
+        AutomationProperties.Name="Radio selector"
+        Closing="RigSelectorDialog_Closing">
+    <Grid Margin="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="Auto"/>
+        </Grid.ColumnDefinitions>
+
+        <!-- Label -->
+        <TextBlock Grid.Row="0" Grid.Column="0" Text="Available Radios:"
+                   Margin="0,0,0,4"
+                   AutomationProperties.Name="Available radios list"/>
+
+        <!-- Radio list -->
+        <ListBox x:Name="RadiosBox" Grid.Row="1" Grid.Column="0"
+                 Margin="0,0,8,0"
+                 AutomationProperties.Name="Available radios"
+                 GotFocus="RadiosBox_GotFocus"
+                 LostFocus="RadiosBox_LostFocus">
+            <ListBox.ContextMenu>
+                <ContextMenu>
+                    <MenuItem Header="Connect" Click="ConnectMenuItem_Click"
+                              AutomationProperties.Name="Connect to selected radio"/>
+                    <MenuItem Header="Low BW Toggle" Click="LowBWMenuItem_Click"
+                              AutomationProperties.Name="Toggle low bandwidth mode"/>
+                    <MenuItem x:Name="AutoConnectMenuItem" Header="Auto-Connect Settings..."
+                              Click="AutoConnectMenuItem_Click"
+                              AutomationProperties.Name="Auto-connect settings for selected radio"/>
+                </ContextMenu>
+            </ListBox.ContextMenu>
+        </ListBox>
+
+        <!-- Action buttons -->
+        <StackPanel Grid.Row="1" Grid.Column="1" VerticalAlignment="Top">
+            <Button x:Name="ConnectButton" Content="Connect" MinWidth="100" Height="28" Margin="0,0,0,8"
+                    AutomationProperties.Name="Connect to selected radio"
+                    Click="ConnectButton_Click"/>
+            <Button Content="Low BW" MinWidth="100" Height="28" Margin="0,0,0,8"
+                    AutomationProperties.Name="Toggle low bandwidth mode"
+                    Click="LowBWButton_Click"/>
+            <Button Content="SmartLink" MinWidth="100" Height="28" Margin="0,0,0,8"
+                    AutomationProperties.Name="Show remote SmartLink radios"
+                    Click="RemoteButton_Click"/>
+            <Button Content="Cancel" MinWidth="100" Height="28" IsCancel="True"
+                    AutomationProperties.Name="Cancel radio selection"
+                    Click="CancelButton_Click"/>
+        </StackPanel>
+
+        <!-- Global auto-connect checkbox -->
+        <CheckBox x:Name="GlobalAutoConnectCheckbox" Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="2"
+                  Content="Enable auto-connect on startup" Margin="0,8,0,0"
+                  AutomationProperties.Name="Enable auto-connect on startup"
+                  Checked="GlobalAutoConnectCheckbox_Changed"
+                  Unchecked="GlobalAutoConnectCheckbox_Changed"/>
+    </Grid>
+</local:JJFlexDialog>

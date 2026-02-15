@@ -318,7 +318,7 @@ Public Class KeyCommands
     ''' </summary>
     ''' <remarks>It's in logical order, not CommandValues order</remarks>
     Friend KeyTable() As keyTbl = {
-        New keyTbl(CommandValues.ShowHelp, AddressOf Form1.DisplayHelp,
+        New keyTbl(CommandValues.ShowHelp, AddressOf WpfMainWindow.DisplayHelp,
             "Show keys help", Nothing, FunctionGroups.help, KeyScope.[Global]),
         New keyTbl(CommandValues.ShowFreq, AddressOf displayFreqCmd,
             "Show frequency or pause scan", Nothing, FunctionGroups.routingScan, KeyScope.Radio),
@@ -1118,7 +1118,7 @@ Public Class KeyCommands
         displayFreq()
     End Sub
     Private Sub displayFreq()
-        Form1.FreqOut.Focus()
+        WpfMainWindow.FreqOut.Focus()
     End Sub
 
     Private Sub resumeScanCmd()
@@ -1129,17 +1129,17 @@ Public Class KeyCommands
     End Sub
 
     Private Sub gotoReceive()
-        Form1.ReceivedTextBox.Focus()
+        WpfMainWindow.ReceivedTextBox.Focus()
     End Sub
 
     Private Sub gotoSend()
         DirectCW = False
-        Form1.SentTextBox.Focus()
+        WpfMainWindow.SentTextBox.Focus()
     End Sub
 
     Private Sub gotoSendDirect()
         DirectCW = True
-        Form1.SentTextBox.Focus()
+        WpfMainWindow.SentTextBox.Focus()
     End Sub
 
     Friend Sub WriteFreq(ByVal str As String)
@@ -1162,7 +1162,7 @@ Public Class KeyCommands
             Try
                 memObj.ShowDialog()
                 If memObj.ShowFreq Then
-                    Form1.gotoHome()
+                    WpfMainWindow.gotoHome()
                 End If
             Catch ex As Exception
                 Tracing.TraceLine("memory display:" & ex.Message, TraceLevel.Error)
@@ -1192,22 +1192,22 @@ Public Class KeyCommands
 
     Private Sub BringUpLogForm()
         ' In Logging Mode, redirect log field commands to the LogPanel.
-        If ActiveUIMode = UIMode.Logging AndAlso Form1.LoggingLogPanel IsNot Nothing Then
+        If ActiveUIMode = UIMode.Logging AndAlso WpfMainWindow.LoggingLogPanel IsNot Nothing Then
             Dim adifTag As String = CommandIDToADIF(CommandId)
             Dim fieldName As String = ADIFTagToFieldName(adifTag)
             If fieldName IsNot Nothing Then
-                Form1.LoggingLogPanel.FocusField(fieldName)
+                WpfMainWindow.LoggingLogPanel.FocusField(fieldName)
             ElseIf adifTag = iADIF_LogNewEntry Then
-                Form1.LoggingLogPanel.NewEntry()
+                WpfMainWindow.LoggingLogPanel.NewEntry()
                 Radios.ScreenReaderOutput.Speak("New entry", True)
             End If
             Return
         End If
         LogEntry.FieldID = CommandIDToADIF(CommandId)
-        Dim saveVisible As Boolean = Form1.Visible
-        Form1.Visible = False
+        Dim saveVisible As Boolean = WpfMainWindow.Visible
+        WpfMainWindow.Visible = False
         LogEntry.ShowDialog()
-        Form1.Visible = saveVisible
+        WpfMainWindow.Visible = saveVisible
     End Sub
 
     ''' <summary>
@@ -1256,8 +1256,8 @@ Public Class KeyCommands
 
     Private Sub FinalizeLog()
         ' In Logging Mode, write via the LogPanel.
-        If ActiveUIMode = UIMode.Logging AndAlso Form1.LoggingLogPanel IsNot Nothing Then
-            Form1.LoggingLogPanel.WriteEntry()
+        If ActiveUIMode = UIMode.Logging AndAlso WpfMainWindow.LoggingLogPanel IsNot Nothing Then
+            WpfMainWindow.LoggingLogPanel.WriteEntry()
             Return
         End If
         LogEntry.Write()
@@ -1471,7 +1471,7 @@ Public Class KeyCommands
     Private Sub PCAudioRtn()
         PCAudio = Not PCAudio
         ' need to update the op menu
-        Form1.SetupOperationsMenu()
+        WpfMainWindow.SetupOperationsMenu()
     End Sub
 
     ''' <summary>
@@ -1533,7 +1533,7 @@ Public Class KeyCommands
             ClusterScreens.Add(clusterScreen)
             clusterScreen.Login()
             clusterScreen.Show()
-            Form1.BringToFront()
+            WpfMainWindow.BringToFront()
         End If
     End Sub
 
@@ -1610,7 +1610,7 @@ Public Class KeyCommands
             Clipboard.Clear()
             Clipboard.SetText(e.Callsign)
             RigControl.Frequency = freq
-            Form1.BringToFront()
+            WpfMainWindow.BringToFront()
             displayFreq()
         End If
     End Sub
@@ -1624,8 +1624,8 @@ Public Class KeyCommands
         LookupStation = CreateStationLookupWindow()
         LookupStation.ShowDialog()
 
-        ' If the user clicked "Log Contact", hand off to Form1's handler.
-        Form1.HandleLogContactResult()
+        ' If the user clicked "Log Contact", hand off to WpfMainWindow's handler.
+        WpfMainWindow.HandleLogContactResult()
     End Sub
 
     Private Sub gatherDebugRtn()
@@ -1650,7 +1650,7 @@ Public Class KeyCommands
         End If
 
         If MessageBox.Show(msgReboot, RebootHdr, MessageBoxButtons.YesNo) = DialogResult.Yes Then
-            Form1.powerNowOff()
+            WpfMainWindow.powerNowOff()
             Dim rebootThread As Thread = New Thread(AddressOf rebootThreadProc)
             rebootThread.Name = "reboot"
             rebootThread.Start()
@@ -1681,7 +1681,7 @@ Public Class KeyCommands
 
         RigControl.SmeterInDBM = Not RigControl.SmeterInDBM
         ' need to update the op menu
-        Form1.SetupOperationsMenu()
+        WpfMainWindow.SetupOperationsMenu()
     End Sub
     Private Function sMeterMenuString() As String
         If RigControl Is Nothing Then
@@ -1696,18 +1696,18 @@ Public Class KeyCommands
         Return txt
     End Function
 
-    ' --- Logging-only action handlers (route to Form1) ---
+    ' --- Logging-only action handlers (route to WpfMainWindow) ---
 
     Private Sub logPaneSwitchRtn()
-        Form1.ToggleLoggingPaneFocusForHotkey()
+        WpfMainWindow.ToggleLoggingPaneFocusForHotkey()
     End Sub
 
     Private Sub logCharacteristicsRtn()
-        Form1.LogCharacteristicsForHotkey()
+        WpfMainWindow.LogCharacteristicsForHotkey()
     End Sub
 
     Private Sub logOpenFullFormRtn()
-        Form1.OpenFullLogEntryForHotkey()
+        WpfMainWindow.OpenFullLogEntryForHotkey()
     End Sub
 
     Private Sub contextHelpRtn()

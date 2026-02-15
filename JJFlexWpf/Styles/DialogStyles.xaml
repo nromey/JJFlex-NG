@@ -1,0 +1,56 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!-- Standard dialog button style -->
+    <Style x:Key="DialogButton" TargetType="Button">
+        <Setter Property="MinWidth" Value="80"/>
+        <Setter Property="Height" Value="28"/>
+        <Setter Property="Margin" Value="0,0,8,0"/>
+        <Setter Property="Padding" Value="12,4"/>
+    </Style>
+
+    <!-- OK button (inherits DialogButton, adds IsDefault) -->
+    <Style x:Key="OkButton" TargetType="Button" BasedOn="{StaticResource DialogButton}">
+        <Setter Property="IsDefault" Value="True"/>
+    </Style>
+
+    <!-- Cancel button (inherits DialogButton, adds IsCancel) -->
+    <Style x:Key="CancelButton" TargetType="Button" BasedOn="{StaticResource DialogButton}">
+        <Setter Property="IsCancel" Value="True"/>
+        <Setter Property="Margin" Value="0"/>
+    </Style>
+
+    <!-- Standard label in dialogs -->
+    <Style x:Key="DialogLabel" TargetType="TextBlock">
+        <Setter Property="VerticalAlignment" Value="Center"/>
+        <Setter Property="Margin" Value="0,0,8,0"/>
+    </Style>
+
+    <!-- Standard text input in dialogs -->
+    <Style x:Key="DialogTextBox" TargetType="TextBox">
+        <Setter Property="Height" Value="24"/>
+        <Setter Property="VerticalContentAlignment" Value="Center"/>
+        <Setter Property="Margin" Value="0,4"/>
+    </Style>
+
+    <!-- Standard combo box in dialogs -->
+    <Style x:Key="DialogComboBox" TargetType="ComboBox">
+        <Setter Property="Height" Value="24"/>
+        <Setter Property="VerticalContentAlignment" Value="Center"/>
+        <Setter Property="Margin" Value="0,4"/>
+    </Style>
+
+    <!-- Group box header -->
+    <Style x:Key="DialogGroupBox" TargetType="GroupBox">
+        <Setter Property="Margin" Value="0,4"/>
+        <Setter Property="Padding" Value="8,4"/>
+    </Style>
+
+    <!-- Standard button panel (OK/Cancel row at bottom) -->
+    <Style x:Key="ButtonPanel" TargetType="StackPanel">
+        <Setter Property="Orientation" Value="Horizontal"/>
+        <Setter Property="HorizontalAlignment" Value="Right"/>
+        <Setter Property="Margin" Value="0,10,0,0"/>
+    </Style>
+
+</ResourceDictionary>

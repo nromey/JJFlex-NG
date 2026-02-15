@@ -1,0 +1,40 @@
+<local:JJFlexDialog x:Class="JJFlexWpf.Dialogs.CWMessageAddDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:JJFlexWpf"
+        Title="Add a CW Message"
+        Width="500" Height="200"
+        SizeToContent="Height">
+    <StackPanel Margin="12">
+        <DockPanel Margin="0,0,0,8">
+            <Label Content="Label:" DockPanel.Dock="Left" Width="70"
+                   VerticalAlignment="Center" />
+            <TextBox x:Name="LabelTextBox"
+                     AutomationProperties.Name="Message label"
+                     VerticalAlignment="Center" />
+        </DockPanel>
+        <DockPanel Margin="0,0,0,8">
+            <Label Content="Key:" DockPanel.Dock="Left" Width="70"
+                   VerticalAlignment="Center" />
+            <TextBox x:Name="KeyTextBox" IsReadOnly="True"
+                     AutomationProperties.Name="Key binding"
+                     PreviewKeyDown="KeyTextBox_PreviewKeyDown"
+                     VerticalAlignment="Center" />
+        </DockPanel>
+        <DockPanel Margin="0,0,0,8">
+            <Label Content="Message:" DockPanel.Dock="Left" Width="70"
+                   VerticalAlignment="Center" />
+            <TextBox x:Name="MessageTextBox"
+                     AutomationProperties.Name="CW text to send"
+                     VerticalAlignment="Center" />
+        </DockPanel>
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button Content="OK" MinWidth="80" Height="28" Margin="0,0,8,0"
+                    IsDefault="True" Click="OKButton_Click"
+                    AutomationProperties.Name="OK" />
+            <Button Content="Cancel" MinWidth="80" Height="28"
+                    IsCancel="True"
+                    AutomationProperties.Name="Cancel" />
+        </StackPanel>
+    </StackPanel>
+</local:JJFlexDialog>

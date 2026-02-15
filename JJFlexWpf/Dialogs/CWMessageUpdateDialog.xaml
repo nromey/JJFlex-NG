@@ -1,0 +1,28 @@
+<local:JJFlexDialog x:Class="JJFlexWpf.Dialogs.CWMessageUpdateDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:JJFlexWpf"
+        Title="CW Messages"
+        Width="360" Height="340"
+        SizeToContent="Height">
+    <StackPanel Margin="12">
+        <Label Content="Keys" Padding="0,0,0,4" />
+        <ListBox x:Name="KeysList" Height="160"
+                 AutomationProperties.Name="CW message keys"
+                 SelectionChanged="KeysList_SelectionChanged" />
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
+            <Button x:Name="AddButton" Content="Add" MinWidth="70" Height="28"
+                    Margin="0,0,8,0" Click="AddButton_Click"
+                    AutomationProperties.Name="Add" />
+            <Button x:Name="UpdateButton" Content="Update" MinWidth="70" Height="28"
+                    Margin="0,0,8,0" Click="UpdateButton_Click"
+                    AutomationProperties.Name="Update" />
+            <Button x:Name="DeleteButton" Content="Delete" MinWidth="70" Height="28"
+                    Margin="0,0,8,0" Click="DeleteButton_Click"
+                    AutomationProperties.Name="Delete" />
+            <Button Content="Cancel" MinWidth="70" Height="28"
+                    IsCancel="True"
+                    AutomationProperties.Name="Cancel" />
+        </StackPanel>
+    </StackPanel>
+</local:JJFlexDialog>

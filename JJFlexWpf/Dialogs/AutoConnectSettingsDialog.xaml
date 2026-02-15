@@ -1,0 +1,46 @@
+<local:JJFlexDialog x:Class="JJFlexWpf.Dialogs.AutoConnectSettingsDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:JJFlexWpf"
+        Title="Auto-Connect Settings"
+        Width="350" Height="200"
+        ResizeMode="NoResize"
+        AutomationProperties.Name="Auto-connect settings">
+    <Grid Margin="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Radio name -->
+        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,12">
+            <TextBlock Text="Radio:" Style="{StaticResource DialogLabel}"/>
+            <TextBlock x:Name="RadioNameText" FontWeight="Bold"
+                       AutomationProperties.Name="Radio name"/>
+        </StackPanel>
+
+        <!-- Checkboxes -->
+        <CheckBox x:Name="AutoConnectCheckbox" Grid.Row="1"
+                  Content="Enable auto-connect for this radio"
+                  Margin="0,0,0,8"
+                  AutomationProperties.Name="Enable auto-connect for this radio"/>
+
+        <CheckBox x:Name="LowBandwidthCheckbox" Grid.Row="2"
+                  Content="Use low bandwidth mode"
+                  Margin="0,0,0,8"
+                  AutomationProperties.Name="Use low bandwidth mode"/>
+
+        <!-- Buttons -->
+        <StackPanel Grid.Row="4" Style="{StaticResource ButtonPanel}">
+            <Button Content="Save" Style="{StaticResource OkButton}"
+                    AutomationProperties.Name="Save auto-connect settings"
+                    Click="SaveButton_Click"/>
+            <Button Content="Cancel" Style="{StaticResource CancelButton}"
+                    AutomationProperties.Name="Cancel without saving"
+                    Click="CancelButton_Click"/>
+        </StackPanel>
+    </Grid>
+</local:JJFlexDialog>

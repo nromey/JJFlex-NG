@@ -74,7 +74,7 @@
                         Margin="4" AutomationProperties.Name="Radio Controls">
 
                 <!-- Frequency Display (replacement for RadioBoxes.MainBox FreqOut) -->
-                <controls:FrequencyDisplay x:Name="FreqOut" Margin="4,2"
+                <controls:FrequencyDisplay x:Name="FreqOut" x:FieldModifier="public" Margin="4,2"
                     AutomationProperties.Name="Frequency and VFO Display" />
 
                 <!-- Mode selector (replacement for RadioBoxes.Combo ModeControl) -->
@@ -117,7 +117,7 @@
                            Margin="4,2" FontSize="11" Foreground="Gray" />
 
                 <!-- Received Text Box — displays decoded CW/digital text from the radio -->
-                <TextBox Grid.Row="1" x:Name="ReceivedTextBox"
+                <TextBox Grid.Row="1" x:Name="ReceivedTextBox" x:FieldModifier="public"
                          AcceptsReturn="True"
                          IsReadOnly="False"
                          TextWrapping="Wrap"
@@ -133,7 +133,7 @@
                            Margin="4,2" FontSize="11" Foreground="Gray" />
 
                 <!-- Send Text Box — user types CW/digital text to transmit -->
-                <TextBox Grid.Row="3" x:Name="SentTextBox"
+                <TextBox Grid.Row="3" x:Name="SentTextBox" x:FieldModifier="public"
                          AcceptsReturn="True"
                          IsReadOnly="False"
                          TextWrapping="Wrap"

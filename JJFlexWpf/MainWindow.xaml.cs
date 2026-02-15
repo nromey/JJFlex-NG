@@ -12,6 +12,18 @@ using JJTrace;
 namespace JJFlexWpf;
 
 /// <summary>
+/// Bridge interface for LogPanel commands — allows KeyCommands to call
+/// LogPanel methods through WpfMainWindow without direct type dependency.
+/// The main app implements this on its LogPanel and sets the LoggingLogPanel property.
+/// </summary>
+public interface ILogPanelCommands
+{
+    void FocusField(string fieldName);
+    void NewEntry();
+    bool WriteEntry();
+}
+
+/// <summary>
 /// JJFlexRadio main window — WPF replacement for WinForms Form1.
 /// Sprint 8: Full WPF conversion, code-behind pattern (not MVVM).
 ///
@@ -713,6 +725,117 @@ public partial class MainWindow : Window
     private void SentTextBox_PreviewTextInput(object sender, TextCompositionEventArgs e)
     {
         // Phase 8.4+: Route typed characters to CW transmit
+    }
+
+    #endregion
+
+    #region Form1 Compatibility — Phase 9.1
+
+    /// <summary>
+    /// Display the key commands help dialog.
+    /// Matches Form1.DisplayHelp().
+    /// </summary>
+    public void DisplayHelp()
+    {
+        // Phase 9.5+: ShowHelp dialog will be called directly here
+        Tracing.TraceLine("MainWindow.DisplayHelp: stub — wiring in Phase 9.5", TraceLevel.Info);
+    }
+
+    /// <summary>
+    /// Bring the main window to front and focus the frequency display.
+    /// Matches Form1.gotoHome().
+    /// </summary>
+    public void gotoHome()
+    {
+        Activate();
+        FreqOut.Focus();
+        Keyboard.Focus(FreqOut);
+    }
+
+    /// <summary>
+    /// Rebuild the Operations menu.
+    /// Matches Form1.SetupOperationsMenu().
+    /// </summary>
+    public void SetupOperationsMenu()
+    {
+        // Phase 9.5+: Rebuild Operations menu via MenuBuilder
+        Tracing.TraceLine("MainWindow.SetupOperationsMenu: stub — wiring in Phase 9.5", TraceLevel.Info);
+    }
+
+    /// <summary>
+    /// Handle "Log Contact" result from Station Lookup.
+    /// Matches Form1.HandleLogContactResult().
+    /// </summary>
+    public void HandleLogContactResult()
+    {
+        // Phase 9.5+: Check LookupStation.WantsLogContact, enter Logging Mode, pre-fill
+        Tracing.TraceLine("MainWindow.HandleLogContactResult: stub — wiring in Phase 9.5", TraceLevel.Info);
+    }
+
+    /// <summary>
+    /// Emergency power-off — disconnect and clean up.
+    /// Matches Form1.powerNowOff().
+    /// </summary>
+    public void powerNowOff()
+    {
+        // Phase 9.5+: Full power-off sequence (remove handlers, clear window, update status)
+        Tracing.TraceLine("MainWindow.powerNowOff: stub — wiring in Phase 9.5", TraceLevel.Info);
+    }
+
+    /// <summary>
+    /// Toggle focus between Log pane and Radio pane in Logging Mode.
+    /// Matches Form1.ToggleLoggingPaneFocusForHotkey().
+    /// </summary>
+    public void ToggleLoggingPaneFocusForHotkey()
+    {
+        // Phase 9.5+: ToggleLoggingPaneFocus()
+        Tracing.TraceLine("MainWindow.ToggleLoggingPaneFocusForHotkey: stub — wiring in Phase 9.5", TraceLevel.Info);
+    }
+
+    /// <summary>
+    /// Show log characteristics in Logging Mode.
+    /// Matches Form1.LogCharacteristicsForHotkey().
+    /// </summary>
+    public void LogCharacteristicsForHotkey()
+    {
+        // Phase 9.5+: LogCharacteristicsMenuItem_Click(Nothing, EventArgs.Empty)
+        Tracing.TraceLine("MainWindow.LogCharacteristicsForHotkey: stub — wiring in Phase 9.5", TraceLevel.Info);
+    }
+
+    /// <summary>
+    /// Open full log entry form in Logging Mode.
+    /// Matches Form1.OpenFullLogEntryForHotkey().
+    /// </summary>
+    public void OpenFullLogEntryForHotkey()
+    {
+        // Phase 9.5+: OpenFullLogEntry()
+        Tracing.TraceLine("MainWindow.OpenFullLogEntryForHotkey: stub — wiring in Phase 9.5", TraceLevel.Info);
+    }
+
+    /// <summary>
+    /// LogPanel bridge for KeyCommands access.
+    /// Set by the main app when the logging panel is created.
+    /// Phase 9.5: Move LogPanel creation to MainWindow.
+    /// </summary>
+    public ILogPanelCommands? LoggingLogPanel { get; set; }
+
+    /// <summary>
+    /// WinForms-compatible Visible property.
+    /// Maps to WPF Visibility for KeyCommands.vb compatibility.
+    /// </summary>
+    public bool Visible
+    {
+        get => Visibility == Visibility.Visible;
+        set => Visibility = value ? Visibility.Visible : Visibility.Hidden;
+    }
+
+    /// <summary>
+    /// WinForms-compatible BringToFront.
+    /// Maps to WPF Activate() for KeyCommands.vb compatibility.
+    /// </summary>
+    public void BringToFront()
+    {
+        Activate();
     }
 
     #endregion

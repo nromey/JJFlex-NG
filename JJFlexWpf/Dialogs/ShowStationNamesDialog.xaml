@@ -1,0 +1,18 @@
+<local:JJFlexDialog x:Class="JJFlexWpf.Dialogs.ShowStationNamesDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:JJFlexWpf"
+        Title="Show connected stations"
+        Width="400" Height="280"
+        SizeToContent="Height">
+    <StackPanel Margin="12">
+        <Label Content="Station names" Padding="0,0,0,4" />
+        <ListBox x:Name="StationsList" Height="160"
+                 AutomationProperties.Name="Stations" />
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
+            <Button Content="Done" MinWidth="80" Height="28"
+                    IsDefault="True" IsCancel="True" Click="DoneButton_Click"
+                    AutomationProperties.Name="Done" />
+        </StackPanel>
+    </StackPanel>
+</local:JJFlexDialog>

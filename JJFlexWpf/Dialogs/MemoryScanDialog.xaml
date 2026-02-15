@@ -1,0 +1,40 @@
+<local:JJFlexDialog x:Class="JJFlexWpf.Dialogs.MemoryScanDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:JJFlexWpf"
+        Title="Memory Scan"
+        Width="400" Height="380"
+        SizeToContent="Height">
+    <StackPanel Margin="12">
+        <Label Content="Select groups to scan:" Padding="0,0,0,4" />
+        <ListBox x:Name="GroupsCheckBox" Height="180"
+                 SelectionMode="Multiple"
+                 AutomationProperties.Name="Memory groups">
+            <ListBox.ItemTemplate>
+                <DataTemplate>
+                    <CheckBox Content="{Binding Name}" IsChecked="{Binding IsChecked}"
+                              AutomationProperties.Name="{Binding Name}" />
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+        </ListBox>
+        <DockPanel Margin="0,8,0,0">
+            <Label Content="Speed (1-600):" DockPanel.Dock="Left" Padding="0,0,8,0"
+                   VerticalAlignment="Center" />
+            <TextBox x:Name="SpeedBox" Width="60"
+                     AutomationProperties.Name="Scan speed"
+                     HorizontalAlignment="Left" VerticalAlignment="Center"
+                     Text="10" />
+        </DockPanel>
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
+            <Button Content="Manage Groups" MinWidth="110" Height="28" Margin="0,0,8,0"
+                    Click="ManageButton_Click"
+                    AutomationProperties.Name="Manage memory groups" />
+            <Button Content="Start" MinWidth="80" Height="28" Margin="0,0,8,0"
+                    IsDefault="True" Click="StartButton_Click"
+                    AutomationProperties.Name="Start scan" />
+            <Button Content="Cancel" MinWidth="80" Height="28"
+                    IsCancel="True"
+                    AutomationProperties.Name="Cancel" />
+        </StackPanel>
+    </StackPanel>
+</local:JJFlexDialog>
