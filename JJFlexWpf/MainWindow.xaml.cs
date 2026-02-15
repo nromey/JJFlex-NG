@@ -391,6 +391,12 @@ public partial class MainWindow : Window
     /// <summary>
     /// Enter Logging Mode from either Classic or Modern.
     /// Matches Form1.EnterLoggingMode().
+    ///
+    /// In pure WPF, this is beautifully simple:
+    /// - Set Visibility on the Grid rows (no ElementHost container issues)
+    /// - Focus moves naturally to LogEntryControl.CallSignBox
+    /// - No "unknown" announcement (no intermediate containers)
+    /// - No focus trapping (Visibility.Collapsed removes from tab order)
     /// </summary>
     public void EnterLoggingMode()
     {
@@ -400,25 +406,39 @@ public partial class MainWindow : Window
         LastNonLogMode = ActiveUIMode;
         ApplyUIMode(UIMode.Logging);
 
-        // Phase 8.8: Open log file, init callbook, focus CallSign field
+        // Update RadioPane with current radio state
+        LoggingRadioPane.UpdateFromRadio();
+
+        // Focus the CallSign field in LogEntryControl.
+        // In pure WPF, this just works — no BeginInvoke, no ElementHost dance.
+        LoggingLogEntry.FocusCallSign();
+
         Radios.ScreenReaderOutput.Speak("Entering Logging Mode, Call Sign");
     }
 
     /// <summary>
     /// Exit Logging Mode, returning to last non-logging mode.
     /// Matches Form1.ExitLoggingMode().
+    ///
+    /// The ElementHost bugs that Sprint 7 fought are GONE:
+    /// - No Keyboard.ClearFocus() needed (no WPF focus retained in hidden host)
+    /// - No two-step focus dance (move WinForms first, then hide)
+    /// - Just Visibility.Collapsed → focus moves naturally to visible content
     /// </summary>
     public void ExitLoggingMode()
     {
         if (ActiveUIMode != UIMode.Logging)
             return;
 
-        // Phase 8.8: Save LogPanel state
+        // Phase 8.8+: Check for unsaved QSO, save LogPanel state
 
         ApplyUIMode(LastNonLogMode);
-        Radios.ScreenReaderOutput.Speak($"Returning to {LastNonLogMode} mode");
 
-        // Phase 8.8: Focus FreqOut display
+        // Focus FreqOut display (the primary control in Classic/Modern modes)
+        FreqOut.Focus();
+        Keyboard.Focus(FreqOut);
+
+        Radios.ScreenReaderOutput.Speak($"Returning to {LastNonLogMode} mode");
     }
 
     #endregion

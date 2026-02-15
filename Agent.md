@@ -102,8 +102,23 @@ Converting Form1 from WinForms to pure WPF Window. Plan: `frolicking-forging-map
 - Cleanup() unhooks all rig delegates on disconnect
 - Full solution builds clean
 
-### Phase 8.8 — Logging Mode Panels (NEXT)
-### Phase 8.9 — Integration, Cleanup & Build
+### Phase 8.8 — Logging Mode Panels (Native WPF) ✅
+- **RadioPaneControl.xaml/.cs** — WPF replacement for RadioPane.vb
+  - Frequency, mode, band, tune step display
+  - Arrow key tuning (Up/Down), step size cycling (Left/Right), Ctrl+F manual entry
+  - Delegate-based rig wiring (no direct FlexLib reference)
+- LoggingPanel in MainWindow.xaml now hosts:
+  - RadioPaneControl (left column, 250px default)
+  - GridSplitter (replaces WinForms SplitContainer)
+  - LogEntryControl (right column, fill — already pure WPF)
+- EnterLoggingMode() / ExitLoggingMode() updated with focus management
+- **Kills ElementHost bugs permanently:**
+  - No "unknown" on entry (no intermediate container announcements)
+  - No focus trapping on hide (Visibility.Collapsed removes from tab order)
+  - Keyboard routing works natively (Window PreviewKeyDown)
+- Full solution builds clean (0 errors)
+
+### Phase 8.9 — Integration, Cleanup & Build (NEXT)
 
 ## Sprint 8-12 Roadmap
 - **Sprint 8:** Convert Form1 from WinForms to WPF Window (kills interop root cause)
@@ -178,6 +193,7 @@ build-installers.bat
 | `JJFlexWpf/MenuBuilder.cs` | Constructs all 3 menu hierarchies |
 | `JJFlexWpf/WpfKeyConverter.cs` | WPF Key → WinForms Keys conversion |
 | `JJFlexWpf/Controls/FiltersDspControl.xaml(.cs)` | DSP/filter controls (replaces Flex6300Filters.cs) |
+| `JJFlexWpf/Controls/RadioPaneControl.xaml(.cs)` | Radio status pane for Logging Mode (replaces RadioPane.vb) |
 | `KeyCommands.vb` | Scope-aware hotkey registry (5 scopes: Global/Radio/Classic/Modern/Logging) |
 | `globals.vb` | UIMode enum, ActiveUIMode, LastNonLogMode |
 | `docs/planning/agile/sprint7-test-matrix.md` | Sprint 7 test matrix (complete) |
@@ -185,4 +201,4 @@ build-installers.bat
 
 ---
 
-*Updated: Feb 14, 2026 — Sprint 8 Phases 8.0–8.7 complete. FiltersDspControl replaces Flex6300Filters. Phase 8.8 (Logging Mode Panels) next.*
+*Updated: Feb 14, 2026 — Sprint 8 Phases 8.0–8.8 complete. All ElementHost interop eliminated. Phase 8.9 (Integration & Build) next.*

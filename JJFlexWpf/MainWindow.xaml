@@ -4,6 +4,7 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:controls="clr-namespace:JJFlexWpf.Controls"
+        xmlns:local="clr-namespace:JJFlexWpf"
         mc:Ignorable="d"
         Title="JJFlexRadio"
         Width="800" Height="600"
@@ -157,10 +158,37 @@
                          AutomationProperties.Name="Rig Fields Debug" />
             </Grid>
 
-            <!-- Logging Mode Panel — Phase 8.8 (hidden by default) -->
+            <!-- Logging Mode Panel — Phase 8.8: Native WPF, no ElementHost!
+                 Left column: RadioPaneControl (frequency, mode, tuning)
+                 GridSplitter: drag to resize
+                 Right column: LogEntryControl (call sign, RST, QSO grid)
+                 This is where the ElementHost interop bugs die:
+                 - No more "unknown" on entry (no container announcement)
+                 - No focus trapping on hide (pure WPF Visibility toggle)
+                 - Keyboard routing works natively (PreviewKeyDown on Window)
+            -->
             <Grid Grid.Row="2" x:Name="LoggingPanel" Visibility="Collapsed"
                   AutomationProperties.Name="Logging Mode">
-                <!-- Phase 8.8: Grid with GridSplitter hosting RadioPane + LogEntryControl -->
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="250" MinWidth="150" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" MinWidth="300" />
+                </Grid.ColumnDefinitions>
+
+                <!-- RadioPane — frequency, mode, band, tuning controls -->
+                <controls:RadioPaneControl Grid.Column="0" x:Name="LoggingRadioPane"
+                    AutomationProperties.Name="Radio Pane" />
+
+                <!-- GridSplitter — replaces WinForms SplitContainer -->
+                <GridSplitter Grid.Column="1" Width="5"
+                              HorizontalAlignment="Center"
+                              VerticalAlignment="Stretch"
+                              ResizeBehavior="PreviousAndNext"
+                              AutomationProperties.Name="Logging Panel Splitter" />
+
+                <!-- LogEntryControl — call sign, RST, QSO grid (already pure WPF!) -->
+                <local:LogEntryControl Grid.Column="2" x:Name="LoggingLogEntry"
+                    AutomationProperties.Name="Log Entry" />
             </Grid>
         </Grid>
     </DockPanel>

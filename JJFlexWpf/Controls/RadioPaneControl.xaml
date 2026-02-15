@@ -1,0 +1,73 @@
+<UserControl x:Class="JJFlexWpf.Controls.RadioPaneControl"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d"
+             d:DesignWidth="250" d:DesignHeight="180"
+             AutomationProperties.Name="Radio Pane"
+             Focusable="True"
+             IsTabStop="False"
+             PreviewKeyDown="RadioPane_PreviewKeyDown">
+
+    <!-- WPF replacement for RadioPane.vb (WinForms UserControl).
+         Shows frequency, mode, band, and tune step during Logging Mode.
+         Arrow keys: Up/Down tune, Left/Right change step size.
+         Sprint 8 Phase 8.8. -->
+
+    <StackPanel Margin="8">
+        <!-- Frequency display — large, bold, read-only -->
+        <TextBox x:Name="FreqBox"
+                 IsReadOnly="True"
+                 BorderThickness="0"
+                 Background="Transparent"
+                 FontSize="14" FontWeight="Bold"
+                 FontFamily="Consolas"
+                 Text="No radio"
+                 AutomationProperties.Name="Radio pane, Frequency: no radio connected"
+                 IsTabStop="True"
+                 Margin="0,0,0,4" />
+
+        <!-- Mode and Band — horizontal row -->
+        <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+            <TextBox x:Name="ModeBox"
+                     IsReadOnly="True"
+                     BorderThickness="0"
+                     Background="Transparent"
+                     FontSize="12"
+                     Text="---"
+                     Width="80"
+                     AutomationProperties.Name="Mode: none"
+                     IsTabStop="True" />
+
+            <TextBox x:Name="BandBox"
+                     IsReadOnly="True"
+                     BorderThickness="0"
+                     Background="Transparent"
+                     FontSize="12"
+                     Text="---"
+                     Width="80"
+                     AutomationProperties.Name="Band: none"
+                     IsTabStop="True" />
+        </StackPanel>
+
+        <!-- Tune step — Left/Right to change -->
+        <TextBox x:Name="TuneStepBox"
+                 IsReadOnly="True"
+                 BorderThickness="0"
+                 Background="Transparent"
+                 FontSize="12"
+                 Text="Step: 10 Hz"
+                 AutomationProperties.Name="Tune step 10 hertz"
+                 IsTabStop="True"
+                 Margin="0,0,0,8" />
+
+        <!-- Hint text -->
+        <TextBlock x:Name="StatusLabel"
+                   Foreground="Gray"
+                   FontSize="10"
+                   TextWrapping="Wrap"
+                   Text="Up/Down tune&#10;Left/Right step size&#10;Shift+Up/Down coarse"
+                   IsHitTestVisible="False" />
+    </StackPanel>
+</UserControl>
