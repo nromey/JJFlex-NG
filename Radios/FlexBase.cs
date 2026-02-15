@@ -3136,6 +3136,12 @@ namespace Radios
             ShowATUMemoriesDialog?.Invoke();
         }
 
+        /// <summary>
+        /// Delegate to show the memory channel dialog. Wired externally.
+        /// Sprint 11: Replaces direct FlexMemories form ShowDialog() call.
+        /// </summary>
+        public Action ShowMemoryDialog { get; set; }
+
         public bool FlexTunerUsingMemoryNow
         {
             get

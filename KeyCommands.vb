@@ -1158,12 +1158,9 @@ Public Class KeyCommands
 
     Private Sub DisplayMemory()
         If RigControl IsNot Nothing Then
-            Dim memObj = CType(RigControl.RigFields.Memories, FlexMemories)
             Try
-                memObj.ShowDialog()
-                If memObj.ShowFreq Then
-                    WpfMainWindow.gotoHome()
-                End If
+                ' Sprint 11: Use delegate — FlexMemories form replaced by WPF MemoriesDialog
+                RigControl.ShowMemoryDialog?.Invoke()
             Catch ex As Exception
                 Tracing.TraceLine("memory display:" & ex.Message, TraceLevel.Error)
             End Try

@@ -585,6 +585,12 @@ public partial class MainWindow : Window
 
         SetupBoxes();
 
+        // Wire memory dialog delegate
+        if (RigControl != null)
+        {
+            RigControl.ShowMemoryDialog = ShowMemoryDialog;
+        }
+
         // Disable controls initially — PowerNowOn enables them when radio powers on
         EnableDisableWindowControls(false);
 
@@ -976,6 +982,84 @@ public partial class MainWindow : Window
 
         Tracing.TraceLine($"toggling transmit: {RigControl.Transmit}", TraceLevel.Info);
         RigControl.Transmit = !RigControl.Transmit;
+    }
+
+    /// <summary>
+    /// Show the WPF MemoriesDialog with delegates wired to the current radio.
+    /// Sprint 11 Phase 11.7: Replaces FlexMemories.ShowDialog() call in KeyCommands.
+    /// </summary>
+    private void ShowMemoryDialog()
+    {
+        if (RigControl?.RigFields?.Memories == null) return;
+
+        var memories = RigControl.RigFields.Memories;
+        var dialog = new Dialogs.MemoriesDialog();
+
+        // Wire sorted memory list
+        dialog.GetSortedMemories = () =>
+        {
+            var items = new List<Dialogs.MemoriesDialog.MemoryDisplayItem>();
+            foreach (var mem in memories.SortedMemories)
+            {
+                var m = mem.Value;
+                string name = string.IsNullOrEmpty(m.Name) ? m.Freq.ToString("F6") : m.Name;
+                string group = string.IsNullOrEmpty(m.Group) ? "" : m.Group + '.';
+                items.Add(new Dialogs.MemoriesDialog.MemoryDisplayItem
+                {
+                    FullName = group + name,
+                    MemoryRef = m
+                });
+            }
+            return items;
+        };
+
+        // Wire select memory (tune to it)
+        dialog.SelectMemory = (memRef) =>
+        {
+            if (memRef is Flex.Smoothlake.FlexLib.Memory mem)
+            {
+                mem.Select();
+            }
+        };
+
+        // Wire per-memory property getters
+        dialog.FormatFrequency = (memRef) =>
+        {
+            if (memRef is Flex.Smoothlake.FlexLib.Memory mem && OpenParms?.FormatFreq != null)
+                return OpenParms.FormatFreq((ulong)(mem.Freq * 1e6));
+            return "";
+        };
+
+        dialog.GetMode = (memRef) =>
+            memRef is Flex.Smoothlake.FlexLib.Memory mem ? mem.Mode ?? "" : "";
+
+        dialog.GetName = (memRef) =>
+            memRef is Flex.Smoothlake.FlexLib.Memory mem ? mem.Name ?? "" : "";
+
+        dialog.GetOwner = (memRef) =>
+            memRef is Flex.Smoothlake.FlexLib.Memory mem ? mem.Owner ?? "" : "";
+
+        dialog.GetGroup = (memRef) =>
+            memRef is Flex.Smoothlake.FlexLib.Memory mem ? mem.Group ?? "" : "";
+
+        dialog.GetFilterLow = (memRef) =>
+            memRef is Flex.Smoothlake.FlexLib.Memory mem ? mem.RXFilterLow : 0;
+
+        dialog.GetFilterHigh = (memRef) =>
+            memRef is Flex.Smoothlake.FlexLib.Memory mem ? mem.RXFilterHigh : 0;
+
+        // Mode list from rig caps
+        dialog.ModeList = new List<string>(RigCaps.ModeTable);
+
+        // Show the dialog
+        dialog.Owner = this;
+        dialog.ShowDialog();
+
+        // If user selected a memory via Enter key, go home
+        if (dialog.ShowFreq)
+        {
+            gotoHome();
+        }
     }
 
     #endregion
