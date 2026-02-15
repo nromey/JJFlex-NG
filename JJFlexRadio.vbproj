@@ -129,10 +129,7 @@
       <SubType>Form</SubType>
     </Compile>
     <Compile Include="FlexKnob.vb" />
-    <Compile Include="Form1.designer.vb">
-      <DependentUpon>Form1.vb</DependentUpon>
-    </Compile>
-    <Compile Include="Form1.vb">
+    <Compile Include="BridgeForm.vb">
       <SubType>Form</SubType>
     </Compile>
     <Compile Include="FreqInput.Designer.vb">
@@ -334,9 +331,6 @@
     </EmbeddedResource>
     <EmbeddedResource Include="FindLogEntry.resx">
       <DependentUpon>FindLogEntry.vb</DependentUpon>
-    </EmbeddedResource>
-    <EmbeddedResource Include="Form1.resx">
-      <DependentUpon>Form1.vb</DependentUpon>
     </EmbeddedResource>
     <EmbeddedResource Include="FreqInput.resx">
       <DependentUpon>FreqInput.vb</DependentUpon>

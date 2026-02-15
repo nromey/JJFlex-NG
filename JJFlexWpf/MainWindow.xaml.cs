@@ -96,23 +96,31 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Clean shutdown — replaces Form1_FormClosing + FileExitToolStripMenuItem_Click.
-    /// Prompts to save unsaved work, disconnects radio, cleans up resources.
+    /// Clean shutdown — runs VB-side exit sequence via AppExitCallback.
+    /// If exit is cancelled (unsaved QSO), the close is cancelled.
     /// </summary>
     private void MainWindow_Closing(object? sender, CancelEventArgs e)
     {
         if (_isClosing)
             return;
 
-        _isClosing = true;
         Tracing.TraceLine("MainWindow_Closing: starting shutdown", System.Diagnostics.TraceLevel.Info);
+
+        // Run VB-side exit sequence (prompts, cleanup, radio close)
+        if (AppExitCallback != null && !AppExitCallback())
+        {
+            // Exit was cancelled (e.g., unsaved QSO)
+            e.Cancel = true;
+            Tracing.TraceLine("MainWindow_Closing: exit cancelled by user", System.Diagnostics.TraceLevel.Info);
+            return;
+        }
+
+        _isClosing = true;
 
         try
         {
-            // Stop polling and unwire events
+            // Stop polling and unwire events (may already be done by ExitApplication)
             UnwireRadioEvents();
-
-            // Phase 8.8: Check logging panel for unsaved QSO
 
             Tracing.TraceLine("MainWindow_Closing: shutdown complete", System.Diagnostics.TraceLevel.Info);
         }
@@ -389,6 +397,18 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
+    /// Toggle Logging Mode on/off.
+    /// Matches Form1.ToggleLoggingMode().
+    /// </summary>
+    public void ToggleLoggingMode()
+    {
+        if (ActiveUIMode == UIMode.Logging)
+            ExitLoggingMode();
+        else
+            EnterLoggingMode();
+    }
+
+    /// <summary>
     /// Toggle between Classic and Modern modes.
     /// Matches Form1.ToggleUIMode().
     /// </summary>
@@ -538,9 +558,21 @@ public partial class MainWindow : Window
 
     /// <summary>
     /// Callback to close the radio from VB-side (CloseTheRadio).
-    /// Set by Form1/BridgeForm since it involves VB module state.
+    /// Set by globals module since it involves VB module state.
     /// </summary>
     public Action? CloseRadioCallback { get; set; }
+
+    /// <summary>
+    /// Callback for VB-side exit sequence. Returns true to proceed, false to cancel.
+    /// Set by ApplicationEvents.vb, called from MainWindow_Closing.
+    /// </summary>
+    public Func<bool>? AppExitCallback { get; set; }
+
+    /// <summary>
+    /// Callback to select/connect to a radio. Used by menu "Connect to Radio" item.
+    /// Set by ApplicationEvents.vb, routes to globals.SelectRadio().
+    /// </summary>
+    public Action? SelectRadioCallback { get; set; }
 
     /// <summary>
     /// Callback for VB-side power-on tasks (knob setup, tracing).
