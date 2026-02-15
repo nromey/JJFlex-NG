@@ -350,11 +350,15 @@ Public Class Form1
 RadioConnected:
 
             If rv Then
-                ' add handlers for RigControl events.
-                AddHandler RigControl.PowerStatus, AddressOf powerStatusHandler
-                AddHandler RigControl.NoSliceError, AddressOf noSliceErrorHandler
-
-                AddHandler RigControl.FeatureLicenseChanged, AddressOf RigControl_FeatureLicenseChanged
+                ' Sprint 11: Wire radio events through WPF MainWindow
+                WpfMainWindow.RigControl = RigControl
+                WpfMainWindow.OpenParms = OpenParms
+                WpfMainWindow.CloseRadioCallback = AddressOf CloseTheRadio
+                WpfMainWindow.PowerOnCallback = Sub()
+                                                    SetupKnob()
+                                                    StartDailyTraceIfEnabled()
+                                                End Sub
+                WpfMainWindow.WireRadioEvents()
 
                 Tracing.TraceLine("OpenTheRadio:rig is starting", TraceLevel.Info)
                 rv = RigControl.Start()
@@ -364,16 +368,8 @@ RadioConnected:
             End If
 
             If rv Then
-
-                setupBoxes()
-                UpdateAdvancedFeatureMenus()
-                UpdateFiltersActionsMenu()
-                ' Rig dependent menu items.
-                ' disable window controls initially.
-                enableDisableWindowControls(False)
-
-                ' Start polling for changes
-                PollTimer = True
+                ' Sprint 11: Post-start setup delegated to MainWindow
+                WpfMainWindow.OnRadioStarted()
             Else
                 Tracing.TraceLine("OpenTheRadio:rig's open failed", TraceLevel.Error)
                 If radioSelected = DialogResult.Abort Then
@@ -509,6 +505,10 @@ RadioConnected:
 
     Friend Sub CloseTheRadio()
         Tracing.TraceLine("CloseTheRadio", TraceLevel.Info)
+
+        ' Sprint 11: Unwire MainWindow events first
+        WpfMainWindow?.UnwireRadioEvents()
+
         clearMainWindow()
         StopKnob()
         PollTimer = False
@@ -516,19 +516,11 @@ RadioConnected:
             SMeter.Peak = False
         End If
         If RigControl IsNot Nothing Then
-            If RigControl.RigFields IsNot Nothing AndAlso
-               RigControl.RigFields.RigControl IsNot Nothing Then
-                If enableDisableControls IsNot Nothing Then
-                    enableDisableControls.Remove(RigControl.RigFields.RigControl)
-                End If
-                Controls.Remove(RigControl.RigFields.RigControl)
-                RemoveHandler RigControl.RigFields.RigControl.KeyDown, AddressOf doCommand_KeyDown
-            End If
             ' We need to turn power off explicitly here, not via interrupt.
             Power = False
-            RemoveHandler RigControl.PowerStatus, AddressOf powerStatusHandler
             RigControl.Dispose()
             RigControl = Nothing
+            WpfMainWindow.RigControl = Nothing
         End If
     End Sub
 

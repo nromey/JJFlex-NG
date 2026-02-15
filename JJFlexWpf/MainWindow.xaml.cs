@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
@@ -8,6 +9,7 @@ using System.Windows.Input;
 using System.Windows.Threading;
 using JJFlexWpf.Controls;
 using JJTrace;
+using Radios;
 
 namespace JJFlexWpf;
 
@@ -107,11 +109,10 @@ public partial class MainWindow : Window
 
         try
         {
-            // Stop polling
-            PollTimerEnabled = false;
+            // Stop polling and unwire events
+            UnwireRadioEvents();
 
             // Phase 8.8: Check logging panel for unsaved QSO
-            // Phase 8.4+: Disconnect radio, close cluster, etc.
 
             Tracing.TraceLine("MainWindow_Closing: shutdown complete", System.Diagnostics.TraceLevel.Info);
         }
@@ -208,17 +209,7 @@ public partial class MainWindow : Window
     /// <summary>
     /// Main status update — called every 100ms when radio is connected.
     /// Reads current rig state and updates all UI controls.
-    ///
-    /// Matches Form1.UpdateStatus() flow:
-    /// 1. Check advanced feature menus (Diversity/ESC)
-    /// 2. Gate on power status
-    /// 3. Update frequency display
-    /// 4. Update combo boxes (Mode, Tuner)
-    /// 5. Update rig-specific fields (DSP/filters via RigFields.RigUpdate)
-    /// 6. Update SWR display (if manual tuning)
-    /// 7. Refresh status bar if changed
-    ///
-    /// Radio wiring connects in Phase 8.4+ when RigControl is available.
+    /// Matches Form1.UpdateStatus() flow.
     /// </summary>
     public void UpdateStatus()
     {
@@ -227,16 +218,15 @@ public partial class MainWindow : Window
         if (_isClosing)
             return;
 
-        // Phase 8.5+: UpdateAdvancedFeatureMenus() — check Diversity/ESC availability
-
-        // Phase 8.4+: Check RigControl connection
-        // if (RigControl == null || !RigControl.IsConnected) return;
+        if (RigControl == null || !RigControl.IsConnected)
+            return;
 
         try
         {
             if (_radioPowerOn)
             {
-                // Phase 8.4+: showFrequency() — update FreqOut display
+                // Update frequency display
+                ShowFrequency();
 
                 // Update all combo controls (Mode, Tuner, etc.)
                 Tracing.TraceLine("UpdateStatus: doing combos", TraceLevel.Verbose);
@@ -248,12 +238,28 @@ public partial class MainWindow : Window
                     }
                 }
 
-                // Phase 8.4+: RigControl.RigFields.RigUpdate() — DSP/filter controls
+                // Update rig-dependent fields (DSP controls via WpfFilterAdapter)
+                if (RigControl.RigFields != null)
+                {
+                    Tracing.TraceLine("UpdateStatus: doing RigFields", TraceLevel.Verbose);
+                    RigControl.RigFields.RigUpdate?.Invoke();
+                }
 
-                // Phase 8.4+: SWR meter update for manual tuner
+                // SWR update during manual tuning
+                if (OpenParms?.GetSWRText != null &&
+                    RigControl.FlexTunerOn &&
+                    RigControl.FlexTunerType == FlexBase.FlexTunerTypes.manual)
+                {
+                    string swrText = OpenParms.GetSWRText();
+                    if (swrText != _oldSwr)
+                    {
+                        _oldSwr = swrText;
+                        SetButtonText(AntennaTuneButton, _oldSwr);
+                    }
+                }
             }
 
-            // Update status bar if FreqOut (used as StatusBox) has changes
+            // Update status bar if FreqOut has changes
             if (FreqOut.Changed)
             {
                 FreqOut.Display();
@@ -268,7 +274,7 @@ public partial class MainWindow : Window
             else
             {
                 Tracing.TraceLine($"UpdateStatus error: {ex.Message}", TraceLevel.Error);
-                // Phase 8.4+: powerNowOff() — emergency shutdown on critical error
+                PowerNowOffInternal();
             }
         }
 
@@ -518,40 +524,503 @@ public partial class MainWindow : Window
 
     #endregion
 
+    #region Radio Wiring — Phase 11.6
+
+    /// <summary>
+    /// The active radio control instance. Set by VB-side openTheRadio().
+    /// </summary>
+    public FlexBase? RigControl { get; set; }
+
+    /// <summary>
+    /// Current radio's open parameters. Set by VB-side, used for SWR text and frequency formatting.
+    /// </summary>
+    public FlexBase.OpenParms? OpenParms { get; set; }
+
+    /// <summary>
+    /// Callback to close the radio from VB-side (CloseTheRadio).
+    /// Set by Form1/BridgeForm since it involves VB module state.
+    /// </summary>
+    public Action? CloseRadioCallback { get; set; }
+
+    /// <summary>
+    /// Callback for VB-side power-on tasks (knob setup, tracing).
+    /// </summary>
+    public Action? PowerOnCallback { get; set; }
+
+    /// <summary>
+    /// Antenna tune button base text, matching Form1 pattern.
+    /// </summary>
+    private const string AntennaTuneButtonBaseText = "Ant Tune";
+
+    private string AntennaTuneButtonText
+    {
+        get
+        {
+            var text = AntennaTuneButtonBaseText;
+            if (RigControl != null && RigControl.FlexTunerUsingMemoryNow)
+                text += " mem";
+            return text;
+        }
+    }
+
+    /// <summary>
+    /// Wire MainWindow event handlers to RigControl.
+    /// Called by VB-side openTheRadio() BEFORE RigControl.Start().
+    /// </summary>
+    public void WireRadioEvents()
+    {
+        if (RigControl == null) return;
+        RigControl.PowerStatus += PowerStatusHandler;
+        RigControl.NoSliceError += NoSliceErrorHandler;
+        RigControl.FeatureLicenseChanged += FeatureLicenseChangedHandler;
+    }
+
+    /// <summary>
+    /// Post-Start radio setup. Called by VB-side after RigControl.Start() succeeds.
+    /// Replaces Form1's post-start wiring (setupBoxes, menus, poll timer).
+    /// </summary>
+    public void OnRadioStarted()
+    {
+        Tracing.TraceLine("MainWindow.OnRadioStarted", TraceLevel.Info);
+
+        SetupBoxes();
+
+        // Disable controls initially — PowerNowOn enables them when radio powers on
+        EnableDisableWindowControls(false);
+
+        // Start polling
+        PollTimerEnabled = true;
+
+        StatusText.Text = "Radio connected — waiting for power on";
+    }
+
+    /// <summary>
+    /// Unwire event handlers when closing the radio.
+    /// Called by VB-side CloseTheRadio().
+    /// </summary>
+    public void UnwireRadioEvents()
+    {
+        PollTimerEnabled = false;
+        _radioPowerOn = false;
+
+        if (RigControl != null)
+        {
+            RigControl.PowerStatus -= PowerStatusHandler;
+            RigControl.NoSliceError -= NoSliceErrorHandler;
+            RigControl.FeatureLicenseChanged -= FeatureLicenseChangedHandler;
+            RigControl.TransmitChange -= TransmitChangeHandler;
+            RigControl.FlexAntTunerStartStop -= FlexAntTuneStartStopHandler;
+            RigControl.ConnectedEvent -= ConnectedEventHandler;
+        }
+
+        FreqOut.Clear();
+        _comboControls.Clear();
+        _enableDisableControls.Clear();
+
+        StatusText.Text = "Ready — no radio connected";
+    }
+
+    /// <summary>
+    /// Set up combo controls and enable/disable lists after radio Start().
+    /// Replaces Form1.setupBoxes().
+    /// </summary>
+    private void SetupBoxes()
+    {
+        Tracing.TraceLine("SetupBoxes", TraceLevel.Info);
+        if (RigControl == null)
+        {
+            Tracing.TraceLine("SetupBoxes: no rig", TraceLevel.Error);
+            return;
+        }
+
+        FreqOut.Clear();
+
+        _comboControls.Clear();
+        _enableDisableControls.Clear();
+
+        // Mode control
+        ModeControl.IsEnabled = true;
+        ModeControl.ClearCache();
+        ModeControl.TheList = null;
+        var modeList = new ArrayList();
+        foreach (string val in RigCaps.ModeTable)
+        {
+            modeList.Add(val);
+        }
+        ModeControl.TheList = modeList;
+        ModeControl.UpdateDisplayFunction = () => RigControl.Mode;
+        ModeControl.UpdateRigFunction = (v) =>
+        {
+            if (!_radioPowerOn)
+            {
+                Tracing.TraceLine("mode: no power", TraceLevel.Error);
+                return;
+            }
+            RigControl.Mode = v?.ToString();
+        };
+        _comboControls.Add(ModeControl);
+        _enableDisableControls.Add(ModeControl);
+
+        // SentTextBox in enable/disable collection
+        _enableDisableControls.Add(SentTextBox);
+    }
+
+    /// <summary>
+    /// Set up the frequency display fields.
+    /// Simplified version of Form1.setupFreqout() for WPF FrequencyDisplay.
+    /// </summary>
+    private void SetupFreqout()
+    {
+        if (RigControl == null) return;
+        Tracing.TraceLine("SetupFreqout", TraceLevel.Info);
+
+        var fields = new List<FrequencyDisplay.DisplayField>();
+
+        // Slice indicators (one character each)
+        int vfos = RigControl.TotalNumSlices;
+        for (int i = 0; i < vfos; i++)
+        {
+            fields.Add(new FrequencyDisplay.DisplayField(i.ToString(), 1, "", ""));
+        }
+
+        // Fixed fields: S-meter, Split, VOX, VFO, Freq, Offset, RIT, XIT
+        fields.Add(new FrequencyDisplay.DisplayField("SMeter", 4, "", ""));
+        fields.Add(new FrequencyDisplay.DisplayField("Split", 1, "", ""));
+        fields.Add(new FrequencyDisplay.DisplayField("VOX", 1, "", ""));
+        fields.Add(new FrequencyDisplay.DisplayField("VFO", 1, "", ""));
+        fields.Add(new FrequencyDisplay.DisplayField("Freq", 12, "", ""));
+        fields.Add(new FrequencyDisplay.DisplayField("Offset", 1, "", ""));
+        fields.Add(new FrequencyDisplay.DisplayField("RIT", 5, "", ""));
+        fields.Add(new FrequencyDisplay.DisplayField("XIT", 5, " ", ""));
+
+        FreqOut.Populate(fields.ToArray());
+        _firstFreqDisplay = true;
+    }
+
+    private bool _firstFreqDisplay = true;
+
+    /// <summary>
+    /// Update the frequency display from current rig state.
+    /// Simplified version of Form1.showFrequency() that reads directly from the rig.
+    /// </summary>
+    private void ShowFrequency()
+    {
+        if (RigControl == null || OpenParms?.FormatFreq == null) return;
+
+        try
+        {
+            // Frequency
+            ulong freq = RigControl.Transmit
+                ? RigControl.TXFrequency
+                : RigControl.VirtualRXFrequency;
+            if (freq > 0)
+            {
+                FreqOut.Write("Freq", OpenParms.FormatFreq(freq));
+            }
+
+            // S-meter (raw value)
+            int smeter = (int)RigControl.SMeter;
+            if (RigControl.Transmit)
+            {
+                FreqOut.Write("SMeter", smeter.ToString());
+            }
+            else
+            {
+                // S-units
+                if (RigControl.SmeterInDBM)
+                {
+                    FreqOut.Write("SMeter", smeter.ToString());
+                }
+                else if (smeter > 9)
+                {
+                    FreqOut.Write("SMeter", "+" + (smeter - 9).ToString());
+                }
+                else
+                {
+                    FreqOut.Write("SMeter", smeter.ToString());
+                }
+            }
+
+            // VFO indicator
+            FreqOut.Write("VFO", RigControl.RXVFO.ToString());
+
+            // RIT
+            var rit = RigControl.RIT;
+            if (rit.Active)
+            {
+                string ritText = (rit.Value < 0 ? "-" : "+") + Math.Abs(rit.Value).ToString("d4");
+                FreqOut.Write("RIT", ritText);
+            }
+            else
+            {
+                FreqOut.Write("RIT", " rrrr");
+            }
+
+            // XIT
+            var xit = RigControl.XIT;
+            if (xit.Active)
+            {
+                string xitText = (xit.Value < 0 ? "-" : "+") + Math.Abs(xit.Value).ToString("d4");
+                FreqOut.Write("XIT", xitText);
+            }
+            else
+            {
+                FreqOut.Write("XIT", " xxxx");
+            }
+
+            if (FreqOut.Changed)
+            {
+                FreqOut.Display();
+            }
+        }
+        catch (Exception ex)
+        {
+            Tracing.TraceLine($"ShowFrequency error: {ex.Message}", TraceLevel.Error);
+        }
+    }
+
+    /// <summary>
+    /// Configure variable controls based on rig capabilities.
+    /// Replaces Form1.configVariableControls().
+    /// </summary>
+    private void ConfigureVariableControls()
+    {
+        if (RigControl == null) return;
+
+        _enableDisableControls.Remove(TransmitButton);
+        if (RigControl.MyCaps.HasCap(RigCaps.Caps.ManualTransmit))
+        {
+            _enableDisableControls.Add(TransmitButton);
+            TransmitButton.Visibility = Visibility.Visible;
+        }
+        else
+        {
+            TransmitButton.Visibility = Visibility.Collapsed;
+        }
+    }
+
+    // ── Event Handlers ──────────────────────────────────────
+
+    private void PowerStatusHandler(object sender, bool powerOn)
+    {
+        if (!Dispatcher.CheckAccess())
+        {
+            Dispatcher.Invoke(() => PowerStatusHandler(sender, powerOn));
+            return;
+        }
+
+        if (powerOn) PowerNowOn();
+        else PowerNowOffInternal();
+    }
+
+    private void NoSliceErrorHandler(object sender, string msg)
+    {
+        if (!Dispatcher.CheckAccess())
+        {
+            Dispatcher.Invoke(() => NoSliceErrorHandler(sender, msg));
+            return;
+        }
+
+        System.Windows.MessageBox.Show(msg, "Error", MessageBoxButton.OK);
+        CloseRadioCallback?.Invoke();
+    }
+
+    private void FeatureLicenseChangedHandler(object? sender, EventArgs e)
+    {
+        if (!Dispatcher.CheckAccess())
+        {
+            Dispatcher.Invoke(() => FeatureLicenseChangedHandler(sender, e));
+            return;
+        }
+
+        // Menu updates for Diversity/ESC availability
+        // Full implementation when WPF menus support advanced feature gating
+        Tracing.TraceLine("FeatureLicenseChanged", TraceLevel.Info);
+    }
+
+    private void TransmitChangeHandler(object sender, bool transmit)
+    {
+        // Reset S-meter peak on transmit change
+        Tracing.TraceLine($"TransmitChange: {transmit}", TraceLevel.Info);
+    }
+
+    private void FlexAntTuneStartStopHandler(FlexBase.FlexAntTunerArg e)
+    {
+        if (!Dispatcher.CheckAccess())
+        {
+            Dispatcher.Invoke(() => FlexAntTuneStartStopHandler(e));
+            return;
+        }
+
+        if (RigControl == null) return;
+
+        if (RigControl.FlexTunerType == FlexBase.FlexTunerTypes.manual)
+        {
+            if (e.Status == "OK")
+            {
+                SetButtonText(AntennaTuneButton, e.SWR);
+            }
+        }
+        else
+        {
+            SetButtonText(AntennaTuneButton, e.Status);
+        }
+    }
+
+    private void ConnectedEventHandler(object sender, FlexBase.ConnectedArg e)
+    {
+        if (!Dispatcher.CheckAccess())
+        {
+            Dispatcher.Invoke(() => ConnectedEventHandler(sender, e));
+            return;
+        }
+
+        Tracing.TraceLine($"ConnectedEvent: Power={_radioPowerOn} Connected={e.Connected}", TraceLevel.Info);
+        if (_radioPowerOn && !e.Connected)
+        {
+            PowerNowOffInternal();
+            System.Windows.MessageBox.Show("The radio disconnected", "Error", MessageBoxButton.OK);
+        }
+    }
+
+    // ── Power On/Off ──────────────────────────────────────
+
+    private void PowerNowOn()
+    {
+        Tracing.TraceLine("MainWindow PowerNowOn", TraceLevel.Info);
+
+        // Setup frequency display
+        SetupFreqout();
+
+        // Setup operations menu
+        SetupOperationsMenu();
+
+        // Configure controls based on rig caps
+        ConfigureVariableControls();
+
+        // Enable all controls
+        EnableDisableWindowControls(true);
+
+        // Wire additional event handlers
+        if (RigControl != null)
+        {
+            RigControl.TransmitChange += TransmitChangeHandler;
+            RigControl.FlexAntTunerStartStop += FlexAntTuneStartStopHandler;
+            RigControl.ConnectedEvent += ConnectedEventHandler;
+        }
+
+        // Status updates
+        WriteStatus("Power", "On");
+        if (RigControl != null)
+            WriteStatus("Memories", RigControl.NumberOfMemories.ToString());
+
+        _radioPowerOn = true;
+        StatusText.Text = "Radio connected — power on";
+
+        // VB-side tasks (knob setup, tracing)
+        PowerOnCallback?.Invoke();
+    }
+
+    /// <summary>
+    /// Internal power-off handler. Implements the full power-off sequence.
+    /// </summary>
+    private void PowerNowOffInternal()
+    {
+        Tracing.TraceLine("MainWindow PowerNowOff", TraceLevel.Info);
+
+        if (RigControl != null)
+        {
+            RigControl.TransmitChange -= TransmitChangeHandler;
+            RigControl.FlexAntTunerStartStop -= FlexAntTuneStartStopHandler;
+            RigControl.ConnectedEvent -= ConnectedEventHandler;
+        }
+
+        _radioPowerOn = false;
+
+        if (!_isClosing)
+        {
+            FreqOut.Clear();
+            WriteStatus("Power", "Off");
+            EnableDisableWindowControls(false);
+            StatusText.Text = "Radio connected — power off";
+        }
+    }
+
+    // ── Helpers ──────────────────────────────────────
+
+    /// <summary>
+    /// Thread-safe button text update. Replaces Form1.setButtonText().
+    /// </summary>
+    private void SetButtonText(Button button, string text)
+    {
+        if (!Dispatcher.CheckAccess())
+        {
+            Dispatcher.Invoke(() => SetButtonText(button, text));
+            return;
+        }
+
+        button.Content = text;
+        System.Windows.Automation.AutomationProperties.SetName(button, text);
+    }
+
+    /// <summary>
+    /// Toggle transmit state. Replaces Form1.toggleTransmit().
+    /// </summary>
+    private void ToggleTransmit()
+    {
+        if (!_radioPowerOn || RigControl == null)
+        {
+            Tracing.TraceLine("toggleTransmit: no power", TraceLevel.Error);
+            return;
+        }
+
+        Tracing.TraceLine($"toggling transmit: {RigControl.Transmit}", TraceLevel.Info);
+        RigControl.Transmit = !RigControl.Transmit;
+    }
+
+    #endregion
+
     #region Radio Control Button Handlers — Phase 8.2
 
     /// <summary>
     /// Antenna Tune button — toggles FlexTunerOn.
-    /// Wired to RigControl in Phase 8.4+.
     /// </summary>
     private void AntennaTuneButton_Click(object sender, RoutedEventArgs e)
     {
-        Tracing.TraceLine("AntennaTuneButton_Click", System.Diagnostics.TraceLevel.Info);
-        // Phase 8.4+: RigControl.FlexTunerOn = !RigControl.FlexTunerOn
+        if (!_radioPowerOn || RigControl == null)
+        {
+            Tracing.TraceLine("antennaTune: no power", TraceLevel.Error);
+            return;
+        }
+        _oldSwr = "";
+        RigControl.FlexTunerOn = !RigControl.FlexTunerOn;
     }
 
     /// <summary>
-    /// Show SWR/tuner status on hover (matches WinForms Enter/Leave pattern).
+    /// Show SWR/tuner status on hover.
     /// </summary>
     private void AntennaTuneButton_MouseEnter(object sender, System.Windows.Input.MouseEventArgs e)
     {
-        // Phase 8.4+: Update button text with SWR or tuner status
+        if (!_radioPowerOn)
+        {
+            Tracing.TraceLine("antennaTune: no power", TraceLevel.Error);
+            return;
+        }
+        SetButtonText(AntennaTuneButton, AntennaTuneButtonText);
     }
 
     private void AntennaTuneButton_MouseLeave(object sender, System.Windows.Input.MouseEventArgs e)
     {
-        // Phase 8.4+: Restore button text to "Tune"
-        AntennaTuneButton.Content = "Tune";
+        if (!_radioPowerOn) return;
+        SetButtonText(AntennaTuneButton, AntennaTuneButtonText);
     }
 
     /// <summary>
     /// Transmit button — toggles PTT.
-    /// Wired to RigControl in Phase 8.4+.
     /// </summary>
     private void TransmitButton_Click(object sender, RoutedEventArgs e)
     {
-        Tracing.TraceLine("TransmitButton_Click", System.Diagnostics.TraceLevel.Info);
-        // Phase 8.4+: toggleTransmit()
+        ToggleTransmit();
     }
 
     #endregion
@@ -860,13 +1329,17 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Emergency power-off — disconnect and clean up.
+    /// Public power-off entry point — callable from VB side.
     /// Matches Form1.powerNowOff().
     /// </summary>
     public void powerNowOff()
     {
-        // Phase 9.5+: Full power-off sequence (remove handlers, clear window, update status)
-        Tracing.TraceLine("MainWindow.powerNowOff: stub — wiring in Phase 9.5", TraceLevel.Info);
+        if (!Dispatcher.CheckAccess())
+        {
+            Dispatcher.Invoke(powerNowOff);
+            return;
+        }
+        PowerNowOffInternal();
     }
 
     /// <summary>
