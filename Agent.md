@@ -133,30 +133,40 @@ Converting Form1 from WinForms to pure WPF Window. Plan: `frolicking-forging-map
 Converting all remaining WinForms dialogs to WPF. Plan: `frolicking-forging-map.md`.
 3 parallel tracks using git worktrees (see CLAUDE.md Sprint Lifecycle SOP).
 
-### Phase 9.0 — Dialog Base Infrastructure ⬜ (next)
-- `JJFlexDialog.cs` base class + `DialogStyles.xaml`
-- Must complete before tracks B/C start
+### Phase 9.0 — Dialog Base Infrastructure ✅ COMPLETE
+- `JJFlexDialog.cs` base class + `DialogStyles.xaml` — committed `b5ad7f08`
+- Base class: ESC-close, focus management, accessibility, button panel helpers
+- Shared styles: DialogButton, OkButton, CancelButton, DialogLabel, etc.
 
-### Track A — High-Priority Dialogs (11 forms) ⬜
-- Worktree: `C:\dev\JJFlex-NG` (main repo)
-- RigSelector, Welcome, PersonalInfo, Profile, AuthFormWebView2, FlexInfo
-- AutoConnect dialogs, SmartLink, LoginName, ProfileWorker
-- Plus: migrate 24 Form1 refs in KeyCommands.vb → WpfMainWindow
+### Track A — High-Priority Dialogs (11 forms) ✅ COMPLETE
+- Worktree: `C:\dev\JJFlex-NG` (main repo), branch: `sprint9/track-a`
+- Committed as `90a6c7a2`: all 11 dialogs + Form1 ref migration in KeyCommands.vb
+- RigSelector, Welcome, PersonalInfo, Profile, AuthDialog (WebView2), RadioInfo
+- AutoConnect settings/failed, SmartLinkAccount, LoginName, ProfileWorker
+- Track A also added WebView2 PackageReference to JJFlexWpf.csproj
 
-### Track B — Radio Operation Dialogs (13 forms) ⬜
-- Worktree: `C:\dev\jjflex-9b`
+### Track B — Radio Operation Dialogs (13 forms) 🔄 RUNNING
+- Worktree: `C:\dev\jjflex-9b`, branch: `sprint9/track-b`
 - FlexMemories, TXControls, DefineCommands (expand to 5 scope tabs)
 - LogEntry, FindLogEntry, Export, Import, scan
 - EscDialog, FlexEq, FlexTNF, ComInfo, Menus
+- CLI session may still be running or may need resume
 
-### Track C — Low-Priority + Library Dialogs (30 forms) ⬜
-- Worktree: `C:\dev\jjflex-9c`
+### Track C — Low-Priority + Library Dialogs (30 forms) 🔄 RUNNING
+- Worktree: `C:\dev\jjflex-9c`, branch: `sprint9/track-c`
 - 21 root-level dialogs (About, FreqInput, ShowBands, CW macros, etc.)
 - 9 library dialogs (MessageForm, ClusterForm, SetupKeys, log templates, etc.)
+- CLI session may still be running or may need resume
 
 ### Phase 9.5 — Final Cleanup ⬜ (after all tracks merge)
 - Delete Form1.vb, LogPanel.vb, RadioPane.vb, RadioBoxes/, StationLookup.vb
 - Remove WinForms references, clean build, test matrix
+
+### Next Steps (for resuming session)
+1. Check if Track B and C CLI sessions completed or need resume
+2. When both complete: merge B into A, then C into A, build-verify after each
+3. Merge order doesn't matter — tracks are independent
+4. After merge: Phase 9.5 cleanup, test matrix creation
 
 ## Sprint 8-12 Roadmap
 - **Sprint 8:** COMPLETE — Form1 → WPF MainWindow
@@ -239,4 +249,4 @@ build-installers.bat
 
 ---
 
-*Updated: Feb 14, 2026 — Sprint 9 IN PROGRESS. Phase 9.0 (dialog base) next, then 3 parallel tracks. CLAUDE.md updated with Sprint Lifecycle SOP for parallel track workflow.*
+*Updated: Feb 15, 2026 — Sprint 9 IN PROGRESS. Phase 9.0 ✅, Track A ✅, Tracks B & C running (may need resume). Next: check track status, merge, Phase 9.5 cleanup.*
