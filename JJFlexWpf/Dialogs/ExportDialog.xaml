@@ -1,0 +1,38 @@
+<local:JJFlexDialog x:Class="JJFlexWpf.Dialogs.ExportDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:JJFlexWpf"
+        Title="Export Log"
+        Width="450" Height="200"
+        SizeToContent="Height">
+
+    <StackPanel Margin="12">
+        <!-- Source file -->
+        <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+            <TextBlock Text="From:" Width="50" VerticalAlignment="Center"/>
+            <TextBlock x:Name="FromName" VerticalAlignment="Center"
+                       AutomationProperties.Name="Source log file"/>
+        </StackPanel>
+
+        <!-- Destination file -->
+        <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+            <TextBlock Text="To:" Width="50" VerticalAlignment="Center"/>
+            <TextBlock x:Name="ToName" VerticalAlignment="Center"
+                       AutomationProperties.Name="Destination file"/>
+        </StackPanel>
+
+        <!-- Status -->
+        <TextBlock x:Name="ExportingLabel" Text="Exporting..." Visibility="Collapsed"
+                   FontWeight="Bold" Margin="0,0,0,8"
+                   AutomationProperties.Name="Export status"
+                   AutomationProperties.LiveSetting="Polite"/>
+
+        <!-- Buttons -->
+        <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+            <Button Content="Export" MinWidth="75" Margin="0,0,8,0" IsDefault="True"
+                    AutomationProperties.Name="Export" Click="ExportButton_Click"/>
+            <Button Content="Cancel" MinWidth="75" IsCancel="True"
+                    AutomationProperties.Name="Cancel" Click="CancelButton_Click"/>
+        </StackPanel>
+    </StackPanel>
+</local:JJFlexDialog>
