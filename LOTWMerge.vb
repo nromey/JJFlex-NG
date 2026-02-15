@@ -104,7 +104,8 @@ Public Class LOTWMerge
             outSession = New LogSession(ContactLog)
             ' Start the session.
             If outSession.Start(CurrentOp, Nothing) Then
-                Form1.StatusBox.Write("LogFile",
+                ' Sprint 10: Route to WPF StatusBar via globals.StatusBox adapter.
+                StatusBox?.Write("LogFile",
                         LogCharacteristics.TrimmedFilename(ContactLog.Name, 20))
                 goodLog = hasRequiredTags(outSession.FieldDictionary)
             Else

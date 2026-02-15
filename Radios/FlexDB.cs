@@ -59,11 +59,19 @@ namespace Radios
             bool rv = false;
             string tmpDir = directoryName + "\\tmp";
             string tmpMeta = tmpDir + "\\tmpMeta";
-            // Get export file name.
-            GetFile theForm = new GetFile(exportFileTitle, "ssdr_cfg", true);
-            DialogResult rslt = theForm.ShowDialog();
-            string exportFile = theForm.FileName;
-            if (rslt == DialogResult.Cancel) goto exportDone;
+            // Sprint 10: Use SaveFileDialog directly instead of GetFile form.
+            string exportFile;
+            using (var dlg = new SaveFileDialog())
+            {
+                dlg.Title = exportFileTitle;
+                dlg.DefaultExt = "ssdr_cfg";
+                dlg.Filter = "SSDR Config (*.ssdr_cfg)|*.ssdr_cfg|All Files (*.*)|*.*";
+                dlg.InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+                dlg.OverwritePrompt = true;
+                if (dlg.ShowDialog() != DialogResult.OK || string.IsNullOrEmpty(dlg.FileName))
+                    goto exportDone;
+                exportFile = dlg.FileName;
+            }
 
             try
             {
@@ -175,7 +183,6 @@ namespace Radios
 
             exportDone:
             if (Directory.Exists(tmpDir)) Directory.Delete(tmpDir, true);
-            theForm.Dispose();
             return rv;
         }
 
@@ -184,15 +191,21 @@ namespace Radios
             Tracing.TraceLine("Flex import:", TraceLevel.Info);
 
             bool rv = true;
-            GetFile theForm = new GetFile(importFileTitle, "ssdr_cfg");
-            DialogResult rslt = theForm.ShowDialog();
-            string theFile = theForm.FileName;
-            if ((rslt == DialogResult.Cancel) |
-                (theFile == null) |
-                !File.Exists(theFile))
+            // Sprint 10: Use OpenFileDialog directly instead of GetFile form.
+            string theFile;
+            using (var dlg = new OpenFileDialog())
             {
-                MessageBox.Show(noFileMsg, errHdr, MessageBoxButtons.OK);
-                return false;
+                dlg.Title = importFileTitle;
+                dlg.DefaultExt = "ssdr_cfg";
+                dlg.Filter = "SSDR Config (*.ssdr_cfg)|*.ssdr_cfg|All Files (*.*)|*.*";
+                dlg.InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+                if (dlg.ShowDialog() != DialogResult.OK || string.IsNullOrEmpty(dlg.FileName) ||
+                    !File.Exists(dlg.FileName))
+                {
+                    MessageBox.Show(noFileMsg, errHdr, MessageBoxButtons.OK);
+                    return false;
+                }
+                theFile = dlg.FileName;
             }
 
             string tmpDir = directoryName + "\\tmp";

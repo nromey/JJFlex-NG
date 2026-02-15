@@ -762,6 +762,93 @@ public partial class MainWindow : Window
         Tracing.TraceLine("MainWindow.SetupOperationsMenu: stub — wiring in Phase 9.5", TraceLevel.Info);
     }
 
+    #region StatusBar + ScanTimer — Sprint 10 Phase 10.1
+
+    /// <summary>
+    /// Write a named field to the WPF StatusBar.
+    /// Replaces Form1.StatusBox.Write(key, value) — the RadioBoxes.MainBox API.
+    /// Supported keys: "Power", "Memory", "Scan", "LogFile" (matching StatusBar TextBlocks).
+    /// </summary>
+    public void WriteStatus(string key, string value)
+    {
+        if (!Dispatcher.CheckAccess())
+        {
+            Dispatcher.BeginInvoke(() => WriteStatus(key, value));
+            return;
+        }
+
+        switch (key)
+        {
+            case "Power":
+                StatusPower.Text = value;
+                break;
+            case "Memories":
+                StatusMemory.Text = value;
+                break;
+            case "Scan":
+                StatusScan.Text = value;
+                break;
+            case "LogFile":
+                StatusLogFile.Text = value;
+                break;
+            case "Knob":
+                // Knob status not in current StatusBar layout — ignore for now
+                break;
+            default:
+                Tracing.TraceLine($"MainWindow.WriteStatus: unknown key '{key}'", TraceLevel.Warning);
+                break;
+        }
+    }
+
+    /// <summary>
+    /// Scan timer — DispatcherTimer replacing Form1.ScanTmr (WinForms Timer).
+    /// Used by scan.vb and MemoryScan.vb via globals.scanTimer property.
+    /// </summary>
+    private DispatcherTimer? _scanTimer;
+
+    /// <summary>
+    /// Gets the scan timer, creating it on first access.
+    /// Tick event fires ScanTimerTick which the main app wires to
+    /// scan.ScanTimer_Tick / MemoryScan.ScanTimer_Tick (replaces Form1 Handles clause).
+    /// </summary>
+    public DispatcherTimer ScanTimer
+    {
+        get
+        {
+            if (_scanTimer == null)
+            {
+                _scanTimer = new DispatcherTimer();
+                _scanTimer.Interval = TimeSpan.FromMilliseconds(500); // default, overridden by scan code
+                _scanTimer.Tick += (s, e) => ScanTimerTick?.Invoke(s, e);
+            }
+            return _scanTimer;
+        }
+    }
+
+    /// <summary>
+    /// Event raised on each scan timer tick. Wire this in ApplicationEvents.vb to dispatch
+    /// to scan.ScanTimer_Tick or MemoryScan.ScanTimer_Tick based on scanstate.
+    /// </summary>
+    public event EventHandler? ScanTimerTick;
+
+    /// <summary>
+    /// Whether the scan timer is currently running.
+    /// Replaces Form1.ScanTmr.Enabled check in globals.ScanInProcess.
+    /// </summary>
+    public bool ScanTimerEnabled
+    {
+        get => _scanTimer?.IsEnabled ?? false;
+        set
+        {
+            if (value)
+                ScanTimer.Start();
+            else
+                _scanTimer?.Stop();
+        }
+    }
+
+    #endregion
+
     /// <summary>
     /// Handle "Log Contact" result from Station Lookup.
     /// Matches Form1.HandleLogContactResult().

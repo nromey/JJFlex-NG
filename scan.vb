@@ -5,7 +5,6 @@ Imports System.Math
 Imports System.Threading
 Imports System.Xml.Serialization
 Imports JJTrace
-Imports RadioBoxes
 Imports Radios
 
 Friend Class scan
@@ -271,7 +270,7 @@ Friend Class scan
         Tracing.TraceLine("StartLinearScan:" & low & " " & high & " " & increment & " " & speed, TraceLevel.Info)
         ' LinearScan
         StopScan()
-        scanTimer.Interval = speed * 100
+        scanTimer.Interval = TimeSpan.FromMilliseconds(CInt(speed) * 100)
         curScanFreq = low
         startScanFreq = curScanFreq
         scanIncrement = increment

@@ -543,11 +543,12 @@ namespace Radios
 
         /// <summary>
         /// Clear the web cache.
+        /// Sprint 10: WebBrowserHelper.ClearCache() removed — IE WebBrowser is replaced by WebView2.
+        /// WebView2 manages its own cache. This method is kept as a no-op for API compatibility.
         /// </summary>
         public void ClearWebCache()
         {
-            Tracing.TraceLine("ClearWebCache", TraceLevel.Info);
-            WebBrowserHelper.ClearCache();
+            Tracing.TraceLine("ClearWebCache (no-op, WebView2 manages its own cache)", TraceLevel.Info);
         }
 
         // WAN routines.
@@ -655,6 +656,13 @@ namespace Radios
         [Obsolete("Use setupRemote() which handles accounts automatically")]
         private string[] tokens;
 
+        /// <summary>
+        /// Delegate to show the SmartLink account selector dialog. Wired externally.
+        /// Sprint 10: Replaces direct SmartLinkAccountSelector form creation.
+        /// Returns (newLogin, selectedAccount, ok) or null if cancelled.
+        /// </summary>
+        public Func<SmartLinkAccountManager, (bool newLogin, SmartLinkAccount selected, bool ok)?> ShowAccountSelector { get; set; }
+
         private bool setupRemote()
         {
             bool rv = false;
@@ -665,26 +673,24 @@ namespace Radios
 
             if (accounts.Count > 0)
             {
-                // Show account selector
-                using (var selector = new SmartLinkAccountSelector(AccountManager))
+                // Sprint 10: Show account selector via delegate (decoupled from WinForms Form)
+                var result = ShowAccountSelector?.Invoke(AccountManager);
+                if (result == null || !result.Value.ok)
                 {
-                    if (selector.ShowDialog() != DialogResult.OK)
-                    {
-                        Tracing.TraceLine("setupRemote: user cancelled account selection", TraceLevel.Info);
-                        goto setupRemoteDone;
-                    }
+                    Tracing.TraceLine("setupRemote: user cancelled account selection", TraceLevel.Info);
+                    goto setupRemoteDone;
+                }
 
-                    if (selector.NewLoginRequested)
-                    {
-                        // User wants to log in with a new account - force Auth0 to show login page
-                        jwt = PerformNewLogin(forceNewLogin: true);
-                    }
-                    else if (selector.SelectedAccount != null)
-                    {
-                        // Use saved account
-                        _currentAccount = selector.SelectedAccount;
-                        jwt = GetJwtFromSavedAccount(_currentAccount);
-                    }
+                if (result.Value.newLogin)
+                {
+                    // User wants to log in with a new account - force Auth0 to show login page
+                    jwt = PerformNewLogin(forceNewLogin: true);
+                }
+                else if (result.Value.selected != null)
+                {
+                    // Use saved account
+                    _currentAccount = result.Value.selected;
+                    jwt = GetJwtFromSavedAccount(_currentAccount);
                 }
             }
             else
@@ -1198,7 +1204,7 @@ namespace Radios
                 if (RigFields != null)
                 {
                     // The caller should have removed the user control from their form.
-                    ((Flex6300Filters)RigFields.RigControl).Close(); // Remove int handlers
+                    FilterObj?.Close(); // Remove event handlers
                     RigFields.Close();
                     RigFields = null;
                 }
@@ -3119,11 +3125,15 @@ namespace Radios
             }
         }
 
+        /// <summary>
+        /// Delegate to show the ATU Memories dialog. Wired externally.
+        /// Sprint 10: Replaces direct FlexATUMemories form creation.
+        /// </summary>
+        public Action ShowATUMemoriesDialog { get; set; }
+
         public void AntennaTunerMemories()
         {
-            Form theForm = new FlexATUMemories(this);
-            theForm.ShowDialog();
-            theForm.Dispose();
+            ShowATUMemoriesDialog?.Invoke();
         }
 
         public bool FlexTunerUsingMemoryNow
@@ -5604,7 +5614,7 @@ namespace Radios
             }
         }
 
-        protected Flex6300Filters FilterObj;
+        protected IFilterControl FilterObj;
 
         internal class q_t
         {
@@ -6411,7 +6421,7 @@ namespace Radios
 
             // Get list of all the rig's groups.
             List<string> myGroups = new List<string>();
-            foreach(FlexMemories.MemoryElement el in memoryHandling.SortedMemories)
+            foreach(IMemoryElement el in memoryHandling.SortedMemories)
             {
                 Memory m = el.Value;
                 // if (!string.IsNullOrEmpty(m.Group) && !myGroups.Contains(m.Group))
@@ -6427,7 +6437,7 @@ namespace Radios
             foreach(string group in myGroups)
             {
                 List<string> memories = new List<string>();
-                foreach(FlexMemories.MemoryElement el in memoryHandling.SortedMemories)
+                foreach(IMemoryElement el in memoryHandling.SortedMemories)
                 {
                     Memory m = el.Value;
                     if (m.Group == group) memories.Add(FullMemoryName(m));
@@ -6523,9 +6533,9 @@ namespace Radios
             internal set;
         }
 
-        private FlexMemories memoryHandling
+        private IMemoryManager memoryHandling
         {
-            get { return ((RigFields != null) && (RigFields.Memories != null)) ? (FlexMemories)RigFields.Memories : null; }
+            get { return ((RigFields != null) && (RigFields.Memories != null)) ? (IMemoryManager)RigFields.Memories : null; }
         }
 
         /// <summary>

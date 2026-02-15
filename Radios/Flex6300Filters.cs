@@ -20,7 +20,7 @@ using RadioBoxes;
 
 namespace Radios
 {
-    public partial class Flex6300Filters : UserControl
+    public partial class Flex6300Filters : UserControl, IFilterControl
     {
         private const string badLowFreq = "The low value must be a valid frequency";
         private const string badHighFreq = "The high value must be a valid frequency, and > the low value.";
@@ -1140,7 +1140,7 @@ namespace Radios
         }
 
         // Operator change
-        internal void OperatorChangeHandler()
+        public void OperatorChangeHandler()
         {
             getConfig();
             panRanges = new PanRanges(rig, OperatorsDirectory);
@@ -2052,7 +2052,7 @@ namespace Radios
             flexDB.Import();
         }
 
-        internal void Close()
+        public new void Close()
         {
             Tracing.TraceLine("Flex6300Filters.Close", TraceLevel.Info);
             if ((rig != null) && (theRadio != null))
@@ -2166,7 +2166,7 @@ namespace Radios
 
         // Called when ready to handle the pan adapter.
         internal bool PanReady = false;
-        internal void PanSetup()
+        public void PanSetup()
         {
             Tracing.TraceLine("panSetup", TraceLevel.Info);
 
@@ -2208,7 +2208,7 @@ namespace Radios
 
         // Called when the active slice, or active slice's mode or freq changes.
         // Also called to copy a panadapter/waterfall.
-        internal void RXFreqChange(object o)
+        public void RXFreqChange(object o)
         {
             // get out if pan adapter isn't ready.
             if (!PanReady) return;
