@@ -1,0 +1,56 @@
+<local:JJFlexDialog x:Class="JJFlexWpf.Dialogs.SmartLinkAccountDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:JJFlexWpf"
+        Title="Select SmartLink Account"
+        Width="420" Height="370"
+        SizeToContent="Manual"
+        AutomationProperties.Name="Select SmartLink Account">
+    <Grid Margin="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="Auto"/>
+        </Grid.ColumnDefinitions>
+
+        <!-- Instruction -->
+        <TextBlock Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="2"
+                   Text="Select a saved account or log in with a new one:"
+                   Margin="0,0,0,8"
+                   AutomationProperties.Name="Select a saved SmartLink account or log in with a new one"/>
+
+        <!-- Account list -->
+        <ListBox x:Name="AccountListBox" Grid.Row="1" Grid.Column="0"
+                 Margin="0,0,8,0"
+                 AutomationProperties.Name="Saved SmartLink accounts"
+                 SelectionChanged="AccountListBox_SelectionChanged"
+                 MouseDoubleClick="AccountListBox_DoubleClick"
+                 KeyDown="AccountListBox_KeyDown"/>
+
+        <!-- Action buttons -->
+        <StackPanel Grid.Row="1" Grid.Column="1" VerticalAlignment="Top">
+            <Button x:Name="ConnectButton" Content="Connect" MinWidth="90" Height="28" Margin="0,0,0,8"
+                    IsEnabled="False"
+                    AutomationProperties.Name="Connect using selected account"
+                    Click="ConnectButton_Click"/>
+            <Button Content="New Login" MinWidth="90" Height="28" Margin="0,0,0,8"
+                    AutomationProperties.Name="Log in with a new SmartLink account"
+                    Click="NewLoginButton_Click"/>
+            <Button x:Name="RenameButton" Content="Rename" MinWidth="90" Height="28" Margin="0,0,0,8"
+                    IsEnabled="False"
+                    AutomationProperties.Name="Rename selected account"
+                    Click="RenameButton_Click"/>
+            <Button x:Name="DeleteButton" Content="Delete" MinWidth="90" Height="28" Margin="0,0,0,8"
+                    IsEnabled="False"
+                    AutomationProperties.Name="Delete selected account"
+                    Click="DeleteButton_Click"/>
+            <Button Content="Cancel" MinWidth="90" Height="28" IsCancel="True"
+                    Margin="0,20,0,0"
+                    AutomationProperties.Name="Cancel and close dialog"
+                    Click="CancelButton_Click"/>
+        </StackPanel>
+    </Grid>
+</local:JJFlexDialog>

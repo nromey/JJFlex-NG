@@ -14,6 +14,11 @@ namespace JJFlexWpf
     {
         public JJFlexDialog()
         {
+            // Load shared dialog styles
+            var styles = new ResourceDictionary();
+            styles.Source = new Uri("pack://application:,,,/JJFlexWpf;component/Styles/DialogStyles.xaml");
+            Resources.MergedDictionaries.Add(styles);
+
             // Center on parent window
             WindowStartupLocation = WindowStartupLocation.CenterOwner;
 

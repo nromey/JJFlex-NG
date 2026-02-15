@@ -1,0 +1,90 @@
+<local:JJFlexDialog x:Class="JJFlexWpf.Dialogs.RadioInfoDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:JJFlexWpf"
+        Title="Radio Information"
+        Width="500" Height="440"
+        ResizeMode="NoResize"
+        AutomationProperties.Name="Radio Information">
+    <DockPanel Margin="12">
+        <!-- Done button at bottom -->
+        <StackPanel DockPanel.Dock="Bottom" Style="{StaticResource ButtonPanel}" Margin="0,8,0,0">
+            <Button Content="Done" Style="{StaticResource OkButton}"
+                    AutomationProperties.Name="Done"
+                    Click="DoneButton_Click"/>
+        </StackPanel>
+
+        <!-- Tab control -->
+        <TabControl x:Name="InfoTabs"
+                    AutomationProperties.Name="Radio information tabs">
+            <!-- General tab -->
+            <TabItem Header="General" AutomationProperties.Name="General radio information">
+                <Grid Margin="8">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="100"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+
+                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Model:" Style="{StaticResource DialogLabel}"/>
+                    <TextBox x:Name="ModelBox" Grid.Row="0" Grid.Column="1" IsReadOnly="True"
+                             Style="{StaticResource DialogTextBox}" AutomationProperties.Name="Radio model"/>
+
+                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Version:" Style="{StaticResource DialogLabel}"/>
+                    <TextBox x:Name="VersionBox" Grid.Row="1" Grid.Column="1" IsReadOnly="True"
+                             Style="{StaticResource DialogTextBox}" AutomationProperties.Name="Firmware version"/>
+
+                    <TextBlock Grid.Row="2" Grid.Column="0" Text="Serial:" Style="{StaticResource DialogLabel}"/>
+                    <TextBox x:Name="SerialBox" Grid.Row="2" Grid.Column="1" IsReadOnly="True"
+                             Style="{StaticResource DialogTextBox}" AutomationProperties.Name="Serial number"/>
+
+                    <TextBlock Grid.Row="3" Grid.Column="0" Text="Call Sign:" Style="{StaticResource DialogLabel}"/>
+                    <TextBox x:Name="CallBox" Grid.Row="3" Grid.Column="1"
+                             Style="{StaticResource DialogTextBox}"
+                             LostFocus="CallBox_LostFocus"
+                             KeyDown="CallBox_KeyDown"
+                             AutomationProperties.Name="Radio call sign"/>
+
+                    <TextBlock Grid.Row="4" Grid.Column="0" Text="Name:" Style="{StaticResource DialogLabel}"/>
+                    <TextBox x:Name="NameBox" Grid.Row="4" Grid.Column="1"
+                             Style="{StaticResource DialogTextBox}"
+                             LostFocus="NameBox_LostFocus"
+                             KeyDown="NameBox_KeyDown"
+                             AutomationProperties.Name="Radio nickname"/>
+
+                    <TextBlock Grid.Row="5" Grid.Column="0" Text="IP Address:" Style="{StaticResource DialogLabel}"/>
+                    <TextBox x:Name="IPBox" Grid.Row="5" Grid.Column="1" IsReadOnly="True"
+                             Style="{StaticResource DialogTextBox}" AutomationProperties.Name="IP address"/>
+
+                    <TextBlock Grid.Row="6" Grid.Column="0" Text="Display:" Style="{StaticResource DialogLabel}"/>
+                    <ComboBox x:Name="DisplayCombo" Grid.Row="6" Grid.Column="1"
+                              Style="{StaticResource DialogComboBox}"
+                              SelectionChanged="DisplayCombo_SelectionChanged"
+                              AutomationProperties.Name="Front panel display mode"/>
+                </Grid>
+            </TabItem>
+
+            <!-- Feature Availability tab -->
+            <TabItem Header="Feature Availability" AutomationProperties.Name="Feature availability">
+                <DockPanel Margin="8">
+                    <Button DockPanel.Dock="Bottom" Content="Refresh License" MinWidth="120" Height="28"
+                            HorizontalAlignment="Left" Margin="0,8,0,0"
+                            AutomationProperties.Name="Refresh license status"
+                            Click="RefreshLicenseButton_Click"/>
+                    <TextBox x:Name="FeatureAvailabilityBox" IsReadOnly="True"
+                             TextWrapping="Wrap" AcceptsReturn="True"
+                             VerticalScrollBarVisibility="Auto"
+                             AutomationProperties.Name="Feature availability status"/>
+                </DockPanel>
+            </TabItem>
+        </TabControl>
+    </DockPanel>
+</local:JJFlexDialog>

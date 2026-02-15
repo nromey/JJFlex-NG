@@ -1,0 +1,47 @@
+<local:JJFlexDialog x:Class="JJFlexWpf.Dialogs.LoginNameDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:JJFlexWpf"
+        Title="DX Cluster Login"
+        Width="380" Height="200"
+        ResizeMode="NoResize"
+        AutomationProperties.Name="DX Cluster Login">
+    <Grid Margin="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+
+        <TextBlock Grid.Row="0" Grid.Column="0" Text="Cluster Address:"
+                   Style="{StaticResource DialogLabel}"
+                   Margin="0,0,8,8"/>
+        <TextBox x:Name="AddressBox" Grid.Row="0" Grid.Column="1"
+                 Style="{StaticResource DialogTextBox}"
+                 Margin="0,0,0,8"
+                 AutomationProperties.Name="Cluster address"/>
+
+        <TextBlock Grid.Row="1" Grid.Column="0" Text="Login Name:"
+                   Style="{StaticResource DialogLabel}"
+                   Margin="0,0,8,8"/>
+        <TextBox x:Name="LoginBox" Grid.Row="1" Grid.Column="1"
+                 Style="{StaticResource DialogTextBox}"
+                 Margin="0,0,0,8"
+                 AutomationProperties.Name="Login name"/>
+
+        <StackPanel Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="2"
+                    Style="{StaticResource ButtonPanel}">
+            <Button Content="OK" Style="{StaticResource OkButton}"
+                    AutomationProperties.Name="OK"
+                    Click="OkButton_Click"/>
+            <Button Content="Cancel" Style="{StaticResource CancelButton}"
+                    AutomationProperties.Name="Cancel"
+                    Click="CancelButton_Click"/>
+        </StackPanel>
+    </Grid>
+</local:JJFlexDialog>

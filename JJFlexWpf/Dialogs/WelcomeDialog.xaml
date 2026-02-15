@@ -1,0 +1,35 @@
+<local:JJFlexDialog x:Class="JJFlexWpf.Dialogs.WelcomeDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:JJFlexWpf"
+        Title="Welcome to JJFlexRadio"
+        Width="500" Height="400"
+        ResizeMode="NoResize"
+        AutomationProperties.Name="Welcome to JJFlexRadio">
+    <DockPanel Margin="12">
+        <!-- Button panel at bottom -->
+        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal"
+                    HorizontalAlignment="Right" Margin="0,10,0,0">
+            <Button Content="Read Documentation" MinWidth="130" Height="28" Margin="0,0,8,0"
+                    AutomationProperties.Name="Read Documentation"
+                    Click="DocButton_Click"/>
+            <Button Content="Import Settings" MinWidth="110" Height="28" Margin="0,0,8,0"
+                    AutomationProperties.Name="Import Settings"
+                    Click="ImportButton_Click"/>
+            <Button Content="Continue" MinWidth="80" Height="28" Margin="0,0,8,0"
+                    IsDefault="True"
+                    AutomationProperties.Name="Continue to configuration"
+                    Click="ConfigButton_Click"/>
+            <Button Content="Quit" MinWidth="80" Height="28"
+                    IsCancel="True"
+                    AutomationProperties.Name="Quit JJFlexRadio"
+                    Click="QuitButton_Click"/>
+        </StackPanel>
+
+        <!-- Welcome text -->
+        <TextBox x:Name="WelcomeBox" IsReadOnly="True" TextWrapping="Wrap"
+                 VerticalScrollBarVisibility="Auto"
+                 AutomationProperties.Name="Welcome message"
+                 AcceptsReturn="True"/>
+    </DockPanel>
+</local:JJFlexDialog>
