@@ -3,7 +3,7 @@
 This document captures the current state of JJ-Flex repository and active work.
 
 **Repository root:** `C:\dev\JJFlex-NG`
-**Branch:** `sprint9/track-a` (ready to merge to main)
+**Branch:** `sprint10/decoupling`
 
 ## 1) Overview
 - JJFlexRadio: Windows desktop app for FlexRadio 6000/8000 series transceivers
@@ -64,21 +64,54 @@ These files are replaced by WPF equivalents but remain because of type dependenc
 - `Radios/FlexMemories.cs` — replaced by WPF FlexMemoriesWindow
 - Various old dialog files in `Radios/` — all have WPF replacements in `JJFlexWpf/Dialogs/`
 
-## 3) Sprint 10 Plan — FlexBase.cs Decoupling
+## 3) Sprint 10 Status — COMPLETE
 
-**Goal:** Remove all WinForms type dependencies from FlexBase.cs and globals.vb so dead code can be deleted.
+**Goal:** Remove WinForms type dependencies from FlexBase.cs and globals.vb.
 
-**Key dependencies to break:**
-- `FlexBase.FilterObj` (Flex6300Filters) — filter UI methods: RXFreqChange, PanSetup, ZeroBeatFreq, OperatorChangeHandler
-- `FlexBase.memoryHandling` (FlexMemories) — memory methods: CurrentMemoryChannel, NumberOfMemories, SelectMemory, SelectMemoryByName, MemoryNames, SortedMemories
-- FlexATUMemories references (line 3124)
-- SmartLinkAccountSelector references (SmartLinkAccountManager.cs line 97)
-- GetFile references (FlexDB.cs lines 63, 187)
-- globals.vb Form1 references (lines 448, 537, 546, 759, 768, 773)
-- LogEntry.vb Form1 reference (line 248)
-- LOTWMerge.vb Form1 reference (line 107)
+### Phase 10.1 — Form1 References ✅
+- globals.vb: Form1.StatusBox → StatusBoxAdapter (routes to WPF MainWindow)
+- globals.vb: Form1.ScanTmr → WpfMainWindow.ScanTimer (DispatcherTimer)
+- globals.vb: Form1.SetupOperationsMenu → WpfMainWindow.SetupOperationsMenu
+- LogEntry.vb, LOTWMerge.vb: Form1.StatusBox → globals StatusBox adapter
+- scan.vb, MemoryScan.vb: Timer.Interval int → TimeSpan
+- ApplicationEvents.vb: ScanTimerTick event wiring
 
-**Approach:** Use delegate-based wiring pattern (Func/Action delegates) already established in codebase. Extract dialog dependencies into interfaces or delegates so FlexBase.cs doesn't need concrete WinForms types.
+### Phase 10.2 — IFilterControl Interface ✅
+- New `Radios/IFilterControl.cs` with 5 methods (RXFreqChange, PanSetup, ZeroBeatFreq, OperatorChangeHandler, Close)
+- FlexBase.FilterObj: `Flex6300Filters` → `IFilterControl`
+- Flex6300Filters implements IFilterControl
+- Removed cast in Dispose
+
+### Phase 10.3 — IMemoryManager Interface ✅
+- New `Radios/IMemoryManager.cs` with IMemoryManager + IMemoryElement
+- FlexBase.memoryHandling: `FlexMemories` → `IMemoryManager`
+- FlexMemories implements IMemoryManager, MemoryElement implements IMemoryElement
+- FlexMemories completely absent from FlexBase.cs
+
+### Phase 10.4 — Dialog Delegates ✅
+- FlexATUMemories → `ShowATUMemoriesDialog` Action delegate
+- SmartLinkAccountSelector → `ShowAccountSelector` Func delegate
+- GetFile → standard OpenFileDialog/SaveFileDialog in FlexDB.cs
+- WebBrowserHelper.ClearCache() → no-op (WebView2 manages own cache)
+
+### Phase 10.5 — Dead Code Deletion ✅
+- Deleted: GetFile.cs + Designer + resx, WebBrowserHelper.cs, SmartLinkAccountSelector.cs, FlexFilters.cs
+- ~800 lines removed
+- RadioBoxes + remaining WinForms files (Flex6300Filters, FlexMemories, Form1) cannot be deleted yet — still live code behind the interfaces
+
+### What's Left for Future Sprints
+- Form1.vb still serves as My.Application bridge form
+- Flex6300Filters.cs still the live IFilterControl implementation
+- FlexMemories.cs still the live IMemoryManager implementation
+- RadioBoxes/ still provides UI controls for the above
+- Full deletion (~13,000 lines) requires WPF adapters to fully replace the WinForms implementations
+
+### New Files Created
+| File | Purpose |
+|------|---------|
+| `Radios/IFilterControl.cs` | Interface for filter/DSP operations |
+| `Radios/IMemoryManager.cs` | Interface + IMemoryElement for memory operations |
+| `StatusBoxAdapter.vb` | Thin adapter routing Write(key,value) to WPF MainWindow |
 
 ## 4) Sprint 8 Status — COMPLETE
 
@@ -104,6 +137,7 @@ All 5 tracks merged to main. Full test matrix completed. 8 bugs found, 5 fixed +
 
 ## 7) Completed Sprints
 
+### Sprint 10: FlexBase.cs Decoupling (interfaces + delegates)
 ### Sprint 9: All Dialogs to WPF (3 parallel tracks)
 ### Sprint 8: Form1 → WPF MainWindow
 ### Sprint 7: Modern Menu, Logging Polish, Bug Fixes (v4.1.114, Don's Birthday Release)
