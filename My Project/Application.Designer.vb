@@ -1,6 +1,7 @@
 '------------------------------------------------------------------------------
-' Sprint 11: Uses BridgeForm as the My.Application MainForm.
-' The real UI is the WPF MainWindow, launched from ApplicationEvents.vb Startup.
+' ShellForm is the My.Application MainForm — a visible WinForms Form
+' that hosts the WPF MainWindow content via ElementHost.
+' This provides proper HWND ownership, keyboard routing, and screen reader bridging.
 '------------------------------------------------------------------------------
 
 Option Strict On
@@ -19,7 +20,8 @@ Namespace My
 
         <Global.System.Diagnostics.DebuggerStepThroughAttribute()>
         Protected Overrides Sub OnCreateMainForm()
-            Me.MainForm = New BridgeForm()
+            ' Use the ShellForm instance created in Startup (where callbacks are wired).
+            Me.MainForm = TheShellForm
         End Sub
     End Class
 End Namespace

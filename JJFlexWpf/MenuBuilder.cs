@@ -137,7 +137,7 @@ public class MenuBuilder
         ClassicActionsMenu.Items.Add(new Separator());
 
         AddItem(ClassicActionsMenu, "Toggle Screen Saver", OnNotImplemented);
-        AddItem(ClassicActionsMenu, "Exit", (_, _) => _window.Close());
+        AddItem(ClassicActionsMenu, "Exit", (_, _) => _window.CloseShellCallback?.Invoke());
 
         // === SCREENFIELDS ===
         ClassicScreenFieldsMenu = CreateMenu("ScreenFields");
@@ -166,7 +166,7 @@ public class MenuBuilder
         AddItem(ModernRadioMenu, "Connected Stations", OnNotImplemented);
         ModernRadioMenu.Items.Add(new Separator());
         AddItem(ModernRadioMenu, "Disconnect", OnNotImplemented);
-        AddItem(ModernRadioMenu, "Exit", (_, _) => _window.Close());
+        AddItem(ModernRadioMenu, "Exit", (_, _) => _window.CloseShellCallback?.Invoke());
 
         // === SLICE ===
         ModernSliceMenu = CreateMenu("Slice");

@@ -438,12 +438,14 @@ namespace Radios
             }
 
             // wait until the station name is set.
+            // SmartLink can remove and re-add the GUIClient during connection setup,
+            // so we need a longer timeout to survive this cycle (typically ~13s).
             if (await(() =>
             {
                 GUIClient client = TheGuiClient;
                 if (client == null) return false;
                 return (client.Station == Callouts.StationName);
-            }, 10000))
+            }, 30000))
             {
                 Tracing.TraceLine("start:station name set " + Callouts.StationName, TraceLevel.Info);
             }

@@ -5,14 +5,22 @@ Imports System.Windows.Forms
 Namespace My
     ''' <summary>
     ''' Application-level events and initialization helpers.
-    ''' Sprint 8: Launches WPF MainWindow instead of WinForms Form1.
     ''' The My.Application framework is preserved for My.* namespace compatibility.
+    '''
+    ''' Architecture: ShellForm (WinForms) hosts WPF MainWindow content via ElementHost.
+    ''' ShellForm owns the HWND, taskbar entry, and message loop.
+    ''' ElementHost provides keyboard routing and screen reader bridging.
     ''' </summary>
     Partial Friend Class MyApplication
         ''' <summary>
-        ''' The WPF main window — replaces Form1 as the primary UI.
+        ''' The WPF main content — hosted inside ShellForm via ElementHost.
         ''' </summary>
         Friend Shared WpfMainWindow As JJFlexWpf.MainWindow
+
+        ''' <summary>
+        ''' The WinForms shell form — created in Startup, used as MainForm.
+        ''' </summary>
+        Friend Shared TheShellForm As ShellForm
 
         Private Sub MyApplication_Startup(sender As Object, e As ApplicationServices.StartupEventArgs) Handles Me.Startup
             ' Initialize native library resolver FIRST (enables x86/x64 DLL loading)
@@ -28,27 +36,13 @@ Namespace My
             ' Initialize screen reader output (CrossSpeak/Tolk) for accessibility announcements.
             Radios.ScreenReaderOutput.Initialize()
 
-            ' ── Sprint 8: Launch WPF MainWindow ───────────────────────
-            ' The My.Application framework runs a WinForms message loop with a hidden bridge form.
-            ' We create the WPF MainWindow here and show it. When it closes, we close the bridge form.
-            WpfMainWindow = New JJFlexWpf.MainWindow()
+            ' ── Create the ShellForm and get the WPF content ───────────────
+            ' We create ShellForm here (before OnCreateMainForm) so we can wire
+            ' callbacks. OnCreateMainForm will use the same instance.
+            TheShellForm = New ShellForm()
+            WpfMainWindow = TheShellForm.WpfContent
 
-            ' When the WPF window closes, shut down the WinForms bridge form too.
-            AddHandler WpfMainWindow.Closed,
-                Sub(s, args)
-                    ' Close the hidden bridge MainForm to end the My.Application message loop.
-                    If Me.MainForm IsNot Nothing AndAlso Not Me.MainForm.IsDisposed Then
-                        Me.MainForm.Close()
-                    End If
-                End Sub
-
-            ' Wire up the keyboard command handler so WPF PreviewKeyDown
-            ' can route keystrokes to the VB.NET KeyCommands system.
-            ' This replaces the ElementHost→Form1 forwarding chain.
-            ' Note: DoCommandHandler wiring deferred to after GetConfigInfo creates Commands.
-
-            ' Sprint 10: Wire scan timer tick to dispatch between linear and memory scan.
-            ' Replaces Form1.ScanTimer_Tick (Handles ScanTmr.Tick).
+            ' Wire scan timer tick to dispatch between linear and memory scan.
             AddHandler WpfMainWindow.ScanTimerTick,
                 Sub(s, args)
                     If scanstate = scans.linear Then
@@ -58,17 +52,16 @@ Namespace My
                     End If
                 End Sub
 
-            ' Sprint 11 Phase 11.8: Wire exit callback so MainWindow_Closing
-            ' can trigger the VB-side shutdown sequence.
+            ' Wire exit callback so RequestShutdown can trigger VB-side shutdown.
             WpfMainWindow.AppExitCallback = AddressOf ExitApplication
 
-            ' Sprint 11 Phase 11.8: Wire "Connect to Radio" callback for menu item.
+            ' Wire "Connect to Radio" callback for menu item.
             WpfMainWindow.SelectRadioCallback = AddressOf SelectRadio
 
-            WpfMainWindow.Show()
+            ' Wire close callback so Exit menu item can close the ShellForm.
+            WpfMainWindow.CloseShellCallback = Sub() TheShellForm.Close()
 
-            ' Sprint 11 Phase 11.8: Run VB-side initialization (moved from Form1_Load).
-            ' Must run after Show() so WPF window is visible and Dispatcher is active.
+            ' Run VB-side initialization (moved from Form1_Load).
             InitializeApplication()
 
             ' Wire DoCommandHandler AFTER GetConfigInfo (which creates Commands).

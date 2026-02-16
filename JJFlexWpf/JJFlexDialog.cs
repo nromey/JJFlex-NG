@@ -26,21 +26,9 @@ namespace JJFlexWpf
             ShowInTaskbar = false;
             ResizeMode = ResizeMode.NoResize;
 
-            // Set owner to MainWindow if available
-            if (Application.Current?.MainWindow != null &&
-                Application.Current.MainWindow.IsLoaded &&
-                Application.Current.MainWindow != this)
-            {
-                try
-                {
-                    Owner = Application.Current.MainWindow;
-                }
-                catch
-                {
-                    // Owner assignment can fail if MainWindow is in a different thread
-                    // or not fully initialized — safe to ignore
-                }
-            }
+            // Note: MainWindow is now a UserControl hosted in ElementHost,
+            // so Application.Current.MainWindow is null. Dialogs center on screen
+            // via WindowStartupLocation.CenterOwner falling back to CenterScreen.
 
             // Wire up standard events
             PreviewKeyDown += JJFlexDialog_PreviewKeyDown;

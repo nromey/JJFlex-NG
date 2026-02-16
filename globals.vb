@@ -343,13 +343,23 @@ Module globals
     Friend StationName As String
 
     ''' <summary>
-    ''' Sprint 8: Convenience accessor for the WPF MainWindow.
+    ''' Convenience accessor for the WPF MainWindow UserControl.
     ''' Used by VB.NET code that previously referenced Form1 directly.
     ''' Returns the WPF MainWindow instance from ApplicationEvents.
     ''' </summary>
     Friend ReadOnly Property WpfMainWindow As JJFlexWpf.MainWindow
         Get
             Return My.MyApplication.WpfMainWindow
+        End Get
+    End Property
+
+    ''' <summary>
+    ''' Convenience accessor for the ShellForm (WinForms host).
+    ''' Used for window-level operations (Title, Activate, etc.).
+    ''' </summary>
+    Friend ReadOnly Property AppShellForm As ShellForm
+        Get
+            Return My.MyApplication.TheShellForm
         End Get
     End Property
 
@@ -1484,7 +1494,7 @@ Module globals
                 If autoConnectResult = AutoConnectStartupResult.Connected Then
                     rv = True
                     radioSelected = DialogResult.OK
-                    WpfMainWindow?.Activate()
+                    AppShellForm?.Activate()
                     GoTo RadioConnected
                 ElseIf autoConnectResult = AutoConnectStartupResult.UserCancelled Then
                     rv = False
@@ -1498,7 +1508,7 @@ Module globals
             selectorThread.SetApartmentState(ApartmentState.STA)
             selectorThread.Start(initialCall)
             selectorThread.Join()
-            WpfMainWindow?.Activate()
+            AppShellForm?.Activate()
             rv = (radioSelected = DialogResult.OK)
 
 RadioConnected:
@@ -1634,6 +1644,15 @@ RadioConnected:
 
         StationName = getStationName()
         Tracing.TraceLine("StationName:" & StationName, TraceLevel.Info)
+
+        ' Set window title to include station name (was Form1.Text in Form1_Load)
+        Dim pgmName = StationName
+        If ProgramInstance > 1 Then
+            pgmName &= ProgramInstance.ToString
+        End If
+        If AppShellForm IsNot Nothing Then
+            AppShellForm.Text &= " " & pgmName
+        End If
 
         ' Wire operator change handler
         AddHandler Operators.ConfigEvent, AddressOf operatorChanged

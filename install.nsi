@@ -65,7 +65,7 @@ Section "JJFlexRadio (required)"
   SetOutPath $INSTDIR
   
   ; Put files there - recurse all built outputs
-  File /r /x "*.pdb" "C:\dev\jjflex-11c\bin\x64\Release\net8.0-windows\win-x64\*.*"
+  File /r /x "*.pdb" "C:\dev\JJFlex-NG\bin\x64\Release\net8.0-windows\win-x64\*.*"
   
   ; Write the installation path into the registry
   WriteRegStr HKLM "SOFTWARE\JJFlexRadio" "Install_Dir" "$INSTDIR"

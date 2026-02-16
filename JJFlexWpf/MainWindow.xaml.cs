@@ -38,7 +38,7 @@ public interface ILogPanelCommands
 ///          Row 1: ContentArea         — Received/Sent text, rig fields display
 ///          Row 2: LoggingPanel        — Logging Mode overlay (collapsed by default)
 /// </summary>
-public partial class MainWindow : Window
+public partial class MainWindow : UserControl
 {
     /// <summary>
     /// Flag to prevent re-entrant close attempts (mirrors Form1.Ending).
@@ -53,8 +53,14 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+
+        // Build menus immediately so they're available before Loaded fires.
+        // InitializeApplication() calls ApplyUIMode() during Startup,
+        // before the ShellForm is shown (and thus before Loaded fires).
+        _menuBuilder = new MenuBuilder(this);
+        _menuBuilder.BuildAllMenus(MainMenu);
+
         Loaded += MainWindow_Loaded;
-        Closing += MainWindow_Closing;
     }
 
     /// <summary>
@@ -80,14 +86,8 @@ public partial class MainWindow : Window
         // 1. Screen reader greeting (matches Form1_Load line 206)
         Radios.ScreenReaderOutput.Speak("Welcome to JJ Flex");
 
-        // 8. Menu construction (Phase 8.5)
-        _menuBuilder = new MenuBuilder(this);
-        _menuBuilder.BuildAllMenus(MainMenu);
-
-        // 10. Apply UI mode — show correct menu set
-        // Phase 8.6+: Read saved mode from CurrentOp.ActiveUIMode
-        // For now, default to Modern mode
-        ApplyUIMode(UIMode.Modern);
+        // Menu construction and ApplyUIMode are done in constructor
+        // (needed before Loaded because InitializeApplication runs in Startup).
 
         // Update status
         StatusText.Text = "Ready — no radio connected";
@@ -96,43 +96,46 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Clean shutdown — runs VB-side exit sequence via AppExitCallback.
-    /// If exit is cancelled (unsaved QSO), the close is cancelled.
+    /// Called by the parent ShellForm before closing to run the VB-side exit sequence.
+    /// Returns true to allow close, false to cancel (e.g., unsaved QSO).
     /// </summary>
-    private void MainWindow_Closing(object? sender, CancelEventArgs e)
+    public bool RequestShutdown()
     {
         if (_isClosing)
-            return;
+            return true;
 
-        Tracing.TraceLine("MainWindow_Closing: starting shutdown", System.Diagnostics.TraceLevel.Info);
+        Tracing.TraceLine("MainWindow.RequestShutdown: starting shutdown", System.Diagnostics.TraceLevel.Info);
 
         // Run VB-side exit sequence (prompts, cleanup, radio close)
         if (AppExitCallback != null && !AppExitCallback())
         {
-            // Exit was cancelled (e.g., unsaved QSO)
-            e.Cancel = true;
-            Tracing.TraceLine("MainWindow_Closing: exit cancelled by user", System.Diagnostics.TraceLevel.Info);
-            return;
+            Tracing.TraceLine("MainWindow.RequestShutdown: exit cancelled by user", System.Diagnostics.TraceLevel.Info);
+            return false;
         }
 
         _isClosing = true;
 
         try
         {
-            // Stop polling and unwire events (may already be done by ExitApplication)
             UnwireRadioEvents();
-
-            Tracing.TraceLine("MainWindow_Closing: shutdown complete", System.Diagnostics.TraceLevel.Info);
+            Tracing.TraceLine("MainWindow.RequestShutdown: shutdown complete", System.Diagnostics.TraceLevel.Info);
         }
         catch (System.Exception ex)
         {
-            Tracing.TraceLine($"MainWindow_Closing error: {ex.Message}", System.Diagnostics.TraceLevel.Error);
+            Tracing.TraceLine($"MainWindow.RequestShutdown error: {ex.Message}", System.Diagnostics.TraceLevel.Error);
         }
+
+        return true;
     }
+
+    /// <summary>
+    /// Delegate to close the parent ShellForm. Set by ApplicationEvents.vb.
+    /// </summary>
+    public Action? CloseShellCallback { get; set; }
 
     private void Exit_Click(object sender, RoutedEventArgs e)
     {
-        Close();
+        CloseShellCallback?.Invoke();
     }
 
     #region PollTimer — Phase 8.4
@@ -505,6 +508,16 @@ public partial class MainWindow : Window
     /// </summary>
     private void MainWindow_PreviewKeyDown(object sender, KeyEventArgs e)
     {
+        // 0. Let navigation keys pass through to WPF default handling.
+        //    Tab: WPF handles tab navigation.
+        //    Alt (bare): WPF Menu handles menu bar activation.
+        //    F10: Standard Windows menu activation key.
+        var rawKey = e.Key == Key.System ? e.SystemKey : e.Key;
+        if (rawKey == Key.Tab)
+            return;
+        if (rawKey is Key.LeftAlt or Key.RightAlt or Key.F10)
+            return;
+
         // 1. Hard-wired meta-commands (always active, any mode)
         if (Keyboard.Modifiers == (ModifierKeys.Control | ModifierKeys.Shift))
         {
@@ -1083,8 +1096,7 @@ public partial class MainWindow : Window
         // Mode list from rig caps
         dialog.ModeList = new List<string>(RigCaps.ModeTable);
 
-        // Show the dialog
-        dialog.Owner = this;
+        // Show the dialog (owner set by JJFlexDialog base class)
         dialog.ShowDialog();
 
         // If user selected a memory via Enter key, go home
@@ -1332,7 +1344,6 @@ public partial class MainWindow : Window
     /// </summary>
     public void gotoHome()
     {
-        Activate();
         FreqOut.Focus();
         Keyboard.Focus(FreqOut);
     }
@@ -1507,11 +1518,11 @@ public partial class MainWindow : Window
 
     /// <summary>
     /// WinForms-compatible BringToFront.
-    /// Maps to WPF Activate() for KeyCommands.vb compatibility.
+    /// Focuses this control; the parent ShellForm handles window activation.
     /// </summary>
-    public void BringToFront()
+    public new void BringToFront()
     {
-        Activate();
+        Focus();
     }
 
     #endregion
