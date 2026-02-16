@@ -21,16 +21,8 @@
                 Row 2: LoggingPanel   — Phase 8.8: LogEntryControl + RadioPane (Collapsed by default)
     -->
     <DockPanel>
-        <!-- ═══ MENU BAR ═══ Phase 8.5 will replace with full 3-mode menu system -->
-        <Menu DockPanel.Dock="Top" x:Name="MainMenu"
-              IsMainMenu="True"
-              KeyboardNavigation.TabNavigation="None"
-              AutomationProperties.Name="Main Menu">
-            <MenuItem Header="_File">
-                <MenuItem Header="E_xit" Click="Exit_Click"
-                          AutomationProperties.Name="Exit JJFlexRadio" />
-            </MenuItem>
-        </Menu>
+        <!-- Menu bar is now a WinForms MenuStrip on ShellForm (Sprint 12).
+             Native Win32 HMENU menus work correctly with JAWS/NVDA. -->
 
         <!-- ═══ STATUS BAR ═══ Replacement for RadioBoxes.MainBox StatusBox -->
         <StatusBar DockPanel.Dock="Bottom" x:Name="MainStatusBar"
@@ -61,9 +53,11 @@
             <Grid.RowDefinitions>
                 <!-- Row 0: Radio controls (frequency, mode, tuner, buttons) — Phase 8.2 -->
                 <RowDefinition Height="Auto" />
-                <!-- Row 1: Text content (received, sent, rig fields) — Phase 8.3 -->
+                <!-- Row 1: Panadapter braille display — Sprint 12 Phase 12.9 -->
+                <RowDefinition Height="Auto" />
+                <!-- Row 2: Text content (received, sent, rig fields) — Phase 8.3 -->
                 <RowDefinition Height="*" />
-                <!-- Row 2: Logging mode overlay (collapsed by default) — Phase 8.8 -->
+                <!-- Row 3: Logging mode overlay (collapsed by default) — Phase 8.8 -->
                 <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
 
@@ -101,8 +95,38 @@
 
             </StackPanel>
 
+            <!-- Panadapter Braille Display — Sprint 12 Phase 12.9 -->
+            <Grid Grid.Row="1" x:Name="PanadapterPanel" Visibility="Collapsed"
+                  Margin="4,2" AutomationProperties.Name="Panadapter Display">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <TextBlock Grid.Column="0" x:Name="PanLowFreq" Text=""
+                           VerticalAlignment="Center" Margin="4,0"
+                           FontFamily="Consolas" FontSize="11"
+                           AutomationProperties.Name="Low frequency" />
+
+                <TextBox Grid.Column="1" x:Name="PanDisplayBox"
+                         IsReadOnly="True"
+                         FontFamily="Consolas" FontSize="12"
+                         BorderThickness="1"
+                         VerticalContentAlignment="Center"
+                         AutomationProperties.Name="Panadapter braille display"
+                         PreviewKeyDown="PanDisplayBox_PreviewKeyDown"
+                         GotFocus="PanDisplayBox_GotFocus"
+                         LostFocus="PanDisplayBox_LostFocus" />
+
+                <TextBlock Grid.Column="2" x:Name="PanHighFreq" Text=""
+                           VerticalAlignment="Center" Margin="4,0"
+                           FontFamily="Consolas" FontSize="11"
+                           AutomationProperties.Name="High frequency" />
+            </Grid>
+
             <!-- Content Area — Phase 8.3: Received/Sent text, rig fields debug view -->
-            <Grid Grid.Row="1" x:Name="ContentArea" Margin="4">
+            <Grid Grid.Row="2" x:Name="ContentArea" Margin="4">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />  <!-- Received label -->
                     <RowDefinition Height="*" />     <!-- Received text -->
@@ -165,7 +189,7 @@
                  - No focus trapping on hide (pure WPF Visibility toggle)
                  - Keyboard routing works natively (PreviewKeyDown on Window)
             -->
-            <Grid Grid.Row="2" x:Name="LoggingPanel" Visibility="Collapsed"
+            <Grid Grid.Row="3" x:Name="LoggingPanel" Visibility="Collapsed"
                   AutomationProperties.Name="Logging Mode">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="250" MinWidth="150" />

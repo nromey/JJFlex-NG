@@ -66,6 +66,23 @@ Namespace My
 
             ' Wire DoCommandHandler AFTER GetConfigInfo (which creates Commands).
             WpfMainWindow.DoCommandHandler = AddressOf Commands.DoCommand
+
+            ' Wire FreqOutHandlers delegates for VB.NET globals access (Sprint 12).
+            ' These are wired after InitializeApplication so RigControl is available.
+            WpfMainWindow.FreqOutHandlersWireCallback = Sub(handlers)
+                handlers.GetSplitVFOs = Function() SplitVFOs
+                handlers.SetSplitVFOs = Sub(v) SplitVFOs = v
+                handlers.GetShowXmitFrequency = Function() ShowXMITFrequency
+                handlers.SetShowXmitFrequency = Sub(v) ShowXMITFrequency = v
+                handlers.GetMemoryMode = Function() MemoryMode
+                handlers.SetMemoryMode = Sub(v) MemoryMode = v
+                handlers.GetRXFrequency = Function() RXFrequency
+                handlers.SetRXFrequency = Sub(v) RXFrequency = v
+                If RigControl IsNot Nothing AndAlso RigControl.Callouts IsNot Nothing Then
+                    handlers.FormatFreq = Function(s) RigControl.Callouts.FormatFreq(ULong.Parse(s))
+                    handlers.FreqInt64 = Function(s) RigControl.Callouts.FormatFreqForRadio(s)
+                End If
+            End Sub
         End Sub
 
         Private Sub MyApplication_Shutdown(sender As Object, e As System.EventArgs) Handles Me.Shutdown

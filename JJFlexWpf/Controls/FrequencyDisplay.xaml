@@ -14,11 +14,12 @@
          Uses a read-only TextBox for screen reader compatibility (Document role).
          Keyboard handlers route to field-specific delegates. -->
     <TextBox x:Name="DisplayBox"
-             IsReadOnly="True"
+             IsReadOnly="False"
              FontFamily="Consolas"
              FontSize="14"
              BorderThickness="1"
              VerticalContentAlignment="Center"
              AutomationProperties.Name="Frequency and VFO Display"
-             PreviewKeyDown="DisplayBox_PreviewKeyDown" />
+             PreviewKeyDown="DisplayBox_PreviewKeyDown"
+             PreviewTextInput="DisplayBox_PreviewTextInput" />
 </UserControl>

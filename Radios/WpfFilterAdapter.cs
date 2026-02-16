@@ -16,6 +16,12 @@ namespace Radios
         private FlexBase rig;
         private PanAdapterManager panManager;
 
+        /// <summary>
+        /// Settable pan display callback — forwards braille text to MainWindow.
+        /// Set by MainWindow.WirePanDisplay() during PowerNowOn.
+        /// </summary>
+        public Action<string, int>? PanDisplayCallback { get; set; }
+
         public WpfFilterAdapter(FlexBase rig)
         {
             this.rig = rig;
@@ -27,10 +33,10 @@ namespace Radios
         {
             Tracing.TraceLine("WpfFilterAdapter.PanSetup", TraceLevel.Info);
 
-            // Create PanAdapterManager
+            // Create PanAdapterManager — callback forwards to settable PanDisplayCallback
             string opsDir = rig.ConfigDirectory + '\\' + rig.OperatorName;
             panManager = new PanAdapterManager(rig, opsDir, rig.Callouts.BrailleCells,
-                (line, pos) => { /* pan display callback — wired later by MainWindow */ });
+                (line, pos) => PanDisplayCallback?.Invoke(line, pos));
 
             // Create WpfMemoryManager and wire into RigFields
             var memMgr = new WpfMemoryManager(rig);

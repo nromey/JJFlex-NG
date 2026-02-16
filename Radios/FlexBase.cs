@@ -5646,6 +5646,12 @@ namespace Radios
 
         protected IFilterControl FilterObj;
 
+        /// <summary>
+        /// Public accessor for the filter control adapter (WpfFilterAdapter).
+        /// Used by MainWindow to wire pan display callbacks. Sprint 12.
+        /// </summary>
+        public IFilterControl FilterControl => FilterObj;
+
         internal class q_t
         {
             //private Queue q;

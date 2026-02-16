@@ -46,19 +46,14 @@ public partial class MainWindow : UserControl
     private bool _isClosing;
 
     /// <summary>
-    /// Menu builder — constructs and manages all 3 menu sets.
+    /// Callback to route UI mode changes to the WinForms MenuStripBuilder.
+    /// Set by ShellForm constructor after building menus.
     /// </summary>
-    private MenuBuilder _menuBuilder = null!;
+    public Action<UIMode>? MenuModeCallback { get; set; }
 
     public MainWindow()
     {
         InitializeComponent();
-
-        // Build menus immediately so they're available before Loaded fires.
-        // InitializeApplication() calls ApplyUIMode() during Startup,
-        // before the ShellForm is shown (and thus before Loaded fires).
-        _menuBuilder = new MenuBuilder(this);
-        _menuBuilder.BuildAllMenus(MainMenu);
 
         Loaded += MainWindow_Loaded;
     }
@@ -83,16 +78,22 @@ public partial class MainWindow : UserControl
     {
         Tracing.TraceLine("MainWindow_Loaded: starting init", System.Diagnostics.TraceLevel.Info);
 
-        // 1. Screen reader greeting (matches Form1_Load line 206)
-        Radios.ScreenReaderOutput.Speak("Welcome to JJ Flex");
-
-        // Menu construction and ApplyUIMode are done in constructor
-        // (needed before Loaded because InitializeApplication runs in Startup).
+        // Welcome speech is now triggered by ShellForm.OnShown() calling SpeakWelcome(),
+        // so it fires after the window is visible and the screen reader can hear it.
 
         // Update status
         StatusText.Text = "Ready — no radio connected";
 
         Tracing.TraceLine("MainWindow_Loaded: init complete", System.Diagnostics.TraceLevel.Info);
+    }
+
+    /// <summary>
+    /// Called by ShellForm.OnShown() after the window is visible on screen.
+    /// Screen reader speech only works reliably after the window is visible.
+    /// </summary>
+    public void SpeakWelcome()
+    {
+        Radios.ScreenReaderOutput.Speak("Welcome to JJ Flex");
     }
 
     /// <summary>
@@ -133,10 +134,11 @@ public partial class MainWindow : UserControl
     /// </summary>
     public Action? CloseShellCallback { get; set; }
 
-    private void Exit_Click(object sender, RoutedEventArgs e)
-    {
-        CloseShellCallback?.Invoke();
-    }
+    /// <summary>
+    /// Callback to wire FreqOutHandlers delegate properties from VB.NET globals.
+    /// Set by ApplicationEvents.vb. Called when handlers are first created in SetupFreqout().
+    /// </summary>
+    public Action<FreqOutHandlers>? FreqOutHandlersWireCallback { get; set; }
 
     #region PollTimer — Phase 8.4
 
@@ -340,6 +342,9 @@ public partial class MainWindow : UserControl
         ActiveUIMode = mode;
         Tracing.TraceLine($"ApplyUIMode: {mode}", TraceLevel.Info);
 
+        // Route menu mode change to WinForms MenuStripBuilder
+        MenuModeCallback?.Invoke(mode);
+
         switch (mode)
         {
             case UIMode.Classic:
@@ -355,47 +360,33 @@ public partial class MainWindow : UserControl
     }
 
     /// <summary>
-    /// Show Classic mode: Classic menus, radio controls visible, logging hidden.
+    /// Show Classic mode: radio controls visible, logging hidden.
+    /// Menu switching handled by MenuModeCallback → MenuStripBuilder.
     /// </summary>
     private void ShowClassicUI()
     {
-        _menuBuilder.SetClassicMenusVisible(true);
-        _menuBuilder.SetModernMenusVisible(false);
-        _menuBuilder.SetLoggingMenusVisible(false);
-
         RadioControlsPanel.Visibility = Visibility.Visible;
         SetTextAreasVisible(true);
         LoggingPanel.Visibility = Visibility.Collapsed;
     }
 
     /// <summary>
-    /// Show Modern mode: Modern menus, radio controls visible, logging hidden.
+    /// Show Modern mode: radio controls visible, logging hidden.
     /// </summary>
     private void ShowModernUI()
     {
-        _menuBuilder.SetClassicMenusVisible(false);
-        _menuBuilder.SetModernMenusVisible(true);
-        _menuBuilder.SetLoggingMenusVisible(false);
-
         RadioControlsPanel.Visibility = Visibility.Visible;
         SetTextAreasVisible(true);
         LoggingPanel.Visibility = Visibility.Collapsed;
     }
 
     /// <summary>
-    /// Show Logging mode: Logging menus, radio controls hidden, log panel visible.
+    /// Show Logging mode: radio controls hidden, log panel visible.
     /// </summary>
     private void ShowLoggingUI()
     {
-        _menuBuilder.SetClassicMenusVisible(false);
-        _menuBuilder.SetModernMenusVisible(false);
-        _menuBuilder.SetLoggingMenusVisible(true);
-
-        // Hide standard radio controls (tab stop off for accessibility)
         RadioControlsPanel.Visibility = Visibility.Collapsed;
         SetTextAreasVisible(false);
-
-        // Show logging panel (Phase 8.8 will populate with LogEntryControl + RadioPane)
         LoggingPanel.Visibility = Visibility.Visible;
     }
 
@@ -508,14 +499,10 @@ public partial class MainWindow : UserControl
     /// </summary>
     private void MainWindow_PreviewKeyDown(object sender, KeyEventArgs e)
     {
-        // 0. Let navigation keys pass through to WPF default handling.
-        //    Tab: WPF handles tab navigation.
-        //    Alt (bare): WPF Menu handles menu bar activation.
-        //    F10: Standard Windows menu activation key.
+        // 0. Let Tab pass through to WPF default handling.
+        //    Alt and F10 now go to WinForms MenuStrip naturally via the message loop.
         var rawKey = e.Key == Key.System ? e.SystemKey : e.Key;
         if (rawKey == Key.Tab)
-            return;
-        if (rawKey is Key.LeftAlt or Key.RightAlt or Key.F10)
             return;
 
         // 1. Hard-wired meta-commands (always active, any mode)
@@ -717,24 +704,40 @@ public partial class MainWindow : UserControl
     }
 
     /// <summary>
-    /// Set up the frequency display fields.
-    /// Simplified version of Form1.setupFreqout() for WPF FrequencyDisplay.
+    /// FreqOut field handler instance — manages all interactive tuning.
+    /// </summary>
+    private FreqOutHandlers? _freqOutHandlers;
+
+    /// <summary>
+    /// Set up the frequency display fields with interactive handlers.
+    /// Replaces Form1.setupFreqout() with full field handler wiring.
     /// </summary>
     private void SetupFreqout()
     {
         if (RigControl == null) return;
         Tracing.TraceLine("SetupFreqout", TraceLevel.Info);
 
+        // Create handlers if needed
+        if (_freqOutHandlers == null)
+        {
+            _freqOutHandlers = new FreqOutHandlers(this);
+            // Wire VB.NET globals delegates
+            FreqOutHandlersWireCallback?.Invoke(_freqOutHandlers);
+            // Wire FieldKeyDown event to route keys to the handler for the field under cursor
+            FreqOut.FieldKeyDown += FreqOut_FieldKeyDown;
+        }
+
         var fields = new List<FrequencyDisplay.DisplayField>();
 
-        // Slice indicators (one character each)
+        // Slice indicators (one character each) with RigField handler
         int vfos = RigControl.TotalNumSlices;
         for (int i = 0; i < vfos; i++)
         {
-            fields.Add(new FrequencyDisplay.DisplayField(i.ToString(), 1, "", ""));
+            fields.Add(new FrequencyDisplay.DisplayField(i.ToString(), 1, "", "",
+                null)); // handler wired via FieldKeyDown event
         }
 
-        // Fixed fields: S-meter, Split, VOX, VFO, Freq, Offset, RIT, XIT
+        // Fixed fields with handlers
         fields.Add(new FrequencyDisplay.DisplayField("SMeter", 4, "", ""));
         fields.Add(new FrequencyDisplay.DisplayField("Split", 1, "", ""));
         fields.Add(new FrequencyDisplay.DisplayField("VOX", 1, "", ""));
@@ -746,6 +749,48 @@ public partial class MainWindow : UserControl
 
         FreqOut.Populate(fields.ToArray());
         _firstFreqDisplay = true;
+    }
+
+    /// <summary>
+    /// Route FieldKeyDown events to the appropriate FreqOutHandler method
+    /// based on the field key under the cursor.
+    /// </summary>
+    private void FreqOut_FieldKeyDown(FrequencyDisplay.DisplayField field, System.Windows.Input.KeyEventArgs e)
+    {
+        if (_freqOutHandlers == null) return;
+
+        switch (field.Key)
+        {
+            case "Freq":
+                _freqOutHandlers.AdjustFreq(field, e);
+                break;
+            case "VFO":
+                _freqOutHandlers.AdjustVFO(field, e);
+                break;
+            case "Split":
+                _freqOutHandlers.AdjustSplit(field, e);
+                break;
+            case "RIT":
+                _freqOutHandlers.AdjustRit(field, e);
+                break;
+            case "XIT":
+                _freqOutHandlers.AdjustXit(field, e);
+                break;
+            case "VOX":
+                _freqOutHandlers.AdjustVox(field, e);
+                break;
+            case "SMeter":
+                _freqOutHandlers.AdjustSMeter(field, e);
+                break;
+            case "Offset":
+                _freqOutHandlers.AdjustOffset(field, e);
+                break;
+            default:
+                // Slice indicators (numeric keys "0", "1", etc.)
+                if (int.TryParse(field.Key, out _))
+                    _freqOutHandlers.AdjustRigField(field, e);
+                break;
+        }
     }
 
     private bool _firstFreqDisplay = true;
@@ -965,6 +1010,9 @@ public partial class MainWindow : UserControl
         if (RigControl != null)
             WriteStatus("Memories", RigControl.NumberOfMemories.ToString());
 
+        // Wire panadapter braille display
+        WirePanDisplay();
+
         _radioPowerOn = true;
         StatusText.Text = "Radio connected — power on";
 
@@ -994,6 +1042,114 @@ public partial class MainWindow : UserControl
             WriteStatus("Power", "Off");
             EnableDisableWindowControls(false);
             StatusText.Text = "Radio connected — power off";
+        }
+    }
+
+    // ── Panadapter Braille Display — Sprint 12 Phase 12.10 ──────
+
+    /// <summary>
+    /// Wire the panadapter braille display callback from WpfFilterAdapter.
+    /// Called during PowerNowOn after the radio and filter adapter are set up.
+    /// </summary>
+    private void WirePanDisplay()
+    {
+        if (RigControl?.FilterControl is not WpfFilterAdapter adapter) return;
+
+        // Wire pan display callback — updates PanDisplayBox with braille text
+        adapter.PanDisplayCallback = (line, pos) =>
+        {
+            if (_isClosing) return;
+            Dispatcher.BeginInvoke(() =>
+            {
+                if (_isClosing) return;
+                PanDisplayBox.Text = line;
+                if (pos >= 0 && pos < line.Length)
+                    PanDisplayBox.SelectionStart = pos;
+
+                // Show panel if hidden
+                if (PanadapterPanel.Visibility != Visibility.Visible)
+                    PanadapterPanel.Visibility = Visibility.Visible;
+
+                // Send to braille display if available
+                if (Radios.ScreenReaderOutput.HasBraille)
+                    Radios.Tolk.Braille(line);
+            });
+        };
+
+        // Wire segment display callback for low/high frequency labels
+        if (adapter.PanManager != null)
+        {
+            adapter.PanManager.SegmentDisplayCallback = (lowText, highText) =>
+            {
+                if (_isClosing) return;
+                Dispatcher.BeginInvoke(() =>
+                {
+                    PanLowFreq.Text = lowText;
+                    PanHighFreq.Text = highText;
+                });
+            };
+        }
+
+        Tracing.TraceLine("WirePanDisplay: callbacks connected", TraceLevel.Info);
+    }
+
+    /// <summary>
+    /// Timer for pan navigation — cursor position tunes radio to frequency under cursor.
+    /// </summary>
+    private System.Windows.Threading.DispatcherTimer? _panNavTimer;
+
+    private void PanDisplayBox_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (RigControl?.FilterControl is not WpfFilterAdapter adapter) return;
+        if (adapter.PanManager == null) return;
+
+        var key = e.Key == Key.System ? e.SystemKey : e.Key;
+
+        switch (key)
+        {
+            case Key.PageUp:
+            case Key.PageDown:
+                adapter.PanManager.checkForRangeJump(
+                    key == Key.PageUp ? (int)System.Windows.Forms.Keys.PageUp
+                                      : (int)System.Windows.Forms.Keys.PageDown);
+                e.Handled = true;
+                break;
+            case Key.Left:
+            case Key.Right:
+                // Allow normal cursor movement, then tune after a brief pause
+                // The pan nav timer handles tuning to frequency under cursor
+                break;
+        }
+    }
+
+    private void PanDisplayBox_GotFocus(object sender, RoutedEventArgs e)
+    {
+        if (_panNavTimer == null)
+        {
+            _panNavTimer = new System.Windows.Threading.DispatcherTimer();
+            _panNavTimer.Interval = TimeSpan.FromMilliseconds(200);
+            _panNavTimer.Tick += PanNavTimer_Tick;
+        }
+        _panNavTimer.Start();
+    }
+
+    private void PanDisplayBox_LostFocus(object sender, RoutedEventArgs e)
+    {
+        _panNavTimer?.Stop();
+    }
+
+    private void PanNavTimer_Tick(object? sender, EventArgs e)
+    {
+        if (RigControl?.FilterControl is not WpfFilterAdapter adapter) return;
+        if (adapter.PanManager?.CurrentPanData == null) return;
+
+        int cursorPos = PanDisplayBox.SelectionStart;
+        var panData = adapter.PanManager.CurrentPanData;
+        if (cursorPos >= 0 && cursorPos < panData.frequencies.Length)
+        {
+            double freq = panData.frequencies[cursorPos];
+            if (freq > 0)
+                adapter.PanManager.gotoFreq(freq);
         }
     }
 
@@ -1354,7 +1510,7 @@ public partial class MainWindow : UserControl
     /// </summary>
     public void SetupOperationsMenu()
     {
-        // Phase 9.5+: Rebuild Operations menu via MenuBuilder
+        // Phase 9.5+: Rebuild Operations menu via MenuStripBuilder
         Tracing.TraceLine("MainWindow.SetupOperationsMenu: stub — wiring in Phase 9.5", TraceLevel.Info);
     }
 

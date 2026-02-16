@@ -247,6 +247,17 @@ public partial class FrequencyDisplay : UserControl
         }
     }
 
+    /// <summary>
+    /// Suppress all direct text input — content is managed by field handlers.
+    /// The TextBox is non-readonly so it can receive focus and cursor positioning,
+    /// but typed characters go to the handler (e.g. digit entry in frequency field)
+    /// instead of modifying the text directly.
+    /// </summary>
+    private void DisplayBox_PreviewTextInput(object sender, System.Windows.Input.TextCompositionEventArgs e)
+    {
+        e.Handled = true;
+    }
+
     #endregion
 
     #region Selection Helpers

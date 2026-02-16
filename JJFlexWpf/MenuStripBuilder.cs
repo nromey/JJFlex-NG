@@ -1,104 +1,90 @@
 using System;
 using System.Diagnostics;
-using System.Windows;
-using System.Windows.Automation;
-using System.Windows.Controls;
 using JJTrace;
+using WinForms = System.Windows.Forms;
 
 namespace JJFlexWpf;
 
 /// <summary>
-/// Builds all three menu sets for MainWindow: Classic, Modern, and Logging.
-/// Replaces Form1.Designer.vb MenuStrip1 + Form1.vb BuildModernMenus()/BuildLoggingMenus().
-///
-/// Design:
-/// - Each menu set is a collection of top-level MenuItems
-/// - Mode switching shows/hides top-level items via Visibility
-/// - Help menu is shared across all modes (always visible)
-/// - Stub items ("coming soon") remain enabled for screen reader access
-///
-/// Sprint 8 Phase 8.5.
+/// Builds all three WinForms menu sets for ShellForm: Classic, Modern, and Logging.
+/// Replaces WPF MenuBuilder — native Win32 HMENU menus work correctly with JAWS/NVDA.
+/// Sprint 12 Phase 12.2.
 /// </summary>
-public class MenuBuilder
+public class MenuStripBuilder
 {
     private readonly MainWindow _window;
 
     // === Shared ===
-    public MenuItem HelpMenu { get; private set; } = null!;
+    public WinForms.ToolStripMenuItem HelpMenu { get; private set; } = null!;
 
     // === Classic Mode Top-Level Menus ===
-    public MenuItem ClassicActionsMenu { get; private set; } = null!;
-    public MenuItem ClassicScreenFieldsMenu { get; private set; } = null!;
-    public MenuItem ClassicOperationsMenu { get; private set; } = null!;
+    public WinForms.ToolStripMenuItem ClassicActionsMenu { get; private set; } = null!;
+    public WinForms.ToolStripMenuItem ClassicScreenFieldsMenu { get; private set; } = null!;
+    public WinForms.ToolStripMenuItem ClassicOperationsMenu { get; private set; } = null!;
 
     // === Modern Mode Top-Level Menus ===
-    public MenuItem ModernRadioMenu { get; private set; } = null!;
-    public MenuItem ModernSliceMenu { get; private set; } = null!;
-    public MenuItem ModernFilterMenu { get; private set; } = null!;
-    public MenuItem ModernAudioMenu { get; private set; } = null!;
-    public MenuItem ModernToolsMenu { get; private set; } = null!;
+    public WinForms.ToolStripMenuItem ModernRadioMenu { get; private set; } = null!;
+    public WinForms.ToolStripMenuItem ModernSliceMenu { get; private set; } = null!;
+    public WinForms.ToolStripMenuItem ModernFilterMenu { get; private set; } = null!;
+    public WinForms.ToolStripMenuItem ModernAudioMenu { get; private set; } = null!;
+    public WinForms.ToolStripMenuItem ModernToolsMenu { get; private set; } = null!;
 
     // === Logging Mode Top-Level Menus ===
-    public MenuItem LoggingLogMenu { get; private set; } = null!;
-    public MenuItem LoggingNavigateMenu { get; private set; } = null!;
-    public MenuItem LoggingModeMenu { get; private set; } = null!;
+    public WinForms.ToolStripMenuItem LoggingLogMenu { get; private set; } = null!;
+    public WinForms.ToolStripMenuItem LoggingNavigateMenu { get; private set; } = null!;
+    public WinForms.ToolStripMenuItem LoggingModeMenu { get; private set; } = null!;
 
-    // === Feature-gated items (updated by UpdateAdvancedFeatureMenus) ===
-    public MenuItem? DiversityMenuItem { get; private set; }
-    public MenuItem? EscMenuItem { get; private set; }
+    // === Feature-gated items ===
+    public WinForms.ToolStripMenuItem? DiversityMenuItem { get; private set; }
+    public WinForms.ToolStripMenuItem? EscMenuItem { get; private set; }
 
-    public MenuBuilder(MainWindow window)
+    public MenuStripBuilder(MainWindow window)
     {
         _window = window;
     }
 
     /// <summary>
-    /// Build all three menu sets and populate the MainMenu control.
-    /// Call once during MainWindow_Loaded.
+    /// Build all three menu sets and populate the MenuStrip control.
     /// </summary>
-    public void BuildAllMenus(Menu mainMenu)
+    public void BuildAllMenus(WinForms.MenuStrip menuStrip)
     {
-        Tracing.TraceLine("MenuBuilder.BuildAllMenus: starting", TraceLevel.Info);
+        Tracing.TraceLine("MenuStripBuilder.BuildAllMenus: starting", TraceLevel.Info);
 
-        mainMenu.Items.Clear();
+        menuStrip.Items.Clear();
 
-        // Build each menu set
         BuildClassicMenus();
         BuildModernMenus();
         BuildLoggingMenus();
         BuildHelpMenu();
 
-        // Add all to the Menu control (visibility toggled per mode)
-        mainMenu.Items.Add(ClassicActionsMenu);
-        mainMenu.Items.Add(ClassicScreenFieldsMenu);
-        mainMenu.Items.Add(ClassicOperationsMenu);
+        menuStrip.Items.Add(ClassicActionsMenu);
+        menuStrip.Items.Add(ClassicScreenFieldsMenu);
+        menuStrip.Items.Add(ClassicOperationsMenu);
 
-        mainMenu.Items.Add(ModernRadioMenu);
-        mainMenu.Items.Add(ModernSliceMenu);
-        mainMenu.Items.Add(ModernFilterMenu);
-        mainMenu.Items.Add(ModernAudioMenu);
-        mainMenu.Items.Add(ModernToolsMenu);
+        menuStrip.Items.Add(ModernRadioMenu);
+        menuStrip.Items.Add(ModernSliceMenu);
+        menuStrip.Items.Add(ModernFilterMenu);
+        menuStrip.Items.Add(ModernAudioMenu);
+        menuStrip.Items.Add(ModernToolsMenu);
 
-        mainMenu.Items.Add(LoggingLogMenu);
-        mainMenu.Items.Add(LoggingNavigateMenu);
-        mainMenu.Items.Add(LoggingModeMenu);
+        menuStrip.Items.Add(LoggingLogMenu);
+        menuStrip.Items.Add(LoggingNavigateMenu);
+        menuStrip.Items.Add(LoggingModeMenu);
 
-        // Help is always last and always visible
-        mainMenu.Items.Add(HelpMenu);
+        menuStrip.Items.Add(HelpMenu);
 
         // Start with all hidden — ApplyUIMode will show the correct set
         SetClassicMenusVisible(false);
         SetModernMenusVisible(false);
         SetLoggingMenusVisible(false);
 
-        Tracing.TraceLine("MenuBuilder.BuildAllMenus: complete", TraceLevel.Info);
+        Tracing.TraceLine("MenuStripBuilder.BuildAllMenus: complete", TraceLevel.Info);
     }
 
     #region Classic Menus
 
     private void BuildClassicMenus()
     {
-        // === ACTIONS ===
         ClassicActionsMenu = CreateMenu("Actions");
 
         AddItem(ClassicActionsMenu, "List Operators", OnNotImplemented);
@@ -109,7 +95,6 @@ public class MenuBuilder
         AddItem(ClassicActionsMenu, "Flex Knob Config", OnNotImplemented);
         AddItem(ClassicActionsMenu, "W2 Wattmeter", OnNotImplemented);
 
-        // Logging submenu
         var loggingSub = CreateSubmenu(ClassicActionsMenu, "Logging");
         AddItem(loggingSub, "Log Characteristics", OnNotImplemented);
         AddItem(loggingSub, "Import Log", OnNotImplemented);
@@ -119,34 +104,30 @@ public class MenuBuilder
         AddItem(ClassicActionsMenu, "Export Setup", OnNotImplemented);
         AddItem(ClassicActionsMenu, "Show Bands and Frequencies", OnNotImplemented);
 
-        ClassicActionsMenu.Items.Add(new Separator());
+        ClassicActionsMenu.DropDownItems.Add(new WinForms.ToolStripSeparator());
 
         DiversityMenuItem = AddItem(ClassicActionsMenu, "Toggle Diversity", OnNotImplemented);
-        DiversityMenuItem.Visibility = Visibility.Collapsed; // Feature-gated
+        DiversityMenuItem.Visible = false;
         EscMenuItem = AddItem(ClassicActionsMenu, "Open ESC Controls", OnNotImplemented);
-        EscMenuItem.Visibility = Visibility.Collapsed; // Feature-gated
+        EscMenuItem.Visible = false;
         AddItem(ClassicActionsMenu, "Feature Availability", OnNotImplemented);
 
-        ClassicActionsMenu.Items.Add(new Separator());
+        ClassicActionsMenu.DropDownItems.Add(new WinForms.ToolStripSeparator());
 
         AddItem(ClassicActionsMenu, "Manage CW Messages", OnNotImplemented);
         AddItem(ClassicActionsMenu, "Change Key Mapping", OnNotImplemented);
         AddItem(ClassicActionsMenu, "Restore Default Key Mapping", OnNotImplemented);
         AddItem(ClassicActionsMenu, "Show All Messages", OnNotImplemented);
 
-        ClassicActionsMenu.Items.Add(new Separator());
+        ClassicActionsMenu.DropDownItems.Add(new WinForms.ToolStripSeparator());
 
         AddItem(ClassicActionsMenu, "Toggle Screen Saver", OnNotImplemented);
         AddItem(ClassicActionsMenu, "Exit", (_, _) => _window.CloseShellCallback?.Invoke());
 
-        // === SCREENFIELDS ===
         ClassicScreenFieldsMenu = CreateMenu("ScreenFields");
-        // Dynamic content — populated when radio connects (Phase 8.7+)
         AddStubItem(ClassicScreenFieldsMenu, "Connect a radio to see DSP controls");
 
-        // === OPERATIONS ===
         ClassicOperationsMenu = CreateMenu("Operations");
-        // Dynamic content — populated from KeyCommands (Phase 8.6+)
         AddStubItem(ClassicOperationsMenu, "Connect a radio to see operations");
     }
 
@@ -156,7 +137,6 @@ public class MenuBuilder
 
     private void BuildModernMenus()
     {
-        // === RADIO ===
         ModernRadioMenu = CreateMenu("Radio");
 
         AddItem(ModernRadioMenu, "Connect to Radio", OnNotImplemented);
@@ -164,11 +144,10 @@ public class MenuBuilder
         AddItem(ModernRadioMenu, "Operators", OnNotImplemented);
         AddItem(ModernRadioMenu, "Profiles", OnNotImplemented);
         AddItem(ModernRadioMenu, "Connected Stations", OnNotImplemented);
-        ModernRadioMenu.Items.Add(new Separator());
+        ModernRadioMenu.DropDownItems.Add(new WinForms.ToolStripSeparator());
         AddItem(ModernRadioMenu, "Disconnect", OnNotImplemented);
         AddItem(ModernRadioMenu, "Exit", (_, _) => _window.CloseShellCallback?.Invoke());
 
-        // === SLICE ===
         ModernSliceMenu = CreateMenu("Slice");
 
         var selSub = CreateSubmenu(ModernSliceMenu, "Selection");
@@ -233,7 +212,6 @@ public class MenuBuilder
         AddStubItem(fmSub, "Pre-De-Emphasis");
         AddStubItem(fmSub, "Tone");
 
-        // === FILTER ===
         ModernFilterMenu = CreateMenu("Filter");
         AddItem(ModernFilterMenu, "Narrow", OnNotImplemented);
         AddItem(ModernFilterMenu, "Widen", OnNotImplemented);
@@ -242,7 +220,6 @@ public class MenuBuilder
         AddStubItem(ModernFilterMenu, "Presets");
         AddStubItem(ModernFilterMenu, "Reset Filter");
 
-        // === AUDIO ===
         ModernAudioMenu = CreateMenu("Audio");
         AddStubItem(ModernAudioMenu, "PC Audio Boost");
         AddStubItem(ModernAudioMenu, "Local Audio");
@@ -250,24 +227,15 @@ public class MenuBuilder
         AddStubItem(ModernAudioMenu, "Record/Playback");
         AddStubItem(ModernAudioMenu, "Route/DAX");
 
-        // === TOOLS ===
         ModernToolsMenu = CreateMenu("Tools");
         AddItem(ModernToolsMenu, "Command Finder", OnNotImplemented);
         AddStubItem(ModernToolsMenu, "Speak Status");
         AddStubItem(ModernToolsMenu, "Status Dialog");
         AddItem(ModernToolsMenu, "Station Lookup", OnNotImplemented);
-        ModernToolsMenu.Items.Add(new Separator());
-        AddItem(ModernToolsMenu, "Enter Logging Mode", (_, _) =>
-        {
-            // Phase 8.8: _window.EnterLoggingMode()
-            Radios.ScreenReaderOutput.Speak("Logging mode not yet available");
-        });
-        AddItem(ModernToolsMenu, "Switch to Classic UI", (_, _) =>
-        {
-            // Phase 8.6: _window.ToggleUIMode()
-            Radios.ScreenReaderOutput.Speak("Mode switching not yet available");
-        });
-        ModernToolsMenu.Items.Add(new Separator());
+        ModernToolsMenu.DropDownItems.Add(new WinForms.ToolStripSeparator());
+        AddItem(ModernToolsMenu, "Enter Logging Mode", (_, _) => _window.EnterLoggingMode());
+        AddItem(ModernToolsMenu, "Switch to Classic UI", (_, _) => _window.ToggleUIMode());
+        ModernToolsMenu.DropDownItems.Add(new WinForms.ToolStripSeparator());
         AddItem(ModernToolsMenu, "Hotkey Editor", OnNotImplemented);
         AddItem(ModernToolsMenu, "Band Plans", OnNotImplemented);
         AddItem(ModernToolsMenu, "Feature Availability", OnNotImplemented);
@@ -279,46 +247,43 @@ public class MenuBuilder
 
     private void BuildLoggingMenus()
     {
-        // === LOG ===
         LoggingLogMenu = CreateMenu("Log");
         AddItem(LoggingLogMenu, "New Entry", OnNotImplemented);
         AddItem(LoggingLogMenu, "Write Entry", OnNotImplemented);
         AddItem(LoggingLogMenu, "Search Log", OnNotImplemented);
         AddItem(LoggingLogMenu, "Full Log Form", OnNotImplemented);
-        LoggingLogMenu.Items.Add(new Separator());
+        LoggingLogMenu.DropDownItems.Add(new WinForms.ToolStripSeparator());
         AddItem(LoggingLogMenu, "Log Characteristics", OnNotImplemented);
         AddItem(LoggingLogMenu, "Import Log", OnNotImplemented);
         AddItem(LoggingLogMenu, "Export Log", OnNotImplemented);
         AddItem(LoggingLogMenu, "LOTW Merge", OnNotImplemented);
-        LoggingLogMenu.Items.Add(new Separator());
+        LoggingLogMenu.DropDownItems.Add(new WinForms.ToolStripSeparator());
         AddItem(LoggingLogMenu, "Log Statistics", OnNotImplemented);
-        LoggingLogMenu.Items.Add(new Separator());
+        LoggingLogMenu.DropDownItems.Add(new WinForms.ToolStripSeparator());
         AddItem(LoggingLogMenu, "Reset Confirmations", OnNotImplemented);
 
-        // === NAVIGATE ===
         LoggingNavigateMenu = CreateMenu("Navigate");
         AddStubItem(LoggingNavigateMenu, "First Entry");
         AddStubItem(LoggingNavigateMenu, "Previous Entry");
         AddStubItem(LoggingNavigateMenu, "Next Entry");
         AddStubItem(LoggingNavigateMenu, "Last Entry");
 
-        // === MODE ===
         LoggingModeMenu = CreateMenu("Mode");
         AddItem(LoggingModeMenu, "Switch to Classic", (_, _) =>
         {
-            // Phase 8.8: _window.ExitLoggingMode() → Classic
-            Radios.ScreenReaderOutput.Speak("Mode switching not yet available");
+            _window.LastNonLogMode = MainWindow.UIMode.Classic;
+            _window.ExitLoggingMode();
         });
         AddItem(LoggingModeMenu, "Switch to Modern", (_, _) =>
         {
-            // Phase 8.8: _window.ExitLoggingMode() → Modern
-            Radios.ScreenReaderOutput.Speak("Mode switching not yet available");
+            _window.LastNonLogMode = MainWindow.UIMode.Modern;
+            _window.ExitLoggingMode();
         });
     }
 
     #endregion
 
-    #region Help Menu (shared)
+    #region Help Menu
 
     private void BuildHelpMenu()
     {
@@ -336,103 +301,98 @@ public class MenuBuilder
     #region Mode Switching
 
     /// <summary>
-    /// Show Classic menus, hide Modern and Logging.
+    /// Apply UI mode — called by MainWindow.MenuModeCallback.
     /// </summary>
+    public void ApplyUIMode(MainWindow.UIMode mode)
+    {
+        switch (mode)
+        {
+            case MainWindow.UIMode.Classic:
+                SetClassicMenusVisible(true);
+                SetModernMenusVisible(false);
+                SetLoggingMenusVisible(false);
+                break;
+            case MainWindow.UIMode.Modern:
+                SetClassicMenusVisible(false);
+                SetModernMenusVisible(true);
+                SetLoggingMenusVisible(false);
+                break;
+            case MainWindow.UIMode.Logging:
+                SetClassicMenusVisible(false);
+                SetModernMenusVisible(false);
+                SetLoggingMenusVisible(true);
+                break;
+        }
+    }
+
     public void SetClassicMenusVisible(bool visible)
     {
-        var vis = visible ? Visibility.Visible : Visibility.Collapsed;
-        ClassicActionsMenu.Visibility = vis;
-        ClassicScreenFieldsMenu.Visibility = vis;
-        ClassicOperationsMenu.Visibility = vis;
+        ClassicActionsMenu.Visible = visible;
+        ClassicScreenFieldsMenu.Visible = visible;
+        ClassicOperationsMenu.Visible = visible;
     }
 
-    /// <summary>
-    /// Show Modern menus, hide Classic and Logging.
-    /// </summary>
     public void SetModernMenusVisible(bool visible)
     {
-        var vis = visible ? Visibility.Visible : Visibility.Collapsed;
-        ModernRadioMenu.Visibility = vis;
-        ModernSliceMenu.Visibility = vis;
-        ModernFilterMenu.Visibility = vis;
-        ModernAudioMenu.Visibility = vis;
-        ModernToolsMenu.Visibility = vis;
+        ModernRadioMenu.Visible = visible;
+        ModernSliceMenu.Visible = visible;
+        ModernFilterMenu.Visible = visible;
+        ModernAudioMenu.Visible = visible;
+        ModernToolsMenu.Visible = visible;
     }
 
-    /// <summary>
-    /// Show Logging menus, hide Classic and Modern.
-    /// </summary>
     public void SetLoggingMenusVisible(bool visible)
     {
-        var vis = visible ? Visibility.Visible : Visibility.Collapsed;
-        LoggingLogMenu.Visibility = vis;
-        LoggingNavigateMenu.Visibility = vis;
-        LoggingModeMenu.Visibility = vis;
+        LoggingLogMenu.Visible = visible;
+        LoggingNavigateMenu.Visible = visible;
+        LoggingModeMenu.Visible = visible;
     }
 
     #endregion
 
     #region Helpers
 
-    /// <summary>
-    /// Create a top-level menu item.
-    /// </summary>
-    private static MenuItem CreateMenu(string header)
+    private static WinForms.ToolStripMenuItem CreateMenu(string text)
     {
-        var menu = new MenuItem { Header = header };
-        AutomationProperties.SetName(menu, header);
+        var menu = new WinForms.ToolStripMenuItem(text);
+        menu.AccessibleName = text;
         return menu;
     }
 
-    /// <summary>
-    /// Create a submenu (folder) under a parent.
-    /// </summary>
-    private static MenuItem CreateSubmenu(MenuItem parent, string header)
+    private static WinForms.ToolStripMenuItem CreateSubmenu(WinForms.ToolStripMenuItem parent, string text)
     {
-        var sub = new MenuItem { Header = header };
-        AutomationProperties.SetName(sub, header);
-        parent.Items.Add(sub);
+        var sub = new WinForms.ToolStripMenuItem(text);
+        sub.AccessibleName = text;
+        parent.DropDownItems.Add(sub);
         return sub;
     }
 
-    /// <summary>
-    /// Add a menu item with a click handler.
-    /// </summary>
-    private static MenuItem AddItem(MenuItem parent, string header, RoutedEventHandler handler)
+    private static WinForms.ToolStripMenuItem AddItem(WinForms.ToolStripMenuItem parent, string text, EventHandler handler)
     {
-        var item = new MenuItem { Header = header };
-        AutomationProperties.SetName(item, header);
+        var item = new WinForms.ToolStripMenuItem(text);
+        item.AccessibleName = text;
         item.Click += handler;
-        parent.Items.Add(item);
+        parent.DropDownItems.Add(item);
         return item;
     }
 
-    /// <summary>
-    /// Add a stub item ("coming soon") that remains enabled for screen reader access.
-    /// Matches Form1.AddModernStubItem pattern.
-    /// </summary>
-    private static MenuItem AddStubItem(MenuItem parent, string header)
+    private static WinForms.ToolStripMenuItem AddStubItem(WinForms.ToolStripMenuItem parent, string text)
     {
-        var item = new MenuItem { Header = $"{header} - coming soon" };
-        AutomationProperties.SetName(item, $"{header}, coming soon");
-        AutomationProperties.SetHelpText(item, "Coming soon. Use Classic mode for full features.");
+        var item = new WinForms.ToolStripMenuItem($"{text} - coming soon");
+        item.AccessibleName = $"{text}, coming soon";
         item.Click += (_, _) =>
         {
-            Radios.ScreenReaderOutput.Speak($"{header}, coming soon. Use Classic mode for full features.");
+            Radios.ScreenReaderOutput.Speak($"{text}, coming soon. Use Classic mode for full features.");
         };
-        parent.Items.Add(item);
+        parent.DropDownItems.Add(item);
         return item;
     }
 
-    /// <summary>
-    /// Placeholder handler for menu items not yet wired to rig commands.
-    /// Phase 8.4+ will replace these with real handlers.
-    /// </summary>
-    private static void OnNotImplemented(object sender, RoutedEventArgs e)
+    private static void OnNotImplemented(object? sender, EventArgs e)
     {
-        if (sender is MenuItem mi)
+        if (sender is WinForms.ToolStripMenuItem mi)
         {
-            string name = mi.Header?.ToString() ?? "Unknown";
+            string name = mi.Text ?? "Unknown";
             Tracing.TraceLine($"Menu: {name} (not yet wired)", TraceLevel.Info);
             Radios.ScreenReaderOutput.Speak($"{name}, not yet connected to radio");
         }
