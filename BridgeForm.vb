@@ -10,16 +10,21 @@ Imports System.Windows.Forms.Integration
 '''   - Screen reader bridging (UI Automation ↔ MSAA)
 '''   - Focus management between WinForms and WPF
 '''
-''' The previous architecture (invisible BridgeForm + standalone WPF Window) failed
-''' because the WinForms message pump ate all keyboard input. ElementHost is the
-''' supported bridge for WPF-in-WinForms keyboard interop.
+''' The menu bar is a native Win32 HMENU (via NativeMenuBar P/Invoke), NOT a
+''' WinForms MenuStrip. Native menus use ROLE_SYSTEM_MENUBAR / ROLE_SYSTEM_MENUITEM
+''' so JAWS/NVDA navigate them correctly without "collapsed/expanded" noise.
+''' Windows handles Alt/F10 → menu activation automatically via DefWindowProc.
 ''' </summary>
 Public Class ShellForm
     Inherits System.Windows.Forms.Form
 
     Private _elementHost As ElementHost
     Friend WpfContent As JJFlexWpf.MainWindow
-    Friend _menuStrip As MenuStrip
+    Private _nativeMenu As JJFlexWpf.NativeMenuBar
+
+    Private Const WM_ENTERMENULOOP As Integer = &H211
+    Private Const WM_EXITMENULOOP As Integer = &H212
+    Private _inNativeMenuLoop As Boolean = False
 
     Public Sub New()
         Me.Text = "JJFlexRadio"
@@ -28,13 +33,8 @@ Public Class ShellForm
         Me.MinimumSize = New System.Drawing.Size(640, 400)
         Me.StartPosition = FormStartPosition.CenterScreen
 
-        ' Create MenuStrip BEFORE ElementHost — DockPanel layout: Menu top, WPF fills rest
-        _menuStrip = New MenuStrip()
-        _menuStrip.Dock = DockStyle.Top
-        Me.MainMenuStrip = _menuStrip
-        Me.Controls.Add(_menuStrip)
-
-        ' Create ElementHost filling the remaining space
+        ' Create ElementHost filling the entire client area
+        ' (native HMENU lives in the non-client area, doesn't need DockPanel space)
         _elementHost = New ElementHost()
         _elementHost.Dock = DockStyle.Fill
         Me.Controls.Add(_elementHost)
@@ -43,10 +43,15 @@ Public Class ShellForm
         WpfContent = New JJFlexWpf.MainWindow()
         _elementHost.Child = WpfContent
 
-        ' Build WinForms menus from MenuStripBuilder
-        Dim menuBuilder As New JJFlexWpf.MenuStripBuilder(WpfContent)
-        menuBuilder.BuildAllMenus(_menuStrip)
-        WpfContent.MenuModeCallback = Sub(mode) menuBuilder.ApplyUIMode(mode)
+        ' Build native Win32 menus (attached to HWND in HandleCreated)
+        _nativeMenu = New JJFlexWpf.NativeMenuBar(WpfContent)
+        WpfContent.MenuModeCallback = Sub(mode) _nativeMenu.ApplyUIMode(mode)
+    End Sub
+
+    Protected Overrides Sub OnHandleCreated(e As EventArgs)
+        MyBase.OnHandleCreated(e)
+        ' Now that we have an HWND, attach the native menu bar
+        _nativeMenu.AttachTo(Me.Handle)
     End Sub
 
     Protected Overrides Sub OnShown(e As EventArgs)
@@ -57,7 +62,7 @@ Public Class ShellForm
     End Sub
 
     ''' <summary>
-    ''' Route keys through DoCommandHandler BEFORE MenuStrip processes them.
+    ''' Route keys through DoCommandHandler BEFORE native menu processes them.
     ''' This preserves Sprint 6 BUG-010 fix: Alt+Letter hotkeys in Logging Mode
     ''' go to DoCommand, not to the menu bar.
     ''' </summary>
@@ -71,12 +76,42 @@ Public Class ShellForm
         Return MyBase.ProcessCmdKey(msg, keyData)
     End Function
 
+    ''' <summary>
+    ''' Handle WM_COMMAND from native Win32 menus, and return focus to WPF
+    ''' content when the menu loop exits (Escape or item selected).
+    ''' </summary>
+    Protected Overrides Sub WndProc(ByRef m As Message)
+        ' Track native menu loop entry/exit for safe focus return
+        If m.Msg = WM_ENTERMENULOOP Then
+            _inNativeMenuLoop = True
+        End If
+
+        If m.Msg = WM_EXITMENULOOP AndAlso _inNativeMenuLoop Then
+            _inNativeMenuLoop = False
+            MyBase.WndProc(m)
+            ' Defer focus restore so it doesn't re-enter during WndProc processing
+            BeginInvoke(Sub() _elementHost?.Focus())
+            Return
+        End If
+
+        ' WM_COMMAND with LParam=0 means it's from a menu (not a control notification)
+        If m.Msg = JJFlexWpf.NativeMenuBar.WM_COMMAND AndAlso m.LParam = IntPtr.Zero Then
+            If _nativeMenu IsNot Nothing AndAlso _nativeMenu.HandleWmCommand(m.WParam) Then
+                Return
+            End If
+        End If
+
+        MyBase.WndProc(m)
+    End Sub
+
     Protected Overrides Sub OnFormClosing(e As FormClosingEventArgs)
         ' Delegate close decision to WPF content (which calls VB-side ExitApplication)
         If Not WpfContent.RequestShutdown() Then
             e.Cancel = True
             Return
         End If
+
+        _nativeMenu?.Dispose()
         MyBase.OnFormClosing(e)
     End Sub
 End Class

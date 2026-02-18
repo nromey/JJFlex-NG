@@ -40,6 +40,18 @@ public partial class FrequencyDisplay : UserControl
         public string RightDelim { get; }
         public FieldHandlerDelegate? Handler { get; set; }
 
+        /// <summary>
+        /// Human-readable label for screen reader announcements (e.g. "Frequency", "Slice 0").
+        /// Falls back to Key if not set.
+        /// </summary>
+        public string? Label { get; set; }
+
+        /// <summary>
+        /// Default cursor offset within the field when navigating to it.
+        /// Used to set a reasonable tune step (e.g. position 8 in Freq = 1 kHz step).
+        /// </summary>
+        public int DefaultCursorOffset { get; set; }
+
         internal string Text { get; set; } = "";
         internal int Position { get; set; }
 
@@ -236,10 +248,36 @@ public partial class FrequencyDisplay : UserControl
 
     /// <summary>
     /// Route keyboard events to the field under the cursor.
-    /// Mirrors RadioBoxes.MainBox keyboard handling.
+    /// Left/Right navigate between fields with screen reader announcements.
+    /// Other keys route to field-specific handlers.
     /// </summary>
     private void DisplayBox_PreviewKeyDown(object sender, KeyEventArgs e)
     {
+        // Left/Right: jump between fields (fixes "space space space" screen reader issue)
+        if (e.Key == Key.Left || e.Key == Key.Right)
+        {
+            NavigateToAdjacentField(e.Key == Key.Right ? 1 : -1);
+            e.Handled = true;
+            return;
+        }
+
+        // Home/End: jump to first/last field
+        if (e.Key == Key.Home)
+        {
+            if (_fields.Length > 0)
+                NavigateToField(_fields[0]);
+            e.Handled = true;
+            return;
+        }
+        if (e.Key == Key.End)
+        {
+            if (_fields.Length > 0)
+                NavigateToField(_fields[_fields.Length - 1]);
+            e.Handled = true;
+            return;
+        }
+
+        // All other keys: route to field handler
         var field = PositionToField(DisplayBox.SelectionStart);
         if (field != null)
         {
@@ -256,6 +294,78 @@ public partial class FrequencyDisplay : UserControl
     private void DisplayBox_PreviewTextInput(object sender, System.Windows.Input.TextCompositionEventArgs e)
     {
         e.Handled = true;
+    }
+
+    #endregion
+
+    #region Field Navigation
+
+    /// <summary>
+    /// Find the index of the field at the given cursor position.
+    /// Returns -1 if position is not within any field.
+    /// </summary>
+    private int FieldIndexAtPosition(int position)
+    {
+        for (int i = 0; i < _fields.Length; i++)
+        {
+            int fieldStart = _fields[i].Position + _fields[i].LeftDelim.Length;
+            int fieldEnd = fieldStart + _fields[i].Length;
+            if (position >= fieldStart && position < fieldEnd)
+                return i;
+        }
+
+        // In a delimiter or past end — find nearest field
+        int best = 0;
+        int bestDist = int.MaxValue;
+        for (int i = 0; i < _fields.Length; i++)
+        {
+            int mid = _fields[i].Position + _fields[i].LeftDelim.Length + _fields[i].Length / 2;
+            int dist = System.Math.Abs(position - mid);
+            if (dist < bestDist) { bestDist = dist; best = i; }
+        }
+        return best;
+    }
+
+    /// <summary>
+    /// Navigate to the adjacent field in the given direction (+1 = right, -1 = left).
+    /// Announces the new field for screen reader users.
+    /// </summary>
+    private void NavigateToAdjacentField(int direction)
+    {
+        if (_fields.Length == 0) return;
+
+        int currentIndex = FieldIndexAtPosition(DisplayBox.SelectionStart);
+        int newIndex = currentIndex + direction;
+
+        // Clamp to valid range
+        if (newIndex < 0) newIndex = 0;
+        if (newIndex >= _fields.Length) newIndex = _fields.Length - 1;
+
+        NavigateToField(_fields[newIndex]);
+    }
+
+    /// <summary>
+    /// Move cursor to the given field and announce it for the screen reader.
+    /// </summary>
+    private void NavigateToField(DisplayField field)
+    {
+        int fieldStart = field.Position + field.LeftDelim.Length;
+        int offset = System.Math.Min(field.DefaultCursorOffset, field.Length - 1);
+        DisplayBox.SelectionStart = fieldStart + offset;
+        AnnounceField(field);
+    }
+
+    /// <summary>
+    /// Announce a field's name and value via the screen reader.
+    /// </summary>
+    private static void AnnounceField(DisplayField field)
+    {
+        string label = field.Label ?? field.Key;
+        string value = field.Text.Trim();
+        if (string.IsNullOrEmpty(value))
+            Radios.ScreenReaderOutput.Speak(label);
+        else
+            Radios.ScreenReaderOutput.Speak($"{label} {value}");
     }
 
     #endregion

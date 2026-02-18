@@ -136,10 +136,13 @@ namespace Radios
         /// </summary>
         public void RemoteRadios()
         {
-            Tracing.TraceLine("RemoteRadios", TraceLevel.Info);
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            Tracing.TraceLine("RemoteRadios: BEGIN", TraceLevel.Info);
             apiInit(); // don't force the init.
+            Tracing.TraceLine($"RemoteRadios: apiInit done ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
             bool stat = setupRemote();
-            Tracing.TraceLine("RemoteRadios setupRemote:" + stat.ToString(), TraceLevel.Info);
+            sw.Stop();
+            Tracing.TraceLine($"RemoteRadios: END setupRemote={stat} (total {sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
         }
 
         internal Radio theRadio;
@@ -246,13 +249,14 @@ namespace Radios
         /// <returns>True if connection succeeded, false otherwise</returns>
         public bool TryAutoConnect(AutoConnectConfig config, int timeoutMs = 10000)
         {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
             if (config == null || !config.ShouldAutoConnect)
             {
                 Tracing.TraceLine("TryAutoConnect: no config or not enabled", TraceLevel.Info);
                 return false;
             }
 
-            Tracing.TraceLine($"TryAutoConnect: {config.RadioName} ({config.RadioSerial}), remote={config.IsRemote}", TraceLevel.Info);
+            Tracing.TraceLine($"TryAutoConnect: BEGIN {config.RadioName} ({config.RadioSerial}), remote={config.IsRemote}, timeout={timeoutMs}ms", TraceLevel.Info);
             ScreenReaderOutput.Speak($"Connecting to {config.RadioName}", true);
 
             try
@@ -260,18 +264,23 @@ namespace Radios
                 if (config.IsRemote)
                 {
                     // Remote radio - need to authenticate first
+                    Tracing.TraceLine($"TryAutoConnect: calling TryAutoConnectRemote ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
                     if (!TryAutoConnectRemote(config, timeoutMs))
                     {
+                        Tracing.TraceLine($"TryAutoConnect: TryAutoConnectRemote FAILED ({sw.ElapsedMilliseconds}ms)", TraceLevel.Error);
                         return false;
                     }
+                    Tracing.TraceLine($"TryAutoConnect: TryAutoConnectRemote succeeded ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
                 }
                 else
                 {
                     // Local radio - just start discovery
+                    Tracing.TraceLine($"TryAutoConnect: starting local discovery ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
                     LocalRadios();
                 }
 
                 // Wait for the radio to be discovered
+                Tracing.TraceLine($"TryAutoConnect: waiting for radio serial {config.RadioSerial} in myRadioList ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
                 var startTime = DateTime.Now;
                 Radio foundRadio = null;
 
@@ -287,7 +296,7 @@ namespace Radios
 
                 if (foundRadio == null)
                 {
-                    Tracing.TraceLine($"TryAutoConnect: radio serial {config.RadioSerial} not found within {timeoutMs}ms timeout. myRadioList has {myRadioList.Count} radios.", TraceLevel.Warning);
+                    Tracing.TraceLine($"TryAutoConnect: radio serial {config.RadioSerial} NOT FOUND within {timeoutMs}ms. myRadioList has {myRadioList.Count} radios ({sw.ElapsedMilliseconds}ms)", TraceLevel.Warning);
                     foreach (Radio r in myRadioList)
                     {
                         Tracing.TraceLine($"  myRadioList entry: serial={r.Serial} name={r.Nickname} status={r.Status}", TraceLevel.Info);
@@ -297,15 +306,18 @@ namespace Radios
                 }
 
                 // Connect to the radio
-                Tracing.TraceLine($"TryAutoConnect: found radio, connecting with lowBW={config.LowBandwidth}", TraceLevel.Info);
+                Tracing.TraceLine($"TryAutoConnect: FOUND radio {foundRadio.Serial} ({foundRadio.Nickname}), connecting with lowBW={config.LowBandwidth} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
                 bool connected = Connect(config.RadioSerial, config.LowBandwidth);
 
+                sw.Stop();
                 if (connected)
                 {
+                    Tracing.TraceLine($"TryAutoConnect: END connected successfully (total {sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
                     ScreenReaderOutput.Speak($"Connected to {config.RadioName}", true);
                 }
                 else
                 {
+                    Tracing.TraceLine($"TryAutoConnect: END Connect() FAILED (total {sw.ElapsedMilliseconds}ms)", TraceLevel.Error);
                     ScreenReaderOutput.Speak($"Failed to connect to {config.RadioName}", true);
                 }
 
@@ -313,7 +325,8 @@ namespace Radios
             }
             catch (Exception ex)
             {
-                Tracing.TraceLine($"TryAutoConnect exception: {ex.Message}", TraceLevel.Error);
+                sw.Stop();
+                Tracing.TraceLine($"TryAutoConnect: EXCEPTION {ex.GetType().Name}: {ex.Message} (total {sw.ElapsedMilliseconds}ms)\n{ex.StackTrace}", TraceLevel.Error);
                 return false;
             }
         }
@@ -323,30 +336,35 @@ namespace Radios
         /// </summary>
         private bool TryAutoConnectRemote(AutoConnectConfig config, int timeoutMs)
         {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            Tracing.TraceLine($"TryAutoConnectRemote: BEGIN radio={config.RadioName} serial={config.RadioSerial} email='{config.SmartLinkAccountEmail}'", TraceLevel.Info);
+
             // Find the saved SmartLink account
             var account = AccountManager.GetAccountByEmail(config.SmartLinkAccountEmail);
+            Tracing.TraceLine($"TryAutoConnectRemote: GetAccountByEmail returned {(account != null ? account.Email : "null")} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
 
             // Fallback: if email is empty in config (pre-fix configs), use the first saved account
             if (account == null && string.IsNullOrWhiteSpace(config.SmartLinkAccountEmail) && AccountManager.Accounts.Count > 0)
             {
                 account = AccountManager.Accounts[0];
                 Tracing.TraceLine($"TryAutoConnectRemote: config email was empty, falling back to first saved account: {account.Email}", TraceLevel.Info);
-                // Update config in memory so it's correct if saved later
                 config.SmartLinkAccountEmail = account.Email;
             }
 
             if (account == null)
             {
-                Tracing.TraceLine($"TryAutoConnectRemote: no saved account for '{config.SmartLinkAccountEmail}'", TraceLevel.Warning);
+                Tracing.TraceLine($"TryAutoConnectRemote: no saved account for '{config.SmartLinkAccountEmail}', aborting ({sw.ElapsedMilliseconds}ms)", TraceLevel.Warning);
                 ScreenReaderOutput.Speak("SmartLink account not found. Please log in manually.", true);
                 return false;
             }
+
+            Tracing.TraceLine($"TryAutoConnectRemote: account found: email={account.Email}, ExpiresAt={account.ExpiresAt}, hasRefreshToken={!string.IsNullOrEmpty(account.RefreshToken)}, hasIdToken={!string.IsNullOrEmpty(account.IdToken)}", TraceLevel.Info);
 
             // Always refresh the token on auto-connect startup.
             // Saved tokens may have been invalidated server-side by other login sessions.
             if (!string.IsNullOrEmpty(account.RefreshToken))
             {
-                Tracing.TraceLine("TryAutoConnectRemote: proactively refreshing token for auto-connect", TraceLevel.Info);
+                Tracing.TraceLine($"TryAutoConnectRemote: proactively refreshing token ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
 
                 bool refreshed = false;
                 try
@@ -355,55 +373,52 @@ namespace Radios
                 }
                 catch (AggregateException ex)
                 {
-                    Tracing.TraceLine($"TryAutoConnectRemote: token refresh exception: {ex.InnerException?.Message ?? ex.Message}", TraceLevel.Error);
+                    Tracing.TraceLine($"TryAutoConnectRemote: token refresh exception: {ex.InnerException?.Message ?? ex.Message} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Error);
                     refreshed = false;
                 }
 
-                if (refreshed)
-                {
-                    Tracing.TraceLine($"TryAutoConnectRemote: token refreshed successfully, new expiry: {account.ExpiresAt}", TraceLevel.Info);
-                }
-                else
-                {
-                    Tracing.TraceLine("TryAutoConnectRemote: token refresh failed, will try with existing token", TraceLevel.Warning);
-                }
+                Tracing.TraceLine($"TryAutoConnectRemote: token refresh result={refreshed}, new ExpiresAt={account.ExpiresAt} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+            }
+            else
+            {
+                Tracing.TraceLine("TryAutoConnectRemote: no refresh token, skipping refresh", TraceLevel.Warning);
             }
 
             string jwt = account.IdToken;
-
-            // Store current account for potential re-auth
             _currentAccount = account;
 
             // Check if the JWT's own exp claim has passed.
-            // Auth0's frtest tenant doesn't return a new id_token on refresh,
-            // so even after a successful refresh the saved JWT may be expired.
-            // In that case, perform a silent interactive login to get a fresh token.
-            if (string.IsNullOrEmpty(jwt) || SmartLinkAccountManager.IsJwtExpired(jwt))
+            bool isJwtExpired = string.IsNullOrEmpty(jwt) || SmartLinkAccountManager.IsJwtExpired(jwt);
+            Tracing.TraceLine($"TryAutoConnectRemote: jwt empty={string.IsNullOrEmpty(jwt)}, isJwtExpired={isJwtExpired} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+
+            if (isJwtExpired)
             {
-                Tracing.TraceLine("TryAutoConnectRemote: saved id_token JWT is expired, performing silent re-login", TraceLevel.Info);
+                Tracing.TraceLine($"TryAutoConnectRemote: JWT expired, performing silent re-login via WebView2 ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
 
                 jwt = PerformNewLogin(title: "Connecting to Radio");
+                Tracing.TraceLine($"TryAutoConnectRemote: PerformNewLogin returned jwt={(!string.IsNullOrEmpty(jwt) ? "yes" : "null/empty")} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
                 if (string.IsNullOrEmpty(jwt))
                 {
-                    Tracing.TraceLine("TryAutoConnectRemote: silent re-login failed or cancelled", TraceLevel.Error);
+                    Tracing.TraceLine($"TryAutoConnectRemote: re-login failed, aborting ({sw.ElapsedMilliseconds}ms)", TraceLevel.Error);
                     return false;
                 }
-
-                // PerformNewLogin already updates _currentAccount and saves tokens
-                Tracing.TraceLine("TryAutoConnectRemote: got fresh token from re-login", TraceLevel.Info);
             }
 
             // Connect to SmartLink server (this will trigger radio discovery)
+            Tracing.TraceLine($"TryAutoConnectRemote: calling apiInit + ConnectToSmartLink ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
             apiInit();
             bool connected = ConnectToSmartLink(jwt);
 
             if (!connected)
             {
-                Tracing.TraceLine("TryAutoConnectRemote: SmartLink connection failed", TraceLevel.Error);
+                sw.Stop();
+                Tracing.TraceLine($"TryAutoConnectRemote: SmartLink connection FAILED (total {sw.ElapsedMilliseconds}ms)", TraceLevel.Error);
                 ScreenReaderOutput.Speak("SmartLink connection failed", true);
                 return false;
             }
 
+            sw.Stop();
+            Tracing.TraceLine($"TryAutoConnectRemote: END success (total {sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
             return true;
         }
 
@@ -667,16 +682,21 @@ namespace Radios
 
         private bool setupRemote()
         {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            Tracing.TraceLine("setupRemote: BEGIN", TraceLevel.Info);
             bool rv = false;
             string jwt = null;
 
             // Check for saved accounts
             var accounts = AccountManager.Accounts;
+            Tracing.TraceLine($"setupRemote: {accounts.Count} saved account(s) ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
 
             if (accounts.Count > 0)
             {
                 // Sprint 10: Show account selector via delegate (decoupled from WinForms Form)
+                Tracing.TraceLine($"setupRemote: ShowAccountSelector delegate is {(ShowAccountSelector != null ? "WIRED" : "NULL")}", TraceLevel.Info);
                 var result = ShowAccountSelector?.Invoke(AccountManager);
+                Tracing.TraceLine($"setupRemote: ShowAccountSelector returned {(result.HasValue ? $"newLogin={result.Value.newLogin}, selected={result.Value.selected?.Email ?? "null"}, ok={result.Value.ok}" : "NULL")} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
                 if (result == null || !result.Value.ok)
                 {
                     Tracing.TraceLine("setupRemote: user cancelled account selection", TraceLevel.Info);
@@ -686,76 +706,56 @@ namespace Radios
                 if (result.Value.newLogin)
                 {
                     // User wants to log in with a new account - force Auth0 to show login page
+                    Tracing.TraceLine("setupRemote: performing new login (user requested)", TraceLevel.Info);
                     jwt = PerformNewLogin(forceNewLogin: true);
+                    Tracing.TraceLine($"setupRemote: PerformNewLogin returned jwt={(!string.IsNullOrEmpty(jwt) ? "yes" : "null/empty")} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
                 }
                 else if (result.Value.selected != null)
                 {
                     // Use saved account
                     _currentAccount = result.Value.selected;
+                    Tracing.TraceLine($"setupRemote: using saved account '{_currentAccount.Email}', calling GetJwtFromSavedAccount", TraceLevel.Info);
                     jwt = GetJwtFromSavedAccount(_currentAccount);
+                    Tracing.TraceLine($"setupRemote: GetJwtFromSavedAccount returned jwt={(!string.IsNullOrEmpty(jwt) ? "yes" : "null/empty")} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
                 }
             }
             else
             {
                 // No saved accounts - go straight to login
+                Tracing.TraceLine("setupRemote: no saved accounts, performing new login", TraceLevel.Info);
                 jwt = PerformNewLogin();
+                Tracing.TraceLine($"setupRemote: PerformNewLogin returned jwt={(!string.IsNullOrEmpty(jwt) ? "yes" : "null/empty")} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
             }
 
             if (string.IsNullOrEmpty(jwt))
             {
-                Tracing.TraceLine("setupRemote: no jwt obtained", TraceLevel.Error);
+                Tracing.TraceLine($"setupRemote: no jwt obtained, aborting ({sw.ElapsedMilliseconds}ms)", TraceLevel.Error);
                 goto setupRemoteDone;
             }
 
             // Connect to SmartLink server
+            Tracing.TraceLine($"setupRemote: calling ConnectToSmartLink ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
             rv = ConnectToSmartLink(jwt);
+            Tracing.TraceLine($"setupRemote: ConnectToSmartLink returned {rv} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
 
-            // If connection failed and we have a saved account, try refreshing the token
-            // and retrying once. The saved token may have been invalidated server-side.
-            if (!rv && _currentAccount != null && !string.IsNullOrEmpty(_currentAccount.RefreshToken))
+            // If connection failed, go straight to fresh interactive login.
+            // GetJwtFromSavedAccount already handles expired JWTs via PerformNewLogin,
+            // so if we get here, something unexpected happened (e.g., server-side invalidation).
+            // No MessageBox — just do it. The PKCE flow is fast with a cached Auth0 session.
+            if (!rv)
             {
-                Tracing.TraceLine("setupRemote: first connect failed, attempting token refresh and retry", TraceLevel.Info);
-
-                bool refreshed = false;
-                try
+                Tracing.TraceLine($"setupRemote: connect failed, performing fresh login ({sw.ElapsedMilliseconds}ms)", TraceLevel.Warning);
+                jwt = PerformNewLogin();
+                if (!string.IsNullOrEmpty(jwt))
                 {
-                    refreshed = Task.Run(() => AccountManager.RefreshTokenAsync(_currentAccount)).Result;
-                }
-                catch (AggregateException)
-                {
-                    refreshed = false;
-                }
-
-                if (refreshed)
-                {
-                    Tracing.TraceLine("setupRemote: token refreshed, retrying connection", TraceLevel.Info);
-                    rv = ConnectToSmartLink(_currentAccount.IdToken);
-                }
-
-                if (!rv)
-                {
-                    // Refresh didn't help - offer fresh login
-                    Tracing.TraceLine("setupRemote: retry failed, offering fresh login", TraceLevel.Warning);
-                    var result = MessageBox.Show(
-                        "Could not connect to SmartLink with the saved account.\n\n" +
-                        "Would you like to log in again?",
-                        "Connection Failed",
-                        MessageBoxButtons.YesNo,
-                        MessageBoxIcon.Warning,
-                        MessageBoxDefaultButton.Button1);
-
-                    if (result == DialogResult.Yes)
-                    {
-                        jwt = PerformNewLogin();
-                        if (!string.IsNullOrEmpty(jwt))
-                        {
-                            rv = ConnectToSmartLink(jwt);
-                        }
-                    }
+                    rv = ConnectToSmartLink(jwt);
+                    Tracing.TraceLine($"setupRemote: retry ConnectToSmartLink returned {rv} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
                 }
             }
 
             setupRemoteDone:
+            sw.Stop();
+            Tracing.TraceLine($"setupRemote: END result={rv} (total {sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
             return rv;
         }
 
@@ -859,52 +859,71 @@ namespace Radios
         /// </summary>
         private string GetJwtFromSavedAccount(SmartLinkAccount account)
         {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            Tracing.TraceLine($"GetJwtFromSavedAccount: BEGIN email={account.Email}, ExpiresAt={account.ExpiresAt}, now={DateTime.UtcNow}", TraceLevel.Info);
+
             // If we already have an active WAN connection, the previous JWT may have been
             // consumed by the server. Always refresh to get a fresh token for re-registration.
             bool needsRefresh = AccountManager.IsTokenExpired(account);
-            if (!needsRefresh && wan != null && wan.IsConnected)
+            bool wanActive = wan != null && wan.IsConnected;
+            Tracing.TraceLine($"GetJwtFromSavedAccount: IsTokenExpired={needsRefresh}, wanActive={wanActive}", TraceLevel.Info);
+            if (!needsRefresh && wanActive)
             {
-                Tracing.TraceLine("setupRemote: existing WAN connection detected, refreshing token for re-registration", TraceLevel.Info);
+                Tracing.TraceLine("GetJwtFromSavedAccount: existing WAN connection detected, forcing refresh for re-registration", TraceLevel.Info);
                 needsRefresh = true;
             }
 
-            // Check if token is expired or needs refresh
+            bool isJwtExpired = SmartLinkAccountManager.IsJwtExpired(account.IdToken);
+            Tracing.TraceLine($"GetJwtFromSavedAccount: needsRefresh={needsRefresh}, isJwtExpired={isJwtExpired}, hasRefreshToken={!string.IsNullOrEmpty(account.RefreshToken)}", TraceLevel.Info);
+
+            // If the JWT exp claim is expired, we MUST get a new id_token.
+            // Auth0 frtest doesn't return a new id_token on refresh, so token refresh
+            // can't fix an expired JWT — go straight to interactive login.
+            if (isJwtExpired)
+            {
+                Tracing.TraceLine($"GetJwtFromSavedAccount: JWT exp claim is expired, skipping to PerformNewLogin ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+                return PerformNewLogin();
+            }
+
+            // Check if account-level token is expired and needs refresh
             if (needsRefresh)
             {
-                Tracing.TraceLine("setupRemote: token expired, attempting refresh", TraceLevel.Info);
+                Tracing.TraceLine($"GetJwtFromSavedAccount: account token expired, attempting refresh ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
 
-                // Try to refresh - use Task.Run to avoid sync context deadlock
-                // (RefreshTokenAsync uses await internally, .Wait() on UI thread would deadlock)
                 bool refreshed = false;
                 try
                 {
                     refreshed = Task.Run(() => AccountManager.RefreshTokenAsync(account)).Result;
                 }
-                catch (AggregateException)
+                catch (AggregateException ex)
                 {
+                    Tracing.TraceLine($"GetJwtFromSavedAccount: refresh exception: {ex.InnerException?.Message ?? ex.Message}", TraceLevel.Error);
                     refreshed = false;
                 }
 
+                Tracing.TraceLine($"GetJwtFromSavedAccount: RefreshTokenAsync returned {refreshed} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+
                 if (!refreshed)
                 {
-                    Tracing.TraceLine("setupRemote: token refresh failed, need re-auth", TraceLevel.Warning);
-
-                    MessageBox.Show(
-                        "Your saved login has expired and could not be refreshed.\n\n" +
-                        "Please log in again.",
-                        "Session Expired",
-                        MessageBoxButtons.OK,
-                        MessageBoxIcon.Information);
-
-                    // Fall back to new login
+                    Tracing.TraceLine($"GetJwtFromSavedAccount: refresh failed, falling back to PerformNewLogin ({sw.ElapsedMilliseconds}ms)", TraceLevel.Warning);
                     return PerformNewLogin();
                 }
 
+                // After refresh, check if JWT is still valid
+                isJwtExpired = SmartLinkAccountManager.IsJwtExpired(account.IdToken);
+                Tracing.TraceLine($"GetJwtFromSavedAccount: after refresh, isJwtExpired={isJwtExpired} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+                if (isJwtExpired)
+                {
+                    Tracing.TraceLine($"GetJwtFromSavedAccount: JWT still expired after refresh (Auth0 frtest), falling back to PerformNewLogin ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+                    return PerformNewLogin();
+                }
             }
 
             // Mark account as used
             AccountManager.MarkAccountUsed(account);
 
+            sw.Stop();
+            Tracing.TraceLine($"GetJwtFromSavedAccount: END returning jwt={(!string.IsNullOrEmpty(account.IdToken) ? "yes" : "null/empty")} (total {sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
             return account.IdToken;
         }
 
@@ -972,37 +991,43 @@ namespace Radios
         /// </summary>
         private bool ConnectToSmartLink(string jwt)
         {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            Tracing.TraceLine($"ConnectToSmartLink: BEGIN jwt length={jwt?.Length ?? 0}", TraceLevel.Info);
             try
             {
                 if (wan != null)
                 {
-                    Tracing.TraceLine("setupRemote:wan was setup, disconnecting", TraceLevel.Info);
+                    Tracing.TraceLine($"ConnectToSmartLink: existing WAN found (IsConnected={wan.IsConnected}), disconnecting ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
                     wan.Disconnect();
                     Thread.Sleep(1000);
+                    Tracing.TraceLine($"ConnectToSmartLink: old WAN disconnected ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
                 }
 
                 wan = new WanServer();
                 wan.WanRadioConnectReady += new WanServer.WanRadioConnectReadyEventHandler(WanRadioConnectReadyHandler);
                 wan.WanApplicationRegistrationInvalid += WanApplicationRegistrationInvalidHandler;
 
+                Tracing.TraceLine($"ConnectToSmartLink: calling wan.Connect() ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
                 wan.Connect();
+                Tracing.TraceLine($"ConnectToSmartLink: wan.Connect() returned, IsConnected={wan.IsConnected} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
                 if (!wan.IsConnected)
                 {
-                    Tracing.TraceLine("setupRemote: not connected!", TraceLevel.Error);
+                    Tracing.TraceLine($"ConnectToSmartLink: WAN not connected, aborting ({sw.ElapsedMilliseconds}ms)", TraceLevel.Error);
                     return false;
                 }
 
-                Tracing.TraceLine("setupRemote: SendRegisterApplicationMessageToServer: " + API.ProgramName + ' ' + "Win10" + ' ' + jwt.Substring(0, Math.Min(20, jwt.Length)) + "...", TraceLevel.Info);
+                Tracing.TraceLine($"ConnectToSmartLink: SendRegisterApplicationMessageToServer: {API.ProgramName} Win10 jwt={jwt.Substring(0, Math.Min(20, jwt.Length))}... ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
                 WanServer.WanRadioRadioListRecieved += new WanServer.WanRadioRadioListRecievedEventHandler(wanRadioListReceivedHandler);
                 wanListReceived = false;
                 wan.SendRegisterApplicationMessageToServer(API.ProgramName, "Win10", jwt);
+                Tracing.TraceLine($"ConnectToSmartLink: registration sent, waiting up to 10s for radio list ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
                 if (!await(() => { return wanListReceived; }, 10000))
                 {
-                    Tracing.TraceLine("ConnectToSmartLink: timed out waiting for radio list (10s)", TraceLevel.Error);
+                    Tracing.TraceLine($"ConnectToSmartLink: TIMED OUT waiting for radio list after 10s ({sw.ElapsedMilliseconds}ms)", TraceLevel.Error);
                     return false;
                 }
 
-                Tracing.TraceLine($"ConnectToSmartLink: received {radios.Count} radio(s), myRadioList has {myRadioList.Count} entries", TraceLevel.Info);
+                Tracing.TraceLine($"ConnectToSmartLink: radio list received! {radios.Count} radio(s), myRadioList has {myRadioList.Count} entries ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
                 foreach (var r in radios)
                 {
                     Tracing.TraceLine($"  WAN radio: serial={r.Serial} name={r.Nickname} status={r.Status}", TraceLevel.Info);
@@ -1010,15 +1035,18 @@ namespace Radios
 
                 if (radios.Count == 0)
                 {
-                    Tracing.TraceLine("ConnectToSmartLink: no radios in list", TraceLevel.Error);
+                    Tracing.TraceLine($"ConnectToSmartLink: no radios in list ({sw.ElapsedMilliseconds}ms)", TraceLevel.Error);
                     return false;
                 }
 
+                sw.Stop();
+                Tracing.TraceLine($"ConnectToSmartLink: END success (total {sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
                 return true;
             }
             catch (Exception ex)
             {
-                Tracing.TraceLine("setupRemote: exception in ConnectToSmartLink: " + ex.Message, TraceLevel.Error);
+                sw.Stop();
+                Tracing.TraceLine($"ConnectToSmartLink: EXCEPTION {ex.GetType().Name}: {ex.Message} (total {sw.ElapsedMilliseconds}ms)", TraceLevel.Error);
                 return false;
             }
         }
@@ -1028,52 +1056,20 @@ namespace Radios
         /// </summary>
         private void WanApplicationRegistrationInvalidHandler()
         {
-            Tracing.TraceLine("WanApplicationRegistrationInvalid: token rejected by server", TraceLevel.Warning);
-
-            // If we have a current account, try to refresh and reconnect
-            if (_currentAccount != null && !string.IsNullOrEmpty(_currentAccount.RefreshToken))
-            {
-                Tracing.TraceLine("Attempting token refresh after registration invalid", TraceLevel.Info);
-
-                bool refreshed = false;
-                try
-                {
-                    refreshed = Task.Run(() => AccountManager.RefreshTokenAsync(_currentAccount)).Result;
-                }
-                catch (AggregateException)
-                {
-                    refreshed = false;
-                }
-
-                if (refreshed && !SmartLinkAccountManager.IsJwtExpired(_currentAccount.IdToken))
-                {
-                    // Retry connection with new token (only if the JWT itself is still valid)
-                    Tracing.TraceLine("Token refreshed, retrying SmartLink registration", TraceLevel.Info);
-
-                    // Re-register with new token
-                    wan.SendRegisterApplicationMessageToServer(API.ProgramName, "Win10", _currentAccount.IdToken);
-                    return;
-                }
-
-                if (refreshed)
-                {
-                    Tracing.TraceLine("WanApplicationRegistrationInvalid: refresh succeeded but JWT exp is passed, need re-login", TraceLevel.Warning);
-                }
-            }
-
-            // Refresh failed or no account - offer to re-authenticate
-            // Must marshal to UI thread since this handler is called from a background thread
-            Tracing.TraceLine("WanApplicationRegistrationInvalid: refresh failed, prompting re-login", TraceLevel.Warning);
-
-            var mainForm = Application.OpenForms.Count > 0 ? Application.OpenForms[0] : null;
-            if (mainForm != null && mainForm.InvokeRequired)
-            {
-                mainForm.BeginInvoke((Action)PromptReLogin);
-            }
-            else
-            {
-                PromptReLogin();
-            }
+            // This handler fires asynchronously when the SmartLink server rejects our JWT.
+            // Previously it would attempt token refresh and spawn PromptReLogin dialogs,
+            // but these run concurrently with setupRemote's own retry logic, causing:
+            //   - Ghost PKCE login flows (2-3 extra Auth0 round-trips)
+            //   - Redundant ConnectToSmartLink calls on an already-connected session
+            //   - "Invalid state for application registration" errors
+            //   - guiClient removal and station name timeouts
+            //
+            // Fix: Just log the rejection. setupRemote/GetJwtFromSavedAccount now handles
+            // expired JWTs by going straight to PerformNewLogin before ever sending them
+            // to the server, so this handler should rarely fire. If it does, setupRemote's
+            // retry logic will handle re-authentication.
+            Tracing.TraceLine("WanApplicationRegistrationInvalid: *** TOKEN REJECTED BY SERVER ***", TraceLevel.Warning);
+            Tracing.TraceLine($"WanApplicationRegistrationInvalid: _currentAccount={(_currentAccount != null ? _currentAccount.Email : "null")}. setupRemote will handle re-auth.", TraceLevel.Warning);
         }
 
         /// <summary>

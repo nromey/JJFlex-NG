@@ -496,11 +496,13 @@ public partial class MainWindow : UserControl
     /// This is THE fix for the ElementHost keyboard forwarding hack.
     /// In pure WPF, PreviewKeyDown on the Window sees every key, period.
     /// No more PreviewKeyDown→BeginInvoke→Form1 chain.
+    ///
+    /// Alt and F10 are NOT handled here — they activate the native Win32 HMENU
+    /// menu bar automatically via DefWindowProc in the WinForms message loop.
     /// </summary>
     private void MainWindow_PreviewKeyDown(object sender, KeyEventArgs e)
     {
         // 0. Let Tab pass through to WPF default handling.
-        //    Alt and F10 now go to WinForms MenuStrip naturally via the message loop.
         var rawKey = e.Key == Key.System ? e.SystemKey : e.Key;
         if (rawKey == Key.Tab)
             return;
@@ -734,18 +736,18 @@ public partial class MainWindow : UserControl
         for (int i = 0; i < vfos; i++)
         {
             fields.Add(new FrequencyDisplay.DisplayField(i.ToString(), 1, "", "",
-                null)); // handler wired via FieldKeyDown event
+                null) { Label = $"Slice {i}" }); // handler wired via FieldKeyDown event
         }
 
-        // Fixed fields with handlers
-        fields.Add(new FrequencyDisplay.DisplayField("SMeter", 4, "", ""));
-        fields.Add(new FrequencyDisplay.DisplayField("Split", 1, "", ""));
-        fields.Add(new FrequencyDisplay.DisplayField("VOX", 1, "", ""));
-        fields.Add(new FrequencyDisplay.DisplayField("VFO", 1, "", ""));
-        fields.Add(new FrequencyDisplay.DisplayField("Freq", 12, "", ""));
-        fields.Add(new FrequencyDisplay.DisplayField("Offset", 1, "", ""));
-        fields.Add(new FrequencyDisplay.DisplayField("RIT", 5, "", ""));
-        fields.Add(new FrequencyDisplay.DisplayField("XIT", 5, " ", ""));
+        // Fixed fields with handlers — Label for screen reader, DefaultCursorOffset for tune step
+        fields.Add(new FrequencyDisplay.DisplayField("SMeter", 4, "", "") { Label = "S Meter" });
+        fields.Add(new FrequencyDisplay.DisplayField("Split", 1, "", "") { Label = "Split" });
+        fields.Add(new FrequencyDisplay.DisplayField("VOX", 1, "", "") { Label = "VOX" });
+        fields.Add(new FrequencyDisplay.DisplayField("VFO", 1, "", "") { Label = "VFO" });
+        fields.Add(new FrequencyDisplay.DisplayField("Freq", 12, "", "") { Label = "Frequency", DefaultCursorOffset = 8 });
+        fields.Add(new FrequencyDisplay.DisplayField("Offset", 1, "", "") { Label = "Offset" });
+        fields.Add(new FrequencyDisplay.DisplayField("RIT", 5, "", "") { Label = "RIT", DefaultCursorOffset = 2 });
+        fields.Add(new FrequencyDisplay.DisplayField("XIT", 5, " ", "") { Label = "XIT", DefaultCursorOffset = 2 });
 
         FreqOut.Populate(fields.ToArray());
         _firstFreqDisplay = true;

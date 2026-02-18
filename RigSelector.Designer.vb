@@ -90,6 +90,7 @@ Partial Class RigSelector
         '
         'RemoteButton
         '
+        Me.RemoteButton.AccessibleName = "Remote radios"
         Me.RemoteButton.AccessibleRole = System.Windows.Forms.AccessibleRole.PushButton
         Me.RemoteButton.Location = New System.Drawing.Point(50, 200)
         Me.RemoteButton.Name = "RemoteButton"
@@ -110,6 +111,7 @@ Partial Class RigSelector
         '
         'ConnectButton
         '
+        Me.ConnectButton.AccessibleName = "Connect to radio"
         Me.ConnectButton.AccessibleRole = System.Windows.Forms.AccessibleRole.PushButton
         Me.ConnectButton.Location = New System.Drawing.Point(400, 200)
         Me.ConnectButton.Name = "ConnectButton"
@@ -120,6 +122,7 @@ Partial Class RigSelector
         '
         'CnclButton
         '
+        Me.CnclButton.AccessibleName = "Cancel"
         Me.CnclButton.AccessibleRole = System.Windows.Forms.AccessibleRole.PushButton
         Me.CnclButton.DialogResult = System.Windows.Forms.DialogResult.Cancel
         Me.CnclButton.Location = New System.Drawing.Point(600, 200)

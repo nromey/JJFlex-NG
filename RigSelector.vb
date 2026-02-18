@@ -25,6 +25,9 @@ Public Class RigSelector
                 Return $"{autoConn}{lbw}{namePart} {modelPart} {serialPart}"
             End Get
         End Property
+        Public Overrides Function ToString() As String
+            Return Display
+        End Function
         Public Sub New(r As FlexBase.RigData)
             Rig = r
         End Sub
@@ -151,25 +154,52 @@ Public Class RigSelector
             radio.AutoConnect = autoConnectItem.Desired
             radio.LowBW = autoConnectItem.LowBW
         End If
+        Dim isNew As Boolean = True
         SyncLock RadiosList
             ' remove dup
             For i As Integer = 0 To RadiosList.Count - 1
                 If RadiosList(i).Rig.Serial = radio.Rig.Serial Then
                     RadiosList.RemoveAt(i)
+                    isNew = False
                     Exit For
                 End If
             Next
             RadiosList.Add(radio)
         End SyncLock
         redisplayRadiosBox()
+        If isNew Then
+            Radios.ScreenReaderOutput.Speak($"Radio found: {radio.Display}", False)
+        End If
     End Sub
 
     Private Sub redisplayRadiosBox()
         TextOut.PerformGenericFunction(RadiosBox,
             Sub()
-                RadiosBox.DataSource = Nothing
-                RadiosBox.DisplayMember = "Display"
-                RadiosBox.DataSource = RadiosList
+                Dim prevSelected As String = Nothing
+                If RadiosBox.SelectedIndex >= 0 Then
+                    Dim prev = TryCast(RadiosBox.SelectedItem, radio_t)
+                    If prev IsNot Nothing Then prevSelected = prev.Rig.Serial
+                End If
+
+                RadiosBox.BeginUpdate()
+                RadiosBox.Items.Clear()
+                SyncLock RadiosList
+                    For Each r In RadiosList
+                        RadiosBox.Items.Add(r)
+                    Next
+                End SyncLock
+                RadiosBox.EndUpdate()
+
+                ' Restore selection
+                If prevSelected IsNot Nothing Then
+                    For i As Integer = 0 To RadiosBox.Items.Count - 1
+                        Dim item = TryCast(RadiosBox.Items(i), radio_t)
+                        If item IsNot Nothing AndAlso item.Rig.Serial = prevSelected Then
+                            RadiosBox.SelectedIndex = i
+                            Exit For
+                        End If
+                    Next
+                End If
             End Sub)
     End Sub
 
@@ -179,6 +209,15 @@ Public Class RigSelector
         End If
 
         setupRadiosBoxContext()
+
+        ' Announce the newly selected radio when the user is navigating with arrows.
+        ' Only speak when the ListBox has focus (skip programmatic changes from redisplayRadiosBox).
+        If RadiosBox.Focused Then
+            Dim radio = TryCast(RadiosBox.SelectedItem, radio_t)
+            If radio IsNot Nothing Then
+                Radios.ScreenReaderOutput.Speak($"{radio.Display}. {RadiosBox.SelectedIndex + 1} of {RadiosBox.Items.Count}", True)
+            End If
+        End If
     End Sub
 
     Private Sub setupRadiosBoxContext()
@@ -193,8 +232,38 @@ Public Class RigSelector
     End Sub
 
     Private Sub RemoteButton_Click(sender As Object, e As EventArgs) Handles RemoteButton.Click
-        RigControl.RemoteRadios()
-        RadiosBox.Focus()
+        Radios.ScreenReaderOutput.Speak("Connecting to SmartLink", True)
+        RemoteButton.Enabled = False
+        RemoteButton.Text = "Connecting..."
+
+        Dim countBefore As Integer = RadiosList.Count
+
+        ' Run RemoteRadios on a background thread so the UI stays responsive
+        ' during the SmartLink auth flow (which can take several seconds for PKCE login).
+        Dim t As New Thread(
+            Sub()
+                RigControl.RemoteRadios()
+
+                ' Marshal UI updates back to the UI thread
+                Me.BeginInvoke(
+                    Sub()
+                        RemoteButton.Enabled = True
+                        RemoteButton.Text = "Remote"
+
+                        Dim countAfter As Integer = RadiosList.Count
+                        If countAfter > countBefore Then
+                            Dim newCount = countAfter - countBefore
+                            Radios.ScreenReaderOutput.Speak($"Found {newCount} remote radio{If(newCount > 1, "s", "")}", True)
+                        Else
+                            Radios.ScreenReaderOutput.Speak("No remote radios found. Check your SmartLink account and radio power.", True)
+                        End If
+
+                        RadiosBox.Focus()
+                    End Sub)
+            End Sub)
+        t.IsBackground = True
+        t.SetApartmentState(ApartmentState.STA)  ' Required for WebView2 auth dialogs
+        t.Start()
     End Sub
 
     Private Sub LoginButton_Click(sender As Object, e As EventArgs) Handles LoginButton.Click
@@ -278,6 +347,18 @@ Public Class RigSelector
 
     Private Sub RadiosBox_Enter(sender As Object, e As EventArgs) Handles RadiosBox.Enter
         Me.AcceptButton = ConnectButton
+        ' Announce the selected radio or list status when focus enters.
+        ' Use interrupt=True to override the native "listview window" announcement.
+        If RadiosBox.Items.Count = 0 Then
+            Radios.ScreenReaderOutput.Speak("Radio list is empty. Press Remote to find SmartLink radios.", True)
+        ElseIf RadiosBox.SelectedIndex >= 0 Then
+            Dim radio = TryCast(RadiosBox.SelectedItem, radio_t)
+            If radio IsNot Nothing Then
+                Radios.ScreenReaderOutput.Speak($"Radio list. {radio.Display}. {RadiosBox.SelectedIndex + 1} of {RadiosBox.Items.Count}", True)
+            End If
+        Else
+            Radios.ScreenReaderOutput.Speak($"Radio list. {RadiosBox.Items.Count} radios. Use arrow keys to browse.", True)
+        End If
     End Sub
 
     Private Sub RadiosBox_Leave(sender As Object, e As EventArgs) Handles RadiosBox.Leave

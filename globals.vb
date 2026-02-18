@@ -20,6 +20,7 @@ Imports JJPortaudio
 Imports JJTrace
 Imports JJW2WattMeter
 Imports MsgLib
+Imports System.Linq
 Imports Radios
 
 Module globals
@@ -1459,6 +1460,23 @@ Module globals
         Dim selector As RigSelector = New RigSelector(initialCall, OpenParms, Nothing)
         Dim theForm As Form = CType(selector, Form)
         RigControl = New FlexBase(OpenParms)
+
+        ' Wire account selector to auto-use most recent saved account.
+        ' Full account selector dialog deferred — WPF dialogs on a WinForms
+        ' STA thread have Dispatcher issues. Auto-select is safe and matches
+        ' the auto-connect behavior users expect.
+        RigControl.ShowAccountSelector = Function(mgr)
+                                             Dim accounts = mgr.Accounts
+                                             Tracing.TraceLine($"ShowAccountSelector: {accounts.Count} saved account(s)", TraceLevel.Info)
+                                             If accounts.Count = 0 Then
+                                                 Tracing.TraceLine("ShowAccountSelector: no accounts, triggering new login", TraceLevel.Info)
+                                                 Return (True, Nothing, True) ' trigger new login
+                                             End If
+                                             Dim best = accounts.OrderByDescending(Function(a) a.LastUsed).First()
+                                             Tracing.TraceLine($"ShowAccountSelector: auto-selected '{best.FriendlyName}' ({best.Email}), LastUsed={best.LastUsed}, ExpiresAt={best.ExpiresAt}", TraceLevel.Info)
+                                             Return (False, best, True) ' use most recent account
+                                         End Function
+
         radioSelected = theForm.ShowDialog()
         If radioSelected <> DialogResult.OK Then
             RigControl.Dispose()

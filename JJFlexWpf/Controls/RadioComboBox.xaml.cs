@@ -124,6 +124,10 @@ public partial class RadioComboBox : UserControl
             {
                 _userEntry = false; // Programmatic change — don't send back to rig
                 TheComboBox.SelectedIndex = index;
+                // If SelectedIndex didn't change, SelectionChanged won't fire,
+                // so _userEntry stays false and the next user action is ignored.
+                // Always reset to true after programmatic update.
+                _userEntry = true;
             }
         }
         else
@@ -131,6 +135,7 @@ public partial class RadioComboBox : UserControl
             // Try direct item match
             _userEntry = false;
             TheComboBox.SelectedItem = currentValue;
+            _userEntry = true;
         }
     }
 
@@ -143,6 +148,7 @@ public partial class RadioComboBox : UserControl
         {
             _userEntry = false;
             TheComboBox.SelectedIndex = index;
+            _userEntry = true;
         }
     }
 

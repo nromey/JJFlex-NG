@@ -14,6 +14,11 @@
 
     <!-- Use default (not recommended) analysis to reduce noise on vendor code -->
     <AnalysisLevel>8.0-default</AnalysisLevel>
+
+    <!-- Suppress known-harmless noisy warnings in vendor code:
+         NU1903: DotNetZip vulnerability advisory
+         MSB3277: System.Drawing.Common 6.0 vs 8.0 version conflict -->
+    <NoWarn>$(NoWarn);NU1903;MSB3277</NoWarn>
   </PropertyGroup>
 
   <!-- Only BannedApiAnalyzers on vendor code (to catch DotNetZip etc.) -->

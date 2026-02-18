@@ -148,7 +148,12 @@ public class FreqOutHandlers
         ulong current = GetRXFrequency();
         ulong newFreq = current + delta;
         if (newFreq > 0 && newFreq < 100_000_000_000UL) // sanity limit
+        {
             SetRXFrequency(newFreq);
+            // Announce new frequency for screen reader
+            if (FormatFreq != null)
+                Radios.ScreenReaderOutput.Speak(FormatFreq(newFreq.ToString()));
+        }
     }
 
     private void EnterFreqDigit(char digit, int posInField, int fieldLen)
@@ -166,7 +171,11 @@ public class FreqOutHandlers
             {
                 ulong newFreq = FreqInt64(newText);
                 if (newFreq > 0)
+                {
                     SetRXFrequency(newFreq);
+                    if (FormatFreq != null)
+                        Radios.ScreenReaderOutput.Speak(FormatFreq(newFreq.ToString()));
+                }
             }
             catch { /* ignore parse errors */ }
         }
@@ -213,6 +222,7 @@ public class FreqOutHandlers
                     if (Rig.ValidVFO(slice))
                     {
                         Rig.RXVFO = slice;
+                        Radios.ScreenReaderOutput.Speak($"Slice {slice}");
                         e.Handled = true;
                     }
                 }
@@ -252,7 +262,10 @@ public class FreqOutHandlers
         }
 
         if (Rig.ValidVFO(next))
+        {
             Rig.RXVFO = next;
+            Radios.ScreenReaderOutput.Speak($"Slice {next}");
+        }
     }
 
     #endregion
@@ -365,6 +378,7 @@ public class FreqOutHandlers
         int current = Rig.GetVFOGain(vfo);
         int newVal = Math.Clamp(current + delta, FlexBase.MinGain, FlexBase.MaxGain);
         Rig.SetVFOGain(vfo, newVal);
+        Radios.ScreenReaderOutput.Speak($"Volume {newVal}");
     }
 
     private void AdjustPan(int vfo, int delta)
@@ -373,6 +387,7 @@ public class FreqOutHandlers
         int current = Rig.GetVFOPan(vfo);
         int newVal = Math.Clamp(current + delta, FlexBase.MinPan, FlexBase.MaxPan);
         Rig.SetVFOPan(vfo, newVal);
+        Radios.ScreenReaderOutput.Speak($"Pan {newVal}");
     }
 
     #endregion
@@ -531,6 +546,9 @@ public class FreqOutHandlers
         updated.Active = true;
         if (isRIT) Rig.RIT = updated;
         else Rig.XIT = updated;
+        string label = isRIT ? "RIT" : "XIT";
+        string sign = updated.Value >= 0 ? "+" : "";
+        Radios.ScreenReaderOutput.Speak($"{label} {sign}{updated.Value}");
     }
 
     private void EnterRITXITDigit(FlexBase.RITData data, bool isRIT, char digit, int posInField, int fieldLen)
@@ -650,11 +668,13 @@ public class FreqOutHandlers
             case Key.Up:
                 Rig.CurrentMemoryChannel++;
                 Rig.SelectMemory();
+                Radios.ScreenReaderOutput.Speak($"Memory {Rig.CurrentMemoryChannel}");
                 e.Handled = true;
                 break;
             case Key.Down:
                 Rig.CurrentMemoryChannel--;
                 Rig.SelectMemory();
+                Radios.ScreenReaderOutput.Speak($"Memory {Rig.CurrentMemoryChannel}");
                 e.Handled = true;
                 break;
         }

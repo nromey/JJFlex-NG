@@ -13,6 +13,11 @@
     <NuGetAudit>true</NuGetAudit>
     <NuGetAuditLevel>low</NuGetAuditLevel>
     <NuGetAuditMode>all</NuGetAuditMode>
+
+    <!-- Suppress known-harmless noisy warnings:
+         NU1903: DotNetZip vulnerability advisory (replacing with System.IO.Compression)
+         MSB3277: System.Drawing.Common 6.0 vs 8.0 version conflict in FlexLib vendor code -->
+    <NoWarn>$(NoWarn);NU1903;MSB3277</NoWarn>
   </PropertyGroup>
 
   <!-- SonarAnalyzer for VB.NET projects -->
