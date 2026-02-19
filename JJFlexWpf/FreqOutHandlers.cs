@@ -79,7 +79,6 @@ public class FreqOutHandlers
         if (Rig == null) return;
         var key = RawKey(e);
         char ch = KeyToChar(e);
-        JJTrace.Tracing.TraceLine($"AdjustFreq: key={key} ch='{ch}' handled={e.Handled}", System.Diagnostics.TraceLevel.Verbose);
 
         // Position within frequency field (0 = leftmost digit = highest significance)
         int fieldStart = _window.FreqOut.GetFieldPosition("Freq");

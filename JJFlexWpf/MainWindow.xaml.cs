@@ -226,8 +226,6 @@ public partial class MainWindow : UserControl
     /// </summary>
     public void UpdateStatus()
     {
-        Tracing.TraceLine("UpdateStatus", TraceLevel.Verbose);
-
         if (_isClosing)
             return;
 
@@ -242,7 +240,6 @@ public partial class MainWindow : UserControl
                 ShowFrequency();
 
                 // Update all combo controls (Mode, Tuner, etc.)
-                Tracing.TraceLine("UpdateStatus: doing combos", TraceLevel.Verbose);
                 foreach (var combo in _comboControls)
                 {
                     if (combo.IsEnabled)
@@ -254,7 +251,6 @@ public partial class MainWindow : UserControl
                 // Update rig-dependent fields (DSP controls via WpfFilterAdapter)
                 if (RigControl.RigFields != null)
                 {
-                    Tracing.TraceLine("UpdateStatus: doing RigFields", TraceLevel.Verbose);
                     RigControl.RigFields.RigUpdate?.Invoke();
                 }
 
@@ -291,7 +287,6 @@ public partial class MainWindow : UserControl
             }
         }
 
-        Tracing.TraceLine("UpdateStatus: done", TraceLevel.Verbose);
     }
 
     /// <summary>
