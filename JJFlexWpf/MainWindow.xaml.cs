@@ -528,6 +528,13 @@ public partial class MainWindow : UserControl
                 e.Handled = true;
                 return;
             }
+
+            if (key == Key.F)
+            {
+                SpeakFrequency();
+                e.Handled = true;
+                return;
+            }
         }
 
         // 2. Route through scope-aware KeyCommands registry
@@ -580,6 +587,12 @@ public partial class MainWindow : UserControl
     /// Callback for VB-side power-on tasks (knob setup, tracing).
     /// </summary>
     public Action? PowerOnCallback { get; set; }
+
+    /// <summary>
+    /// Callback to show a WinForms error dialog parented to ShellForm.
+    /// Parameters: message, title. Falls back to unparented WPF MessageBox if not set.
+    /// </summary>
+    public Action<string, string>? ShowErrorCallback { get; set; }
 
     /// <summary>
     /// Antenna tune button base text, matching Form1 pattern.
@@ -731,19 +744,13 @@ public partial class MainWindow : UserControl
 
         var fields = new List<FrequencyDisplay.DisplayField>();
 
-        // Slice indicators (one character each) with RigField handler
-        int vfos = RigControl.TotalNumSlices;
-        for (int i = 0; i < vfos; i++)
-        {
-            fields.Add(new FrequencyDisplay.DisplayField(i.ToString(), 1, "", "",
-                null) { Label = $"Slice {i}" }); // handler wired via FieldKeyDown event
-        }
-
-        // Fixed fields with handlers — Label for screen reader, DefaultCursorOffset for tune step
+        // Field order: Slice → Mute → Volume → SMeter → Split → VOX → VFO → Freq → Offset → RIT → XIT
+        fields.Add(new FrequencyDisplay.DisplayField("Slice", 1, "", "") { Label = "Slice" });
+        fields.Add(new FrequencyDisplay.DisplayField("Mute", 1, "", "") { Label = "Mute" });
+        fields.Add(new FrequencyDisplay.DisplayField("Volume", 3, "", "") { Label = "Volume" });
         fields.Add(new FrequencyDisplay.DisplayField("SMeter", 4, "", "") { Label = "S Meter" });
         fields.Add(new FrequencyDisplay.DisplayField("Split", 1, "", "") { Label = "Split" });
         fields.Add(new FrequencyDisplay.DisplayField("VOX", 1, "", "") { Label = "VOX" });
-        fields.Add(new FrequencyDisplay.DisplayField("VFO", 1, "", "") { Label = "VFO" });
         fields.Add(new FrequencyDisplay.DisplayField("Freq", 12, "", "") { Label = "Frequency", DefaultCursorOffset = 8 });
         fields.Add(new FrequencyDisplay.DisplayField("Offset", 1, "", "") { Label = "Offset" });
         fields.Add(new FrequencyDisplay.DisplayField("RIT", 5, "", "") { Label = "RIT", DefaultCursorOffset = 2 });
@@ -766,9 +773,7 @@ public partial class MainWindow : UserControl
             case "Freq":
                 _freqOutHandlers.AdjustFreq(field, e);
                 break;
-            case "VFO":
-                _freqOutHandlers.AdjustVFO(field, e);
-                break;
+            // VFO field removed — redundant with Slice on FlexRadio
             case "Split":
                 _freqOutHandlers.AdjustSplit(field, e);
                 break;
@@ -787,10 +792,14 @@ public partial class MainWindow : UserControl
             case "Offset":
                 _freqOutHandlers.AdjustOffset(field, e);
                 break;
-            default:
-                // Slice indicators (numeric keys "0", "1", etc.)
-                if (int.TryParse(field.Key, out _))
-                    _freqOutHandlers.AdjustRigField(field, e);
+            case "Slice":
+                _freqOutHandlers.AdjustSlice(field, e);
+                break;
+            case "Mute":
+                _freqOutHandlers.AdjustMute(field, e);
+                break;
+            case "Volume":
+                _freqOutHandlers.AdjustVolume(field, e);
                 break;
         }
     }
@@ -839,8 +848,30 @@ public partial class MainWindow : UserControl
                 }
             }
 
-            // VFO indicator
-            FreqOut.Write("VFO", RigControl.RXVFO.ToString());
+            // Slice indicator — shows current active slice number
+            FreqOut.Write("Slice", RigControl.RXVFO.ToString());
+
+            // Mute — current active slice mute state (GetVFOAudio true = audio on = not muted)
+            FreqOut.Write("Mute", RigControl.GetVFOAudio(RigControl.RXVFO) ? " " : "M");
+
+            // Volume — current active slice gain (0-100)
+            int vol = RigControl.GetVFOGain(RigControl.RXVFO);
+            FreqOut.Write("Volume", vol.ToString());
+
+            // Split
+            bool isSplit = _freqOutHandlers?.GetSplitVFOs?.Invoke() == true;
+            FreqOut.Write("Split", isSplit ? "S" : " ");
+
+            // VOX
+            FreqOut.Write("VOX", RigControl.Vox == FlexBase.OffOnValues.on ? "V" : " ");
+
+            // Offset
+            FreqOut.Write("Offset", RigControl.OffsetDirection switch
+            {
+                FlexBase.OffsetDirections.plus => "+",
+                FlexBase.OffsetDirections.minus => "-",
+                _ => " "
+            });
 
             // RIT
             var rit = RigControl.RIT;
@@ -919,7 +950,13 @@ public partial class MainWindow : UserControl
             return;
         }
 
-        System.Windows.MessageBox.Show(msg, "Error", MessageBoxButton.OK);
+        Radios.ScreenReaderOutput.Speak(msg, true);
+
+        if (ShowErrorCallback != null)
+            ShowErrorCallback(msg, "Error");
+        else
+            System.Windows.MessageBox.Show(msg, "Error", MessageBoxButton.OK);
+
         CloseRadioCallback?.Invoke();
     }
 
@@ -977,7 +1014,12 @@ public partial class MainWindow : UserControl
         if (_radioPowerOn && !e.Connected)
         {
             PowerNowOffInternal();
-            System.Windows.MessageBox.Show("The radio disconnected", "Error", MessageBoxButton.OK);
+            Radios.ScreenReaderOutput.Speak("The radio disconnected", true);
+
+            if (ShowErrorCallback != null)
+                ShowErrorCallback("The radio disconnected", "Error");
+            else
+                System.Windows.MessageBox.Show("The radio disconnected", "Error", MessageBoxButton.OK);
         }
     }
 
@@ -1480,6 +1522,37 @@ public partial class MainWindow : UserControl
     private void SentTextBox_PreviewTextInput(object sender, TextCompositionEventArgs e)
     {
         // Phase 8.4+: Route typed characters to CW transmit
+    }
+
+    #endregion
+
+    #region Frequency Readback — Ctrl+Shift+F
+
+    /// <summary>
+    /// Speak the current frequency and active slice.
+    /// Global hotkey — works in Classic, Modern, and Logging modes.
+    /// </summary>
+    public void SpeakFrequency()
+    {
+        if (RigControl == null || !_radioPowerOn || OpenParms?.FormatFreq == null)
+        {
+            Radios.ScreenReaderOutput.Speak("No radio connected", true);
+            return;
+        }
+
+        try
+        {
+            ulong freq = RigControl.Transmit
+                ? RigControl.TXFrequency
+                : RigControl.VirtualRXFrequency;
+            string freqText = OpenParms.FormatFreq(freq);
+            int slice = RigControl.RXVFO;
+            Radios.ScreenReaderOutput.Speak($"Frequency {freqText}, slice {slice}", true);
+        }
+        catch
+        {
+            Radios.ScreenReaderOutput.Speak("Frequency unavailable", true);
+        }
     }
 
     #endregion

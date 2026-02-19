@@ -3,6 +3,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:controls="clr-namespace:JJFlexWpf.Controls"
              mc:Ignorable="d"
              d:DesignWidth="600" d:DesignHeight="24"
              AutomationProperties.Name="Frequency Display"
@@ -10,11 +11,11 @@
              IsTabStop="True">
 
     <!-- WPF replacement for RadioBoxes.MainBox (FreqOut).
-         Multi-field display: SMeter, Split, VOX, VFO, Freq, Offset, RIT, XIT, Slices.
-         Uses a read-only TextBox for screen reader compatibility (Document role).
+         Multi-field display: Slice, Mute, Volume, SMeter, Split, VOX, Freq, Offset, RIT, XIT.
+         SilentTextBox suppresses NVDA text change events — all speech managed by our Speak() calls.
          Keyboard handlers route to field-specific delegates. -->
-    <TextBox x:Name="DisplayBox"
-             IsReadOnly="False"
+    <controls:SilentTextBox x:Name="DisplayBox"
+             IsReadOnly="True"
              FontFamily="Consolas"
              FontSize="14"
              BorderThickness="1"

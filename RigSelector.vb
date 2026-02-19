@@ -190,15 +190,20 @@ Public Class RigSelector
                 End SyncLock
                 RadiosBox.EndUpdate()
 
-                ' Restore selection
+                ' Restore selection, or auto-select first item if nothing was selected.
+                Dim restored As Boolean = False
                 If prevSelected IsNot Nothing Then
                     For i As Integer = 0 To RadiosBox.Items.Count - 1
                         Dim item = TryCast(RadiosBox.Items(i), radio_t)
                         If item IsNot Nothing AndAlso item.Rig.Serial = prevSelected Then
                             RadiosBox.SelectedIndex = i
+                            restored = True
                             Exit For
                         End If
                     Next
+                End If
+                If Not restored AndAlso RadiosBox.Items.Count > 0 Then
+                    RadiosBox.SelectedIndex = 0
                 End If
             End Sub)
     End Sub
@@ -209,15 +214,7 @@ Public Class RigSelector
         End If
 
         setupRadiosBoxContext()
-
-        ' Announce the newly selected radio when the user is navigating with arrows.
-        ' Only speak when the ListBox has focus (skip programmatic changes from redisplayRadiosBox).
-        If RadiosBox.Focused Then
-            Dim radio = TryCast(RadiosBox.SelectedItem, radio_t)
-            If radio IsNot Nothing Then
-                Radios.ScreenReaderOutput.Speak($"{radio.Display}. {RadiosBox.SelectedIndex + 1} of {RadiosBox.Items.Count}", True)
-            End If
-        End If
+        ' Let NVDA announce the selected item natively — no Speak() override needed.
     End Sub
 
     Private Sub setupRadiosBoxContext()
@@ -263,6 +260,7 @@ Public Class RigSelector
             End Sub)
         t.IsBackground = True
         t.SetApartmentState(ApartmentState.STA)  ' Required for WebView2 auth dialogs
+        t.Name = "SmartLink"
         t.Start()
     End Sub
 
@@ -347,21 +345,15 @@ Public Class RigSelector
 
     Private Sub RadiosBox_Enter(sender As Object, e As EventArgs) Handles RadiosBox.Enter
         Me.AcceptButton = ConnectButton
-        ' Announce the selected radio or list status when focus enters.
-        ' Use interrupt=True to override the native "listview window" announcement.
+        ' Let NVDA announce the list and selected item natively.
+        ' Only speak if the list is empty — NVDA can't tell the user that.
         If RadiosBox.Items.Count = 0 Then
-            Radios.ScreenReaderOutput.Speak("Radio list is empty. Press Remote to find SmartLink radios.", True)
-        ElseIf RadiosBox.SelectedIndex >= 0 Then
-            Dim radio = TryCast(RadiosBox.SelectedItem, radio_t)
-            If radio IsNot Nothing Then
-                Radios.ScreenReaderOutput.Speak($"Radio list. {radio.Display}. {RadiosBox.SelectedIndex + 1} of {RadiosBox.Items.Count}", True)
-            End If
-        Else
-            Radios.ScreenReaderOutput.Speak($"Radio list. {RadiosBox.Items.Count} radios. Use arrow keys to browse.", True)
+            Radios.ScreenReaderOutput.Speak("Radio list is empty. Press Remote to find SmartLink radios.", False)
         End If
     End Sub
 
     Private Sub RadiosBox_Leave(sender As Object, e As EventArgs) Handles RadiosBox.Leave
+        Tracing.TraceLine("RadiosBox_Leave", TraceLevel.Info)
         Me.AcceptButton = Nothing
     End Sub
 
@@ -498,12 +490,13 @@ Public Class RigSelector
     ''' Saves the setting immediately.
     ''' </summary>
     Private Sub GlobalAutoConnectCheckbox_CheckedChanged(sender As Object, e As EventArgs) Handles GlobalAutoConnectCheckbox.CheckedChanged
+        Dim sw = Stopwatch.StartNew()
         If _unifiedAutoConnectConfig Is Nothing Then Return
 
         _unifiedAutoConnectConfig.GlobalAutoConnectEnabled = GlobalAutoConnectCheckbox.Checked
         Try
             _unifiedAutoConnectConfig.Save(BaseConfigDir, OperatorName)
-            Tracing.TraceLine("GlobalAutoConnectEnabled changed to: " & GlobalAutoConnectCheckbox.Checked.ToString(), TraceLevel.Info)
+            Tracing.TraceLine($"GlobalAutoConnectEnabled changed to: {GlobalAutoConnectCheckbox.Checked} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info)
 
             ' Announce the change for screen reader users
             If GlobalAutoConnectCheckbox.Checked Then
@@ -511,6 +504,7 @@ Public Class RigSelector
             Else
                 Radios.ScreenReaderOutput.Speak("Auto-connect on startup disabled", True)
             End If
+            Tracing.TraceLine($"GlobalAutoConnectCheckbox_CheckedChanged: END ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info)
         Catch ex As Exception
             Tracing.TraceLine("Failed to save GlobalAutoConnectEnabled: " & ex.Message, TraceLevel.Error)
         End Try

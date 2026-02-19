@@ -43,7 +43,9 @@ Module CrashReporter
                 End Using
             End Using
 
-            MessageBox.Show($"JJFlexRadio hit an unexpected error.{Environment.NewLine}A report was saved to:{Environment.NewLine}{zipPath}", "JJFlexRadio crash report", MessageBoxButtons.OK, MessageBoxIcon.Error)
+            Dim crashMsg = $"JJFlexRadio hit an unexpected error.{Environment.NewLine}A report was saved to:{Environment.NewLine}{zipPath}"
+            Radios.ScreenReaderOutput.Speak("JJFlexRadio hit an unexpected error. A crash report was saved.", True)
+            MessageBox.Show(AppShellForm, crashMsg, "JJFlexRadio crash report", MessageBoxButtons.OK, MessageBoxIcon.Error)
         Catch reportEx As Exception
             ' Last-chance logging; do not rethrow.
             Try

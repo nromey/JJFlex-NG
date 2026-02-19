@@ -30,6 +30,14 @@ public class FreqOutHandlers
     public Func<string, string>? FormatFreq { get; set; }
     public Func<string, ulong>? FreqInt64 { get; set; }
 
+    // Step multiplier for +N/-N step size override
+    private int _stepMultiplier = 1;
+    private string _stepBuffer = "";
+    private bool _inStepEntry;
+
+    // Frequency readout toggle — when off, tuning doesn't speak the new frequency
+    private bool _freqReadout = true;
+
     public FreqOutHandlers(MainWindow window)
     {
         _window = window;
@@ -51,6 +59,7 @@ public class FreqOutHandlers
             Key.OemPlus or Key.Add => '+',
             Key.OemMinus or Key.Subtract => '-',
             Key.OemPeriod or Key.Decimal => '.',
+            Key.OemComma => ',',
             Key.Space => ' ',
             _ => '\0'
         };
@@ -62,13 +71,15 @@ public class FreqOutHandlers
 
     /// <summary>
     /// Frequency field handler — digit-by-digit tuning.
-    /// Up/Down tune by position, digits enter frequency, K rounds to KHz.
+    /// Up/Down tune by position (with optional step multiplier), digits enter frequency, K rounds to KHz.
+    /// +N/-N sets a step multiplier (e.g. +25 at 1kHz position → Up/Down tunes by 25kHz).
     /// </summary>
     public void AdjustFreq(FrequencyDisplay.DisplayField field, KeyEventArgs e)
     {
         if (Rig == null) return;
         var key = RawKey(e);
         char ch = KeyToChar(e);
+        JJTrace.Tracing.TraceLine($"AdjustFreq: key={key} ch='{ch}' handled={e.Handled}", System.Diagnostics.TraceLevel.Verbose);
 
         // Position within frequency field (0 = leftmost digit = highest significance)
         int fieldStart = _window.FreqOut.GetFieldPosition("Freq");
@@ -77,27 +88,64 @@ public class FreqOutHandlers
         if (posInField < 0) posInField = 0;
         if (posInField >= fieldLen) posInField = fieldLen - 1;
 
-        // Tune step: position maps to power of 10
-        // Field is 12 chars: "  7.074 000 " → positions map to GHz down to Hz
-        // Position 0-1 = padding, 2 = 10GHz, etc. Simplified: step = 10^(fieldLen-1-posInField)
-        ulong step = 1;
-        for (int i = 0; i < (fieldLen - 1 - posInField); i++)
-            step *= 10;
+        // Tune step: count actual digits to the right of cursor position.
+        // Freq field text has dots and leading spaces (e.g. "   3.828.750"),
+        // so we can't use fieldLen - skipping non-digit chars gives the correct exponent.
+        string fieldText = _window.FreqOut.Read("Freq");
+        int digitsToRight = 0;
+        for (int i = posInField + 1; i < fieldText.Length; i++)
+        {
+            char c = fieldText[i];
+            if (c != '.' && c != ' ')
+                digitsToRight++;
+        }
+        ulong baseStep = 1;
+        for (int i = 0; i < digitsToRight; i++)
+            baseStep *= 10;
+        ulong step = baseStep * (ulong)_stepMultiplier;
+
+        // In step-entry mode, digits accumulate into the step buffer instead of entering frequency
+        if (_inStepEntry && ch >= '0' && ch <= '9')
+        {
+            _stepBuffer += ch;
+            if (int.TryParse(_stepBuffer, out int mult) && mult > 0)
+            {
+                _stepMultiplier = mult;
+                string? stepUnit = Controls.FrequencyDisplay.GetStepNameForKey("Freq", posInField, fieldLen, fieldText);
+                // stepUnit is like "1 kilohertz", "10 kilohertz" — strip the leading number
+                // so "Step 5 1 kilohertz" becomes "Step 5 kilohertz"
+                string unit = StripLeadingNumber(stepUnit) ?? "";
+                Radios.ScreenReaderOutput.Speak($"Step {mult} {unit}".Trim());
+            }
+            e.Handled = true;
+            return;
+        }
 
         switch (key)
         {
             case Key.Up:
+                _inStepEntry = false;
                 TuneFreq(step);
                 e.Handled = true;
                 break;
 
             case Key.Down:
+                _inStepEntry = false;
                 TuneFreq(unchecked((ulong)(-(long)step)));
                 e.Handled = true;
                 break;
 
             default:
-                if (ch >= '0' && ch <= '9')
+                if (ch == '+' || ch == '-')
+                {
+                    // Enter step-entry mode
+                    _inStepEntry = true;
+                    _stepBuffer = "";
+                    _stepMultiplier = 1;
+                    Radios.ScreenReaderOutput.Speak("Step entry");
+                    e.Handled = true;
+                }
+                else if (ch >= '0' && ch <= '9')
                 {
                     EnterFreqDigit(ch, posInField, fieldLen);
                     e.Handled = true;
@@ -105,6 +153,14 @@ public class FreqOutHandlers
                 else if (ch == 'K')
                 {
                     RoundToKHz();
+                    // Also reset step multiplier
+                    if (_stepMultiplier != 1)
+                    {
+                        _stepMultiplier = 1;
+                        _inStepEntry = false;
+                        _stepBuffer = "";
+                        Radios.ScreenReaderOutput.Speak("Step reset");
+                    }
                     e.Handled = true;
                 }
                 else if (ch == 'S')
@@ -130,12 +186,21 @@ public class FreqOutHandlers
                 }
                 else if (ch == 'U')
                 {
+                    _inStepEntry = false;
                     TuneFreq(step);
                     e.Handled = true;
                 }
                 else if (ch == 'D')
                 {
+                    _inStepEntry = false;
                     TuneFreq(unchecked((ulong)(-(long)step)));
+                    e.Handled = true;
+                }
+                else if (ch == 'F')
+                {
+                    _freqReadout = !_freqReadout;
+                    Radios.ScreenReaderOutput.Speak(
+                        _freqReadout ? "Frequency readout on" : "Frequency readout off", true);
                     e.Handled = true;
                 }
                 break;
@@ -150,22 +215,54 @@ public class FreqOutHandlers
         if (newFreq > 0 && newFreq < 100_000_000_000UL) // sanity limit
         {
             SetRXFrequency(newFreq);
-            // Announce new frequency for screen reader
-            if (FormatFreq != null)
-                Radios.ScreenReaderOutput.Speak(FormatFreq(newFreq.ToString()));
+            if (_freqReadout)
+            {
+                Radios.ScreenReaderOutput.Speak(FormatFreqForSpeech(newFreq), true);
+            }
         }
+    }
+
+    /// <summary>
+    /// Format a frequency in Hz to a spoken string like "14.250.000".
+    /// Done locally to avoid NullRef through the VB.NET delegate chain.
+    /// </summary>
+    private static string FormatFreqForSpeech(ulong freqHz)
+    {
+        string s = freqHz.ToString();
+        while (s.Length < 7) s = "0" + s;
+        int len = s.Length;
+        return s.Substring(0, len - 6) + "." + s.Substring(len - 6, 3) + "." + s.Substring(len - 3);
+    }
+
+    /// <summary>
+    /// Strip leading number from step names like "1 kilohertz" → "kilohertz".
+    /// </summary>
+    private static string? StripLeadingNumber(string? s)
+    {
+        if (string.IsNullOrEmpty(s)) return s;
+        int i = 0;
+        while (i < s.Length && (char.IsDigit(s[i]) || s[i] == ' '))
+            i++;
+        return i > 0 && i < s.Length ? s.Substring(i) : s;
     }
 
     private void EnterFreqDigit(char digit, int posInField, int fieldLen)
     {
         if (Rig == null || FreqInt64 == null || SetRXFrequency == null) return;
-        string currentText = _window.FreqOut.Read("Freq").Trim();
+        string fieldText = _window.FreqOut.Read("Freq");
+        // Convert posInField (raw position with dots/spaces) to digit-only index
+        int digitIndex = 0;
+        for (int i = 0; i < posInField && i < fieldText.Length; i++)
+        {
+            if (fieldText[i] != '.' && fieldText[i] != ' ')
+                digitIndex++;
+        }
         // Strip formatting (spaces, dots)
-        string clean = currentText.Replace(" ", "").Replace(".", "");
-        if (posInField >= 0 && posInField < clean.Length)
+        string clean = fieldText.Trim().Replace(" ", "").Replace(".", "");
+        if (digitIndex >= 0 && digitIndex < clean.Length)
         {
             char[] chars = clean.ToCharArray();
-            chars[posInField] = digit;
+            chars[digitIndex] = digit;
             string newText = new string(chars);
             try
             {
@@ -270,39 +367,39 @@ public class FreqOutHandlers
 
     #endregion
 
-    #region AdjustRigField (Slice Indicators)
+    #region AdjustSlice
 
     /// <summary>
-    /// Slice indicator handler — mute, active, transmit, pan, volume.
+    /// Single slice field handler — Space cycles active slice, M toggles mute,
+    /// T sets transmit, digit keys jump to specific slice.
+    /// Period (.) creates a new slice, comma (,) releases the current slice.
     /// </summary>
-    public void AdjustRigField(FrequencyDisplay.DisplayField field, KeyEventArgs e)
+    public void AdjustSlice(FrequencyDisplay.DisplayField field, KeyEventArgs e)
     {
         if (Rig == null) return;
         var key = RawKey(e);
         char ch = KeyToChar(e);
-
-        // Determine which VFO this slice indicator represents
-        if (!int.TryParse(field.Key, out int vfo)) return;
-        if (!Rig.ValidVFO(vfo)) return;
+        int vfo = Rig.RXVFO;
 
         switch (ch)
         {
             case ' ':
-            case 'M':
-            case 'S':
-                // Toggle mute
-                bool muted = !Rig.GetVFOAudio(vfo);
-                Rig.SetVFOAudio(vfo, muted);
-                Radios.ScreenReaderOutput.Speak(muted ? "Unmuted" : "Muted");
+                // Cycle to next valid slice
+                CycleVFO(1);
                 e.Handled = true;
                 break;
-            case 'A':
-                Rig.RXVFO = vfo;
-                Radios.ScreenReaderOutput.Speak($"Slice {vfo} active");
+            case 'M':
+                // Toggle mute on current slice
+                if (Rig.ValidVFO(vfo))
+                {
+                    bool muted = !Rig.GetVFOAudio(vfo);
+                    Rig.SetVFOAudio(vfo, muted);
+                    Radios.ScreenReaderOutput.Speak(muted ? "Mute off" : "Mute on");
+                }
                 e.Handled = true;
                 break;
             case 'T':
-                if (Rig.CanTransmit)
+                if (Rig.CanTransmit && Rig.ValidVFO(vfo))
                 {
                     Rig.TXVFO = vfo;
                     Radios.ScreenReaderOutput.Speak($"Slice {vfo} transmit");
@@ -310,63 +407,124 @@ public class FreqOutHandlers
                 e.Handled = true;
                 break;
             case 'X':
-                // Transceive: set both RX and TX to this slice
-                Rig.RXVFO = vfo;
-                if (Rig.CanTransmit)
-                    Rig.TXVFO = vfo;
-                Radios.ScreenReaderOutput.Speak($"Slice {vfo} transceive");
+                // Transceive: set both RX and TX to current slice
+                if (Rig.ValidVFO(vfo))
+                {
+                    Rig.RXVFO = vfo;
+                    if (Rig.CanTransmit)
+                        Rig.TXVFO = vfo;
+                    Radios.ScreenReaderOutput.Speak($"Slice {vfo} transceive");
+                }
                 e.Handled = true;
                 break;
             case 'L':
-                Rig.SetVFOPan(vfo, FlexBase.MinPan);
-                Radios.ScreenReaderOutput.Speak("Pan left");
+                if (Rig.ValidVFO(vfo))
+                {
+                    Rig.SetVFOPan(vfo, FlexBase.MinPan);
+                    Radios.ScreenReaderOutput.Speak("Pan left");
+                }
                 e.Handled = true;
                 break;
             case 'C':
-                Rig.SetVFOPan(vfo, (FlexBase.MaxPan - FlexBase.MinPan) / 2);
-                Radios.ScreenReaderOutput.Speak("Pan center");
+                if (Rig.ValidVFO(vfo))
+                {
+                    Rig.SetVFOPan(vfo, (FlexBase.MaxPan - FlexBase.MinPan) / 2);
+                    Radios.ScreenReaderOutput.Speak("Pan center");
+                }
                 e.Handled = true;
                 break;
             case 'R':
-                Rig.SetVFOPan(vfo, FlexBase.MaxPan);
-                Radios.ScreenReaderOutput.Speak("Pan right");
+                if (Rig.ValidVFO(vfo))
+                {
+                    Rig.SetVFOPan(vfo, FlexBase.MaxPan);
+                    Radios.ScreenReaderOutput.Speak("Pan right");
+                }
+                e.Handled = true;
+                break;
+            case '.':
+                // Create/activate a new slice
+                if (Rig.NewSlice())
+                {
+                    Radios.ScreenReaderOutput.Speak($"Slice {Rig.MyNumSlices - 1} activated", true);
+                }
+                else
+                {
+                    Radios.ScreenReaderOutput.Speak("All slices in use", true);
+                }
+                e.Handled = true;
+                break;
+            case ',':
+                // Release/remove the current slice
+                if (Rig.MyNumSlices <= 1)
+                {
+                    Radios.ScreenReaderOutput.Speak("Cannot release last slice", true);
+                }
+                else
+                {
+                    int toRemove = vfo;
+                    // Find another slice to switch to
+                    int switchTo = -1;
+                    for (int i = 0; i < Rig.MyNumSlices; i++)
+                    {
+                        if (i != toRemove)
+                        {
+                            switchTo = i;
+                            break;
+                        }
+                    }
+                    if (switchTo >= 0)
+                    {
+                        // Move TX away from the slice being removed if needed
+                        if (Rig.CanTransmit && toRemove == Rig.TXVFO)
+                            Rig.TXVFO = switchTo;
+                        Rig.RXVFO = switchTo;
+                        if (Rig.RemoveSlice(toRemove))
+                        {
+                            Radios.ScreenReaderOutput.Speak($"Slice {toRemove} released, slice {switchTo} active", true);
+                        }
+                        else
+                        {
+                            Rig.RXVFO = toRemove; // revert
+                            Radios.ScreenReaderOutput.Speak("Cannot release this slice", true);
+                        }
+                    }
+                }
                 e.Handled = true;
                 break;
             default:
                 switch (key)
                 {
                     case Key.Up:
-                        AdjustGain(vfo, FlexBase.GainIncrement);
+                        if (Rig.ValidVFO(vfo))
+                            AdjustGain(vfo, FlexBase.GainIncrement);
                         e.Handled = true;
                         break;
                     case Key.Down:
-                        AdjustGain(vfo, -FlexBase.GainIncrement);
+                        if (Rig.ValidVFO(vfo))
+                            AdjustGain(vfo, -FlexBase.GainIncrement);
                         e.Handled = true;
                         break;
                     case Key.PageUp:
-                        AdjustPan(vfo, FlexBase.PanIncrement);
+                        if (Rig.ValidVFO(vfo))
+                            AdjustPan(vfo, FlexBase.PanIncrement);
                         e.Handled = true;
                         break;
                     case Key.PageDown:
-                        AdjustPan(vfo, -FlexBase.PanIncrement);
+                        if (Rig.ValidVFO(vfo))
+                            AdjustPan(vfo, -FlexBase.PanIncrement);
                         e.Handled = true;
                         break;
                 }
 
                 if (ch >= '0' && ch <= '9')
                 {
-                    // Copy this VFO's settings to another
                     int target = ch - '0';
-                    if (target != vfo && Rig.ValidVFO(target))
+                    if (Rig.ValidVFO(target))
                     {
-                        Rig.CopyVFO(vfo, target);
+                        Rig.RXVFO = target;
+                        Radios.ScreenReaderOutput.Speak($"Slice {target} active");
                         e.Handled = true;
                     }
-                }
-                else if (ch == '.')
-                {
-                    // Allocate/free slice — toggle
-                    e.Handled = true;
                 }
                 break;
         }
@@ -378,7 +536,8 @@ public class FreqOutHandlers
         int current = Rig.GetVFOGain(vfo);
         int newVal = Math.Clamp(current + delta, FlexBase.MinGain, FlexBase.MaxGain);
         Rig.SetVFOGain(vfo, newVal);
-        Radios.ScreenReaderOutput.Speak($"Volume {newVal}");
+        // interrupt=true to cut off NVDA's TextBox content change reading
+        Radios.ScreenReaderOutput.Speak($"Volume {newVal}", true);
     }
 
     private void AdjustPan(int vfo, int delta)
@@ -576,7 +735,8 @@ public class FreqOutHandlers
     #region AdjustVox
 
     /// <summary>
-    /// VOX field handler — toggle VOX.
+    /// VOX field handler — toggle VOX on/off.
+    /// Uses FlexBase.Vox property (handles both SimpleVOX and CW break-in).
     /// </summary>
     public void AdjustVox(FrequencyDisplay.DisplayField field, KeyEventArgs e)
     {
@@ -585,8 +745,9 @@ public class FreqOutHandlers
 
         if (key == Key.Space || key == Key.Up || key == Key.Down)
         {
-            // Toggle VOX - not exposed as simple property, use speech feedback
-            Radios.ScreenReaderOutput.Speak("VOX toggle");
+            var newState = Rig.ToggleOffOn(Rig.Vox);
+            Rig.Vox = newState;
+            Radios.ScreenReaderOutput.Speak(newState == FlexBase.OffOnValues.on ? "VOX on" : "VOX off");
             e.Handled = true;
         }
     }
@@ -607,6 +768,61 @@ public class FreqOutHandlers
             string reading = _window.FreqOut.Read("SMeter").Trim();
             Radios.ScreenReaderOutput.Speak($"S meter {reading}");
             e.Handled = true;
+        }
+    }
+
+    #endregion
+
+    #region AdjustMute
+
+    /// <summary>
+    /// Mute field handler — Space/M toggles mute on the current active slice.
+    /// </summary>
+    public void AdjustMute(FrequencyDisplay.DisplayField field, KeyEventArgs e)
+    {
+        if (Rig == null) return;
+        var key = RawKey(e);
+        char ch = KeyToChar(e);
+        int vfo = Rig.RXVFO;
+
+        if (key == Key.Space || ch == 'M')
+        {
+            if (Rig.ValidVFO(vfo))
+            {
+                bool audioOn = Rig.GetVFOAudio(vfo);
+                Rig.SetVFOAudio(vfo, !audioOn);
+                Radios.ScreenReaderOutput.Speak(audioOn ? "Mute on" : "Mute off");
+            }
+            e.Handled = true;
+        }
+    }
+
+    #endregion
+
+    #region AdjustVolume
+
+    /// <summary>
+    /// Volume field handler — Up/Down adjusts gain by GainIncrement (10).
+    /// Reuses the existing AdjustGain helper.
+    /// </summary>
+    public void AdjustVolume(FrequencyDisplay.DisplayField field, KeyEventArgs e)
+    {
+        if (Rig == null) return;
+        var key = RawKey(e);
+        int vfo = Rig.RXVFO;
+
+        switch (key)
+        {
+            case Key.Up:
+                if (Rig.ValidVFO(vfo))
+                    AdjustGain(vfo, FlexBase.GainIncrement);
+                e.Handled = true;
+                break;
+            case Key.Down:
+                if (Rig.ValidVFO(vfo))
+                    AdjustGain(vfo, -FlexBase.GainIncrement);
+                e.Handled = true;
+                break;
         }
     }
 

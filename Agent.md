@@ -3,225 +3,154 @@
 This document captures the current state of JJ-Flex repository and active work.
 
 **Repository root:** `C:\dev\JJFlex-NG`
-**Branch:** `sprint11/track-c`
+**Branch:** `main`
 
 ## 1) Overview
 - JJFlexRadio: Windows desktop app for FlexRadio 6000/8000 series transceivers
 - **Migration complete:** .NET 8, dual x64/x86 architecture, WebView2 for Auth0
-- **Current version:** 4.1.114 (Don's Birthday Release)
-- **Sprint 11:** IN PROGRESS — WPF adapters + dead code deletion
-- **Sprint 10:** COMPLETE — FlexBase.cs decoupling
-- **Sprint 9:** COMPLETE — all remaining WinForms dialogs converted to WPF
-- **Sprint 8:** COMPLETE — Form1 → WPF MainWindow conversion
+- **Current version:** 4.1.115
+- **Sprint 12:** IN PROGRESS — Stabilization phase. Core features implemented, working through remaining fixes.
 
-## 2) Sprint 11 Track C Status — COMPLETE
+## 2) Current Architecture
 
-**Goal:** Delete dead WinForms code from Radios/ and clean up references.
+### WPF Hosting (ElementHost pattern)
+```
+ShellForm (WinForms Form, visible, HWND owner)
+  ├─ Native Win32 HMENU menu bar (non-client area, via P/Invoke)
+  └─ ElementHost (Dock=Fill)
+       └─ MainWindow (WPF UserControl)
+            ├─ RadioControls (FreqOut, Mode, TXTune, buttons)
+            ├─ PanadapterPanel (braille display)
+            ├─ ContentArea (Received/Sent text)
+            ├─ LoggingPanel (collapsed by default)
+            └─ StatusBar
+```
 
-### Phase 11.9 — Delete Dead WinForms Files ✅
-- Deleted 7 WinForms file sets from Radios/ (21 files, ~8,150 lines):
-  - Flex6300Filters, FlexMemories, FlexATUMemories, FlexEq, FlexTNF, TXControls, FlexInfo
-- Removed RadioBoxes ProjectReference from Radios.csproj
-- **Not deleted (still live):** LogPanel.vb, RadioPane.vb, RadioBoxes project (Form1 depends on them — Track B handles)
+**Key files for this architecture:**
+| File | Role |
+|------|------|
+| `BridgeForm.vb` | ShellForm — WinForms Form with native HMENU + ElementHost, hosts WPF content |
+| `JJFlexWpf/NativeMenuBar.cs` | Win32 HMENU menu bar via P/Invoke (replaced MenuStripBuilder) |
+| `JJFlexWpf/MainWindow.xaml` | WPF UserControl (was Window before migration) |
+| `JJFlexWpf/MainWindow.xaml.cs` | Code-behind with radio wiring, callbacks, UI modes |
+| `JJFlexWpf/FreqOutHandlers.cs` | Field handler methods for FreqOut interactive tuning |
+| `ApplicationEvents.vb` | Creates ShellForm in Startup, wires callbacks |
+| `My Project/Application.Designer.vb` | Sets TheShellForm as MainForm |
+| `globals.vb` | AppShellForm accessor, title setting, initialization |
 
-### Phase 11.10 — Cleanup ✅
-- Fixed broken references in Form1.vb and KeyCommands.vb:
-  - DiversityMenuItem → FlexBase.ToggleDiversity() (new public method)
-  - EscMenuItem → Radios.EscDialog directly (still exists)
-  - FeatureAvailability → FlexBase.ShowRadioInfoDialog delegate
-  - DisplayMemory → FlexBase.ShowMemoriesDialog delegate
-  - TXControls → FlexBase.ShowTXControlsDialog delegate
-- Added delegate properties on FlexBase (follows ShowATUMemoriesDialog pattern)
-- Both x64 and x86 build clean (0 errors)
-- Both installers generated
+### Startup Sequence
+1. `MyApplication_Startup` → NativeLoader, TLS, crash handlers, ScreenReaderOutput.Initialize()
+2. `TheShellForm = New ShellForm()` → creates ElementHost + MainWindow, creates NativeMenuBar
+3. `OnHandleCreated` → `NativeMenuBar.AttachTo(Handle)` sets native HMENU via SetMenu
+4. Wire callbacks (ScanTimer, Exit, SelectRadio, CloseShell, DoCommand, FreqOutHandlersWire)
+5. `InitializeApplication()` → config, operators, radio open → calls `ApplyUIMode` which triggers `MenuModeCallback` → `NativeMenuBar.ApplyUIMode(mode)` rebuilds menu bar
+6. `OnCreateMainForm()` → `Me.MainForm = TheShellForm` (reuses instance from step 2)
+7. VB.NET shows ShellForm → `ShellForm.OnShown()` → `SpeakWelcome()`
 
-### Deferred to post-Track-B-merge
-- Delete RadioBoxes project (Form1.designer.vb still uses RadioBoxes types)
-- Delete LogPanel.vb and RadioPane.vb (still live in Form1.vb)
-- Remove RadioBoxes from JJFlexRadio.sln and JJFlexRadio.vbproj
-- Fix About.vb RadioBoxes.MainBox.Version reference
+## 3) Sprint 12 Status — Pileup-Ragchew-Shortpath
 
-## 3) Sprint 9 Status — COMPLETE (pending merge to main)
+**Plan file:** `docs/planning/agile/pileup-ragchew-shortpath.md`
 
-Converted all remaining WinForms dialogs to WPF using 3 parallel tracks with git worktrees.
-All tracks merged into sprint9/track-a. Clean build verified x64 + x86 Release (0 errors).
+### Completed Work
+- **Native Win32 HMENU menus** — replaced WPF Menu → WinForms MenuStrip → native HMENU via P/Invoke
+- **FreqOut interactive tuning** — field handlers ported, accessibility fixes applied
+- **Panadapter braille** — PanadapterPanel with Tolk.Braille() forwarding
+- **SmartLink auth fixes** — expired JWT detection, ghost PKCE handler neutered, background thread for Remote button
+- **RigSelector accessibility** — ListBox arrow key speech, Remote button feedback, ShowAccountSelector wired
+- **Menu wiring** — Connect to Radio, Disconnect, Select Rig, focus return on Escape
+- **Build noise suppression** — MSB3277/NU1903 warnings suppressed in Directory.Build.props
 
-**Stats:** 122 files changed, +10,825 lines, -6,190 lines
+### Remaining Work (Sprint 12 Leftovers)
 
-### Phase 9.0 — Dialog Base Infrastructure ✅
-- `JJFlexDialog.cs` base class + `DialogStyles.xaml`
-- Base class: ESC-close, focus management, accessibility, button panel helpers
-- Shared styles: DialogButton, OkButton, CancelButton, DialogLabel, etc.
+**Phase 1: Diagnostics — DONE**
+- [x] Add thread IDs to trace lines (JJTrace/Tracing.cs) — diagnosed selectorThread as root cause of sluggish tabbing
+- [x] RigSelector runs on T1 now (removed selectorThread) — tabbing is snappy
+- [x] Removed Speak() overrides from RadiosBox — let NVDA read standard ListBox natively
+- [x] Auto-select first radio in list so NVDA has something to read
+- [x] Station name timeout bumped 30s → 45s (WAN re-add can take 30-40s)
 
-### Track A — High-Priority Dialogs (11 forms) ✅ MERGED
-- RigSelector, Welcome, PersonalInfo, Profile, AuthDialog (WebView2), RadioInfo
-- AutoConnect settings/failed, SmartLinkAccount, LoginName, ProfileWorker
-- Form1 ref migration in KeyCommands.vb
+**Phase 2: Fixes**
+- [ ] VFO/Frequency display navigation — Right arrow reads "slice 0 slice 1" (both slices at once), "switch" instead of "Split" label, "unable to change" error
+- [ ] "Station name not set" prompt blocks on connect — user has to press Enter to proceed
+- [ ] NVDA menu announcement — says "Radio alt+r" not "Radio menu alt+r" (may need MSAA/UIA investigation)
+- [ ] Operations menu still a stub — needs wiring to actual functions
+- [ ] Screen reader speech polish — ensure every action gives clear, non-redundant feedback
 
-### Track B — Radio Operation Dialogs (13 forms) ✅ MERGED
-- FlexMemories, TXControls, DefineCommands (5-scope tabs)
-- LogEntry, FindLogEntry, Export, Import, Scan
-- EscDialog, FlexEq, FlexTNF, ComInfo, Menus
+**Phase 3: Testing**
+- [ ] Full functional testing — menus, logging, FreqOut, panadapter braille, SmartLink connect
+- [ ] Build test matrix at `docs/planning/agile/sprint12-test-matrix.md`
+- [ ] Test with both JAWS and NVDA
 
-### Track C — Low-Priority + Library Dialogs (30 forms) ✅ MERGED
-- 21 root-level dialogs (About, FreqInput, ShowBands, CW macros, etc.)
-- 9 library dialogs (MessageForm, ClusterForm, SetupKeys, log templates, etc.)
+**Sprint Cleanup (before release)**
+- [ ] Remove thread ID tracing from JJTrace/Tracing.cs — diagnostic only, adds overhead to every trace line
 
-### Phase 9.5 — Cleanup ✅ (partial)
-- ✅ StationLookup.vb deleted (no live references)
-- ✅ TRACK-INSTRUCTIONS.md files deleted
-- ✅ Worktrees removed (jjflex-9b, jjflex-9c)
-- ✅ Track branches deleted (sprint9/track-b, sprint9/track-c)
-- ✅ Clean build verified x64 + x86 Release (0 errors)
-- ⚠️ Form1.vb, LogPanel.vb, RadioPane.vb — CANNOT delete yet
-  - globals.vb, LogEntry.vb, LOTWMerge.vb reference `Form1` type directly
-  - LogPanel.vb and RadioPane.vb referenced by Form1.vb
-  - Requires FlexBase.cs/globals.vb decoupling (Sprint 10)
-- ⚠️ RadioBoxes/ directory — CANNOT delete yet
-  - FlexBase.cs deeply coupled (Flex6300Filters, FlexMemories, FlexATUMemories)
-  - Also SmartLinkAccountSelector, GetFile references
-  - 28+ build errors when old dialog types are removed
-  - Requires Sprint 10 decoupling work
+### Deferred Issues (noted, not Sprint 12)
+- Menu item speech interrupted by NVDA focus announcement — `SpeakAfterMenuClose` fix applied, needs re-test
 
-### Known Dead Code (compiles but never runs)
-These files are replaced by WPF equivalents but remain because of type dependencies:
-- `Form1.vb` (3,757 lines) — replaced by `JJFlexWpf/MainWindow.xaml`
-- `LogPanel.vb` (1,217 lines) — replaced by `JJFlexWpf/LogEntryControl.xaml`
-- `RadioPane.vb` (264 lines) — replaced by `JJFlexWpf/Controls/RadioPaneControl.xaml`
-- `RadioBoxes/` project — custom WinForms controls used by Flex6300Filters etc.
-- `Radios/Flex6300Filters.cs` — replaced by `JJFlexWpf/Controls/FiltersDspControl.xaml`
-- `Radios/FlexMemories.cs` — replaced by WPF FlexMemoriesWindow
-- Various old dialog files in `Radios/` — all have WPF replacements in `JJFlexWpf/Dialogs/`
+## 4) Roadmap
 
-## 3) Sprint 10 Status — COMPLETE
+| Sprint | Focus | Status |
+|--------|-------|--------|
+| **12** | Stabilize WPF: menus, SmartLink, FreqOut, speech polish | **IN PROGRESS** |
+| **13** | Slice Menu + Filter Menu + QSO Grid filtering/paging | Planned |
+| **14** | Waterfall braille + sonification — make the band visible and audible | Planned — **GATE: no new release until waterfall flows** |
+| **15** | QRZ per-QSO upload, confirmation, data import | Planned |
+| Future | FreeDV2/RADEV2, Activity Engine | Backlog |
 
-**Goal:** Remove WinForms type dependencies from FlexBase.cs and globals.vb.
+**Full backlog:** `docs/planning/vision/JJFlex-TODO.md`
+**Brainstorming:** `docs/planning/future items from chatgpt brainstorming session.md`
 
-### Phase 10.1 — Form1 References ✅
-- globals.vb: Form1.StatusBox → StatusBoxAdapter (routes to WPF MainWindow)
-- globals.vb: Form1.ScanTmr → WpfMainWindow.ScanTimer (DispatcherTimer)
-- globals.vb: Form1.SetupOperationsMenu → WpfMainWindow.SetupOperationsMenu
-- LogEntry.vb, LOTWMerge.vb: Form1.StatusBox → globals StatusBox adapter
-- scan.vb, MemoryScan.vb: Timer.Interval int → TimeSpan
-- ApplicationEvents.vb: ScanTimerTick event wiring
+## 5) Key Patterns
 
-### Phase 10.2 — IFilterControl Interface ✅
-- New `Radios/IFilterControl.cs` with 5 methods (RXFreqChange, PanSetup, ZeroBeatFreq, OperatorChangeHandler, Close)
-- FlexBase.FilterObj: `Flex6300Filters` → `IFilterControl`
-- Flex6300Filters implements IFilterControl
-- Removed cast in Dispose
+### Native Win32 HMENU Menus (CURRENT)
+WPF Menu and WinForms MenuStrip both announce "collapsed/expanded" to screen readers. Only native Win32 HMENU menus (via P/Invoke `CreateMenu`/`SetMenu`) give clean screen reader navigation. `NativeMenuBar.cs` handles this. Menu bar is rebuilt on each mode switch. Windows handles Alt/F10 activation natively via `DefWindowProc`.
 
-### Phase 10.3 — IMemoryManager Interface ✅
-- New `Radios/IMemoryManager.cs` with IMemoryManager + IMemoryElement
-- FlexBase.memoryHandling: `FlexMemories` → `IMemoryManager`
-- FlexMemories implements IMemoryManager, MemoryElement implements IMemoryElement
-- FlexMemories completely absent from FlexBase.cs
-
-### Phase 10.4 — Dialog Delegates ✅
-- FlexATUMemories → `ShowATUMemoriesDialog` Action delegate
-- SmartLinkAccountSelector → `ShowAccountSelector` Func delegate
-- GetFile → standard OpenFileDialog/SaveFileDialog in FlexDB.cs
-- WebBrowserHelper.ClearCache() → no-op (WebView2 manages own cache)
-
-### Phase 10.5 — Dead Code Deletion ✅
-- Deleted: GetFile.cs + Designer + resx, WebBrowserHelper.cs, SmartLinkAccountSelector.cs, FlexFilters.cs
-- ~800 lines removed
-- RadioBoxes + remaining WinForms files (Flex6300Filters, FlexMemories, Form1) cannot be deleted yet — still live code behind the interfaces
-
-### What's Left for Future Sprints
-- Form1.vb still serves as My.Application bridge form
-- Flex6300Filters.cs still the live IFilterControl implementation
-- FlexMemories.cs still the live IMemoryManager implementation
-- RadioBoxes/ still provides UI controls for the above
-- Full deletion (~13,000 lines) requires WPF adapters to fully replace the WinForms implementations
-
-### New Files Created
-| File | Purpose |
-|------|---------|
-| `Radios/IFilterControl.cs` | Interface for filter/DSP operations |
-| `Radios/IMemoryManager.cs` | Interface + IMemoryElement for memory operations |
-| `StatusBoxAdapter.vb` | Thin adapter routing Write(key,value) to WPF MainWindow |
-
-## 4) Sprint 8 Status — COMPLETE
-
-Converting Form1 from WinForms to pure WPF Window.
-
-### Phase 8.0-8.9 — All Complete ✅
-- WPF App Bootstrap, MainWindow Shell, RadioBoxes→WPF Controls
-- Main Content Area, PollTimer→DispatcherTimer, Menu System
-- Keyboard Routing (5-scope), FiltersDspControl, Logging Mode Panels
-- Integration, Cleanup & Build
-
-**Stats:** 26 files changed, +3,938 lines, -41 lines
-
-## 5) Combined Sprint 8+9 Stats
-- ~148 files changed
-- +14,763 lines added
-- -6,231 lines removed
-- Net +8,532 lines
-
-## 6) Sprint 7 Status — COMPLETE
-
-All 5 tracks merged to main. Full test matrix completed. 8 bugs found, 5 fixed + 1 disabled, 2 deferred.
-
-## 7) Completed Sprints
-
-### Sprint 10: FlexBase.cs Decoupling (interfaces + delegates)
-### Sprint 9: All Dialogs to WPF (3 parallel tracks)
-### Sprint 8: Form1 → WPF MainWindow
-### Sprint 7: Modern Menu, Logging Polish, Bug Fixes (v4.1.114, Don's Birthday Release)
-### Sprint 6: Bug Fixes, QRZ Logbook & Hotkey System (v4.1.13)
-### Sprint 5: QRZ/HamQTH Lookup & Full Log Access
-### Sprint 4: Logging Mode (v4.1.12)
-### Sprint 3: Classic/Modern Mode Foundation
-### Sprint 2: Auto-Connect (v4.1.11)
-### Sprint 1: SmartLink Saved Accounts (v4.1.10)
-### .NET 8 Migration (All Phases Complete)
-
-## 8) Technical Foundation
-- Solution: `JJFlexRadio.sln`
-- Languages: VB.NET (main app) + C# (libraries)
-- Framework: `net8.0-windows` (.NET 8)
-- Platforms: x64 (primary), x86 (legacy)
-- FlexLib v4: `FlexLib_API/`
-
-## 9) Key Patterns
-
-### FlexLib Async Property Pattern
-Property setters enqueue commands to the radio; getters return stale values until the radio responds. Always use a local variable to speak the correct state.
+### ElementHost Architecture (CRITICAL)
+WPF content MUST be hosted via ElementHost in a WinForms ShellForm. Standalone WPF Windows shown from VB.NET My.Application get NO keyboard input. Six fix attempts confirmed this.
 
 ### Delegate-Based Rig Wiring
-WPF controls use Func/Action delegates, not direct FlexLib references. This allows the Radios/ project to wire up controls without WPF projects referencing FlexLib directly.
+WPF controls use Func/Action delegates, not direct FlexLib references. FlexBase wires up controls at radio-open time.
 
-### JJFlexDialog Base Class (Sprint 9)
-All WPF dialogs inherit from JJFlexDialog — provides ESC-close, focus management, screen reader announcements, and shared styling via DialogStyles.xaml.
+### RadioComboBox _userEntry Pattern
+`_userEntry` flag distinguishes user actions from programmatic updates in `SelectionChanged`. Always reset `_userEntry = true` after programmatic updates complete.
 
-## 10) Build Commands
+### FreqOut Field Navigation
+Left/Right jumps between fields with screen reader announcements. Up/Down/Space/letter keys handled by per-field handlers in `FreqOutHandlers.cs`.
+
+### SmartLink Auth Flow
+- `TryAutoConnectRemote()` — startup path, checks `isJwtExpired` before sending to server, works correctly
+- `setupRemote()` — Remote button path, now also checks JWT expiry first (fixed Feb 2026)
+- `WanApplicationRegistrationInvalidHandler` — neutered (just logs), no longer spawns ghost PKCE logins
+- `RemoteButton_Click` — runs `RemoteRadios()` on background STA thread, UI updates via `BeginInvoke`
+
+## 6) Completed Sprints
+- Sprint 11: WPF adapters, Form1 kill, dead code deletion (~13,000 lines)
+- Sprint 10: FlexBase.cs decoupling (interfaces + delegates)
+- Sprint 9: All dialogs to WPF (3 parallel tracks, 122 files)
+- Sprint 8: Form1 → WPF MainWindow
+- Sprint 7: Modern Menu, Logging Polish (v4.1.114)
+- Sprint 6: Bug Fixes, QRZ Logbook & Hotkey System (v4.1.13)
+- Sprint 5: QRZ/HamQTH Lookup & Full Log Access
+- Sprint 4: Logging Mode (v4.1.12)
+- Sprint 3: Classic/Modern Mode Foundation
+- Sprint 2: Auto-Connect (v4.1.11)
+- Sprint 1: SmartLink Saved Accounts (v4.1.10)
+
+## 7) Build Commands
 
 ```batch
-# Clean + rebuild (guaranteed fresh output - use this!)
-dotnet clean JJFlexRadio.vbproj -c Release -p:Platform=x64 && dotnet build JJFlexRadio.vbproj -c Release -p:Platform=x64 --verbosity minimal
+# Debug build for testing (no installer, faster)
+dotnet build JJFlexRadio.vbproj -c Debug -p:Platform=x64 --verbosity minimal
 
-# Both installers
+# Clean + rebuild Release (triggers NSIS installer)
+dotnet clean JJFlexRadio.vbproj -c Release -p:Platform=x64 && dotnet restore JJFlexRadio.sln -p:Platform=x64 && dotnet build JJFlexRadio.vbproj -c Release -p:Platform=x64 --verbosity minimal
+
+# Both installers (release only)
 build-installers.bat
 ```
 
-## 11) Key Files
-
-| File | Purpose |
-|------|---------|
-| `JJFlexWpf/MainWindow.xaml(.cs)` | WPF main window (replacing Form1.vb) |
-| `JJFlexWpf/JJFlexDialog.cs` | Base class for all WPF dialogs |
-| `JJFlexWpf/DialogStyles.xaml` | Shared dialog styles |
-| `JJFlexWpf/Dialogs/` | All WPF dialog windows (Sprint 9) |
-| `JJFlexWpf/Controls/` | WPF controls (FrequencyDisplay, FiltersDsp, RadioPane, etc.) |
-| `JJFlexWpf/MenuBuilder.cs` | Constructs all 3 menu hierarchies |
-| `JJFlexWpf/WpfKeyConverter.cs` | WPF Key → WinForms Keys conversion |
-| `ApplicationEvents.vb` | Creates WPF MainWindow, bridges to WinForms |
-| `KeyCommands.vb` | Scope-aware hotkey registry (5 scopes) |
-| `globals.vb` | UIMode enum, ActiveUIMode, LastNonLogMode |
-| `Radios/FlexBase.cs` | Core rig abstraction (needs decoupling in Sprint 10) |
+**Note:** After `dotnet clean`, always run `dotnet restore` (on the **solution**, not just the project) before `dotnet build` to avoid NETSDK1047 errors. For testing, use Debug config to skip NSIS installer.
 
 ---
 
-*Updated: Feb 15, 2026 — Sprint 9 COMPLETE. All tracks merged. Clean build x64+x86. Pending: merge to main, then Sprint 10 (FlexBase.cs decoupling).*
+*Updated: Feb 18, 2026 — SmartLink auth fixes committed. Sprint 12 leftovers documented. Roadmap: Sprint 13 = Slice Menu + QSO Grid, Sprint 14 = QRZ integration.*

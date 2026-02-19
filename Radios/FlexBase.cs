@@ -436,8 +436,25 @@ namespace Radios
             // Need at least 1 slice.
             if (initialFreeSlices <= 0)
             {
+                // Include who has the slices so the user knows who to coordinate with
+                string sliceMsg = noSlice;
+                try
+                {
+                    var others = new System.Collections.Generic.List<string>();
+                    lock (theRadio.GuiClientsLockObj)
+                    {
+                        foreach (GUIClient c in theRadio.GuiClients)
+                        {
+                            if (!myClient(c.ClientHandle) && !string.IsNullOrEmpty(c.Station))
+                                others.Add(c.Station);
+                        }
+                    }
+                    if (others.Count > 0)
+                        sliceMsg += " — in use by " + string.Join(", ", others);
+                }
+                catch { /* don't let info gathering block the error */ }
                 Tracing.TraceLine("start: couldn't get a slice", TraceLevel.Error);
-                raiseNoSliceError(noSlice);
+                raiseNoSliceError(sliceMsg);
                 return false;
             }
 
@@ -453,16 +470,40 @@ namespace Radios
             }
 
             // wait until the station name is set.
-            // SmartLink can remove and re-add the GUIClient during connection setup,
-            // so we need a longer timeout to survive this cycle (typically ~13s).
-            if (await(() =>
+            // SmartLink can remove and re-add the GUIClient during connection setup.
+            // The re-add cycle is typically ~13s but can take 30-40s over WAN.
+            // Abort early if connection drops — no point waiting on a dead connection.
+            bool stationNameSet = false;
             {
-                GUIClient client = TheGuiClient;
-                if (client == null) return false;
-                return (client.Station == Callouts.StationName);
-            }, 30000))
+                int maxWaitMs = 45000;
+                int interval = 25;
+                int iterations = maxWaitMs / interval;
+                while (iterations-- > 0)
+                {
+                    if (!IsConnected)
+                    {
+                        Tracing.TraceLine("start:connection dropped while waiting for station name", TraceLevel.Error);
+                        break;
+                    }
+                    GUIClient client = TheGuiClient;
+                    if (client != null && client.Station == Callouts.StationName)
+                    {
+                        stationNameSet = true;
+                        break;
+                    }
+                    Thread.Sleep(interval);
+                }
+            }
+            if (stationNameSet)
             {
                 Tracing.TraceLine("start:station name set " + Callouts.StationName, TraceLevel.Info);
+            }
+            else if (!IsConnected)
+            {
+                // Connection dropped during SmartLink re-add cycle.
+                // Don't raise error — caller (openTheRadio) can retry the connection.
+                Tracing.TraceLine("start:connection lost during station name wait, caller may retry", TraceLevel.Error);
+                return false;
             }
             else
             {

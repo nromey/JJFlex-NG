@@ -78,10 +78,10 @@ Namespace My
                 handlers.SetMemoryMode = Sub(v) MemoryMode = v
                 handlers.GetRXFrequency = Function() RXFrequency
                 handlers.SetRXFrequency = Sub(v) RXFrequency = v
-                If RigControl IsNot Nothing AndAlso RigControl.Callouts IsNot Nothing Then
-                    handlers.FormatFreq = Function(s) RigControl.Callouts.FormatFreq(ULong.Parse(s))
-                    handlers.FreqInt64 = Function(s) RigControl.Callouts.FormatFreqForRadio(s)
-                End If
+                ' These lambdas access RigControl at call time (module variable),
+                ' so they work even if RigControl is Nothing when wired.
+                handlers.FormatFreq = Function(s) RigControl.Callouts.FormatFreq(ULong.Parse(s))
+                handlers.FreqInt64 = Function(s) RigControl.Callouts.FormatFreqForRadio(s)
             End Sub
         End Sub
 

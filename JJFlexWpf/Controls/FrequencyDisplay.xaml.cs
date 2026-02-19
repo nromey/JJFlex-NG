@@ -1,9 +1,36 @@
 using System.Collections.Generic;
 using System.Windows;
+using System.Windows.Automation.Peers;
 using System.Windows.Controls;
 using System.Windows.Input;
 
 namespace JJFlexWpf.Controls;
+
+/// <summary>
+/// TextBox subclass that suppresses NVDA's automatic text change reading.
+/// FreqOut is a custom multi-field display where all screen reader speech is
+/// managed by our Speak() calls — NVDA's default TextBox change announcements
+/// are meaningless noise (reads the entire concatenated field string).
+/// Uses FrameworkElementAutomationPeer instead of TextBoxAutomationPeer to
+/// avoid ValuePattern/TextPattern change events.
+/// </summary>
+public class SilentTextBox : TextBox
+{
+    protected override AutomationPeer OnCreateAutomationPeer()
+    {
+        return new SilentTextBoxPeer(this);
+    }
+
+    private class SilentTextBoxPeer : FrameworkElementAutomationPeer
+    {
+        public SilentTextBoxPeer(FrameworkElement owner) : base(owner) { }
+
+        protected override string GetClassNameCore() => "FrequencyDisplay";
+
+        protected override AutomationControlType GetAutomationControlTypeCore()
+            => AutomationControlType.Custom;
+    }
+}
 
 /// <summary>
 /// WPF replacement for RadioBoxes.MainBox — multi-field frequency/status display.
@@ -248,20 +275,21 @@ public partial class FrequencyDisplay : UserControl
 
     /// <summary>
     /// Route keyboard events to the field under the cursor.
-    /// Left/Right navigate between fields with screen reader announcements.
+    /// Left/Right move cursor one position at a time (character-by-character).
+    /// Home/End jump to first/last field. PgDn jumps to Frequency field.
     /// Other keys route to field-specific handlers.
     /// </summary>
     private void DisplayBox_PreviewKeyDown(object sender, KeyEventArgs e)
     {
-        // Left/Right: jump between fields (fixes "space space space" screen reader issue)
+        // Left/Right: character-by-character cursor movement
         if (e.Key == Key.Left || e.Key == Key.Right)
         {
-            NavigateToAdjacentField(e.Key == Key.Right ? 1 : -1);
+            NavigateCharacter(e.Key == Key.Right ? 1 : -1);
             e.Handled = true;
             return;
         }
 
-        // Home/End: jump to first/last field
+        // Home: jump to first field (Slice)
         if (e.Key == Key.Home)
         {
             if (_fields.Length > 0)
@@ -269,10 +297,21 @@ public partial class FrequencyDisplay : UserControl
             e.Handled = true;
             return;
         }
+
+        // End: jump to last field (XIT)
         if (e.Key == Key.End)
         {
             if (_fields.Length > 0)
                 NavigateToField(_fields[_fields.Length - 1]);
+            e.Handled = true;
+            return;
+        }
+
+        // PgDn: jump to Frequency field
+        if (e.Key == Key.PageDown)
+        {
+            if (_fieldDict.TryGetValue("Freq", out var freqField))
+                NavigateToField(freqField);
             e.Handled = true;
             return;
         }
@@ -301,71 +340,264 @@ public partial class FrequencyDisplay : UserControl
     #region Field Navigation
 
     /// <summary>
-    /// Find the index of the field at the given cursor position.
-    /// Returns -1 if position is not within any field.
+    /// Move cursor one position in the given direction (+1 = right, -1 = left).
+    /// Skips delimiter positions, dot separators in Freq, and sign positions in RIT/XIT.
+    /// On field boundary crossing, announces the new field label + value.
+    /// Within Freq/RIT/XIT, announces the step size at the new position.
     /// </summary>
-    private int FieldIndexAtPosition(int position)
-    {
-        for (int i = 0; i < _fields.Length; i++)
-        {
-            int fieldStart = _fields[i].Position + _fields[i].LeftDelim.Length;
-            int fieldEnd = fieldStart + _fields[i].Length;
-            if (position >= fieldStart && position < fieldEnd)
-                return i;
-        }
-
-        // In a delimiter or past end — find nearest field
-        int best = 0;
-        int bestDist = int.MaxValue;
-        for (int i = 0; i < _fields.Length; i++)
-        {
-            int mid = _fields[i].Position + _fields[i].LeftDelim.Length + _fields[i].Length / 2;
-            int dist = System.Math.Abs(position - mid);
-            if (dist < bestDist) { bestDist = dist; best = i; }
-        }
-        return best;
-    }
-
-    /// <summary>
-    /// Navigate to the adjacent field in the given direction (+1 = right, -1 = left).
-    /// Announces the new field for screen reader users.
-    /// </summary>
-    private void NavigateToAdjacentField(int direction)
+    private void NavigateCharacter(int direction)
     {
         if (_fields.Length == 0) return;
 
-        int currentIndex = FieldIndexAtPosition(DisplayBox.SelectionStart);
-        int newIndex = currentIndex + direction;
+        int currentPos = DisplayBox.SelectionStart;
+        var currentField = PositionToField(currentPos);
+        int totalLen = DisplayBox.Text?.Length ?? 0;
+        if (totalLen == 0) return;
 
-        // Clamp to valid range
-        if (newIndex < 0) newIndex = 0;
-        if (newIndex >= _fields.Length) newIndex = _fields.Length - 1;
+        int newPos = currentPos + direction;
 
-        NavigateToField(_fields[newIndex]);
+        // Skip delimiter positions, non-tunable positions, and non-position-sensitive
+        // fields we're already in (Volume=3 chars, SMeter=4 chars act as single-step targets)
+        while (newPos >= 0 && newPos < totalLen)
+        {
+            var fieldAtPos = PositionToField(newPos);
+            if (fieldAtPos == null)
+            {
+                // On a delimiter — skip
+                newPos += direction;
+                continue;
+            }
+
+            // Skip dots and leading spaces in Freq field
+            if (fieldAtPos.Key == "Freq")
+            {
+                int fs = fieldAtPos.Position + fieldAtPos.LeftDelim.Length;
+                int pif = newPos - fs;
+                if (pif >= 0 && pif < fieldAtPos.Text.Length)
+                {
+                    char c = fieldAtPos.Text[pif];
+                    if (c == '.' || c == ' ')
+                    {
+                        newPos += direction;
+                        continue;
+                    }
+                }
+            }
+
+            // Skip sign position (pos 0) in RIT/XIT
+            if (fieldAtPos.Key == "RIT" || fieldAtPos.Key == "XIT")
+            {
+                int fs = fieldAtPos.Position + fieldAtPos.LeftDelim.Length;
+                int pif = newPos - fs;
+                if (pif == 0)
+                {
+                    newPos += direction;
+                    continue;
+                }
+            }
+
+            // For non-position-sensitive fields we're already in, skip through
+            // to the next field (no per-character step to announce)
+            if (currentField != null && fieldAtPos == currentField &&
+                fieldAtPos.Key != "Freq" && fieldAtPos.Key != "RIT" && fieldAtPos.Key != "XIT")
+            {
+                newPos += direction;
+                continue;
+            }
+
+            break; // Valid position found
+        }
+
+        // Clamp check
+        if (newPos < 0 || newPos >= totalLen) return;
+
+        var newField = PositionToField(newPos);
+        if (newField == null) return;
+
+        DisplayBox.SelectionStart = newPos;
+
+        if (newField != currentField)
+        {
+            // Crossed into a new field — announce label + value (+ step for position-sensitive fields)
+            string label = newField.Label ?? newField.Key;
+            string value = GetSpeechText(newField);
+            string speech = string.IsNullOrEmpty(value) ? label : $"{label} {value}";
+
+            if (value != "off")
+            {
+                int fieldStart = newField.Position + newField.LeftDelim.Length;
+                int posInField = newPos - fieldStart;
+                string? stepName = GetStepName(newField.Key, posInField, newField.Length, newField.Text);
+                if (stepName != null)
+                    speech += $", {stepName}";
+            }
+
+            Radios.ScreenReaderOutput.Speak(speech, true);
+        }
+        else
+        {
+            // Same field — announce digit + step for position-sensitive fields
+            int fieldStart = newField.Position + newField.LeftDelim.Length;
+            int posInField = newPos - fieldStart;
+            string? stepName = GetStepName(newField.Key, posInField, newField.Length, newField.Text);
+            if (stepName != null)
+            {
+                char digit = posInField < newField.Text.Length ? newField.Text[posInField] : ' ';
+                Radios.ScreenReaderOutput.Speak($"{digit}, {stepName}", true);
+            }
+        }
     }
 
     /// <summary>
     /// Move cursor to the given field and announce it for the screen reader.
+    /// For position-sensitive fields (Freq, RIT, XIT), also announces the current step size.
     /// </summary>
     private void NavigateToField(DisplayField field)
     {
         int fieldStart = field.Position + field.LeftDelim.Length;
         int offset = System.Math.Min(field.DefaultCursorOffset, field.Length - 1);
         DisplayBox.SelectionStart = fieldStart + offset;
-        AnnounceField(field);
+
+        string label = field.Label ?? field.Key;
+        string value = GetSpeechText(field);
+
+        string speech = string.IsNullOrEmpty(value) ? label : $"{label} {value}";
+
+        // Announce step size for position-sensitive fields, but not when RIT/XIT is "off"
+        if (value != "off")
+        {
+            string? stepName = GetStepName(field.Key, offset, field.Length, field.Text);
+            if (stepName != null)
+                speech += $", {stepName}";
+        }
+
+        Radios.ScreenReaderOutput.Speak(speech, true);
+    }
+
+    /// <summary>
+    /// Get the human-readable step name for a cursor position within a field.
+    /// Returns null for fields that don't have position-sensitive stepping.
+    /// Also accessible via GetStepNameForKey for use by FreqOutHandlers.
+    /// </summary>
+    internal static string? GetStepNameForKey(string fieldKey, int posInField, int fieldLen, string? fieldText = null)
+        => GetStepName(fieldKey, posInField, fieldLen, fieldText);
+
+    private static string? GetStepName(string fieldKey, int posInField, int fieldLen, string? fieldText = null)
+    {
+        if (fieldKey == "Freq")
+        {
+            // Freq field text contains dots and leading spaces (e.g. "   3.828.750").
+            // Count actual digits to the right of the cursor position to determine step size.
+            if (fieldText != null)
+            {
+                int digitsToRight = 0;
+                for (int i = posInField + 1; i < fieldText.Length; i++)
+                {
+                    char c = fieldText[i];
+                    if (c != '.' && c != ' ')
+                        digitsToRight++;
+                }
+                return digitsToRight switch
+                {
+                    >= 7 => "10 megahertz",
+                    6 => "1 megahertz",
+                    5 => "100 kilohertz",
+                    4 => "10 kilohertz",
+                    3 => "1 kilohertz",
+                    2 => "100 hertz",
+                    1 => "10 hertz",
+                    0 => "1 hertz",
+                    _ => null
+                };
+            }
+
+            // Fallback when no field text available (shouldn't happen in practice)
+            int exponent = fieldLen - 1 - posInField;
+            return exponent switch
+            {
+                >= 7 => "10 megahertz",
+                6 => "1 megahertz",
+                5 => "100 kilohertz",
+                4 => "10 kilohertz",
+                3 => "1 kilohertz",
+                2 => "100 hertz",
+                1 => "10 hertz",
+                0 => "1 hertz",
+                _ => null
+            };
+        }
+
+        if (fieldKey == "RIT" || fieldKey == "XIT")
+        {
+            // RIT/XIT field is 5 chars: sign + 4 digits (+0150)
+            // Skip sign at pos 0
+            int exponent = fieldLen - 1 - posInField;
+            return exponent switch
+            {
+                >= 4 => null, // sign position
+                3 => "1000 hertz",
+                2 => "100 hertz",
+                1 => "10 hertz",
+                0 => "1 hertz",
+                _ => null
+            };
+        }
+
+        return null;
     }
 
     /// <summary>
     /// Announce a field's name and value via the screen reader.
+    /// Uses interrupt to override NVDA's raw character reading — FreqOut is a custom
+    /// multi-field display where NVDA's native reading is meaningless without the field label.
     /// </summary>
     private static void AnnounceField(DisplayField field)
     {
         string label = field.Label ?? field.Key;
-        string value = field.Text.Trim();
+        string value = GetSpeechText(field);
         if (string.IsNullOrEmpty(value))
-            Radios.ScreenReaderOutput.Speak(label);
+            Radios.ScreenReaderOutput.Speak(label, true);
         else
-            Radios.ScreenReaderOutput.Speak($"{label} {value}");
+            Radios.ScreenReaderOutput.Speak($"{label} {value}", true);
+    }
+
+    /// <summary>
+    /// Translate braille display text into speech-friendly text.
+    /// Braille display shows "rrrr" for inactive RIT and "xxxx" for inactive XIT —
+    /// these are meaningful on a braille display but nonsensical as speech.
+    /// Toggle fields (Split, VOX, Mute, Offset) translate single-character indicators to words.
+    /// </summary>
+    private static string GetSpeechText(DisplayField field)
+    {
+        string raw = field.Text.Trim();
+        string key = field.Key;
+
+        // RIT inactive shows as "rrrr" on braille — speak "off"
+        if (key == "RIT" && raw.Replace("r", "").Length == 0 && raw.Length > 0)
+            return "off";
+
+        // XIT inactive shows as "xxxx" on braille — speak "off"
+        if (key == "XIT" && raw.Replace("x", "").Length == 0 && raw.Length > 0)
+            return "off";
+
+        // Toggle fields: translate display characters to speech
+        if (key == "Split")
+            return raw == "S" ? "on" : "off";
+
+        if (key == "VOX")
+            return raw == "V" ? "on" : "off";
+
+        if (key == "Mute")
+            return raw == "M" ? "on" : "off";
+
+        if (key == "Offset")
+        {
+            if (raw == "+") return "plus";
+            if (raw == "-") return "minus";
+            return "off";
+        }
+
+        return raw;
     }
 
     #endregion

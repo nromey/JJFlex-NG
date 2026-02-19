@@ -444,7 +444,7 @@ Module globals
         While CurrentOp Is Nothing
             SetCurrentOp(Operators.TheDefault, Operators.DefaultID)
             If CurrentOp Is Nothing Then
-                If MessageBox.Show(reqOpMsg, reqOpMsgTitle, MessageBoxButtons.YesNo) <> DialogResult.Yes Then
+                If MessageBox.Show(AppShellForm, reqOpMsg, reqOpMsgTitle, MessageBoxButtons.YesNo) <> DialogResult.Yes Then
                     End
                 End If
                 Lister.TheList = Operators
@@ -1249,7 +1249,7 @@ Module globals
             End If
 
             Dim msg = "Audio devices are not configured. Select input and output devices now?"
-            If MessageBox.Show(msg, MessageHdr, MessageBoxButtons.YesNo, MessageBoxIcon.Information) <> DialogResult.Yes Then
+            If MessageBox.Show(AppShellForm, msg, MessageHdr, MessageBoxButtons.YesNo, MessageBoxIcon.Information) <> DialogResult.Yes Then
                 Return False
             End If
 
@@ -1276,7 +1276,7 @@ Module globals
     Friend Sub ShowInternalError(num As Integer)
         Dim text As String = InternalError & num
         Tracing.TraceLine("InternalError error:" & text, TraceLevel.Error)
-        MessageBox.Show(text, "JJFlexRadio error", MessageBoxButtons.OK)
+        MessageBox.Show(AppShellForm, text, "JJFlexRadio error", MessageBoxButtons.OK)
     End Sub
 
     ' Internal errors.
@@ -1343,7 +1343,7 @@ Module globals
 
         Dim msg As String = "JJFlex now has a Modern UI mode with reorganized menus." & vbCrLf &
                             "Want to try it? You can switch back anytime with Ctrl+Shift+M."
-        Dim result = MessageBox.Show(msg, "Try Modern Mode?", MessageBoxButtons.YesNo, MessageBoxIcon.Information)
+        Dim result = MessageBox.Show(AppShellForm, msg, "Try Modern Mode?", MessageBoxButtons.YesNo, MessageBoxIcon.Information)
         If result = DialogResult.Yes Then
             CurrentOp.UIModeSetting = CInt(UIMode.Modern)
         Else
@@ -1521,11 +1521,10 @@ Module globals
                 End If
             End If
 
-            selectorThread = New Thread(AddressOf selectorProc)
-            selectorThread.Name = "selectorThread"
-            selectorThread.SetApartmentState(ApartmentState.STA)
-            selectorThread.Start(initialCall)
-            selectorThread.Join()
+            ' Run RigSelector on T1 (main UI thread) directly.
+            ' Previously used a separate STA thread, but that caused slow
+            ' focus transitions and NVDA speech delays when tabbing between controls.
+            selectorProc(initialCall)
             AppShellForm?.Activate()
             rv = (radioSelected = DialogResult.OK)
 
@@ -1534,14 +1533,56 @@ RadioConnected:
                 WpfMainWindow.RigControl = RigControl
                 WpfMainWindow.OpenParms = OpenParms
                 WpfMainWindow.CloseRadioCallback = AddressOf CloseTheRadio
+                WpfMainWindow.ShowErrorCallback = Sub(msg, title)
+                                                      MessageBox.Show(AppShellForm, msg, title, MessageBoxButtons.OK, MessageBoxIcon.Error)
+                                                  End Sub
                 WpfMainWindow.PowerOnCallback = Sub()
                                                     SetupKnob()
                                                     StartDailyTraceIfEnabled()
                                                 End Sub
                 WpfMainWindow.WireRadioEvents()
 
+                ' Ensure ShellForm is visible before Start() so error dialogs
+                ' have a parent window and screen readers can announce them.
+                If AppShellForm IsNot Nothing AndAlso Not AppShellForm.Visible Then
+                    AppShellForm.Show()
+                    AppShellForm.Activate()
+                    Threading.Thread.Sleep(500) ' Let window settle before any error dialogs
+                End If
+
                 Tracing.TraceLine("OpenTheRadio:rig is starting", TraceLevel.Info)
                 rv = RigControl.Start()
+
+                ' If Start() failed because SmartLink dropped the connection during
+                ' the guiClient re-add cycle, retry the entire connection once.
+                ' This is rare but devastating when it happens — the user sees nothing
+                ' for 45+ seconds then gets an error with no radio connected.
+                If Not rv AndAlso RigControl IsNot Nothing AndAlso
+                   Not RigControl.IsConnected AndAlso _autoConnectConfig IsNot Nothing Then
+
+                    Tracing.TraceLine("OpenTheRadio:connection dropped during Start, retrying once", TraceLevel.Info)
+                    Radios.ScreenReaderOutput.Speak("Connection dropped, retrying")
+
+                    ' Clean up the dead connection
+                    WpfMainWindow?.UnwireRadioEvents()
+                    RigControl.Dispose()
+
+                    ' Create new rig instance and reconnect
+                    RigControl = New FlexBase(OpenParms)
+                    WpfMainWindow.RigControl = RigControl
+
+                    If RigControl.TryAutoConnect(_autoConnectConfig) Then
+                        WpfMainWindow.WireRadioEvents()
+                        Tracing.TraceLine("OpenTheRadio:retry - rig is starting", TraceLevel.Info)
+                        rv = RigControl.Start()
+                    End If
+
+                    If Not rv Then
+                        Tracing.TraceLine("OpenTheRadio:retry also failed", TraceLevel.Error)
+                        Radios.ScreenReaderOutput.Speak("Connection failed")
+                    End If
+                End If
+
                 If Not rv Then
                     radioSelected = DialogResult.Abort
                 End If
@@ -1554,7 +1595,7 @@ RadioConnected:
                 If radioSelected = DialogResult.Abort Then
                     CloseTheRadio()
                 ElseIf radioSelected = DialogResult.No Then
-                    MessageBox.Show(notConnected, ErrorHdr, MessageBoxButtons.OK)
+                    MessageBox.Show(AppShellForm, notConnected, ErrorHdr, MessageBoxButtons.OK)
                 Else
 #If LeaveBootTraceOn = 0 Then
                     turnTracingOff()

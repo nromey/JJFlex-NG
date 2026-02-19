@@ -130,14 +130,26 @@ namespace JJTrace
         }
 
         /// <summary>
+        /// Builds the trace prefix: "{ticks} [T{id}:{name}] " or "{ticks} [T{id}] ".
+        /// </summary>
+        private static string TracePrefix()
+        {
+            long tks = (DateTime.Now.Ticks - beginTicks) / 10000;
+            var t = System.Threading.Thread.CurrentThread;
+            string threadTag = string.IsNullOrEmpty(t.Name)
+                ? $"[T{t.ManagedThreadId}]"
+                : $"[T{t.ManagedThreadId}:{t.Name}]";
+            return $"{tks} {threadTag} ";
+        }
+
+        /// <summary>
         /// Unconditionally trace a line.
         /// </summary>
         /// <param name="str">string to trace</param>
         public static void TraceLine(string str)
         {
             if (!On) return;
-            long tks = (DateTime.Now.Ticks - beginTicks)/10000;
-            Trace.WriteLine(tks.ToString() + " " + str);
+            Trace.WriteLine(TracePrefix() + str);
         }
         /// <summary>
         /// Conditionally trace a line for this level.
@@ -147,11 +159,11 @@ namespace JJTrace
         public static void TraceLine(string str, TraceLevel lvl)
         {
             if (!On) return;
-            long tks = (DateTime.Now.Ticks - beginTicks) / 10000;
             if (TheSwitch.Level >= lvl)
             {
-                if (Debugger.IsAttached) Debug.WriteLine(tks.ToString() + " " + str);
-                else Trace.WriteLine(tks.ToString() + " " + str);
+                string line = TracePrefix() + str;
+                if (Debugger.IsAttached) Debug.WriteLine(line);
+                else Trace.WriteLine(line);
             }
         }
     }
