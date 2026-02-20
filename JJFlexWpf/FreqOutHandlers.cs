@@ -38,6 +38,51 @@ public class FreqOutHandlers
     // Frequency readout toggle — when off, tuning doesn't speak the new frequency
     private bool _freqReadout = true;
 
+    // Modern mode coarse/fine tuning step sizes (in Hz)
+    // Persisted in PersonalData (operator profile)
+    private static readonly int[] CoarseStepPresets = { 1000, 5000, 10000, 25000, 50000, 100000 };
+    private static readonly int[] FineStepPresets = { 10, 25, 50, 100, 250, 500, 1000 };
+    private int _coarseStepIndex = 1; // default 5kHz
+    private int _fineStepIndex = 3;   // default 100Hz
+
+    /// <summary>
+    /// Current coarse tuning step in Hz.
+    /// </summary>
+    public int CoarseTuneStep
+    {
+        get => CoarseStepPresets[_coarseStepIndex];
+        set
+        {
+            for (int i = 0; i < CoarseStepPresets.Length; i++)
+            {
+                if (CoarseStepPresets[i] == value) { _coarseStepIndex = i; return; }
+            }
+            _coarseStepIndex = 1; // default to 5kHz
+        }
+    }
+
+    /// <summary>
+    /// Current fine tuning step in Hz.
+    /// </summary>
+    public int FineTuneStep
+    {
+        get => FineStepPresets[_fineStepIndex];
+        set
+        {
+            for (int i = 0; i < FineStepPresets.Length; i++)
+            {
+                if (FineStepPresets[i] == value) { _fineStepIndex = i; return; }
+            }
+            _fineStepIndex = 3; // default to 100Hz
+        }
+    }
+
+    /// <summary>
+    /// Callback to persist step sizes to operator profile.
+    /// Set by ApplicationEvents.vb.
+    /// </summary>
+    public Action<int, int>? SaveStepSizes { get; set; }
+
     public FreqOutHandlers(MainWindow window)
     {
         _window = window;
@@ -892,6 +937,152 @@ public class FreqOutHandlers
                 Radios.ScreenReaderOutput.Speak($"Memory {Rig.CurrentMemoryChannel}");
                 e.Handled = true;
                 break;
+        }
+    }
+
+    #endregion
+
+    #region Modern Mode Tuning — Sprint 13B
+
+    /// <summary>
+    /// Modern mode frequency handler — coarse/fine tuning via modifier keys.
+    /// Up/Down = coarse step, Shift+Up/Down = fine step.
+    /// PageUp/PageDown = cycle coarse step, Shift+PageUp/PageDown = cycle fine step.
+    /// </summary>
+    public void AdjustFreqModern(FrequencyDisplay.DisplayField field, KeyEventArgs e)
+    {
+        if (Rig == null) return;
+        var key = RawKey(e);
+        char ch = KeyToChar(e);
+        bool shift = (System.Windows.Input.Keyboard.Modifiers & System.Windows.Input.ModifierKeys.Shift) != 0;
+
+        switch (key)
+        {
+            case Key.Up:
+                if (shift)
+                    TuneFreq((ulong)FineTuneStep);
+                else
+                    TuneFreq((ulong)CoarseTuneStep);
+                e.Handled = true;
+                break;
+
+            case Key.Down:
+                if (shift)
+                    TuneFreq(unchecked((ulong)(-(long)FineTuneStep)));
+                else
+                    TuneFreq(unchecked((ulong)(-(long)CoarseTuneStep)));
+                e.Handled = true;
+                break;
+
+            case Key.PageUp:
+                if (shift)
+                    CycleFineStep(1);
+                else
+                    CycleCoarseStep(1);
+                e.Handled = true;
+                break;
+
+            case Key.PageDown:
+                if (shift)
+                    CycleFineStep(-1);
+                else
+                    CycleCoarseStep(-1);
+                e.Handled = true;
+                break;
+
+            default:
+                if (ch >= '0' && ch <= '9')
+                {
+                    // Digit entry: delegate to same logic as Classic
+                    int fieldStart = _window.FreqOut.GetFieldPosition("Freq");
+                    int posInField = _window.FreqOut.SelectionStart - fieldStart;
+                    int fieldLen = _window.FreqOut.GetFieldLength("Freq");
+                    if (posInField < 0) posInField = 0;
+                    if (posInField >= fieldLen) posInField = fieldLen - 1;
+                    EnterFreqDigit(ch, posInField, fieldLen);
+                    e.Handled = true;
+                }
+                else if (ch == 'F')
+                {
+                    _freqReadout = !_freqReadout;
+                    Radios.ScreenReaderOutput.Speak(
+                        _freqReadout ? "Frequency readout on" : "Frequency readout off", true);
+                    e.Handled = true;
+                }
+                break;
+        }
+    }
+
+    private void CycleCoarseStep(int direction)
+    {
+        int newIndex = _coarseStepIndex + direction;
+        if (newIndex < 0) newIndex = 0;
+        if (newIndex >= CoarseStepPresets.Length) newIndex = CoarseStepPresets.Length - 1;
+        _coarseStepIndex = newIndex;
+        Radios.ScreenReaderOutput.Speak($"Coarse step {FormatStepForSpeech(CoarseTuneStep)}", true);
+        SaveStepSizes?.Invoke(CoarseTuneStep, FineTuneStep);
+    }
+
+    private void CycleFineStep(int direction)
+    {
+        int newIndex = _fineStepIndex + direction;
+        if (newIndex < 0) newIndex = 0;
+        if (newIndex >= FineStepPresets.Length) newIndex = FineStepPresets.Length - 1;
+        _fineStepIndex = newIndex;
+        Radios.ScreenReaderOutput.Speak($"Fine step {FormatStepForSpeech(FineTuneStep)}", true);
+        SaveStepSizes?.Invoke(CoarseTuneStep, FineTuneStep);
+    }
+
+    /// <summary>
+    /// Format a step size in Hz to a spoken string like "5 kilohertz" or "100 hertz".
+    /// </summary>
+    private static string FormatStepForSpeech(int hz)
+    {
+        if (hz >= 1000000) return $"{hz / 1000000} megahertz";
+        if (hz >= 1000) return $"{hz / 1000} kilohertz";
+        return $"{hz} hertz";
+    }
+
+    /// <summary>
+    /// Handle bracket keys for filter adjustment in Modern mode.
+    /// [ = narrow, ] = widen, Shift+[ = shift low edge, Shift+] = shift high edge.
+    /// </summary>
+    public void HandleFilterHotkey(KeyEventArgs e)
+    {
+        if (Rig == null) return;
+        var key = RawKey(e);
+        bool shift = (System.Windows.Input.Keyboard.Modifiers & System.Windows.Input.ModifierKeys.Shift) != 0;
+        const int filterStep = 50;
+
+        if (key == Key.OemOpenBrackets) // [
+        {
+            if (shift)
+            {
+                Rig.FilterLow = Math.Max(0, Rig.FilterLow - filterStep);
+                Radios.ScreenReaderOutput.Speak($"Low edge {Rig.FilterLow}", true);
+            }
+            else
+            {
+                Rig.FilterLow += filterStep;
+                Rig.FilterHigh -= filterStep;
+                Radios.ScreenReaderOutput.Speak($"Filter {Rig.FilterLow} to {Rig.FilterHigh}", true);
+            }
+            e.Handled = true;
+        }
+        else if (key == Key.OemCloseBrackets) // ]
+        {
+            if (shift)
+            {
+                Rig.FilterHigh += filterStep;
+                Radios.ScreenReaderOutput.Speak($"High edge {Rig.FilterHigh}", true);
+            }
+            else
+            {
+                Rig.FilterLow = Math.Max(0, Rig.FilterLow - filterStep);
+                Rig.FilterHigh += filterStep;
+                Radios.ScreenReaderOutput.Speak($"Filter {Rig.FilterLow} to {Rig.FilterHigh}", true);
+            }
+            e.Handled = true;
         }
     }
 

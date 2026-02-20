@@ -361,23 +361,32 @@ public partial class MainWindow : UserControl
 
     /// <summary>
     /// Show Classic mode: radio controls visible, logging hidden.
-    /// Menu switching handled by MenuModeCallback → MenuStripBuilder.
+    /// Rebuilds FreqOut with full field set if radio is connected.
     /// </summary>
     private void ShowClassicUI()
     {
         RadioControlsPanel.Visibility = Visibility.Visible;
         SetTextAreasVisible(true);
         LoggingPanel.Visibility = Visibility.Collapsed;
+
+        // Rebuild FreqOut with Classic field set if radio is connected
+        if (RigControl != null && _radioPowerOn)
+            SetupFreqoutClassic();
     }
 
     /// <summary>
     /// Show Modern mode: radio controls visible, logging hidden.
+    /// Rebuilds FreqOut with simplified field set if radio is connected.
     /// </summary>
     private void ShowModernUI()
     {
         RadioControlsPanel.Visibility = Visibility.Visible;
         SetTextAreasVisible(true);
         LoggingPanel.Visibility = Visibility.Collapsed;
+
+        // Rebuild FreqOut with Modern field set if radio is connected
+        if (RigControl != null && _radioPowerOn)
+            SetupFreqoutModern();
     }
 
     /// <summary>
@@ -537,7 +546,17 @@ public partial class MainWindow : UserControl
             }
         }
 
-        // 2. Route through scope-aware KeyCommands registry
+        // 2. Modern mode filter hotkeys (bracket keys)
+        if (ActiveUIMode == UIMode.Modern && _freqOutHandlers != null && _radioPowerOn)
+        {
+            if (rawKey == Key.OemOpenBrackets || rawKey == Key.OemCloseBrackets)
+            {
+                _freqOutHandlers.HandleFilterHotkey(e);
+                if (e.Handled) return;
+            }
+        }
+
+        // 3. Route through scope-aware KeyCommands registry
         if (DoCommandHandler != null)
         {
             var winFormsKey = WpfKeyConverter.ToWinFormsKeys(e);
@@ -548,7 +567,7 @@ public partial class MainWindow : UserControl
             }
         }
 
-        // 3. Fall through to focused control (default WPF behavior)
+        // 4. Fall through to focused control (default WPF behavior)
     }
 
     #endregion
@@ -725,26 +744,32 @@ public partial class MainWindow : UserControl
 
     /// <summary>
     /// Set up the frequency display fields with interactive handlers.
-    /// Replaces Form1.setupFreqout() with full field handler wiring.
+    /// Dispatches to Classic or Modern field set based on ActiveUIMode.
     /// </summary>
     private void SetupFreqout()
     {
         if (RigControl == null) return;
-        Tracing.TraceLine("SetupFreqout", TraceLevel.Info);
 
-        // Create handlers if needed
-        if (_freqOutHandlers == null)
-        {
-            _freqOutHandlers = new FreqOutHandlers(this);
-            // Wire VB.NET globals delegates
-            FreqOutHandlersWireCallback?.Invoke(_freqOutHandlers);
-            // Wire FieldKeyDown event to route keys to the handler for the field under cursor
-            FreqOut.FieldKeyDown += FreqOut_FieldKeyDown;
-        }
+        if (ActiveUIMode == UIMode.Modern)
+            SetupFreqoutModern();
+        else
+            SetupFreqoutClassic();
+    }
+
+    /// <summary>
+    /// Classic mode: full field set — Slice, Mute, Volume, SMeter, Split, VOX, Freq, Offset, RIT, XIT.
+    /// Position-based tuning via cursor placement within each field.
+    /// </summary>
+    private void SetupFreqoutClassic()
+    {
+        if (RigControl == null) return;
+        Tracing.TraceLine("SetupFreqoutClassic", TraceLevel.Info);
+
+        EnsureFreqOutHandlers();
 
         var fields = new List<FrequencyDisplay.DisplayField>();
 
-        // Field order: Slice → Mute → Volume → SMeter → Split → VOX → VFO → Freq → Offset → RIT → XIT
+        // Field order: Slice → Mute → Volume → SMeter → Split → VOX → Freq → Offset → RIT → XIT
         fields.Add(new FrequencyDisplay.DisplayField("Slice", 1, "", "") { Label = "Slice" });
         fields.Add(new FrequencyDisplay.DisplayField("Mute", 1, "", "") { Label = "Mute" });
         fields.Add(new FrequencyDisplay.DisplayField("Volume", 3, "", "") { Label = "Volume" });
@@ -761,19 +786,80 @@ public partial class MainWindow : UserControl
     }
 
     /// <summary>
+    /// Modern mode: simplified field set — Freq + Slice + SMeter only.
+    /// Tuning via modifier keys (Up/Down = coarse, Shift+Up/Down = fine).
+    /// Other controls (Mute, Volume, Split, VOX, RIT, XIT) accessible via Slice menu.
+    /// </summary>
+    private void SetupFreqoutModern()
+    {
+        if (RigControl == null) return;
+        Tracing.TraceLine("SetupFreqoutModern", TraceLevel.Info);
+
+        EnsureFreqOutHandlers();
+
+        var fields = new List<FrequencyDisplay.DisplayField>();
+
+        // Simplified: Slice → Freq → SMeter
+        fields.Add(new FrequencyDisplay.DisplayField("Slice", 1, "", "") { Label = "Slice" });
+        fields.Add(new FrequencyDisplay.DisplayField("Freq", 12, "", "") { Label = "Frequency", DefaultCursorOffset = 8 });
+        fields.Add(new FrequencyDisplay.DisplayField("SMeter", 4, " ", "") { Label = "S Meter" });
+
+        // Hidden fields still written by ShowFrequency but not displayed.
+        // ShowFrequency checks if the field exists before writing, so only
+        // the three above get updated.
+
+        FreqOut.Populate(fields.ToArray());
+        _firstFreqDisplay = true;
+    }
+
+    /// <summary>
+    /// Create FreqOutHandlers if not already initialized.
+    /// </summary>
+    private void EnsureFreqOutHandlers()
+    {
+        if (_freqOutHandlers == null)
+        {
+            _freqOutHandlers = new FreqOutHandlers(this);
+            // Wire VB.NET globals delegates
+            FreqOutHandlersWireCallback?.Invoke(_freqOutHandlers);
+            // Wire FieldKeyDown event to route keys to the handler for the field under cursor
+            FreqOut.FieldKeyDown += FreqOut_FieldKeyDown;
+        }
+    }
+
+    /// <summary>
     /// Route FieldKeyDown events to the appropriate FreqOutHandler method
     /// based on the field key under the cursor.
+    /// Modern mode uses simplified Freq handler with coarse/fine tuning.
     /// </summary>
     private void FreqOut_FieldKeyDown(FrequencyDisplay.DisplayField field, System.Windows.Input.KeyEventArgs e)
     {
         if (_freqOutHandlers == null) return;
 
+        // Modern mode: simplified routing for reduced field set
+        if (ActiveUIMode == UIMode.Modern)
+        {
+            switch (field.Key)
+            {
+                case "Freq":
+                    _freqOutHandlers.AdjustFreqModern(field, e);
+                    break;
+                case "Slice":
+                    _freqOutHandlers.AdjustSlice(field, e);
+                    break;
+                case "SMeter":
+                    _freqOutHandlers.AdjustSMeter(field, e);
+                    break;
+            }
+            return;
+        }
+
+        // Classic mode: full field routing
         switch (field.Key)
         {
             case "Freq":
                 _freqOutHandlers.AdjustFreq(field, e);
                 break;
-            // VFO field removed — redundant with Slice on FlexRadio
             case "Split":
                 _freqOutHandlers.AdjustSplit(field, e);
                 break;

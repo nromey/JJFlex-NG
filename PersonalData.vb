@@ -234,6 +234,18 @@ Public Class PersonalData
         <XmlIgnore()> Public DecryptedQrzLogbookApiKey As String = ""
 
         ''' <summary>
+        ''' Modern mode coarse tuning step in Hz. Default 5000 (5 kHz).
+        ''' Used with Up/Down arrow keys in Modern mode.
+        ''' </summary>
+        Public CoarseTuneStep As Integer = 5000
+
+        ''' <summary>
+        ''' Modern mode fine tuning step in Hz. Default 100 (100 Hz).
+        ''' Used with Shift+Up/Down arrow keys in Modern mode.
+        ''' </summary>
+        Public FineTuneStep As Integer = 100
+
+        ''' <summary>
         ''' Validated UI mode. Returns Classic for unknown or not-yet-implemented values.
         ''' </summary>
         <XmlIgnore()> Friend Property CurrentUIMode As UIMode
