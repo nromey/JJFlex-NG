@@ -46,6 +46,7 @@ Public Class ShellForm
         ' Build native Win32 menus (attached to HWND in HandleCreated)
         _nativeMenu = New JJFlexWpf.NativeMenuBar(WpfContent)
         WpfContent.MenuModeCallback = Sub(mode) _nativeMenu.ApplyUIMode(mode)
+        WpfContent.RebuildMenuCallback = Sub() _nativeMenu.RebuildCurrentMenu()
     End Sub
 
     Protected Overrides Sub OnHandleCreated(e As EventArgs)
@@ -56,8 +57,14 @@ Public Class ShellForm
 
     Protected Overrides Sub OnShown(e As EventArgs)
         MyBase.OnShown(e)
-        ' Speak welcome after the window is visible so the screen reader can hear it.
-        ' (MainWindow_Loaded fires during the constructor before the form is shown.)
+        SpeakWelcomeDelayed()
+    End Sub
+
+    Private Async Sub SpeakWelcomeDelayed()
+        ' Wait for NVDA to finish its focus announcements (window title, focused control)
+        ' before speaking the welcome. Task.Delay works reliably in WinForms+WPF hybrid
+        ' (WinForms Timer WM_TIMER messages can get swallowed by ElementHost).
+        Await Task.Delay(2000)
         WpfContent.SpeakWelcome()
     End Sub
 

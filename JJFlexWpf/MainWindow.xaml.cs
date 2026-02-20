@@ -1580,13 +1580,19 @@ public partial class MainWindow : UserControl
     }
 
     /// <summary>
-    /// Rebuild the Operations menu.
-    /// Matches Form1.SetupOperationsMenu().
+    /// Callback to rebuild the native menu bar after radio connects.
+    /// Set by ShellForm after creating NativeMenuBar.
+    /// </summary>
+    public Action? RebuildMenuCallback { get; set; }
+
+    /// <summary>
+    /// Rebuild the ScreenFields/Operations menus with live DSP controls.
+    /// Called from PowerNowOn after the radio is ready.
     /// </summary>
     public void SetupOperationsMenu()
     {
-        // Phase 9.5+: Rebuild Operations menu via MenuStripBuilder
-        Tracing.TraceLine("MainWindow.SetupOperationsMenu: stub — wiring in Phase 9.5", TraceLevel.Info);
+        Tracing.TraceLine("MainWindow.SetupOperationsMenu: rebuilding menus", TraceLevel.Info);
+        RebuildMenuCallback?.Invoke();
     }
 
     #region StatusBar + ScanTimer — Sprint 10 Phase 10.1

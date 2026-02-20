@@ -3,7 +3,9 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Threading.Tasks;
+using Flex.Smoothlake.FlexLib;
 using JJTrace;
+using Radios;
 
 namespace JJFlexWpf;
 
@@ -13,6 +15,10 @@ namespace JJFlexWpf;
 /// navigate correctly — ROLE_SYSTEM_MENUBAR / ROLE_SYSTEM_MENUITEM with no
 /// collapse/expand noise. Replaces the managed MenuStrip which announced
 /// "collapsed"/"expanded" identically to the old WPF Menu.
+///
+/// Sprint 13C/13D: Shared handlers for DSP toggles, value adjustments, and
+/// filter controls. Used by both Classic (ScreenFields/Operations) and
+/// Modern (Slice/Filter/Audio) menu bars.
 /// </summary>
 public class NativeMenuBar : IDisposable
 {
@@ -64,6 +70,8 @@ public class NativeMenuBar : IDisposable
         _window = window;
     }
 
+    private FlexBase? Rig => _window.RigControl;
+
     /// <summary>
     /// Attach to the form's HWND and apply the initial menu (Modern mode default).
     /// Call from ShellForm.HandleCreated.
@@ -111,6 +119,15 @@ public class NativeMenuBar : IDisposable
     }
 
     /// <summary>
+    /// Rebuild the current mode's menu bar (e.g., after radio connects and DSP is available).
+    /// Called from MainWindow.SetupOperationsMenu().
+    /// </summary>
+    public void RebuildCurrentMenu()
+    {
+        ApplyUIMode(_window.ActiveUIMode);
+    }
+
+    /// <summary>
     /// Handle WM_COMMAND from ShellForm.WndProc. Returns true if the command was handled.
     /// </summary>
     public bool HandleWmCommand(IntPtr wParam)
@@ -145,6 +162,299 @@ public class NativeMenuBar : IDisposable
         }
         _handlers.Clear();
     }
+
+    #region Shared DSP/Control Handlers — Sprint 13C
+
+    /// <summary>
+    /// Toggle an OffOnValues property and speak the result.
+    /// Used by NR, NB, ANF, APF, VOX, Squelch, etc.
+    /// </summary>
+    private void ToggleDSP(string label, Func<FlexBase.OffOnValues> getter, Action<FlexBase.OffOnValues> setter)
+    {
+        if (Rig == null) { SpeakNoRadio(); return; }
+        var current = getter();
+        var newVal = Rig.ToggleOffOn(current);
+        setter(newVal);
+        SpeakAfterMenuClose($"{label} {(newVal == FlexBase.OffOnValues.on ? "on" : "off")}");
+    }
+
+    /// <summary>
+    /// Adjust an integer value by a step and speak the result.
+    /// </summary>
+    private void AdjustValue(string label, Func<int> getter, Action<int> setter,
+        int step, int min, int max)
+    {
+        if (Rig == null) { SpeakNoRadio(); return; }
+        int current = getter();
+        int newVal = Math.Clamp(current + step, min, max);
+        setter(newVal);
+        SpeakAfterMenuClose($"{label} {newVal}");
+    }
+
+    /// <summary>
+    /// Toggle a bool property and speak the result.
+    /// </summary>
+    private void ToggleBool(string label, Func<bool> getter, Action<bool> setter)
+    {
+        if (Rig == null) { SpeakNoRadio(); return; }
+        bool newVal = !getter();
+        setter(newVal);
+        SpeakAfterMenuClose($"{label} {(newVal ? "on" : "off")}");
+    }
+
+    private void SpeakNoRadio()
+    {
+        SpeakAfterMenuClose("No radio connected");
+    }
+
+    /// <summary>
+    /// Build ScreenFields DSP submenu (shared between Classic and Modern DSP menus).
+    /// </summary>
+    private void BuildDSPItems(IntPtr parent)
+    {
+        if (Rig == null) return;
+
+        // === Noise Reduction submenu ===
+        var nrSub = AddSubmenu(parent, "Noise Reduction");
+        AddWired(nrSub, "Neural NR (RNN)", () =>
+            ToggleDSP("Neural NR", () => Rig.NeuralNoiseReduction, v => Rig.NeuralNoiseReduction = v));
+        AddWired(nrSub, "Spectral NR (NRS)", () =>
+            ToggleDSP("Spectral NR", () => Rig.SpectralNoiseReduction, v => Rig.SpectralNoiseReduction = v));
+        AddWired(nrSub, "Legacy NR", () =>
+            ToggleDSP("Legacy NR", () => Rig.NoiseReductionLegacy, v => Rig.NoiseReductionLegacy = v));
+
+        // === Noise Blankers submenu ===
+        var nbSub = AddSubmenu(parent, "Noise Blankers");
+        AddWired(nbSub, "Noise Blanker (NB)", () =>
+            ToggleDSP("Noise Blanker", () => Rig.NoiseBlanker, v => Rig.NoiseBlanker = v));
+        AddWired(nbSub, "Wideband NB (WNB)", () =>
+            ToggleDSP("Wideband NB", () => Rig.WidebandNoiseBlanker, v => Rig.WidebandNoiseBlanker = v));
+
+        // === Auto Notch ===
+        var anfSub = AddSubmenu(parent, "Auto Notch");
+        AddWired(anfSub, "FFT Auto-Notch", () =>
+            ToggleDSP("FFT Auto-Notch", () => Rig.AutoNotchFFT, v => Rig.AutoNotchFFT = v));
+        AddWired(anfSub, "Legacy Auto-Notch", () =>
+            ToggleDSP("Legacy Auto-Notch", () => Rig.AutoNotchLegacy, v => Rig.AutoNotchLegacy = v));
+
+        // === Audio Peak Filter (CW only) ===
+        AddWired(parent, "Audio Peak Filter (APF)", () =>
+        {
+            if (Rig == null) { SpeakNoRadio(); return; }
+            string? mode = Rig.Mode;
+            if (mode != null && !mode.StartsWith("CW", StringComparison.OrdinalIgnoreCase))
+            {
+                SpeakAfterMenuClose("Audio Peak Filter is CW only");
+                return;
+            }
+            ToggleDSP("Audio Peak Filter", () => Rig.APF, v => Rig.APF = v);
+        });
+    }
+
+    /// <summary>
+    /// Build filter control items (shared between Classic ScreenFields and Modern Filter menu).
+    /// </summary>
+    private void BuildFilterItems(IntPtr parent)
+    {
+        if (Rig == null) return;
+
+        const int filterStep = 50;
+
+        AddWired(parent, "Narrow Filter", () =>
+        {
+            if (Rig == null) { SpeakNoRadio(); return; }
+            Rig.FilterLow += filterStep;
+            Rig.FilterHigh -= filterStep;
+            SpeakAfterMenuClose($"Filter {Rig.FilterLow} to {Rig.FilterHigh}");
+        });
+        AddWired(parent, "Widen Filter", () =>
+        {
+            if (Rig == null) { SpeakNoRadio(); return; }
+            Rig.FilterLow = Math.Max(0, Rig.FilterLow - filterStep);
+            Rig.FilterHigh += filterStep;
+            SpeakAfterMenuClose($"Filter {Rig.FilterLow} to {Rig.FilterHigh}");
+        });
+        AddWired(parent, "Shift Low Edge Up", () =>
+        {
+            if (Rig == null) { SpeakNoRadio(); return; }
+            Rig.FilterLow += filterStep;
+            SpeakAfterMenuClose($"Low edge {Rig.FilterLow}");
+        });
+        AddWired(parent, "Shift Low Edge Down", () =>
+        {
+            if (Rig == null) { SpeakNoRadio(); return; }
+            Rig.FilterLow = Math.Max(0, Rig.FilterLow - filterStep);
+            SpeakAfterMenuClose($"Low edge {Rig.FilterLow}");
+        });
+        AddWired(parent, "Shift High Edge Up", () =>
+        {
+            if (Rig == null) { SpeakNoRadio(); return; }
+            Rig.FilterHigh += filterStep;
+            SpeakAfterMenuClose($"High edge {Rig.FilterHigh}");
+        });
+        AddWired(parent, "Shift High Edge Down", () =>
+        {
+            if (Rig == null) { SpeakNoRadio(); return; }
+            Rig.FilterHigh = Math.Max(0, Rig.FilterHigh - filterStep);
+            SpeakAfterMenuClose($"High edge {Rig.FilterHigh}");
+        });
+    }
+
+    /// <summary>
+    /// Build audio control items (shared between Classic Operations and Modern Audio/Slice menus).
+    /// </summary>
+    private void BuildAudioItems(IntPtr parent)
+    {
+        if (Rig == null) return;
+
+        const int gainStep = 10;
+
+        AddWired(parent, "Mute/Unmute Slice", () =>
+            ToggleBool("Mute", () => Rig.SliceMute, v => Rig.SliceMute = v));
+
+        AddWired(parent, "Audio Gain Up", () =>
+            AdjustValue("Audio Gain", () => Rig.AudioGain, v => Rig.AudioGain = v, gainStep, 0, 100));
+        AddWired(parent, "Audio Gain Down", () =>
+            AdjustValue("Audio Gain", () => Rig.AudioGain, v => Rig.AudioGain = v, -gainStep, 0, 100));
+
+        AddWired(parent, "Pan Left", () =>
+            AdjustValue("Pan", () => Rig.AudioPan, v => Rig.AudioPan = v, -10, 0, 100));
+        AddWired(parent, "Pan Right", () =>
+            AdjustValue("Pan", () => Rig.AudioPan, v => Rig.AudioPan = v, 10, 0, 100));
+
+        AddSep(parent);
+
+        AddWired(parent, "Headphone Level Up", () =>
+            AdjustValue("Headphone", () => Rig.HeadphoneGain, v => Rig.HeadphoneGain = v, gainStep, 0, 100));
+        AddWired(parent, "Headphone Level Down", () =>
+            AdjustValue("Headphone", () => Rig.HeadphoneGain, v => Rig.HeadphoneGain = v, -gainStep, 0, 100));
+
+        AddWired(parent, "Line Out Level Up", () =>
+            AdjustValue("Line Out", () => Rig.LineoutGain, v => Rig.LineoutGain = v, gainStep, 0, 100));
+        AddWired(parent, "Line Out Level Down", () =>
+            AdjustValue("Line Out", () => Rig.LineoutGain, v => Rig.LineoutGain = v, -gainStep, 0, 100));
+    }
+
+    /// <summary>
+    /// Build ATU (Antenna Tuner) control items.
+    /// </summary>
+    private void BuildATUItems(IntPtr parent)
+    {
+        if (Rig == null) return;
+
+        AddWired(parent, "ATU On/Off", () =>
+        {
+            if (Rig == null) { SpeakNoRadio(); return; }
+            Rig.FlexTunerOn = !Rig.FlexTunerOn;
+            SpeakAfterMenuClose($"ATU {(Rig.FlexTunerOn ? "on" : "off")}");
+        });
+
+        AddWired(parent, "ATU Mode", () =>
+        {
+            if (Rig == null) { SpeakNoRadio(); return; }
+            // Cycle: none → manual → auto → none
+            var mode = Rig.FlexTunerType;
+            var newMode = mode switch
+            {
+                FlexBase.FlexTunerTypes.none => FlexBase.FlexTunerTypes.manual,
+                FlexBase.FlexTunerTypes.manual => FlexBase.FlexTunerTypes.auto,
+                FlexBase.FlexTunerTypes.auto => FlexBase.FlexTunerTypes.none,
+                _ => FlexBase.FlexTunerTypes.auto
+            };
+            Rig.FlexTunerType = newMode;
+            SpeakAfterMenuClose($"ATU mode {newMode}");
+        });
+
+        AddWired(parent, "ATU Memories", () =>
+        {
+            if (Rig?.ShowMemoriesDialog != null)
+                Rig.ShowMemoriesDialog();
+            else
+                SpeakAfterMenuClose("ATU memories not available");
+        });
+    }
+
+    /// <summary>
+    /// Build diversity items with proper feature gating.
+    /// </summary>
+    private void BuildDiversityItems(IntPtr parent)
+    {
+        if (Rig == null) return;
+
+        if (Rig.DiversityReady)
+        {
+            AddWired(parent, "Toggle Diversity", () =>
+            {
+                if (Rig == null) { SpeakNoRadio(); return; }
+                Rig.ToggleDiversity();
+                // Read back the state after toggle
+                SpeakAfterMenuClose("Diversity toggled");
+            });
+        }
+        else
+        {
+            string gateMsg = Rig.DiversityGateMessage;
+            if (!string.IsNullOrEmpty(gateMsg))
+            {
+                AddWired(parent, "Diversity unavailable", () =>
+                    SpeakAfterMenuClose(Rig?.DiversityGateMessage ?? "Diversity unavailable"));
+            }
+        }
+    }
+
+    /// <summary>
+    /// Build receiver controls (AGC, Squelch, RF Gain) — shared between menus.
+    /// </summary>
+    private void BuildReceiverItems(IntPtr parent)
+    {
+        if (Rig == null) return;
+
+        AddWired(parent, "AGC Mode", () =>
+        {
+            if (Rig == null) { SpeakNoRadio(); return; }
+            // Cycle: Off → Slow → Medium → Fast → Off
+            var mode = Rig.AGCSpeed;
+            var newMode = mode switch
+            {
+                AGCMode.Off => AGCMode.Slow,
+                AGCMode.Slow => AGCMode.Medium,
+                AGCMode.Medium => AGCMode.Fast,
+                AGCMode.Fast => AGCMode.Off,
+                _ => AGCMode.Medium
+            };
+            Rig.AGCSpeed = newMode;
+            SpeakAfterMenuClose($"AGC {newMode}");
+        });
+
+        AddWired(parent, "AGC Threshold Up", () =>
+            AdjustValue("AGC Threshold", () => Rig.AGCThreshold, v => Rig.AGCThreshold = v,
+                FlexBase.AGCThresholdIncrement, FlexBase.AGCThresholdMin, FlexBase.AGCThresholdMax));
+        AddWired(parent, "AGC Threshold Down", () =>
+            AdjustValue("AGC Threshold", () => Rig.AGCThreshold, v => Rig.AGCThreshold = v,
+                -FlexBase.AGCThresholdIncrement, FlexBase.AGCThresholdMin, FlexBase.AGCThresholdMax));
+
+        AddSep(parent);
+
+        AddWired(parent, "Squelch On/Off", () =>
+            ToggleDSP("Squelch", () => Rig.Squelch, v => Rig.Squelch = v));
+        AddWired(parent, "Squelch Level Up", () =>
+            AdjustValue("Squelch", () => Rig.SquelchLevel, v => Rig.SquelchLevel = v,
+                FlexBase.SquelchLevelIncrement, FlexBase.SquelchLevelMin, FlexBase.SquelchLevelMax));
+        AddWired(parent, "Squelch Level Down", () =>
+            AdjustValue("Squelch", () => Rig.SquelchLevel, v => Rig.SquelchLevel = v,
+                -FlexBase.SquelchLevelIncrement, FlexBase.SquelchLevelMin, FlexBase.SquelchLevelMax));
+
+        AddSep(parent);
+
+        AddWired(parent, "RF Gain Up", () =>
+            AdjustValue("RF Gain", () => Rig.RFGain, v => Rig.RFGain = v,
+                Rig.RFGainIncrement, Rig.RFGainMin, Rig.RFGainMax));
+        AddWired(parent, "RF Gain Down", () =>
+            AdjustValue("RF Gain", () => Rig.RFGain, v => Rig.RFGain = v,
+                -Rig.RFGainIncrement, Rig.RFGainMin, Rig.RFGainMax));
+    }
+
+    #endregion
 
     #region Classic Menu Bar
 
@@ -192,13 +502,53 @@ public class NativeMenuBar : IDisposable
         AddNotImplemented(actions, "Toggle Screen Saver");
         AddWired(actions, "Exit", () => _window.CloseShellCallback?.Invoke());
 
-        // === ScreenFields ===
+        // === ScreenFields (DSP Controls) ===
         var screenFields = AddPopup(bar, "&ScreenFields");
-        AddStub(screenFields, "Connect a radio to see DSP controls");
+        if (Rig != null)
+        {
+            BuildDSPItems(screenFields);
+
+            AddSep(screenFields);
+
+            // Filter controls
+            var filterSub = AddSubmenu(screenFields, "Filter Controls");
+            BuildFilterItems(filterSub);
+
+            AddSep(screenFields);
+
+            // Diversity
+            BuildDiversityItems(screenFields);
+        }
+        else
+        {
+            AddWired(screenFields, "Connect a radio to see DSP controls", SpeakNoRadio);
+        }
 
         // === Operations ===
         var operations = AddPopup(bar, "&Operations");
-        AddStub(operations, "Connect a radio to see operations");
+        if (Rig != null)
+        {
+            // Audio
+            var audioSub = AddSubmenu(operations, "Audio");
+            BuildAudioItems(audioSub);
+
+            // VOX / Transmission
+            var txSub = AddSubmenu(operations, "Transmission");
+            AddWired(txSub, "VOX On/Off", () =>
+                ToggleDSP("VOX", () => Rig.Vox, v => Rig.Vox = v));
+
+            // Antenna Tuner
+            var atuSub = AddSubmenu(operations, "Antenna Tuner");
+            BuildATUItems(atuSub);
+
+            // Receiver
+            var rxSub = AddSubmenu(operations, "Receiver");
+            BuildReceiverItems(rxSub);
+        }
+        else
+        {
+            AddWired(operations, "Connect a radio to see operations", SpeakNoRadio);
+        }
 
         // === Help (shared) ===
         BuildHelpPopup(bar);
@@ -228,84 +578,100 @@ public class NativeMenuBar : IDisposable
         // === Slice ===
         var slice = AddPopup(bar, "&Slice");
 
-        var selSub = AddSubmenu(slice, "Selection");
-        AddStub(selSub, "Select Slice");
-        AddStub(selSub, "Next Slice");
-        AddStub(selSub, "Previous Slice");
-        AddStub(selSub, "Set TX Slice");
+        if (Rig != null)
+        {
+            // Selection
+            var selSub = AddSubmenu(slice, "Selection");
+            for (int i = 0; i < Math.Min(Rig.TotalNumSlices, 8); i++)
+            {
+                int sliceNum = i;
+                AddWired(selSub, $"Slice {i}", () =>
+                {
+                    if (Rig == null || !Rig.ValidVFO(sliceNum)) return;
+                    Rig.RXVFO = sliceNum;
+                    SpeakAfterMenuClose($"Slice {sliceNum} active");
+                });
+            }
 
-        var modeSub = AddSubmenu(slice, "Mode");
-        AddStub(modeSub, "CW");
-        AddStub(modeSub, "USB");
-        AddStub(modeSub, "LSB");
-        AddStub(modeSub, "AM");
-        AddStub(modeSub, "FM");
-        AddStub(modeSub, "DIGU");
-        AddStub(modeSub, "DIGL");
+            // Mode
+            var modeSub = AddSubmenu(slice, "Mode");
+            foreach (string modeName in RigCaps.ModeTable)
+            {
+                string m = modeName;
+                AddWired(modeSub, m, () =>
+                {
+                    if (Rig == null) { SpeakNoRadio(); return; }
+                    Rig.Mode = m;
+                    SpeakAfterMenuClose($"Mode {m}");
+                });
+            }
 
-        var audioSub = AddSubmenu(slice, "Audio");
-        AddNotImplemented(audioSub, "Mute/Unmute");
-        AddNotImplemented(audioSub, "Volume Up");
-        AddNotImplemented(audioSub, "Volume Down");
-        AddNotImplemented(audioSub, "Pan Left");
-        AddNotImplemented(audioSub, "Pan Center");
-        AddNotImplemented(audioSub, "Pan Right");
+            // Audio
+            var audioSub = AddSubmenu(slice, "Audio");
+            BuildAudioItems(audioSub);
 
-        var tuningSub = AddSubmenu(slice, "Tuning");
-        AddStub(tuningSub, "RIT On/Off");
-        AddStub(tuningSub, "RIT Value");
-        AddStub(tuningSub, "XIT On/Off");
-        AddStub(tuningSub, "XIT Value");
-        AddStub(tuningSub, "Step Size");
+            // Tuning
+            var tuningSub = AddSubmenu(slice, "Tuning");
+            AddWired(tuningSub, "RIT On/Off", () =>
+            {
+                if (Rig == null) { SpeakNoRadio(); return; }
+                var rit = new FlexBase.RITData(Rig.RIT);
+                rit.Active = !rit.Active;
+                Rig.RIT = rit;
+                SpeakAfterMenuClose($"RIT {(rit.Active ? "on" : "off")}");
+            });
+            AddWired(tuningSub, "XIT On/Off", () =>
+            {
+                if (Rig == null) { SpeakNoRadio(); return; }
+                var xit = new FlexBase.RITData(Rig.XIT);
+                xit.Active = !xit.Active;
+                Rig.XIT = xit;
+                SpeakAfterMenuClose($"XIT {(xit.Active ? "on" : "off")}");
+            });
 
-        var rxSub = AddSubmenu(slice, "Receiver");
-        AddStub(rxSub, "AGC Mode");
-        AddStub(rxSub, "AGC Threshold");
-        AddStub(rxSub, "Squelch On/Off");
-        AddStub(rxSub, "Squelch Level");
-        AddStub(rxSub, "RF Gain");
+            // Receiver
+            var rxSub = AddSubmenu(slice, "Receiver");
+            BuildReceiverItems(rxSub);
 
-        var dspSub = AddSubmenu(slice, "DSP");
+            // DSP
+            var dspSub = AddSubmenu(slice, "DSP");
+            BuildDSPItems(dspSub);
 
-        var nrSub = AddSubmenu(dspSub, "Noise Reduction");
-        AddNotImplemented(nrSub, "Neural NR (RNN)");
-        AddNotImplemented(nrSub, "Spectral NR (NRS)");
-        AddNotImplemented(nrSub, "Legacy NR");
+            // Antenna
+            var antSub = AddSubmenu(slice, "Antenna");
+            BuildDiversityItems(antSub);
 
-        var anfSub = AddSubmenu(dspSub, "Auto Notch");
-        AddNotImplemented(anfSub, "FFT Auto-Notch");
-        AddNotImplemented(anfSub, "Legacy Auto-Notch");
-
-        AddNotImplemented(dspSub, "Noise Blanker (NB)");
-        AddNotImplemented(dspSub, "Wideband NB (WNB)");
-        AddNotImplemented(dspSub, "Audio Peak Filter (APF)");
-
-        var antSub = AddSubmenu(slice, "Antenna");
-        AddStub(antSub, "RX Antenna");
-        AddStub(antSub, "TX Antenna");
-        AddStub(antSub, "Diversity On/Off");
-
-        var fmSub = AddSubmenu(slice, "FM");
-        AddStub(fmSub, "Repeater Offset");
-        AddStub(fmSub, "Pre-De-Emphasis");
-        AddStub(fmSub, "Tone");
+            // FM
+            var fmSub = AddSubmenu(slice, "FM");
+            AddWired(fmSub, "VOX On/Off", () =>
+                ToggleDSP("VOX", () => Rig.Vox, v => Rig.Vox = v));
+        }
+        else
+        {
+            AddWired(slice, "Connect a radio first", SpeakNoRadio);
+        }
 
         // === Filter ===
         var filter = AddPopup(bar, "&Filter");
-        AddNotImplemented(filter, "Narrow");
-        AddNotImplemented(filter, "Widen");
-        AddNotImplemented(filter, "Shift Low Edge");
-        AddNotImplemented(filter, "Shift High Edge");
-        AddStub(filter, "Presets");
-        AddStub(filter, "Reset Filter");
+        if (Rig != null)
+        {
+            BuildFilterItems(filter);
+        }
+        else
+        {
+            AddWired(filter, "Connect a radio first", SpeakNoRadio);
+        }
 
         // === Audio ===
         var audio = AddPopup(bar, "&Audio");
-        AddStub(audio, "PC Audio Boost");
-        AddStub(audio, "Local Audio");
-        AddStub(audio, "Audio Test");
-        AddStub(audio, "Record/Playback");
-        AddStub(audio, "Route/DAX");
+        if (Rig != null)
+        {
+            BuildAudioItems(audio);
+        }
+        else
+        {
+            AddWired(audio, "Connect a radio first", SpeakNoRadio);
+        }
 
         // === Tools ===
         var tools = AddPopup(bar, "&Tools");

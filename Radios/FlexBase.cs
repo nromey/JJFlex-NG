@@ -3530,7 +3530,7 @@ namespace Radios
         /// AGC mode
         /// </summary>
         /// <remarks>Different from AllRadios</remarks>
-        internal AGCMode AGCSpeed
+        public AGCMode AGCSpeed
         {
             get {
                 if (!HasActiveSlice) return AGCMode.None;
@@ -3544,10 +3544,10 @@ namespace Radios
             }
         }
 
-        internal const int AGCThresholdMin = 0;
-        internal const int AGCThresholdMax = 100;
-        internal const int AGCThresholdIncrement = 5;
-        internal int AGCThreshold
+        public const int AGCThresholdMin = 0;
+        public const int AGCThresholdMax = 100;
+        public const int AGCThresholdIncrement = 5;
+        public int AGCThreshold
         {
             get { return theRadio.ActiveSlice.AGCThreshold; }
             set { if (HasActiveSlice) q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.AGCThreshold = value; })); }
@@ -4022,10 +4022,10 @@ namespace Radios
             get { return (theRadio.ActiveSlice != null) ? theRadio.ActiveSlice.Panadapter : null; }
         }
 
-        internal int RFGainMin = -10;
-        internal int RFGainMax = 30;
-        internal int RFGainIncrement = 10;
-        internal int RFGain
+        public int RFGainMin = -10;
+        public int RFGainMax = 30;
+        public int RFGainIncrement = 10;
+        public int RFGain
         {
             get { return (activePan != null) ? activePan.RFGain : 0; }
             set
@@ -4085,7 +4085,7 @@ namespace Radios
             }
         }
 
-        internal OffOnValues Squelch
+        public OffOnValues Squelch
         {
             get { return (theRadio.ActiveSlice.SquelchOn) ? OffOnValues.on : OffOnValues.off; }
             set
@@ -4094,10 +4094,10 @@ namespace Radios
             }
         }
 
-        internal const int SquelchLevelMin = 0;
-        internal const int SquelchLevelMax = 100;
-        internal const int SquelchLevelIncrement = 5;
-        internal int SquelchLevel
+        public const int SquelchLevelMin = 0;
+        public const int SquelchLevelMax = 100;
+        public const int SquelchLevelIncrement = 5;
+        public int SquelchLevel
         {
             get { return theRadio.ActiveSlice.SquelchLevel; }
             set
