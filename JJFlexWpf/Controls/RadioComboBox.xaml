@@ -17,6 +17,7 @@
                   IsReadOnly="True"
                   FontSize="12"
                   MinWidth="80"
+                  IsTabStop="{Binding IsTabStop, RelativeSource={RelativeSource AncestorType=UserControl}}"
                   SelectionChanged="TheComboBox_SelectionChanged"
                   PreviewKeyDown="TheComboBox_PreviewKeyDown" />
     </StackPanel>
