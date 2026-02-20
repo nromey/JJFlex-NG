@@ -93,7 +93,12 @@ public partial class MainWindow : UserControl
     /// </summary>
     public void SpeakWelcome()
     {
-        Radios.ScreenReaderOutput.Speak("Welcome to JJ Flex");
+        // Focus FreqOut so cursor lands on the frequency display at startup
+        FreqOut.Focus();
+        Keyboard.Focus(FreqOut);
+
+        string modeName = ActiveUIMode == UIMode.Classic ? "Classic" : "Modern";
+        Radios.ScreenReaderOutput.Speak($"Welcome to JJ Flex, {modeName} mode");
     }
 
     /// <summary>

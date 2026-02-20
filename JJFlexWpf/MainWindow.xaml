@@ -67,28 +67,33 @@
 
                 <!-- Frequency Display (replacement for RadioBoxes.MainBox FreqOut) -->
                 <controls:FrequencyDisplay x:Name="FreqOut" x:FieldModifier="public" Margin="4,2"
+                    TabIndex="0"
                     AutomationProperties.Name="Frequency and VFO Display" />
 
-                <!-- Mode selector (replacement for RadioBoxes.Combo ModeControl) -->
+                <!-- Mode selector — not in tab chain (use menu or hotkey) -->
                 <controls:RadioComboBox x:Name="ModeControl" Margin="4,2"
+                    IsTabStop="False"
                     AutomationProperties.Name="Operating Mode" />
 
-                <!-- TX/Tune selector (replacement for RadioBoxes.Combo TXTuneControl) -->
+                <!-- TX/Tune selector — not in tab chain (use menu or hotkey) -->
                 <controls:RadioComboBox x:Name="TXTuneControl" Margin="4,2"
+                    IsTabStop="False"
                     AutomationProperties.Name="Transmit Tune" />
 
-                <!-- Antenna Tune button -->
+                <!-- Antenna Tune button — not in tab chain (use menu or hotkey) -->
                 <Button x:Name="AntennaTuneButton" Content="Tune"
                         Margin="4,2" Padding="8,4" MinWidth="60"
+                        IsTabStop="False"
                         AutomationProperties.Name="Antenna Tuner"
                         Click="AntennaTuneButton_Click"
                         MouseEnter="AntennaTuneButton_MouseEnter"
                         MouseLeave="AntennaTuneButton_MouseLeave"
                         IsEnabled="False" />
 
-                <!-- Transmit button -->
+                <!-- Transmit button — not in tab chain (use menu or hotkey) -->
                 <Button x:Name="TransmitButton" Content="Transmit"
                         Margin="4,2" Padding="8,4" MinWidth="70"
+                        IsTabStop="False"
                         AutomationProperties.Name="Transmit"
                         Click="TransmitButton_Click"
                         IsEnabled="False" />
@@ -114,7 +119,8 @@
                          FontFamily="Consolas" FontSize="12"
                          BorderThickness="1"
                          VerticalContentAlignment="Center"
-                         AutomationProperties.Name="Panadapter braille display"
+                         TabIndex="1"
+                         AutomationProperties.Name="Waterfall display"
                          PreviewKeyDown="PanDisplayBox_PreviewKeyDown"
                          GotFocus="PanDisplayBox_GotFocus"
                          LostFocus="PanDisplayBox_LostFocus" />
@@ -147,6 +153,7 @@
                          FontFamily="Consolas"
                          FontSize="12"
                          Margin="4,0"
+                         TabIndex="2"
                          AutomationProperties.Name="Received text"
                          PreviewKeyDown="ReceivedTextBox_PreviewKeyDown" />
 
@@ -164,6 +171,7 @@
                          FontFamily="Consolas"
                          FontSize="12"
                          Margin="4,0"
+                         TabIndex="3"
                          AutomationProperties.Name="Sent Text"
                          PreviewKeyDown="SentTextBox_PreviewKeyDown"
                          PreviewTextInput="SentTextBox_PreviewTextInput" />

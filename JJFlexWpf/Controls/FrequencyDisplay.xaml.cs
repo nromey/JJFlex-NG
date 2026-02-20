@@ -340,8 +340,16 @@ public partial class FrequencyDisplay : UserControl
     #region Field Navigation
 
     /// <summary>
-    /// Move cursor one position in the given direction (+1 = right, -1 = left).
-    /// Skips delimiter positions, dot separators in Freq, and sign positions in RIT/XIT.
+    /// Position-sensitive fields where Left/Right navigates character-by-character
+    /// with per-position step size announcements.
+    /// </summary>
+    private static bool IsPositionSensitive(string key)
+        => key == "Freq" || key == "RIT" || key == "XIT";
+
+    /// <summary>
+    /// Move cursor in the given direction (+1 = right, -1 = left).
+    /// For position-sensitive fields (Freq, RIT, XIT): moves one digit position.
+    /// For non-position-sensitive fields: jumps to the next/previous field.
     /// On field boundary crossing, announces the new field label + value.
     /// Within Freq/RIT/XIT, announces the step size at the new position.
     /// </summary>
@@ -356,8 +364,9 @@ public partial class FrequencyDisplay : UserControl
 
         int newPos = currentPos + direction;
 
-        // Skip delimiter positions, non-tunable positions, and non-position-sensitive
-        // fields we're already in (Volume=3 chars, SMeter=4 chars act as single-step targets)
+        // Track whether we've entered a new field (to avoid double-announce)
+        DisplayField? firstNewField = null;
+
         while (newPos >= 0 && newPos < totalLen)
         {
             var fieldAtPos = PositionToField(newPos);
@@ -396,16 +405,42 @@ public partial class FrequencyDisplay : UserControl
                 }
             }
 
-            // For non-position-sensitive fields we're already in, skip through
-            // to the next field (no per-character step to announce)
-            if (currentField != null && fieldAtPos == currentField &&
-                fieldAtPos.Key != "Freq" && fieldAtPos.Key != "RIT" && fieldAtPos.Key != "XIT")
+            // Same field we started in
+            if (currentField != null && fieldAtPos == currentField)
             {
+                if (IsPositionSensitive(fieldAtPos.Key))
+                {
+                    // Position-sensitive: stop at each digit position
+                    break;
+                }
+                // Non-position-sensitive: skip through to next field
                 newPos += direction;
                 continue;
             }
 
-            break; // Valid position found
+            // Different field from where we started
+            if (firstNewField == null)
+                firstNewField = fieldAtPos;
+
+            if (IsPositionSensitive(fieldAtPos.Key))
+            {
+                // Entering a position-sensitive field — stop at first valid digit
+                break;
+            }
+
+            // Non-position-sensitive field: if this is a new field we haven't
+            // skipped yet, stop here (one field per keypress)
+            if (fieldAtPos == firstNewField)
+            {
+                // Land at the DefaultCursorOffset of this field
+                int fs = fieldAtPos.Position + fieldAtPos.LeftDelim.Length;
+                int offset = System.Math.Min(fieldAtPos.DefaultCursorOffset, fieldAtPos.Length - 1);
+                newPos = fs + offset;
+                break;
+            }
+
+            // We've passed through firstNewField and are in yet another field — stop
+            break;
         }
 
         // Clamp check
