@@ -8,9 +8,13 @@ This document captures the current state of JJ-Flex repository and active work.
 ## 1) Overview
 - JJFlexRadio: Windows desktop app for FlexRadio 6000/8000 series transceivers
 - **Migration complete:** .NET 8, dual x64/x86 architecture, WebView2 for Auth0
-- **Current version:** 4.1.115
-- **Sprint 12:** COMPLETE — Stabilization phase. WPF app now functional: tuning, menus, error dialogs, screen reader speech all working.
-- **Next:** Fix SpeakWelcome regression, document Sprint 12, then plan Sprint 13.
+- **Current version:** 4.1.115 (target 4.1.116)
+- **Sprint 12:** COMPLETE — Stabilization phase. Plan archived.
+- **Sprint 13:** IN PROGRESS — Tab chain, Modern tuning, menu wiring.
+  - 13A DONE: Tab chain (FreqOut→Waterfall→Received→Sent), welcome mode announcement
+  - 13C DONE: ScreenFields & Operations menus wired with DSP/audio/ATU/receiver controls
+  - 13B DONE: Modern mode simplified FreqOut, coarse/fine tuning, filter hotkeys
+  - 13D DONE: Modern menus (Slice/Filter/Audio) wired via shared handlers from 13C
 
 ## 2) Current Architecture
 
@@ -46,9 +50,9 @@ ShellForm (WinForms Form, visible, HWND owner)
 4. Wire callbacks (ScanTimer, Exit, SelectRadio, CloseShell, DoCommand, FreqOutHandlersWire)
 5. `InitializeApplication()` → config, operators, radio open → calls `ApplyUIMode` which triggers `MenuModeCallback` → `NativeMenuBar.ApplyUIMode(mode)` rebuilds menu bar
 6. `OnCreateMainForm()` → `Me.MainForm = TheShellForm` (reuses instance from step 2)
-7. VB.NET shows ShellForm → `ShellForm.OnShown()` → `SpeakWelcome()`
+7. VB.NET shows ShellForm → `ShellForm.OnShown()` → `SpeakWelcomeDelayed()` (Async, 2s Task.Delay) → `SpeakWelcome()`
 
-**Note:** `openTheRadio()` now calls `AppShellForm.Show()` + `Activate()` before `Start()` so error dialogs have a parent window. This may interfere with SpeakWelcome timing — see "Known Issues" below.
+**Note:** `openTheRadio()` now calls `AppShellForm.Show()` + `Activate()` before `Start()` so error dialogs have a parent window. Welcome speech uses 2s `Task.Delay` to let NVDA finish its focus announcements before speaking.
 
 ## 3) Sprint 12 Status — COMPLETE
 
@@ -71,9 +75,10 @@ ShellForm (WinForms Form, visible, HWND owner)
 - **Slice management** — period creates slice, comma releases slice, digit keys jump to slice
 - **VOX toggle** — wired to FlexBase.Vox property
 - **Verbose trace cleanup** — removed per-keypress and per-poll-cycle trace lines
+- **SpeakWelcome** — "Welcome to JJ Flex" spoken 2s after window shown (Task.Delay, not WinForms Timer)
 
 ### Known Issues (carry to Sprint 13)
-- **SpeakWelcome regression** — "Welcome to JJ Flex" not spoken after Show()/Activate() change. Likely Activate() triggers NVDA focus announcement that stomps on welcome speech. Fix: defer speech slightly after activation settles.
+- ~~**SpeakWelcome regression**~~ — FIXED. Uses `Async Sub` + `Await Task.Delay(2000)` in `ShellForm.OnShown()` so NVDA finishes focus announcements before welcome speaks. WinForms Timer doesn't work in ElementHost (WM_TIMER swallowed).
 - **Right arrow field navigation** — reads "slice 0 slice 1" (both slices at once)
 - **NVDA menu announcement** — says "Radio alt+r" not "Radio menu alt+r"
 - **Operations menu** — still a stub
@@ -98,9 +103,10 @@ ShellForm (WinForms Form, visible, HWND owner)
 - Separate tuning experience from Classic
 
 ### Other Fixes
-- SpeakWelcome timing
+- ~~SpeakWelcome timing~~ DONE
 - Operations menu wiring
 - Field announcement polish
+- Mode announcement after welcome (e.g., "Welcome to JJ Flex, Classic mode")
 
 ## 5) Key Patterns
 
@@ -156,4 +162,4 @@ build-installers.bat
 
 ---
 
-*Updated: Feb 19, 2026 — Sprint 12 complete. Frequency readout, error dialogs, step speech all fixed. Sprint 13 research done (tab chain, waterfall, Modern mode). Next: fix SpeakWelcome, document Sprint 12, plan Sprint 13.*
+*Updated: Feb 19, 2026 — Sprint 12 complete and archived. SpeakWelcome fixed (Task.Delay approach). Sprint 13 research done (tab chain, waterfall, Modern mode). Next: Sprint 13 implementation — tab chain & field navigation in Classic/Modern modes.*
