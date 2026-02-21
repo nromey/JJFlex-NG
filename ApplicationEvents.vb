@@ -61,6 +61,11 @@ Namespace My
             ' Wire close callback so Exit menu item can close the ShellForm.
             WpfMainWindow.CloseShellCallback = Sub() TheShellForm.Close()
 
+            ' Wire UI mode persistence — saves to operator profile when user switches modes.
+            WpfMainWindow.SaveUIModeCallback = Sub(mode)
+                ActiveUIMode = CType(mode, UIMode)
+            End Sub
+
             ' Run VB-side initialization (moved from Form1_Load).
             InitializeApplication()
 

@@ -20,6 +20,7 @@
              FontSize="14"
              BorderThickness="1"
              VerticalContentAlignment="Center"
+             TabIndex="0"
              AutomationProperties.Name="Frequency and VFO Display"
              PreviewKeyDown="DisplayBox_PreviewKeyDown"
              PreviewTextInput="DisplayBox_PreviewTextInput" />

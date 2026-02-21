@@ -51,6 +51,12 @@ public partial class MainWindow : UserControl
     /// </summary>
     public Action<UIMode>? MenuModeCallback { get; set; }
 
+    /// <summary>
+    /// Callback to persist UI mode changes to the operator profile.
+    /// Set by ApplicationEvents.vb — routes to globals.ActiveUIMode setter.
+    /// </summary>
+    public Action<UIMode>? SaveUIModeCallback { get; set; }
+
     public MainWindow()
     {
         InitializeComponent();
@@ -426,6 +432,7 @@ public partial class MainWindow : UserControl
         var newMode = ActiveUIMode == UIMode.Classic ? UIMode.Modern : UIMode.Classic;
         LastNonLogMode = newMode;
         ApplyUIMode(newMode);
+        SaveUIModeCallback?.Invoke(newMode);
         Radios.ScreenReaderOutput.Speak($"Switched to {newMode} mode");
     }
 
