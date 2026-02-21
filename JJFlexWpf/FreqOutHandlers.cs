@@ -38,26 +38,34 @@ public class FreqOutHandlers
     // Frequency readout toggle — when off, tuning doesn't speak the new frequency
     private bool _freqReadout = true;
 
-    // Modern mode coarse/fine tuning step sizes (in Hz)
-    // Persisted in PersonalData (operator profile)
-    private static readonly int[] CoarseStepPresets = { 1000, 5000, 10000, 25000, 50000, 100000 };
-    private static readonly int[] FineStepPresets = { 10, 25, 50, 100, 250, 500, 1000 };
-    private int _coarseStepIndex = 1; // default 5kHz
-    private int _fineStepIndex = 3;   // default 100Hz
+    // Modern mode tuning — coarse/fine with configurable step lists.
+    // Defaults are sane HF values. Users can configure via operator profile later.
+    private int[] _coarseSteps = { 1000, 2000, 5000 };       // 1k, 2k, 5k Hz
+    private int[] _fineSteps = { 5, 10, 100 };                // 5, 10, 100 Hz
+    private bool _coarseMode = true;   // true = coarse, false = fine
+    private int _coarseStepIndex = 0;  // default 1kHz
+    private int _fineStepIndex = 1;    // default 10Hz
+
+    /// <summary>
+    /// Current active tuning step in Hz (from whichever mode is active).
+    /// </summary>
+    public int CurrentTuneStep => _coarseMode
+        ? _coarseSteps[_coarseStepIndex]
+        : _fineSteps[_fineStepIndex];
 
     /// <summary>
     /// Current coarse tuning step in Hz.
     /// </summary>
     public int CoarseTuneStep
     {
-        get => CoarseStepPresets[_coarseStepIndex];
+        get => _coarseSteps[_coarseStepIndex];
         set
         {
-            for (int i = 0; i < CoarseStepPresets.Length; i++)
+            for (int i = 0; i < _coarseSteps.Length; i++)
             {
-                if (CoarseStepPresets[i] == value) { _coarseStepIndex = i; return; }
+                if (_coarseSteps[i] == value) { _coarseStepIndex = i; return; }
             }
-            _coarseStepIndex = 1; // default to 5kHz
+            _coarseStepIndex = 0;
         }
     }
 
@@ -66,16 +74,21 @@ public class FreqOutHandlers
     /// </summary>
     public int FineTuneStep
     {
-        get => FineStepPresets[_fineStepIndex];
+        get => _fineSteps[_fineStepIndex];
         set
         {
-            for (int i = 0; i < FineStepPresets.Length; i++)
+            for (int i = 0; i < _fineSteps.Length; i++)
             {
-                if (FineStepPresets[i] == value) { _fineStepIndex = i; return; }
+                if (_fineSteps[i] == value) { _fineStepIndex = i; return; }
             }
-            _fineStepIndex = 3; // default to 100Hz
+            _fineStepIndex = 1;
         }
     }
+
+    /// <summary>
+    /// Whether currently in coarse tuning mode (vs fine).
+    /// </summary>
+    public bool IsCoarseMode => _coarseMode;
 
     /// <summary>
     /// Callback to persist step sizes to operator profile.
@@ -945,53 +958,108 @@ public class FreqOutHandlers
     #region Modern Mode Tuning — Sprint 13B
 
     /// <summary>
-    /// Modern mode frequency handler — coarse/fine tuning via modifier keys.
-    /// Up/Down = coarse step, Shift+Up/Down = fine step.
-    /// PageUp/PageDown = cycle coarse step, Shift+PageUp/PageDown = cycle fine step.
+    /// Modern mode frequency handler — simplified coarse/fine tuning.
+    /// Up/Down = tune by current step. C = toggle coarse/fine mode.
+    /// PageUp/PageDown = cycle step within current mode.
+    /// F = toggle frequency readout. S = announce current step.
     /// </summary>
     public void AdjustFreqModern(FrequencyDisplay.DisplayField field, KeyEventArgs e)
     {
         if (Rig == null) return;
         var key = RawKey(e);
         char ch = KeyToChar(e);
-        bool shift = (System.Windows.Input.Keyboard.Modifiers & System.Windows.Input.ModifierKeys.Shift) != 0;
 
         switch (key)
         {
             case Key.Up:
-                if (shift)
-                    TuneFreq((ulong)FineTuneStep);
-                else
-                    TuneFreq((ulong)CoarseTuneStep);
+                TuneFreq((ulong)CurrentTuneStep);
                 e.Handled = true;
                 break;
 
             case Key.Down:
-                if (shift)
-                    TuneFreq(unchecked((ulong)(-(long)FineTuneStep)));
-                else
-                    TuneFreq(unchecked((ulong)(-(long)CoarseTuneStep)));
+                TuneFreq(unchecked((ulong)(-(long)CurrentTuneStep)));
                 e.Handled = true;
                 break;
 
             case Key.PageUp:
-                if (shift)
-                    CycleFineStep(1);
-                else
-                    CycleCoarseStep(1);
+                CycleStep(1);
                 e.Handled = true;
                 break;
 
             case Key.PageDown:
-                if (shift)
-                    CycleFineStep(-1);
-                else
-                    CycleCoarseStep(-1);
+                CycleStep(-1);
                 e.Handled = true;
                 break;
 
             default:
-                if (ch >= '0' && ch <= '9')
+                if (ch == 'C')
+                {
+                    // Toggle coarse/fine mode
+                    _coarseMode = !_coarseMode;
+                    string modeName = _coarseMode ? "Coarse" : "Fine";
+                    Radios.ScreenReaderOutput.Speak(
+                        $"{modeName}, {FormatStepForSpeech(CurrentTuneStep)}", true);
+                    e.Handled = true;
+                }
+                else if (ch == 'S')
+                {
+                    // Announce current step
+                    string modeName = _coarseMode ? "Coarse" : "Fine";
+                    Radios.ScreenReaderOutput.Speak(
+                        $"{modeName}, {FormatStepForSpeech(CurrentTuneStep)}", true);
+                    e.Handled = true;
+                }
+                else if (ch == 'F')
+                {
+                    _freqReadout = !_freqReadout;
+                    Radios.ScreenReaderOutput.Speak(
+                        _freqReadout ? "Frequency readout on" : "Frequency readout off", true);
+                    e.Handled = true;
+                }
+                else if (ch == 'M')
+                {
+                    // Mute/unmute active slice
+                    if (Rig != null)
+                    {
+                        Rig.SliceMute = !Rig.SliceMute;
+                        Radios.ScreenReaderOutput.Speak(
+                            Rig.SliceMute ? "Muted" : "Unmuted", true);
+                    }
+                    e.Handled = true;
+                }
+                else if (ch == 'V')
+                {
+                    // Cycle to next slice (VFO)
+                    CycleVFO(1);
+                    e.Handled = true;
+                }
+                else if (ch == 'R')
+                {
+                    // Toggle RIT
+                    if (Rig != null)
+                    {
+                        var rit = new FlexBase.RITData(Rig.RIT);
+                        rit.Active = !rit.Active;
+                        Rig.RIT = rit;
+                        Radios.ScreenReaderOutput.Speak(
+                            rit.Active ? "RIT on" : "RIT off", true);
+                    }
+                    e.Handled = true;
+                }
+                else if (ch == 'X')
+                {
+                    // Toggle XIT
+                    if (Rig != null)
+                    {
+                        var xit = new FlexBase.RITData(Rig.XIT);
+                        xit.Active = !xit.Active;
+                        Rig.XIT = xit;
+                        Radios.ScreenReaderOutput.Speak(
+                            xit.Active ? "XIT on" : "XIT off", true);
+                    }
+                    e.Handled = true;
+                }
+                else if (ch >= '0' && ch <= '9')
                 {
                     // Digit entry: delegate to same logic as Classic
                     int fieldStart = _window.FreqOut.GetFieldPosition("Freq");
@@ -1002,41 +1070,38 @@ public class FreqOutHandlers
                     EnterFreqDigit(ch, posInField, fieldLen);
                     e.Handled = true;
                 }
-                else if (ch == 'F')
-                {
-                    _freqReadout = !_freqReadout;
-                    Radios.ScreenReaderOutput.Speak(
-                        _freqReadout ? "Frequency readout on" : "Frequency readout off", true);
-                    e.Handled = true;
-                }
                 break;
         }
     }
 
-    private void CycleCoarseStep(int direction)
+    /// <summary>
+    /// Cycle through the active step list (coarse or fine depending on current mode).
+    /// </summary>
+    private void CycleStep(int direction)
     {
-        int newIndex = _coarseStepIndex + direction;
-        if (newIndex < 0) newIndex = 0;
-        if (newIndex >= CoarseStepPresets.Length) newIndex = CoarseStepPresets.Length - 1;
-        _coarseStepIndex = newIndex;
-        Radios.ScreenReaderOutput.Speak($"Coarse step {FormatStepForSpeech(CoarseTuneStep)}", true);
-        SaveStepSizes?.Invoke(CoarseTuneStep, FineTuneStep);
-    }
-
-    private void CycleFineStep(int direction)
-    {
-        int newIndex = _fineStepIndex + direction;
-        if (newIndex < 0) newIndex = 0;
-        if (newIndex >= FineStepPresets.Length) newIndex = FineStepPresets.Length - 1;
-        _fineStepIndex = newIndex;
-        Radios.ScreenReaderOutput.Speak($"Fine step {FormatStepForSpeech(FineTuneStep)}", true);
+        if (_coarseMode)
+        {
+            int newIndex = _coarseStepIndex + direction;
+            if (newIndex < 0) newIndex = 0;
+            if (newIndex >= _coarseSteps.Length) newIndex = _coarseSteps.Length - 1;
+            _coarseStepIndex = newIndex;
+        }
+        else
+        {
+            int newIndex = _fineStepIndex + direction;
+            if (newIndex < 0) newIndex = 0;
+            if (newIndex >= _fineSteps.Length) newIndex = _fineSteps.Length - 1;
+            _fineStepIndex = newIndex;
+        }
+        string modeName = _coarseMode ? "Coarse" : "Fine";
+        Radios.ScreenReaderOutput.Speak($"{modeName}, {FormatStepForSpeech(CurrentTuneStep)}", true);
         SaveStepSizes?.Invoke(CoarseTuneStep, FineTuneStep);
     }
 
     /// <summary>
     /// Format a step size in Hz to a spoken string like "5 kilohertz" or "100 hertz".
     /// </summary>
-    private static string FormatStepForSpeech(int hz)
+    internal static string FormatStepForSpeech(int hz)
     {
         if (hz >= 1000000) return $"{hz / 1000000} megahertz";
         if (hz >= 1000) return $"{hz / 1000} kilohertz";
@@ -1053,37 +1118,44 @@ public class FreqOutHandlers
         var key = RawKey(e);
         bool shift = (System.Windows.Input.Keyboard.Modifiers & System.Windows.Input.ModifierKeys.Shift) != 0;
         const int filterStep = 50;
+        const int minWidth = 50; // minimum filter bandwidth
 
-        if (key == Key.OemOpenBrackets) // [
+        int low = Rig.FilterLow;
+        int high = Rig.FilterHigh;
+
+        if (key == Key.OemOpenBrackets) // [ = narrow or shift low edge
         {
             if (shift)
             {
-                Rig.FilterLow = Math.Max(0, Rig.FilterLow - filterStep);
-                Radios.ScreenReaderOutput.Speak($"Low edge {Rig.FilterLow}", true);
+                low = Math.Max(0, low - filterStep);
             }
             else
             {
-                Rig.FilterLow += filterStep;
-                Rig.FilterHigh -= filterStep;
-                Radios.ScreenReaderOutput.Speak($"Filter {Rig.FilterLow} to {Rig.FilterHigh}", true);
+                // Narrow: move both edges inward, but don't let them cross
+                int newLow = low + filterStep;
+                int newHigh = high - filterStep;
+                if (newHigh - newLow >= minWidth) { low = newLow; high = newHigh; }
             }
-            e.Handled = true;
         }
-        else if (key == Key.OemCloseBrackets) // ]
+        else if (key == Key.OemCloseBrackets) // ] = widen or shift high edge
         {
             if (shift)
             {
-                Rig.FilterHigh += filterStep;
-                Radios.ScreenReaderOutput.Speak($"High edge {Rig.FilterHigh}", true);
+                high += filterStep;
             }
             else
             {
-                Rig.FilterLow = Math.Max(0, Rig.FilterLow - filterStep);
-                Rig.FilterHigh += filterStep;
-                Radios.ScreenReaderOutput.Speak($"Filter {Rig.FilterLow} to {Rig.FilterHigh}", true);
+                // Widen: move both edges outward
+                low = Math.Max(0, low - filterStep);
+                high += filterStep;
             }
-            e.Handled = true;
         }
+        else return;
+
+        Rig.FilterLow = low;
+        Rig.FilterHigh = high;
+        Radios.ScreenReaderOutput.Speak($"Filter {low} to {high}", true);
+        e.Handled = true;
     }
 
     #endregion

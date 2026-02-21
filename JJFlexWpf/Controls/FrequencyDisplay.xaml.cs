@@ -103,6 +103,13 @@ public partial class FrequencyDisplay : UserControl
 
     #endregion
 
+    /// <summary>
+    /// Optional override for step name announcements in Modern mode.
+    /// When set, NavigateToField uses this instead of position-based step calculation.
+    /// Returns null to fall back to default position-based step name.
+    /// </summary>
+    public System.Func<DisplayField, string?>? StepNameOverride { get; set; }
+
     #region Events
 
     /// <summary>
@@ -289,7 +296,7 @@ public partial class FrequencyDisplay : UserControl
             return;
         }
 
-        // Home: jump to first field (Slice)
+        // Home: jump to first field
         if (e.Key == Key.Home)
         {
             if (_fields.Length > 0)
@@ -298,7 +305,7 @@ public partial class FrequencyDisplay : UserControl
             return;
         }
 
-        // End: jump to last field (XIT)
+        // End: jump to last field
         if (e.Key == Key.End)
         {
             if (_fields.Length > 0)
@@ -307,9 +314,16 @@ public partial class FrequencyDisplay : UserControl
             return;
         }
 
-        // PgDn: jump to Frequency field
+        // PgDn: let field handler try first (Modern mode uses PgDn to cycle steps).
+        // If the handler doesn't consume it, jump to Frequency field.
         if (e.Key == Key.PageDown)
         {
+            var pgdnField = PositionToField(DisplayBox.SelectionStart);
+            if (pgdnField != null)
+            {
+                FieldKeyDown?.Invoke(pgdnField, e);
+                if (e.Handled) return;
+            }
             if (_fieldDict.TryGetValue("Freq", out var freqField))
                 NavigateToField(freqField);
             e.Handled = true;
@@ -505,7 +519,9 @@ public partial class FrequencyDisplay : UserControl
         // Announce step size for position-sensitive fields, but not when RIT/XIT is "off"
         if (value != "off")
         {
-            string? stepName = GetStepName(field.Key, offset, field.Length, field.Text);
+            // Modern mode provides its own step names (preset-based, not position-based)
+            string? stepName = StepNameOverride?.Invoke(field)
+                ?? GetStepName(field.Key, offset, field.Length, field.Text);
             if (stepName != null)
                 speech += $", {stepName}";
         }

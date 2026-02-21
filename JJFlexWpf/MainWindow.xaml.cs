@@ -786,6 +786,8 @@ public partial class MainWindow : UserControl
         fields.Add(new FrequencyDisplay.DisplayField("RIT", 5, "", "") { Label = "RIT", DefaultCursorOffset = 2 });
         fields.Add(new FrequencyDisplay.DisplayField("XIT", 5, " ", "") { Label = "XIT", DefaultCursorOffset = 2 });
 
+        // Classic mode uses position-based step names (no override)
+        FreqOut.StepNameOverride = null;
         FreqOut.Populate(fields.ToArray());
         _firstFreqDisplay = true;
     }
@@ -813,6 +815,16 @@ public partial class MainWindow : UserControl
         // ShowFrequency checks if the field exists before writing, so only
         // the three above get updated.
 
+        // Modern mode: override step name with actual preset-based step
+        FreqOut.StepNameOverride = (field) =>
+        {
+            if (field.Key == "Freq" && _freqOutHandlers != null)
+            {
+                string mode = _freqOutHandlers.IsCoarseMode ? "coarse" : "fine";
+                return $"{mode} {FreqOutHandlers.FormatStepForSpeech(_freqOutHandlers.CurrentTuneStep)}";
+            }
+            return null;
+        };
         FreqOut.Populate(fields.ToArray());
         _firstFreqDisplay = true;
     }
@@ -1638,7 +1650,16 @@ public partial class MainWindow : UserControl
                 : RigControl.VirtualRXFrequency;
             string freqText = OpenParms.FormatFreq(freq);
             int slice = RigControl.RXVFO;
-            Radios.ScreenReaderOutput.Speak($"Frequency {freqText}, slice {slice}", true);
+            string speech = $"Frequency {freqText}, slice {slice}";
+
+            // In Modern mode, include the current tuning step and mode
+            if (ActiveUIMode == UIMode.Modern && _freqOutHandlers != null)
+            {
+                string stepMode = _freqOutHandlers.IsCoarseMode ? "coarse" : "fine";
+                speech += $", {stepMode} {FreqOutHandlers.FormatStepForSpeech(_freqOutHandlers.CurrentTuneStep)}";
+            }
+
+            Radios.ScreenReaderOutput.Speak(speech, true);
         }
         catch
         {

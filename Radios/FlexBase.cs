@@ -469,20 +469,31 @@ namespace Radios
                 return false;
             }
 
-            // wait until the station name is set.
-            // SmartLink can remove and re-add the GUIClient during connection setup.
-            // The re-add cycle is typically ~13s but can take 30-40s over WAN.
-            // Abort early if connection drops — no point waiting on a dead connection.
+            // Wait for the station name to be set on the GUIClient.
+            // SmartLink removes and re-adds the GUIClient during connection setup.
+            // We track the removal event for faster detection — if our client is removed
+            // and not re-added within the grace period, disconnect and let caller retry.
+            // A fresh reconnection is faster than waiting for a slow re-add cycle.
             bool stationNameSet = false;
             {
-                int maxWaitMs = 45000;
+                int maxWaitMs = 20000;       // 20s overall timeout
+                int removalGraceMs = 15000;  // 15s grace after client removal detected
                 int interval = 25;
                 int iterations = maxWaitMs / interval;
+                _clientRemovedDuringStart = false;
                 while (iterations-- > 0)
                 {
                     if (!IsConnected)
                     {
                         Tracing.TraceLine("start:connection dropped while waiting for station name", TraceLevel.Error);
+                        break;
+                    }
+                    // Fast abort: if our client was removed and grace period expired,
+                    // the SmartLink re-add is taking too long — bail out for retry.
+                    if (_clientRemovedDuringStart &&
+                        (Environment.TickCount64 - _clientRemovedTickCount) > removalGraceMs)
+                    {
+                        Tracing.TraceLine($"start:client removed {removalGraceMs}ms ago without re-add, aborting for retry", TraceLevel.Warning);
                         break;
                     }
                     GUIClient client = TheGuiClient;
@@ -507,8 +518,12 @@ namespace Radios
             }
             else
             {
-                Tracing.TraceLine("start:didn't get a station name:should be " + Callouts.StationName, TraceLevel.Error);
-                raiseNoSliceError(noStation);
+                // Station name timeout — SmartLink re-add is too slow.
+                // Disconnect cleanly and return false so caller can retry with a fresh connection.
+                // Don't show error dialog — a fresh connection usually succeeds quickly.
+                Tracing.TraceLine("start:station name timeout, disconnecting for retry", TraceLevel.Warning);
+                ScreenReaderOutput.Speak("Connection slow, retrying");
+                try { theRadio.Disconnect(); } catch { }
                 return false;
             }
             mainThread = new Thread(mainThreadProc);
@@ -1955,12 +1970,18 @@ namespace Radios
         private string clientID;
         private const uint noClient = 0xffffffff;
         private uint clientHandle = noClient;
+        // Track GUIClient removal during SmartLink connection for faster timeout detection.
+        // SmartLink removes and re-adds the GUIClient during setup — if the re-add is slow,
+        // we detect it and disconnect for retry instead of waiting the full timeout.
+        private volatile bool _clientRemovedDuringStart = false;
+        private long _clientRemovedTickCount = 0;
         private void guiClientAdded(GUIClient client)
         {
             if (client == null) return;
 
             if (client.IsThisClient)
             {
+                _clientRemovedDuringStart = false; // Client is back
                 clientID = client.ClientID;
                 clientHandle = client.ClientHandle;
                 lock (theRadio.GuiClientsLockObj)
@@ -2040,6 +2061,8 @@ namespace Radios
 
             if (myClient(client.ClientHandle))
             {
+                _clientRemovedDuringStart = true;
+                _clientRemovedTickCount = Environment.TickCount64;
                 Tracing.TraceLine("guiClientRemoved:my client", TraceLevel.Info);
             }
 

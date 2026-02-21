@@ -65,7 +65,14 @@ Public Class ShellForm
         ' before speaking the welcome. Task.Delay works reliably in WinForms+WPF hybrid
         ' (WinForms Timer WM_TIMER messages can get swallowed by ElementHost).
         Await Task.Delay(2000)
-        WpfContent.SpeakWelcome()
+        ' Task.Delay can resume on a thread pool thread when the SynchronizationContext
+        ' isn't captured (WinForms+WPF hybrid). Marshal back to UI thread explicitly
+        ' since SpeakWelcome calls WPF Focus() which requires STA.
+        If Me.InvokeRequired Then
+            Me.BeginInvoke(Sub() WpfContent.SpeakWelcome())
+        Else
+            WpfContent.SpeakWelcome()
+        End If
     End Sub
 
     ''' <summary>
@@ -99,6 +106,11 @@ Public Class ShellForm
             ' Defer focus restore so it doesn't re-enter during WndProc processing
             BeginInvoke(Sub() _elementHost?.Focus())
             Return
+        End If
+
+        ' WM_INITMENUPOPUP: update checkmarks before menu is displayed
+        If m.Msg = JJFlexWpf.NativeMenuBar.WM_INITMENUPOPUP Then
+            _nativeMenu?.HandleInitMenuPopup(m.WParam)
         End If
 
         ' WM_COMMAND with LParam=0 means it's from a menu (not a control notification)

@@ -45,13 +45,19 @@ public class NativeMenuBar : IDisposable
     [DllImport("user32.dll")]
     private static extern bool EnableMenuItem(IntPtr hMenu, uint uIDEnableItem, uint uEnable);
 
+    [DllImport("user32.dll")]
+    private static extern uint CheckMenuItem(IntPtr hMenu, uint uIDCheckItem, uint uCheck);
+
     private const uint MF_STRING = 0x0000;
     private const uint MF_POPUP = 0x0010;
     private const uint MF_SEPARATOR = 0x0800;
     private const uint MF_GRAYED = 0x0001;
     private const uint MF_BYCOMMAND = 0x0000;
+    private const uint MF_CHECKED = 0x0008;
+    private const uint MF_UNCHECKED = 0x0000;
 
     public const int WM_COMMAND = 0x0111;
+    public const int WM_INITMENUPOPUP = 0x0117;
 
     #endregion
 
@@ -59,6 +65,8 @@ public class NativeMenuBar : IDisposable
     private IntPtr _hwnd;
     private IntPtr _currentMenuBar;
     private readonly Dictionary<int, Action> _handlers = new();
+    // Items with dynamic checkmarks: menu item ID → (parent HMENU, state getter)
+    private readonly List<(IntPtr popup, int id, Func<bool> stateGetter)> _checkItems = new();
     private int _nextId;
 
     // Feature gate state (persisted across rebuilds)
@@ -97,6 +105,7 @@ public class NativeMenuBar : IDisposable
 
         // Reset handler tracking for fresh build
         _handlers.Clear();
+        _checkItems.Clear();
         _nextId = 1000;
 
         // Build new menu bar for this mode
@@ -140,6 +149,24 @@ public class NativeMenuBar : IDisposable
             return true;
         }
         return false;
+    }
+
+    /// <summary>
+    /// Handle WM_INITMENUPOPUP — update checkmarks before the menu is shown.
+    /// Call from ShellForm.WndProc.
+    /// </summary>
+    public void HandleInitMenuPopup(IntPtr wParam)
+    {
+        IntPtr popup = wParam;
+        foreach (var (itemPopup, id, stateGetter) in _checkItems)
+        {
+            try
+            {
+                bool isOn = stateGetter();
+                CheckMenuItem(itemPopup, (uint)id, MF_BYCOMMAND | (isOn ? MF_CHECKED : MF_UNCHECKED));
+            }
+            catch { /* don't let state read errors block menu display */ }
+        }
     }
 
     /// <summary>
@@ -216,29 +243,45 @@ public class NativeMenuBar : IDisposable
 
         // === Noise Reduction submenu ===
         var nrSub = AddSubmenu(parent, "Noise Reduction");
-        AddWired(nrSub, "Neural NR (RNN)", () =>
-            ToggleDSP("Neural NR", () => Rig.NeuralNoiseReduction, v => Rig.NeuralNoiseReduction = v));
-        AddWired(nrSub, "Spectral NR (NRS)", () =>
-            ToggleDSP("Spectral NR", () => Rig.SpectralNoiseReduction, v => Rig.SpectralNoiseReduction = v));
-        AddWired(nrSub, "Legacy NR", () =>
-            ToggleDSP("Legacy NR", () => Rig.NoiseReductionLegacy, v => Rig.NoiseReductionLegacy = v));
+        if (Rig.NoiseReductionLicenseReported && !Rig.NoiseReductionLicensed)
+        {
+            // NR license not available on this radio — show as unavailable
+            AddWired(nrSub, "Not available on this radio", () =>
+                SpeakAfterMenuClose("Noise Reduction is not licensed on this radio"));
+        }
+        else
+        {
+            AddChecked(nrSub, "Neural NR (RNN)", () =>
+                ToggleDSP("Neural NR", () => Rig.NeuralNoiseReduction, v => Rig.NeuralNoiseReduction = v),
+                () => Rig?.NeuralNoiseReduction == FlexBase.OffOnValues.on);
+            AddChecked(nrSub, "Spectral NR (NRS)", () =>
+                ToggleDSP("Spectral NR", () => Rig.SpectralNoiseReduction, v => Rig.SpectralNoiseReduction = v),
+                () => Rig?.SpectralNoiseReduction == FlexBase.OffOnValues.on);
+            AddChecked(nrSub, "Legacy NR", () =>
+                ToggleDSP("Legacy NR", () => Rig.NoiseReductionLegacy, v => Rig.NoiseReductionLegacy = v),
+                () => Rig?.NoiseReductionLegacy == FlexBase.OffOnValues.on);
+        }
 
         // === Noise Blankers submenu ===
         var nbSub = AddSubmenu(parent, "Noise Blankers");
-        AddWired(nbSub, "Noise Blanker (NB)", () =>
-            ToggleDSP("Noise Blanker", () => Rig.NoiseBlanker, v => Rig.NoiseBlanker = v));
-        AddWired(nbSub, "Wideband NB (WNB)", () =>
-            ToggleDSP("Wideband NB", () => Rig.WidebandNoiseBlanker, v => Rig.WidebandNoiseBlanker = v));
+        AddChecked(nbSub, "Noise Blanker (NB)", () =>
+            ToggleDSP("Noise Blanker", () => Rig.NoiseBlanker, v => Rig.NoiseBlanker = v),
+            () => Rig?.NoiseBlanker == FlexBase.OffOnValues.on);
+        AddChecked(nbSub, "Wideband NB (WNB)", () =>
+            ToggleDSP("Wideband NB", () => Rig.WidebandNoiseBlanker, v => Rig.WidebandNoiseBlanker = v),
+            () => Rig?.WidebandNoiseBlanker == FlexBase.OffOnValues.on);
 
         // === Auto Notch ===
         var anfSub = AddSubmenu(parent, "Auto Notch");
-        AddWired(anfSub, "FFT Auto-Notch", () =>
-            ToggleDSP("FFT Auto-Notch", () => Rig.AutoNotchFFT, v => Rig.AutoNotchFFT = v));
-        AddWired(anfSub, "Legacy Auto-Notch", () =>
-            ToggleDSP("Legacy Auto-Notch", () => Rig.AutoNotchLegacy, v => Rig.AutoNotchLegacy = v));
+        AddChecked(anfSub, "FFT Auto-Notch", () =>
+            ToggleDSP("FFT Auto-Notch", () => Rig.AutoNotchFFT, v => Rig.AutoNotchFFT = v),
+            () => Rig?.AutoNotchFFT == FlexBase.OffOnValues.on);
+        AddChecked(anfSub, "Legacy Auto-Notch", () =>
+            ToggleDSP("Legacy Auto-Notch", () => Rig.AutoNotchLegacy, v => Rig.AutoNotchLegacy = v),
+            () => Rig?.AutoNotchLegacy == FlexBase.OffOnValues.on);
 
         // === Audio Peak Filter (CW only) ===
-        AddWired(parent, "Audio Peak Filter (APF)", () =>
+        AddChecked(parent, "Audio Peak Filter (APF)", () =>
         {
             if (Rig == null) { SpeakNoRadio(); return; }
             string? mode = Rig.Mode;
@@ -248,7 +291,7 @@ public class NativeMenuBar : IDisposable
                 return;
             }
             ToggleDSP("Audio Peak Filter", () => Rig.APF, v => Rig.APF = v);
-        });
+        }, () => Rig?.APF == FlexBase.OffOnValues.on);
     }
 
     /// <summary>
@@ -263,8 +306,13 @@ public class NativeMenuBar : IDisposable
         AddWired(parent, "Narrow Filter", () =>
         {
             if (Rig == null) { SpeakNoRadio(); return; }
-            Rig.FilterLow += filterStep;
-            Rig.FilterHigh -= filterStep;
+            int newLow = Rig.FilterLow + filterStep;
+            int newHigh = Rig.FilterHigh - filterStep;
+            if (newHigh - newLow >= 50) // minimum bandwidth
+            {
+                Rig.FilterLow = newLow;
+                Rig.FilterHigh = newHigh;
+            }
             SpeakAfterMenuClose($"Filter {Rig.FilterLow} to {Rig.FilterHigh}");
         });
         AddWired(parent, "Widen Filter", () =>
@@ -784,6 +832,15 @@ public class NativeMenuBar : IDisposable
         int id = _nextId++;
         AppendMenuW(popup, MF_STRING, (UIntPtr)id, text);
         _handlers[id] = handler;
+    }
+
+    /// <summary>Add a checkable menu item — checkmark updated dynamically via WM_INITMENUPOPUP.</summary>
+    private void AddChecked(IntPtr popup, string text, Action handler, Func<bool> stateGetter)
+    {
+        int id = _nextId++;
+        AppendMenuW(popup, MF_STRING, (UIntPtr)id, text);
+        _handlers[id] = handler;
+        _checkItems.Add((popup, id, stateGetter));
     }
 
     /// <summary>Add a menu item that speaks "not yet connected to radio".</summary>

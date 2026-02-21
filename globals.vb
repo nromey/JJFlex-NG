@@ -1553,15 +1553,13 @@ RadioConnected:
                 Tracing.TraceLine("OpenTheRadio:rig is starting", TraceLevel.Info)
                 rv = RigControl.Start()
 
-                ' If Start() failed because SmartLink dropped the connection during
-                ' the guiClient re-add cycle, retry the entire connection once.
-                ' This is rare but devastating when it happens — the user sees nothing
-                ' for 45+ seconds then gets an error with no radio connected.
+                ' If Start() failed because SmartLink connection was too slow or dropped
+                ' during the guiClient re-add cycle, retry with a fresh connection.
+                ' A fresh connection bypasses the slow re-add and usually succeeds quickly.
                 If Not rv AndAlso RigControl IsNot Nothing AndAlso
                    Not RigControl.IsConnected AndAlso _autoConnectConfig IsNot Nothing Then
 
-                    Tracing.TraceLine("OpenTheRadio:connection dropped during Start, retrying once", TraceLevel.Info)
-                    Radios.ScreenReaderOutput.Speak("Connection dropped, retrying")
+                    Tracing.TraceLine("OpenTheRadio:Start failed with disconnected radio, retrying once", TraceLevel.Info)
 
                     ' Clean up the dead connection
                     WpfMainWindow?.UnwireRadioEvents()
