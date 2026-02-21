@@ -10,40 +10,36 @@ This document captures the current state of JJ-Flex repository and active work.
 - **Migration complete:** .NET 8, dual x64/x86 architecture, WebView2 for Auth0
 - **Current version:** 4.1.115 (target 4.1.116)
 - **Sprint 12:** COMPLETE — Stabilization phase. Plan archived.
-- **Sprint 13:** TESTING — All 4 phases implemented. Mid-test bug fixes applied during testing session.
-  - 13A DONE: Tab chain (FreqOut→Waterfall→Received→Sent), welcome mode announcement
-  - 13C DONE: ScreenFields & Operations menus wired with DSP/audio/ATU/receiver controls
-  - 13B DONE: Modern mode simplified FreqOut, coarse/fine tuning, filter hotkeys
-  - 13D DONE: Modern menus (Slice/Filter/Audio) wired via shared handlers from 13C
-  - Testing fixes: double tab stop, mode persistence, startup hang, boundary announcement
+- **Sprint 13:** COMPLETE — Testing done, bug fixes applied, committed.
+  - 13A: Tab chain (FreqOut→Waterfall→Received→Sent), welcome mode announcement
+  - 13C: ScreenFields & Operations menus wired with DSP/audio/ATU/receiver controls
+  - 13B: Modern mode tuning redesigned (coarse/fine toggle, sane step presets)
+  - 13D: Modern menus (Slice/Filter/Audio) wired via shared handlers from 13C
+  - Testing fixes: SmartLink auto-retry, STA crash, Modern tuning, menu checkmarks, NR gating, filter bounds, Freq field hotkeys
 
-## NEXT TASK — SmartLink Station Name Timeout (fix before Sprint 14)
+## Sprint 14 Planning
 
-**Bug:** On SmartLink connect, `raiseNoSliceError("Station name not set")` fires when
-the GUIClient remove/re-add cycle takes longer than 45s. Shows error dialog, closes radio.
-User must manually reconnect. Happens routinely — not a real error, just a timing race.
-
-**Root cause:** `FlexBase.cs` line 478 — 45s polling loop for station name. On timeout,
-calls `raiseNoSliceError` → `NoSliceErrorHandler` in MainWindow.xaml.cs → error dialog →
-`CloseRadioCallback`. The station name typically arrives shortly after (trace shows it
-at line 262, after the error at line 225).
-
-**Proposed fix:** Silent auto-retry instead of hard error. When station name times out,
-wait a short grace period and retry once before showing any dialog. If retry also fails,
-then show error. This matches user expectation — they see the radio connect successfully
-on manual retry anyway.
-
-**Key files:**
-- `Radios/FlexBase.cs` lines 472-513 — station name wait loop
-- `JJFlexWpf/MainWindow.xaml.cs` lines 1036-1052 — NoSliceErrorHandler
-- `globals.vb` — openTheRadio / CloseTheRadio for retry logic
-
-**Sprint 14 plan items (discuss after SmartLink fix):**
-- Screen fields grouped panel (Classic mode, UIA-native controls)
-- Replace Tolk with UIA LiveRegion for most speech
+**Confirmed items:**
+- Screen fields as on-screen category expanders (Classic mode, focusable UIA-native controls)
+- Configurable tuning step lists (user adds/removes from coarse/fine presets)
+- Global tuning hotkeys (tune from anywhere, not just FreqOut)
 - Rate-limit tuning speech (debounce ~300ms)
-- ModeControl back in tab chain after FreqOut
+- Slice menu: set active indicator, per-slice enable/disable, grab/release
+- Logging mode: F6 to flip to radio view (Classic/Modern FreqOut) instead of separate radio panel
+- Alt+letter menu accelerator investigation (& prefixes are set but Alt routing may be intercepted by WPF)
+- Menu state display for non-toggle items (current values, mode indicators)
+
+**Deferred / future:**
+- Replace Tolk with UIA LiveRegion for most speech
 - Earcons (boundary bonk, field tick, tune up/down tones)
+- ModeControl back in tab chain after FreqOut
+
+## SmartLink Connection — FIXED (needs testing on Don's radio)
+
+**Fix:** GUIClient removal tracked with timestamp. 15s grace after removal, then disconnect
+and auto-retry with fresh connection. No error dialog. Speech: "Connection slow, retrying."
+Worst case ~21s instead of 55s + error dialog + manual reconnect.
+Also fixed STA crash in SpeakWelcomeDelayed (Task.Delay resuming on thread pool thread).
 
 ## 2) Current Architecture
 
@@ -161,6 +157,7 @@ All error MessageBox calls must pass `AppShellForm` as owner. Use `ShowErrorCall
 - `RemoteButton_Click` — runs `RemoteRadios()` on background STA thread
 
 ## 6) Completed Sprints
+- Sprint 13: Tab chain, Modern tuning, menus, SmartLink auto-retry, testing fixes
 - Sprint 12: Stabilize WPF — menus, SmartLink, FreqOut tuning, error dialogs, screen reader speech
 - Sprint 11: WPF adapters, Form1 kill, dead code deletion (~13,000 lines)
 - Sprint 10: FlexBase.cs decoupling (interfaces + delegates)
@@ -191,4 +188,4 @@ build-installers.bat
 
 ---
 
-*Updated: Feb 19, 2026 — Sprint 12 complete and archived. SpeakWelcome fixed (Task.Delay approach). Sprint 13 research done (tab chain, waterfall, Modern mode). Next: Sprint 13 implementation — tab chain & field navigation in Classic/Modern modes.*
+*Updated: Feb 21, 2026 — Sprint 13 complete. SmartLink auto-retry, Modern tuning redesign (coarse/fine toggle, sane steps, Freq field hotkeys), menu checkmarks, NR gating, filter bounds. Next: Sprint 14 — screen field expanders, configurable step lists, global hotkeys, logging mode F6 flip.*
