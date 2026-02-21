@@ -654,5 +654,15 @@ public partial class FrequencyDisplay : UserControl
         set => DisplayBox.SelectionLength = value;
     }
 
+    /// <summary>
+    /// Focus the inner DisplayBox TextBox. Use this instead of Focus()/Keyboard.Focus()
+    /// on the outer UserControl, which is Focusable=False.
+    /// </summary>
+    public void FocusDisplay()
+    {
+        DisplayBox.Focus();
+        System.Windows.Input.Keyboard.Focus(DisplayBox);
+    }
+
     #endregion
 }

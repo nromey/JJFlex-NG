@@ -100,8 +100,7 @@ public partial class MainWindow : UserControl
     public void SpeakWelcome()
     {
         // Focus FreqOut so cursor lands on the frequency display at startup
-        FreqOut.Focus();
-        Keyboard.Focus(FreqOut);
+        FreqOut.FocusDisplay();
 
         string modeName = ActiveUIMode == UIMode.Classic ? "Classic" : "Modern";
         Radios.ScreenReaderOutput.Speak($"Welcome to JJ Flex, {modeName} mode");
@@ -483,8 +482,7 @@ public partial class MainWindow : UserControl
         ApplyUIMode(LastNonLogMode);
 
         // Focus FreqOut display (the primary control in Classic/Modern modes)
-        FreqOut.Focus();
-        Keyboard.Focus(FreqOut);
+        FreqOut.FocusDisplay();
 
         Radios.ScreenReaderOutput.Speak($"Returning to {LastNonLogMode} mode");
     }
@@ -1668,8 +1666,7 @@ public partial class MainWindow : UserControl
     /// </summary>
     public void gotoHome()
     {
-        FreqOut.Focus();
-        Keyboard.Focus(FreqOut);
+        FreqOut.FocusDisplay();
     }
 
     /// <summary>
