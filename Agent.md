@@ -10,11 +10,40 @@ This document captures the current state of JJ-Flex repository and active work.
 - **Migration complete:** .NET 8, dual x64/x86 architecture, WebView2 for Auth0
 - **Current version:** 4.1.115 (target 4.1.116)
 - **Sprint 12:** COMPLETE — Stabilization phase. Plan archived.
-- **Sprint 13:** IN PROGRESS — Tab chain, Modern tuning, menu wiring.
+- **Sprint 13:** TESTING — All 4 phases implemented. Mid-test bug fixes applied during testing session.
   - 13A DONE: Tab chain (FreqOut→Waterfall→Received→Sent), welcome mode announcement
   - 13C DONE: ScreenFields & Operations menus wired with DSP/audio/ATU/receiver controls
   - 13B DONE: Modern mode simplified FreqOut, coarse/fine tuning, filter hotkeys
   - 13D DONE: Modern menus (Slice/Filter/Audio) wired via shared handlers from 13C
+  - Testing fixes: double tab stop, mode persistence, startup hang, boundary announcement
+
+## NEXT TASK — SmartLink Station Name Timeout (fix before Sprint 14)
+
+**Bug:** On SmartLink connect, `raiseNoSliceError("Station name not set")` fires when
+the GUIClient remove/re-add cycle takes longer than 45s. Shows error dialog, closes radio.
+User must manually reconnect. Happens routinely — not a real error, just a timing race.
+
+**Root cause:** `FlexBase.cs` line 478 — 45s polling loop for station name. On timeout,
+calls `raiseNoSliceError` → `NoSliceErrorHandler` in MainWindow.xaml.cs → error dialog →
+`CloseRadioCallback`. The station name typically arrives shortly after (trace shows it
+at line 262, after the error at line 225).
+
+**Proposed fix:** Silent auto-retry instead of hard error. When station name times out,
+wait a short grace period and retry once before showing any dialog. If retry also fails,
+then show error. This matches user expectation — they see the radio connect successfully
+on manual retry anyway.
+
+**Key files:**
+- `Radios/FlexBase.cs` lines 472-513 — station name wait loop
+- `JJFlexWpf/MainWindow.xaml.cs` lines 1036-1052 — NoSliceErrorHandler
+- `globals.vb` — openTheRadio / CloseTheRadio for retry logic
+
+**Sprint 14 plan items (discuss after SmartLink fix):**
+- Screen fields grouped panel (Classic mode, UIA-native controls)
+- Replace Tolk with UIA LiveRegion for most speech
+- Rate-limit tuning speech (debounce ~300ms)
+- ModeControl back in tab chain after FreqOut
+- Earcons (boundary bonk, field tick, tune up/down tones)
 
 ## 2) Current Architecture
 
