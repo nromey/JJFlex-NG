@@ -443,8 +443,12 @@ public partial class FrequencyDisplay : UserControl
             break;
         }
 
-        // Clamp check
-        if (newPos < 0 || newPos >= totalLen) return;
+        // Clamp check — announce boundary instead of silently stopping
+        if (newPos < 0 || newPos >= totalLen)
+        {
+            Radios.ScreenReaderOutput.Speak(direction < 0 ? "Beginning" : "End", true);
+            return;
+        }
 
         var newField = PositionToField(newPos);
         if (newField == null) return;
