@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Threading.Tasks;
+using System.Windows;
 using Flex.Smoothlake.FlexLib;
 using JJTrace;
 using Radios;
@@ -552,6 +553,19 @@ public class NativeMenuBar : IDisposable
 
         // === ScreenFields (DSP Controls) ===
         var screenFields = AddPopup(bar, "&ScreenFields");
+
+        // Show/Hide Field Panel toggle (Sprint 14)
+        AddChecked(screenFields, "Show Field Panel", () =>
+        {
+            var panel = _window.FieldsPanel;
+            panel.Visibility = panel.Visibility == Visibility.Visible
+                ? Visibility.Collapsed : Visibility.Visible;
+            SpeakAfterMenuClose(panel.Visibility == Visibility.Visible
+                ? "Field panel shown" : "Field panel hidden");
+        }, () => _window.FieldsPanel.Visibility == Visibility.Visible);
+
+        AddSep(screenFields);
+
         if (Rig != null)
         {
             BuildDSPItems(screenFields);

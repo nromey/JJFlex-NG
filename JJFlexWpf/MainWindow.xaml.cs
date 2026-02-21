@@ -62,6 +62,9 @@ public partial class MainWindow : UserControl
         InitializeComponent();
 
         Loaded += MainWindow_Loaded;
+
+        // Wire ScreenFieldsPanel Escape handler (Sprint 14) — once, not per-connect
+        FieldsPanel.EscapePressed += (s, e) => FreqOut.FocusDisplay();
     }
 
     /// <summary>
@@ -1173,7 +1176,6 @@ public partial class MainWindow : UserControl
         if (RigControl != null)
         {
             FieldsPanel.Initialize(RigControl);
-            FieldsPanel.EscapePressed += (s, e) => FreqOut.FocusDisplay();
         }
 
         _radioPowerOn = true;
