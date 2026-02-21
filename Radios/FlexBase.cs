@@ -3369,7 +3369,7 @@ namespace Radios
         internal const int NoiseBlankerValueMin = 0;
         internal const int NoiseBlankerValueMax = 100;
         internal const int NoiseBlankerValueIncrement = 5;
-        internal int NoiseBlankerLevel
+        public int NoiseBlankerLevel
         {
             get { return theRadio.ActiveSlice.NBLevel; }
             set { if (HasActiveSlice) q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.NBLevel = value; }), "NBLevel"); }
@@ -3387,7 +3387,7 @@ namespace Radios
             }
         }
 
-        internal int WidebandNoiseBlankerLevel
+        public int WidebandNoiseBlankerLevel
         {
             get { return theRadio.ActiveSlice.WNBLevel; }
             set { if (HasActiveSlice) q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.WNBLevel = value; }), "WNBLevel"); }
@@ -3434,7 +3434,7 @@ namespace Radios
                 }
             }
         }
-        internal int NoiseReductionLegacyLevel
+        public int NoiseReductionLegacyLevel
         {
             get { return theRadio.ActiveSlice.NRL_Level; }
             set { if (HasActiveSlice) q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.NRL_Level = value; }), "NRL_Level"); }

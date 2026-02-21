@@ -1,0 +1,69 @@
+<UserControl x:Class="JJFlexWpf.Controls.ScreenFieldsPanel"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:controls="clr-namespace:JJFlexWpf.Controls"
+             mc:Ignorable="d"
+             d:DesignWidth="600" d:DesignHeight="300"
+             AutomationProperties.Name="Screen Fields"
+             PreviewKeyDown="Panel_PreviewKeyDown">
+
+    <!-- Sprint 14: Expandable categories of focusable radio parameter controls.
+         Each Expander is a category (DSP, Audio, Receiver, etc.) containing
+         CheckBoxes for toggles and custom controls for values/cycles.
+         Ctrl+Tab/Ctrl+Shift+Tab jumps between category headers.
+         Escape returns focus to FreqOut. -->
+    <ScrollViewer VerticalScrollBarVisibility="Auto"
+                  HorizontalScrollBarVisibility="Disabled"
+                  Focusable="False">
+        <StackPanel x:Name="CategoriesPanel" Orientation="Vertical" Margin="4">
+
+            <!-- DSP Category -->
+            <Expander x:Name="DspExpander" Header="Noise Reduction and DSP"
+                      IsExpanded="False" Margin="0,2"
+                      AutomationProperties.Name="Noise Reduction and DSP">
+                <StackPanel x:Name="DspContent" Margin="16,4,4,4">
+                    <!-- Populated in code-behind -->
+                </StackPanel>
+            </Expander>
+
+            <!-- Audio Category -->
+            <Expander x:Name="AudioExpander" Header="Audio"
+                      IsExpanded="False" Margin="0,2"
+                      AutomationProperties.Name="Audio">
+                <StackPanel x:Name="AudioContent" Margin="16,4,4,4">
+                    <!-- Populated in code-behind -->
+                </StackPanel>
+            </Expander>
+
+            <!-- Receiver Category -->
+            <Expander x:Name="ReceiverExpander" Header="Receiver"
+                      IsExpanded="False" Margin="0,2"
+                      AutomationProperties.Name="Receiver">
+                <StackPanel x:Name="ReceiverContent" Margin="16,4,4,4">
+                    <!-- Populated in code-behind -->
+                </StackPanel>
+            </Expander>
+
+            <!-- Transmission Category -->
+            <Expander x:Name="TxExpander" Header="Transmission"
+                      IsExpanded="False" Margin="0,2"
+                      AutomationProperties.Name="Transmission">
+                <StackPanel x:Name="TxContent" Margin="16,4,4,4">
+                    <!-- Populated in code-behind -->
+                </StackPanel>
+            </Expander>
+
+            <!-- Antenna Category -->
+            <Expander x:Name="AntennaExpander" Header="Antenna"
+                      IsExpanded="False" Margin="0,2"
+                      AutomationProperties.Name="Antenna">
+                <StackPanel x:Name="AntennaContent" Margin="16,4,4,4">
+                    <!-- Populated in code-behind -->
+                </StackPanel>
+            </Expander>
+
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

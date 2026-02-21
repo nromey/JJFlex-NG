@@ -264,6 +264,12 @@ public partial class MainWindow : UserControl
                     RigControl.RigFields.RigUpdate?.Invoke();
                 }
 
+                // Update screen fields panel (Sprint 14)
+                if (FieldsPanel.Visibility == Visibility.Visible)
+                {
+                    FieldsPanel.PollUpdate();
+                }
+
                 // SWR update during manual tuning
                 if (OpenParms?.GetSWRText != null &&
                     RigControl.FlexTunerOn &&
@@ -371,6 +377,7 @@ public partial class MainWindow : UserControl
     private void ShowClassicUI()
     {
         RadioControlsPanel.Visibility = Visibility.Visible;
+        FieldsPanel.Visibility = Visibility.Visible;
         SetTextAreasVisible(true);
         LoggingPanel.Visibility = Visibility.Collapsed;
 
@@ -386,6 +393,7 @@ public partial class MainWindow : UserControl
     private void ShowModernUI()
     {
         RadioControlsPanel.Visibility = Visibility.Visible;
+        FieldsPanel.Visibility = Visibility.Collapsed;
         SetTextAreasVisible(true);
         LoggingPanel.Visibility = Visibility.Collapsed;
 
@@ -400,6 +408,7 @@ public partial class MainWindow : UserControl
     private void ShowLoggingUI()
     {
         RadioControlsPanel.Visibility = Visibility.Collapsed;
+        FieldsPanel.Visibility = Visibility.Collapsed;
         SetTextAreasVisible(false);
         LoggingPanel.Visibility = Visibility.Visible;
     }
@@ -1160,6 +1169,13 @@ public partial class MainWindow : UserControl
         // Wire panadapter braille display
         WirePanDisplay();
 
+        // Initialize screen fields panel (Sprint 14)
+        if (RigControl != null)
+        {
+            FieldsPanel.Initialize(RigControl);
+            FieldsPanel.EscapePressed += (s, e) => FreqOut.FocusDisplay();
+        }
+
         _radioPowerOn = true;
         StatusText.Text = "Radio connected — power on";
 
@@ -1182,6 +1198,9 @@ public partial class MainWindow : UserControl
         }
 
         _radioPowerOn = false;
+
+        // Detach screen fields panel (Sprint 14)
+        FieldsPanel.Detach();
 
         if (!_isClosing)
         {

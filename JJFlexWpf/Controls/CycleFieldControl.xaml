@@ -1,0 +1,22 @@
+<UserControl x:Class="JJFlexWpf.Controls.CycleFieldControl"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d"
+             d:DesignWidth="200" d:DesignHeight="24"
+             Focusable="True"
+             IsTabStop="True"
+             PreviewKeyDown="OnPreviewKeyDown"
+             GotFocus="OnGotFocus">
+
+    <!-- Focusable cycle control: "Label: Option" with Up/Down cycling.
+         Used in ScreenFieldsPanel for enum-style parameters (AGC Mode, ATU Mode).
+         NVDA reads AutomationProperties.Name on focus. Speak() fires on selection change. -->
+    <Border x:Name="OuterBorder"
+            BorderBrush="Gray" BorderThickness="1"
+            Padding="6,2" Margin="2"
+            Background="Transparent">
+        <TextBlock x:Name="DisplayText" FontSize="12" />
+    </Border>
+</UserControl>
