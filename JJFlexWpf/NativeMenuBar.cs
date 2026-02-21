@@ -624,20 +624,68 @@ public class NativeMenuBar : IDisposable
         AddWired(radio, "Exit", () => _window.CloseShellCallback?.Invoke());
 
         // === Slice ===
-        var slice = AddPopup(bar, "&Slice");
+        string sliceLabel = Rig != null
+            ? $"&Slice ({Rig.TotalNumSlices} of {Rig.MaxSlices})"
+            : "&Slice";
+        var slice = AddPopup(bar, sliceLabel);
 
         if (Rig != null)
         {
-            // Selection
+            // Selection with active slice checkmark
             var selSub = AddSubmenu(slice, "Selection");
             for (int i = 0; i < Math.Min(Rig.TotalNumSlices, 8); i++)
             {
                 int sliceNum = i;
-                AddWired(selSub, $"Slice {i}", () =>
+                AddChecked(selSub, $"Slice {i}",
+                    () =>
+                    {
+                        if (Rig == null || !Rig.ValidVFO(sliceNum)) return;
+                        Rig.RXVFO = sliceNum;
+                        SpeakAfterMenuClose($"Slice {sliceNum} active");
+                    },
+                    () => Rig?.RXVFO == sliceNum);
+            }
+
+            AddSep(selSub);
+
+            // New Slice
+            AddWired(selSub, "New Slice", () =>
+            {
+                if (Rig == null) { SpeakNoRadio(); return; }
+                if (Rig.NewSlice())
+                    SpeakAfterMenuClose($"Slice {Rig.MyNumSlices - 1} created");
+                else
+                    SpeakAfterMenuClose("Cannot create slice, maximum reached");
+            });
+
+            // Release Slice (only when more than 1 slice exists)
+            if (Rig.TotalNumSlices > 1)
+            {
+                int activeSlice = Rig.RXVFO;
+                AddWired(selSub, $"Release Slice {activeSlice}", () =>
                 {
-                    if (Rig == null || !Rig.ValidVFO(sliceNum)) return;
-                    Rig.RXVFO = sliceNum;
-                    SpeakAfterMenuClose($"Slice {sliceNum} active");
+                    if (Rig == null) { SpeakNoRadio(); return; }
+                    int toRemove = Rig.RXVFO;
+                    if (Rig.MyNumSlices <= 1)
+                    {
+                        SpeakAfterMenuClose("Cannot release last slice");
+                        return;
+                    }
+                    int switchTo = -1;
+                    for (int j = 0; j < Rig.MyNumSlices; j++)
+                    {
+                        if (j != toRemove) { switchTo = j; break; }
+                    }
+                    if (switchTo >= 0)
+                    {
+                        if (Rig.CanTransmit && toRemove == Rig.TXVFO)
+                            Rig.TXVFO = switchTo;
+                        Rig.RXVFO = switchTo;
+                        if (Rig.RemoveSlice(toRemove))
+                            SpeakAfterMenuClose($"Slice {toRemove} released, slice {switchTo} active");
+                        else
+                            SpeakAfterMenuClose("Cannot release this slice");
+                    }
                 });
             }
 

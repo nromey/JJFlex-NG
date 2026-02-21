@@ -4738,6 +4738,11 @@ namespace Radios
             get { return _TotalNumSlices; }
         }
 
+        /// <summary>
+        /// Maximum slices supported by this radio model.
+        /// </summary>
+        public int MaxSlices => theRadio?.MaxSlices ?? 0;
+
         internal List<Slice> mySlices = new List<Slice>();
 
         /// <summary>
