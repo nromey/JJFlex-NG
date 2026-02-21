@@ -7,8 +7,8 @@
              mc:Ignorable="d"
              d:DesignWidth="600" d:DesignHeight="24"
              AutomationProperties.Name="Frequency Display"
-             Focusable="True"
-             IsTabStop="True">
+             Focusable="False"
+             IsTabStop="False">
 
     <!-- WPF replacement for RadioBoxes.MainBox (FreqOut).
          Multi-field display: Slice, Mute, Volume, SMeter, Split, VOX, Freq, Offset, RIT, XIT.
