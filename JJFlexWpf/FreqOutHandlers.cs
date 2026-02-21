@@ -1,5 +1,7 @@
 using System;
 using System.Diagnostics;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Windows.Input;
 using JJFlexWpf.Controls;
 using JJTrace;
@@ -37,6 +39,10 @@ public class FreqOutHandlers
 
     // Frequency readout toggle — when off, tuning doesn't speak the new frequency
     private bool _freqReadout = true;
+
+    // Tuning speech debounce — rate-limits frequency announcements during rapid tuning
+    private CancellationTokenSource? _tuneDebounce;
+    private bool _firstTuneStep = true;
 
     // Modern mode tuning — coarse/fine with configurable step lists.
     // Defaults are sane HF values. Users can configure via operator profile later.
@@ -178,6 +184,10 @@ public class FreqOutHandlers
             return;
         }
 
+        // Reset tune debounce on non-tuning keys (Up/Down/U/D are tuning keys)
+        if (key != Key.Up && key != Key.Down && ch != 'U' && ch != 'D')
+            ResetTuneDebounce();
+
         switch (key)
         {
             case Key.Up:
@@ -274,7 +284,7 @@ public class FreqOutHandlers
             SetRXFrequency(newFreq);
             if (_freqReadout)
             {
-                Radios.ScreenReaderOutput.Speak(FormatFreqForSpeech(newFreq), true);
+                SpeakTuningDebounced(FormatFreqForSpeech(newFreq));
             }
         }
     }
@@ -289,6 +299,54 @@ public class FreqOutHandlers
         while (s.Length < 7) s = "0" + s;
         int len = s.Length;
         return s.Substring(0, len - 6) + "." + s.Substring(len - 6, 3) + "." + s.Substring(len - 3);
+    }
+
+    /// <summary>
+    /// Speak a tuning frequency with debounce. First step speaks immediately;
+    /// subsequent steps within 300ms reset a timer. When the timer fires,
+    /// the current frequency is spoken (not the value from when the timer started).
+    /// </summary>
+    private void SpeakTuningDebounced(string message)
+    {
+        if (_firstTuneStep)
+        {
+            Radios.ScreenReaderOutput.Speak(message, interrupt: true);
+            _firstTuneStep = false;
+        }
+
+        _tuneDebounce?.Cancel();
+        _tuneDebounce = new CancellationTokenSource();
+        var token = _tuneDebounce.Token;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(300, token);
+                if (!token.IsCancellationRequested)
+                {
+                    var freqGetter = GetRXFrequency;
+                    if (freqGetter != null)
+                    {
+                        var currentFreq = FormatFreqForSpeech(freqGetter());
+                        Radios.ScreenReaderOutput.Speak(currentFreq, interrupt: true);
+                    }
+                    _firstTuneStep = true;
+                }
+            }
+            catch (TaskCanceledException) { }
+        }, token);
+    }
+
+    /// <summary>
+    /// Reset the tuning debounce state so the next tune step speaks immediately.
+    /// Call on focus leave, field change, or non-tuning key press.
+    /// </summary>
+    public void ResetTuneDebounce()
+    {
+        _firstTuneStep = true;
+        _tuneDebounce?.Cancel();
+        _tuneDebounce = null;
     }
 
     /// <summary>
@@ -968,6 +1026,10 @@ public class FreqOutHandlers
         if (Rig == null) return;
         var key = RawKey(e);
         char ch = KeyToChar(e);
+
+        // Reset tune debounce on non-tuning keys (Up/Down are tuning keys)
+        if (key != Key.Up && key != Key.Down)
+            ResetTuneDebounce();
 
         switch (key)
         {
