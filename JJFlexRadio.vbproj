@@ -409,8 +409,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Content Include="changelog.md">
+    <Content Include="docs\CHANGELOG.md">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>changelog.md</Link>
     </Content>
     <Content Include="changes.txt" />
     <Content Include="JJFlexRadioReadme.htm" CopyToOutputDirectory="PreserveNewest" />

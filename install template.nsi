@@ -13,7 +13,7 @@ Name "MYPGM"
 OutFile "Setup MYPGM_MYVER.exe"
 
 ; The default installation directory (architecture-specific Program Files)
-InstallDir "MYPROGFILES\jjshaffer\MYPGM"
+InstallDir "MYPROGFILES\MYPGM"
 
 ; Registry key to check for directory (so if you install again, it will 
 ; overwrite the old one automatically)
@@ -35,9 +35,12 @@ VIAddVersionKey /LANG=1033 "FileDescription" "MYPGM installer"
 ; Get a welcome message
 Function .onInit
 MessageBox MB_OK "\
-Welcome to MYPGM, an amateur radio monitoring/control program by Jim Shaffer, KE5AL.$\r\
-MYPGM is designed with blind users in mind.$\r\
-It works best with a screen reader using a braille display."
+Welcome to MYPGM, an amateur radio monitoring/control program by Jim Shaffer, KE5AL (SK) and Noel Romey K5NER.$\r\
+With assistance from Anthropic's Claude and ChatGPT's Codex.$\r\
+MYPGM is designed with blind users in mind, but anyone is encouraged to try it out.$\r\r\
+The application works well with braille displays, but speech output continues to improve. Stay tuned!$\r\
+JJ Flex Radio would not exist without the hard work of Jim Shaffer. JJ buddy, we miss you.$\r\
+JJ Flex Radio lives on! RIP my friend."
 FunctionEnd
 
 ;--------------------------------
@@ -65,7 +68,7 @@ Section "MYPGM (required)"
   SetOutPath $INSTDIR
   
   ; Put files there - recurse all built outputs
-  File /r /x "*.pdb" "MYOUTDIR\*.*"
+  File /r /x "*.pdb" /x "runPgm.bat" "MYOUTDIR\*.*"
   
   ; Write the installation path into the registry
   WriteRegStr HKLM "SOFTWARE\MYPGM" "Install_Dir" "$INSTDIR"
@@ -126,6 +129,7 @@ Section "Uninstall"
   Delete "$DESKTOP\MYPGM.lnk"
 
   ; Remove directories used
+  RMDir /r "$INSTDIR\runtimes"
   RMDir "$INSTDIR"
 
 SectionEnd
