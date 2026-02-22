@@ -1173,6 +1173,9 @@ public class FreqOutHandlers
     /// <summary>
     /// Handle bracket keys for filter adjustment in Modern mode.
     /// [ = narrow, ] = widen, Shift+[ = shift low edge, Shift+] = shift high edge.
+    /// Uses SetFilter() to set both edges atomically — separate FilterLow/FilterHigh
+    /// commands race in the queue and cause a death spiral (Sprint 14 fix).
+    /// No Math.Max(0,...) clamping — UpdateFilter() handles LSB negative edges.
     /// </summary>
     public void HandleFilterHotkey(KeyEventArgs e)
     {
@@ -1189,7 +1192,7 @@ public class FreqOutHandlers
         {
             if (shift)
             {
-                low = Math.Max(0, low - filterStep);
+                low -= filterStep;
             }
             else
             {
@@ -1208,14 +1211,13 @@ public class FreqOutHandlers
             else
             {
                 // Widen: move both edges outward
-                low = Math.Max(0, low - filterStep);
+                low -= filterStep;
                 high += filterStep;
             }
         }
         else return;
 
-        Rig.FilterLow = low;
-        Rig.FilterHigh = high;
+        Rig.SetFilter(low, high);
         Radios.ScreenReaderOutput.Speak($"Filter {low} to {high}", true);
         e.Handled = true;
     }
