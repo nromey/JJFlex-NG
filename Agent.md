@@ -16,21 +16,36 @@ This document captures the current state of JJ-Flex repository and active work.
   - 13B: Modern mode tuning redesigned (coarse/fine toggle, sane step presets)
   - 13D: Modern menus (Slice/Filter/Audio) wired via shared handlers from 13C
   - Testing fixes: SmartLink auto-retry, STA crash, Modern tuning, menu checkmarks, NR gating, filter bounds, Freq field hotkeys
+- **Sprint 14:** COMPLETE — ScreenFieldsPanel, speech debounce, slice menu, filter race fix.
+  - ScreenFieldsPanel: 5 expandable categories (DSP, Audio, Receiver, TX, Antenna) with 25+ focusable controls
+  - Speech debounce: 300ms tuning frequency speech rate-limiting
+  - Slice menu: active indicator, create/release, count label
+  - Filter race condition fix: atomic SetFilter() replaces separate FilterLow/FilterHigh enqueue
+  - Filter LSB/CW fix: removed Math.Max(0,...) clamping that broke negative filter edges
+  - Filter boundary announcements: "Filter at minimum/maximum", "Beginning", "End"
 
-## Sprint 14 Planning
+## Sprint 15 Planning
 
-**Confirmed items:**
-- Screen fields as on-screen category expanders (Classic mode, focusable UIA-native controls)
+**Filter overhaul:**
+- Band-based filter presets (popular defaults per mode: SSB, CW, digital)
+- User-configurable presets (add/remove/rename per band+mode)
+- Ctrl+brackets to jump between presets
+- Adaptive narrowing step sizes (smaller steps as filter gets narrower)
+- Wire FiltersDspControl (FilterLowBox/FilterHighBox) through SetFilter()
+- Test minimum filter width the radio hardware supports (FlexLib says 50Hz via UpdateFilter, 10Hz via individual setters)
+
+**UIA / Tolk reduction:**
+- Replace Tolk with UIA LiveRegion for most speech output
+- Identify which Speak() calls can use LiveRegion vs which need Tolk
+
+**Carried from Sprint 14:**
 - Configurable tuning step lists (user adds/removes from coarse/fine presets)
-- Global tuning hotkeys (tune from anywhere, not just FreqOut)
-- Rate-limit tuning speech (debounce ~300ms)
-- Slice menu: set active indicator, per-slice enable/disable, grab/release
-- Logging mode: F6 to flip to radio view (Classic/Modern FreqOut) instead of separate radio panel
-- Alt+letter menu accelerator investigation (& prefixes are set but Alt routing may be intercepted by WPF)
-- Menu state display for non-toggle items (current values, mode indicators)
+- Global tuning hotkeys (system-wide — tune/transmit/lock from external apps)
+- Logging mode: F6 to flip to radio view
+- Alt+letter menu accelerator investigation
+- Menu state display for non-toggle items
 
 **Deferred / future:**
-- Replace Tolk with UIA LiveRegion for most speech
 - Earcons (boundary bonk, field tick, tune up/down tones)
 - ModeControl back in tab chain after FreqOut
 
@@ -157,6 +172,7 @@ All error MessageBox calls must pass `AppShellForm` as owner. Use `ShowErrorCall
 - `RemoteButton_Click` — runs `RemoteRadios()` on background STA thread
 
 ## 6) Completed Sprints
+- Sprint 14: ScreenFieldsPanel, speech debounce, slice menu, filter race fix + boundary announcements
 - Sprint 13: Tab chain, Modern tuning, menus, SmartLink auto-retry, testing fixes
 - Sprint 12: Stabilize WPF — menus, SmartLink, FreqOut tuning, error dialogs, screen reader speech
 - Sprint 11: WPF adapters, Form1 kill, dead code deletion (~13,000 lines)
@@ -188,4 +204,4 @@ build-installers.bat
 
 ---
 
-*Updated: Feb 21, 2026 — Sprint 13 complete. SmartLink auto-retry, Modern tuning redesign (coarse/fine toggle, sane steps, Freq field hotkeys), menu checkmarks, NR gating, filter bounds. Next: Sprint 14 — screen field expanders, configurable step lists, global hotkeys, logging mode F6 flip.*
+*Updated: Feb 21, 2026 — Sprint 14 complete. ScreenFieldsPanel (5 categories, 25+ controls), speech debounce, slice menu, filter race fix (atomic SetFilter), LSB/CW filter clamping fix, boundary announcements. Next: Sprint 15 — filter overhaul (band presets, adaptive steps, Ctrl+brackets), UIA LiveRegion, configurable tuning steps.*
