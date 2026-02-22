@@ -16,7 +16,7 @@ This document captures the current state of JJ-Flex repository and active work.
   - 13B: Modern mode tuning redesigned (coarse/fine toggle, sane step presets)
   - 13D: Modern menus (Slice/Filter/Audio) wired via shared handlers from 13C
   - Testing fixes: SmartLink auto-retry, STA crash, Modern tuning, menu checkmarks, NR gating, filter bounds, Freq field hotkeys
-- **Sprint 14:** COMPLETE — ScreenFieldsPanel, speech debounce, slice menu, filter race fix.
+- **Sprint 14:** IN PROGRESS — Phase 1 done (ScreenFieldsPanel, speech debounce, slice menu, filter fixes). Phase 2 next (filter overhaul, UIA).
   - ScreenFieldsPanel: 5 expandable categories (DSP, Audio, Receiver, TX, Antenna) with 25+ focusable controls
   - Speech debounce: 300ms tuning frequency speech rate-limiting
   - Slice menu: active indicator, create/release, count label
@@ -24,7 +24,7 @@ This document captures the current state of JJ-Flex repository and active work.
   - Filter LSB/CW fix: removed Math.Max(0,...) clamping that broke negative filter edges
   - Filter boundary announcements: "Filter at minimum/maximum", "Beginning", "End"
 
-## Sprint 15 Planning
+## Sprint 14 Phase 2 — Remaining Work
 
 **Filter overhaul:**
 - Band-based filter presets (popular defaults per mode: SSB, CW, digital)
@@ -172,7 +172,6 @@ All error MessageBox calls must pass `AppShellForm` as owner. Use `ShowErrorCall
 - `RemoteButton_Click` — runs `RemoteRadios()` on background STA thread
 
 ## 6) Completed Sprints
-- Sprint 14: ScreenFieldsPanel, speech debounce, slice menu, filter race fix + boundary announcements
 - Sprint 13: Tab chain, Modern tuning, menus, SmartLink auto-retry, testing fixes
 - Sprint 12: Stabilize WPF — menus, SmartLink, FreqOut tuning, error dialogs, screen reader speech
 - Sprint 11: WPF adapters, Form1 kill, dead code deletion (~13,000 lines)
@@ -204,4 +203,4 @@ build-installers.bat
 
 ---
 
-*Updated: Feb 21, 2026 — Sprint 14 complete. ScreenFieldsPanel (5 categories, 25+ controls), speech debounce, slice menu, filter race fix (atomic SetFilter), LSB/CW filter clamping fix, boundary announcements. Next: Sprint 15 — filter overhaul (band presets, adaptive steps, Ctrl+brackets), UIA LiveRegion, configurable tuning steps.*
+*Updated: Feb 21, 2026 — Sprint 14 Phase 1 complete. ScreenFieldsPanel (5 categories, 25+ controls), speech debounce, slice menu, filter race fix (atomic SetFilter), LSB/CW filter clamping fix, boundary announcements. Phase 2 next: filter overhaul (band presets, adaptive steps, Ctrl+brackets), UIA LiveRegion.*
