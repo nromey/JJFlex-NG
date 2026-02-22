@@ -22,6 +22,10 @@ InstallDirRegKey HKLM "Software\NSIS_MYPGM" "Install_Dir"
 ; Request application privileges for Windows Vista
 RequestExecutionLevel admin
 
+; LZMA solid compression - compresses all files as one stream for best size
+SetCompressor /SOLID lzma
+SetCompressorDictSize 64
+
 
 ; Version information for the installer bundle
 VIProductVersion "MYVER"

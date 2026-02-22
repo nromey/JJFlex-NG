@@ -415,10 +415,8 @@
     </Content>
     <Content Include="changes.txt" />
     <Content Include="JJFlexRadioReadme.htm" CopyToOutputDirectory="PreserveNewest" />
-    <Content Include="libopus.dll" CopyToOutputDirectory="Always" />
     <Content Include="Opus Copying.txt" CopyToOutputDirectory="Always" />
     <Content Include="PortAudio LICENSE.txt" CopyToOutputDirectory="Always" />
-    <Content Include="portaudio.dll" CopyToOutputDirectory="Always" />
     <Content Include="PortAudioSharp License.txt" CopyToOutputDirectory="Always" />
     <Content Include="runPgm.bat" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Welcome.txt" CopyToOutputDirectory="PreserveNewest" />
