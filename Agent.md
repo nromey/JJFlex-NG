@@ -33,6 +33,39 @@ This document captures the current state of JJ-Flex repository and active work.
 - Adaptive narrowing step sizes (smaller steps as filter gets narrower)
 - Wire FiltersDspControl (FilterLowBox/FilterHighBox) through SetFilter()
 - Test minimum filter width the radio hardware supports
+- **Passband shift FIXED (Sprint 14 testing):** Shift+[ / Shift+] now slide the entire
+  passband down/up together. Both edges move by 50 Hz — bandwidth preserved.
+- **Independent edge keys (Sprint 15):** Add Ctrl+[ and Ctrl+] to trim one edge inward.
+  Full key set with this addition:
+  - `[` narrow both, `]` widen both
+  - `Shift+[` slide passband down, `Shift+]` slide passband up
+  - `Ctrl+[` low edge up (trim bottom), `Ctrl+]` high edge down (trim top)
+  Use case: on LSB raise the lower cutoff to kill rumble without touching the top edge.
+- **Filter speech hotkeys (Sprint 15):**
+  - `F` = toggle filter speech on/off (silence filter reads)
+  - `Alt+Ctrl+F` = read current filter values aloud
+- **Filter hotkeys in Classic mode (bug):** Bracket keys currently gated to Modern only
+  (MainWindow.xaml.cs:567). Should work in both modes — fix as part of Sprint 15 filter work.
+- **FieldsPanel tab order bug:** FieldsPanel ends up last in tab order (after Sent Text)
+  instead of second (after FreqOut). Cause: Expanders inside have no explicit TabIndex
+  so WPF floats them to int.MaxValue, after all explicitly-indexed controls. Fix when
+  doing ScreenFields menu redesign — the menu navigation will be the primary access path.
+- **FieldsPanel visibility not saved:** ShowClassicUI() always forces FieldsPanel visible.
+  The "Show Field Panel" toggle works per-session but resets on restart/mode switch.
+  Should persist to operator profile like UIMode does.
+- **ScreenFields menu redesign:** Replace the flat DSP control dump with 5 expander
+  navigation items mirroring the panel categories. Menu becomes:
+    Show Field Panel [✓]
+    ──────────────────
+    Noise Reduction and DSP  [collapsed/expanded]  Ctrl+Shift+1
+    Audio                    [collapsed/expanded]  Ctrl+Shift+2
+    Receiver                 [collapsed/expanded]  Ctrl+Shift+3
+    Transmission             [collapsed/expanded]  Ctrl+Shift+4
+    Antenna                  [collapsed/expanded]  Ctrl+Shift+5
+  Activating (menu or hotkey): if collapsed → show panel, expand, focus expander header.
+  If expanded → collapse. Hotkeys shown in menu. Max 7 items, no giant flat control list.
+  Solves tab order problem — menu/hotkey is faster than tabbing through whole UI.
+  DSP/Filter/Diversity controls move to Operations menu (where they belong).
 
 **UIA / Tolk reduction:**
 - Replace Tolk with UIA LiveRegion for most speech output
@@ -49,8 +82,27 @@ This document captures the current state of JJ-Flex repository and active work.
 - Alt+letter menu accelerator investigation
 - Menu state display for non-toggle items
 
+**Transmit button + PTT safety (Sprint 15):**
+- Add Transmit button to Classic main screen (not first in tab order — FreqOut is first)
+- Space = PTT hold (TX on keydown, RX on keyup)
+- Shift+Space = lock TX, speak "Transmitting, locked"
+- Escape or Shift+Space again = unlock, speak "Transmit off"
+- User-configurable warning stages:
+    Timeout         — hard kill time (default 3 min, max 15 min)
+    First warning   — when to start 10-second beeps
+    Second warning  — when to start 5-second beeps
+    Oh Crap Warning — when to start 1-second beeps ("Oh Crap Warning" is the official name)
+- Hard 15 min kill — absolute, non-configurable, no override. Nobody needs 15 min PTT.
+- ALC=0 for 60s while locked = auto-release, speak "No signal detected, transmit off"
+- Beep tones synthesized via earcon system, not wave files
+- Test using Don's radio with TX off ("software dummy load")
+
 **Deferred / future:**
-- Earcons (boundary bonk, field tick, tune up/down tones)
+- Earcons (boundary bonk, field tick, tune up/down tones) — transmit warning is first use case.
+  Prefer synthesized tones over wave assets for most earcons (no file management, fully
+  controllable pitch/duration/envelope). Wave assets available for richer sounds where needed.
+- Virtual dummy load: audio setup option that enables TX pipeline without RF output,
+  lets you hear yourself via second slice or transverter mode for testing. Way down the road.
 - ModeControl back in tab chain after FreqOut
 
 ## SmartLink Connection — FIXED (needs testing on Don's radio)
