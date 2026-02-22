@@ -1172,7 +1172,7 @@ public class FreqOutHandlers
 
     /// <summary>
     /// Handle bracket keys for filter adjustment in Modern mode.
-    /// [ = narrow, ] = widen, Shift+[ = shift low edge, Shift+] = shift high edge.
+    /// [ = narrow, ] = widen, Shift+[ = shift passband down, Shift+] = shift passband up.
     /// Uses SetFilter() to set both edges atomically — separate FilterLow/FilterHigh
     /// commands race in the queue and cause a death spiral (Sprint 14 fix).
     /// Announces boundary when filter hits mode-specific min/max.
@@ -1190,11 +1190,13 @@ public class FreqOutHandlers
         int origLow = low, origHigh = high;
         var (lowMin, highMax) = GetFilterBounds();
 
-        if (key == Key.OemOpenBrackets) // [ = narrow or shift low edge
+        if (key == Key.OemOpenBrackets) // [ = narrow or shift passband down
         {
             if (shift)
             {
+                // Shift entire passband down — both edges move together
                 low -= filterStep;
+                high -= filterStep;
             }
             else
             {
@@ -1210,10 +1212,12 @@ public class FreqOutHandlers
                 }
             }
         }
-        else if (key == Key.OemCloseBrackets) // ] = widen or shift high edge
+        else if (key == Key.OemCloseBrackets) // ] = widen or shift passband up
         {
             if (shift)
             {
+                // Shift entire passband up — both edges move together
+                low += filterStep;
                 high += filterStep;
             }
             else
@@ -1235,16 +1239,15 @@ public class FreqOutHandlers
         // Boundary announcements
         if (low == origLow && high == origHigh)
         {
-            // Nothing changed — at maximum extent
             Radios.ScreenReaderOutput.Speak("Filter at maximum", true);
         }
         else if (shift && key == Key.OemOpenBrackets && low == lowMin)
         {
-            Radios.ScreenReaderOutput.Speak($"Beginning, low edge {low}", true);
+            Radios.ScreenReaderOutput.Speak($"Lower limit, {low} to {high}", true);
         }
         else if (shift && key == Key.OemCloseBrackets && high == highMax)
         {
-            Radios.ScreenReaderOutput.Speak($"End, high edge {high}", true);
+            Radios.ScreenReaderOutput.Speak($"Upper limit, {low} to {high}", true);
         }
         else if (!shift && low == lowMin && high == highMax)
         {
