@@ -194,6 +194,23 @@ public class NativeMenuBar : IDisposable
     #region Shared DSP/Control Handlers — Sprint 13C
 
     /// <summary>
+    /// Get mode-specific filter bounds for boundary detection.
+    /// Matches Slice.UpdateFilter() clamping logic.
+    /// </summary>
+    private (int lowMin, int highMax) GetFilterBounds()
+    {
+        if (Rig == null) return (0, 12000);
+        string mode = Rig.Mode?.ToUpperInvariant() ?? "USB";
+        return mode switch
+        {
+            "LSB" or "DIGL" => (-12000, 0),
+            "CW" => (-12000, 12000),
+            "USB" or "DIGU" or "FDV" => (0, 12000),
+            _ => (-12000, 12000)
+        };
+    }
+
+    /// <summary>
     /// Toggle an OffOnValues property and speak the result.
     /// Used by NR, NB, ANF, APF, VOX, Squelch, etc.
     /// </summary>
@@ -316,58 +333,94 @@ public class NativeMenuBar : IDisposable
             int high = Rig.FilterHigh;
             int newLow = low + filterStep;
             int newHigh = high - filterStep;
-            if (newHigh - newLow >= 50) // minimum bandwidth
+            if (newHigh - newLow >= 50)
             {
                 Rig.SetFilter(newLow, newHigh);
                 SpeakAfterMenuClose($"Filter {newLow} to {newHigh}");
             }
             else
             {
-                SpeakAfterMenuClose($"Filter at minimum, {low} to {high}");
+                SpeakAfterMenuClose("Filter at minimum");
             }
         });
         AddWired(parent, "Widen Filter", () =>
         {
             if (Rig == null) { SpeakNoRadio(); return; }
-            int newLow = Math.Max(0, Rig.FilterLow - filterStep);
-            int newHigh = Rig.FilterHigh + filterStep;
-            Rig.SetFilter(newLow, newHigh);
-            SpeakAfterMenuClose($"Filter {newLow} to {newHigh}");
+            var (lowMin, highMax) = GetFilterBounds();
+            int low = Rig.FilterLow;
+            int high = Rig.FilterHigh;
+            int newLow = Math.Max(low - filterStep, lowMin);
+            int newHigh = Math.Min(high + filterStep, highMax);
+            if (newLow == low && newHigh == high)
+            {
+                SpeakAfterMenuClose("Filter at maximum");
+            }
+            else
+            {
+                Rig.SetFilter(newLow, newHigh);
+                SpeakAfterMenuClose($"Filter {newLow} to {newHigh}");
+            }
         });
         AddWired(parent, "Shift Low Edge Up", () =>
         {
             if (Rig == null) { SpeakNoRadio(); return; }
             int newLow = Rig.FilterLow + filterStep;
             int high = Rig.FilterHigh;
-            if (high - newLow >= 10) // don't cross edges
+            if (high - newLow >= 10)
             {
                 Rig.SetFilter(newLow, high);
                 SpeakAfterMenuClose($"Low edge {newLow}");
+            }
+            else
+            {
+                SpeakAfterMenuClose("Filter at minimum");
             }
         });
         AddWired(parent, "Shift Low Edge Down", () =>
         {
             if (Rig == null) { SpeakNoRadio(); return; }
-            int newLow = Math.Max(0, Rig.FilterLow - filterStep);
-            Rig.SetFilter(newLow, Rig.FilterHigh);
-            SpeakAfterMenuClose($"Low edge {newLow}");
+            var (lowMin, _) = GetFilterBounds();
+            int low = Rig.FilterLow;
+            int newLow = Math.Max(low - filterStep, lowMin);
+            if (newLow == low)
+            {
+                SpeakAfterMenuClose("Beginning");
+            }
+            else
+            {
+                Rig.SetFilter(newLow, Rig.FilterHigh);
+                SpeakAfterMenuClose($"Low edge {newLow}");
+            }
         });
         AddWired(parent, "Shift High Edge Up", () =>
         {
             if (Rig == null) { SpeakNoRadio(); return; }
-            int newHigh = Rig.FilterHigh + filterStep;
-            Rig.SetFilter(Rig.FilterLow, newHigh);
-            SpeakAfterMenuClose($"High edge {newHigh}");
+            var (_, highMax) = GetFilterBounds();
+            int high = Rig.FilterHigh;
+            int newHigh = Math.Min(high + filterStep, highMax);
+            if (newHigh == high)
+            {
+                SpeakAfterMenuClose("End");
+            }
+            else
+            {
+                Rig.SetFilter(Rig.FilterLow, newHigh);
+                SpeakAfterMenuClose($"High edge {newHigh}");
+            }
         });
         AddWired(parent, "Shift High Edge Down", () =>
         {
             if (Rig == null) { SpeakNoRadio(); return; }
             int low = Rig.FilterLow;
             int newHigh = Rig.FilterHigh - filterStep;
-            if (newHigh - low >= 10) // don't cross edges
+            if (newHigh - low >= 10)
             {
                 Rig.SetFilter(low, newHigh);
                 SpeakAfterMenuClose($"High edge {newHigh}");
+            }
+            else
+            {
+                SpeakAfterMenuClose("Filter at minimum");
             }
         });
     }

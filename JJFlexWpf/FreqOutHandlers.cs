@@ -1175,7 +1175,7 @@ public class FreqOutHandlers
     /// [ = narrow, ] = widen, Shift+[ = shift low edge, Shift+] = shift high edge.
     /// Uses SetFilter() to set both edges atomically — separate FilterLow/FilterHigh
     /// commands race in the queue and cause a death spiral (Sprint 14 fix).
-    /// No Math.Max(0,...) clamping — UpdateFilter() handles LSB negative edges.
+    /// Announces boundary when filter hits mode-specific min/max.
     /// </summary>
     public void HandleFilterHotkey(KeyEventArgs e)
     {
@@ -1187,6 +1187,8 @@ public class FreqOutHandlers
 
         int low = Rig.FilterLow;
         int high = Rig.FilterHigh;
+        int origLow = low, origHigh = high;
+        var (lowMin, highMax) = GetFilterBounds();
 
         if (key == Key.OemOpenBrackets) // [ = narrow or shift low edge
         {
@@ -1196,10 +1198,16 @@ public class FreqOutHandlers
             }
             else
             {
-                // Narrow: move both edges inward, but don't let them cross
+                // Narrow: move both edges inward
                 int newLow = low + filterStep;
                 int newHigh = high - filterStep;
                 if (newHigh - newLow >= minWidth) { low = newLow; high = newHigh; }
+                else
+                {
+                    Radios.ScreenReaderOutput.Speak("Filter at minimum", true);
+                    e.Handled = true;
+                    return;
+                }
             }
         }
         else if (key == Key.OemCloseBrackets) // ] = widen or shift high edge
@@ -1217,9 +1225,53 @@ public class FreqOutHandlers
         }
         else return;
 
+        // Clamp to mode-specific bounds and detect boundaries
+        low = Math.Max(low, lowMin);
+        high = Math.Min(high, highMax);
+        if (high - low < minWidth) high = low + minWidth; // safety
+
         Rig.SetFilter(low, high);
-        Radios.ScreenReaderOutput.Speak($"Filter {low} to {high}", true);
+
+        // Boundary announcements
+        if (low == origLow && high == origHigh)
+        {
+            // Nothing changed — at maximum extent
+            Radios.ScreenReaderOutput.Speak("Filter at maximum", true);
+        }
+        else if (shift && key == Key.OemOpenBrackets && low == lowMin)
+        {
+            Radios.ScreenReaderOutput.Speak($"Beginning, low edge {low}", true);
+        }
+        else if (shift && key == Key.OemCloseBrackets && high == highMax)
+        {
+            Radios.ScreenReaderOutput.Speak($"End, high edge {high}", true);
+        }
+        else if (!shift && low == lowMin && high == highMax)
+        {
+            Radios.ScreenReaderOutput.Speak($"Filter at maximum, {low} to {high}", true);
+        }
+        else
+        {
+            Radios.ScreenReaderOutput.Speak($"Filter {low} to {high}", true);
+        }
         e.Handled = true;
+    }
+
+    /// <summary>
+    /// Get mode-specific filter bounds for boundary detection.
+    /// Matches Slice.UpdateFilter() clamping logic.
+    /// </summary>
+    private (int lowMin, int highMax) GetFilterBounds()
+    {
+        if (Rig == null) return (0, 12000);
+        string mode = Rig.Mode?.ToUpperInvariant() ?? "USB";
+        return mode switch
+        {
+            "LSB" or "DIGL" => (-12000, 0),
+            "CW" => (-12000, 12000), // actual CW bounds depend on pitch, this is the outer limit
+            "USB" or "DIGU" or "FDV" => (0, 12000),
+            _ => (-12000, 12000) // AM, DSB, SAM, etc.
+        };
     }
 
     #endregion
