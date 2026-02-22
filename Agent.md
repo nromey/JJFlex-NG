@@ -105,6 +105,17 @@ This document captures the current state of JJ-Flex repository and active work.
   lets you hear yourself via second slice or transverter mode for testing. Way down the road.
 - ModeControl back in tab chain after FreqOut
 
+## 4.1.115 Release Prep Notes
+- **Changelog:** Notify users that install directory changed from `jjshaffer\JJFlexRadio`
+  to `JJFlexRadio`. User settings/station XML in %AppData%\JJFlexRadio are unaffected.
+- **Installer orphan cleanup:** Detect old `jjshaffer\JJFlexRadio` directories and offer
+  to remove them. x64 installer checks both $PROGRAMFILES64 and $PROGRAMFILES variants.
+  x86 installer checks $PROGRAMFILES variant. One prompt per found orphan. Also check
+  for any other leftover JJFlexRadio install debris from previous installers and offer
+  to clean up. ~10-15 lines in install template.nsi.
+- **Pre-release install test:** Noel to do a local install test of 4.1.115 pre before
+  shipping to Don. Verifies installer, directory migration, and orphan cleanup prompts.
+
 ## SmartLink Connection — FIXED (needs testing on Don's radio)
 
 **Fix:** GUIClient removal tracked with timestamp. 15s grace after removal, then disconnect
