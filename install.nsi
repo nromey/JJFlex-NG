@@ -13,7 +13,7 @@ Name "JJFlexRadio"
 OutFile "Setup JJFlexRadio_4.1.115.0.exe"
 
 ; The default installation directory (architecture-specific Program Files)
-InstallDir "$PROGRAMFILES64\jjshaffer\JJFlexRadio"
+InstallDir "$PROGRAMFILES\JJFlexRadio"
 
 ; Registry key to check for directory (so if you install again, it will 
 ; overwrite the old one automatically)
@@ -21,6 +21,10 @@ InstallDirRegKey HKLM "Software\NSIS_JJFlexRadio" "Install_Dir"
 
 ; Request application privileges for Windows Vista
 RequestExecutionLevel admin
+
+; LZMA solid compression - compresses all files as one stream for best size
+SetCompressor /SOLID lzma
+SetCompressorDictSize 64
 
 
 ; Version information for the installer bundle
@@ -35,9 +39,12 @@ VIAddVersionKey /LANG=1033 "FileDescription" "JJFlexRadio installer"
 ; Get a welcome message
 Function .onInit
 MessageBox MB_OK "\
-Welcome to JJFlexRadio, an amateur radio monitoring/control program by Jim Shaffer, KE5AL.$\r\
-JJFlexRadio is designed with blind users in mind.$\r\
-It works best with a screen reader using a braille display."
+Welcome to JJFlexRadio, an amateur radio monitoring/control program by Jim Shaffer, KE5AL (SK) and Noel Romey K5NER.$\r\
+With assistance from Anthropic's Claude and ChatGPT's Codex.$\r\
+JJFlexRadio is designed with blind users in mind, but anyone is encouraged to try it out.$\r\r\
+The application works well with braille displays, but speech output continues to improve. Stay tuned!$\r\
+JJ Flex Radio would not exist without the hard work of Jim Shaffer. JJ buddy, we miss you.$\r\
+JJ Flex Radio lives on! RIP my friend."
 FunctionEnd
 
 ;--------------------------------
@@ -65,7 +72,7 @@ Section "JJFlexRadio (required)"
   SetOutPath $INSTDIR
   
   ; Put files there - recurse all built outputs
-  File /r /x "*.pdb" "C:\dev\JJFlex-NG\bin\x64\Release\net8.0-windows\win-x64\*.*"
+  File /r /x "*.pdb" /x "runPgm.bat" "c:\dev\JJFlex-NG\\bin\x86\Release\net8.0-windows\win-x86\*.*"
   
   ; Write the installation path into the registry
   WriteRegStr HKLM "SOFTWARE\JJFlexRadio" "Install_Dir" "$INSTDIR"
@@ -126,6 +133,7 @@ Section "Uninstall"
   Delete "$DESKTOP\JJFlexRadio.lnk"
 
   ; Remove directories used
+  RMDir /r "$INSTDIR\runtimes"
   RMDir "$INSTDIR"
 
 SectionEnd
