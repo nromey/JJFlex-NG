@@ -3009,6 +3009,17 @@ namespace Radios
             }
         }
 
+        /// <summary>
+        /// Set both filter edges atomically via Slice.UpdateFilter().
+        /// Avoids the race condition of setting FilterLow and FilterHigh separately
+        /// through the command queue, where FlexLib clamps each edge against the
+        /// other's stale value.
+        /// </summary>
+        public void SetFilter(int low, int high)
+        {
+            if (HasActiveSlice) q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.UpdateFilter(low, high); }), "Filter");
+        }
+
 #if zero
         // TXAntenna must be set first.
         public bool RXAntenna

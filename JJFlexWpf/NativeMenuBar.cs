@@ -304,48 +304,71 @@ public class NativeMenuBar : IDisposable
 
         const int filterStep = 50;
 
+        // All filter operations use SetFilter() to set both edges atomically.
+        // Setting FilterLow and FilterHigh separately through the command queue
+        // causes a race condition: FlexLib clamps each edge against the other's
+        // stale value, creating a death spiral to 0-10 Hz bandwidth.
+
         AddWired(parent, "Narrow Filter", () =>
         {
             if (Rig == null) { SpeakNoRadio(); return; }
-            int newLow = Rig.FilterLow + filterStep;
-            int newHigh = Rig.FilterHigh - filterStep;
+            int low = Rig.FilterLow;
+            int high = Rig.FilterHigh;
+            int newLow = low + filterStep;
+            int newHigh = high - filterStep;
             if (newHigh - newLow >= 50) // minimum bandwidth
             {
-                Rig.FilterLow = newLow;
-                Rig.FilterHigh = newHigh;
+                Rig.SetFilter(newLow, newHigh);
+                SpeakAfterMenuClose($"Filter {newLow} to {newHigh}");
             }
-            SpeakAfterMenuClose($"Filter {Rig.FilterLow} to {Rig.FilterHigh}");
+            else
+            {
+                SpeakAfterMenuClose($"Filter at minimum, {low} to {high}");
+            }
         });
         AddWired(parent, "Widen Filter", () =>
         {
             if (Rig == null) { SpeakNoRadio(); return; }
-            Rig.FilterLow = Math.Max(0, Rig.FilterLow - filterStep);
-            Rig.FilterHigh += filterStep;
-            SpeakAfterMenuClose($"Filter {Rig.FilterLow} to {Rig.FilterHigh}");
+            int newLow = Math.Max(0, Rig.FilterLow - filterStep);
+            int newHigh = Rig.FilterHigh + filterStep;
+            Rig.SetFilter(newLow, newHigh);
+            SpeakAfterMenuClose($"Filter {newLow} to {newHigh}");
         });
         AddWired(parent, "Shift Low Edge Up", () =>
         {
             if (Rig == null) { SpeakNoRadio(); return; }
-            Rig.FilterLow += filterStep;
-            SpeakAfterMenuClose($"Low edge {Rig.FilterLow}");
+            int newLow = Rig.FilterLow + filterStep;
+            int high = Rig.FilterHigh;
+            if (high - newLow >= 10) // don't cross edges
+            {
+                Rig.SetFilter(newLow, high);
+                SpeakAfterMenuClose($"Low edge {newLow}");
+            }
         });
         AddWired(parent, "Shift Low Edge Down", () =>
         {
             if (Rig == null) { SpeakNoRadio(); return; }
-            Rig.FilterLow = Math.Max(0, Rig.FilterLow - filterStep);
-            SpeakAfterMenuClose($"Low edge {Rig.FilterLow}");
+            int newLow = Math.Max(0, Rig.FilterLow - filterStep);
+            Rig.SetFilter(newLow, Rig.FilterHigh);
+            SpeakAfterMenuClose($"Low edge {newLow}");
         });
         AddWired(parent, "Shift High Edge Up", () =>
         {
             if (Rig == null) { SpeakNoRadio(); return; }
-            Rig.FilterHigh += filterStep;
-            SpeakAfterMenuClose($"High edge {Rig.FilterHigh}");
+            int newHigh = Rig.FilterHigh + filterStep;
+            Rig.SetFilter(Rig.FilterLow, newHigh);
+            SpeakAfterMenuClose($"High edge {newHigh}");
         });
         AddWired(parent, "Shift High Edge Down", () =>
         {
             if (Rig == null) { SpeakNoRadio(); return; }
-            Rig.FilterHigh = Math.Max(0, Rig.FilterHigh - filterStep);
-            SpeakAfterMenuClose($"High edge {Rig.FilterHigh}");
+            int low = Rig.FilterLow;
+            int newHigh = Rig.FilterHigh - filterStep;
+            if (newHigh - low >= 10) // don't cross edges
+            {
+                Rig.SetFilter(low, newHigh);
+                SpeakAfterMenuClose($"High edge {newHigh}");
+            }
         });
     }
 
