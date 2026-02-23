@@ -239,12 +239,6 @@
     <Compile Include="ReverseBeacon.vb">
       <SubType>Form</SubType>
     </Compile>
-    <Compile Include="RigSelector.Designer.vb">
-      <DependentUpon>RigSelector.vb</DependentUpon>
-    </Compile>
-    <Compile Include="RigSelector.vb">
-      <SubType>Form</SubType>
-    </Compile>
     <Compile Include="SavedScanData.vb" />
     <Compile Include="scan.Designer.vb">
       <DependentUpon>scan.vb</DependentUpon>
@@ -377,9 +371,6 @@
     </EmbeddedResource>
     <EmbeddedResource Include="ReverseBeacon.resx">
       <DependentUpon>ReverseBeacon.vb</DependentUpon>
-    </EmbeddedResource>
-    <EmbeddedResource Include="RigSelector.resx">
-      <DependentUpon>RigSelector.vb</DependentUpon>
     </EmbeddedResource>
     <EmbeddedResource Include="scan.resx">
       <DependentUpon>scan.vb</DependentUpon>

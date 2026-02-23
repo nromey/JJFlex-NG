@@ -82,13 +82,13 @@ public class NativeMenuBar : IDisposable
     private FlexBase? Rig => _window.RigControl;
 
     /// <summary>
-    /// Attach to the form's HWND and apply the initial menu (Modern mode default).
+    /// Attach to the form's HWND and apply the initial menu using the current UI mode.
     /// Call from ShellForm.HandleCreated.
     /// </summary>
     public void AttachTo(IntPtr hwnd)
     {
         _hwnd = hwnd;
-        ApplyUIMode(MainWindow.UIMode.Modern);
+        ApplyUIMode(_window.ActiveUIMode);
     }
 
     /// <summary>

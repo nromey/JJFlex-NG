@@ -1701,23 +1701,72 @@ public partial class MainWindow : UserControl
         var mgr = new Radios.SmartLinkAccountManager();
         mgr.LoadAccounts();
 
-        var callbacks = new Dialogs.SmartLinkAccountCallbacks
+        while (true)
         {
-            GetAccounts = () => mgr.Accounts.OrderByDescending(a => a.LastUsed)
-                .Select(a => new Dialogs.SmartLinkAccountInfo
-                {
-                    FriendlyName = a.FriendlyName,
-                    Email = a.Email,
-                    LastUsed = a.LastUsed,
-                    AccountData = a
-                }).ToList(),
-            RenameAccount = (oldName, newName) => mgr.RenameAccount(oldName, newName),
-            DeleteAccount = (name) => { mgr.DeleteAccount(name); },
-            ScreenReaderSpeak = (msg, interrupt) => Radios.ScreenReaderOutput.Speak(msg, interrupt)
-        };
+            var callbacks = new Dialogs.SmartLinkAccountCallbacks
+            {
+                GetAccounts = () => mgr.Accounts.OrderByDescending(a => a.LastUsed)
+                    .Select(a => new Dialogs.SmartLinkAccountInfo
+                    {
+                        FriendlyName = a.FriendlyName,
+                        Email = a.Email,
+                        LastUsed = a.LastUsed,
+                        AccountData = a
+                    }).ToList(),
+                RenameAccount = (oldName, newName) => mgr.RenameAccount(oldName, newName),
+                DeleteAccount = (name) => { mgr.DeleteAccount(name); },
+                ScreenReaderSpeak = (msg, interrupt) => Radios.ScreenReaderOutput.Speak(msg, interrupt)
+            };
 
-        var dialog = new Dialogs.SmartLinkAccountDialog(callbacks);
-        dialog.ShowDialog();
+            var dialog = new Dialogs.SmartLinkAccountDialog(callbacks);
+            var result = dialog.ShowDialog();
+
+            if (result != true)
+                break;
+
+            if (dialog.NewLoginRequested)
+            {
+                // Launch Auth0 PKCE flow via WPF AuthDialog
+                Radios.ScreenReaderOutput.Speak("Opening SmartLink login", true);
+                var authDialog = new Dialogs.AuthDialog(
+                    trace: (msg, level) => JJTrace.Tracing.TraceLine(msg, (System.Diagnostics.TraceLevel)level),
+                    screenReaderSpeak: (msg, interrupt) => Radios.ScreenReaderOutput.Speak(msg, interrupt));
+                authDialog.ForceNewLogin = true;
+
+                if (authDialog.ShowDialog() == true && !string.IsNullOrEmpty(authDialog.IdToken))
+                {
+                    // Determine friendly name from email or prompt
+                    var friendlyName = !string.IsNullOrEmpty(authDialog.Email)
+                        ? authDialog.Email
+                        : "SmartLink Account";
+
+                    var newAccount = new Radios.SmartLinkAccount
+                    {
+                        FriendlyName = friendlyName,
+                        Email = authDialog.Email,
+                        IdToken = authDialog.IdToken,
+                        RefreshToken = authDialog.RefreshToken,
+                        ExpiresAt = DateTime.UtcNow.AddSeconds(authDialog.ExpiresIn),
+                        LastUsed = DateTime.UtcNow
+                    };
+
+                    mgr.SaveAccount(newAccount);
+                    Radios.ScreenReaderOutput.Speak($"Account saved for {friendlyName}", true);
+
+                    // Loop back to show the account list with the new account
+                    continue;
+                }
+                else
+                {
+                    Radios.ScreenReaderOutput.Speak("Login cancelled", true);
+                    // Loop back to show account list
+                    continue;
+                }
+            }
+
+            // User selected an existing account — done
+            break;
+        }
     }
 
     // --- Auto-Connect callbacks (wired from ApplicationEvents.vb) ---
