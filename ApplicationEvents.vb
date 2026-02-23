@@ -72,6 +72,56 @@ Namespace My
             ' Wire DoCommandHandler AFTER GetConfigInfo (which creates Commands).
             WpfMainWindow.DoCommandHandler = AddressOf Commands.DoCommand
 
+            ' Wire auto-connect callbacks — needs CurrentOp from InitializeApplication.
+            WpfMainWindow.IsAutoConnectEnabled = Function()
+                If CurrentOp Is Nothing Then Return False
+                Dim opName = PersonalData.UniqueOpName(CurrentOp)
+                Dim config = Radios.AutoConnectConfig.Load(BaseConfigDir, opName)
+                Return config.GlobalAutoConnectEnabled
+            End Function
+
+            WpfMainWindow.GetAutoConnectRadioName = Function() As String
+                If CurrentOp Is Nothing Then Return Nothing
+                Dim opName = PersonalData.UniqueOpName(CurrentOp)
+                Dim config = Radios.AutoConnectConfig.Load(BaseConfigDir, opName)
+                If config.Enabled AndAlso Not String.IsNullOrEmpty(config.RadioSerial) Then
+                    Return config.RadioName
+                End If
+                Return Nothing
+            End Function
+
+            WpfMainWindow.SetAutoConnectEnabled = Sub(enabled As Boolean)
+                If CurrentOp Is Nothing Then Return
+                Dim opName = PersonalData.UniqueOpName(CurrentOp)
+                Dim config = Radios.AutoConnectConfig.Load(BaseConfigDir, opName)
+                config.GlobalAutoConnectEnabled = enabled
+                config.Save(BaseConfigDir, opName)
+            End Sub
+
+            WpfMainWindow.ClearAutoConnectRadio = Sub()
+                If CurrentOp Is Nothing Then Return
+                Dim opName = PersonalData.UniqueOpName(CurrentOp)
+                ' Clear the V2 unified config
+                Dim config = Radios.AutoConnectConfig.Load(BaseConfigDir, opName)
+                config.ClearAutoConnectRadio()
+                config.Save(BaseConfigDir, opName)
+                ' Also clear the legacy autoConnect.xml so RigSelector display updates
+                Dim legacyPath = BaseConfigDir & "\" & opName & "_autoConnect.xml"
+                If System.IO.File.Exists(legacyPath) Then
+                    Try
+                        Dim legacyItem = New RigSelector.AutoConnectData()
+                        legacyItem.Desired = False
+                        legacyItem.Serial = ""
+                        legacyItem.LowBW = False
+                        Using fs = System.IO.File.Create(legacyPath)
+                            Dim xs = New System.Xml.Serialization.XmlSerializer(GetType(RigSelector.AutoConnectData))
+                            xs.Serialize(fs, legacyItem)
+                        End Using
+                    Catch
+                    End Try
+                End If
+            End Sub
+
             ' Wire FreqOutHandlers delegates for VB.NET globals access (Sprint 12).
             ' These are wired after InitializeApplication so RigControl is available.
             WpfMainWindow.FreqOutHandlersWireCallback = Sub(handlers)

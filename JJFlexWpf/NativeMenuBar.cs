@@ -592,6 +592,12 @@ public class NativeMenuBar : IDisposable
 
         AddNotImplemented(actions, "List Operators");
         AddWired(actions, "Select Rig", () => _window.SelectRadioCallback?.Invoke());
+        AddWired(actions, "Manage SmartLink Accounts", () => _window.ShowSmartLinkAccountManager());
+        AddChecked(actions, "Auto-Connect Enabled",
+            () => { var msg = _window.ToggleAutoConnect(); if (msg != null) SpeakAfterMenuClose(msg); },
+            () => _window.IsAutoConnectEnabled?.Invoke() ?? false);
+        AddWired(actions, "Clear Auto-Connect",
+            () => { var msg = _window.ClearAutoConnect(); if (msg != null) SpeakAfterMenuClose(msg); });
         AddNotImplemented(actions, "Manage Profiles");
         AddNotImplemented(actions, "Local PTT On");
         AddNotImplemented(actions, "Connected Stations");
@@ -705,7 +711,12 @@ public class NativeMenuBar : IDisposable
         // === Radio ===
         var radio = AddPopup(bar, "&Radio");
         AddWired(radio, "Connect to Radio", () => _window.SelectRadioCallback?.Invoke());
-        AddNotImplemented(radio, "Manage SmartLink Accounts");
+        AddWired(radio, "Manage SmartLink Accounts", () => _window.ShowSmartLinkAccountManager());
+        AddChecked(radio, "Auto-Connect Enabled",
+            () => { var msg = _window.ToggleAutoConnect(); if (msg != null) SpeakAfterMenuClose(msg); },
+            () => _window.IsAutoConnectEnabled?.Invoke() ?? false);
+        AddWired(radio, "Clear Auto-Connect",
+            () => { var msg = _window.ClearAutoConnect(); if (msg != null) SpeakAfterMenuClose(msg); });
         AddNotImplemented(radio, "Operators");
         AddNotImplemented(radio, "Profiles");
         AddNotImplemented(radio, "Connected Stations");

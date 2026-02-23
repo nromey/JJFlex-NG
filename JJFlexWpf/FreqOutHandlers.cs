@@ -40,6 +40,17 @@ public class FreqOutHandlers
     // Frequency readout toggle — when off, tuning doesn't speak the new frequency
     private bool _freqReadout = true;
 
+    /// <summary>
+    /// Toggle frequency readout on/off (Ctrl+Shift+F global hotkey).
+    /// When off, Up/Down tuning doesn't auto-speak the new frequency.
+    /// </summary>
+    public void ToggleFreqReadout()
+    {
+        _freqReadout = !_freqReadout;
+        Radios.ScreenReaderOutput.Speak(
+            _freqReadout ? "Frequency readout on" : "Frequency readout off", true);
+    }
+
     // Tuning speech debounce — rate-limits frequency announcements during rapid tuning
     private CancellationTokenSource? _tuneDebounce;
     private bool _firstTuneStep = true;
@@ -263,11 +274,10 @@ public class FreqOutHandlers
                     TuneFreq(unchecked((ulong)(-(long)step)));
                     e.Handled = true;
                 }
-                else if (ch == 'F')
+                else if (ch == 'F' && Keyboard.Modifiers == ModifierKeys.None)
                 {
-                    _freqReadout = !_freqReadout;
-                    Radios.ScreenReaderOutput.Speak(
-                        _freqReadout ? "Frequency readout on" : "Frequency readout off", true);
+                    // F: One-shot read current frequency
+                    _window.SpeakFrequency();
                     e.Handled = true;
                 }
                 break;
@@ -1063,19 +1073,18 @@ public class FreqOutHandlers
                         $"{modeName}, {FormatStepForSpeech(CurrentTuneStep)}", true);
                     e.Handled = true;
                 }
-                else if (ch == 'S')
+                else if (ch == 'S' && Keyboard.Modifiers == ModifierKeys.Shift)
                 {
-                    // Announce current step
+                    // Shift+S: Announce current step
                     string modeName = _coarseMode ? "Coarse" : "Fine";
                     Radios.ScreenReaderOutput.Speak(
                         $"{modeName}, {FormatStepForSpeech(CurrentTuneStep)}", true);
                     e.Handled = true;
                 }
-                else if (ch == 'F')
+                else if (ch == 'F' && Keyboard.Modifiers == ModifierKeys.None)
                 {
-                    _freqReadout = !_freqReadout;
-                    Radios.ScreenReaderOutput.Speak(
-                        _freqReadout ? "Frequency readout on" : "Frequency readout off", true);
+                    // F: One-shot read current frequency
+                    _window.SpeakFrequency();
                     e.Handled = true;
                 }
                 else if (ch == 'M')

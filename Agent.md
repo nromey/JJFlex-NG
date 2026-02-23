@@ -44,6 +44,13 @@ This document captures the current state of JJ-Flex repository and active work.
 - **Filter speech hotkeys (Sprint 15):**
   - `F` = toggle filter speech on/off (silence filter reads)
   - `Alt+Ctrl+F` = read current filter values aloud
+- **Hotkey remapping (bare keys → read, modifiers → actions):**
+  - `S` in Modern freq field: change from "announce step" to free (reserved for S-meter read in Sprint 16)
+  - `Shift+S` in Modern freq field: announce current tuning step (was bare S)
+  - `F` in both Classic and Modern freq field: one-shot read frequency (was toggle readout)
+  - `Ctrl+Shift+F` (global): toggle frequency readout on/off (was one-shot read)
+  - Pattern: bare single-letter keys = non-destructive reads, modifier combos = toggles/actions
+  - Partially implemented (FreqOutHandlers.cs edits done, MainWindow.xaml.cs global handler still needs update) — finish during sprint execution
 - **Filter hotkeys in Classic mode (bug):** Bracket keys currently gated to Modern only
   (MainWindow.xaml.cs:567). Should work in both modes — fix as part of Sprint 15 filter work.
 - **FieldsPanel tab order bug:** FieldsPanel ends up last in tab order (after Sent Text)

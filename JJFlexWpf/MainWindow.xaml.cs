@@ -1690,6 +1690,83 @@ public partial class MainWindow : UserControl
 
     #endregion
 
+    #region SmartLink & Auto-Connect Management
+
+    /// <summary>
+    /// Show the SmartLink Account Manager dialog.
+    /// Works without a radio connection — manages saved accounts (view, rename, delete).
+    /// </summary>
+    public void ShowSmartLinkAccountManager()
+    {
+        var mgr = new Radios.SmartLinkAccountManager();
+        mgr.LoadAccounts();
+
+        var callbacks = new Dialogs.SmartLinkAccountCallbacks
+        {
+            GetAccounts = () => mgr.Accounts.OrderByDescending(a => a.LastUsed)
+                .Select(a => new Dialogs.SmartLinkAccountInfo
+                {
+                    FriendlyName = a.FriendlyName,
+                    Email = a.Email,
+                    LastUsed = a.LastUsed,
+                    AccountData = a
+                }).ToList(),
+            RenameAccount = (oldName, newName) => mgr.RenameAccount(oldName, newName),
+            DeleteAccount = (name) => { mgr.DeleteAccount(name); },
+            ScreenReaderSpeak = (msg, interrupt) => Radios.ScreenReaderOutput.Speak(msg, interrupt)
+        };
+
+        var dialog = new Dialogs.SmartLinkAccountDialog(callbacks);
+        dialog.ShowDialog();
+    }
+
+    // --- Auto-Connect callbacks (wired from ApplicationEvents.vb) ---
+
+    /// <summary>Returns whether auto-connect is globally enabled.</summary>
+    public Func<bool>? IsAutoConnectEnabled { get; set; }
+
+    /// <summary>Returns the configured auto-connect radio name, or null if none.</summary>
+    public Func<string?>? GetAutoConnectRadioName { get; set; }
+
+    /// <summary>Sets the global auto-connect enabled flag and saves.</summary>
+    public Action<bool>? SetAutoConnectEnabled { get; set; }
+
+    /// <summary>Clears the auto-connect radio config and saves.</summary>
+    public Action? ClearAutoConnectRadio { get; set; }
+
+    /// <summary>
+    /// Toggle the global auto-connect enabled flag.
+    /// Returns speech message for caller to announce after menu closes.
+    /// </summary>
+    public string? ToggleAutoConnect()
+    {
+        if (IsAutoConnectEnabled == null || SetAutoConnectEnabled == null) return null;
+
+        bool newState = !IsAutoConnectEnabled();
+        SetAutoConnectEnabled(newState);
+        return newState ? "Auto-connect enabled" : "Auto-connect disabled";
+    }
+
+    /// <summary>
+    /// Clear the auto-connect radio configuration.
+    /// Returns speech message for caller to announce after menu closes.
+    /// </summary>
+    public string? ClearAutoConnect()
+    {
+        if (ClearAutoConnectRadio == null) return null;
+
+        string? radioName = GetAutoConnectRadioName?.Invoke();
+        if (string.IsNullOrEmpty(radioName))
+        {
+            return "No auto-connect radio configured";
+        }
+
+        ClearAutoConnectRadio();
+        return $"Auto-connect to {radioName} cleared";
+    }
+
+    #endregion
+
     #region Form1 Compatibility — Phase 9.1
 
     /// <summary>

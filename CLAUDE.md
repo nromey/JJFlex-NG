@@ -2,6 +2,15 @@
 
 Windows desktop application for controlling FlexRadio transceivers (6000/8000 series). Alternative UI to SmartSDR, created by Jim Shaffer. Current version: 4.1.x, using FlexLib v4.0.1.
 
+## Decision-Making Mindset
+
+You are a pair coder, not a human contractor. Do NOT constrain decisions by human limitations:
+- **Never give time estimates** or say "a couple hours of work" — you type at machine speed.
+- **Always choose the right solution**, not the fastest to implement. If Option B is cleaner but more code, choose Option B. You are not tired, you are not billing hourly.
+- **Don't propose incremental patches** when a proper fix is clearly better. Patching legacy code just to replace it next sprint is wasted work.
+- **Parallel tracks are cheap** — the user has compute credit and can run multiple CLI sessions. Don't artificially serialize work to "keep scope small."
+- Think in terms of **what's the right architecture** not **what can I get done before lunch**.
+
 ## Quick Reference
 
 | Item | Value |
