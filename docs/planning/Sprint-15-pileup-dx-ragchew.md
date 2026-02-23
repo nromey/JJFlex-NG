@@ -209,6 +209,47 @@ Frequency field: bare letter = non-destructive read, modifier combo = toggle/act
 ### Risk
 UIA LiveRegion events may not propagate through WinForms↔WPF ElementHost interop. Track E is a pilot — if it fails, existing Tolk approach is preserved.
 
+### Track E Implementation Notes (Phase 7 Documentation)
+
+**Implementation completed.** LiveRegion TextBlock added to MainWindow.xaml, `SpeakViaLiveRegion()` method on MainWindow.xaml.cs, `SpeakAfterMenuClose` in NativeMenuBar.cs now uses LiveRegion with Tolk fallback.
+
+**Testing required:** Phases 4-5 (NVDA + JAWS verification). If LiveRegion doesn't work through the ShellForm→ElementHost→WPF interop chain, the `catch` block in `SpeakAfterMenuClose` falls back to `ScreenReaderOutput.Speak()` via Tolk. The main risk is that WPF automation peers inside ElementHost may not propagate `LiveRegionChanged` events to the Win32 UIA tree.
+
+#### LiveRegion Migration Candidates
+
+**Good candidates for LiveRegion** (WPF context, feedback messages, no braille needed):
+
+| File | Calls | Notes |
+|------|-------|-------|
+| `NativeMenuBar.cs` | ~60 via `SpeakAfterMenuClose` | **DONE** — this track |
+| `MainWindow.xaml.cs` | SpeakWelcome, ToggleUIMode, EnterLoggingMode, ExitLoggingMode | Mode switching feedback — natural LiveRegion fit |
+| `MainWindow.xaml.cs` | NoSliceErrorHandler, ConnectedEventHandler | Error announcements from radio events |
+| `MainWindow.xaml.cs` | SpeakFrequency (Ctrl+Shift+F) | Readback — good candidate if interrupt works |
+| `Controls/ValueFieldControl.xaml.cs` | 2 calls — value change speech | Rapid-fire during Up/Down, need debounce consideration |
+| `Controls/ScreenFieldsPanel.xaml.cs` | 2 calls — toggle feedback | Simple on/off feedback |
+| `Controls/CycleFieldControl.xaml.cs` | 1 call — selection changed | Simple selection feedback |
+| `Controls/FrequencyDisplay.xaml.cs` | 6 calls — field navigation | Cursor movement speech — timing sensitive |
+| `StationLookupWindow.xaml.cs` | 1 call — lookup result | Simple status feedback |
+| `StatusWindow.xaml.cs` | 1 call — dialog loaded | Simple announcement |
+
+**Must stay Tolk** (non-WPF context, braille, or special requirements):
+
+| File | Calls | Reason |
+|------|-------|--------|
+| `Tolk.Braille()` in MainWindow.xaml.cs | 1 | Braille-only output for panadapter — LiveRegion can't target braille without speech |
+| `Radios/FlexBase.cs` | 8 | Radio connection thread — no WPF Dispatcher access, runs on background thread |
+| `Radios/AuthFormWebView2.cs` | 3 | WinForms dialog context — no WPF tree available |
+| `Radios/AutoConnectFailedDialog.cs` | 1 | WinForms dialog context |
+| `RigSelector.vb` | 12 | VB.NET WinForms — will be replaced by Track A's WPF RigSelectorDialog |
+| `globals.vb` | 2 | VB.NET module — no WPF access |
+| `KeyCommands.vb` | 6 | VB.NET — routes through ScreenReaderOutput, no WPF access |
+| `CommandFinder.vb` | 1 | VB.NET WinForms dialog |
+| `DefineCommands.vb` | 6 | VB.NET WinForms dialog |
+| `CrashReporter.vb` | 1 | VB.NET — crash handling, no WPF guarantee |
+| `FreqOutHandlers.cs` | ~40 | WPF context BUT uses interrupt=true for rapid tuning; LiveRegion doesn't support interrupt semantics. Tolk.Speak(interrupt:true) cancels queued speech — critical for fast tuning where only the latest value matters |
+
+**Key insight for future migration:** LiveRegion doesn't have an "interrupt" concept. Every text change queues a new utterance. For rapid-fire updates (frequency tuning, value adjustment), Tolk's `interrupt=true` is essential to cancel stale speech. LiveRegion is best for one-shot feedback messages (menu actions, mode switches, status announcements) where interrupt isn't needed.
+
 ---
 
 ## Merge Plan
