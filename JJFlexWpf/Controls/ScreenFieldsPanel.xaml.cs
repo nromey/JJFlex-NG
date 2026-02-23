@@ -500,6 +500,71 @@ public partial class ScreenFieldsPanel : UserControl
 
     #endregion
 
+    #region Menu/Hotkey Navigation — Sprint 15 Track D
+
+    /// <summary>Category names matching the Expander headers, for speech output.</summary>
+    private static readonly string[] CategoryNames =
+    {
+        "Noise Reduction and DSP",
+        "Audio",
+        "Receiver",
+        "Transmission",
+        "Antenna"
+    };
+
+    /// <summary>
+    /// Toggle a category: if expanded → collapse, if collapsed → expand + focus header.
+    /// If the panel is hidden, shows the panel first.
+    /// Called from ScreenFields menu items and Ctrl+Shift+1-5 hotkeys.
+    /// </summary>
+    public void ToggleCategory(int index)
+    {
+        if (index < 0 || index >= _expanders.Count) return;
+
+        var expander = _expanders[index];
+
+        // Show panel if hidden
+        if (Visibility != Visibility.Visible)
+            Visibility = Visibility.Visible;
+
+        if (expander.IsExpanded)
+        {
+            expander.IsExpanded = false;
+            ScreenReaderOutput.Speak($"{CategoryNames[index]} collapsed");
+        }
+        else
+        {
+            expander.IsExpanded = true;
+            expander.Focus();
+            ScreenReaderOutput.Speak($"{CategoryNames[index]} expanded");
+        }
+    }
+
+    /// <summary>
+    /// Expand a category by index. Shows panel if hidden.
+    /// </summary>
+    public void ExpandCategory(int index)
+    {
+        if (index < 0 || index >= _expanders.Count) return;
+
+        if (Visibility != Visibility.Visible)
+            Visibility = Visibility.Visible;
+
+        _expanders[index].IsExpanded = true;
+        _expanders[index].Focus();
+    }
+
+    /// <summary>
+    /// Collapse a category by index.
+    /// </summary>
+    public void CollapseCategory(int index)
+    {
+        if (index < 0 || index >= _expanders.Count) return;
+        _expanders[index].IsExpanded = false;
+    }
+
+    #endregion
+
     #region Keyboard Navigation
 
     private void Panel_PreviewKeyDown(object sender, KeyEventArgs e)

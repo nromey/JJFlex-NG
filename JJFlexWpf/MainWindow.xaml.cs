@@ -348,6 +348,19 @@ public partial class MainWindow : UserControl
     public UIMode ActiveUIMode { get; private set; } = UIMode.Modern;
 
     /// <summary>
+    /// User's preference for field panel visibility in Classic mode.
+    /// Persisted to operator profile via SaveFieldsPanelVisibleCallback.
+    /// Sprint 15 Track D.
+    /// </summary>
+    public bool FieldsPanelUserVisible { get; set; } = true;
+
+    /// <summary>Callback to persist field panel visibility to operator profile.</summary>
+    public Action<bool>? SaveFieldsPanelVisibleCallback { get; set; }
+
+    /// <summary>Callback to load field panel visibility from operator profile. Called on mode switch.</summary>
+    public Func<bool>? LoadFieldsPanelVisibleCallback { get; set; }
+
+    /// <summary>
     /// Last non-logging mode (Classic or Modern). Restored when exiting Logging Mode.
     /// Matches globals.vb LastNonLogMode.
     /// </summary>
@@ -386,7 +399,12 @@ public partial class MainWindow : UserControl
     private void ShowClassicUI()
     {
         RadioControlsPanel.Visibility = Visibility.Visible;
-        FieldsPanel.Visibility = Visibility.Visible;
+
+        // Restore user's field panel preference (Sprint 15 Track D)
+        if (LoadFieldsPanelVisibleCallback != null)
+            FieldsPanelUserVisible = LoadFieldsPanelVisibleCallback();
+        FieldsPanel.Visibility = FieldsPanelUserVisible ? Visibility.Visible : Visibility.Collapsed;
+
         SetTextAreasVisible(true);
         LoggingPanel.Visibility = Visibility.Collapsed;
 
@@ -567,6 +585,16 @@ public partial class MainWindow : UserControl
                     _freqOutHandlers.ToggleFreqReadout();
                 else
                     Radios.ScreenReaderOutput.Speak("No radio connected", true);
+                e.Handled = true;
+                return;
+            }
+
+            // Category navigation hotkeys — Sprint 15 Track D
+            // Ctrl+Shift+1-5 toggles ScreenFieldsPanel expander categories
+            if (key >= Key.D1 && key <= Key.D5)
+            {
+                int categoryIndex = key - Key.D1;
+                FieldsPanel.ToggleCategory(categoryIndex);
                 e.Handled = true;
                 return;
             }
