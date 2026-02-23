@@ -2308,8 +2308,15 @@ namespace Radios
             Tracing.TraceLine("compPeakData:" + data.ToString(), TraceLevel.Verbose);
         }
 
+        private float _ALC;
+        /// <summary>
+        /// Current ALC level from hardware meter. Updated by meter callback.
+        /// </summary>
+        public float ALC => _ALC;
+
         private void hwALCData(float data)
         {
+            _ALC = data;
             Tracing.TraceLine("hwALCData:" + data.ToString(), TraceLevel.Verbose);
         }
 

@@ -1,0 +1,117 @@
+using System;
+using System.IO;
+using System.Media;
+using System.Diagnostics;
+
+namespace JJFlexWpf
+{
+    /// <summary>
+    /// Synthesized beep tones for PTT warnings and UI earcons.
+    /// Generates PCM WAV in memory — no PortAudio conflict with remote audio stream.
+    /// </summary>
+    public static class EarconPlayer
+    {
+        /// <summary>
+        /// Play a warning beep at the given frequency and duration.
+        /// </summary>
+        /// <param name="frequencyHz">Tone frequency (e.g. 800 for warning, 1200 for urgent)</param>
+        /// <param name="durationMs">Duration in milliseconds</param>
+        public static void Beep(int frequencyHz = 800, int durationMs = 150)
+        {
+            try
+            {
+                using var stream = GenerateTone(frequencyHz, durationMs);
+                using var player = new SoundPlayer(stream);
+                player.Play(); // async, non-blocking
+            }
+            catch (Exception ex)
+            {
+                Trace.WriteLine($"EarconPlayer.Beep failed: {ex.Message}");
+                // Fallback to Console.Beep (blocking but always works)
+                try { Console.Beep(frequencyHz, durationMs); }
+                catch { /* swallow — no audio output available */ }
+            }
+        }
+
+        /// <summary>
+        /// Warning1 beep — moderate urgency (800 Hz, 150ms).
+        /// </summary>
+        public static void Warning1Beep() => Beep(800, 150);
+
+        /// <summary>
+        /// Warning2 beep — higher urgency (1000 Hz, 200ms).
+        /// </summary>
+        public static void Warning2Beep() => Beep(1000, 200);
+
+        /// <summary>
+        /// OhCrap beep — critical urgency (1200 Hz, 250ms).
+        /// </summary>
+        public static void OhCrapBeep() => Beep(1200, 250);
+
+        /// <summary>
+        /// Hard kill tone — two rapid descending beeps.
+        /// </summary>
+        public static void HardKillTone()
+        {
+            Beep(1000, 100);
+            Beep(600, 200);
+        }
+
+        /// <summary>
+        /// Generate a PCM WAV stream with a sine wave tone.
+        /// 16-bit mono, 44100 Hz sample rate.
+        /// </summary>
+        private static MemoryStream GenerateTone(int frequencyHz, int durationMs)
+        {
+            const int sampleRate = 44100;
+            const short bitsPerSample = 16;
+            const short channels = 1;
+            int samples = sampleRate * durationMs / 1000;
+            int dataSize = samples * (bitsPerSample / 8) * channels;
+
+            var stream = new MemoryStream();
+            using var writer = new BinaryWriter(stream, System.Text.Encoding.UTF8, leaveOpen: true);
+
+            // WAV header
+            writer.Write(new char[] { 'R', 'I', 'F', 'F' });
+            writer.Write(36 + dataSize); // file size - 8
+            writer.Write(new char[] { 'W', 'A', 'V', 'E' });
+
+            // fmt chunk
+            writer.Write(new char[] { 'f', 'm', 't', ' ' });
+            writer.Write(16); // chunk size
+            writer.Write((short)1); // PCM
+            writer.Write(channels);
+            writer.Write(sampleRate);
+            writer.Write(sampleRate * channels * (bitsPerSample / 8)); // byte rate
+            writer.Write((short)(channels * (bitsPerSample / 8))); // block align
+            writer.Write(bitsPerSample);
+
+            // data chunk
+            writer.Write(new char[] { 'd', 'a', 't', 'a' });
+            writer.Write(dataSize);
+
+            // Sine wave with fade-in/fade-out envelope to avoid clicks
+            int fadeLength = Math.Min(samples / 10, sampleRate / 100); // 10ms or 10% of duration
+            for (int i = 0; i < samples; i++)
+            {
+                double t = (double)i / sampleRate;
+                double sample = Math.Sin(2 * Math.PI * frequencyHz * t);
+
+                // Envelope: fade in/out
+                double envelope = 1.0;
+                if (i < fadeLength)
+                    envelope = (double)i / fadeLength;
+                else if (i > samples - fadeLength)
+                    envelope = (double)(samples - i) / fadeLength;
+
+                short pcm = (short)(sample * envelope * 20000); // ~60% volume
+                writer.Write(pcm);
+            }
+
+            writer.Flush();
+            stream.Position = 0;
+            return stream;
+        }
+    }
+}

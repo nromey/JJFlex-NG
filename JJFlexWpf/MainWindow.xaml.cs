@@ -184,6 +184,12 @@ public partial class MainWindow : UserControl
     private bool _radioPowerOn;
 
     /// <summary>
+    /// PTT safety controller — manages TX hold, lock, timeout warnings, hard kill.
+    /// Created when radio connects, disposed on disconnect.
+    /// </summary>
+    private PttSafetyController? _pttController;
+
+    /// <summary>
     /// Previous SWR text for change detection.
     /// </summary>
     private string _oldSwr = "";
@@ -573,7 +579,34 @@ public partial class MainWindow : UserControl
             }
         }
 
-        // 3. Route through scope-aware KeyCommands registry
+        // 3. PTT keys — Space (hold), Shift+Space (lock toggle), Escape (unlock)
+        //    Only active when FreqOut has focus and radio is powered on.
+        if (_pttController != null && _radioPowerOn && FreqOut.IsKeyboardFocusWithin)
+        {
+            if (rawKey == Key.Space && Keyboard.Modifiers == ModifierKeys.Shift)
+            {
+                _pttController.ToggleLock();
+                e.Handled = true;
+                return;
+            }
+
+            if (rawKey == Key.Space && Keyboard.Modifiers == ModifierKeys.None)
+            {
+                if (!e.IsRepeat) // ignore key-repeat, only first press
+                    _pttController.PttDown();
+                e.Handled = true;
+                return;
+            }
+
+            if (rawKey == Key.Escape && _pttController.IsTransmitting)
+            {
+                _pttController.EscapeUnlock();
+                e.Handled = true;
+                return;
+            }
+        }
+
+        // 4. Route through scope-aware KeyCommands registry
         if (DoCommandHandler != null)
         {
             var winFormsKey = WpfKeyConverter.ToWinFormsKeys(e);
@@ -584,7 +617,21 @@ public partial class MainWindow : UserControl
             }
         }
 
-        // 4. Fall through to focused control (default WPF behavior)
+        // 5. Fall through to focused control (default WPF behavior)
+    }
+
+    /// <summary>
+    /// PreviewKeyUp — handles Space release for PTT hold mode.
+    /// </summary>
+    private void MainWindow_PreviewKeyUp(object sender, KeyEventArgs e)
+    {
+        var rawKey = e.Key == Key.System ? e.SystemKey : e.Key;
+
+        if (rawKey == Key.Space && _pttController != null && _pttController.IsTransmitting)
+        {
+            _pttController.PttUp();
+            e.Handled = true;
+        }
     }
 
     #endregion
@@ -1090,8 +1137,22 @@ public partial class MainWindow : UserControl
 
     private void TransmitChangeHandler(object sender, bool transmit)
     {
-        // Reset S-meter peak on transmit change
+        if (!Dispatcher.CheckAccess())
+        {
+            Dispatcher.Invoke(() => TransmitChangeHandler(sender, transmit));
+            return;
+        }
+
         Tracing.TraceLine($"TransmitChange: {transmit}", TraceLevel.Info);
+
+        // Update Transmit button visual
+        TransmitButton.Content = transmit ? "TX On" : "Transmit";
+
+        // If TX turned off externally (CAT, SmartSDR), sync PTT controller to Idle
+        if (!transmit && _pttController != null && _pttController.IsTransmitting)
+        {
+            _pttController.EscapeUnlock();
+        }
     }
 
     private void FlexAntTuneStartStopHandler(FlexBase.FlexAntTunerArg e)
@@ -1181,6 +1242,18 @@ public partial class MainWindow : UserControl
         _radioPowerOn = true;
         StatusText.Text = "Radio connected — power on";
 
+        // Initialize PTT safety controller (Sprint 15)
+        if (RigControl != null && OpenParms != null)
+        {
+            var pttConfig = PttConfig.Load(
+                OpenParms.ConfigDirectory,
+                OpenParms.GetOperatorName());
+            _pttController = new PttSafetyController(
+                () => RigControl,
+                () => _radioPowerOn,
+                pttConfig);
+        }
+
         // VB-side tasks (knob setup, tracing)
         PowerOnCallback?.Invoke();
     }
@@ -1200,6 +1273,10 @@ public partial class MainWindow : UserControl
         }
 
         _radioPowerOn = false;
+
+        // Dispose PTT safety controller (Sprint 15) — stops TX if active
+        _pttController?.Dispose();
+        _pttController = null;
 
         // Detach screen fields panel (Sprint 14)
         FieldsPanel.Detach();
@@ -1339,7 +1416,8 @@ public partial class MainWindow : UserControl
     }
 
     /// <summary>
-    /// Toggle transmit state. Replaces Form1.toggleTransmit().
+    /// Toggle transmit state. Routes through PTT safety controller when available.
+    /// Replaces Form1.toggleTransmit().
     /// </summary>
     private void ToggleTransmit()
     {
@@ -1349,8 +1427,17 @@ public partial class MainWindow : UserControl
             return;
         }
 
-        Tracing.TraceLine($"toggling transmit: {RigControl.Transmit}", TraceLevel.Info);
-        RigControl.Transmit = !RigControl.Transmit;
+        if (_pttController != null)
+        {
+            // Route through PTT safety controller for timeout/warning tracking
+            _pttController.ToggleLock();
+        }
+        else
+        {
+            // Fallback — direct TX toggle (no safety controller)
+            Tracing.TraceLine($"toggling transmit: {RigControl.Transmit}", TraceLevel.Info);
+            RigControl.Transmit = !RigControl.Transmit;
+        }
     }
 
     /// <summary>
