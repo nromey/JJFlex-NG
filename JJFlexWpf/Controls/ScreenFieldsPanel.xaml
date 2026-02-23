@@ -16,12 +16,14 @@
          Escape returns focus to FreqOut. -->
     <ScrollViewer VerticalScrollBarVisibility="Auto"
                   HorizontalScrollBarVisibility="Disabled"
-                  Focusable="False">
-        <StackPanel x:Name="CategoriesPanel" Orientation="Vertical" Margin="4">
+                  Focusable="False"
+                  KeyboardNavigation.TabNavigation="Local">
+        <StackPanel x:Name="CategoriesPanel" Orientation="Vertical" Margin="4"
+                    KeyboardNavigation.TabNavigation="Local">
 
             <!-- DSP Category -->
             <Expander x:Name="DspExpander" Header="Noise Reduction and DSP"
-                      IsExpanded="False" Margin="0,2"
+                      IsExpanded="False" Margin="0,2" TabIndex="0"
                       AutomationProperties.Name="Noise Reduction and DSP">
                 <StackPanel x:Name="DspContent" Margin="16,4,4,4">
                     <!-- Populated in code-behind -->
@@ -30,7 +32,7 @@
 
             <!-- Audio Category -->
             <Expander x:Name="AudioExpander" Header="Audio"
-                      IsExpanded="False" Margin="0,2"
+                      IsExpanded="False" Margin="0,2" TabIndex="1"
                       AutomationProperties.Name="Audio">
                 <StackPanel x:Name="AudioContent" Margin="16,4,4,4">
                     <!-- Populated in code-behind -->
@@ -39,7 +41,7 @@
 
             <!-- Receiver Category -->
             <Expander x:Name="ReceiverExpander" Header="Receiver"
-                      IsExpanded="False" Margin="0,2"
+                      IsExpanded="False" Margin="0,2" TabIndex="2"
                       AutomationProperties.Name="Receiver">
                 <StackPanel x:Name="ReceiverContent" Margin="16,4,4,4">
                     <!-- Populated in code-behind -->
@@ -48,7 +50,7 @@
 
             <!-- Transmission Category -->
             <Expander x:Name="TxExpander" Header="Transmission"
-                      IsExpanded="False" Margin="0,2"
+                      IsExpanded="False" Margin="0,2" TabIndex="3"
                       AutomationProperties.Name="Transmission">
                 <StackPanel x:Name="TxContent" Margin="16,4,4,4">
                     <!-- Populated in code-behind -->
@@ -57,7 +59,7 @@
 
             <!-- Antenna Category -->
             <Expander x:Name="AntennaExpander" Header="Antenna"
-                      IsExpanded="False" Margin="0,2"
+                      IsExpanded="False" Margin="0,2" TabIndex="4"
                       AutomationProperties.Name="Antenna">
                 <StackPanel x:Name="AntennaContent" Margin="16,4,4,4">
                     <!-- Populated in code-behind -->

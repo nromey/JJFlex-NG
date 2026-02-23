@@ -633,45 +633,46 @@ public class NativeMenuBar : IDisposable
         AddNotImplemented(actions, "Toggle Screen Saver");
         AddWired(actions, "Exit", () => _window.CloseShellCallback?.Invoke());
 
-        // === ScreenFields (DSP Controls) ===
+        // === ScreenFields (Panel Navigation) — Sprint 15 Track D ===
         var screenFields = AddPopup(bar, "&ScreenFields");
 
-        // Show/Hide Field Panel toggle (Sprint 14)
+        // Show/Hide Field Panel toggle
         AddChecked(screenFields, "Show Field Panel", () =>
         {
             var panel = _window.FieldsPanel;
-            panel.Visibility = panel.Visibility == Visibility.Visible
-                ? Visibility.Collapsed : Visibility.Visible;
-            SpeakAfterMenuClose(panel.Visibility == Visibility.Visible
-                ? "Field panel shown" : "Field panel hidden");
+            bool newVisible = panel.Visibility != Visibility.Visible;
+            panel.Visibility = newVisible ? Visibility.Visible : Visibility.Collapsed;
+            _window.FieldsPanelUserVisible = newVisible;
+            _window.SaveFieldsPanelVisibleCallback?.Invoke(newVisible);
+            SpeakAfterMenuClose(newVisible ? "Field panel shown" : "Field panel hidden");
         }, () => _window.FieldsPanel.Visibility == Visibility.Visible);
 
         AddSep(screenFields);
 
-        if (Rig != null)
-        {
-            BuildDSPItems(screenFields);
+        // Category navigation items — open/close expander sections in the field panel
+        AddWired(screenFields, "Noise Reduction and DSP\tCtrl+Shift+1",
+            () => _window.FieldsPanel.ToggleCategory(0));
+        AddWired(screenFields, "Audio\tCtrl+Shift+2",
+            () => _window.FieldsPanel.ToggleCategory(1));
+        AddWired(screenFields, "Receiver\tCtrl+Shift+3",
+            () => _window.FieldsPanel.ToggleCategory(2));
+        AddWired(screenFields, "Transmission\tCtrl+Shift+4",
+            () => _window.FieldsPanel.ToggleCategory(3));
+        AddWired(screenFields, "Antenna\tCtrl+Shift+5",
+            () => _window.FieldsPanel.ToggleCategory(4));
 
-            AddSep(screenFields);
-
-            // Filter controls
-            var filterSub = AddSubmenu(screenFields, "Filter Controls");
-            BuildFilterItems(filterSub);
-
-            AddSep(screenFields);
-
-            // Diversity
-            BuildDiversityItems(screenFields);
-        }
-        else
-        {
-            AddWired(screenFields, "Connect a radio to see DSP controls", SpeakNoRadio);
-        }
-
-        // === Operations ===
+        // === Operations (DSP toggles, controls, radio features) — Sprint 15 Track D ===
         var operations = AddPopup(bar, "&Operations");
         if (Rig != null)
         {
+            // DSP controls (moved from ScreenFields — Sprint 15 Track D)
+            var dspSub = AddSubmenu(operations, "DSP");
+            BuildDSPItems(dspSub);
+
+            // Filter controls (moved from ScreenFields — Sprint 15 Track D)
+            var filterSub = AddSubmenu(operations, "Filter Controls");
+            BuildFilterItems(filterSub);
+
             // Audio
             var audioSub = AddSubmenu(operations, "Audio");
             BuildAudioItems(audioSub);
@@ -688,6 +689,10 @@ public class NativeMenuBar : IDisposable
             // Receiver
             var rxSub = AddSubmenu(operations, "Receiver");
             BuildReceiverItems(rxSub);
+
+            // Diversity (moved from ScreenFields — Sprint 15 Track D)
+            AddSep(operations);
+            BuildDiversityItems(operations);
         }
         else
         {
@@ -834,13 +839,15 @@ public class NativeMenuBar : IDisposable
             var dspSub = AddSubmenu(slice, "DSP");
             BuildDSPItems(dspSub);
 
-            // Antenna
+            // Antenna — ATU + Diversity (Sprint 15 Track D: ATU was missing from Modern)
             var antSub = AddSubmenu(slice, "Antenna");
+            BuildATUItems(antSub);
+            AddSep(antSub);
             BuildDiversityItems(antSub);
 
-            // FM
-            var fmSub = AddSubmenu(slice, "FM");
-            AddWired(fmSub, "VOX On/Off", () =>
+            // Transmission (was "FM" — renamed for consistency with Classic menu)
+            var txSub = AddSubmenu(slice, "Transmission");
+            AddWired(txSub, "VOX On/Off", () =>
                 ToggleDSP("VOX", () => Rig.Vox, v => Rig.Vox = v));
         }
         else
