@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
-using System.Threading.Tasks;
 using System.Windows;
 using Flex.Smoothlake.FlexLib;
 using JJTrace;
@@ -82,13 +81,18 @@ public class NativeMenuBar : IDisposable
     private FlexBase? Rig => _window.RigControl;
 
     /// <summary>
-    /// Attach to the form's HWND and apply the initial menu (Modern mode default).
+    /// Filter presets for current operator. Set by ApplicationEvents.vb during radio connect.
+    /// </summary>
+    public FilterPresets? FilterPresets { get; set; }
+
+    /// <summary>
+    /// Attach to the form's HWND and apply the initial menu using the current UI mode.
     /// Call from ShellForm.HandleCreated.
     /// </summary>
     public void AttachTo(IntPtr hwnd)
     {
         _hwnd = hwnd;
-        ApplyUIMode(MainWindow.UIMode.Modern);
+        ApplyUIMode(_window.ActiveUIMode);
     }
 
     /// <summary>
@@ -423,6 +427,35 @@ public class NativeMenuBar : IDisposable
                 SpeakAfterMenuClose("Filter at minimum");
             }
         });
+
+        AddWired(parent, "Read Filter", () =>
+        {
+            if (Rig == null) { SpeakNoRadio(); return; }
+            SpeakAfterMenuClose($"Filter {Rig.FilterLow} to {Rig.FilterHigh}");
+        });
+
+        // Filter presets submenu
+        if (FilterPresets != null && Rig != null)
+        {
+            AddSep(parent);
+            string mode = Rig.Mode ?? "USB";
+            var presets = FilterPresets.GetPresetsForMode(mode);
+            int activeIdx = FilterPresets.FindActivePreset(mode, Rig.FilterLow, Rig.FilterHigh);
+
+            for (int i = 0; i < presets.Count; i++)
+            {
+                var preset = presets[i];
+                string label = $"{preset.Name} ({preset.FormatForSpeech()})";
+                if (i == activeIdx)
+                    label = $"\u2713 {label}"; // Unicode checkmark prefix
+                AddWired(parent, label, () =>
+                {
+                    if (Rig == null) { SpeakNoRadio(); return; }
+                    Rig.SetFilter(preset.Low, preset.High);
+                    SpeakAfterMenuClose($"{preset.Name}, {preset.FormatForSpeech()}");
+                });
+            }
+        }
     }
 
     /// <summary>
@@ -633,45 +666,46 @@ public class NativeMenuBar : IDisposable
         AddNotImplemented(actions, "Toggle Screen Saver");
         AddWired(actions, "Exit", () => _window.CloseShellCallback?.Invoke());
 
-        // === ScreenFields (DSP Controls) ===
+        // === ScreenFields (Panel Navigation) — Sprint 15 Track D ===
         var screenFields = AddPopup(bar, "&ScreenFields");
 
-        // Show/Hide Field Panel toggle (Sprint 14)
+        // Show/Hide Field Panel toggle
         AddChecked(screenFields, "Show Field Panel", () =>
         {
             var panel = _window.FieldsPanel;
-            panel.Visibility = panel.Visibility == Visibility.Visible
-                ? Visibility.Collapsed : Visibility.Visible;
-            SpeakAfterMenuClose(panel.Visibility == Visibility.Visible
-                ? "Field panel shown" : "Field panel hidden");
+            bool newVisible = panel.Visibility != Visibility.Visible;
+            panel.Visibility = newVisible ? Visibility.Visible : Visibility.Collapsed;
+            _window.FieldsPanelUserVisible = newVisible;
+            _window.SaveFieldsPanelVisibleCallback?.Invoke(newVisible);
+            SpeakAfterMenuClose(newVisible ? "Field panel shown" : "Field panel hidden");
         }, () => _window.FieldsPanel.Visibility == Visibility.Visible);
 
         AddSep(screenFields);
 
-        if (Rig != null)
-        {
-            BuildDSPItems(screenFields);
+        // Category navigation items — open/close expander sections in the field panel
+        AddWired(screenFields, "Noise Reduction and DSP\tCtrl+Shift+N",
+            () => _window.FieldsPanel.ToggleCategory(0));
+        AddWired(screenFields, "Audio\tCtrl+Shift+A",
+            () => _window.FieldsPanel.ToggleCategory(1));
+        AddWired(screenFields, "Receiver\tCtrl+Shift+R",
+            () => _window.FieldsPanel.ToggleCategory(2));
+        AddWired(screenFields, "Transmission\tCtrl+Shift+T",
+            () => _window.FieldsPanel.ToggleCategory(3));
+        AddWired(screenFields, "Antenna\tCtrl+Shift+E",
+            () => _window.FieldsPanel.ToggleCategory(4));
 
-            AddSep(screenFields);
-
-            // Filter controls
-            var filterSub = AddSubmenu(screenFields, "Filter Controls");
-            BuildFilterItems(filterSub);
-
-            AddSep(screenFields);
-
-            // Diversity
-            BuildDiversityItems(screenFields);
-        }
-        else
-        {
-            AddWired(screenFields, "Connect a radio to see DSP controls", SpeakNoRadio);
-        }
-
-        // === Operations ===
+        // === Operations (DSP toggles, controls, radio features) — Sprint 15 Track D ===
         var operations = AddPopup(bar, "&Operations");
         if (Rig != null)
         {
+            // DSP controls (moved from ScreenFields — Sprint 15 Track D)
+            var dspSub = AddSubmenu(operations, "DSP");
+            BuildDSPItems(dspSub);
+
+            // Filter controls (moved from ScreenFields — Sprint 15 Track D)
+            var filterSub = AddSubmenu(operations, "Filter Controls");
+            BuildFilterItems(filterSub);
+
             // Audio
             var audioSub = AddSubmenu(operations, "Audio");
             BuildAudioItems(audioSub);
@@ -688,6 +722,10 @@ public class NativeMenuBar : IDisposable
             // Receiver
             var rxSub = AddSubmenu(operations, "Receiver");
             BuildReceiverItems(rxSub);
+
+            // Diversity (moved from ScreenFields — Sprint 15 Track D)
+            AddSep(operations);
+            BuildDiversityItems(operations);
         }
         else
         {
@@ -834,13 +872,15 @@ public class NativeMenuBar : IDisposable
             var dspSub = AddSubmenu(slice, "DSP");
             BuildDSPItems(dspSub);
 
-            // Antenna
+            // Antenna — ATU + Diversity (Sprint 15 Track D: ATU was missing from Modern)
             var antSub = AddSubmenu(slice, "Antenna");
+            BuildATUItems(antSub);
+            AddSep(antSub);
             BuildDiversityItems(antSub);
 
-            // FM
-            var fmSub = AddSubmenu(slice, "FM");
-            AddWired(fmSub, "VOX On/Off", () =>
+            // Transmission (was "FM" — renamed for consistency with Classic menu)
+            var txSub = AddSubmenu(slice, "Transmission");
+            AddWired(txSub, "VOX On/Off", () =>
                 ToggleDSP("VOX", () => Rig.Vox, v => Rig.Vox = v));
         }
         else
@@ -1016,17 +1056,28 @@ public class NativeMenuBar : IDisposable
     }
 
     /// <summary>
-    /// Speak a message after a short delay so NVDA finishes announcing the
-    /// focus change (back to main window) before we speak our feedback.
-    /// Uses Task.Delay + Dispatcher.Invoke to fire reliably from WinForms WndProc context.
+    /// Speak a message after the menu closes using UIA LiveRegion.
+    /// Sprint 15 Track E: Replaces the 150ms Task.Delay + Tolk.Speak timing hack.
+    ///
+    /// The LiveRegion fires a LiveRegionChanged automation event when its text changes,
+    /// which the screen reader picks up naturally after the menu closes and focus returns.
+    /// No timing delay needed.
+    ///
+    /// Falls back to the old Tolk pattern if LiveRegion fails (e.g., ElementHost interop issue).
     /// </summary>
     private void SpeakAfterMenuClose(string message)
     {
-        _ = Task.Run(async () =>
+        _window.Dispatcher.BeginInvoke(() =>
         {
-            await Task.Delay(150);
-            _window.Dispatcher.Invoke(() =>
-                Radios.ScreenReaderOutput.Speak(message, interrupt: true));
+            try
+            {
+                _window.SpeakViaLiveRegion(message);
+            }
+            catch
+            {
+                // Fallback: old Tolk pattern if LiveRegion throws
+                Radios.ScreenReaderOutput.Speak(message, interrupt: true);
+            }
         });
     }
 

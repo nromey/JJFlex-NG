@@ -9,7 +9,8 @@
         AutomationProperties.Name="JJFlexRadio Main Window"
         AutomationProperties.AutomationId="MainWindow"
         FocusManager.FocusedElement="{Binding ElementName=MainContent}"
-        PreviewKeyDown="MainWindow_PreviewKeyDown">
+        PreviewKeyDown="MainWindow_PreviewKeyDown"
+        PreviewKeyUp="MainWindow_PreviewKeyUp">
 
     <!-- Sprint 8 Main Layout:
          DockPanel
@@ -23,6 +24,16 @@
     <DockPanel>
         <!-- Menu bar is now a WinForms MenuStrip on ShellForm (Sprint 12).
              Native Win32 HMENU menus work correctly with JAWS/NVDA. -->
+
+        <!-- UIA LiveRegion — Sprint 15 Track E: screen reader speech without Tolk timing hacks.
+             When Text changes, the AutomationPeer fires LiveRegionChanged and the screen reader
+             speaks the new text. Starts Collapsed; SpeakViaLiveRegion() makes it Visible. -->
+        <TextBlock x:Name="LiveRegionHost"
+                   DockPanel.Dock="Top"
+                   AutomationProperties.LiveSetting="Assertive"
+                   AutomationProperties.Name="Status"
+                   Height="0"
+                   Visibility="Collapsed" />
 
         <!-- ═══ STATUS BAR ═══ Replacement for RadioBoxes.MainBox StatusBox -->
         <StatusBar DockPanel.Dock="Bottom" x:Name="MainStatusBar"

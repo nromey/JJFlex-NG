@@ -184,6 +184,12 @@ public partial class MainWindow : UserControl
     private bool _radioPowerOn;
 
     /// <summary>
+    /// PTT safety controller — manages TX hold, lock, timeout warnings, hard kill.
+    /// Created when radio connects, disposed on disconnect.
+    /// </summary>
+    private PttSafetyController? _pttController;
+
+    /// <summary>
     /// Previous SWR text for change detection.
     /// </summary>
     private string _oldSwr = "";
@@ -342,6 +348,19 @@ public partial class MainWindow : UserControl
     public UIMode ActiveUIMode { get; private set; } = UIMode.Modern;
 
     /// <summary>
+    /// User's preference for field panel visibility in Classic mode.
+    /// Persisted to operator profile via SaveFieldsPanelVisibleCallback.
+    /// Sprint 15 Track D.
+    /// </summary>
+    public bool FieldsPanelUserVisible { get; set; } = true;
+
+    /// <summary>Callback to persist field panel visibility to operator profile.</summary>
+    public Action<bool>? SaveFieldsPanelVisibleCallback { get; set; }
+
+    /// <summary>Callback to load field panel visibility from operator profile. Called on mode switch.</summary>
+    public Func<bool>? LoadFieldsPanelVisibleCallback { get; set; }
+
+    /// <summary>
     /// Last non-logging mode (Classic or Modern). Restored when exiting Logging Mode.
     /// Matches globals.vb LastNonLogMode.
     /// </summary>
@@ -380,7 +399,12 @@ public partial class MainWindow : UserControl
     private void ShowClassicUI()
     {
         RadioControlsPanel.Visibility = Visibility.Visible;
-        FieldsPanel.Visibility = Visibility.Visible;
+
+        // Restore user's field panel preference (Sprint 15 Track D)
+        if (LoadFieldsPanelVisibleCallback != null)
+            FieldsPanelUserVisible = LoadFieldsPanelVisibleCallback();
+        FieldsPanel.Visibility = FieldsPanelUserVisible ? Visibility.Visible : Visibility.Collapsed;
+
         SetTextAreasVisible(true);
         LoggingPanel.Visibility = Visibility.Collapsed;
 
@@ -557,14 +581,54 @@ public partial class MainWindow : UserControl
 
             if (key == Key.F)
             {
-                SpeakFrequency();
+                if (_freqOutHandlers != null)
+                    _freqOutHandlers.ToggleFreqReadout();
+                else
+                    Radios.ScreenReaderOutput.Speak("No radio connected", true);
                 e.Handled = true;
                 return;
             }
+
+            // Category navigation hotkeys — Sprint 15 Track D
+            // Ctrl+Shift+letter toggles ScreenFieldsPanel expander categories
+            {
+                int categoryIndex = key switch
+                {
+                    Key.N => 0, // Noise Reduction and DSP
+                    Key.A => 1, // Audio
+                    Key.R => 2, // Receiver
+                    Key.T => 3, // Transmission
+                    Key.E => 4, // Antenna
+                    _ => -1
+                };
+                if (categoryIndex >= 0)
+                {
+                    FieldsPanel.ToggleCategory(categoryIndex);
+                    e.Handled = true;
+                    return;
+                }
+            }
         }
 
-        // 2. Modern mode filter hotkeys (bracket keys)
-        if (ActiveUIMode == UIMode.Modern && _freqOutHandlers != null && _radioPowerOn)
+        // 1b. Alt+Ctrl+F — read current filter values
+        if (Keyboard.Modifiers == (ModifierKeys.Alt | ModifierKeys.Control) && rawKey == Key.F)
+        {
+            if (RigControl != null && _radioPowerOn)
+            {
+                int low = RigControl.FilterLow;
+                int high = RigControl.FilterHigh;
+                Radios.ScreenReaderOutput.Speak($"Filter {low} to {high}", true);
+            }
+            else
+            {
+                Radios.ScreenReaderOutput.Speak("No radio connected", true);
+            }
+            e.Handled = true;
+            return;
+        }
+
+        // 2. Filter hotkeys (bracket keys) — Modern and Classic modes (not Logging)
+        if (ActiveUIMode != UIMode.Logging && _freqOutHandlers != null && _radioPowerOn)
         {
             if (rawKey == Key.OemOpenBrackets || rawKey == Key.OemCloseBrackets)
             {
@@ -573,7 +637,34 @@ public partial class MainWindow : UserControl
             }
         }
 
-        // 3. Route through scope-aware KeyCommands registry
+        // 3. PTT keys — Space (hold), Shift+Space (lock toggle), Escape (unlock)
+        //    Only active when FreqOut has focus and radio is powered on.
+        if (_pttController != null && _radioPowerOn && FreqOut.IsKeyboardFocusWithin)
+        {
+            if (rawKey == Key.Space && Keyboard.Modifiers == ModifierKeys.Shift)
+            {
+                _pttController.ToggleLock();
+                e.Handled = true;
+                return;
+            }
+
+            if (rawKey == Key.Space && Keyboard.Modifiers == ModifierKeys.None)
+            {
+                if (!e.IsRepeat) // ignore key-repeat, only first press
+                    _pttController.PttDown();
+                e.Handled = true;
+                return;
+            }
+
+            if (rawKey == Key.Escape && _pttController.IsTransmitting)
+            {
+                _pttController.EscapeUnlock();
+                e.Handled = true;
+                return;
+            }
+        }
+
+        // 4. Route through scope-aware KeyCommands registry
         if (DoCommandHandler != null)
         {
             var winFormsKey = WpfKeyConverter.ToWinFormsKeys(e);
@@ -584,7 +675,21 @@ public partial class MainWindow : UserControl
             }
         }
 
-        // 4. Fall through to focused control (default WPF behavior)
+        // 5. Fall through to focused control (default WPF behavior)
+    }
+
+    /// <summary>
+    /// PreviewKeyUp — handles Space release for PTT hold mode.
+    /// </summary>
+    private void MainWindow_PreviewKeyUp(object sender, KeyEventArgs e)
+    {
+        var rawKey = e.Key == Key.System ? e.SystemKey : e.Key;
+
+        if (rawKey == Key.Space && _pttController != null && _pttController.IsTransmitting)
+        {
+            _pttController.PttUp();
+            e.Handled = true;
+        }
     }
 
     #endregion
@@ -1090,8 +1195,22 @@ public partial class MainWindow : UserControl
 
     private void TransmitChangeHandler(object sender, bool transmit)
     {
-        // Reset S-meter peak on transmit change
+        if (!Dispatcher.CheckAccess())
+        {
+            Dispatcher.Invoke(() => TransmitChangeHandler(sender, transmit));
+            return;
+        }
+
         Tracing.TraceLine($"TransmitChange: {transmit}", TraceLevel.Info);
+
+        // Update Transmit button visual
+        TransmitButton.Content = transmit ? "TX On" : "Transmit";
+
+        // If TX turned off externally (CAT, SmartSDR), sync PTT controller to Idle
+        if (!transmit && _pttController != null && _pttController.IsTransmitting)
+        {
+            _pttController.EscapeUnlock();
+        }
     }
 
     private void FlexAntTuneStartStopHandler(FlexBase.FlexAntTunerArg e)
@@ -1181,6 +1300,18 @@ public partial class MainWindow : UserControl
         _radioPowerOn = true;
         StatusText.Text = "Radio connected — power on";
 
+        // Initialize PTT safety controller (Sprint 15)
+        if (RigControl != null && OpenParms != null)
+        {
+            var pttConfig = PttConfig.Load(
+                OpenParms.ConfigDirectory,
+                OpenParms.GetOperatorName());
+            _pttController = new PttSafetyController(
+                () => RigControl,
+                () => _radioPowerOn,
+                pttConfig);
+        }
+
         // VB-side tasks (knob setup, tracing)
         PowerOnCallback?.Invoke();
     }
@@ -1200,6 +1331,10 @@ public partial class MainWindow : UserControl
         }
 
         _radioPowerOn = false;
+
+        // Dispose PTT safety controller (Sprint 15) — stops TX if active
+        _pttController?.Dispose();
+        _pttController = null;
 
         // Detach screen fields panel (Sprint 14)
         FieldsPanel.Detach();
@@ -1339,7 +1474,8 @@ public partial class MainWindow : UserControl
     }
 
     /// <summary>
-    /// Toggle transmit state. Replaces Form1.toggleTransmit().
+    /// Toggle transmit state. Routes through PTT safety controller when available.
+    /// Replaces Form1.toggleTransmit().
     /// </summary>
     private void ToggleTransmit()
     {
@@ -1349,8 +1485,17 @@ public partial class MainWindow : UserControl
             return;
         }
 
-        Tracing.TraceLine($"toggling transmit: {RigControl.Transmit}", TraceLevel.Info);
-        RigControl.Transmit = !RigControl.Transmit;
+        if (_pttController != null)
+        {
+            // Route through PTT safety controller for timeout/warning tracking
+            _pttController.ToggleLock();
+        }
+        else
+        {
+            // Fallback — direct TX toggle (no safety controller)
+            Tracing.TraceLine($"toggling transmit: {RigControl.Transmit}", TraceLevel.Info);
+            RigControl.Transmit = !RigControl.Transmit;
+        }
     }
 
     /// <summary>
@@ -1701,23 +1846,72 @@ public partial class MainWindow : UserControl
         var mgr = new Radios.SmartLinkAccountManager();
         mgr.LoadAccounts();
 
-        var callbacks = new Dialogs.SmartLinkAccountCallbacks
+        while (true)
         {
-            GetAccounts = () => mgr.Accounts.OrderByDescending(a => a.LastUsed)
-                .Select(a => new Dialogs.SmartLinkAccountInfo
-                {
-                    FriendlyName = a.FriendlyName,
-                    Email = a.Email,
-                    LastUsed = a.LastUsed,
-                    AccountData = a
-                }).ToList(),
-            RenameAccount = (oldName, newName) => mgr.RenameAccount(oldName, newName),
-            DeleteAccount = (name) => { mgr.DeleteAccount(name); },
-            ScreenReaderSpeak = (msg, interrupt) => Radios.ScreenReaderOutput.Speak(msg, interrupt)
-        };
+            var callbacks = new Dialogs.SmartLinkAccountCallbacks
+            {
+                GetAccounts = () => mgr.Accounts.OrderByDescending(a => a.LastUsed)
+                    .Select(a => new Dialogs.SmartLinkAccountInfo
+                    {
+                        FriendlyName = a.FriendlyName,
+                        Email = a.Email,
+                        LastUsed = a.LastUsed,
+                        AccountData = a
+                    }).ToList(),
+                RenameAccount = (oldName, newName) => mgr.RenameAccount(oldName, newName),
+                DeleteAccount = (name) => { mgr.DeleteAccount(name); },
+                ScreenReaderSpeak = (msg, interrupt) => Radios.ScreenReaderOutput.Speak(msg, interrupt)
+            };
 
-        var dialog = new Dialogs.SmartLinkAccountDialog(callbacks);
-        dialog.ShowDialog();
+            var dialog = new Dialogs.SmartLinkAccountDialog(callbacks);
+            var result = dialog.ShowDialog();
+
+            if (result != true)
+                break;
+
+            if (dialog.NewLoginRequested)
+            {
+                // Launch Auth0 PKCE flow via WPF AuthDialog
+                Radios.ScreenReaderOutput.Speak("Opening SmartLink login", true);
+                var authDialog = new Dialogs.AuthDialog(
+                    trace: (msg, level) => JJTrace.Tracing.TraceLine(msg, (System.Diagnostics.TraceLevel)level),
+                    screenReaderSpeak: (msg, interrupt) => Radios.ScreenReaderOutput.Speak(msg, interrupt));
+                authDialog.ForceNewLogin = true;
+
+                if (authDialog.ShowDialog() == true && !string.IsNullOrEmpty(authDialog.IdToken))
+                {
+                    // Determine friendly name from email or prompt
+                    var friendlyName = !string.IsNullOrEmpty(authDialog.Email)
+                        ? authDialog.Email
+                        : "SmartLink Account";
+
+                    var newAccount = new Radios.SmartLinkAccount
+                    {
+                        FriendlyName = friendlyName,
+                        Email = authDialog.Email,
+                        IdToken = authDialog.IdToken,
+                        RefreshToken = authDialog.RefreshToken,
+                        ExpiresAt = DateTime.UtcNow.AddSeconds(authDialog.ExpiresIn),
+                        LastUsed = DateTime.UtcNow
+                    };
+
+                    mgr.SaveAccount(newAccount);
+                    Radios.ScreenReaderOutput.Speak($"Account saved for {friendlyName}", true);
+
+                    // Loop back to show the account list with the new account
+                    continue;
+                }
+                else
+                {
+                    Radios.ScreenReaderOutput.Speak("Login cancelled", true);
+                    // Loop back to show account list
+                    continue;
+                }
+            }
+
+            // User selected an existing account — done
+            break;
+        }
     }
 
     // --- Auto-Connect callbacks (wired from ApplicationEvents.vb) ---
@@ -1763,6 +1957,55 @@ public partial class MainWindow : UserControl
 
         ClearAutoConnectRadio();
         return $"Auto-connect to {radioName} cleared";
+    }
+
+    #endregion
+
+    #region UIA LiveRegion — Sprint 15 Track E
+
+    /// <summary>
+    /// Speak a message via UIA LiveRegion. The AutomationPeer fires LiveRegionChanged
+    /// when the text changes, and the screen reader speaks it — no timing hacks needed.
+    ///
+    /// This replaces the 150ms Task.Delay + Tolk.Speak pattern used in SpeakAfterMenuClose.
+    /// The LiveRegion fires at the right time naturally because UIA events propagate
+    /// through the accessibility tree after the menu closes and focus returns.
+    ///
+    /// Fallback: If LiveRegion doesn't work through ElementHost interop, callers
+    /// should fall back to Tolk.Speak directly.
+    /// </summary>
+    public void SpeakViaLiveRegion(string message)
+    {
+        if (string.IsNullOrEmpty(message)) return;
+
+        if (!Dispatcher.CheckAccess())
+        {
+            Dispatcher.Invoke(() => SpeakViaLiveRegion(message));
+            return;
+        }
+
+        // Must be Visible for the AutomationPeer to exist in the UIA tree
+        LiveRegionHost.Visibility = Visibility.Visible;
+
+        // Clear text first to force a PropertyChanged event even if the
+        // new message is identical to the previous one
+        LiveRegionHost.Text = "";
+        LiveRegionHost.Text = message;
+
+        // Raise LiveRegionChanged explicitly via the AutomationPeer.
+        // Some screen readers need this explicit notification in addition
+        // to the text property change.
+        var peer = System.Windows.Automation.Peers.UIElementAutomationPeer
+            .FromElement(LiveRegionHost);
+        if (peer == null)
+        {
+            peer = System.Windows.Automation.Peers.UIElementAutomationPeer
+                .CreatePeerForElement(LiveRegionHost);
+        }
+        peer?.RaiseAutomationEvent(
+            System.Windows.Automation.Peers.AutomationEvents.LiveRegionChanged);
+
+        Tracing.TraceLine($"SpeakViaLiveRegion: '{message}'", TraceLevel.Verbose);
     }
 
     #endregion

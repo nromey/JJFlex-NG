@@ -101,25 +101,9 @@ Namespace My
             WpfMainWindow.ClearAutoConnectRadio = Sub()
                 If CurrentOp Is Nothing Then Return
                 Dim opName = PersonalData.UniqueOpName(CurrentOp)
-                ' Clear the V2 unified config
                 Dim config = Radios.AutoConnectConfig.Load(BaseConfigDir, opName)
                 config.ClearAutoConnectRadio()
                 config.Save(BaseConfigDir, opName)
-                ' Also clear the legacy autoConnect.xml so RigSelector display updates
-                Dim legacyPath = BaseConfigDir & "\" & opName & "_autoConnect.xml"
-                If System.IO.File.Exists(legacyPath) Then
-                    Try
-                        Dim legacyItem = New RigSelector.AutoConnectData()
-                        legacyItem.Desired = False
-                        legacyItem.Serial = ""
-                        legacyItem.LowBW = False
-                        Using fs = System.IO.File.Create(legacyPath)
-                            Dim xs = New System.Xml.Serialization.XmlSerializer(GetType(RigSelector.AutoConnectData))
-                            xs.Serialize(fs, legacyItem)
-                        End Using
-                    Catch
-                    End Try
-                End If
             End Sub
 
             ' Wire FreqOutHandlers delegates for VB.NET globals access (Sprint 12).

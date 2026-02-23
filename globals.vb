@@ -1401,6 +1401,17 @@ Module globals
             Tracing.TraceLine("TryAutoConnectOnStartup: attempting " & _autoConnectConfig.RadioName, TraceLevel.Info)
 
             RigControl = New FlexBase(OpenParms)
+
+            ' Wire account selector for SmartLink remote auto-connect
+            RigControl.ShowAccountSelector = Function(mgr)
+                                                 Dim accounts = mgr.Accounts
+                                                 If accounts.Count = 0 Then
+                                                     Return (True, Nothing, True)
+                                                 End If
+                                                 Dim best = accounts.OrderByDescending(Function(a) a.LastUsed).First()
+                                                 Return (False, best, True)
+                                             End Function
+
             Dim connected = RigControl.TryAutoConnect(_autoConnectConfig)
 
             If connected Then
@@ -1453,18 +1464,28 @@ Module globals
     End Function
 
     Private radioSelected As DialogResult
-    Private selectorThread As Thread
 
-    Private Sub selectorProc(o As Object)
-        Dim initialCall = CType(o, Boolean)
-        Dim selector As RigSelector = New RigSelector(initialCall, OpenParms, Nothing)
-        Dim theForm As Form = CType(selector, Form)
+    ''' <summary>
+    ''' Handler for FlexBase.RadioFound events, dispatches to the WPF dialog.
+    ''' </summary>
+    Private _wpfRadioFoundCallback As Action(Of JJFlexWpf.Dialogs.RadioListItem)
+
+    Private Sub wpfRadioFoundHandler(sender As Object, e As FlexBase.RigData)
+        Tracing.TraceLine("wpfRadioFoundHandler:" & e.Serial, TraceLevel.Info)
+        Dim item As New JJFlexWpf.Dialogs.RadioListItem() With {
+            .Serial = e.Serial,
+            .Name = e.Name,
+            .ModelName = e.ModelName,
+            .IsRemote = e.Remote,
+            .RigData = e
+        }
+        _wpfRadioFoundCallback?.Invoke(item)
+    End Sub
+
+    Private Sub wpfSelectorProc(initialCall As Boolean)
         RigControl = New FlexBase(OpenParms)
 
         ' Wire account selector to auto-use most recent saved account.
-        ' Full account selector dialog deferred — WPF dialogs on a WinForms
-        ' STA thread have Dispatcher issues. Auto-select is safe and matches
-        ' the auto-connect behavior users expect.
         RigControl.ShowAccountSelector = Function(mgr)
                                              Dim accounts = mgr.Accounts
                                              Tracing.TraceLine($"ShowAccountSelector: {accounts.Count} saved account(s)", TraceLevel.Info)
@@ -1477,12 +1498,87 @@ Module globals
                                              Return (False, best, True) ' use most recent account
                                          End Function
 
-        radioSelected = theForm.ShowDialog()
-        If radioSelected <> DialogResult.OK Then
+        ' Load auto-connect config for this operator
+        Dim operatorName = PersonalData.UniqueOpName(CurrentOp)
+        Dim autoConfig = Radios.AutoConnectConfig.Load(BaseConfigDir, operatorName)
+
+        ' Build the callbacks for the WPF dialog
+        Dim callbacks As New JJFlexWpf.Dialogs.RigSelectorCallbacks() With {
+            .StartLocalDiscovery = Sub() RigControl.LocalRadios(),
+            .StartRemoteDiscovery = Sub()
+                                        ' Run on background thread — WebView2 auth can take seconds
+                                        Dim t As New Thread(
+                                            Sub()
+                                                RigControl.RemoteRadios()
+                                            End Sub)
+                                        t.IsBackground = True
+                                        t.SetApartmentState(ApartmentState.STA)
+                                        t.Name = "SmartLink"
+                                        t.Start()
+                                    End Sub,
+            .Connect = Function(serial, lowBW)
+                           Tracing.TraceLine($"wpfSelectorProc.Connect: {serial} lowBW={lowBW}", TraceLevel.Info)
+                           Return RigControl.Connect(serial, lowBW)
+                       End Function,
+            .RegisterRadioFound = Sub(callback)
+                                      _wpfRadioFoundCallback = callback
+                                      AddHandler FlexBase.RadioFound, AddressOf wpfRadioFoundHandler
+                                  End Sub,
+            .UnregisterRadioFound = Sub()
+                                        RemoveHandler FlexBase.RadioFound, AddressOf wpfRadioFoundHandler
+                                        _wpfRadioFoundCallback = Nothing
+                                    End Sub,
+            .SaveAutoConnectSettings = Sub(serial, radioName, isRemote, lowBW, enabled)
+                                           Dim opName = PersonalData.UniqueOpName(CurrentOp)
+                                           Dim cfg = Radios.AutoConnectConfig.Load(BaseConfigDir, opName)
+                                           If enabled Then
+                                               cfg.SetAutoConnectRadio(serial, radioName, isRemote,
+                                                   RigControl.CurrentSmartLinkEmail, lowBW)
+                                           Else
+                                               If cfg.RadioSerial = serial Then
+                                                   cfg.ClearAutoConnectRadio()
+                                               End If
+                                           End If
+                                           cfg.Save(BaseConfigDir, opName)
+                                       End Sub,
+            .SaveGlobalAutoConnect = Sub(enabled)
+                                         Dim opName = PersonalData.UniqueOpName(CurrentOp)
+                                         Dim cfg = Radios.AutoConnectConfig.Load(BaseConfigDir, opName)
+                                         cfg.GlobalAutoConnectEnabled = enabled
+                                         cfg.Save(BaseConfigDir, opName)
+                                     End Sub,
+            .CheckOtherAutoConnect = Function(serial)
+                                         Dim opName = PersonalData.UniqueOpName(CurrentOp)
+                                         Dim cfg = Radios.AutoConnectConfig.Load(BaseConfigDir, opName)
+                                         Return (cfg.HasDifferentAutoConnectRadio(serial), cfg.RadioName)
+                                     End Function,
+            .ScreenReaderSpeak = Sub(msg, interrupt)
+                                     Radios.ScreenReaderOutput.Speak(msg, interrupt)
+                                 End Sub,
+            .AutoConnectSerial = If(autoConfig.RadioSerial, ""),
+            .AutoConnectDesired = autoConfig.Enabled,
+            .AutoConnectLowBW = autoConfig.LowBandwidth,
+            .IsInitialBringup = initialCall,
+            .GlobalAutoConnectEnabled = autoConfig.GlobalAutoConnectEnabled,
+            .CurrentSmartLinkEmail = RigControl.CurrentSmartLinkEmail
+        }
+
+        ' Show the WPF selector dialog
+        Dim dialog As New JJFlexWpf.Dialogs.RigSelectorDialog(callbacks)
+        Dim wpfResult = dialog.ShowDialog()
+
+        If wpfResult = True Then
+            radioSelected = DialogResult.OK
+            ' Set CurrentRig from the dialog's selected radio data
+            Dim rigData = TryCast(dialog.SelectedRigData, FlexBase.RigData)
+            If rigData IsNot Nothing Then
+                CurrentRig = rigData
+            End If
+        Else
+            radioSelected = DialogResult.Cancel
             RigControl.Dispose()
             RigControl = Nothing
         End If
-        theForm.Dispose()
     End Sub
 
     ''' <summary>
@@ -1521,10 +1617,8 @@ Module globals
                 End If
             End If
 
-            ' Run RigSelector on T1 (main UI thread) directly.
-            ' Previously used a separate STA thread, but that caused slow
-            ' focus transitions and NVDA speech delays when tabbing between controls.
-            selectorProc(initialCall)
+            ' Run WPF RigSelector on T1 (main UI thread) directly.
+            wpfSelectorProc(initialCall)
             AppShellForm?.Activate()
             rv = (radioSelected = DialogResult.OK)
 

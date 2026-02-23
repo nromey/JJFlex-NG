@@ -113,6 +113,11 @@ public class FreqOutHandlers
     /// </summary>
     public Action<int, int>? SaveStepSizes { get; set; }
 
+    /// <summary>
+    /// Filter presets for the current operator. Set by ApplicationEvents.vb during radio connect.
+    /// </summary>
+    public Radios.FilterPresets? FilterPresets { get; set; }
+
     public FreqOutHandlers(MainWindow window)
     {
         _window = window;
@@ -1180,38 +1185,72 @@ public class FreqOutHandlers
     }
 
     /// <summary>
-    /// Handle bracket keys for filter adjustment in Modern mode.
-    /// [ = narrow, ] = widen, Shift+[ = shift passband down, Shift+] = shift passband up.
-    /// Uses SetFilter() to set both edges atomically — separate FilterLow/FilterHigh
-    /// commands race in the queue and cause a death spiral (Sprint 14 fix).
-    /// Announces boundary when filter hits mode-specific min/max.
+    /// Adaptive filter step: 10 Hz below 200 Hz bandwidth, 25 Hz below 500 Hz, 50 Hz default.
+    /// </summary>
+    private static int GetAdaptiveFilterStep(int low, int high)
+    {
+        int width = high - low;
+        if (width < 200) return 10;
+        if (width < 500) return 25;
+        return 50;
+    }
+
+    /// <summary>
+    /// Handle bracket keys for filter adjustment.
+    /// Sprint 15 key scheme:
+    ///   [ = low edge down (expand low side)
+    ///   ] = high edge up (expand high side)
+    ///   Ctrl+[ = squeeze (narrow both edges equally)
+    ///   Ctrl+] = pull (widen both edges equally)
+    ///   Shift+[ = shift passband down (slide)
+    ///   Shift+] = shift passband up (slide)
+    ///   Alt+[ = previous preset, Alt+] = next preset (handled separately)
+    /// Uses SetFilter() to set both edges atomically (Sprint 14 race fix).
     /// </summary>
     public void HandleFilterHotkey(KeyEventArgs e)
     {
         if (Rig == null) return;
         var key = RawKey(e);
-        bool shift = (System.Windows.Input.Keyboard.Modifiers & System.Windows.Input.ModifierKeys.Shift) != 0;
-        const int filterStep = 50;
-        const int minWidth = 50; // minimum filter bandwidth
+        var mods = System.Windows.Input.Keyboard.Modifiers;
+        bool shift = (mods & ModifierKeys.Shift) != 0;
+        bool ctrl = (mods & ModifierKeys.Control) != 0;
+        bool alt = (mods & ModifierKeys.Alt) != 0;
+        const int minWidth = 50;
+
+        // Alt+bracket = preset cycling (handled in Phase 4)
+        if (alt && !ctrl && !shift)
+        {
+            HandlePresetCycle(key, e);
+            return;
+        }
 
         int low = Rig.FilterLow;
         int high = Rig.FilterHigh;
         int origLow = low, origHigh = high;
+        int step = GetAdaptiveFilterStep(low, high);
         var (lowMin, highMax) = GetFilterBounds();
 
-        if (key == Key.OemOpenBrackets) // [ = narrow or shift passband down
+        if (shift && !ctrl) // Shift = slide passband (unchanged from Sprint 14)
         {
-            if (shift)
+            if (key == Key.OemOpenBrackets)
             {
-                // Shift entire passband down — both edges move together
-                low -= filterStep;
-                high -= filterStep;
+                low -= step;
+                high -= step;
             }
-            else
+            else if (key == Key.OemCloseBrackets)
             {
-                // Narrow: move both edges inward
-                int newLow = low + filterStep;
-                int newHigh = high - filterStep;
+                low += step;
+                high += step;
+            }
+            else return;
+        }
+        else if (ctrl && !shift) // Ctrl = squeeze/pull (both edges equally)
+        {
+            if (key == Key.OemOpenBrackets)
+            {
+                // Squeeze: narrow both edges inward
+                int newLow = low + step;
+                int newHigh = high - step;
                 if (newHigh - newLow >= minWidth) { low = newLow; high = newHigh; }
                 else
                 {
@@ -1220,25 +1259,31 @@ public class FreqOutHandlers
                     return;
                 }
             }
+            else if (key == Key.OemCloseBrackets)
+            {
+                // Pull: widen both edges outward
+                low -= step;
+                high += step;
+            }
+            else return;
         }
-        else if (key == Key.OemCloseBrackets) // ] = widen or shift passband up
+        else if (!ctrl && !shift && !alt) // Unmodified = independent edges
         {
-            if (shift)
+            if (key == Key.OemOpenBrackets)
             {
-                // Shift entire passband up — both edges move together
-                low += filterStep;
-                high += filterStep;
+                // Low edge down — expand low side
+                low -= step;
             }
-            else
+            else if (key == Key.OemCloseBrackets)
             {
-                // Widen: move both edges outward
-                low -= filterStep;
-                high += filterStep;
+                // High edge up — expand high side
+                high += step;
             }
+            else return;
         }
         else return;
 
-        // Clamp to mode-specific bounds and detect boundaries
+        // Clamp to mode-specific bounds
         low = Math.Max(low, lowMin);
         high = Math.Min(high, highMax);
         if (high - low < minWidth) high = low + minWidth; // safety
@@ -1248,7 +1293,7 @@ public class FreqOutHandlers
         // Boundary announcements
         if (low == origLow && high == origHigh)
         {
-            Radios.ScreenReaderOutput.Speak("Filter at maximum", true);
+            Radios.ScreenReaderOutput.Speak("Filter at limit", true);
         }
         else if (shift && key == Key.OemOpenBrackets && low == lowMin)
         {
@@ -1258,13 +1303,43 @@ public class FreqOutHandlers
         {
             Radios.ScreenReaderOutput.Speak($"Upper limit, {low} to {high}", true);
         }
-        else if (!shift && low == lowMin && high == highMax)
+        else if (low == lowMin || high == highMax)
         {
-            Radios.ScreenReaderOutput.Speak($"Filter at maximum, {low} to {high}", true);
+            Radios.ScreenReaderOutput.Speak($"Filter {low} to {high}, at limit", true);
         }
         else
         {
             Radios.ScreenReaderOutput.Speak($"Filter {low} to {high}", true);
+        }
+        e.Handled = true;
+    }
+
+    /// <summary>
+    /// Handle Alt+[ / Alt+] for filter preset cycling.
+    /// Alt+[ = previous (narrower) preset, Alt+] = next (wider) preset.
+    /// </summary>
+    private void HandlePresetCycle(Key key, KeyEventArgs e)
+    {
+        if (Rig == null || FilterPresets == null)
+        {
+            Radios.ScreenReaderOutput.Speak("No presets loaded", true);
+            e.Handled = true;
+            return;
+        }
+
+        string mode = Rig.Mode ?? "USB";
+        int direction = key == Key.OemCloseBrackets ? 1 : -1;
+        var preset = FilterPresets.CyclePreset(mode, Rig.FilterLow, Rig.FilterHigh, direction);
+
+        if (preset == null)
+        {
+            string boundary = direction > 0 ? "Widest preset" : "Narrowest preset";
+            Radios.ScreenReaderOutput.Speak(boundary, true);
+        }
+        else
+        {
+            Rig.SetFilter(preset.Low, preset.High);
+            Radios.ScreenReaderOutput.Speak($"{preset.Name}, {preset.FormatForSpeech()}", true);
         }
         e.Handled = true;
     }

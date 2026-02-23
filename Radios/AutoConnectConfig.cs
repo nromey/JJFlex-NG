@@ -6,7 +6,7 @@ namespace Radios
 {
     /// <summary>
     /// Unified auto-connect configuration for both local and remote radios.
-    /// Stored per-operator as {OperatorName}_autoConnect.xml in the config directory.
+    /// Stored per-operator as {OperatorName}_autoConnectV2.xml in the config directory.
     /// Only ONE radio can have auto-connect enabled at a time.
     /// </summary>
     [XmlRoot("AutoConnectConfig")]
