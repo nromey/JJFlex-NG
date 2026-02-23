@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
-using System.Threading.Tasks;
 using System.Windows;
 using Flex.Smoothlake.FlexLib;
 using JJTrace;
@@ -1016,17 +1015,28 @@ public class NativeMenuBar : IDisposable
     }
 
     /// <summary>
-    /// Speak a message after a short delay so NVDA finishes announcing the
-    /// focus change (back to main window) before we speak our feedback.
-    /// Uses Task.Delay + Dispatcher.Invoke to fire reliably from WinForms WndProc context.
+    /// Speak a message after the menu closes using UIA LiveRegion.
+    /// Sprint 15 Track E: Replaces the 150ms Task.Delay + Tolk.Speak timing hack.
+    ///
+    /// The LiveRegion fires a LiveRegionChanged automation event when its text changes,
+    /// which the screen reader picks up naturally after the menu closes and focus returns.
+    /// No timing delay needed.
+    ///
+    /// Falls back to the old Tolk pattern if LiveRegion fails (e.g., ElementHost interop issue).
     /// </summary>
     private void SpeakAfterMenuClose(string message)
     {
-        _ = Task.Run(async () =>
+        _window.Dispatcher.BeginInvoke(() =>
         {
-            await Task.Delay(150);
-            _window.Dispatcher.Invoke(() =>
-                Radios.ScreenReaderOutput.Speak(message, interrupt: true));
+            try
+            {
+                _window.SpeakViaLiveRegion(message);
+            }
+            catch
+            {
+                // Fallback: old Tolk pattern if LiveRegion throws
+                Radios.ScreenReaderOutput.Speak(message, interrupt: true);
+            }
         });
     }
 
