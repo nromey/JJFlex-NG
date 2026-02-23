@@ -557,14 +557,34 @@ public partial class MainWindow : UserControl
 
             if (key == Key.F)
             {
-                SpeakFrequency();
+                if (_freqOutHandlers != null)
+                    _freqOutHandlers.ToggleFreqReadout();
+                else
+                    Radios.ScreenReaderOutput.Speak("No radio connected", true);
                 e.Handled = true;
                 return;
             }
         }
 
-        // 2. Modern mode filter hotkeys (bracket keys)
-        if (ActiveUIMode == UIMode.Modern && _freqOutHandlers != null && _radioPowerOn)
+        // 1b. Alt+Ctrl+F — read current filter values
+        if (Keyboard.Modifiers == (ModifierKeys.Alt | ModifierKeys.Control) && rawKey == Key.F)
+        {
+            if (RigControl != null && _radioPowerOn)
+            {
+                int low = RigControl.FilterLow;
+                int high = RigControl.FilterHigh;
+                Radios.ScreenReaderOutput.Speak($"Filter {low} to {high}", true);
+            }
+            else
+            {
+                Radios.ScreenReaderOutput.Speak("No radio connected", true);
+            }
+            e.Handled = true;
+            return;
+        }
+
+        // 2. Filter hotkeys (bracket keys) — Modern and Classic modes (not Logging)
+        if (ActiveUIMode != UIMode.Logging && _freqOutHandlers != null && _radioPowerOn)
         {
             if (rawKey == Key.OemOpenBrackets || rawKey == Key.OemCloseBrackets)
             {

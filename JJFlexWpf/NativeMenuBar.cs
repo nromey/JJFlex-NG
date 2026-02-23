@@ -82,6 +82,11 @@ public class NativeMenuBar : IDisposable
     private FlexBase? Rig => _window.RigControl;
 
     /// <summary>
+    /// Filter presets for current operator. Set by ApplicationEvents.vb during radio connect.
+    /// </summary>
+    public FilterPresets? FilterPresets { get; set; }
+
+    /// <summary>
     /// Attach to the form's HWND and apply the initial menu using the current UI mode.
     /// Call from ShellForm.HandleCreated.
     /// </summary>
@@ -423,6 +428,35 @@ public class NativeMenuBar : IDisposable
                 SpeakAfterMenuClose("Filter at minimum");
             }
         });
+
+        AddWired(parent, "Read Filter", () =>
+        {
+            if (Rig == null) { SpeakNoRadio(); return; }
+            SpeakAfterMenuClose($"Filter {Rig.FilterLow} to {Rig.FilterHigh}");
+        });
+
+        // Filter presets submenu
+        if (FilterPresets != null && Rig != null)
+        {
+            AddSep(parent);
+            string mode = Rig.Mode ?? "USB";
+            var presets = FilterPresets.GetPresetsForMode(mode);
+            int activeIdx = FilterPresets.FindActivePreset(mode, Rig.FilterLow, Rig.FilterHigh);
+
+            for (int i = 0; i < presets.Count; i++)
+            {
+                var preset = presets[i];
+                string label = $"{preset.Name} ({preset.FormatForSpeech()})";
+                if (i == activeIdx)
+                    label = $"\u2713 {label}"; // Unicode checkmark prefix
+                AddWired(parent, label, () =>
+                {
+                    if (Rig == null) { SpeakNoRadio(); return; }
+                    Rig.SetFilter(preset.Low, preset.High);
+                    SpeakAfterMenuClose($"{preset.Name}, {preset.FormatForSpeech()}");
+                });
+            }
+        }
     }
 
     /// <summary>
