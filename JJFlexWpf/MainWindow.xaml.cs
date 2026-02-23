@@ -590,13 +590,23 @@ public partial class MainWindow : UserControl
             }
 
             // Category navigation hotkeys — Sprint 15 Track D
-            // Ctrl+Shift+1-5 toggles ScreenFieldsPanel expander categories
-            if (key >= Key.D1 && key <= Key.D5)
+            // Ctrl+Shift+letter toggles ScreenFieldsPanel expander categories
             {
-                int categoryIndex = key - Key.D1;
-                FieldsPanel.ToggleCategory(categoryIndex);
-                e.Handled = true;
-                return;
+                int categoryIndex = key switch
+                {
+                    Key.N => 0, // Noise Reduction and DSP
+                    Key.A => 1, // Audio
+                    Key.R => 2, // Receiver
+                    Key.T => 3, // Transmission
+                    Key.E => 4, // Antenna
+                    _ => -1
+                };
+                if (categoryIndex >= 0)
+                {
+                    FieldsPanel.ToggleCategory(categoryIndex);
+                    e.Handled = true;
+                    return;
+                }
             }
         }
 
