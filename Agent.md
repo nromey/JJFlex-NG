@@ -8,7 +8,7 @@ This document captures the current state of JJ-Flex repository and active work.
 ## 1) Overview
 - JJFlexRadio: Windows desktop app for FlexRadio 6000/8000 series transceivers
 - **Migration complete:** .NET 8, dual x64/x86 architecture, WebView2 for Auth0
-- **Current version:** 4.1.115 (target 4.1.116)
+- **Current version:** 4.1.115
 - **Sprint 12:** COMPLETE — Stabilization phase. Plan archived.
 - **Sprint 13:** COMPLETE — Testing done, bug fixes applied, committed.
   - 13A: Tab chain (FreqOut→Waterfall→Received→Sent), welcome mode announcement
@@ -24,111 +24,23 @@ This document captures the current state of JJ-Flex repository and active work.
   - Filter LSB/CW fix: removed Math.Max(0,...) clamping that broke negative filter edges
   - Filter boundary announcements: "Filter at minimum/maximum", "Beginning", "End"
 
-## Sprint 15 Planning
+## Sprint 15 — COMPLETE (needs testing)
 
-**Filter overhaul:**
-- Band-based filter presets (popular defaults per mode: SSB, CW, digital)
-- User-configurable presets (add/remove/rename per band+mode)
-- Ctrl+brackets to jump between presets
-- Adaptive narrowing step sizes (smaller steps as filter gets narrower)
-- Wire FiltersDspControl (FilterLowBox/FilterHighBox) through SetFilter()
-- Test minimum filter width the radio hardware supports
-- **Passband shift FIXED (Sprint 14 testing):** Shift+[ / Shift+] now slide the entire
-  passband down/up together. Both edges move by 50 Hz — bandwidth preserved.
-- **Independent edge keys (Sprint 15):** Add Ctrl+[ and Ctrl+] to trim one edge inward.
-  Full key set with this addition:
-  - `[` narrow both, `]` widen both
-  - `Shift+[` slide passband down, `Shift+]` slide passband up
-  - `Ctrl+[` low edge up (trim bottom), `Ctrl+]` high edge down (trim top)
-  Use case: on LSB raise the lower cutoff to kill rumble without touching the top edge.
-- **Filter speech hotkeys (Sprint 15):**
-  - `F` = toggle filter speech on/off (silence filter reads)
-  - `Alt+Ctrl+F` = read current filter values aloud
-- **Hotkey remapping (bare keys → read, modifiers → actions):**
-  - `S` in Modern freq field: change from "announce step" to free (reserved for S-meter read in Sprint 16)
-  - `Shift+S` in Modern freq field: announce current tuning step (was bare S)
-  - `F` in both Classic and Modern freq field: one-shot read frequency (was toggle readout)
-  - `Ctrl+Shift+F` (global): toggle frequency readout on/off (was one-shot read)
-  - Pattern: bare single-letter keys = non-destructive reads, modifier combos = toggles/actions
-  - Partially implemented (FreqOutHandlers.cs edits done, MainWindow.xaml.cs global handler still needs update) — finish during sprint execution
-- **Filter hotkeys in Classic mode (bug):** Bracket keys currently gated to Modern only
-  (MainWindow.xaml.cs:567). Should work in both modes — fix as part of Sprint 15 filter work.
-- **FieldsPanel tab order bug:** FieldsPanel ends up last in tab order (after Sent Text)
-  instead of second (after FreqOut). Cause: Expanders inside have no explicit TabIndex
-  so WPF floats them to int.MaxValue, after all explicitly-indexed controls. Fix when
-  doing ScreenFields menu redesign — the menu navigation will be the primary access path.
-- **FieldsPanel visibility not saved:** ShowClassicUI() always forces FieldsPanel visible.
-  The "Show Field Panel" toggle works per-session but resets on restart/mode switch.
-  Should persist to operator profile like UIMode does.
-- **ScreenFields menu redesign:** Replace the flat DSP control dump with 5 expander
-  navigation items mirroring the panel categories. Menu becomes:
-    Show Field Panel [✓]
-    ──────────────────
-    Noise Reduction and DSP  [collapsed/expanded]  Ctrl+Shift+1
-    Audio                    [collapsed/expanded]  Ctrl+Shift+2
-    Receiver                 [collapsed/expanded]  Ctrl+Shift+3
-    Transmission             [collapsed/expanded]  Ctrl+Shift+4
-    Antenna                  [collapsed/expanded]  Ctrl+Shift+5
-  Activating (menu or hotkey): if collapsed → show panel, expand, focus expander header.
-  If expanded → collapse. Hotkeys shown in menu. Max 7 items, no giant flat control list.
-  Solves tab order problem — menu/hotkey is faster than tabbing through whole UI.
-  DSP/Filter/Diversity controls move to Operations menu (where they belong).
+**5 parallel tracks, all merged to main:**
+- **Track A:** WPF RigSelector replaces WinForms, auto-connect unified to V2 only, SmartLink account manager + login wired, legacy RigSelector.vb deleted (-822 lines)
+- **Track B:** Filter overhaul — new key scheme (unmodified=independent edges, Ctrl=squeeze/pull, Shift=slide, Alt=presets), FilterPresets per-mode (SSB/CW/DIGI), adaptive step sizes, hotkey remap (F=read freq, Ctrl+Shift+F=toggle readout, Shift+S=announce step, bare S freed for Sprint 16 S-meter), bracket keys in Classic mode
+- **Track C:** PTT safety — state machine (Idle/PttHold/Locked/Warning1-3/HardKill), Space=PTT hold, Shift+Space=lock, earcon beeps, configurable timeouts, 15-min hard kill, ALC=0 auto-release
+- **Track D:** ScreenFields menu redesign — 5 category navigation items (Ctrl+Shift+N/A/R/T/E), panel visibility persistence, tab order fix, Modern menu audit
+- **Track E:** UIA LiveRegion pilot — replaces 150ms Tolk hack for SpeakAfterMenuClose, Tolk fallback preserved
 
-**UIA / Tolk reduction:**
-- Replace Tolk with UIA LiveRegion for most speech output
-- Identify which Speak() calls can use LiveRegion vs which need Tolk
-
-**Menu audit:**
-- Verify all commands are wired in both Classic and Modern menus
-- Identify missing Modern menu items that exist in Classic
-
-**Carried forward:**
-- Configurable tuning step lists (user adds/removes from coarse/fine presets)
-- Global tuning hotkeys (system-wide — tune/transmit/lock from external apps)
+**Carried forward to Sprint 16:**
+- S-meter read on bare S key
+- Configurable tuning step lists
+- Global tuning hotkeys (system-wide)
 - Logging mode: F6 to flip to radio view
 - Alt+letter menu accelerator investigation
-- Menu state display for non-toggle items
-
-**Transmit button + PTT safety (Sprint 15):**
-- Add Transmit button to Classic main screen (not first in tab order — FreqOut is first)
-- Space = PTT hold (TX on keydown, RX on keyup)
-- Shift+Space = lock TX, speak "Transmitting, locked"
-- Escape or Shift+Space again = unlock, speak "Transmit off"
-- User-configurable warning stages:
-    Timeout         — hard kill time (default 3 min, max 15 min)
-    First warning   — when to start 10-second beeps
-    Second warning  — when to start 5-second beeps
-    Oh Crap Warning — when to start 1-second beeps ("Oh Crap Warning" is the official name)
-- Hard 15 min kill — absolute, non-configurable, no override. Nobody needs 15 min PTT.
-- ALC=0 for 60s while locked = auto-release, speak "No signal detected, transmit off"
-- Beep tones synthesized via earcon system, not wave files
-- Test using Don's radio with TX off ("software dummy load")
-
-**Deferred / future:**
-- Earcons (boundary bonk, field tick, tune up/down tones) — transmit warning is first use case.
-  Prefer synthesized tones over wave assets for most earcons (no file management, fully
-  controllable pitch/duration/envelope). Wave assets available for richer sounds where needed.
-- Virtual dummy load: audio setup option that enables TX pipeline without RF output,
-  lets you hear yourself via second slice or transverter mode for testing. Way down the road.
-- ModeControl back in tab chain after FreqOut
-
-## 4.1.115 Release Prep Notes
-- **Changelog:** Notify users that install directory changed from `jjshaffer\JJFlexRadio`
-  to `JJFlexRadio`. User settings/station XML in %AppData%\JJFlexRadio are unaffected.
-- **Installer orphan cleanup:** Detect old `jjshaffer\JJFlexRadio` directories and offer
-  to remove them. x64 installer checks both $PROGRAMFILES64 and $PROGRAMFILES variants.
-  x86 installer checks $PROGRAMFILES variant. One prompt per found orphan. Also check
-  for any other leftover JJFlexRadio install debris from previous installers and offer
-  to clean up. ~10-15 lines in install template.nsi.
-- **Pre-release install test:** Noel to do a local install test of 4.1.115 pre before
-  shipping to Don. Verifies installer, directory migration, and orphan cleanup prompts.
-
-## SmartLink Connection — FIXED (needs testing on Don's radio)
-
-**Fix:** GUIClient removal tracked with timestamp. 15s grace after removal, then disconnect
-and auto-retry with fresh connection. No error dialog. Speech: "Connection slow, retrying."
-Worst case ~21s instead of 55s + error dialog + manual reconnect.
-Also fixed STA crash in SpeakWelcomeDelayed (Task.Delay resuming on thread pool thread).
+- Earcon expansion (boundary bonk, field tick, tune tones)
+- Virtual dummy load
 
 ## 2) Current Architecture
 
@@ -246,6 +158,7 @@ All error MessageBox calls must pass `AppShellForm` as owner. Use `ShowErrorCall
 - `RemoteButton_Click` — runs `RemoteRadios()` on background STA thread
 
 ## 6) Completed Sprints
+- Sprint 15: WPF RigSelector, filter overhaul, PTT safety, menu redesign, UIA LiveRegion
 - Sprint 14: ScreenFieldsPanel, speech debounce, slice menu, filter race fix + boundary announcements
 - Sprint 13: Tab chain, Modern tuning, menus, SmartLink auto-retry, testing fixes
 - Sprint 12: Stabilize WPF — menus, SmartLink, FreqOut tuning, error dialogs, screen reader speech
