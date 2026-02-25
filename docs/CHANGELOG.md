@@ -2,6 +2,31 @@
 
 All notable changes to this project will be documented in this file.
 
+## 4.1.115.0 — (DRAFT — release notes in progress)
+
+### What's New
+
+- **Connection Tester moved into the Radio Selector**: No more fighting with the radio for slices. The connection tester now lives right inside the radio selector dialog — pick a radio, hit Test, and it runs your test cycles while you're disconnected. Clean, no conflicts, no confusion.
+- **Dummy Load Mode**: New toggle under Transmission — sets RF Power and Tune Power to zero so you can safely key up into a dummy load (or just test PTT without waking up the neighbors). Restores your previous power levels when you turn it off.
+- **Profile Reporter**: New tool under Operations that snapshots your radio's state across all profiles and saves a comparison report. Handy for seeing what each profile actually changes.
+- **Filter preset hotkeys are alive**: Alt+[ and Alt+] now actually cycle through your filter presets. They were wired up but the presets themselves were never loaded — oops. Fixed. Don, this one's for you.
+- **About, Tracing, and Key Assignments dialogs**: These Help menu items actually do something now instead of telling you they're coming soon.
+- **Command Finder wired up**: The search-your-commands tool (Ctrl+/) is now accessible from the Tools menu too.
+
+### Fixes
+
+- **ScreenFields hotkey remap**: Ctrl+Shift+A is now Antenna, Ctrl+Shift+U is Audio. The old mapping had A for Audio which was confusing since A should obviously be Antenna.
+- **ScreenFields focus management**: Expanding a category with Ctrl+Shift hotkeys now moves focus to the first control in that category. Collapsing returns focus to the frequency display. No more expanding something and wondering where your cursor went.
+- **Dead LiveRegion code removed**: Sprint 15 tried a fancy screen reader technique that didn't work through the WinForms/WPF bridge. The dead code is gone now — cleaner codebase, no confusion.
+- **Neural NR license gating verified**: If your radio doesn't have the Noise Reduction license, the menu tells you instead of showing a toggle that does nothing.
+- **Connection Tester now reports actual failure reasons**: Instead of always saying "station name timeout," the tester captures the real reason — no slices, no antenna, client removed, whatever actually happened.
+
+### Under the Hood
+
+- Standalone ConnectionTesterDialog deleted (moved into RigSelector)
+- 17 files changed, +1,382 / -428 lines (net +954)
+- Several more "coming soon" menu stubs wired to real dialogs
+
 ## 4.1.114.0 — Don (WA2IWC)'s Birthday Release
 
 Released on 2/14 — Valentine's Day and Don's birthday. Happy birthday Don!
