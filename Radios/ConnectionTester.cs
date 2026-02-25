@@ -155,7 +155,7 @@ namespace Radios
                 bool started = rig.Start();
 
                 result.Success = started;
-                result.Reason = started ? "OK" : "Start failed (station name timeout)";
+                result.Reason = started ? "OK" : (rig.LastStartFailureReason ?? "Start failed (unknown)");
                 result.DurationMs = sw.ElapsedMilliseconds;
 
                 if (started)

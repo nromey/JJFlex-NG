@@ -1562,7 +1562,16 @@ Module globals
             .AutoConnectLowBW = autoConfig.LowBandwidth,
             .IsInitialBringup = initialCall,
             .GlobalAutoConnectEnabled = autoConfig.GlobalAutoConnectEnabled,
-            .CurrentSmartLinkEmail = RigControl.CurrentSmartLinkEmail
+            .CurrentSmartLinkEmail = RigControl.CurrentSmartLinkEmail,
+            .OpenParms = OpenParms,
+            .AccountSelector = Function(mgr)
+                                   Dim accounts = mgr.Accounts
+                                   If accounts.Count = 0 Then
+                                       Return (True, Nothing, True)
+                                   End If
+                                   Dim best = accounts.OrderByDescending(Function(a) a.LastUsed).First()
+                                   Return (False, best, True)
+                               End Function
         }
 
         ' Show the WPF selector dialog
@@ -1804,77 +1813,6 @@ RadioConnected:
             openTheRadio(False)
         Catch ex As Exception
             Tracing.TraceLine("SelectRadio:exception " & ex.Message, TraceLevel.Error)
-        End Try
-    End Sub
-
-    ''' <summary>
-    ''' Show the Connection Tester dialog. Sprint 15.5.
-    ''' </summary>
-    Friend Sub ShowConnectionTester()
-        Tracing.TraceLine("ShowConnectionTester", TraceLevel.Info)
-        Try
-            ' Build OpenParms if not already set (tester may be used before connecting)
-            If OpenParms Is Nothing Then
-                OpenParms = New FlexBase.OpenParms()
-                OpenParms.ProgramName = ProgramName
-                OpenParms.ConfigDirectory = BaseConfigDir & "\Radios"
-                OpenParms.AudioDevicesFile = AudioDevicesFile
-                OpenParms.GetOperatorName = AddressOf currentOperatorName
-                OpenParms.StationName = StationName
-            End If
-
-            ' Create a temporary FlexBase for radio discovery
-            Dim discoveryRig As New FlexBase(OpenParms)
-
-            ' Wire ShowAccountSelector for SmartLink auth
-            discoveryRig.ShowAccountSelector = Function(mgr)
-                                                   Dim accounts = mgr.Accounts
-                                                   If accounts.Count = 0 Then
-                                                       Return (True, Nothing, True)
-                                                   End If
-                                                   Dim best = accounts.OrderByDescending(Function(a) a.LastUsed).First()
-                                                   Return (False, best, True)
-                                               End Function
-
-            ' Build callbacks for the tester dialog
-            Dim callbacks As New JJFlexWpf.Dialogs.ConnectionTesterCallbacks() With {
-                .StartLocalDiscovery = Sub() discoveryRig.LocalRadios(),
-                .StartRemoteDiscovery = Sub()
-                                            Dim t As New Threading.Thread(
-                                                Sub()
-                                                    discoveryRig.RemoteRadios()
-                                                End Sub)
-                                            t.IsBackground = True
-                                            t.SetApartmentState(Threading.ApartmentState.STA)
-                                            t.Name = "SmartLink"
-                                            t.Start()
-                                        End Sub,
-                .RegisterRadioFound = Sub(callback)
-                                          AddHandler FlexBase.RadioFound, Sub(sender, r) callback(r)
-                                      End Sub,
-                .UnregisterRadioFound = Sub()
-                                            ' Events will be cleaned up when discoveryRig is disposed
-                                        End Sub,
-                .OpenParms = OpenParms,
-                .AccountSelector = Function(mgr)
-                                       Dim accounts = mgr.Accounts
-                                       If accounts.Count = 0 Then
-                                           Return (True, Nothing, True)
-                                       End If
-                                       Dim best = accounts.OrderByDescending(Function(a) a.LastUsed).First()
-                                       Return (False, best, True)
-                                   End Function
-            }
-
-            ' Show the dialog
-            Dim dialog As New JJFlexWpf.Dialogs.ConnectionTesterDialog(callbacks)
-            dialog.ShowDialog()
-
-            ' Clean up discovery rig
-            discoveryRig.Dispose()
-        Catch ex As Exception
-            Tracing.TraceLine("ShowConnectionTester:exception " & ex.Message, TraceLevel.Error)
-            Radios.ScreenReaderOutput.Speak("Connection tester error: " & ex.Message)
         End Try
     End Sub
 

@@ -28,6 +28,9 @@ public partial class ScreenFieldsPanel : UserControl
     /// <summary>Fired when user presses Escape — MainWindow wires this to FreqOut.FocusDisplay().</summary>
     public event EventHandler? EscapePressed;
 
+    /// <summary>Callback to return focus to the FreqOut control after collapsing a category.</summary>
+    public Action? ReturnFocusToFreqOut { get; set; }
+
     // All Expanders for Ctrl+Tab navigation
     private readonly List<Expander> _expanders = new();
 
@@ -102,6 +105,13 @@ public partial class ScreenFieldsPanel : UserControl
         _rig = rig;
 
         // Antenna category always visible — ATU is on all supported Flex radios
+
+        // Hide NR controls if NR license is not available on this radio
+        bool nrAvailable = !(rig.NoiseReductionLicenseReported && !rig.NoiseReductionLicensed);
+        _neuralNrCheck.Visibility = nrAvailable ? Visibility.Visible : Visibility.Collapsed;
+        _spectralNrCheck.Visibility = nrAvailable ? Visibility.Visible : Visibility.Collapsed;
+        _legacyNrCheck.Visibility = nrAvailable ? Visibility.Visible : Visibility.Collapsed;
+        _nrLevelControl.Visibility = Visibility.Collapsed; // shown only when Legacy NR is on
 
         // RF Gain bounds vary by radio model — update from connected radio
         _rfGainControl.Min = rig.RFGainMin;
@@ -408,13 +418,17 @@ public partial class ScreenFieldsPanel : UserControl
     {
         if (_rig == null) return;
 
-        _neuralNrCheck.IsChecked = _rig.NeuralNoiseReduction == FlexBase.OffOnValues.on;
-        _spectralNrCheck.IsChecked = _rig.SpectralNoiseReduction == FlexBase.OffOnValues.on;
+        // Only poll NR controls if license is available (controls may be collapsed)
+        if (_neuralNrCheck.Visibility == Visibility.Visible)
+        {
+            _neuralNrCheck.IsChecked = _rig.NeuralNoiseReduction == FlexBase.OffOnValues.on;
+            _spectralNrCheck.IsChecked = _rig.SpectralNoiseReduction == FlexBase.OffOnValues.on;
 
-        bool legacyNrOn = _rig.NoiseReductionLegacy == FlexBase.OffOnValues.on;
-        _legacyNrCheck.IsChecked = legacyNrOn;
-        _nrLevelControl.Visibility = legacyNrOn ? Visibility.Visible : Visibility.Collapsed;
-        if (legacyNrOn) _nrLevelControl.Value = _rig.NoiseReductionLegacyLevel;
+            bool legacyNrOn = _rig.NoiseReductionLegacy == FlexBase.OffOnValues.on;
+            _legacyNrCheck.IsChecked = legacyNrOn;
+            _nrLevelControl.Visibility = legacyNrOn ? Visibility.Visible : Visibility.Collapsed;
+            if (legacyNrOn) _nrLevelControl.Value = _rig.NoiseReductionLegacyLevel;
+        }
 
         bool nbOn = _rig.NoiseBlanker == FlexBase.OffOnValues.on;
         _nbCheck.IsChecked = nbOn;
@@ -531,12 +545,31 @@ public partial class ScreenFieldsPanel : UserControl
         {
             expander.IsExpanded = false;
             ScreenReaderOutput.Speak($"{CategoryNames[index]} collapsed");
+            ReturnFocusToFreqOut?.Invoke();
         }
         else
         {
             expander.IsExpanded = true;
-            expander.Focus();
             ScreenReaderOutput.Speak($"{CategoryNames[index]} expanded");
+
+            // Focus the first focusable control in the expanded content
+            // (deferred until layout completes so the content is rendered)
+            Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded, () =>
+            {
+                var content = GetCategoryContent(index);
+                if (content != null)
+                {
+                    var firstFocusable = FindFirstFocusableChild(content);
+                    if (firstFocusable != null)
+                        Keyboard.Focus(firstFocusable);
+                    else
+                        expander.Focus();
+                }
+                else
+                {
+                    expander.Focus();
+                }
+            });
         }
     }
 
@@ -561,6 +594,36 @@ public partial class ScreenFieldsPanel : UserControl
     {
         if (index < 0 || index >= _expanders.Count) return;
         _expanders[index].IsExpanded = false;
+    }
+
+    /// <summary>Get the content StackPanel for a category index.</summary>
+    private StackPanel? GetCategoryContent(int index)
+    {
+        return index switch
+        {
+            0 => DspContent,
+            1 => AudioContent,
+            2 => ReceiverContent,
+            3 => TxContent,
+            4 => AntennaContent,
+            _ => null
+        };
+    }
+
+    /// <summary>Find the first focusable child control in a visual tree.</summary>
+    private static IInputElement? FindFirstFocusableChild(DependencyObject parent)
+    {
+        if (parent == null) return null;
+        for (int i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
+        {
+            var child = VisualTreeHelper.GetChild(parent, i);
+            if (child is UIElement uiElem && uiElem.Focusable && uiElem.IsEnabled
+                && uiElem.Visibility == Visibility.Visible)
+                return uiElem;
+            var result = FindFirstFocusableChild(child);
+            if (result != null) return result;
+        }
+        return null;
     }
 
     #endregion

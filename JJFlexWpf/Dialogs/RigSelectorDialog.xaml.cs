@@ -4,6 +4,7 @@ using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Threading;
+using Radios;
 
 namespace JJFlexWpf.Dialogs
 {
@@ -85,6 +86,12 @@ namespace JJFlexWpf.Dialogs
 
         /// <summary>Current SmartLink email for config saving.</summary>
         public string CurrentSmartLinkEmail { get; init; } = "";
+
+        /// <summary>OpenParms for creating test FlexBase instances.</summary>
+        public FlexBase.OpenParms? OpenParms { get; init; }
+
+        /// <summary>SmartLink account selector for test connections.</summary>
+        public Func<SmartLinkAccountManager, (bool newLogin, SmartLinkAccount selected, bool ok)?>? AccountSelector { get; init; }
     }
 
     public partial class RigSelectorDialog : JJFlexDialog
@@ -95,6 +102,8 @@ namespace JJFlexWpf.Dialogs
         private readonly List<RadioListItem> _radiosList = new();
         private readonly object _radiosLock = new();
         private readonly DispatcherTimer _autoConnectTimer;
+        private ConnectionTester? _tester;
+        private bool _testRunning;
 
         /// <summary>
         /// The selected radio data, or null if cancelled.
@@ -343,9 +352,109 @@ namespace JJFlexWpf.Dialogs
                 _callbacks.ScreenReaderSpeak?.Invoke("Auto-connect on startup disabled", true);
         }
 
+        private void RadiosBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            TestButton.IsEnabled = RadiosBox.SelectedItem != null && !_testRunning;
+        }
+
+        private void TestButton_Click(object sender, RoutedEventArgs e)
+        {
+            var radio = GetSelectedRadio();
+            if (radio == null)
+            {
+                MessageBox.Show(MustSelect, "Select Radio", MessageBoxButton.OK, MessageBoxImage.Warning);
+                RadiosBox.Focus();
+                return;
+            }
+
+            if (_callbacks.OpenParms == null)
+            {
+                _callbacks.ScreenReaderSpeak?.Invoke("Connection testing not available", true);
+                return;
+            }
+
+            // Validate test config
+            if (!int.TryParse(TestCountBox.Text, out int testCount) || testCount < 25)
+            {
+                ScreenReaderOutput.Speak("Test count must be at least 25");
+                TestCountBox.Focus();
+                return;
+            }
+            if (!int.TryParse(DelayBox.Text, out int delay) || delay < 1)
+            {
+                ScreenReaderOutput.Speak("Delay must be at least 1 second");
+                DelayBox.Focus();
+                return;
+            }
+
+            // Show test config panel
+            TestPanel.Visibility = Visibility.Visible;
+
+            // Disable all buttons except Cancel
+            _testRunning = true;
+            ConnectButton.IsEnabled = false;
+            TestButton.IsEnabled = false;
+            RadiosBox.IsEnabled = false;
+            TestCountBox.IsEnabled = false;
+            DelayBox.IsEnabled = false;
+            GlobalAutoConnectCheckbox.IsEnabled = false;
+
+            _tester = new ConnectionTester
+            {
+                TestCount = testCount,
+                DelayBetweenTestsMs = delay * 1000,
+                RadioSerial = radio.Serial,
+                RadioName = radio.Name,
+                LowBandwidth = radio.LowBW,
+                IsRemote = radio.IsRemote,
+                OpenParms = _callbacks.OpenParms,
+                AccountSelector = _callbacks.AccountSelector
+            };
+
+            _tester.PhaseChanged += (testNum, phase) =>
+                Dispatcher.BeginInvoke(() =>
+                {
+                    TestStatusText.Text = $"Test {testNum} of {testCount}: {phase}";
+                });
+
+            _tester.TestCompleted += (testNum, success, reason, durationMs) =>
+                Dispatcher.BeginInvoke(() =>
+                {
+                    string result = success ? "PASS" : $"FAIL ({reason})";
+                    TestStatusText.Text = $"Test {testNum}: {result} ({durationMs / 1000.0:F1}s)";
+                });
+
+            _tester.AllTestsCompleted += (summary) =>
+                Dispatcher.BeginInvoke(() =>
+                {
+                    _testRunning = false;
+                    TestStatusText.Text = $"Complete: {summary.Passed}/{summary.TestCount} passed.";
+                    TestButton.Content = "Done";
+
+                    // Re-enable UI
+                    ConnectButton.IsEnabled = true;
+                    RadiosBox.IsEnabled = true;
+                    GlobalAutoConnectCheckbox.IsEnabled = true;
+
+                    _callbacks.ScreenReaderSpeak?.Invoke(
+                        $"All tests complete. {summary.Passed} of {summary.TestCount} passed. " +
+                        $"{summary.Failed} failed. Report saved.", true);
+                });
+
+            // Run on background STA thread
+            var testThread = new System.Threading.Thread(() => _tester.Run())
+            {
+                IsBackground = true,
+                Name = "ConnectionTester"
+            };
+            testThread.SetApartmentState(System.Threading.ApartmentState.STA);
+            testThread.Start();
+        }
+
         private void RigSelectorDialog_Closing(object? sender, CancelEventArgs e)
         {
             _autoConnectTimer.Stop();
+            _tester?.Cancel();
             _callbacks.UnregisterRadioFound();
         }
     }

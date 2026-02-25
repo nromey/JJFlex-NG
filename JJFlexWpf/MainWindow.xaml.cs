@@ -65,6 +65,7 @@ public partial class MainWindow : UserControl
 
         // Wire ScreenFieldsPanel Escape handler (Sprint 14) — once, not per-connect
         FieldsPanel.EscapePressed += (s, e) => FreqOut.FocusDisplay();
+        FieldsPanel.ReturnFocusToFreqOut = () => FreqOut.FocusDisplay();
     }
 
     /// <summary>
@@ -152,6 +153,13 @@ public partial class MainWindow : UserControl
     /// Set by ApplicationEvents.vb. Called when handlers are first created in SetupFreqout().
     /// </summary>
     public Action<FreqOutHandlers>? FreqOutHandlersWireCallback { get; set; }
+
+    /// <summary>
+    /// Callback to set filter presets on the NativeMenuBar.
+    /// Set by ShellForm constructor. Called from FreqOutHandlersWireCallback
+    /// so presets are available before the menu rebuild in PowerNowOn.
+    /// </summary>
+    public Action<Radios.FilterPresets>? SetNativeMenuFilterPresetsCallback { get; set; }
 
     #region PollTimer — Phase 8.4
 
@@ -595,10 +603,10 @@ public partial class MainWindow : UserControl
                 int categoryIndex = key switch
                 {
                     Key.N => 0, // Noise Reduction and DSP
-                    Key.A => 1, // Audio
+                    Key.U => 1, // Audio
                     Key.R => 2, // Receiver
                     Key.T => 3, // Transmission
-                    Key.E => 4, // Antenna
+                    Key.A => 4, // Antenna
                     _ => -1
                 };
                 if (categoryIndex >= 0)
@@ -730,12 +738,6 @@ public partial class MainWindow : UserControl
     public Action? PowerOnCallback { get; set; }
 
     /// <summary>
-    /// Callback to show the Connection Tester dialog.
-    /// Set by globals.vb, routes to the Connection Tester UI.
-    /// </summary>
-    public Action? ShowConnectionTesterCallback { get; set; }
-
-    /// <summary>
     /// Callback to show past Connection Test results.
     /// </summary>
     public Action? ShowTestResultsCallback { get; set; }
@@ -745,6 +747,36 @@ public partial class MainWindow : UserControl
     /// Parameters: message, title. Falls back to unparented WPF MessageBox if not set.
     /// </summary>
     public Action<string, string>? ShowErrorCallback { get; set; }
+
+    /// <summary>
+    /// Callback to build the list of current key-action mappings for ShowKeysDialog.
+    /// Set by ApplicationEvents.vb.
+    /// </summary>
+    public Func<List<Dialogs.KeyActionItem>>? GetKeyActionsCallback { get; set; }
+
+    /// <summary>
+    /// Callback to build the list of all available actions for SetupKeysDialog.
+    /// Set by ApplicationEvents.vb.
+    /// </summary>
+    public Func<List<Dialogs.ActionItem>>? GetAvailableActionsCallback { get; set; }
+
+    /// <summary>
+    /// Callback to build the list of command finder items for CommandFinderDialog.
+    /// Set by ApplicationEvents.vb.
+    /// </summary>
+    public Func<List<Dialogs.CommandFinderItem>>? GetCommandFinderItemsCallback { get; set; }
+
+    /// <summary>
+    /// Callback to execute a command by its tag (CommandValues enum value).
+    /// Set by ApplicationEvents.vb.
+    /// </summary>
+    public Action<object>? ExecuteCommandCallback { get; set; }
+
+    /// <summary>
+    /// Callback to save updated key mappings from the ShowKeysDialog.
+    /// Set by ApplicationEvents.vb.
+    /// </summary>
+    public Action<List<Dialogs.KeyActionItem>>? SaveKeyActionsCallback { get; set; }
 
     /// <summary>
     /// Antenna tune button base text, matching Form1 pattern.
@@ -1968,55 +2000,6 @@ public partial class MainWindow : UserControl
 
         ClearAutoConnectRadio();
         return $"Auto-connect to {radioName} cleared";
-    }
-
-    #endregion
-
-    #region UIA LiveRegion — Sprint 15 Track E
-
-    /// <summary>
-    /// Speak a message via UIA LiveRegion. The AutomationPeer fires LiveRegionChanged
-    /// when the text changes, and the screen reader speaks it — no timing hacks needed.
-    ///
-    /// This replaces the 150ms Task.Delay + Tolk.Speak pattern used in SpeakAfterMenuClose.
-    /// The LiveRegion fires at the right time naturally because UIA events propagate
-    /// through the accessibility tree after the menu closes and focus returns.
-    ///
-    /// Fallback: If LiveRegion doesn't work through ElementHost interop, callers
-    /// should fall back to Tolk.Speak directly.
-    /// </summary>
-    public void SpeakViaLiveRegion(string message)
-    {
-        if (string.IsNullOrEmpty(message)) return;
-
-        if (!Dispatcher.CheckAccess())
-        {
-            Dispatcher.Invoke(() => SpeakViaLiveRegion(message));
-            return;
-        }
-
-        // Must be Visible for the AutomationPeer to exist in the UIA tree
-        LiveRegionHost.Visibility = Visibility.Visible;
-
-        // Clear text first to force a PropertyChanged event even if the
-        // new message is identical to the previous one
-        LiveRegionHost.Text = "";
-        LiveRegionHost.Text = message;
-
-        // Raise LiveRegionChanged explicitly via the AutomationPeer.
-        // Some screen readers need this explicit notification in addition
-        // to the text property change.
-        var peer = System.Windows.Automation.Peers.UIElementAutomationPeer
-            .FromElement(LiveRegionHost);
-        if (peer == null)
-        {
-            peer = System.Windows.Automation.Peers.UIElementAutomationPeer
-                .CreatePeerForElement(LiveRegionHost);
-        }
-        peer?.RaiseAutomationEvent(
-            System.Windows.Automation.Peers.AutomationEvents.LiveRegionChanged);
-
-        Tracing.TraceLine($"SpeakViaLiveRegion: '{message}'", TraceLevel.Verbose);
     }
 
     #endregion
