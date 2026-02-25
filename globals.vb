@@ -1486,6 +1486,8 @@ Module globals
         RigControl = New FlexBase(OpenParms)
 
         ' Wire account selector to auto-use most recent saved account.
+        ' If credentials are expired, setupRemote falls through to PerformNewLogin
+        ' automatically. New accounts can be added via SmartLink Account Manager menu.
         RigControl.ShowAccountSelector = Function(mgr)
                                              Dim accounts = mgr.Accounts
                                              Tracing.TraceLine($"ShowAccountSelector: {accounts.Count} saved account(s)", TraceLevel.Info)
@@ -1644,34 +1646,93 @@ RadioConnected:
                     Threading.Thread.Sleep(500) ' Let window settle before any error dialogs
                 End If
 
+                ' Create connection profiler for this attempt
+                Radios.ConnectionProfiler.Current = New Radios.ConnectionProfiler()
+
                 Tracing.TraceLine("OpenTheRadio:rig is starting", TraceLevel.Info)
                 rv = RigControl.Start()
 
                 ' If Start() failed because SmartLink connection was too slow or dropped
                 ' during the guiClient re-add cycle, retry with a fresh connection.
                 ' A fresh connection bypasses the slow re-add and usually succeeds quickly.
+                ' Sprint 15.5: Two retry paths — remote manual and auto-connect.
                 If Not rv AndAlso RigControl IsNot Nothing AndAlso
-                   Not RigControl.IsConnected AndAlso _autoConnectConfig IsNot Nothing Then
+                   Not RigControl.IsConnected Then
 
-                    Tracing.TraceLine("OpenTheRadio:Start failed with disconnected radio, retrying once", TraceLevel.Info)
+                    Dim retrySerial = RigControl.ConnectedSerial
+                    Dim retryLowBW = RigControl.ConnectedLowBW
+                    Dim isRemote = (CurrentRig IsNot Nothing AndAlso CurrentRig.Remote)
 
-                    ' Clean up the dead connection
-                    WpfMainWindow?.UnwireRadioEvents()
-                    RigControl.Dispose()
+                    If Not String.IsNullOrEmpty(retrySerial) AndAlso isRemote Then
+                        ' Remote manual connection retry — uses ReconnectRemote (no auto-connect config needed)
+                        Tracing.TraceLine($"OpenTheRadio:Start failed with disconnected remote radio, retrying once (serial={retrySerial})", TraceLevel.Info)
 
-                    ' Create new rig instance and reconnect
-                    RigControl = New FlexBase(OpenParms)
-                    WpfMainWindow.RigControl = RigControl
+                        ' Start new profiler for the retry attempt
+                        Radios.ConnectionProfiler.Current = New Radios.ConnectionProfiler()
+                        Radios.ConnectionProfiler.Current.RecordEvent("retry_begin", New Dictionary(Of String, Object) From {
+                            {"attemptNumber", 2},
+                            {"serial", retrySerial}
+                        })
 
-                    If RigControl.TryAutoConnect(_autoConnectConfig) Then
-                        WpfMainWindow.WireRadioEvents()
-                        Tracing.TraceLine("OpenTheRadio:retry - rig is starting", TraceLevel.Info)
-                        rv = RigControl.Start()
-                    End If
+                        ' 3-second delay — gives SmartLink time to clean up the previous session
+                        Threading.Thread.Sleep(3000)
 
-                    If Not rv Then
-                        Tracing.TraceLine("OpenTheRadio:retry also failed", TraceLevel.Error)
-                        Radios.ScreenReaderOutput.Speak("Connection failed")
+                        ' Clean up the dead connection
+                        WpfMainWindow?.UnwireRadioEvents()
+                        RigControl.Dispose()
+
+                        ' Create new rig instance
+                        RigControl = New FlexBase(OpenParms)
+                        WpfMainWindow.RigControl = RigControl
+
+                        ' Wire ShowAccountSelector — auto-select most recent account (same as wpfSelectorProc)
+                        RigControl.ShowAccountSelector = Function(mgr)
+                                                             Dim accounts = mgr.Accounts
+                                                             Tracing.TraceLine($"ShowAccountSelector(retry): {accounts.Count} saved account(s)", TraceLevel.Info)
+                                                             If accounts.Count = 0 Then
+                                                                 Tracing.TraceLine("ShowAccountSelector(retry): no accounts, triggering new login", TraceLevel.Info)
+                                                                 Return (True, Nothing, True)
+                                                             End If
+                                                             Dim best = accounts.OrderByDescending(Function(a) a.LastUsed).First()
+                                                             Tracing.TraceLine($"ShowAccountSelector(retry): auto-selected '{best.FriendlyName}' ({best.Email})", TraceLevel.Info)
+                                                             Return (False, best, True)
+                                                         End Function
+
+                        If RigControl.ReconnectRemote(retrySerial, retryLowBW) Then
+                            WpfMainWindow.WireRadioEvents()
+                            Tracing.TraceLine("OpenTheRadio:retry - rig is starting", TraceLevel.Info)
+                            rv = RigControl.Start()
+                        End If
+
+                        If Not rv Then
+                            Tracing.TraceLine("OpenTheRadio:retry also failed", TraceLevel.Error)
+                            Radios.ScreenReaderOutput.Speak("Connection failed")
+                        End If
+
+                    ElseIf _autoConnectConfig IsNot Nothing AndAlso _autoConnectConfig.ShouldAutoConnect Then
+                        ' Auto-connect retry — uses TryAutoConnect with saved config
+                        Tracing.TraceLine("OpenTheRadio:Start failed with auto-connect config, retrying via TryAutoConnect", TraceLevel.Info)
+
+                        Threading.Thread.Sleep(3000)
+
+                        WpfMainWindow?.UnwireRadioEvents()
+                        RigControl.Dispose()
+
+                        RigControl = New FlexBase(OpenParms)
+                        WpfMainWindow.RigControl = RigControl
+
+                        If RigControl.TryAutoConnect(_autoConnectConfig) Then
+                            WpfMainWindow.WireRadioEvents()
+                            Tracing.TraceLine("OpenTheRadio:retry - rig is starting", TraceLevel.Info)
+                            rv = RigControl.Start()
+                        End If
+
+                        If Not rv Then
+                            Tracing.TraceLine("OpenTheRadio:retry also failed", TraceLevel.Error)
+                            Radios.ScreenReaderOutput.Speak("Connection failed")
+                        End If
+                    Else
+                        Tracing.TraceLine("OpenTheRadio:Start failed, no retry path available (local or no serial)", TraceLevel.Info)
                     End If
                 End If
 
@@ -1743,6 +1804,107 @@ RadioConnected:
             openTheRadio(False)
         Catch ex As Exception
             Tracing.TraceLine("SelectRadio:exception " & ex.Message, TraceLevel.Error)
+        End Try
+    End Sub
+
+    ''' <summary>
+    ''' Show the Connection Tester dialog. Sprint 15.5.
+    ''' </summary>
+    Friend Sub ShowConnectionTester()
+        Tracing.TraceLine("ShowConnectionTester", TraceLevel.Info)
+        Try
+            ' Build OpenParms if not already set (tester may be used before connecting)
+            If OpenParms Is Nothing Then
+                OpenParms = New FlexBase.OpenParms()
+                OpenParms.ProgramName = ProgramName
+                OpenParms.ConfigDirectory = BaseConfigDir & "\Radios"
+                OpenParms.AudioDevicesFile = AudioDevicesFile
+                OpenParms.GetOperatorName = AddressOf currentOperatorName
+                OpenParms.StationName = StationName
+            End If
+
+            ' Create a temporary FlexBase for radio discovery
+            Dim discoveryRig As New FlexBase(OpenParms)
+
+            ' Wire ShowAccountSelector for SmartLink auth
+            discoveryRig.ShowAccountSelector = Function(mgr)
+                                                   Dim accounts = mgr.Accounts
+                                                   If accounts.Count = 0 Then
+                                                       Return (True, Nothing, True)
+                                                   End If
+                                                   Dim best = accounts.OrderByDescending(Function(a) a.LastUsed).First()
+                                                   Return (False, best, True)
+                                               End Function
+
+            ' Build callbacks for the tester dialog
+            Dim callbacks As New JJFlexWpf.Dialogs.ConnectionTesterCallbacks() With {
+                .StartLocalDiscovery = Sub() discoveryRig.LocalRadios(),
+                .StartRemoteDiscovery = Sub()
+                                            Dim t As New Threading.Thread(
+                                                Sub()
+                                                    discoveryRig.RemoteRadios()
+                                                End Sub)
+                                            t.IsBackground = True
+                                            t.SetApartmentState(Threading.ApartmentState.STA)
+                                            t.Name = "SmartLink"
+                                            t.Start()
+                                        End Sub,
+                .RegisterRadioFound = Sub(callback)
+                                          AddHandler FlexBase.RadioFound, Sub(sender, r) callback(r)
+                                      End Sub,
+                .UnregisterRadioFound = Sub()
+                                            ' Events will be cleaned up when discoveryRig is disposed
+                                        End Sub,
+                .OpenParms = OpenParms,
+                .AccountSelector = Function(mgr)
+                                       Dim accounts = mgr.Accounts
+                                       If accounts.Count = 0 Then
+                                           Return (True, Nothing, True)
+                                       End If
+                                       Dim best = accounts.OrderByDescending(Function(a) a.LastUsed).First()
+                                       Return (False, best, True)
+                                   End Function
+            }
+
+            ' Show the dialog
+            Dim dialog As New JJFlexWpf.Dialogs.ConnectionTesterDialog(callbacks)
+            dialog.ShowDialog()
+
+            ' Clean up discovery rig
+            discoveryRig.Dispose()
+        Catch ex As Exception
+            Tracing.TraceLine("ShowConnectionTester:exception " & ex.Message, TraceLevel.Error)
+            Radios.ScreenReaderOutput.Speak("Connection tester error: " & ex.Message)
+        End Try
+    End Sub
+
+    ''' <summary>
+    ''' Show past Connection Test results. Sprint 15.5.
+    ''' </summary>
+    Friend Sub ShowTestResults()
+        Tracing.TraceLine("ShowTestResults", TraceLevel.Info)
+        Try
+            Dim dates = Radios.ConnectionTestReport.GetAvailableDates()
+            If dates.Count = 0 Then
+                Radios.ScreenReaderOutput.Speak("No connection test results found")
+                Return
+            End If
+
+            ' Generate report for the most recent date
+            Dim latestDate = dates(0)
+            Dim report = Radios.ConnectionTestReport.GenerateFromProfiles(latestDate)
+            Dim reportPath = Radios.ConnectionTestReport.SaveReport(report, latestDate & "_analysis")
+
+            If reportPath IsNot Nothing Then
+                Radios.ScreenReaderOutput.Speak($"Test results for {latestDate} saved to {reportPath}")
+                ' Open the file in the default text editor
+                Process.Start(New ProcessStartInfo(reportPath) With {.UseShellExecute = True})
+            Else
+                Radios.ScreenReaderOutput.Speak("Failed to save test report")
+            End If
+        Catch ex As Exception
+            Tracing.TraceLine("ShowTestResults:exception " & ex.Message, TraceLevel.Error)
+            Radios.ScreenReaderOutput.Speak("Error loading test results")
         End Try
     End Sub
 

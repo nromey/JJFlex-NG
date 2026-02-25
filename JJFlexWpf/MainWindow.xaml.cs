@@ -730,6 +730,17 @@ public partial class MainWindow : UserControl
     public Action? PowerOnCallback { get; set; }
 
     /// <summary>
+    /// Callback to show the Connection Tester dialog.
+    /// Set by globals.vb, routes to the Connection Tester UI.
+    /// </summary>
+    public Action? ShowConnectionTesterCallback { get; set; }
+
+    /// <summary>
+    /// Callback to show past Connection Test results.
+    /// </summary>
+    public Action? ShowTestResultsCallback { get; set; }
+
+    /// <summary>
     /// Callback to show a WinForms error dialog parented to ShellForm.
     /// Parameters: message, title. Falls back to unparented WPF MessageBox if not set.
     /// </summary>

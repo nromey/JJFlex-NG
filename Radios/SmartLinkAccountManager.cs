@@ -192,13 +192,19 @@ namespace Radios
         public static bool IsJwtExpired(string idToken)
         {
             if (string.IsNullOrEmpty(idToken))
+            {
+                Tracing.TraceLine("IsJwtExpired: token is null/empty", TraceLevel.Info);
                 return true;
+            }
 
             try
             {
                 var parts = idToken.Split('.');
                 if (parts.Length != 3)
+                {
+                    Tracing.TraceLine("IsJwtExpired: token doesn't have 3 parts", TraceLevel.Warning);
                     return true;
+                }
 
                 var payload = parts[1];
                 switch (payload.Length % 4)
@@ -216,14 +222,21 @@ namespace Radios
                 {
                     var expUnix = expElement.GetInt64();
                     var expTime = DateTimeOffset.FromUnixTimeSeconds(expUnix).UtcDateTime;
-                    // 2-minute buffer
-                    return expTime <= DateTime.UtcNow.AddMinutes(2);
+                    var now = DateTime.UtcNow;
+                    var delta = expTime - now;
+                    var bufferTime = now.AddMinutes(2);
+                    bool expired = expTime <= bufferTime;
+
+                    Tracing.TraceLine($"IsJwtExpired: exp={expTime:yyyy-MM-dd HH:mm:ss}Z, now={now:yyyy-MM-dd HH:mm:ss}Z, delta={delta.TotalMinutes:F1}min, buffer=2min, expired={expired}", TraceLevel.Info);
+                    return expired;
                 }
 
+                Tracing.TraceLine("IsJwtExpired: no exp claim in JWT", TraceLevel.Warning);
                 return true; // no exp claim = treat as expired
             }
-            catch
+            catch (Exception ex)
             {
+                Tracing.TraceLine($"IsJwtExpired: parse exception: {ex.Message}", TraceLevel.Error);
                 return true;
             }
         }

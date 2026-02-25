@@ -159,6 +159,24 @@ namespace Radios
         public bool DiversityLicensed => theRadio?.FeatureLicense?.LicenseFeatDivEsc?.FeatureEnabled == true;
         public bool DiversityHardwareSupported => theRadio?.DiversityIsAllowed == true;
         private Thread mainThread;
+
+        // Track connection parameters for retry support.
+        // Set in Connect() so the retry path in openTheRadio can recreate the connection.
+        private string _connectedSerial;
+        private bool _connectedLowBW;
+
+        /// <summary>
+        /// Serial number of the last radio we connected/attempted to connect to.
+        /// Used by retry logic in openTheRadio to reconnect after SmartLink re-add failures.
+        /// </summary>
+        public string ConnectedSerial => _connectedSerial;
+
+        /// <summary>
+        /// Whether the last connection used low bandwidth mode.
+        /// Used by retry logic in openTheRadio to reconnect after SmartLink re-add failures.
+        /// </summary>
+        public bool ConnectedLowBW => _connectedLowBW;
+
         /// <summary>
         /// Connect to the specified radio.
         /// </summary>
@@ -168,6 +186,16 @@ namespace Radios
         {
             Tracing.TraceLine("Connect:" + serial, TraceLevel.Info);
             bool rv = true;
+
+            // Save connection parameters for retry support
+            _connectedSerial = serial;
+            _connectedLowBW = lowBW;
+
+            ConnectionProfiler.Current?.RecordEvent("connect_begin", new Dictionary<string, object>
+            {
+                { "serial", serial },
+                { "lowBW", lowBW }
+            });
 
             theRadio = findRadioInAPI(serial);
             if (theRadio == null)
@@ -235,6 +263,12 @@ namespace Radios
             {
                 Tracing.TraceLine("Connect failed", TraceLevel.Error);
             }
+
+            ConnectionProfiler.Current?.RecordEvent(rv ? "connect_success" : "connect_failed", new Dictionary<string, object>
+            {
+                { "serial", theRadio?.Serial ?? serial },
+                { "connected", rv }
+            });
 
             return rv;
         }
@@ -327,6 +361,75 @@ namespace Radios
             {
                 sw.Stop();
                 Tracing.TraceLine($"TryAutoConnect: EXCEPTION {ex.GetType().Name}: {ex.Message} (total {sw.ElapsedMilliseconds}ms)\n{ex.StackTrace}", TraceLevel.Error);
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Reconnects to a remote radio after a failed Start() due to SmartLink re-add timeout.
+        /// Unlike TryAutoConnect, this works for manual connections — it uses setupRemote()
+        /// directly (which calls ShowAccountSelector) and doesn't require auto-connect config.
+        /// </summary>
+        /// <param name="serial">Serial number of the radio to reconnect to</param>
+        /// <param name="lowBW">Whether to use low bandwidth mode</param>
+        /// <param name="timeoutMs">How long to wait for radio discovery (default 15 seconds)</param>
+        /// <returns>True if the radio was found and Connect() succeeded</returns>
+        public bool ReconnectRemote(string serial, bool lowBW, int timeoutMs = 15000)
+        {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            Tracing.TraceLine($"ReconnectRemote: BEGIN serial={serial} lowBW={lowBW} timeout={timeoutMs}ms", TraceLevel.Info);
+
+            try
+            {
+                // Re-authenticate and connect to SmartLink server.
+                // setupRemote() uses ShowAccountSelector delegate (must be wired by caller)
+                // to pick the SmartLink account, then gets JWT and connects to SmartLink.
+                apiInit();
+                bool remoteOk = setupRemote();
+                Tracing.TraceLine($"ReconnectRemote: setupRemote returned {remoteOk} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+
+                if (!remoteOk)
+                {
+                    Tracing.TraceLine($"ReconnectRemote: setupRemote FAILED ({sw.ElapsedMilliseconds}ms)", TraceLevel.Error);
+                    return false;
+                }
+
+                // Wait for the radio to appear in myRadioList.
+                // SmartLink sends the radio list after registration; radioAddedHandler populates myRadioList.
+                Tracing.TraceLine($"ReconnectRemote: waiting for radio {serial} in myRadioList ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+                Radio foundRadio = null;
+                var startTime = DateTime.Now;
+
+                while ((DateTime.Now - startTime).TotalMilliseconds < timeoutMs)
+                {
+                    foundRadio = findRadioInAPI(serial);
+                    if (foundRadio != null)
+                        break;
+                    Thread.Sleep(100);
+                }
+
+                if (foundRadio == null)
+                {
+                    Tracing.TraceLine($"ReconnectRemote: radio {serial} NOT FOUND within {timeoutMs}ms. myRadioList has {myRadioList.Count} radios ({sw.ElapsedMilliseconds}ms)", TraceLevel.Warning);
+                    foreach (Radio r in myRadioList)
+                    {
+                        Tracing.TraceLine($"  myRadioList entry: serial={r.Serial} name={r.Nickname} status={r.Status}", TraceLevel.Info);
+                    }
+                    return false;
+                }
+
+                // Connect to the radio.
+                Tracing.TraceLine($"ReconnectRemote: FOUND radio {foundRadio.Serial} ({foundRadio.Nickname}), connecting lowBW={lowBW} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+                bool connected = Connect(serial, lowBW);
+
+                sw.Stop();
+                Tracing.TraceLine($"ReconnectRemote: END connected={connected} (total {sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+                return connected;
+            }
+            catch (Exception ex)
+            {
+                sw.Stop();
+                Tracing.TraceLine($"ReconnectRemote: EXCEPTION {ex.GetType().Name}: {ex.Message} (total {sw.ElapsedMilliseconds}ms)\n{ex.StackTrace}", TraceLevel.Error);
                 return false;
             }
         }
@@ -427,6 +530,7 @@ namespace Radios
         /// </summary>
         public bool Start()
         {
+            ConnectionProfiler.Current?.RecordEvent("start_begin");
             FilterObj = new WpfFilterAdapter(this);
 
             await(() =>
@@ -508,12 +612,17 @@ namespace Radios
             if (stationNameSet)
             {
                 Tracing.TraceLine("start:station name set " + Callouts.StationName, TraceLevel.Info);
+                ConnectionProfiler.Current?.RecordEvent("station_name_set", new Dictionary<string, object>
+                {
+                    { "stationName", Callouts.StationName }
+                });
             }
             else if (!IsConnected)
             {
                 // Connection dropped during SmartLink re-add cycle.
                 // Don't raise error — caller (openTheRadio) can retry the connection.
                 Tracing.TraceLine("start:connection lost during station name wait, caller may retry", TraceLevel.Error);
+                ConnectionProfiler.Current?.RecordAndSave("start_connection_lost");
                 return false;
             }
             else
@@ -522,6 +631,11 @@ namespace Radios
                 // Disconnect cleanly and return false so caller can retry with a fresh connection.
                 // Don't show error dialog — a fresh connection usually succeeds quickly.
                 Tracing.TraceLine("start:station name timeout, disconnecting for retry", TraceLevel.Warning);
+                ConnectionProfiler.Current?.RecordAndSave("station_name_timeout", new Dictionary<string, object>
+                {
+                    { "clientRemovedDuringStart", _clientRemovedDuringStart },
+                    { "ticksSinceRemoval", _clientRemovedDuringStart ? (Environment.TickCount64 - _clientRemovedTickCount) : 0 }
+                });
                 ScreenReaderOutput.Speak("Connection slow, retrying");
                 try { theRadio.Disconnect(); } catch { }
                 return false;
@@ -530,6 +644,7 @@ namespace Radios
             mainThread.Name = "mainThread";
             mainThread.Start();
             Thread.Sleep(0);
+            ConnectionProfiler.Current?.RecordAndSave("start_success");
             return true;
         }
 
@@ -842,6 +957,44 @@ namespace Radios
 
                 jwt = form.IdToken;
 
+                // Diagnostic: log the exp claim from the fresh token
+                if (!string.IsNullOrEmpty(jwt))
+                {
+                    try
+                    {
+                        var jwtParts = jwt.Split('.');
+                        if (jwtParts.Length == 3)
+                        {
+                            var jwtPayload = jwtParts[1];
+                            switch (jwtPayload.Length % 4)
+                            {
+                                case 2: jwtPayload += "=="; break;
+                                case 3: jwtPayload += "="; break;
+                            }
+                            jwtPayload = jwtPayload.Replace('-', '+').Replace('_', '/');
+                            var jwtJson = System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(jwtPayload));
+                            using var jwtDoc = System.Text.Json.JsonDocument.Parse(jwtJson);
+                            if (jwtDoc.RootElement.TryGetProperty("exp", out var expEl))
+                            {
+                                var expUnix = expEl.GetInt64();
+                                var expTime = DateTimeOffset.FromUnixTimeSeconds(expUnix).UtcDateTime;
+                                var delta = expTime - DateTime.UtcNow;
+                                Tracing.TraceLine($"PerformNewLogin: fresh JWT exp={expTime:yyyy-MM-dd HH:mm:ss}Z, delta={delta.TotalMinutes:F1}min, ExpiresIn={form.ExpiresIn}s", TraceLevel.Info);
+                            }
+                            if (jwtDoc.RootElement.TryGetProperty("iat", out var iatEl))
+                            {
+                                var iatUnix = iatEl.GetInt64();
+                                var iatTime = DateTimeOffset.FromUnixTimeSeconds(iatUnix).UtcDateTime;
+                                Tracing.TraceLine($"PerformNewLogin: fresh JWT iat={iatTime:yyyy-MM-dd HH:mm:ss}Z", TraceLevel.Info);
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Tracing.TraceLine($"PerformNewLogin: JWT diagnostic parse failed: {ex.Message}", TraceLevel.Warning);
+                    }
+                }
+
                 if (string.IsNullOrEmpty(jwt))
                 {
                     Tracing.TraceLine("setupRemote: no id_token from auth form", TraceLevel.Error);
@@ -1049,6 +1202,10 @@ namespace Radios
         {
             var sw = System.Diagnostics.Stopwatch.StartNew();
             Tracing.TraceLine($"ConnectToSmartLink: BEGIN jwt length={jwt?.Length ?? 0}", TraceLevel.Info);
+            ConnectionProfiler.Current?.RecordEvent("smartlink_connect_begin", new Dictionary<string, object>
+            {
+                { "jwtLength", jwt?.Length ?? 0 }
+            });
             try
             {
                 if (wan != null)
@@ -1084,6 +1241,12 @@ namespace Radios
                 }
 
                 Tracing.TraceLine($"ConnectToSmartLink: radio list received! {radios.Count} radio(s), myRadioList has {myRadioList.Count} entries ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+                ConnectionProfiler.Current?.RecordEvent("wan_radio_list", new Dictionary<string, object>
+                {
+                    { "count", radios.Count },
+                    { "myRadioListCount", myRadioList.Count },
+                    { "elapsedMs", sw.ElapsedMilliseconds }
+                });
                 foreach (var r in radios)
                 {
                     Tracing.TraceLine($"  WAN radio: serial={r.Serial} name={r.Nickname} status={r.Status}", TraceLevel.Info);
@@ -1154,15 +1317,27 @@ namespace Radios
         private bool sendRemoteConnect(Radio r)
         {
             Tracing.TraceLine("sendRemoteConnect: " + r.Serial, TraceLevel.Info);
+            ConnectionProfiler.Current?.RecordEvent("send_remote_connect", new Dictionary<string, object>
+            {
+                { "serial", r.Serial }
+            });
             WanRadioConnectReadyReceived = false;
             // WanRadioConnectReadyHandler already added.
             wan.SendConnectMessageToRadio(r.Serial, 0);
             if (!await(() => { return WanRadioConnectReadyReceived; }, 5000))
             {
                 Tracing.TraceLine("sendRemoteConnect:Radio not ready for connect.", TraceLevel.Error);
+                ConnectionProfiler.Current?.RecordEvent("send_remote_connect_timeout", new Dictionary<string, object>
+                {
+                    { "serial", r.Serial }
+                });
                 return false;
             }
             r.WANConnectionHandle = wanConnectionHandle;
+            ConnectionProfiler.Current?.RecordEvent("wan_connect_ready", new Dictionary<string, object>
+            {
+                { "serial", r.Serial }
+            });
             return true;
         }
         #endregion
@@ -2023,6 +2198,15 @@ namespace Radios
                 " is available:" + client.IsAvailable.ToString() +
                 " Only:" + OnlyStation.ToString() +
                 " CanTransmit:" + CanTransmit.ToString(), TraceLevel.Info);
+
+            ConnectionProfiler.Current?.RecordEvent("gui_client_added", new Dictionary<string, object>
+            {
+                { "clientId", client.ClientID },
+                { "handle", client.ClientHandle },
+                { "station", client.Station ?? "" },
+                { "isThisClient", client.IsThisClient },
+                { "isAvailable", client.IsAvailable }
+            });
         }
 
         private bool myClient(uint handle)
@@ -2053,6 +2237,13 @@ namespace Radios
                 " is available:" + client.IsAvailable.ToString() +
                 " Only:" + OnlyStation.ToString() +
                 " CanTransmit:" + CanTransmit.ToString(), TraceLevel.Info);
+
+            ConnectionProfiler.Current?.RecordEvent("gui_client_updated", new Dictionary<string, object>
+            {
+                { "clientId", client.ClientID },
+                { "station", client.Station ?? "" },
+                { "isThisClient", client.IsThisClient }
+            });
         }
 
         private void guiClientRemoved(GUIClient client)
@@ -2076,6 +2267,14 @@ namespace Radios
                 " is available:" + client.IsAvailable.ToString() +
                 " Only:" + OnlyStation.ToString() +
                 " CanTransmit:" + CanTransmit.ToString(), TraceLevel.Info);
+
+            ConnectionProfiler.Current?.RecordEvent("gui_client_removed", new Dictionary<string, object>
+            {
+                { "clientId", client.ClientID },
+                { "handle", client.ClientHandle },
+                { "isThisClient", myClient(client.ClientHandle) },
+                { "station", client.Station ?? "" }
+            });
         }
 
         // These properties are for my client.

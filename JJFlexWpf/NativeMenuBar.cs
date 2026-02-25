@@ -732,6 +732,11 @@ public class NativeMenuBar : IDisposable
             AddWired(operations, "Connect a radio to see operations", SpeakNoRadio);
         }
 
+        // === Tools ===
+        AddSep(operations);
+        AddWired(operations, "Connection Tester", () => _window.ShowConnectionTesterCallback?.Invoke());
+        AddWired(operations, "View Test Results", () => _window.ShowTestResultsCallback?.Invoke());
+
         // === Help (shared) ===
         BuildHelpPopup(bar);
 
@@ -923,6 +928,9 @@ public class NativeMenuBar : IDisposable
         AddNotImplemented(tools, "Hotkey Editor");
         AddNotImplemented(tools, "Band Plans");
         AddNotImplemented(tools, "Feature Availability");
+        AddSep(tools);
+        AddWired(tools, "Connection Tester", () => _window.ShowConnectionTesterCallback?.Invoke());
+        AddWired(tools, "View Test Results", () => _window.ShowTestResultsCallback?.Invoke());
 
         // === Help (shared) ===
         BuildHelpPopup(bar);
@@ -1067,17 +1075,12 @@ public class NativeMenuBar : IDisposable
     /// </summary>
     private void SpeakAfterMenuClose(string message)
     {
-        _window.Dispatcher.BeginInvoke(() =>
+        // LiveRegion doesn't work through ElementHost interop (Sprint 15 Track E finding:
+        // NVDA reads "Status" instead of message content). Use Tolk with delay instead.
+        _window.Dispatcher.BeginInvoke(async () =>
         {
-            try
-            {
-                _window.SpeakViaLiveRegion(message);
-            }
-            catch
-            {
-                // Fallback: old Tolk pattern if LiveRegion throws
-                Radios.ScreenReaderOutput.Speak(message, interrupt: true);
-            }
+            await System.Threading.Tasks.Task.Delay(150);
+            Radios.ScreenReaderOutput.Speak(message, interrupt: true);
         });
     }
 
