@@ -685,13 +685,13 @@ public class NativeMenuBar : IDisposable
         // Category navigation items — open/close expander sections in the field panel
         AddWired(screenFields, "Noise Reduction and DSP\tCtrl+Shift+N",
             () => _window.FieldsPanel.ToggleCategory(0));
-        AddWired(screenFields, "Audio\tCtrl+Shift+A",
+        AddWired(screenFields, "Audio\tCtrl+Shift+U",
             () => _window.FieldsPanel.ToggleCategory(1));
         AddWired(screenFields, "Receiver\tCtrl+Shift+R",
             () => _window.FieldsPanel.ToggleCategory(2));
         AddWired(screenFields, "Transmission\tCtrl+Shift+T",
             () => _window.FieldsPanel.ToggleCategory(3));
-        AddWired(screenFields, "Antenna\tCtrl+Shift+E",
+        AddWired(screenFields, "Antenna\tCtrl+Shift+A",
             () => _window.FieldsPanel.ToggleCategory(4));
 
         // === Operations (DSP toggles, controls, radio features) — Sprint 15 Track D ===

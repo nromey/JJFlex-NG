@@ -124,6 +124,15 @@ Namespace My
                 ' so they work even if RigControl is Nothing when wired.
                 handlers.FormatFreq = Function(s) RigControl.Callouts.FormatFreq(ULong.Parse(s))
                 handlers.FreqInt64 = Function(s) RigControl.Callouts.FormatFreqForRadio(s)
+
+                ' Load filter presets for the current operator and wire to both
+                ' FreqOutHandlers (for Alt+[/] preset cycling) and NativeMenuBar (for menu).
+                If CurrentOp IsNot Nothing Then
+                    Dim opName = PersonalData.UniqueOpName(CurrentOp)
+                    Dim presets = Radios.FilterPresets.Load(BaseConfigDir & "\Radios", opName)
+                    handlers.FilterPresets = presets
+                    WpfMainWindow.SetNativeMenuFilterPresetsCallback?.Invoke(presets)
+                End If
             End Sub
         End Sub
 
