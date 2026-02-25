@@ -1974,55 +1974,6 @@ public partial class MainWindow : UserControl
 
     #endregion
 
-    #region UIA LiveRegion — Sprint 15 Track E
-
-    /// <summary>
-    /// Speak a message via UIA LiveRegion. The AutomationPeer fires LiveRegionChanged
-    /// when the text changes, and the screen reader speaks it — no timing hacks needed.
-    ///
-    /// This replaces the 150ms Task.Delay + Tolk.Speak pattern used in SpeakAfterMenuClose.
-    /// The LiveRegion fires at the right time naturally because UIA events propagate
-    /// through the accessibility tree after the menu closes and focus returns.
-    ///
-    /// Fallback: If LiveRegion doesn't work through ElementHost interop, callers
-    /// should fall back to Tolk.Speak directly.
-    /// </summary>
-    public void SpeakViaLiveRegion(string message)
-    {
-        if (string.IsNullOrEmpty(message)) return;
-
-        if (!Dispatcher.CheckAccess())
-        {
-            Dispatcher.Invoke(() => SpeakViaLiveRegion(message));
-            return;
-        }
-
-        // Must be Visible for the AutomationPeer to exist in the UIA tree
-        LiveRegionHost.Visibility = Visibility.Visible;
-
-        // Clear text first to force a PropertyChanged event even if the
-        // new message is identical to the previous one
-        LiveRegionHost.Text = "";
-        LiveRegionHost.Text = message;
-
-        // Raise LiveRegionChanged explicitly via the AutomationPeer.
-        // Some screen readers need this explicit notification in addition
-        // to the text property change.
-        var peer = System.Windows.Automation.Peers.UIElementAutomationPeer
-            .FromElement(LiveRegionHost);
-        if (peer == null)
-        {
-            peer = System.Windows.Automation.Peers.UIElementAutomationPeer
-                .CreatePeerForElement(LiveRegionHost);
-        }
-        peer?.RaiseAutomationEvent(
-            System.Windows.Automation.Peers.AutomationEvents.LiveRegionChanged);
-
-        Tracing.TraceLine($"SpeakViaLiveRegion: '{message}'", TraceLevel.Verbose);
-    }
-
-    #endregion
-
     #region Form1 Compatibility — Phase 9.1
 
     /// <summary>

@@ -106,6 +106,13 @@ public partial class ScreenFieldsPanel : UserControl
 
         // Antenna category always visible — ATU is on all supported Flex radios
 
+        // Hide NR controls if NR license is not available on this radio
+        bool nrAvailable = !(rig.NoiseReductionLicenseReported && !rig.NoiseReductionLicensed);
+        _neuralNrCheck.Visibility = nrAvailable ? Visibility.Visible : Visibility.Collapsed;
+        _spectralNrCheck.Visibility = nrAvailable ? Visibility.Visible : Visibility.Collapsed;
+        _legacyNrCheck.Visibility = nrAvailable ? Visibility.Visible : Visibility.Collapsed;
+        _nrLevelControl.Visibility = Visibility.Collapsed; // shown only when Legacy NR is on
+
         // RF Gain bounds vary by radio model — update from connected radio
         _rfGainControl.Min = rig.RFGainMin;
         _rfGainControl.Max = rig.RFGainMax;
@@ -411,13 +418,17 @@ public partial class ScreenFieldsPanel : UserControl
     {
         if (_rig == null) return;
 
-        _neuralNrCheck.IsChecked = _rig.NeuralNoiseReduction == FlexBase.OffOnValues.on;
-        _spectralNrCheck.IsChecked = _rig.SpectralNoiseReduction == FlexBase.OffOnValues.on;
+        // Only poll NR controls if license is available (controls may be collapsed)
+        if (_neuralNrCheck.Visibility == Visibility.Visible)
+        {
+            _neuralNrCheck.IsChecked = _rig.NeuralNoiseReduction == FlexBase.OffOnValues.on;
+            _spectralNrCheck.IsChecked = _rig.SpectralNoiseReduction == FlexBase.OffOnValues.on;
 
-        bool legacyNrOn = _rig.NoiseReductionLegacy == FlexBase.OffOnValues.on;
-        _legacyNrCheck.IsChecked = legacyNrOn;
-        _nrLevelControl.Visibility = legacyNrOn ? Visibility.Visible : Visibility.Collapsed;
-        if (legacyNrOn) _nrLevelControl.Value = _rig.NoiseReductionLegacyLevel;
+            bool legacyNrOn = _rig.NoiseReductionLegacy == FlexBase.OffOnValues.on;
+            _legacyNrCheck.IsChecked = legacyNrOn;
+            _nrLevelControl.Visibility = legacyNrOn ? Visibility.Visible : Visibility.Collapsed;
+            if (legacyNrOn) _nrLevelControl.Value = _rig.NoiseReductionLegacyLevel;
+        }
 
         bool nbOn = _rig.NoiseBlanker == FlexBase.OffOnValues.on;
         _nbCheck.IsChecked = nbOn;
