@@ -3448,6 +3448,16 @@ namespace Radios
         public Action ShowMemoriesDialog { get; set; }
 
         /// <summary>
+        /// Export the radio's profile database to a user-selected file.
+        /// Sprint 16 Track C: Wraps FlexDB.Export() for external callers.
+        /// </summary>
+        public bool ExportProfileDatabase()
+        {
+            var db = new FlexDB(this);
+            return db.Export();
+        }
+
+        /// <summary>
         /// Delegate to show the TX Controls dialog. Wired externally.
         /// Sprint 11: Replaces direct TXControls form creation.
         /// </summary>

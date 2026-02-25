@@ -749,6 +749,36 @@ public partial class MainWindow : UserControl
     public Action<string, string>? ShowErrorCallback { get; set; }
 
     /// <summary>
+    /// Callback to build the list of current key-action mappings for ShowKeysDialog.
+    /// Set by ApplicationEvents.vb.
+    /// </summary>
+    public Func<List<Dialogs.KeyActionItem>>? GetKeyActionsCallback { get; set; }
+
+    /// <summary>
+    /// Callback to build the list of all available actions for SetupKeysDialog.
+    /// Set by ApplicationEvents.vb.
+    /// </summary>
+    public Func<List<Dialogs.ActionItem>>? GetAvailableActionsCallback { get; set; }
+
+    /// <summary>
+    /// Callback to build the list of command finder items for CommandFinderDialog.
+    /// Set by ApplicationEvents.vb.
+    /// </summary>
+    public Func<List<Dialogs.CommandFinderItem>>? GetCommandFinderItemsCallback { get; set; }
+
+    /// <summary>
+    /// Callback to execute a command by its tag (CommandValues enum value).
+    /// Set by ApplicationEvents.vb.
+    /// </summary>
+    public Action<object>? ExecuteCommandCallback { get; set; }
+
+    /// <summary>
+    /// Callback to save updated key mappings from the ShowKeysDialog.
+    /// Set by ApplicationEvents.vb.
+    /// </summary>
+    public Action<List<Dialogs.KeyActionItem>>? SaveKeyActionsCallback { get; set; }
+
+    /// <summary>
     /// Antenna tune button base text, matching Form1 pattern.
     /// </summary>
     private const string AntennaTuneButtonBaseText = "Ant Tune";

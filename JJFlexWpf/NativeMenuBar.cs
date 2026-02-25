@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Windows;
 using Flex.Smoothlake.FlexLib;
@@ -631,7 +632,7 @@ public class NativeMenuBar : IDisposable
             () => _window.IsAutoConnectEnabled?.Invoke() ?? false);
         AddWired(actions, "Clear Auto-Connect",
             () => { var msg = _window.ClearAutoConnect(); if (msg != null) SpeakAfterMenuClose(msg); });
-        AddNotImplemented(actions, "Manage Profiles");
+        AddWired(actions, "Manage Profiles", () => ShowManageProfilesDialog());
         AddNotImplemented(actions, "Local PTT On");
         AddNotImplemented(actions, "Connected Stations");
         AddNotImplemented(actions, "Flex Knob Config");
@@ -643,6 +644,13 @@ public class NativeMenuBar : IDisposable
         AddNotImplemented(loggingSub, "Export Log");
         AddNotImplemented(loggingSub, "LOTW Merge");
 
+        AddWired(actions, "Export Profiles", () =>
+        {
+            if (Rig == null) { SpeakNoRadio(); return; }
+            bool success = Rig.ExportProfileDatabase();
+            if (!success)
+                SpeakAfterMenuClose("Profile export cancelled or failed");
+        });
         AddNotImplemented(actions, "Export Setup");
         AddNotImplemented(actions, "Show Bands and Frequencies");
 
@@ -652,7 +660,7 @@ public class NativeMenuBar : IDisposable
             AddNotImplemented(actions, "Toggle Diversity");
         if (_escAvailable)
             AddNotImplemented(actions, "Open ESC Controls");
-        AddNotImplemented(actions, "Feature Availability");
+        AddWired(actions, "Feature Availability", () => ShowFeatureAvailability());
 
         AddSep(actions);
 
@@ -744,6 +752,14 @@ public class NativeMenuBar : IDisposable
 
         // === Tools ===
         AddSep(operations);
+        AddWired(operations, "Profile Report", () =>
+        {
+            if (Rig == null) { SpeakNoRadio(); return; }
+            var report = ProfileReporter.GenerateReport(Rig);
+            var path = ProfileReporter.SaveReport(report);
+            SpeakAfterMenuClose($"Profile report saved to {path}");
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(path) { UseShellExecute = true });
+        });
         AddWired(operations, "View Test Results", () => _window.ShowTestResultsCallback?.Invoke());
 
         // === Help (shared) ===
@@ -770,7 +786,7 @@ public class NativeMenuBar : IDisposable
         AddWired(radio, "Clear Auto-Connect",
             () => { var msg = _window.ClearAutoConnect(); if (msg != null) SpeakAfterMenuClose(msg); });
         AddNotImplemented(radio, "Operators");
-        AddNotImplemented(radio, "Profiles");
+        AddWired(radio, "Profiles", () => ShowManageProfilesDialog());
         AddNotImplemented(radio, "Connected Stations");
         AddSep(radio);
         AddWired(radio, "Disconnect", () => _window.CloseRadioCallback?.Invoke());
@@ -936,7 +952,7 @@ public class NativeMenuBar : IDisposable
 
         // === Tools ===
         var tools = AddPopup(bar, "&Tools");
-        AddNotImplemented(tools, "Command Finder");
+        AddWired(tools, "Command Finder", () => ShowCommandFinderDialog());
         AddStub(tools, "Speak Status");
         AddStub(tools, "Status Dialog");
         AddNotImplemented(tools, "Station Lookup");
@@ -946,7 +962,15 @@ public class NativeMenuBar : IDisposable
         AddSep(tools);
         AddNotImplemented(tools, "Hotkey Editor");
         AddNotImplemented(tools, "Band Plans");
-        AddNotImplemented(tools, "Feature Availability");
+        AddWired(tools, "Feature Availability", () => ShowFeatureAvailability());
+        AddWired(tools, "Profile Report", () =>
+        {
+            if (Rig == null) { SpeakNoRadio(); return; }
+            var report = ProfileReporter.GenerateReport(Rig);
+            var path = ProfileReporter.SaveReport(report);
+            SpeakAfterMenuClose($"Profile report saved to {path}");
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(path) { UseShellExecute = true });
+        });
         AddSep(tools);
         AddWired(tools, "View Test Results", () => _window.ShowTestResultsCallback?.Invoke());
 
@@ -1014,11 +1038,43 @@ public class NativeMenuBar : IDisposable
     {
         var help = AddPopup(bar, "&Help");
         AddNotImplemented(help, "Help Page");
-        AddNotImplemented(help, "Key Assignments");
-        AddNotImplemented(help, "Key Assignments (Alphabetical)");
-        AddNotImplemented(help, "Key Assignments (By Function)");
-        AddNotImplemented(help, "Tracing");
-        AddNotImplemented(help, "About");
+        AddWired(help, "Key Assignments", () => ShowKeysDialog());
+        AddWired(help, "Key Assignments (Alphabetical)", () => ShowKeysDialog());
+        AddWired(help, "Key Assignments (By Function)", () => ShowKeysDialog());
+        AddWired(help, "Tracing", () =>
+        {
+            var dialog = new Dialogs.TraceAdminDialog
+            {
+                InitialFilePath = Tracing.TraceFile ?? "",
+                DefaultLevel = (int)(Tracing.TheSwitch?.Level ?? System.Diagnostics.TraceLevel.Info),
+                StartTracing = (filePath, levelIndex) =>
+                {
+                    Tracing.On = false;
+                    Tracing.TraceFile = filePath;
+                    Tracing.TheSwitch.Level = (System.Diagnostics.TraceLevel)levelIndex;
+                    Tracing.On = true;
+                    Tracing.TraceLine($"User started tracing at level {Tracing.TheSwitch.Level}");
+                },
+                StopTracing = () =>
+                {
+                    Tracing.TraceLine("User stopped tracing");
+                    Tracing.On = false;
+                }
+            };
+            dialog.ShowDialog();
+        });
+        AddWired(help, "About", () =>
+        {
+            var dialog = new Dialogs.AboutDialog
+            {
+                ProductName = "JJFlexRadio",
+                VersionText = System.Reflection.Assembly.GetEntryAssembly()?.GetName().Version?.ToString() ?? "Unknown",
+                Copyright = "Copyright Jim Shaffer",
+                CompanyName = "",
+                Description = "FlexRadio control application for FLEX-6000 and FLEX-8000 series transceivers."
+            };
+            dialog.ShowDialog();
+        });
     }
 
     #endregion
@@ -1098,6 +1154,164 @@ public class NativeMenuBar : IDisposable
     private void AddSep(IntPtr popup)
     {
         AppendMenuW(popup, MF_SEPARATOR, UIntPtr.Zero, null);
+    }
+
+    #endregion
+
+    #region Dialog Launchers — Sprint 16 Track C
+
+    /// <summary>
+    /// Show the Key Assignments dialog populated with current key bindings.
+    /// </summary>
+    private void ShowKeysDialog()
+    {
+        var keyActions = _window.GetKeyActionsCallback?.Invoke();
+        if (keyActions == null)
+        {
+            SpeakAfterMenuClose("Key data not available");
+            return;
+        }
+        var dialog = new Dialogs.ShowKeysDialog
+        {
+            KeyActions = keyActions,
+            AvailableKeys = keyActions, // Same list — the dialog filters configured vs available
+            AvailableActions = _window.GetAvailableActionsCallback?.Invoke()
+        };
+        if (dialog.ShowDialog() == true)
+        {
+            _window.SaveKeyActionsCallback?.Invoke(dialog.KeyActions);
+        }
+    }
+
+    /// <summary>
+    /// Show the Command Finder dialog with all available commands.
+    /// </summary>
+    private void ShowCommandFinderDialog()
+    {
+        var dialog = new Dialogs.CommandFinderDialog
+        {
+            GetCommands = () => _window.GetCommandFinderItemsCallback?.Invoke()
+                ?? new List<Dialogs.CommandFinderItem>(),
+            ExecuteCommand = (tag) => _window.ExecuteCommandCallback?.Invoke(tag),
+            SpeakText = (msg) => Radios.ScreenReaderOutput.Speak(msg)
+        };
+        dialog.ShowDialog();
+    }
+
+    /// <summary>
+    /// Show the Feature Availability tab of the RadioInfo dialog.
+    /// </summary>
+    private void ShowFeatureAvailability()
+    {
+        if (Rig == null) { SpeakNoRadio(); return; }
+        Rig.ShowRadioInfoDialog?.Invoke((int)Dialogs.RadioInfoTab.FeatureAvailability);
+    }
+
+    /// <summary>
+    /// Show the Manage Profiles dialog.
+    /// </summary>
+    private void ShowManageProfilesDialog()
+    {
+        if (Rig == null) { SpeakNoRadio(); return; }
+
+        var callbacks = new Dialogs.ProfileDialogCallbacks
+        {
+            GetDisplayItems = () =>
+            {
+                var items = new List<Dialogs.ProfileDisplayItem>();
+                var types = new[] {
+                    Radios.ProfileTypes.global,
+                    Radios.ProfileTypes.tx,
+                    Radios.ProfileTypes.mic
+                };
+                foreach (var ptype in types)
+                {
+                    var profiles = Rig.GetProfilesByType(ptype);
+                    if (profiles == null) continue;
+                    foreach (var p in profiles)
+                    {
+                        string suffix = p.Default ? " (default)" : "";
+                        string typeLabel = ptype.ToString().ToUpperInvariant();
+                        items.Add(new Dialogs.ProfileDisplayItem
+                        {
+                            DisplayText = $"[{typeLabel}] {p.Name}{suffix}",
+                            ProfileData = p
+                        });
+                    }
+                }
+                return items;
+            },
+            GetProfileTypeNames = () => new[] { "Global", "TX", "MIC" },
+            GetProfileNamesByType = (typeIndex) =>
+            {
+                var ptype = typeIndex switch
+                {
+                    0 => Radios.ProfileTypes.global,
+                    1 => Radios.ProfileTypes.tx,
+                    2 => Radios.ProfileTypes.mic,
+                    _ => Radios.ProfileTypes.global
+                };
+                var profiles = Rig.GetProfilesByType(ptype);
+                return profiles?.Select(p => p.Name) ?? Enumerable.Empty<string>();
+            },
+            OnAdd = (result) =>
+            {
+                // Not implemented yet — profile creation requires radio-specific API calls
+                SpeakAfterMenuClose("Profile creation not yet available");
+            },
+            OnUpdate = (originalData, result) =>
+            {
+                SpeakAfterMenuClose("Profile update not yet available");
+            },
+            OnDelete = (profileData) =>
+            {
+                if (profileData is Radios.Profile_t profile)
+                {
+                    bool ok = Rig.DeleteProfile(profile);
+                    return ok ? null : "Could not delete profile";
+                }
+                return "Invalid profile data";
+            },
+            OnSelect = (profileData) =>
+            {
+                if (profileData is Radios.Profile_t profile)
+                {
+                    bool ok = Rig.SelectProfile(profile);
+                    if (ok)
+                        SpeakAfterMenuClose($"Profile {profile.Name} selected");
+                    return ok ? null : "Could not select profile";
+                }
+                return "Invalid profile data";
+            },
+            OnSave = (profileData) =>
+            {
+                if (profileData is Radios.Profile_t profile)
+                {
+                    Rig.SaveProfile(profile, immediately: true);
+                    SpeakAfterMenuClose($"Profile {profile.Name} saved");
+                }
+            },
+            IsGlobalProfile = (profileData) =>
+                profileData is Radios.Profile_t p && p.ProfileType == Radios.ProfileTypes.global,
+            GetProfileEditData = (profileData) =>
+            {
+                if (profileData is Radios.Profile_t p)
+                {
+                    int typeIndex = p.ProfileType switch
+                    {
+                        Radios.ProfileTypes.global => 0,
+                        Radios.ProfileTypes.tx => 1,
+                        Radios.ProfileTypes.mic => 2,
+                        _ => 0
+                    };
+                    return (p.Name, typeIndex, p.Default);
+                }
+                return ("", 0, false);
+            }
+        };
+
+        var dialog = new Dialogs.ProfileDialog(callbacks);
+        dialog.ShowDialog();
     }
 
     #endregion
