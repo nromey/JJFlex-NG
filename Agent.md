@@ -24,23 +24,57 @@ This document captures the current state of JJ-Flex repository and active work.
   - Filter LSB/CW fix: removed Math.Max(0,...) clamping that broke negative filter edges
   - Filter boundary announcements: "Filter at minimum/maximum", "Beginning", "End"
 
-## Sprint 15 — COMPLETE (needs testing)
+## Sprint 15 — COMPLETE (tested 2026-02-25)
 
-**5 parallel tracks, all merged to main:**
-- **Track A:** WPF RigSelector replaces WinForms, auto-connect unified to V2 only, SmartLink account manager + login wired, legacy RigSelector.vb deleted (-822 lines)
-- **Track B:** Filter overhaul — new key scheme (unmodified=independent edges, Ctrl=squeeze/pull, Shift=slide, Alt=presets), FilterPresets per-mode (SSB/CW/DIGI), adaptive step sizes, hotkey remap (F=read freq, Ctrl+Shift+F=toggle readout, Shift+S=announce step, bare S freed for Sprint 16 S-meter), bracket keys in Classic mode
-- **Track C:** PTT safety — state machine (Idle/PttHold/Locked/Warning1-3/HardKill), Space=PTT hold, Shift+Space=lock, earcon beeps, configurable timeouts, 15-min hard kill, ALC=0 auto-release
-- **Track D:** ScreenFields menu redesign — 5 category navigation items (Ctrl+Shift+N/A/R/T/E), panel visibility persistence, tab order fix, Modern menu audit
-- **Track E:** UIA LiveRegion pilot — replaces 150ms Tolk hack for SpeakAfterMenuClose, Tolk fallback preserved
+**5 parallel tracks, all merged to main. Test matrix: `docs/planning/agile/sprint15-test-matrix.md`**
+
+- **Track A:** WPF RigSelector — 9 PASS. SmartLink connect, auto-connect, multi-account, delete account all working. Retry delay needed (4ms too fast).
+- **Track B:** Filter overhaul — 6 PASS, 3 BUG. Bracket keys (independent, squeeze/pull, shift) all work. **Bugs:** FilterPresets never wired (Alt+bracket says "no presets"), F and Shift+S key routing broken (never reach FreqOutHandlers).
+- **Track C:** PTT safety — DEFERRED. Needs virtual dummy load before testing on live radio. Infrastructure built but untested.
+- **Track D:** ScreenFields menu — 6 PASS, 2 MISSING. Ctrl+Shift+N/A/R/T/E expand/collapse works. **Missing:** no focus set on expand, no focus return on collapse.
+- **Track E:** UIA LiveRegion — FAIL. LiveRegion doesn't work through ElementHost interop (NVDA reads "Status" instead of message). **Reverted to Tolk** with 150ms delay. Code change in NativeMenuBar.cs committed during testing.
+
+**Code changes during testing:**
+- `NativeMenuBar.cs` — SpeakAfterMenuClose reverted from LiveRegion to Tolk (LiveRegion broken through ElementHost)
+- `globals.vb` — ShowAccountSelector tested with account dialog, reverted to auto-select (original behavior was correct, radio was just offline)
+
+## Sprint 15.5 — COMPLETE (coded 2026-02-25)
+
+**SmartLink connection reliability — 4 tracks, all committed.**
+
+Problem: 3/3 SmartLink connections to Don's radio failed. guiClient added then removed ~1.2s later, re-add never arrives, 15s timeout, retry broken (used TryAutoConnect for manual connections).
+
+- **Track 1:** Fix manual connection retry — `ReconnectRemote()`, 3s delay, two-path retry (manual vs auto-connect)
+- **Track 2:** ConnectionProfiler — timestamped JSON event logging for entire lifecycle
+- **Track 3:** Connection Tester — automated N-test harness with WPF dialog, text report generator, menu items
+- **Track 4:** JWT diagnostic logging — actual exp/iat claim timestamps in trace
+
+**New files:** `Radios/ConnectionProfiler.cs`, `Radios/ConnectionTester.cs`, `Radios/ConnectionTestReport.cs`, `JJFlexWpf/Dialogs/ConnectionTesterDialog.xaml/.cs`
+
+**Menu:** Operations → Connection Tester / View Test Results (Classic), Tools → same (Modern)
+
+**Needs testing:** Run Connection Tester against Don's radio (25+ tests), analyze report, iterate.
 
 **Carried forward to Sprint 16:**
+- Wire FilterPresets to FreqOutHandlers and NativeMenuBar
+- Fix F and Shift+S key routing
+- Filter edge select mode (double-tap bracket, earcon + speech feedback)
+- ScreenFields focus on expand/collapse + Ctrl+Tab between groups
+- Key remapping: Ctrl+Shift+A=Antenna, Ctrl+Shift+U=Audio
+- Ctrl+Shift+/ spoken context-sensitive hotkey help
+- Fix Ctrl+/ key name display ("Ctrl+M2" → "Ctrl+/")
+- Unify KeyCommands + WPF PreviewKeyDown hotkeys
+- RNN license gating in menus
+- Virtual dummy load for PTT testing
+- Remove dead LiveRegion code
 - S-meter read on bare S key
 - Configurable tuning step lists
 - Global tuning hotkeys (system-wide)
 - Logging mode: F6 to flip to radio view
 - Alt+letter menu accelerator investigation
 - Earcon expansion (boundary bonk, field tick, tune tones)
-- Virtual dummy load
+- NAudio integration for waterfall sonification
+- Verbosity settings (speech vs earcons only)
 
 ## 2) Current Architecture
 
