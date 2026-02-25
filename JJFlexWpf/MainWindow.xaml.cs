@@ -65,6 +65,7 @@ public partial class MainWindow : UserControl
 
         // Wire ScreenFieldsPanel Escape handler (Sprint 14) — once, not per-connect
         FieldsPanel.EscapePressed += (s, e) => FreqOut.FocusDisplay();
+        FieldsPanel.ReturnFocusToFreqOut = () => FreqOut.FocusDisplay();
     }
 
     /// <summary>
@@ -152,6 +153,13 @@ public partial class MainWindow : UserControl
     /// Set by ApplicationEvents.vb. Called when handlers are first created in SetupFreqout().
     /// </summary>
     public Action<FreqOutHandlers>? FreqOutHandlersWireCallback { get; set; }
+
+    /// <summary>
+    /// Callback to set filter presets on the NativeMenuBar.
+    /// Set by ShellForm constructor. Called from FreqOutHandlersWireCallback
+    /// so presets are available before the menu rebuild in PowerNowOn.
+    /// </summary>
+    public Action<Radios.FilterPresets>? SetNativeMenuFilterPresetsCallback { get; set; }
 
     #region PollTimer — Phase 8.4
 
@@ -595,10 +603,10 @@ public partial class MainWindow : UserControl
                 int categoryIndex = key switch
                 {
                     Key.N => 0, // Noise Reduction and DSP
-                    Key.A => 1, // Audio
+                    Key.U => 1, // Audio
                     Key.R => 2, // Receiver
                     Key.T => 3, // Transmission
-                    Key.E => 4, // Antenna
+                    Key.A => 4, // Antenna
                     _ => -1
                 };
                 if (categoryIndex >= 0)

@@ -47,6 +47,7 @@ Public Class ShellForm
         _nativeMenu = New JJFlexWpf.NativeMenuBar(WpfContent)
         WpfContent.MenuModeCallback = Sub(mode) _nativeMenu.ApplyUIMode(mode)
         WpfContent.RebuildMenuCallback = Sub() _nativeMenu.RebuildCurrentMenu()
+        WpfContent.SetNativeMenuFilterPresetsCallback = Sub(presets) _nativeMenu.FilterPresets = presets
     End Sub
 
     Protected Overrides Sub OnHandleCreated(e As EventArgs)
