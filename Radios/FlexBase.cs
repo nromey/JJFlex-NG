@@ -4149,6 +4149,35 @@ namespace Radios
             }
         }
 
+        // Dummy Load Mode: zeroes power for safe PTT testing, restores on disable
+        private bool _dummyLoadMode;
+        private int _savedRFPower;
+        private int _savedTunePower;
+
+        public bool DummyLoadMode
+        {
+            get => _dummyLoadMode;
+            set
+            {
+                if (value == _dummyLoadMode) return;
+
+                if (value)
+                {
+                    _savedRFPower = XmitPower;
+                    _savedTunePower = TunePower;
+                    XmitPower = 0;
+                    TunePower = 0;
+                    _dummyLoadMode = true;
+                }
+                else
+                {
+                    _dummyLoadMode = false;
+                    XmitPower = _savedRFPower;
+                    TunePower = _savedTunePower;
+                }
+            }
+        }
+
         // transmit power
         internal const int XmitPowerMin = 0;
         internal const int XmitPowerMax = 100;

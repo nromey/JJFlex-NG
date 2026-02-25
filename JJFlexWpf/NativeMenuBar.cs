@@ -714,6 +714,16 @@ public class NativeMenuBar : IDisposable
             var txSub = AddSubmenu(operations, "Transmission");
             AddWired(txSub, "VOX On/Off", () =>
                 ToggleDSP("VOX", () => Rig.Vox, v => Rig.Vox = v));
+            AddSep(txSub);
+            AddChecked(txSub, "Dummy Load Mode", () =>
+            {
+                Rig.DummyLoadMode = !Rig.DummyLoadMode;
+                if (Rig.DummyLoadMode)
+                    SpeakAfterMenuClose("Dummy load mode on. Power zero.");
+                else
+                    SpeakAfterMenuClose($"Dummy load mode off. Power restored to {Rig.XmitPower}.");
+            },
+            () => Rig?.DummyLoadMode == true);
 
             // Antenna Tuner
             var atuSub = AddSubmenu(operations, "Antenna Tuner");
@@ -887,6 +897,16 @@ public class NativeMenuBar : IDisposable
             var txSub = AddSubmenu(slice, "Transmission");
             AddWired(txSub, "VOX On/Off", () =>
                 ToggleDSP("VOX", () => Rig.Vox, v => Rig.Vox = v));
+            AddSep(txSub);
+            AddChecked(txSub, "Dummy Load Mode", () =>
+            {
+                Rig.DummyLoadMode = !Rig.DummyLoadMode;
+                if (Rig.DummyLoadMode)
+                    SpeakAfterMenuClose("Dummy load mode on. Power zero.");
+                else
+                    SpeakAfterMenuClose($"Dummy load mode off. Power restored to {Rig.XmitPower}.");
+            },
+            () => Rig?.DummyLoadMode == true);
         }
         else
         {
@@ -1064,19 +1084,11 @@ public class NativeMenuBar : IDisposable
     }
 
     /// <summary>
-    /// Speak a message after the menu closes using UIA LiveRegion.
-    /// Sprint 15 Track E: Replaces the 150ms Task.Delay + Tolk.Speak timing hack.
-    ///
-    /// The LiveRegion fires a LiveRegionChanged automation event when its text changes,
-    /// which the screen reader picks up naturally after the menu closes and focus returns.
-    /// No timing delay needed.
-    ///
-    /// Falls back to the old Tolk pattern if LiveRegion fails (e.g., ElementHost interop issue).
+    /// Speak a message after the menu closes. Uses a 150ms delay so the screen reader
+    /// picks up the speech after the menu closes and focus returns to the main window.
     /// </summary>
     private void SpeakAfterMenuClose(string message)
     {
-        // LiveRegion doesn't work through ElementHost interop (Sprint 15 Track E finding:
-        // NVDA reads "Status" instead of message content). Use Tolk with delay instead.
         _window.Dispatcher.BeginInvoke(async () =>
         {
             await System.Threading.Tasks.Task.Delay(150);
