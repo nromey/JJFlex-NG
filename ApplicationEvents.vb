@@ -61,8 +61,7 @@ Namespace My
             ' Wire close callback so Exit menu item can close the ShellForm.
             WpfMainWindow.CloseShellCallback = Sub() TheShellForm.Close()
 
-            ' Wire Connection Tester callbacks (Sprint 15.5)
-            WpfMainWindow.ShowConnectionTesterCallback = AddressOf ShowConnectionTester
+            ' Wire Connection Test results callback (Sprint 15.5)
             WpfMainWindow.ShowTestResultsCallback = AddressOf ShowTestResults
 
             ' Wire UI mode persistence — saves to operator profile when user switches modes.

@@ -525,11 +525,15 @@ namespace Radios
             return true;
         }
 
+        /// <summary>Reason the last Start() call failed. Set before returning false.</summary>
+        public string? LastStartFailureReason { get; private set; }
+
         /// <summary>
         /// Start radio activity
         /// </summary>
         public bool Start()
         {
+            LastStartFailureReason = null;
             ConnectionProfiler.Current?.RecordEvent("start_begin");
             FilterObj = new WpfFilterAdapter(this);
 
@@ -558,6 +562,7 @@ namespace Radios
                 }
                 catch { /* don't let info gathering block the error */ }
                 Tracing.TraceLine("start: couldn't get a slice", TraceLevel.Error);
+                LastStartFailureReason = "No slices available";
                 raiseNoSliceError(sliceMsg);
                 return false;
             }
@@ -569,6 +574,7 @@ namespace Radios
             }, 5000))
             {
                 Tracing.TraceLine("start:no RX antenna", TraceLevel.Error);
+                LastStartFailureReason = "No RX antenna detected";
                 raiseNoSliceError(noRXAnt);
                 return false;
             }
@@ -622,6 +628,7 @@ namespace Radios
                 // Connection dropped during SmartLink re-add cycle.
                 // Don't raise error — caller (openTheRadio) can retry the connection.
                 Tracing.TraceLine("start:connection lost during station name wait, caller may retry", TraceLevel.Error);
+                LastStartFailureReason = "Connection lost during setup";
                 ConnectionProfiler.Current?.RecordAndSave("start_connection_lost");
                 return false;
             }
@@ -631,6 +638,9 @@ namespace Radios
                 // Disconnect cleanly and return false so caller can retry with a fresh connection.
                 // Don't show error dialog — a fresh connection usually succeeds quickly.
                 Tracing.TraceLine("start:station name timeout, disconnecting for retry", TraceLevel.Warning);
+                LastStartFailureReason = _clientRemovedDuringStart
+                    ? "Client removed during connection"
+                    : "Station name timeout";
                 ConnectionProfiler.Current?.RecordAndSave("station_name_timeout", new Dictionary<string, object>
                 {
                     { "clientRemovedDuringStart", _clientRemovedDuringStart },

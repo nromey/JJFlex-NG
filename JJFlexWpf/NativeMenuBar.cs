@@ -734,7 +734,6 @@ public class NativeMenuBar : IDisposable
 
         // === Tools ===
         AddSep(operations);
-        AddWired(operations, "Connection Tester", () => _window.ShowConnectionTesterCallback?.Invoke());
         AddWired(operations, "View Test Results", () => _window.ShowTestResultsCallback?.Invoke());
 
         // === Help (shared) ===
@@ -929,7 +928,6 @@ public class NativeMenuBar : IDisposable
         AddNotImplemented(tools, "Band Plans");
         AddNotImplemented(tools, "Feature Availability");
         AddSep(tools);
-        AddWired(tools, "Connection Tester", () => _window.ShowConnectionTesterCallback?.Invoke());
         AddWired(tools, "View Test Results", () => _window.ShowTestResultsCallback?.Invoke());
 
         // === Help (shared) ===
