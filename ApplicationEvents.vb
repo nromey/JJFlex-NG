@@ -76,6 +76,62 @@ Namespace My
             ' Wire DoCommandHandler AFTER GetConfigInfo (which creates Commands).
             WpfMainWindow.DoCommandHandler = AddressOf Commands.DoCommand
 
+            ' Wire key/command callbacks for WPF dialogs (Sprint 16 Track C).
+            WpfMainWindow.GetKeyActionsCallback = Function()
+                Dim result = New List(Of JJFlexWpf.Dialogs.KeyActionItem)
+                For Each kt In Commands.KeyTable
+                    result.Add(New JJFlexWpf.Dialogs.KeyActionItem With {
+                        .KeyName = KeyString(kt.key.key),
+                        .KeyDescription = KeyString(kt.key.key),
+                        .ActionName = kt.key.id.ToString(),
+                        .ActionDescription = kt.helpText
+                    })
+                Next
+                Return result
+            End Function
+
+            WpfMainWindow.GetAvailableActionsCallback = Function()
+                Dim result = New List(Of JJFlexWpf.Dialogs.ActionItem)
+                For Each kt In Commands.KeyTable
+                    result.Add(New JJFlexWpf.Dialogs.ActionItem With {
+                        .Name = kt.key.id.ToString(),
+                        .Description = kt.helpText
+                    })
+                Next
+                Return result
+            End Function
+
+            WpfMainWindow.GetCommandFinderItemsCallback = Function()
+                Dim result = New List(Of JJFlexWpf.Dialogs.CommandFinderItem)
+                For Each kt In Commands.CurrentKeys()
+                    result.Add(New JJFlexWpf.Dialogs.CommandFinderItem With {
+                        .Description = kt.helpText,
+                        .KeyDisplay = KeyString(kt.key.key),
+                        .Scope = kt.Scope.ToString(),
+                        .Group = kt.Group.ToString(),
+                        .MenuText = kt.menuText,
+                        .Keywords = kt.Keywords,
+                        .Tag = kt.key.id
+                    })
+                Next
+                Return result
+            End Function
+
+            WpfMainWindow.ExecuteCommandCallback = Sub(tag)
+                If TypeOf tag Is KeyCommands.CommandValues Then
+                    Dim cmdId = DirectCast(tag, KeyCommands.CommandValues)
+                    Dim kt = Commands.lookup(cmdId)
+                    If kt IsNot Nothing AndAlso kt.rtn IsNot Nothing Then
+                        Commands.CommandId = cmdId
+                        Try
+                            kt.rtn()
+                        Catch ex As Exception
+                            JJTrace.Tracing.TraceLine("ExecuteCommand:" & ex.Message, TraceLevel.Error)
+                        End Try
+                    End If
+                End If
+            End Sub
+
             ' Wire auto-connect callbacks — needs CurrentOp from InitializeApplication.
             WpfMainWindow.IsAutoConnectEnabled = Function()
                 If CurrentOp Is Nothing Then Return False
