@@ -1571,14 +1571,7 @@ Module globals
                                    End If
                                    Dim best = accounts.OrderByDescending(Function(a) a.LastUsed).First()
                                    Return (False, best, True)
-                               End Function,
-            .NoRadiosHintSuppressed = If(CurrentOp IsNot Nothing, CurrentOp.SuppressNoRadiosHint, False),
-            .SaveNoRadiosHintSuppressed = Sub(suppress)
-                                              If CurrentOp IsNot Nothing Then
-                                                  CurrentOp.SuppressNoRadiosHint = suppress
-                                                  Operators.UpdateCurrentOp()
-                                              End If
-                                          End Sub
+                               End Function
         }
 
         ' Show the WPF selector dialog

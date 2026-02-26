@@ -93,11 +93,6 @@ namespace JJFlexWpf.Dialogs
         /// <summary>SmartLink account selector for test connections.</summary>
         public Func<SmartLinkAccountManager, (bool newLogin, SmartLinkAccount selected, bool ok)?>? AccountSelector { get; init; }
 
-        /// <summary>Whether the "no radios found" guidance dialog has been suppressed by the user.</summary>
-        public bool NoRadiosHintSuppressed { get; init; }
-
-        /// <summary>Save the "no radios found" guidance suppression preference.</summary>
-        public Action<bool>? SaveNoRadiosHintSuppressed { get; init; }
     }
 
     public partial class RigSelectorDialog : JJFlexDialog
@@ -202,8 +197,7 @@ namespace JJFlexWpf.Dialogs
                     ShowNoRadiosGuidance();
                 else
                 {
-                    ScreenReaderOutput.Speak(MustSelect);
-                    MessageBox.Show(MustSelect, "Select Radio", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    new MessageDialog { Title = "Select Radio", Message = MustSelect, Owner = this }.ShowDialog();
                     RadiosBox.Focus();
                 }
                 return;
@@ -235,7 +229,7 @@ namespace JJFlexWpf.Dialogs
             var radio = GetSelectedRadio();
             if (radio == null)
             {
-                MessageBox.Show(MustSelect, "Select Radio", MessageBoxButton.OK, MessageBoxImage.Warning);
+                new MessageDialog { Title = "Select Radio", Message = MustSelect, Owner = this }.ShowDialog();
                 RadiosBox.Focus();
                 return;
             }
@@ -277,7 +271,7 @@ namespace JJFlexWpf.Dialogs
             var radio = GetSelectedRadio();
             if (radio == null)
             {
-                MessageBox.Show(MustSelect, "Select Radio", MessageBoxButton.OK, MessageBoxImage.Warning);
+                new MessageDialog { Title = "Select Radio", Message = MustSelect, Owner = this }.ShowDialog();
                 RadiosBox.Focus();
                 return;
             }
@@ -375,7 +369,7 @@ namespace JJFlexWpf.Dialogs
             var radio = GetSelectedRadio();
             if (radio == null)
             {
-                MessageBox.Show(MustSelect, "Select Radio", MessageBoxButton.OK, MessageBoxImage.Warning);
+                new MessageDialog { Title = "Select Radio", Message = MustSelect, Owner = this }.ShowDialog();
                 RadiosBox.Focus();
                 return;
             }
@@ -466,18 +460,12 @@ namespace JJFlexWpf.Dialogs
 
         private void ShowNoRadiosGuidance()
         {
-            var dlg = new MessageDialog
+            new MessageDialog
             {
                 Title = "No Radios Found",
-                Message = "No local radios found. Tab to SmartLink and press Enter to discover remote radios.",
-                ShowDontShowAgain = !_callbacks.NoRadiosHintSuppressed,
+                Message = "No radios found. Click SmartLink to discover remote radios.",
                 Owner = this
-            };
-
-            dlg.ShowDialog();
-
-            if (dlg.DontShowAgainChecked)
-                _callbacks.SaveNoRadiosHintSuppressed?.Invoke(true);
+            }.ShowDialog();
         }
 
         private void RigSelectorDialog_Closing(object? sender, CancelEventArgs e)
