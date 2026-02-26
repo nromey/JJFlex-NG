@@ -40,10 +40,14 @@ namespace JJFlexWpf.Dialogs
         public MessageDialog()
         {
             InitializeComponent();
-            Loaded += OnLoaded;
         }
 
-        private void OnLoaded(object sender, RoutedEventArgs e)
+        /// <summary>
+        /// Apply all properties BEFORE focus moves, so screen readers
+        /// see the content when they read the dialog.
+        /// JJFlexDialog_Loaded calls this before FocusFirstControl().
+        /// </summary>
+        protected override void FocusFirstControl()
         {
             // Check if previously suppressed
             if (PersistenceTag != null && CheckSuppressed?.Invoke(PersistenceTag) == true)
@@ -65,6 +69,8 @@ namespace JJFlexWpf.Dialogs
 
             if (ShowCancel)
                 CancelBtn.Visibility = Visibility.Visible;
+
+            base.FocusFirstControl();
         }
 
         private void OKButton_Click(object sender, RoutedEventArgs e)

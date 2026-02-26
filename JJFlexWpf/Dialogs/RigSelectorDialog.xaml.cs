@@ -203,7 +203,7 @@ namespace JJFlexWpf.Dialogs
                 else
                 {
                     ScreenReaderOutput.Speak(MustSelect);
-                    new MessageDialog { Title = "Select Radio", Message = MustSelect, Owner = this }.ShowDialog();
+                    MessageBox.Show(MustSelect, "Select Radio", MessageBoxButton.OK, MessageBoxImage.Warning);
                     RadiosBox.Focus();
                 }
                 return;
@@ -235,7 +235,7 @@ namespace JJFlexWpf.Dialogs
             var radio = GetSelectedRadio();
             if (radio == null)
             {
-                new MessageDialog { Title = "Select Radio", Message = MustSelect, Owner = this }.ShowDialog();
+                MessageBox.Show(MustSelect, "Select Radio", MessageBoxButton.OK, MessageBoxImage.Warning);
                 RadiosBox.Focus();
                 return;
             }
@@ -277,7 +277,7 @@ namespace JJFlexWpf.Dialogs
             var radio = GetSelectedRadio();
             if (radio == null)
             {
-                new MessageDialog { Title = "Select Radio", Message = MustSelect, Owner = this }.ShowDialog();
+                MessageBox.Show(MustSelect, "Select Radio", MessageBoxButton.OK, MessageBoxImage.Warning);
                 RadiosBox.Focus();
                 return;
             }
@@ -375,7 +375,7 @@ namespace JJFlexWpf.Dialogs
             var radio = GetSelectedRadio();
             if (radio == null)
             {
-                new MessageDialog { Title = "Select Radio", Message = MustSelect, Owner = this }.ShowDialog();
+                MessageBox.Show(MustSelect, "Select Radio", MessageBoxButton.OK, MessageBoxImage.Warning);
                 RadiosBox.Focus();
                 return;
             }
