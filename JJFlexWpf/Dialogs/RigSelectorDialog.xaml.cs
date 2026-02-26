@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Threading;
@@ -108,7 +109,7 @@ namespace JJFlexWpf.Dialogs
         private readonly List<RadioListItem> _radiosList = new();
         private readonly object _radiosLock = new();
         private readonly DispatcherTimer _autoConnectTimer;
-        private readonly DispatcherTimer _discoveryTimer;
+        private System.Threading.CancellationTokenSource? _discoveryCts;
         private ConnectionTester? _tester;
         private bool _testRunning;
 
@@ -132,21 +133,16 @@ namespace JJFlexWpf.Dialogs
             };
             _autoConnectTimer.Tick += AutoConnectTimer_Tick;
 
-            // Set up discovery guidance timer (5 seconds)
-            _discoveryTimer = new DispatcherTimer
-            {
-                Interval = TimeSpan.FromSeconds(5)
-            };
-            _discoveryTimer.Tick += DiscoveryTimer_Tick;
-
             // Register for radio discovery events
             _callbacks.RegisterRadioFound(OnRadioFound);
 
             // Start local discovery
             _callbacks.StartLocalDiscovery();
 
-            // Start discovery guidance timer
-            _discoveryTimer.Start();
+            // Start async discovery guidance (5 seconds)
+            // Uses Task.Delay instead of DispatcherTimer — proven pattern for WPF-in-WinForms.
+            _discoveryCts = new System.Threading.CancellationTokenSource();
+            _ = ShowDiscoveryGuidanceAsync(_discoveryCts.Token);
 
             // Start auto-connect timer if appropriate
             if (callbacks.IsInitialBringup &&
@@ -159,8 +155,8 @@ namespace JJFlexWpf.Dialogs
 
         private void OnRadioFound(RadioListItem radio)
         {
-            // Radio found — no need for guidance
-            Dispatcher.BeginInvoke(() => _discoveryTimer.Stop());
+            // Radio found — cancel guidance
+            try { _discoveryCts?.Cancel(); } catch { }
 
             // Apply saved auto-connect state
             if (_callbacks.AutoConnectSerial == radio.Serial)
@@ -472,9 +468,16 @@ namespace JJFlexWpf.Dialogs
             testThread.Start();
         }
 
-        private void DiscoveryTimer_Tick(object? sender, EventArgs e)
+        private async Task ShowDiscoveryGuidanceAsync(System.Threading.CancellationToken ct)
         {
-            _discoveryTimer.Stop(); // One-shot
+            try
+            {
+                await Task.Delay(5000, ct);
+            }
+            catch (TaskCanceledException)
+            {
+                return; // Radio found or dialog closing — no guidance needed
+            }
 
             // If radios were found, no guidance needed
             if (RadiosBox.Items.Count > 0) return;
@@ -489,6 +492,7 @@ namespace JJFlexWpf.Dialogs
             else
             {
                 // First time — show guidance dialog with "Don't show again"
+                ScreenReaderOutput.Speak(hint);
                 var dlg = new MessageDialog
                 {
                     Title = "Getting Started",
@@ -507,7 +511,7 @@ namespace JJFlexWpf.Dialogs
         private void RigSelectorDialog_Closing(object? sender, CancelEventArgs e)
         {
             _autoConnectTimer.Stop();
-            _discoveryTimer.Stop();
+            try { _discoveryCts?.Cancel(); } catch { }
             _tester?.Cancel();
             _callbacks.UnregisterRadioFound();
         }
