@@ -469,28 +469,21 @@ namespace JJFlexWpf.Dialogs
 
         private void ShowNoRadiosGuidance()
         {
-            const string hint = "No local radios found. Tab to SmartLink and press Enter to discover remote radios.";
-
             if (_callbacks.NoRadiosHintSuppressed)
-            {
-                ScreenReaderOutput.Speak(hint);
-            }
-            else
-            {
-                ScreenReaderOutput.Speak(hint);
-                var dlg = new MessageDialog
-                {
-                    Title = "Getting Started",
-                    Message = hint,
-                    ShowDontShowAgain = true,
-                    Owner = this
-                };
+                return; // User already knows — they dismissed it before
 
-                dlg.ShowDialog();
+            var dlg = new MessageDialog
+            {
+                Title = "Getting Started",
+                Message = "No local radios found. Tab to SmartLink and press Enter to discover remote radios.",
+                ShowDontShowAgain = true,
+                Owner = this
+            };
 
-                if (dlg.DontShowAgainChecked)
-                    _callbacks.SaveNoRadiosHintSuppressed?.Invoke(true);
-            }
+            dlg.ShowDialog();
+
+            if (dlg.DontShowAgainChecked)
+                _callbacks.SaveNoRadiosHintSuppressed?.Invoke(true);
         }
 
         private void RigSelectorDialog_Closing(object? sender, CancelEventArgs e)
