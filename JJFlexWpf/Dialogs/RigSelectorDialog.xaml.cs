@@ -108,7 +108,6 @@ namespace JJFlexWpf.Dialogs
         private readonly List<RadioListItem> _radiosList = new();
         private readonly object _radiosLock = new();
         private readonly DispatcherTimer _autoConnectTimer;
-        private System.Threading.Timer? _guidanceTimer;
         private ConnectionTester? _tester;
         private bool _testRunning;
 
@@ -137,13 +136,6 @@ namespace JJFlexWpf.Dialogs
 
             // Start local discovery
             _callbacks.StartLocalDiscovery();
-
-            // Discovery guidance: after 5 seconds, check if list is still empty.
-            // Uses System.Threading.Timer (fires on threadpool) + Dispatcher.BeginInvoke
-            // to guarantee delivery regardless of WPF/WinForms interop state.
-            _guidanceTimer = new System.Threading.Timer(
-                _ => Dispatcher.BeginInvoke(new Action(ShowDiscoveryGuidance)),
-                null, 5000, System.Threading.Timeout.Infinite);
 
             // Start auto-connect timer if appropriate
             if (callbacks.IsInitialBringup &&
@@ -206,8 +198,14 @@ namespace JJFlexWpf.Dialogs
             var radio = GetSelectedRadio();
             if (radio == null)
             {
-                MessageBox.Show(MustSelect, "Select Radio", MessageBoxButton.OK, MessageBoxImage.Warning);
-                RadiosBox.Focus();
+                if (RadiosBox.Items.Count == 0)
+                    ShowNoRadiosGuidance();
+                else
+                {
+                    ScreenReaderOutput.Speak(MustSelect);
+                    new MessageDialog { Title = "Select Radio", Message = MustSelect, Owner = this }.ShowDialog();
+                    RadiosBox.Focus();
+                }
                 return;
             }
 
@@ -237,7 +235,8 @@ namespace JJFlexWpf.Dialogs
             var radio = GetSelectedRadio();
             if (radio == null)
             {
-                MessageBox.Show(MustSelect, "Select Radio", MessageBoxButton.OK, MessageBoxImage.Warning);
+                ScreenReaderOutput.Speak(MustSelect);
+                new MessageDialog { Title = "Select Radio", Message = MustSelect, Owner = this }.ShowDialog();
                 RadiosBox.Focus();
                 return;
             }
@@ -279,7 +278,8 @@ namespace JJFlexWpf.Dialogs
             var radio = GetSelectedRadio();
             if (radio == null)
             {
-                MessageBox.Show(MustSelect, "Select Radio", MessageBoxButton.OK, MessageBoxImage.Warning);
+                ScreenReaderOutput.Speak(MustSelect);
+                new MessageDialog { Title = "Select Radio", Message = MustSelect, Owner = this }.ShowDialog();
                 RadiosBox.Focus();
                 return;
             }
@@ -377,7 +377,8 @@ namespace JJFlexWpf.Dialogs
             var radio = GetSelectedRadio();
             if (radio == null)
             {
-                MessageBox.Show(MustSelect, "Select Radio", MessageBoxButton.OK, MessageBoxImage.Warning);
+                ScreenReaderOutput.Speak(MustSelect);
+                new MessageDialog { Title = "Select Radio", Message = MustSelect, Owner = this }.ShowDialog();
                 RadiosBox.Focus();
                 return;
             }
@@ -466,26 +467,16 @@ namespace JJFlexWpf.Dialogs
             testThread.Start();
         }
 
-        private void ShowDiscoveryGuidance()
+        private void ShowNoRadiosGuidance()
         {
-            // Dispose timer — one-shot
-            _guidanceTimer?.Dispose();
-            _guidanceTimer = null;
-
-            // If radios were found or dialog is closing, no guidance needed
-            if (RadiosBox.Items.Count > 0) return;
-            if (!IsLoaded) return;
-
             const string hint = "No local radios found. Tab to SmartLink and press Enter to discover remote radios.";
 
             if (_callbacks.NoRadiosHintSuppressed)
             {
-                // User has seen the dialog before — just speak
                 ScreenReaderOutput.Speak(hint);
             }
             else
             {
-                // First time — show guidance dialog with "Don't show again"
                 ScreenReaderOutput.Speak(hint);
                 var dlg = new MessageDialog
                 {
@@ -505,8 +496,6 @@ namespace JJFlexWpf.Dialogs
         private void RigSelectorDialog_Closing(object? sender, CancelEventArgs e)
         {
             _autoConnectTimer.Stop();
-            _guidanceTimer?.Dispose();
-            _guidanceTimer = null;
             _tester?.Cancel();
             _callbacks.UnregisterRadioFound();
         }
