@@ -235,7 +235,6 @@ namespace JJFlexWpf.Dialogs
             var radio = GetSelectedRadio();
             if (radio == null)
             {
-                ScreenReaderOutput.Speak(MustSelect);
                 new MessageDialog { Title = "Select Radio", Message = MustSelect, Owner = this }.ShowDialog();
                 RadiosBox.Focus();
                 return;
@@ -278,7 +277,6 @@ namespace JJFlexWpf.Dialogs
             var radio = GetSelectedRadio();
             if (radio == null)
             {
-                ScreenReaderOutput.Speak(MustSelect);
                 new MessageDialog { Title = "Select Radio", Message = MustSelect, Owner = this }.ShowDialog();
                 RadiosBox.Focus();
                 return;
@@ -377,7 +375,6 @@ namespace JJFlexWpf.Dialogs
             var radio = GetSelectedRadio();
             if (radio == null)
             {
-                ScreenReaderOutput.Speak(MustSelect);
                 new MessageDialog { Title = "Select Radio", Message = MustSelect, Owner = this }.ShowDialog();
                 RadiosBox.Focus();
                 return;
@@ -469,14 +466,11 @@ namespace JJFlexWpf.Dialogs
 
         private void ShowNoRadiosGuidance()
         {
-            if (_callbacks.NoRadiosHintSuppressed)
-                return; // User already knows — they dismissed it before
-
             var dlg = new MessageDialog
             {
-                Title = "Getting Started",
+                Title = "No Radios Found",
                 Message = "No local radios found. Tab to SmartLink and press Enter to discover remote radios.",
-                ShowDontShowAgain = true,
+                ShowDontShowAgain = !_callbacks.NoRadiosHintSuppressed,
                 Owner = this
             };
 
