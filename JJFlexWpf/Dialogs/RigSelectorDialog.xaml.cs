@@ -139,10 +139,15 @@ namespace JJFlexWpf.Dialogs
             // Start local discovery
             _callbacks.StartLocalDiscovery();
 
-            // Start async discovery guidance (5 seconds)
-            // Uses Task.Delay instead of DispatcherTimer — proven pattern for WPF-in-WinForms.
+            // Start discovery guidance (5 seconds).
+            // Uses Task.Delay + Dispatcher.BeginInvoke to bypass SynchronizationContext
+            // issues in the WinForms-hosts-WPF interop scenario.
             _discoveryCts = new System.Threading.CancellationTokenSource();
-            _ = ShowDiscoveryGuidanceAsync(_discoveryCts.Token);
+            var cts = _discoveryCts;
+            var dispatcher = Dispatcher;
+            Task.Delay(5000, cts.Token).ContinueWith(_ =>
+                dispatcher.BeginInvoke(new Action(ShowDiscoveryGuidance)),
+                TaskContinuationOptions.OnlyOnRanToCompletion);
 
             // Start auto-connect timer if appropriate
             if (callbacks.IsInitialBringup &&
@@ -468,19 +473,11 @@ namespace JJFlexWpf.Dialogs
             testThread.Start();
         }
 
-        private async Task ShowDiscoveryGuidanceAsync(System.Threading.CancellationToken ct)
+        private void ShowDiscoveryGuidance()
         {
-            try
-            {
-                await Task.Delay(5000, ct);
-            }
-            catch (TaskCanceledException)
-            {
-                return; // Radio found or dialog closing — no guidance needed
-            }
-
-            // If radios were found, no guidance needed
+            // If radios were found or dialog is closing, no guidance needed
             if (RadiosBox.Items.Count > 0) return;
+            if (!IsLoaded) return;
 
             const string hint = "No local radios found. Tab to SmartLink and press Enter to discover remote radios.";
 
