@@ -291,7 +291,7 @@ namespace Radios
             }
 
             Tracing.TraceLine($"TryAutoConnect: BEGIN {config.RadioName} ({config.RadioSerial}), remote={config.IsRemote}, timeout={timeoutMs}ms", TraceLevel.Info);
-            ScreenReaderOutput.Speak($"Connecting to {config.RadioName}", true);
+            if (!SuppressSpeech) ScreenReaderOutput.Speak($"Connecting to {config.RadioName}", true);
 
             try
             {
@@ -335,7 +335,7 @@ namespace Radios
                     {
                         Tracing.TraceLine($"  myRadioList entry: serial={r.Serial} name={r.Nickname} status={r.Status}", TraceLevel.Info);
                     }
-                    ScreenReaderOutput.Speak($"{config.RadioName} not found", true);
+                    if (!SuppressSpeech) ScreenReaderOutput.Speak($"{config.RadioName} not found", true);
                     return false;
                 }
 
@@ -347,12 +347,12 @@ namespace Radios
                 if (connected)
                 {
                     Tracing.TraceLine($"TryAutoConnect: END connected successfully (total {sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
-                    ScreenReaderOutput.Speak($"Connected to {config.RadioName}", true);
+                    if (!SuppressSpeech) ScreenReaderOutput.Speak($"Connected to {config.RadioName}", true);
                 }
                 else
                 {
                     Tracing.TraceLine($"TryAutoConnect: END Connect() FAILED (total {sw.ElapsedMilliseconds}ms)", TraceLevel.Error);
-                    ScreenReaderOutput.Speak($"Failed to connect to {config.RadioName}", true);
+                    if (!SuppressSpeech) ScreenReaderOutput.Speak($"Failed to connect to {config.RadioName}", true);
                 }
 
                 return connected;
@@ -457,7 +457,7 @@ namespace Radios
             if (account == null)
             {
                 Tracing.TraceLine($"TryAutoConnectRemote: no saved account for '{config.SmartLinkAccountEmail}', aborting ({sw.ElapsedMilliseconds}ms)", TraceLevel.Warning);
-                ScreenReaderOutput.Speak("SmartLink account not found. Please log in manually.", true);
+                if (!SuppressSpeech) ScreenReaderOutput.Speak("SmartLink account not found. Please log in manually.", true);
                 return false;
             }
 
@@ -516,7 +516,7 @@ namespace Radios
             {
                 sw.Stop();
                 Tracing.TraceLine($"TryAutoConnectRemote: SmartLink connection FAILED (total {sw.ElapsedMilliseconds}ms)", TraceLevel.Error);
-                ScreenReaderOutput.Speak("SmartLink connection failed", true);
+                if (!SuppressSpeech) ScreenReaderOutput.Speak("SmartLink connection failed", true);
                 return false;
             }
 
@@ -527,6 +527,9 @@ namespace Radios
 
         /// <summary>Reason the last Start() call failed. Set before returning false.</summary>
         public string? LastStartFailureReason { get; private set; }
+
+        /// <summary>Suppress screen reader speech. Set true for automated testing.</summary>
+        public bool SuppressSpeech { get; set; }
 
         /// <summary>
         /// Start radio activity
@@ -646,7 +649,7 @@ namespace Radios
                     { "clientRemovedDuringStart", _clientRemovedDuringStart },
                     { "ticksSinceRemoval", _clientRemovedDuringStart ? (Environment.TickCount64 - _clientRemovedTickCount) : 0 }
                 });
-                ScreenReaderOutput.Speak("Connection slow, retrying");
+                if (!SuppressSpeech) ScreenReaderOutput.Speak("Connection slow, retrying");
                 try { theRadio.Disconnect(); } catch { }
                 return false;
             }

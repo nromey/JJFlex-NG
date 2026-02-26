@@ -49,7 +49,6 @@ namespace Radios
         public TestSummary Run()
         {
             Tracing.TraceLine($"ConnectionTester: BEGIN {TestCount} tests on {RadioName} ({RadioSerial}), delay={DelayBetweenTestsMs}ms", TraceLevel.Info);
-            ScreenReaderOutput.Speak($"Starting {TestCount} connection tests on {RadioName}");
 
             var summary = new TestSummary
             {
@@ -69,7 +68,6 @@ namespace Radios
                 else summary.Failed++;
 
                 TestCompleted?.Invoke(i, result.Success, result.Reason, result.DurationMs);
-                ScreenReaderOutput.Speak($"Test {i}: {(result.Success ? "passed" : "failed, " + result.Reason)}");
 
                 // Wait between tests (unless this is the last one or cancelled)
                 if (i < TestCount && !_cancelled)
@@ -88,7 +86,6 @@ namespace Radios
             var reportPath = ConnectionTestReport.GenerateAndSave(summary);
             summary.ReportPath = reportPath;
 
-            ScreenReaderOutput.Speak($"Connection test complete. {summary.Passed} of {summary.TestCount} passed. Report saved.");
             AllTestsCompleted?.Invoke(summary);
             return summary;
         }
@@ -112,6 +109,7 @@ namespace Radios
 
                 PhaseChanged?.Invoke(testNum, "Creating radio instance");
                 rig = new FlexBase(OpenParms);
+                rig.SuppressSpeech = true;
                 rig.ShowAccountSelector = AccountSelector;
 
                 if (IsRemote)

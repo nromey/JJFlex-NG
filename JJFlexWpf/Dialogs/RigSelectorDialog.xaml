@@ -57,7 +57,6 @@
                     AutomationProperties.Name="Show remote SmartLink radios"
                     Click="RemoteButton_Click"/>
             <Button x:Name="TestButton" Content="Test" MinWidth="100" Height="28" Margin="0,0,0,8"
-                    IsEnabled="False"
                     AutomationProperties.Name="Test connection to selected radio"
                     Click="TestButton_Click"/>
             <Button Content="Cancel" MinWidth="100" Height="28" IsCancel="True"

@@ -354,7 +354,8 @@ namespace JJFlexWpf.Dialogs
 
         private void RadiosBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            TestButton.IsEnabled = RadiosBox.SelectedItem != null && !_testRunning;
+            // TestButton stays enabled for tab-order accessibility.
+            // Click handler validates selection. Only disable during active test.
         }
 
         private void TestButton_Click(object sender, RoutedEventArgs e)
