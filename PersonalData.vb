@@ -172,6 +172,12 @@ Public Class PersonalData
         Public SuppressClearConfirm As Boolean = False
 
         ''' <summary>
+        ''' When True, the "no local radios found" guidance dialog is suppressed.
+        ''' Instead, a brief screen reader announcement plays.
+        ''' </summary>
+        Public SuppressNoRadiosHint As Boolean = False
+
+        ''' <summary>
         ''' Number of recent QSOs to display in the Logging Mode grid.
         ''' Range: 5–100. Default: 20.
         ''' </summary>
@@ -370,6 +376,7 @@ Public Class PersonalData
             UIModeSetting = p.UIModeSetting
             UIModeDismissed = p.UIModeDismissed
             SuppressClearConfirm = p.SuppressClearConfirm
+            SuppressNoRadiosHint = p.SuppressNoRadiosHint
             RecentQsoCount = p.RecentQsoCount
             CallbookLookupSource = p.CallbookLookupSource
             CallbookUsername = p.CallbookUsername

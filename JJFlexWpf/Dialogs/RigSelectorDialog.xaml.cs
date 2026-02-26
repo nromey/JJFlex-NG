@@ -92,6 +92,12 @@ namespace JJFlexWpf.Dialogs
 
         /// <summary>SmartLink account selector for test connections.</summary>
         public Func<SmartLinkAccountManager, (bool newLogin, SmartLinkAccount selected, bool ok)?>? AccountSelector { get; init; }
+
+        /// <summary>Whether the "no radios found" guidance dialog has been suppressed by the user.</summary>
+        public bool NoRadiosHintSuppressed { get; init; }
+
+        /// <summary>Save the "no radios found" guidance suppression preference.</summary>
+        public Action<bool>? SaveNoRadiosHintSuppressed { get; init; }
     }
 
     public partial class RigSelectorDialog : JJFlexDialog
@@ -102,6 +108,7 @@ namespace JJFlexWpf.Dialogs
         private readonly List<RadioListItem> _radiosList = new();
         private readonly object _radiosLock = new();
         private readonly DispatcherTimer _autoConnectTimer;
+        private readonly DispatcherTimer _discoveryTimer;
         private ConnectionTester? _tester;
         private bool _testRunning;
 
@@ -125,11 +132,21 @@ namespace JJFlexWpf.Dialogs
             };
             _autoConnectTimer.Tick += AutoConnectTimer_Tick;
 
+            // Set up discovery guidance timer (5 seconds)
+            _discoveryTimer = new DispatcherTimer
+            {
+                Interval = TimeSpan.FromSeconds(5)
+            };
+            _discoveryTimer.Tick += DiscoveryTimer_Tick;
+
             // Register for radio discovery events
             _callbacks.RegisterRadioFound(OnRadioFound);
 
             // Start local discovery
             _callbacks.StartLocalDiscovery();
+
+            // Start discovery guidance timer
+            _discoveryTimer.Start();
 
             // Start auto-connect timer if appropriate
             if (callbacks.IsInitialBringup &&
@@ -142,6 +159,9 @@ namespace JJFlexWpf.Dialogs
 
         private void OnRadioFound(RadioListItem radio)
         {
+            // Radio found — no need for guidance
+            Dispatcher.BeginInvoke(() => _discoveryTimer.Stop());
+
             // Apply saved auto-connect state
             if (_callbacks.AutoConnectSerial == radio.Serial)
             {
@@ -452,9 +472,42 @@ namespace JJFlexWpf.Dialogs
             testThread.Start();
         }
 
+        private void DiscoveryTimer_Tick(object? sender, EventArgs e)
+        {
+            _discoveryTimer.Stop(); // One-shot
+
+            // If radios were found, no guidance needed
+            if (RadiosBox.Items.Count > 0) return;
+
+            const string hint = "No local radios found. Tab to SmartLink and press Enter to discover remote radios.";
+
+            if (_callbacks.NoRadiosHintSuppressed)
+            {
+                // User has seen the dialog before — just speak
+                ScreenReaderOutput.Speak(hint);
+            }
+            else
+            {
+                // First time — show guidance dialog with "Don't show again"
+                var dlg = new MessageDialog
+                {
+                    Title = "Getting Started",
+                    Message = hint,
+                    ShowDontShowAgain = true,
+                    Owner = this
+                };
+
+                dlg.ShowDialog();
+
+                if (dlg.DontShowAgainChecked)
+                    _callbacks.SaveNoRadiosHintSuppressed?.Invoke(true);
+            }
+        }
+
         private void RigSelectorDialog_Closing(object? sender, CancelEventArgs e)
         {
             _autoConnectTimer.Stop();
+            _discoveryTimer.Stop();
             _tester?.Cancel();
             _callbacks.UnregisterRadioFound();
         }
