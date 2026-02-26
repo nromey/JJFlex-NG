@@ -6101,6 +6101,9 @@ namespace Radios
 
             try
             {
+                // Bail immediately if we're being disposed (test cycle)
+                if (stopMainThread || theRadio == null) return;
+
                 // If a default global profile, select it and await the pan and slices.
                 if (GetProfileInfo(false))
                 {
@@ -6120,7 +6123,7 @@ namespace Radios
                 }
                 if (!await(() =>
                 {
-                    return !theRadio.RemoteTxOn;
+                    return theRadio == null || !theRadio.RemoteTxOn;
                 }, 1000))
                 {
                     Tracing.TraceLine("Flex open:remote tx should be off", TraceLevel.Error);
@@ -6231,7 +6234,10 @@ namespace Radios
             catch (ThreadAbortException) { Tracing.TraceLine("mainThread abort", TraceLevel.Error); }
             catch (Exception ex)
             {
-                Tracing.ErrMessageTrace(ex, true);
+                if (SuppressSpeech)
+                    Tracing.TraceLine($"mainThreadProc exception (suppressed): {ex.Message}\n{ex.StackTrace}", TraceLevel.Error);
+                else
+                    Tracing.ErrMessageTrace(ex, true);
             }
         }
         public class cfg7620
