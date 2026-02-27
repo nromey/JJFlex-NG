@@ -80,6 +80,7 @@ Public Class KeyCommands
         ContextHelp
         SpeakStatus
         ShowStatusDialog
+        SpeakTxStatus
     End Enum
     Friend Const FirstMessageCommandValue As Integer = 1000000
 
@@ -433,7 +434,9 @@ Public Class KeyCommands
         New keyTbl(CommandValues.SpeakStatus, KeyTypes.Command, AddressOf speakStatusRtn,
             "Speak radio status summary", "Speak status", False, FunctionGroups.general, KeyScope.[Global]),
         New keyTbl(CommandValues.ShowStatusDialog, KeyTypes.Command, AddressOf showStatusDialogRtn,
-            "Show radio status dialog", "Status dialog", False, FunctionGroups.general, KeyScope.[Global])}
+            "Show radio status dialog", "Status dialog", False, FunctionGroups.general, KeyScope.[Global]),
+        New keyTbl(CommandValues.SpeakTxStatus, KeyTypes.Command, AddressOf speakTxStatusRtn,
+            "Speak transmit status and time remaining", "Transmit status", False, FunctionGroups.general, KeyScope.[Global])}
 
     ' Deleted from KeyTable.
     ' New keyTbl(CommandValues.LogForm, AddressOf BringUpLogForm,
@@ -504,7 +507,8 @@ Public Class KeyCommands
      New KeyDefType(Keys.L Or Keys.Control Or Keys.Alt, CommandValues.LogOpenFullForm, KeyScope.Logging),
      New KeyDefType(Keys.Oem2 Or Keys.Control, CommandValues.ContextHelp, KeyScope.[Global]),
      New KeyDefType(Keys.S Or Keys.Control Or Keys.Shift, CommandValues.SpeakStatus, KeyScope.[Global]),
-     New KeyDefType(Keys.S Or Keys.Control Or Keys.Alt, CommandValues.ShowStatusDialog, KeyScope.[Global])}
+     New KeyDefType(Keys.S Or Keys.Control Or Keys.Alt, CommandValues.ShowStatusDialog, KeyScope.[Global]),
+     New KeyDefType(Keys.S Or Keys.Alt Or Keys.Shift, CommandValues.SpeakTxStatus, KeyScope.[Global])}
 
     ''' <summary>
     ''' Dictionary to access the keytable using a key.
@@ -1708,6 +1712,13 @@ Public Class KeyCommands
 
     Private Sub speakStatusRtn()
         Dim msg = Radios.RadioStatusBuilder.BuildSpokenStatus(RigControl)
+
+        ' Append PTT detail (hold/locked + time remaining) if transmitting
+        Dim pttStatus = WpfMainWindow.GetPttStatusText()
+        If pttStatus IsNot Nothing Then
+            msg = msg & ", " & pttStatus
+        End If
+
         Radios.ScreenReaderOutput.Speak(msg, True)
     End Sub
 
@@ -1717,5 +1728,14 @@ Public Class KeyCommands
         ' in Sprint 8/9. Speak Status hotkey still works.
         Radios.ScreenReaderOutput.Speak(
             "Status Dialog coming in a future update. Use Speak Status for a quick summary.", True)
+    End Sub
+
+    Private Sub speakTxStatusRtn()
+        Dim pttStatus = WpfMainWindow.GetPttStatusText()
+        If pttStatus IsNot Nothing Then
+            Radios.ScreenReaderOutput.Speak(pttStatus, True)
+        Else
+            Radios.ScreenReaderOutput.Speak("Receiving", True)
+        End If
     End Sub
 End Class

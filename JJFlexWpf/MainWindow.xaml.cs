@@ -198,6 +198,11 @@ public partial class MainWindow : UserControl
     private PttSafetyController? _pttController;
 
     /// <summary>
+    /// Returns PTT status text for the Speak Status hotkey, or null if PTT is idle.
+    /// </summary>
+    public string? GetPttStatusText() => _pttController?.GetSpokenStatus();
+
+    /// <summary>
     /// Previous SWR text for change detection.
     /// </summary>
     private string _oldSwr = "";
@@ -645,8 +650,9 @@ public partial class MainWindow : UserControl
             }
         }
 
-        // 3. PTT keys — Space (hold), Shift+Space (lock toggle), Escape (unlock)
+        // 3. PTT keys — Ctrl+Space (hold), Shift+Space (lock toggle), Escape (unlock)
         //    Only active when FreqOut has focus and radio is powered on.
+        //    Requires modifier keys to prevent accidental transmit.
         if (_pttController != null && _radioPowerOn && FreqOut.IsKeyboardFocusWithin)
         {
             if (rawKey == Key.Space && Keyboard.Modifiers == ModifierKeys.Shift)
@@ -656,7 +662,7 @@ public partial class MainWindow : UserControl
                 return;
             }
 
-            if (rawKey == Key.Space && Keyboard.Modifiers == ModifierKeys.None)
+            if (rawKey == Key.Space && Keyboard.Modifiers == ModifierKeys.Control)
             {
                 if (!e.IsRepeat) // ignore key-repeat, only first press
                     _pttController.PttDown();
@@ -687,13 +693,14 @@ public partial class MainWindow : UserControl
     }
 
     /// <summary>
-    /// PreviewKeyUp — handles Space release for PTT hold mode.
+    /// PreviewKeyUp — handles Ctrl+Space release for PTT hold mode.
+    /// Catches Space release regardless of Ctrl state (user may release Ctrl first).
     /// </summary>
     private void MainWindow_PreviewKeyUp(object sender, KeyEventArgs e)
     {
         var rawKey = e.Key == Key.System ? e.SystemKey : e.Key;
 
-        if (rawKey == Key.Space && _pttController != null && _pttController.IsTransmitting)
+        if (rawKey == Key.Space && _pttController != null && _pttController.State == PttSafetyController.PttState.PttHold)
         {
             _pttController.PttUp();
             e.Handled = true;
@@ -1352,7 +1359,8 @@ public partial class MainWindow : UserControl
             _pttController = new PttSafetyController(
                 () => RigControl,
                 () => _radioPowerOn,
-                pttConfig);
+                pttConfig,
+                text => StatusTx.Text = text);
         }
 
         // VB-side tasks (knob setup, tracing)

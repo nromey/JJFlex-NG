@@ -16,7 +16,7 @@ namespace JJFlexWpf
         public enum PttState
         {
             Idle,
-            PttHold,    // Space held down — TX while key is down
+            PttHold,    // Ctrl+Space held down — TX while key is down
             Locked,     // Shift+Space — TX stays on until unlocked
             Warning1,   // 10-second beeps (30s before timeout by default)
             Warning2,   // 5-second beeps (15s before timeout by default)
@@ -28,6 +28,7 @@ namespace JJFlexWpf
 
         private readonly Func<FlexBase?> _getRigControl;
         private readonly Func<bool> _getRadioPowerOn;
+        private readonly Action<string>? _updateStatusDisplay;
         private PttConfig _config;
 
         // Timers
@@ -45,11 +46,13 @@ namespace JJFlexWpf
         public PttSafetyController(
             Func<FlexBase?> getRigControl,
             Func<bool> getRadioPowerOn,
-            PttConfig config)
+            PttConfig config,
+            Action<string>? updateStatusDisplay = null)
         {
             _getRigControl = getRigControl;
             _getRadioPowerOn = getRadioPowerOn;
             _config = config;
+            _updateStatusDisplay = updateStatusDisplay;
         }
 
         /// <summary>
@@ -64,6 +67,47 @@ namespace JJFlexWpf
         /// Whether the controller is in any transmitting state.
         /// </summary>
         public bool IsTransmitting => State != PttState.Idle;
+
+        /// <summary>
+        /// Returns a spoken PTT status string for the Speak Status hotkey.
+        /// Includes mode (hold/locked) and time remaining when locked.
+        /// Returns null when idle (caller uses radio-level TX status instead).
+        /// </summary>
+        public string? GetSpokenStatus()
+        {
+            if (State == PttState.Idle)
+                return null;
+
+            if (State == PttState.PttHold)
+                return "transmitting, hold";
+
+            // Locked or warning states — calculate time remaining
+            var elapsed = (DateTime.UtcNow - _lockStartTime).TotalSeconds;
+            var remaining = Math.Max(0, _config.TimeoutSeconds - elapsed);
+
+            string timeLeft;
+            if (remaining >= 120)
+            {
+                int minutes = (int)(remaining / 60);
+                int seconds = (int)(remaining % 60);
+                timeLeft = seconds > 0
+                    ? $"{minutes} minutes {seconds} seconds"
+                    : $"{minutes} minutes";
+            }
+            else if (remaining >= 60)
+            {
+                int seconds = (int)(remaining % 60);
+                timeLeft = seconds > 0
+                    ? $"1 minute {seconds} seconds"
+                    : "1 minute";
+            }
+            else
+            {
+                timeLeft = $"{(int)remaining} seconds";
+            }
+
+            return $"transmitting, locked, {timeLeft} remaining";
+        }
 
         private bool CanTransmit()
         {
@@ -82,7 +126,7 @@ namespace JJFlexWpf
         // -------------------------------------------------------------------
 
         /// <summary>
-        /// Space KeyDown — begin PTT hold (TX on while key held).
+        /// Ctrl+Space KeyDown — begin PTT hold (TX on while key held).
         /// </summary>
         public void PttDown()
         {
@@ -92,21 +136,23 @@ namespace JJFlexWpf
             {
                 State = PttState.PttHold;
                 SetTx(true);
+                _updateStatusDisplay?.Invoke("Transmitting");
+                ScreenReaderOutput.Speak("Transmitting", interrupt: true);
                 Tracing.TraceLine("PTT: Hold started", TraceLevel.Info);
             }
-            // If already locked/warning, ignore space-down (don't double-TX)
+            // If already locked/warning, ignore key-down (don't double-TX)
         }
 
         /// <summary>
-        /// Space KeyUp — end PTT hold (return to RX).
+        /// Ctrl+Space KeyUp — end PTT hold (return to RX).
         /// </summary>
         public void PttUp()
         {
             if (State == PttState.PttHold)
             {
-                GoIdle("PTT hold released");
+                GoIdle("Receiving");
             }
-            // If locked/warning, space-up does nothing (still locked)
+            // If locked/warning, key-up does nothing (still locked)
         }
 
         /// <summary>
@@ -124,7 +170,7 @@ namespace JJFlexWpf
             else
             {
                 // Any TX state — unlock
-                GoIdle("Transmit off");
+                GoIdle("Receiving");
             }
         }
 
@@ -135,7 +181,7 @@ namespace JJFlexWpf
         {
             if (State != PttState.Idle)
             {
-                GoIdle("Transmit off");
+                GoIdle("Receiving");
             }
         }
 
@@ -150,6 +196,7 @@ namespace JJFlexWpf
             _lockStartTime = DateTime.UtcNow;
             _alcZeroConsecutiveSeconds = 0;
 
+            _updateStatusDisplay?.Invoke("TX Locked");
             ScreenReaderOutput.Speak("Transmitting, locked", interrupt: true);
             Tracing.TraceLine("PTT: Locked", TraceLevel.Info);
 
@@ -167,6 +214,7 @@ namespace JJFlexWpf
             StopAllTimers();
             _alcZeroConsecutiveSeconds = 0;
 
+            _updateStatusDisplay?.Invoke("");
             if (!string.IsNullOrEmpty(speechMessage))
                 ScreenReaderOutput.Speak(speechMessage, interrupt: true);
 
@@ -256,7 +304,7 @@ namespace JJFlexWpf
         {
             Tracing.TraceLine("PTT: Timeout hard kill", TraceLevel.Warning);
             EarconPlayer.HardKillTone();
-            GoIdle("Transmit timed out");
+            GoIdle("Transmit timed out, receiving");
         }
 
         private void BeepTimerTick(object? sender, EventArgs e)
@@ -289,7 +337,7 @@ namespace JJFlexWpf
                 {
                     Tracing.TraceLine("PTT: HARD KILL (15 min absolute)", TraceLevel.Warning);
                     EarconPlayer.HardKillTone();
-                    GoIdle("Hard transmit limit reached");
+                    GoIdle("Hard transmit limit, receiving");
                 }
             };
             _hardKillTimer.Start();
@@ -324,7 +372,7 @@ namespace JJFlexWpf
                 if (_alcZeroConsecutiveSeconds >= _config.AlcAutoReleaseSeconds)
                 {
                     Tracing.TraceLine($"PTT: ALC auto-release after {_alcZeroConsecutiveSeconds}s of zero signal", TraceLevel.Info);
-                    GoIdle("No signal detected, transmit off");
+                    GoIdle("No signal detected, receiving");
                 }
             }
             else

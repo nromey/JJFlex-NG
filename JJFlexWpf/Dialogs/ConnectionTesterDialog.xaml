@@ -1,0 +1,52 @@
+<local:JJFlexDialog x:Class="JJFlexWpf.Dialogs.ConnectionTesterDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:JJFlexWpf"
+        Title="Connection Tester"
+        Width="520" Height="480"
+        ResizeMode="NoResize"
+        AutomationProperties.Name="Connection tester"
+        Closing="ConnectionTesterDialog_Closing">
+    <Grid Margin="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Radio info -->
+        <TextBlock x:Name="RadioInfoText" Grid.Row="0" TextWrapping="Wrap" Margin="0,0,0,8"
+                   AutomationProperties.Name="Radio information"/>
+
+        <!-- Test parameters -->
+        <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,8">
+            <TextBlock Text="Tests:" VerticalAlignment="Center" Margin="0,0,8,0"/>
+            <TextBox x:Name="TestCountBox" Width="60" Text="25" VerticalAlignment="Center"
+                     AutomationProperties.Name="Number of tests, minimum 25"/>
+            <TextBlock Text="Delay (sec):" VerticalAlignment="Center" Margin="16,0,8,0"/>
+            <TextBox x:Name="DelayBox" Width="60" Text="5" VerticalAlignment="Center"
+                     AutomationProperties.Name="Delay between tests in seconds, minimum 1"/>
+        </StackPanel>
+
+        <!-- Status -->
+        <TextBlock x:Name="StatusText" Grid.Row="2" TextWrapping="Wrap" Margin="0,0,0,8"
+                   Text="Ready"
+                   AutomationProperties.Name="Test status"/>
+
+        <!-- Results list -->
+        <ListBox x:Name="ResultsBox" Grid.Row="3" Margin="0,0,0,8"
+                 AutomationProperties.Name="Test results"/>
+
+        <!-- Buttons -->
+        <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button x:Name="StartButton" Content="Start" MinWidth="100" Height="28" Margin="0,0,8,0"
+                    AutomationProperties.Name="Start connection test"
+                    Click="StartButton_Click"/>
+            <Button x:Name="CloseButton" Content="Close" MinWidth="100" Height="28"
+                    AutomationProperties.Name="Close connection tester"
+                    Click="CloseButton_Click"/>
+        </StackPanel>
+    </Grid>
+</local:JJFlexDialog>

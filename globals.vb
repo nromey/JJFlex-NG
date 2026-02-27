@@ -1563,15 +1563,7 @@ Module globals
             .IsInitialBringup = initialCall,
             .GlobalAutoConnectEnabled = autoConfig.GlobalAutoConnectEnabled,
             .CurrentSmartLinkEmail = RigControl.CurrentSmartLinkEmail,
-            .OpenParms = OpenParms,
-            .AccountSelector = Function(mgr)
-                                   Dim accounts = mgr.Accounts
-                                   If accounts.Count = 0 Then
-                                       Return (True, Nothing, True)
-                                   End If
-                                   Dim best = accounts.OrderByDescending(Function(a) a.LastUsed).First()
-                                   Return (False, best, True)
-                               End Function
+            .OpenParms = OpenParms
         }
 
         ' Show the WPF selector dialog

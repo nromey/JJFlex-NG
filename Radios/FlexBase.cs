@@ -685,8 +685,10 @@ namespace Radios
                     }
                     else
                     {
-                        Tracing.TraceLine("Disconnect:main thread didn't stop", TraceLevel.Error);
-                        mainThread.Abort();
+                        // Thread.Abort() throws PlatformNotSupportedException on .NET 8.
+                        // Log and abandon — the thread will exit on its own when it checks
+                        // stopMainThread or hits the suppressed exception handler.
+                        Tracing.TraceLine("Disconnect:main thread didn't stop within 3s, abandoning", TraceLevel.Error);
                     }
                 }
             }
@@ -5279,8 +5281,10 @@ namespace Radios
                     stopRemoteAudio = true;
                     if (!remoteAudioThread.Join(6000))
                     {
-                        Tracing.TraceLine("stopRemoteAudioThread must abort", TraceLevel.Error);
-                        remoteAudioThread.Abort();
+                        // Thread.Abort() throws PlatformNotSupportedException on .NET 8.
+                        // Log and abandon — the thread will exit when its blocking I/O
+                        // completes or the socket closes.
+                        Tracing.TraceLine("stopRemoteAudioThread: thread didn't stop within 6s, abandoning", TraceLevel.Error);
                     }
                 }
                 catch(Exception ex)
@@ -5344,7 +5348,7 @@ namespace Radios
             theRadio.RequestRXRemoteAudioStream(true); // see opusOutputStreamAddedHandler
             if (!await(() =>
                 {
-                    return (rxStream != null);
+                    return (rxStream != null) || Disconnecting || stopRemoteAudio;
                 }, 10000))
             {
                 Tracing.TraceLine("remoteAudioProc: opus output channel not added.", TraceLevel.Error);
@@ -5373,7 +5377,7 @@ namespace Radios
             theRadio.RequestRemoteAudioTXStream(); // see opusInputStreamAddedHandler
             if (!await(() =>
                 {
-                    return (txStream != null);
+                    return (txStream != null) || Disconnecting || stopRemoteAudio;
                 }, 10000))
             {
                 Tracing.TraceLine("remoteAudioProc: didn't get RemoteAudioTXStream from radio", TraceLevel.Error);
@@ -6117,6 +6121,9 @@ namespace Radios
                 // Set these on every open.
                 Tracing.TraceLine("flex open:#VFOs " + MyNumSlices, TraceLevel.Info);
 
+                // Null-guard: theRadio can be nulled by Disconnect() during test cycles
+                if (theRadio == null || stopMainThread) return;
+
                 if (!RemoteRig)
                 {
                     theRadio.MicInput = "mic";
@@ -6129,6 +6136,8 @@ namespace Radios
                     Tracing.TraceLine("Flex open:remote tx should be off", TraceLevel.Error);
                 }
 
+                if (theRadio == null || stopMainThread) return;
+
                 // Turn the Vox off.
                 theRadio.SimpleVOXEnable = false;
                 theRadio.CWBreakIn = false;
@@ -6136,6 +6145,8 @@ namespace Radios
                 // Ok to queue commands now.
                 q.MainLoop = true;
                 Tracing.TraceLine("flex open:q.mainloop" + q.MainLoop.ToString(), TraceLevel.Info);
+
+                if (theRadio == null || stopMainThread) return;
 
                 cwx = theRadio.GetCWX();
                 cwx.Delay = theRadio.CWDelay;
@@ -6149,6 +6160,8 @@ namespace Radios
                 {
                     PCAudio = true;
                 }
+
+                if (theRadio == null || stopMainThread) return;
 
                 // Setup pan adapter display.
                 FilterObj.PanSetup();
@@ -6231,7 +6244,6 @@ namespace Radios
 
                 raisePowerEvent(false);
             }
-            catch (ThreadAbortException) { Tracing.TraceLine("mainThread abort", TraceLevel.Error); }
             catch (Exception ex)
             {
                 if (SuppressSpeech)

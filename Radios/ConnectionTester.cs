@@ -9,6 +9,8 @@ namespace Radios
     /// <summary>
     /// Automated SmartLink connection test engine.
     /// Runs N connect/start/disconnect cycles, recording profiler data for each.
+    /// Each test follows the exact same connect path as a manual connection —
+    /// ReconnectRemote() with ShowAccountSelector for remote, LocalRadios()+Connect() for local.
     /// Thread-safe: designed to run on a background thread with progress callbacks on any thread.
     /// </summary>
     public class ConnectionTester
@@ -28,6 +30,7 @@ namespace Radios
         /// <summary>
         /// Delegate to wire ShowAccountSelector on each new FlexBase instance.
         /// Must be set by caller for SmartLink connections.
+        /// Auto-selects the most recent saved account (no UI).
         /// </summary>
         public Func<SmartLinkAccountManager, (bool newLogin, SmartLinkAccount selected, bool ok)?> AccountSelector { get; set; }
 
@@ -45,6 +48,7 @@ namespace Radios
 
         /// <summary>
         /// Runs the test loop. Call from a background thread.
+        /// Each test goes through the full connect path, same as a manual connection.
         /// </summary>
         public TestSummary Run()
         {
@@ -114,8 +118,8 @@ namespace Radios
 
                 if (IsRemote)
                 {
-                    // Remote connection via SmartLink
-                    PhaseChanged?.Invoke(testNum, "Authenticating with SmartLink");
+                    // Same path as manual SmartLink connect
+                    PhaseChanged?.Invoke(testNum, "Connecting via SmartLink");
                     bool connected = rig.ReconnectRemote(RadioSerial, LowBandwidth);
 
                     if (!connected)
@@ -129,7 +133,7 @@ namespace Radios
                 }
                 else
                 {
-                    // Local connection — start discovery and wait for radio to appear
+                    // Same path as manual local connect
                     PhaseChanged?.Invoke(testNum, "Discovering local radios");
                     rig.LocalRadios();
 

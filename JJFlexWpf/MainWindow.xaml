@@ -32,6 +32,10 @@
                 <TextBlock x:Name="StatusText" Text="Ready — no radio connected" />
             </StatusBarItem>
             <Separator />
+            <StatusBarItem AutomationProperties.Name="Transmit Status">
+                <TextBlock x:Name="StatusTx" Text="" />
+            </StatusBarItem>
+            <Separator />
             <StatusBarItem AutomationProperties.Name="Power">
                 <TextBlock x:Name="StatusPower" Text="" />
             </StatusBarItem>

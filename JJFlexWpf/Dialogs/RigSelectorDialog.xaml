@@ -71,19 +71,6 @@
                   Checked="GlobalAutoConnectCheckbox_Changed"
                   Unchecked="GlobalAutoConnectCheckbox_Changed"/>
 
-        <!-- Test configuration and status (Row 3) -->
-        <StackPanel x:Name="TestPanel" Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="2"
-                    Margin="0,8,0,0" Visibility="Collapsed">
-            <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
-                <TextBlock Text="Tests:" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                <TextBox x:Name="TestCountBox" Width="60" Text="25" VerticalAlignment="Center"
-                         AutomationProperties.Name="Number of tests, minimum 25"/>
-                <TextBlock Text="Delay (sec):" VerticalAlignment="Center" Margin="16,0,8,0"/>
-                <TextBox x:Name="DelayBox" Width="60" Text="5" VerticalAlignment="Center"
-                         AutomationProperties.Name="Delay between tests in seconds"/>
-            </StackPanel>
-            <TextBlock x:Name="TestStatusText" Text="" TextWrapping="Wrap" Margin="0,4,0,0"
-                       AutomationProperties.Name="Test status"/>
-        </StackPanel>
+        <!-- Row 3 reserved for future use -->
     </Grid>
 </local:JJFlexDialog>
