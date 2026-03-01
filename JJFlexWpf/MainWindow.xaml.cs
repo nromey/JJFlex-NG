@@ -1939,6 +1939,53 @@ public partial class MainWindow : UserControl
         _freqOutHandlers?.BandNavigate(direction);
     }
 
+    /// <summary>
+    /// Common mode cycle list for F10/F11 hotkeys.
+    /// Subset of RigCaps.ModeTable — just the frequently used modes.
+    /// </summary>
+    private static readonly string[] CommonModes = { "USB", "LSB", "CW", "DIGU", "DIGL", "AM", "FM" };
+
+    /// <summary>
+    /// Cycle to the next (+1) or previous (-1) mode in the common mode list.
+    /// Called from KeyCommands mode handlers (F10/F11).
+    /// </summary>
+    public void CycleMode(int direction)
+    {
+        if (RigControl == null || !_radioPowerOn) return;
+
+        string currentMode = RigControl.Mode ?? "USB";
+        int idx = Array.IndexOf(CommonModes, currentMode);
+
+        if (idx < 0)
+        {
+            // Current mode not in common list — jump to first or last
+            idx = direction > 0 ? CommonModes.Length - 1 : 0;
+        }
+
+        int next = (idx + direction + CommonModes.Length) % CommonModes.Length;
+        string newMode = CommonModes[next];
+        RigControl.Mode = newMode;
+        Radios.ScreenReaderOutput.Speak(newMode, true);
+    }
+
+    /// <summary>
+    /// Jump directly to a specific mode.
+    /// Called from KeyCommands direct mode handlers (Alt+U, Alt+L, Alt+C).
+    /// </summary>
+    public void SetMode(string mode)
+    {
+        if (RigControl == null || !_radioPowerOn) return;
+
+        string currentMode = RigControl.Mode ?? "";
+        if (string.Equals(currentMode, mode, StringComparison.OrdinalIgnoreCase))
+        {
+            Radios.ScreenReaderOutput.Speak($"Already {mode}", true);
+            return;
+        }
+        RigControl.Mode = mode;
+        Radios.ScreenReaderOutput.Speak(mode, true);
+    }
+
     #endregion
 
     #region SmartLink & Auto-Connect Management

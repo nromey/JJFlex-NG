@@ -95,6 +95,11 @@ Public Class KeyCommands
         BandJump2
         BandUp
         BandDown
+        ModeNext
+        ModePrev
+        ModeUSB
+        ModeLSB
+        ModeCW
     End Enum
     Friend Const FirstMessageCommandValue As Integer = 1000000
 
@@ -462,9 +467,6 @@ Public Class KeyCommands
         New keyTbl(CommandValues.ArCluster, KeyTypes.Command, AddressOf arClusterCmd,
             "Bring up the DX spotting cluster.", "DX cluster", False, FunctionGroups.general, KeyScope.Radio) With {
             .Keywords = New String() {"cluster", "dx", "spots", "spotting"}},
-        New keyTbl(CommandValues.Toggle1, KeyTypes.Command, AddressOf toggle1,
-            "Next (rig-dependent field value 1).", "Next value 1", True, FunctionGroups.general, KeyScope.Radio) With {
-            .Keywords = New String() {"toggle", "value", "next", "cycle"}},
         New keyTbl(CommandValues.LogStats, KeyTypes.Command, AddressOf logStatsRTN,
             "Show log statistics", "Show log statistics", False, FunctionGroups.logging, KeyScope.Logging) With {
             .Keywords = New String() {"log", "statistics", "stats", "contact", "count", "logging"}},
@@ -543,15 +545,27 @@ Public Class KeyCommands
         New keyTbl(CommandValues.BandJump6, KeyTypes.Command, AddressOf bandJump6Rtn,
             "Jump to 6 meter band", "6m", False, FunctionGroups.general, KeyScope.Radio) With {
             .Keywords = New String() {"band", "6", "meter", "jump", "frequency", "vhf"}},
-        New keyTbl(CommandValues.BandJump2, KeyTypes.Command, AddressOf bandJump2Rtn,
-            "Jump to 2 meter band", "2m", False, FunctionGroups.general, KeyScope.Radio) With {
-            .Keywords = New String() {"band", "2", "meter", "jump", "frequency", "vhf"}},
         New keyTbl(CommandValues.BandUp, KeyTypes.Command, AddressOf bandUpRtn,
             "Next higher band", "Band up", False, FunctionGroups.general, KeyScope.Radio) With {
             .Keywords = New String() {"band", "up", "next", "higher", "navigate"}},
         New keyTbl(CommandValues.BandDown, KeyTypes.Command, AddressOf bandDownRtn,
             "Next lower band", "Band down", False, FunctionGroups.general, KeyScope.Radio) With {
-            .Keywords = New String() {"band", "down", "previous", "lower", "navigate"}}}
+            .Keywords = New String() {"band", "down", "previous", "lower", "navigate"}},
+        New keyTbl(CommandValues.ModeNext, KeyTypes.Command, AddressOf modeNextRtn,
+            "Cycle to next mode", "Next mode", False, FunctionGroups.general, KeyScope.Radio) With {
+            .Keywords = New String() {"mode", "next", "cycle", "usb", "lsb", "cw", "am", "fm", "digu", "digl"}},
+        New keyTbl(CommandValues.ModePrev, KeyTypes.Command, AddressOf modePrevRtn,
+            "Cycle to previous mode", "Previous mode", False, FunctionGroups.general, KeyScope.Radio) With {
+            .Keywords = New String() {"mode", "previous", "back", "cycle", "usb", "lsb", "cw"}},
+        New keyTbl(CommandValues.ModeUSB, KeyTypes.Command, AddressOf modeUSBRtn,
+            "Switch to USB mode", "USB", False, FunctionGroups.general, KeyScope.Radio) With {
+            .Keywords = New String() {"mode", "usb", "upper", "sideband", "ssb", "phone"}},
+        New keyTbl(CommandValues.ModeLSB, KeyTypes.Command, AddressOf modeLSBRtn,
+            "Switch to LSB mode", "LSB", False, FunctionGroups.general, KeyScope.Radio) With {
+            .Keywords = New String() {"mode", "lsb", "lower", "sideband", "ssb", "phone"}},
+        New keyTbl(CommandValues.ModeCW, KeyTypes.Command, AddressOf modeCWRtn,
+            "Switch to CW mode", "CW", False, FunctionGroups.general, KeyScope.Radio) With {
+            .Keywords = New String() {"mode", "cw", "morse", "code", "continuous wave"}}}
 
     ' Deleted from KeyTable.
     ' New keyTbl(CommandValues.LogForm, AddressOf BringUpLogForm,
@@ -569,17 +583,12 @@ Public Class KeyCommands
      New KeyDefType(Keys.L Or Keys.Control, CommandValues.StationLookup, KeyScope.[Global]),
      New KeyDefType(Keys.None, CommandValues.GatherDebug, KeyScope.[Global]),
      New KeyDefType(Keys.F2, CommandValues.ShowFreq, KeyScope.Radio), ' --- Radio scope ---
-     New KeyDefType(Keys.F2 Or Keys.Shift, CommandValues.ResumeTheScan, KeyScope.Radio),
-     New KeyDefType(Keys.F3, CommandValues.ShowReceived, KeyScope.Radio),
-     New KeyDefType(Keys.F4, CommandValues.ShowSend, KeyScope.Radio),
-     New KeyDefType(Keys.Control Or Keys.F4, CommandValues.showSendDirect, KeyScope.Radio),
      New KeyDefType(Keys.F Or Keys.Control, CommandValues.SetFreq, KeyScope.Radio),
      New KeyDefType(Keys.M Or Keys.Control, CommandValues.ShowMemory, KeyScope.Radio),
      New KeyDefType(Keys.M Or Keys.Control Or Keys.Shift, CommandValues.MemoryScan, KeyScope.Radio),
      New KeyDefType(Keys.None, CommandValues.SmeterDBM, KeyScope.Radio),
      New KeyDefType(Keys.None, CommandValues.CycleContinuous, KeyScope.Radio),
      New KeyDefType(Keys.None, CommandValues.LogForm, KeyScope.Radio),
-     New KeyDefType(Keys.C Or Keys.Alt, CommandValues.CWZeroBeat, KeyScope.Radio),          ' Alt+C = CW Zero Beat in Radio
      New KeyDefType(Keys.C Or Keys.Control Or Keys.Shift, CommandValues.ClearRIT, KeyScope.Radio),
      New KeyDefType(Keys.S Or Keys.Alt, CommandValues.StartScan, KeyScope.Radio),            ' Alt+S = Start Scan in Radio
      New KeyDefType(Keys.D Or Keys.Alt, CommandValues.ArCluster, KeyScope.Radio),            ' Alt+D = DX Cluster in Radio
@@ -594,27 +603,35 @@ Public Class KeyCommands
      New KeyDefType(Keys.PageDown Or Keys.Alt Or Keys.Shift, CommandValues.HeadphonesDown, KeyScope.Radio),
      New KeyDefType(Keys.PageUp Or Keys.Shift, CommandValues.LineoutUp, KeyScope.Radio),
      New KeyDefType(Keys.PageDown Or Keys.Shift, CommandValues.LineoutDown, KeyScope.Radio),
-     New KeyDefType(Keys.F9 Or Keys.Control, CommandValues.Toggle1, KeyScope.Radio),
      New KeyDefType(Keys.None, CommandValues.RemoteAudio, KeyScope.Radio),
      New KeyDefType(Keys.None, CommandValues.AudioSetup, KeyScope.Radio),
      New KeyDefType(Keys.None, CommandValues.ATUMemories, KeyScope.Radio),
      New KeyDefType(Keys.None, CommandValues.Reboot, KeyScope.Radio),
      New KeyDefType(Keys.None, CommandValues.TXControls, KeyScope.Radio),
-     New KeyDefType(Keys.F1 Or Keys.Control, CommandValues.BandJump160, KeyScope.Radio),
-     New KeyDefType(Keys.F2 Or Keys.Control, CommandValues.BandJump80, KeyScope.Radio),
-     New KeyDefType(Keys.F3 Or Keys.Control, CommandValues.BandJump40, KeyScope.Radio),
-     New KeyDefType(Keys.F4 Or Keys.Control, CommandValues.BandJump20, KeyScope.Radio),
-     New KeyDefType(Keys.F5 Or Keys.Control, CommandValues.BandJump15, KeyScope.Radio),
-     New KeyDefType(Keys.F6 Or Keys.Control, CommandValues.BandJump10, KeyScope.Radio),
-     New KeyDefType(Keys.F7 Or Keys.Control, CommandValues.BandJump6, KeyScope.Radio),
-     New KeyDefType(Keys.F8 Or Keys.Control, CommandValues.BandJump2, KeyScope.Radio),
-     New KeyDefType(Keys.F1 Or Keys.Control Or Keys.Shift, CommandValues.BandJump60, KeyScope.Radio),
-     New KeyDefType(Keys.F2 Or Keys.Control Or Keys.Shift, CommandValues.BandJump30, KeyScope.Radio),
-     New KeyDefType(Keys.F3 Or Keys.Control Or Keys.Shift, CommandValues.BandJump17, KeyScope.Radio),
-     New KeyDefType(Keys.F4 Or Keys.Control Or Keys.Shift, CommandValues.BandJump12, KeyScope.Radio),
+     New KeyDefType(Keys.F3, CommandValues.BandJump160, KeyScope.Radio),                     ' F3 = 160m
+     New KeyDefType(Keys.F4, CommandValues.BandJump80, KeyScope.Radio),                      ' F4 = 80m
+     New KeyDefType(Keys.F5, CommandValues.BandJump40, KeyScope.Radio),                      ' F5 = 40m
+     New KeyDefType(Keys.F6, CommandValues.BandJump20, KeyScope.Radio),                      ' F6 = 20m
+     New KeyDefType(Keys.F7, CommandValues.BandJump15, KeyScope.Radio),                      ' F7 = 15m
+     New KeyDefType(Keys.F8, CommandValues.BandJump10, KeyScope.Radio),                      ' F8 = 10m
+     New KeyDefType(Keys.F9, CommandValues.BandJump6, KeyScope.Radio),                       ' F9 = 6m
+     New KeyDefType(Keys.F3 Or Keys.Shift, CommandValues.BandJump60, KeyScope.Radio),        ' Shift+F3 = 60m
+     New KeyDefType(Keys.F4 Or Keys.Shift, CommandValues.BandJump30, KeyScope.Radio),        ' Shift+F4 = 30m
+     New KeyDefType(Keys.F5 Or Keys.Shift, CommandValues.BandJump17, KeyScope.Radio),        ' Shift+F5 = 17m
+     New KeyDefType(Keys.F6 Or Keys.Shift, CommandValues.BandJump12, KeyScope.Radio),        ' Shift+F6 = 12m
      New KeyDefType(Keys.Up Or Keys.Alt, CommandValues.BandUp, KeyScope.Radio),
      New KeyDefType(Keys.Down Or Keys.Alt, CommandValues.BandDown, KeyScope.Radio),
-     New KeyDefType(Keys.C Or Keys.Alt, CommandValues.LogCall, KeyScope.Logging), ' --- Logging scope ---            ' Alt+C = Log Call in Logging
+     New KeyDefType(Keys.F10, CommandValues.ModeNext, KeyScope.Radio),                       ' F10 = Next mode
+     New KeyDefType(Keys.F11, CommandValues.ModePrev, KeyScope.Radio),                       ' F11 = Previous mode
+     New KeyDefType(Keys.U Or Keys.Alt, CommandValues.ModeUSB, KeyScope.Radio),              ' Alt+U = USB
+     New KeyDefType(Keys.L Or Keys.Alt, CommandValues.ModeLSB, KeyScope.Radio),              ' Alt+L = LSB
+     New KeyDefType(Keys.C Or Keys.Alt, CommandValues.ModeCW, KeyScope.Radio),               ' Alt+C = CW
+     New KeyDefType(Keys.Z Or Keys.Alt, CommandValues.CWZeroBeat, KeyScope.Radio),           ' Alt+Z = CW Zerobeat
+     New KeyDefType(Keys.F2 Or Keys.Control Or Keys.Shift, CommandValues.ResumeTheScan, KeyScope.Radio), ' Ctrl+Shift+F2
+     New KeyDefType(Keys.F3 Or Keys.Control Or Keys.Shift, CommandValues.ShowReceived, KeyScope.Radio),  ' Ctrl+Shift+F3
+     New KeyDefType(Keys.F4 Or Keys.Control Or Keys.Shift, CommandValues.ShowSend, KeyScope.Radio),      ' Ctrl+Shift+F4
+     New KeyDefType(Keys.F5 Or Keys.Control Or Keys.Shift, CommandValues.showSendDirect, KeyScope.Radio), ' Ctrl+Shift+F5
+     New KeyDefType(Keys.C Or Keys.Alt, CommandValues.LogCall, KeyScope.Logging),             ' Alt+C = Log Call in Logging
      New KeyDefType(Keys.T Or Keys.Alt, CommandValues.LogHisRST, KeyScope.Logging),          ' Alt+T = Log His RST in Logging
      New KeyDefType(Keys.R Or Keys.Alt, CommandValues.LogMyRST, KeyScope.Logging),           ' Alt+R = Log My RST in Logging
      New KeyDefType(Keys.N Or Keys.Alt, CommandValues.LogHandle, KeyScope.Logging),          ' Alt+N = Log Name in Logging
@@ -771,6 +788,7 @@ Public Class KeyCommands
     End Class
     Public Class KeyConfigType_V1
         Public Items As KeyDefType()
+        Public Version As Integer = 0
         <XmlIgnore()> Public TraceLevel As Integer ' enum can cause problems
         <XmlIgnore()> Public Shared ReadOnly Property PathName As String
             Get
@@ -784,6 +802,13 @@ Public Class KeyCommands
             ReDim Items(sz)
         End Sub
     End Class
+
+    ''' <summary>
+    ''' Current keybinding config version. Increment when keybindings are reshuffled
+    ''' to force a reset of saved user keymaps (prevents stale bindings).
+    ''' v2 = Sprint 17 F-key reshuffle (bands→F3-F9, mode→F10-F11, CW→Ctrl+Shift)
+    ''' </summary>
+    Private Const KeyConfigVersion As Integer = 2
 
     Private Sub setupData()
         ' Setup the dictionaries.
@@ -820,6 +845,12 @@ Public Class KeyCommands
         Try
             Dim kData As KeyConfigType_V1 = xs.Deserialize(cfgFile)
             cfgFile.Close()
+            ' Force reset if saved config is from an older keybinding layout version.
+            If kData.Version < KeyConfigVersion Then
+                Tracing.TraceLine("KeyCommands: config version " & kData.Version & " < " & KeyConfigVersion & ", resetting to defaults", TraceLevel.Info)
+                keyTableToDefault(True)
+                Return
+            End If
             SetValues(kData.Items, KeyTypes.allKeys, False)
             murgeNewDefaults()
         Catch ex As Exception
@@ -878,6 +909,7 @@ Public Class KeyCommands
 #Else
         Dim ktbl As keyTbl() = CurrentKeys()
         Dim kData As New KeyConfigType_V1(ktbl.Length - 1)
+        kData.Version = KeyConfigVersion
         For i = 0 To ktbl.Length - 1
             kData.Items(i) = ktbl(i).key
         Next
@@ -1911,5 +1943,23 @@ Public Class KeyCommands
     End Sub
     Private Sub bandDownRtn()
         WpfMainWindow.BandNavigate(-1)
+    End Sub
+
+    ' --- Mode handlers ---
+
+    Private Sub modeNextRtn()
+        WpfMainWindow.CycleMode(1)
+    End Sub
+    Private Sub modePrevRtn()
+        WpfMainWindow.CycleMode(-1)
+    End Sub
+    Private Sub modeUSBRtn()
+        WpfMainWindow.SetMode("USB")
+    End Sub
+    Private Sub modeLSBRtn()
+        WpfMainWindow.SetMode("LSB")
+    End Sub
+    Private Sub modeCWRtn()
+        WpfMainWindow.SetMode("CW")
     End Sub
 End Class

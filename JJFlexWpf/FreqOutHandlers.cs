@@ -1386,7 +1386,6 @@ public class FreqOutHandlers
         Bands.BandNames.m12,
         Bands.BandNames.m10,
         Bands.BandNames.m6,
-        Bands.BandNames.m2,
     };
 
     /// <summary>
@@ -1405,7 +1404,6 @@ public class FreqOutHandlers
         Bands.BandNames.m12 => "12 meter",
         Bands.BandNames.m10 => "10 meter",
         Bands.BandNames.m6 => "6 meter",
-        Bands.BandNames.m2 => "2 meter",
         _ => band.ToString()
     };
 
