@@ -1,0 +1,158 @@
+<local:JJFlexDialog x:Class="JJFlexWpf.Dialogs.SettingsDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="clr-namespace:JJFlexWpf"
+    Title="Settings"
+    Width="460" Height="420"
+    ResizeMode="NoResize"
+    AutomationProperties.Name="Settings">
+    <DockPanel Margin="12">
+        <!-- Buttons at bottom -->
+        <StackPanel DockPanel.Dock="Bottom" Style="{StaticResource ButtonPanel}">
+            <Button Content="OK" Style="{StaticResource OkButton}"
+                    AutomationProperties.Name="OK"
+                    Click="OkButton_Click"/>
+            <Button Content="Cancel" Style="{StaticResource CancelButton}"
+                    AutomationProperties.Name="Cancel"
+                    Click="CancelButton_Click"/>
+        </StackPanel>
+
+        <!-- Tab control -->
+        <TabControl x:Name="SettingsTabs"
+                    AutomationProperties.Name="Settings categories">
+            <!-- PTT Tab -->
+            <TabItem Header="PTT" AutomationProperties.Name="Push to talk settings">
+                <StackPanel Margin="8">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="120"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+
+                        <TextBlock Grid.Row="0" Grid.Column="0"
+                                   Text="Timeout (seconds):"
+                                   Style="{StaticResource DialogLabel}" Margin="0,4,8,4"/>
+                        <TextBox x:Name="PttTimeoutBox" Grid.Row="0" Grid.Column="1"
+                                 Style="{StaticResource DialogTextBox}"
+                                 AutomationProperties.Name="PTT timeout in seconds, 10 to 900"/>
+
+                        <TextBlock Grid.Row="1" Grid.Column="0"
+                                   Text="Warning 1 (seconds before timeout):"
+                                   Style="{StaticResource DialogLabel}" Margin="0,4,8,4"/>
+                        <TextBox x:Name="PttWarning1Box" Grid.Row="1" Grid.Column="1"
+                                 Style="{StaticResource DialogTextBox}"
+                                 AutomationProperties.Name="Warning 1 seconds before timeout"/>
+
+                        <TextBlock Grid.Row="2" Grid.Column="0"
+                                   Text="Warning 2 (seconds before timeout):"
+                                   Style="{StaticResource DialogLabel}" Margin="0,4,8,4"/>
+                        <TextBox x:Name="PttWarning2Box" Grid.Row="2" Grid.Column="1"
+                                 Style="{StaticResource DialogTextBox}"
+                                 AutomationProperties.Name="Warning 2 seconds before timeout"/>
+
+                        <TextBlock Grid.Row="3" Grid.Column="0"
+                                   Text="Oh Crap (seconds before timeout):"
+                                   Style="{StaticResource DialogLabel}" Margin="0,4,8,4"/>
+                        <TextBox x:Name="PttOhCrapBox" Grid.Row="3" Grid.Column="1"
+                                 Style="{StaticResource DialogTextBox}"
+                                 AutomationProperties.Name="Oh Crap seconds before timeout"/>
+
+                        <TextBlock Grid.Row="4" Grid.Column="0"
+                                   Text="ALC auto-release (seconds):"
+                                   Style="{StaticResource DialogLabel}" Margin="0,4,8,4"/>
+                        <TextBox x:Name="PttAlcBox" Grid.Row="4" Grid.Column="1"
+                                 Style="{StaticResource DialogTextBox}"
+                                 AutomationProperties.Name="ALC auto-release seconds, 10 to 300"/>
+                    </Grid>
+
+                    <CheckBox x:Name="PttSpeechCheckbox"
+                              Content="Announce transmit and receive state changes"
+                              Margin="0,12,0,0"
+                              AutomationProperties.Name="Announce transmit and receive state changes"/>
+                </StackPanel>
+            </TabItem>
+
+            <!-- Tuning Tab -->
+            <TabItem Header="Tuning" AutomationProperties.Name="Tuning settings">
+                <StackPanel Margin="8">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="120"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+
+                        <TextBlock Grid.Row="0" Grid.Column="0"
+                                   Text="Coarse step default:"
+                                   Style="{StaticResource DialogLabel}" Margin="0,4,8,4"/>
+                        <ComboBox x:Name="CoarseStepCombo" Grid.Row="0" Grid.Column="1"
+                                  Style="{StaticResource DialogComboBox}"
+                                  AutomationProperties.Name="Default coarse tuning step"/>
+
+                        <TextBlock Grid.Row="1" Grid.Column="0"
+                                   Text="Fine step default:"
+                                   Style="{StaticResource DialogLabel}" Margin="0,4,8,4"/>
+                        <ComboBox x:Name="FineStepCombo" Grid.Row="1" Grid.Column="1"
+                                  Style="{StaticResource DialogComboBox}"
+                                  AutomationProperties.Name="Default fine tuning step"/>
+                    </Grid>
+
+                    <CheckBox x:Name="BandMemoryCheckbox"
+                              Content="Enable band memory"
+                              IsChecked="True" Margin="0,12,0,0"
+                              AutomationProperties.Name="Enable band memory"/>
+                </StackPanel>
+            </TabItem>
+
+            <!-- License Tab -->
+            <TabItem Header="License" AutomationProperties.Name="License settings">
+                <StackPanel Margin="8">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="150"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+
+                        <TextBlock Grid.Row="0" Grid.Column="0"
+                                   Text="License class:"
+                                   Style="{StaticResource DialogLabel}" Margin="0,4,8,4"/>
+                        <ComboBox x:Name="LicenseClassCombo" Grid.Row="0" Grid.Column="1"
+                                  Style="{StaticResource DialogComboBox}"
+                                  AutomationProperties.Name="FCC license class"/>
+                    </Grid>
+
+                    <CheckBox x:Name="BandBoundaryCheckbox"
+                              Content="Band boundary notifications"
+                              Margin="0,12,0,0"
+                              AutomationProperties.Name="Notify when tuning near band boundaries"/>
+                    <CheckBox x:Name="TxLockoutCheckbox"
+                              Content="TX band lockout"
+                              Margin="0,8,0,0"
+                              AutomationProperties.Name="Prevent transmitting outside licensed bands"/>
+                </StackPanel>
+            </TabItem>
+
+            <!-- Audio Tab (placeholder) -->
+            <TabItem Header="Audio" AutomationProperties.Name="Audio settings">
+                <StackPanel Margin="8" VerticalAlignment="Center">
+                    <TextBlock Text="Audio settings coming in a future update."
+                               HorizontalAlignment="Center"
+                               AutomationProperties.Name="Audio settings coming in a future update"/>
+                </StackPanel>
+            </TabItem>
+        </TabControl>
+    </DockPanel>
+</local:JJFlexDialog>

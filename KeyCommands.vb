@@ -334,151 +334,224 @@ Public Class KeyCommands
     ''' <remarks>It's in logical order, not CommandValues order</remarks>
     Friend KeyTable() As keyTbl = {
         New keyTbl(CommandValues.ShowHelp, AddressOf WpfMainWindow.DisplayHelp,
-            "Show keys help", Nothing, FunctionGroups.help, KeyScope.[Global]),
+            "Show keys help", Nothing, FunctionGroups.help, KeyScope.[Global]) With {
+            .Keywords = New String() {"help", "keys", "hotkeys", "shortcuts", "keyboard"}},
         New keyTbl(CommandValues.ShowFreq, AddressOf displayFreqCmd,
-            "Show frequency or pause scan", Nothing, FunctionGroups.routingScan, KeyScope.Radio),
+            "Show frequency or pause scan", Nothing, FunctionGroups.routingScan, KeyScope.Radio) With {
+            .Keywords = New String() {"frequency", "show", "display", "tune", "tuning", "pause", "scan"}},
         New keyTbl(CommandValues.ResumeTheScan, AddressOf resumeScanCmd,
-            "Resume the scan.", "resume scan", FunctionGroups.scan, KeyScope.Radio),
+            "Resume the scan.", "resume scan", FunctionGroups.scan, KeyScope.Radio) With {
+            .Keywords = New String() {"scan", "resume", "continue", "scanning"}},
         New keyTbl(CommandValues.ShowReceived, AddressOf gotoReceive,
-            "goto the received text window", Nothing, FunctionGroups.routing, KeyScope.Radio),
+            "goto the received text window", Nothing, FunctionGroups.routing, KeyScope.Radio) With {
+            .Keywords = New String() {"receive", "text", "window", "cw", "morse", "focus"}},
         New keyTbl(CommandValues.ShowSend, AddressOf gotoSend,
-            "go to the send text window", Nothing, FunctionGroups.routing, KeyScope.Radio),
+            "go to the send text window", Nothing, FunctionGroups.routing, KeyScope.Radio) With {
+            .Keywords = New String() {"send", "text", "window", "cw", "morse", "focus"}},
         New keyTbl(CommandValues.showSendDirect, AddressOf gotoSendDirect,
-            "go to the send text window and send direct from keyboard", Nothing, FunctionGroups.routing, KeyScope.Radio),
+            "go to the send text window and send direct from keyboard", Nothing, FunctionGroups.routing, KeyScope.Radio) With {
+            .Keywords = New String() {"send", "direct", "keyboard", "cw", "morse", "type"}},
         New keyTbl(CommandValues.SmeterDBM, KeyTypes.Command, AddressOf smeterDisplayRTN,
-            "Display SMeter in DBM or S-units", AddressOf sMeterMenuString, False, FunctionGroups.general, KeyScope.Radio),
+            "Display SMeter in DBM or S-units", AddressOf sMeterMenuString, False, FunctionGroups.general, KeyScope.Radio) With {
+            .Keywords = New String() {"s meter", "signal", "strength", "dbm", "s-units", "meter"}},
         New keyTbl(CommandValues.StopCW, KeyTypes.Command, AddressOf stopCode,
-            "Stop sending CW", "cw stop", True, FunctionGroups.general, KeyScope.[Global]),
+            "Stop sending CW", "cw stop", True, FunctionGroups.general, KeyScope.[Global]) With {
+            .Keywords = New String() {"cw", "morse", "stop", "abort", "sending"}},
         New keyTbl(CommandValues.SetFreq, AddressOf WriteFreq,
-            "Enter frequency", "frequency", FunctionGroups.general, KeyScope.Radio),
+            "Enter frequency", "frequency", FunctionGroups.general, KeyScope.Radio) With {
+            .Keywords = New String() {"frequency", "enter", "type", "tune", "tuning", "dial"}},
         New keyTbl(CommandValues.ShowMemory, AddressOf DisplayMemory,
-            "Bring up the memory dialogue", "memories", FunctionGroups.dialog, KeyScope.Radio),
+            "Bring up the memory dialogue", "memories", FunctionGroups.dialog, KeyScope.Radio) With {
+            .Keywords = New String() {"memory", "memories", "store", "recall", "save", "channel"}},
         New keyTbl(CommandValues.CycleContinuous, AddressOf cycleContinuous,
-            "Toggle continuous frequency display", Nothing, FunctionGroups.general, KeyScope.Radio),
+            "Toggle continuous frequency display", Nothing, FunctionGroups.general, KeyScope.Radio) With {
+            .Keywords = New String() {"continuous", "frequency", "display", "toggle"}},
         New keyTbl(CommandValues.LogDateTime, AddressOf SetLogDateTime,
-            "Set log date/time", "log date/time", AdifTags.ADIF_DateOn, KeyTypes.log, FunctionGroups.logging, KeyScope.Logging),
+            "Set log date/time", "log date/time", AdifTags.ADIF_DateOn, KeyTypes.log, FunctionGroups.logging, KeyScope.Logging) With {
+            .Keywords = New String() {"log", "date", "time", "contact", "logging"}},
         New keyTbl(CommandValues.LogFinalize, AddressOf FinalizeLog,
-            "Write log entry", "log write", iADIF_Logwrite, KeyTypes.Command, FunctionGroups.logging, KeyScope.Logging),
+            "Write log entry", "log write", iADIF_Logwrite, KeyTypes.Command, FunctionGroups.logging, KeyScope.Logging) With {
+            .Keywords = New String() {"log", "write", "save", "entry", "contact", "finalize", "logging"}},
         New keyTbl(CommandValues.LogFileName, AddressOf getLogFileName,
-            "Enter log file name", "log file name", iADIF_Logfile, KeyTypes.Command, FunctionGroups.logging, KeyScope.Logging),
+            "Enter log file name", "log file name", iADIF_Logfile, KeyTypes.Command, FunctionGroups.logging, KeyScope.Logging) With {
+            .Keywords = New String() {"log", "file", "name", "logging"}},
         New keyTbl(CommandValues.LogMode, AddressOf BringUpLogForm,
-            "Log the mode", "log mode", AdifTags.ADIF_Mode, KeyTypes.log, FunctionGroups.logging, KeyScope.Logging),
+            "Log the mode", "log mode", AdifTags.ADIF_Mode, KeyTypes.log, FunctionGroups.logging, KeyScope.Logging) With {
+            .Keywords = New String() {"log", "mode", "contact", "logging"}},
         New keyTbl(CommandValues.LogCall, AddressOf BringUpLogForm,
-            "Log callsign", "log call", AdifTags.ADIF_Call, KeyTypes.log, FunctionGroups.logging, KeyScope.Logging),
+            "Log callsign", "log call", AdifTags.ADIF_Call, KeyTypes.log, FunctionGroups.logging, KeyScope.Logging) With {
+            .Keywords = New String() {"log", "call", "callsign", "contact", "logging"}},
         New keyTbl(CommandValues.LogHisRST, AddressOf BringUpLogForm,
-            "Log his RST", "log his RST", AdifTags.ADIF_HisRST, KeyTypes.log, FunctionGroups.logging, KeyScope.Logging),
+            "Log his RST", "log his RST", AdifTags.ADIF_HisRST, KeyTypes.log, FunctionGroups.logging, KeyScope.Logging) With {
+            .Keywords = New String() {"log", "rst", "signal", "report", "his", "contact", "logging"}},
         New keyTbl(CommandValues.LogMyRST, AddressOf BringUpLogForm,
-            "Log my RST", "log my RST", AdifTags.ADIF_MyRST, KeyTypes.log, FunctionGroups.logging, KeyScope.Logging),
+            "Log my RST", "log my RST", AdifTags.ADIF_MyRST, KeyTypes.log, FunctionGroups.logging, KeyScope.Logging) With {
+            .Keywords = New String() {"log", "rst", "signal", "report", "my", "contact", "logging"}},
         New keyTbl(CommandValues.LogQTH, AddressOf BringUpLogForm,
-            "Log QTH", "log QTH", AdifTags.ADIF_QTH, KeyTypes.log, FunctionGroups.logging, KeyScope.Logging),
+            "Log QTH", "log QTH", AdifTags.ADIF_QTH, KeyTypes.log, FunctionGroups.logging, KeyScope.Logging) With {
+            .Keywords = New String() {"log", "qth", "location", "contact", "logging"}},
         New keyTbl(CommandValues.LogState, AddressOf BringUpLogForm,
-            "Log state/province", "log state", AdifTags.ADIF_State, KeyTypes.log, FunctionGroups.logging, KeyScope.Logging),
+            "Log state/province", "log state", AdifTags.ADIF_State, KeyTypes.log, FunctionGroups.logging, KeyScope.Logging) With {
+            .Keywords = New String() {"log", "state", "province", "contact", "logging"}},
         New keyTbl(CommandValues.LogGrid, AddressOf BringUpLogForm,
-            "Log Grid square", "log Grid", AdifTags.ADIF_Grid, KeyTypes.log, FunctionGroups.logging, KeyScope.Logging),
+            "Log Grid square", "log Grid", AdifTags.ADIF_Grid, KeyTypes.log, FunctionGroups.logging, KeyScope.Logging) With {
+            .Keywords = New String() {"log", "grid", "square", "locator", "contact", "logging"}},
         New keyTbl(CommandValues.LogHandle, AddressOf BringUpLogForm,
-            "Log name", "log name", AdifTags.ADIF_Name, KeyTypes.log, FunctionGroups.logging, KeyScope.Logging),
+            "Log name", "log name", AdifTags.ADIF_Name, KeyTypes.log, FunctionGroups.logging, KeyScope.Logging) With {
+            .Keywords = New String() {"log", "name", "handle", "operator", "contact", "logging"}},
         New keyTbl(CommandValues.LogRig, AddressOf BringUpLogForm,
-            "Log rig", "log rig", AdifTags.ADIF_Rig, KeyTypes.log, FunctionGroups.logging, KeyScope.Logging),
+            "Log rig", "log rig", AdifTags.ADIF_Rig, KeyTypes.log, FunctionGroups.logging, KeyScope.Logging) With {
+            .Keywords = New String() {"log", "rig", "radio", "contact", "logging"}},
         New keyTbl(CommandValues.LogAnt, AddressOf BringUpLogForm,
-            "Log antenna", "log antenna", AdifTags.ADIF_Antenna, KeyTypes.log, FunctionGroups.logging, KeyScope.Logging),
+            "Log antenna", "log antenna", AdifTags.ADIF_Antenna, KeyTypes.log, FunctionGroups.logging, KeyScope.Logging) With {
+            .Keywords = New String() {"log", "antenna", "contact", "logging"}},
         New keyTbl(CommandValues.LogComments, AddressOf BringUpLogForm,
-            "Log comments", "log comments", AdifTags.ADIF_Comment, KeyTypes.log, FunctionGroups.logging, KeyScope.Logging),
+            "Log comments", "log comments", AdifTags.ADIF_Comment, KeyTypes.log, FunctionGroups.logging, KeyScope.Logging) With {
+            .Keywords = New String() {"log", "comments", "notes", "contact", "logging"}},
         New keyTbl(CommandValues.NewLogEntry, AddressOf BringUpLogForm,
-            "New log entry", "new log entry", iADIF_LogNewEntry, KeyTypes.Command, FunctionGroups.logging, KeyScope.Logging),
+            "New log entry", "new log entry", iADIF_LogNewEntry, KeyTypes.Command, FunctionGroups.logging, KeyScope.Logging) With {
+            .Keywords = New String() {"log", "new", "entry", "contact", "logging"}},
         New keyTbl(CommandValues.SearchLog, AddressOf SearchLogCmd,
-            "Find a log entry", "log search", iADIF_Logsearch, KeyTypes.Command, FunctionGroups.logging, KeyScope.Logging),
+            "Find a log entry", "log search", iADIF_Logsearch, KeyTypes.Command, FunctionGroups.logging, KeyScope.Logging) With {
+            .Keywords = New String() {"log", "search", "find", "contact", "logging"}},
         New keyTbl(CommandValues.DoPanning, AddressOf startPanning,
-            "Focus to panning", "panning", FunctionGroups.general, KeyScope.Radio),
+            "Focus to panning", "panning", FunctionGroups.general, KeyScope.Radio) With {
+            .Keywords = New String() {"pan", "panning", "stereo", "audio", "balance"}},
         New keyTbl(CommandValues.StartScan, AddressOf BeginScan,
-            "Start/stop scan", "start scan", FunctionGroups.scan, KeyScope.Radio),
+            "Start/stop scan", "start scan", FunctionGroups.scan, KeyScope.Radio) With {
+            .Keywords = New String() {"scan", "start", "stop", "search", "scanning"}},
         New keyTbl(CommandValues.SavedScan, AddressOf useSaved,
-            "Use a saved scan", "saved scan", FunctionGroups.scan, KeyScope.Radio),
+            "Use a saved scan", "saved scan", FunctionGroups.scan, KeyScope.Radio) With {
+            .Keywords = New String() {"scan", "saved", "preset", "scanning"}},
         New keyTbl(CommandValues.StopScan, AddressOf stopTheScan,
-            "Stop the current scan", "stop scan", FunctionGroups.scan, KeyScope.Radio),
+            "Stop the current scan", "stop scan", FunctionGroups.scan, KeyScope.Radio) With {
+            .Keywords = New String() {"scan", "stop", "halt", "scanning"}},
         New keyTbl(CommandValues.MemoryScan, AddressOf memScan,
-            "Memory scan", "memory scan", FunctionGroups.scan, KeyScope.Radio),
+            "Memory scan", "memory scan", FunctionGroups.scan, KeyScope.Radio) With {
+            .Keywords = New String() {"scan", "memory", "memories", "scanning", "channel"}},
         New keyTbl(CommandValues.ShowMenus, AddressOf ShowMenus,
-            "Show the rig's menus.", "menus", FunctionGroups.dialog, KeyScope.Radio),
+            "Show the rig's menus.", "menus", FunctionGroups.dialog, KeyScope.Radio) With {
+            .Keywords = New String() {"menu", "menus", "rig", "radio", "settings"}},
         New keyTbl(CommandValues.AudioGainUp, KeyTypes.Command, AddressOf audioGainUp,
-            "Raise RF gain or Flex slice gain.", vbNullString, True, FunctionGroups.audio, KeyScope.Radio),
+            "Raise RF gain or Flex slice gain.", vbNullString, True, FunctionGroups.audio, KeyScope.Radio) With {
+            .Keywords = New String() {"volume", "gain", "audio", "louder", "up", "slice"}},
         New keyTbl(CommandValues.AudioGainDown, KeyTypes.Command, AddressOf audioGainDown,
-            "Lower RF gain or Flex slice gain.", vbNullString, True, FunctionGroups.audio, KeyScope.Radio),
+            "Lower RF gain or Flex slice gain.", vbNullString, True, FunctionGroups.audio, KeyScope.Radio) With {
+            .Keywords = New String() {"volume", "gain", "audio", "quieter", "down", "slice"}},
         New keyTbl(CommandValues.HeadphonesUp, KeyTypes.Command, AddressOf headphonesUp,
-            "If supported, raise headphone gain.", vbNullString, True, FunctionGroups.audio, KeyScope.Radio),
+            "If supported, raise headphone gain.", vbNullString, True, FunctionGroups.audio, KeyScope.Radio) With {
+            .Keywords = New String() {"headphones", "volume", "audio", "louder", "gain"}},
         New keyTbl(CommandValues.HeadphonesDown, KeyTypes.Command, AddressOf headphonesDown,
-            "If supported, lower headphone gain.", vbNullString, True, FunctionGroups.audio, KeyScope.Radio),
+            "If supported, lower headphone gain.", vbNullString, True, FunctionGroups.audio, KeyScope.Radio) With {
+            .Keywords = New String() {"headphones", "volume", "audio", "quieter", "gain"}},
         New keyTbl(CommandValues.LineoutUp, KeyTypes.Command, AddressOf lineoutUp,
-            "Raise audio gain or Flex lineout gain.", vbNullString, True, FunctionGroups.audio, KeyScope.Radio),
+            "Raise audio gain or Flex lineout gain.", vbNullString, True, FunctionGroups.audio, KeyScope.Radio) With {
+            .Keywords = New String() {"lineout", "volume", "audio", "gain", "output"}},
         New keyTbl(CommandValues.LineoutDown, KeyTypes.Command, AddressOf lineoutDown,
-            "lower audio gain or Flex lineout gain.", vbNullString, True, FunctionGroups.audio, KeyScope.Radio),
+            "lower audio gain or Flex lineout gain.", vbNullString, True, FunctionGroups.audio, KeyScope.Radio) With {
+            .Keywords = New String() {"lineout", "volume", "audio", "gain", "output"}},
         New keyTbl(CommandValues.CWZeroBeat, KeyTypes.Command, AddressOf zerobeatRtn,
-            "Zerobeat CW signal.", "Zerobeat CW signal", True, FunctionGroups.general, KeyScope.Radio),
+            "Zerobeat CW signal.", "Zerobeat CW signal", True, FunctionGroups.general, KeyScope.Radio) With {
+            .Keywords = New String() {"cw", "morse", "zerobeat", "zero beat", "tune"}},
         New keyTbl(CommandValues.ClearRIT, KeyTypes.Command, AddressOf clearRitRtn,
-            "Clear RIT.", "Clear Rit", True, FunctionGroups.general, KeyScope.Radio),
+            "Clear RIT.", "Clear Rit", True, FunctionGroups.general, KeyScope.Radio) With {
+            .Keywords = New String() {"rit", "clear", "offset", "receive", "incremental"}},
         New keyTbl(CommandValues.ReverseBeacon, KeyTypes.Command, AddressOf reverseBeaconCmd,
-            "Bring up a reverse beacon site for a call.", "Reverse Beacon", False, FunctionGroups.general, KeyScope.Radio),
+            "Bring up a reverse beacon site for a call.", "Reverse Beacon", False, FunctionGroups.general, KeyScope.Radio) With {
+            .Keywords = New String() {"beacon", "reverse", "spots", "dx", "rbn"}},
         New keyTbl(CommandValues.ArCluster, KeyTypes.Command, AddressOf arClusterCmd,
-            "Bring up the DX spotting cluster.", "DX cluster", False, FunctionGroups.general, KeyScope.Radio),
+            "Bring up the DX spotting cluster.", "DX cluster", False, FunctionGroups.general, KeyScope.Radio) With {
+            .Keywords = New String() {"cluster", "dx", "spots", "spotting"}},
         New keyTbl(CommandValues.Toggle1, KeyTypes.Command, AddressOf toggle1,
-            "Next (rig-dependent field value 1).", "Next value 1", True, FunctionGroups.general, KeyScope.Radio),
+            "Next (rig-dependent field value 1).", "Next value 1", True, FunctionGroups.general, KeyScope.Radio) With {
+            .Keywords = New String() {"toggle", "value", "next", "cycle"}},
         New keyTbl(CommandValues.LogStats, KeyTypes.Command, AddressOf logStatsRTN,
-            "Show log statistics", "Show log statistics", False, FunctionGroups.logging, KeyScope.Logging),
+            "Show log statistics", "Show log statistics", False, FunctionGroups.logging, KeyScope.Logging) With {
+            .Keywords = New String() {"log", "statistics", "stats", "contact", "count", "logging"}},
         New keyTbl(CommandValues.RemoteAudio, KeyTypes.Command, AddressOf PCAudioRtn,
-            "PC audio on/off", AddressOf audioMenuString, False, FunctionGroups.audio, KeyScope.Radio),
+            "PC audio on/off", AddressOf audioMenuString, False, FunctionGroups.audio, KeyScope.Radio) With {
+            .Keywords = New String() {"audio", "remote", "pc", "mute", "unmute", "on", "off"}},
         New keyTbl(CommandValues.AudioSetup, KeyTypes.Command, AddressOf audioSetupRtn,
-            "Select audio device", "Select Audio Device", False, FunctionGroups.audio, KeyScope.Radio),
+            "Select audio device", "Select Audio Device", False, FunctionGroups.audio, KeyScope.Radio) With {
+            .Keywords = New String() {"audio", "device", "setup", "settings", "configure", "preferences", "sound"}},
         New keyTbl(CommandValues.StationLookup, KeyTypes.Command, AddressOf stationLookupRtn,
-            "Station lookup", "Station lookup", False, FunctionGroups.logging, KeyScope.[Global]),
+            "Station lookup", "Station lookup", False, FunctionGroups.logging, KeyScope.[Global]) With {
+            .Keywords = New String() {"station", "lookup", "callsign", "qrz", "search"}},
         New keyTbl(CommandValues.GatherDebug, KeyTypes.Command, AddressOf gatherDebugRtn,
-            "Collect debug info", "Collect debug info", False, FunctionGroups.general, KeyScope.[Global]),
+            "Collect debug info", "Collect debug info", False, FunctionGroups.general, KeyScope.[Global]) With {
+            .Keywords = New String() {"debug", "info", "diagnostic", "troubleshoot"}},
         New keyTbl(CommandValues.ATUMemories, KeyTypes.Command, AddressOf ATUMemoriesRtn,
-            "Tuner memories", "Tuner memories", False, FunctionGroups.general, KeyScope.Radio),
+            "Tuner memories", "Tuner memories", False, FunctionGroups.general, KeyScope.Radio) With {
+            .Keywords = New String() {"tuner", "atu", "antenna", "memories", "tune"}},
         New keyTbl(CommandValues.Reboot, KeyTypes.Command, AddressOf rebootRtn,
-            "Reboot the radio", "Reboot the radio", False, FunctionGroups.general, KeyScope.Radio),
+            "Reboot the radio", "Reboot the radio", False, FunctionGroups.general, KeyScope.Radio) With {
+            .Keywords = New String() {"reboot", "restart", "radio", "reset"}},
         New keyTbl(CommandValues.TXControls, KeyTypes.Command, AddressOf TXControlsRtn,
-            "Transmit controls", "Transmit controls", False, FunctionGroups.general, KeyScope.Radio),
+            "Transmit controls", "Transmit controls", False, FunctionGroups.general, KeyScope.Radio) With {
+            .Keywords = New String() {"transmit", "tx", "power", "controls", "watts", "ptt"}},
         New keyTbl(CommandValues.LogPaneSwitchF6, KeyTypes.Command, AddressOf logPaneSwitchRtn, ' Logging-only actions (scope-aware hotkeys)
-            "Switch between radio and log panes", "Switch panes", False, FunctionGroups.logging, KeyScope.Logging),
+            "Switch between radio and log panes", "Switch panes", False, FunctionGroups.logging, KeyScope.Logging) With {
+            .Keywords = New String() {"log", "pane", "switch", "focus", "logging"}},
         New keyTbl(CommandValues.LogCharacteristicsDialog, KeyTypes.Command, AddressOf logCharacteristicsRtn,
-            "Open log characteristics dialog", "Log characteristics", False, FunctionGroups.logging, KeyScope.Logging),
+            "Open log characteristics dialog", "Log characteristics", False, FunctionGroups.logging, KeyScope.Logging) With {
+            .Keywords = New String() {"log", "characteristics", "settings", "configure", "logging"}},
         New keyTbl(CommandValues.LogOpenFullForm, KeyTypes.Command, AddressOf logOpenFullFormRtn,
-            "Open full log entry form", "Full log form", False, FunctionGroups.logging, KeyScope.Logging),
+            "Open full log entry form", "Full log form", False, FunctionGroups.logging, KeyScope.Logging) With {
+            .Keywords = New String() {"log", "full", "form", "entry", "logging"}},
         New keyTbl(CommandValues.ContextHelp, KeyTypes.Command, AddressOf contextHelpRtn,
-            "Context-aware command finder", "Command finder", False, FunctionGroups.help, KeyScope.[Global]),
+            "Context-aware command finder", "Command finder", False, FunctionGroups.help, KeyScope.[Global]) With {
+            .Keywords = New String() {"help", "context", "command", "finder", "search", "keys"}},
         New keyTbl(CommandValues.SpeakStatus, KeyTypes.Command, AddressOf speakStatusRtn,
-            "Speak radio status summary", "Speak status", False, FunctionGroups.general, KeyScope.[Global]),
+            "Speak radio status summary", "Speak status", False, FunctionGroups.general, KeyScope.[Global]) With {
+            .Keywords = New String() {"status", "speak", "info", "radio", "summary"}},
         New keyTbl(CommandValues.ShowStatusDialog, KeyTypes.Command, AddressOf showStatusDialogRtn,
-            "Show radio status dialog", "Status dialog", False, FunctionGroups.general, KeyScope.[Global]),
+            "Show radio status dialog", "Status dialog", False, FunctionGroups.general, KeyScope.[Global]) With {
+            .Keywords = New String() {"status", "dialog", "info", "radio", "show"}},
         New keyTbl(CommandValues.SpeakTxStatus, KeyTypes.Command, AddressOf speakTxStatusRtn,
-            "Speak transmit status and time remaining", "Transmit status", False, FunctionGroups.general, KeyScope.[Global]),
+            "Speak transmit status and time remaining", "Transmit status", False, FunctionGroups.general, KeyScope.[Global]) With {
+            .Keywords = New String() {"transmit", "ptt", "push to talk", "status", "tx", "time"}},
         New keyTbl(CommandValues.BandJump160, KeyTypes.Command, AddressOf bandJump160Rtn,
-            "Jump to 160 meter band", "160m", False, FunctionGroups.general, KeyScope.Radio),
+            "Jump to 160 meter band", "160m", False, FunctionGroups.general, KeyScope.Radio) With {
+            .Keywords = New String() {"band", "160", "meter", "jump", "frequency"}},
         New keyTbl(CommandValues.BandJump80, KeyTypes.Command, AddressOf bandJump80Rtn,
-            "Jump to 80 meter band", "80m", False, FunctionGroups.general, KeyScope.Radio),
+            "Jump to 80 meter band", "80m", False, FunctionGroups.general, KeyScope.Radio) With {
+            .Keywords = New String() {"band", "80", "meter", "jump", "frequency"}},
         New keyTbl(CommandValues.BandJump60, KeyTypes.Command, AddressOf bandJump60Rtn,
-            "Jump to 60 meter band", "60m", False, FunctionGroups.general, KeyScope.Radio),
+            "Jump to 60 meter band", "60m", False, FunctionGroups.general, KeyScope.Radio) With {
+            .Keywords = New String() {"band", "60", "meter", "jump", "frequency"}},
         New keyTbl(CommandValues.BandJump40, KeyTypes.Command, AddressOf bandJump40Rtn,
-            "Jump to 40 meter band", "40m", False, FunctionGroups.general, KeyScope.Radio),
+            "Jump to 40 meter band", "40m", False, FunctionGroups.general, KeyScope.Radio) With {
+            .Keywords = New String() {"band", "40", "meter", "jump", "frequency"}},
         New keyTbl(CommandValues.BandJump30, KeyTypes.Command, AddressOf bandJump30Rtn,
-            "Jump to 30 meter band", "30m", False, FunctionGroups.general, KeyScope.Radio),
+            "Jump to 30 meter band", "30m", False, FunctionGroups.general, KeyScope.Radio) With {
+            .Keywords = New String() {"band", "30", "meter", "jump", "frequency", "warc"}},
         New keyTbl(CommandValues.BandJump20, KeyTypes.Command, AddressOf bandJump20Rtn,
-            "Jump to 20 meter band", "20m", False, FunctionGroups.general, KeyScope.Radio),
+            "Jump to 20 meter band", "20m", False, FunctionGroups.general, KeyScope.Radio) With {
+            .Keywords = New String() {"band", "20", "meter", "jump", "frequency"}},
         New keyTbl(CommandValues.BandJump17, KeyTypes.Command, AddressOf bandJump17Rtn,
-            "Jump to 17 meter band", "17m", False, FunctionGroups.general, KeyScope.Radio),
+            "Jump to 17 meter band", "17m", False, FunctionGroups.general, KeyScope.Radio) With {
+            .Keywords = New String() {"band", "17", "meter", "jump", "frequency", "warc"}},
         New keyTbl(CommandValues.BandJump15, KeyTypes.Command, AddressOf bandJump15Rtn,
-            "Jump to 15 meter band", "15m", False, FunctionGroups.general, KeyScope.Radio),
+            "Jump to 15 meter band", "15m", False, FunctionGroups.general, KeyScope.Radio) With {
+            .Keywords = New String() {"band", "15", "meter", "jump", "frequency"}},
         New keyTbl(CommandValues.BandJump12, KeyTypes.Command, AddressOf bandJump12Rtn,
-            "Jump to 12 meter band", "12m", False, FunctionGroups.general, KeyScope.Radio),
+            "Jump to 12 meter band", "12m", False, FunctionGroups.general, KeyScope.Radio) With {
+            .Keywords = New String() {"band", "12", "meter", "jump", "frequency", "warc"}},
         New keyTbl(CommandValues.BandJump10, KeyTypes.Command, AddressOf bandJump10Rtn,
-            "Jump to 10 meter band", "10m", False, FunctionGroups.general, KeyScope.Radio),
+            "Jump to 10 meter band", "10m", False, FunctionGroups.general, KeyScope.Radio) With {
+            .Keywords = New String() {"band", "10", "meter", "jump", "frequency"}},
         New keyTbl(CommandValues.BandJump6, KeyTypes.Command, AddressOf bandJump6Rtn,
-            "Jump to 6 meter band", "6m", False, FunctionGroups.general, KeyScope.Radio),
+            "Jump to 6 meter band", "6m", False, FunctionGroups.general, KeyScope.Radio) With {
+            .Keywords = New String() {"band", "6", "meter", "jump", "frequency", "vhf"}},
         New keyTbl(CommandValues.BandJump2, KeyTypes.Command, AddressOf bandJump2Rtn,
-            "Jump to 2 meter band", "2m", False, FunctionGroups.general, KeyScope.Radio),
+            "Jump to 2 meter band", "2m", False, FunctionGroups.general, KeyScope.Radio) With {
+            .Keywords = New String() {"band", "2", "meter", "jump", "frequency", "vhf"}},
         New keyTbl(CommandValues.BandUp, KeyTypes.Command, AddressOf bandUpRtn,
-            "Next higher band", "Band up", False, FunctionGroups.general, KeyScope.Radio),
+            "Next higher band", "Band up", False, FunctionGroups.general, KeyScope.Radio) With {
+            .Keywords = New String() {"band", "up", "next", "higher", "navigate"}},
         New keyTbl(CommandValues.BandDown, KeyTypes.Command, AddressOf bandDownRtn,
-            "Next lower band", "Band down", False, FunctionGroups.general, KeyScope.Radio)}
+            "Next lower band", "Band down", False, FunctionGroups.general, KeyScope.Radio) With {
+            .Keywords = New String() {"band", "down", "previous", "lower", "navigate"}}}
 
     ' Deleted from KeyTable.
     ' New keyTbl(CommandValues.LogForm, AddressOf BringUpLogForm,

@@ -158,7 +158,8 @@ namespace JJFlexWpf
                 SetTx(true);
                 EarconPlayer.TxStartTone();
                 _updateStatusDisplay?.Invoke("Transmitting");
-                if (_config.SpeechEnabled) ScreenReaderOutput.Speak("Transmitting", interrupt: true);
+                if (_config.SpeechEnabled)
+                    ScreenReaderOutput.Speak("Transmitting", interrupt: true);
                 Tracing.TraceLine("PTT: Hold started", TraceLevel.Info);
             }
             // If already locked/warning, ignore key-down (don't double-TX)
@@ -230,7 +231,8 @@ namespace JJFlexWpf
             _healthLockSeconds = 0;
 
             _updateStatusDisplay?.Invoke("TX Locked");
-            if (_config.SpeechEnabled) ScreenReaderOutput.Speak("Transmitting, locked", interrupt: true);
+            if (_config.SpeechEnabled)
+                ScreenReaderOutput.Speak("Transmitting, locked", interrupt: true);
             Tracing.TraceLine("PTT: Locked", TraceLevel.Info);
 
             StartWarningTimer();

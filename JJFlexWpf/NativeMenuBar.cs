@@ -674,6 +674,7 @@ public class NativeMenuBar : IDisposable
 
         AddSep(actions);
 
+        AddWired(actions, "Settings", () => ShowSettingsDialog());
         AddNotImplemented(actions, "Toggle Screen Saver");
         AddWired(actions, "Exit", () => _window.CloseShellCallback?.Invoke());
 
@@ -967,6 +968,7 @@ public class NativeMenuBar : IDisposable
         // === Tools ===
         var tools = AddPopup(bar, "&Tools");
         AddWired(tools, "Command Finder", () => ShowCommandFinderDialog());
+        AddWired(tools, "Settings", () => ShowSettingsDialog());
         AddStub(tools, "Speak Status");
         AddStub(tools, "Status Dialog");
         AddNotImplemented(tools, "Station Lookup");
@@ -1232,9 +1234,27 @@ public class NativeMenuBar : IDisposable
             GetCommands = () => _window.GetCommandFinderItemsCallback?.Invoke()
                 ?? new List<Dialogs.CommandFinderItem>(),
             ExecuteCommand = (tag) => _window.ExecuteCommandCallback?.Invoke(tag),
-            SpeakText = (msg) => Radios.ScreenReaderOutput.Speak(msg)
+            SpeakText = (msg) => Radios.ScreenReaderOutput.Speak(msg),
+            CurrentMode = _window.ActiveUIMode.ToString()
         };
         dialog.ShowDialog();
+    }
+
+    /// <summary>
+    /// Show the Settings dialog (PTT, Tuning, License, Audio tabs).
+    /// </summary>
+    private void ShowSettingsDialog()
+    {
+        var pttConfig = _window.CurrentPttConfig ?? new PttConfig();
+        var handlers = _window.FreqHandlers;
+        int coarseStep = handlers?.CoarseTuneStep ?? 1000;
+        int fineStep = handlers?.FineTuneStep ?? 10;
+
+        var dialog = new Dialogs.SettingsDialog(pttConfig, coarseStep, fineStep);
+        if (dialog.ShowDialog() == true)
+        {
+            _window.ApplySettingsChanges(dialog.CoarseTuneStep, dialog.FineTuneStep);
+        }
     }
 
     /// <summary>
