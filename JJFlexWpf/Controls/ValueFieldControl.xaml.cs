@@ -20,6 +20,8 @@ public partial class ValueFieldControl : UserControl
     private int _max = 100;
     private int _step = 5;
     private bool _suppressEvents;
+    private bool _numberEntryMode;
+    private string _numberBuffer = "";
 
     /// <summary>Fired when user adjusts the value via keyboard.</summary>
     public event EventHandler<int>? ValueChanged;
@@ -100,6 +102,16 @@ public partial class ValueFieldControl : UserControl
 
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)
     {
+        // Number entry mode: intercept digits, backspace, enter, escape
+        if (_numberEntryMode)
+        {
+            if (HandleNumberEntryKey(e.Key))
+            {
+                e.Handled = true;
+                return;
+            }
+        }
+
         switch (e.Key)
         {
             case Key.Up:
@@ -112,6 +124,16 @@ public partial class ValueFieldControl : UserControl
                 e.Handled = true;
                 break;
 
+            case Key.PageUp:
+                AdjustValue(_step * 10);
+                e.Handled = true;
+                break;
+
+            case Key.PageDown:
+                AdjustValue(-_step * 10);
+                e.Handled = true;
+                break;
+
             case Key.Home:
                 SetValue(_min);
                 e.Handled = true;
@@ -121,7 +143,105 @@ public partial class ValueFieldControl : UserControl
                 SetValue(_max);
                 e.Handled = true;
                 break;
+
+            case Key.Enter:
+                _numberEntryMode = true;
+                _numberBuffer = "";
+                ScreenReaderOutput.Speak($"Enter {_label} value");
+                e.Handled = true;
+                break;
         }
+    }
+
+    /// <summary>
+    /// Handle key presses during number entry mode.
+    /// Returns true if the key was consumed.
+    /// </summary>
+    private bool HandleNumberEntryKey(Key key)
+    {
+        // Digit keys (top row)
+        if (key >= Key.D0 && key <= Key.D9)
+        {
+            char digit = (char)('0' + (key - Key.D0));
+            _numberBuffer += digit;
+            ScreenReaderOutput.Speak(digit.ToString());
+            UpdateNumberEntryDisplay();
+            return true;
+        }
+
+        // Numpad digit keys
+        if (key >= Key.NumPad0 && key <= Key.NumPad9)
+        {
+            char digit = (char)('0' + (key - Key.NumPad0));
+            _numberBuffer += digit;
+            ScreenReaderOutput.Speak(digit.ToString());
+            UpdateNumberEntryDisplay();
+            return true;
+        }
+
+        // Backspace: delete last digit
+        if (key == Key.Back && _numberBuffer.Length > 0)
+        {
+            _numberBuffer = _numberBuffer.Substring(0, _numberBuffer.Length - 1);
+            ScreenReaderOutput.Speak("delete");
+            UpdateNumberEntryDisplay();
+            return true;
+        }
+
+        // Enter: confirm entry
+        if (key == Key.Enter)
+        {
+            ConfirmNumberEntry();
+            return true;
+        }
+
+        // Escape: cancel entry
+        if (key == Key.Escape)
+        {
+            _numberEntryMode = false;
+            _numberBuffer = "";
+            ScreenReaderOutput.Speak("Cancelled");
+            UpdateDisplay();
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Confirm the number entry buffer and apply the value.
+    /// </summary>
+    private void ConfirmNumberEntry()
+    {
+        _numberEntryMode = false;
+        if (int.TryParse(_numberBuffer, out int val))
+        {
+            val = Math.Clamp(val, _min, _max);
+            _value = val;
+            UpdateDisplay();
+
+            if (!_suppressEvents)
+            {
+                ValueChanged?.Invoke(this, _value);
+                ScreenReaderOutput.Speak($"{_label} {_value}");
+            }
+        }
+        else
+        {
+            ScreenReaderOutput.Speak("Invalid, cancelled");
+            UpdateDisplay();
+        }
+        _numberBuffer = "";
+    }
+
+    /// <summary>
+    /// Show the current number entry buffer in the display.
+    /// </summary>
+    private void UpdateNumberEntryDisplay()
+    {
+        string text = $"{_label}: {_numberBuffer}_";
+        DisplayText.Text = text;
+        AutomationProperties.SetName(this, $"{_label}: entering {_numberBuffer}");
     }
 
     private void AdjustValue(int delta)
