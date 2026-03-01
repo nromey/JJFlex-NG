@@ -1119,7 +1119,7 @@ public partial class MainWindow : UserControl
             }
 
             // Slice indicator — shows current active slice number
-            FreqOut.Write("Slice", RigControl.RXVFO.ToString());
+            FreqOut.Write("Slice", RigControl.ActiveSliceLetter);
 
             // Mute — current active slice mute state (GetVFOAudio true = audio on = not muted)
             FreqOut.Write("Mute", RigControl.GetVFOAudio(RigControl.RXVFO) ? " " : "M");

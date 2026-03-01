@@ -449,7 +449,7 @@ public class FreqOutHandlers
                     if (Rig.ValidVFO(slice))
                     {
                         Rig.RXVFO = slice;
-                        Radios.ScreenReaderOutput.Speak($"Slice {slice}");
+                        Radios.ScreenReaderOutput.Speak($"Slice {Rig.VFOToLetter(slice)}");
                         e.Handled = true;
                     }
                 }
@@ -491,7 +491,7 @@ public class FreqOutHandlers
         if (Rig.ValidVFO(next))
         {
             Rig.RXVFO = next;
-            Radios.ScreenReaderOutput.Speak($"Slice {next}");
+            Radios.ScreenReaderOutput.Speak($"Slice {Rig.VFOToLetter(next)}");
         }
     }
 
@@ -532,7 +532,7 @@ public class FreqOutHandlers
                 if (Rig.CanTransmit && Rig.ValidVFO(vfo))
                 {
                     Rig.TXVFO = vfo;
-                    Radios.ScreenReaderOutput.Speak($"Slice {vfo} transmit");
+                    Radios.ScreenReaderOutput.Speak($"Slice {Rig.VFOToLetter(vfo)} transmit");
                 }
                 e.Handled = true;
                 break;
@@ -543,7 +543,7 @@ public class FreqOutHandlers
                     Rig.RXVFO = vfo;
                     if (Rig.CanTransmit)
                         Rig.TXVFO = vfo;
-                    Radios.ScreenReaderOutput.Speak($"Slice {vfo} transceive");
+                    Radios.ScreenReaderOutput.Speak($"Slice {Rig.VFOToLetter(vfo)} transceive");
                 }
                 e.Handled = true;
                 break;
@@ -575,7 +575,7 @@ public class FreqOutHandlers
                 // Create/activate a new slice
                 if (Rig.NewSlice())
                 {
-                    Radios.ScreenReaderOutput.Speak($"Slice {Rig.MyNumSlices - 1} activated", true);
+                    Radios.ScreenReaderOutput.Speak($"Slice {Rig.VFOToLetter(Rig.MyNumSlices - 1)} activated", true);
                 }
                 else
                 {
@@ -610,7 +610,7 @@ public class FreqOutHandlers
                         Rig.RXVFO = switchTo;
                         if (Rig.RemoveSlice(toRemove))
                         {
-                            Radios.ScreenReaderOutput.Speak($"Slice {toRemove} released, slice {switchTo} active", true);
+                            Radios.ScreenReaderOutput.Speak($"Slice {Rig.VFOToLetter(toRemove)} released, slice {Rig.VFOToLetter(switchTo)} active", true);
                         }
                         else
                         {
@@ -652,7 +652,7 @@ public class FreqOutHandlers
                     if (Rig.ValidVFO(target))
                     {
                         Rig.RXVFO = target;
-                        Radios.ScreenReaderOutput.Speak($"Slice {target} active");
+                        Radios.ScreenReaderOutput.Speak($"Slice {Rig.VFOToLetter(target)} active");
                         e.Handled = true;
                     }
                 }
@@ -1338,7 +1338,8 @@ public class FreqOutHandlers
         }
         else
         {
-            Rig.SetFilter(preset.Low, preset.High);
+            var (mirroredLow, mirroredHigh) = FilterPresets.MirrorForMode(mode, preset.Low, preset.High);
+            Rig.SetFilter(mirroredLow, mirroredHigh);
             Radios.ScreenReaderOutput.Speak($"{preset.Name}, {preset.FormatForSpeech()}", true);
         }
         e.Handled = true;
