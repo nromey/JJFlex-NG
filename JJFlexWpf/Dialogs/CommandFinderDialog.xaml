@@ -14,6 +14,12 @@
                      TextChanged="SearchBox_TextChanged"
                      VerticalAlignment="Center" />
         </DockPanel>
+        <CheckBox x:Name="ShowAllScopesCheckBox" DockPanel.Dock="Top"
+                  Content="Show all commands"
+                  Margin="0,0,0,8"
+                  AutomationProperties.Name="Show commands from all modes"
+                  IsChecked="False"
+                  Checked="OnScopeFilterChanged" Unchecked="OnScopeFilterChanged" />
         <TextBlock x:Name="ResultCountLabel" DockPanel.Dock="Bottom"
                    Margin="0,4,0,0" Foreground="Gray"
                    AutomationProperties.Name="Result count"

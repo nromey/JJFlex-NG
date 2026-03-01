@@ -69,16 +69,32 @@ public class FilterPresets
     }
 
     /// <summary>
+    /// Mirror filter values for lower-sideband modes.
+    /// SSB presets store USB-positive values (100, 1900).
+    /// LSB/DIGL need negated+swapped values (-1900, -100).
+    /// </summary>
+    public static (int low, int high) MirrorForMode(string mode, int low, int high)
+    {
+        string norm = mode?.ToUpperInvariant() ?? "USB";
+        if (norm == "LSB" || norm == "DIGL")
+            return (-high, -low);
+        return (low, high);
+    }
+
+    /// <summary>
     /// Find which preset index (0-based) best matches the current filter, or -1 if none.
     /// Match tolerance: within 20 Hz on each edge.
+    /// Mirrors current radio values to match stored preset convention (USB-positive).
     /// </summary>
     public int FindActivePreset(string mode, int low, int high)
     {
+        // Mirror current radio values so LSB (-1900, -100) compares as (100, 1900)
+        var (compLow, compHigh) = MirrorForMode(mode, low, high);
         var presets = GetPresetsForMode(mode);
         for (int i = 0; i < presets.Count; i++)
         {
-            if (Math.Abs(presets[i].Low - low) <= 20 &&
-                Math.Abs(presets[i].High - high) <= 20)
+            if (Math.Abs(presets[i].Low - compLow) <= 20 &&
+                Math.Abs(presets[i].High - compHigh) <= 20)
                 return i;
         }
         return -1;

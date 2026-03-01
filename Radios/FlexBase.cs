@@ -2505,8 +2505,15 @@ namespace Radios
             return _SWR.ToString("f1");
         }
 
+        private float _MicData;
+        /// <summary>
+        /// Current microphone level from hardware meter. Updated by meter callback.
+        /// </summary>
+        public float MicData => _MicData;
+
         private void micData(float data)
         {
+            _MicData = data;
             Tracing.TraceLine("micData:" + data.ToString(), TraceLevel.Verbose);
         }
 
@@ -2673,6 +2680,12 @@ namespace Radios
         /// Letter of the TX slice. Empty if no TX slice.
         /// </summary>
         public string TXSliceLetter => VFOToSlice(TXVFO)?.Letter ?? "";
+
+        /// <summary>
+        /// Convert a VFO index to its slice letter (A, B, C, D...).
+        /// Falls back to the numeric index if the slice is not found.
+        /// </summary>
+        public string VFOToLetter(int vfo) => VFOToSlice(vfo)?.Letter ?? vfo.ToString();
 
         // Diversity readiness helper; ensure hardware, license, antennas, and slices
         public bool DiversityReady

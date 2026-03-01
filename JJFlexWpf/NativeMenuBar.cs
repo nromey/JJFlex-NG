@@ -5,6 +5,7 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Windows;
 using Flex.Smoothlake.FlexLib;
+using HamBands;
 using JJTrace;
 using Radios;
 
@@ -452,7 +453,9 @@ public class NativeMenuBar : IDisposable
                 AddWired(parent, label, () =>
                 {
                     if (Rig == null) { SpeakNoRadio(); return; }
-                    Rig.SetFilter(preset.Low, preset.High);
+                    string currentMode = Rig.Mode ?? "USB";
+                    var (mLow, mHigh) = FilterPresets.MirrorForMode(currentMode, preset.Low, preset.High);
+                    Rig.SetFilter(mLow, mHigh);
                     SpeakAfterMenuClose($"{preset.Name}, {preset.FormatForSpeech()}");
                 });
             }
@@ -671,6 +674,7 @@ public class NativeMenuBar : IDisposable
 
         AddSep(actions);
 
+        AddWired(actions, "Settings", () => ShowSettingsDialog());
         AddNotImplemented(actions, "Toggle Screen Saver");
         AddWired(actions, "Exit", () => _window.CloseShellCallback?.Invoke());
 
@@ -805,12 +809,12 @@ public class NativeMenuBar : IDisposable
             for (int i = 0; i < Math.Min(Rig.TotalNumSlices, 8); i++)
             {
                 int sliceNum = i;
-                AddChecked(selSub, $"Slice {i}",
+                AddChecked(selSub, $"Slice {Rig.VFOToLetter(i)}",
                     () =>
                     {
                         if (Rig == null || !Rig.ValidVFO(sliceNum)) return;
                         Rig.RXVFO = sliceNum;
-                        SpeakAfterMenuClose($"Slice {sliceNum} active");
+                        SpeakAfterMenuClose($"Slice {Rig.VFOToLetter(sliceNum)} active");
                     },
                     () => Rig?.RXVFO == sliceNum);
             }
@@ -822,7 +826,7 @@ public class NativeMenuBar : IDisposable
             {
                 if (Rig == null) { SpeakNoRadio(); return; }
                 if (Rig.NewSlice())
-                    SpeakAfterMenuClose($"Slice {Rig.MyNumSlices - 1} created");
+                    SpeakAfterMenuClose($"Slice {Rig.VFOToLetter(Rig.MyNumSlices - 1)} created");
                 else
                     SpeakAfterMenuClose("Cannot create slice, maximum reached");
             });
@@ -831,7 +835,7 @@ public class NativeMenuBar : IDisposable
             if (Rig.TotalNumSlices > 1)
             {
                 int activeSlice = Rig.RXVFO;
-                AddWired(selSub, $"Release Slice {activeSlice}", () =>
+                AddWired(selSub, $"Release Slice {Rig.VFOToLetter(activeSlice)}", () =>
                 {
                     if (Rig == null) { SpeakNoRadio(); return; }
                     int toRemove = Rig.RXVFO;
@@ -851,7 +855,7 @@ public class NativeMenuBar : IDisposable
                             Rig.TXVFO = switchTo;
                         Rig.RXVFO = switchTo;
                         if (Rig.RemoveSlice(toRemove))
-                            SpeakAfterMenuClose($"Slice {toRemove} released, slice {switchTo} active");
+                            SpeakAfterMenuClose($"Slice {Rig.VFOToLetter(toRemove)} released, slice {Rig.VFOToLetter(switchTo)} active");
                         else
                             SpeakAfterMenuClose("Cannot release this slice");
                     }
@@ -928,6 +932,17 @@ public class NativeMenuBar : IDisposable
             AddWired(slice, "Connect a radio first", SpeakNoRadio);
         }
 
+        // === Band ===
+        var band = AddPopup(bar, "&Band");
+        if (Rig != null)
+        {
+            BuildBandItems(band);
+        }
+        else
+        {
+            AddWired(band, "Connect a radio first", SpeakNoRadio);
+        }
+
         // === Filter ===
         var filter = AddPopup(bar, "&Filter");
         if (Rig != null)
@@ -953,6 +968,7 @@ public class NativeMenuBar : IDisposable
         // === Tools ===
         var tools = AddPopup(bar, "&Tools");
         AddWired(tools, "Command Finder", () => ShowCommandFinderDialog());
+        AddWired(tools, "Settings", () => ShowSettingsDialog());
         AddStub(tools, "Speak Status");
         AddStub(tools, "Status Dialog");
         AddNotImplemented(tools, "Station Lookup");
@@ -978,6 +994,31 @@ public class NativeMenuBar : IDisposable
         BuildHelpPopup(bar);
 
         return bar;
+    }
+
+    private void BuildBandItems(IntPtr parent)
+    {
+        // Main bands (Ctrl+F1-F8)
+        AddWired(parent, "160m\tCtrl+F1", () => _window.BandJump(Bands.BandNames.m160));
+        AddWired(parent, "80m\tCtrl+F2", () => _window.BandJump(Bands.BandNames.m80));
+        AddWired(parent, "40m\tCtrl+F3", () => _window.BandJump(Bands.BandNames.m40));
+        AddWired(parent, "20m\tCtrl+F4", () => _window.BandJump(Bands.BandNames.m20));
+        AddWired(parent, "15m\tCtrl+F5", () => _window.BandJump(Bands.BandNames.m15));
+        AddWired(parent, "10m\tCtrl+F6", () => _window.BandJump(Bands.BandNames.m10));
+        AddWired(parent, "6m\tCtrl+F7", () => _window.BandJump(Bands.BandNames.m6));
+        AddWired(parent, "2m\tCtrl+F8", () => _window.BandJump(Bands.BandNames.m2));
+        AddSep(parent);
+
+        // WARC bands (Ctrl+Shift+F1-F4)
+        AddWired(parent, "60m\tCtrl+Shift+F1", () => _window.BandJump(Bands.BandNames.m60));
+        AddWired(parent, "30m\tCtrl+Shift+F2", () => _window.BandJump(Bands.BandNames.m30));
+        AddWired(parent, "17m\tCtrl+Shift+F3", () => _window.BandJump(Bands.BandNames.m17));
+        AddWired(parent, "12m\tCtrl+Shift+F4", () => _window.BandJump(Bands.BandNames.m12));
+        AddSep(parent);
+
+        // Navigation
+        AddWired(parent, "Band Up\tAlt+Up", () => _window.BandNavigate(1));
+        AddWired(parent, "Band Down\tAlt+Down", () => _window.BandNavigate(-1));
     }
 
     #endregion
@@ -1193,9 +1234,27 @@ public class NativeMenuBar : IDisposable
             GetCommands = () => _window.GetCommandFinderItemsCallback?.Invoke()
                 ?? new List<Dialogs.CommandFinderItem>(),
             ExecuteCommand = (tag) => _window.ExecuteCommandCallback?.Invoke(tag),
-            SpeakText = (msg) => Radios.ScreenReaderOutput.Speak(msg)
+            SpeakText = (msg) => Radios.ScreenReaderOutput.Speak(msg),
+            CurrentMode = _window.ActiveUIMode.ToString()
         };
         dialog.ShowDialog();
+    }
+
+    /// <summary>
+    /// Show the Settings dialog (PTT, Tuning, License, Audio tabs).
+    /// </summary>
+    private void ShowSettingsDialog()
+    {
+        var pttConfig = _window.CurrentPttConfig ?? new PttConfig();
+        var handlers = _window.FreqHandlers;
+        int coarseStep = handlers?.CoarseTuneStep ?? 1000;
+        int fineStep = handlers?.FineTuneStep ?? 10;
+
+        var dialog = new Dialogs.SettingsDialog(pttConfig, coarseStep, fineStep);
+        if (dialog.ShowDialog() == true)
+        {
+            _window.ApplySettingsChanges(dialog.CoarseTuneStep, dialog.FineTuneStep);
+        }
     }
 
     /// <summary>

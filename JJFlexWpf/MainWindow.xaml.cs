@@ -198,9 +198,37 @@ public partial class MainWindow : UserControl
     private PttSafetyController? _pttController;
 
     /// <summary>
+    /// Current PTT configuration. Set during radio connect, used by Settings dialog.
+    /// </summary>
+    internal PttConfig? CurrentPttConfig { get; private set; }
+
+    /// <summary>
     /// Returns PTT status text for the Speak Status hotkey, or null if PTT is idle.
     /// </summary>
     public string? GetPttStatusText() => _pttController?.GetSpokenStatus();
+
+    /// <summary>
+    /// Apply settings changes from the Settings dialog.
+    /// Propagates PttConfig to controller, tuning steps to handler, and saves to disk.
+    /// </summary>
+    internal void ApplySettingsChanges(int coarseStep, int fineStep)
+    {
+        // Update PttSafetyController with modified config
+        if (CurrentPttConfig != null)
+            _pttController?.UpdateConfig(CurrentPttConfig);
+
+        // Apply tuning steps
+        if (_freqOutHandlers != null)
+        {
+            _freqOutHandlers.CoarseTuneStep = coarseStep;
+            _freqOutHandlers.FineTuneStep = fineStep;
+            _freqOutHandlers.SaveStepSizes?.Invoke(coarseStep, fineStep);
+        }
+
+        // Save PttConfig to disk
+        if (CurrentPttConfig != null && OpenParms != null)
+            CurrentPttConfig.Save(OpenParms.ConfigDirectory, OpenParms.GetOperatorName());
+    }
 
     /// <summary>
     /// Previous SWR text for change detection.
@@ -915,6 +943,11 @@ public partial class MainWindow : UserControl
     private FreqOutHandlers? _freqOutHandlers;
 
     /// <summary>
+    /// Expose FreqOutHandlers for Settings dialog tuning step access.
+    /// </summary>
+    internal FreqOutHandlers? FreqHandlers => _freqOutHandlers;
+
+    /// <summary>
     /// Set up the frequency display fields with interactive handlers.
     /// Dispatches to Classic or Modern field set based on ActiveUIMode.
     /// </summary>
@@ -1119,7 +1152,7 @@ public partial class MainWindow : UserControl
             }
 
             // Slice indicator — shows current active slice number
-            FreqOut.Write("Slice", RigControl.RXVFO.ToString());
+            FreqOut.Write("Slice", RigControl.ActiveSliceLetter);
 
             // Mute — current active slice mute state (GetVFOAudio true = audio on = not muted)
             FreqOut.Write("Mute", RigControl.GetVFOAudio(RigControl.RXVFO) ? " " : "M");
@@ -1353,14 +1386,18 @@ public partial class MainWindow : UserControl
         // Initialize PTT safety controller (Sprint 15)
         if (RigControl != null && OpenParms != null)
         {
-            var pttConfig = PttConfig.Load(
+            CurrentPttConfig = PttConfig.Load(
                 OpenParms.ConfigDirectory,
                 OpenParms.GetOperatorName());
             _pttController = new PttSafetyController(
                 () => RigControl,
                 () => _radioPowerOn,
-                pttConfig,
+                CurrentPttConfig,
                 text => StatusTx.Text = text);
+
+            // Wire license-aware TX lockout (Sprint 17 Track C)
+            _pttController.CanTransmitHereCheck = () =>
+                _freqOutHandlers?.CanTransmitHere() ?? true;
         }
 
         // VB-side tasks (knob setup, tracing)
@@ -1882,6 +1919,24 @@ public partial class MainWindow : UserControl
         {
             Radios.ScreenReaderOutput.Speak("Frequency unavailable", true);
         }
+    }
+
+    /// <summary>
+    /// Jump to a specific band. Delegates to FreqOutHandlers.BandJump().
+    /// Called from KeyCommands band F-key handlers.
+    /// </summary>
+    public void BandJump(HamBands.Bands.BandNames band)
+    {
+        _freqOutHandlers?.BandJump(band);
+    }
+
+    /// <summary>
+    /// Navigate to next (+1) or previous (-1) band.
+    /// Called from KeyCommands BandUp/BandDown handlers.
+    /// </summary>
+    public void BandNavigate(int direction)
+    {
+        _freqOutHandlers?.BandNavigate(direction);
     }
 
     #endregion

@@ -45,6 +45,12 @@ namespace Radios
         public int AlcAutoReleaseSeconds { get; set; } = 60;
 
         /// <summary>
+        /// When true, TX/RX transition speech is announced ("Transmitting", "Receiving").
+        /// When false, speech is muted but tones and safety warnings always play.
+        /// </summary>
+        public bool SpeechEnabled { get; set; } = true;
+
+        /// <summary>
         /// Clamp TimeoutSeconds to valid range [10..900].
         /// </summary>
         public void Validate()
