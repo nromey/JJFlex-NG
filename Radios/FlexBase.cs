@@ -2674,6 +2674,12 @@ namespace Radios
         /// </summary>
         public string TXSliceLetter => VFOToSlice(TXVFO)?.Letter ?? "";
 
+        /// <summary>
+        /// Convert a VFO index to its slice letter (A, B, C, D...).
+        /// Falls back to the numeric index if the slice is not found.
+        /// </summary>
+        public string VFOToLetter(int vfo) => VFOToSlice(vfo)?.Letter ?? vfo.ToString();
+
         // Diversity readiness helper; ensure hardware, license, antennas, and slices
         public bool DiversityReady
         {

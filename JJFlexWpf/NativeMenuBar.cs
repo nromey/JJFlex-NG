@@ -452,7 +452,9 @@ public class NativeMenuBar : IDisposable
                 AddWired(parent, label, () =>
                 {
                     if (Rig == null) { SpeakNoRadio(); return; }
-                    Rig.SetFilter(preset.Low, preset.High);
+                    string currentMode = Rig.Mode ?? "USB";
+                    var (mLow, mHigh) = FilterPresets.MirrorForMode(currentMode, preset.Low, preset.High);
+                    Rig.SetFilter(mLow, mHigh);
                     SpeakAfterMenuClose($"{preset.Name}, {preset.FormatForSpeech()}");
                 });
             }
@@ -805,12 +807,12 @@ public class NativeMenuBar : IDisposable
             for (int i = 0; i < Math.Min(Rig.TotalNumSlices, 8); i++)
             {
                 int sliceNum = i;
-                AddChecked(selSub, $"Slice {i}",
+                AddChecked(selSub, $"Slice {Rig.VFOToLetter(i)}",
                     () =>
                     {
                         if (Rig == null || !Rig.ValidVFO(sliceNum)) return;
                         Rig.RXVFO = sliceNum;
-                        SpeakAfterMenuClose($"Slice {sliceNum} active");
+                        SpeakAfterMenuClose($"Slice {Rig.VFOToLetter(sliceNum)} active");
                     },
                     () => Rig?.RXVFO == sliceNum);
             }
@@ -822,7 +824,7 @@ public class NativeMenuBar : IDisposable
             {
                 if (Rig == null) { SpeakNoRadio(); return; }
                 if (Rig.NewSlice())
-                    SpeakAfterMenuClose($"Slice {Rig.MyNumSlices - 1} created");
+                    SpeakAfterMenuClose($"Slice {Rig.VFOToLetter(Rig.MyNumSlices - 1)} created");
                 else
                     SpeakAfterMenuClose("Cannot create slice, maximum reached");
             });
@@ -831,7 +833,7 @@ public class NativeMenuBar : IDisposable
             if (Rig.TotalNumSlices > 1)
             {
                 int activeSlice = Rig.RXVFO;
-                AddWired(selSub, $"Release Slice {activeSlice}", () =>
+                AddWired(selSub, $"Release Slice {Rig.VFOToLetter(activeSlice)}", () =>
                 {
                     if (Rig == null) { SpeakNoRadio(); return; }
                     int toRemove = Rig.RXVFO;
@@ -851,7 +853,7 @@ public class NativeMenuBar : IDisposable
                             Rig.TXVFO = switchTo;
                         Rig.RXVFO = switchTo;
                         if (Rig.RemoveSlice(toRemove))
-                            SpeakAfterMenuClose($"Slice {toRemove} released, slice {switchTo} active");
+                            SpeakAfterMenuClose($"Slice {Rig.VFOToLetter(toRemove)} released, slice {Rig.VFOToLetter(switchTo)} active");
                         else
                             SpeakAfterMenuClose("Cannot release this slice");
                     }
