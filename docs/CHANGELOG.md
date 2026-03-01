@@ -2,30 +2,39 @@
 
 All notable changes to this project will be documented in this file.
 
-## 4.1.115.0 — (DRAFT — release notes in progress)
+## 4.1.115.0 — (DRAFT — pending testing)
 
 ### What's New
 
-- **Connection Tester moved into the Radio Selector**: No more fighting with the radio for slices. The connection tester now lives right inside the radio selector dialog — pick a radio, hit Test, and it runs your test cycles while you're disconnected. Clean, no conflicts, no confusion.
-- **Dummy Load Mode**: New toggle under Transmission — sets RF Power and Tune Power to zero so you can safely key up into a dummy load (or just test PTT without waking up the neighbors). Restores your previous power levels when you turn it off.
-- **Profile Reporter**: New tool under Operations that snapshots your radio's state across all profiles and saves a comparison report. Handy for seeing what each profile actually changes.
-- **Filter preset hotkeys are alive**: Alt+[ and Alt+] now actually cycle through your filter presets. They were wired up but the presets themselves were never loaded — oops. Fixed. Don, this one's for you.
-- **About, Tracing, and Key Assignments dialogs**: These Help menu items actually do something now instead of telling you they're coming soon.
-- **Command Finder wired up**: The search-your-commands tool (Ctrl+/) is now accessible from the Tools menu too.
+- **Spacebar won't accidentally transmit anymore**: PTT now requires Ctrl+Space to hold-to-talk and Shift+Space to lock. Plain spacebar in the frequency field does nothing — no more accidental transmissions. You'll hear a chirp when you key up and a lower tone when you go back to receive, so you always know your TX state even without headphones.
+- **"Am I transmitting?" hotkey**: Hit Alt+Shift+S anytime and your screen reader tells you whether you're transmitting, what mode (hold or locked), and how much time you have left before the safety timeout kicks in. On a braille display, the status bar shows "Transmitting" or "TX Locked" so you can glance down anytime.
+- **Band jumping with F-keys**: Ctrl+F1 through Ctrl+F8 jump you straight to 160m, 80m, 40m, 20m, 15m, 10m, 6m, and 2m. Ctrl+Shift+F1-F4 get you to the WARC bands (60m, 30m, 17m, 12m). Alt+Up and Alt+Down step through bands sequentially. The radio remembers where you were on each band for each mode — jump from 40m CW to 80m and it puts you right back at your last CW frequency on 80.
+- **License-aware tuning**: Tell the app your license class (Extra, Advanced, General, or Technician) in the new Settings dialog, and it'll beep and tell you when you tune across a band edge or into a portion you're not licensed for. Turn on TX Lockout and it won't let you transmit outside your authorized segment — even checks your filter width so a wide SSB signal near a band edge gets caught. Because nobody wants an FCC letter.
+- **Settings dialog**: Finally! A proper tabbed settings dialog (under Tools → Settings) with tabs for PTT configuration, tuning preferences, license class, and audio. No more hunting through menus to change your timeout or step sizes.
+- **TX health monitor**: If you lock TX and your mic is silent for more than 5 seconds, you'll hear "Check microphone." If your ALC is pegging, you'll hear "Microphone level too high." Think of it like Zoom telling you you're muted — but for ham radio.
+- **PTT speech can be muted**: In Settings → PTT, uncheck "Announce transmit/receive" and you'll only hear the chirp tones, not the spoken "Transmitting" / "Receiving." Great when you're on a hot mic and don't want your screen reader going out over the air.
+- **Slices show as A, B, C, D**: Everywhere — the frequency display, the slice menu, spoken announcements — slices now show as letters like the radio itself does, not confusing numbers like "0" and "1."
+- **ScreenFields controls got smarter**: Page Up and Page Down now jump by 10x the normal step (so TX Power goes up by 10 watts per press instead of 1). Press Enter in any numeric field, type a number, press Enter again to set it directly. Home and End still jump to min and max.
+- **Command Finder knows everything now**: Ctrl+/ and every command is searchable — try "band", "transmit", "filter", "power", whatever you're looking for. It defaults to showing commands for your current mode, with a "Show All" checkbox if you want to see everything.
+- **Connection Tester moved into the Radio Selector**: The connection tester now lives right inside the radio selector dialog — pick a radio, hit Test, and it runs your test cycles while you're disconnected.
+- **Dummy Load Mode**: Toggle under Transmission — sets RF Power and Tune Power to zero so you can safely key up into a dummy load. The timeout safety now works correctly in Dummy Load Mode too (it used to cut you off after 60 seconds because it thought nobody was talking).
+- **Filter presets fixed for LSB**: Alt+[ and Alt+] presets now work correctly on LSB and digital lower sideband modes. Before, they were applying wrong filter values that could mute your audio. Sorry about that one.
 
 ### Fixes
 
-- **ScreenFields hotkey remap**: Ctrl+Shift+A is now Antenna, Ctrl+Shift+U is Audio. The old mapping had A for Audio which was confusing since A should obviously be Antenna.
-- **ScreenFields focus management**: Expanding a category with Ctrl+Shift hotkeys now moves focus to the first control in that category. Collapsing returns focus to the frequency display. No more expanding something and wondering where your cursor went.
-- **Dead LiveRegion code removed**: Sprint 15 tried a fancy screen reader technique that didn't work through the WinForms/WPF bridge. The dead code is gone now — cleaner codebase, no confusion.
-- **Neural NR license gating verified**: If your radio doesn't have the Noise Reduction license, the menu tells you instead of showing a toggle that does nothing.
-- **Connection Tester now reports actual failure reasons**: Instead of always saying "station name timeout," the tester captures the real reason — no slices, no antenna, client removed, whatever actually happened.
+- **ScreenFields hotkey remap**: Ctrl+Shift+A is now Antenna, Ctrl+Shift+U is Audio.
+- **ScreenFields focus management**: Expanding a category moves focus to the first control. Collapsing returns focus to the frequency display.
+- **Neural NR license gating**: If your radio doesn't have the NR license, the menu tells you instead of showing a toggle that does nothing.
+- **Connection Tester reports actual failure reasons**: Instead of always saying "station name timeout," you get the real reason.
+- **Speak Status now includes TX detail**: Ctrl+Shift+S tells you your PTT mode and time remaining when you're transmitting.
 
 ### Under the Hood
 
-- Standalone ConnectionTesterDialog deleted (moved into RigSelector)
-- 17 files changed, +1,382 / -428 lines (net +954)
-- Several more "coming soon" menu stubs wired to real dialogs
+- 53 files changed across Sprints 16-17
+- 4 new config files: BandMemory, LicenseConfig, SettingsDialog, PttConfig enhancements
+- EarconPlayer expanded with TX chirp tones and band boundary beeps
+- Full keyword audit of all 50+ commands for Command Finder searchability
+- Codebase now 128,667 lines (down from Jim's original 303,689 — 57.6% smaller)
 
 ## 4.1.114.0 — Don (WA2IWC)'s Birthday Release
 

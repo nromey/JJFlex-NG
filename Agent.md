@@ -8,194 +8,49 @@ This document captures the current state of JJ-Flex repository and active work.
 ## 1) Overview
 - JJFlexRadio: Windows desktop app for FlexRadio 6000/8000 series transceivers
 - **Migration complete:** .NET 8, dual x64/x86 architecture, WebView2 for Auth0
-- **Current version:** 4.1.115
-- **Sprint 12:** COMPLETE — Stabilization phase. Plan archived.
-- **Sprint 13:** COMPLETE — Testing done, bug fixes applied, committed.
-  - 13A: Tab chain (FreqOut→Waterfall→Received→Sent), welcome mode announcement
-  - 13C: ScreenFields & Operations menus wired with DSP/audio/ATU/receiver controls
-  - 13B: Modern mode tuning redesigned (coarse/fine toggle, sane step presets)
-  - 13D: Modern menus (Slice/Filter/Audio) wired via shared handlers from 13C
-  - Testing fixes: SmartLink auto-retry, STA crash, Modern tuning, menu checkmarks, NR gating, filter bounds, Freq field hotkeys
-- **Sprint 14:** COMPLETE — ScreenFieldsPanel, speech debounce, slice menu, filter race fix + boundary announcements.
-  - ScreenFieldsPanel: 5 expandable categories (DSP, Audio, Receiver, TX, Antenna) with 25+ focusable controls
-  - Speech debounce: 300ms tuning frequency speech rate-limiting
-  - Slice menu: active indicator, create/release, count label
-  - Filter race condition fix: atomic SetFilter() replaces separate FilterLow/FilterHigh enqueue
-  - Filter LSB/CW fix: removed Math.Max(0,...) clamping that broke negative filter edges
-  - Filter boundary announcements: "Filter at minimum/maximum", "Beginning", "End"
+- **Current version:** 4.1.115 (pending release after Sprint 17 testing)
 
-## Sprint 15 — COMPLETE (tested 2026-02-25)
+## Sprint 17: QRM Splatter Pileup — COMPLETE (merged 2026-03-01, pending testing)
 
-**5 parallel tracks, all merged to main. Test matrix: `docs/planning/agile/sprint15-test-matrix.md`**
+**5 parallel tracks, all merged to main.**
 
-- **Track A:** WPF RigSelector — 9 PASS. SmartLink connect, auto-connect, multi-account, delete account all working. Retry delay needed (4ms too fast).
-- **Track B:** Filter overhaul — 6 PASS, 3 BUG. Bracket keys (independent, squeeze/pull, shift) all work. **Bugs:** FilterPresets never wired (Alt+bracket says "no presets"), F and Shift+S key routing broken (never reach FreqOutHandlers).
-- **Track C:** PTT safety — DEFERRED. Needs virtual dummy load before testing on live radio. Infrastructure built but untested.
-- **Track D:** ScreenFields menu — 6 PASS, 2 MISSING. Ctrl+Shift+N/A/R/T/E expand/collapse works. **Missing:** no focus set on expand, no focus return on collapse.
-- **Track E:** UIA LiveRegion — FAIL. LiveRegion doesn't work through ElementHost interop (NVDA reads "Status" instead of message). **Reverted to Tolk** with 150ms delay. Code change in NativeMenuBar.cs committed during testing.
+- **Track A:** PTT/TX enhancements — ALC dummy load fix, TX chirp tones (400→800Hz start, 800→400Hz stop), PTT verbosity setting (SpeechEnabled in PttConfig), mic level monitoring (FlexLib MicDataReady), TX health monitor ("check microphone" / "mic too hot" warnings)
+- **Track B:** Display bugs fixed — Filter presets now mirror values for LSB/DIGL (MirrorForMode helper), slice display changed from 0/1 to A/B/C/D everywhere (VFOToLetter helper)
+- **Track C:** Band navigation — Ctrl+F1-F8 for main bands, Ctrl+Shift+F1-F4 for WARC, Alt+Up/Down for sequential band nav, mode-aware band memory (BandMemory[band][mode] per-operator XML), license-aware tuning with boundary notifications and TX lockout (LicenseConfig per-operator XML)
+- **Track D:** ValueFieldControl enhancements — PgUp/PgDn for 10x step, direct number entry (Enter→type digits→Enter to confirm), Home/End verified working
+- **Track E:** Tabbed Settings dialog (PTT/Tuning/License/Audio tabs), Command Finder keyword audit (all commands searchable), scope filtering in Command Finder
 
-**Code changes during testing:**
-- `NativeMenuBar.cs` — SpeakAfterMenuClose reverted from LiveRegion to Tolk (LiveRegion broken through ElementHost)
-- `globals.vb` — ShowAccountSelector tested with account dialog, reverted to auto-select (original behavior was correct, radio was just offline)
+**New files:** `Radios/BandMemory.cs`, `Radios/LicenseConfig.cs`, `JJFlexWpf/Dialogs/SettingsDialog.xaml/.cs`
 
-## Sprint 15.5 — COMPLETE (coded 2026-02-25)
+**Stats:** 17 files changed, +1,502 / -89 lines
 
-**SmartLink connection reliability — 4 tracks, all committed.**
+## Sprint 16 — COMPLETE (tested 2026-03-01)
 
-Problem: 3/3 SmartLink connections to Don's radio failed. guiClient added then removed ~1.2s later, re-add never arrives, 15s timeout, retry broken (used TryAutoConnect for manual connections).
+- PTT changed from bare Space to Ctrl+Space (prevent accidental transmit)
+- Shift+Space lock works from any field (not just Freq)
+- Alt+Shift+S TX status hotkey with time remaining
+- Ctrl+Shift+S Speak Status enriched with PTT detail
+- StatusTx field in status bar for braille displays
+- Connection tester moved into RigSelector
+- Dummy Load Mode toggle
+- "No radios found" guidance in RigSelector
 
-- **Track 1:** Fix manual connection retry — `ReconnectRemote()`, 3s delay, two-path retry (manual vs auto-connect)
-- **Track 2:** ConnectionProfiler — timestamped JSON event logging for entire lifecycle
-- **Track 3:** Connection Tester — automated N-test harness with WPF dialog, text report generator, menu items
-- **Track 4:** JWT diagnostic logging — actual exp/iat claim timestamps in trace
+**Test results:** 10 PASS, 1 FAIL (filter presets LSB — fixed in Sprint 17), 1 NOT TESTED (timeout — ALC safety triggered first, fixed in Sprint 17)
 
-**New files:** `Radios/ConnectionProfiler.cs`, `Radios/ConnectionTester.cs`, `Radios/ConnectionTestReport.cs`, `JJFlexWpf/Dialogs/ConnectionTesterDialog.xaml/.cs`
+## Sprint 16 Carried Items (now in Sprint 17)
+- ~~Filter presets LSB/DIGL~~ FIXED in Sprint 17 Track B
+- ~~Slice 0/1 → A/B~~ FIXED in Sprint 17 Track B
+- ~~ALC auto-release in Dummy Load~~ FIXED in Sprint 17 Track A
+- ~~ScreenFields step sizes / number entry~~ DONE in Sprint 17 Track D
+- ~~Command Finder audit~~ DONE in Sprint 17 Track E
 
-**Menu:** Operations → Connection Tester / View Test Results (Classic), Tools → same (Modern)
-
-**Needs testing:** Run Connection Tester against Don's radio (25+ tests), analyze report, iterate.
-
-**Carried forward to Sprint 16:**
-- Wire FilterPresets to FreqOutHandlers and NativeMenuBar
-- Fix F and Shift+S key routing
-- Filter edge select mode (double-tap bracket, earcon + speech feedback)
-- ScreenFields focus on expand/collapse + Ctrl+Tab between groups
-- Key remapping: Ctrl+Shift+A=Antenna, Ctrl+Shift+U=Audio
-- Ctrl+Shift+/ spoken context-sensitive hotkey help
-- Fix Ctrl+/ key name display ("Ctrl+M2" → "Ctrl+/")
-- Unify KeyCommands + WPF PreviewKeyDown hotkeys
-- RNN license gating in menus
-- Virtual dummy load for PTT testing
-- Remove dead LiveRegion code
-- S-meter read on bare S key
-- Configurable tuning step lists
-- Global tuning hotkeys (system-wide)
-- Logging mode: F6 to flip to radio view
-- Alt+letter menu accelerator investigation
-- Earcon expansion (boundary bonk, field tick, tune tones)
-- NAudio integration for waterfall sonification
-- Verbosity settings (speech vs earcons only)
-
-## 2) Current Architecture
-
-### WPF Hosting (ElementHost pattern)
-```
-ShellForm (WinForms Form, visible, HWND owner)
-  ├─ Native Win32 HMENU menu bar (non-client area, via P/Invoke)
-  └─ ElementHost (Dock=Fill)
-       └─ MainWindow (WPF UserControl)
-            ├─ RadioControls (FreqOut, Mode, TXTune, buttons)
-            ├─ PanadapterPanel (braille display)
-            ├─ ContentArea (Received/Sent text)
-            ├─ LoggingPanel (collapsed by default)
-            └─ StatusBar
-```
-
-**Key files for this architecture:**
-| File | Role |
-|------|------|
-| `BridgeForm.vb` | ShellForm — WinForms Form with native HMENU + ElementHost, hosts WPF content |
-| `JJFlexWpf/NativeMenuBar.cs` | Win32 HMENU menu bar via P/Invoke (replaced MenuStripBuilder) |
-| `JJFlexWpf/MainWindow.xaml` | WPF UserControl (was Window before migration) |
-| `JJFlexWpf/MainWindow.xaml.cs` | Code-behind with radio wiring, callbacks, UI modes |
-| `JJFlexWpf/FreqOutHandlers.cs` | Field handler methods for FreqOut interactive tuning |
-| `ApplicationEvents.vb` | Creates ShellForm in Startup, wires callbacks |
-| `My Project/Application.Designer.vb` | Sets TheShellForm as MainForm |
-| `globals.vb` | AppShellForm accessor, title setting, initialization |
-
-### Startup Sequence
-1. `MyApplication_Startup` → NativeLoader, TLS, crash handlers, ScreenReaderOutput.Initialize()
-2. `TheShellForm = New ShellForm()` → creates ElementHost + MainWindow, creates NativeMenuBar
-3. `OnHandleCreated` → `NativeMenuBar.AttachTo(Handle)` sets native HMENU via SetMenu
-4. Wire callbacks (ScanTimer, Exit, SelectRadio, CloseShell, DoCommand, FreqOutHandlersWire)
-5. `InitializeApplication()` → config, operators, radio open → calls `ApplyUIMode` which triggers `MenuModeCallback` → `NativeMenuBar.ApplyUIMode(mode)` rebuilds menu bar
-6. `OnCreateMainForm()` → `Me.MainForm = TheShellForm` (reuses instance from step 2)
-7. VB.NET shows ShellForm → `ShellForm.OnShown()` → `SpeakWelcomeDelayed()` (Async, 2s Task.Delay) → `SpeakWelcome()`
-
-**Note:** `openTheRadio()` now calls `AppShellForm.Show()` + `Activate()` before `Start()` so error dialogs have a parent window. Welcome speech uses 2s `Task.Delay` to let NVDA finish its focus announcements before speaking.
-
-## 3) Sprint 12 Status — COMPLETE
-
-### Completed Work
-- **Native Win32 HMENU menus** — replaced WPF Menu → WinForms MenuStrip → native HMENU via P/Invoke
-- **FreqOut interactive tuning** — all field handlers ported (Slice, Mute, Volume, SMeter, Split, VOX, Freq, Offset, RIT, XIT)
-- **Frequency readout during tuning** — bypassed broken VB.NET delegate chain (NullRef in `RigControl.Callouts.FormatFreq`), uses direct C# formatting in `FormatFreqForSpeech()`
-- **Step multiplier** — +N/-N sets custom tune steps (e.g., +5 at 1kHz = 5kHz steps)
-- **Step speech fix** — "Step 5 1 kilohertz" → "Step 5 kilohertz" (strips leading number from unit name)
-- **Frequency readout toggle** — F key toggles speech on/off during tuning
-- **Ctrl+Shift+F** — speaks current frequency and slice
-- **Error dialog parenting** — all 7 unparented MessageBox calls now use AppShellForm as owner
-- **ShowErrorCallback** — NoSliceError and disconnect errors get screen reader speech + parented WinForms dialog
-- **ShellForm.Show() before Start()** — error dialogs have a visible parent window
-- **CrashReporter** — parented dialog + screen reader speech before dialog
-- **Panadapter braille** — PanadapterPanel with Tolk.Braille() forwarding
-- **SmartLink auth fixes** — expired JWT detection, ghost PKCE handler neutered
-- **RigSelector accessibility** — runs on main UI thread (removed selectorThread), ListBox speech, auto-select first radio
-- **Menu wiring** — Connect to Radio, Disconnect, Select Rig, focus return on Escape
-- **Slice management** — period creates slice, comma releases slice, digit keys jump to slice
-- **VOX toggle** — wired to FlexBase.Vox property
-- **Verbose trace cleanup** — removed per-keypress and per-poll-cycle trace lines
-- **SpeakWelcome** — "Welcome to JJ Flex" spoken 2s after window shown (Task.Delay, not WinForms Timer)
-
-### Known Issues (carry to Sprint 13)
-- ~~**SpeakWelcome regression**~~ — FIXED. Uses `Async Sub` + `Await Task.Delay(2000)` in `ShellForm.OnShown()` so NVDA finishes focus announcements before welcome speaks. WinForms Timer doesn't work in ElementHost (WM_TIMER swallowed).
-- **Right arrow field navigation** — reads "slice 0 slice 1" (both slices at once)
-- **NVDA menu announcement** — says "Radio alt+r" not "Radio menu alt+r"
-- **Operations menu** — still a stub
-- **Tab chain** — Tab doesn't cycle FreqOut fields (by design), but waterfall/panadapter not reachable via Tab
-
-## 4) Sprint 13 Planning — Tab Chain & Field Navigation
-
-**Scope (from research session Feb 19, 2026):**
-
-### Tab Chain
-- Focus lands on Slice field (VFO) on load
-- Tab order: FreqOut → Waterfall display (if visible) → ReceivedTextBox → SentTextBox
-- Skip ModeControl, TXTuneControl, buttons via IsTabStop=False (accessible via hotkeys)
-- PanDisplayBox renamed to "Waterfall display" for screen reader
-
-### Field Navigation
-- Left/Right navigates within/between FreqOut fields (current behavior, keep)
-- Home/End/PgDn for field jumping (current behavior, keep)
-
-### Modern Mode
-- Needs design decisions on which fields to include initially
-- Separate tuning experience from Classic
-
-### Other Fixes
-- ~~SpeakWelcome timing~~ DONE
-- Operations menu wiring
-- Field announcement polish
-- Mode announcement after welcome (e.g., "Welcome to JJ Flex, Classic mode")
-
-## 5) Key Patterns
-
-### Native Win32 HMENU Menus (CURRENT)
-WPF Menu and WinForms MenuStrip both announce "collapsed/expanded" to screen readers. Only native Win32 HMENU menus (via P/Invoke `CreateMenu`/`SetMenu`) give clean screen reader navigation. `NativeMenuBar.cs` handles this.
-
-### ElementHost Architecture (CRITICAL)
-WPF content MUST be hosted via ElementHost in a WinForms ShellForm. Standalone WPF Windows shown from VB.NET My.Application get NO keyboard input.
-
-### Frequency Speech — Direct C# Formatting
-`FormatFreqForSpeech()` in FreqOutHandlers.cs formats frequency directly. Do NOT use the VB.NET delegate chain (`RigControl.Callouts.FormatFreq`) — it throws NullReferenceException due to timing issues with module-level variable access across VB.NET/C# boundary.
-
-### Error Dialog Parenting
-All error MessageBox calls must pass `AppShellForm` as owner. Use `ShowErrorCallback` for errors from WPF code (NoSliceError, disconnect). CrashReporter speaks before showing dialog.
-
-### RadioComboBox _userEntry Pattern
-`_userEntry` flag distinguishes user actions from programmatic updates in `SelectionChanged`. Always reset `_userEntry = true` after programmatic updates complete.
-
-### SmartLink Auth Flow
-- `TryAutoConnectRemote()` — startup path, checks `isJwtExpired` before sending to server
-- `setupRemote()` — Remote button path, also checks JWT expiry first
-- `WanApplicationRegistrationInvalidHandler` — neutered (just logs)
-- `RemoteButton_Click` — runs `RemoteRadios()` on background STA thread
-
-## 6) Completed Sprints
-- Sprint 15: WPF RigSelector, filter overhaul, PTT safety, menu redesign, UIA LiveRegion
-- Sprint 14: ScreenFieldsPanel, speech debounce, slice menu, filter race fix + boundary announcements
-- Sprint 13: Tab chain, Modern tuning, menus, SmartLink auto-retry, testing fixes
-- Sprint 12: Stabilize WPF — menus, SmartLink, FreqOut tuning, error dialogs, screen reader speech
+## Completed Sprints
+- Sprint 17: Band nav, license tuning, PTT enhancements, settings dialog, controls
+- Sprint 16: PTT safety (Ctrl+Space), Dummy Load, Connection Tester in RigSelector
+- Sprint 15: WPF RigSelector, filter overhaul, PTT safety infra, menu redesign
+- Sprint 14: ScreenFieldsPanel, speech debounce, slice menu, filter race fix
+- Sprint 13: Tab chain, Modern tuning, menus, SmartLink auto-retry
+- Sprint 12: Stabilize WPF — menus, SmartLink, FreqOut tuning, error dialogs
 - Sprint 11: WPF adapters, Form1 kill, dead code deletion (~13,000 lines)
 - Sprint 10: FlexBase.cs decoupling (interfaces + delegates)
 - Sprint 9: All dialogs to WPF (3 parallel tracks, 122 files)
@@ -208,21 +63,73 @@ All error MessageBox calls must pass `AppShellForm` as owner. Use `ShowErrorCall
 - Sprint 2: Auto-Connect (v4.1.11)
 - Sprint 1: SmartLink Saved Accounts (v4.1.10)
 
-## 7) Build Commands
+## Backlog (Future Sprints)
+
+### Band Navigation & Tuning
+- 60m channel navigation (Shift+F7/F8 prev/next) — per-channel mode/power/tuning enforcement, US-only
+- International band plans (ITU regions, country-aware license boundaries)
+- F6 logging redesign: kill radio panel, use Ctrl+Tab/Ctrl+Shift+Tab
+
+### Keyboard & Discoverability (design: `docs/planning/design/JJFlex-Keyboard-Proposal.md`)
+- Keymap import/export (shareable community keymaps via Tools menu)
+- Hotkey profiles: Default / Classic / Contest / Minimal
+- Optional Ctrl+J leader key with 2-step max and timeout/cancel
+- Conflict resolver UI for key assignment collisions
+- Optional global hotkeys (opt-in, bring-JJFlex-to-front)
+
+### Modern UI — Slice-Centric (design: `docs/planning/design/Slice-Menu-and-Status.md`, `JJFlex-Menu-Layout.md`)
+- Slice menu: mode, TX, pan, AGC grouped under Slice
+- Filter menu: narrow/widen, edge adjust, presets, reset (separated from mode/TX)
+- Status Dialog: fully accessible WPF dialog with grouped sections
+- Remove legacy status box from Modern mode
+- Audio menu: Adjust Rig Audio entry point, Record/Playback, DAX
+
+### Audio Pipeline (design: `docs/planning/design/Audio-Pipeline-Architecture.md`, `Audio-Mixer-and-Routing.md`)
+- Rolling audio buffer with configurable length
+- "Say Again" instant replay (last N seconds of RX audio)
+- "Parrot" TX check: record/playback your own transmission
+- Audio mixer: per-source level, ducking controls
+- Audio device selection dialog (input/output)
+- DAX integration research: what JJFlex owns vs. defers to Flex DAX manager
+
+### DotPad Tactile Waterfall (design: 5 docs in `docs/planning/design/`)
+- `TactileFrameBuffer` (60x40 logical grid, device-agnostic)
+- `LayoutEngine` + 3 fixed layout modes: Waterfall, Instrument Panel, Hybrid
+- `DotPadAdapter`: full-frame push at ~500ms cadence
+- Frequency scale: `HzPerBin`, zoom, tick marks, center marker
+- Cursor navigation: arrows, P snap-to-peak, Enter-to-tune
+- Spectrum sonification: Peak Sprite engine + Freeze Frame Scan
+
+### Product / Business
+- Premium feature boundary definition (core stays free/open-source)
+- Feature flag / license check mechanism for premium modules
+- GitHub Sponsors setup
+- Wider SDR support (RTL-SDR, Airspy, SDRplay — long-term, read-only)
+
+### Open Bugs (from `docs/planning/vision/JJFlex-TODO.md`)
+- BUG-004: System.IO.Ports crash on shutdown (downgrade or guard FlexKnob.Dispose)
+- BUG-013: Duplicate QSO warning beep not playing
+- BUG-015: F6 double-announces "Radio pane" in Logging Mode
+- BUG-016: RNN / DSP toggles lack feature gating in Modern menu
+- BUG-023: "Connect while connected" flow needs confirmation guard
+
+### Other
+- TX tones: user may provide custom .wav files (roger beep style)
+- 4O3A ecosystem integration plan
+
+## Build Commands
 
 ```batch
-# Debug build for testing (no installer, faster)
+# Debug build for testing
 dotnet build JJFlexRadio.vbproj -c Debug -p:Platform=x64 --verbosity minimal
 
 # Clean + rebuild Release (triggers NSIS installer)
 dotnet clean JJFlexRadio.vbproj -c Release -p:Platform=x64 && dotnet restore JJFlexRadio.vbproj -p:Platform=x64 && dotnet build JJFlexRadio.vbproj -c Release -p:Platform=x64 --verbosity minimal
 
-# Both installers (release only)
+# Both installers
 build-installers.bat
 ```
 
-**Note:** After `dotnet clean`, always run `dotnet restore` before `dotnet build` to avoid NETSDK1047 errors. Build the **project** directly (`JJFlexRadio.vbproj`), not the solution — solution builds may skip the main project.
-
 ---
 
-*Updated: Feb 21, 2026 — Sprint 14 complete. ScreenFieldsPanel (5 categories, 25+ controls), speech debounce, slice menu, filter race fix (atomic SetFilter), LSB/CW filter clamping fix, boundary announcements. Next: Sprint 15 — filter overhaul (band presets, adaptive steps), UIA LiveRegion, menu audit.*
+*Updated: Mar 1, 2026 — Sprint 17 complete and merged + F-key reshuffle addendum (bands→F3-F9, mode hotkeys F10/F11, Alt+U/L/C). 17 sprints total. Codebase: 128,667 lines (down from 303,689 in Jim's base — 57.6% reduction). Pending: Sprint 17 testing, changelog draft, v4.1.115 release.*
