@@ -49,12 +49,41 @@ namespace JJFlexWpf
         public static void OhCrapBeep() => Beep(1200, 250);
 
         /// <summary>
+        /// TX start tone — ascending chirp 400→800Hz over 80ms.
+        /// </summary>
+        public static void TxStartTone() => Chirp(400, 800, 80);
+
+        /// <summary>
+        /// TX stop tone — descending chirp 800→400Hz over 80ms.
+        /// </summary>
+        public static void TxStopTone() => Chirp(800, 400, 80);
+
+        /// <summary>
         /// Hard kill tone — two rapid descending beeps.
         /// </summary>
         public static void HardKillTone()
         {
             Beep(1000, 100);
             Beep(600, 200);
+        }
+
+        /// <summary>
+        /// Play a frequency sweep (chirp) from startHz to endHz over durationMs.
+        /// </summary>
+        public static void Chirp(int startHz, int endHz, int durationMs)
+        {
+            try
+            {
+                using var stream = GenerateChirp(startHz, endHz, durationMs);
+                using var player = new SoundPlayer(stream);
+                player.Play();
+            }
+            catch (Exception ex)
+            {
+                Trace.WriteLine($"EarconPlayer.Chirp failed: {ex.Message}");
+                try { Console.Beep((startHz + endHz) / 2, durationMs); }
+                catch { }
+            }
         }
 
         /// <summary>
@@ -106,6 +135,65 @@ namespace JJFlexWpf
                     envelope = (double)(samples - i) / fadeLength;
 
                 short pcm = (short)(sample * envelope * 20000); // ~60% volume
+                writer.Write(pcm);
+            }
+
+            writer.Flush();
+            stream.Position = 0;
+            return stream;
+        }
+
+        /// <summary>
+        /// Generate a PCM WAV stream with a linear frequency sweep.
+        /// 16-bit mono, 44100 Hz sample rate.
+        /// </summary>
+        private static MemoryStream GenerateChirp(int startHz, int endHz, int durationMs)
+        {
+            const int sampleRate = 44100;
+            const short bitsPerSample = 16;
+            const short channels = 1;
+            int samples = sampleRate * durationMs / 1000;
+            int dataSize = samples * (bitsPerSample / 8) * channels;
+
+            var stream = new MemoryStream();
+            using var writer = new BinaryWriter(stream, System.Text.Encoding.UTF8, leaveOpen: true);
+
+            // WAV header
+            writer.Write(new char[] { 'R', 'I', 'F', 'F' });
+            writer.Write(36 + dataSize);
+            writer.Write(new char[] { 'W', 'A', 'V', 'E' });
+
+            // fmt chunk
+            writer.Write(new char[] { 'f', 'm', 't', ' ' });
+            writer.Write(16);
+            writer.Write((short)1); // PCM
+            writer.Write(channels);
+            writer.Write(sampleRate);
+            writer.Write(sampleRate * channels * (bitsPerSample / 8));
+            writer.Write((short)(channels * (bitsPerSample / 8)));
+            writer.Write(bitsPerSample);
+
+            // data chunk
+            writer.Write(new char[] { 'd', 'a', 't', 'a' });
+            writer.Write(dataSize);
+
+            // Linear frequency sweep with fade envelope
+            int fadeLength = Math.Min(samples / 10, sampleRate / 100);
+            double phase = 0.0;
+            for (int i = 0; i < samples; i++)
+            {
+                double t = (double)i / samples; // 0..1 progress
+                double freq = startHz + (endHz - startHz) * t;
+                phase += 2 * Math.PI * freq / sampleRate;
+                double sample = Math.Sin(phase);
+
+                double envelope = 1.0;
+                if (i < fadeLength)
+                    envelope = (double)i / fadeLength;
+                else if (i > samples - fadeLength)
+                    envelope = (double)(samples - i) / fadeLength;
+
+                short pcm = (short)(sample * envelope * 20000);
                 writer.Write(pcm);
             }
 
