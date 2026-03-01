@@ -58,6 +58,17 @@ namespace JJFlexWpf
         }
 
         /// <summary>
+        /// Band boundary beep — distinctive double-beep when crossing band edges.
+        /// 600 Hz, 50ms, pause, 600 Hz, 50ms. Clearly different from PTT warning tones.
+        /// </summary>
+        public static void BandBoundaryBeep()
+        {
+            Beep(600, 50);
+            System.Threading.Tasks.Task.Delay(30).Wait();
+            Beep(600, 50);
+        }
+
+        /// <summary>
         /// Generate a PCM WAV stream with a sine wave tone.
         /// 16-bit mono, 44100 Hz sample rate.
         /// </summary>

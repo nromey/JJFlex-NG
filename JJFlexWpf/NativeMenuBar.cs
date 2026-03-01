@@ -5,6 +5,7 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Windows;
 using Flex.Smoothlake.FlexLib;
+using HamBands;
 using JJTrace;
 using Radios;
 
@@ -928,6 +929,17 @@ public class NativeMenuBar : IDisposable
             AddWired(slice, "Connect a radio first", SpeakNoRadio);
         }
 
+        // === Band ===
+        var band = AddPopup(bar, "&Band");
+        if (Rig != null)
+        {
+            BuildBandItems(band);
+        }
+        else
+        {
+            AddWired(band, "Connect a radio first", SpeakNoRadio);
+        }
+
         // === Filter ===
         var filter = AddPopup(bar, "&Filter");
         if (Rig != null)
@@ -978,6 +990,31 @@ public class NativeMenuBar : IDisposable
         BuildHelpPopup(bar);
 
         return bar;
+    }
+
+    private void BuildBandItems(IntPtr parent)
+    {
+        // Main bands (Ctrl+F1-F8)
+        AddWired(parent, "160m\tCtrl+F1", () => _window.BandJump(Bands.BandNames.m160));
+        AddWired(parent, "80m\tCtrl+F2", () => _window.BandJump(Bands.BandNames.m80));
+        AddWired(parent, "40m\tCtrl+F3", () => _window.BandJump(Bands.BandNames.m40));
+        AddWired(parent, "20m\tCtrl+F4", () => _window.BandJump(Bands.BandNames.m20));
+        AddWired(parent, "15m\tCtrl+F5", () => _window.BandJump(Bands.BandNames.m15));
+        AddWired(parent, "10m\tCtrl+F6", () => _window.BandJump(Bands.BandNames.m10));
+        AddWired(parent, "6m\tCtrl+F7", () => _window.BandJump(Bands.BandNames.m6));
+        AddWired(parent, "2m\tCtrl+F8", () => _window.BandJump(Bands.BandNames.m2));
+        AddSep(parent);
+
+        // WARC bands (Ctrl+Shift+F1-F4)
+        AddWired(parent, "60m\tCtrl+Shift+F1", () => _window.BandJump(Bands.BandNames.m60));
+        AddWired(parent, "30m\tCtrl+Shift+F2", () => _window.BandJump(Bands.BandNames.m30));
+        AddWired(parent, "17m\tCtrl+Shift+F3", () => _window.BandJump(Bands.BandNames.m17));
+        AddWired(parent, "12m\tCtrl+Shift+F4", () => _window.BandJump(Bands.BandNames.m12));
+        AddSep(parent);
+
+        // Navigation
+        AddWired(parent, "Band Up\tAlt+Up", () => _window.BandNavigate(1));
+        AddWired(parent, "Band Down\tAlt+Down", () => _window.BandNavigate(-1));
     }
 
     #endregion

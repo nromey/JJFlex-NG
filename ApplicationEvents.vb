@@ -189,6 +189,20 @@ Namespace My
                     handlers.FilterPresets = presets
                     WpfMainWindow.SetNativeMenuFilterPresetsCallback?.Invoke(presets)
                 End If
+
+                ' Wire band memory and license config (Sprint 17 Track C).
+                handlers.GetConfigDirectory = Function() BaseConfigDir
+                handlers.GetOperatorName = Function()
+                    If CurrentOp IsNot Nothing Then
+                        Return PersonalData.UniqueOpName(CurrentOp)
+                    End If
+                    Return "default"
+                End Function
+                If CurrentOp IsNot Nothing Then
+                    Dim opName = PersonalData.UniqueOpName(CurrentOp)
+                    handlers.BandMem = Radios.BandMemory.Load(BaseConfigDir, opName)
+                    handlers.License = Radios.LicenseConfig.Load(BaseConfigDir, opName)
+                End If
             End Sub
         End Sub
 
