@@ -36,6 +36,12 @@ namespace JJFlexWpf.Dialogs
         /// </summary>
         public Action<string>? SpeakText { get; set; }
 
+        /// <summary>
+        /// Current UI mode name ("Classic", "Modern", or "Logging").
+        /// Used for scope filtering — only shows commands relevant to the current mode.
+        /// </summary>
+        public string CurrentMode { get; set; } = "Modern";
+
         private List<CommandFinderItem> _allCommands = new();
 
         public CommandFinderDialog()
@@ -59,13 +65,33 @@ namespace JJFlexWpf.Dialogs
 
         private void FilterResults(string query)
         {
-            var filtered = string.IsNullOrEmpty(query)
-                ? _allCommands
-                : _allCommands.Where(c => MatchesQuery(c, query)).ToList();
+            bool showAll = ShowAllScopesCheckBox.IsChecked == true;
+            var filtered = _allCommands
+                .Where(c => (showAll || ScopeVisible(c.Scope))
+                         && (string.IsNullOrEmpty(query) || MatchesQuery(c, query)))
+                .ToList();
 
             ResultsListView.ItemsSource = filtered;
             ResultCountLabel.Text = $"{filtered.Count} commands";
             SpeakText?.Invoke($"{filtered.Count} results");
+        }
+
+        private bool ScopeVisible(string scope)
+        {
+            return CurrentMode switch
+            {
+                "Classic" => scope is "Global" or "Radio" or "Classic",
+                "Modern" => scope is "Global" or "Radio" or "Modern",
+                "Logging" => scope is "Global" or "Logging",
+                _ => true
+            };
+        }
+
+        private void OnScopeFilterChanged(object sender, RoutedEventArgs e)
+        {
+            // Only filter if already loaded (checkbox fires during init too)
+            if (_allCommands.Count > 0)
+                FilterResults(SearchBox.Text.Trim());
         }
 
         private static bool MatchesQuery(CommandFinderItem item, string query)
