@@ -31,6 +31,13 @@ namespace JJFlexWpf
         private readonly Action<string>? _updateStatusDisplay;
         private PttConfig _config;
 
+        /// <summary>
+        /// License-aware TX lockout check. When set and returns false,
+        /// PTT is blocked with a spoken warning. Set by MainWindow when
+        /// FreqOutHandlers are initialized.
+        /// </summary>
+        public Func<bool>? CanTransmitHereCheck { get; set; }
+
         // Timers
         private DispatcherTimer? _warningTimer;
         private DispatcherTimer? _beepTimer;
@@ -137,6 +144,14 @@ namespace JJFlexWpf
         {
             if (!CanTransmit()) return;
 
+            // License-aware TX lockout check
+            if (CanTransmitHereCheck != null && !CanTransmitHereCheck())
+            {
+                ScreenReaderOutput.Speak("Cannot transmit here, outside licensed band segment", interrupt: true);
+                EarconPlayer.Warning2Beep();
+                return;
+            }
+
             if (State == PttState.Idle)
             {
                 State = PttState.PttHold;
@@ -197,6 +212,14 @@ namespace JJFlexWpf
 
         private void EnterLocked()
         {
+            // License-aware TX lockout check
+            if (CanTransmitHereCheck != null && !CanTransmitHereCheck())
+            {
+                ScreenReaderOutput.Speak("Cannot transmit here, outside licensed band segment", interrupt: true);
+                EarconPlayer.Warning2Beep();
+                return;
+            }
+
             State = PttState.Locked;
             SetTx(true);
             EarconPlayer.TxStartTone();

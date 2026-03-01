@@ -81,6 +81,20 @@ Public Class KeyCommands
         SpeakStatus
         ShowStatusDialog
         SpeakTxStatus
+        BandJump160
+        BandJump80
+        BandJump60
+        BandJump40
+        BandJump30
+        BandJump20
+        BandJump17
+        BandJump15
+        BandJump12
+        BandJump10
+        BandJump6
+        BandJump2
+        BandUp
+        BandDown
     End Enum
     Friend Const FirstMessageCommandValue As Integer = 1000000
 
@@ -436,7 +450,35 @@ Public Class KeyCommands
         New keyTbl(CommandValues.ShowStatusDialog, KeyTypes.Command, AddressOf showStatusDialogRtn,
             "Show radio status dialog", "Status dialog", False, FunctionGroups.general, KeyScope.[Global]),
         New keyTbl(CommandValues.SpeakTxStatus, KeyTypes.Command, AddressOf speakTxStatusRtn,
-            "Speak transmit status and time remaining", "Transmit status", False, FunctionGroups.general, KeyScope.[Global])}
+            "Speak transmit status and time remaining", "Transmit status", False, FunctionGroups.general, KeyScope.[Global]),
+        New keyTbl(CommandValues.BandJump160, KeyTypes.Command, AddressOf bandJump160Rtn,
+            "Jump to 160 meter band", "160m", False, FunctionGroups.general, KeyScope.Radio),
+        New keyTbl(CommandValues.BandJump80, KeyTypes.Command, AddressOf bandJump80Rtn,
+            "Jump to 80 meter band", "80m", False, FunctionGroups.general, KeyScope.Radio),
+        New keyTbl(CommandValues.BandJump60, KeyTypes.Command, AddressOf bandJump60Rtn,
+            "Jump to 60 meter band", "60m", False, FunctionGroups.general, KeyScope.Radio),
+        New keyTbl(CommandValues.BandJump40, KeyTypes.Command, AddressOf bandJump40Rtn,
+            "Jump to 40 meter band", "40m", False, FunctionGroups.general, KeyScope.Radio),
+        New keyTbl(CommandValues.BandJump30, KeyTypes.Command, AddressOf bandJump30Rtn,
+            "Jump to 30 meter band", "30m", False, FunctionGroups.general, KeyScope.Radio),
+        New keyTbl(CommandValues.BandJump20, KeyTypes.Command, AddressOf bandJump20Rtn,
+            "Jump to 20 meter band", "20m", False, FunctionGroups.general, KeyScope.Radio),
+        New keyTbl(CommandValues.BandJump17, KeyTypes.Command, AddressOf bandJump17Rtn,
+            "Jump to 17 meter band", "17m", False, FunctionGroups.general, KeyScope.Radio),
+        New keyTbl(CommandValues.BandJump15, KeyTypes.Command, AddressOf bandJump15Rtn,
+            "Jump to 15 meter band", "15m", False, FunctionGroups.general, KeyScope.Radio),
+        New keyTbl(CommandValues.BandJump12, KeyTypes.Command, AddressOf bandJump12Rtn,
+            "Jump to 12 meter band", "12m", False, FunctionGroups.general, KeyScope.Radio),
+        New keyTbl(CommandValues.BandJump10, KeyTypes.Command, AddressOf bandJump10Rtn,
+            "Jump to 10 meter band", "10m", False, FunctionGroups.general, KeyScope.Radio),
+        New keyTbl(CommandValues.BandJump6, KeyTypes.Command, AddressOf bandJump6Rtn,
+            "Jump to 6 meter band", "6m", False, FunctionGroups.general, KeyScope.Radio),
+        New keyTbl(CommandValues.BandJump2, KeyTypes.Command, AddressOf bandJump2Rtn,
+            "Jump to 2 meter band", "2m", False, FunctionGroups.general, KeyScope.Radio),
+        New keyTbl(CommandValues.BandUp, KeyTypes.Command, AddressOf bandUpRtn,
+            "Next higher band", "Band up", False, FunctionGroups.general, KeyScope.Radio),
+        New keyTbl(CommandValues.BandDown, KeyTypes.Command, AddressOf bandDownRtn,
+            "Next lower band", "Band down", False, FunctionGroups.general, KeyScope.Radio)}
 
     ' Deleted from KeyTable.
     ' New keyTbl(CommandValues.LogForm, AddressOf BringUpLogForm,
@@ -485,6 +527,20 @@ Public Class KeyCommands
      New KeyDefType(Keys.None, CommandValues.ATUMemories, KeyScope.Radio),
      New KeyDefType(Keys.None, CommandValues.Reboot, KeyScope.Radio),
      New KeyDefType(Keys.None, CommandValues.TXControls, KeyScope.Radio),
+     New KeyDefType(Keys.F1 Or Keys.Control, CommandValues.BandJump160, KeyScope.Radio),
+     New KeyDefType(Keys.F2 Or Keys.Control, CommandValues.BandJump80, KeyScope.Radio),
+     New KeyDefType(Keys.F3 Or Keys.Control, CommandValues.BandJump40, KeyScope.Radio),
+     New KeyDefType(Keys.F4 Or Keys.Control, CommandValues.BandJump20, KeyScope.Radio),
+     New KeyDefType(Keys.F5 Or Keys.Control, CommandValues.BandJump15, KeyScope.Radio),
+     New KeyDefType(Keys.F6 Or Keys.Control, CommandValues.BandJump10, KeyScope.Radio),
+     New KeyDefType(Keys.F7 Or Keys.Control, CommandValues.BandJump6, KeyScope.Radio),
+     New KeyDefType(Keys.F8 Or Keys.Control, CommandValues.BandJump2, KeyScope.Radio),
+     New KeyDefType(Keys.F1 Or Keys.Control Or Keys.Shift, CommandValues.BandJump60, KeyScope.Radio),
+     New KeyDefType(Keys.F2 Or Keys.Control Or Keys.Shift, CommandValues.BandJump30, KeyScope.Radio),
+     New KeyDefType(Keys.F3 Or Keys.Control Or Keys.Shift, CommandValues.BandJump17, KeyScope.Radio),
+     New KeyDefType(Keys.F4 Or Keys.Control Or Keys.Shift, CommandValues.BandJump12, KeyScope.Radio),
+     New KeyDefType(Keys.Up Or Keys.Alt, CommandValues.BandUp, KeyScope.Radio),
+     New KeyDefType(Keys.Down Or Keys.Alt, CommandValues.BandDown, KeyScope.Radio),
      New KeyDefType(Keys.C Or Keys.Alt, CommandValues.LogCall, KeyScope.Logging), ' --- Logging scope ---            ' Alt+C = Log Call in Logging
      New KeyDefType(Keys.T Or Keys.Alt, CommandValues.LogHisRST, KeyScope.Logging),          ' Alt+T = Log His RST in Logging
      New KeyDefType(Keys.R Or Keys.Alt, CommandValues.LogMyRST, KeyScope.Logging),           ' Alt+R = Log My RST in Logging
@@ -1737,5 +1793,50 @@ Public Class KeyCommands
         Else
             Radios.ScreenReaderOutput.Speak("Receiving", True)
         End If
+    End Sub
+
+    ' --- Band navigation handlers ---
+
+    Private Sub bandJump160Rtn()
+        WpfMainWindow.BandJump(HamBands.Bands.BandNames.m160)
+    End Sub
+    Private Sub bandJump80Rtn()
+        WpfMainWindow.BandJump(HamBands.Bands.BandNames.m80)
+    End Sub
+    Private Sub bandJump60Rtn()
+        WpfMainWindow.BandJump(HamBands.Bands.BandNames.m60)
+    End Sub
+    Private Sub bandJump40Rtn()
+        WpfMainWindow.BandJump(HamBands.Bands.BandNames.m40)
+    End Sub
+    Private Sub bandJump30Rtn()
+        WpfMainWindow.BandJump(HamBands.Bands.BandNames.m30)
+    End Sub
+    Private Sub bandJump20Rtn()
+        WpfMainWindow.BandJump(HamBands.Bands.BandNames.m20)
+    End Sub
+    Private Sub bandJump17Rtn()
+        WpfMainWindow.BandJump(HamBands.Bands.BandNames.m17)
+    End Sub
+    Private Sub bandJump15Rtn()
+        WpfMainWindow.BandJump(HamBands.Bands.BandNames.m15)
+    End Sub
+    Private Sub bandJump12Rtn()
+        WpfMainWindow.BandJump(HamBands.Bands.BandNames.m12)
+    End Sub
+    Private Sub bandJump10Rtn()
+        WpfMainWindow.BandJump(HamBands.Bands.BandNames.m10)
+    End Sub
+    Private Sub bandJump6Rtn()
+        WpfMainWindow.BandJump(HamBands.Bands.BandNames.m6)
+    End Sub
+    Private Sub bandJump2Rtn()
+        WpfMainWindow.BandJump(HamBands.Bands.BandNames.m2)
+    End Sub
+    Private Sub bandUpRtn()
+        WpfMainWindow.BandNavigate(1)
+    End Sub
+    Private Sub bandDownRtn()
+        WpfMainWindow.BandNavigate(-1)
     End Sub
 End Class

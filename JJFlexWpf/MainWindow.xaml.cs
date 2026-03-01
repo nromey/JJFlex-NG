@@ -1361,6 +1361,10 @@ public partial class MainWindow : UserControl
                 () => _radioPowerOn,
                 pttConfig,
                 text => StatusTx.Text = text);
+
+            // Wire license-aware TX lockout (Sprint 17 Track C)
+            _pttController.CanTransmitHereCheck = () =>
+                _freqOutHandlers?.CanTransmitHere() ?? true;
         }
 
         // VB-side tasks (knob setup, tracing)
@@ -1882,6 +1886,24 @@ public partial class MainWindow : UserControl
         {
             Radios.ScreenReaderOutput.Speak("Frequency unavailable", true);
         }
+    }
+
+    /// <summary>
+    /// Jump to a specific band. Delegates to FreqOutHandlers.BandJump().
+    /// Called from KeyCommands band F-key handlers.
+    /// </summary>
+    public void BandJump(HamBands.Bands.BandNames band)
+    {
+        _freqOutHandlers?.BandJump(band);
+    }
+
+    /// <summary>
+    /// Navigate to next (+1) or previous (-1) band.
+    /// Called from KeyCommands BandUp/BandDown handlers.
+    /// </summary>
+    public void BandNavigate(int direction)
+    {
+        _freqOutHandlers?.BandNavigate(direction);
     }
 
     #endregion

@@ -1,8 +1,10 @@
 using System;
 using System.Diagnostics;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Input;
+using HamBands;
 using JJFlexWpf.Controls;
 using JJTrace;
 using Radios;
@@ -301,6 +303,7 @@ public class FreqOutHandlers
             {
                 SpeakTuningDebounced(FormatFreqForSpeech(newFreq));
             }
+            CheckBandBoundary(newFreq);
         }
     }
 
@@ -1360,6 +1363,258 @@ public class FreqOutHandlers
             "USB" or "DIGU" or "FDV" => (0, 12000),
             _ => (-12000, 12000) // AM, DSB, SAM, etc.
         };
+    }
+
+    #endregion
+
+    #region Band Navigation
+
+    /// <summary>
+    /// Ordered list of bands supported by FlexRadio transceivers.
+    /// Used for BandUp/BandDown navigation.
+    /// </summary>
+    private static readonly Bands.BandNames[] FlexBands =
+    {
+        Bands.BandNames.m160,
+        Bands.BandNames.m80,
+        Bands.BandNames.m60,
+        Bands.BandNames.m40,
+        Bands.BandNames.m30,
+        Bands.BandNames.m20,
+        Bands.BandNames.m17,
+        Bands.BandNames.m15,
+        Bands.BandNames.m12,
+        Bands.BandNames.m10,
+        Bands.BandNames.m6,
+        Bands.BandNames.m2,
+    };
+
+    /// <summary>
+    /// Human-readable band names for speech output.
+    /// </summary>
+    private static string BandDisplayName(Bands.BandNames band) => band switch
+    {
+        Bands.BandNames.m160 => "160 meter",
+        Bands.BandNames.m80 => "80 meter",
+        Bands.BandNames.m60 => "60 meter",
+        Bands.BandNames.m40 => "40 meter",
+        Bands.BandNames.m30 => "30 meter",
+        Bands.BandNames.m20 => "20 meter",
+        Bands.BandNames.m17 => "17 meter",
+        Bands.BandNames.m15 => "15 meter",
+        Bands.BandNames.m12 => "12 meter",
+        Bands.BandNames.m10 => "10 meter",
+        Bands.BandNames.m6 => "6 meter",
+        Bands.BandNames.m2 => "2 meter",
+        _ => band.ToString()
+    };
+
+    /// <summary>
+    /// Band memory — remembers last frequency per band per mode.
+    /// Loaded when radio connects, saved when band changes.
+    /// </summary>
+    public BandMemory? BandMem { get; set; }
+
+    /// <summary>
+    /// License configuration for boundary notifications and TX lockout.
+    /// </summary>
+    public LicenseConfig? License { get; set; }
+
+    /// <summary>
+    /// Delegate to get the config directory path for saving band memory.
+    /// </summary>
+    public Func<string>? GetConfigDirectory { get; set; }
+
+    /// <summary>
+    /// Delegate to get the current operator name for saving band memory.
+    /// </summary>
+    public Func<string>? GetOperatorName { get; set; }
+
+    /// <summary>
+    /// Tracks the last band the user was on, for boundary detection.
+    /// </summary>
+    private Bands.BandNames? _lastBand;
+
+    /// <summary>
+    /// Jump to a specific band. Uses band memory to restore last frequency
+    /// for the current mode on that band.
+    /// </summary>
+    public void BandJump(Bands.BandNames targetBand)
+    {
+        if (Rig == null || SetRXFrequency == null || GetRXFrequency == null) return;
+
+        // Save current frequency to band memory before jumping
+        SaveCurrentToBandMemory();
+
+        string mode = Rig.Mode ?? "USB";
+        ulong targetFreq;
+
+        if (BandMem != null)
+        {
+            targetFreq = BandMem.GetFrequency(targetBand, mode);
+        }
+        else
+        {
+            // No band memory — use band center
+            var bandInfo = Bands.Query(targetBand);
+            targetFreq = bandInfo != null ? (bandInfo.Low + bandInfo.High) / 2 : 0;
+        }
+
+        if (targetFreq == 0) return;
+
+        SetRXFrequency(targetFreq);
+        _lastBand = targetBand;
+
+        string bandName = BandDisplayName(targetBand);
+        string freqStr = FormatFreqForSpeech(targetFreq);
+        Radios.ScreenReaderOutput.Speak($"{bandName} band, {freqStr}", interrupt: true);
+        EarconPlayer.BandBoundaryBeep();
+
+        // Save band memory
+        SaveBandMemory();
+    }
+
+    /// <summary>
+    /// Navigate to the next (+1) or previous (-1) band in the FlexBands list.
+    /// </summary>
+    public void BandNavigate(int direction)
+    {
+        if (Rig == null || GetRXFrequency == null) return;
+
+        ulong currentFreq = GetRXFrequency();
+        var currentBandInfo = Bands.Query(currentFreq);
+
+        int currentIndex = -1;
+        if (currentBandInfo != null)
+        {
+            currentIndex = Array.IndexOf(FlexBands, currentBandInfo.Band);
+        }
+
+        // If not on a known band, start from the beginning or end
+        if (currentIndex < 0)
+        {
+            currentIndex = direction > 0 ? -1 : FlexBands.Length;
+        }
+
+        int nextIndex = currentIndex + direction;
+        if (nextIndex < 0 || nextIndex >= FlexBands.Length)
+        {
+            string edge = direction > 0 ? "Top" : "Bottom";
+            Radios.ScreenReaderOutput.Speak($"{edge} of band list", interrupt: true);
+            return;
+        }
+
+        BandJump(FlexBands[nextIndex]);
+    }
+
+    /// <summary>
+    /// Save the current frequency to band memory for the current band+mode.
+    /// </summary>
+    private void SaveCurrentToBandMemory()
+    {
+        if (BandMem == null || Rig == null || GetRXFrequency == null) return;
+
+        ulong freq = GetRXFrequency();
+        var bandInfo = Bands.Query(freq);
+        if (bandInfo == null) return;
+
+        string mode = Rig.Mode ?? "USB";
+        BandMem.SetFrequency(bandInfo.Band, mode, freq);
+    }
+
+    /// <summary>
+    /// Persist band memory to disk.
+    /// </summary>
+    private void SaveBandMemory()
+    {
+        if (BandMem == null || GetConfigDirectory == null || GetOperatorName == null) return;
+        try
+        {
+            BandMem.Save(GetConfigDirectory(), GetOperatorName());
+        }
+        catch (Exception ex)
+        {
+            Trace.WriteLine($"SaveBandMemory failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Check band boundaries after a frequency change. Speaks band entry
+    /// notifications and license boundary crossings if enabled.
+    /// Called from TuneFreq after frequency changes.
+    /// </summary>
+    public void CheckBandBoundary(ulong newFreq)
+    {
+        if (License == null || !License.BoundaryNotifications) return;
+
+        var newBandInfo = Bands.Query(newFreq);
+        var newBand = newBandInfo?.Band;
+
+        if (_lastBand != null && newBand != null && newBand != _lastBand)
+        {
+            string bandName = BandDisplayName(newBand.Value);
+            Radios.ScreenReaderOutput.Speak($"Entering {bandName} band", interrupt: false);
+            EarconPlayer.BandBoundaryBeep();
+
+            // Save band memory on band change
+            SaveBandMemory();
+        }
+
+        _lastBand = newBand;
+    }
+
+    /// <summary>
+    /// Check if the current frequency + filter is within the operator's
+    /// licensed band segment. Returns true if TX is allowed, false if blocked.
+    /// </summary>
+    public bool CanTransmitHere()
+    {
+        if (License == null || !License.TxLockout) return true;
+        if (Rig == null || GetRXFrequency == null) return true;
+
+        ulong freq = GetRXFrequency();
+        int filterLow = Rig.FilterLow;
+        int filterHigh = Rig.FilterHigh;
+
+        // Calculate signal extent (freq is carrier, filter offsets are relative)
+        // For USB: signal is freq + filterLow to freq + filterHigh
+        // For LSB: filter values are negative, so signal is freq + filterLow to freq + filterHigh
+        long signalLow = (long)freq + filterLow;
+        long signalHigh = (long)freq + filterHigh;
+        if (signalLow < 0) signalLow = 0;
+        if (signalHigh < 0) signalHigh = 0;
+
+        var bandInfo = Bands.Query((ulong)signalLow);
+        if (bandInfo == null)
+        {
+            // Not on any band — block TX
+            return false;
+        }
+
+        // Check if the entire signal is within licensed divisions
+        var licensedBand = Bands.Query(bandInfo.Band, License.LicenseClass);
+        if (licensedBand?.Divisions == null)
+        {
+            // No divisions for this license on this band — block
+            return false;
+        }
+
+        // Check that the entire signal extent falls within at least one licensed division
+        foreach (var div in licensedBand.Divisions)
+        {
+            if ((ulong)signalLow >= div.Low && (ulong)signalHigh <= div.High)
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Get a message explaining why TX is blocked at the current frequency.
+    /// </summary>
+    public string GetTxLockoutMessage()
+    {
+        return "Cannot transmit here, outside licensed band segment";
     }
 
     #endregion
