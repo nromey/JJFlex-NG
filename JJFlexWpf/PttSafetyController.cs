@@ -137,7 +137,8 @@ namespace JJFlexWpf
                 State = PttState.PttHold;
                 SetTx(true);
                 _updateStatusDisplay?.Invoke("Transmitting");
-                ScreenReaderOutput.Speak("Transmitting", interrupt: true);
+                if (_config.SpeechEnabled)
+                    ScreenReaderOutput.Speak("Transmitting", interrupt: true);
                 Tracing.TraceLine("PTT: Hold started", TraceLevel.Info);
             }
             // If already locked/warning, ignore key-down (don't double-TX)
@@ -197,7 +198,8 @@ namespace JJFlexWpf
             _alcZeroConsecutiveSeconds = 0;
 
             _updateStatusDisplay?.Invoke("TX Locked");
-            ScreenReaderOutput.Speak("Transmitting, locked", interrupt: true);
+            if (_config.SpeechEnabled)
+                ScreenReaderOutput.Speak("Transmitting, locked", interrupt: true);
             Tracing.TraceLine("PTT: Locked", TraceLevel.Info);
 
             StartWarningTimer();
@@ -215,7 +217,7 @@ namespace JJFlexWpf
             _alcZeroConsecutiveSeconds = 0;
 
             _updateStatusDisplay?.Invoke("");
-            if (!string.IsNullOrEmpty(speechMessage))
+            if (_config.SpeechEnabled && !string.IsNullOrEmpty(speechMessage))
                 ScreenReaderOutput.Speak(speechMessage, interrupt: true);
 
             Tracing.TraceLine($"PTT: Idle (was {wasState})", TraceLevel.Info);

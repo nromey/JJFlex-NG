@@ -45,6 +45,12 @@ namespace Radios
         public int AlcAutoReleaseSeconds { get; set; } = 60;
 
         /// <summary>
+        /// Whether to announce transmit/receive state changes via screen reader.
+        /// When false, only safety warnings (timeout approaching) are spoken.
+        /// </summary>
+        public bool SpeechEnabled { get; set; } = true;
+
+        /// <summary>
         /// Clamp TimeoutSeconds to valid range [10..900].
         /// </summary>
         public void Validate()
