@@ -867,13 +867,24 @@ public class NativeMenuBar : IDisposable
             foreach (string modeName in RigCaps.ModeTable)
             {
                 string m = modeName;
-                AddWired(modeSub, m, () =>
+                // Add accelerator hints for modes with hotkeys
+                string accel = m switch
+                {
+                    "USB" => "\tAlt+U",
+                    "LSB" => "\tAlt+L",
+                    "CW" => "\tAlt+C",
+                    _ => ""
+                };
+                AddWired(modeSub, m + accel, () =>
                 {
                     if (Rig == null) { SpeakNoRadio(); return; }
                     Rig.Mode = m;
                     SpeakAfterMenuClose($"Mode {m}");
                 });
             }
+            AddSep(modeSub);
+            AddWired(modeSub, "Next Mode\tAlt+M", () => _window.CycleMode(1));
+            AddWired(modeSub, "Previous Mode\tAlt+Shift+M", () => _window.CycleMode(-1));
 
             // Audio
             var audioSub = AddSubmenu(slice, "Audio");

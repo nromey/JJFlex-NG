@@ -1414,6 +1414,12 @@ public class FreqOutHandlers
     public BandMemory? BandMem { get; set; }
 
     /// <summary>
+    /// When true, band jumps save/recall frequency per band+mode.
+    /// When false, band jumps always go to band center.
+    /// </summary>
+    public bool BandMemoryEnabled { get; set; } = true;
+
+    /// <summary>
     /// License configuration for boundary notifications and TX lockout.
     /// </summary>
     public LicenseConfig? License { get; set; }
@@ -1442,18 +1448,18 @@ public class FreqOutHandlers
         if (Rig == null || SetRXFrequency == null || GetRXFrequency == null) return;
 
         // Save current frequency to band memory before jumping
-        SaveCurrentToBandMemory();
+        if (BandMemoryEnabled) SaveCurrentToBandMemory();
 
         string mode = Rig.Mode ?? "USB";
         ulong targetFreq;
 
-        if (BandMem != null)
+        if (BandMemoryEnabled && BandMem != null)
         {
             targetFreq = BandMem.GetFrequency(targetBand, mode);
         }
         else
         {
-            // No band memory — use band center
+            // No band memory or disabled — use band center
             var bandInfo = Bands.Query(targetBand);
             targetFreq = bandInfo != null ? (bandInfo.Low + bandInfo.High) / 2 : 0;
         }
@@ -1469,7 +1475,7 @@ public class FreqOutHandlers
         EarconPlayer.BandBoundaryBeep();
 
         // Save band memory
-        SaveBandMemory();
+        if (BandMemoryEnabled) SaveBandMemory();
     }
 
     /// <summary>

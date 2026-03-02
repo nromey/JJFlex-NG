@@ -408,6 +408,9 @@ namespace JJFlexWpf
             // Skip ALC monitoring when dummy load mode is active — ALC is always zero
             if (rig.DummyLoadMode) { _alcZeroConsecutiveSeconds = 0; return; }
 
+            // Skip ALC monitoring when disabled (0 = disabled)
+            if (_config.AlcAutoReleaseSeconds <= 0) return;
+
             if (rig.ALC <= 0.001f) // effectively zero
             {
                 _alcZeroConsecutiveSeconds++;

@@ -44,32 +44,32 @@
                                  AutomationProperties.Name="PTT timeout in seconds, 10 to 900"/>
 
                         <TextBlock Grid.Row="1" Grid.Column="0"
-                                   Text="Warning 1 (seconds before timeout):"
+                                   Text="First warning (seconds before timeout):"
                                    Style="{StaticResource DialogLabel}" Margin="0,4,8,4"/>
                         <TextBox x:Name="PttWarning1Box" Grid.Row="1" Grid.Column="1"
                                  Style="{StaticResource DialogTextBox}"
-                                 AutomationProperties.Name="Warning 1 seconds before timeout"/>
+                                 AutomationProperties.Name="First warning, seconds before timeout"/>
 
                         <TextBlock Grid.Row="2" Grid.Column="0"
-                                   Text="Warning 2 (seconds before timeout):"
+                                   Text="Second warning (seconds before timeout):"
                                    Style="{StaticResource DialogLabel}" Margin="0,4,8,4"/>
                         <TextBox x:Name="PttWarning2Box" Grid.Row="2" Grid.Column="1"
                                  Style="{StaticResource DialogTextBox}"
-                                 AutomationProperties.Name="Warning 2 seconds before timeout"/>
+                                 AutomationProperties.Name="Second warning, seconds before timeout"/>
 
                         <TextBlock Grid.Row="3" Grid.Column="0"
-                                   Text="Oh Crap (seconds before timeout):"
+                                   Text="Final warning (seconds before timeout):"
                                    Style="{StaticResource DialogLabel}" Margin="0,4,8,4"/>
                         <TextBox x:Name="PttOhCrapBox" Grid.Row="3" Grid.Column="1"
                                  Style="{StaticResource DialogTextBox}"
-                                 AutomationProperties.Name="Oh Crap seconds before timeout"/>
+                                 AutomationProperties.Name="Final warning, seconds before timeout"/>
 
                         <TextBlock Grid.Row="4" Grid.Column="0"
-                                   Text="ALC auto-release (seconds):"
+                                   Text="ALC auto-release (seconds, 0=off):"
                                    Style="{StaticResource DialogLabel}" Margin="0,4,8,4"/>
                         <TextBox x:Name="PttAlcBox" Grid.Row="4" Grid.Column="1"
                                  Style="{StaticResource DialogTextBox}"
-                                 AutomationProperties.Name="ALC auto-release seconds, 10 to 300"/>
+                                 AutomationProperties.Name="ALC auto-release seconds, 0 to disable or 10 to 300"/>
                     </Grid>
 
                     <CheckBox x:Name="PttSpeechCheckbox"

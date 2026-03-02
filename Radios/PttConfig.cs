@@ -41,6 +41,7 @@ namespace Radios
         /// <summary>
         /// ALC zero-signal auto-release threshold in seconds.
         /// If ALC reads 0 for this many consecutive seconds while locked, auto-release TX.
+        /// Set to 0 to disable ALC auto-release.
         /// </summary>
         public int AlcAutoReleaseSeconds { get; set; } = 60;
 
@@ -51,6 +52,12 @@ namespace Radios
         public bool SpeechEnabled { get; set; } = true;
 
         /// <summary>
+        /// When true, band jumps save/recall frequency per band+mode.
+        /// When false, band jumps always go to band center.
+        /// </summary>
+        public bool BandMemoryEnabled { get; set; } = true;
+
+        /// <summary>
         /// Clamp TimeoutSeconds to valid range [10..900].
         /// </summary>
         public void Validate()
@@ -59,7 +66,9 @@ namespace Radios
             Warning1SecondsBeforeTimeout = Math.Clamp(Warning1SecondsBeforeTimeout, 5, TimeoutSeconds - 1);
             Warning2SecondsBeforeTimeout = Math.Clamp(Warning2SecondsBeforeTimeout, 3, Warning1SecondsBeforeTimeout - 1);
             OhCrapSecondsBeforeTimeout = Math.Clamp(OhCrapSecondsBeforeTimeout, 1, Warning2SecondsBeforeTimeout - 1);
-            AlcAutoReleaseSeconds = Math.Clamp(AlcAutoReleaseSeconds, 10, 300);
+            // 0 = disabled, otherwise clamp to valid range
+            if (AlcAutoReleaseSeconds != 0)
+                AlcAutoReleaseSeconds = Math.Clamp(AlcAutoReleaseSeconds, 10, 300);
         }
 
         public static PttConfig Load(string configDirectory, string operatorName)

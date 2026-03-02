@@ -1,4 +1,6 @@
 using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Input;
 using Radios;
 
 namespace JJFlexWpf.Dialogs
@@ -10,7 +12,7 @@ namespace JJFlexWpf.Dialogs
         // Tuning step results (read after DialogResult == true)
         public int CoarseTuneStep { get; private set; }
         public int FineTuneStep { get; private set; }
-        public bool BandMemoryEnabled { get; private set; } = true;
+        public bool BandMemoryEnabled { get; private set; }
 
         // License results (stub — wired to LicenseConfig when Track C merges)
         public string LicenseClass { get; set; } = "Extra";
@@ -40,9 +42,21 @@ namespace JJFlexWpf.Dialogs
             _pttConfig = pttConfig;
             CoarseTuneStep = currentCoarseStep;
             FineTuneStep = currentFineStep;
+            BandMemoryEnabled = pttConfig.BandMemoryEnabled;
 
             InitializeComponent();
+
+            // Select all text when tabbing into any TextBox
+            AddHandler(TextBox.GotKeyboardFocusEvent,
+                new KeyboardFocusChangedEventHandler(TextBox_GotKeyboardFocus));
+
             LoadSettings();
+        }
+
+        private void TextBox_GotKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
+        {
+            if (e.OriginalSource is TextBox tb)
+                tb.SelectAll();
         }
 
         private void LoadSettings()
@@ -97,7 +111,7 @@ namespace JJFlexWpf.Dialogs
 
             if (!int.TryParse(PttWarning1Box.Text, out int w1))
             {
-                MessageBox.Show("Warning 1 must be a number.",
+                MessageBox.Show("First warning must be a number.",
                     "Settings", MessageBoxButton.OK, MessageBoxImage.Warning);
                 PttWarning1Box.Focus();
                 return false;
@@ -105,7 +119,7 @@ namespace JJFlexWpf.Dialogs
 
             if (!int.TryParse(PttWarning2Box.Text, out int w2))
             {
-                MessageBox.Show("Warning 2 must be a number.",
+                MessageBox.Show("Second warning must be a number.",
                     "Settings", MessageBoxButton.OK, MessageBoxImage.Warning);
                 PttWarning2Box.Focus();
                 return false;
@@ -113,15 +127,15 @@ namespace JJFlexWpf.Dialogs
 
             if (!int.TryParse(PttOhCrapBox.Text, out int ohCrap))
             {
-                MessageBox.Show("Oh Crap must be a number.",
+                MessageBox.Show("Final warning must be a number.",
                     "Settings", MessageBoxButton.OK, MessageBoxImage.Warning);
                 PttOhCrapBox.Focus();
                 return false;
             }
 
-            if (!int.TryParse(PttAlcBox.Text, out int alc) || alc < 10 || alc > 300)
+            if (!int.TryParse(PttAlcBox.Text, out int alc) || alc < 0 || (alc > 0 && alc < 10) || alc > 300)
             {
-                MessageBox.Show("ALC auto-release must be between 10 and 300 seconds.",
+                MessageBox.Show("ALC auto-release must be 0 (disabled) or between 10 and 300 seconds.",
                     "Settings", MessageBoxButton.OK, MessageBoxImage.Warning);
                 PttAlcBox.Focus();
                 return false;
@@ -142,6 +156,7 @@ namespace JJFlexWpf.Dialogs
             if (FineStepCombo.SelectedIndex >= 0 && FineStepCombo.SelectedIndex < FineStepOptions.Length)
                 FineTuneStep = FineStepOptions[FineStepCombo.SelectedIndex].hz;
             BandMemoryEnabled = BandMemoryCheckbox.IsChecked == true;
+            _pttConfig.BandMemoryEnabled = BandMemoryEnabled;
 
             // License tab
             LicenseClass = LicenseClassCombo.SelectedItem?.ToString() ?? "Extra";

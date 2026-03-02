@@ -217,11 +217,12 @@ public partial class MainWindow : UserControl
         if (CurrentPttConfig != null)
             _pttController?.UpdateConfig(CurrentPttConfig);
 
-        // Apply tuning steps
+        // Apply tuning steps and band memory setting
         if (_freqOutHandlers != null)
         {
             _freqOutHandlers.CoarseTuneStep = coarseStep;
             _freqOutHandlers.FineTuneStep = fineStep;
+            _freqOutHandlers.BandMemoryEnabled = CurrentPttConfig?.BandMemoryEnabled ?? true;
             _freqOutHandlers.SaveStepSizes?.Invoke(coarseStep, fineStep);
         }
 
@@ -1398,6 +1399,10 @@ public partial class MainWindow : UserControl
             // Wire license-aware TX lockout (Sprint 17 Track C)
             _pttController.CanTransmitHereCheck = () =>
                 _freqOutHandlers?.CanTransmitHere() ?? true;
+
+            // Apply band memory setting from config
+            if (_freqOutHandlers != null)
+                _freqOutHandlers.BandMemoryEnabled = CurrentPttConfig.BandMemoryEnabled;
         }
 
         // VB-side tasks (knob setup, tracing)

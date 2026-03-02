@@ -621,8 +621,8 @@ Public Class KeyCommands
      New KeyDefType(Keys.F6 Or Keys.Shift, CommandValues.BandJump12, KeyScope.Radio),        ' Shift+F6 = 12m
      New KeyDefType(Keys.Up Or Keys.Alt, CommandValues.BandUp, KeyScope.Radio),
      New KeyDefType(Keys.Down Or Keys.Alt, CommandValues.BandDown, KeyScope.Radio),
-     New KeyDefType(Keys.F10, CommandValues.ModeNext, KeyScope.Radio),                       ' F10 = Next mode
-     New KeyDefType(Keys.F11, CommandValues.ModePrev, KeyScope.Radio),                       ' F11 = Previous mode
+     New KeyDefType(Keys.M Or Keys.Alt, CommandValues.ModeNext, KeyScope.Radio),               ' Alt+M = Next mode
+     New KeyDefType(Keys.M Or Keys.Alt Or Keys.Shift, CommandValues.ModePrev, KeyScope.Radio), ' Alt+Shift+M = Previous mode
      New KeyDefType(Keys.U Or Keys.Alt, CommandValues.ModeUSB, KeyScope.Radio),              ' Alt+U = USB
      New KeyDefType(Keys.L Or Keys.Alt, CommandValues.ModeLSB, KeyScope.Radio),              ' Alt+L = LSB
      New KeyDefType(Keys.C Or Keys.Alt, CommandValues.ModeCW, KeyScope.Radio),               ' Alt+C = CW
@@ -807,8 +807,9 @@ Public Class KeyCommands
     ''' Current keybinding config version. Increment when keybindings are reshuffled
     ''' to force a reset of saved user keymaps (prevents stale bindings).
     ''' v2 = Sprint 17 F-key reshuffle (bands→F3-F9, mode→F10-F11, CW→Ctrl+Shift)
+    ''' v3 = Sprint 17 bugfix: F10/F11→Alt+M/Alt+Shift+M (F10 intercepted by Windows)
     ''' </summary>
-    Private Const KeyConfigVersion As Integer = 2
+    Private Const KeyConfigVersion As Integer = 3
 
     Private Sub setupData()
         ' Setup the dictionaries.
@@ -1283,7 +1284,7 @@ Public Class KeyCommands
         displayFreq()
     End Sub
     Private Sub displayFreq()
-        WpfMainWindow.FreqOut.Focus()
+        WpfMainWindow.FreqOut.FocusDisplay()
     End Sub
 
     Private Sub resumeScanCmd()
@@ -1605,9 +1606,13 @@ Public Class KeyCommands
     End Sub
 
     Private Sub zerobeatRtn()
-        If RigControl IsNot Nothing Then
-            RigControl.CWZeroBeat()
+        If RigControl Is Nothing Then Return
+        If RigControl.Mode <> "CW" Then
+            Radios.ScreenReaderOutput.Speak("Zerobeat requires CW mode", interrupt:=True)
+            Return
         End If
+        RigControl.CWZeroBeat()
+        Radios.ScreenReaderOutput.Speak("Zerobeat", interrupt:=True)
     End Sub
 
     Private Sub reverseBeaconCmd()
