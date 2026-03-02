@@ -129,9 +129,13 @@ public class FreqOutHandlers
 
     /// <summary>
     /// Convert a WPF KeyEventArgs to a simple key character for digit/letter handlers.
+    /// Returns '\0' when Alt is held so letter handlers don't conflict with menu accelerators.
     /// </summary>
     private static char KeyToChar(KeyEventArgs e)
     {
+        // Don't convert letters when Alt is held — let menu accelerators handle them
+        if ((Keyboard.Modifiers & ModifierKeys.Alt) != 0) return '\0';
+
         var key = e.Key == Key.System ? e.SystemKey : e.Key;
         return key switch
         {
@@ -1100,9 +1104,10 @@ public class FreqOutHandlers
                     // Mute/unmute active slice
                     if (Rig != null)
                     {
-                        Rig.SliceMute = !Rig.SliceMute;
+                        bool newMute = !Rig.SliceMute;
+                        Rig.SliceMute = newMute;
                         Radios.ScreenReaderOutput.Speak(
-                            Rig.SliceMute ? "Muted" : "Unmuted", true);
+                            newMute ? "Muted" : "Unmuted", true);
                     }
                     e.Handled = true;
                 }

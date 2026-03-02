@@ -590,9 +590,9 @@ Public Class KeyCommands
      New KeyDefType(Keys.None, CommandValues.CycleContinuous, KeyScope.Radio),
      New KeyDefType(Keys.None, CommandValues.LogForm, KeyScope.Radio),
      New KeyDefType(Keys.C Or Keys.Control Or Keys.Shift, CommandValues.ClearRIT, KeyScope.Radio),
-     New KeyDefType(Keys.S Or Keys.Alt, CommandValues.StartScan, KeyScope.Radio),            ' Alt+S = Start Scan in Radio
-     New KeyDefType(Keys.D Or Keys.Alt, CommandValues.ArCluster, KeyScope.Radio),            ' Alt+D = DX Cluster in Radio
-     New KeyDefType(Keys.R Or Keys.Alt, CommandValues.ReverseBeacon, KeyScope.Radio),        ' Alt+R = Reverse Beacon in Radio
+     New KeyDefType(Keys.S Or Keys.Control Or Keys.Alt, CommandValues.StartScan, KeyScope.Radio),     ' Ctrl+Alt+S = Start Scan
+     New KeyDefType(Keys.D Or Keys.Alt, CommandValues.ArCluster, KeyScope.Radio),                    ' Alt+D = DX Cluster in Radio
+     New KeyDefType(Keys.R Or Keys.Control Or Keys.Alt, CommandValues.ReverseBeacon, KeyScope.Radio), ' Ctrl+Alt+R = Reverse Beacon
      New KeyDefType(Keys.P Or Keys.Control, CommandValues.DoPanning, KeyScope.Radio),
      New KeyDefType(Keys.U Or Keys.Control Or Keys.Shift, CommandValues.SavedScan, KeyScope.Radio),
      New KeyDefType(Keys.Z Or Keys.Control, CommandValues.StopScan, KeyScope.Radio),
@@ -808,8 +808,9 @@ Public Class KeyCommands
     ''' to force a reset of saved user keymaps (prevents stale bindings).
     ''' v2 = Sprint 17 F-key reshuffle (bands→F3-F9, mode→F10-F11, CW→Ctrl+Shift)
     ''' v3 = Sprint 17 bugfix: F10/F11→Alt+M/Alt+Shift+M (F10 intercepted by Windows)
+    ''' v4 = Sprint 17.5: Alt+S→Ctrl+Alt+S, Alt+R→Ctrl+Alt+R (free Alt for menu accelerators)
     ''' </summary>
-    Private Const KeyConfigVersion As Integer = 3
+    Private Const KeyConfigVersion As Integer = 4
 
     Private Sub setupData()
         ' Setup the dictionaries.

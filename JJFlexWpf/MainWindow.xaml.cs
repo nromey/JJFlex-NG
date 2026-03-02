@@ -198,6 +198,12 @@ public partial class MainWindow : UserControl
     private PttSafetyController? _pttController;
 
     /// <summary>
+    /// Guards against repeated PttDown calls from key-repeat.
+    /// Set true on first Ctrl+Space down, cleared on key-up.
+    /// </summary>
+    private bool _pttKeyDown;
+
+    /// <summary>
     /// Current PTT configuration. Set during radio connect, used by Settings dialog.
     /// </summary>
     internal PttConfig? CurrentPttConfig { get; private set; }
@@ -229,6 +235,10 @@ public partial class MainWindow : UserControl
         // Save PttConfig to disk
         if (CurrentPttConfig != null && OpenParms != null)
             CurrentPttConfig.Save(OpenParms.ConfigDirectory, OpenParms.GetOperatorName());
+
+        // Save LicenseConfig to disk
+        if (_freqOutHandlers?.License != null && OpenParms != null)
+            _freqOutHandlers.License.Save(OpenParms.ConfigDirectory, OpenParms.GetOperatorName());
     }
 
     /// <summary>
@@ -462,7 +472,12 @@ public partial class MainWindow : UserControl
     private void ShowModernUI()
     {
         RadioControlsPanel.Visibility = Visibility.Visible;
-        FieldsPanel.Visibility = Visibility.Collapsed;
+
+        // Respect user's field panel preference (same as Classic)
+        if (LoadFieldsPanelVisibleCallback != null)
+            FieldsPanelUserVisible = LoadFieldsPanelVisibleCallback();
+        FieldsPanel.Visibility = FieldsPanelUserVisible ? Visibility.Visible : Visibility.Collapsed;
+
         SetTextAreasVisible(true);
         LoggingPanel.Visibility = Visibility.Collapsed;
 
@@ -693,8 +708,11 @@ public partial class MainWindow : UserControl
 
             if (rawKey == Key.Space && Keyboard.Modifiers == ModifierKeys.Control)
             {
-                if (!e.IsRepeat) // ignore key-repeat, only first press
+                if (!e.IsRepeat && !_pttKeyDown) // ignore key-repeat and redundant down events
+                {
+                    _pttKeyDown = true;
                     _pttController.PttDown();
+                }
                 e.Handled = true;
                 return;
             }
@@ -731,8 +749,13 @@ public partial class MainWindow : UserControl
 
         if (rawKey == Key.Space && _pttController != null && _pttController.State == PttSafetyController.PttState.PttHold)
         {
+            _pttKeyDown = false;
             _pttController.PttUp();
             e.Handled = true;
+        }
+        else if (rawKey == Key.Space)
+        {
+            _pttKeyDown = false; // Clear flag even if PTT state changed (e.g., locked)
         }
     }
 
@@ -975,14 +998,14 @@ public partial class MainWindow : UserControl
 
         var fields = new List<FrequencyDisplay.DisplayField>();
 
-        // Field order: Slice → Mute → Volume → SMeter → Split → VOX → Freq → Offset → RIT → XIT
+        // Field order: Slice → Freq → Mute → Volume → SMeter → Split → VOX → Offset → RIT → XIT
         fields.Add(new FrequencyDisplay.DisplayField("Slice", 1, "", "") { Label = "Slice" });
+        fields.Add(new FrequencyDisplay.DisplayField("Freq", 12, "", "") { Label = "Frequency", DefaultCursorOffset = 8 });
         fields.Add(new FrequencyDisplay.DisplayField("Mute", 1, "", "") { Label = "Mute" });
         fields.Add(new FrequencyDisplay.DisplayField("Volume", 3, "", "") { Label = "Volume" });
         fields.Add(new FrequencyDisplay.DisplayField("SMeter", 4, "", "") { Label = "S Meter" });
         fields.Add(new FrequencyDisplay.DisplayField("Split", 1, "", "") { Label = "Split" });
         fields.Add(new FrequencyDisplay.DisplayField("VOX", 1, "", "") { Label = "VOX" });
-        fields.Add(new FrequencyDisplay.DisplayField("Freq", 12, "", "") { Label = "Frequency", DefaultCursorOffset = 8 });
         fields.Add(new FrequencyDisplay.DisplayField("Offset", 1, "", "") { Label = "Offset" });
         fields.Add(new FrequencyDisplay.DisplayField("RIT", 5, "", "") { Label = "RIT", DefaultCursorOffset = 2 });
         fields.Add(new FrequencyDisplay.DisplayField("XIT", 5, " ", "") { Label = "XIT", DefaultCursorOffset = 2 });

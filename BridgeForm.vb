@@ -76,10 +76,18 @@ Public Class ShellForm
         End If
     End Sub
 
+    Private Const WM_SYSCOMMAND As Integer = &H112
+    Private Const SC_KEYMENU As Integer = &HF100
+
+    <System.Runtime.InteropServices.DllImport("user32.dll")>
+    Private Shared Function PostMessage(hWnd As IntPtr, msg As Integer, wParam As IntPtr, lParam As IntPtr) As Boolean
+    End Function
+
     ''' <summary>
     ''' Route keys through DoCommandHandler BEFORE native menu processes them.
-    ''' This preserves Sprint 6 BUG-010 fix: Alt+Letter hotkeys in Logging Mode
-    ''' go to DoCommand, not to the menu bar.
+    ''' BUG-010 fix: Alt+Letter hotkeys in Logging Mode go to DoCommand.
+    ''' For Alt+letter combos NOT registered as commands, explicitly activate
+    ''' the native Win32 menu via WM_SYSCOMMAND (ElementHost eats WM_SYSCHAR).
     ''' </summary>
     Protected Overrides Function ProcessCmdKey(ByRef msg As Message, keyData As Keys) As Boolean
         ' Let DoCommandHandler try first (scope-aware key routing)
@@ -88,6 +96,24 @@ Public Class ShellForm
                 Return True
             End If
         End If
+
+        ' If this is an Alt+letter key (no Ctrl, no Shift) and DoCommand didn't handle it,
+        ' explicitly activate the native Win32 HMENU accelerator.
+        ' WPF ElementHost intercepts WM_SYSCHAR so returning False doesn't work —
+        ' we must post WM_SYSCOMMAND with SC_KEYMENU to trigger the menu.
+        Dim isAltOnly = ((keyData And Keys.Alt) = Keys.Alt) AndAlso
+                        ((keyData And Keys.Control) <> Keys.Control) AndAlso
+                        ((keyData And Keys.Shift) <> Keys.Shift)
+        If isAltOnly Then
+            Dim letter = keyData And Keys.KeyCode
+            If letter >= Keys.A AndAlso letter <= Keys.Z Then
+                ' Post SC_KEYMENU with the letter character to activate the menu accelerator
+                Dim ch As Integer = Asc(Chr(letter).ToString().ToLower()(0))
+                PostMessage(Me.Handle, WM_SYSCOMMAND, New IntPtr(SC_KEYMENU), New IntPtr(ch))
+                Return True
+            End If
+        End If
+
         Return MyBase.ProcessCmdKey(msg, keyData)
     End Function
 

@@ -472,7 +472,12 @@ public class NativeMenuBar : IDisposable
         const int gainStep = 10;
 
         AddWired(parent, "Mute/Unmute Slice", () =>
-            ToggleBool("Mute", () => Rig.SliceMute, v => Rig.SliceMute = v));
+        {
+            if (Rig == null) { SpeakNoRadio(); return; }
+            bool newMute = !Rig.SliceMute;
+            Rig.SliceMute = newMute;
+            SpeakAfterMenuClose(newMute ? "Muted" : "Unmuted");
+        });
 
         AddWired(parent, "Audio Gain Up", () =>
             AdjustValue("Audio Gain", () => Rig.AudioGain, v => Rig.AudioGain = v, gainStep, 0, 100));
@@ -1259,8 +1264,9 @@ public class NativeMenuBar : IDisposable
         var handlers = _window.FreqHandlers;
         int coarseStep = handlers?.CoarseTuneStep ?? 1000;
         int fineStep = handlers?.FineTuneStep ?? 10;
+        var licenseConfig = handlers?.License;
 
-        var dialog = new Dialogs.SettingsDialog(pttConfig, coarseStep, fineStep);
+        var dialog = new Dialogs.SettingsDialog(pttConfig, coarseStep, fineStep, licenseConfig);
         if (dialog.ShowDialog() == true)
         {
             _window.ApplySettingsChanges(dialog.CoarseTuneStep, dialog.FineTuneStep);

@@ -91,13 +91,13 @@ public partial class ValueFieldControl : UserControl
         _step = step;
         _value = Math.Clamp(initialValue, min, max);
         UpdateDisplay();
+        AutomationProperties.SetName(this, $"{_label}: {_value}");
     }
 
     private void UpdateDisplay()
     {
         string text = $"{_label}: {_value}";
         DisplayText.Text = text;
-        AutomationProperties.SetName(this, text);
     }
 
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)
@@ -278,6 +278,8 @@ public partial class ValueFieldControl : UserControl
     {
         // Highlight border on focus for sighted users
         OuterBorder.BorderBrush = System.Windows.SystemColors.HighlightBrush;
+        // Update AutomationProperties so NVDA reads current value on focus entry
+        AutomationProperties.SetName(this, $"{_label}: {_value}");
     }
 
     protected override void OnLostFocus(RoutedEventArgs e)
