@@ -589,9 +589,9 @@ namespace Radios
             // A fresh reconnection is faster than waiting for a slow re-add cycle.
             bool stationNameSet = false;
             {
-                int maxWaitMs = 20000;       // 20s overall timeout
-                int removalGraceMs = 3000;   // 3s grace after client removal (profile data shows re-add arrives within 1.2s if coming)
-                int earlyAbortMs = 1500;     // 1.5s: if removed without ever being added during Start(), abort fast (re-add never comes)
+                int maxWaitMs = 45000;       // 45s overall timeout (SmartLink re-add can take 30s+ over WAN)
+                int removalGraceMs = 15000;  // 15s grace after client removal (Don's 6300 over WAN needs 10s+)
+                int earlyAbortMs = 5000;     // 5s: if removed without ever being added during Start(), abort for retry
                 int interval = 25;
                 int iterations = maxWaitMs / interval;
                 _clientRemovedDuringStart = false;
@@ -2752,7 +2752,7 @@ namespace Radios
             }
         }
 
-        internal bool DiversityOn
+        public bool DiversityOn
         {
             get
             {

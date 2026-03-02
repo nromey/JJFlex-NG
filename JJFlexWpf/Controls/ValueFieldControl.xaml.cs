@@ -224,6 +224,7 @@ public partial class ValueFieldControl : UserControl
             {
                 ValueChanged?.Invoke(this, _value);
                 ScreenReaderOutput.Speak($"{_label} {_value}");
+                EarconPlayer.ConfirmTone();
             }
         }
         else

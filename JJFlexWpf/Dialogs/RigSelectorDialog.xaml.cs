@@ -175,6 +175,15 @@ namespace JJFlexWpf.Dialogs
                     }
                 }
             }
+
+            // Auto-select if there's only one radio in the list
+            if (RadiosBox.SelectedIndex < 0 && RadiosBox.Items.Count == 1)
+            {
+                RadiosBox.SelectedIndex = 0;
+                var radio = (RadioListItem)RadiosBox.Items[0];
+                var name = string.IsNullOrWhiteSpace(radio.Name) ? "radio" : radio.Name;
+                _callbacks.ScreenReaderSpeak?.Invoke($"{name} selected. Press Enter to connect.", false);
+            }
         }
 
         private RadioListItem? GetSelectedRadio()

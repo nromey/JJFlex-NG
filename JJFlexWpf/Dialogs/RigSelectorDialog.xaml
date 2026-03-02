@@ -53,8 +53,8 @@
             <Button Content="Low BW" MinWidth="100" Height="28" Margin="0,0,0,8"
                     AutomationProperties.Name="Toggle low bandwidth mode"
                     Click="LowBWButton_Click"/>
-            <Button Content="SmartLink" MinWidth="100" Height="28" Margin="0,0,0,8"
-                    AutomationProperties.Name="Show remote SmartLink radios"
+            <Button Content="Connect to a remote radio" MinWidth="100" Height="28" Margin="0,0,0,8"
+                    AutomationProperties.Name="Connect to a remote radio"
                     Click="RemoteButton_Click"/>
             <Button x:Name="TestButton" Content="Test" MinWidth="100" Height="28" Margin="0,0,0,8"
                     AutomationProperties.Name="Test connection to selected radio"

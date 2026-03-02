@@ -147,7 +147,7 @@ namespace JJFlexWpf
             // License-aware TX lockout check
             if (CanTransmitHereCheck != null && !CanTransmitHereCheck())
             {
-                ScreenReaderOutput.Speak("Cannot transmit here, outside licensed band segment", interrupt: true);
+                ScreenReaderOutput.Speak("Unable to transmit here. Select license options in Settings to change.", interrupt: true);
                 EarconPlayer.Warning2Beep();
                 return;
             }
@@ -156,7 +156,7 @@ namespace JJFlexWpf
             {
                 State = PttState.PttHold;
                 SetTx(true);
-                EarconPlayer.TxStartTone();
+                if (_config.ChirpEnabled) EarconPlayer.TxStartTone();
                 _updateStatusDisplay?.Invoke("Transmitting");
                 if (_config.SpeechEnabled)
                     ScreenReaderOutput.Speak("Transmitting", interrupt: true);
@@ -216,14 +216,14 @@ namespace JJFlexWpf
             // License-aware TX lockout check
             if (CanTransmitHereCheck != null && !CanTransmitHereCheck())
             {
-                ScreenReaderOutput.Speak("Cannot transmit here, outside licensed band segment", interrupt: true);
+                ScreenReaderOutput.Speak("Unable to transmit here. Select license options in Settings to change.", interrupt: true);
                 EarconPlayer.Warning2Beep();
                 return;
             }
 
             State = PttState.Locked;
             SetTx(true);
-            EarconPlayer.TxStartTone();
+            if (_config.ChirpEnabled) EarconPlayer.TxStartTone();
             _lockStartTime = DateTime.UtcNow;
             _alcZeroConsecutiveSeconds = 0;
             _healthSilentMicWarned = false;
@@ -245,7 +245,7 @@ namespace JJFlexWpf
             var wasState = State;
             State = PttState.Idle;
             SetTx(false);
-            EarconPlayer.TxStopTone();
+            if (_config.ChirpEnabled) EarconPlayer.TxStopTone();
 
             StopAllTimers();
             _alcZeroConsecutiveSeconds = 0;

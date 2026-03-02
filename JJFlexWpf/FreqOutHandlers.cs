@@ -42,6 +42,13 @@ public class FreqOutHandlers
     // Frequency readout toggle — when off, tuning doesn't speak the new frequency
     private bool _freqReadout = true;
 
+    // Filter edge selection mode — double-tap bracket to adjust a single edge
+    private enum FilterEdgeMode { None, LowerEdge, UpperEdge }
+    private FilterEdgeMode _filterEdgeMode = FilterEdgeMode.None;
+    private Key _lastBracketKey;
+    private DateTime _lastBracketTime = DateTime.MinValue;
+    private CancellationTokenSource? _filterEdgeTimeout;
+
     /// <summary>
     /// Toggle frequency readout on/off (Ctrl+Shift+F global hotkey).
     /// When off, Up/Down tuning doesn't auto-speak the new frequency.
@@ -312,15 +319,34 @@ public class FreqOutHandlers
     }
 
     /// <summary>
-    /// Format a frequency in Hz to a spoken string like "14.250.000".
-    /// Done locally to avoid NullRef through the VB.NET delegate chain.
+    /// Preferred frequency units for speech announcements. Set from PttConfig.
     /// </summary>
-    private static string FormatFreqForSpeech(ulong freqHz)
+    public Radios.FrequencyUnits FrequencyUnits { get; set; } = Radios.FrequencyUnits.Hz;
+
+    /// <summary>
+    /// Format a frequency in Hz to a spoken string, respecting the units preference.
+    /// Hz: "14.250.000", kHz: "14,225 kilohertz", MHz: "14.225 megahertz"
+    /// </summary>
+    private string FormatFreqForSpeech(ulong freqHz)
     {
-        string s = freqHz.ToString();
-        while (s.Length < 7) s = "0" + s;
-        int len = s.Length;
-        return s.Substring(0, len - 6) + "." + s.Substring(len - 6, 3) + "." + s.Substring(len - 3);
+        switch (FrequencyUnits)
+        {
+            case Radios.FrequencyUnits.kHz:
+                double khz = freqHz / 1000.0;
+                if (freqHz % 1000 == 0)
+                    return $"{khz:N0} kilohertz";
+                return $"{khz:N1} kilohertz";
+
+            case Radios.FrequencyUnits.MHz:
+                double mhz = freqHz / 1_000_000.0;
+                return $"{mhz:N3} megahertz";
+
+            default: // Hz — original dotted format
+                string s = freqHz.ToString();
+                while (s.Length < 7) s = "0" + s;
+                int len = s.Length;
+                return s.Substring(0, len - 6) + "." + s.Substring(len - 6, 3) + "." + s.Substring(len - 3);
+        }
     }
 
     /// <summary>
@@ -526,12 +552,11 @@ public class FreqOutHandlers
                 e.Handled = true;
                 break;
             case 'M':
-                // Toggle mute on current slice
-                if (Rig.ValidVFO(vfo))
+                // Toggle mute on current slice — same property as menu checkmark
                 {
-                    bool muted = !Rig.GetVFOAudio(vfo);
-                    Rig.SetVFOAudio(vfo, muted);
-                    Radios.ScreenReaderOutput.Speak(muted ? "Mute off" : "Mute on");
+                    bool newMute = !Rig.SliceMute;
+                    Rig.SliceMute = newMute;
+                    Radios.ScreenReaderOutput.Speak(newMute ? "Muted" : "Unmuted");
                 }
                 e.Handled = true;
                 break;
@@ -920,16 +945,12 @@ public class FreqOutHandlers
         if (Rig == null) return;
         var key = RawKey(e);
         char ch = KeyToChar(e);
-        int vfo = Rig.RXVFO;
 
         if (key == Key.Space || ch == 'M')
         {
-            if (Rig.ValidVFO(vfo))
-            {
-                bool audioOn = Rig.GetVFOAudio(vfo);
-                Rig.SetVFOAudio(vfo, !audioOn);
-                Radios.ScreenReaderOutput.Speak(audioOn ? "Mute on" : "Mute off");
-            }
+            bool newMute = !Rig.SliceMute;
+            Rig.SliceMute = newMute;
+            Radios.ScreenReaderOutput.Speak(newMute ? "Muted" : "Unmuted");
             e.Handled = true;
         }
     }
@@ -1275,19 +1296,54 @@ public class FreqOutHandlers
             }
             else return;
         }
-        else if (!ctrl && !shift && !alt) // Unmodified = independent edges
+        else if (!ctrl && !shift && !alt) // Unmodified = independent edges or edge mode
         {
-            if (key == Key.OemOpenBrackets)
+            // Check for double-tap to enter/exit edge selection mode
+            var now = DateTime.UtcNow;
+            bool isDoubleTap = (key == _lastBracketKey) &&
+                               (now - _lastBracketTime).TotalMilliseconds < 300 &&
+                               _filterEdgeMode == FilterEdgeMode.None;
+            _lastBracketKey = key;
+            _lastBracketTime = now;
+
+            if (isDoubleTap)
             {
-                // Low edge down — expand low side
-                low -= step;
+                // Enter edge selection mode
+                _filterEdgeMode = key == Key.OemOpenBrackets ? FilterEdgeMode.LowerEdge : FilterEdgeMode.UpperEdge;
+                string edgeName = _filterEdgeMode == FilterEdgeMode.LowerEdge ? "lower" : "upper";
+                Radios.ScreenReaderOutput.Speak($"Adjust {edgeName} filter. Brackets move edge. Escape to exit.", true);
+                ResetFilterEdgeTimeout();
+                e.Handled = true;
+                return;
             }
-            else if (key == Key.OemCloseBrackets)
+
+            if (_filterEdgeMode != FilterEdgeMode.None)
             {
-                // High edge up — expand high side
-                high += step;
+                // In edge mode: brackets move the selected edge in either direction
+                ResetFilterEdgeTimeout();
+                if (_filterEdgeMode == FilterEdgeMode.LowerEdge)
+                {
+                    if (key == Key.OemOpenBrackets) low -= step;
+                    else if (key == Key.OemCloseBrackets) low += step;
+                    else return;
+                }
+                else // UpperEdge
+                {
+                    if (key == Key.OemOpenBrackets) high -= step;
+                    else if (key == Key.OemCloseBrackets) high += step;
+                    else return;
+                }
+                if (high - low < minWidth) { Radios.ScreenReaderOutput.Speak("Filter at minimum", true); e.Handled = true; return; }
             }
-            else return;
+            else
+            {
+                // Normal single-tap: expand in one direction
+                if (key == Key.OemOpenBrackets)
+                    low -= step;
+                else if (key == Key.OemCloseBrackets)
+                    high += step;
+                else return;
+            }
         }
         else return;
 
@@ -1352,6 +1408,45 @@ public class FreqOutHandlers
         }
         e.Handled = true;
     }
+
+    /// <summary>
+    /// Reset the 10-second filter edge mode timeout. After 10s of inactivity, exits edge mode.
+    /// </summary>
+    private void ResetFilterEdgeTimeout()
+    {
+        _filterEdgeTimeout?.Cancel();
+        _filterEdgeTimeout = new CancellationTokenSource();
+        var token = _filterEdgeTimeout.Token;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(10000, token);
+                _filterEdgeMode = FilterEdgeMode.None;
+                _window.Dispatcher.Invoke(() =>
+                    Radios.ScreenReaderOutput.Speak("Filter edge mode ended"));
+            }
+            catch (OperationCanceledException) { }
+        });
+    }
+
+    /// <summary>
+    /// Cancel filter edge mode (called on Escape).
+    /// </summary>
+    public void CancelFilterEdgeMode()
+    {
+        if (_filterEdgeMode != FilterEdgeMode.None)
+        {
+            _filterEdgeMode = FilterEdgeMode.None;
+            _filterEdgeTimeout?.Cancel();
+            Radios.ScreenReaderOutput.Speak("Filter edge mode cancelled");
+        }
+    }
+
+    /// <summary>
+    /// True if currently in filter edge selection mode.
+    /// </summary>
+    public bool InFilterEdgeMode => _filterEdgeMode != FilterEdgeMode.None;
 
     /// <summary>
     /// Get mode-specific filter bounds for boundary detection.
@@ -1443,6 +1538,7 @@ public class FreqOutHandlers
     /// Tracks the last band the user was on, for boundary detection.
     /// </summary>
     private Bands.BandNames? _lastBand;
+    private string? _lastSubBandKey; // tracks license sub-band division for boundary notifications
 
     /// <summary>
     /// Jump to a specific band. Uses band memory to restore last frequency
@@ -1569,7 +1665,45 @@ public class FreqOutHandlers
             SaveBandMemory();
         }
 
+        // Check license sub-band boundaries within the same band
+        if (newBand != null)
+        {
+            string? newSubKey = GetSubBandKey(newFreq, newBand.Value);
+            if (_lastSubBandKey != null && newSubKey != null && newSubKey != _lastSubBandKey
+                && (_lastBand == null || _lastBand == newBand)) // only within same band
+            {
+                Radios.ScreenReaderOutput.Speak($"Entering {newSubKey} segment", interrupt: false);
+                EarconPlayer.BandBoundaryBeep();
+            }
+            _lastSubBandKey = newSubKey;
+        }
+
         _lastBand = newBand;
+    }
+
+    /// <summary>
+    /// Get a key identifying which license sub-band division the frequency is in.
+    /// Returns a descriptive string like "Extra CW" or "General Phone", or null.
+    /// </summary>
+    private string? GetSubBandKey(ulong freq, Bands.BandNames band)
+    {
+        if (License == null) return null;
+        var bandInfo = Bands.Query(band, License.LicenseClass);
+        if (bandInfo?.Divisions == null) return null;
+
+        foreach (var div in bandInfo.Divisions)
+        {
+            if (freq >= div.Low && freq <= div.High)
+            {
+                // Build a key from license + mode
+                string licStr = div.License != null && div.License.Length > 0
+                    ? div.License[0].ToString() : "all";
+                string modeStr = div.Mode != null && div.Mode.Length > 0
+                    ? div.Mode[0].ToString() : "";
+                return $"{licStr} {modeStr}".Trim();
+            }
+        }
+        return null;
     }
 
     /// <summary>
@@ -1623,7 +1757,7 @@ public class FreqOutHandlers
     /// </summary>
     public string GetTxLockoutMessage()
     {
-        return "Cannot transmit here, outside licensed band segment";
+        return "Unable to transmit here. Select license options in Settings to change.";
     }
 
     #endregion

@@ -229,6 +229,7 @@ public partial class MainWindow : UserControl
             _freqOutHandlers.CoarseTuneStep = coarseStep;
             _freqOutHandlers.FineTuneStep = fineStep;
             _freqOutHandlers.BandMemoryEnabled = CurrentPttConfig?.BandMemoryEnabled ?? true;
+            _freqOutHandlers.FrequencyUnits = CurrentPttConfig?.FrequencyDisplayUnits ?? Radios.FrequencyUnits.Hz;
             _freqOutHandlers.SaveStepSizes?.Invoke(coarseStep, fineStep);
         }
 
@@ -687,6 +688,13 @@ public partial class MainWindow : UserControl
         // 2. Filter hotkeys (bracket keys) — Modern and Classic modes (not Logging)
         if (ActiveUIMode != UIMode.Logging && _freqOutHandlers != null && _radioPowerOn)
         {
+            // Escape cancels filter edge selection mode
+            if (rawKey == Key.Escape && _freqOutHandlers.InFilterEdgeMode)
+            {
+                _freqOutHandlers.CancelFilterEdgeMode();
+                e.Handled = true;
+                return;
+            }
             if (rawKey == Key.OemOpenBrackets || rawKey == Key.OemCloseBrackets)
             {
                 _freqOutHandlers.HandleFilterHotkey(e);
@@ -836,6 +844,12 @@ public partial class MainWindow : UserControl
     /// Set by ApplicationEvents.vb.
     /// </summary>
     public Action<List<Dialogs.KeyActionItem>>? SaveKeyActionsCallback { get; set; }
+
+    /// <summary>Callback to speak the current radio status summary. Set by ApplicationEvents.vb.</summary>
+    public Action? SpeakStatusCallback { get; set; }
+
+    /// <summary>Callback to show the status dialog. Set by ApplicationEvents.vb.</summary>
+    public Action? ShowStatusDialogCallback { get; set; }
 
     /// <summary>
     /// Antenna tune button base text, matching Form1 pattern.
@@ -999,16 +1013,31 @@ public partial class MainWindow : UserControl
         var fields = new List<FrequencyDisplay.DisplayField>();
 
         // Field order: Slice → Freq → Mute → Volume → SMeter → Split → VOX → Offset → RIT → XIT
-        fields.Add(new FrequencyDisplay.DisplayField("Slice", 1, "", "") { Label = "Slice" });
-        fields.Add(new FrequencyDisplay.DisplayField("Freq", 12, "", "") { Label = "Frequency", DefaultCursorOffset = 8 });
-        fields.Add(new FrequencyDisplay.DisplayField("Mute", 1, "", "") { Label = "Mute" });
-        fields.Add(new FrequencyDisplay.DisplayField("Volume", 3, "", "") { Label = "Volume" });
-        fields.Add(new FrequencyDisplay.DisplayField("SMeter", 4, "", "") { Label = "S Meter" });
-        fields.Add(new FrequencyDisplay.DisplayField("Split", 1, "", "") { Label = "Split" });
-        fields.Add(new FrequencyDisplay.DisplayField("VOX", 1, "", "") { Label = "VOX" });
-        fields.Add(new FrequencyDisplay.DisplayField("Offset", 1, "", "") { Label = "Offset" });
-        fields.Add(new FrequencyDisplay.DisplayField("RIT", 5, "", "") { Label = "RIT", DefaultCursorOffset = 2 });
-        fields.Add(new FrequencyDisplay.DisplayField("XIT", 5, " ", "") { Label = "XIT", DefaultCursorOffset = 2 });
+        fields.Add(new FrequencyDisplay.DisplayField("Slice", 1, "", "") { Label = "Slice",
+            HelpItems = new() { ("Space", "next slice"), ("Digits", "jump to slice"), ("M", "mute"),
+                ("T", "set transmit"), ("Period", "create slice"), ("Comma", "release slice") } });
+        fields.Add(new FrequencyDisplay.DisplayField("Freq", 12, "", "") { Label = "Frequency", DefaultCursorOffset = 8,
+            HelpItems = new() { ("Up Down", "tune by cursor position"), ("Digits", "enter frequency"),
+                ("K", "round to nearest kilohertz"), ("C", "toggle coarse and fine"),
+                ("Plus N", "set step multiplier"), ("F", "speak frequency") } });
+        fields.Add(new FrequencyDisplay.DisplayField("Mute", 1, "", "") { Label = "Mute",
+            HelpItems = new() { ("Space or M", "toggle mute") } });
+        fields.Add(new FrequencyDisplay.DisplayField("Volume", 3, "", "") { Label = "Volume",
+            HelpItems = new() { ("Up Down", "adjust volume") } });
+        fields.Add(new FrequencyDisplay.DisplayField("SMeter", 4, "", "") { Label = "S Meter",
+            HelpItems = new() { ("This field is read-only", "shows signal strength") } });
+        fields.Add(new FrequencyDisplay.DisplayField("Split", 1, "", "") { Label = "Split",
+            HelpItems = new() { ("Space", "toggle split mode") } });
+        fields.Add(new FrequencyDisplay.DisplayField("VOX", 1, "", "") { Label = "VOX",
+            HelpItems = new() { ("Space", "toggle VOX") } });
+        fields.Add(new FrequencyDisplay.DisplayField("Offset", 1, "", "") { Label = "Offset",
+            HelpItems = new() { ("Space", "cycle RIT XIT offset") } });
+        fields.Add(new FrequencyDisplay.DisplayField("RIT", 5, "", "") { Label = "RIT", DefaultCursorOffset = 2,
+            HelpItems = new() { ("Up Down", "adjust by cursor position"), ("Space", "toggle RIT on off"),
+                ("Digits", "enter value") } });
+        fields.Add(new FrequencyDisplay.DisplayField("XIT", 5, " ", "") { Label = "XIT", DefaultCursorOffset = 2,
+            HelpItems = new() { ("Up Down", "adjust by cursor position"), ("Space", "toggle XIT on off"),
+                ("Digits", "enter value") } });
 
         // Classic mode uses position-based step names (no override)
         FreqOut.StepNameOverride = null;
@@ -1031,9 +1060,15 @@ public partial class MainWindow : UserControl
         var fields = new List<FrequencyDisplay.DisplayField>();
 
         // Simplified: Slice → Freq → SMeter
-        fields.Add(new FrequencyDisplay.DisplayField("Slice", 1, "", "") { Label = "Slice" });
-        fields.Add(new FrequencyDisplay.DisplayField("Freq", 12, "", "") { Label = "Frequency", DefaultCursorOffset = 8 });
-        fields.Add(new FrequencyDisplay.DisplayField("SMeter", 4, " ", "") { Label = "S Meter" });
+        fields.Add(new FrequencyDisplay.DisplayField("Slice", 1, "", "") { Label = "Slice",
+            HelpItems = new() { ("Space", "next slice"), ("Digits", "jump to slice"), ("M", "mute"),
+                ("T", "set transmit"), ("Period", "create slice"), ("Comma", "release slice") } });
+        fields.Add(new FrequencyDisplay.DisplayField("Freq", 12, "", "") { Label = "Frequency", DefaultCursorOffset = 8,
+            HelpItems = new() { ("Up Down", "tune by cursor position"), ("Digits", "enter frequency"),
+                ("K", "round to nearest kilohertz"), ("C", "toggle coarse and fine"),
+                ("Plus N", "set step multiplier"), ("F", "speak frequency") } });
+        fields.Add(new FrequencyDisplay.DisplayField("SMeter", 4, " ", "") { Label = "S Meter",
+            HelpItems = new() { ("This field is read-only", "shows signal strength") } });
 
         // Hidden fields still written by ShowFrequency but not displayed.
         // ShowFrequency checks if the field exists before writing, so only
@@ -1423,9 +1458,12 @@ public partial class MainWindow : UserControl
             _pttController.CanTransmitHereCheck = () =>
                 _freqOutHandlers?.CanTransmitHere() ?? true;
 
-            // Apply band memory setting from config
+            // Apply band memory and frequency units settings from config
             if (_freqOutHandlers != null)
+            {
                 _freqOutHandlers.BandMemoryEnabled = CurrentPttConfig.BandMemoryEnabled;
+                _freqOutHandlers.FrequencyUnits = CurrentPttConfig.FrequencyDisplayUnits;
+            }
         }
 
         // VB-side tasks (knob setup, tracing)
@@ -2150,8 +2188,45 @@ public partial class MainWindow : UserControl
     /// </summary>
     public void DisplayHelp()
     {
-        // Phase 9.5+: ShowHelp dialog will be called directly here
-        Tracing.TraceLine("MainWindow.DisplayHelp: stub — wiring in Phase 9.5", TraceLevel.Info);
+        // Context-sensitive help: check what has focus and speak relevant help
+        if (FreqOut.IsKeyboardFocusWithin)
+        {
+            var field = FreqOut.GetFocusedField();
+            if (field?.HelpItems != null && field.HelpItems.Count > 0)
+            {
+                var sb = new System.Text.StringBuilder($"{field.Label ?? field.Key} field. ");
+                foreach (var (key, desc) in field.HelpItems)
+                    sb.Append($"{key}: {desc}. ");
+                sb.Append("Press Escape to return.");
+                Radios.ScreenReaderOutput.Speak(sb.ToString());
+                return;
+            }
+        }
+
+        if (FieldsPanel.IsKeyboardFocusWithin)
+        {
+            Radios.ScreenReaderOutput.Speak(
+                "Value field. Up Down adjust. Page Up Page Down large step. " +
+                "Home minimum. End maximum. Enter to type a value. " +
+                "Escape to cancel. Control Tab next category.");
+            return;
+        }
+
+        // Fall back to Command Finder
+        ShowCommandFinder();
+    }
+
+    private void ShowCommandFinder()
+    {
+        var items = GetCommandFinderItemsCallback?.Invoke() ?? new List<Dialogs.CommandFinderItem>();
+        var dialog = new Dialogs.CommandFinderDialog
+        {
+            GetCommands = () => items,
+            ExecuteCommand = (tag) => ExecuteCommandCallback?.Invoke(tag),
+            SpeakText = (msg) => Radios.ScreenReaderOutput.Speak(msg),
+            CurrentMode = ActiveUIMode.ToString()
+        };
+        dialog.ShowDialog();
     }
 
     /// <summary>

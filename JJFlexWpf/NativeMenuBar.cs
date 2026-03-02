@@ -471,13 +471,13 @@ public class NativeMenuBar : IDisposable
 
         const int gainStep = 10;
 
-        AddWired(parent, "Mute/Unmute Slice", () =>
+        AddChecked(parent, "Mute/Unmute Slice", () =>
         {
             if (Rig == null) { SpeakNoRadio(); return; }
             bool newMute = !Rig.SliceMute;
             Rig.SliceMute = newMute;
             SpeakAfterMenuClose(newMute ? "Muted" : "Unmuted");
-        });
+        }, () => Rig?.SliceMute == true);
 
         AddWired(parent, "Audio Gain Up", () =>
             AdjustValue("Audio Gain", () => Rig.AudioGain, v => Rig.AudioGain = v, gainStep, 0, 100));
@@ -509,12 +509,12 @@ public class NativeMenuBar : IDisposable
     {
         if (Rig == null) return;
 
-        AddWired(parent, "ATU On/Off", () =>
+        AddChecked(parent, "ATU On/Off", () =>
         {
             if (Rig == null) { SpeakNoRadio(); return; }
             Rig.FlexTunerOn = !Rig.FlexTunerOn;
             SpeakAfterMenuClose($"ATU {(Rig.FlexTunerOn ? "on" : "off")}");
-        });
+        }, () => Rig?.FlexTunerOn == true);
 
         AddWired(parent, "ATU Mode", () =>
         {
@@ -550,13 +550,12 @@ public class NativeMenuBar : IDisposable
 
         if (Rig.DiversityReady)
         {
-            AddWired(parent, "Toggle Diversity", () =>
+            AddChecked(parent, "Toggle Diversity", () =>
             {
                 if (Rig == null) { SpeakNoRadio(); return; }
                 Rig.ToggleDiversity();
-                // Read back the state after toggle
-                SpeakAfterMenuClose("Diversity toggled");
-            });
+                SpeakAfterMenuClose(Rig.DiversityOn ? "Diversity on" : "Diversity off");
+            }, () => Rig?.DiversityOn == true);
         }
         else
         {
@@ -602,8 +601,9 @@ public class NativeMenuBar : IDisposable
 
         AddSep(parent);
 
-        AddWired(parent, "Squelch On/Off", () =>
-            ToggleDSP("Squelch", () => Rig.Squelch, v => Rig.Squelch = v));
+        AddChecked(parent, "Squelch On/Off", () =>
+            ToggleDSP("Squelch", () => Rig.Squelch, v => Rig.Squelch = v),
+            () => Rig?.Squelch == FlexBase.OffOnValues.on);
         AddWired(parent, "Squelch Level Up", () =>
             AdjustValue("Squelch", () => Rig.SquelchLevel, v => Rig.SquelchLevel = v,
                 FlexBase.SquelchLevelIncrement, FlexBase.SquelchLevelMin, FlexBase.SquelchLevelMax));
@@ -729,8 +729,9 @@ public class NativeMenuBar : IDisposable
 
             // VOX / Transmission
             var txSub = AddSubmenu(operations, "Transmission");
-            AddWired(txSub, "VOX On/Off", () =>
-                ToggleDSP("VOX", () => Rig.Vox, v => Rig.Vox = v));
+            AddChecked(txSub, "VOX On/Off", () =>
+                ToggleDSP("VOX", () => Rig.Vox, v => Rig.Vox = v),
+                () => Rig?.Vox == FlexBase.OffOnValues.on);
             AddSep(txSub);
             AddChecked(txSub, "Dummy Load Mode", () =>
             {
@@ -930,8 +931,9 @@ public class NativeMenuBar : IDisposable
 
             // Transmission (was "FM" — renamed for consistency with Classic menu)
             var txSub = AddSubmenu(slice, "Transmission");
-            AddWired(txSub, "VOX On/Off", () =>
-                ToggleDSP("VOX", () => Rig.Vox, v => Rig.Vox = v));
+            AddChecked(txSub, "VOX On/Off", () =>
+                ToggleDSP("VOX", () => Rig.Vox, v => Rig.Vox = v),
+                () => Rig?.Vox == FlexBase.OffOnValues.on);
             AddSep(txSub);
             AddChecked(txSub, "Dummy Load Mode", () =>
             {
@@ -985,8 +987,18 @@ public class NativeMenuBar : IDisposable
         var tools = AddPopup(bar, "&Tools");
         AddWired(tools, "Command Finder", () => ShowCommandFinderDialog());
         AddWired(tools, "Settings", () => ShowSettingsDialog());
-        AddStub(tools, "Speak Status");
-        AddStub(tools, "Status Dialog");
+        AddWired(tools, "Speak Status\tCtrl+Shift+S", () =>
+        {
+            // Delay speech so it fires after menu close + focus return,
+            // otherwise NVDA's focus announcement stomps on the status.
+            _window.Dispatcher.BeginInvoke(async () =>
+            {
+                await System.Threading.Tasks.Task.Delay(250);
+                _window.SpeakStatusCallback?.Invoke();
+            });
+        });
+        AddWired(tools, "Status Dialog\tCtrl+Alt+S", () =>
+            _window.ShowStatusDialogCallback?.Invoke());
         AddNotImplemented(tools, "Station Lookup");
         AddSep(tools);
         AddWired(tools, "Enter Logging Mode", () => _window.EnterLoggingMode());
@@ -1014,21 +1026,29 @@ public class NativeMenuBar : IDisposable
 
     private void BuildBandItems(IntPtr parent)
     {
+        // Helper: check if current RX frequency is in the given band
+        Func<Bands.BandNames, bool> isOnBand = (band) =>
+        {
+            if (Rig == null) return false;
+            var bi = Bands.Query(Rig.RXFrequency);
+            return bi != null && bi.Band == band;
+        };
+
         // Main bands (F3-F9)
-        AddWired(parent, "160m\tF3", () => _window.BandJump(Bands.BandNames.m160));
-        AddWired(parent, "80m\tF4", () => _window.BandJump(Bands.BandNames.m80));
-        AddWired(parent, "40m\tF5", () => _window.BandJump(Bands.BandNames.m40));
-        AddWired(parent, "20m\tF6", () => _window.BandJump(Bands.BandNames.m20));
-        AddWired(parent, "15m\tF7", () => _window.BandJump(Bands.BandNames.m15));
-        AddWired(parent, "10m\tF8", () => _window.BandJump(Bands.BandNames.m10));
-        AddWired(parent, "6m\tF9", () => _window.BandJump(Bands.BandNames.m6));
+        AddChecked(parent, "160m\tF3", () => _window.BandJump(Bands.BandNames.m160), () => isOnBand(Bands.BandNames.m160));
+        AddChecked(parent, "80m\tF4", () => _window.BandJump(Bands.BandNames.m80), () => isOnBand(Bands.BandNames.m80));
+        AddChecked(parent, "40m\tF5", () => _window.BandJump(Bands.BandNames.m40), () => isOnBand(Bands.BandNames.m40));
+        AddChecked(parent, "20m\tF6", () => _window.BandJump(Bands.BandNames.m20), () => isOnBand(Bands.BandNames.m20));
+        AddChecked(parent, "15m\tF7", () => _window.BandJump(Bands.BandNames.m15), () => isOnBand(Bands.BandNames.m15));
+        AddChecked(parent, "10m\tF8", () => _window.BandJump(Bands.BandNames.m10), () => isOnBand(Bands.BandNames.m10));
+        AddChecked(parent, "6m\tF9", () => _window.BandJump(Bands.BandNames.m6), () => isOnBand(Bands.BandNames.m6));
         AddSep(parent);
 
         // WARC bands (Shift+F3-F6)
-        AddWired(parent, "60m\tShift+F3", () => _window.BandJump(Bands.BandNames.m60));
-        AddWired(parent, "30m\tShift+F4", () => _window.BandJump(Bands.BandNames.m30));
-        AddWired(parent, "17m\tShift+F5", () => _window.BandJump(Bands.BandNames.m17));
-        AddWired(parent, "12m\tShift+F6", () => _window.BandJump(Bands.BandNames.m12));
+        AddChecked(parent, "60m\tShift+F3", () => _window.BandJump(Bands.BandNames.m60), () => isOnBand(Bands.BandNames.m60));
+        AddChecked(parent, "30m\tShift+F4", () => _window.BandJump(Bands.BandNames.m30), () => isOnBand(Bands.BandNames.m30));
+        AddChecked(parent, "17m\tShift+F5", () => _window.BandJump(Bands.BandNames.m17), () => isOnBand(Bands.BandNames.m17));
+        AddChecked(parent, "12m\tShift+F6", () => _window.BandJump(Bands.BandNames.m12), () => isOnBand(Bands.BandNames.m12));
         AddSep(parent);
 
         // Navigation

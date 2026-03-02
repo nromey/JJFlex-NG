@@ -71,9 +71,16 @@ namespace Radios
         /// </summary>
         /// <param name="message">The message to speak</param>
         /// <param name="interrupt">If true, interrupts any current speech</param>
+        /// <summary>
+        /// When true, Speak() calls are silently dropped. Used during menu transitions
+        /// to prevent NVDA stutter from focus change events.
+        /// </summary>
+        public static bool SuppressSpeech { get; set; }
+
         public static void Speak(string message, bool interrupt = false)
         {
             if (string.IsNullOrEmpty(message)) return;
+            if (SuppressSpeech) return;
 
             try
             {

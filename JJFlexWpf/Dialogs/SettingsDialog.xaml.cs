@@ -69,6 +69,7 @@ namespace JJFlexWpf.Dialogs
             PttOhCrapBox.Text = _pttConfig.OhCrapSecondsBeforeTimeout.ToString();
             PttAlcBox.Text = _pttConfig.AlcAutoReleaseSeconds.ToString();
             PttSpeechCheckbox.IsChecked = _pttConfig.SpeechEnabled;
+            ChirpEnabledCheckbox.IsChecked = _pttConfig.ChirpEnabled;
 
             // Tuning tab
             foreach (var (hz, label) in CoarseStepOptions)
@@ -88,6 +89,12 @@ namespace JJFlexWpf.Dialogs
             if (FineStepCombo.SelectedIndex < 0) FineStepCombo.SelectedIndex = 1; // 10 Hz default
 
             BandMemoryCheckbox.IsChecked = BandMemoryEnabled;
+
+            // Frequency units combo
+            FreqUnitsCombo.Items.Add("Dotted (14.225.000)");
+            FreqUnitsCombo.Items.Add("Kilohertz (14,225 kHz)");
+            FreqUnitsCombo.Items.Add("Megahertz (14.225 MHz)");
+            FreqUnitsCombo.SelectedIndex = (int)_pttConfig.FrequencyDisplayUnits;
 
             // License tab — populate from LicenseConfig
             foreach (var (label, _) in LicenseClassMap)
@@ -154,6 +161,7 @@ namespace JJFlexWpf.Dialogs
             _pttConfig.OhCrapSecondsBeforeTimeout = ohCrap;
             _pttConfig.AlcAutoReleaseSeconds = alc;
             _pttConfig.SpeechEnabled = PttSpeechCheckbox.IsChecked == true;
+            _pttConfig.ChirpEnabled = ChirpEnabledCheckbox.IsChecked == true;
             _pttConfig.Validate();
 
             // Tuning tab
@@ -163,6 +171,8 @@ namespace JJFlexWpf.Dialogs
                 FineTuneStep = FineStepOptions[FineStepCombo.SelectedIndex].hz;
             BandMemoryEnabled = BandMemoryCheckbox.IsChecked == true;
             _pttConfig.BandMemoryEnabled = BandMemoryEnabled;
+            if (FreqUnitsCombo.SelectedIndex >= 0)
+                _pttConfig.FrequencyDisplayUnits = (Radios.FrequencyUnits)FreqUnitsCombo.SelectedIndex;
 
             // License tab — write back to LicenseConfig
             int selIdx = LicenseClassCombo.SelectedIndex;

@@ -122,7 +122,7 @@ Public Class ShellForm
     ''' content when the menu loop exits (Escape or item selected).
     ''' </summary>
     Protected Overrides Sub WndProc(ByRef m As Message)
-        ' Track native menu loop entry/exit for safe focus return
+        ' Track native menu loop entry/exit for safe focus return.
         If m.Msg = WM_ENTERMENULOOP Then
             _inNativeMenuLoop = True
         End If

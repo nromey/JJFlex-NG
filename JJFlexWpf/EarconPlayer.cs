@@ -49,14 +49,38 @@ namespace JJFlexWpf
         public static void OhCrapBeep() => Beep(1200, 250);
 
         /// <summary>
-        /// TX start tone — ascending chirp 400→800Hz over 80ms.
+        /// TX start tone — two discrete tones: 400Hz then 800Hz.
         /// </summary>
-        public static void TxStartTone() => Chirp(400, 800, 80);
+        public static void TxStartTone()
+        {
+            try
+            {
+                using var stream = GenerateTwoTone(400, 50, 800, 50, 20);
+                using var player = new SoundPlayer(stream);
+                player.Play();
+            }
+            catch (Exception ex)
+            {
+                Trace.WriteLine($"EarconPlayer.TxStartTone failed: {ex.Message}");
+            }
+        }
 
         /// <summary>
-        /// TX stop tone — descending chirp 800→400Hz over 80ms.
+        /// TX stop tone — two discrete tones: 800Hz then 400Hz.
         /// </summary>
-        public static void TxStopTone() => Chirp(800, 400, 80);
+        public static void TxStopTone()
+        {
+            try
+            {
+                using var stream = GenerateTwoTone(800, 50, 400, 50, 20);
+                using var player = new SoundPlayer(stream);
+                player.Play();
+            }
+            catch (Exception ex)
+            {
+                Trace.WriteLine($"EarconPlayer.TxStopTone failed: {ex.Message}");
+            }
+        }
 
         /// <summary>
         /// Hard kill tone — two rapid descending beeps.
@@ -83,6 +107,24 @@ namespace JJFlexWpf
                 Trace.WriteLine($"EarconPlayer.Chirp failed: {ex.Message}");
                 try { Console.Beep((startHz + endHz) / 2, durationMs); }
                 catch { }
+            }
+        }
+
+        /// <summary>
+        /// Confirmation tone — short two-tone click (low then high).
+        /// Used after Ctrl+F frequency entry, ValueFieldControl Enter-to-set, etc.
+        /// </summary>
+        public static void ConfirmTone()
+        {
+            try
+            {
+                using var stream = GenerateTwoTone(500, 50, 700, 50, 20);
+                using var player = new SoundPlayer(stream);
+                player.Play();
+            }
+            catch (Exception ex)
+            {
+                Trace.WriteLine($"EarconPlayer.ConfirmTone failed: {ex.Message}");
             }
         }
 
@@ -206,6 +248,77 @@ namespace JJFlexWpf
 
                 short pcm = (short)(sample * envelope * 20000);
                 writer.Write(pcm);
+            }
+
+            writer.Flush();
+            stream.Position = 0;
+            return stream;
+        }
+
+        /// <summary>
+        /// Generate a two-tone WAV: tone1 for dur1ms, gap of gapMs silence, tone2 for dur2ms.
+        /// Used for confirmation tones and PTT chirps.
+        /// </summary>
+        private static MemoryStream GenerateTwoTone(int freq1Hz, int dur1Ms, int freq2Hz, int dur2Ms, int gapMs)
+        {
+            const int sampleRate = 44100;
+            const short bitsPerSample = 16;
+            const short channels = 1;
+
+            int samples1 = sampleRate * dur1Ms / 1000;
+            int gapSamples = sampleRate * gapMs / 1000;
+            int samples2 = sampleRate * dur2Ms / 1000;
+            int totalSamples = samples1 + gapSamples + samples2;
+            int dataSize = totalSamples * (bitsPerSample / 8) * channels;
+
+            var stream = new MemoryStream();
+            using var writer = new BinaryWriter(stream, System.Text.Encoding.UTF8, leaveOpen: true);
+
+            // WAV header
+            writer.Write(new char[] { 'R', 'I', 'F', 'F' });
+            writer.Write(36 + dataSize);
+            writer.Write(new char[] { 'W', 'A', 'V', 'E' });
+
+            // fmt chunk
+            writer.Write(new char[] { 'f', 'm', 't', ' ' });
+            writer.Write(16);
+            writer.Write((short)1); // PCM
+            writer.Write(channels);
+            writer.Write(sampleRate);
+            writer.Write(sampleRate * channels * (bitsPerSample / 8));
+            writer.Write((short)(channels * (bitsPerSample / 8)));
+            writer.Write(bitsPerSample);
+
+            // data chunk
+            writer.Write(new char[] { 'd', 'a', 't', 'a' });
+            writer.Write(dataSize);
+
+            int fadeLen = sampleRate / 200; // 5ms fade
+
+            // Tone 1
+            for (int i = 0; i < samples1; i++)
+            {
+                double t = (double)i / sampleRate;
+                double sample = Math.Sin(2 * Math.PI * freq1Hz * t);
+                double env = 1.0;
+                if (i < fadeLen) env = (double)i / fadeLen;
+                else if (i > samples1 - fadeLen) env = (double)(samples1 - i) / fadeLen;
+                writer.Write((short)(sample * env * 16000));
+            }
+
+            // Gap (silence)
+            for (int i = 0; i < gapSamples; i++)
+                writer.Write((short)0);
+
+            // Tone 2
+            for (int i = 0; i < samples2; i++)
+            {
+                double t = (double)i / sampleRate;
+                double sample = Math.Sin(2 * Math.PI * freq2Hz * t);
+                double env = 1.0;
+                if (i < fadeLen) env = (double)i / fadeLen;
+                else if (i > samples2 - fadeLen) env = (double)(samples2 - i) / fadeLen;
+                writer.Write((short)(sample * env * 16000));
             }
 
             writer.Flush();

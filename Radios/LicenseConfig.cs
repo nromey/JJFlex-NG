@@ -68,6 +68,14 @@ namespace Radios
             }
         }
 
+        /// <summary>
+        /// Check if a license config file exists for this operator (i.e., not a first run).
+        /// </summary>
+        public static bool Exists(string configDirectory, string operatorName)
+        {
+            return File.Exists(GetFilePath(configDirectory, operatorName));
+        }
+
         private static string GetFilePath(string configDirectory, string operatorName)
         {
             return Path.Combine(configDirectory, $"{operatorName}_licenseConfig.xml");

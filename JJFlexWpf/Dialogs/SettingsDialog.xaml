@@ -76,6 +76,11 @@
                               Content="Announce transmit and receive state changes"
                               Margin="0,12,0,0"
                               AutomationProperties.Name="Announce transmit and receive state changes"/>
+
+                    <CheckBox x:Name="ChirpEnabledCheckbox"
+                              Content="Play chirp tones on transmit and receive"
+                              Margin="0,8,0,0"
+                              AutomationProperties.Name="Play chirp tones on transmit and receive"/>
                 </StackPanel>
             </TabItem>
 
@@ -111,6 +116,14 @@
                               Content="Enable band memory"
                               IsChecked="True" Margin="0,12,0,0"
                               AutomationProperties.Name="Enable band memory"/>
+
+                    <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                        <TextBlock Text="Frequency speech units:" VerticalAlignment="Center"
+                                   Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
+                        <ComboBox x:Name="FreqUnitsCombo" Width="120"
+                                  Style="{StaticResource DialogComboBox}"
+                                  AutomationProperties.Name="Frequency speech units"/>
+                    </StackPanel>
                 </StackPanel>
             </TabItem>
 

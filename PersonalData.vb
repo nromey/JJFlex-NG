@@ -593,9 +593,59 @@ Public Class PersonalData
 
     Friend Shared Function UniqueOpName(ByVal op As personal_v1) As String
         Dim tst As New Regex("[^0-9a-zA-Z]")
+        ' Use callsign as primary key when available, fall back to fullName_handle
+        If Not String.IsNullOrWhiteSpace(op.callSign) Then
+            Dim fn As String = op.callSign & "_" & op.fullName
+            Return tst.Replace(fn, "_")
+        End If
+        Dim fn2 As String = op.fullName & "_" & op.handl
+        Return tst.Replace(fn2, "_")
+    End Function
+
+    ''' <summary>
+    ''' Legacy operator name format (pre-Sprint 18) for config file migration.
+    ''' </summary>
+    Friend Shared Function LegacyOpName(ByVal op As personal_v1) As String
+        Dim tst As New Regex("[^0-9a-zA-Z]")
         Dim fn As String = op.fullName & "_" & op.handl
         Return tst.Replace(fn, "_")
     End Function
+
+    ''' <summary>
+    ''' Migrate config files from legacy naming (fullName_handle) to callsign naming.
+    ''' Renames files in the config directory. Safe to call multiple times.
+    ''' </summary>
+    Friend Shared Sub MigrateConfigFiles(op As personal_v1, configDir As String)
+        If String.IsNullOrWhiteSpace(op.callSign) Then Return
+        Dim newName = UniqueOpName(op)
+        Dim legacyName = LegacyOpName(op)
+        If newName = legacyName Then Return ' no change needed
+
+        Try
+            For Each legacyFile In IO.Directory.GetFiles(configDir, legacyName & "_*")
+                Dim suffix = IO.Path.GetFileName(legacyFile).Substring(legacyName.Length)
+                Dim newFile = IO.Path.Combine(configDir, newName & suffix)
+                If Not IO.File.Exists(newFile) Then
+                    IO.File.Move(legacyFile, newFile)
+                    JJTrace.Tracing.TraceLine($"Config migrated: {IO.Path.GetFileName(legacyFile)} → {IO.Path.GetFileName(newFile)}", Diagnostics.TraceLevel.Info)
+                End If
+            Next
+            ' Also check the Radios subdirectory (filter presets)
+            Dim radiosDir = IO.Path.Combine(configDir, "Radios")
+            If IO.Directory.Exists(radiosDir) Then
+                For Each legacyFile In IO.Directory.GetFiles(radiosDir, legacyName & "_*")
+                    Dim suffix = IO.Path.GetFileName(legacyFile).Substring(legacyName.Length)
+                    Dim newFile = IO.Path.Combine(radiosDir, newName & suffix)
+                    If Not IO.File.Exists(newFile) Then
+                        IO.File.Move(legacyFile, newFile)
+                        JJTrace.Tracing.TraceLine($"Config migrated: Radios/{IO.Path.GetFileName(legacyFile)} → {IO.Path.GetFileName(newFile)}", Diagnostics.TraceLevel.Info)
+                    End If
+                Next
+            End If
+        Catch ex As Exception
+            JJTrace.Tracing.TraceLine($"Config migration error: {ex.Message}", Diagnostics.TraceLevel.Error)
+        End Try
+    End Sub
 
     Private Function opFileName(ByVal op As personal_v1) As String
         Return UniqueOpName(op) & ".xml"

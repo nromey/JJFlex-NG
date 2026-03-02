@@ -1001,8 +1001,10 @@ Module globals
             End If
         End If
         If err Then
+            Tracing.TraceLine($"FormatFreqForRadio: input='{str}' → error", TraceLevel.Info)
             Return Nothing
         Else
+            Tracing.TraceLine($"FormatFreqForRadio: input='{str}' → '{st}'", TraceLevel.Info)
             Return st
         End If
     End Function
@@ -1916,6 +1918,12 @@ RadioConnected:
         ' Apply the correct UI mode now that operators are loaded
         If WpfMainWindow IsNot Nothing AndAlso CurrentOp IsNot Nothing Then
             WpfMainWindow.ApplyUIMode(CType(ActiveUIMode, JJFlexWpf.MainWindow.UIMode))
+        End If
+
+        ' Migrate config files from legacy naming to callsign-based naming.
+        ' Must run BEFORE openTheRadio so auto-connect finds renamed config files.
+        If CurrentOp IsNot Nothing Then
+            PersonalData.MigrateConfigFiles(CurrentOp, BaseConfigDir)
         End If
 
         openTheRadio(True)

@@ -342,8 +342,8 @@ Public Class KeyCommands
             "Show keys help", Nothing, FunctionGroups.help, KeyScope.[Global]) With {
             .Keywords = New String() {"help", "keys", "hotkeys", "shortcuts", "keyboard"}},
         New keyTbl(CommandValues.ShowFreq, AddressOf displayFreqCmd,
-            "Show frequency or pause scan", Nothing, FunctionGroups.routingScan, KeyScope.Radio) With {
-            .Keywords = New String() {"frequency", "show", "display", "tune", "tuning", "pause", "scan"}},
+            "Focus frequency display", Nothing, FunctionGroups.routingScan, KeyScope.Radio) With {
+            .Keywords = New String() {"frequency", "focus", "display", "tune", "tuning"}},
         New keyTbl(CommandValues.ResumeTheScan, AddressOf resumeScanCmd,
             "Resume the scan.", "resume scan", FunctionGroups.scan, KeyScope.Radio) With {
             .Keywords = New String() {"scan", "resume", "continue", "scanning"}},
@@ -1311,13 +1311,21 @@ Public Class KeyCommands
 
     Friend Sub WriteFreq(ByVal str As String)
         ' (overloaded) Send a freq to the radio.  The freq must be a string in HZ.
-        RigControl.Frequency = CLng(str)
-        'displayFreq(False)
+        Dim hz As Long = CLng(str)
+        Tracing.TraceLine($"WriteFreq: input='{str}' parsed={hz} Hz", TraceLevel.Info)
+        RigControl.Frequency = hz
+        ' Confirmation speech + tone
+        Dim display As String = FormatFreq(str)
+        If display IsNot Nothing AndAlso display.Length > 0 Then
+            Radios.ScreenReaderOutput.Speak($"Tuned to {display}", True)
+        End If
+        JJFlexWpf.EarconPlayer.ConfirmTone()
     End Sub
     Private Sub WriteFreq()
         ' (overloaded) Send the entered freq. to the radio.
         If RigControl IsNot Nothing Then
             If FreqInput.ShowDialog() = DialogResult.OK Then
+                Tracing.TraceLine($"WriteFreq: FreqInput.Buffer='{FreqInput.Buffer}'", TraceLevel.Info)
                 WriteFreq(FreqInput.Buffer)
             End If
         End If

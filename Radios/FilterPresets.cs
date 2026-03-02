@@ -162,34 +162,39 @@ public class FilterPresets
         {
             "SSB" => new List<FilterPreset>
             {
-                new("Narrow", 100, 1900),   // 1.8k
-                new("Normal", 100, 2500),    // 2.4k
-                new("Wide", 100, 2800),      // 2.7k
-                new("Extra Wide", 100, 3100), // 3.0k
+                new("Narrow", 100, 1900),      // 1.8k
+                new("Normal", 100, 2500),       // 2.4k
+                new("Wide", 100, 2800),         // 2.7k
+                new("Extra Wide", 100, 3100),   // 3.0k
+                new("Wide Open", 100, 4100),    // 4.0k
             },
             "CW" => new List<FilterPreset>
             {
-                new("Tight", -50, 50),     // 100 Hz
-                new("Narrow", -125, 125),  // 250 Hz
-                new("Normal", -250, 250),  // 500 Hz
-                new("Wide", -500, 500),    // 1k Hz
+                new("Tight", -50, 50),         // 100 Hz
+                new("Narrow", -125, 125),      // 250 Hz
+                new("Normal", -250, 250),      // 500 Hz
+                new("Wide", -500, 500),        // 1k
+                new("Wide Open", -1000, 1000), // 2k
             },
             "DIGI" => new List<FilterPreset>
             {
-                new("Narrow", 100, 600),    // 500 Hz
-                new("Normal", 100, 2800),   // 2.7k
-                new("Wide", 100, 3100),     // 3.0k
+                new("Narrow", 100, 600),       // 500 Hz
+                new("Normal", 100, 2800),      // 2.7k
+                new("Wide", 100, 3100),        // 3.0k
+                new("Wide Open", 100, 4100),   // 4.0k
             },
             "AM" => new List<FilterPreset>
             {
-                new("Narrow", -3000, 3000),  // 6k
-                new("Normal", -4000, 4000),  // 8k
-                new("Wide", -5000, 5000),    // 10k
+                new("Narrow", -3000, 3000),    // 6k
+                new("Normal", -4000, 4000),    // 8k
+                new("Wide", -5000, 5000),      // 10k
+                new("Wide Open", -6000, 6000), // 12k
             },
             "FM" => new List<FilterPreset>
             {
-                new("Narrow", -4000, 4000),  // 8k
-                new("Normal", -6000, 6000),  // 12k
+                new("Narrow", -4000, 4000),    // 8k
+                new("Normal", -6000, 6000),    // 12k
+                new("Wide Open", -8000, 8000), // 16k
             },
             _ => new List<FilterPreset>
             {

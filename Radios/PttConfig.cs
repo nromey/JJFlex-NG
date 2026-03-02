@@ -5,6 +5,19 @@ using System.Xml.Serialization;
 namespace Radios
 {
     /// <summary>
+    /// Preferred units for frequency speech announcements.
+    /// </summary>
+    public enum FrequencyUnits
+    {
+        /// <summary>Full Hz display: "14.225.000"</summary>
+        Hz,
+        /// <summary>kHz display: "14,225 kilohertz"</summary>
+        kHz,
+        /// <summary>MHz display: "14.225 megahertz"</summary>
+        MHz
+    }
+
+    /// <summary>
     /// PTT safety configuration — timeout, warning thresholds, per-operator persistence.
     /// </summary>
     [XmlRoot("PttConfig")]
@@ -56,6 +69,17 @@ namespace Radios
         /// When false, band jumps always go to band center.
         /// </summary>
         public bool BandMemoryEnabled { get; set; } = true;
+
+        /// <summary>
+        /// When true, TX start/stop chirp tones play on PTT transitions.
+        /// When false, chirp tones are muted (safety warnings always play).
+        /// </summary>
+        public bool ChirpEnabled { get; set; } = true;
+
+        /// <summary>
+        /// Preferred units for frequency speech announcements (Hz, kHz, or MHz).
+        /// </summary>
+        public FrequencyUnits FrequencyDisplayUnits { get; set; } = FrequencyUnits.Hz;
 
         /// <summary>
         /// Clamp TimeoutSeconds to valid range [10..900].

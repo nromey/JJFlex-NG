@@ -70,10 +70,22 @@ Namespace My
             End Sub
 
             ' Run VB-side initialization (moved from Form1_Load).
+            ' Note: MigrateConfigFiles runs inside InitializeApplication before openTheRadio
+            ' so auto-connect can find renamed config files.
             InitializeApplication()
 
             ' Wire DoCommandHandler AFTER GetConfigInfo (which creates Commands).
             WpfMainWindow.DoCommandHandler = AddressOf Commands.DoCommand
+
+            ' Wire Speak Status / Status Dialog callbacks for menu items.
+            WpfMainWindow.SpeakStatusCallback = Sub()
+                Dim kt = Commands.lookup(KeyCommands.CommandValues.SpeakStatus)
+                kt?.rtn()
+            End Sub
+            WpfMainWindow.ShowStatusDialogCallback = Sub()
+                Dim kt = Commands.lookup(KeyCommands.CommandValues.ShowStatusDialog)
+                kt?.rtn()
+            End Sub
 
             ' Wire key/command callbacks for WPF dialogs (Sprint 16 Track C).
             WpfMainWindow.GetKeyActionsCallback = Function()
@@ -113,6 +125,48 @@ Namespace My
                         .Tag = kt.key.id
                     })
                 Next
+                JJTrace.Tracing.TraceLine($"CommandFinder: {result.Count} key commands loaded", TraceLevel.Info)
+                ' Add informational items for field-specific and filter keys
+                Dim infoItems = New List(Of JJFlexWpf.Dialogs.CommandFinderItem) From {
+                    New JJFlexWpf.Dialogs.CommandFinderItem With {
+                        .Description = "Adjust filter edges (on Freq field)", .KeyDisplay = "[ ]",
+                        .Scope = "Radio", .Group = "Filter", .Keywords = New String() {"filter", "narrow", "widen", "edge"}},
+                    New JJFlexWpf.Dialogs.CommandFinderItem With {
+                        .Description = "Slide passband left/right", .KeyDisplay = "Shift+[ ]",
+                        .Scope = "Radio", .Group = "Filter", .Keywords = New String() {"filter", "slide", "passband", "shift"}},
+                    New JJFlexWpf.Dialogs.CommandFinderItem With {
+                        .Description = "Squeeze or pull filter edges", .KeyDisplay = "Ctrl+[ ]",
+                        .Scope = "Radio", .Group = "Filter", .Keywords = New String() {"filter", "squeeze", "pull", "narrow", "widen"}},
+                    New JJFlexWpf.Dialogs.CommandFinderItem With {
+                        .Description = "Cycle filter presets", .KeyDisplay = "Alt+[ ]",
+                        .Scope = "Radio", .Group = "Filter", .Keywords = New String() {"filter", "preset", "cycle"}},
+                    New JJFlexWpf.Dialogs.CommandFinderItem With {
+                        .Description = "Double-tap to adjust single filter edge", .KeyDisplay = "[[ or ]]",
+                        .Scope = "Radio", .Group = "Filter", .Keywords = New String() {"filter", "edge", "adjust", "lower", "upper"}},
+                    New JJFlexWpf.Dialogs.CommandFinderItem With {
+                        .Description = "Toggle mute (on Slice field)", .KeyDisplay = "M",
+                        .Scope = "Radio", .Group = "FreqOut", .Keywords = New String() {"mute", "unmute", "audio", "slice"}},
+                    New JJFlexWpf.Dialogs.CommandFinderItem With {
+                        .Description = "Set transmit slice (on Slice field)", .KeyDisplay = "T",
+                        .Scope = "Radio", .Group = "FreqOut", .Keywords = New String() {"transmit", "tx", "slice"}},
+                    New JJFlexWpf.Dialogs.CommandFinderItem With {
+                        .Description = "Enter frequency digits (on Freq field)", .KeyDisplay = "0-9",
+                        .Scope = "Radio", .Group = "FreqOut", .Keywords = New String() {"frequency", "enter", "type", "digits"}},
+                    New JJFlexWpf.Dialogs.CommandFinderItem With {
+                        .Description = "Round to nearest kHz", .KeyDisplay = "K",
+                        .Scope = "Radio", .Group = "FreqOut", .Keywords = New String() {"frequency", "round", "kilohertz", "khz"}},
+                    New JJFlexWpf.Dialogs.CommandFinderItem With {
+                        .Description = "Type exact value (on value field)", .KeyDisplay = "Enter",
+                        .Scope = "Radio", .Group = "ValueField", .Keywords = New String() {"value", "enter", "type", "exact", "number"}},
+                    New JJFlexWpf.Dialogs.CommandFinderItem With {
+                        .Description = "Large step adjust (on value field)", .KeyDisplay = "PgUp / PgDn",
+                        .Scope = "Radio", .Group = "ValueField", .Keywords = New String() {"value", "page", "large", "step"}},
+                    New JJFlexWpf.Dialogs.CommandFinderItem With {
+                        .Description = "Set to min or max (on value field)", .KeyDisplay = "Home / End",
+                        .Scope = "Radio", .Group = "ValueField", .Keywords = New String() {"value", "minimum", "maximum", "home", "end"}}
+                }
+                result.AddRange(infoItems)
+                JJTrace.Tracing.TraceLine($"CommandFinder: {result.Count} total items after info items added", TraceLevel.Info)
                 Return result
             End Function
 
@@ -201,7 +255,15 @@ Namespace My
                 If CurrentOp IsNot Nothing Then
                     Dim opName = PersonalData.UniqueOpName(CurrentOp)
                     handlers.BandMem = Radios.BandMemory.Load(BaseConfigDir, opName)
+                    Dim isFirstRun = Not Radios.LicenseConfig.Exists(BaseConfigDir, opName)
                     handlers.License = Radios.LicenseConfig.Load(BaseConfigDir, opName)
+                    If isFirstRun Then
+                        ' First run: save defaults and prompt user to set license class
+                        handlers.License.Save(BaseConfigDir, opName)
+                        Radios.ScreenReaderOutput.Speak(
+                            "Welcome to JJFlexRadio. Your license class defaults to Extra. " &
+                            "Open Settings from the Tools menu to change your license class.")
+                    End If
                 End If
             End Sub
         End Sub

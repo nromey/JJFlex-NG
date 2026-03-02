@@ -79,6 +79,11 @@ public partial class FrequencyDisplay : UserControl
         /// </summary>
         public int DefaultCursorOffset { get; set; }
 
+        /// <summary>
+        /// Context-sensitive help items for F1. List of (key, description) pairs.
+        /// </summary>
+        public List<(string key, string description)> HelpItems { get; set; } = new();
+
         internal string Text { get; set; } = "";
         internal int Position { get; set; }
 
@@ -274,6 +279,14 @@ public partial class FrequencyDisplay : UserControl
                 return field;
         }
         return null;
+    }
+
+    /// <summary>
+    /// Get the field that currently has the cursor, or null.
+    /// </summary>
+    public DisplayField? GetFocusedField()
+    {
+        return PositionToField(DisplayBox.SelectionStart);
     }
 
     #endregion
