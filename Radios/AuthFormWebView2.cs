@@ -74,6 +74,14 @@ namespace Radios
         /// </summary>
         public bool ForceNewLogin { get; set; }
 
+        /// <summary>
+        /// When true, the form starts hidden and only shows if Auth0 requires user interaction
+        /// (i.e., doesn't auto-redirect within a short period). Used for token refreshes
+        /// where the user has an existing session — prevents focus theft.
+        /// Reserved for future use — WebView2 requires a visible window to initialize.
+        /// </summary>
+        public bool StartHidden { get; set; }
+
         public AuthFormWebView2()
         {
             InitializeComponent();
@@ -122,6 +130,8 @@ namespace Radios
 
             this.ResumeLayout(false);
         }
+
+        private System.Windows.Forms.Timer _showTimer;
 
         /// <summary>
         /// Generates PKCE code_verifier and code_challenge for secure auth flow.
@@ -566,6 +576,9 @@ namespace Radios
         {
             if (disposing)
             {
+                _showTimer?.Stop();
+                _showTimer?.Dispose();
+                _showTimer = null;
                 webView?.Dispose();
             }
             base.Dispose(disposing);

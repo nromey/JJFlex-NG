@@ -590,10 +590,13 @@ namespace Radios
             bool stationNameSet = false;
             {
                 int maxWaitMs = 20000;       // 20s overall timeout
-                int removalGraceMs = 15000;  // 15s grace after client removal detected
+                int removalGraceMs = 3000;   // 3s grace after client removal (profile data shows re-add arrives within 1.2s if coming)
+                int earlyAbortMs = 1500;     // 1.5s: if removed without ever being added during Start(), abort fast (re-add never comes)
                 int interval = 25;
                 int iterations = maxWaitMs / interval;
                 _clientRemovedDuringStart = false;
+                _clientAddedDuringStart = false;
+                _startBeginTickCount = Environment.TickCount64;
                 while (iterations-- > 0)
                 {
                     if (!IsConnected)
@@ -601,9 +604,17 @@ namespace Radios
                         Tracing.TraceLine("start:connection dropped while waiting for station name", TraceLevel.Error);
                         break;
                     }
-                    // Fast abort: if our client was removed and grace period expired,
-                    // the SmartLink re-add is taking too long — bail out for retry.
-                    if (_clientRemovedDuringStart &&
+                    // Fast abort: if client was removed during Start() without ever being added
+                    // during Start(), the re-add will never come on this connection.
+                    // Profile data: every failure shows removal ~800ms into Start() with no prior add.
+                    if (_clientRemovedDuringStart && !_clientAddedDuringStart &&
+                        (Environment.TickCount64 - _clientRemovedTickCount) > earlyAbortMs)
+                    {
+                        Tracing.TraceLine($"start:client removed without prior add during Start(), aborting after {earlyAbortMs}ms for retry", TraceLevel.Warning);
+                        break;
+                    }
+                    // Standard grace: if client was added then removed, give it more time for re-add.
+                    if (_clientRemovedDuringStart && _clientAddedDuringStart &&
                         (Environment.TickCount64 - _clientRemovedTickCount) > removalGraceMs)
                     {
                         Tracing.TraceLine($"start:client removed {removalGraceMs}ms ago without re-add, aborting for retry", TraceLevel.Warning);
@@ -946,6 +957,35 @@ namespace Radios
         }
 
         /// <summary>
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool SetForegroundWindow(IntPtr hWnd);
+
+        /// <summary>
+        /// Restore focus to the parent window after a modal dialog closes.
+        /// Must marshal to UI thread since auth runs on SmartLink thread.
+        /// </summary>
+        private void RestoreParentFocus()
+        {
+            try
+            {
+                var parent = Callouts?.ParentWindow as Control;
+                if (parent != null && parent.IsHandleCreated)
+                {
+                    parent.BeginInvoke(new Action(() =>
+                    {
+                        SetForegroundWindow(parent.Handle);
+                        if (parent is Form f)
+                        {
+                            f.Activate();
+                            f.BringToFront();
+                        }
+                    }));
+                }
+            }
+            catch { }
+        }
+
+        /// <summary>
         /// Performs a new login via WebView2 and optionally saves the account.
         /// </summary>
         /// <param name="forceNewLogin">When true, forces Auth0 to show the login page
@@ -967,8 +1007,14 @@ namespace Radios
                 if (form.ShowDialog() != DialogResult.OK)
                 {
                     Tracing.TraceLine("setupRemote: auth form cancelled or failed", TraceLevel.Info);
+                    RestoreParentFocus();
                     return null;
                 }
+
+                // Restore focus to the main app window after auth form closes.
+                // Without this, focus falls to whatever window is behind the app
+                // because ShowDialog() runs without an owner (cross-thread unsafe).
+                RestoreParentFocus();
 
                 jwt = form.IdToken;
 
@@ -2164,7 +2210,9 @@ namespace Radios
         // SmartLink removes and re-adds the GUIClient during setup — if the re-add is slow,
         // we detect it and disconnect for retry instead of waiting the full timeout.
         private volatile bool _clientRemovedDuringStart = false;
+        private volatile bool _clientAddedDuringStart = false;
         private long _clientRemovedTickCount = 0;
+        private long _startBeginTickCount = 0;
         private void guiClientAdded(GUIClient client)
         {
             if (client == null) return;
@@ -2172,6 +2220,7 @@ namespace Radios
             if (client.IsThisClient)
             {
                 _clientRemovedDuringStart = false; // Client is back
+                _clientAddedDuringStart = true;
                 clientID = client.ClientID;
                 clientHandle = client.ClientHandle;
                 lock (theRadio.GuiClientsLockObj)
@@ -5930,6 +5979,11 @@ namespace Radios
             /// panning field
             /// </summary>
             public Control PanField;
+            /// <summary>
+            /// Parent window for modal dialogs (auth forms, errors).
+            /// Ensures focus returns to the app after dialog closes.
+            /// </summary>
+            public System.Windows.Forms.IWin32Window ParentWindow;
             /// <summary>
             /// Get the displayable SWR.
             /// </summary>

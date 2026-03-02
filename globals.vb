@@ -1593,6 +1593,7 @@ Module globals
             Dim rv As Boolean
             OpenParms = New FlexBase.OpenParms()
             OpenParms.ProgramName = ProgramName
+            OpenParms.ParentWindow = AppShellForm
             OpenParms.CWTextReceiver = AddressOf Commands.DisplayDecodedText
             OpenParms.FormatFreqForRadio = AddressOf UlongFreq
             OpenParms.FormatFreq = AddressOf FormatFreqUlong
@@ -1675,8 +1676,9 @@ RadioConnected:
                             {"serial", retrySerial}
                         })
 
-                        ' 3-second delay — gives SmartLink time to clean up the previous session
-                        Threading.Thread.Sleep(3000)
+                        ' 2-second delay — gives SmartLink time to clean up the previous session.
+                        ' Fast early-abort means less stale state, so shorter delay is safe.
+                        Threading.Thread.Sleep(2000)
 
                         ' Clean up the dead connection
                         WpfMainWindow?.UnwireRadioEvents()
@@ -1714,7 +1716,7 @@ RadioConnected:
                         ' Auto-connect retry — uses TryAutoConnect with saved config
                         Tracing.TraceLine("OpenTheRadio:Start failed with auto-connect config, retrying via TryAutoConnect", TraceLevel.Info)
 
-                        Threading.Thread.Sleep(3000)
+                        Threading.Thread.Sleep(2000)
 
                         WpfMainWindow?.UnwireRadioEvents()
                         RigControl.Dispose()
