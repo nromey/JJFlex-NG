@@ -64,6 +64,13 @@ public class FreqOutHandlers
     private CancellationTokenSource? _tuneDebounce;
     private bool _firstTuneStep = true;
 
+    /// <summary>
+    /// Suppression window for ShowFrequency speech. When tuning speech fires via
+    /// SpeakTuningDebounced, ShowFrequency's FreqOut.Write should skip writing to
+    /// avoid double-speaking the frequency. Checked by MainWindow.ShowFrequency().
+    /// </summary>
+    public DateTime TuningSpeechUntil { get; private set; } = DateTime.MinValue;
+
     // Modern mode tuning — coarse/fine with configurable step lists.
     // Defaults are sane HF values. Users can configure via operator profile later.
     private int[] _coarseSteps = { 1000, 2000, 5000 };       // 1k, 2k, 5k Hz
@@ -356,6 +363,9 @@ public class FreqOutHandlers
     /// </summary>
     private void SpeakTuningDebounced(string message)
     {
+        // Set suppression window so ShowFrequency doesn't double-speak
+        TuningSpeechUntil = DateTime.UtcNow.AddMilliseconds(500);
+
         if (_firstTuneStep)
         {
             Radios.ScreenReaderOutput.Speak(message, interrupt: true);
@@ -681,6 +691,16 @@ public class FreqOutHandlers
                 if (ch >= '0' && ch <= '9')
                 {
                     int target = ch - '0';
+                    if (Rig.ValidVFO(target))
+                    {
+                        Rig.RXVFO = target;
+                        Radios.ScreenReaderOutput.Speak($"Slice {Rig.VFOToLetter(target)} active");
+                        e.Handled = true;
+                    }
+                }
+                else if (ch >= 'A' && ch <= 'H')
+                {
+                    int target = ch - 'A';
                     if (Rig.ValidVFO(target))
                     {
                         Rig.RXVFO = target;
@@ -1312,6 +1332,7 @@ public class FreqOutHandlers
                 _filterEdgeMode = key == Key.OemOpenBrackets ? FilterEdgeMode.LowerEdge : FilterEdgeMode.UpperEdge;
                 string edgeName = _filterEdgeMode == FilterEdgeMode.LowerEdge ? "lower" : "upper";
                 Radios.ScreenReaderOutput.Speak($"Adjust {edgeName} filter. Brackets move edge. Escape to exit.", true);
+                EarconPlayer.FilterEdgeEnterTone();
                 ResetFilterEdgeTimeout();
                 e.Handled = true;
                 return;
@@ -1334,6 +1355,7 @@ public class FreqOutHandlers
                     else return;
                 }
                 if (high - low < minWidth) { Radios.ScreenReaderOutput.Speak("Filter at minimum", true); e.Handled = true; return; }
+                EarconPlayer.FilterEdgeMoveTone();
             }
             else
             {
@@ -1424,7 +1446,10 @@ public class FreqOutHandlers
                 await Task.Delay(10000, token);
                 _filterEdgeMode = FilterEdgeMode.None;
                 _window.Dispatcher.Invoke(() =>
-                    Radios.ScreenReaderOutput.Speak("Filter edge mode ended"));
+                {
+                    EarconPlayer.FilterEdgeExitTone();
+                    Radios.ScreenReaderOutput.Speak("Filter edge mode ended");
+                });
             }
             catch (OperationCanceledException) { }
         });
@@ -1439,6 +1464,7 @@ public class FreqOutHandlers
         {
             _filterEdgeMode = FilterEdgeMode.None;
             _filterEdgeTimeout?.Cancel();
+            EarconPlayer.FilterEdgeExitTone();
             Radios.ScreenReaderOutput.Speak("Filter edge mode cancelled");
         }
     }
@@ -1669,7 +1695,7 @@ public class FreqOutHandlers
         if (newBand != null)
         {
             string? newSubKey = GetSubBandKey(newFreq, newBand.Value);
-            if (_lastSubBandKey != null && newSubKey != null && newSubKey != _lastSubBandKey
+            if (newSubKey != null && newSubKey != _lastSubBandKey
                 && (_lastBand == null || _lastBand == newBand)) // only within same band
             {
                 Radios.ScreenReaderOutput.Speak($"Entering {newSubKey} segment", interrupt: false);

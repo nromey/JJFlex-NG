@@ -36,6 +36,9 @@ Namespace My
             ' Initialize screen reader output (CrossSpeak/Tolk) for accessibility announcements.
             Radios.ScreenReaderOutput.Initialize()
 
+            ' Initialize NAudio-based earcon player for UI sound effects.
+            JJFlexWpf.EarconPlayer.Initialize()
+
             ' ── Create the ShellForm and get the WPF content ───────────────
             ' We create ShellForm here (before OnCreateMainForm) so we can wire
             ' callbacks. OnCreateMainForm will use the same instance.
@@ -114,7 +117,9 @@ Namespace My
 
             WpfMainWindow.GetCommandFinderItemsCallback = Function()
                 Dim result = New List(Of JJFlexWpf.Dialogs.CommandFinderItem)
-                For Each kt In Commands.CurrentKeys()
+                Dim currentKeys = Commands.CurrentKeys()
+                JJTrace.Tracing.TraceLine($"CommandFinder: KeyTable has {Commands.KeyTable.Length} entries, CurrentKeys returned {currentKeys.Length} entries", TraceLevel.Info)
+                For Each kt In currentKeys
                     result.Add(New JJFlexWpf.Dialogs.CommandFinderItem With {
                         .Description = kt.helpText,
                         .KeyDisplay = KeyString(kt.key.key),
@@ -269,6 +274,8 @@ Namespace My
         End Sub
 
         Private Sub MyApplication_Shutdown(sender As Object, e As System.EventArgs) Handles Me.Shutdown
+            ' Clean up NAudio earcon player.
+            JJFlexWpf.EarconPlayer.Dispose()
             ' Clean up screen reader resources.
             Radios.ScreenReaderOutput.Shutdown()
         End Sub

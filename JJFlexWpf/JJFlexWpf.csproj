@@ -11,6 +11,15 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2478.35" />
+    <PackageReference Include="NAudio" Version="2.2.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Resources\Sounds\click.wav" LogicalName="JJFlexWpf.Sounds.click.wav" />
+    <EmbeddedResource Include="Resources\Sounds\confirm.wav" LogicalName="JJFlexWpf.Sounds.confirm.wav" />
+    <EmbeddedResource Include="Resources\Sounds\filter-edge-move.wav" LogicalName="JJFlexWpf.Sounds.filter-edge-move.wav" />
+    <EmbeddedResource Include="Resources\Sounds\mode-enter.wav" LogicalName="JJFlexWpf.Sounds.mode-enter.wav" />
+    <EmbeddedResource Include="Resources\Sounds\mode-exit.wav" LogicalName="JJFlexWpf.Sounds.mode-exit.wav" />
   </ItemGroup>
 
   <ItemGroup>
