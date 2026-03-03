@@ -1520,10 +1520,6 @@ Module globals
                                         t.Name = "SmartLink"
                                         t.Start()
                                     End Sub,
-            .Connect = Function(serial, lowBW)
-                           Tracing.TraceLine($"wpfSelectorProc.Connect: {serial} lowBW={lowBW}", TraceLevel.Info)
-                           Return RigControl.Connect(serial, lowBW)
-                       End Function,
             .RegisterRadioFound = Sub(callback)
                                       _wpfRadioFoundCallback = callback
                                       AddHandler FlexBase.RadioFound, AddressOf wpfRadioFoundHandler
@@ -1578,6 +1574,18 @@ Module globals
             Dim rigData = TryCast(dialog.SelectedRigData, FlexBase.RigData)
             If rigData IsNot Nothing Then
                 CurrentRig = rigData
+            End If
+
+            ' Connect NOW — dialog is closed, minimizes race window between Connect() and Start()
+            Dim serial = dialog.SelectedSerial
+            Dim lowBW = dialog.SelectedLowBW
+            Tracing.TraceLine($"wpfSelectorProc: connecting {serial} lowBW={lowBW}", TraceLevel.Info)
+            If Not RigControl.Connect(serial, lowBW) Then
+                Radios.ScreenReaderOutput.Speak("Connection failed", True)
+                radioSelected = DialogResult.Cancel
+                RigControl.Dispose()
+                RigControl = Nothing
+                Return
             End If
         Else
             radioSelected = DialogResult.Cancel

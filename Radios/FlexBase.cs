@@ -536,6 +536,11 @@ namespace Radios
         /// </summary>
         public bool Start()
         {
+            // Reset flags early — stale removal events from Connect() phase
+            // must not poison the station name wait loop.
+            _clientRemovedDuringStart = false;
+            _clientAddedDuringStart = false;
+
             LastStartFailureReason = null;
             ConnectionProfiler.Current?.RecordEvent("start_begin");
             FilterObj = new WpfFilterAdapter(this);
