@@ -1014,7 +1014,7 @@ public partial class MainWindow : UserControl
 
         // Field order: Slice → Freq → Mute → Volume → SMeter → Split → VOX → Offset → RIT → XIT
         fields.Add(new FrequencyDisplay.DisplayField("Slice", 1, "", "") { Label = "Slice",
-            HelpItems = new() { ("Space", "next slice"), ("Digits", "jump to slice"), ("M", "mute"),
+            HelpItems = new() { ("Space", "next slice"), ("A-H or 0-7", "jump to slice"), ("M", "mute"),
                 ("T", "set transmit"), ("Period", "create slice"), ("Comma", "release slice") } });
         fields.Add(new FrequencyDisplay.DisplayField("Freq", 12, "", "") { Label = "Frequency", DefaultCursorOffset = 8,
             HelpItems = new() { ("Up Down", "tune by cursor position"), ("Digits", "enter frequency"),
@@ -1061,7 +1061,7 @@ public partial class MainWindow : UserControl
 
         // Simplified: Slice → Freq → SMeter
         fields.Add(new FrequencyDisplay.DisplayField("Slice", 1, "", "") { Label = "Slice",
-            HelpItems = new() { ("Space", "next slice"), ("Digits", "jump to slice"), ("M", "mute"),
+            HelpItems = new() { ("Space", "next slice"), ("A-H or 0-7", "jump to slice"), ("M", "mute"),
                 ("T", "set transmit"), ("Period", "create slice"), ("Comma", "release slice") } });
         fields.Add(new FrequencyDisplay.DisplayField("Freq", 12, "", "") { Label = "Frequency", DefaultCursorOffset = 8,
             HelpItems = new() { ("Up Down", "tune by cursor position"), ("Digits", "enter frequency"),
@@ -1178,11 +1178,14 @@ public partial class MainWindow : UserControl
 
         try
         {
-            // Frequency
+            // Frequency — skip writing during tuning speech suppression window to avoid
+            // double-speaking (ShowFrequency and SpeakTuningDebounced both announce freq)
             ulong freq = RigControl.Transmit
                 ? RigControl.TXFrequency
                 : RigControl.VirtualRXFrequency;
-            if (freq > 0)
+            bool suppressFreqWrite = _freqOutHandlers != null &&
+                DateTime.UtcNow < _freqOutHandlers.TuningSpeechUntil;
+            if (freq > 0 && !suppressFreqWrite)
             {
                 FreqOut.Write("Freq", OpenParms.FormatFreq(freq));
             }
@@ -2188,27 +2191,44 @@ public partial class MainWindow : UserControl
     /// </summary>
     public void DisplayHelp()
     {
-        // Context-sensitive help: check what has focus and speak relevant help
+        // Context-sensitive help: check what has focus and show help dialog
         if (FreqOut.IsKeyboardFocusWithin)
         {
             var field = FreqOut.GetFocusedField();
             if (field?.HelpItems != null && field.HelpItems.Count > 0)
             {
-                var sb = new System.Text.StringBuilder($"{field.Label ?? field.Key} field. ");
+                var sb = new System.Text.StringBuilder();
+                sb.AppendLine($"{field.Label ?? field.Key} Field");
+                sb.AppendLine();
                 foreach (var (key, desc) in field.HelpItems)
-                    sb.Append($"{key}: {desc}. ");
-                sb.Append("Press Escape to return.");
-                Radios.ScreenReaderOutput.Speak(sb.ToString());
+                    sb.AppendLine($"  {key,-16} {desc}");
+                sb.AppendLine();
+                sb.AppendLine("Press Escape to close.");
+                var dialog = new Dialogs.ShowHelpDialog
+                {
+                    Title = $"{field.Label ?? field.Key} Help",
+                    HelpText = sb.ToString()
+                };
+                dialog.ShowDialog();
                 return;
             }
         }
 
         if (FieldsPanel.IsKeyboardFocusWithin)
         {
-            Radios.ScreenReaderOutput.Speak(
-                "Value field. Up Down adjust. Page Up Page Down large step. " +
-                "Home minimum. End maximum. Enter to type a value. " +
-                "Escape to cancel. Control Tab next category.");
+            var dialog = new Dialogs.ShowHelpDialog
+            {
+                Title = "Value Field Help",
+                HelpText = "Value Field\r\n\r\n" +
+                    "  Up / Down       Adjust value\r\n" +
+                    "  Page Up / Down  Large step\r\n" +
+                    "  Home            Set to minimum\r\n" +
+                    "  End             Set to maximum\r\n" +
+                    "  Enter           Type exact value\r\n" +
+                    "  Escape          Cancel\r\n" +
+                    "  Ctrl+Tab        Next category\r\n"
+            };
+            dialog.ShowDialog();
             return;
         }
 

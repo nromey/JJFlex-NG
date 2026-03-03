@@ -1,36 +1,88 @@
 using System;
-using System.IO;
-using System.Media;
 using System.Diagnostics;
+using System.IO;
+using System.Reflection;
+using NAudio.Wave;
+using NAudio.Wave.SampleProviders;
 
 namespace JJFlexWpf
 {
     /// <summary>
-    /// Synthesized beep tones for PTT warnings and UI earcons.
-    /// Generates PCM WAV in memory — no PortAudio conflict with remote audio stream.
+    /// Synthesized beep tones and .wav earcons for PTT warnings and UI feedback.
+    /// Uses NAudio for playback — persistent WaveOutEvent with MixingSampleProvider
+    /// allows overlapping sounds without creating/disposing players per tone.
     /// </summary>
     public static class EarconPlayer
     {
+        private static WaveOutEvent? _waveOut;
+        private static MixingSampleProvider? _mixer;
+        private static bool _initialized;
+
+        // Cached embedded sounds
+        private static CachedSound? _clickSound;
+        private static CachedSound? _confirmSound;
+        private static CachedSound? _filterEdgeMoveSound;
+        private static CachedSound? _modeEnterSound;
+        private static CachedSound? _modeExitSound;
+
+        private const int SampleRate = 44100;
+        private const int Channels = 1;
+
         /// <summary>
-        /// Play a warning beep at the given frequency and duration.
+        /// Initialize the audio engine. Call once at startup.
+        /// Loads embedded .wav resources and creates the persistent mixer/output.
         /// </summary>
-        /// <param name="frequencyHz">Tone frequency (e.g. 800 for warning, 1200 for urgent)</param>
-        /// <param name="durationMs">Duration in milliseconds</param>
-        public static void Beep(int frequencyHz = 800, int durationMs = 150)
+        public static void Initialize()
         {
+            if (_initialized) return;
             try
             {
-                using var stream = GenerateTone(frequencyHz, durationMs);
-                using var player = new SoundPlayer(stream);
-                player.Play(); // async, non-blocking
+                _mixer = new MixingSampleProvider(
+                    WaveFormat.CreateIeeeFloatWaveFormat(SampleRate, Channels))
+                {
+                    ReadFully = true // keep mixer alive when no inputs
+                };
+
+                _waveOut = new WaveOutEvent
+                {
+                    DesiredLatency = 100
+                };
+                _waveOut.Init(_mixer);
+                _waveOut.Play();
+
+                // Load embedded sounds
+                _clickSound = LoadEmbeddedSound("JJFlexWpf.Sounds.click.wav");
+                _confirmSound = LoadEmbeddedSound("JJFlexWpf.Sounds.confirm.wav");
+                _filterEdgeMoveSound = LoadEmbeddedSound("JJFlexWpf.Sounds.filter-edge-move.wav");
+                _modeEnterSound = LoadEmbeddedSound("JJFlexWpf.Sounds.mode-enter.wav");
+                _modeExitSound = LoadEmbeddedSound("JJFlexWpf.Sounds.mode-exit.wav");
+
+                _initialized = true;
             }
             catch (Exception ex)
             {
-                Trace.WriteLine($"EarconPlayer.Beep failed: {ex.Message}");
-                // Fallback to Console.Beep (blocking but always works)
-                try { Console.Beep(frequencyHz, durationMs); }
-                catch { /* swallow — no audio output available */ }
+                Trace.WriteLine($"EarconPlayer.Initialize failed: {ex.Message}");
             }
+        }
+
+        /// <summary>
+        /// Dispose the audio engine. Call on application shutdown.
+        /// </summary>
+        public static void Dispose()
+        {
+            _waveOut?.Stop();
+            _waveOut?.Dispose();
+            _waveOut = null;
+            _mixer = null;
+            _initialized = false;
+        }
+
+        /// <summary>
+        /// Play a warning beep at the given frequency and duration.
+        /// </summary>
+        public static void Beep(int frequencyHz = 800, int durationMs = 150)
+        {
+            PlayTone(frequencyHz, durationMs, 0.6f);
         }
 
         /// <summary>
@@ -53,16 +105,7 @@ namespace JJFlexWpf
         /// </summary>
         public static void TxStartTone()
         {
-            try
-            {
-                using var stream = GenerateTwoTone(400, 50, 800, 50, 20);
-                using var player = new SoundPlayer(stream);
-                player.Play();
-            }
-            catch (Exception ex)
-            {
-                Trace.WriteLine($"EarconPlayer.TxStartTone failed: {ex.Message}");
-            }
+            PlayToneSequence(new[] { (400, 50), (0, 20), (800, 50) }, 0.5f);
         }
 
         /// <summary>
@@ -70,16 +113,7 @@ namespace JJFlexWpf
         /// </summary>
         public static void TxStopTone()
         {
-            try
-            {
-                using var stream = GenerateTwoTone(800, 50, 400, 50, 20);
-                using var player = new SoundPlayer(stream);
-                player.Play();
-            }
-            catch (Exception ex)
-            {
-                Trace.WriteLine($"EarconPlayer.TxStopTone failed: {ex.Message}");
-            }
+            PlayToneSequence(new[] { (800, 50), (0, 20), (400, 50) }, 0.5f);
         }
 
         /// <summary>
@@ -87,8 +121,7 @@ namespace JJFlexWpf
         /// </summary>
         public static void HardKillTone()
         {
-            Beep(1000, 100);
-            Beep(600, 200);
+            PlayToneSequence(new[] { (1000, 100), (0, 30), (600, 200) }, 0.6f);
         }
 
         /// <summary>
@@ -96,234 +129,323 @@ namespace JJFlexWpf
         /// </summary>
         public static void Chirp(int startHz, int endHz, int durationMs)
         {
-            try
-            {
-                using var stream = GenerateChirp(startHz, endHz, durationMs);
-                using var player = new SoundPlayer(stream);
-                player.Play();
-            }
-            catch (Exception ex)
-            {
-                Trace.WriteLine($"EarconPlayer.Chirp failed: {ex.Message}");
-                try { Console.Beep((startHz + endHz) / 2, durationMs); }
-                catch { }
-            }
+            PlayChirp(startHz, endHz, durationMs, 0.6f);
         }
 
         /// <summary>
-        /// Confirmation tone — short two-tone click (low then high).
-        /// Used after Ctrl+F frequency entry, ValueFieldControl Enter-to-set, etc.
+        /// Confirmation tone — plays confirm.wav (Andre's enter key sound).
+        /// Falls back to three 800Hz 25ms pips if .wav not loaded.
         /// </summary>
         public static void ConfirmTone()
         {
-            try
+            if (_confirmSound != null)
             {
-                using var stream = GenerateTwoTone(500, 50, 700, 50, 20);
-                using var player = new SoundPlayer(stream);
-                player.Play();
+                PlayCachedSound(_confirmSound);
             }
-            catch (Exception ex)
+            else
             {
-                Trace.WriteLine($"EarconPlayer.ConfirmTone failed: {ex.Message}");
+                // Fallback: three 800Hz 25ms pips
+                PlayToneSequence(new[] { (800, 25), (0, 30), (800, 25), (0, 30), (800, 25) }, 0.5f);
             }
         }
 
         /// <summary>
         /// Band boundary beep — distinctive double-beep when crossing band edges.
-        /// 600 Hz, 50ms, pause, 600 Hz, 50ms. Clearly different from PTT warning tones.
+        /// 600 Hz, 50ms, pause, 600 Hz, 50ms.
         /// </summary>
         public static void BandBoundaryBeep()
         {
-            Beep(600, 50);
-            System.Threading.Tasks.Task.Delay(30).Wait();
-            Beep(600, 50);
+            PlayToneSequence(new[] { (600, 50), (0, 30), (600, 50) }, 0.6f);
         }
 
         /// <summary>
-        /// Generate a PCM WAV stream with a sine wave tone.
-        /// 16-bit mono, 44100 Hz sample rate.
+        /// Filter edge enter tone — plays mode-enter.wav.
         /// </summary>
-        private static MemoryStream GenerateTone(int frequencyHz, int durationMs)
+        public static void FilterEdgeEnterTone()
         {
-            const int sampleRate = 44100;
-            const short bitsPerSample = 16;
-            const short channels = 1;
-            int samples = sampleRate * durationMs / 1000;
-            int dataSize = samples * (bitsPerSample / 8) * channels;
-
-            var stream = new MemoryStream();
-            using var writer = new BinaryWriter(stream, System.Text.Encoding.UTF8, leaveOpen: true);
-
-            // WAV header
-            writer.Write(new char[] { 'R', 'I', 'F', 'F' });
-            writer.Write(36 + dataSize); // file size - 8
-            writer.Write(new char[] { 'W', 'A', 'V', 'E' });
-
-            // fmt chunk
-            writer.Write(new char[] { 'f', 'm', 't', ' ' });
-            writer.Write(16); // chunk size
-            writer.Write((short)1); // PCM
-            writer.Write(channels);
-            writer.Write(sampleRate);
-            writer.Write(sampleRate * channels * (bitsPerSample / 8)); // byte rate
-            writer.Write((short)(channels * (bitsPerSample / 8))); // block align
-            writer.Write(bitsPerSample);
-
-            // data chunk
-            writer.Write(new char[] { 'd', 'a', 't', 'a' });
-            writer.Write(dataSize);
-
-            // Sine wave with fade-in/fade-out envelope to avoid clicks
-            int fadeLength = Math.Min(samples / 10, sampleRate / 100); // 10ms or 10% of duration
-            for (int i = 0; i < samples; i++)
-            {
-                double t = (double)i / sampleRate;
-                double sample = Math.Sin(2 * Math.PI * frequencyHz * t);
-
-                // Envelope: fade in/out
-                double envelope = 1.0;
-                if (i < fadeLength)
-                    envelope = (double)i / fadeLength;
-                else if (i > samples - fadeLength)
-                    envelope = (double)(samples - i) / fadeLength;
-
-                short pcm = (short)(sample * envelope * 20000); // ~60% volume
-                writer.Write(pcm);
-            }
-
-            writer.Flush();
-            stream.Position = 0;
-            return stream;
+            if (_modeEnterSound != null)
+                PlayCachedSound(_modeEnterSound);
+            else
+                PlayTone(1000, 80, 0.4f);
         }
 
         /// <summary>
-        /// Generate a PCM WAV stream with a linear frequency sweep.
-        /// 16-bit mono, 44100 Hz sample rate.
+        /// Filter edge exit tone — plays mode-exit.wav.
         /// </summary>
-        private static MemoryStream GenerateChirp(int startHz, int endHz, int durationMs)
+        public static void FilterEdgeExitTone()
         {
-            const int sampleRate = 44100;
-            const short bitsPerSample = 16;
-            const short channels = 1;
-            int samples = sampleRate * durationMs / 1000;
-            int dataSize = samples * (bitsPerSample / 8) * channels;
-
-            var stream = new MemoryStream();
-            using var writer = new BinaryWriter(stream, System.Text.Encoding.UTF8, leaveOpen: true);
-
-            // WAV header
-            writer.Write(new char[] { 'R', 'I', 'F', 'F' });
-            writer.Write(36 + dataSize);
-            writer.Write(new char[] { 'W', 'A', 'V', 'E' });
-
-            // fmt chunk
-            writer.Write(new char[] { 'f', 'm', 't', ' ' });
-            writer.Write(16);
-            writer.Write((short)1); // PCM
-            writer.Write(channels);
-            writer.Write(sampleRate);
-            writer.Write(sampleRate * channels * (bitsPerSample / 8));
-            writer.Write((short)(channels * (bitsPerSample / 8)));
-            writer.Write(bitsPerSample);
-
-            // data chunk
-            writer.Write(new char[] { 'd', 'a', 't', 'a' });
-            writer.Write(dataSize);
-
-            // Linear frequency sweep with fade envelope
-            int fadeLength = Math.Min(samples / 10, sampleRate / 100);
-            double phase = 0.0;
-            for (int i = 0; i < samples; i++)
-            {
-                double t = (double)i / samples; // 0..1 progress
-                double freq = startHz + (endHz - startHz) * t;
-                phase += 2 * Math.PI * freq / sampleRate;
-                double sample = Math.Sin(phase);
-
-                double envelope = 1.0;
-                if (i < fadeLength)
-                    envelope = (double)i / fadeLength;
-                else if (i > samples - fadeLength)
-                    envelope = (double)(samples - i) / fadeLength;
-
-                short pcm = (short)(sample * envelope * 20000);
-                writer.Write(pcm);
-            }
-
-            writer.Flush();
-            stream.Position = 0;
-            return stream;
+            if (_modeExitSound != null)
+                PlayCachedSound(_modeExitSound);
+            else
+                PlayTone(600, 80, 0.4f);
         }
 
         /// <summary>
-        /// Generate a two-tone WAV: tone1 for dur1ms, gap of gapMs silence, tone2 for dur2ms.
-        /// Used for confirmation tones and PTT chirps.
+        /// Filter edge move tone — plays filter-edge-move.wav.
+        /// Short click/tick sound on each filter edge adjustment.
         /// </summary>
-        private static MemoryStream GenerateTwoTone(int freq1Hz, int dur1Ms, int freq2Hz, int dur2Ms, int gapMs)
+        public static void FilterEdgeMoveTone()
         {
-            const int sampleRate = 44100;
-            const short bitsPerSample = 16;
-            const short channels = 1;
-
-            int samples1 = sampleRate * dur1Ms / 1000;
-            int gapSamples = sampleRate * gapMs / 1000;
-            int samples2 = sampleRate * dur2Ms / 1000;
-            int totalSamples = samples1 + gapSamples + samples2;
-            int dataSize = totalSamples * (bitsPerSample / 8) * channels;
-
-            var stream = new MemoryStream();
-            using var writer = new BinaryWriter(stream, System.Text.Encoding.UTF8, leaveOpen: true);
-
-            // WAV header
-            writer.Write(new char[] { 'R', 'I', 'F', 'F' });
-            writer.Write(36 + dataSize);
-            writer.Write(new char[] { 'W', 'A', 'V', 'E' });
-
-            // fmt chunk
-            writer.Write(new char[] { 'f', 'm', 't', ' ' });
-            writer.Write(16);
-            writer.Write((short)1); // PCM
-            writer.Write(channels);
-            writer.Write(sampleRate);
-            writer.Write(sampleRate * channels * (bitsPerSample / 8));
-            writer.Write((short)(channels * (bitsPerSample / 8)));
-            writer.Write(bitsPerSample);
-
-            // data chunk
-            writer.Write(new char[] { 'd', 'a', 't', 'a' });
-            writer.Write(dataSize);
-
-            int fadeLen = sampleRate / 200; // 5ms fade
-
-            // Tone 1
-            for (int i = 0; i < samples1; i++)
-            {
-                double t = (double)i / sampleRate;
-                double sample = Math.Sin(2 * Math.PI * freq1Hz * t);
-                double env = 1.0;
-                if (i < fadeLen) env = (double)i / fadeLen;
-                else if (i > samples1 - fadeLen) env = (double)(samples1 - i) / fadeLen;
-                writer.Write((short)(sample * env * 16000));
-            }
-
-            // Gap (silence)
-            for (int i = 0; i < gapSamples; i++)
-                writer.Write((short)0);
-
-            // Tone 2
-            for (int i = 0; i < samples2; i++)
-            {
-                double t = (double)i / sampleRate;
-                double sample = Math.Sin(2 * Math.PI * freq2Hz * t);
-                double env = 1.0;
-                if (i < fadeLen) env = (double)i / fadeLen;
-                else if (i > samples2 - fadeLen) env = (double)(samples2 - i) / fadeLen;
-                writer.Write((short)(sample * env * 16000));
-            }
-
-            writer.Flush();
-            stream.Position = 0;
-            return stream;
+            if (_filterEdgeMoveSound != null)
+                PlayCachedSound(_filterEdgeMoveSound);
+            else
+                PlayTone(800, 20, 0.3f);
         }
+
+        #region Internal Playback
+
+        /// <summary>
+        /// Play a single sine tone through the mixer.
+        /// </summary>
+        private static void PlayTone(int frequencyHz, int durationMs, float volume)
+        {
+            if (_mixer == null) { FallbackBeep(frequencyHz, durationMs); return; }
+            try
+            {
+                var signal = new SignalGenerator(SampleRate, Channels)
+                {
+                    Type = SignalGeneratorType.Sin,
+                    Frequency = frequencyHz,
+                    Gain = volume
+                };
+                var timed = signal.Take(TimeSpan.FromMilliseconds(durationMs));
+                var faded = new FadeInOutSampleProvider(timed, true);
+                faded.BeginFadeIn(Math.Min(durationMs / 10.0, 10));
+                faded.BeginFadeOut(Math.Max(durationMs - Math.Min(durationMs / 10.0, 10), 0));
+                _mixer.AddMixerInput(faded);
+            }
+            catch (Exception ex)
+            {
+                Trace.WriteLine($"EarconPlayer.PlayTone failed: {ex.Message}");
+                FallbackBeep(frequencyHz, durationMs);
+            }
+        }
+
+        /// <summary>
+        /// Play a sequence of (frequency, duration) tones. Frequency 0 = silence gap.
+        /// </summary>
+        private static void PlayToneSequence((int freq, int ms)[] tones, float volume)
+        {
+            if (_mixer == null) return;
+            try
+            {
+                var providers = new ISampleProvider[tones.Length];
+                for (int i = 0; i < tones.Length; i++)
+                {
+                    if (tones[i].freq == 0)
+                    {
+                        // Silence gap
+                        providers[i] = new SilenceProvider(
+                            WaveFormat.CreateIeeeFloatWaveFormat(SampleRate, Channels))
+                            .ToSampleProvider()
+                            .Take(TimeSpan.FromMilliseconds(tones[i].ms));
+                    }
+                    else
+                    {
+                        var signal = new SignalGenerator(SampleRate, Channels)
+                        {
+                            Type = SignalGeneratorType.Sin,
+                            Frequency = tones[i].freq,
+                            Gain = volume
+                        };
+                        providers[i] = signal.Take(TimeSpan.FromMilliseconds(tones[i].ms));
+                    }
+                }
+                var concat = new ConcatenatingSampleProvider(providers);
+                _mixer.AddMixerInput(concat);
+            }
+            catch (Exception ex)
+            {
+                Trace.WriteLine($"EarconPlayer.PlayToneSequence failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Play a frequency sweep (chirp) through the mixer.
+        /// Uses a custom sample provider for smooth linear sweep.
+        /// </summary>
+        private static void PlayChirp(int startHz, int endHz, int durationMs, float volume)
+        {
+            if (_mixer == null) { FallbackBeep((startHz + endHz) / 2, durationMs); return; }
+            try
+            {
+                var chirp = new ChirpSampleProvider(SampleRate, startHz, endHz, durationMs, volume);
+                _mixer.AddMixerInput(chirp);
+            }
+            catch (Exception ex)
+            {
+                Trace.WriteLine($"EarconPlayer.PlayChirp failed: {ex.Message}");
+                FallbackBeep((startHz + endHz) / 2, durationMs);
+            }
+        }
+
+        /// <summary>
+        /// Play a cached .wav sound through the mixer.
+        /// </summary>
+        private static void PlayCachedSound(CachedSound sound)
+        {
+            if (_mixer == null) return;
+            try
+            {
+                var provider = new CachedSoundSampleProvider(sound);
+                _mixer.AddMixerInput(provider);
+            }
+            catch (Exception ex)
+            {
+                Trace.WriteLine($"EarconPlayer.PlayCachedSound failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Load a .wav from embedded resources and cache as float samples.
+        /// </summary>
+        private static CachedSound? LoadEmbeddedSound(string resourceName)
+        {
+            try
+            {
+                var assembly = Assembly.GetExecutingAssembly();
+                using var stream = assembly.GetManifestResourceStream(resourceName);
+                if (stream == null)
+                {
+                    Trace.WriteLine($"EarconPlayer: embedded resource '{resourceName}' not found");
+                    return null;
+                }
+                return new CachedSound(stream);
+            }
+            catch (Exception ex)
+            {
+                Trace.WriteLine($"EarconPlayer: failed to load '{resourceName}': {ex.Message}");
+                return null;
+            }
+        }
+
+        private static void FallbackBeep(int frequencyHz, int durationMs)
+        {
+            try { Console.Beep(frequencyHz, durationMs); }
+            catch { }
+        }
+
+        #endregion
+
+        #region Internal Types
+
+        /// <summary>
+        /// Pre-loaded .wav audio data stored as float samples for instant playback.
+        /// </summary>
+        private class CachedSound
+        {
+            public float[] AudioData { get; }
+            public WaveFormat WaveFormat { get; }
+
+            public CachedSound(Stream wavStream)
+            {
+                using var reader = new WaveFileReader(wavStream);
+                var resampled = reader.ToSampleProvider();
+
+                // Resample to match mixer format if needed
+                ISampleProvider source = resampled;
+                if (resampled.WaveFormat.SampleRate != SampleRate)
+                {
+                    source = new WdlResamplingSampleProvider(resampled, SampleRate);
+                }
+                if (source.WaveFormat.Channels != Channels)
+                {
+                    source = source.ToMono();
+                }
+
+                WaveFormat = WaveFormat.CreateIeeeFloatWaveFormat(SampleRate, Channels);
+
+                // Read all samples
+                var samples = new System.Collections.Generic.List<float>();
+                var buffer = new float[SampleRate]; // 1 second buffer
+                int read;
+                while ((read = source.Read(buffer, 0, buffer.Length)) > 0)
+                {
+                    for (int i = 0; i < read; i++)
+                        samples.Add(buffer[i]);
+                }
+                AudioData = samples.ToArray();
+            }
+        }
+
+        /// <summary>
+        /// Plays a CachedSound through the mixer. Each instance is a one-shot playback.
+        /// </summary>
+        private class CachedSoundSampleProvider : ISampleProvider
+        {
+            private readonly CachedSound _sound;
+            private int _position;
+
+            public CachedSoundSampleProvider(CachedSound sound)
+            {
+                _sound = sound;
+            }
+
+            public WaveFormat WaveFormat => _sound.WaveFormat;
+
+            public int Read(float[] buffer, int offset, int count)
+            {
+                int available = _sound.AudioData.Length - _position;
+                int toCopy = Math.Min(available, count);
+                if (toCopy <= 0) return 0;
+
+                Array.Copy(_sound.AudioData, _position, buffer, offset, toCopy);
+                _position += toCopy;
+                return toCopy;
+            }
+        }
+
+        /// <summary>
+        /// Linear frequency sweep (chirp) sample provider.
+        /// </summary>
+        private class ChirpSampleProvider : ISampleProvider
+        {
+            private readonly int _totalSamples;
+            private readonly int _startHz;
+            private readonly int _endHz;
+            private readonly float _volume;
+            private readonly int _fadeLength;
+            private int _position;
+            private double _phase;
+
+            public WaveFormat WaveFormat { get; }
+
+            public ChirpSampleProvider(int sampleRate, int startHz, int endHz, int durationMs, float volume)
+            {
+                WaveFormat = WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 1);
+                _totalSamples = sampleRate * durationMs / 1000;
+                _startHz = startHz;
+                _endHz = endHz;
+                _volume = volume;
+                _fadeLength = Math.Min(_totalSamples / 10, sampleRate / 100);
+            }
+
+            public int Read(float[] buffer, int offset, int count)
+            {
+                int available = _totalSamples - _position;
+                int toCopy = Math.Min(available, count);
+                if (toCopy <= 0) return 0;
+
+                for (int i = 0; i < toCopy; i++)
+                {
+                    double t = (double)_position / _totalSamples;
+                    double freq = _startHz + (_endHz - _startHz) * t;
+                    _phase += 2.0 * Math.PI * freq / WaveFormat.SampleRate;
+                    double sample = Math.Sin(_phase);
+
+                    double envelope = 1.0;
+                    if (_position < _fadeLength)
+                        envelope = (double)_position / _fadeLength;
+                    else if (_position > _totalSamples - _fadeLength)
+                        envelope = (double)(_totalSamples - _position) / _fadeLength;
+
+                    buffer[offset + i] = (float)(sample * envelope * _volume);
+                    _position++;
+                }
+                return toCopy;
+            }
+        }
+
+        #endregion
     }
 }

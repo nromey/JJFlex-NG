@@ -1221,7 +1221,7 @@ public class NativeMenuBar : IDisposable
     {
         _window.Dispatcher.BeginInvoke(async () =>
         {
-            await System.Threading.Tasks.Task.Delay(150);
+            await System.Threading.Tasks.Task.Delay(350);
             Radios.ScreenReaderOutput.Speak(message, interrupt: true);
         });
     }

@@ -48,9 +48,6 @@ namespace JJFlexWpf.Dialogs
         /// <summary>Start remote (SmartLink) radio discovery.</summary>
         public required Action StartRemoteDiscovery { get; init; }
 
-        /// <summary>Connect to a radio by serial. Returns true on success.</summary>
-        public required Func<string, bool, bool> Connect { get; init; }
-
         /// <summary>Register for radio-found events. Action receives RadioListItem.</summary>
         public required Action<Action<RadioListItem>> RegisterRadioFound { get; init; }
 
@@ -104,6 +101,16 @@ namespace JJFlexWpf.Dialogs
         /// The selected radio data, or null if cancelled.
         /// </summary>
         public object? SelectedRigData { get; private set; }
+
+        /// <summary>
+        /// The serial number of the selected radio, or null if cancelled.
+        /// </summary>
+        public string? SelectedSerial { get; private set; }
+
+        /// <summary>
+        /// Whether low bandwidth was selected for the connection.
+        /// </summary>
+        public bool SelectedLowBW { get; private set; }
 
         public RigSelectorDialog(RigSelectorCallbacks callbacks)
         {
@@ -214,17 +221,11 @@ namespace JJFlexWpf.Dialogs
             var radioName = string.IsNullOrWhiteSpace(radio.Name) ? "radio" : radio.Name;
             _callbacks.ScreenReaderSpeak?.Invoke($"Connecting to {radioName}", true);
 
-            if (_callbacks.Connect(radio.Serial, radio.LowBW))
-            {
-                _callbacks.ScreenReaderSpeak?.Invoke($"Connected to {radioName}", true);
-                SelectedRigData = radio.RigData;
-                DialogResult = true;
-                Close();
-            }
-            else
-            {
-                _callbacks.ScreenReaderSpeak?.Invoke($"Failed to connect to {radioName}", true);
-            }
+            SelectedRigData = radio.RigData;
+            SelectedSerial = radio.Serial;
+            SelectedLowBW = radio.LowBW;
+            DialogResult = true;
+            Close();
         }
 
         private void LowBWButton_Click(object sender, RoutedEventArgs e)

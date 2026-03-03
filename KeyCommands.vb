@@ -100,6 +100,7 @@ Public Class KeyCommands
         ModeUSB
         ModeLSB
         ModeCW
+        ReadSMeter
     End Enum
     Friend Const FirstMessageCommandValue As Integer = 1000000
 
@@ -359,6 +360,9 @@ Public Class KeyCommands
         New keyTbl(CommandValues.SmeterDBM, KeyTypes.Command, AddressOf smeterDisplayRTN,
             "Display SMeter in DBM or S-units", AddressOf sMeterMenuString, False, FunctionGroups.general, KeyScope.Radio) With {
             .Keywords = New String() {"s meter", "signal", "strength", "dbm", "s-units", "meter"}},
+        New keyTbl(CommandValues.ReadSMeter, AddressOf readSMeterRtn,
+            "Read the S-meter value aloud", Nothing, FunctionGroups.general, KeyScope.Radio) With {
+            .Keywords = New String() {"s meter", "signal", "strength", "read", "speak", "announce"}},
         New keyTbl(CommandValues.StopCW, KeyTypes.Command, AddressOf stopCode,
             "Stop sending CW", "cw stop", True, FunctionGroups.general, KeyScope.[Global]) With {
             .Keywords = New String() {"cw", "morse", "stop", "abort", "sending"}},
@@ -587,6 +591,7 @@ Public Class KeyCommands
      New KeyDefType(Keys.M Or Keys.Control, CommandValues.ShowMemory, KeyScope.Radio),
      New KeyDefType(Keys.M Or Keys.Control Or Keys.Shift, CommandValues.MemoryScan, KeyScope.Radio),
      New KeyDefType(Keys.None, CommandValues.SmeterDBM, KeyScope.Radio),
+     New KeyDefType(Keys.S Or Keys.Alt, CommandValues.ReadSMeter, KeyScope.Radio),           ' Alt+S = Read S-meter
      New KeyDefType(Keys.None, CommandValues.CycleContinuous, KeyScope.Radio),
      New KeyDefType(Keys.None, CommandValues.LogForm, KeyScope.Radio),
      New KeyDefType(Keys.C Or Keys.Control Or Keys.Shift, CommandValues.ClearRIT, KeyScope.Radio),
@@ -1863,6 +1868,25 @@ Public Class KeyCommands
         End If
         Return txt
     End Function
+
+    Private Sub readSMeterRtn()
+        If RigControl Is Nothing Then
+            Radios.ScreenReaderOutput.Speak("No radio connected")
+            Return
+        End If
+        Dim smeter As Integer = CInt(RigControl.SMeter)
+        Dim msg As String
+        If RigControl.Transmit Then
+            msg = $"Power {smeter}"
+        ElseIf RigControl.SmeterInDBM Then
+            msg = $"S meter {smeter} dBm"
+        ElseIf smeter > 9 Then
+            msg = $"S 9 plus {(smeter - 9) * 10}"
+        Else
+            msg = $"S {smeter}"
+        End If
+        Radios.ScreenReaderOutput.Speak(msg, True)
+    End Sub
 
     ' --- Logging-only action handlers (route to WpfMainWindow) ---
 
