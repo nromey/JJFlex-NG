@@ -209,6 +209,11 @@ public partial class MainWindow : UserControl
     internal PttConfig? CurrentPttConfig { get; private set; }
 
     /// <summary>
+    /// Audio output configuration (earcon device, meter tones). Loaded at radio connect.
+    /// </summary>
+    internal AudioOutputConfig? CurrentAudioConfig { get; private set; }
+
+    /// <summary>
     /// Returns PTT status text for the Speak Status hotkey, or null if PTT is idle.
     /// </summary>
     public string? GetPttStatusText() => _pttController?.GetSpokenStatus();
@@ -240,6 +245,13 @@ public partial class MainWindow : UserControl
         // Save LicenseConfig to disk
         if (_freqOutHandlers?.License != null && OpenParms != null)
             _freqOutHandlers.License.Save(OpenParms.ConfigDirectory, OpenParms.GetOperatorName());
+
+        // Save AudioOutputConfig to disk
+        if (CurrentAudioConfig != null && OpenParms != null)
+        {
+            CurrentAudioConfig.CaptureFromEngine();
+            CurrentAudioConfig.Save(OpenParms.ConfigDirectory);
+        }
     }
 
     /// <summary>
@@ -1470,6 +1482,16 @@ public partial class MainWindow : UserControl
                 _freqOutHandlers.BandMemoryEnabled = CurrentPttConfig.BandMemoryEnabled;
                 _freqOutHandlers.FrequencyUnits = CurrentPttConfig.FrequencyDisplayUnits;
             }
+        }
+
+        // Load audio config and initialize meter tones
+        if (OpenParms != null)
+        {
+            CurrentAudioConfig = AudioOutputConfig.Load(OpenParms.ConfigDirectory);
+            MeterToneEngine.Initialize();
+            CurrentAudioConfig.Apply();
+            if (RigControl != null)
+                MeterToneEngine.AttachToRadio(RigControl);
         }
 
         // VB-side tasks (knob setup, tracing)

@@ -101,6 +101,9 @@ Public Class KeyCommands
         ModeLSB
         ModeCW
         ReadSMeter
+        ToggleMeterTones
+        CycleMeterPreset
+        SpeakMeters
     End Enum
     Friend Const FirstMessageCommandValue As Integer = 1000000
 
@@ -363,6 +366,15 @@ Public Class KeyCommands
         New keyTbl(CommandValues.ReadSMeter, AddressOf readSMeterRtn,
             "Read the S-meter value aloud", Nothing, FunctionGroups.general, KeyScope.Radio) With {
             .Keywords = New String() {"s meter", "signal", "strength", "read", "speak", "announce"}},
+        New keyTbl(CommandValues.ToggleMeterTones, AddressOf toggleMeterTonesHandler,
+            "Toggle meter sonification tones", Nothing, FunctionGroups.audio, KeyScope.Radio) With {
+            .Keywords = New String() {"meter", "tone", "sonification", "audio", "pitch", "toggle"}},
+        New keyTbl(CommandValues.CycleMeterPreset, AddressOf cycleMeterPresetHandler,
+            "Cycle meter tone preset (RX, TX, Full Monitor)", Nothing, FunctionGroups.audio, KeyScope.Radio) With {
+            .Keywords = New String() {"meter", "preset", "cycle", "rx", "tx", "monitor"}},
+        New keyTbl(CommandValues.SpeakMeters, AddressOf speakMetersHandler,
+            "Speak current meter values", Nothing, FunctionGroups.audio, KeyScope.Radio) With {
+            .Keywords = New String() {"meter", "speak", "read", "alc", "swr", "power", "signal"}},
         New keyTbl(CommandValues.StopCW, KeyTypes.Command, AddressOf stopCode,
             "Stop sending CW", "cw stop", True, FunctionGroups.general, KeyScope.[Global]) With {
             .Keywords = New String() {"cw", "morse", "stop", "abort", "sending"}},
@@ -592,6 +604,9 @@ Public Class KeyCommands
      New KeyDefType(Keys.M Or Keys.Control Or Keys.Shift, CommandValues.MemoryScan, KeyScope.Radio),
      New KeyDefType(Keys.None, CommandValues.SmeterDBM, KeyScope.Radio),
      New KeyDefType(Keys.S Or Keys.Control Or Keys.Shift, CommandValues.ReadSMeter, KeyScope.Radio), ' Ctrl+Shift+S = Read S-meter
+     New KeyDefType(Keys.M Or Keys.Control Or Keys.Alt, CommandValues.ToggleMeterTones, KeyScope.Radio), ' Ctrl+Alt+M = Toggle meter tones
+     New KeyDefType(Keys.None, CommandValues.CycleMeterPreset, KeyScope.Radio),                         ' No default binding (use menu or leader key)
+     New KeyDefType(Keys.None, CommandValues.SpeakMeters, KeyScope.Radio),                              ' No default binding (use menu or leader key)
      New KeyDefType(Keys.None, CommandValues.CycleContinuous, KeyScope.Radio),
      New KeyDefType(Keys.None, CommandValues.LogForm, KeyScope.Radio),
      New KeyDefType(Keys.C Or Keys.Control Or Keys.Shift, CommandValues.ClearRIT, KeyScope.Radio),
@@ -1894,6 +1909,21 @@ Public Class KeyCommands
             msg = $"S {smeter}"
         End If
         Radios.ScreenReaderOutput.Speak(msg, True)
+    End Sub
+
+    Private Sub toggleMeterTonesHandler()
+        JJFlexWpf.MeterToneEngine.Enabled = Not JJFlexWpf.MeterToneEngine.Enabled
+        Dim state As String = If(JJFlexWpf.MeterToneEngine.Enabled, "on", "off")
+        Radios.ScreenReaderOutput.Speak($"Meter tones {state}")
+    End Sub
+
+    Private Sub cycleMeterPresetHandler()
+        JJFlexWpf.MeterToneEngine.CyclePreset()
+        Radios.ScreenReaderOutput.Speak($"Meter preset: {JJFlexWpf.MeterToneEngine.CurrentPreset}")
+    End Sub
+
+    Private Sub speakMetersHandler()
+        JJFlexWpf.MeterToneEngine.SpeakMeters()
     End Sub
 
     ' --- Logging-only action handlers (route to WpfMainWindow) ---

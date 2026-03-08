@@ -323,6 +323,33 @@ public class NativeMenuBar : IDisposable
             }
             ToggleDSP("Audio Peak Filter", () => Rig.APF, v => Rig.APF = v);
         }, () => Rig?.APF == FlexBase.OffOnValues.on);
+
+        AddSep(parent);
+
+        // === Meter Tones ===
+        var meterSub = AddSubmenu(parent, "Meter Tones");
+        AddChecked(meterSub, "Meter Tones On/Off", () =>
+        {
+            MeterToneEngine.Enabled = !MeterToneEngine.Enabled;
+            SpeakAfterMenuClose($"Meter tones {(MeterToneEngine.Enabled ? "on" : "off")}");
+        }, () => MeterToneEngine.Enabled);
+
+        AddWired(meterSub, "Cycle Preset", () =>
+        {
+            MeterToneEngine.CyclePreset();
+            SpeakAfterMenuClose($"Meter preset: {MeterToneEngine.CurrentPreset}");
+        });
+
+        AddWired(meterSub, "Speak Meters", () =>
+        {
+            MeterToneEngine.SpeakMeters();
+        });
+
+        AddChecked(meterSub, "Peak Watcher", () =>
+        {
+            MeterToneEngine.PeakWatcherEnabled = !MeterToneEngine.PeakWatcherEnabled;
+            SpeakAfterMenuClose($"Peak Watcher {(MeterToneEngine.PeakWatcherEnabled ? "on" : "off")}");
+        }, () => MeterToneEngine.PeakWatcherEnabled);
     }
 
     /// <summary>
@@ -1328,7 +1355,8 @@ public class NativeMenuBar : IDisposable
         int fineStep = handlers?.FineTuneStep ?? 10;
         var licenseConfig = handlers?.License;
 
-        var dialog = new Dialogs.SettingsDialog(pttConfig, coarseStep, fineStep, licenseConfig);
+        var audioConfig = _window.CurrentAudioConfig ?? new AudioOutputConfig();
+        var dialog = new Dialogs.SettingsDialog(pttConfig, coarseStep, fineStep, licenseConfig, audioConfig);
         if (dialog.ShowDialog() == true)
         {
             _window.ApplySettingsChanges(dialog.CoarseTuneStep, dialog.FineTuneStep);

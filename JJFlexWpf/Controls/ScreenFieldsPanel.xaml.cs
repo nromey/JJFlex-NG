@@ -47,6 +47,8 @@ public partial class ScreenFieldsPanel : UserControl
     private CheckBox _fftNotchCheck = null!;
     private CheckBox _legacyNotchCheck = null!;
     private CheckBox _apfCheck = null!;
+    private CheckBox _meterToneCheck = null!;
+    private CheckBox _peakWatcherCheck = null!;
 
     #endregion
 
@@ -221,6 +223,17 @@ public partial class ScreenFieldsPanel : UserControl
         _apfCheck.Checked += (s, e) => ToggleRig("APF", v => { if (_rig != null) _rig.APF = v; }, true);
         _apfCheck.Unchecked += (s, e) => ToggleRig("APF", v => { if (_rig != null) _rig.APF = v; }, false);
         DspContent.Children.Add(_apfCheck);
+
+        // Meter Tones
+        _meterToneCheck = MakeToggle("Meter Tones");
+        _meterToneCheck.Checked += (s, e) => { if (!_polling) { MeterToneEngine.Enabled = true; ScreenReaderOutput.Speak("Meter tones on"); } };
+        _meterToneCheck.Unchecked += (s, e) => { if (!_polling) { MeterToneEngine.Enabled = false; ScreenReaderOutput.Speak("Meter tones off"); } };
+        DspContent.Children.Add(_meterToneCheck);
+
+        _peakWatcherCheck = MakeToggle("Peak Watcher");
+        _peakWatcherCheck.Checked += (s, e) => { if (!_polling) { MeterToneEngine.PeakWatcherEnabled = true; ScreenReaderOutput.Speak("Peak Watcher on"); } };
+        _peakWatcherCheck.Unchecked += (s, e) => { if (!_polling) { MeterToneEngine.PeakWatcherEnabled = false; ScreenReaderOutput.Speak("Peak Watcher off"); } };
+        DspContent.Children.Add(_peakWatcherCheck);
     }
 
     private void BuildAudioControls()
@@ -448,6 +461,10 @@ public partial class ScreenFieldsPanel : UserControl
         string mode = _rig.Mode?.ToUpperInvariant() ?? "";
         bool isCW = mode == "CW" || mode == "CWL" || mode == "CWU";
         _apfCheck.Visibility = isCW ? Visibility.Visible : Visibility.Collapsed;
+
+        // Meter tones (engine state, not rig state)
+        _meterToneCheck.IsChecked = MeterToneEngine.Enabled;
+        _peakWatcherCheck.IsChecked = MeterToneEngine.PeakWatcherEnabled;
     }
 
     private void PollAudio()
