@@ -288,6 +288,8 @@ Namespace My
         End Sub
 
         Private Sub MyApplication_Shutdown(sender As Object, e As System.EventArgs) Handles Me.Shutdown
+            ' Shut down meter sonification engine.
+            JJFlexWpf.MeterToneEngine.Shutdown()
             ' Clean up NAudio earcon player.
             JJFlexWpf.EarconPlayer.Dispose()
             ' Clean up screen reader resources.
