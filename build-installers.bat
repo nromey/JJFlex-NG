@@ -10,6 +10,9 @@ REM the version will be WRONG. Update BOTH files before running this script!
 setlocal
 cd /d "%~dp0"
 
+REM Tell the post-build event in .vbproj to skip install.bat — we handle it ourselves
+set "JJFLEX_SKIP_POSTBUILD_INSTALLER=1"
+
 set "ARCH=%~1"
 if "%ARCH%"=="" set "ARCH=both"
 
@@ -57,19 +60,8 @@ if errorlevel 1 (
     exit /b 1
 )
 
-REM No x86 folder should exist at this point (cleaned above), so install.bat
-REM will find x64 automatically. If building x64-only, hide x86 just in case.
-if exist "bin\x86\Release" (
-    rename "bin\x86\Release" "Release.tmp"
-)
-
 echo [x64] Creating installer...
-call "%~dp0install.bat" "%~dp0" Release JJFlexRadio
-
-REM Restore x86 if we hid it
-if exist "bin\x86\Release.tmp" (
-    rename "bin\x86\Release.tmp" "Release"
-)
+call "%~dp0install.bat" "%~dp0" Release JJFlexRadio x64
 
 echo.
 if /i "%ARCH%"=="x64" goto done
@@ -85,22 +77,16 @@ if errorlevel 1 (
     exit /b 1
 )
 
-REM Hide the entire x64 Release folder so install.bat finds x86
-if exist "bin\x64\Release" (
-    rename "bin\x64\Release" "Release.tmp"
-)
-
 echo [x86] Creating installer...
-call "%~dp0install.bat" "%~dp0" Release JJFlexRadio
-
-REM Restore x64
-if exist "bin\x64\Release.tmp" (
-    rename "bin\x64\Release.tmp" "Release"
-)
+call "%~dp0install.bat" "%~dp0" Release JJFlexRadio x86
 
 echo.
 
 :done
+REM Clean up legacy unversioned copies (install.bat creates these as convenience aliases)
+del /q "Setup JJFlexRadio_x64.exe" >nul 2>&1
+del /q "Setup JJFlexRadio_x86.exe" >nul 2>&1
+
 echo ============================================
 echo Build complete! Installers created:
 echo ============================================

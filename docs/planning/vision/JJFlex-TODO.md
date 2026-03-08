@@ -173,6 +173,11 @@ Last updated: 2026-02-12
 
 ## Near-term (next 1–3 sprints)
 
+### Sprint 21 (planned)
+- [ ] **TX bandwidth sculpting**: Adjust transmit filter edges from the keyboard, mirroring the RX filter bracket-key workflow. Research `Slice.TxFilterLow`/`Slice.TxFilterHigh` in FlexLib. Wire up controls in ScreenFields (Transmission category) and menus. Let operators shape their transmitted audio — narrow for contest, wide for ragchew.
+- [ ] **Editable filter & step presets**: UI for creating, editing, saving, and loading filter presets and tuning step presets. Export as shareable XML files so operators can share their setups — "here's my CW contest filter" or "my FT8 step config." Import from file or paste from clipboard.
+- [ ] **Compiled help file**: Set up CHM or similar help file workflow. Build integration so help file compiles with the installer. Content structure for all features, keyboard reference, getting started guide. F1 wiring to context-sensitive help topics.
+
 ### Completed in Sprint 7
 - [x] Callbook graceful degradation: QRZ→HamQTH auto-fallback, built-in HamQTH for LogPanel (BUG-007, BUG-008) — Sprint 6
 - [x] Hotkeys v2: scope-aware registry, conflict detection, Command Finder, tabbed Settings UI — Sprint 6
@@ -241,6 +246,10 @@ Last updated: 2026-02-12
 
 ## Audio
 - [ ] Audio menu / Adjust Rig Audio workflow (TX/RX levels, ALC guidance)
+- [ ] **Peak watcher (background audio monitor)**: Runs silently in the background anywhere in JJFlexRadio. Monitors audio levels and alerts via earcon tones or screen reader speech when your audio is too hot, compressor is slamming, or ALC is peaking — no visual UI, just audio/speech feedback. Toggle on/off from Settings or hotkey. Configurable thresholds and announcement frequency so it doesn't nag you during a QSO but catches problems before someone on frequency tells you your audio sounds like a garbage disposal.
+- [ ] **Audio test dialog**: The workshop for sculpting your transmit audio. Test and adjust mic gain, compressor, compander, EQ, TX filter width — all with real-time spoken feedback and peak monitoring. Standalone mode (no TX required) so you can dial everything in before you go on the air. This is where operators spend quality time getting their signal right. Needs to expose every audio parameter the Flex offers (and eventually the DSP abstraction layer for other radios).
+- [ ] **Off-air self-monitoring**: Use a second receiver (MultiFlex second slice, or a cheap SDR like RTL-SDR) to receive your own transmitted signal off a nearby antenna and analyze it in real-time. Hear exactly what you sound like over the air — not what your mic sounds like, what your *signal* sounds like. On a dual-SCU Flex (6600/6700), TX on Slice A at low power, receive on Slice B via a separate antenna. With future cheap receiver support, anyone could do this with an RTL-SDR dongle and a piece of wire. Feed the received audio into the peak watcher for objective analysis.
+- [ ] **Audio chain presets (save/load/share)**: Save the entire TX/RX audio configuration as a shareable preset file — mic gain, compression, EQ, TX filter width, RX volume, AGC settings. Import/export so operators can share “my ragchew voice” or “contest audio” profiles with friends. Same XML-based approach as filter presets.
 - [ ] Recording/playback and “parrot” concept (design + feasibility)
 - [ ] DAX integration research and decision (use Flex manager vs internal config)
 

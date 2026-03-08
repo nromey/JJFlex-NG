@@ -9,11 +9,11 @@
 
 ; The name of the installer
 Name "JJFlexRadio"
-; The file to write (version appended via 4.1.115.0)
-OutFile "Setup JJFlexRadio_4.1.115.0.exe"
+; The file to write (version appended via 4.1.15.0)
+OutFile "Setup JJFlexRadio_4.1.15.0.exe"
 
 ; The default installation directory (architecture-specific Program Files)
-InstallDir "$PROGRAMFILES64\JJFlexRadio"
+InstallDir "$PROGRAMFILES\JJFlexRadio"
 
 ; Registry key to check for directory (so if you install again, it will 
 ; overwrite the old one automatically)
@@ -28,10 +28,10 @@ SetCompressorDictSize 64
 
 
 ; Version information for the installer bundle
-VIProductVersion "4.1.115.0"
-VIFileVersion "4.1.115.0"
-VIAddVersionKey /LANG=1033 "ProductVersion" "4.1.115.0"
-VIAddVersionKey /LANG=1033 "FileVersion" "4.1.115.0"
+VIProductVersion "4.1.15.0"
+VIFileVersion "4.1.15.0"
+VIAddVersionKey /LANG=1033 "ProductVersion" "4.1.15.0"
+VIAddVersionKey /LANG=1033 "FileVersion" "4.1.15.0"
 VIAddVersionKey /LANG=1033 "ProductName" "JJFlexRadio"
 VIAddVersionKey /LANG=1033 "FileDescription" "JJFlexRadio installer"
 
@@ -72,7 +72,10 @@ Section "JJFlexRadio (required)"
   SetOutPath $INSTDIR
   
   ; Put files there - recurse all built outputs
-  File /r /x "*.pdb" /x "runPgm.bat" "C:\dev\JJFlex-NG\bin\x64\Release\net8.0-windows\win-x64\*.*"
+  File /r /x "*.pdb" /x "runPgm.bat" "c:\dev\JJFlex-NG\\bin\x86\Release\net8.0-windows\win-x86\*.*"
+
+  ; Include changelog
+  File "docs\CHANGELOG.md"
   
   ; Write the installation path into the registry
   WriteRegStr HKLM "SOFTWARE\JJFlexRadio" "Install_Dir" "$INSTDIR"

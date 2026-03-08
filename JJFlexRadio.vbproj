@@ -463,6 +463,6 @@
   </ItemGroup>
 
   <PropertyGroup>
-    <PostBuildEvent Condition="'$(Configuration)'=='Release' and ('$(Platform)'=='x64' or '$(Platform)'=='x86') and '$(TargetFramework)'=='net8.0-windows'">call "$(MSBuildProjectDirectory)\install.bat" "$(MSBuildProjectDirectory)" "$(ConfigurationName)" "$(TargetName)"</PostBuildEvent>
+    <PostBuildEvent Condition="'$(Configuration)'=='Release' and ('$(Platform)'=='x64' or '$(Platform)'=='x86') and '$(TargetFramework)'=='net8.0-windows'">if not defined JJFLEX_SKIP_POSTBUILD_INSTALLER call "$(MSBuildProjectDirectory)\install.bat" "$(MSBuildProjectDirectory)" "$(ConfigurationName)" "$(TargetName)"</PostBuildEvent>
   </PropertyGroup>
 </Project>
