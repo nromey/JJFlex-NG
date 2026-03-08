@@ -29,6 +29,12 @@ using JJTrace;
 
 namespace Radios
 {
+    /// <summary>Meter types for the MeterChanged event.</summary>
+    public enum MeterType
+    {
+        SMeter, ALC, Mic, Power, SWR, Compression, Voltage, PATemp
+    }
+
     /// <summary>
     /// Flex superclass
     /// </summary>
@@ -239,6 +245,8 @@ namespace Radios
             theRadio.PATempDataReady += new Radio.MeterDataReadyEventHandler(PATempDataHandler);
             theRadio.VoltsDataReady += new Radio.MeterDataReadyEventHandler(VoltsDataHandler);
             theRadio.HWAlcDataReady += new Radio.MeterDataReadyEventHandler(hwALCData);
+            theRadio.ReflectedPowerDataReady += new Radio.MeterDataReadyEventHandler(reflectedPowerData);
+            theRadio.PAEffDataReady += new Radio.MeterDataReadyEventHandler(paEffData);
             theRadio.TxBandSettingsAdded += new Radio.TxBandSettingsAddedEventHandler(txBandSettingsHandler);
             theRadio.RXRemoteAudioStreamAdded += new Radio.RXRemoteAudioStreamAddedEventHandler(opusOutputStreamAddedHandler);
             theRadio.TXRemoteAudioStreamAdded += new Radio.TXRemoteAudioStreamAddedEventHandler(opusInputStreamAddedHandler);
@@ -1796,7 +1804,7 @@ namespace Radios
                         // set original status
                         if (originalATUStatus == ATUTuneStatus.None) originalATUStatus = r.ATUTuneStatus;
                         RaiseFlexAntTuneStartStop(new FlexAntTunerArg
-                            (_FlexTunerType, r.ATUTuneStatus, SWR));
+                            (_FlexTunerType, r.ATUTuneStatus, _SWR));
                         switch (theRadio.ATUTuneStatus)
                         {
                             case ATUTuneStatus.NotStarted:
@@ -2618,22 +2626,28 @@ namespace Radios
             return (int)((Math.Pow(10d, (double)(dbm / 10)) / 1000) + 0.5);
         }
         protected float _PowerDBM;
+        /// <summary>Forward power in dBm (raw from FlexLib).</summary>
+        public float PowerDBM => _PowerDBM;
+
         private void forwardPowerData(float data)
         {
             Tracing.TraceLine("forwardPower:" + data.ToString(), TraceLevel.Verbose);
             if (_PowerDBM != data)
             {
                 _PowerDBM = data;
+                MeterChanged?.Invoke(this, MeterType.Power, data);
             }
         }
 
         protected float _SWR;
-        internal float SWR { get { return _SWR; } }
+        /// <summary>Current SWR reading.</summary>
+        public float SWRValue => _SWR;
 
         private void sWRData(float data)
         {
             Tracing.TraceLine("SWRData:" + data.ToString(), TraceLevel.Verbose);
             _SWR = data;
+            MeterChanged?.Invoke(this, MeterType.SWR, data);
         }
 
         private string SWRText()
@@ -2651,6 +2665,7 @@ namespace Radios
         {
             _MicData = data;
             Tracing.TraceLine("micData:" + data.ToString(), TraceLevel.Verbose);
+            MeterChanged?.Invoke(this, MeterType.Mic, data);
         }
 
         internal float _MicPeakData;
@@ -2660,9 +2675,15 @@ namespace Radios
             _MicPeakData = data;
         }
 
+        private float _CompPeakData;
+        /// <summary>Compression peak level.</summary>
+        public float CompPeak => _CompPeakData;
+
         private void compPeakData(float data)
         {
             Tracing.TraceLine("compPeakData:" + data.ToString(), TraceLevel.Verbose);
+            _CompPeakData = data;
+            MeterChanged?.Invoke(this, MeterType.Compression, data);
         }
 
         private float _ALC;
@@ -2675,6 +2696,7 @@ namespace Radios
         {
             _ALC = data;
             Tracing.TraceLine("hwALCData:" + data.ToString(), TraceLevel.Verbose);
+            MeterChanged?.Invoke(this, MeterType.ALC, data);
         }
 
         private void txBandSettingsHandler(TxBandSettings settings)
@@ -2687,24 +2709,42 @@ namespace Radios
         {
             Tracing.TraceLine("PATempDataHandler:" + data.ToString(), TraceLevel.Verbose);
             _PATempData = data;
+            MeterChanged?.Invoke(this, MeterType.PATemp, data);
         }
 
-        /// <summary>
-        /// PA temperature in DGC.
-        /// </summary>
-        internal float PATemp { get { return _PATempData; } }
+        /// <summary>PA temperature in degrees C.</summary>
+        public float PATemp => _PATempData;
 
         private float _VoltsData;
         private void VoltsDataHandler(float data)
         {
             Tracing.TraceLine("VoltsDataHandler:" + data.ToString(), TraceLevel.Verbose);
             _VoltsData = data;
+            MeterChanged?.Invoke(this, MeterType.Voltage, data);
         }
 
-        /// <summary>
-        /// Voltage
-        /// </summary>
-        internal float Volts { get { return _VoltsData; } }
+        /// <summary>Supply voltage.</summary>
+        public float Volts => _VoltsData;
+
+        private float _ReflectedPower;
+        /// <summary>Reflected power in dBm.</summary>
+        public float ReflectedPower => _ReflectedPower;
+
+        private void reflectedPowerData(float data)
+        {
+            Tracing.TraceLine("reflectedPower:" + data.ToString(), TraceLevel.Verbose);
+            _ReflectedPower = data;
+        }
+
+        private float _PAEffData;
+        /// <summary>PA efficiency percentage.</summary>
+        public float PAEfficiency => _PAEffData;
+
+        private void paEffData(float data)
+        {
+            Tracing.TraceLine("paEffData:" + data.ToString(), TraceLevel.Verbose);
+            _PAEffData = data;
+        }
 
         private void meterAdded(Slice slc, Meter m)
         {
@@ -2727,6 +2767,7 @@ namespace Radios
                 {
                     Tracing.TraceLine("sMeterData:" + s.Index + ' ' + data.ToString(), TraceLevel.Verbose);
                     parent._SMeter = (int)data;
+                    parent.MeterChanged?.Invoke(parent, MeterType.SMeter, data);
                 }
             }
 
@@ -6803,6 +6844,14 @@ namespace Radios
                 TransmitChange(this, status);
             }
         }
+
+        /// <summary>Meter data change event — fired from meter callbacks for sonification.</summary>
+        public delegate void MeterChangedDel(object sender, MeterType meter, float value);
+        public event MeterChangedDel MeterChanged;
+
+        /// <summary>Raw S-meter value in dBm (before S-unit conversion).</summary>
+        public int SMeterRaw => _SMeter;
+
         private string importDir;
         private bool wasPCAudio;
         internal void ImportProfile(string name)
