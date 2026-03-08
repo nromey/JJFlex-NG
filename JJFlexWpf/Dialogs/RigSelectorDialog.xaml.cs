@@ -87,6 +87,9 @@ namespace JJFlexWpf.Dialogs
         /// <summary>OpenParms for creating test FlexBase instances.</summary>
         public FlexBase.OpenParms? OpenParms { get; init; }
 
+        /// <summary>Show a WinForms connecting window (message). Returns an action to close it.</summary>
+        public Func<string, Action>? ShowConnecting { get; init; }
+
     }
 
     public partial class RigSelectorDialog : JJFlexDialog
@@ -135,6 +138,7 @@ namespace JJFlexWpf.Dialogs
 
             // Start auto-connect timer if appropriate
             if (callbacks.IsInitialBringup &&
+                callbacks.GlobalAutoConnectEnabled &&
                 !string.IsNullOrEmpty(callbacks.AutoConnectSerial) &&
                 callbacks.AutoConnectDesired)
             {
@@ -157,7 +161,21 @@ namespace JJFlexWpf.Dialogs
                 _radiosList.Add(radio);
             }
 
-            Dispatcher.Invoke(RefreshRadiosList);
+            Dispatcher.Invoke(() =>
+            {
+                // Close the connecting window — radios have arrived
+                if (_closeConnecting != null)
+                {
+                    _closeConnecting();
+                    _closeConnecting = null;
+
+                    // Reclaim focus from the closing connecting form
+                    Activate();
+                    RadiosBox.Focus();
+                }
+
+                RefreshRadiosList();
+            });
         }
 
         private void RefreshRadiosList()
@@ -243,10 +261,15 @@ namespace JJFlexWpf.Dialogs
             RadiosBox.Focus();
         }
 
+        private Action? _closeConnecting;
+
         private void RemoteButton_Click(object sender, RoutedEventArgs e)
         {
+            // Show WinForms connecting window to hold focus while SmartLink auth runs.
+            // WinForms because standalone WPF windows from VB.NET lose keyboard focus.
+            _closeConnecting = _callbacks.ShowConnecting?.Invoke("Connecting to SmartLink...");
+
             _callbacks.StartRemoteDiscovery();
-            RadiosBox.Focus();
         }
 
         private void CancelButton_Click(object sender, RoutedEventArgs e)
@@ -296,7 +319,7 @@ namespace JJFlexWpf.Dialogs
             }
 
             // Show settings dialog
-            var newAutoConnect = !radio.AutoConnect;
+            var newAutoConnect = radio.AutoConnect;
             var newLowBW = radio.LowBW;
 
             if (AutoConnectSettingsDialog.ShowSettingsDialog(this, radio.Name, ref newAutoConnect, ref newLowBW))
@@ -390,7 +413,8 @@ namespace JJFlexWpf.Dialogs
                 radio.Serial,
                 radio.IsRemote,
                 radio.LowBW,
-                _callbacks.OpenParms!)
+                _callbacks.OpenParms!,
+                _callbacks.CurrentSmartLinkEmail)
             {
                 Owner = this
             };

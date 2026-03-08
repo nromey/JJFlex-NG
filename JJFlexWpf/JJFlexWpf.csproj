@@ -20,6 +20,8 @@
     <EmbeddedResource Include="Resources\Sounds\filter-edge-move.wav" LogicalName="JJFlexWpf.Sounds.filter-edge-move.wav" />
     <EmbeddedResource Include="Resources\Sounds\mode-enter.wav" LogicalName="JJFlexWpf.Sounds.mode-enter.wav" />
     <EmbeddedResource Include="Resources\Sounds\mode-exit.wav" LogicalName="JJFlexWpf.Sounds.mode-exit.wav" />
+    <EmbeddedResource Include="Resources\Sounds\slide03.wav" LogicalName="JJFlexWpf.Sounds.slide03.wav" />
+    <EmbeddedResource Include="Resources\Sounds\zip01.wav" LogicalName="JJFlexWpf.Sounds.zip01.wav" />
   </ItemGroup>
 
   <ItemGroup>

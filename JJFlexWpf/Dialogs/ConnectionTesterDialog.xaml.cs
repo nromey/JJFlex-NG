@@ -1,5 +1,6 @@
 using System;
 using System.ComponentModel;
+using System.Linq;
 using System.Threading;
 using System.Windows;
 using Radios;
@@ -13,6 +14,7 @@ namespace JJFlexWpf.Dialogs
         private readonly bool _isRemote;
         private readonly bool _lowBW;
         private readonly FlexBase.OpenParms _openParms;
+        private readonly string _smartLinkEmail;
 
         private ConnectionTester _tester;
         private bool _testRunning;
@@ -22,13 +24,15 @@ namespace JJFlexWpf.Dialogs
             string radioSerial,
             bool isRemote,
             bool lowBW,
-            FlexBase.OpenParms openParms)
+            FlexBase.OpenParms openParms,
+            string smartLinkEmail = "")
         {
             _radioName = radioName;
             _radioSerial = radioSerial;
             _isRemote = isRemote;
             _lowBW = lowBW;
             _openParms = openParms;
+            _smartLinkEmail = smartLinkEmail ?? "";
 
             InitializeComponent();
 
@@ -50,9 +54,9 @@ namespace JJFlexWpf.Dialogs
             }
 
             // Validate parameters
-            if (!int.TryParse(TestCountBox.Text, out int testCount) || testCount < 25)
+            if (!int.TryParse(TestCountBox.Text, out int testCount) || testCount < 3)
             {
-                ScreenReaderOutput.Speak("Test count must be at least 25");
+                ScreenReaderOutput.Speak("Test count must be at least 3");
                 TestCountBox.Focus();
                 return;
             }
@@ -62,6 +66,14 @@ namespace JJFlexWpf.Dialogs
                 DelayBox.Focus();
                 return;
             }
+            if (!int.TryParse(ManualDelayBox.Text, out int manualDelay) || manualDelay < 0)
+            {
+                ScreenReaderOutput.Speak("User delay must be 0 or more seconds");
+                ManualDelayBox.Focus();
+                return;
+            }
+
+            var mode = (ConnectMode)ModeBox.SelectedIndex;
 
             // Lock UI for test run
             _testRunning = true;
@@ -69,6 +81,8 @@ namespace JJFlexWpf.Dialogs
             CloseButton.IsEnabled = false;
             TestCountBox.IsEnabled = false;
             DelayBox.IsEnabled = false;
+            ModeBox.IsEnabled = false;
+            ManualDelayBox.IsEnabled = false;
             ResultsBox.Items.Clear();
 
             _tester = new ConnectionTester
@@ -80,6 +94,9 @@ namespace JJFlexWpf.Dialogs
                 LowBandwidth = _lowBW,
                 IsRemote = _isRemote,
                 OpenParms = _openParms,
+                Mode = mode,
+                ManualDelayMs = manualDelay * 1000,
+                CurrentSmartLinkEmail = _smartLinkEmail,
                 // Auto-select most recent saved account — same as manual connect
                 AccountSelector = (mgr) =>
                 {
@@ -113,15 +130,17 @@ namespace JJFlexWpf.Dialogs
                 Dispatcher.BeginInvoke(() =>
                 {
                     _testRunning = false;
-                    StatusText.Text = $"Complete: {summary.Passed}/{summary.TestCount} passed, {summary.Failed} failed.";
+                    StatusText.Text = $"Complete: {summary.Passed}/{summary.TestCount} passed, {summary.Failed} failed. Mode: {summary.Mode}";
                     StartButton.Content = "Start";
                     StartButton.IsEnabled = true;
                     CloseButton.IsEnabled = true;
                     TestCountBox.IsEnabled = true;
                     DelayBox.IsEnabled = true;
+                    ModeBox.IsEnabled = true;
+                    ManualDelayBox.IsEnabled = true;
 
                     var msg = $"All tests complete. {summary.Passed} of {summary.TestCount} passed. " +
-                              $"{summary.Failed} failed. Report saved.";
+                              $"{summary.Failed} failed. Mode {summary.Mode}. Report saved.";
                     ScreenReaderOutput.Speak(msg);
                 });
 
@@ -134,7 +153,7 @@ namespace JJFlexWpf.Dialogs
             testThread.SetApartmentState(ApartmentState.STA);
             testThread.Start();
 
-            ScreenReaderOutput.Speak($"Starting {testCount} connection tests on {_radioName}");
+            ScreenReaderOutput.Speak($"Starting {testCount} {mode} tests on {_radioName}");
         }
 
         private void CloseButton_Click(object sender, RoutedEventArgs e)

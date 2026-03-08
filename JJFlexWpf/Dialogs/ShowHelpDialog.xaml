@@ -12,10 +12,7 @@
                     IsDefault="True" IsCancel="True"
                     AutomationProperties.Name="Close" />
         </StackPanel>
-        <TextBox x:Name="HelpTextBox" IsReadOnly="True"
-                 TextWrapping="NoWrap" AcceptsReturn="True"
-                 VerticalScrollBarVisibility="Auto"
-                 HorizontalScrollBarVisibility="Auto"
+        <ListBox x:Name="HelpListBox"
                  FontFamily="Consolas"
                  AutomationProperties.Name="Key commands" />
     </DockPanel>

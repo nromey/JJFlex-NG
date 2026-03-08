@@ -591,7 +591,7 @@ Public Class KeyCommands
      New KeyDefType(Keys.M Or Keys.Control, CommandValues.ShowMemory, KeyScope.Radio),
      New KeyDefType(Keys.M Or Keys.Control Or Keys.Shift, CommandValues.MemoryScan, KeyScope.Radio),
      New KeyDefType(Keys.None, CommandValues.SmeterDBM, KeyScope.Radio),
-     New KeyDefType(Keys.S Or Keys.Alt, CommandValues.ReadSMeter, KeyScope.Radio),           ' Alt+S = Read S-meter
+     New KeyDefType(Keys.S Or Keys.Control Or Keys.Shift, CommandValues.ReadSMeter, KeyScope.Radio), ' Ctrl+Shift+S = Read S-meter
      New KeyDefType(Keys.None, CommandValues.CycleContinuous, KeyScope.Radio),
      New KeyDefType(Keys.None, CommandValues.LogForm, KeyScope.Radio),
      New KeyDefType(Keys.C Or Keys.Control Or Keys.Shift, CommandValues.ClearRIT, KeyScope.Radio),
@@ -1327,11 +1327,19 @@ Public Class KeyCommands
         JJFlexWpf.EarconPlayer.ConfirmTone()
     End Sub
     Private Sub WriteFreq()
-        ' (overloaded) Send the entered freq. to the radio.
-        If RigControl IsNot Nothing Then
-            If FreqInput.ShowDialog() = DialogResult.OK Then
-                Tracing.TraceLine($"WriteFreq: FreqInput.Buffer='{FreqInput.Buffer}'", TraceLevel.Info)
-                WriteFreq(FreqInput.Buffer)
+        ' Show freq input dialog — works with or without a radio connected
+        ' so the "cqtest" easter egg is always accessible.
+        If FreqInput.ShowDialog() = DialogResult.OK Then
+            Dim input = FreqInput.Buffer.Trim()
+            Tracing.TraceLine($"WriteFreq: FreqInput.Buffer='{input}'", TraceLevel.Info)
+            ' Easter egg: "cqtest" opens the earcon scratchpad
+            If input.Equals("cqtest", StringComparison.OrdinalIgnoreCase) Then
+                WpfMainWindow.ShowEarconScratchpad()
+                Return
+            End If
+            ' Only send frequency to radio if connected
+            If RigControl IsNot Nothing Then
+                WriteFreq(input)
             End If
         End If
     End Sub
@@ -1903,10 +1911,8 @@ Public Class KeyCommands
     End Sub
 
     Private Sub contextHelpRtn()
-        ' Opens the Command Finder dialog (implemented in Phase C3).
-        Dim finder As New CommandFinder()
-        finder.PreFilterScope = ActiveUIMode
-        finder.ShowDialog()
+        ' Opens the WPF Command Finder dialog with info items + scope filtering.
+        WpfMainWindow.ShowCommandFinder()
     End Sub
 
     Private Sub speakStatusRtn()

@@ -3,12 +3,13 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:JJFlexWpf"
         Title="Connection Tester"
-        Width="520" Height="480"
+        Width="520" Height="520"
         ResizeMode="NoResize"
         AutomationProperties.Name="Connection tester"
         Closing="ConnectionTesterDialog_Closing">
     <Grid Margin="12">
         <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
@@ -23,24 +24,38 @@
         <!-- Test parameters -->
         <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,8">
             <TextBlock Text="Tests:" VerticalAlignment="Center" Margin="0,0,8,0"/>
-            <TextBox x:Name="TestCountBox" Width="60" Text="25" VerticalAlignment="Center"
-                     AutomationProperties.Name="Number of tests, minimum 25"/>
+            <TextBox x:Name="TestCountBox" Width="60" Text="3" VerticalAlignment="Center"
+                     AutomationProperties.Name="Number of tests, minimum 3"/>
             <TextBlock Text="Delay (sec):" VerticalAlignment="Center" Margin="16,0,8,0"/>
             <TextBox x:Name="DelayBox" Width="60" Text="5" VerticalAlignment="Center"
                      AutomationProperties.Name="Delay between tests in seconds, minimum 1"/>
         </StackPanel>
 
+        <!-- Mode and manual delay -->
+        <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,0,0,8">
+            <TextBlock Text="Mode:" VerticalAlignment="Center" Margin="0,0,8,0"/>
+            <ComboBox x:Name="ModeBox" Width="200" VerticalAlignment="Center"
+                      AutomationProperties.Name="Connection mode">
+                <ComboBoxItem Content="Reconnect Remote" IsSelected="True"/>
+                <ComboBoxItem Content="Auto-Connect"/>
+                <ComboBoxItem Content="Manual Simulation"/>
+            </ComboBox>
+            <TextBlock Text="User delay (sec):" VerticalAlignment="Center" Margin="16,0,8,0"/>
+            <TextBox x:Name="ManualDelayBox" Width="60" Text="3" VerticalAlignment="Center"
+                     AutomationProperties.Name="Simulated user delay in seconds for manual simulation"/>
+        </StackPanel>
+
         <!-- Status -->
-        <TextBlock x:Name="StatusText" Grid.Row="2" TextWrapping="Wrap" Margin="0,0,0,8"
+        <TextBlock x:Name="StatusText" Grid.Row="3" TextWrapping="Wrap" Margin="0,0,0,8"
                    Text="Ready"
                    AutomationProperties.Name="Test status"/>
 
         <!-- Results list -->
-        <ListBox x:Name="ResultsBox" Grid.Row="3" Margin="0,0,0,8"
+        <ListBox x:Name="ResultsBox" Grid.Row="4" Margin="0,0,0,8"
                  AutomationProperties.Name="Test results"/>
 
         <!-- Buttons -->
-        <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right">
+        <StackPanel Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Right">
             <Button x:Name="StartButton" Content="Start" MinWidth="100" Height="28" Margin="0,0,8,0"
                     AutomationProperties.Name="Start connection test"
                     Click="StartButton_Click"/>

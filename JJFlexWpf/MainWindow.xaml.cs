@@ -851,6 +851,9 @@ public partial class MainWindow : UserControl
     /// <summary>Callback to show the status dialog. Set by ApplicationEvents.vb.</summary>
     public Action? ShowStatusDialogCallback { get; set; }
 
+    /// <summary>Callback to open the PortAudio device picker. Set by globals.vb.</summary>
+    public Action? AudioSetupCallback { get; set; }
+
     /// <summary>
     /// Antenna tune button base text, matching Form1 pattern.
     /// </summary>
@@ -2197,17 +2200,11 @@ public partial class MainWindow : UserControl
             var field = FreqOut.GetFocusedField();
             if (field?.HelpItems != null && field.HelpItems.Count > 0)
             {
-                var sb = new System.Text.StringBuilder();
-                sb.AppendLine($"{field.Label ?? field.Key} Field");
-                sb.AppendLine();
-                foreach (var (key, desc) in field.HelpItems)
-                    sb.AppendLine($"  {key,-16} {desc}");
-                sb.AppendLine();
-                sb.AppendLine("Press Escape to close.");
                 var dialog = new Dialogs.ShowHelpDialog
                 {
                     Title = $"{field.Label ?? field.Key} Help",
-                    HelpText = sb.ToString()
+                    HelpTitle = $"{field.Label ?? field.Key} Field",
+                    HelpItems = field.HelpItems
                 };
                 dialog.ShowDialog();
                 return;
@@ -2236,7 +2233,7 @@ public partial class MainWindow : UserControl
         ShowCommandFinder();
     }
 
-    private void ShowCommandFinder()
+    public void ShowCommandFinder()
     {
         var items = GetCommandFinderItemsCallback?.Invoke() ?? new List<Dialogs.CommandFinderItem>();
         var dialog = new Dialogs.CommandFinderDialog
@@ -2247,6 +2244,30 @@ public partial class MainWindow : UserControl
             CurrentMode = ActiveUIMode.ToString()
         };
         dialog.ShowDialog();
+    }
+
+    /// <summary>
+    /// Show the earcon scratchpad — easter egg triggered by typing "cqtest" in Ctrl+F.
+    /// Mutes the radio while open so you can hear the sounds you're designing.
+    /// </summary>
+    public void ShowEarconScratchpad()
+    {
+        // Save and mute radio so earcon sounds are audible
+        bool wasMuted = RigControl?.SliceMute ?? true;
+        if (RigControl != null && !wasMuted)
+            RigControl.SliceMute = true;
+
+        try
+        {
+            var dialog = new Dialogs.EarconScratchpadDialog();
+            dialog.ShowDialog();
+        }
+        finally
+        {
+            // Restore previous mute state
+            if (RigControl != null && !wasMuted)
+                RigControl.SliceMute = false;
+        }
     }
 
     /// <summary>

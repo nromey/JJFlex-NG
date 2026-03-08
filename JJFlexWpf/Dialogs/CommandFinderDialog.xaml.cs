@@ -17,6 +17,10 @@ namespace JJFlexWpf.Dialogs
         public string[]? Keywords { get; set; }
         /// <summary>Opaque reference back to the original command for execution.</summary>
         public object? Tag { get; set; }
+
+        /// <summary>Screen reader reads this — must be meaningful, not the class name.</summary>
+        public override string ToString() =>
+            string.IsNullOrEmpty(KeyDisplay) ? Description : $"{Description}, {KeyDisplay}";
     }
 
     public partial class CommandFinderDialog : JJFlexDialog

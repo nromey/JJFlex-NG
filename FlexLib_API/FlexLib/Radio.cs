@@ -6304,6 +6304,15 @@ namespace Flex.Smoothlake.FlexLib
                 return _meters.FirstOrDefault(m => m.Name == s);
         }
 
+        /// <summary>
+        /// Returns a snapshot of all meters currently known to the radio.
+        /// </summary>
+        public List<Meter> GetAllMeters()
+        {
+            lock (_meters)
+                return new List<Meter>(_meters);
+        }
+
         public ImmutableList<Meter> FindMetersByAmplifier(Amplifier amp)
         {
             lock (_meters)

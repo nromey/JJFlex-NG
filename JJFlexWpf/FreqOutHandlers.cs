@@ -370,6 +370,7 @@ public class FreqOutHandlers
         {
             Radios.ScreenReaderOutput.Speak(message, interrupt: true);
             _firstTuneStep = false;
+            return; // Already spoke — don't also start debounce timer
         }
 
         _tuneDebounce?.Cancel();
@@ -1355,7 +1356,7 @@ public class FreqOutHandlers
                     else return;
                 }
                 if (high - low < minWidth) { Radios.ScreenReaderOutput.Speak("Filter at minimum", true); e.Handled = true; return; }
-                EarconPlayer.FilterEdgeMoveTone();
+                EarconPlayer.FilterEdgeMoveTone(_filterEdgeMode == FilterEdgeMode.LowerEdge);
             }
             else
             {
@@ -1695,11 +1696,16 @@ public class FreqOutHandlers
         if (newBand != null)
         {
             string? newSubKey = GetSubBandKey(newFreq, newBand.Value);
-            if (newSubKey != null && newSubKey != _lastSubBandKey
+            if (newSubKey != _lastSubBandKey
                 && (_lastBand == null || _lastBand == newBand)) // only within same band
             {
-                Radios.ScreenReaderOutput.Speak($"Entering {newSubKey} segment", interrupt: false);
+                // Beep first, then speak — interrupt:true so it cuts through any
+                // tuning speech that's still in the screen reader queue.
                 EarconPlayer.BandBoundaryBeep();
+                if (newSubKey != null)
+                    Radios.ScreenReaderOutput.Speak($"Entering {newSubKey} segment", interrupt: true);
+                else if (_lastSubBandKey != null)
+                    Radios.ScreenReaderOutput.Speak($"Leaving {_lastSubBandKey} segment", interrupt: true);
             }
             _lastSubBandKey = newSubKey;
         }

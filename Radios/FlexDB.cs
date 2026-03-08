@@ -25,6 +25,7 @@ namespace Radios
         private const string exportTimeout = "timed out";
         private const string onlyPrimary = "Import/export is only allowed on the primary station.";
         private const string onlyLAN = "Currently, import is only allowed over the LAN.";
+        private const string exportOnlyLAN = "Profile export requires a LAN connection. SmartLink (remote) connections cannot receive the export file from the radio.";
 
         private FlexBase rig;
         private string directoryName { get { return rig.ConfigDirectory + '\\' + rig.OperatorName + '\\' + "RigData"; } }
@@ -56,6 +57,16 @@ namespace Radios
         public bool Export()
         {
             Tracing.TraceLine("Flex export:", TraceLevel.Info);
+
+            // SmartLink guard: export uses a TCP listener that the radio connects back to,
+            // which cannot work through NAT on remote/WAN connections.
+            if (rig.RemoteRig)
+            {
+                Tracing.TraceLine("Flex export blocked: remote/SmartLink connection", TraceLevel.Warning);
+                MessageBox.Show(exportOnlyLAN, statusHdr, MessageBoxButtons.OK);
+                return false;
+            }
+
             bool rv = false;
             string tmpDir = directoryName + "\\tmp";
             string tmpMeta = tmpDir + "\\tmpMeta";
@@ -173,11 +184,27 @@ namespace Radios
 
             if (!string.IsNullOrEmpty(exportFile))
             {
-                foreach(string f in getRigExportFiles())
+                var exportFiles = getRigExportFiles();
+                Tracing.TraceLine($"Flex export: getRigExportFiles() found {exportFiles.Count} file(s)", TraceLevel.Info);
+                foreach (string f in exportFiles)
                 {
+                    Tracing.TraceLine($"Flex export: copying '{f}' to '{exportFile}'", TraceLevel.Info);
                     if (File.Exists(exportFile)) File.Delete(exportFile);
                     File.Copy(f, exportFile);
                     break;
+                }
+
+                // Verify the exported file actually landed
+                if (!File.Exists(exportFile))
+                {
+                    Tracing.TraceLine($"Flex export: WARNING - exported file not found at '{exportFile}'", TraceLevel.Warning);
+                    MessageBox.Show(exportFailMsg + "file was not created at the destination", errHdr, MessageBoxButtons.OK);
+                    rv = false;
+                }
+                else
+                {
+                    var info = new FileInfo(exportFile);
+                    Tracing.TraceLine($"Flex export: verified '{exportFile}' exists, size={info.Length} bytes", TraceLevel.Info);
                 }
             }
 

@@ -43,7 +43,9 @@ namespace JJFlexWpf
         {
             if (e.Key == Key.Escape)
             {
-                DialogResult = false;
+                // DialogResult throws InvalidOperationException on non-modal windows (Show vs ShowDialog).
+                // ConnectingDialog is non-modal, so guard with try/catch.
+                try { DialogResult = false; } catch (InvalidOperationException) { }
                 Close();
                 e.Handled = true;
             }

@@ -123,6 +123,12 @@ namespace Radios
         }
 
         /// <summary>
+        /// Public wrapper for findRadioInAPI — used by ConnectionTester to poll
+        /// for radio discovery in ManualSimulation mode.
+        /// </summary>
+        public Radio FindRadioBySerial(string serial) => findRadioInAPI(serial);
+
+        /// <summary>
         /// Provide a list of local radios through the RadioFound event.
         /// </summary>
         public void LocalRadios()
@@ -204,6 +210,12 @@ namespace Radios
                 return false;
             }
 
+            ConnectionProfiler.Current?.RecordEvent("connect_radio_found", new Dictionary<string, object>
+            {
+                { "serial", theRadio.Serial },
+                { "nickname", theRadio.Nickname ?? "" }
+            });
+
             // add the handlers.
             theRadio.PropertyChanged += new PropertyChangedEventHandler(radioPropertyChangedHandler);
             theRadio.MessageReceived += new Radio.MessageReceivedEventHandler(messageReceivedHandler);
@@ -232,16 +244,28 @@ namespace Radios
             theRadio.TXRemoteAudioStreamAdded += new Radio.TXRemoteAudioStreamAddedEventHandler(opusInputStreamAddedHandler);
             HookFeatureLicense(theRadio);
 
+            ConnectionProfiler.Current?.RecordEvent("connect_handlers_wired");
+
             theRadio.LowBandwidthConnect = lowBW;
 
             if (RemoteRig)
             {
+                ConnectionProfiler.Current?.RecordEvent("send_remote_connect_begin");
                 rv = sendRemoteConnect(theRadio);
+                ConnectionProfiler.Current?.RecordEvent("send_remote_connect_end", new Dictionary<string, object>
+                {
+                    { "success", rv }
+                });
             }
 
             if (rv)
             {
+                ConnectionProfiler.Current?.RecordEvent("flexlib_connect_begin");
                 rv = theRadio.Connect();
+                ConnectionProfiler.Current?.RecordEvent("flexlib_connect_end", new Dictionary<string, object>
+                {
+                    { "success", rv }
+                });
             }
 
             if (rv)
@@ -468,6 +492,7 @@ namespace Radios
             if (!string.IsNullOrEmpty(account.RefreshToken))
             {
                 Tracing.TraceLine($"TryAutoConnectRemote: proactively refreshing token ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+                ConnectionProfiler.Current?.RecordEvent("auto_token_refresh_begin");
 
                 bool refreshed = false;
                 try
@@ -480,6 +505,10 @@ namespace Radios
                     refreshed = false;
                 }
 
+                ConnectionProfiler.Current?.RecordEvent("auto_token_refresh_end", new Dictionary<string, object>
+                {
+                    { "refreshed", refreshed }
+                });
                 Tracing.TraceLine($"TryAutoConnectRemote: token refresh result={refreshed}, new ExpiresAt={account.ExpiresAt} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
             }
             else
@@ -510,7 +539,12 @@ namespace Radios
             // Connect to SmartLink server (this will trigger radio discovery)
             Tracing.TraceLine($"TryAutoConnectRemote: calling apiInit + ConnectToSmartLink ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
             apiInit();
+            ConnectionProfiler.Current?.RecordEvent("auto_smartlink_connect_begin");
             bool connected = ConnectToSmartLink(jwt);
+            ConnectionProfiler.Current?.RecordEvent("auto_smartlink_connect_end", new Dictionary<string, object>
+            {
+                { "success", connected }
+            });
 
             if (!connected)
             {
@@ -542,13 +576,23 @@ namespace Radios
             _clientAddedDuringStart = false;
 
             LastStartFailureReason = null;
-            ConnectionProfiler.Current?.RecordEvent("start_begin");
+            ConnectionProfiler.Current?.RecordEvent("start_begin", new Dictionary<string, object>
+            {
+                { "clientRemovedAlready", _clientRemovedDuringStart },
+                { "clientAddedAlready", _clientAddedDuringStart }
+            });
             FilterObj = new WpfFilterAdapter(this);
 
             await(() =>
             {
                 return initialFreeSlices != -1;
             }, 5000);
+
+            ConnectionProfiler.Current?.RecordEvent("start_slices_available", new Dictionary<string, object>
+            {
+                { "freeSlices", initialFreeSlices }
+            });
+
             // Need at least 1 slice.
             if (initialFreeSlices <= 0)
             {
@@ -587,6 +631,8 @@ namespace Radios
                 return false;
             }
 
+            ConnectionProfiler.Current?.RecordEvent("start_antenna_available");
+
             // Wait for the station name to be set on the GUIClient.
             // SmartLink removes and re-adds the GUIClient during connection setup.
             // We track the removal event for faster detection — if our client is removed
@@ -602,6 +648,14 @@ namespace Radios
                 _clientRemovedDuringStart = false;
                 _clientAddedDuringStart = false;
                 _startBeginTickCount = Environment.TickCount64;
+
+                ConnectionProfiler.Current?.RecordEvent("start_station_name_wait_begin", new Dictionary<string, object>
+                {
+                    { "maxWaitMs", maxWaitMs },
+                    { "earlyAbortMs", earlyAbortMs },
+                    { "removalGraceMs", removalGraceMs }
+                });
+
                 while (iterations-- > 0)
                 {
                     if (!IsConnected)
@@ -615,6 +669,12 @@ namespace Radios
                     if (_clientRemovedDuringStart && !_clientAddedDuringStart &&
                         (Environment.TickCount64 - _clientRemovedTickCount) > earlyAbortMs)
                     {
+                        ConnectionProfiler.Current?.RecordEvent("start_early_abort", new Dictionary<string, object>
+                        {
+                            { "msSinceRemoval", Environment.TickCount64 - _clientRemovedTickCount },
+                            { "msSinceStartBegin", Environment.TickCount64 - _startBeginTickCount },
+                            { "clientAddedDuringStart", _clientAddedDuringStart }
+                        });
                         Tracing.TraceLine($"start:client removed without prior add during Start(), aborting after {earlyAbortMs}ms for retry", TraceLevel.Warning);
                         break;
                     }
@@ -622,6 +682,11 @@ namespace Radios
                     if (_clientRemovedDuringStart && _clientAddedDuringStart &&
                         (Environment.TickCount64 - _clientRemovedTickCount) > removalGraceMs)
                     {
+                        ConnectionProfiler.Current?.RecordEvent("start_grace_abort", new Dictionary<string, object>
+                        {
+                            { "msSinceRemoval", Environment.TickCount64 - _clientRemovedTickCount },
+                            { "msSinceStartBegin", Environment.TickCount64 - _startBeginTickCount }
+                        });
                         Tracing.TraceLine($"start:client removed {removalGraceMs}ms ago without re-add, aborting for retry", TraceLevel.Warning);
                         break;
                     }
@@ -791,8 +856,17 @@ namespace Radios
                     }
                     else
                     {
-                        // only once
+                        // Radio already in myRadioList — update fields and re-raise RadioFound
+                        // so the RigSelector dialog sees the radio on reconnect attempts.
+                        // Without this, the second SmartLink discovery after disconnect
+                        // silently updates the existing entry and the ConnectingForm never closes.
                         UpdateRadioDiscoveryFields(r, oldRadio);
+                        RigData rd = new RigData();
+                        rd.Name = string.IsNullOrWhiteSpace(oldRadio.Nickname) ? "Unknown" : oldRadio.Nickname;
+                        rd.ModelName = string.IsNullOrWhiteSpace(oldRadio.Model) ? "Unknown" : oldRadio.Model;
+                        rd.Serial = oldRadio.Serial;
+                        rd.Remote = oldRadio.IsWan;
+                        RaiseRadioFound(null, rd);
                         break;
                     }
                 }
@@ -886,6 +960,7 @@ namespace Radios
         {
             var sw = System.Diagnostics.Stopwatch.StartNew();
             Tracing.TraceLine("setupRemote: BEGIN", TraceLevel.Info);
+            ConnectionProfiler.Current?.RecordEvent("setup_remote_begin");
             bool rv = false;
             string jwt = null;
 
@@ -937,7 +1012,12 @@ namespace Radios
 
             // Connect to SmartLink server
             Tracing.TraceLine($"setupRemote: calling ConnectToSmartLink ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+            ConnectionProfiler.Current?.RecordEvent("smartlink_connect_begin");
             rv = ConnectToSmartLink(jwt);
+            ConnectionProfiler.Current?.RecordEvent("smartlink_connect_end", new Dictionary<string, object>
+            {
+                { "success", rv }
+            });
             Tracing.TraceLine($"setupRemote: ConnectToSmartLink returned {rv} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
 
             // If connection failed, go straight to fresh interactive login.
@@ -1825,7 +1905,7 @@ namespace Radios
                         ExportComplete = r.DatabaseExportComplete;
                     }
                     break;
-                case "DatabaseExportccccccccccccccccccccccccccc Exception":
+                case "DatabaseExportException":
                     {
                         Tracing.TraceLine("DatabaseExportException:" + r.DatabaseExportException, TraceLevel.Info);
                         ExportException = r.DatabaseExportException;
@@ -2274,7 +2354,8 @@ namespace Radios
                 { "handle", client.ClientHandle },
                 { "station", client.Station ?? "" },
                 { "isThisClient", client.IsThisClient },
-                { "isAvailable", client.IsAvailable }
+                { "isAvailable", client.IsAvailable },
+                { "msSinceStartBegin", _startBeginTickCount > 0 ? (Environment.TickCount64 - _startBeginTickCount) : -1 }
             });
         }
 
@@ -2342,7 +2423,8 @@ namespace Radios
                 { "clientId", client.ClientID },
                 { "handle", client.ClientHandle },
                 { "isThisClient", myClient(client.ClientHandle) },
-                { "station", client.Station ?? "" }
+                { "station", client.Station ?? "" },
+                { "msSinceStartBegin", _startBeginTickCount > 0 ? (Environment.TickCount64 - _startBeginTickCount) : -1 }
             });
         }
 
@@ -3527,6 +3609,26 @@ namespace Radios
         {
             var db = new FlexDB(this);
             return db.Export();
+        }
+
+        /// <summary>
+        /// Import radio profiles from a user-selected file.
+        /// Sprint 20: Wraps FlexDB.Import() for external callers (Modern menu).
+        /// </summary>
+        public bool ImportProfileDatabase()
+        {
+            var db = new FlexDB(this);
+            return db.Import();
+        }
+
+        /// <summary>
+        /// Returns a snapshot of all meters currently known to the radio.
+        /// Sprint 20: Exposes FlexLib's meter list for the profile report.
+        /// </summary>
+        public List<Flex.Smoothlake.FlexLib.Meter> GetAllMeters()
+        {
+            if (theRadio == null) return new List<Flex.Smoothlake.FlexLib.Meter>();
+            return theRadio.GetAllMeters();
         }
 
         /// <summary>

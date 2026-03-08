@@ -39,6 +39,9 @@ Namespace My
             ' Initialize NAudio-based earcon player for UI sound effects.
             JJFlexWpf.EarconPlayer.Initialize()
 
+            ' Purge connection profiles older than 7 days.
+            Radios.ConnectionProfiler.PurgeOldProfiles()
+
             ' ── Create the ShellForm and get the WPF content ───────────────
             ' We create ShellForm here (before OnCreateMainForm) so we can wire
             ' callbacks. OnCreateMainForm will use the same instance.
@@ -90,6 +93,9 @@ Namespace My
                 kt?.rtn()
             End Sub
 
+            ' Wire audio device callback for NativeMenuBar Audio menu.
+            WpfMainWindow.AudioSetupCallback = AddressOf GetNewAudioDevices
+
             ' Wire key/command callbacks for WPF dialogs (Sprint 16 Track C).
             WpfMainWindow.GetKeyActionsCallback = Function()
                 Dim result = New List(Of JJFlexWpf.Dialogs.KeyActionItem)
@@ -131,47 +137,55 @@ Namespace My
                     })
                 Next
                 JJTrace.Tracing.TraceLine($"CommandFinder: {result.Count} key commands loaded", TraceLevel.Info)
-                ' Add informational items for field-specific and filter keys
-                Dim infoItems = New List(Of JJFlexWpf.Dialogs.CommandFinderItem) From {
-                    New JJFlexWpf.Dialogs.CommandFinderItem With {
-                        .Description = "Adjust filter edges (on Freq field)", .KeyDisplay = "[ ]",
-                        .Scope = "Radio", .Group = "Filter", .Keywords = New String() {"filter", "narrow", "widen", "edge"}},
-                    New JJFlexWpf.Dialogs.CommandFinderItem With {
-                        .Description = "Slide passband left/right", .KeyDisplay = "Shift+[ ]",
-                        .Scope = "Radio", .Group = "Filter", .Keywords = New String() {"filter", "slide", "passband", "shift"}},
-                    New JJFlexWpf.Dialogs.CommandFinderItem With {
-                        .Description = "Squeeze or pull filter edges", .KeyDisplay = "Ctrl+[ ]",
-                        .Scope = "Radio", .Group = "Filter", .Keywords = New String() {"filter", "squeeze", "pull", "narrow", "widen"}},
-                    New JJFlexWpf.Dialogs.CommandFinderItem With {
-                        .Description = "Cycle filter presets", .KeyDisplay = "Alt+[ ]",
-                        .Scope = "Radio", .Group = "Filter", .Keywords = New String() {"filter", "preset", "cycle"}},
-                    New JJFlexWpf.Dialogs.CommandFinderItem With {
-                        .Description = "Double-tap to adjust single filter edge", .KeyDisplay = "[[ or ]]",
-                        .Scope = "Radio", .Group = "Filter", .Keywords = New String() {"filter", "edge", "adjust", "lower", "upper"}},
-                    New JJFlexWpf.Dialogs.CommandFinderItem With {
-                        .Description = "Toggle mute (on Slice field)", .KeyDisplay = "M",
-                        .Scope = "Radio", .Group = "FreqOut", .Keywords = New String() {"mute", "unmute", "audio", "slice"}},
-                    New JJFlexWpf.Dialogs.CommandFinderItem With {
-                        .Description = "Set transmit slice (on Slice field)", .KeyDisplay = "T",
-                        .Scope = "Radio", .Group = "FreqOut", .Keywords = New String() {"transmit", "tx", "slice"}},
-                    New JJFlexWpf.Dialogs.CommandFinderItem With {
-                        .Description = "Enter frequency digits (on Freq field)", .KeyDisplay = "0-9",
-                        .Scope = "Radio", .Group = "FreqOut", .Keywords = New String() {"frequency", "enter", "type", "digits"}},
-                    New JJFlexWpf.Dialogs.CommandFinderItem With {
-                        .Description = "Round to nearest kHz", .KeyDisplay = "K",
-                        .Scope = "Radio", .Group = "FreqOut", .Keywords = New String() {"frequency", "round", "kilohertz", "khz"}},
-                    New JJFlexWpf.Dialogs.CommandFinderItem With {
-                        .Description = "Type exact value (on value field)", .KeyDisplay = "Enter",
-                        .Scope = "Radio", .Group = "ValueField", .Keywords = New String() {"value", "enter", "type", "exact", "number"}},
-                    New JJFlexWpf.Dialogs.CommandFinderItem With {
-                        .Description = "Large step adjust (on value field)", .KeyDisplay = "PgUp / PgDn",
-                        .Scope = "Radio", .Group = "ValueField", .Keywords = New String() {"value", "page", "large", "step"}},
-                    New JJFlexWpf.Dialogs.CommandFinderItem With {
-                        .Description = "Set to min or max (on value field)", .KeyDisplay = "Home / End",
-                        .Scope = "Radio", .Group = "ValueField", .Keywords = New String() {"value", "minimum", "maximum", "home", "end"}}
-                }
-                result.AddRange(infoItems)
-                JJTrace.Tracing.TraceLine($"CommandFinder: {result.Count} total items after info items added", TraceLevel.Info)
+                ' Add informational items for field-specific and filter keys.
+                result.Add(New JJFlexWpf.Dialogs.CommandFinderItem With {
+                    .Description = "Adjust filter edges (on Freq field)", .KeyDisplay = "[ ]",
+                    .Scope = "Radio", .Group = "Filter",
+                    .Keywords = New String() {"filter", "narrow", "widen", "edge"}})
+                result.Add(New JJFlexWpf.Dialogs.CommandFinderItem With {
+                    .Description = "Slide passband left/right", .KeyDisplay = "Shift+[ ]",
+                    .Scope = "Radio", .Group = "Filter",
+                    .Keywords = New String() {"filter", "slide", "passband", "shift"}})
+                result.Add(New JJFlexWpf.Dialogs.CommandFinderItem With {
+                    .Description = "Squeeze or pull filter edges", .KeyDisplay = "Ctrl+[ ]",
+                    .Scope = "Radio", .Group = "Filter",
+                    .Keywords = New String() {"filter", "squeeze", "pull", "narrow", "widen"}})
+                result.Add(New JJFlexWpf.Dialogs.CommandFinderItem With {
+                    .Description = "Cycle filter presets", .KeyDisplay = "Alt+[ ]",
+                    .Scope = "Radio", .Group = "Filter",
+                    .Keywords = New String() {"filter", "preset", "cycle"}})
+                result.Add(New JJFlexWpf.Dialogs.CommandFinderItem With {
+                    .Description = "Double-tap to adjust single filter edge", .KeyDisplay = "[[ or ]]",
+                    .Scope = "Radio", .Group = "Filter",
+                    .Keywords = New String() {"filter", "edge", "adjust", "lower", "upper"}})
+                result.Add(New JJFlexWpf.Dialogs.CommandFinderItem With {
+                    .Description = "Toggle mute (on Slice field)", .KeyDisplay = "M",
+                    .Scope = "Radio", .Group = "FreqOut",
+                    .Keywords = New String() {"mute", "unmute", "audio", "slice"}})
+                result.Add(New JJFlexWpf.Dialogs.CommandFinderItem With {
+                    .Description = "Set transmit slice (on Slice field)", .KeyDisplay = "T",
+                    .Scope = "Radio", .Group = "FreqOut",
+                    .Keywords = New String() {"transmit", "tx", "slice"}})
+                result.Add(New JJFlexWpf.Dialogs.CommandFinderItem With {
+                    .Description = "Enter frequency digits (on Freq field)", .KeyDisplay = "0-9",
+                    .Scope = "Radio", .Group = "FreqOut",
+                    .Keywords = New String() {"frequency", "enter", "type", "digits"}})
+                result.Add(New JJFlexWpf.Dialogs.CommandFinderItem With {
+                    .Description = "Round to nearest kHz", .KeyDisplay = "K",
+                    .Scope = "Radio", .Group = "FreqOut",
+                    .Keywords = New String() {"frequency", "round", "kilohertz", "khz"}})
+                result.Add(New JJFlexWpf.Dialogs.CommandFinderItem With {
+                    .Description = "Type exact value (on value field)", .KeyDisplay = "Enter",
+                    .Scope = "Radio", .Group = "ValueField",
+                    .Keywords = New String() {"value", "enter", "type", "exact", "number"}})
+                result.Add(New JJFlexWpf.Dialogs.CommandFinderItem With {
+                    .Description = "Large step adjust (on value field)", .KeyDisplay = "PgUp / PgDn",
+                    .Scope = "Radio", .Group = "ValueField",
+                    .Keywords = New String() {"value", "page", "large", "step"}})
+                result.Add(New JJFlexWpf.Dialogs.CommandFinderItem With {
+                    .Description = "Set to min or max (on value field)", .KeyDisplay = "Home / End",
+                    .Scope = "Radio", .Group = "ValueField",
+                    .Keywords = New String() {"value", "minimum", "maximum", "home", "end"}})
                 Return result
             End Function
 

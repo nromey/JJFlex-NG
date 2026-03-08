@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using JJTrace;
@@ -39,6 +40,38 @@ namespace Radios
         public ConnectionProfiler()
         {
             _profileId = _startTime.ToString("yyyyMMdd-HHmmss-fff");
+        }
+
+        /// <summary>
+        /// Deletes profile and report files older than 7 days.
+        /// Call once at app startup.
+        /// </summary>
+        public static void PurgeOldProfiles(int keepDays = 7)
+        {
+            try
+            {
+                if (!Directory.Exists(ProfileFolder)) return;
+
+                var cutoff = DateTime.UtcNow.AddDays(-keepDays);
+                int deleted = 0;
+
+                foreach (var file in Directory.GetFiles(ProfileFolder, "*.json")
+                    .Concat(Directory.GetFiles(ProfileFolder, "*.txt")))
+                {
+                    if (File.GetLastWriteTimeUtc(file) < cutoff)
+                    {
+                        File.Delete(file);
+                        deleted++;
+                    }
+                }
+
+                if (deleted > 0)
+                    Tracing.TraceLine($"ConnectionProfiler: purged {deleted} files older than {keepDays} days", TraceLevel.Info);
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine($"ConnectionProfiler.PurgeOldProfiles: {ex.Message}", TraceLevel.Error);
+            }
         }
 
         /// <summary>

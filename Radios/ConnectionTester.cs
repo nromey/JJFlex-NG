@@ -2,15 +2,28 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Threading;
+using Flex.Smoothlake.FlexLib;
 using JJTrace;
 
 namespace Radios
 {
     /// <summary>
+    /// Connection test modes — each follows a different code path through FlexBase.
+    /// </summary>
+    public enum ConnectMode
+    {
+        /// <summary>Existing path: apiInit → setupRemote → wait → Connect. The retry path.</summary>
+        ReconnectRemote,
+        /// <summary>Auto-connect path: TryAutoConnect (proactive token refresh, fresh SmartLink session).</summary>
+        AutoConnect,
+        /// <summary>Manual connect simulation: RemoteRadios → wait → user delay → Connect. The dialog path.</summary>
+        ManualSimulation
+    }
+
+    /// <summary>
     /// Automated SmartLink connection test engine.
     /// Runs N connect/start/disconnect cycles, recording profiler data for each.
-    /// Each test follows the exact same connect path as a manual connection —
-    /// ReconnectRemote() with ShowAccountSelector for remote, LocalRadios()+Connect() for local.
+    /// Supports three modes to A/B test different connection paths.
     /// Thread-safe: designed to run on a background thread with progress callbacks on any thread.
     /// </summary>
     public class ConnectionTester
@@ -21,6 +34,15 @@ namespace Radios
         public string RadioName { get; set; }
         public bool LowBandwidth { get; set; }
         public bool IsRemote { get; set; }
+
+        /// <summary>Connection mode — which code path to exercise.</summary>
+        public ConnectMode Mode { get; set; } = ConnectMode.ReconnectRemote;
+
+        /// <summary>Simulated user delay in ManualSimulation mode (ms). Default 3s.</summary>
+        public int ManualDelayMs { get; set; } = 3000;
+
+        /// <summary>SmartLink account email for AutoConnect mode.</summary>
+        public string CurrentSmartLinkEmail { get; set; } = "";
 
         /// <summary>
         /// OpenParms to create FlexBase instances. Must be set by caller.
@@ -48,17 +70,17 @@ namespace Radios
 
         /// <summary>
         /// Runs the test loop. Call from a background thread.
-        /// Each test goes through the full connect path, same as a manual connection.
         /// </summary>
         public TestSummary Run()
         {
-            Tracing.TraceLine($"ConnectionTester: BEGIN {TestCount} tests on {RadioName} ({RadioSerial}), delay={DelayBetweenTestsMs}ms", TraceLevel.Info);
+            Tracing.TraceLine($"ConnectionTester: BEGIN {TestCount} tests on {RadioName} ({RadioSerial}), mode={Mode}, delay={DelayBetweenTestsMs}ms", TraceLevel.Info);
 
             var summary = new TestSummary
             {
                 RadioSerial = RadioSerial,
                 RadioName = RadioName,
                 TestCount = TestCount,
+                Mode = Mode,
                 StartTime = DateTime.UtcNow,
                 Results = new List<TestResult>()
             };
@@ -84,7 +106,7 @@ namespace Radios
             summary.EndTime = DateTime.UtcNow;
             summary.TotalDurationMs = (long)(summary.EndTime - summary.StartTime).TotalMilliseconds;
 
-            Tracing.TraceLine($"ConnectionTester: END {summary.Passed}/{summary.TestCount} passed, {summary.Failed} failed", TraceLevel.Info);
+            Tracing.TraceLine($"ConnectionTester: END {summary.Passed}/{summary.TestCount} passed, {summary.Failed} failed, mode={Mode}", TraceLevel.Info);
 
             // Generate and save report
             var reportPath = ConnectionTestReport.GenerateAndSave(summary);
@@ -97,7 +119,7 @@ namespace Radios
         private TestResult RunSingleTest(int testNum)
         {
             var sw = Stopwatch.StartNew();
-            var result = new TestResult { TestNumber = testNum };
+            var result = new TestResult { TestNumber = testNum, Mode = Mode };
             FlexBase rig = null;
 
             try
@@ -108,7 +130,8 @@ namespace Radios
                 {
                     { "testNumber", testNum },
                     { "serial", RadioSerial },
-                    { "radioName", RadioName }
+                    { "radioName", RadioName },
+                    { "mode", Mode.ToString() }
                 });
 
                 PhaseChanged?.Invoke(testNum, "Creating radio instance");
@@ -116,40 +139,44 @@ namespace Radios
                 rig.SuppressSpeech = true;
                 rig.ShowAccountSelector = AccountSelector;
 
+                bool connected = false;
+
                 if (IsRemote)
                 {
-                    // Same path as manual SmartLink connect
-                    PhaseChanged?.Invoke(testNum, "Connecting via SmartLink");
-                    bool connected = rig.ReconnectRemote(RadioSerial, LowBandwidth);
-
-                    if (!connected)
+                    switch (Mode)
                     {
-                        result.Success = false;
-                        result.Reason = "ReconnectRemote failed";
-                        result.DurationMs = sw.ElapsedMilliseconds;
-                        result.ProfilePath = ConnectionProfiler.Current?.RecordAndSave("test_failed_connect");
-                        return result;
+                        case ConnectMode.ReconnectRemote:
+                            connected = RunReconnectRemote(rig, testNum);
+                            break;
+
+                        case ConnectMode.AutoConnect:
+                            connected = RunAutoConnect(rig, testNum);
+                            break;
+
+                        case ConnectMode.ManualSimulation:
+                            connected = RunManualSimulation(rig, testNum);
+                            break;
                     }
                 }
                 else
                 {
-                    // Same path as manual local connect
+                    // Local connection — same for all modes
                     PhaseChanged?.Invoke(testNum, "Discovering local radios");
                     rig.LocalRadios();
 
-                    // Wait for discovery, then connect
                     Thread.Sleep(3000);
 
                     PhaseChanged?.Invoke(testNum, "Connecting to radio");
-                    bool connected = rig.Connect(RadioSerial, LowBandwidth);
-                    if (!connected)
-                    {
-                        result.Success = false;
-                        result.Reason = "Connect failed (local)";
-                        result.DurationMs = sw.ElapsedMilliseconds;
-                        result.ProfilePath = ConnectionProfiler.Current?.RecordAndSave("test_failed_connect");
-                        return result;
-                    }
+                    connected = rig.Connect(RadioSerial, LowBandwidth);
+                }
+
+                if (!connected)
+                {
+                    result.Success = false;
+                    result.Reason = rig.LastStartFailureReason ?? $"{Mode} connect failed";
+                    result.DurationMs = sw.ElapsedMilliseconds;
+                    result.ProfilePath = ConnectionProfiler.Current?.RecordAndSave("test_failed_connect");
+                    return result;
                 }
 
                 // Start — this is where the guiClient lifecycle happens
@@ -196,6 +223,98 @@ namespace Radios
             return result;
         }
 
+        /// <summary>Existing path: apiInit → setupRemote → wait → Connect.</summary>
+        private bool RunReconnectRemote(FlexBase rig, int testNum)
+        {
+            PhaseChanged?.Invoke(testNum, "Connecting via SmartLink (ReconnectRemote)");
+            return rig.ReconnectRemote(RadioSerial, LowBandwidth);
+        }
+
+        /// <summary>Auto-connect path: TryAutoConnect with proactive token refresh.</summary>
+        private bool RunAutoConnect(FlexBase rig, int testNum)
+        {
+            PhaseChanged?.Invoke(testNum, "Auto-connecting (TryAutoConnect)");
+
+            var autoConfig = new AutoConnectConfig
+            {
+                RadioSerial = RadioSerial,
+                RadioName = RadioName,
+                IsRemote = true,
+                LowBandwidth = LowBandwidth,
+                Enabled = true,
+                SmartLinkAccountEmail = CurrentSmartLinkEmail
+            };
+
+            ConnectionProfiler.Current?.RecordEvent("auto_connect_begin");
+            bool ok = rig.TryAutoConnect(autoConfig, 15000);
+            ConnectionProfiler.Current?.RecordEvent("auto_connect_end", new Dictionary<string, object>
+            {
+                { "success", ok }
+            });
+
+            return ok;
+        }
+
+        /// <summary>
+        /// Manual connect simulation: RemoteRadios → wait for discovery → simulated user delay → Connect.
+        /// This mirrors what happens when a user clicks SmartLink, browses the list, and presses Enter.
+        /// </summary>
+        private bool RunManualSimulation(FlexBase rig, int testNum)
+        {
+            // Phase 1: Discovery (same as clicking SmartLink button)
+            PhaseChanged?.Invoke(testNum, "Discovering radios (RemoteRadios)");
+            ConnectionProfiler.Current?.RecordEvent("manual_discovery_begin");
+            rig.RemoteRadios();
+
+            // Phase 2: Wait for radio to appear in the API's radio list
+            PhaseChanged?.Invoke(testNum, "Waiting for radio in discovery list");
+            var discoverySw = Stopwatch.StartNew();
+            Radio foundRadio = null;
+
+            while (discoverySw.ElapsedMilliseconds < 15000 && !_cancelled)
+            {
+                foundRadio = rig.FindRadioBySerial(RadioSerial);
+                if (foundRadio != null) break;
+                Thread.Sleep(100);
+            }
+
+            if (foundRadio == null)
+            {
+                ConnectionProfiler.Current?.RecordEvent("manual_discovery_timeout", new Dictionary<string, object>
+                {
+                    { "waitedMs", discoverySw.ElapsedMilliseconds }
+                });
+                return false;
+            }
+
+            ConnectionProfiler.Current?.RecordEvent("manual_radio_found", new Dictionary<string, object>
+            {
+                { "discoveryMs", discoverySw.ElapsedMilliseconds },
+                { "serial", foundRadio.Serial },
+                { "nickname", foundRadio.Nickname }
+            });
+
+            // Phase 3: Simulated user delay (browsing the radio list, reading names)
+            PhaseChanged?.Invoke(testNum, $"Simulating {ManualDelayMs / 1000}s user delay");
+            ConnectionProfiler.Current?.RecordEvent("manual_user_delay_begin", new Dictionary<string, object>
+            {
+                { "delayMs", ManualDelayMs }
+            });
+            Thread.Sleep(ManualDelayMs);
+            ConnectionProfiler.Current?.RecordEvent("manual_user_delay_end");
+
+            // Phase 4: Connect (same as pressing Enter in dialog → wpfSelectorProc calls Connect)
+            PhaseChanged?.Invoke(testNum, "Connecting (Connect)");
+            ConnectionProfiler.Current?.RecordEvent("manual_connect_begin");
+            bool ok = rig.Connect(RadioSerial, LowBandwidth);
+            ConnectionProfiler.Current?.RecordEvent("manual_connect_end", new Dictionary<string, object>
+            {
+                { "success", ok }
+            });
+
+            return ok;
+        }
+
         public class TestResult
         {
             public int TestNumber { get; set; }
@@ -203,6 +322,7 @@ namespace Radios
             public string Reason { get; set; }
             public long DurationMs { get; set; }
             public string ProfilePath { get; set; }
+            public ConnectMode Mode { get; set; }
         }
 
         public class TestSummary
@@ -217,6 +337,7 @@ namespace Radios
             public long TotalDurationMs { get; set; }
             public List<TestResult> Results { get; set; }
             public string ReportPath { get; set; }
+            public ConnectMode Mode { get; set; }
         }
     }
 }

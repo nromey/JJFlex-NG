@@ -69,6 +69,8 @@ public class NativeMenuBar : IDisposable
     private readonly Dictionary<int, Action> _handlers = new();
     // Items with dynamic checkmarks: menu item ID → (parent HMENU, state getter)
     private readonly List<(IntPtr popup, int id, Func<bool> stateGetter)> _checkItems = new();
+    // Top-level popup handle → menu name (for screen reader announcement on open)
+    private readonly Dictionary<IntPtr, string> _popupNames = new();
     private int _nextId;
 
     // Feature gate state (persisted across rebuilds)
@@ -113,6 +115,7 @@ public class NativeMenuBar : IDisposable
         // Reset handler tracking for fresh build
         _handlers.Clear();
         _checkItems.Clear();
+        _popupNames.Clear();
         _nextId = 1000;
 
         // Build new menu bar for this mode
@@ -165,8 +168,12 @@ public class NativeMenuBar : IDisposable
     public void HandleInitMenuPopup(IntPtr wParam)
     {
         IntPtr popup = wParam;
+
+        // Only update checkmarks that belong to this specific popup —
+        // updating ALL checkmarks on every popup caused NVDA to stutter.
         foreach (var (itemPopup, id, stateGetter) in _checkItems)
         {
+            if (itemPopup != popup) continue;
             try
             {
                 bool isOn = stateGetter();
@@ -464,42 +471,64 @@ public class NativeMenuBar : IDisposable
 
     /// <summary>
     /// Build audio control items (shared between Classic Operations and Modern Audio/Slice menus).
+    /// Radio-dependent items are guarded; non-radio items (earcon device) are always available.
     /// </summary>
     private void BuildAudioItems(IntPtr parent)
     {
-        if (Rig == null) return;
-
         const int gainStep = 10;
 
-        AddChecked(parent, "Mute/Unmute Slice", () =>
+        if (Rig != null)
         {
-            if (Rig == null) { SpeakNoRadio(); return; }
-            bool newMute = !Rig.SliceMute;
-            Rig.SliceMute = newMute;
-            SpeakAfterMenuClose(newMute ? "Muted" : "Unmuted");
-        }, () => Rig?.SliceMute == true);
+            AddChecked(parent, "Mute/Unmute Slice", () =>
+            {
+                if (Rig == null) { SpeakNoRadio(); return; }
+                bool newMute = !Rig.SliceMute;
+                Rig.SliceMute = newMute;
+                SpeakAfterMenuClose(newMute ? "Muted" : "Unmuted");
+            }, () => Rig?.SliceMute == true);
 
-        AddWired(parent, "Audio Gain Up", () =>
-            AdjustValue("Audio Gain", () => Rig.AudioGain, v => Rig.AudioGain = v, gainStep, 0, 100));
-        AddWired(parent, "Audio Gain Down", () =>
-            AdjustValue("Audio Gain", () => Rig.AudioGain, v => Rig.AudioGain = v, -gainStep, 0, 100));
+            AddChecked(parent, "PC Audio On/Off", () =>
+            {
+                if (Rig == null) { SpeakNoRadio(); return; }
+                Rig.PCAudio = !Rig.PCAudio;
+                SpeakAfterMenuClose(Rig.PCAudio ? "PC audio on" : "PC audio off");
+            }, () => Rig?.PCAudio == true);
 
-        AddWired(parent, "Pan Left", () =>
-            AdjustValue("Pan", () => Rig.AudioPan, v => Rig.AudioPan = v, -10, 0, 100));
-        AddWired(parent, "Pan Right", () =>
-            AdjustValue("Pan", () => Rig.AudioPan, v => Rig.AudioPan = v, 10, 0, 100));
+            AddSep(parent);
 
-        AddSep(parent);
+            AddWired(parent, "Audio Gain Up", () =>
+                AdjustValue("Audio Gain", () => Rig.AudioGain, v => Rig.AudioGain = v, gainStep, 0, 100));
+            AddWired(parent, "Audio Gain Down", () =>
+                AdjustValue("Audio Gain", () => Rig.AudioGain, v => Rig.AudioGain = v, -gainStep, 0, 100));
 
-        AddWired(parent, "Headphone Level Up", () =>
-            AdjustValue("Headphone", () => Rig.HeadphoneGain, v => Rig.HeadphoneGain = v, gainStep, 0, 100));
-        AddWired(parent, "Headphone Level Down", () =>
-            AdjustValue("Headphone", () => Rig.HeadphoneGain, v => Rig.HeadphoneGain = v, -gainStep, 0, 100));
+            AddWired(parent, "Pan Left", () =>
+                AdjustValue("Pan", () => Rig.AudioPan, v => Rig.AudioPan = v, -10, 0, 100));
+            AddWired(parent, "Pan Right", () =>
+                AdjustValue("Pan", () => Rig.AudioPan, v => Rig.AudioPan = v, 10, 0, 100));
 
-        AddWired(parent, "Line Out Level Up", () =>
-            AdjustValue("Line Out", () => Rig.LineoutGain, v => Rig.LineoutGain = v, gainStep, 0, 100));
-        AddWired(parent, "Line Out Level Down", () =>
-            AdjustValue("Line Out", () => Rig.LineoutGain, v => Rig.LineoutGain = v, -gainStep, 0, 100));
+            AddSep(parent);
+
+            AddWired(parent, "Headphone Level Up", () =>
+                AdjustValue("Headphone", () => Rig.HeadphoneGain, v => Rig.HeadphoneGain = v, gainStep, 0, 100));
+            AddWired(parent, "Headphone Level Down", () =>
+                AdjustValue("Headphone", () => Rig.HeadphoneGain, v => Rig.HeadphoneGain = v, -gainStep, 0, 100));
+
+            AddWired(parent, "Line Out Level Up", () =>
+                AdjustValue("Line Out", () => Rig.LineoutGain, v => Rig.LineoutGain = v, gainStep, 0, 100));
+            AddWired(parent, "Line Out Level Down", () =>
+                AdjustValue("Line Out", () => Rig.LineoutGain, v => Rig.LineoutGain = v, -gainStep, 0, 100));
+
+            AddSep(parent);
+        }
+
+        // Device setup — always available (no radio required)
+        AddWired(parent, "Radio Audio Device", () =>
+            _window.AudioSetupCallback?.Invoke());
+        AddWired(parent, "Earcon Scratchpad", () =>
+        {
+            var dlg = new Dialogs.EarconScratchpadDialog();
+            dlg.ShowDialog();
+        });
     }
 
     /// <summary>
@@ -974,14 +1003,7 @@ public class NativeMenuBar : IDisposable
 
         // === Audio ===
         var audio = AddPopup(bar, "&Audio");
-        if (Rig != null)
-        {
-            BuildAudioItems(audio);
-        }
-        else
-        {
-            AddWired(audio, "Connect a radio first", SpeakNoRadio);
-        }
+        BuildAudioItems(audio);
 
         // === Tools ===
         var tools = AddPopup(bar, "&Tools");
@@ -1014,6 +1036,21 @@ public class NativeMenuBar : IDisposable
             var path = ProfileReporter.SaveReport(report);
             SpeakAfterMenuClose($"Profile report saved to {path}");
             System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(path) { UseShellExecute = true });
+        });
+        AddSep(tools);
+        AddWired(tools, "Export Profiles", () =>
+        {
+            if (Rig == null) { SpeakNoRadio(); return; }
+            bool success = Rig.ExportProfileDatabase();
+            if (!success)
+                SpeakAfterMenuClose("Profile export cancelled or failed");
+        });
+        AddWired(tools, "Import Profiles", () =>
+        {
+            if (Rig == null) { SpeakNoRadio(); return; }
+            bool success = Rig.ImportProfileDatabase();
+            if (!success)
+                SpeakAfterMenuClose("Profile import cancelled or failed");
         });
         AddSep(tools);
         AddWired(tools, "View Test Results", () => _window.ShowTestResultsCallback?.Invoke());
@@ -1162,6 +1199,8 @@ public class NativeMenuBar : IDisposable
     {
         var popup = CreatePopupMenu();
         AppendMenuW(menuBar, MF_POPUP, (UIntPtr)popup, text);
+        // Track name for screen reader announcement (strip & accelerator prefix)
+        _popupNames[popup] = text.Replace("&", "");
         return popup;
     }
 
@@ -1221,8 +1260,11 @@ public class NativeMenuBar : IDisposable
     {
         _window.Dispatcher.BeginInvoke(async () =>
         {
-            await System.Threading.Tasks.Task.Delay(350);
-            Radios.ScreenReaderOutput.Speak(message, interrupt: true);
+            // 500ms: NVDA needs time to finish its own menu-close + focus-restoration
+            // announcements. At 350ms NVDA was still mid-speech, causing stutter.
+            // Non-interrupt: queue AFTER NVDA's focus announcement instead of fighting it.
+            await System.Threading.Tasks.Task.Delay(500);
+            Radios.ScreenReaderOutput.Speak(message, interrupt: false);
         });
     }
 

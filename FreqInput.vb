@@ -7,8 +7,17 @@
 
     Private Sub Button1_Click(ByVal sender As System.Object, ByVal e As System.EventArgs) Handles OKButton.Click
         DialogResult = Nothing
+        Dim raw = FreqBox.Text.Trim()
+
+        ' Pass through special terms (easter eggs) without frequency validation
+        If raw.Equals("cqtest", StringComparison.OrdinalIgnoreCase) Then
+            DialogResult = DialogResult.OK
+            Buffer = raw
+            Return
+        End If
+
         Dim str As String
-        str = FormatFreqForRadio(FreqBox.Text)
+        str = FormatFreqForRadio(raw)
         If str Is Nothing Then
             MsgBox("Frequency" & BadFreqMSG)
         Else

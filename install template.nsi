@@ -73,6 +73,9 @@ Section "MYPGM (required)"
   
   ; Put files there - recurse all built outputs
   File /r /x "*.pdb" /x "runPgm.bat" "MYOUTDIR\*.*"
+
+  ; Include changelog
+  File "docs\CHANGELOG.md"
   
   ; Write the installation path into the registry
   WriteRegStr HKLM "SOFTWARE\MYPGM" "Install_Dir" "$INSTDIR"

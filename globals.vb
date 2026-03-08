@@ -1471,6 +1471,7 @@ Module globals
     ''' Handler for FlexBase.RadioFound events, dispatches to the WPF dialog.
     ''' </summary>
     Private _wpfRadioFoundCallback As Action(Of JJFlexWpf.Dialogs.RadioListItem)
+    Private _connectingForm As ConnectingForm
 
     Private Sub wpfRadioFoundHandler(sender As Object, e As FlexBase.RigData)
         Tracing.TraceLine("wpfRadioFoundHandler:" & e.Serial, TraceLevel.Info)
@@ -1561,7 +1562,12 @@ Module globals
             .IsInitialBringup = initialCall,
             .GlobalAutoConnectEnabled = autoConfig.GlobalAutoConnectEnabled,
             .CurrentSmartLinkEmail = RigControl.CurrentSmartLinkEmail,
-            .OpenParms = OpenParms
+            .OpenParms = OpenParms,
+            .ShowConnecting = Function(msg)
+                                  Dim frm = New ConnectingForm(msg)
+                                  frm.Show()
+                                  Return Sub() frm.CloseForm()
+                              End Function
         }
 
         ' Show the WPF selector dialog
@@ -1570,23 +1576,46 @@ Module globals
 
         If wpfResult = True Then
             radioSelected = DialogResult.OK
+
+            ' Start profiling the manual connect path
+            Radios.ConnectionProfiler.Current = New Radios.ConnectionProfiler()
+            Radios.ConnectionProfiler.Current.RecordEvent("dialog_closed")
+
             ' Set CurrentRig from the dialog's selected radio data
             Dim rigData = TryCast(dialog.SelectedRigData, FlexBase.RigData)
             If rigData IsNot Nothing Then
                 CurrentRig = rigData
             End If
 
-            ' Connect NOW — dialog is closed, minimizes race window between Connect() and Start()
+            ' Show connecting window IMMEDIATELY — the RigSelectorDialog just closed
+            ' and there's no JJFlex window visible. Without this, focus drops to Explorer
+            ' during Connect() which can take several seconds for SmartLink.
+            Dim radioName = If(CurrentRig?.Name, "radio")
+            _connectingForm = New ConnectingForm($"Connecting to {radioName}...")
+            _connectingForm.Show()
+            Radios.ConnectionProfiler.Current?.RecordEvent("connecting_form_shown")
+
+            ' Use ReconnectRemote instead of Connect — establishes a fresh SmartLink
+            ' session before connecting. The existing session from RemoteRadios() has a
+            ' stale GUIClient lifecycle that causes client removal without re-add ~1.2s
+            ' into Start(), triggering early abort. A fresh session doesn't have this issue.
+            ' Adds ~2-3s for re-auth but eliminates the 8s fail + 9s retry cycle entirely.
             Dim serial = dialog.SelectedSerial
             Dim lowBW = dialog.SelectedLowBW
-            Tracing.TraceLine($"wpfSelectorProc: connecting {serial} lowBW={lowBW}", TraceLevel.Info)
-            If Not RigControl.Connect(serial, lowBW) Then
+            Tracing.TraceLine($"wpfSelectorProc: reconnecting {serial} lowBW={lowBW}", TraceLevel.Info)
+            Radios.ConnectionProfiler.Current?.RecordEvent("connect_call_begin")
+            If Not RigControl.ReconnectRemote(serial, lowBW) Then
+                _connectingForm?.CloseForm()
+                _connectingForm = Nothing
                 Radios.ScreenReaderOutput.Speak("Connection failed", True)
                 radioSelected = DialogResult.Cancel
                 RigControl.Dispose()
                 RigControl = Nothing
                 Return
             End If
+            Radios.ConnectionProfiler.Current?.RecordEvent("connect_call_end", New Dictionary(Of String, Object) From {
+                {"success", True}
+            })
         Else
             radioSelected = DialogResult.Cancel
             RigControl.Dispose()
@@ -1638,6 +1667,7 @@ Module globals
 
 RadioConnected:
             If rv Then
+                Radios.ConnectionProfiler.Current?.RecordEvent("wiring_begin")
                 WpfMainWindow.RigControl = RigControl
                 WpfMainWindow.OpenParms = OpenParms
                 WpfMainWindow.CloseRadioCallback = AddressOf CloseTheRadio
@@ -1655,14 +1685,29 @@ RadioConnected:
                 If AppShellForm IsNot Nothing AndAlso Not AppShellForm.Visible Then
                     AppShellForm.Show()
                     AppShellForm.Activate()
+                    Radios.ConnectionProfiler.Current?.RecordEvent("shellform_shown")
                     Threading.Thread.Sleep(500) ' Let window settle before any error dialogs
                 End If
 
-                ' Create connection profiler for this attempt
-                Radios.ConnectionProfiler.Current = New Radios.ConnectionProfiler()
+                ' ConnectingForm is already up from wpfSelectorProc or TryAutoConnect.
+                ' Parent it to AppShellForm now that it's visible.
+                If _connectingForm IsNot Nothing AndAlso AppShellForm IsNot Nothing Then
+                    _connectingForm.Owner = AppShellForm
+                End If
 
+                ' Create connection profiler if one doesn't already exist
+                ' (wpfSelectorProc creates one for manual connect; auto-connect may not)
+                If Radios.ConnectionProfiler.Current Is Nothing Then
+                    Radios.ConnectionProfiler.Current = New Radios.ConnectionProfiler()
+                End If
+
+                Radios.ConnectionProfiler.Current?.RecordEvent("start_call_begin")
                 Tracing.TraceLine("OpenTheRadio:rig is starting", TraceLevel.Info)
                 rv = RigControl.Start()
+                Radios.ConnectionProfiler.Current?.RecordEvent("start_call_end", New Dictionary(Of String, Object) From {
+                    {"success", rv},
+                    {"failureReason", If(RigControl?.LastStartFailureReason, "")}
+                })
 
                 ' If Start() failed because SmartLink connection was too slow or dropped
                 ' during the guiClient re-add cycle, retry with a fresh connection.
@@ -1753,6 +1798,10 @@ RadioConnected:
                     radioSelected = DialogResult.Abort
                 End If
             End If
+
+            ' Close the connecting window
+            _connectingForm?.CloseForm()
+            _connectingForm = Nothing
 
             If rv Then
                 WpfMainWindow.OnRadioStarted()

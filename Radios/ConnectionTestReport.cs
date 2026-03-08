@@ -47,6 +47,7 @@ namespace Radios
 
             sb.AppendLine($"=== Connection Test Report — {localStart:yyyy-MM-dd HH:mm} ===");
             sb.AppendLine($"Radio: {summary.RadioName} ({summary.RadioSerial})");
+            sb.AppendLine($"Mode: {summary.Mode}");
             sb.AppendLine($"Tests: {summary.TestCount} | Passed: {summary.Passed} ({Pct(summary.Passed, summary.TestCount)}) | Failed: {summary.Failed} ({Pct(summary.Failed, summary.TestCount)})");
             sb.AppendLine($"Total duration: {FormatDuration(summary.TotalDurationMs)}");
             sb.AppendLine();
@@ -89,7 +90,7 @@ namespace Radios
             {
                 string status = r.Success ? "PASS" : "FAIL";
                 string time = $"{r.DurationMs / 1000.0:F1}s";
-                sb.AppendLine($"#{r.TestNumber:D2}  {status}  {time}  {r.Reason}");
+                sb.AppendLine($"#{r.TestNumber:D2}  {status}  {time}  [{r.Mode}]  {r.Reason}");
             }
             sb.AppendLine();
 
@@ -299,6 +300,20 @@ namespace Radios
                         data.TotalMs = ms;
                         data.Success = true;
                         break;
+                    case "start_begin":
+                        data.StartBeginMs = ms;
+                        break;
+                    case "start_early_abort":
+                    case "start_grace_abort":
+                        data.AbortType = name;
+                        data.AbortMs = ms;
+                        break;
+                    case "flexlib_connect_begin":
+                        data.FlexLibConnectBeginMs = ms;
+                        break;
+                    case "flexlib_connect_end":
+                        data.FlexLibConnectEndMs = ms;
+                        break;
                     case "start_connection_lost":
                     case "test_failed_connect":
                     case "test_failed_start":
@@ -343,10 +358,43 @@ namespace Radios
                 sb.AppendLine($"  avg {Avg(gaps) / 1000:F2}s  min {gaps.Min() / 1000:F2}s  max {gaps.Max() / 1000:F2}s");
             }
 
+            // FlexLib connect duration
+            var withFlexLib = timings.Where(t => t.FlexLibConnectBeginMs.HasValue && t.FlexLibConnectEndMs.HasValue).ToList();
+            if (withFlexLib.Count > 0)
+            {
+                var durations = withFlexLib.Select(t => (double)(t.FlexLibConnectEndMs.Value - t.FlexLibConnectBeginMs.Value)).ToList();
+                sb.AppendLine($"FlexLib Connect:  avg {Avg(durations) / 1000:F2}s  min {durations.Min() / 1000:F2}s  max {durations.Max() / 1000:F2}s");
+            }
+
+            // Connect-to-Start gap (critical: this is where client removal can happen)
+            var withGap = timings.Where(t => t.ConnectDurationMs.HasValue && t.StartBeginMs.HasValue).ToList();
+            if (withGap.Count > 0)
+            {
+                sb.AppendLine();
+                sb.AppendLine("Connect→Start gap (where client removal can poison Start):");
+                foreach (var t in withGap)
+                {
+                    // Gap = StartBegin - (ConnectBegin + ConnectDuration) ≈ wiring + Sleep(500) time
+                    sb.AppendLine($"  start_begin at {t.StartBeginMs}ms, connect ended ~{t.ConnectDurationMs}ms into test");
+                }
+            }
+
             var timeouts = timings.Where(t => t.StationNameTimeout).ToList();
             if (timeouts.Count > 0)
             {
                 sb.AppendLine($"Station name timeouts: {timeouts.Count} of {timings.Count}");
+            }
+
+            // Abort type breakdown
+            var aborts = timings.Where(t => t.AbortType != null).ToList();
+            if (aborts.Count > 0)
+            {
+                sb.AppendLine();
+                sb.AppendLine("Abort breakdown:");
+                foreach (var group in aborts.GroupBy(a => a.AbortType))
+                {
+                    sb.AppendLine($"  {group.Key}: {group.Count()}");
+                }
             }
 
             sb.AppendLine();
@@ -367,6 +415,11 @@ namespace Radios
             public long? StationNameTimeoutMs { get; set; }
             public bool StationNameTimeout { get; set; }
             public long? TotalMs { get; set; }
+            public long? StartBeginMs { get; set; }
+            public long? FlexLibConnectBeginMs { get; set; }
+            public long? FlexLibConnectEndMs { get; set; }
+            public string AbortType { get; set; }
+            public long? AbortMs { get; set; }
         }
 
         private static string Pct(int part, int total) =>
