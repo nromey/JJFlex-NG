@@ -1595,16 +1595,28 @@ Module globals
             _connectingForm.Show()
             Radios.ConnectionProfiler.Current?.RecordEvent("connecting_form_shown")
 
-            ' Use ReconnectRemote instead of Connect — establishes a fresh SmartLink
+            ' For remote radios: use ReconnectRemote which establishes a fresh SmartLink
             ' session before connecting. The existing session from RemoteRadios() has a
             ' stale GUIClient lifecycle that causes client removal without re-add ~1.2s
             ' into Start(), triggering early abort. A fresh session doesn't have this issue.
-            ' Adds ~2-3s for re-auth but eliminates the 8s fail + 9s retry cycle entirely.
+            ' For local radios: just discover and connect directly — no SmartLink needed.
             Dim serial = dialog.SelectedSerial
             Dim lowBW = dialog.SelectedLowBW
-            Tracing.TraceLine($"wpfSelectorProc: reconnecting {serial} lowBW={lowBW}", TraceLevel.Info)
+            Dim isRemote = dialog.SelectedIsRemote
+            Dim connectOk As Boolean
+
+            Tracing.TraceLine($"wpfSelectorProc: connecting {serial} lowBW={lowBW} remote={isRemote}", TraceLevel.Info)
             Radios.ConnectionProfiler.Current?.RecordEvent("connect_call_begin")
-            If Not RigControl.ReconnectRemote(serial, lowBW) Then
+
+            If isRemote Then
+                connectOk = RigControl.ReconnectRemote(serial, lowBW)
+            Else
+                ' Local radio: discovery already happened in the RigSelector dialog.
+                ' Just connect directly.
+                connectOk = RigControl.Connect(serial, lowBW)
+            End If
+
+            If Not connectOk Then
                 _connectingForm?.CloseForm()
                 _connectingForm = Nothing
                 Radios.ScreenReaderOutput.Speak("Connection failed", True)

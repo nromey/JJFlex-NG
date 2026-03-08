@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file. The opinions and coolness of developers, radio amateurs, and operatives is long, but you might like it. Read at your leisure for all changes for each release.
 
+## 4.1.15.1: stop the presses, we got us a breaker breaker emergency
+
+The last version forgot how to connect to locally connected radios. In other words, we concentrated on connecting to remote radios so much that we forgot how to access radios you have sitting right next to you. Never fear, it was an easy fix. In short, we kicked it in the pants, and made sure that the application was OK with not displaying SmartLink Logon when it isn't necessary. Sorry about all that.
+
 ## 4.1.15.0: The More than just rearranging deck chairs on the Titanic version
 
 This one's big. Twelve sprints of work since the Birthday Release — that means we slammed a ton of features into twelve marathon coding sessions for the fun and enjoyment of amateur radio operators worldwide. This version has not been published as a beta version. Soon friends, soon!

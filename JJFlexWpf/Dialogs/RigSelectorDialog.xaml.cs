@@ -115,6 +115,11 @@ namespace JJFlexWpf.Dialogs
         /// </summary>
         public bool SelectedLowBW { get; private set; }
 
+        /// <summary>
+        /// Whether the selected radio is a remote (SmartLink) radio.
+        /// </summary>
+        public bool SelectedIsRemote { get; private set; }
+
         public RigSelectorDialog(RigSelectorCallbacks callbacks)
         {
             _callbacks = callbacks ?? throw new ArgumentNullException(nameof(callbacks));
@@ -242,6 +247,7 @@ namespace JJFlexWpf.Dialogs
             SelectedRigData = radio.RigData;
             SelectedSerial = radio.Serial;
             SelectedLowBW = radio.LowBW;
+            SelectedIsRemote = radio.IsRemote;
             DialogResult = true;
             Close();
         }

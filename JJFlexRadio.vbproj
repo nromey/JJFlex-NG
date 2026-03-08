@@ -13,9 +13,9 @@
     <RuntimeIdentifier Condition="'$(Platform)'=='x86'">win-x86</RuntimeIdentifier>
     <RootNamespace>JJRadio</RootNamespace>
     <AssemblyName>JJFlexRadio</AssemblyName>
-    <Version>4.1.15</Version>
-    <AssemblyVersion>4.1.15.0</AssemblyVersion>
-    <FileVersion>4.1.15.0</FileVersion>
+    <Version>4.1.15.1</Version>
+    <AssemblyVersion>4.1.15.1</AssemblyVersion>
+    <FileVersion>4.1.15.1</FileVersion>
     <!-- Sprint 8: Still WindowsForms MyType to preserve My.* namespace (My.Application, My.Computer).
          OnCreateMainForm bridges to WPF MainWindow. Full MyType migration in Sprint 9 cleanup. -->
     <MyType>WindowsForms</MyType>
