@@ -132,4 +132,21 @@ build-installers.bat
 
 ---
 
-*Updated: Mar 1, 2026 — Sprint 17 complete and merged + F-key reshuffle addendum (bands→F3-F9, mode hotkeys F10/F11, Alt+U/L/C). 17 sprints total. Codebase: 128,667 lines (down from 303,689 in Jim's base — 57.6% reduction). Pending: Sprint 17 testing, changelog draft, v4.1.115 release.*
+## Sprint 21: Resonant Signal Sculpt — IN PROGRESS
+
+**Status:** Setup complete. 5 tracks ready for parallel execution.
+
+**Branches and worktrees:**
+| Track | Branch | Worktree | Focus |
+|-------|--------|----------|-------|
+| A | `sprint21/track-a` | `C:\dev\JJFlex-NG` | Meter Sonification Engine + Peak Watcher + Earcon Infrastructure |
+| B | `sprint21/track-b` | `C:\dev\jjflex-21b` | Audio Workshop + ScreenFields TX Expansion + Earcon Explorer |
+| C | `sprint21/track-c` | `C:\dev\jjflex-21c` | TX Sculpting Keyboard + Leader Key System + Command Finder Extension |
+| D | `sprint21/track-d` | `C:\dev\jjflex-21d` | App Rename — JJ Flexible Radio Access |
+| E | `sprint21/track-e` | `C:\dev\jjflex-21e` | Compiled Help File (CHM) |
+
+**Merge plan:** A, B, C, E merge in any order. D merges LAST (touches display strings).
+
+---
+
+*Updated: Mar 8, 2026 — Sprint 21 setup complete. 5 parallel tracks with worktrees and TRACK-INSTRUCTIONS.md in each. Version target: 4.1.16.*
