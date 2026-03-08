@@ -1,6 +1,6 @@
 # JJFlexRadio
 
-Windows desktop application for controlling FlexRadio transceivers (6000/8000 series). Alternative UI to SmartSDR, created by Jim Shaffer. Current version: 4.1.x, using FlexLib v4.0.1.
+Windows desktop application for controlling FlexRadio transceivers (6000/8000 series). Alternative UI to SmartSDR, created by Jim Shaffer, maintained by Noel Romey (K5NER). Current version: 4.1.15, using FlexLib v4.0.1.
 
 ## Decision-Making Mindset
 
@@ -271,9 +271,14 @@ powershell -Command "(Get-Item 'bin\x64\Release\net8.0-windows\win-x64\JJFlexRad
    - Upload the x64 and x86 installer .exe files
    - Or use gh CLI:
    ```batch
-   gh release create v4.1.X --title "JJFlexRadio 4.1.X" --notes "Release notes here"
-   gh release upload v4.1.X "Setup JJFlexRadio_4.1.X_x64.exe" "Setup JJFlexRadio_4.1.X_x86.exe"
+   gh release create v4.1.X --repo nromey/JJFlex-NG --title "JJFlexRadio 4.1.X" --notes "Release notes here" "Setup JJFlexRadio_4.1.X_x64.exe" "Setup JJFlexRadio_4.1.X_x86.exe"
    ```
+
+   **IMPORTANT gh CLI gotchas:**
+   - MUST use `--repo nromey/JJFlex-NG` — gh defaults to `upstream` (KevinSShaffer/JJFlexRadio) otherwise
+   - MUST use `--notes` not `--body` (this version of gh)
+   - Upload BOTH x64 and x86 installers in the same command
+   - Always push tags to `origin` (nromey), not `upstream` (KevinSShaffer)
 
 ### Local Build Scripts
 
