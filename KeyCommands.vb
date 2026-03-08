@@ -101,8 +101,16 @@ Public Class KeyCommands
         ModeLSB
         ModeCW
         ReadSMeter
+        TXFilterLowDown
+        TXFilterLowUp
+        TXFilterHighDown
+        TXFilterHighUp
+        SpeakTXFilter
     End Enum
     Friend Const FirstMessageCommandValue As Integer = 1000000
+
+    ' Leader key state (Ctrl+J → second key). No timeout — cancel with Escape only.
+    Private leaderKeyActive As Boolean = False
 
     ' Internal ADIF pseudotags.
     Friend Const iADIF_Logform As String = "$LOGFORM"
@@ -569,7 +577,22 @@ Public Class KeyCommands
             .Keywords = New String() {"mode", "lsb", "lower", "sideband", "ssb", "phone"}},
         New keyTbl(CommandValues.ModeCW, KeyTypes.Command, AddressOf modeCWRtn,
             "Switch to CW mode", "CW", False, FunctionGroups.general, KeyScope.Radio) With {
-            .Keywords = New String() {"mode", "cw", "morse", "code", "continuous wave"}}}
+            .Keywords = New String() {"mode", "cw", "morse", "code", "continuous wave"}},
+        New keyTbl(CommandValues.TXFilterLowDown, KeyTypes.Command, AddressOf TXFilterLowDownHandler,
+            "Nudge TX filter low edge down", Nothing, False, FunctionGroups.audio, KeyScope.Radio) With {
+            .Keywords = New String() {"tx", "filter", "low", "down", "transmit", "sculpt"}},
+        New keyTbl(CommandValues.TXFilterLowUp, KeyTypes.Command, AddressOf TXFilterLowUpHandler,
+            "Nudge TX filter low edge up", Nothing, False, FunctionGroups.audio, KeyScope.Radio) With {
+            .Keywords = New String() {"tx", "filter", "low", "up", "transmit", "sculpt"}},
+        New keyTbl(CommandValues.TXFilterHighDown, KeyTypes.Command, AddressOf TXFilterHighDownHandler,
+            "Nudge TX filter high edge down", Nothing, False, FunctionGroups.audio, KeyScope.Radio) With {
+            .Keywords = New String() {"tx", "filter", "high", "down", "transmit", "sculpt"}},
+        New keyTbl(CommandValues.TXFilterHighUp, KeyTypes.Command, AddressOf TXFilterHighUpHandler,
+            "Nudge TX filter high edge up", Nothing, False, FunctionGroups.audio, KeyScope.Radio) With {
+            .Keywords = New String() {"tx", "filter", "high", "up", "transmit", "sculpt"}},
+        New keyTbl(CommandValues.SpeakTXFilter, KeyTypes.Command, AddressOf SpeakTXFilterHandler,
+            "Speak TX filter width", Nothing, False, FunctionGroups.audio, KeyScope.Radio) With {
+            .Keywords = New String() {"tx", "filter", "width", "bandwidth", "speak", "transmit", "sculpt"}}}
 
     ' Deleted from KeyTable.
     ' New keyTbl(CommandValues.LogForm, AddressOf BringUpLogForm,
@@ -659,7 +682,12 @@ Public Class KeyCommands
      New KeyDefType(Keys.Oem2 Or Keys.Control, CommandValues.ContextHelp, KeyScope.[Global]),
      New KeyDefType(Keys.S Or Keys.Control Or Keys.Shift, CommandValues.SpeakStatus, KeyScope.[Global]),
      New KeyDefType(Keys.S Or Keys.Control Or Keys.Alt, CommandValues.ShowStatusDialog, KeyScope.[Global]),
-     New KeyDefType(Keys.S Or Keys.Alt Or Keys.Shift, CommandValues.SpeakTxStatus, KeyScope.[Global])}
+     New KeyDefType(Keys.S Or Keys.Alt Or Keys.Shift, CommandValues.SpeakTxStatus, KeyScope.[Global]),
+     New KeyDefType(Keys.OemOpenBrackets Or Keys.Control Or Keys.Shift, CommandValues.TXFilterLowDown, KeyScope.Radio),
+     New KeyDefType(Keys.OemCloseBrackets Or Keys.Control Or Keys.Shift, CommandValues.TXFilterLowUp, KeyScope.Radio),
+     New KeyDefType(Keys.OemOpenBrackets Or Keys.Control Or Keys.Alt, CommandValues.TXFilterHighDown, KeyScope.Radio),
+     New KeyDefType(Keys.OemCloseBrackets Or Keys.Control Or Keys.Alt, CommandValues.TXFilterHighUp, KeyScope.Radio),
+     New KeyDefType(Keys.F Or Keys.Control Or Keys.Shift, CommandValues.SpeakTXFilter, KeyScope.Radio)}
 
     ''' <summary>
     ''' Dictionary to access the keytable using a key.
@@ -1152,6 +1180,28 @@ Public Class KeyCommands
            (theKey = Keys.ShiftKey) Then
             Return rv
         End If
+
+        ' === LEADER KEY DISPATCH ===
+        If leaderKeyActive Then
+            leaderKeyActive = False
+
+            If k = Keys.Escape Then
+                JJFlexWpf.EarconPlayer.LeaderCancelTone()
+                Radios.ScreenReaderOutput.Speak("Cancelled", True)
+                Return True
+            End If
+
+            Return DoLeaderCommand(k)
+        End If
+
+        ' Check for leader key trigger (Ctrl+J)
+        If k = (Keys.J Or Keys.Control) Then
+            leaderKeyActive = True
+            JJFlexWpf.EarconPlayer.LeaderEnterTone()
+            Radios.ScreenReaderOutput.Speak("J", True)
+            Return True
+        End If
+
         ' Look in KeyDictionary.
         Dim kt As keyTbl = lookup(k)
         If kt IsNot Nothing Then
@@ -1279,6 +1329,190 @@ Public Class KeyCommands
         Dim k2 As KeyDefType() = Nothing
         HelpText(k1, k2, keyNames, actions)
     End Sub
+
+    #Region "Leader Key System"
+
+    ''' <summary>
+    ''' Dispatch the second key after Ctrl+J leader key activation.
+    ''' Always consumes the key — invalid keys get an error earcon.
+    ''' </summary>
+    Private Function DoLeaderCommand(ByVal k As Keys) As Boolean
+        Select Case k
+            ' DSP Toggles
+            Case Keys.N
+                If RigControl Is Nothing Then
+                    LeaderNoRadio()
+                ElseIf RigControl.NoiseReductionLicenseReported AndAlso Not RigControl.NoiseReductionLicensed Then
+                    JJFlexWpf.EarconPlayer.LeaderInvalidTone()
+                    Radios.ScreenReaderOutput.Speak("Noise Reduction not licensed on this radio")
+                Else
+                    ToggleLeaderDSP("Noise Reduction",
+                        Function() RigControl.NoiseReduction, Sub(v) RigControl.NoiseReduction = v)
+                End If
+            Case Keys.B
+                If RigControl Is Nothing Then
+                    LeaderNoRadio()
+                Else
+                    ToggleLeaderDSP("Noise Blanker",
+                        Function() RigControl.NoiseBlanker, Sub(v) RigControl.NoiseBlanker = v)
+                End If
+            Case Keys.W
+                If RigControl Is Nothing Then
+                    LeaderNoRadio()
+                Else
+                    ToggleLeaderDSP("Wideband NB",
+                        Function() RigControl.WidebandNoiseBlanker, Sub(v) RigControl.WidebandNoiseBlanker = v)
+                End If
+            Case Keys.R
+                If RigControl Is Nothing Then
+                    LeaderNoRadio()
+                ElseIf RigControl.NoiseReductionLicenseReported AndAlso Not RigControl.NoiseReductionLicensed Then
+                    JJFlexWpf.EarconPlayer.LeaderInvalidTone()
+                    Radios.ScreenReaderOutput.Speak("Neural NR not available on this radio")
+                Else
+                    ToggleLeaderDSP("Neural NR",
+                        Function() RigControl.NeuralNoiseReduction, Sub(v) RigControl.NeuralNoiseReduction = v)
+                End If
+            Case Keys.S
+                If RigControl Is Nothing Then
+                    LeaderNoRadio()
+                ElseIf RigControl.NoiseReductionLicenseReported AndAlso Not RigControl.NoiseReductionLicensed Then
+                    JJFlexWpf.EarconPlayer.LeaderInvalidTone()
+                    Radios.ScreenReaderOutput.Speak("Spectral NR not available on this radio")
+                Else
+                    ToggleLeaderDSP("Spectral NR",
+                        Function() RigControl.SpectralNoiseReduction, Sub(v) RigControl.SpectralNoiseReduction = v)
+                End If
+            Case Keys.A
+                If RigControl Is Nothing Then
+                    LeaderNoRadio()
+                Else
+                    ToggleLeaderDSP("Auto Notch",
+                        Function() RigControl.AutoNotchFFT, Sub(v) RigControl.AutoNotchFFT = v)
+                End If
+            Case Keys.P
+                If RigControl Is Nothing Then
+                    LeaderNoRadio()
+                Else
+                    Dim mode = RigControl.Mode
+                    If mode IsNot Nothing AndAlso Not mode.StartsWith("CW", StringComparison.OrdinalIgnoreCase) Then
+                        JJFlexWpf.EarconPlayer.LeaderInvalidTone()
+                        Radios.ScreenReaderOutput.Speak("Audio Peak Filter is CW only")
+                    Else
+                        ToggleLeaderDSP("Audio Peak Filter",
+                            Function() RigControl.APF, Sub(v) RigControl.APF = v)
+                    End If
+                End If
+
+            ' TX Filter
+            Case Keys.F
+                SpeakTXFilterWidth()
+
+            ' Help
+            Case Keys.Oem2  ' ? key (forward slash, used with Shift for ?)
+                LeaderKeyHelp()
+            Case Keys.H
+                LeaderKeyHelp()
+
+            Case Else
+                JJFlexWpf.EarconPlayer.LeaderInvalidTone()
+                Radios.ScreenReaderOutput.Speak("Unknown command. Press H for help.", True)
+        End Select
+        Return True  ' Always consume the key in leader mode
+    End Function
+
+    Private Sub LeaderNoRadio()
+        JJFlexWpf.EarconPlayer.LeaderInvalidTone()
+        Radios.ScreenReaderOutput.Speak("No radio connected")
+    End Sub
+
+    Private Sub ToggleLeaderDSP(label As String, getter As Func(Of FlexBase.OffOnValues), setter As Action(Of FlexBase.OffOnValues))
+        Dim current = getter()
+        Dim newVal = RigControl.ToggleOffOn(current)
+        setter(newVal)
+        If newVal = FlexBase.OffOnValues.on Then
+            JJFlexWpf.EarconPlayer.FeatureOnTone()
+            Radios.ScreenReaderOutput.Speak(label & " on")
+        Else
+            JJFlexWpf.EarconPlayer.FeatureOffTone()
+            Radios.ScreenReaderOutput.Speak(label & " off")
+        End If
+    End Sub
+
+    Private Sub SpeakTXFilterWidth()
+        If RigControl Is Nothing Then
+            Radios.ScreenReaderOutput.Speak("No radio connected")
+            Return
+        End If
+        Dim low = RigControl.TXFilterLow
+        Dim high = RigControl.TXFilterHigh
+        Dim width = high - low
+        Dim widthKHz = (width / 1000.0).ToString("F1")
+        Radios.ScreenReaderOutput.Speak($"TX filter {low} to {high}, {widthKHz} kilohertz")
+    End Sub
+
+    Private Sub LeaderKeyHelp()
+        JJFlexWpf.EarconPlayer.LeaderHelpTone()
+        Dim help = "Leader key commands: " &
+            "N noise reduction, B noise blanker, W wideband NB, " &
+            "R neural NR, S spectral NR, A auto notch, P audio peak filter, " &
+            "F speak TX filter. H for this help. Escape to cancel."
+        Radios.ScreenReaderOutput.Speak(help)
+    End Sub
+
+    #End Region
+
+    #Region "TX Filter Handlers"
+
+    Private Sub TXFilterLowDownHandler()
+        If RigControl Is Nothing Then Return
+        Dim newLow = Math.Max(0, RigControl.TXFilterLow - 50)
+        RigControl.TXFilterLow = newLow
+        JJFlexWpf.EarconPlayer.FilterEdgeMoveTone(True)
+        Radios.ScreenReaderOutput.Speak("TX low " & newLow.ToString())
+    End Sub
+
+    Private Sub TXFilterLowUpHandler()
+        If RigControl Is Nothing Then Return
+        Dim newLow = RigControl.TXFilterLow + 50
+        ' Enforce minimum spacing
+        If newLow >= RigControl.TXFilterHigh - 50 Then
+            newLow = RigControl.TXFilterHigh - 50
+            JJFlexWpf.EarconPlayer.FilterBoundaryHitTone(True)
+        Else
+            JJFlexWpf.EarconPlayer.FilterEdgeMoveTone(True)
+        End If
+        RigControl.TXFilterLow = newLow
+        Radios.ScreenReaderOutput.Speak("TX low " & newLow.ToString())
+    End Sub
+
+    Private Sub TXFilterHighDownHandler()
+        If RigControl Is Nothing Then Return
+        Dim newHigh = RigControl.TXFilterHigh - 50
+        ' Enforce minimum spacing
+        If newHigh <= RigControl.TXFilterLow + 50 Then
+            newHigh = RigControl.TXFilterLow + 50
+            JJFlexWpf.EarconPlayer.FilterBoundaryHitTone(False)
+        Else
+            JJFlexWpf.EarconPlayer.FilterEdgeMoveTone(False)
+        End If
+        RigControl.TXFilterHigh = newHigh
+        Radios.ScreenReaderOutput.Speak("TX high " & newHigh.ToString())
+    End Sub
+
+    Private Sub TXFilterHighUpHandler()
+        If RigControl Is Nothing Then Return
+        Dim newHigh = Math.Min(10000, RigControl.TXFilterHigh + 50)
+        RigControl.TXFilterHigh = newHigh
+        JJFlexWpf.EarconPlayer.FilterEdgeMoveTone(False)
+        Radios.ScreenReaderOutput.Speak("TX high " & newHigh.ToString())
+    End Sub
+
+    Private Sub SpeakTXFilterHandler()
+        SpeakTXFilterWidth()
+    End Sub
+
+    #End Region
 
     Private Sub displayFreqCmd()
         ' see below.  Called by the Display Frequency command.

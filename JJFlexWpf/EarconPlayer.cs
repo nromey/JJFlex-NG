@@ -241,6 +241,42 @@ namespace JJFlexWpf
             }
         }
 
+        /// <summary>Rising chirp — entering leader key mode.</summary>
+        public static void LeaderEnterTone()
+        {
+            PlayChirp(400, 600, 80, 0.3f);
+        }
+
+        /// <summary>Rising chirp — feature toggled ON.</summary>
+        public static void FeatureOnTone()
+        {
+            PlayChirp(300, 800, 150, 0.3f);
+        }
+
+        /// <summary>Falling chirp — feature toggled OFF.</summary>
+        public static void FeatureOffTone()
+        {
+            PlayChirp(800, 300, 150, 0.3f);
+        }
+
+        /// <summary>Low buzz — invalid leader key.</summary>
+        public static void LeaderInvalidTone()
+        {
+            PlayTone(200, 100, 0.4f);
+        }
+
+        /// <summary>Soft descending chirp — leader key cancelled.</summary>
+        public static void LeaderCancelTone()
+        {
+            PlayChirp(500, 300, 150, 0.2f);
+        }
+
+        /// <summary>Double chime — leader key help requested.</summary>
+        public static void LeaderHelpTone()
+        {
+            PlayToneSequence(new[] { (800, 80), (0, 40), (1000, 80) }, 0.25f);
+        }
+
         /// <summary>
         /// Play a tone with specific parameters and panning. Used by earcon scratchpad.
         /// </summary>

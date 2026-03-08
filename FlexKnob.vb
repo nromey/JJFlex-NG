@@ -90,7 +90,12 @@ Friend Class FlexKnob
     End Sub
 
     Friend Sub Dispose()
-        If knob IsNot Nothing Then knob.Dispose()
+        Try
+            If knob IsNot Nothing Then knob.Dispose()
+        Catch ex As Exception
+            ' System.IO.Ports v9.0.0 can throw on shutdown (BUG-004)
+            System.Diagnostics.Trace.WriteLine($"FlexKnob.Dispose error (harmless): {ex.Message}")
+        End Try
     End Sub
 
     Friend Sub Config()
