@@ -39,6 +39,9 @@ Namespace My
             ' Initialize NAudio-based earcon player for UI sound effects.
             JJFlexWpf.EarconPlayer.Initialize()
 
+            ' Initialize compiled help file launcher.
+            JJFlexWpf.HelpLauncher.Initialize()
+
             ' Purge connection profiles older than 7 days.
             Radios.ConnectionProfiler.PurgeOldProfiles()
 

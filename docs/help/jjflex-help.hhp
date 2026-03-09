@@ -1,0 +1,35 @@
+[OPTIONS]
+Compatibility=1.1 or later
+Compiled file=JJFlexRadio.chm
+Contents file=toc.hhc
+Default topic=pages\welcome.htm
+Display compile progress=No
+Full-text search=Yes
+Index file=index.hhk
+Language=0x409 English (United States)
+Title=JJ Flexible Radio Access Help
+
+[FILES]
+pages\welcome.htm
+pages\getting-started.htm
+pages\screen-reader-setup.htm
+pages\keyboard-reference.htm
+pages\operating-modes.htm
+pages\tuning-frequency.htm
+pages\band-navigation.htm
+pages\mode-switching.htm
+pages\filters-dsp.htm
+pages\ptt-transmission.htm
+pages\audio-workshop.htm
+pages\meter-tones.htm
+pages\earcon-explorer.htm
+pages\audio-presets.htm
+pages\tx-sculpting.htm
+pages\leader-key.htm
+pages\logging.htm
+pages\callbook-lookup.htm
+pages\settings-profiles.htm
+pages\connection-troubleshooting.htm
+pages\smartlink-remote.htm
+pages\audio-troubleshooting.htm
+pages\known-issues.htm

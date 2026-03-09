@@ -110,6 +110,7 @@ Public Class KeyCommands
         TXFilterHighUp
         SpeakTXFilter
         OpenAudioWorkshop
+        ShowContextHelp
     End Enum
     Friend Const FirstMessageCommandValue As Integer = 1000000
 
@@ -354,6 +355,9 @@ Public Class KeyCommands
         New keyTbl(CommandValues.ShowHelp, AddressOf WpfMainWindow.DisplayHelp,
             "Show keys help", Nothing, FunctionGroups.help, KeyScope.[Global]) With {
             .Keywords = New String() {"help", "keys", "hotkeys", "shortcuts", "keyboard"}},
+        New keyTbl(CommandValues.ShowContextHelp, KeyTypes.Command, AddressOf showContextHelpRtn,
+            "Open help file", "Help file", False, FunctionGroups.help, KeyScope.[Global]) With {
+            .Keywords = New String() {"help", "file", "chm", "documentation", "manual", "f1"}},
         New keyTbl(CommandValues.ShowFreq, AddressOf displayFreqCmd,
             "Focus frequency display", Nothing, FunctionGroups.routingScan, KeyScope.Radio) With {
             .Keywords = New String() {"frequency", "focus", "display", "tune", "tuning"}},
@@ -621,7 +625,7 @@ Public Class KeyCommands
     ' default key definitions — scope-aware
     ' Radio+Logging scoped keys share physical keys (e.g. Alt+C = CWZeroBeat in Radio, LogCall in Logging).
     Private defaultKeys() As KeyDefType = {
-     New KeyDefType(Keys.F1, CommandValues.ShowHelp, KeyScope.[Global]), ' --- Global scope ---
+     New KeyDefType(Keys.F1, CommandValues.ShowContextHelp, KeyScope.[Global]), ' --- Global scope ---
      New KeyDefType(Keys.F12, CommandValues.StopCW, KeyScope.[Global]),
      New KeyDefType(Keys.L Or Keys.Control, CommandValues.StationLookup, KeyScope.[Global]),
      New KeyDefType(Keys.None, CommandValues.GatherDebug, KeyScope.[Global]),
@@ -2182,6 +2186,11 @@ Public Class KeyCommands
     Private Sub contextHelpRtn()
         ' Opens the WPF Command Finder dialog with info items + scope filtering.
         WpfMainWindow.ShowCommandFinder()
+    End Sub
+
+    Private Sub showContextHelpRtn()
+        ' Opens the compiled HTML help file (CHM).
+        JJFlexWpf.HelpLauncher.ShowHelp()
     End Sub
 
     Private Sub speakStatusRtn()
