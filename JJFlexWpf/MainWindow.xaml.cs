@@ -107,7 +107,7 @@ public partial class MainWindow : UserControl
         FreqOut.FocusDisplay();
 
         string modeName = ActiveUIMode == UIMode.Classic ? "Classic" : "Modern";
-        Radios.ScreenReaderOutput.Speak($"Welcome to JJ Flex, {modeName} mode");
+        Radios.ScreenReaderOutput.Speak($"Welcome to JJ Flexible Radio Access, {modeName} mode");
     }
 
     /// <summary>

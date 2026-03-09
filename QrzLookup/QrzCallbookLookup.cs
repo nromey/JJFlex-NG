@@ -155,7 +155,7 @@ namespace QrzLookup
         #region Private Fields
 
         private const string BaseUrl = "https://xmldata.qrz.com/xml/current/";
-        private const string AgentName = "JJFlexRadio";
+        private const string AgentName = "JJFlexibleRadioAccess";
 
         private readonly Dictionary<string, QrzDatabase> _callCache;
         private readonly HttpClient _httpClient;

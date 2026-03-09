@@ -2,10 +2,10 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:JJFlexWpf"
-        Title="Welcome to JJFlexRadio"
+        Title="Welcome to JJ Flexible Radio Access"
         Width="500" Height="400"
         ResizeMode="NoResize"
-        AutomationProperties.Name="Welcome to JJFlexRadio">
+        AutomationProperties.Name="Welcome to JJ Flexible Radio Access">
     <DockPanel Margin="12">
         <!-- Button panel at bottom -->
         <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal"
@@ -22,7 +22,7 @@
                     Click="ConfigButton_Click"/>
             <Button Content="Quit" MinWidth="80" Height="28"
                     IsCancel="True"
-                    AutomationProperties.Name="Quit JJFlexRadio"
+                    AutomationProperties.Name="Quit JJ Flexible Radio Access"
                     Click="QuitButton_Click"/>
         </StackPanel>
 

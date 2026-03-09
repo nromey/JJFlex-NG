@@ -27,6 +27,7 @@
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
     <EnableDefaultEmbeddedResourceItems>false</EnableDefaultEmbeddedResourceItems>
     <GenerateResourceUsePreserializedResources>true</GenerateResourceUsePreserializedResources>
+    <Product>JJ Flexible Radio Access</Product>
     <Copyright>J.J. Shaffer, Noel Romey 2019-2025 (GNU GPL)</Copyright>
     <LegalCopyright>J.J. Shaffer, Noel Romey 2019-2025 (GNU GPL)</LegalCopyright>
   </PropertyGroup>

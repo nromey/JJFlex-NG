@@ -337,7 +337,7 @@ Namespace My
                         ' First run: save defaults and prompt user to set license class
                         handlers.License.Save(BaseConfigDir, opName)
                         Radios.ScreenReaderOutput.Speak(
-                            "Welcome to JJFlexRadio. Your license class defaults to Extra. " &
+                            "Welcome to JJ Flexible Radio Access. Your license class defaults to Extra. " &
                             "Open Settings from the Tools menu to change your license class.")
                     End If
                 End If

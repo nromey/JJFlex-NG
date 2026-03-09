@@ -1221,11 +1221,11 @@ public class NativeMenuBar : IDisposable
         {
             var dialog = new Dialogs.AboutDialog
             {
-                ProductName = "JJFlexRadio",
+                ProductName = "JJ Flexible Radio Access",
                 VersionText = System.Reflection.Assembly.GetEntryAssembly()?.GetName().Version?.ToString() ?? "Unknown",
                 Copyright = "Copyright Jim Shaffer",
                 CompanyName = "",
-                Description = "FlexRadio control application for FLEX-6000 and FLEX-8000 series transceivers."
+                Description = "Accessible radio control for FLEX-6000 and FLEX-8000 series transceivers."
             };
             dialog.ShowDialog();
         });

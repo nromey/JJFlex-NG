@@ -27,7 +27,7 @@ Public Class ShellForm
     Private _inNativeMenuLoop As Boolean = False
 
     Public Sub New()
-        Me.Text = "JJFlexRadio"
+        Me.Text = "JJ Flexible Radio Access"
         Me.Width = 800
         Me.Height = 600
         Me.MinimumSize = New System.Drawing.Size(640, 400)

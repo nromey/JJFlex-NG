@@ -133,10 +133,10 @@ echo Running makensis to create installer...
 "%MAKENSIS%" install.nsi
 echo makensis exit code: %ERRORLEVEL%
 
-REM Rename installer with architecture suffix
+REM Rename installer with architecture suffix (short name: JJFlex)
 set "VERSIONED_SETUP=%~1\Setup %pgm%_%VIAPPVER%.exe"
-set "ARCH_SETUP=%~1\Setup %pgm%_%APPVER%_%ARCH%.exe"
-set "LEGACY_SETUP=%~1\Setup %pgm%_%ARCH%.exe"
+set "ARCH_SETUP=%~1\Setup JJFlex_%APPVER%_%ARCH%.exe"
+set "LEGACY_SETUP=%~1\Setup JJFlex_%ARCH%.exe"
 
 if exist "%VERSIONED_SETUP%" (
     echo Renaming installer with architecture suffix...
