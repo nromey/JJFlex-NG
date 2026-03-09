@@ -4257,34 +4257,34 @@ namespace Radios
             set { q.Enqueue((FunctionDel)(() => { theRadio.TXCWMonitorPan = value; })); }
         }
 
-        internal const int MicGainMin = 0;
-        internal const int MicGainMax = 100;
-        internal const int MicGainIncrement = 1;
-        internal int MicGain
+        public const int MicGainMin = 0;
+        public const int MicGainMax = 100;
+        public const int MicGainIncrement = 1;
+        public int MicGain
         {
             get { return theRadio.MicLevel; }
             set { q.Enqueue((FunctionDel)(() => { theRadio.MicLevel = value; })); }
         }
 
-        internal OffOnValues ProcessorOn
+        public OffOnValues ProcessorOn
         {
             get { return (theRadio.SpeechProcessorEnable) ? OffOnValues.on : OffOnValues.off; }
             set { q.Enqueue((FunctionDel)(() => { theRadio.SpeechProcessorEnable = (value == OffOnValues.on) ? true : false; })); }
         }
 
-        internal enum ProcessorSettings
+        public enum ProcessorSettings
         {
             NOR = 0,
             DX,
             DXX,
         }
-        internal ProcessorSettings ProcessorSetting
+        public ProcessorSettings ProcessorSetting
         {
             get { return (ProcessorSettings)theRadio.SpeechProcessorLevel; }
             set { q.Enqueue((FunctionDel)(() => { theRadio.SpeechProcessorLevel = (uint)value; })); }
         }
 
-        internal OffOnValues Compander
+        public OffOnValues Compander
         {
             get { return (theRadio.CompanderOn) ? OffOnValues.on : OffOnValues.off; }
             set
@@ -4294,10 +4294,10 @@ namespace Radios
             }
         }
 
-        internal const int CompanderLevelMin = 0;
-        internal const int CompanderLevelMax = 100;
-        internal const int CompanderLevelIncrement = 5;
-        internal int CompanderLevel
+        public const int CompanderLevelMin = 0;
+        public const int CompanderLevelMax = 100;
+        public const int CompanderLevelIncrement = 5;
+        public int CompanderLevel
         {
             get { return theRadio.CompanderLevel; }
             set
@@ -4306,10 +4306,10 @@ namespace Radios
             }
         }
 
-        internal int TXFilterLowMin = 0;
-        internal int TXFilterLowMax { get { return (TXFilterHigh - 50); } }
-        internal int TXFilterLowIncrement = 50;
-        internal int TXFilterLow
+        public int TXFilterLowMin = 0;
+        public int TXFilterLowMax { get { return (TXFilterHigh - 50); } }
+        public int TXFilterLowIncrement = 50;
+        public int TXFilterLow
         {
             get { return (theRadio != null) ? theRadio.TXFilterLow : 0; }
             set
@@ -4318,10 +4318,10 @@ namespace Radios
             }
         }
 
-        internal int TXFilterHighMin { get { return (TXFilterLow + 50); } }
-        internal int TXFilterHighMax = 10000;
-        internal int TXFilterHighIncrement = 50;
-        internal int TXFilterHigh
+        public int TXFilterHighMin { get { return (TXFilterLow + 50); } }
+        public int TXFilterHighMax = 10000;
+        public int TXFilterHighIncrement = 50;
+        public int TXFilterHigh
         {
             get { return (theRadio != null) ? theRadio.TXFilterHigh : 0; }
             set
@@ -4330,7 +4330,7 @@ namespace Radios
             }
         }
 
-        internal OffOnValues MicBoost
+        public OffOnValues MicBoost
         {
             get { return (theRadio.MicBoost) ? OffOnValues.on : OffOnValues.off; }
             set
@@ -4340,7 +4340,7 @@ namespace Radios
             }
         }
 
-        internal OffOnValues MicBias
+        public OffOnValues MicBias
         {
             get { return (theRadio.MicBias) ? OffOnValues.on : OffOnValues.off; }
             set
@@ -4350,7 +4350,7 @@ namespace Radios
             }
         }
 
-        internal OffOnValues Monitor
+        public OffOnValues Monitor
         {
             get { return (theRadio.TXMonitor) ? OffOnValues.on : OffOnValues.off; }
             set
@@ -4360,10 +4360,10 @@ namespace Radios
             }
         }
 
-        internal const int SBMonitorLevelMin = 0;
-        internal const int SBMonitorLevelMax = 100;
-        internal const int SBMonitorLevelIncrement = 5;
-        internal int SBMonitorLevel
+        public const int SBMonitorLevelMin = 0;
+        public const int SBMonitorLevelMax = 100;
+        public const int SBMonitorLevelIncrement = 5;
+        public int SBMonitorLevel
         {
             get { return theRadio.TXSBMonitorGain; }
             set
@@ -4372,10 +4372,10 @@ namespace Radios
             }
         }
 
-        internal const int SBMonitorPanMin = 0;
-        internal const int SBMonitorPanMax = 100;
-        internal const int SBMonitorPanIncrement = 5;
-        internal int SBMonitorPan
+        public const int SBMonitorPanMin = 0;
+        public const int SBMonitorPanMax = 100;
+        public const int SBMonitorPanIncrement = 5;
+        public int SBMonitorPan
         {
             get { return theRadio.TXSBMonitorPan; }
             set

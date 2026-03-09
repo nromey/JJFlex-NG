@@ -109,6 +109,7 @@ Public Class KeyCommands
         TXFilterHighDown
         TXFilterHighUp
         SpeakTXFilter
+        OpenAudioWorkshop
     End Enum
     Friend Const FirstMessageCommandValue As Integer = 1000000
 
@@ -604,7 +605,10 @@ Public Class KeyCommands
             .Keywords = New String() {"tx", "filter", "high", "up", "transmit", "sculpt"}},
         New keyTbl(CommandValues.SpeakTXFilter, KeyTypes.Command, AddressOf SpeakTXFilterHandler,
             "Speak TX filter width", Nothing, False, FunctionGroups.audio, KeyScope.Radio) With {
-            .Keywords = New String() {"tx", "filter", "width", "bandwidth", "speak", "transmit", "sculpt"}}}
+            .Keywords = New String() {"tx", "filter", "width", "bandwidth", "speak", "transmit", "sculpt"}},
+        New keyTbl(CommandValues.OpenAudioWorkshop, KeyTypes.Command, AddressOf openAudioWorkshopRtn,
+            "Open Audio Workshop dialog", "Audio Workshop", False, FunctionGroups.dialog, KeyScope.[Global]) With {
+            .Keywords = New String() {"audio", "workshop", "tx", "transmit", "mic", "compander", "preset", "earcon"}}}
 
     ' Deleted from KeyTable.
     ' New keyTbl(CommandValues.LogForm, AddressOf BringUpLogForm,
@@ -702,7 +706,8 @@ Public Class KeyCommands
      New KeyDefType(Keys.OemCloseBrackets Or Keys.Control Or Keys.Shift, CommandValues.TXFilterLowUp, KeyScope.Radio),
      New KeyDefType(Keys.OemOpenBrackets Or Keys.Control Or Keys.Alt, CommandValues.TXFilterHighDown, KeyScope.Radio),
      New KeyDefType(Keys.OemCloseBrackets Or Keys.Control Or Keys.Alt, CommandValues.TXFilterHighUp, KeyScope.Radio),
-     New KeyDefType(Keys.F Or Keys.Control Or Keys.Shift, CommandValues.SpeakTXFilter, KeyScope.Radio)}
+     New KeyDefType(Keys.F Or Keys.Control Or Keys.Shift, CommandValues.SpeakTXFilter, KeyScope.Radio),
+     New KeyDefType(Keys.W Or Keys.Control Or Keys.Shift, CommandValues.OpenAudioWorkshop, KeyScope.[Global])}
 
     ''' <summary>
     ''' Dictionary to access the keytable using a key.
@@ -2269,5 +2274,9 @@ Public Class KeyCommands
     End Sub
     Private Sub modeCWRtn()
         WpfMainWindow.SetMode("CW")
+    End Sub
+
+    Private Sub openAudioWorkshopRtn()
+        WpfMainWindow.Dispatcher.Invoke(Sub() JJFlexWpf.Dialogs.AudioWorkshopDialog.ShowOrFocus(RigControl, 0))
     End Sub
 End Class
