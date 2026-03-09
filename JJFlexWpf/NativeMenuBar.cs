@@ -1150,7 +1150,9 @@ public class NativeMenuBar : IDisposable
     private void BuildHelpPopup(IntPtr bar)
     {
         var help = AddPopup(bar, "&Help");
-        AddNotImplemented(help, "Help Page");
+        AddWired(help, "Help Topics\tF1", () => HelpLauncher.ShowHelp());
+        AddWired(help, "Keyboard Reference", () => HelpLauncher.ShowHelp("CommandFinder"));
+        AddSep(help);
         AddWired(help, "Key Assignments", () => ShowKeysDialog());
         AddWired(help, "Key Assignments (Alphabetical)", () => ShowKeysDialog());
         AddWired(help, "Key Assignments (By Function)", () => ShowKeysDialog());
