@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Reflection;
@@ -16,7 +17,12 @@ namespace JJFlexWpf
     {
         private static WaveOutEvent? _waveOut;
         private static MixingSampleProvider? _mixer;
+        private static VolumeSampleProvider? _masterVolume;
         private static bool _initialized;
+        private static int _deviceNumber = -1; // -1 = Windows default
+
+        // Continuous tone providers registered with the mixer (meter tones etc.)
+        private static readonly List<ISampleProvider> _continuousProviders = new();
 
         // Cached embedded sounds (stored as mono for panning flexibility)
         private static CachedSound? _clickSound;
@@ -43,12 +49,14 @@ namespace JJFlexWpf
                 {
                     ReadFully = true
                 };
+                _masterVolume = new VolumeSampleProvider(_mixer);
 
                 _waveOut = new WaveOutEvent
                 {
+                    DeviceNumber = _deviceNumber,
                     DesiredLatency = 100
                 };
-                _waveOut.Init(_mixer);
+                _waveOut.Init(_masterVolume);
                 _waveOut.Play();
 
                 // Load embedded sounds
@@ -73,12 +81,151 @@ namespace JJFlexWpf
         /// </summary>
         public static void Dispose()
         {
+            _continuousProviders.Clear();
             _waveOut?.Stop();
             _waveOut?.Dispose();
             _waveOut = null;
+            _masterVolume = null;
             _mixer = null;
             _initialized = false;
         }
+
+        #region Continuous Tone Support
+
+        /// <summary>
+        /// Register a ContinuousToneSampleProvider with the mixer (panned).
+        /// The provider stays in the mixer permanently — it generates silence when inactive.
+        /// </summary>
+        public static void RegisterContinuousTone(ContinuousToneSampleProvider provider, float pan = 0f)
+        {
+            if (_mixer == null) return;
+            try
+            {
+                ISampleProvider stereo;
+                if (Math.Abs(pan) < 0.01f)
+                {
+                    stereo = new MonoToStereoSampleProvider(provider);
+                }
+                else
+                {
+                    stereo = new PanningSampleProvider(provider) { Pan = pan };
+                }
+                _mixer.AddMixerInput(stereo);
+                _continuousProviders.Add(stereo);
+            }
+            catch (Exception ex)
+            {
+                Trace.WriteLine($"EarconPlayer.RegisterContinuousTone failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Remove a continuous tone from the mixer. The provider wrapper is removed
+        /// from the mixer's input list.
+        /// </summary>
+        public static void UnregisterContinuousTone(ISampleProvider stereoWrapper)
+        {
+            if (_mixer == null) return;
+            try
+            {
+                _mixer.RemoveMixerInput(stereoWrapper);
+                _continuousProviders.Remove(stereoWrapper);
+            }
+            catch (Exception ex)
+            {
+                Trace.WriteLine($"EarconPlayer.UnregisterContinuousTone failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Remove all continuous tone providers from the mixer.
+        /// </summary>
+        public static void UnregisterAllContinuousTones()
+        {
+            if (_mixer == null) return;
+            foreach (var p in _continuousProviders)
+            {
+                try { _mixer.RemoveMixerInput(p); }
+                catch { }
+            }
+            _continuousProviders.Clear();
+        }
+
+        #endregion
+
+        #region Device Selection & Master Volume
+
+        /// <summary>
+        /// Get/set the master earcon volume (0.0 to 1.0).
+        /// </summary>
+        public static float MasterVolume
+        {
+            get => _masterVolume?.Volume ?? 1.0f;
+            set
+            {
+                if (_masterVolume != null)
+                    _masterVolume.Volume = Math.Clamp(value, 0f, 1f);
+            }
+        }
+
+        /// <summary>
+        /// Enumerate available audio output devices. Returns (deviceNumber, name) pairs.
+        /// DeviceNumber -1 is "Windows Default".
+        /// </summary>
+        public static List<(int deviceNumber, string name)> GetOutputDevices()
+        {
+            var devices = new List<(int, string)>();
+            devices.Add((-1, "Windows Default"));
+            for (int i = 0; i < WaveOut.DeviceCount; i++)
+            {
+                try
+                {
+                    var caps = WaveOut.GetCapabilities(i);
+                    devices.Add((i, caps.ProductName));
+                }
+                catch { }
+            }
+            return devices;
+        }
+
+        /// <summary>
+        /// Switch the audio output device. Recreates the WaveOutEvent.
+        /// </summary>
+        public static void SetOutputDevice(int deviceNumber)
+        {
+            _deviceNumber = deviceNumber;
+            if (!_initialized || _mixer == null) return;
+            try
+            {
+                // Stop and dispose old output
+                _waveOut?.Stop();
+                _waveOut?.Dispose();
+
+                // Create new output on the selected device
+                _waveOut = new WaveOutEvent
+                {
+                    DeviceNumber = deviceNumber,
+                    DesiredLatency = 100
+                };
+                _waveOut.Init(_masterVolume);
+                _waveOut.Play();
+            }
+            catch (Exception ex)
+            {
+                Trace.WriteLine($"EarconPlayer.SetOutputDevice failed: {ex.Message}");
+                // Fall back to default device
+                try
+                {
+                    _waveOut = new WaveOutEvent { DesiredLatency = 100 };
+                    _waveOut.Init(_masterVolume);
+                    _waveOut.Play();
+                    _deviceNumber = -1;
+                }
+                catch { }
+            }
+        }
+
+        #endregion
 
         #region Public Earcon Methods
 
@@ -239,6 +386,42 @@ namespace JJFlexWpf
             {
                 Trace.WriteLine($"EarconPlayer.FilterStretchTone failed: {ex.Message}");
             }
+        }
+
+        /// <summary>Rising chirp — entering leader key mode.</summary>
+        public static void LeaderEnterTone()
+        {
+            PlayChirp(400, 600, 80, 0.3f);
+        }
+
+        /// <summary>Rising chirp — feature toggled ON.</summary>
+        public static void FeatureOnTone()
+        {
+            PlayChirp(300, 800, 150, 0.3f);
+        }
+
+        /// <summary>Falling chirp — feature toggled OFF.</summary>
+        public static void FeatureOffTone()
+        {
+            PlayChirp(800, 300, 150, 0.3f);
+        }
+
+        /// <summary>Low buzz — invalid leader key.</summary>
+        public static void LeaderInvalidTone()
+        {
+            PlayTone(200, 100, 0.4f);
+        }
+
+        /// <summary>Soft descending chirp — leader key cancelled.</summary>
+        public static void LeaderCancelTone()
+        {
+            PlayChirp(500, 300, 150, 0.2f);
+        }
+
+        /// <summary>Double chime — leader key help requested.</summary>
+        public static void LeaderHelpTone()
+        {
+            PlayToneSequence(new[] { (800, 80), (0, 40), (1000, 80) }, 0.25f);
         }
 
         /// <summary>

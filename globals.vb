@@ -194,8 +194,9 @@ Module globals
         End Sub
     End Class
 
-    Friend Const ProgramName = "JJFlexRadio"
-    Friend Const DocName As String = ProgramName & "Readme.htm"
+    Friend Const ProgramName = "JJ Flexible Radio Access"
+    Friend Const InternalName = "JJFlexRadio"
+    Friend Const DocName As String = InternalName & "Readme.htm"
     Const reqOpMsgTitle As String = "You must define a default operator."
     Const reqOpMsg As String = _
         "If you do not define a default operator, the program will exit." & vbCrLf & _
@@ -209,7 +210,7 @@ Module globals
     Friend BaseConfigDir As String
     Friend ReadOnly Property BootTraceFileName As String
         Get
-            Dim rv As String = BaseConfigDir & "\" & ProgramName
+            Dim rv As String = BaseConfigDir & "\" & InternalName
             If ProgramInstance > 1 Then
                 rv &= ProgramInstance.ToString
             End If
@@ -218,7 +219,7 @@ Module globals
     End Property
     Friend ReadOnly Property OldTraceFileName As String
         Get
-            Dim rv As String = BaseConfigDir & "\" & ProgramName
+            Dim rv As String = BaseConfigDir & "\" & InternalName
             If ProgramInstance > 1 Then
                 rv &= ProgramInstance.ToString
             End If
@@ -232,7 +233,7 @@ Module globals
     End Property
     Friend ReadOnly Property DailyTraceFilePrefix As String
         Get
-            Return ProgramName & "Trace"
+            Return InternalName & "Trace"
         End Get
     End Property
 
@@ -401,7 +402,7 @@ Module globals
         myAssemblyName = myAssembly.GetName
         myVersion = myAssemblyName.Version
         BaseConfigDir = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData) &
-            "\" & ProgramName
+            "\" & InternalName
         Try
             If Not Directory.Exists(BaseConfigDir) Then
                 ' show welcome screen.

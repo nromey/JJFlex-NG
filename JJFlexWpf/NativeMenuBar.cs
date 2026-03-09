@@ -282,10 +282,10 @@ public class NativeMenuBar : IDisposable
         }
         else
         {
-            AddChecked(nrSub, "Neural NR (RNN)", () =>
+            AddChecked(nrSub, "Neural NR (RNN)\tCtrl+J, R", () =>
                 ToggleDSP("Neural NR", () => Rig.NeuralNoiseReduction, v => Rig.NeuralNoiseReduction = v),
                 () => Rig?.NeuralNoiseReduction == FlexBase.OffOnValues.on);
-            AddChecked(nrSub, "Spectral NR (NRS)", () =>
+            AddChecked(nrSub, "Spectral NR (NRS)\tCtrl+J, S", () =>
                 ToggleDSP("Spectral NR", () => Rig.SpectralNoiseReduction, v => Rig.SpectralNoiseReduction = v),
                 () => Rig?.SpectralNoiseReduction == FlexBase.OffOnValues.on);
             AddChecked(nrSub, "Legacy NR", () =>
@@ -295,16 +295,16 @@ public class NativeMenuBar : IDisposable
 
         // === Noise Blankers submenu ===
         var nbSub = AddSubmenu(parent, "Noise Blankers");
-        AddChecked(nbSub, "Noise Blanker (NB)", () =>
+        AddChecked(nbSub, "Noise Blanker (NB)\tCtrl+J, B", () =>
             ToggleDSP("Noise Blanker", () => Rig.NoiseBlanker, v => Rig.NoiseBlanker = v),
             () => Rig?.NoiseBlanker == FlexBase.OffOnValues.on);
-        AddChecked(nbSub, "Wideband NB (WNB)", () =>
+        AddChecked(nbSub, "Wideband NB (WNB)\tCtrl+J, W", () =>
             ToggleDSP("Wideband NB", () => Rig.WidebandNoiseBlanker, v => Rig.WidebandNoiseBlanker = v),
             () => Rig?.WidebandNoiseBlanker == FlexBase.OffOnValues.on);
 
         // === Auto Notch ===
         var anfSub = AddSubmenu(parent, "Auto Notch");
-        AddChecked(anfSub, "FFT Auto-Notch", () =>
+        AddChecked(anfSub, "FFT Auto-Notch\tCtrl+J, A", () =>
             ToggleDSP("FFT Auto-Notch", () => Rig.AutoNotchFFT, v => Rig.AutoNotchFFT = v),
             () => Rig?.AutoNotchFFT == FlexBase.OffOnValues.on);
         AddChecked(anfSub, "Legacy Auto-Notch", () =>
@@ -312,7 +312,7 @@ public class NativeMenuBar : IDisposable
             () => Rig?.AutoNotchLegacy == FlexBase.OffOnValues.on);
 
         // === Audio Peak Filter (CW only) ===
-        AddChecked(parent, "Audio Peak Filter (APF)", () =>
+        AddChecked(parent, "Audio Peak Filter (APF)\tCtrl+J, P", () =>
         {
             if (Rig == null) { SpeakNoRadio(); return; }
             string? mode = Rig.Mode;
@@ -323,6 +323,33 @@ public class NativeMenuBar : IDisposable
             }
             ToggleDSP("Audio Peak Filter", () => Rig.APF, v => Rig.APF = v);
         }, () => Rig?.APF == FlexBase.OffOnValues.on);
+
+        AddSep(parent);
+
+        // === Meter Tones ===
+        var meterSub = AddSubmenu(parent, "Meter Tones");
+        AddChecked(meterSub, "Meter Tones On/Off", () =>
+        {
+            MeterToneEngine.Enabled = !MeterToneEngine.Enabled;
+            SpeakAfterMenuClose($"Meter tones {(MeterToneEngine.Enabled ? "on" : "off")}");
+        }, () => MeterToneEngine.Enabled);
+
+        AddWired(meterSub, "Cycle Preset", () =>
+        {
+            MeterToneEngine.CyclePreset();
+            SpeakAfterMenuClose($"Meter preset: {MeterToneEngine.CurrentPreset}");
+        });
+
+        AddWired(meterSub, "Speak Meters", () =>
+        {
+            MeterToneEngine.SpeakMeters();
+        });
+
+        AddChecked(meterSub, "Peak Watcher", () =>
+        {
+            MeterToneEngine.PeakWatcherEnabled = !MeterToneEngine.PeakWatcherEnabled;
+            SpeakAfterMenuClose($"Peak Watcher {(MeterToneEngine.PeakWatcherEnabled ? "on" : "off")}");
+        }, () => MeterToneEngine.PeakWatcherEnabled);
     }
 
     /// <summary>
@@ -662,7 +689,7 @@ public class NativeMenuBar : IDisposable
         var actions = AddPopup(bar, "&Actions");
 
         AddNotImplemented(actions, "List Operators");
-        AddWired(actions, "Select Rig", () => _window.SelectRadioCallback?.Invoke());
+        AddWired(actions, "Select Rig", () => ConnectWithConfirmation());
         AddWired(actions, "Manage SmartLink Accounts", () => _window.ShowSmartLinkAccountManager());
         AddChecked(actions, "Auto-Connect Enabled",
             () => { var msg = _window.ToggleAutoConnect(); if (msg != null) SpeakAfterMenuClose(msg); },
@@ -783,6 +810,11 @@ public class NativeMenuBar : IDisposable
             // Diversity (moved from ScreenFields — Sprint 15 Track D)
             AddSep(operations);
             BuildDiversityItems(operations);
+
+            // Audio Workshop
+            AddSep(operations);
+            AddWired(operations, "Audio Workshop\tCtrl+Shift+W", () =>
+                Dialogs.AudioWorkshopDialog.ShowOrFocus(Rig, 0));
         }
         else
         {
@@ -817,7 +849,7 @@ public class NativeMenuBar : IDisposable
 
         // === Radio ===
         var radio = AddPopup(bar, "&Radio");
-        AddWired(radio, "Connect to Radio", () => _window.SelectRadioCallback?.Invoke());
+        AddWired(radio, "Connect to Radio", () => ConnectWithConfirmation());
         AddWired(radio, "Manage SmartLink Accounts", () => _window.ShowSmartLinkAccountManager());
         AddChecked(radio, "Auto-Connect Enabled",
             () => { var msg = _window.ToggleAutoConnect(); if (msg != null) SpeakAfterMenuClose(msg); },
@@ -1054,6 +1086,9 @@ public class NativeMenuBar : IDisposable
         });
         AddSep(tools);
         AddWired(tools, "View Test Results", () => _window.ShowTestResultsCallback?.Invoke());
+        AddSep(tools);
+        AddWired(tools, "Audio Workshop\tCtrl+Shift+W", () =>
+            Dialogs.AudioWorkshopDialog.ShowOrFocus(Rig, 0));
 
         // === Help (shared) ===
         BuildHelpPopup(bar);
@@ -1150,7 +1185,9 @@ public class NativeMenuBar : IDisposable
     private void BuildHelpPopup(IntPtr bar)
     {
         var help = AddPopup(bar, "&Help");
-        AddNotImplemented(help, "Help Page");
+        AddWired(help, "Help Topics\tF1", () => HelpLauncher.ShowHelp());
+        AddWired(help, "Keyboard Reference", () => HelpLauncher.ShowHelp("CommandFinder"));
+        AddSep(help);
         AddWired(help, "Key Assignments", () => ShowKeysDialog());
         AddWired(help, "Key Assignments (Alphabetical)", () => ShowKeysDialog());
         AddWired(help, "Key Assignments (By Function)", () => ShowKeysDialog());
@@ -1176,15 +1213,19 @@ public class NativeMenuBar : IDisposable
             };
             dialog.ShowDialog();
         });
+        AddSep(help);
+        AddWired(help, "Earcon Explorer", () =>
+            Dialogs.AudioWorkshopDialog.ShowOrFocus(Rig, 2));
+        AddSep(help);
         AddWired(help, "About", () =>
         {
             var dialog = new Dialogs.AboutDialog
             {
-                ProductName = "JJFlexRadio",
+                ProductName = "JJ Flexible Radio Access",
                 VersionText = System.Reflection.Assembly.GetEntryAssembly()?.GetName().Version?.ToString() ?? "Unknown",
                 Copyright = "Copyright Jim Shaffer",
                 CompanyName = "",
-                Description = "FlexRadio control application for FLEX-6000 and FLEX-8000 series transceivers."
+                Description = "Accessible radio control for FLEX-6000 and FLEX-8000 series transceivers."
             };
             dialog.ShowDialog();
         });
@@ -1193,6 +1234,21 @@ public class NativeMenuBar : IDisposable
     #endregion
 
     #region Helpers
+
+    /// <summary>
+    /// BUG-023: If already connected, confirm before connecting to a different radio.
+    /// </summary>
+    private void ConnectWithConfirmation()
+    {
+        if (Rig != null && Rig.IsConnected)
+        {
+            var result = MessageBox.Show(
+                "You're already connected. Disconnect and connect to a different radio?",
+                "Confirm", MessageBoxButton.YesNo, MessageBoxImage.Question);
+            if (result != MessageBoxResult.Yes) return;
+        }
+        _window.SelectRadioCallback?.Invoke();
+    }
 
     /// <summary>Add a popup (dropdown) menu to the menu bar.</summary>
     private IntPtr AddPopup(IntPtr menuBar, string text)
@@ -1328,7 +1384,8 @@ public class NativeMenuBar : IDisposable
         int fineStep = handlers?.FineTuneStep ?? 10;
         var licenseConfig = handlers?.License;
 
-        var dialog = new Dialogs.SettingsDialog(pttConfig, coarseStep, fineStep, licenseConfig);
+        var audioConfig = _window.CurrentAudioConfig ?? new AudioOutputConfig();
+        var dialog = new Dialogs.SettingsDialog(pttConfig, coarseStep, fineStep, licenseConfig, audioConfig);
         if (dialog.ShowDialog() == true)
         {
             _window.ApplySettingsChanges(dialog.CoarseTuneStep, dialog.FineTuneStep);

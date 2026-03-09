@@ -3,7 +3,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:local="clr-namespace:JJFlexWpf"
     Title="Settings"
-    Width="460" Height="420"
+    Width="460" Height="480"
     ResizeMode="NoResize"
     AutomationProperties.Name="Settings">
     <DockPanel Margin="12">
@@ -158,12 +158,72 @@
                 </StackPanel>
             </TabItem>
 
-            <!-- Audio Tab (placeholder) -->
+            <!-- Audio Tab -->
             <TabItem Header="Audio" AutomationProperties.Name="Audio settings">
-                <StackPanel Margin="8" VerticalAlignment="Center">
-                    <TextBlock Text="Audio settings coming in a future update."
-                               HorizontalAlignment="Center"
-                               AutomationProperties.Name="Audio settings coming in a future update"/>
+                <StackPanel Margin="8">
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                        <TextBlock Text="Earcon sound card:"
+                                   VerticalAlignment="Center"
+                                   Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
+                        <ComboBox x:Name="EarconDeviceCombo" Width="200"
+                                  Style="{StaticResource DialogComboBox}"
+                                  AutomationProperties.Name="Earcon sound card"/>
+                    </StackPanel>
+
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                        <TextBlock Text="Master earcon volume:"
+                                   VerticalAlignment="Center"
+                                   Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
+                        <Slider x:Name="EarconVolumeSlider"
+                                Width="150" Minimum="0" Maximum="100"
+                                TickFrequency="10" IsSnapToTickEnabled="False"
+                                AutomationProperties.Name="Master earcon volume, 0 to 100"/>
+                        <TextBlock x:Name="EarconVolumeLabel"
+                                   Width="30" TextAlignment="Right"
+                                   VerticalAlignment="Center" Margin="4,0,0,0"/>
+                    </StackPanel>
+                </StackPanel>
+            </TabItem>
+
+            <!-- Meter Tones Tab -->
+            <TabItem Header="Meter Tones" AutomationProperties.Name="Meter tone settings">
+                <StackPanel Margin="8">
+                    <CheckBox x:Name="MeterTonesEnabledCheck"
+                              Content="Enable meter tones"
+                              Margin="0,0,0,8"
+                              AutomationProperties.Name="Enable meter tones"/>
+
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                        <TextBlock Text="Preset:"
+                                   VerticalAlignment="Center"
+                                   Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
+                        <ComboBox x:Name="MeterPresetCombo" Width="150"
+                                  Style="{StaticResource DialogComboBox}"
+                                  AutomationProperties.Name="Meter tone preset"/>
+                    </StackPanel>
+
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                        <TextBlock Text="Meter tone volume:"
+                                   VerticalAlignment="Center"
+                                   Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
+                        <Slider x:Name="MeterVolumeSlider"
+                                Width="150" Minimum="0" Maximum="100"
+                                TickFrequency="10" IsSnapToTickEnabled="False"
+                                AutomationProperties.Name="Meter tone volume, 0 to 100"/>
+                        <TextBlock x:Name="MeterVolumeLabel"
+                                   Width="30" TextAlignment="Right"
+                                   VerticalAlignment="Center" Margin="4,0,0,0"/>
+                    </StackPanel>
+
+                    <CheckBox x:Name="PeakWatcherCheck"
+                              Content="Peak Watcher ALC alerts"
+                              Margin="0,0,0,8"
+                              AutomationProperties.Name="Enable Peak Watcher ALC alerts"/>
+
+                    <CheckBox x:Name="MeterSpeechCheck"
+                              Content="Meter speech readout"
+                              Margin="0,0,0,4"
+                              AutomationProperties.Name="Enable meter speech readout"/>
                 </StackPanel>
             </TabItem>
         </TabControl>

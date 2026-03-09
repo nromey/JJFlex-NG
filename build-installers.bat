@@ -17,7 +17,7 @@ set "ARCH=%~1"
 if "%ARCH%"=="" set "ARCH=both"
 
 echo ============================================
-echo JJFlexRadio Installer Builder
+echo JJ Flexible Radio Access Installer Builder
 echo ============================================
 echo.
 
@@ -43,10 +43,13 @@ REM Clean slate: remove both output folders and old setup files
 echo Cleaning all previous builds and setup files...
 if exist "bin\x64\Release" rmdir /s /q "bin\x64\Release"
 if exist "bin\x86\Release" rmdir /s /q "bin\x86\Release"
+del /q "Setup JJFlex_*_x64.exe" >nul 2>&1
+del /q "Setup JJFlex_*_x86.exe" >nul 2>&1
+del /q "Setup JJFlex_x64.exe" >nul 2>&1
+del /q "Setup JJFlex_x86.exe" >nul 2>&1
+REM Also clean old-naming installers
 del /q "Setup JJFlexRadio_*_x64.exe" >nul 2>&1
 del /q "Setup JJFlexRadio_*_x86.exe" >nul 2>&1
-del /q "Setup JJFlexRadio_x64.exe" >nul 2>&1
-del /q "Setup JJFlexRadio_x86.exe" >nul 2>&1
 echo.
 
 :build_x64
@@ -84,16 +87,16 @@ echo.
 
 :done
 REM Clean up legacy unversioned copies (install.bat creates these as convenience aliases)
-del /q "Setup JJFlexRadio_x64.exe" >nul 2>&1
-del /q "Setup JJFlexRadio_x86.exe" >nul 2>&1
+del /q "Setup JJFlex_x64.exe" >nul 2>&1
+del /q "Setup JJFlex_x86.exe" >nul 2>&1
 
 echo ============================================
 echo Build complete! Installers created:
 echo ============================================
-for %%f in ("Setup JJFlexRadio_*_x64.exe") do (
+for %%f in ("Setup JJFlex_*_x64.exe") do (
     if exist "%%f" echo   %%~nxf
 )
-for %%f in ("Setup JJFlexRadio_*_x86.exe") do (
+for %%f in ("Setup JJFlex_*_x86.exe") do (
     if exist "%%f" echo   %%~nxf
 )
 echo.

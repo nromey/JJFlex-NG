@@ -39,6 +39,9 @@ Namespace My
             ' Initialize NAudio-based earcon player for UI sound effects.
             JJFlexWpf.EarconPlayer.Initialize()
 
+            ' Initialize compiled help file launcher.
+            JJFlexWpf.HelpLauncher.Initialize()
+
             ' Purge connection profiles older than 7 days.
             Radios.ConnectionProfiler.PurgeOldProfiles()
 
@@ -186,6 +189,60 @@ Namespace My
                     .Description = "Set to min or max (on value field)", .KeyDisplay = "Home / End",
                     .Scope = "Radio", .Group = "ValueField",
                     .Keywords = New String() {"value", "minimum", "maximum", "home", "end"}})
+                ' Leader key commands (Ctrl+J → second key)
+                result.Add(New JJFlexWpf.Dialogs.CommandFinderItem With {
+                    .Description = "Toggle Noise Reduction", .KeyDisplay = "Ctrl+J, N",
+                    .Scope = "Radio", .Group = "DSP",
+                    .Keywords = New String() {"NR", "noise", "reduction", "leader", "toggle"}})
+                result.Add(New JJFlexWpf.Dialogs.CommandFinderItem With {
+                    .Description = "Toggle Noise Blanker", .KeyDisplay = "Ctrl+J, B",
+                    .Scope = "Radio", .Group = "DSP",
+                    .Keywords = New String() {"NB", "noise", "blanker", "leader", "toggle"}})
+                result.Add(New JJFlexWpf.Dialogs.CommandFinderItem With {
+                    .Description = "Toggle Wideband NB", .KeyDisplay = "Ctrl+J, W",
+                    .Scope = "Radio", .Group = "DSP",
+                    .Keywords = New String() {"WNB", "wideband", "noise", "blanker", "leader", "toggle"}})
+                result.Add(New JJFlexWpf.Dialogs.CommandFinderItem With {
+                    .Description = "Toggle Neural NR", .KeyDisplay = "Ctrl+J, R",
+                    .Scope = "Radio", .Group = "DSP",
+                    .Keywords = New String() {"RNN", "neural", "noise", "reduction", "leader", "toggle"}})
+                result.Add(New JJFlexWpf.Dialogs.CommandFinderItem With {
+                    .Description = "Toggle Spectral NR", .KeyDisplay = "Ctrl+J, S",
+                    .Scope = "Radio", .Group = "DSP",
+                    .Keywords = New String() {"NRS", "spectral", "noise", "reduction", "leader", "toggle"}})
+                result.Add(New JJFlexWpf.Dialogs.CommandFinderItem With {
+                    .Description = "Toggle Auto Notch", .KeyDisplay = "Ctrl+J, A",
+                    .Scope = "Radio", .Group = "DSP",
+                    .Keywords = New String() {"ANF", "auto", "notch", "leader", "toggle"}})
+                result.Add(New JJFlexWpf.Dialogs.CommandFinderItem With {
+                    .Description = "Toggle Audio Peak Filter (CW)", .KeyDisplay = "Ctrl+J, P",
+                    .Scope = "Radio", .Group = "DSP",
+                    .Keywords = New String() {"APF", "audio", "peak", "filter", "cw", "leader", "toggle"}})
+                result.Add(New JJFlexWpf.Dialogs.CommandFinderItem With {
+                    .Description = "Speak TX Filter Width", .KeyDisplay = "Ctrl+J, F",
+                    .Scope = "Radio", .Group = "audio",
+                    .Keywords = New String() {"TX", "filter", "bandwidth", "width", "sculpt", "leader"}})
+                result.Add(New JJFlexWpf.Dialogs.CommandFinderItem With {
+                    .Description = "Leader Key Help", .KeyDisplay = "Ctrl+J, H",
+                    .Scope = "Global", .Group = "help",
+                    .Keywords = New String() {"leader", "help", "commands", "list"}})
+                ' TX Filter sculpting shortcuts
+                result.Add(New JJFlexWpf.Dialogs.CommandFinderItem With {
+                    .Description = "Nudge TX filter low edge down", .KeyDisplay = "Ctrl+Shift+[",
+                    .Scope = "Radio", .Group = "audio",
+                    .Keywords = New String() {"TX", "filter", "low", "down", "sculpt", "transmit"}})
+                result.Add(New JJFlexWpf.Dialogs.CommandFinderItem With {
+                    .Description = "Nudge TX filter low edge up", .KeyDisplay = "Ctrl+Shift+]",
+                    .Scope = "Radio", .Group = "audio",
+                    .Keywords = New String() {"TX", "filter", "low", "up", "sculpt", "transmit"}})
+                result.Add(New JJFlexWpf.Dialogs.CommandFinderItem With {
+                    .Description = "Nudge TX filter high edge down", .KeyDisplay = "Ctrl+Alt+[",
+                    .Scope = "Radio", .Group = "audio",
+                    .Keywords = New String() {"TX", "filter", "high", "down", "sculpt", "transmit"}})
+                result.Add(New JJFlexWpf.Dialogs.CommandFinderItem With {
+                    .Description = "Nudge TX filter high edge up", .KeyDisplay = "Ctrl+Alt+]",
+                    .Scope = "Radio", .Group = "audio",
+                    .Keywords = New String() {"TX", "filter", "high", "up", "sculpt", "transmit"}})
                 Return result
             End Function
 
@@ -280,7 +337,7 @@ Namespace My
                         ' First run: save defaults and prompt user to set license class
                         handlers.License.Save(BaseConfigDir, opName)
                         Radios.ScreenReaderOutput.Speak(
-                            "Welcome to JJFlexRadio. Your license class defaults to Extra. " &
+                            "Welcome to JJ Flexible Radio Access. Your license class defaults to Extra. " &
                             "Open Settings from the Tools menu to change your license class.")
                     End If
                 End If
@@ -288,6 +345,8 @@ Namespace My
         End Sub
 
         Private Sub MyApplication_Shutdown(sender As Object, e As System.EventArgs) Handles Me.Shutdown
+            ' Shut down meter sonification engine.
+            JJFlexWpf.MeterToneEngine.Shutdown()
             ' Clean up NAudio earcon player.
             JJFlexWpf.EarconPlayer.Dispose()
             ' Clean up screen reader resources.

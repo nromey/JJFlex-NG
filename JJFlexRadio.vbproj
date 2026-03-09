@@ -27,6 +27,7 @@
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
     <EnableDefaultEmbeddedResourceItems>false</EnableDefaultEmbeddedResourceItems>
     <GenerateResourceUsePreserializedResources>true</GenerateResourceUsePreserializedResources>
+    <Product>JJ Flexible Radio Access</Product>
     <Copyright>J.J. Shaffer, Noel Romey 2019-2025 (GNU GPL)</Copyright>
     <LegalCopyright>J.J. Shaffer, Noel Romey 2019-2025 (GNU GPL)</LegalCopyright>
   </PropertyGroup>
@@ -409,6 +410,10 @@
     <Content Include="cty_wt.dat" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="install.bat" />
     <Content Include="install.nsi" />
+    <None Include="docs\help\JJFlexRadio.chm" Condition="Exists('docs\help\JJFlexRadio.chm')">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>JJFlexRadio.chm</Link>
+    </None>
   </ItemGroup>
 
   <!-- Native DLLs for runtimes subfolder - only portaudio and libopus go here.

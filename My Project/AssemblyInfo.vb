@@ -8,10 +8,10 @@ Imports System.Runtime.InteropServices
 
 ' Review the values of the assembly attributes
 
-<Assembly: AssemblyTitle("JJFlexRadio")>
+<Assembly: AssemblyTitle("JJ Flexible Radio Access")>
 <Assembly: AssemblyDescription("Amateur Radio control for blind Flex Radio users")>
 <Assembly: AssemblyCompany("JJShaffer.com")>
-<Assembly: AssemblyProduct("JJFlexRadio")>
+<Assembly: AssemblyProduct("JJ Flexible Radio Access")>
 <Assembly: AssemblyCopyright("J.J. Shaffer, Noel Romey 2019-2025 (GNU GPL)")>
 <Assembly: AssemblyTrademark("")> 
 

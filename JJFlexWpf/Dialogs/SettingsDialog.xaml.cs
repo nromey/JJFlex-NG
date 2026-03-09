@@ -9,6 +9,7 @@ namespace JJFlexWpf.Dialogs
     {
         private readonly PttConfig _pttConfig;
         private readonly LicenseConfig _licenseConfig;
+        private readonly AudioOutputConfig _audioConfig;
 
         // Tuning step results (read after DialogResult == true)
         public int CoarseTuneStep { get; private set; }
@@ -33,14 +34,21 @@ namespace JJFlexWpf.Dialogs
             ("Technician", HamBands.Bands.Licenses.technition)
         };
 
+        private static readonly string[] MeterPresetOptions =
+        {
+            "RX Monitor", "TX Monitor", "Full Monitor"
+        };
+
         public SettingsDialog(
             PttConfig pttConfig,
             int currentCoarseStep,
             int currentFineStep,
-            LicenseConfig? licenseConfig = null)
+            LicenseConfig? licenseConfig = null,
+            AudioOutputConfig? audioConfig = null)
         {
             _pttConfig = pttConfig;
             _licenseConfig = licenseConfig ?? new LicenseConfig();
+            _audioConfig = audioConfig ?? new AudioOutputConfig();
             CoarseTuneStep = currentCoarseStep;
             FineTuneStep = currentFineStep;
             BandMemoryEnabled = pttConfig.BandMemoryEnabled;
@@ -50,6 +58,12 @@ namespace JJFlexWpf.Dialogs
             // Select all text when tabbing into any TextBox
             AddHandler(TextBox.GotKeyboardFocusEvent,
                 new KeyboardFocusChangedEventHandler(TextBox_GotKeyboardFocus));
+
+            // Slider value change labels
+            EarconVolumeSlider.ValueChanged += (s, e) =>
+                EarconVolumeLabel.Text = ((int)EarconVolumeSlider.Value).ToString();
+            MeterVolumeSlider.ValueChanged += (s, e) =>
+                MeterVolumeLabel.Text = ((int)MeterVolumeSlider.Value).ToString();
 
             LoadSettings();
         }
@@ -109,6 +123,37 @@ namespace JJFlexWpf.Dialogs
 
             BandBoundaryCheckbox.IsChecked = _licenseConfig.BoundaryNotifications;
             TxLockoutCheckbox.IsChecked = _licenseConfig.TxLockout;
+
+            // Audio tab
+            var devices = EarconPlayer.GetOutputDevices();
+            foreach (var (devNum, name) in devices)
+            {
+                EarconDeviceCombo.Items.Add(name);
+                if (devNum == _audioConfig.EarconDeviceNumber)
+                    EarconDeviceCombo.SelectedIndex = EarconDeviceCombo.Items.Count - 1;
+            }
+            if (EarconDeviceCombo.SelectedIndex < 0) EarconDeviceCombo.SelectedIndex = 0;
+
+            EarconVolumeSlider.Value = _audioConfig.MasterEarconVolume;
+            EarconVolumeLabel.Text = _audioConfig.MasterEarconVolume.ToString();
+
+            // Meter Tones tab
+            MeterTonesEnabledCheck.IsChecked = _audioConfig.MeterTonesEnabled;
+
+            foreach (var preset in MeterPresetOptions)
+            {
+                MeterPresetCombo.Items.Add(preset);
+                if (preset == _audioConfig.MeterPreset)
+                    MeterPresetCombo.SelectedIndex = MeterPresetCombo.Items.Count - 1;
+            }
+            if (MeterPresetCombo.SelectedIndex < 0) MeterPresetCombo.SelectedIndex = 0;
+
+            int meterVolPct = (int)(_audioConfig.MeterMasterVolume * 100);
+            MeterVolumeSlider.Value = meterVolPct;
+            MeterVolumeLabel.Text = meterVolPct.ToString();
+
+            PeakWatcherCheck.IsChecked = _audioConfig.PeakWatcherEnabled;
+            MeterSpeechCheck.IsChecked = _audioConfig.MeterSpeechEnabled;
         }
 
         private bool SaveSettings()
@@ -180,6 +225,25 @@ namespace JJFlexWpf.Dialogs
                 _licenseConfig.LicenseClass = LicenseClassMap[selIdx].value;
             _licenseConfig.BoundaryNotifications = BandBoundaryCheckbox.IsChecked == true;
             _licenseConfig.TxLockout = TxLockoutCheckbox.IsChecked == true;
+
+            // Audio tab
+            var devices = EarconPlayer.GetOutputDevices();
+            int devIdx = EarconDeviceCombo.SelectedIndex;
+            if (devIdx >= 0 && devIdx < devices.Count)
+                _audioConfig.EarconDeviceNumber = devices[devIdx].deviceNumber;
+            _audioConfig.MasterEarconVolume = (int)EarconVolumeSlider.Value;
+
+            // Meter Tones tab
+            _audioConfig.MeterTonesEnabled = MeterTonesEnabledCheck.IsChecked == true;
+            int presetIdx = MeterPresetCombo.SelectedIndex;
+            if (presetIdx >= 0 && presetIdx < MeterPresetOptions.Length)
+                _audioConfig.MeterPreset = MeterPresetOptions[presetIdx];
+            _audioConfig.MeterMasterVolume = (float)MeterVolumeSlider.Value / 100f;
+            _audioConfig.PeakWatcherEnabled = PeakWatcherCheck.IsChecked == true;
+            _audioConfig.MeterSpeechEnabled = MeterSpeechCheck.IsChecked == true;
+
+            // Apply audio settings immediately
+            _audioConfig.Apply();
 
             return true;
         }

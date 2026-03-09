@@ -47,6 +47,8 @@ public partial class ScreenFieldsPanel : UserControl
     private CheckBox _fftNotchCheck = null!;
     private CheckBox _legacyNotchCheck = null!;
     private CheckBox _apfCheck = null!;
+    private CheckBox _meterToneCheck = null!;
+    private CheckBox _peakWatcherCheck = null!;
 
     #endregion
 
@@ -75,6 +77,17 @@ public partial class ScreenFieldsPanel : UserControl
     private ValueFieldControl _txPowerControl = null!;
     private CheckBox _voxCheck = null!;
     private ValueFieldControl _tunePowerControl = null!;
+    private ValueFieldControl _micGainControl = null!;
+    private CheckBox _micBoostCheck = null!;
+    private CheckBox _micBiasCheck = null!;
+    private CheckBox _companderCheck = null!;
+    private ValueFieldControl _companderLevelControl = null!;
+    private CheckBox _processorCheck = null!;
+    private CycleFieldControl _processorSettingControl = null!;
+    private ValueFieldControl _txFilterLowControl = null!;
+    private ValueFieldControl _txFilterHighControl = null!;
+    private CheckBox _monitorCheck = null!;
+    private ValueFieldControl _monitorLevelControl = null!;
 
     #endregion
 
@@ -221,6 +234,17 @@ public partial class ScreenFieldsPanel : UserControl
         _apfCheck.Checked += (s, e) => ToggleRig("APF", v => { if (_rig != null) _rig.APF = v; }, true);
         _apfCheck.Unchecked += (s, e) => ToggleRig("APF", v => { if (_rig != null) _rig.APF = v; }, false);
         DspContent.Children.Add(_apfCheck);
+
+        // Meter Tones
+        _meterToneCheck = MakeToggle("Meter Tones");
+        _meterToneCheck.Checked += (s, e) => { if (!_polling) { MeterToneEngine.Enabled = true; ScreenReaderOutput.Speak("Meter tones on"); } };
+        _meterToneCheck.Unchecked += (s, e) => { if (!_polling) { MeterToneEngine.Enabled = false; ScreenReaderOutput.Speak("Meter tones off"); } };
+        DspContent.Children.Add(_meterToneCheck);
+
+        _peakWatcherCheck = MakeToggle("Peak Watcher");
+        _peakWatcherCheck.Checked += (s, e) => { if (!_polling) { MeterToneEngine.PeakWatcherEnabled = true; ScreenReaderOutput.Speak("Peak Watcher on"); } };
+        _peakWatcherCheck.Unchecked += (s, e) => { if (!_polling) { MeterToneEngine.PeakWatcherEnabled = false; ScreenReaderOutput.Speak("Peak Watcher off"); } };
+        DspContent.Children.Add(_peakWatcherCheck);
     }
 
     private void BuildAudioControls()
@@ -298,7 +322,7 @@ public partial class ScreenFieldsPanel : UserControl
     private void BuildTXControls()
     {
         _txPowerControl = MakeValue("TX Power", 0, 100, 1);
-        _txPowerControl.ValueChanged += (s, v) => { if (_rig != null) _rig.XmitPower = v; };
+        _txPowerControl.ValueChanged += (s, v) => { if (_rig != null && !_polling) _rig.XmitPower = v; };
         TxContent.Children.Add(_txPowerControl);
 
         _voxCheck = MakeToggle("VOX");
@@ -307,8 +331,99 @@ public partial class ScreenFieldsPanel : UserControl
         TxContent.Children.Add(_voxCheck);
 
         _tunePowerControl = MakeValue("Tune Power", 0, 100, 1);
-        _tunePowerControl.ValueChanged += (s, v) => { if (_rig != null) _rig.TunePower = v; };
+        _tunePowerControl.ValueChanged += (s, v) => { if (_rig != null && !_polling) _rig.TunePower = v; };
         TxContent.Children.Add(_tunePowerControl);
+
+        // Mic Gain
+        _micGainControl = MakeValue("Mic Gain", 0, 100, 1);
+        _micGainControl.ValueChanged += (s, v) => { if (_rig != null && !_polling) _rig.MicGain = v; };
+        TxContent.Children.Add(_micGainControl);
+
+        // Mic Boost
+        _micBoostCheck = MakeToggle("Mic Boost (+20 dB)");
+        _micBoostCheck.Checked += (s, e) => ToggleRig("Mic Boost", v => { if (_rig != null) _rig.MicBoost = v; }, true);
+        _micBoostCheck.Unchecked += (s, e) => ToggleRig("Mic Boost", v => { if (_rig != null) _rig.MicBoost = v; }, false);
+        TxContent.Children.Add(_micBoostCheck);
+
+        // Mic Bias
+        _micBiasCheck = MakeToggle("Mic Bias (phantom power)");
+        _micBiasCheck.Checked += (s, e) => ToggleRig("Mic Bias", v => { if (_rig != null) _rig.MicBias = v; }, true);
+        _micBiasCheck.Unchecked += (s, e) => ToggleRig("Mic Bias", v => { if (_rig != null) _rig.MicBias = v; }, false);
+        TxContent.Children.Add(_micBiasCheck);
+
+        // Compander
+        _companderCheck = MakeToggle("Compander");
+        _companderCheck.Checked += (s, e) =>
+        {
+            ToggleRig("Compander", v => { if (_rig != null) _rig.Compander = v; }, true);
+            _companderLevelControl.Visibility = Visibility.Visible;
+        };
+        _companderCheck.Unchecked += (s, e) =>
+        {
+            ToggleRig("Compander", v => { if (_rig != null) _rig.Compander = v; }, false);
+            _companderLevelControl.Visibility = Visibility.Collapsed;
+        };
+        TxContent.Children.Add(_companderCheck);
+
+        // Compander Level (shown when Compander is on)
+        _companderLevelControl = MakeValue("Compander Level", 0, 100, 5);
+        _companderLevelControl.Visibility = Visibility.Collapsed;
+        _companderLevelControl.ValueChanged += (s, v) => { if (_rig != null && !_polling) _rig.CompanderLevel = v; };
+        TxContent.Children.Add(_companderLevelControl);
+
+        // Speech Processor
+        _processorCheck = MakeToggle("Speech Processor");
+        _processorCheck.Checked += (s, e) =>
+        {
+            ToggleRig("Speech Processor", v => { if (_rig != null) _rig.ProcessorOn = v; }, true);
+            _processorSettingControl.Visibility = Visibility.Visible;
+        };
+        _processorCheck.Unchecked += (s, e) =>
+        {
+            ToggleRig("Speech Processor", v => { if (_rig != null) _rig.ProcessorOn = v; }, false);
+            _processorSettingControl.Visibility = Visibility.Collapsed;
+        };
+        TxContent.Children.Add(_processorCheck);
+
+        // Processor Setting (shown when Processor is on)
+        _processorSettingControl = MakeCycle("Processor Mode", new[] { "Normal", "DX", "DX+" });
+        _processorSettingControl.Visibility = Visibility.Collapsed;
+        _processorSettingControl.SelectionChanged += (s, idx) =>
+        {
+            if (_rig == null || _polling) return;
+            _rig.ProcessorSetting = (FlexBase.ProcessorSettings)idx;
+        };
+        TxContent.Children.Add(_processorSettingControl);
+
+        // TX Filter Low
+        _txFilterLowControl = MakeValue("TX Filter Low", 0, 9950, 50);
+        _txFilterLowControl.ValueChanged += (s, v) => { if (_rig != null && !_polling) _rig.TXFilterLow = v; };
+        TxContent.Children.Add(_txFilterLowControl);
+
+        // TX Filter High
+        _txFilterHighControl = MakeValue("TX Filter High", 50, 10000, 50);
+        _txFilterHighControl.ValueChanged += (s, v) => { if (_rig != null && !_polling) _rig.TXFilterHigh = v; };
+        TxContent.Children.Add(_txFilterHighControl);
+
+        // TX Monitor
+        _monitorCheck = MakeToggle("TX Monitor");
+        _monitorCheck.Checked += (s, e) =>
+        {
+            ToggleRig("TX Monitor", v => { if (_rig != null) _rig.Monitor = v; }, true);
+            _monitorLevelControl.Visibility = Visibility.Visible;
+        };
+        _monitorCheck.Unchecked += (s, e) =>
+        {
+            ToggleRig("TX Monitor", v => { if (_rig != null) _rig.Monitor = v; }, false);
+            _monitorLevelControl.Visibility = Visibility.Collapsed;
+        };
+        TxContent.Children.Add(_monitorCheck);
+
+        // Monitor Level (shown when Monitor is on)
+        _monitorLevelControl = MakeValue("Monitor Level", 0, 100, 5);
+        _monitorLevelControl.Visibility = Visibility.Collapsed;
+        _monitorLevelControl.ValueChanged += (s, v) => { if (_rig != null && !_polling) _rig.SBMonitorLevel = v; };
+        TxContent.Children.Add(_monitorLevelControl);
     }
 
     private void BuildAntennaControls()
@@ -448,6 +563,10 @@ public partial class ScreenFieldsPanel : UserControl
         string mode = _rig.Mode?.ToUpperInvariant() ?? "";
         bool isCW = mode == "CW" || mode == "CWL" || mode == "CWU";
         _apfCheck.Visibility = isCW ? Visibility.Visible : Visibility.Collapsed;
+
+        // Meter tones (engine state, not rig state)
+        _meterToneCheck.IsChecked = MeterToneEngine.Enabled;
+        _peakWatcherCheck.IsChecked = MeterToneEngine.PeakWatcherEnabled;
     }
 
     private void PollAudio()
@@ -493,6 +612,28 @@ public partial class ScreenFieldsPanel : UserControl
         _txPowerControl.Value = _rig.XmitPower;
         _voxCheck.IsChecked = _rig.Vox == FlexBase.OffOnValues.on;
         _tunePowerControl.Value = _rig.TunePower;
+
+        _micGainControl.Value = _rig.MicGain;
+        _micBoostCheck.IsChecked = _rig.MicBoost == FlexBase.OffOnValues.on;
+        _micBiasCheck.IsChecked = _rig.MicBias == FlexBase.OffOnValues.on;
+
+        bool companderOn = _rig.Compander == FlexBase.OffOnValues.on;
+        _companderCheck.IsChecked = companderOn;
+        _companderLevelControl.Visibility = companderOn ? Visibility.Visible : Visibility.Collapsed;
+        if (companderOn) _companderLevelControl.Value = _rig.CompanderLevel;
+
+        bool processorOn = _rig.ProcessorOn == FlexBase.OffOnValues.on;
+        _processorCheck.IsChecked = processorOn;
+        _processorSettingControl.Visibility = processorOn ? Visibility.Visible : Visibility.Collapsed;
+        if (processorOn) _processorSettingControl.SelectedIndex = (int)_rig.ProcessorSetting;
+
+        _txFilterLowControl.Value = _rig.TXFilterLow;
+        _txFilterHighControl.Value = _rig.TXFilterHigh;
+
+        bool monitorOn = _rig.Monitor == FlexBase.OffOnValues.on;
+        _monitorCheck.IsChecked = monitorOn;
+        _monitorLevelControl.Visibility = monitorOn ? Visibility.Visible : Visibility.Collapsed;
+        if (monitorOn) _monitorLevelControl.Value = _rig.SBMonitorLevel;
     }
 
     private void PollAntenna()
