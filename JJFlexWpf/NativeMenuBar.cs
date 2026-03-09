@@ -282,10 +282,10 @@ public class NativeMenuBar : IDisposable
         }
         else
         {
-            AddChecked(nrSub, "Neural NR (RNN)", () =>
+            AddChecked(nrSub, "Neural NR (RNN)\tCtrl+J, R", () =>
                 ToggleDSP("Neural NR", () => Rig.NeuralNoiseReduction, v => Rig.NeuralNoiseReduction = v),
                 () => Rig?.NeuralNoiseReduction == FlexBase.OffOnValues.on);
-            AddChecked(nrSub, "Spectral NR (NRS)", () =>
+            AddChecked(nrSub, "Spectral NR (NRS)\tCtrl+J, S", () =>
                 ToggleDSP("Spectral NR", () => Rig.SpectralNoiseReduction, v => Rig.SpectralNoiseReduction = v),
                 () => Rig?.SpectralNoiseReduction == FlexBase.OffOnValues.on);
             AddChecked(nrSub, "Legacy NR", () =>
@@ -295,16 +295,16 @@ public class NativeMenuBar : IDisposable
 
         // === Noise Blankers submenu ===
         var nbSub = AddSubmenu(parent, "Noise Blankers");
-        AddChecked(nbSub, "Noise Blanker (NB)", () =>
+        AddChecked(nbSub, "Noise Blanker (NB)\tCtrl+J, B", () =>
             ToggleDSP("Noise Blanker", () => Rig.NoiseBlanker, v => Rig.NoiseBlanker = v),
             () => Rig?.NoiseBlanker == FlexBase.OffOnValues.on);
-        AddChecked(nbSub, "Wideband NB (WNB)", () =>
+        AddChecked(nbSub, "Wideband NB (WNB)\tCtrl+J, W", () =>
             ToggleDSP("Wideband NB", () => Rig.WidebandNoiseBlanker, v => Rig.WidebandNoiseBlanker = v),
             () => Rig?.WidebandNoiseBlanker == FlexBase.OffOnValues.on);
 
         // === Auto Notch ===
         var anfSub = AddSubmenu(parent, "Auto Notch");
-        AddChecked(anfSub, "FFT Auto-Notch", () =>
+        AddChecked(anfSub, "FFT Auto-Notch\tCtrl+J, A", () =>
             ToggleDSP("FFT Auto-Notch", () => Rig.AutoNotchFFT, v => Rig.AutoNotchFFT = v),
             () => Rig?.AutoNotchFFT == FlexBase.OffOnValues.on);
         AddChecked(anfSub, "Legacy Auto-Notch", () =>
@@ -312,7 +312,7 @@ public class NativeMenuBar : IDisposable
             () => Rig?.AutoNotchLegacy == FlexBase.OffOnValues.on);
 
         // === Audio Peak Filter (CW only) ===
-        AddChecked(parent, "Audio Peak Filter (APF)", () =>
+        AddChecked(parent, "Audio Peak Filter (APF)\tCtrl+J, P", () =>
         {
             if (Rig == null) { SpeakNoRadio(); return; }
             string? mode = Rig.Mode;
