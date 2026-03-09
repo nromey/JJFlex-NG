@@ -6,7 +6,7 @@
         xmlns:controls="clr-namespace:JJFlexWpf.Controls"
         xmlns:local="clr-namespace:JJFlexWpf"
         mc:Ignorable="d"
-        AutomationProperties.Name="JJFlexRadio Main Window"
+        AutomationProperties.Name="JJ Flexible Radio Access Main Window"
         AutomationProperties.AutomationId="MainWindow"
         FocusManager.FocusedElement="{Binding ElementName=MainContent}"
         PreviewKeyDown="MainWindow_PreviewKeyDown"

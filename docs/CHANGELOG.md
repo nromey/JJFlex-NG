@@ -1,6 +1,10 @@
-# Changelog
+# JJ Flexible Radio Access Changelog
 
 All notable changes to this project will be documented in this file. The opinions and coolness of developers, radio amateurs, and operatives is long, but you might like it. Read at your leisure for all changes for each release.
+
+## 4.1.16: The Name Change Edition
+
+I've renamed the app to JJ Flexible Radio Access. The name reflects where we're headed — flexible radio control that puts accessibility first. Your settings, profiles, and everything else are exactly where you left them. No migration needed.
 
 ## 4.1.15.1: stop the presses, we got us a breaker breaker emergency
 

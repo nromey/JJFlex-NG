@@ -43,9 +43,9 @@ Module CrashReporter
                 End Using
             End Using
 
-            Dim crashMsg = $"JJFlexRadio hit an unexpected error.{Environment.NewLine}A report was saved to:{Environment.NewLine}{zipPath}"
-            Radios.ScreenReaderOutput.Speak("JJFlexRadio hit an unexpected error. A crash report was saved.", True)
-            MessageBox.Show(AppShellForm, crashMsg, "JJFlexRadio crash report", MessageBoxButtons.OK, MessageBoxIcon.Error)
+            Dim crashMsg = $"JJ Flexible Radio Access hit an unexpected error.{Environment.NewLine}A report was saved to:{Environment.NewLine}{zipPath}"
+            Radios.ScreenReaderOutput.Speak("JJ Flexible Radio Access hit an unexpected error. A crash report was saved.", True)
+            MessageBox.Show(AppShellForm, crashMsg, "JJ Flexible Radio Access crash report", MessageBoxButtons.OK, MessageBoxIcon.Error)
         Catch reportEx As Exception
             ' Last-chance logging; do not rethrow.
             Try
@@ -58,7 +58,7 @@ Module CrashReporter
 
     Private Function BuildReport(context As String, ex As Exception, isTerminating As Boolean) As String
         Dim sb As New StringBuilder()
-        sb.AppendLine("JJFlexRadio Crash Report")
+        sb.AppendLine("JJ Flexible Radio Access Crash Report")
         sb.AppendLine($"When: {DateTime.Now:u}")
         sb.AppendLine($"Context: {context}")
         sb.AppendLine($"Terminating: {isTerminating}")

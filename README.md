@@ -1,10 +1,10 @@
-# JJFlexRadio
+# JJ Flexible Radio Access
 
 An accessible Windows application for controlling FlexRadio 6000 and 8000 series transceivers.
 
 ## Who It's For
 
-JJFlexRadio is designed for ham radio operators who prefer or require keyboard-driven interfaces. It's particularly useful for:
+JJ Flexible Radio Access is designed for ham radio operators who prefer or require keyboard-driven interfaces. It's particularly useful for:
 
 - **Blind and visually impaired operators** - Full screen reader support (NVDA, JAWS)
 - **Keyboard-first users** - Operate your radio without touching a mouse
