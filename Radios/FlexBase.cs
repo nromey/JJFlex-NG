@@ -2618,6 +2618,8 @@ namespace Radios
             return (int)((Math.Pow(10d, (double)(dbm / 10)) / 1000) + 0.5);
         }
         protected float _PowerDBM;
+        /// <summary>Forward power in dBm. Updated by VITA-49 meter packets during TX.</summary>
+        public float PowerDBM => _PowerDBM;
         private void forwardPowerData(float data)
         {
             Tracing.TraceLine("forwardPower:" + data.ToString(), TraceLevel.Verbose);
@@ -2628,7 +2630,7 @@ namespace Radios
         }
 
         protected float _SWR;
-        internal float SWR { get { return _SWR; } }
+        public float SWR { get { return _SWR; } }
 
         private void sWRData(float data)
         {
@@ -2692,7 +2694,7 @@ namespace Radios
         /// <summary>
         /// PA temperature in DGC.
         /// </summary>
-        internal float PATemp { get { return _PATempData; } }
+        public float PATemp { get { return _PATempData; } }
 
         private float _VoltsData;
         private void VoltsDataHandler(float data)
@@ -2704,7 +2706,7 @@ namespace Radios
         /// <summary>
         /// Voltage
         /// </summary>
-        internal float Volts { get { return _VoltsData; } }
+        public float Volts { get { return _VoltsData; } }
 
         private void meterAdded(Slice slc, Meter m)
         {
