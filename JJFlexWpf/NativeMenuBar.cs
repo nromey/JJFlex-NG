@@ -662,7 +662,7 @@ public class NativeMenuBar : IDisposable
         var actions = AddPopup(bar, "&Actions");
 
         AddNotImplemented(actions, "List Operators");
-        AddWired(actions, "Select Rig", () => _window.SelectRadioCallback?.Invoke());
+        AddWired(actions, "Select Rig", () => ConnectWithConfirmation());
         AddWired(actions, "Manage SmartLink Accounts", () => _window.ShowSmartLinkAccountManager());
         AddChecked(actions, "Auto-Connect Enabled",
             () => { var msg = _window.ToggleAutoConnect(); if (msg != null) SpeakAfterMenuClose(msg); },
@@ -783,6 +783,11 @@ public class NativeMenuBar : IDisposable
             // Diversity (moved from ScreenFields — Sprint 15 Track D)
             AddSep(operations);
             BuildDiversityItems(operations);
+
+            // Audio Workshop
+            AddSep(operations);
+            AddWired(operations, "Audio Workshop\tCtrl+Shift+W", () =>
+                Dialogs.AudioWorkshopDialog.ShowOrFocus(Rig, 0));
         }
         else
         {
@@ -817,7 +822,7 @@ public class NativeMenuBar : IDisposable
 
         // === Radio ===
         var radio = AddPopup(bar, "&Radio");
-        AddWired(radio, "Connect to Radio", () => _window.SelectRadioCallback?.Invoke());
+        AddWired(radio, "Connect to Radio", () => ConnectWithConfirmation());
         AddWired(radio, "Manage SmartLink Accounts", () => _window.ShowSmartLinkAccountManager());
         AddChecked(radio, "Auto-Connect Enabled",
             () => { var msg = _window.ToggleAutoConnect(); if (msg != null) SpeakAfterMenuClose(msg); },
@@ -1054,6 +1059,9 @@ public class NativeMenuBar : IDisposable
         });
         AddSep(tools);
         AddWired(tools, "View Test Results", () => _window.ShowTestResultsCallback?.Invoke());
+        AddSep(tools);
+        AddWired(tools, "Audio Workshop\tCtrl+Shift+W", () =>
+            Dialogs.AudioWorkshopDialog.ShowOrFocus(Rig, 0));
 
         // === Help (shared) ===
         BuildHelpPopup(bar);
@@ -1176,6 +1184,10 @@ public class NativeMenuBar : IDisposable
             };
             dialog.ShowDialog();
         });
+        AddSep(help);
+        AddWired(help, "Earcon Explorer", () =>
+            Dialogs.AudioWorkshopDialog.ShowOrFocus(Rig, 2));
+        AddSep(help);
         AddWired(help, "About", () =>
         {
             var dialog = new Dialogs.AboutDialog
@@ -1193,6 +1205,21 @@ public class NativeMenuBar : IDisposable
     #endregion
 
     #region Helpers
+
+    /// <summary>
+    /// BUG-023: If already connected, confirm before connecting to a different radio.
+    /// </summary>
+    private void ConnectWithConfirmation()
+    {
+        if (Rig != null && Rig.IsConnected)
+        {
+            var result = MessageBox.Show(
+                "You're already connected. Disconnect and connect to a different radio?",
+                "Confirm", MessageBoxButton.YesNo, MessageBoxImage.Question);
+            if (result != MessageBoxResult.Yes) return;
+        }
+        _window.SelectRadioCallback?.Invoke();
+    }
 
     /// <summary>Add a popup (dropdown) menu to the menu bar.</summary>
     private IntPtr AddPopup(IntPtr menuBar, string text)

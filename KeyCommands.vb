@@ -101,6 +101,7 @@ Public Class KeyCommands
         ModeLSB
         ModeCW
         ReadSMeter
+        OpenAudioWorkshop
     End Enum
     Friend Const FirstMessageCommandValue As Integer = 1000000
 
@@ -569,7 +570,10 @@ Public Class KeyCommands
             .Keywords = New String() {"mode", "lsb", "lower", "sideband", "ssb", "phone"}},
         New keyTbl(CommandValues.ModeCW, KeyTypes.Command, AddressOf modeCWRtn,
             "Switch to CW mode", "CW", False, FunctionGroups.general, KeyScope.Radio) With {
-            .Keywords = New String() {"mode", "cw", "morse", "code", "continuous wave"}}}
+            .Keywords = New String() {"mode", "cw", "morse", "code", "continuous wave"}},
+        New keyTbl(CommandValues.OpenAudioWorkshop, KeyTypes.Command, AddressOf openAudioWorkshopRtn,
+            "Open Audio Workshop dialog", "Audio Workshop", False, FunctionGroups.dialog, KeyScope.[Global]) With {
+            .Keywords = New String() {"audio", "workshop", "tx", "transmit", "mic", "compander", "preset", "earcon"}}}
 
     ' Deleted from KeyTable.
     ' New keyTbl(CommandValues.LogForm, AddressOf BringUpLogForm,
@@ -659,7 +663,8 @@ Public Class KeyCommands
      New KeyDefType(Keys.Oem2 Or Keys.Control, CommandValues.ContextHelp, KeyScope.[Global]),
      New KeyDefType(Keys.S Or Keys.Control Or Keys.Shift, CommandValues.SpeakStatus, KeyScope.[Global]),
      New KeyDefType(Keys.S Or Keys.Control Or Keys.Alt, CommandValues.ShowStatusDialog, KeyScope.[Global]),
-     New KeyDefType(Keys.S Or Keys.Alt Or Keys.Shift, CommandValues.SpeakTxStatus, KeyScope.[Global])}
+     New KeyDefType(Keys.S Or Keys.Alt Or Keys.Shift, CommandValues.SpeakTxStatus, KeyScope.[Global]),
+     New KeyDefType(Keys.W Or Keys.Control Or Keys.Shift, CommandValues.OpenAudioWorkshop, KeyScope.[Global])}
 
     ''' <summary>
     ''' Dictionary to access the keytable using a key.
@@ -2005,5 +2010,9 @@ Public Class KeyCommands
     End Sub
     Private Sub modeCWRtn()
         WpfMainWindow.SetMode("CW")
+    End Sub
+
+    Private Sub openAudioWorkshopRtn()
+        WpfMainWindow.Dispatcher.Invoke(Sub() JJFlexWpf.Dialogs.AudioWorkshopDialog.ShowOrFocus(RigControl, 0))
     End Sub
 End Class
