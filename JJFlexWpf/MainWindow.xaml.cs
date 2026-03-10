@@ -2162,6 +2162,51 @@ public partial class MainWindow : UserControl
         _freqOutHandlers?.BandNavigate(direction);
     }
 
+    #region 60m Channel Navigation — Sprint 22 Phase 10
+
+    private int _sixtyMeterChannelIndex;
+
+    /// <summary>
+    /// Navigate 60m channels: cycles through Channel 1-5 + Digi Segment.
+    /// Alt+Shift+Up/Down parallels Alt+Up/Down for band navigation.
+    /// </summary>
+    public void SixtyMeterChannelNavigate(int direction)
+    {
+        if (RigControl == null || !_radioPowerOn) return;
+
+        string country = _freqOutHandlers?.License?.Country ?? "US";
+        var alloc = SixtyMeterChannels.GetAllocation(country);
+        if (alloc == null)
+        {
+            ScreenReaderOutput.Speak("No 60 meter channels configured for this country");
+            return;
+        }
+
+        int stopCount = alloc.Value.Channels.Length + (alloc.Value.Digi != null ? 1 : 0);
+        if (stopCount == 0) return;
+
+        _sixtyMeterChannelIndex = (_sixtyMeterChannelIndex + direction + stopCount) % stopCount;
+
+        if (_sixtyMeterChannelIndex < alloc.Value.Channels.Length)
+        {
+            // Channelized frequency
+            var ch = alloc.Value.Channels[_sixtyMeterChannelIndex];
+            ulong freqHz = (ulong)(ch.FrequencyMHz * 1_000_000.0 + 0.5);
+            RigControl.Frequency = freqHz;
+            RigControl.Mode = ch.Mode;
+            ScreenReaderOutput.Speak($"{ch.Label}, {ch.FrequencyMHz:F4} megahertz, {ch.Mode}");
+        }
+        else if (alloc.Value.Digi is { } digi)
+        {
+            // Digital segment — tune to start
+            ulong freqHz = (ulong)(digi.StartMHz * 1_000_000.0 + 0.5);
+            RigControl.Frequency = freqHz;
+            ScreenReaderOutput.Speak($"60 meter digital segment, {digi.StartMHz:F4} megahertz");
+        }
+    }
+
+    #endregion
+
     /// <summary>
     /// Common mode cycle list for F10/F11 hotkeys.
     /// Subset of RigCaps.ModeTable — just the frequently used modes.

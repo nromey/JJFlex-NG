@@ -27,6 +27,18 @@ namespace Radios
         /// </summary>
         public bool TxLockout { get; set; } = false;
 
+        /// <summary>
+        /// Operator's country code for 60m channelization and regulatory enforcement.
+        /// Default "US" for FCC Part 97.303(h) rules.
+        /// </summary>
+        public string Country { get; set; } = "US";
+
+        /// <summary>
+        /// When true, enforce TX parameters based on published rules (USB mode on 60m channels,
+        /// 100W power cap, TX lockout outside channels/digi segment). When false, no restrictions.
+        /// </summary>
+        public bool EnforceTxRules { get; set; } = true;
+
         public static LicenseConfig Load(string configDirectory, string operatorName)
         {
             var filePath = GetFilePath(configDirectory, operatorName);

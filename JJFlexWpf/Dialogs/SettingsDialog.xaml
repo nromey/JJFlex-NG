@@ -170,6 +170,21 @@
                               Content="TX band lockout"
                               Margin="0,8,0,0"
                               AutomationProperties.Name="Prevent transmitting outside licensed bands"/>
+
+                    <Separator Margin="0,12,0,8"/>
+
+                    <StackPanel Orientation="Horizontal" Margin="0,4,0,4">
+                        <TextBlock Text="Country:" VerticalAlignment="Center"
+                                   Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
+                        <ComboBox x:Name="CountryCombo" Width="120"
+                                  Style="{StaticResource DialogComboBox}"
+                                  AutomationProperties.Name="Country for 60 meter channelization rules"/>
+                    </StackPanel>
+
+                    <CheckBox x:Name="EnforceTxRulesCheckbox"
+                              Content="Enforce transmit rules (60m channels, power limits)"
+                              Margin="0,8,0,0"
+                              AutomationProperties.Name="Enforce transmit parameters based on published amateur radio rules"/>
                 </StackPanel>
             </TabItem>
 

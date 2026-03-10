@@ -129,6 +129,15 @@ namespace JJFlexWpf.Dialogs
             BandBoundaryCheckbox.IsChecked = _licenseConfig.BoundaryNotifications;
             TxLockoutCheckbox.IsChecked = _licenseConfig.TxLockout;
 
+            // Country selector
+            string[] countries = { "US" }; // Future: add UK, CA, etc.
+            foreach (var c in countries)
+                CountryCombo.Items.Add(c);
+            CountryCombo.SelectedItem = _licenseConfig.Country ?? "US";
+            if (CountryCombo.SelectedIndex < 0) CountryCombo.SelectedIndex = 0;
+
+            EnforceTxRulesCheckbox.IsChecked = _licenseConfig.EnforceTxRules;
+
             // Audio tab
             var devices = EarconPlayer.GetOutputDevices();
             foreach (var (devNum, name) in devices)
@@ -237,6 +246,8 @@ namespace JJFlexWpf.Dialogs
                 _licenseConfig.LicenseClass = LicenseClassMap[selIdx].value;
             _licenseConfig.BoundaryNotifications = BandBoundaryCheckbox.IsChecked == true;
             _licenseConfig.TxLockout = TxLockoutCheckbox.IsChecked == true;
+            _licenseConfig.Country = CountryCombo.SelectedItem as string ?? "US";
+            _licenseConfig.EnforceTxRules = EnforceTxRulesCheckbox.IsChecked == true;
 
             // Audio tab
             var devices = EarconPlayer.GetOutputDevices();

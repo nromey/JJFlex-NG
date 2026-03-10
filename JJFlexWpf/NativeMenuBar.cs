@@ -1223,6 +1223,11 @@ public class NativeMenuBar : IDisposable
         // Navigation
         AddWired(parent, "Band Up\tAlt+Up", () => _window.BandNavigate(1));
         AddWired(parent, "Band Down\tAlt+Down", () => _window.BandNavigate(-1));
+        AddSep(parent);
+
+        // 60m channel navigation
+        AddWired(parent, "60m Channel Up\tAlt+Shift+Up", () => _window.SixtyMeterChannelNavigate(1));
+        AddWired(parent, "60m Channel Down\tAlt+Shift+Down", () => _window.SixtyMeterChannelNavigate(-1));
     }
 
     #endregion

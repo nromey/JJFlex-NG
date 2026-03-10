@@ -114,6 +114,8 @@ Public Class KeyCommands
         TuneToggle
         ATUTune
         ToggleMeters
+        SixtyMeterChannelUp
+        SixtyMeterChannelDown
     End Enum
     Friend Const FirstMessageCommandValue As Integer = 1000000
 
@@ -624,7 +626,13 @@ Public Class KeyCommands
             .Keywords = New String() {"atu", "tune", "antenna", "tuner", "auto", "match", "swr"}},
         New keyTbl(CommandValues.ToggleMeters, KeyTypes.Command, AddressOf toggleMetersRtn,
             "Toggle meter tones on or off", "Toggle Meters", False, FunctionGroups.general, KeyScope.[Global]) With {
-            .Keywords = New String() {"meter", "tones", "sonification", "audio", "s-meter", "alc", "swr"}}}
+            .Keywords = New String() {"meter", "tones", "sonification", "audio", "s-meter", "alc", "swr"}},
+        New keyTbl(CommandValues.SixtyMeterChannelUp, KeyTypes.Command, AddressOf sixtyMeterChannelUpRtn,
+            "Next 60 meter channel", "60m Channel Up", False, FunctionGroups.tuning, KeyScope.Radio) With {
+            .Keywords = New String() {"60", "meter", "channel", "up", "next", "five", "navigate"}},
+        New keyTbl(CommandValues.SixtyMeterChannelDown, KeyTypes.Command, AddressOf sixtyMeterChannelDownRtn,
+            "Previous 60 meter channel", "60m Channel Down", False, FunctionGroups.tuning, KeyScope.Radio) With {
+            .Keywords = New String() {"60", "meter", "channel", "down", "previous", "five", "navigate"}}}
 
     ' Deleted from KeyTable.
     ' New keyTbl(CommandValues.LogForm, AddressOf BringUpLogForm,
@@ -726,7 +734,9 @@ Public Class KeyCommands
      New KeyDefType(Keys.W Or Keys.Control Or Keys.Shift, CommandValues.OpenAudioWorkshop, KeyScope.[Global]),
      New KeyDefType(Keys.T Or Keys.Control Or Keys.Shift, CommandValues.TuneToggle, KeyScope.Radio),  ' Ctrl+Shift+T = Tune carrier toggle
      New KeyDefType(Keys.T Or Keys.Control, CommandValues.ATUTune, KeyScope.Radio),                     ' Ctrl+T = ATU Tune
-     New KeyDefType(Keys.M Or Keys.Control, CommandValues.ToggleMeters, KeyScope.[Global])}             ' Ctrl+M = Toggle meters
+     New KeyDefType(Keys.M Or Keys.Control, CommandValues.ToggleMeters, KeyScope.[Global]),             ' Ctrl+M = Toggle meters
+     New KeyDefType(Keys.Up Or Keys.Alt Or Keys.Shift, CommandValues.SixtyMeterChannelUp, KeyScope.Radio),     ' Alt+Shift+Up = 60m channel up
+     New KeyDefType(Keys.Down Or Keys.Alt Or Keys.Shift, CommandValues.SixtyMeterChannelDown, KeyScope.Radio)} ' Alt+Shift+Down = 60m channel down
 
     ''' <summary>
     ''' Dictionary to access the keytable using a key.
@@ -1972,6 +1982,14 @@ Public Class KeyCommands
 
     Private Sub toggleMetersRtn()
         WpfMainWindow?.ToggleMetersPanel()
+    End Sub
+
+    Private Sub sixtyMeterChannelUpRtn()
+        WpfMainWindow?.SixtyMeterChannelNavigate(1)
+    End Sub
+
+    Private Sub sixtyMeterChannelDownRtn()
+        WpfMainWindow?.SixtyMeterChannelNavigate(-1)
     End Sub
 
     ' Region - remote audio
