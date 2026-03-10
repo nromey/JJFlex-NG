@@ -596,19 +596,19 @@ Public Class KeyCommands
             "Switch to CW mode", "CW", False, FunctionGroups.general, KeyScope.Radio) With {
             .Keywords = New String() {"mode", "cw", "morse", "code", "continuous wave"}},
         New keyTbl(CommandValues.TXFilterLowDown, KeyTypes.Command, AddressOf TXFilterLowDownHandler,
-            "Nudge TX filter low edge down", Nothing, False, FunctionGroups.audio, KeyScope.Radio) With {
+            "Nudge TX filter low edge down", CStr(Nothing), False, FunctionGroups.audio, KeyScope.Radio) With {
             .Keywords = New String() {"tx", "filter", "low", "down", "transmit", "sculpt"}},
         New keyTbl(CommandValues.TXFilterLowUp, KeyTypes.Command, AddressOf TXFilterLowUpHandler,
-            "Nudge TX filter low edge up", Nothing, False, FunctionGroups.audio, KeyScope.Radio) With {
+            "Nudge TX filter low edge up", CStr(Nothing), False, FunctionGroups.audio, KeyScope.Radio) With {
             .Keywords = New String() {"tx", "filter", "low", "up", "transmit", "sculpt"}},
         New keyTbl(CommandValues.TXFilterHighDown, KeyTypes.Command, AddressOf TXFilterHighDownHandler,
-            "Nudge TX filter high edge down", Nothing, False, FunctionGroups.audio, KeyScope.Radio) With {
+            "Nudge TX filter high edge down", CStr(Nothing), False, FunctionGroups.audio, KeyScope.Radio) With {
             .Keywords = New String() {"tx", "filter", "high", "down", "transmit", "sculpt"}},
         New keyTbl(CommandValues.TXFilterHighUp, KeyTypes.Command, AddressOf TXFilterHighUpHandler,
-            "Nudge TX filter high edge up", Nothing, False, FunctionGroups.audio, KeyScope.Radio) With {
+            "Nudge TX filter high edge up", CStr(Nothing), False, FunctionGroups.audio, KeyScope.Radio) With {
             .Keywords = New String() {"tx", "filter", "high", "up", "transmit", "sculpt"}},
         New keyTbl(CommandValues.SpeakTXFilter, KeyTypes.Command, AddressOf SpeakTXFilterHandler,
-            "Speak TX filter width", Nothing, False, FunctionGroups.audio, KeyScope.Radio) With {
+            "Speak TX filter width", CStr(Nothing), False, FunctionGroups.audio, KeyScope.Radio) With {
             .Keywords = New String() {"tx", "filter", "width", "bandwidth", "speak", "transmit", "sculpt"}},
         New keyTbl(CommandValues.OpenAudioWorkshop, KeyTypes.Command, AddressOf openAudioWorkshopRtn,
             "Open Audio Workshop dialog", "Audio Workshop", False, FunctionGroups.dialog, KeyScope.[Global]) With {
