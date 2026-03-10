@@ -132,21 +132,23 @@ build-installers.bat
 
 ---
 
-## Sprint 21: Resonant Signal Sculpt — IN PROGRESS
+## Sprint 21: Resonant Signal Sculpt — MERGED TO MAIN
 
-**Status:** Setup complete. 5 tracks ready for parallel execution.
+**Status:** All 5 tracks merged, build clean. Pending: version bump, changelog, release.
 
-**Branches and worktrees:**
-| Track | Branch | Worktree | Focus |
-|-------|--------|----------|-------|
-| A | `sprint21/track-a` | `C:\dev\JJFlex-NG` | Meter Sonification Engine + Peak Watcher + Earcon Infrastructure |
-| B | `sprint21/track-b` | `C:\dev\jjflex-21b` | Audio Workshop + ScreenFields TX Expansion + Earcon Explorer |
-| C | `sprint21/track-c` | `C:\dev\jjflex-21c` | TX Sculpting Keyboard + Leader Key System + Command Finder Extension |
-| D | `sprint21/track-d` | `C:\dev\jjflex-21d` | App Rename — JJ Flexible Radio Access |
-| E | `sprint21/track-e` | `C:\dev\jjflex-21e` | Compiled Help File (CHM) |
+**What landed (65 files, +4,945 / -588 lines):**
+- Track A: Meter Sonification Engine (ContinuousToneSampleProvider, MeterToneEngine, AudioOutputConfig, peak watcher, earcon device/volume settings)
+- Track B: Audio Workshop dialog (3 tabs: TX Audio, Live Meters, Earcon Explorer), ScreenFields TX expansion (mic gain, compander, processor, TX filter, monitor), AudioChainPreset
+- Track C: Leader key system (Ctrl+J, no timeout), TX filter keyboard sculpting (bracket keys), Command Finder extended with leader key commands, BUG-004 fix (FlexKnob.Dispose)
+- Track D: App renamed to "JJ Flexible Radio Access" (display-name only, internals stay JJFlexRadio)
+- Track E: Compiled HTML Help (22 Markdown pages, hhc.exe toolchain, F1 context-sensitive HelpLauncher)
+- Bug fixes: BUG-004, BUG-016 (DSP feature gating), BUG-023 (connect confirmation)
 
-**Merge plan:** A, B, C, E merge in any order. D merges LAST (touches display strings).
+**Merge notes:**
+- Conflicts were all additive (CommandValues enum, KeyTable arrays) — resolved by keeping both sets
+- One integration fix: Track A renamed SWR property to SWRValue, fixed reference in AudioWorkshopDialog
+- Track D merged last as planned — zero display-string conflicts with feature tracks
 
 ---
 
-*Updated: Mar 8, 2026 — Sprint 21 setup complete. 5 parallel tracks with worktrees and TRACK-INSTRUCTIONS.md in each. Version target: 4.1.16.*
+*Updated: Mar 8, 2026 — Sprint 21 merged to main. Next: version bump to 4.1.16, changelog, clean Release build, tag and release.*
