@@ -559,6 +559,41 @@ public class NativeMenuBar : IDisposable
     }
 
     /// <summary>
+    /// Build RX/TX antenna selection submenus. Dynamic — reads antenna lists from the radio.
+    /// Sprint 22 Phase 6.
+    /// </summary>
+    private void BuildAntennaSelectItems(IntPtr parent)
+    {
+        if (Rig == null) return;
+
+        // RX Antenna submenu
+        var rxSub = AddSubmenu(parent, "RX Antenna");
+        foreach (var ant in Rig.RXAntennaList)
+        {
+            var antName = ant; // capture for closure
+            AddChecked(rxSub, antName, () =>
+            {
+                if (Rig == null) { SpeakNoRadio(); return; }
+                Rig.RXAntennaName = antName;
+                SpeakAfterMenuClose($"RX antenna {antName}");
+            }, () => string.Equals(Rig?.RXAntennaName, antName, StringComparison.OrdinalIgnoreCase));
+        }
+
+        // TX Antenna submenu
+        var txSub = AddSubmenu(parent, "TX Antenna");
+        foreach (var ant in Rig.TXAntennaList)
+        {
+            var antName = ant;
+            AddChecked(txSub, antName, () =>
+            {
+                if (Rig == null) { SpeakNoRadio(); return; }
+                Rig.TXAntennaName = antName;
+                SpeakAfterMenuClose($"TX antenna {antName}");
+            }, () => string.Equals(Rig?.TXAntennaName, antName, StringComparison.OrdinalIgnoreCase));
+        }
+    }
+
+    /// <summary>
     /// Build ATU (Antenna Tuner) control items.
     /// </summary>
     private void BuildATUItems(IntPtr parent)
@@ -803,8 +838,10 @@ public class NativeMenuBar : IDisposable
             },
             () => Rig?.DummyLoadMode == true);
 
-            // Antenna Tuner
-            var atuSub = AddSubmenu(operations, "Antenna Tuner");
+            // Antenna (RX/TX select + ATU)
+            var atuSub = AddSubmenu(operations, "Antenna");
+            BuildAntennaSelectItems(atuSub);
+            AddSep(atuSub);
             BuildATUItems(atuSub);
             AddSep(atuSub);
             AddWired(atuSub, "ATU Tune\tCtrl+T", () => _window.StartATUTuneCycle());
@@ -990,8 +1027,10 @@ public class NativeMenuBar : IDisposable
             var dspSub = AddSubmenu(slice, "DSP");
             BuildDSPItems(dspSub);
 
-            // Antenna — ATU + Diversity (Sprint 15 Track D: ATU was missing from Modern)
+            // Antenna — RX/TX select, ATU, Diversity
             var antSub = AddSubmenu(slice, "Antenna");
+            BuildAntennaSelectItems(antSub);
+            AddSep(antSub);
             BuildATUItems(antSub);
             AddSep(antSub);
             AddWired(antSub, "ATU Tune\tCtrl+T", () => _window.StartATUTuneCycle());

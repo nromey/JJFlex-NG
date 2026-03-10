@@ -93,6 +93,8 @@ public partial class ScreenFieldsPanel : UserControl
 
     #region Antenna Controls
 
+    private CycleFieldControl _rxAntennaControl = null!;
+    private CycleFieldControl _txAntennaControl = null!;
     private CheckBox _atuCheck = null!;
     private CycleFieldControl _atuModeControl = null!;
 
@@ -117,7 +119,11 @@ public partial class ScreenFieldsPanel : UserControl
     {
         _rig = rig;
 
-        // Antenna category always visible — ATU is on all supported Flex radios
+        // Repopulate antenna combos from the connected radio's antenna lists
+        var rxAnts = rig.RXAntennaList.ToArray();
+        var txAnts = rig.TXAntennaList.ToArray();
+        if (rxAnts.Length > 0) _rxAntennaControl.SetOptions(rxAnts);
+        if (txAnts.Length > 0) _txAntennaControl.SetOptions(txAnts);
 
         // Hide NR controls if NR license is not available on this radio
         bool nrAvailable = !(rig.NoiseReductionLicenseReported && !rig.NoiseReductionLicensed);
@@ -428,6 +434,33 @@ public partial class ScreenFieldsPanel : UserControl
 
     private void BuildAntennaControls()
     {
+        // RX/TX antenna combos — populated dynamically at Initialize
+        _rxAntennaControl = MakeCycle("RX Antenna", new[] { "ANT1", "ANT2" });
+        _rxAntennaControl.SelectionChanged += (s, idx) =>
+        {
+            if (_rig == null) return;
+            var list = _rig.RXAntennaList;
+            if (idx >= 0 && idx < list.Count)
+            {
+                _rig.RXAntennaName = list[idx];
+                Radios.ScreenReaderOutput.Speak($"RX antenna {list[idx]}");
+            }
+        };
+        AntennaContent.Children.Add(_rxAntennaControl);
+
+        _txAntennaControl = MakeCycle("TX Antenna", new[] { "ANT1", "ANT2" });
+        _txAntennaControl.SelectionChanged += (s, idx) =>
+        {
+            if (_rig == null) return;
+            var list = _rig.TXAntennaList;
+            if (idx >= 0 && idx < list.Count)
+            {
+                _rig.TXAntennaName = list[idx];
+                Radios.ScreenReaderOutput.Speak($"TX antenna {list[idx]}");
+            }
+        };
+        AntennaContent.Children.Add(_txAntennaControl);
+
         _atuCheck = MakeToggle("ATU");
         _atuCheck.Checked += (s, e) => ToggleBoolRig("ATU", v => { if (_rig != null) _rig.FlexTunerOn = v; }, true);
         _atuCheck.Unchecked += (s, e) => ToggleBoolRig("ATU", v => { if (_rig != null) _rig.FlexTunerOn = v; }, false);
@@ -640,6 +673,16 @@ public partial class ScreenFieldsPanel : UserControl
     {
         if (_rig == null) return;
 
+        // RX/TX antenna selection
+        var rxList = _rig.RXAntennaList;
+        int rxIdx = rxList.IndexOf(_rig.RXAntennaName);
+        if (rxIdx >= 0) _rxAntennaControl.SelectedIndex = rxIdx;
+
+        var txList = _rig.TXAntennaList;
+        int txIdx = txList.IndexOf(_rig.TXAntennaName);
+        if (txIdx >= 0) _txAntennaControl.SelectedIndex = txIdx;
+
+        // ATU controls
         _atuCheck.IsChecked = _rig.FlexTunerOn;
 
         var atuMode = _rig.FlexTunerType;
