@@ -52,13 +52,17 @@ public partial class ScreenFieldsPanel : UserControl
 
     #endregion
 
-    #region Audio Controls
+    #region Audio and Slice Controls
 
     private CheckBox _muteCheck = null!;
     private ValueFieldControl _volumeControl = null!;
     private ValueFieldControl _panControl = null!;
     private ValueFieldControl _headphoneControl = null!;
     private ValueFieldControl _lineoutControl = null!;
+
+    // Slice management controls (below audio in same expander)
+    private Button _createSliceButton = null!;
+    private Button _releaseSliceButton = null!;
 
     #endregion
 
@@ -275,6 +279,60 @@ public partial class ScreenFieldsPanel : UserControl
         _lineoutControl = MakeValue("Line Out Level", 0, 100, 5);
         _lineoutControl.ValueChanged += (s, v) => { if (_rig != null) _rig.LineoutGain = v; };
         AudioContent.Children.Add(_lineoutControl);
+
+        // Separator between audio and slice controls
+        AudioContent.Children.Add(new Separator { Margin = new Thickness(0, 8, 0, 8) });
+
+        // Slice management buttons
+        _createSliceButton = new Button
+        {
+            Content = "Create Slice",
+            Margin = new Thickness(0, 2, 0, 2),
+            Padding = new Thickness(8, 4, 8, 4),
+            HorizontalAlignment = System.Windows.HorizontalAlignment.Left
+        };
+        System.Windows.Automation.AutomationProperties.SetName(_createSliceButton, "Create a new slice");
+        _createSliceButton.Click += (s, e) =>
+        {
+            if (_rig == null) return;
+            if (_rig.MyNumSlices >= _rig.MaxSlices)
+            {
+                ScreenReaderOutput.Speak("Maximum slices reached");
+                return;
+            }
+            bool ok = _rig.NewSlice();
+            if (ok)
+                ScreenReaderOutput.Speak($"Slice created, {_rig.MyNumSlices} slices active");
+            else
+                ScreenReaderOutput.Speak("Could not create slice");
+        };
+        AudioContent.Children.Add(_createSliceButton);
+
+        _releaseSliceButton = new Button
+        {
+            Content = "Release Slice",
+            Margin = new Thickness(0, 2, 0, 2),
+            Padding = new Thickness(8, 4, 8, 4),
+            HorizontalAlignment = System.Windows.HorizontalAlignment.Left
+        };
+        System.Windows.Automation.AutomationProperties.SetName(_releaseSliceButton, "Release the last slice");
+        _releaseSliceButton.Click += (s, e) =>
+        {
+            if (_rig == null) return;
+            int numSlices = _rig.MyNumSlices;
+            if (numSlices <= 1)
+            {
+                ScreenReaderOutput.Speak("Cannot release the only slice");
+                return;
+            }
+            // Release the last slice (highest index)
+            bool ok = _rig.RemoveSlice(numSlices - 1);
+            if (ok)
+                ScreenReaderOutput.Speak($"Slice released, {_rig.MyNumSlices} slices active");
+            else
+                ScreenReaderOutput.Speak("Could not release slice");
+        };
+        AudioContent.Children.Add(_releaseSliceButton);
     }
 
     private void BuildReceiverControls()

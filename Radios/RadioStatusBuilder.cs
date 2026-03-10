@@ -8,6 +8,68 @@ namespace Radios
     public static class RadioStatusBuilder
     {
         /// <summary>
+        /// Build a comprehensive multi-slice status for Ctrl+Shift+S.
+        /// Returns something like:
+        ///   "2 slices. Slice A selected, transmit, 14.250 megahertz, USB, pan center.
+        ///    Slice B, 7.150 megahertz, LSB, muted, pan right."
+        /// Falls back to single-slice BuildSpokenStatus if only one slice.
+        /// </summary>
+        public static string BuildFullSliceStatus(FlexBase radio)
+        {
+            if (radio == null)
+                return "No radio connected";
+
+            int numSlices = radio.MyNumSlices;
+            if (numSlices == 0)
+                return BuildSpokenStatus(radio);
+
+            if (numSlices == 1)
+                return BuildSpokenStatus(radio);
+
+            var parts = new System.Collections.Generic.List<string>();
+            parts.Add($"{numSlices} slices");
+
+            int rxVfo = radio.RXVFO;
+            int txVfo = radio.TXVFO;
+
+            for (int i = 0; i < numSlices; i++)
+            {
+                var slice = radio.VFOToSlice(i);
+                if (slice == null) continue;
+
+                string letter = slice.Letter ?? i.ToString();
+                double freqMhz = slice.Freq;
+                string mode = slice.DemodMode ?? "";
+                bool isMuted = slice.Mute;
+                int pan = slice.AudioPan;
+                bool isActive = (i == rxVfo);
+                bool isTx = (i == txVfo);
+
+                var sb = new System.Text.StringBuilder();
+                sb.Append($"Slice {letter}");
+
+                if (isActive) sb.Append(" selected");
+                if (isTx) sb.Append(", transmit");
+
+                sb.Append($", {freqMhz:F3} megahertz, {mode}");
+
+                if (isMuted) sb.Append(", muted");
+
+                // Pan description: 0=full left, 50=center, 100=full right
+                string panDesc = pan <= 20 ? "pan left"
+                    : pan >= 80 ? "pan right"
+                    : pan >= 40 && pan <= 60 ? "pan center"
+                    : pan < 50 ? "pan slightly left"
+                    : "pan slightly right";
+                sb.Append($", {panDesc}");
+
+                parts.Add(sb.ToString());
+            }
+
+            return string.Join(". ", parts);
+        }
+
+        /// <summary>
         /// Build a concise spoken status message.
         /// </summary>
         public static string BuildSpokenStatus(FlexBase radio)

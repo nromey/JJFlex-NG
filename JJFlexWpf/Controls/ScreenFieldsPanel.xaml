@@ -30,10 +30,10 @@
                 </StackPanel>
             </Expander>
 
-            <!-- Audio Category -->
-            <Expander x:Name="AudioExpander" Header="Audio"
+            <!-- Audio and Slice Category -->
+            <Expander x:Name="AudioExpander" Header="Audio and Slice"
                       IsExpanded="False" Margin="0,2" TabIndex="1"
-                      AutomationProperties.Name="Audio">
+                      AutomationProperties.Name="Audio and Slice">
                 <StackPanel x:Name="AudioContent" Margin="16,4,4,4">
                     <!-- Populated in code-behind -->
                 </StackPanel>

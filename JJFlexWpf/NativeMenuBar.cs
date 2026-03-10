@@ -559,6 +559,46 @@ public class NativeMenuBar : IDisposable
     }
 
     /// <summary>
+    /// Build slice management items (Create/Release Slice).
+    /// Sprint 22 Phase 7.
+    /// </summary>
+    private void BuildSliceItems(IntPtr parent)
+    {
+        if (Rig == null) return;
+
+        AddWired(parent, "Create Slice", () =>
+        {
+            if (Rig == null) { SpeakNoRadio(); return; }
+            if (Rig.MyNumSlices >= Rig.MaxSlices)
+            {
+                SpeakAfterMenuClose("Maximum slices reached");
+                return;
+            }
+            bool ok = Rig.NewSlice();
+            if (ok)
+                SpeakAfterMenuClose($"Slice created, {Rig.MyNumSlices} slices active");
+            else
+                SpeakAfterMenuClose("Could not create slice");
+        });
+
+        AddWired(parent, "Release Slice", () =>
+        {
+            if (Rig == null) { SpeakNoRadio(); return; }
+            int numSlices = Rig.MyNumSlices;
+            if (numSlices <= 1)
+            {
+                SpeakAfterMenuClose("Cannot release the only slice");
+                return;
+            }
+            bool ok = Rig.RemoveSlice(numSlices - 1);
+            if (ok)
+                SpeakAfterMenuClose($"Slice released, {Rig.MyNumSlices} slices active");
+            else
+                SpeakAfterMenuClose("Could not release slice");
+        });
+    }
+
+    /// <summary>
     /// Build RX/TX antenna selection submenus. Dynamic — reads antenna lists from the radio.
     /// Sprint 22 Phase 6.
     /// </summary>
@@ -818,6 +858,10 @@ public class NativeMenuBar : IDisposable
             var audioSub = AddSubmenu(operations, "Audio");
             BuildAudioItems(audioSub);
 
+            // Slice management
+            AddSep(operations);
+            BuildSliceItems(operations);
+
             // VOX / Transmission
             var txSub = AddSubmenu(operations, "Transmission");
             AddChecked(txSub, "Tune Carrier\tCtrl+Shift+T", () =>
@@ -999,6 +1043,9 @@ public class NativeMenuBar : IDisposable
             // Audio
             var audioSub = AddSubmenu(slice, "Audio");
             BuildAudioItems(audioSub);
+
+            // Slice management
+            BuildSliceItems(slice);
 
             // Tuning
             var tuningSub = AddSubmenu(slice, "Tuning");

@@ -2248,7 +2248,8 @@ Public Class KeyCommands
     End Sub
 
     Private Sub speakStatusRtn()
-        Dim msg = Radios.RadioStatusBuilder.BuildSpokenStatus(RigControl)
+        ' Sprint 22: Use full slice status (multi-slice detail when >1 slice active)
+        Dim msg = Radios.RadioStatusBuilder.BuildFullSliceStatus(RigControl)
 
         ' Append PTT detail (hold/locked + time remaining) if transmitting
         Dim pttStatus = WpfMainWindow.GetPttStatusText()
