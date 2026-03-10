@@ -124,6 +124,21 @@
                                   Style="{StaticResource DialogComboBox}"
                                   AutomationProperties.Name="Frequency speech units"/>
                     </StackPanel>
+
+                    <CheckBox x:Name="TuneDebounceCheckbox"
+                              Content="Debounce tuning speech (group rapid steps)"
+                              Margin="0,12,0,0"
+                              AutomationProperties.Name="Debounce tuning speech, groups rapid tuning steps into one announcement"
+                              Checked="TuneDebounceCheckbox_Changed"
+                              Unchecked="TuneDebounceCheckbox_Changed"/>
+
+                    <StackPanel x:Name="DebounceDelayPanel" Orientation="Horizontal" Margin="20,8,0,0">
+                        <TextBlock Text="Debounce delay (ms):" VerticalAlignment="Center"
+                                   Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
+                        <TextBox x:Name="DebounceDelayBox" Width="60"
+                                 Style="{StaticResource DialogTextBox}"
+                                 AutomationProperties.Name="Debounce delay in milliseconds, 50 to 1000"/>
+                    </StackPanel>
                 </StackPanel>
             </TabItem>
 

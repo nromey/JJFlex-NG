@@ -1297,14 +1297,20 @@ public partial class MainWindow : UserControl
         if (RigControl == null) return;
 
         _enableDisableControls.Remove(TransmitButton);
+        _enableDisableControls.Remove(TuneToggleButton);
+        _enableDisableControls.Remove(AntennaTuneButton);
         if (RigControl.MyCaps.HasCap(RigCaps.Caps.ManualTransmit))
         {
             _enableDisableControls.Add(TransmitButton);
+            _enableDisableControls.Add(TuneToggleButton);
+            _enableDisableControls.Add(AntennaTuneButton);
             TransmitButton.Visibility = Visibility.Visible;
+            TuneToggleButton.Visibility = Visibility.Visible;
         }
         else
         {
             TransmitButton.Visibility = Visibility.Collapsed;
+            TuneToggleButton.Visibility = Visibility.Collapsed;
         }
     }
 
@@ -1393,6 +1399,35 @@ public partial class MainWindow : UserControl
         else
         {
             SetButtonText(AntennaTuneButton, e.Status);
+        }
+
+        // Audio narrative for ATU tune cycle
+        switch (e.Status)
+        {
+            case "InProgress":
+                EarconPlayer.StartATUProgressEarcon();
+                break;
+            case "OK":
+            case "Successful":
+                EarconPlayer.StopATUProgressEarcon();
+                EarconPlayer.ATUSuccessTone();
+                Radios.ScreenReaderOutput.Speak($"SWR {e.SWR}");
+                break;
+            case "Fail":
+            case "FailBypass":
+                EarconPlayer.StopATUProgressEarcon();
+                EarconPlayer.ATUFailTone();
+                Radios.ScreenReaderOutput.Speak($"Tune failed, SWR {e.SWR}");
+                break;
+            case "Bypass":
+            case "ManualBypass":
+                EarconPlayer.StopATUProgressEarcon();
+                Radios.ScreenReaderOutput.Speak("ATU bypassed");
+                break;
+            case "NotStarted":
+            case "Aborted":
+                EarconPlayer.StopATUProgressEarcon();
+                break;
         }
     }
 
@@ -1792,6 +1827,56 @@ public partial class MainWindow : UserControl
     {
         if (!_radioPowerOn) return;
         SetButtonText(AntennaTuneButton, AntennaTuneButtonText);
+    }
+
+    /// <summary>
+    /// Tune toggle button — toggles TX tune carrier (Ctrl+Shift+T).
+    /// </summary>
+    private void TuneToggleButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (!_radioPowerOn || RigControl == null) return;
+        ToggleTuneCarrier();
+    }
+
+    /// <summary>
+    /// Toggle the tune carrier on/off with audio feedback.
+    /// Called from both the UI button and the Ctrl+Shift+T hotkey.
+    /// </summary>
+    internal void ToggleTuneCarrier()
+    {
+        if (RigControl == null) return;
+        bool newState = !RigControl.TxTune;
+        RigControl.TxTune = newState;
+        TuneToggleButton.IsChecked = newState;
+        if (newState)
+        {
+            EarconPlayer.TuneOnTone();
+            Radios.ScreenReaderOutput.Speak("Tune on", true);
+        }
+        else
+        {
+            EarconPlayer.TuneOffTone();
+            Radios.ScreenReaderOutput.Speak("Tune off", true);
+        }
+    }
+
+    /// <summary>
+    /// Start ATU tune cycle with audio feedback.
+    /// Called from both the menu and the Ctrl+T hotkey.
+    /// </summary>
+    internal void StartATUTuneCycle()
+    {
+        if (RigControl == null) return;
+        if (!RigControl.MyCaps.HasCap(Radios.RigCaps.Caps.ATGet))
+        {
+            EarconPlayer.LeaderInvalidTone();
+            Radios.ScreenReaderOutput.Speak("No antenna tuner available");
+            return;
+        }
+        // ATU tune uses FlexTunerOn which handles auto/manual tuner logic
+        _oldSwr = "";
+        RigControl.FlexTunerOn = true;
+        Radios.ScreenReaderOutput.Speak("ATU tuning", true);
     }
 
     /// <summary>

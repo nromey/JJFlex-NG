@@ -111,6 +111,8 @@ Public Class KeyCommands
         SpeakTXFilter
         OpenAudioWorkshop
         ShowContextHelp
+        TuneToggle
+        ATUTune
     End Enum
     Friend Const FirstMessageCommandValue As Integer = 1000000
 
@@ -612,7 +614,13 @@ Public Class KeyCommands
             .Keywords = New String() {"tx", "filter", "width", "bandwidth", "speak", "transmit", "sculpt"}},
         New keyTbl(CommandValues.OpenAudioWorkshop, KeyTypes.Command, AddressOf openAudioWorkshopRtn,
             "Open Audio Workshop dialog", "Audio Workshop", False, FunctionGroups.dialog, KeyScope.[Global]) With {
-            .Keywords = New String() {"audio", "workshop", "tx", "transmit", "mic", "compander", "preset", "earcon"}}}
+            .Keywords = New String() {"audio", "workshop", "tx", "transmit", "mic", "compander", "preset", "earcon"}},
+        New keyTbl(CommandValues.TuneToggle, KeyTypes.Command, AddressOf tuneToggleRtn,
+            "Toggle tune carrier on or off", "Tune carrier", False, FunctionGroups.general, KeyScope.Radio) With {
+            .Keywords = New String() {"tune", "carrier", "toggle", "cw", "manual"}},
+        New keyTbl(CommandValues.ATUTune, KeyTypes.Command, AddressOf atuTuneRtn,
+            "Start ATU tune cycle", "ATU Tune", False, FunctionGroups.general, KeyScope.Radio) With {
+            .Keywords = New String() {"atu", "tune", "antenna", "tuner", "auto", "match", "swr"}}}
 
     ' Deleted from KeyTable.
     ' New keyTbl(CommandValues.LogForm, AddressOf BringUpLogForm,
@@ -698,7 +706,7 @@ Public Class KeyCommands
      New KeyDefType(Keys.None, CommandValues.LogRig, KeyScope.Logging),
      New KeyDefType(Keys.None, CommandValues.LogAnt, KeyScope.Logging),
      New KeyDefType(Keys.F Or Keys.Control Or Keys.Shift, CommandValues.SearchLog, KeyScope.Logging),
-     New KeyDefType(Keys.T Or Keys.Control Or Keys.Shift, CommandValues.LogStats, KeyScope.Logging),
+     New KeyDefType(Keys.None, CommandValues.LogStats, KeyScope.Logging),  ' Was Ctrl+Shift+T — moved to leader key L. Sprint 22: freed for Tune toggle.
      New KeyDefType(Keys.F6, CommandValues.LogPaneSwitchF6, KeyScope.Logging),
      New KeyDefType(Keys.N Or Keys.Control Or Keys.Shift, CommandValues.LogCharacteristicsDialog, KeyScope.Logging),
      New KeyDefType(Keys.L Or Keys.Control Or Keys.Alt, CommandValues.LogOpenFullForm, KeyScope.Logging),
@@ -711,7 +719,9 @@ Public Class KeyCommands
      New KeyDefType(Keys.OemOpenBrackets Or Keys.Control Or Keys.Alt, CommandValues.TXFilterHighDown, KeyScope.Radio),
      New KeyDefType(Keys.OemCloseBrackets Or Keys.Control Or Keys.Alt, CommandValues.TXFilterHighUp, KeyScope.Radio),
      New KeyDefType(Keys.F Or Keys.Control Or Keys.Shift, CommandValues.SpeakTXFilter, KeyScope.Radio),
-     New KeyDefType(Keys.W Or Keys.Control Or Keys.Shift, CommandValues.OpenAudioWorkshop, KeyScope.[Global])}
+     New KeyDefType(Keys.W Or Keys.Control Or Keys.Shift, CommandValues.OpenAudioWorkshop, KeyScope.[Global]),
+     New KeyDefType(Keys.T Or Keys.Control Or Keys.Shift, CommandValues.TuneToggle, KeyScope.Radio),  ' Ctrl+Shift+T = Tune carrier toggle
+     New KeyDefType(Keys.T Or Keys.Control, CommandValues.ATUTune, KeyScope.Radio)}                     ' Ctrl+T = ATU Tune
 
     ''' <summary>
     ''' Dictionary to access the keytable using a key.
@@ -1432,6 +1442,15 @@ Public Class KeyCommands
             Case Keys.F
                 SpeakTXFilterWidth()
 
+            ' Tuning debounce toggle
+            Case Keys.D
+                ToggleTuneDebounce()
+
+            ' Log Stats (moved from Ctrl+Shift+T)
+            Case Keys.L
+                logStatsRTN()
+                JJFlexWpf.EarconPlayer.ConfirmTone()
+
             ' Help
             Case Keys.Oem2  ' ? key (forward slash, used with Shift for ?)
                 LeaderKeyHelp()
@@ -1463,6 +1482,30 @@ Public Class KeyCommands
         End If
     End Sub
 
+    Private Sub ToggleTuneDebounce()
+        Dim config = WpfMainWindow?.CurrentAudioConfig
+        If config Is Nothing Then
+            JJFlexWpf.EarconPlayer.LeaderInvalidTone()
+            Radios.ScreenReaderOutput.Speak("No audio configuration loaded")
+            Return
+        End If
+
+        config.TuneDebounceEnabled = Not config.TuneDebounceEnabled
+        If config.TuneDebounceEnabled Then
+            JJFlexWpf.EarconPlayer.FeatureOnTone()
+            Radios.ScreenReaderOutput.Speak("Tuning debounce on")
+        Else
+            JJFlexWpf.EarconPlayer.FeatureOffTone()
+            Radios.ScreenReaderOutput.Speak("Tuning debounce off")
+        End If
+
+        ' Persist immediately
+        Dim configDir = WpfMainWindow?.OpenParms?.ConfigDirectory
+        If configDir IsNot Nothing Then
+            config.Save(configDir)
+        End If
+    End Sub
+
     Private Sub SpeakTXFilterWidth()
         If RigControl Is Nothing Then
             Radios.ScreenReaderOutput.Speak("No radio connected")
@@ -1480,7 +1523,8 @@ Public Class KeyCommands
         Dim help = "Leader key commands: " &
             "N noise reduction, B noise blanker, W wideband NB, " &
             "R neural NR, S spectral NR, A auto notch, P audio peak filter, " &
-            "F speak TX filter. H for this help. Escape to cancel."
+            "D tuning debounce, F speak TX filter, L log statistics. " &
+            "H for this help. Escape to cancel."
         Radios.ScreenReaderOutput.Speak(help)
     End Sub
 
@@ -1909,6 +1953,16 @@ Public Class KeyCommands
     Private Sub logStatsRTN()
         Dim obj As New LogStats()
         obj.ShowLogStats()
+    End Sub
+
+    Private Sub tuneToggleRtn()
+        If RigControl Is Nothing Then Return
+        WpfMainWindow?.ToggleTuneCarrier()
+    End Sub
+
+    Private Sub atuTuneRtn()
+        If RigControl Is Nothing Then Return
+        WpfMainWindow?.StartATUTuneCycle()
     End Sub
 
     ' Region - remote audio

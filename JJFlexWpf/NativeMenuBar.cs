@@ -762,7 +762,7 @@ public class NativeMenuBar : IDisposable
             () => _window.FieldsPanel.ToggleCategory(1));
         AddWired(screenFields, "Receiver\tCtrl+Shift+R",
             () => _window.FieldsPanel.ToggleCategory(2));
-        AddWired(screenFields, "Transmission\tCtrl+Shift+T",
+        AddWired(screenFields, "Transmission",
             () => _window.FieldsPanel.ToggleCategory(3));
         AddWired(screenFields, "Antenna\tCtrl+Shift+A",
             () => _window.FieldsPanel.ToggleCategory(4));
@@ -785,6 +785,10 @@ public class NativeMenuBar : IDisposable
 
             // VOX / Transmission
             var txSub = AddSubmenu(operations, "Transmission");
+            AddChecked(txSub, "Tune Carrier\tCtrl+Shift+T", () =>
+                _window.ToggleTuneCarrier(),
+                () => Rig?.TxTune == true);
+            AddSep(txSub);
             AddChecked(txSub, "VOX On/Off", () =>
                 ToggleDSP("VOX", () => Rig.Vox, v => Rig.Vox = v),
                 () => Rig?.Vox == FlexBase.OffOnValues.on);
@@ -802,6 +806,8 @@ public class NativeMenuBar : IDisposable
             // Antenna Tuner
             var atuSub = AddSubmenu(operations, "Antenna Tuner");
             BuildATUItems(atuSub);
+            AddSep(atuSub);
+            AddWired(atuSub, "ATU Tune\tCtrl+T", () => _window.StartATUTuneCycle());
 
             // Receiver
             var rxSub = AddSubmenu(operations, "Receiver");
@@ -988,10 +994,16 @@ public class NativeMenuBar : IDisposable
             var antSub = AddSubmenu(slice, "Antenna");
             BuildATUItems(antSub);
             AddSep(antSub);
+            AddWired(antSub, "ATU Tune\tCtrl+T", () => _window.StartATUTuneCycle());
+            AddSep(antSub);
             BuildDiversityItems(antSub);
 
             // Transmission (was "FM" — renamed for consistency with Classic menu)
             var txSub = AddSubmenu(slice, "Transmission");
+            AddChecked(txSub, "Tune Carrier\tCtrl+Shift+T", () =>
+                _window.ToggleTuneCarrier(),
+                () => Rig?.TxTune == true);
+            AddSep(txSub);
             AddChecked(txSub, "VOX On/Off", () =>
                 ToggleDSP("VOX", () => Rig.Vox, v => Rig.Vox = v),
                 () => Rig?.Vox == FlexBase.OffOnValues.on);

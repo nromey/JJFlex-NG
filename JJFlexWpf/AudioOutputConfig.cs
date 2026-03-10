@@ -34,6 +34,12 @@ namespace JJFlexWpf
         /// <summary>Whether meter speech readout is enabled.</summary>
         public bool MeterSpeechEnabled { get; set; } = true;
 
+        /// <summary>Whether tuning speech debounce is enabled. When false, every tuning step speaks immediately.</summary>
+        public bool TuneDebounceEnabled { get; set; } = true;
+
+        /// <summary>Tuning speech debounce delay in milliseconds (50-1000, default 300).</summary>
+        public int TuneDebounceMs { get; set; } = 300;
+
         /// <summary>Per-slot meter tone configurations.</summary>
         public List<MeterSlotConfig> MeterSlots { get; set; } = new();
 

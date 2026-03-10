@@ -97,6 +97,14 @@
                         MouseLeave="AntennaTuneButton_MouseLeave"
                         IsEnabled="False" />
 
+                <!-- Tune toggle button — not in tab chain (Ctrl+Shift+T hotkey) -->
+                <ToggleButton x:Name="TuneToggleButton" Content="Tune"
+                        Margin="4,2" Padding="8,4" MinWidth="60"
+                        IsTabStop="False"
+                        AutomationProperties.Name="Tune carrier"
+                        Click="TuneToggleButton_Click"
+                        IsEnabled="False" />
+
                 <!-- Transmit button — not in tab chain (use menu or hotkey) -->
                 <Button x:Name="TransmitButton" Content="Transmit"
                         Margin="4,2" Padding="8,4" MinWidth="70"

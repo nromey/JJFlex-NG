@@ -358,13 +358,22 @@ public class FreqOutHandlers
 
     /// <summary>
     /// Speak a tuning frequency with debounce. First step speaks immediately;
-    /// subsequent steps within 300ms reset a timer. When the timer fires,
+    /// subsequent steps within the debounce window reset a timer. When the timer fires,
     /// the current frequency is spoken (not the value from when the timer started).
+    /// Debounce can be disabled via AudioOutputConfig.TuneDebounceEnabled.
     /// </summary>
     private void SpeakTuningDebounced(string message)
     {
         // Set suppression window so ShowFrequency doesn't double-speak
         TuningSpeechUntil = DateTime.UtcNow.AddMilliseconds(500);
+
+        // Check debounce config — when disabled, speak every step
+        var config = _window.CurrentAudioConfig;
+        if (config != null && !config.TuneDebounceEnabled)
+        {
+            Radios.ScreenReaderOutput.Speak(message, interrupt: true);
+            return;
+        }
 
         if (_firstTuneStep)
         {
@@ -377,11 +386,14 @@ public class FreqOutHandlers
         _tuneDebounce = new CancellationTokenSource();
         var token = _tuneDebounce.Token;
 
+        var debounceMs = config?.TuneDebounceMs ?? 300;
+        debounceMs = Math.Clamp(debounceMs, 50, 1000);
+
         _ = Task.Run(async () =>
         {
             try
             {
-                await Task.Delay(300, token);
+                await Task.Delay(debounceMs, token);
                 if (!token.IsCancellationRequested)
                 {
                     var freqGetter = GetRXFrequency;

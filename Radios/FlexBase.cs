@@ -2795,6 +2795,16 @@ namespace Radios
         }
 
         /// <summary>
+        /// Toggle the tune carrier on/off. Puts radio into tune mode (low-power CW carrier).
+        /// Sprint 22: Wraps FlexLib's TXTune property for UI/hotkey access.
+        /// </summary>
+        public bool TxTune
+        {
+            get => theRadio.TXTune;
+            set { q.Enqueue((FunctionDel)(() => { theRadio.TXTune = value; }), "TXTune"); }
+        }
+
+        /// <summary>
         /// True if rig is on the WAN.
         /// </summary>
         public bool RemoteRig
