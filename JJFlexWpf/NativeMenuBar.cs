@@ -328,10 +328,9 @@ public class NativeMenuBar : IDisposable
 
         // === Meter Tones ===
         var meterSub = AddSubmenu(parent, "Meter Tones");
-        AddChecked(meterSub, "Meter Tones On/Off", () =>
+        AddChecked(meterSub, "Meter Tones On/Off\tCtrl+M", () =>
         {
-            MeterToneEngine.Enabled = !MeterToneEngine.Enabled;
-            SpeakAfterMenuClose($"Meter tones {(MeterToneEngine.Enabled ? "on" : "off")}");
+            _window.ToggleMetersPanel();
         }, () => MeterToneEngine.Enabled);
 
         AddWired(meterSub, "Cycle Preset", () =>

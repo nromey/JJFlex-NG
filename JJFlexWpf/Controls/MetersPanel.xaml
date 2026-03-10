@@ -1,0 +1,58 @@
+<UserControl x:Class="JJFlexWpf.Controls.MetersPanel"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d"
+             d:DesignWidth="600" d:DesignHeight="400"
+             AutomationProperties.Name="Meters Configuration"
+             PreviewKeyDown="Panel_PreviewKeyDown">
+
+    <!-- Sprint 22 Phase 9: Interactive meter tone configuration panel.
+         Expander-based, same pattern as ScreenFieldsPanel.
+         Per-slot: meter type, waveform, pan, base freq, mute, test, remove.
+         Global: add slot, auto-enable on tune, speech timer controls. -->
+    <ScrollViewer VerticalScrollBarVisibility="Auto"
+                  HorizontalScrollBarVisibility="Disabled"
+                  Focusable="False">
+        <Expander x:Name="MetersExpander" Header="Meters"
+                  IsExpanded="False" Margin="4,2"
+                  AutomationProperties.Name="Meters configuration panel">
+            <StackPanel x:Name="MetersContent" Margin="16,4,4,4">
+                <!-- Slot controls are built dynamically in code-behind -->
+
+                <!-- Global controls section -->
+                <Separator Margin="0,8,0,8" />
+
+                <Button x:Name="AddSlotButton" Content="Add Meter Slot"
+                        Margin="0,2" Padding="8,4"
+                        HorizontalAlignment="Left"
+                        AutomationProperties.Name="Add a new meter tone slot"
+                        Click="AddSlotButton_Click" />
+
+                <CheckBox x:Name="AutoTuneCheck"
+                          Content="Auto-enable meters when tuning"
+                          Margin="0,8,0,2"
+                          AutomationProperties.Name="Automatically enable meter tones when tune carrier is activated" />
+
+                <CheckBox x:Name="SpeechTimerCheck"
+                          Content="Speak meter values periodically"
+                          Margin="0,4,0,2"
+                          AutomationProperties.Name="Periodically speak meter values at set interval" />
+
+                <StackPanel x:Name="SpeechIntervalPanel" Orientation="Horizontal" Margin="20,4,0,4">
+                    <TextBlock Text="Speech interval (seconds):"
+                               VerticalAlignment="Center" Margin="0,0,8,0" />
+                    <TextBox x:Name="SpeechIntervalBox" Width="50"
+                             AutomationProperties.Name="Speech interval in seconds, 1 to 10"
+                             LostFocus="SpeechIntervalBox_LostFocus" />
+                </StackPanel>
+
+                <CheckBox x:Name="PeakWatcherCheck"
+                          Content="Peak Watcher (ALC safety alerts)"
+                          Margin="0,4,0,2"
+                          AutomationProperties.Name="Enable Peak Watcher ALC safety alerts during transmit" />
+            </StackPanel>
+        </Expander>
+    </ScrollViewer>
+</UserControl>

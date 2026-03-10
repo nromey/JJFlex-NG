@@ -44,6 +44,26 @@ namespace JJFlexWpf
         /// <summary>Whether speech readout of meter values is enabled.</summary>
         public static bool SpeechEnabled { get; set; } = true;
 
+        /// <summary>Speech interval in seconds (1-10). How often batched meter values are spoken.</summary>
+        public static int SpeechIntervalSeconds { get; set; } = 3;
+
+        /// <summary>Whether the speech timer is actively speaking meter values.</summary>
+        public static bool SpeechTimerActive
+        {
+            get => _speechTimerActive;
+            set
+            {
+                _speechTimerActive = value;
+                if (value) StartSpeechTimer();
+                else StopSpeechTimer();
+            }
+        }
+        private static bool _speechTimerActive;
+        private static System.Windows.Threading.DispatcherTimer? _speechTimer;
+
+        /// <summary>When true, enables default meters when TxTune activates.</summary>
+        public static bool AutoEnableOnTune { get; set; }
+
         /// <summary>Master volume multiplier for all meter tones (0.0–1.0).</summary>
         public static float MasterVolume { get; set; } = 0.5f;
 
@@ -174,7 +194,8 @@ namespace JJFlexWpf
         }
 
         private static void ConfigureSlot(int index, MeterSource source, bool enabled,
-            float volume, float pan, int pitchLow, int pitchHigh)
+            float volume, float pan, int pitchLow, int pitchHigh,
+            WaveformType waveform = WaveformType.Sine)
         {
             if (index >= Slots.Count) return;
             var slot = Slots[index];
@@ -184,6 +205,96 @@ namespace JJFlexWpf
             slot.Pan = pan;
             slot.PitchLow = pitchLow;
             slot.PitchHigh = pitchHigh;
+            slot.Waveform = waveform;
+            slot.ToneProvider.Waveform = waveform;
+        }
+
+        #endregion
+
+        #region Dynamic Slot Management
+
+        /// <summary>Maximum number of meter tone slots.</summary>
+        public const int MaxSlots = 8;
+
+        /// <summary>Add a new meter slot. Returns the slot, or null if at max.</summary>
+        public static MeterSlot? AddSlot()
+        {
+            if (Slots.Count >= MaxSlots) return null;
+            var slot = new MeterSlot();
+            Slots.Add(slot);
+            EarconPlayer.RegisterContinuousTone(slot.ToneProvider, slot.Pan);
+            return slot;
+        }
+
+        /// <summary>Remove a slot by index. Cannot remove if only 1 slot remains.</summary>
+        public static bool RemoveSlot(int index)
+        {
+            if (Slots.Count <= 1 || index < 0 || index >= Slots.Count) return false;
+            var slot = Slots[index];
+            slot.ToneProvider.Active = false;
+            EarconPlayer.UnregisterContinuousTone(slot.ToneProvider);
+            Slots.RemoveAt(index);
+            return true;
+        }
+
+        #endregion
+
+        #region Auto-Enable on Tune
+
+        private static bool _wasEnabledBeforeTune;
+
+        /// <summary>
+        /// Call when TxTune is toggled on. If AutoEnableOnTune is set,
+        /// enables meters with current config.
+        /// </summary>
+        public static void OnTuneStarted()
+        {
+            if (!AutoEnableOnTune) return;
+            _wasEnabledBeforeTune = _enabled;
+            if (!_enabled) Enabled = true;
+        }
+
+        /// <summary>
+        /// Call when TxTune is toggled off. Restores previous meter state.
+        /// </summary>
+        public static void OnTuneStopped()
+        {
+            if (!AutoEnableOnTune) return;
+            if (!_wasEnabledBeforeTune) Enabled = false;
+        }
+
+        #endregion
+
+        #region Speech Timer
+
+        private static void StartSpeechTimer()
+        {
+            if (_speechTimer != null) return;
+            _speechTimer = new System.Windows.Threading.DispatcherTimer
+            {
+                Interval = TimeSpan.FromSeconds(SpeechIntervalSeconds)
+            };
+            _speechTimer.Tick += (s, e) =>
+            {
+                if (!_speechTimerActive || !SpeechEnabled) return;
+                SpeakMeters();
+            };
+            _speechTimer.Start();
+        }
+
+        private static void StopSpeechTimer()
+        {
+            _speechTimer?.Stop();
+            _speechTimer = null;
+        }
+
+        /// <summary>Update the speech timer interval (call when SpeechIntervalSeconds changes).</summary>
+        public static void UpdateSpeechTimerInterval()
+        {
+            if (_speechTimer != null)
+            {
+                _speechTimer.Interval = TimeSpan.FromSeconds(SpeechIntervalSeconds);
+            }
         }
 
         #endregion
@@ -218,6 +329,7 @@ namespace JJFlexWpf
                     float freq = slot.PitchLow + (slot.PitchHigh - slot.PitchLow) * normalized;
                     slot.ToneProvider.Frequency = freq;
                     slot.ToneProvider.Volume = slot.Volume * MasterVolume;
+                    slot.ToneProvider.Waveform = slot.Waveform;
                 }
             }
 
@@ -432,6 +544,7 @@ namespace JJFlexWpf
         public float Pan { get; set; }
         public int PitchLow { get; set; } = 200;
         public int PitchHigh { get; set; } = 1200;
+        public WaveformType Waveform { get; set; } = WaveformType.Sine;
         public ContinuousToneSampleProvider ToneProvider { get; } = new();
     }
 }

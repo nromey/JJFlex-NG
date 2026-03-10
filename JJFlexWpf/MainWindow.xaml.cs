@@ -66,6 +66,10 @@ public partial class MainWindow : UserControl
         // Wire ScreenFieldsPanel Escape handler (Sprint 14) — once, not per-connect
         FieldsPanel.EscapePressed += (s, e) => FreqOut.FocusDisplay();
         FieldsPanel.ReturnFocusToFreqOut = () => FreqOut.FocusDisplay();
+
+        // Wire MetersPanel Escape handler (Sprint 22 Phase 9)
+        MetersPanel.EscapePressed += (s, e) => FreqOut.FocusDisplay();
+        MetersPanel.ReturnFocusToFreqOut = () => FreqOut.FocusDisplay();
     }
 
     /// <summary>
@@ -1879,13 +1883,25 @@ public partial class MainWindow : UserControl
         if (newState)
         {
             EarconPlayer.TuneOnTone();
+            MeterToneEngine.OnTuneStarted();
             Radios.ScreenReaderOutput.Speak("Tune on", true);
         }
         else
         {
             EarconPlayer.TuneOffTone();
+            MeterToneEngine.OnTuneStopped();
             Radios.ScreenReaderOutput.Speak("Tune off", true);
         }
+    }
+
+    /// <summary>
+    /// Toggle meters panel visibility and meter tones.
+    /// Called from Ctrl+M hotkey.
+    /// </summary>
+    internal void ToggleMetersPanel()
+    {
+        MetersPanel.Visibility = Visibility.Visible;
+        MetersPanel.ToggleMeters();
     }
 
     /// <summary>

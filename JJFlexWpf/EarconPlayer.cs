@@ -138,6 +138,49 @@ namespace JJFlexWpf
         }
 
         /// <summary>
+        /// Remove a continuous tone by its inner mono provider. Finds and removes
+        /// the stereo wrapper that wraps this provider.
+        /// </summary>
+        public static void UnregisterContinuousTone(ContinuousToneSampleProvider monoProvider)
+        {
+            if (_mixer == null) return;
+            ISampleProvider? found = null;
+            foreach (var wrapper in _continuousProviders)
+            {
+                if (wrapper is MonoToStereoSampleProvider mono && GetInnerProvider(mono) == monoProvider)
+                { found = wrapper; break; }
+                if (wrapper is PanningSampleProvider panned && GetInnerProvider(panned) == monoProvider)
+                { found = wrapper; break; }
+            }
+            if (found != null)
+                UnregisterContinuousTone(found);
+        }
+
+        private static ISampleProvider? GetInnerProvider(MonoToStereoSampleProvider wrapper)
+        {
+            // MonoToStereoSampleProvider wraps a single ISampleProvider — access via reflection
+            // as NAudio doesn't expose it publicly. Safe fallback: try all providers.
+            try
+            {
+                var field = typeof(MonoToStereoSampleProvider).GetField("source",
+                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                return field?.GetValue(wrapper) as ISampleProvider;
+            }
+            catch { return null; }
+        }
+
+        private static ISampleProvider? GetInnerProvider(PanningSampleProvider wrapper)
+        {
+            try
+            {
+                var field = typeof(PanningSampleProvider).GetField("source",
+                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                return field?.GetValue(wrapper) as ISampleProvider;
+            }
+            catch { return null; }
+        }
+
+        /// <summary>
         /// Remove all continuous tone providers from the mixer.
         /// </summary>
         public static void UnregisterAllContinuousTones()

@@ -113,6 +113,7 @@ Public Class KeyCommands
         ShowContextHelp
         TuneToggle
         ATUTune
+        ToggleMeters
     End Enum
     Friend Const FirstMessageCommandValue As Integer = 1000000
 
@@ -620,7 +621,10 @@ Public Class KeyCommands
             .Keywords = New String() {"tune", "carrier", "toggle", "cw", "manual"}},
         New keyTbl(CommandValues.ATUTune, KeyTypes.Command, AddressOf atuTuneRtn,
             "Start ATU tune cycle", "ATU Tune", False, FunctionGroups.general, KeyScope.Radio) With {
-            .Keywords = New String() {"atu", "tune", "antenna", "tuner", "auto", "match", "swr"}}}
+            .Keywords = New String() {"atu", "tune", "antenna", "tuner", "auto", "match", "swr"}},
+        New keyTbl(CommandValues.ToggleMeters, KeyTypes.Command, AddressOf toggleMetersRtn,
+            "Toggle meter tones on or off", "Toggle Meters", False, FunctionGroups.general, KeyScope.[Global]) With {
+            .Keywords = New String() {"meter", "tones", "sonification", "audio", "s-meter", "alc", "swr"}}}
 
     ' Deleted from KeyTable.
     ' New keyTbl(CommandValues.LogForm, AddressOf BringUpLogForm,
@@ -721,7 +725,8 @@ Public Class KeyCommands
      New KeyDefType(Keys.F Or Keys.Control Or Keys.Shift, CommandValues.SpeakTXFilter, KeyScope.Radio),
      New KeyDefType(Keys.W Or Keys.Control Or Keys.Shift, CommandValues.OpenAudioWorkshop, KeyScope.[Global]),
      New KeyDefType(Keys.T Or Keys.Control Or Keys.Shift, CommandValues.TuneToggle, KeyScope.Radio),  ' Ctrl+Shift+T = Tune carrier toggle
-     New KeyDefType(Keys.T Or Keys.Control, CommandValues.ATUTune, KeyScope.Radio)}                     ' Ctrl+T = ATU Tune
+     New KeyDefType(Keys.T Or Keys.Control, CommandValues.ATUTune, KeyScope.Radio),                     ' Ctrl+T = ATU Tune
+     New KeyDefType(Keys.M Or Keys.Control, CommandValues.ToggleMeters, KeyScope.[Global])}             ' Ctrl+M = Toggle meters
 
     ''' <summary>
     ''' Dictionary to access the keytable using a key.
@@ -1963,6 +1968,10 @@ Public Class KeyCommands
     Private Sub atuTuneRtn()
         If RigControl Is Nothing Then Return
         WpfMainWindow?.StartATUTuneCycle()
+    End Sub
+
+    Private Sub toggleMetersRtn()
+        WpfMainWindow?.ToggleMetersPanel()
     End Sub
 
     ' Region - remote audio
