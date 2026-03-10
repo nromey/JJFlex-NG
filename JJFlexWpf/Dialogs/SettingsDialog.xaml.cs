@@ -104,6 +104,11 @@ namespace JJFlexWpf.Dialogs
 
             BandMemoryCheckbox.IsChecked = BandMemoryEnabled;
 
+            // Tuning debounce
+            TuneDebounceCheckbox.IsChecked = _audioConfig.TuneDebounceEnabled;
+            DebounceDelayBox.Text = _audioConfig.TuneDebounceMs.ToString();
+            DebounceDelayPanel.IsEnabled = _audioConfig.TuneDebounceEnabled;
+
             // Frequency units combo
             FreqUnitsCombo.Items.Add("Dotted (14.225.000)");
             FreqUnitsCombo.Items.Add("Kilohertz (14,225 kHz)");
@@ -123,6 +128,15 @@ namespace JJFlexWpf.Dialogs
 
             BandBoundaryCheckbox.IsChecked = _licenseConfig.BoundaryNotifications;
             TxLockoutCheckbox.IsChecked = _licenseConfig.TxLockout;
+
+            // Country selector
+            string[] countries = { "US" }; // Future: add UK, CA, etc.
+            foreach (var c in countries)
+                CountryCombo.Items.Add(c);
+            CountryCombo.SelectedItem = _licenseConfig.Country ?? "US";
+            if (CountryCombo.SelectedIndex < 0) CountryCombo.SelectedIndex = 0;
+
+            EnforceTxRulesCheckbox.IsChecked = _licenseConfig.EnforceTxRules;
 
             // Audio tab
             var devices = EarconPlayer.GetOutputDevices();
@@ -219,12 +233,21 @@ namespace JJFlexWpf.Dialogs
             if (FreqUnitsCombo.SelectedIndex >= 0)
                 _pttConfig.FrequencyDisplayUnits = (Radios.FrequencyUnits)FreqUnitsCombo.SelectedIndex;
 
+            // Tuning debounce
+            _audioConfig.TuneDebounceEnabled = TuneDebounceCheckbox.IsChecked == true;
+            if (int.TryParse(DebounceDelayBox.Text, out int debounceMs))
+                _audioConfig.TuneDebounceMs = Math.Clamp(debounceMs, 50, 1000);
+            else
+                _audioConfig.TuneDebounceMs = 300;
+
             // License tab — write back to LicenseConfig
             int selIdx = LicenseClassCombo.SelectedIndex;
             if (selIdx >= 0 && selIdx < LicenseClassMap.Length)
                 _licenseConfig.LicenseClass = LicenseClassMap[selIdx].value;
             _licenseConfig.BoundaryNotifications = BandBoundaryCheckbox.IsChecked == true;
             _licenseConfig.TxLockout = TxLockoutCheckbox.IsChecked == true;
+            _licenseConfig.Country = CountryCombo.SelectedItem as string ?? "US";
+            _licenseConfig.EnforceTxRules = EnforceTxRulesCheckbox.IsChecked == true;
 
             // Audio tab
             var devices = EarconPlayer.GetOutputDevices();
@@ -261,6 +284,11 @@ namespace JJFlexWpf.Dialogs
         {
             DialogResult = false;
             Close();
+        }
+
+        private void TuneDebounceCheckbox_Changed(object sender, RoutedEventArgs e)
+        {
+            DebounceDelayPanel.IsEnabled = TuneDebounceCheckbox.IsChecked == true;
         }
     }
 }

@@ -111,6 +111,11 @@ Public Class KeyCommands
         SpeakTXFilter
         OpenAudioWorkshop
         ShowContextHelp
+        TuneToggle
+        ATUTune
+        ToggleMeters
+        SixtyMeterChannelUp
+        SixtyMeterChannelDown
     End Enum
     Friend Const FirstMessageCommandValue As Integer = 1000000
 
@@ -596,23 +601,38 @@ Public Class KeyCommands
             "Switch to CW mode", "CW", False, FunctionGroups.general, KeyScope.Radio) With {
             .Keywords = New String() {"mode", "cw", "morse", "code", "continuous wave"}},
         New keyTbl(CommandValues.TXFilterLowDown, KeyTypes.Command, AddressOf TXFilterLowDownHandler,
-            "Nudge TX filter low edge down", Nothing, False, FunctionGroups.audio, KeyScope.Radio) With {
+            "Nudge TX filter low edge down", CStr(Nothing), False, FunctionGroups.audio, KeyScope.Radio) With {
             .Keywords = New String() {"tx", "filter", "low", "down", "transmit", "sculpt"}},
         New keyTbl(CommandValues.TXFilterLowUp, KeyTypes.Command, AddressOf TXFilterLowUpHandler,
-            "Nudge TX filter low edge up", Nothing, False, FunctionGroups.audio, KeyScope.Radio) With {
+            "Nudge TX filter low edge up", CStr(Nothing), False, FunctionGroups.audio, KeyScope.Radio) With {
             .Keywords = New String() {"tx", "filter", "low", "up", "transmit", "sculpt"}},
         New keyTbl(CommandValues.TXFilterHighDown, KeyTypes.Command, AddressOf TXFilterHighDownHandler,
-            "Nudge TX filter high edge down", Nothing, False, FunctionGroups.audio, KeyScope.Radio) With {
+            "Nudge TX filter high edge down", CStr(Nothing), False, FunctionGroups.audio, KeyScope.Radio) With {
             .Keywords = New String() {"tx", "filter", "high", "down", "transmit", "sculpt"}},
         New keyTbl(CommandValues.TXFilterHighUp, KeyTypes.Command, AddressOf TXFilterHighUpHandler,
-            "Nudge TX filter high edge up", Nothing, False, FunctionGroups.audio, KeyScope.Radio) With {
+            "Nudge TX filter high edge up", CStr(Nothing), False, FunctionGroups.audio, KeyScope.Radio) With {
             .Keywords = New String() {"tx", "filter", "high", "up", "transmit", "sculpt"}},
         New keyTbl(CommandValues.SpeakTXFilter, KeyTypes.Command, AddressOf SpeakTXFilterHandler,
-            "Speak TX filter width", Nothing, False, FunctionGroups.audio, KeyScope.Radio) With {
+            "Speak TX filter width", CStr(Nothing), False, FunctionGroups.audio, KeyScope.Radio) With {
             .Keywords = New String() {"tx", "filter", "width", "bandwidth", "speak", "transmit", "sculpt"}},
         New keyTbl(CommandValues.OpenAudioWorkshop, KeyTypes.Command, AddressOf openAudioWorkshopRtn,
             "Open Audio Workshop dialog", "Audio Workshop", False, FunctionGroups.dialog, KeyScope.[Global]) With {
-            .Keywords = New String() {"audio", "workshop", "tx", "transmit", "mic", "compander", "preset", "earcon"}}}
+            .Keywords = New String() {"audio", "workshop", "tx", "transmit", "mic", "compander", "preset", "earcon"}},
+        New keyTbl(CommandValues.TuneToggle, KeyTypes.Command, AddressOf tuneToggleRtn,
+            "Toggle tune carrier on or off", "Tune carrier", False, FunctionGroups.general, KeyScope.Radio) With {
+            .Keywords = New String() {"tune", "carrier", "toggle", "cw", "manual"}},
+        New keyTbl(CommandValues.ATUTune, KeyTypes.Command, AddressOf atuTuneRtn,
+            "Start ATU tune cycle", "ATU Tune", False, FunctionGroups.general, KeyScope.Radio) With {
+            .Keywords = New String() {"atu", "tune", "antenna", "tuner", "auto", "match", "swr"}},
+        New keyTbl(CommandValues.ToggleMeters, KeyTypes.Command, AddressOf toggleMetersRtn,
+            "Toggle meter tones on or off", "Toggle Meters", False, FunctionGroups.general, KeyScope.[Global]) With {
+            .Keywords = New String() {"meter", "tones", "sonification", "audio", "s-meter", "alc", "swr"}},
+        New keyTbl(CommandValues.SixtyMeterChannelUp, KeyTypes.Command, AddressOf sixtyMeterChannelUpRtn,
+            "Next 60 meter channel", "60m Channel Up", False, FunctionGroups.tuning, KeyScope.Radio) With {
+            .Keywords = New String() {"60", "meter", "channel", "up", "next", "five", "navigate"}},
+        New keyTbl(CommandValues.SixtyMeterChannelDown, KeyTypes.Command, AddressOf sixtyMeterChannelDownRtn,
+            "Previous 60 meter channel", "60m Channel Down", False, FunctionGroups.tuning, KeyScope.Radio) With {
+            .Keywords = New String() {"60", "meter", "channel", "down", "previous", "five", "navigate"}}}
 
     ' Deleted from KeyTable.
     ' New keyTbl(CommandValues.LogForm, AddressOf BringUpLogForm,
@@ -698,7 +718,7 @@ Public Class KeyCommands
      New KeyDefType(Keys.None, CommandValues.LogRig, KeyScope.Logging),
      New KeyDefType(Keys.None, CommandValues.LogAnt, KeyScope.Logging),
      New KeyDefType(Keys.F Or Keys.Control Or Keys.Shift, CommandValues.SearchLog, KeyScope.Logging),
-     New KeyDefType(Keys.T Or Keys.Control Or Keys.Shift, CommandValues.LogStats, KeyScope.Logging),
+     New KeyDefType(Keys.None, CommandValues.LogStats, KeyScope.Logging),  ' Was Ctrl+Shift+T — moved to leader key L. Sprint 22: freed for Tune toggle.
      New KeyDefType(Keys.F6, CommandValues.LogPaneSwitchF6, KeyScope.Logging),
      New KeyDefType(Keys.N Or Keys.Control Or Keys.Shift, CommandValues.LogCharacteristicsDialog, KeyScope.Logging),
      New KeyDefType(Keys.L Or Keys.Control Or Keys.Alt, CommandValues.LogOpenFullForm, KeyScope.Logging),
@@ -711,7 +731,12 @@ Public Class KeyCommands
      New KeyDefType(Keys.OemOpenBrackets Or Keys.Control Or Keys.Alt, CommandValues.TXFilterHighDown, KeyScope.Radio),
      New KeyDefType(Keys.OemCloseBrackets Or Keys.Control Or Keys.Alt, CommandValues.TXFilterHighUp, KeyScope.Radio),
      New KeyDefType(Keys.F Or Keys.Control Or Keys.Shift, CommandValues.SpeakTXFilter, KeyScope.Radio),
-     New KeyDefType(Keys.W Or Keys.Control Or Keys.Shift, CommandValues.OpenAudioWorkshop, KeyScope.[Global])}
+     New KeyDefType(Keys.W Or Keys.Control Or Keys.Shift, CommandValues.OpenAudioWorkshop, KeyScope.[Global]),
+     New KeyDefType(Keys.T Or Keys.Control Or Keys.Shift, CommandValues.TuneToggle, KeyScope.Radio),  ' Ctrl+Shift+T = Tune carrier toggle
+     New KeyDefType(Keys.T Or Keys.Control, CommandValues.ATUTune, KeyScope.Radio),                     ' Ctrl+T = ATU Tune
+     New KeyDefType(Keys.M Or Keys.Control, CommandValues.ToggleMeters, KeyScope.[Global]),             ' Ctrl+M = Toggle meters
+     New KeyDefType(Keys.Up Or Keys.Alt Or Keys.Shift, CommandValues.SixtyMeterChannelUp, KeyScope.Radio),     ' Alt+Shift+Up = 60m channel up
+     New KeyDefType(Keys.Down Or Keys.Alt Or Keys.Shift, CommandValues.SixtyMeterChannelDown, KeyScope.Radio)} ' Alt+Shift+Down = 60m channel down
 
     ''' <summary>
     ''' Dictionary to access the keytable using a key.
@@ -1432,6 +1457,15 @@ Public Class KeyCommands
             Case Keys.F
                 SpeakTXFilterWidth()
 
+            ' Tuning debounce toggle
+            Case Keys.D
+                ToggleTuneDebounce()
+
+            ' Log Stats (moved from Ctrl+Shift+T)
+            Case Keys.L
+                logStatsRTN()
+                JJFlexWpf.EarconPlayer.ConfirmTone()
+
             ' Help
             Case Keys.Oem2  ' ? key (forward slash, used with Shift for ?)
                 LeaderKeyHelp()
@@ -1463,6 +1497,30 @@ Public Class KeyCommands
         End If
     End Sub
 
+    Private Sub ToggleTuneDebounce()
+        Dim config = WpfMainWindow?.CurrentAudioConfig
+        If config Is Nothing Then
+            JJFlexWpf.EarconPlayer.LeaderInvalidTone()
+            Radios.ScreenReaderOutput.Speak("No audio configuration loaded")
+            Return
+        End If
+
+        config.TuneDebounceEnabled = Not config.TuneDebounceEnabled
+        If config.TuneDebounceEnabled Then
+            JJFlexWpf.EarconPlayer.FeatureOnTone()
+            Radios.ScreenReaderOutput.Speak("Tuning debounce on")
+        Else
+            JJFlexWpf.EarconPlayer.FeatureOffTone()
+            Radios.ScreenReaderOutput.Speak("Tuning debounce off")
+        End If
+
+        ' Persist immediately
+        Dim configDir = WpfMainWindow?.OpenParms?.ConfigDirectory
+        If configDir IsNot Nothing Then
+            config.Save(configDir)
+        End If
+    End Sub
+
     Private Sub SpeakTXFilterWidth()
         If RigControl Is Nothing Then
             Radios.ScreenReaderOutput.Speak("No radio connected")
@@ -1480,7 +1538,8 @@ Public Class KeyCommands
         Dim help = "Leader key commands: " &
             "N noise reduction, B noise blanker, W wideband NB, " &
             "R neural NR, S spectral NR, A auto notch, P audio peak filter, " &
-            "F speak TX filter. H for this help. Escape to cancel."
+            "D tuning debounce, F speak TX filter, L log statistics. " &
+            "H for this help. Escape to cancel."
         Radios.ScreenReaderOutput.Speak(help)
     End Sub
 
@@ -1911,6 +1970,28 @@ Public Class KeyCommands
         obj.ShowLogStats()
     End Sub
 
+    Private Sub tuneToggleRtn()
+        If RigControl Is Nothing Then Return
+        WpfMainWindow?.ToggleTuneCarrier()
+    End Sub
+
+    Private Sub atuTuneRtn()
+        If RigControl Is Nothing Then Return
+        WpfMainWindow?.StartATUTuneCycle()
+    End Sub
+
+    Private Sub toggleMetersRtn()
+        WpfMainWindow?.ToggleMetersPanel()
+    End Sub
+
+    Private Sub sixtyMeterChannelUpRtn()
+        WpfMainWindow?.SixtyMeterChannelNavigate(1)
+    End Sub
+
+    Private Sub sixtyMeterChannelDownRtn()
+        WpfMainWindow?.SixtyMeterChannelNavigate(-1)
+    End Sub
+
     ' Region - remote audio
 #Region "remote audio"
     Private Sub PCAudioRtn()
@@ -2194,7 +2275,8 @@ Public Class KeyCommands
     End Sub
 
     Private Sub speakStatusRtn()
-        Dim msg = Radios.RadioStatusBuilder.BuildSpokenStatus(RigControl)
+        ' Sprint 22: Use full slice status (multi-slice detail when >1 slice active)
+        Dim msg = Radios.RadioStatusBuilder.BuildFullSliceStatus(RigControl)
 
         ' Append PTT detail (hold/locked + time remaining) if transmitting
         Dim pttStatus = WpfMainWindow.GetPttStatusText()

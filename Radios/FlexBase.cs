@@ -2795,6 +2795,16 @@ namespace Radios
         }
 
         /// <summary>
+        /// Toggle the tune carrier on/off. Puts radio into tune mode (low-power CW carrier).
+        /// Sprint 22: Wraps FlexLib's TXTune property for UI/hotkey access.
+        /// </summary>
+        public bool TxTune
+        {
+            get => theRadio.TXTune;
+            set { q.Enqueue((FunctionDel)(() => { theRadio.TXTune = value; }), "TXTune"); }
+        }
+
+        /// <summary>
         /// True if rig is on the WAN.
         /// </summary>
         public bool RemoteRig
@@ -2947,6 +2957,40 @@ namespace Radios
                 return primary + "/" + child;
             }
         }
+
+        #region Antenna Properties — Sprint 22
+
+        /// <summary>Current RX antenna name for active slice (e.g. "ANT1", "ANT2", "RX_A").</summary>
+        public string RXAntennaName
+        {
+            get => theRadio.ActiveSlice?.RXAnt ?? "ANT1";
+            set
+            {
+                var s = theRadio.ActiveSlice;
+                if (s != null) s.RXAnt = value;
+            }
+        }
+
+        /// <summary>Current TX antenna name for active slice.</summary>
+        public string TXAntennaName
+        {
+            get => theRadio.ActiveSlice?.TXAnt ?? "ANT1";
+            set
+            {
+                var s = theRadio.ActiveSlice;
+                if (s != null) s.TXAnt = value;
+            }
+        }
+
+        /// <summary>Available RX antenna list from the active slice. Dynamic per radio model.</summary>
+        public List<string> RXAntennaList =>
+            theRadio.ActiveSlice?.RXAntList?.ToList() ?? new List<string> { "ANT1", "ANT2" };
+
+        /// <summary>Available TX antenna list from the active slice. Dynamic per radio model.</summary>
+        public List<string> TXAntennaList =>
+            theRadio.ActiveSlice?.TXAntList?.ToList() ?? new List<string> { "ANT1", "ANT2" };
+
+        #endregion
 
         // a VFO is really a slice index.
         internal Slice VFOToSlice(int vfo)

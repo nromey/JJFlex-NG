@@ -138,6 +138,49 @@ namespace JJFlexWpf
         }
 
         /// <summary>
+        /// Remove a continuous tone by its inner mono provider. Finds and removes
+        /// the stereo wrapper that wraps this provider.
+        /// </summary>
+        public static void UnregisterContinuousTone(ContinuousToneSampleProvider monoProvider)
+        {
+            if (_mixer == null) return;
+            ISampleProvider? found = null;
+            foreach (var wrapper in _continuousProviders)
+            {
+                if (wrapper is MonoToStereoSampleProvider mono && GetInnerProvider(mono) == monoProvider)
+                { found = wrapper; break; }
+                if (wrapper is PanningSampleProvider panned && GetInnerProvider(panned) == monoProvider)
+                { found = wrapper; break; }
+            }
+            if (found != null)
+                UnregisterContinuousTone(found);
+        }
+
+        private static ISampleProvider? GetInnerProvider(MonoToStereoSampleProvider wrapper)
+        {
+            // MonoToStereoSampleProvider wraps a single ISampleProvider — access via reflection
+            // as NAudio doesn't expose it publicly. Safe fallback: try all providers.
+            try
+            {
+                var field = typeof(MonoToStereoSampleProvider).GetField("source",
+                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                return field?.GetValue(wrapper) as ISampleProvider;
+            }
+            catch { return null; }
+        }
+
+        private static ISampleProvider? GetInnerProvider(PanningSampleProvider wrapper)
+        {
+            try
+            {
+                var field = typeof(PanningSampleProvider).GetField("source",
+                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                return field?.GetValue(wrapper) as ISampleProvider;
+            }
+            catch { return null; }
+        }
+
+        /// <summary>
         /// Remove all continuous tone providers from the mixer.
         /// </summary>
         public static void UnregisterAllContinuousTones()
@@ -423,6 +466,87 @@ namespace JJFlexWpf
         {
             PlayToneSequence(new[] { (800, 80), (0, 40), (1000, 80) }, 0.25f);
         }
+
+        #region ATU Tune Earcons
+
+        // Dedicated provider for ATU progress — short-lived, added/removed per tune cycle
+        private static ContinuousToneSampleProvider? _atuProgressProvider;
+        private static ISampleProvider? _atuProgressStereoWrapper;
+
+        /// <summary>
+        /// Start the ATU progress earcon — FastPulse at 450Hz, moderate volume.
+        /// Loops until StopATUProgressEarcon() is called.
+        /// </summary>
+        public static void StartATUProgressEarcon()
+        {
+            StopATUProgressEarcon(); // Stop any existing progress earcon
+            if (_mixer == null) return;
+            try
+            {
+                _atuProgressProvider = new ContinuousToneSampleProvider(450f, 0.25f)
+                {
+                    Waveform = WaveformType.FastPulse,
+                    Active = true
+                };
+                _atuProgressStereoWrapper = new MonoToStereoSampleProvider(_atuProgressProvider);
+                _mixer.AddMixerInput(_atuProgressStereoWrapper);
+            }
+            catch (Exception ex)
+            {
+                Trace.WriteLine($"EarconPlayer.StartATUProgressEarcon failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Stop the ATU progress earcon. Deactivates (10ms fade) then removes from mixer.
+        /// </summary>
+        public static void StopATUProgressEarcon()
+        {
+            if (_atuProgressProvider != null)
+            {
+                _atuProgressProvider.Active = false;
+            }
+            if (_atuProgressStereoWrapper != null && _mixer != null)
+            {
+                var wrapper = _atuProgressStereoWrapper;
+                _atuProgressStereoWrapper = null;
+                _atuProgressProvider = null;
+                // Brief delay for fade-out, then remove from mixer
+                System.Threading.Tasks.Task.Delay(50).ContinueWith(_ =>
+                {
+                    try { _mixer?.RemoveMixerInput(wrapper); }
+                    catch { }
+                });
+            }
+        }
+
+        /// <summary>ATU tune successful — rising major arpeggio C-E-G (~150ms total).</summary>
+        public static void ATUSuccessTone()
+        {
+            // C5=523, E5=659, G5=784 — rising major triad
+            PlayToneSequence(new[] { (523, 50), (659, 50), (784, 80) }, 0.4f);
+        }
+
+        /// <summary>ATU tune failed — descending minor E-C-A (~200ms total).</summary>
+        public static void ATUFailTone()
+        {
+            // E5=659, C5=523, A4=440 — descending
+            PlayToneSequence(new[] { (659, 60), (523, 60), (440, 100) }, 0.4f);
+        }
+
+        /// <summary>Tune carrier on — short rising chirp.</summary>
+        public static void TuneOnTone()
+        {
+            PlayChirp(400, 700, 100, 0.3f);
+        }
+
+        /// <summary>Tune carrier off — short falling chirp.</summary>
+        public static void TuneOffTone()
+        {
+            PlayChirp(700, 400, 100, 0.3f);
+        }
+
+        #endregion
 
         /// <summary>
         /// Play a tone with specific parameters and panning. Used by earcon scratchpad.

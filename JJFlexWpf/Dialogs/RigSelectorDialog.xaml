@@ -59,6 +59,10 @@
             <Button x:Name="TestButton" Content="Test" MinWidth="100" Height="28" Margin="0,0,0,8"
                     AutomationProperties.Name="Test connection to selected radio"
                     Click="TestButton_Click"/>
+            <Button x:Name="AutoConnectButton" Content="Auto-Connect" MinWidth="100" Height="28" Margin="0,0,0,8"
+                    AutomationProperties.Name="Setup auto-connect for selected radio"
+                    IsEnabled="False"
+                    Click="AutoConnectButton_Click"/>
             <Button Content="Cancel" MinWidth="100" Height="28" IsCancel="True"
                     AutomationProperties.Name="Cancel radio selection"
                     Click="CancelButton_Click"/>

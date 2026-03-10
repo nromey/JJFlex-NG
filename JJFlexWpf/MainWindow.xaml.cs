@@ -66,6 +66,10 @@ public partial class MainWindow : UserControl
         // Wire ScreenFieldsPanel Escape handler (Sprint 14) — once, not per-connect
         FieldsPanel.EscapePressed += (s, e) => FreqOut.FocusDisplay();
         FieldsPanel.ReturnFocusToFreqOut = () => FreqOut.FocusDisplay();
+
+        // Wire MetersPanel Escape handler (Sprint 22 Phase 9)
+        MetersPanel.EscapePressed += (s, e) => FreqOut.FocusDisplay();
+        MetersPanel.ReturnFocusToFreqOut = () => FreqOut.FocusDisplay();
     }
 
     /// <summary>
@@ -108,6 +112,31 @@ public partial class MainWindow : UserControl
 
         string modeName = ActiveUIMode == UIMode.Classic ? "Classic" : "Modern";
         Radios.ScreenReaderOutput.Speak($"Welcome to JJ Flexible Radio Access, {modeName} mode");
+    }
+
+    /// <summary>
+    /// Sprint 22 Phase 8: Speak radio status after connect. Delayed 1.5s to let
+    /// FlexLib populate slice data. Called at the end of PowerNowOn().
+    /// </summary>
+    private void SpeakConnectStatus()
+    {
+        _ = System.Threading.Tasks.Task.Run(async () =>
+        {
+            await System.Threading.Tasks.Task.Delay(1500);
+            Dispatcher.Invoke(() =>
+            {
+                if (RigControl == null) return;
+
+                string model = RigControl.RadioModel;
+                string connType = RigControl.RemoteRig ? "SmartLink" : "local";
+                string status = Radios.RadioStatusBuilder.BuildFullSliceStatus(RigControl);
+
+                // The full status already includes frequency/mode/slice detail.
+                // Prepend with connection info that BuildFullSliceStatus doesn't cover.
+                string message = $"Connected to {model}, {connType}. {status}";
+                Radios.ScreenReaderOutput.Speak(message);
+            });
+        });
     }
 
     /// <summary>
@@ -1297,14 +1326,20 @@ public partial class MainWindow : UserControl
         if (RigControl == null) return;
 
         _enableDisableControls.Remove(TransmitButton);
+        _enableDisableControls.Remove(TuneToggleButton);
+        _enableDisableControls.Remove(AntennaTuneButton);
         if (RigControl.MyCaps.HasCap(RigCaps.Caps.ManualTransmit))
         {
             _enableDisableControls.Add(TransmitButton);
+            _enableDisableControls.Add(TuneToggleButton);
+            _enableDisableControls.Add(AntennaTuneButton);
             TransmitButton.Visibility = Visibility.Visible;
+            TuneToggleButton.Visibility = Visibility.Visible;
         }
         else
         {
             TransmitButton.Visibility = Visibility.Collapsed;
+            TuneToggleButton.Visibility = Visibility.Collapsed;
         }
     }
 
@@ -1393,6 +1428,35 @@ public partial class MainWindow : UserControl
         else
         {
             SetButtonText(AntennaTuneButton, e.Status);
+        }
+
+        // Audio narrative for ATU tune cycle
+        switch (e.Status)
+        {
+            case "InProgress":
+                EarconPlayer.StartATUProgressEarcon();
+                break;
+            case "OK":
+            case "Successful":
+                EarconPlayer.StopATUProgressEarcon();
+                EarconPlayer.ATUSuccessTone();
+                Radios.ScreenReaderOutput.Speak($"SWR {e.SWR}");
+                break;
+            case "Fail":
+            case "FailBypass":
+                EarconPlayer.StopATUProgressEarcon();
+                EarconPlayer.ATUFailTone();
+                Radios.ScreenReaderOutput.Speak($"Tune failed, SWR {e.SWR}");
+                break;
+            case "Bypass":
+            case "ManualBypass":
+                EarconPlayer.StopATUProgressEarcon();
+                Radios.ScreenReaderOutput.Speak("ATU bypassed");
+                break;
+            case "NotStarted":
+            case "Aborted":
+                EarconPlayer.StopATUProgressEarcon();
+                break;
         }
     }
 
@@ -1496,6 +1560,9 @@ public partial class MainWindow : UserControl
 
         // VB-side tasks (knob setup, tracing)
         PowerOnCallback?.Invoke();
+
+        // Sprint 22 Phase 8: Announce radio status after connect
+        SpeakConnectStatus();
     }
 
     /// <summary>
@@ -1795,6 +1862,68 @@ public partial class MainWindow : UserControl
     }
 
     /// <summary>
+    /// Tune toggle button — toggles TX tune carrier (Ctrl+Shift+T).
+    /// </summary>
+    private void TuneToggleButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (!_radioPowerOn || RigControl == null) return;
+        ToggleTuneCarrier();
+    }
+
+    /// <summary>
+    /// Toggle the tune carrier on/off with audio feedback.
+    /// Called from both the UI button and the Ctrl+Shift+T hotkey.
+    /// </summary>
+    internal void ToggleTuneCarrier()
+    {
+        if (RigControl == null) return;
+        bool newState = !RigControl.TxTune;
+        RigControl.TxTune = newState;
+        TuneToggleButton.IsChecked = newState;
+        if (newState)
+        {
+            EarconPlayer.TuneOnTone();
+            MeterToneEngine.OnTuneStarted();
+            Radios.ScreenReaderOutput.Speak("Tune on", true);
+        }
+        else
+        {
+            EarconPlayer.TuneOffTone();
+            MeterToneEngine.OnTuneStopped();
+            Radios.ScreenReaderOutput.Speak("Tune off", true);
+        }
+    }
+
+    /// <summary>
+    /// Toggle meters panel visibility and meter tones.
+    /// Called from Ctrl+M hotkey.
+    /// </summary>
+    internal void ToggleMetersPanel()
+    {
+        MetersPanel.Visibility = Visibility.Visible;
+        MetersPanel.ToggleMeters();
+    }
+
+    /// <summary>
+    /// Start ATU tune cycle with audio feedback.
+    /// Called from both the menu and the Ctrl+T hotkey.
+    /// </summary>
+    internal void StartATUTuneCycle()
+    {
+        if (RigControl == null) return;
+        if (!RigControl.MyCaps.HasCap(Radios.RigCaps.Caps.ATGet))
+        {
+            EarconPlayer.LeaderInvalidTone();
+            Radios.ScreenReaderOutput.Speak("No antenna tuner available");
+            return;
+        }
+        // ATU tune uses FlexTunerOn which handles auto/manual tuner logic
+        _oldSwr = "";
+        RigControl.FlexTunerOn = true;
+        Radios.ScreenReaderOutput.Speak("ATU tuning", true);
+    }
+
+    /// <summary>
     /// Transmit button — toggles PTT.
     /// </summary>
     private void TransmitButton_Click(object sender, RoutedEventArgs e)
@@ -2032,6 +2161,51 @@ public partial class MainWindow : UserControl
     {
         _freqOutHandlers?.BandNavigate(direction);
     }
+
+    #region 60m Channel Navigation — Sprint 22 Phase 10
+
+    private int _sixtyMeterChannelIndex;
+
+    /// <summary>
+    /// Navigate 60m channels: cycles through Channel 1-5 + Digi Segment.
+    /// Alt+Shift+Up/Down parallels Alt+Up/Down for band navigation.
+    /// </summary>
+    public void SixtyMeterChannelNavigate(int direction)
+    {
+        if (RigControl == null || !_radioPowerOn) return;
+
+        string country = _freqOutHandlers?.License?.Country ?? "US";
+        var alloc = SixtyMeterChannels.GetAllocation(country);
+        if (alloc == null)
+        {
+            ScreenReaderOutput.Speak("No 60 meter channels configured for this country");
+            return;
+        }
+
+        int stopCount = alloc.Value.Channels.Length + (alloc.Value.Digi != null ? 1 : 0);
+        if (stopCount == 0) return;
+
+        _sixtyMeterChannelIndex = (_sixtyMeterChannelIndex + direction + stopCount) % stopCount;
+
+        if (_sixtyMeterChannelIndex < alloc.Value.Channels.Length)
+        {
+            // Channelized frequency
+            var ch = alloc.Value.Channels[_sixtyMeterChannelIndex];
+            ulong freqHz = (ulong)(ch.FrequencyMHz * 1_000_000.0 + 0.5);
+            RigControl.Frequency = freqHz;
+            RigControl.Mode = ch.Mode;
+            ScreenReaderOutput.Speak($"{ch.Label}, {ch.FrequencyMHz:F4} megahertz, {ch.Mode}");
+        }
+        else if (alloc.Value.Digi is { } digi)
+        {
+            // Digital segment — tune to start
+            ulong freqHz = (ulong)(digi.StartMHz * 1_000_000.0 + 0.5);
+            RigControl.Frequency = freqHz;
+            ScreenReaderOutput.Speak($"60 meter digital segment, {digi.StartMHz:F4} megahertz");
+        }
+    }
+
+    #endregion
 
     /// <summary>
     /// Common mode cycle list for F10/F11 hotkeys.

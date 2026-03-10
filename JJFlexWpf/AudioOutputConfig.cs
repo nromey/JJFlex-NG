@@ -34,6 +34,21 @@ namespace JJFlexWpf
         /// <summary>Whether meter speech readout is enabled.</summary>
         public bool MeterSpeechEnabled { get; set; } = true;
 
+        /// <summary>Whether the periodic speech timer is active (speaks meter values at interval).</summary>
+        public bool MeterSpeechTimerActive { get; set; }
+
+        /// <summary>Speech interval in seconds (1-10).</summary>
+        public int MeterSpeechIntervalSeconds { get; set; } = 3;
+
+        /// <summary>Auto-enable meter tones when tune carrier is activated.</summary>
+        public bool AutoEnableOnTune { get; set; }
+
+        /// <summary>Whether tuning speech debounce is enabled. When false, every tuning step speaks immediately.</summary>
+        public bool TuneDebounceEnabled { get; set; } = true;
+
+        /// <summary>Tuning speech debounce delay in milliseconds (50-1000, default 300).</summary>
+        public int TuneDebounceMs { get; set; } = 300;
+
         /// <summary>Per-slot meter tone configurations.</summary>
         public List<MeterSlotConfig> MeterSlots { get; set; } = new();
 
@@ -85,6 +100,9 @@ namespace JJFlexWpf
             MeterToneEngine.MasterVolume = MeterMasterVolume;
             MeterToneEngine.PeakWatcherEnabled = PeakWatcherEnabled;
             MeterToneEngine.SpeechEnabled = MeterSpeechEnabled;
+            MeterToneEngine.SpeechIntervalSeconds = Math.Clamp(MeterSpeechIntervalSeconds, 1, 10);
+            MeterToneEngine.AutoEnableOnTune = AutoEnableOnTune;
+            MeterToneEngine.SpeechTimerActive = MeterSpeechTimerActive;
             MeterToneEngine.ApplyPreset(MeterPreset ?? "RX Monitor");
         }
 
@@ -96,6 +114,9 @@ namespace JJFlexWpf
             MeterMasterVolume = MeterToneEngine.MasterVolume;
             PeakWatcherEnabled = MeterToneEngine.PeakWatcherEnabled;
             MeterSpeechEnabled = MeterToneEngine.SpeechEnabled;
+            MeterSpeechTimerActive = MeterToneEngine.SpeechTimerActive;
+            MeterSpeechIntervalSeconds = MeterToneEngine.SpeechIntervalSeconds;
+            AutoEnableOnTune = MeterToneEngine.AutoEnableOnTune;
             MasterEarconVolume = (int)(EarconPlayer.MasterVolume * 100);
         }
     }
@@ -109,5 +130,6 @@ namespace JJFlexWpf
         public float Pan { get; set; }
         public int PitchLow { get; set; } = 200;
         public int PitchHigh { get; set; } = 1200;
+        public WaveformType Waveform { get; set; } = WaveformType.Sine;
     }
 }

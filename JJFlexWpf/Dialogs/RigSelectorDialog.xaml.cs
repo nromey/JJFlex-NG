@@ -141,6 +141,16 @@ namespace JJFlexWpf.Dialogs
             // Start local discovery
             _callbacks.StartLocalDiscovery();
 
+            // Announce empty list after discovery settles (500ms)
+            Loaded += async (_, _) =>
+            {
+                await System.Threading.Tasks.Task.Delay(500);
+                if (RadiosBox.Items.Count == 0)
+                {
+                    _callbacks.ScreenReaderSpeak?.Invoke("No radios found", false);
+                }
+            };
+
             // Start auto-connect timer if appropriate
             if (callbacks.IsInitialBringup &&
                 callbacks.GlobalAutoConnectEnabled &&
@@ -213,6 +223,18 @@ namespace JJFlexWpf.Dialogs
                 var radio = (RadioListItem)RadiosBox.Items[0];
                 var name = string.IsNullOrWhiteSpace(radio.Name) ? "radio" : radio.Name;
                 _callbacks.ScreenReaderSpeak?.Invoke($"{name} selected. Press Enter to connect.", false);
+            }
+
+            // Update accessible label for empty list
+            if (RadiosBox.Items.Count == 0)
+            {
+                System.Windows.Automation.AutomationProperties.SetName(
+                    RadiosBox, "Radio list, empty, no radios found");
+            }
+            else
+            {
+                System.Windows.Automation.AutomationProperties.SetName(
+                    RadiosBox, "Available radios");
             }
         }
 
@@ -395,6 +417,14 @@ namespace JJFlexWpf.Dialogs
         {
             // TestButton stays enabled for tab-order accessibility.
             // Click handler validates selection. Only disable during active test.
+
+            // Auto-connect button requires a selected radio
+            AutoConnectButton.IsEnabled = RadiosBox.SelectedItem != null;
+        }
+
+        private void AutoConnectButton_Click(object sender, RoutedEventArgs e)
+        {
+            AutoConnectMenuItem_Click(sender, e);
         }
 
         private void TestButton_Click(object sender, RoutedEventArgs e)

@@ -81,6 +81,17 @@ public partial class CycleFieldControl : UserControl
         UpdateDisplay();
     }
 
+    /// <summary>
+    /// Replace the option list at runtime (e.g., dynamic antenna lists from the radio).
+    /// Resets selection to 0.
+    /// </summary>
+    public void SetOptions(string[] options)
+    {
+        _options = options ?? Array.Empty<string>();
+        _selectedIndex = 0;
+        UpdateDisplay();
+    }
+
     private void UpdateDisplay()
     {
         string optionText = SelectedOption;

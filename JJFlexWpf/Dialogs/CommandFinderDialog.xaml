@@ -6,6 +6,15 @@
         Width="500" Height="420"
         ResizeMode="CanResizeWithGrip">
     <DockPanel Margin="12">
+        <!-- Category filter above search (top-down flow: category → search → results) -->
+        <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+            <Label Content="Category:" DockPanel.Dock="Left" Padding="0,0,8,0"
+                   VerticalAlignment="Center" />
+            <ComboBox x:Name="CategoryCombo"
+                      AutomationProperties.Name="Category"
+                      DropDownClosed="CategoryCombo_SelectionCommitted"
+                      VerticalAlignment="Center" />
+        </DockPanel>
         <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
             <Label Content="Search:" DockPanel.Dock="Left" Padding="0,0,8,0"
                    VerticalAlignment="Center" />

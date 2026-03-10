@@ -328,10 +328,9 @@ public class NativeMenuBar : IDisposable
 
         // === Meter Tones ===
         var meterSub = AddSubmenu(parent, "Meter Tones");
-        AddChecked(meterSub, "Meter Tones On/Off", () =>
+        AddChecked(meterSub, "Meter Tones On/Off\tCtrl+M", () =>
         {
-            MeterToneEngine.Enabled = !MeterToneEngine.Enabled;
-            SpeakAfterMenuClose($"Meter tones {(MeterToneEngine.Enabled ? "on" : "off")}");
+            _window.ToggleMetersPanel();
         }, () => MeterToneEngine.Enabled);
 
         AddWired(meterSub, "Cycle Preset", () =>
@@ -559,6 +558,81 @@ public class NativeMenuBar : IDisposable
     }
 
     /// <summary>
+    /// Build slice management items (Create/Release Slice).
+    /// Sprint 22 Phase 7.
+    /// </summary>
+    private void BuildSliceItems(IntPtr parent)
+    {
+        if (Rig == null) return;
+
+        AddWired(parent, "Create Slice", () =>
+        {
+            if (Rig == null) { SpeakNoRadio(); return; }
+            if (Rig.MyNumSlices >= Rig.MaxSlices)
+            {
+                SpeakAfterMenuClose("Maximum slices reached");
+                return;
+            }
+            bool ok = Rig.NewSlice();
+            if (ok)
+                SpeakAfterMenuClose($"Slice created, {Rig.MyNumSlices} slices active");
+            else
+                SpeakAfterMenuClose("Could not create slice");
+        });
+
+        AddWired(parent, "Release Slice", () =>
+        {
+            if (Rig == null) { SpeakNoRadio(); return; }
+            int numSlices = Rig.MyNumSlices;
+            if (numSlices <= 1)
+            {
+                SpeakAfterMenuClose("Cannot release the only slice");
+                return;
+            }
+            bool ok = Rig.RemoveSlice(numSlices - 1);
+            if (ok)
+                SpeakAfterMenuClose($"Slice released, {Rig.MyNumSlices} slices active");
+            else
+                SpeakAfterMenuClose("Could not release slice");
+        });
+    }
+
+    /// <summary>
+    /// Build RX/TX antenna selection submenus. Dynamic — reads antenna lists from the radio.
+    /// Sprint 22 Phase 6.
+    /// </summary>
+    private void BuildAntennaSelectItems(IntPtr parent)
+    {
+        if (Rig == null) return;
+
+        // RX Antenna submenu
+        var rxSub = AddSubmenu(parent, "RX Antenna");
+        foreach (var ant in Rig.RXAntennaList)
+        {
+            var antName = ant; // capture for closure
+            AddChecked(rxSub, antName, () =>
+            {
+                if (Rig == null) { SpeakNoRadio(); return; }
+                Rig.RXAntennaName = antName;
+                SpeakAfterMenuClose($"RX antenna {antName}");
+            }, () => string.Equals(Rig?.RXAntennaName, antName, StringComparison.OrdinalIgnoreCase));
+        }
+
+        // TX Antenna submenu
+        var txSub = AddSubmenu(parent, "TX Antenna");
+        foreach (var ant in Rig.TXAntennaList)
+        {
+            var antName = ant;
+            AddChecked(txSub, antName, () =>
+            {
+                if (Rig == null) { SpeakNoRadio(); return; }
+                Rig.TXAntennaName = antName;
+                SpeakAfterMenuClose($"TX antenna {antName}");
+            }, () => string.Equals(Rig?.TXAntennaName, antName, StringComparison.OrdinalIgnoreCase));
+        }
+    }
+
+    /// <summary>
     /// Build ATU (Antenna Tuner) control items.
     /// </summary>
     private void BuildATUItems(IntPtr parent)
@@ -762,7 +836,7 @@ public class NativeMenuBar : IDisposable
             () => _window.FieldsPanel.ToggleCategory(1));
         AddWired(screenFields, "Receiver\tCtrl+Shift+R",
             () => _window.FieldsPanel.ToggleCategory(2));
-        AddWired(screenFields, "Transmission\tCtrl+Shift+T",
+        AddWired(screenFields, "Transmission",
             () => _window.FieldsPanel.ToggleCategory(3));
         AddWired(screenFields, "Antenna\tCtrl+Shift+A",
             () => _window.FieldsPanel.ToggleCategory(4));
@@ -783,8 +857,16 @@ public class NativeMenuBar : IDisposable
             var audioSub = AddSubmenu(operations, "Audio");
             BuildAudioItems(audioSub);
 
+            // Slice management
+            AddSep(operations);
+            BuildSliceItems(operations);
+
             // VOX / Transmission
             var txSub = AddSubmenu(operations, "Transmission");
+            AddChecked(txSub, "Tune Carrier\tCtrl+Shift+T", () =>
+                _window.ToggleTuneCarrier(),
+                () => Rig?.TxTune == true);
+            AddSep(txSub);
             AddChecked(txSub, "VOX On/Off", () =>
                 ToggleDSP("VOX", () => Rig.Vox, v => Rig.Vox = v),
                 () => Rig?.Vox == FlexBase.OffOnValues.on);
@@ -799,9 +881,13 @@ public class NativeMenuBar : IDisposable
             },
             () => Rig?.DummyLoadMode == true);
 
-            // Antenna Tuner
-            var atuSub = AddSubmenu(operations, "Antenna Tuner");
+            // Antenna (RX/TX select + ATU)
+            var atuSub = AddSubmenu(operations, "Antenna");
+            BuildAntennaSelectItems(atuSub);
+            AddSep(atuSub);
             BuildATUItems(atuSub);
+            AddSep(atuSub);
+            AddWired(atuSub, "ATU Tune\tCtrl+T", () => _window.StartATUTuneCycle());
 
             // Receiver
             var rxSub = AddSubmenu(operations, "Receiver");
@@ -957,6 +1043,9 @@ public class NativeMenuBar : IDisposable
             var audioSub = AddSubmenu(slice, "Audio");
             BuildAudioItems(audioSub);
 
+            // Slice management
+            BuildSliceItems(slice);
+
             // Tuning
             var tuningSub = AddSubmenu(slice, "Tuning");
             AddWired(tuningSub, "RIT On/Off", () =>
@@ -984,14 +1073,22 @@ public class NativeMenuBar : IDisposable
             var dspSub = AddSubmenu(slice, "DSP");
             BuildDSPItems(dspSub);
 
-            // Antenna — ATU + Diversity (Sprint 15 Track D: ATU was missing from Modern)
+            // Antenna — RX/TX select, ATU, Diversity
             var antSub = AddSubmenu(slice, "Antenna");
+            BuildAntennaSelectItems(antSub);
+            AddSep(antSub);
             BuildATUItems(antSub);
+            AddSep(antSub);
+            AddWired(antSub, "ATU Tune\tCtrl+T", () => _window.StartATUTuneCycle());
             AddSep(antSub);
             BuildDiversityItems(antSub);
 
             // Transmission (was "FM" — renamed for consistency with Classic menu)
             var txSub = AddSubmenu(slice, "Transmission");
+            AddChecked(txSub, "Tune Carrier\tCtrl+Shift+T", () =>
+                _window.ToggleTuneCarrier(),
+                () => Rig?.TxTune == true);
+            AddSep(txSub);
             AddChecked(txSub, "VOX On/Off", () =>
                 ToggleDSP("VOX", () => Rig.Vox, v => Rig.Vox = v),
                 () => Rig?.Vox == FlexBase.OffOnValues.on);
@@ -1126,6 +1223,11 @@ public class NativeMenuBar : IDisposable
         // Navigation
         AddWired(parent, "Band Up\tAlt+Up", () => _window.BandNavigate(1));
         AddWired(parent, "Band Down\tAlt+Down", () => _window.BandNavigate(-1));
+        AddSep(parent);
+
+        // 60m channel navigation
+        AddWired(parent, "60m Channel Up\tAlt+Shift+Up", () => _window.SixtyMeterChannelNavigate(1));
+        AddWired(parent, "60m Channel Down\tAlt+Shift+Down", () => _window.SixtyMeterChannelNavigate(-1));
     }
 
     #endregion
@@ -1221,11 +1323,8 @@ public class NativeMenuBar : IDisposable
         {
             var dialog = new Dialogs.AboutDialog
             {
-                ProductName = "JJ Flexible Radio Access",
-                VersionText = System.Reflection.Assembly.GetEntryAssembly()?.GetName().Version?.ToString() ?? "Unknown",
-                Copyright = "Copyright Jim Shaffer",
-                CompanyName = "",
-                Description = "Accessible radio control for FLEX-6000 and FLEX-8000 series transceivers."
+                Rig = Rig,
+                SpeakCallback = (msg, interrupt) => Radios.ScreenReaderOutput.Speak(msg, interrupt)
             };
             dialog.ShowDialog();
         });

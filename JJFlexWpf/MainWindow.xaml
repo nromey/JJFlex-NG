@@ -60,11 +60,13 @@
                 <RowDefinition Height="Auto" />
                 <!-- Row 1: Screen fields panel (expandable categories) — Sprint 14 -->
                 <RowDefinition Height="Auto" />
-                <!-- Row 2: Panadapter braille display — Sprint 12 Phase 12.9 -->
+                <!-- Row 2: Meters panel (meter tone configuration) — Sprint 22 -->
                 <RowDefinition Height="Auto" />
-                <!-- Row 3: Text content (received, sent, rig fields) — Phase 8.3 -->
+                <!-- Row 3: Panadapter braille display — Sprint 12 Phase 12.9 -->
+                <RowDefinition Height="Auto" />
+                <!-- Row 4: Text content (received, sent, rig fields) — Phase 8.3 -->
                 <RowDefinition Height="*" />
-                <!-- Row 4: Logging mode overlay (collapsed by default) — Phase 8.8 -->
+                <!-- Row 5: Logging mode overlay (collapsed by default) — Phase 8.8 -->
                 <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
 
@@ -97,6 +99,14 @@
                         MouseLeave="AntennaTuneButton_MouseLeave"
                         IsEnabled="False" />
 
+                <!-- Tune toggle button — not in tab chain (Ctrl+Shift+T hotkey) -->
+                <ToggleButton x:Name="TuneToggleButton" Content="Tune"
+                        Margin="4,2" Padding="8,4" MinWidth="60"
+                        IsTabStop="False"
+                        AutomationProperties.Name="Tune carrier"
+                        Click="TuneToggleButton_Click"
+                        IsEnabled="False" />
+
                 <!-- Transmit button — not in tab chain (use menu or hotkey) -->
                 <Button x:Name="TransmitButton" Content="Transmit"
                         Margin="4,2" Padding="8,4" MinWidth="70"
@@ -113,8 +123,14 @@
                 Visibility="Collapsed"
                 AutomationProperties.Name="Screen Fields" />
 
+            <!-- Meters Panel — Sprint 22 Phase 9: meter tone configuration -->
+            <controls:MetersPanel Grid.Row="2" x:Name="MetersPanel"
+                TabIndex="2"
+                Visibility="Collapsed"
+                AutomationProperties.Name="Meters Configuration" />
+
             <!-- Panadapter Braille Display — Sprint 12 Phase 12.9 -->
-            <Grid Grid.Row="2" x:Name="PanadapterPanel" Visibility="Collapsed"
+            <Grid Grid.Row="3" x:Name="PanadapterPanel" Visibility="Collapsed"
                   Margin="4,2" AutomationProperties.Name="Panadapter Display">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto" />
@@ -132,7 +148,7 @@
                          FontFamily="Consolas" FontSize="12"
                          BorderThickness="1"
                          VerticalContentAlignment="Center"
-                         TabIndex="2"
+                         TabIndex="3"
                          AutomationProperties.Name="Waterfall display"
                          PreviewKeyDown="PanDisplayBox_PreviewKeyDown"
                          GotFocus="PanDisplayBox_GotFocus"
@@ -145,7 +161,7 @@
             </Grid>
 
             <!-- Content Area — Phase 8.3: Received/Sent text, rig fields debug view -->
-            <Grid Grid.Row="3" x:Name="ContentArea" Margin="4">
+            <Grid Grid.Row="4" x:Name="ContentArea" Margin="4">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />  <!-- Received label -->
                     <RowDefinition Height="*" />     <!-- Received text -->
@@ -166,7 +182,7 @@
                          FontFamily="Consolas"
                          FontSize="12"
                          Margin="4,0"
-                         TabIndex="3"
+                         TabIndex="4"
                          AutomationProperties.Name="Received text"
                          PreviewKeyDown="ReceivedTextBox_PreviewKeyDown" />
 
@@ -184,7 +200,7 @@
                          FontFamily="Consolas"
                          FontSize="12"
                          Margin="4,0"
-                         TabIndex="4"
+                         TabIndex="5"
                          AutomationProperties.Name="Sent Text"
                          PreviewKeyDown="SentTextBox_PreviewKeyDown"
                          PreviewTextInput="SentTextBox_PreviewTextInput" />
@@ -210,7 +226,7 @@
                  - No focus trapping on hide (pure WPF Visibility toggle)
                  - Keyboard routing works natively (PreviewKeyDown on Window)
             -->
-            <Grid Grid.Row="4" x:Name="LoggingPanel" Visibility="Collapsed"
+            <Grid Grid.Row="5" x:Name="LoggingPanel" Visibility="Collapsed"
                   AutomationProperties.Name="Logging Mode">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="250" MinWidth="150" />
