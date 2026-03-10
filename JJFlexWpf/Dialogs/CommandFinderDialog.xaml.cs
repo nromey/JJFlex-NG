@@ -55,9 +55,23 @@ namespace JJFlexWpf.Dialogs
             Loaded += OnLoaded;
         }
 
+        private const string AllCategories = "All";
+
         private void OnLoaded(object sender, RoutedEventArgs e)
         {
             _allCommands = GetCommands?.Invoke() ?? new();
+
+            // Populate category combo from distinct Group values
+            var groups = _allCommands
+                .Select(c => c.Group)
+                .Where(g => !string.IsNullOrEmpty(g))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(g => g, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            groups.Insert(0, AllCategories);
+            CategoryCombo.ItemsSource = groups;
+            CategoryCombo.SelectedIndex = 0;
+
             FilterResults("");
             SearchBox.Focus();
         }
@@ -70,14 +84,27 @@ namespace JJFlexWpf.Dialogs
         private void FilterResults(string query)
         {
             bool showAll = ShowAllScopesCheckBox.IsChecked == true;
+            var selectedCategory = CategoryCombo.SelectedItem as string ?? AllCategories;
             var filtered = _allCommands
                 .Where(c => (showAll || ScopeVisible(c.Scope))
+                         && (selectedCategory == AllCategories ||
+                             string.Equals(c.Group, selectedCategory, StringComparison.OrdinalIgnoreCase))
                          && (string.IsNullOrEmpty(query) || MatchesQuery(c, query)))
                 .ToList();
 
             ResultsListView.ItemsSource = filtered;
             ResultCountLabel.Text = $"{filtered.Count} commands";
             SpeakText?.Invoke($"{filtered.Count} results");
+        }
+
+        /// <summary>
+        /// Only filter when dropdown closes (selection committed) — not while arrowing
+        /// through the combo. Prevents jabbering during keyboard navigation.
+        /// </summary>
+        private void CategoryCombo_SelectionCommitted(object? sender, EventArgs e)
+        {
+            if (_allCommands.Count > 0)
+                FilterResults(SearchBox.Text.Trim());
         }
 
         private bool ScopeVisible(string scope)
