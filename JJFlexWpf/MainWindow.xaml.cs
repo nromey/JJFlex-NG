@@ -111,6 +111,31 @@ public partial class MainWindow : UserControl
     }
 
     /// <summary>
+    /// Sprint 22 Phase 8: Speak radio status after connect. Delayed 1.5s to let
+    /// FlexLib populate slice data. Called at the end of PowerNowOn().
+    /// </summary>
+    private void SpeakConnectStatus()
+    {
+        _ = System.Threading.Tasks.Task.Run(async () =>
+        {
+            await System.Threading.Tasks.Task.Delay(1500);
+            Dispatcher.Invoke(() =>
+            {
+                if (RigControl == null) return;
+
+                string model = RigControl.RadioModel;
+                string connType = RigControl.RemoteRig ? "SmartLink" : "local";
+                string status = Radios.RadioStatusBuilder.BuildFullSliceStatus(RigControl);
+
+                // The full status already includes frequency/mode/slice detail.
+                // Prepend with connection info that BuildFullSliceStatus doesn't cover.
+                string message = $"Connected to {model}, {connType}. {status}";
+                Radios.ScreenReaderOutput.Speak(message);
+            });
+        });
+    }
+
+    /// <summary>
     /// Called by the parent ShellForm before closing to run the VB-side exit sequence.
     /// Returns true to allow close, false to cancel (e.g., unsaved QSO).
     /// </summary>
@@ -1531,6 +1556,9 @@ public partial class MainWindow : UserControl
 
         // VB-side tasks (knob setup, tracing)
         PowerOnCallback?.Invoke();
+
+        // Sprint 22 Phase 8: Announce radio status after connect
+        SpeakConnectStatus();
     }
 
     /// <summary>
