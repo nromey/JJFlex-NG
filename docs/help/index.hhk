@@ -6,6 +6,22 @@
 <BODY>
 <UL>
   <LI><OBJECT type="text/sitemap">
+    <param name="Name" value="60 meters">
+    <param name="Local" value="pages\sixty-meters.htm">
+  </OBJECT>
+  <LI><OBJECT type="text/sitemap">
+    <param name="Name" value="about dialog">
+    <param name="Local" value="pages\about-dialog.htm">
+  </OBJECT>
+  <LI><OBJECT type="text/sitemap">
+    <param name="Name" value="antenna switching">
+    <param name="Local" value="pages\antenna-switching.htm">
+  </OBJECT>
+  <LI><OBJECT type="text/sitemap">
+    <param name="Name" value="ATU tune">
+    <param name="Local" value="pages\ptt-transmission.htm">
+  </OBJECT>
+  <LI><OBJECT type="text/sitemap">
     <param name="Name" value="audio presets">
     <param name="Local" value="pages\audio-presets.htm">
   </OBJECT>
@@ -24,6 +40,14 @@
   <LI><OBJECT type="text/sitemap">
     <param name="Name" value="connection">
     <param name="Local" value="pages\connection-troubleshooting.htm">
+  </OBJECT>
+  <LI><OBJECT type="text/sitemap">
+    <param name="Name" value="channelization">
+    <param name="Local" value="pages\sixty-meters.htm">
+  </OBJECT>
+  <LI><OBJECT type="text/sitemap">
+    <param name="Name" value="command finder">
+    <param name="Local" value="pages\command-finder.htm">
   </OBJECT>
   <LI><OBJECT type="text/sitemap">
     <param name="Name" value="CW">
@@ -74,6 +98,10 @@
     <param name="Local" value="pages\meter-tones.htm">
   </OBJECT>
   <LI><OBJECT type="text/sitemap">
+    <param name="Name" value="meters panel">
+    <param name="Local" value="pages\meter-tones.htm">
+  </OBJECT>
+  <LI><OBJECT type="text/sitemap">
     <param name="Name" value="modes">
     <param name="Local" value="pages\mode-switching.htm">
   </OBJECT>
@@ -106,6 +134,10 @@
     <param name="Local" value="pages\settings-profiles.htm">
   </OBJECT>
   <LI><OBJECT type="text/sitemap">
+    <param name="Name" value="slices">
+    <param name="Local" value="pages\slice-management.htm">
+  </OBJECT>
+  <LI><OBJECT type="text/sitemap">
     <param name="Name" value="SmartLink">
     <param name="Local" value="pages\smartlink-remote.htm">
   </OBJECT>
@@ -114,12 +146,24 @@
     <param name="Local" value="pages\ptt-transmission.htm">
   </OBJECT>
   <LI><OBJECT type="text/sitemap">
+    <param name="Name" value="tune carrier">
+    <param name="Local" value="pages\ptt-transmission.htm">
+  </OBJECT>
+  <LI><OBJECT type="text/sitemap">
     <param name="Name" value="tuning">
+    <param name="Local" value="pages\tuning-frequency.htm">
+  </OBJECT>
+  <LI><OBJECT type="text/sitemap">
+    <param name="Name" value="tuning debounce">
     <param name="Local" value="pages\tuning-frequency.htm">
   </OBJECT>
   <LI><OBJECT type="text/sitemap">
     <param name="Name" value="TX sculpting">
     <param name="Local" value="pages\tx-sculpting.htm">
+  </OBJECT>
+  <LI><OBJECT type="text/sitemap">
+    <param name="Name" value="version info">
+    <param name="Local" value="pages\about-dialog.htm">
   </OBJECT>
 </UL>
 </BODY>

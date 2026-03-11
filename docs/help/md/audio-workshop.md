@@ -4,7 +4,10 @@ The Audio Workshop gives you control over your radio's audio routing and levels.
 
 ## Opening Audio Workshop
 
-You can open the Audio Workshop from the leader key: press `Ctrl+J` then `T`.
+You can open the Audio Workshop in two ways:
+
+- Press `Ctrl+Shift+W` to open it directly.
+- Or use the leader key: press `Ctrl+J` then `W`.
 
 ## Audio Level Controls
 

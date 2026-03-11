@@ -12,14 +12,23 @@ Every voice is different, and band conditions change. Sculpting lets you:
 
 ## Adjusting TX Bandwidth
 
-Open the Audio Workshop with `Ctrl+J` then `T` to access TX sculpting controls. You can adjust:
+You can adjust the TX filter edges directly from the keyboard without opening any dialog:
+
+- `Ctrl+Shift+[` — Lower the TX filter low edge
+- `Ctrl+Shift+]` — Raise the TX filter low edge
+- `Ctrl+Alt+[` — Lower the TX filter high edge
+- `Ctrl+Alt+]` — Raise the TX filter high edge
+
+Each press adjusts the edge by one step and speaks the new value.
+
+You can also open the Audio Workshop (`Ctrl+Shift+W` or `Ctrl+J` then `W`) for a more visual view of the TX sculpting controls. There you can adjust:
 
 - **Low edge** — The lowest frequency passed by the TX filter (typically 100-300 Hz)
 - **High edge** — The highest frequency passed by the TX filter (typically 2700-3000 Hz)
 
 ## Hearing Your Current TX Filter
 
-Press `Ctrl+J` then `F` to have JJFlexRadio speak your current TX filter settings. It announces the low edge, high edge, and calculated bandwidth.
+Press `Ctrl+Shift+F` to have the app speak your current TX filter settings. It announces the low edge, high edge, and calculated bandwidth. You can also use the leader key: `Ctrl+J` then `F`.
 
 For example: "TX filter 100 to 2900, 2.8 kilohertz."
 

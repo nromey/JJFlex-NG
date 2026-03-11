@@ -240,7 +240,7 @@ public partial class MainWindow : UserControl
     /// <summary>
     /// Audio output configuration (earcon device, meter tones). Loaded at radio connect.
     /// </summary>
-    internal AudioOutputConfig? CurrentAudioConfig { get; private set; }
+    public AudioOutputConfig? CurrentAudioConfig { get; private set; }
 
     /// <summary>
     /// Returns PTT status text for the Speak Status hotkey, or null if PTT is idle.
@@ -1874,7 +1874,7 @@ public partial class MainWindow : UserControl
     /// Toggle the tune carrier on/off with audio feedback.
     /// Called from both the UI button and the Ctrl+Shift+T hotkey.
     /// </summary>
-    internal void ToggleTuneCarrier()
+    public void ToggleTuneCarrier()
     {
         if (RigControl == null) return;
         bool newState = !RigControl.TxTune;
@@ -1898,7 +1898,7 @@ public partial class MainWindow : UserControl
     /// Toggle meters panel visibility and meter tones.
     /// Called from Ctrl+M hotkey.
     /// </summary>
-    internal void ToggleMetersPanel()
+    public void ToggleMetersPanel()
     {
         MetersPanel.Visibility = Visibility.Visible;
         MetersPanel.ToggleMeters();
@@ -1908,7 +1908,7 @@ public partial class MainWindow : UserControl
     /// Start ATU tune cycle with audio feedback.
     /// Called from both the menu and the Ctrl+T hotkey.
     /// </summary>
-    internal void StartATUTuneCycle()
+    public void StartATUTuneCycle()
     {
         if (RigControl == null) return;
         if (!RigControl.MyCaps.HasCap(Radios.RigCaps.Caps.ATGet))

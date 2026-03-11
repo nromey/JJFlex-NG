@@ -1,8 +1,8 @@
 # Keyboard Reference
 
-This is your one-stop reference for every keyboard shortcut in JJFlexRadio. You can also press `Ctrl+/` at any time to open the Command Finder, which lets you search for commands by name.
+This is your one-stop reference for every keyboard shortcut in JJ Flexible Radio Access. You can also press `Ctrl+Shift+H` (or `Ctrl+/`) at any time to open the Command Finder, which lets you search for commands by name.
 
-JJFlexRadio has three operating scopes: some keys work everywhere (Global), some only work when you're controlling the radio (Radio scope, which includes both Classic and Modern modes), and some only work when you're in the logging pane (Logging scope).
+JJ Flexible Radio Access has three operating scopes: some keys work everywhere (Global), some only work when you're controlling the radio (Radio scope, which includes both Classic and Modern modes), and some only work when you're in the logging pane (Logging scope).
 
 ## Global Hotkeys
 
@@ -12,11 +12,25 @@ These work no matter where you are in the application.
 |-----|--------|
 | F1 | Open this help file |
 | Ctrl+/ | Open Command Finder (search all commands) |
+| Ctrl+Shift+H | Open Command Finder (alternate shortcut) |
 | Ctrl+J | Leader key (press, release, then press a second key) |
-| Ctrl+Shift+1 through 5 | Jump to ScreenFields category |
+| Ctrl+Shift+1 | Jump to ScreenFields: Receiver category |
+| Ctrl+Shift+2 | Jump to ScreenFields: DSP category |
+| Ctrl+Shift+3 | Jump to ScreenFields: Audio category |
+| Ctrl+Shift+4 | Jump to ScreenFields: Transmission category |
+| Ctrl+Shift+5 | Jump to ScreenFields: Antenna category |
+| Ctrl+M | Toggle meters panel on/off |
+| Ctrl+Shift+W | Open Audio Workshop |
+| Ctrl+Shift+S | Speak full status (multi-slice aware) |
+| Ctrl+Shift+T | Toggle tune carrier on/off |
+| Ctrl+T | Start ATU tune cycle |
+| Ctrl+Shift+F | Speak TX filter width |
+| Ctrl+Shift+[ | TX filter low edge down |
+| Ctrl+Shift+] | TX filter low edge up |
+| Ctrl+Alt+[ | TX filter high edge down |
+| Ctrl+Alt+] | TX filter high edge up |
 | F12 | Stop CW transmission immediately |
 | Ctrl+L | Callbook / station lookup |
-| Ctrl+Shift+S | Speak current status |
 | Ctrl+Alt+S | Open status dialog |
 | Alt+Shift+S | Speak TX status |
 
@@ -26,16 +40,19 @@ Press `Ctrl+J`, then release it, then press one of these keys. You'll hear a ris
 
 | Key | Action |
 |-----|--------|
-| N | Toggle Noise Reduction on/off |
+| N | Toggle Neural Noise Reduction (RNN) on/off |
 | B | Toggle Noise Blanker on/off |
-| W | Toggle Wideband Noise Blanker on/off |
-| R | Toggle Neural Noise Reduction (RNN) on/off |
-| S | Toggle Spectral Noise Reduction on/off |
-| A | Toggle Auto Notch Filter on/off |
-| P | Toggle Audio Peak Filter on/off |
-| M | Toggle Meter Tone on/off |
-| T | Open Audio Workshop |
+| W | Open Audio Workshop |
+| R | Speak current meter readings |
+| S | Speak full status |
+| A | Toggle Audio Peak Filter (APF, CW only) |
+| P | Cycle meter preset (RX Monitor, TX Monitor, Full Monitor) |
+| M | Toggle meter tones on/off |
+| E | Toggle meter tones on/off (alias for M) |
+| T | Cycle tuning step size |
 | F | Speak current TX filter width |
+| D | Toggle tuning speech debounce |
+| L | Speak log statistics |
 | ? or H | List all leader key commands |
 | Escape | Cancel leader mode |
 
@@ -58,6 +75,8 @@ These keys switch bands instantly. They work in both Classic and Modern modes (R
 | Shift+F6 | 12 meters |
 | Alt+Up | Next band up |
 | Alt+Down | Next band down |
+| Alt+Shift+Up | 60m channel up (when on 60 meters) |
+| Alt+Shift+Down | 60m channel down (when on 60 meters) |
 
 ## Radio Control (Classic and Modern Modes)
 
@@ -67,7 +86,6 @@ These keys work when you're in either Classic or Modern mode, controlling the ra
 |-----|--------|
 | F2 | Speak current frequency |
 | Ctrl+F | Set frequency (direct entry) |
-| Ctrl+M | Show memory channels |
 | Ctrl+Shift+M | Start memory scan |
 | Ctrl+Shift+C | Clear RIT offset |
 | Alt+Z | CW zero beat |
@@ -143,11 +161,11 @@ The ScreenFields panel has five expandable categories you can jump to instantly:
 
 | Key | Category |
 |-----|----------|
-| Ctrl+Shift+1 | Category 1 |
-| Ctrl+Shift+2 | Category 2 |
-| Ctrl+Shift+3 | Category 3 |
-| Ctrl+Shift+4 | Category 4 |
-| Ctrl+Shift+5 | Category 5 |
+| Ctrl+Shift+1 | Receiver |
+| Ctrl+Shift+2 | DSP |
+| Ctrl+Shift+3 | Audio |
+| Ctrl+Shift+4 | Transmission |
+| Ctrl+Shift+5 | Antenna |
 
 **Tip:** Each category expands to show its controls. Press the hotkey again to collapse it.
 

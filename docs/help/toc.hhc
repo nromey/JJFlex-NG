@@ -50,12 +50,24 @@
       <param name="Local" value="pages\band-navigation.htm">
     </OBJECT>
     <LI><OBJECT type="text/sitemap">
+      <param name="Name" value="60 Meter Operation">
+      <param name="Local" value="pages\sixty-meters.htm">
+    </OBJECT>
+    <LI><OBJECT type="text/sitemap">
       <param name="Name" value="Mode Switching">
       <param name="Local" value="pages\mode-switching.htm">
     </OBJECT>
     <LI><OBJECT type="text/sitemap">
       <param name="Name" value="Filters & DSP">
       <param name="Local" value="pages\filters-dsp.htm">
+    </OBJECT>
+    <LI><OBJECT type="text/sitemap">
+      <param name="Name" value="Antenna Switching">
+      <param name="Local" value="pages\antenna-switching.htm">
+    </OBJECT>
+    <LI><OBJECT type="text/sitemap">
+      <param name="Name" value="Slice Management">
+      <param name="Local" value="pages\slice-management.htm">
     </OBJECT>
   </UL>
 
@@ -72,7 +84,7 @@
       <param name="Local" value="pages\audio-workshop.htm">
     </OBJECT>
     <LI><OBJECT type="text/sitemap">
-      <param name="Name" value="Meter Tones">
+      <param name="Name" value="Meter Tones & Meters Panel">
       <param name="Local" value="pages\meter-tones.htm">
     </OBJECT>
     <LI><OBJECT type="text/sitemap">
@@ -110,6 +122,16 @@
   <LI><OBJECT type="text/sitemap">
     <param name="Name" value="Settings & Profiles">
     <param name="Local" value="pages\settings-profiles.htm">
+  </OBJECT>
+
+  <LI><OBJECT type="text/sitemap">
+    <param name="Name" value="Command Finder">
+    <param name="Local" value="pages\command-finder.htm">
+  </OBJECT>
+
+  <LI><OBJECT type="text/sitemap">
+    <param name="Name" value="About Dialog">
+    <param name="Local" value="pages\about-dialog.htm">
   </OBJECT>
 
   <LI><OBJECT type="text/sitemap">

@@ -1,6 +1,6 @@
 # Earcon Explorer
 
-Earcons are short audio tones that JJFlexRadio plays to confirm actions and communicate state changes. They're designed to be quick and informative without interrupting your workflow.
+Earcons are short audio tones that JJ Flexible Radio Access plays to confirm actions and communicate state changes. They're designed to be quick and informative without interrupting your workflow.
 
 ## What Are Earcons?
 
@@ -15,10 +15,14 @@ Think of earcons as audio icons. Instead of a visual checkmark or color change, 
 - **Soft descending tone:** Leader key timeout or escape
 - **Dull buzz:** Invalid key pressed, unrecognized command
 - **Double chime:** Help requested (leader key + ?)
+- **Chirp:** Tune carrier toggled on or off
+- **Pulsing tone:** ATU tune cycle in progress
+- **Rising arpeggio:** ATU tune succeeded
+- **Falling arpeggio:** ATU tune failed (no match found)
 
 ## Earcons and Screen Readers
 
-Earcons play alongside your screen reader, not instead of it. After a toggle earcon, JJFlexRadio also speaks the state change (for example, "Noise Reduction on"). The earcon gives you instant feedback while the speech provides confirmation.
+Earcons play alongside your screen reader, not instead of it. After a toggle earcon, the app also speaks the state change (for example, "Noise Reduction on"). The earcon gives you instant feedback while the speech provides confirmation.
 
 ## Customizing Earcons
 

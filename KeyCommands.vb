@@ -242,6 +242,7 @@ Public Class KeyCommands
         routing
         routingScan
         scan
+        tuning
     End Enum
     Public Class keyTbl
         Friend key As KeyDefType

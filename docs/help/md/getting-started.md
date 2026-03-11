@@ -1,6 +1,6 @@
 # Getting Started
 
-This guide walks you through installing JJFlexRadio and connecting to your FlexRadio for the first time.
+This guide walks you through installing JJ Flexible Radio Access and connecting to your FlexRadio for the first time.
 
 ## System Requirements
 
@@ -13,16 +13,16 @@ This guide walks you through installing JJFlexRadio and connecting to your FlexR
 
 1. Run the installer (`Setup JJFlexRadio_x64.exe` for 64-bit, or `_x86.exe` for 32-bit systems).
 2. Follow the prompts. The default install location is fine for most people.
-3. Launch JJFlexRadio from the Start menu or desktop shortcut.
+3. Launch JJ Flexible Radio Access from the Start menu or desktop shortcut. You'll hear "Welcome to JJ Flexible Radio Access" spoken when the app starts up.
 
 ## First Connection (Local Network)
 
 When your Flex radio is on the same network as your computer:
 
 1. Turn on your radio and wait for it to boot up.
-2. Launch JJFlexRadio. The app automatically discovers Flex radios on your local network.
+2. Launch JJ Flexible Radio Access. The app automatically discovers Flex radios on your local network.
 3. You should hear your radio announced. If multiple radios are found, use the arrow keys to select the one you want.
-4. Press Enter to connect.
+4. Press Enter to connect — or press the **Auto-Connect** button, which connects to the first available radio automatically. This is handy if you only have one radio on the network.
 
 That's it. You don't need a SmartLink account for local connections.
 
@@ -31,7 +31,7 @@ That's it. You don't need a SmartLink account for local connections.
 For remote operation through the internet:
 
 1. You need a SmartLink account from FlexRadio. Set this up at flexradio.com if you haven't already.
-2. In JJFlexRadio, go to the Connect menu and choose SmartLink.
+2. In JJ Flexible Radio Access, go to the Connect menu and choose SmartLink.
 3. A browser window opens for you to sign in with your SmartLink credentials.
 4. After signing in, your remote radios appear in the list.
 5. Select your radio and press Enter to connect.
@@ -40,7 +40,9 @@ For remote operation through the internet:
 
 ## What Happens After You Connect
 
-Once connected, JJFlexRadio announces the radio model and current frequency. You're in Modern mode by default, which gives you a streamlined keyboard-driven interface.
+Once connected, the app automatically speaks a full status summary. You'll hear something like: "Connected to FLEX-6600, local network. Listening on 14.225 megahertz, USB, 20 meters, slice A." This tells you everything you need to know to start operating right away.
+
+You're in Modern mode by default, which gives you a streamlined keyboard-driven interface.
 
 Here are the first things to try:
 
@@ -52,6 +54,6 @@ Here are the first things to try:
 
 ## Next Steps
 
-- **Screen Reader Setup** — Fine-tune NVDA or JAWS for JJFlexRadio
+- **Screen Reader Setup** — Fine-tune NVDA or JAWS for JJ Flexible Radio Access
 - **Keyboard Reference** — Learn all the hotkeys
 - **Operating Modes** — Understand Classic vs. Modern mode
