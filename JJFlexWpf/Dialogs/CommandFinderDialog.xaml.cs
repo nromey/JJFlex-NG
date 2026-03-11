@@ -98,12 +98,21 @@ namespace JJFlexWpf.Dialogs
         }
 
         /// <summary>
-        /// Only filter when dropdown closes (selection committed) — not while arrowing
-        /// through the combo. Prevents jabbering during keyboard navigation.
+        /// Filter when dropdown closes (selection committed via dropdown).
         /// </summary>
         private void CategoryCombo_SelectionCommitted(object? sender, EventArgs e)
         {
             if (_allCommands.Count > 0)
+                FilterResults(SearchBox.Text.Trim());
+        }
+
+        /// <summary>
+        /// Also filter when selection changes on a closed combo (arrow keys without opening dropdown).
+        /// Skip if dropdown is open — DropDownClosed handles that case.
+        /// </summary>
+        private void CategoryCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (_allCommands.Count > 0 && !CategoryCombo.IsDropDownOpen)
                 FilterResults(SearchBox.Text.Trim());
         }
 
