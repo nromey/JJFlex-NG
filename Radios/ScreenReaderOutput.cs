@@ -14,6 +14,7 @@ namespace Radios
         private static bool _initialized;
         private static bool _available;
         private static string _screenReaderName;
+        private static string _lastMessage;
 
         // Timing for speech delays - kept short so user isn't stuck waiting if they silence (Ctrl)
         // We only wait long enough for critical messages to be heard, not to complete fully
@@ -92,6 +93,7 @@ namespace Radios
                 if (_available)
                 {
                     Tolk.Speak(message, interrupt);
+                    _lastMessage = message;
                     Tracing.TraceLine($"ScreenReaderOutput: Spoke '{message}'", TraceLevel.Verbose);
                 }
             }
@@ -213,6 +215,11 @@ namespace Radios
                 return _screenReaderName;
             }
         }
+
+        /// <summary>
+        /// Gets the last message that was spoken, for repeat-last-message functionality.
+        /// </summary>
+        public static string LastMessage => _lastMessage;
 
         /// <summary>
         /// Gets whether braille output is available.

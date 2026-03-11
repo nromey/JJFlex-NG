@@ -121,6 +121,8 @@ Public Class KeyCommands
         ToggleReceiverExpander
         ToggleTransmissionExpander
         ToggleAntennaExpander
+        SpeakFrequency
+        RepeatLastMessage
     End Enum
     Friend Const FirstMessageCommandValue As Integer = 1000000
 
@@ -653,7 +655,13 @@ Public Class KeyCommands
             .Keywords = New String() {"transmission", "tx", "expander", "screenfields", "panel"}},
         New keyTbl(CommandValues.ToggleAntennaExpander, KeyTypes.Command, AddressOf toggleAntennaExpanderRtn,
             "Toggle Antenna expander in ScreenFields panel", "Antenna Expander", False, FunctionGroups.general, KeyScope.Radio) With {
-            .Keywords = New String() {"antenna", "ant", "expander", "screenfields", "panel"}}}
+            .Keywords = New String() {"antenna", "ant", "expander", "screenfields", "panel"}},
+        New keyTbl(CommandValues.SpeakFrequency, KeyTypes.Command, AddressOf speakFrequencyRtn,
+            "Speak current frequency and mode", "Speak Frequency", False, FunctionGroups.general, KeyScope.Radio) With {
+            .Keywords = New String() {"frequency", "freq", "speak", "readback"}},
+        New keyTbl(CommandValues.RepeatLastMessage, KeyTypes.Command, AddressOf repeatLastMessageRtn,
+            "Repeat the last spoken message", "Repeat Last Message", False, FunctionGroups.general, KeyScope.[Global]) With {
+            .Keywords = New String() {"repeat", "last", "message", "speech", "again"}}}
 
     ' Deleted from KeyTable.
     ' New keyTbl(CommandValues.LogForm, AddressOf BringUpLogForm,
@@ -762,7 +770,9 @@ Public Class KeyCommands
      New KeyDefType(Keys.U Or Keys.Control Or Keys.Shift, CommandValues.ToggleAudioExpander, KeyScope.Radio),            ' Ctrl+Shift+U = Audio expander
      New KeyDefType(Keys.R Or Keys.Control Or Keys.Shift, CommandValues.ToggleReceiverExpander, KeyScope.Radio),         ' Ctrl+Shift+R = Receiver expander
      New KeyDefType(Keys.X Or Keys.Control Or Keys.Shift, CommandValues.ToggleTransmissionExpander, KeyScope.Radio),     ' Ctrl+Shift+X = Transmission expander
-     New KeyDefType(Keys.A Or Keys.Control Or Keys.Shift, CommandValues.ToggleAntennaExpander, KeyScope.Radio)}          ' Ctrl+Shift+A = Antenna expander
+     New KeyDefType(Keys.A Or Keys.Control Or Keys.Shift, CommandValues.ToggleAntennaExpander, KeyScope.Radio),          ' Ctrl+Shift+A = Antenna expander
+     New KeyDefType(Keys.F Or Keys.Alt, CommandValues.SpeakFrequency, KeyScope.Radio),                                  ' Alt+F = Speak frequency
+     New KeyDefType(Keys.F4 Or Keys.Control, CommandValues.RepeatLastMessage, KeyScope.[Global])}                        ' Ctrl+F4 = Repeat last message
 
     ''' <summary>
     ''' Dictionary to access the keytable using a key.
@@ -1273,7 +1283,7 @@ Public Class KeyCommands
         If k = (Keys.J Or Keys.Control) Then
             leaderKeyActive = True
             JJFlexWpf.EarconPlayer.LeaderEnterTone()
-            Radios.ScreenReaderOutput.Speak("J", True)
+            Radios.ScreenReaderOutput.Speak("JJ", True)
             Return True
         End If
 
@@ -1417,11 +1427,9 @@ Public Class KeyCommands
             Case Keys.N
                 If RigControl Is Nothing Then
                     LeaderNoRadio()
-                ElseIf RigControl.NoiseReductionLicenseReported AndAlso Not RigControl.NoiseReductionLicensed Then
-                    JJFlexWpf.EarconPlayer.LeaderInvalidTone()
-                    Radios.ScreenReaderOutput.Speak("Noise Reduction not licensed on this radio")
                 Else
-                    ToggleLeaderDSP("Noise Reduction",
+                    ' Legacy NR — no license required (unlike Neural/Spectral)
+                    ToggleLeaderDSP("Legacy Noise Reduction",
                         Function() RigControl.NoiseReduction, Sub(v) RigControl.NoiseReduction = v)
                 End If
             Case Keys.B
@@ -1479,7 +1487,9 @@ Public Class KeyCommands
                     End If
                 End If
 
-            ' TX Filter
+            ' TX Filter (F) and RX Filter (Shift+F)
+            Case Keys.F Or Keys.Shift
+                SpeakRXFilterWidth()
             Case Keys.F
                 SpeakTXFilterWidth()
 
@@ -1547,6 +1557,18 @@ Public Class KeyCommands
         End If
     End Sub
 
+    Private Sub SpeakRXFilterWidth()
+        If RigControl Is Nothing Then
+            Radios.ScreenReaderOutput.Speak("No radio connected")
+            Return
+        End If
+        Dim low = RigControl.FilterLow
+        Dim high = RigControl.FilterHigh
+        Dim width = high - low
+        Dim widthKHz = (width / 1000.0).ToString("F1")
+        Radios.ScreenReaderOutput.Speak($"RX filter {low} to {high}, {widthKHz} kilohertz")
+    End Sub
+
     Private Sub SpeakTXFilterWidth()
         If RigControl Is Nothing Then
             Radios.ScreenReaderOutput.Speak("No radio connected")
@@ -1562,9 +1584,9 @@ Public Class KeyCommands
     Private Sub LeaderKeyHelp()
         JJFlexWpf.EarconPlayer.LeaderHelpTone()
         Dim help = "Leader key commands: " &
-            "N noise reduction, B noise blanker, W wideband NB, " &
+            "N legacy noise reduction, B noise blanker, W wideband NB, " &
             "R neural NR, S spectral NR, A auto notch, P audio peak filter, " &
-            "D tuning debounce, F speak TX filter, L log statistics. " &
+            "D tuning debounce, F speak TX filter, Shift F speak RX filter, L log statistics. " &
             "H for this help. Escape to cancel."
         Radios.ScreenReaderOutput.Speak(help)
     End Sub
@@ -2042,6 +2064,19 @@ Public Class KeyCommands
 
     Private Sub toggleAntennaExpanderRtn()
         WpfMainWindow?.ToggleScreenFieldsCategory(4)
+    End Sub
+
+    Private Sub speakFrequencyRtn()
+        WpfMainWindow?.SpeakFrequency()
+    End Sub
+
+    Private Sub repeatLastMessageRtn()
+        Dim last = Radios.ScreenReaderOutput.LastMessage
+        If String.IsNullOrEmpty(last) Then
+            Radios.ScreenReaderOutput.Speak("No previous message")
+        Else
+            Radios.ScreenReaderOutput.Speak(last, True)
+        End If
     End Sub
 
     ' Region - remote audio
