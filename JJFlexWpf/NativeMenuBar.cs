@@ -751,7 +751,10 @@ public class NativeMenuBar : IDisposable
 
         // === Radio ===
         var radio = AddPopup(bar, "&Radio");
-        AddWired(radio, "Connect to Radio", () => ConnectWithConfirmation());
+        string connectLabel = (Rig != null && Rig.IsConnected)
+            ? "Connect to a Different Radio"
+            : "Connect to Radio";
+        AddWired(radio, connectLabel, () => ConnectWithConfirmation());
         AddWired(radio, "Manage SmartLink Accounts", () => _window.ShowSmartLinkAccountManager());
         AddChecked(radio, "Auto-Connect Enabled",
             () => { var msg = _window.ToggleAutoConnect(); if (msg != null) SpeakAfterMenuClose(msg); },
@@ -1198,7 +1201,7 @@ public class NativeMenuBar : IDisposable
         if (Rig != null && Rig.IsConnected)
         {
             var result = MessageBox.Show(
-                "You're already connected. Disconnect and connect to a different radio?",
+                "You're already connected to a radio. Disconnect from this radio and connect to another radio?",
                 "Confirm", MessageBoxButton.YesNo, MessageBoxImage.Question);
             if (result != MessageBoxResult.Yes) return;
         }

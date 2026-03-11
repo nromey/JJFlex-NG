@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Interop;
 
 namespace JJFlexWpf
 {
@@ -26,9 +27,16 @@ namespace JJFlexWpf
             ShowInTaskbar = false;
             ResizeMode = ResizeMode.NoResize;
 
-            // Note: MainWindow is now a UserControl hosted in ElementHost,
-            // so Application.Current.MainWindow is null. Dialogs center on screen
-            // via WindowStartupLocation.CenterOwner falling back to CenterScreen.
+            // MainWindow is a UserControl hosted in ElementHost, so
+            // Application.Current.MainWindow is null. Use the process main
+            // window handle as Owner for proper modality and centering.
+            try
+            {
+                var mainHandle = System.Diagnostics.Process.GetCurrentProcess().MainWindowHandle;
+                if (mainHandle != nint.Zero)
+                    new WindowInteropHelper(this).Owner = mainHandle;
+            }
+            catch { /* non-critical — dialog still works, just without modality lock */ }
 
             // Wire up standard events
             PreviewKeyDown += JJFlexDialog_PreviewKeyDown;

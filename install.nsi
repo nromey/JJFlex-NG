@@ -39,7 +39,7 @@ VIAddVersionKey /LANG=1033 "FileDescription" "JJFlexRadio installer"
 ; Get a welcome message
 Function .onInit
 MessageBox MB_OK "\
-Welcome to JJFlexRadio, an amateur radio monitoring/control program by Jim Shaffer, KE5AL (SK) and Noel Romey K5NER.$\r\
+Welcome to JJ Flexible Radio Access, an amateur radio monitoring/control program by Jim Shaffer, KE5AL (SK) and Noel Romey K5NER.$\r\
 With assistance from Anthropic's Claude and ChatGPT's Codex.$\r\
 JJFlexRadio is designed with blind users in mind, but anyone is encouraged to try it out.$\r\r\
 The application works well with braille displays, but speech output continues to improve. Stay tuned!$\r\

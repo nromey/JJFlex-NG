@@ -1610,9 +1610,22 @@ public class FreqOutHandlers
         }
         else
         {
-            // No band memory or disabled — use band center
-            var bandInfo = Bands.Query(targetBand);
-            targetFreq = bandInfo != null ? (bandInfo.Low + bandInfo.High) / 2 : 0;
+            // No band memory — for channelized bands (60m), use Channel 1;
+            // otherwise use band center.
+            if (targetBand == Bands.BandNames.m60)
+            {
+                string country = License?.Country ?? "US";
+                var alloc = SixtyMeterChannels.GetAllocation(country);
+                if (alloc?.Channels.Length > 0)
+                    targetFreq = (ulong)(alloc.Value.Channels[0].FrequencyMHz * 1_000_000.0 + 0.5);
+                else
+                    targetFreq = 5_332_000; // US Channel 1 fallback
+            }
+            else
+            {
+                var bandInfo = Bands.Query(targetBand);
+                targetFreq = bandInfo != null ? (bandInfo.Low + bandInfo.High) / 2 : 0;
+            }
         }
 
         if (targetFreq == 0) return;

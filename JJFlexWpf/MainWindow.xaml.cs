@@ -2226,7 +2226,7 @@ public partial class MainWindow : UserControl
             // Digital segment — tune to start
             ulong freqHz = (ulong)(digi.StartMHz * 1_000_000.0 + 0.5);
             RigControl.Frequency = freqHz;
-            ScreenReaderOutput.Speak($"60 meter digital segment, {digi.StartMHz:F4} megahertz");
+            ScreenReaderOutput.Speak($"60 meter digital and CW segment, {digi.StartMHz:F4} megahertz");
         }
     }
 

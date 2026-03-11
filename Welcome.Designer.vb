@@ -31,7 +31,7 @@ Partial Class Welcome
         '
         'WelcomeBox
         '
-        Me.WelcomeBox.AccessibleName = "Welcome to JJRadio"
+        Me.WelcomeBox.AccessibleName = "Welcome to JJ Flexible Radio Access"
         Me.WelcomeBox.AccessibleRole = System.Windows.Forms.AccessibleRole.Text
         Me.WelcomeBox.Location = New System.Drawing.Point(0, 20)
         Me.WelcomeBox.Multiline = True

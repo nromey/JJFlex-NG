@@ -1,4 +1,4 @@
-﻿Welcome to JJFlexRadio, an amateur radio monitoring/control program by Jim Shaffer, KE5AL.
-JJFlexRadio is designed with blind users in mind.
+﻿Welcome to JJ Flexible Radio Access, an amateur radio monitoring/control program by Jim Shaffer, KE5AL (SK) and Noel Romey, K5NER.
+JJ Flexible Radio Access is designed with blind users in mind.
 It works best with a screen reader using a braille display.
 

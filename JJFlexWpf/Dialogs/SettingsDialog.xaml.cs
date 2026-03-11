@@ -10,6 +10,7 @@ namespace JJFlexWpf.Dialogs
         private readonly PttConfig _pttConfig;
         private readonly LicenseConfig _licenseConfig;
         private readonly AudioOutputConfig _audioConfig;
+        private (string, string)[] _countryMap = Array.Empty<(string, string)>();
 
         // Tuning step results (read after DialogResult == true)
         public int CoarseTuneStep { get; private set; }
@@ -129,12 +130,13 @@ namespace JJFlexWpf.Dialogs
             BandBoundaryCheckbox.IsChecked = _licenseConfig.BoundaryNotifications;
             TxLockoutCheckbox.IsChecked = _licenseConfig.TxLockout;
 
-            // Country selector
-            string[] countries = { "US" }; // Future: add UK, CA, etc.
-            foreach (var c in countries)
-                CountryCombo.Items.Add(c);
-            CountryCombo.SelectedItem = _licenseConfig.Country ?? "US";
-            if (CountryCombo.SelectedIndex < 0) CountryCombo.SelectedIndex = 0;
+            // Country selector — display names, stored as country codes
+            _countryMap = new[] { ("US", "United States") }; // Future: add ("UK", "United Kingdom"), etc.
+            foreach (var (code, name) in _countryMap)
+                CountryCombo.Items.Add(name);
+            string currentCode = _licenseConfig.Country ?? "US";
+            int countryIdx = Array.FindIndex(_countryMap, c => c.Item1 == currentCode);
+            CountryCombo.SelectedIndex = countryIdx >= 0 ? countryIdx : 0;
 
             EnforceTxRulesCheckbox.IsChecked = _licenseConfig.EnforceTxRules;
 
@@ -246,7 +248,8 @@ namespace JJFlexWpf.Dialogs
                 _licenseConfig.LicenseClass = LicenseClassMap[selIdx].value;
             _licenseConfig.BoundaryNotifications = BandBoundaryCheckbox.IsChecked == true;
             _licenseConfig.TxLockout = TxLockoutCheckbox.IsChecked == true;
-            _licenseConfig.Country = CountryCombo.SelectedItem as string ?? "US";
+            int cIdx = CountryCombo.SelectedIndex;
+            _licenseConfig.Country = cIdx >= 0 && cIdx < _countryMap.Length ? _countryMap[cIdx].Item1 : "US";
             _licenseConfig.EnforceTxRules = EnforceTxRulesCheckbox.IsChecked == true;
 
             // Audio tab
