@@ -509,6 +509,17 @@ public class FreqOutHandlers
                         e.Handled = true;
                     }
                 }
+                else if (ch >= 'A' && ch <= 'H')
+                {
+                    // Direct slice select: A=slice 0, B=slice 1, etc.
+                    int target = ch - 'A';
+                    if (Rig.ValidVFO(target))
+                    {
+                        Rig.RXVFO = target;
+                        Radios.ScreenReaderOutput.Speak($"Slice {Rig.VFOToLetter(target)} active");
+                        e.Handled = true;
+                    }
+                }
                 else if (ch == 'M')
                 {
                     SetMemoryMode?.Invoke(true);
@@ -527,7 +538,7 @@ public class FreqOutHandlers
     {
         if (Rig == null) return;
         int current = Rig.RXVFO;
-        int total = Rig.TotalNumSlices;
+        int total = Rig.MyNumSlices;
         if (total <= 0) return;
 
         int next = current + direction;
@@ -634,7 +645,7 @@ public class FreqOutHandlers
                 }
                 else
                 {
-                    Radios.ScreenReaderOutput.Speak("All slices in use", true);
+                    Radios.ScreenReaderOutput.Speak("Maximum slices reached", true);
                 }
                 e.Handled = true;
                 break;

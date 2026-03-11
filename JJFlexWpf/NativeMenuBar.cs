@@ -562,16 +562,11 @@ public class NativeMenuBar : IDisposable
         AddWired(parent, "Create Slice", () =>
         {
             if (Rig == null) { SpeakNoRadio(); return; }
-            if (Rig.MyNumSlices >= Rig.MaxSlices)
-            {
-                SpeakAfterMenuClose("Maximum slices reached");
-                return;
-            }
             bool ok = Rig.NewSlice();
             if (ok)
                 SpeakAfterMenuClose($"Slice created, {Rig.MyNumSlices} slices active");
             else
-                SpeakAfterMenuClose("Could not create slice");
+                SpeakAfterMenuClose("Maximum slices reached");
         });
 
         AddWired(parent, "Release Slice", () =>

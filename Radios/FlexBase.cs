@@ -5329,7 +5329,8 @@ namespace Radios
         public bool NewSlice()
         {
             Tracing.TraceLine("NewSlice:", TraceLevel.Info);
-            if (MyNumSlices == TotalNumSlices) return false;
+            // Check actual radio capacity, not just local slice count
+            if (theRadio == null || theRadio.SliceList.Count >= theRadio.MaxSlices) return false;
 
             int myRXVFO = RXVFO;
             int myTXVFO = TXVFO;

@@ -300,16 +300,11 @@ public partial class ScreenFieldsPanel : UserControl
         _createSliceButton.Click += (s, e) =>
         {
             if (_rig == null) return;
-            if (_rig.MyNumSlices >= _rig.MaxSlices)
-            {
-                ScreenReaderOutput.Speak("Maximum slices reached");
-                return;
-            }
             bool ok = _rig.NewSlice();
             if (ok)
                 ScreenReaderOutput.Speak($"Slice created, {_rig.MyNumSlices} slices active");
             else
-                ScreenReaderOutput.Speak("Could not create slice");
+                ScreenReaderOutput.Speak("Maximum slices reached");
         };
         AudioContent.Children.Add(_createSliceButton);
 
