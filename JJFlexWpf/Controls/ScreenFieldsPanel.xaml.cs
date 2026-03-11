@@ -578,6 +578,7 @@ public partial class ScreenFieldsPanel : UserControl
     {
         if (_polling || _rig == null) return;
         setter(isOn ? FlexBase.OffOnValues.on : FlexBase.OffOnValues.off);
+        if (isOn) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
         ScreenReaderOutput.Speak($"{label} {(isOn ? "on" : "off")}");
     }
 
@@ -585,6 +586,7 @@ public partial class ScreenFieldsPanel : UserControl
     {
         if (_polling || _rig == null) return;
         setter(isOn);
+        if (isOn) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
         ScreenReaderOutput.Speak($"{label} {(isOn ? "on" : "off")}");
     }
 

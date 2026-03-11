@@ -57,6 +57,9 @@ namespace JJFlexWpf
         /// </summary>
         private void JJFlexDialog_Loaded(object sender, RoutedEventArgs e)
         {
+            // Play dialog open earcon
+            EarconPlayer.DialogOpenTone();
+
             // Set automation name from title for screen readers
             if (!string.IsNullOrEmpty(Title))
             {
@@ -65,6 +68,15 @@ namespace JJFlexWpf
 
             // Focus first interactive control
             FocusFirstControl();
+        }
+
+        /// <summary>
+        /// Play close earcon when dialog is closing, regardless of how it was closed.
+        /// </summary>
+        protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
+        {
+            EarconPlayer.DialogCloseTone();
+            base.OnClosing(e);
         }
 
         /// <summary>

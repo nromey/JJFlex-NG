@@ -437,16 +437,28 @@ namespace JJFlexWpf
             PlayChirp(400, 600, 80, 0.3f);
         }
 
-        /// <summary>Rising chirp — feature toggled ON.</summary>
+        /// <summary>Double ascending beep — feature toggled ON.</summary>
         public static void FeatureOnTone()
         {
-            PlayChirp(300, 800, 150, 0.3f);
+            PlayToneSequence(new[] { (500, 60), (0, 40), (700, 60) }, 0.3f);
         }
 
-        /// <summary>Falling chirp — feature toggled OFF.</summary>
+        /// <summary>Double descending beep — feature toggled OFF.</summary>
         public static void FeatureOffTone()
         {
-            PlayChirp(800, 300, 150, 0.3f);
+            PlayToneSequence(new[] { (700, 60), (0, 40), (500, 60) }, 0.3f);
+        }
+
+        /// <summary>Double ascending ding — dialog/popup opened.</summary>
+        public static void DialogOpenTone()
+        {
+            PlayToneSequence(new[] { (600, 50), (0, 30), (900, 50) }, 0.25f);
+        }
+
+        /// <summary>Double descending ding — dialog/popup closed.</summary>
+        public static void DialogCloseTone()
+        {
+            PlayToneSequence(new[] { (900, 50), (0, 30), (600, 50) }, 0.25f);
         }
 
         /// <summary>Low buzz — invalid leader key.</summary>
