@@ -141,13 +141,15 @@ public partial class CycleFieldControl : UserControl
         if (!_suppressEvents)
         {
             SelectionChanged?.Invoke(this, _selectedIndex);
-            ScreenReaderOutput.Speak($"{_label} {SelectedOption}");
+            ScreenReaderOutput.Speak($"{_label} {SelectedOption}", interrupt: true);
         }
     }
 
     private void OnGotFocus(object sender, RoutedEventArgs e)
     {
         OuterBorder.BorderBrush = System.Windows.SystemColors.HighlightBrush;
+        // Announce current value with interaction hint on focus entry
+        ScreenReaderOutput.Speak($"{_label} {SelectedOption}, arrows to change", interrupt: true);
     }
 
     protected override void OnLostFocus(RoutedEventArgs e)

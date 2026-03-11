@@ -579,7 +579,8 @@ public partial class ScreenFieldsPanel : UserControl
         if (_polling || _rig == null) return;
         setter(isOn ? FlexBase.OffOnValues.on : FlexBase.OffOnValues.off);
         if (isOn) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
-        ScreenReaderOutput.Speak($"{label} {(isOn ? "on" : "off")}");
+        // interrupt: true cuts off NVDA's native "checked"/"not checked" announcement
+        ScreenReaderOutput.Speak($"{label} {(isOn ? "on" : "off")}", interrupt: true);
     }
 
     private void ToggleBoolRig(string label, Action<bool> setter, bool isOn)
@@ -587,7 +588,7 @@ public partial class ScreenFieldsPanel : UserControl
         if (_polling || _rig == null) return;
         setter(isOn);
         if (isOn) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
-        ScreenReaderOutput.Speak($"{label} {(isOn ? "on" : "off")}");
+        ScreenReaderOutput.Speak($"{label} {(isOn ? "on" : "off")}", interrupt: true);
     }
 
     #endregion

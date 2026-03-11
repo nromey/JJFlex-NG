@@ -98,6 +98,9 @@ public partial class ValueFieldControl : UserControl
     {
         string text = $"{_label}: {_value}";
         DisplayText.Text = text;
+        // Keep AutomationProperties.Name always current so NVDA reads the right value
+        // on focus entry without triggering a PropertyChanged event during OnGotFocus.
+        AutomationProperties.SetName(this, text);
     }
 
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)
@@ -112,25 +115,29 @@ public partial class ValueFieldControl : UserControl
             }
         }
 
+        bool shift = (Keyboard.Modifiers & ModifierKeys.Shift) != 0;
+
         switch (e.Key)
         {
             case Key.Up:
-                AdjustValue(_step);
+                // Up=1, Shift+Up=5
+                AdjustValue(shift ? 5 : 1);
                 e.Handled = true;
                 break;
 
             case Key.Down:
-                AdjustValue(-_step);
+                // Down=1, Shift+Down=5
+                AdjustValue(shift ? -5 : -1);
                 e.Handled = true;
                 break;
 
             case Key.PageUp:
-                AdjustValue(_step * 10);
+                AdjustValue(10);
                 e.Handled = true;
                 break;
 
             case Key.PageDown:
-                AdjustValue(-_step * 10);
+                AdjustValue(-10);
                 e.Handled = true;
                 break;
 
@@ -144,10 +151,25 @@ public partial class ValueFieldControl : UserControl
                 e.Handled = true;
                 break;
 
+            // Digit keys auto-enter number mode (4.4)
+            case Key.D0: case Key.D1: case Key.D2: case Key.D3: case Key.D4:
+            case Key.D5: case Key.D6: case Key.D7: case Key.D8: case Key.D9:
+            case Key.NumPad0: case Key.NumPad1: case Key.NumPad2: case Key.NumPad3: case Key.NumPad4:
+            case Key.NumPad5: case Key.NumPad6: case Key.NumPad7: case Key.NumPad8: case Key.NumPad9:
+                if (!shift) // Don't trigger on Shift+digit (special chars)
+                {
+                    _numberEntryMode = true;
+                    _numberBuffer = "";
+                    ScreenReaderOutput.Speak($"Enter {_label} value", interrupt: true);
+                    HandleNumberEntryKey(e.Key); // Process the first digit
+                    e.Handled = true;
+                }
+                break;
+
             case Key.Enter:
                 _numberEntryMode = true;
                 _numberBuffer = "";
-                ScreenReaderOutput.Speak($"Enter {_label} value");
+                ScreenReaderOutput.Speak($"Enter {_label} value", interrupt: true);
                 e.Handled = true;
                 break;
         }
@@ -256,7 +278,7 @@ public partial class ValueFieldControl : UserControl
         if (!_suppressEvents)
         {
             ValueChanged?.Invoke(this, _value);
-            ScreenReaderOutput.Speak($"{_label} {_value}");
+            ScreenReaderOutput.Speak($"{_label} {_value}", interrupt: true);
         }
     }
 
@@ -271,7 +293,7 @@ public partial class ValueFieldControl : UserControl
         if (!_suppressEvents)
         {
             ValueChanged?.Invoke(this, _value);
-            ScreenReaderOutput.Speak($"{_label} {_value}");
+            ScreenReaderOutput.Speak($"{_label} {_value}", interrupt: true);
         }
     }
 
@@ -279,8 +301,8 @@ public partial class ValueFieldControl : UserControl
     {
         // Highlight border on focus for sighted users
         OuterBorder.BorderBrush = System.Windows.SystemColors.HighlightBrush;
-        // Update AutomationProperties so NVDA reads current value on focus entry
-        AutomationProperties.SetName(this, $"{_label}: {_value}");
+        // AutomationProperties.Name is kept current by UpdateDisplay(),
+        // so NVDA reads it naturally on focus without a PropertyChanged race.
     }
 
     protected override void OnLostFocus(RoutedEventArgs e)
