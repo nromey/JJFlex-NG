@@ -32,8 +32,8 @@ VIProductVersion "4.1.15.1"
 VIFileVersion "4.1.15.1"
 VIAddVersionKey /LANG=1033 "ProductVersion" "4.1.15.1"
 VIAddVersionKey /LANG=1033 "FileVersion" "4.1.15.1"
-VIAddVersionKey /LANG=1033 "ProductName" "JJFlexRadio"
-VIAddVersionKey /LANG=1033 "FileDescription" "JJFlexRadio installer"
+VIAddVersionKey /LANG=1033 "ProductName" "JJ Flexible Radio Access"
+VIAddVersionKey /LANG=1033 "FileDescription" "JJ Flexible Radio Access installer"
 
 
 ; Get a welcome message
@@ -41,7 +41,7 @@ Function .onInit
 MessageBox MB_OK "\
 Welcome to JJ Flexible Radio Access, an amateur radio monitoring/control program by Jim Shaffer, KE5AL (SK) and Noel Romey K5NER.$\r\
 With assistance from Anthropic's Claude and ChatGPT's Codex.$\r\
-JJFlexRadio is designed with blind users in mind, but anyone is encouraged to try it out.$\r\r\
+JJ Flexible Radio Access is designed with blind users in mind, but anyone is encouraged to try it out.$\r\r\
 The application works well with braille displays, but speech output continues to improve. Stay tuned!$\r\
 JJ Flex Radio would not exist without the hard work of Jim Shaffer. JJ buddy, we miss you.$\r\
 JJ Flex Radio lives on! RIP my friend."
@@ -81,7 +81,7 @@ Section "JJFlexRadio (required)"
   WriteRegStr HKLM "SOFTWARE\JJFlexRadio" "Install_Dir" "$INSTDIR"
   
   ; Write the uninstall keys for Windows
-  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\JJFlexRadio" "DisplayName" "JJFlexRadio"
+  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\JJFlexRadio" "DisplayName" "JJ Flexible Radio Access"
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\JJFlexRadio" "UninstallString" '"$INSTDIR\uninstall.exe"'
   WriteRegDWORD HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\JJFlexRadio" "NoModify" 1
   WriteRegDWORD HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\JJFlexRadio" "NoRepair" 1
