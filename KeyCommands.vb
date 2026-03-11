@@ -1600,7 +1600,8 @@ Public Class KeyCommands
         Dim newLow = Math.Max(0, RigControl.TXFilterLow - 50)
         RigControl.TXFilterLow = newLow
         JJFlexWpf.EarconPlayer.FilterEdgeMoveTone(True)
-        Radios.ScreenReaderOutput.Speak("TX low " & newLow.ToString())
+        Dim width = RigControl.TXFilterHigh - newLow
+        Radios.ScreenReaderOutput.Speak($"TX low {newLow}, width {width}")
     End Sub
 
     Private Sub TXFilterLowUpHandler()
@@ -1614,7 +1615,8 @@ Public Class KeyCommands
             JJFlexWpf.EarconPlayer.FilterEdgeMoveTone(True)
         End If
         RigControl.TXFilterLow = newLow
-        Radios.ScreenReaderOutput.Speak("TX low " & newLow.ToString())
+        Dim width = RigControl.TXFilterHigh - newLow
+        Radios.ScreenReaderOutput.Speak($"TX low {newLow}, width {width}")
     End Sub
 
     Private Sub TXFilterHighDownHandler()
@@ -1628,7 +1630,8 @@ Public Class KeyCommands
             JJFlexWpf.EarconPlayer.FilterEdgeMoveTone(False)
         End If
         RigControl.TXFilterHigh = newHigh
-        Radios.ScreenReaderOutput.Speak("TX high " & newHigh.ToString())
+        Dim width = newHigh - RigControl.TXFilterLow
+        Radios.ScreenReaderOutput.Speak($"TX high {newHigh}, width {width}")
     End Sub
 
     Private Sub TXFilterHighUpHandler()
@@ -1636,7 +1639,8 @@ Public Class KeyCommands
         Dim newHigh = Math.Min(10000, RigControl.TXFilterHigh + 50)
         RigControl.TXFilterHigh = newHigh
         JJFlexWpf.EarconPlayer.FilterEdgeMoveTone(False)
-        Radios.ScreenReaderOutput.Speak("TX high " & newHigh.ToString())
+        Dim width = newHigh - RigControl.TXFilterLow
+        Radios.ScreenReaderOutput.Speak($"TX high {newHigh}, width {width}")
     End Sub
 
     Private Sub SpeakTXFilterHandler()

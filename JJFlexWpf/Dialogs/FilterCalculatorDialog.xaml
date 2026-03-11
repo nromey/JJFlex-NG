@@ -1,0 +1,50 @@
+<local:JJFlexDialog x:Class="JJFlexWpf.Dialogs.FilterCalculatorDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:JJFlexWpf"
+        Title="Filter Calculator"
+        Width="360" Height="280"
+        AutomationProperties.Name="Filter Calculator">
+    <StackPanel Margin="12" KeyboardNavigation.TabNavigation="Cycle">
+        <TextBlock Text="Enter any two values. The third will be computed."
+                   TextWrapping="Wrap" Margin="0,0,0,12"
+                   Focusable="True"
+                   AutomationProperties.Name="Enter any two values. The third will be computed." />
+
+        <StackPanel Orientation="Horizontal" Margin="0,4">
+            <Label Content="Low:" Width="60" Target="{Binding ElementName=LowBox}" />
+            <TextBox x:Name="LowBox" Width="80"
+                     AutomationProperties.Name="Filter low edge in hertz"
+                     TextChanged="OnValueChanged" />
+            <TextBlock Text="Hz" VerticalAlignment="Center" Margin="4,0,0,0" />
+        </StackPanel>
+
+        <StackPanel Orientation="Horizontal" Margin="0,4">
+            <Label Content="High:" Width="60" Target="{Binding ElementName=HighBox}" />
+            <TextBox x:Name="HighBox" Width="80"
+                     AutomationProperties.Name="Filter high edge in hertz"
+                     TextChanged="OnValueChanged" />
+            <TextBlock Text="Hz" VerticalAlignment="Center" Margin="4,0,0,0" />
+        </StackPanel>
+
+        <StackPanel Orientation="Horizontal" Margin="0,4">
+            <Label Content="Width:" Width="60" Target="{Binding ElementName=WidthBox}" />
+            <TextBox x:Name="WidthBox" Width="80"
+                     AutomationProperties.Name="Filter width in hertz"
+                     TextChanged="OnValueChanged" />
+            <TextBlock Text="Hz" VerticalAlignment="Center" Margin="4,0,0,0" />
+        </StackPanel>
+
+        <TextBlock x:Name="ResultText" Margin="0,12,0,0" TextWrapping="Wrap"
+                   Focusable="True" AutomationProperties.Name="Computed result" />
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
+            <Button x:Name="ApplyButton" Content="Apply" Padding="12,4" Margin="0,0,8,0"
+                    AutomationProperties.Name="Apply filter to current slice"
+                    Click="ApplyButton_Click" IsEnabled="False" />
+            <Button Content="Close" Padding="12,4"
+                    AutomationProperties.Name="Close filter calculator"
+                    Click="CloseButton_Click" />
+        </StackPanel>
+    </StackPanel>
+</local:JJFlexDialog>

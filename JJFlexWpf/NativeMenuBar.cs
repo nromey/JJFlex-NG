@@ -487,6 +487,17 @@ public class NativeMenuBar : IDisposable
                 });
             }
         }
+
+        AddSep(parent);
+        AddWired(parent, "Filter Calculator", () =>
+        {
+            if (Rig == null) { SpeakNoRadio(); return; }
+            var dialog = new Dialogs.FilterCalculatorDialog();
+            if (dialog.ShowDialog() == true && dialog.ResultLow.HasValue && dialog.ResultHigh.HasValue)
+            {
+                Rig.SetFilter(dialog.ResultLow.Value, dialog.ResultHigh.Value);
+            }
+        });
     }
 
     /// <summary>

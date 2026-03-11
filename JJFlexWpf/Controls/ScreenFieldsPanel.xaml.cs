@@ -73,6 +73,7 @@ public partial class ScreenFieldsPanel : UserControl
     private CheckBox _squelchCheck = null!;
     private ValueFieldControl _squelchLevelControl = null!;
     private ValueFieldControl _rfGainControl = null!;
+    private System.Windows.Controls.TextBlock _rxFilterWidthDisplay = null!;
 
     #endregion
 
@@ -381,6 +382,20 @@ public partial class ScreenFieldsPanel : UserControl
         _rfGainControl = MakeValue("RF Gain", -10, 30, 10);
         _rfGainControl.ValueChanged += (s, v) => { if (_rig != null) _rig.RFGain = v; };
         ReceiverContent.Children.Add(_rfGainControl);
+
+        // Read-only RX filter width display
+        _rxFilterWidthDisplay = new System.Windows.Controls.TextBlock
+        {
+            Margin = new Thickness(4, 6, 4, 2),
+            Focusable = true,
+            IsHitTestVisible = true
+        };
+        _rxFilterWidthDisplay.GotFocus += (s, e) =>
+        {
+            Radios.ScreenReaderOutput.Speak(_rxFilterWidthDisplay.Text, interrupt: true);
+        };
+        System.Windows.Automation.AutomationProperties.SetName(_rxFilterWidthDisplay, "RX Filter Width");
+        ReceiverContent.Children.Add(_rxFilterWidthDisplay);
     }
 
     private void BuildTXControls()
@@ -703,6 +718,16 @@ public partial class ScreenFieldsPanel : UserControl
         if (squelchOn) _squelchLevelControl.Value = _rig.SquelchLevel;
 
         _rfGainControl.Value = _rig.RFGain;
+
+        // RX filter width (read-only)
+        int filterLow = _rig.FilterLow;
+        int filterHigh = _rig.FilterHigh;
+        int filterWidth = filterHigh - filterLow;
+        string widthText = filterWidth >= 1000
+            ? $"RX Filter: {filterLow} to {filterHigh}, {filterWidth / 1000.0:F1} kHz"
+            : $"RX Filter: {filterLow} to {filterHigh}, {filterWidth} Hz";
+        _rxFilterWidthDisplay.Text = widthText;
+        System.Windows.Automation.AutomationProperties.SetName(_rxFilterWidthDisplay, widthText);
     }
 
     private void PollTX()

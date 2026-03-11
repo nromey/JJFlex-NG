@@ -1405,21 +1405,18 @@ public class FreqOutHandlers
         {
             Radios.ScreenReaderOutput.Speak("Filter at limit", true);
         }
-        else if (shift && key == Key.OemOpenBrackets && low == lowMin)
-        {
-            Radios.ScreenReaderOutput.Speak($"Lower limit, {low} to {high}", true);
-        }
-        else if (shift && key == Key.OemCloseBrackets && high == highMax)
-        {
-            Radios.ScreenReaderOutput.Speak($"Upper limit, {low} to {high}", true);
-        }
-        else if (low == lowMin || high == highMax)
-        {
-            Radios.ScreenReaderOutput.Speak($"Filter {low} to {high}, at limit", true);
-        }
         else
         {
-            Radios.ScreenReaderOutput.Speak($"Filter {low} to {high}", true);
+            int width = high - low;
+            string widthStr = width >= 1000 ? $"{width / 1000.0:F1} k" : $"{width}";
+            string atLimit = "";
+            if (shift && key == Key.OemOpenBrackets && low == lowMin)
+                atLimit = ", lower limit";
+            else if (shift && key == Key.OemCloseBrackets && high == highMax)
+                atLimit = ", upper limit";
+            else if (low == lowMin || high == highMax)
+                atLimit = ", at limit";
+            Radios.ScreenReaderOutput.Speak($"Filter {low} to {high}, {widthStr}{atLimit}", true);
         }
         e.Handled = true;
     }
