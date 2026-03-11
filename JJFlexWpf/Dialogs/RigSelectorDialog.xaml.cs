@@ -395,6 +395,25 @@ namespace JJFlexWpf.Dialogs
         private void RadiosBox_GotFocus(object sender, RoutedEventArgs e)
         {
             ConnectButton.IsDefault = true;
+            UpdateRadioListAccessibility();
+        }
+
+        private void UpdateRadioListAccessibility()
+        {
+            int count = RadiosBox.Items.Count;
+            if (count == 0)
+            {
+                System.Windows.Automation.AutomationProperties.SetName(RadiosBox, "Radio list, 0 items. Searching for radios.");
+                ScreenReaderOutput.Speak("No radios found yet. Searching.", true);
+            }
+            else
+            {
+                var selected = RadiosBox.SelectedItem as RadioListItem;
+                int idx = RadiosBox.SelectedIndex + 1;
+                string name = selected?.DisplayText ?? "none selected";
+                System.Windows.Automation.AutomationProperties.SetName(RadiosBox, $"Radio list, {count} items. {name}, {idx} of {count}");
+                ScreenReaderOutput.Speak($"{name}, {idx} of {count}", true);
+            }
         }
 
         private void RadiosBox_LostFocus(object sender, RoutedEventArgs e)
@@ -420,6 +439,14 @@ namespace JJFlexWpf.Dialogs
 
             // Auto-connect button requires a selected radio
             AutoConnectButton.IsEnabled = RadiosBox.SelectedItem != null;
+
+            // Announce selected item if list has focus
+            if (RadiosBox.IsFocused && RadiosBox.SelectedItem is RadioListItem item)
+            {
+                int idx = RadiosBox.SelectedIndex + 1;
+                int count = RadiosBox.Items.Count;
+                ScreenReaderOutput.Speak($"{item.DisplayText}, {idx} of {count}", true);
+            }
         }
 
         private void AutoConnectButton_Click(object sender, RoutedEventArgs e)
