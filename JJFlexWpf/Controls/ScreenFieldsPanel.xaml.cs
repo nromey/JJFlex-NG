@@ -520,8 +520,14 @@ public partial class ScreenFieldsPanel : UserControl
         AntennaContent.Children.Add(_txAntennaControl);
 
         _atuCheck = MakeToggle("ATU");
-        _atuCheck.Checked += (s, e) => ToggleBoolRig("ATU", v => { if (_rig != null) _rig.FlexTunerOn = v; }, true);
-        _atuCheck.Unchecked += (s, e) => ToggleBoolRig("ATU", v => { if (_rig != null) _rig.FlexTunerOn = v; }, false);
+        _atuCheck.Checked += (s, e) => ToggleBoolRig("ATU", v =>
+        {
+            if (_rig != null) _rig.FlexTunerType = FlexBase.FlexTunerTypes.auto;
+        }, true);
+        _atuCheck.Unchecked += (s, e) => ToggleBoolRig("ATU", v =>
+        {
+            if (_rig != null) _rig.FlexTunerType = FlexBase.FlexTunerTypes.none;
+        }, false);
         AntennaContent.Children.Add(_atuCheck);
 
         _atuModeControl = MakeCycle("ATU Mode", new[] { "None", "Manual", "Auto" });
@@ -743,8 +749,8 @@ public partial class ScreenFieldsPanel : UserControl
         int txIdx = txList.IndexOf(_rig.TXAntennaName);
         if (txIdx >= 0) _txAntennaControl.SelectedIndex = txIdx;
 
-        // ATU controls
-        _atuCheck.IsChecked = _rig.FlexTunerOn;
+        // ATU controls — checkbox reflects tuner type (none=off, manual/auto=on)
+        _atuCheck.IsChecked = _rig.FlexTunerType != FlexBase.FlexTunerTypes.none;
 
         var atuMode = _rig.FlexTunerType;
         int atuIndex = atuMode switch

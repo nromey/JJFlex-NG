@@ -95,8 +95,8 @@ namespace JJFlexWpf
             // Pulse timing constants (in samples)
             const int slowPulseOn = (int)(SampleRate * 0.3); // 300ms
             const int slowPulseCycle = (int)(SampleRate * 0.6); // 600ms total
-            const int fastPulseOn = (int)(SampleRate * 0.1); // 100ms
-            const int fastPulseCycle = (int)(SampleRate * 0.2); // 200ms total
+            const int fastPulseOn = (int)(SampleRate * 0.05); // 50ms
+            const int fastPulseCycle = (int)(SampleRate * 0.1); // 100ms total
             const int altSwitch = (int)(SampleRate * 0.1); // 100ms per tone
             const int altCycle = (int)(SampleRate * 0.2); // 200ms total
 

@@ -631,9 +631,10 @@ public class NativeMenuBar : IDisposable
         AddChecked(parent, "ATU On/Off", () =>
         {
             if (Rig == null) { SpeakNoRadio(); return; }
-            Rig.FlexTunerOn = !Rig.FlexTunerOn;
-            SpeakAfterMenuClose($"ATU {(Rig.FlexTunerOn ? "on" : "off")}");
-        }, () => Rig?.FlexTunerOn == true);
+            bool isOn = Rig.FlexTunerType != FlexBase.FlexTunerTypes.none;
+            Rig.FlexTunerType = isOn ? FlexBase.FlexTunerTypes.none : FlexBase.FlexTunerTypes.auto;
+            SpeakAfterMenuClose($"ATU {(isOn ? "off" : "on")}");
+        }, () => Rig?.FlexTunerType != FlexBase.FlexTunerTypes.none);
 
         AddWired(parent, "ATU Mode", () =>
         {
@@ -1270,11 +1271,11 @@ public class NativeMenuBar : IDisposable
     {
         _window.Dispatcher.BeginInvoke(async () =>
         {
-            // 500ms: NVDA needs time to finish its own menu-close + focus-restoration
-            // announcements. At 350ms NVDA was still mid-speech, causing stutter.
-            // Non-interrupt: queue AFTER NVDA's focus announcement instead of fighting it.
+            // 500ms: NVDA needs time to process menu-close event internally.
+            // Interrupt: cut off NVDA's window title re-announcement so user hears
+            // the actual result (e.g., "Antenna 1") instead of the title first.
             await System.Threading.Tasks.Task.Delay(500);
-            Radios.ScreenReaderOutput.Speak(message, interrupt: false);
+            Radios.ScreenReaderOutput.Speak(message, interrupt: true);
         });
     }
 

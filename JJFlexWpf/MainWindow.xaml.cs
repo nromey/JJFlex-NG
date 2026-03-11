@@ -289,6 +289,11 @@ public partial class MainWindow : UserControl
     private string _oldSwr = "";
 
     /// <summary>
+    /// ATU tune timeout timer — stops progress earcon after 15 seconds if no result.
+    /// </summary>
+    private System.Windows.Threading.DispatcherTimer? _atuTuneTimer;
+
+    /// <summary>
     /// Start or stop the poll timer.
     /// Matches Form1.PollTimer property pattern.
     /// </summary>
@@ -1417,26 +1422,31 @@ public partial class MainWindow : UserControl
         {
             case "InProgress":
                 EarconPlayer.StartATUProgressEarcon();
+                StartATUTimeout();
                 break;
             case "OK":
             case "Successful":
+                StopATUTimeout();
                 EarconPlayer.StopATUProgressEarcon();
                 EarconPlayer.ATUSuccessTone();
                 Radios.ScreenReaderOutput.Speak($"SWR {e.SWR}");
                 break;
             case "Fail":
             case "FailBypass":
+                StopATUTimeout();
                 EarconPlayer.StopATUProgressEarcon();
                 EarconPlayer.ATUFailTone();
                 Radios.ScreenReaderOutput.Speak($"Tune failed, SWR {e.SWR}");
                 break;
             case "Bypass":
             case "ManualBypass":
+                StopATUTimeout();
                 EarconPlayer.StopATUProgressEarcon();
                 Radios.ScreenReaderOutput.Speak("ATU bypassed");
                 break;
             case "NotStarted":
             case "Aborted":
+                StopATUTimeout();
                 EarconPlayer.StopATUProgressEarcon();
                 break;
         }
@@ -1913,6 +1923,29 @@ public partial class MainWindow : UserControl
         _oldSwr = "";
         RigControl.FlexTunerOn = true;
         Radios.ScreenReaderOutput.Speak("ATU tuning", true);
+    }
+
+    private void StartATUTimeout()
+    {
+        StopATUTimeout();
+        _atuTuneTimer = new System.Windows.Threading.DispatcherTimer
+        {
+            Interval = TimeSpan.FromSeconds(15)
+        };
+        _atuTuneTimer.Tick += (s, e) =>
+        {
+            StopATUTimeout();
+            EarconPlayer.StopATUProgressEarcon();
+            EarconPlayer.ATUFailTone();
+            Radios.ScreenReaderOutput.Speak("ATU tune timed out", true);
+        };
+        _atuTuneTimer.Start();
+    }
+
+    private void StopATUTimeout()
+    {
+        _atuTuneTimer?.Stop();
+        _atuTuneTimer = null;
     }
 
     /// <summary>
