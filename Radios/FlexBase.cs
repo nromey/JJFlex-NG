@@ -166,10 +166,20 @@ namespace Radios
         /// </summary>
         public string RadioNickname => theRadio?.Nickname ?? string.Empty;
         public bool NoiseReductionLicenseReported => theRadio?.FeatureLicense?.LicenseFeatNoiseReduction != null;
+        /// <summary>
+        /// True only when NR license is positively confirmed as enabled.
+        /// False when license object is null (never reported) OR when explicitly disabled.
+        /// Use this for gating — "if NOT licensed, block" is the safe default.
+        /// </summary>
         public bool NoiseReductionLicensed => theRadio?.FeatureLicense?.LicenseFeatNoiseReduction?.FeatureEnabled == true;
         public bool DiversityLicenseReported => theRadio?.FeatureLicense?.LicenseFeatDivEsc != null;
         public bool DiversityLicensed => theRadio?.FeatureLicense?.LicenseFeatDivEsc?.FeatureEnabled == true;
         public bool DiversityHardwareSupported => theRadio?.DiversityIsAllowed == true;
+        /// <summary>
+        /// True when the radio has an ATU (antenna tuner unit) present and enabled.
+        /// FLEX-6300 has optional ATU — this detects actual hardware presence.
+        /// </summary>
+        public bool HasATU => theRadio?.ATUEnabled == true;
         private Thread mainThread;
 
         // Track connection parameters for retry support.

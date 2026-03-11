@@ -272,13 +272,8 @@ public class NativeMenuBar : IDisposable
 
         // === Noise Reduction submenu ===
         var nrSub = AddSubmenu(parent, "Noise Reduction");
-        if (Rig.NoiseReductionLicenseReported && !Rig.NoiseReductionLicensed)
-        {
-            // NR license not available on this radio — show as unavailable
-            AddWired(nrSub, "Not available on this radio", () =>
-                SpeakAfterMenuClose("Noise Reduction is not licensed on this radio"));
-        }
-        else
+        // Neural and Spectral NR require the NR license — hide if not licensed
+        if (Rig.NoiseReductionLicensed)
         {
             AddChecked(nrSub, "Neural NR (RNN)\tCtrl+J, R", () =>
                 ToggleDSP("Neural NR", () => Rig.NeuralNoiseReduction, v => Rig.NeuralNoiseReduction = v),
@@ -286,10 +281,11 @@ public class NativeMenuBar : IDisposable
             AddChecked(nrSub, "Spectral NR (NRS)\tCtrl+J, S", () =>
                 ToggleDSP("Spectral NR", () => Rig.SpectralNoiseReduction, v => Rig.SpectralNoiseReduction = v),
                 () => Rig?.SpectralNoiseReduction == FlexBase.OffOnValues.on);
-            AddChecked(nrSub, "Legacy NR", () =>
-                ToggleDSP("Legacy NR", () => Rig.NoiseReductionLegacy, v => Rig.NoiseReductionLegacy = v),
-                () => Rig?.NoiseReductionLegacy == FlexBase.OffOnValues.on);
         }
+        // Legacy NR is always available — no license required
+        AddChecked(nrSub, "Legacy NR", () =>
+            ToggleDSP("Legacy NR", () => Rig.NoiseReductionLegacy, v => Rig.NoiseReductionLegacy = v),
+            () => Rig?.NoiseReductionLegacy == FlexBase.OffOnValues.on);
 
         // === Noise Blankers submenu ===
         var nbSub = AddSubmenu(parent, "Noise Blankers");
@@ -905,15 +901,21 @@ public class NativeMenuBar : IDisposable
             var dspSub = AddSubmenu(slice, "DSP");
             BuildDSPItems(dspSub);
 
-            // Antenna — RX/TX select, ATU, Diversity
+            // Antenna — RX/TX select, ATU (if present), Diversity (if hardware supports)
             var antSub = AddSubmenu(slice, "Antenna");
             BuildAntennaSelectItems(antSub);
-            AddSep(antSub);
-            BuildATUItems(antSub);
-            AddSep(antSub);
-            AddWired(antSub, "ATU Tune\tCtrl+T", () => _window.StartATUTuneCycle());
-            AddSep(antSub);
-            BuildDiversityItems(antSub);
+            if (Rig.HasATU)
+            {
+                AddSep(antSub);
+                BuildATUItems(antSub);
+                AddSep(antSub);
+                AddWired(antSub, "ATU Tune\tCtrl+T", () => _window.StartATUTuneCycle());
+            }
+            if (Rig.DiversityHardwareSupported)
+            {
+                AddSep(antSub);
+                BuildDiversityItems(antSub);
+            }
 
             // Transmission (was "FM" — renamed for consistency with Classic menu)
             var txSub = AddSubmenu(slice, "Transmission");

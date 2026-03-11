@@ -1441,7 +1441,7 @@ Public Class KeyCommands
             Case Keys.R
                 If RigControl Is Nothing Then
                     LeaderNoRadio()
-                ElseIf RigControl.NoiseReductionLicenseReported AndAlso Not RigControl.NoiseReductionLicensed Then
+                ElseIf Not RigControl.NoiseReductionLicensed Then
                     JJFlexWpf.EarconPlayer.LeaderInvalidTone()
                     Radios.ScreenReaderOutput.Speak("Neural NR not available on this radio")
                 Else
@@ -1451,7 +1451,7 @@ Public Class KeyCommands
             Case Keys.S
                 If RigControl Is Nothing Then
                     LeaderNoRadio()
-                ElseIf RigControl.NoiseReductionLicenseReported AndAlso Not RigControl.NoiseReductionLicensed Then
+                ElseIf Not RigControl.NoiseReductionLicensed Then
                     JJFlexWpf.EarconPlayer.LeaderInvalidTone()
                     Radios.ScreenReaderOutput.Speak("Spectral NR not available on this radio")
                 Else
@@ -2003,6 +2003,11 @@ Public Class KeyCommands
 
     Private Sub atuTuneRtn()
         If RigControl Is Nothing Then Return
+        If Not RigControl.HasATU Then
+            JJFlexWpf.EarconPlayer.LeaderInvalidTone()
+            Radios.ScreenReaderOutput.Speak("No antenna tuner on this radio")
+            Return
+        End If
         WpfMainWindow?.StartATUTuneCycle()
     End Sub
 

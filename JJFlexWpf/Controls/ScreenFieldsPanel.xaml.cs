@@ -129,12 +129,17 @@ public partial class ScreenFieldsPanel : UserControl
         if (rxAnts.Length > 0) _rxAntennaControl.SetOptions(rxAnts);
         if (txAnts.Length > 0) _txAntennaControl.SetOptions(txAnts);
 
-        // Hide NR controls if NR license is not available on this radio
-        bool nrAvailable = !(rig.NoiseReductionLicenseReported && !rig.NoiseReductionLicensed);
-        _neuralNrCheck.Visibility = nrAvailable ? Visibility.Visible : Visibility.Collapsed;
-        _spectralNrCheck.Visibility = nrAvailable ? Visibility.Visible : Visibility.Collapsed;
-        _legacyNrCheck.Visibility = nrAvailable ? Visibility.Visible : Visibility.Collapsed;
+        // Neural and Spectral NR require the NR license — hide if not licensed
+        bool advancedNrAvailable = rig.NoiseReductionLicensed;
+        _neuralNrCheck.Visibility = advancedNrAvailable ? Visibility.Visible : Visibility.Collapsed;
+        _spectralNrCheck.Visibility = advancedNrAvailable ? Visibility.Visible : Visibility.Collapsed;
+        // Legacy NR is always available — no license required
         _nrLevelControl.Visibility = Visibility.Collapsed; // shown only when Legacy NR is on
+
+        // Hide ATU controls if radio has no ATU hardware
+        bool hasATU = rig.HasATU;
+        _atuCheck.Visibility = hasATU ? Visibility.Visible : Visibility.Collapsed;
+        _atuModeControl.Visibility = hasATU ? Visibility.Visible : Visibility.Collapsed;
 
         // RF Gain bounds vary by radio model — update from connected radio
         _rfGainControl.Min = rig.RFGainMin;
