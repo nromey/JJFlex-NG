@@ -669,7 +669,8 @@ public partial class AudioWorkshopDialog : JJFlexDialog
     {
         if (_polling || _rig == null) return;
         setter(isOn ? FlexBase.OffOnValues.on : FlexBase.OffOnValues.off);
-        ScreenReaderOutput.Speak($"{label} {(isOn ? "on" : "off")}");
+        if (isOn) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
+        ScreenReaderOutput.Speak($"{label} {(isOn ? "on" : "off")}", interrupt: true);
     }
 
     #endregion

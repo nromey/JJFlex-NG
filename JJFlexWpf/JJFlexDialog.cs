@@ -64,6 +64,8 @@ namespace JJFlexWpf
             if (!string.IsNullOrEmpty(Title))
             {
                 AutomationProperties.SetName(this, Title);
+                // Speak title explicitly — NVDA may read focused control instead of window title
+                Radios.ScreenReaderOutput.Speak(Title, interrupt: true);
             }
 
             // Focus first interactive control
