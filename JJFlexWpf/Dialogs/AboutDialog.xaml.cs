@@ -56,12 +56,24 @@ namespace JJFlexWpf.Dialogs
             var entryAsm = Assembly.GetEntryAssembly();
             if (entryAsm != null)
             {
-                string[] dllNames = { "flexlib", "jjloglib", "radios", "radioboxes", "jjflexwpf" };
+                string[] dllNames = { "flexlib", "jjloglib", "radios", "radioboxes", "jjflexwpf", "jjtrace" };
                 foreach (var an in entryAsm.GetReferencedAssemblies())
                 {
                     if (Array.Exists(dllNames, d => string.Equals(d, an.Name, StringComparison.OrdinalIgnoreCase)))
                     {
-                        sb.AppendLine($"  {an.Name}: {an.Version}");
+                        // Try FileVersionInfo for accurate versions (assembly version can be 0.0.0.0)
+                        string ver = an.Version?.ToString() ?? "?";
+                        try
+                        {
+                            var loaded = Assembly.Load(an);
+                            if (!string.IsNullOrEmpty(loaded.Location) && File.Exists(loaded.Location))
+                            {
+                                var fvi = System.Diagnostics.FileVersionInfo.GetVersionInfo(loaded.Location);
+                                ver = fvi.ProductVersion ?? fvi.FileVersion ?? ver;
+                            }
+                        }
+                        catch { /* use assembly version as fallback */ }
+                        sb.AppendLine($"  {an.Name}: {ver}");
                     }
                 }
             }
@@ -120,11 +132,20 @@ namespace JJFlexWpf.Dialogs
             sb.AppendLine($"Architecture: {RuntimeInformation.ProcessArchitecture}");
             sb.AppendLine();
 
-            // FlexLib version
+            // FlexLib version — use FileVersionInfo (assembly version may be 0.0.0.0)
             try
             {
                 var flexAsm = Assembly.Load("FlexLib");
-                sb.AppendLine($"FlexLib: {flexAsm.GetName().Version}");
+                var flexPath = flexAsm.Location;
+                if (!string.IsNullOrEmpty(flexPath) && File.Exists(flexPath))
+                {
+                    var fvi = System.Diagnostics.FileVersionInfo.GetVersionInfo(flexPath);
+                    sb.AppendLine($"FlexLib: {fvi.ProductVersion ?? fvi.FileVersion ?? "Unknown"}");
+                }
+                else
+                {
+                    sb.AppendLine($"FlexLib: {flexAsm.GetName().Version}");
+                }
             }
             catch
             {
