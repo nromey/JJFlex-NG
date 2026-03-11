@@ -48,7 +48,12 @@ namespace Radios
                 var sb = new System.Text.StringBuilder();
                 sb.Append($"Slice {letter}");
 
-                if (isActive) sb.Append(" selected");
+                // MultiFlex ownership
+                string owner = radio.GetSliceOwnerName(slice.ClientHandle);
+                if (owner != null)
+                    sb.Append($", {owner}");
+
+                if (isActive) sb.Append(", selected");
                 if (isTx) sb.Append(", transmit");
 
                 sb.Append($", {freqMhz:F3} megahertz, {mode}");

@@ -2884,6 +2884,37 @@ namespace Radios
         /// </summary>
         public string VFOToLetter(int vfo) => VFOToSlice(vfo)?.Letter ?? vfo.ToString();
 
+        /// <summary>
+        /// Get the owner description for a VFO index.
+        /// Public wrapper for external callers who don't have access to Slice objects.
+        /// </summary>
+        public string GetSliceOwnerForVFO(int vfo)
+        {
+            var slice = VFOToSlice(vfo);
+            return slice != null ? GetSliceOwnerName(slice.ClientHandle) : null;
+        }
+
+        /// <summary>
+        /// Get the owner description for a slice by its client handle.
+        /// Returns "yours" for our own slices, or the station name for others.
+        /// Returns null if ownership info is unavailable.
+        /// </summary>
+        public string GetSliceOwnerName(uint clientHandle)
+        {
+            if (theRadio == null) return null;
+            lock (theRadio.GuiClientsLockObj)
+            {
+                foreach (var client in theRadio.GuiClients)
+                {
+                    if (client.ClientHandle == clientHandle)
+                    {
+                        return client.IsThisClient ? "yours" : (client.Station ?? client.Program ?? "other");
+                    }
+                }
+            }
+            return null;
+        }
+
         // Diversity readiness helper; ensure hardware, license, antennas, and slices
         public bool DiversityReady
         {

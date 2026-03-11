@@ -558,7 +558,10 @@ public class FreqOutHandlers
         if (Rig.ValidVFO(next))
         {
             Rig.RXVFO = next;
-            Radios.ScreenReaderOutput.Speak($"Slice {Rig.VFOToLetter(next)}");
+            string letter = Rig.VFOToLetter(next);
+            string owner = Rig.GetSliceOwnerForVFO(next);
+            string ownerSuffix = owner != null ? $", {owner}" : "";
+            Radios.ScreenReaderOutput.Speak($"Slice {letter}{ownerSuffix}");
         }
     }
 
