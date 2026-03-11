@@ -326,7 +326,7 @@ public class NativeMenuBar : IDisposable
 
         // === Meter Tones ===
         var meterSub = AddSubmenu(parent, "Meter Tones");
-        AddChecked(meterSub, "Meter Tones On/Off\tCtrl+M", () =>
+        AddChecked(meterSub, "Meter Tones On/Off\tCtrl+Alt+M", () =>
         {
             _window.ToggleMetersPanel();
         }, () => MeterToneEngine.Enabled);
@@ -980,7 +980,7 @@ public class NativeMenuBar : IDisposable
             () => _window.FieldsPanel.ToggleCategory(1));
         AddWired(screenFields, "Receiver\tCtrl+Shift+R",
             () => _window.FieldsPanel.ToggleCategory(2));
-        AddWired(screenFields, "Transmission",
+        AddWired(screenFields, "Transmission\tCtrl+Shift+X",
             () => _window.FieldsPanel.ToggleCategory(3));
         AddWired(screenFields, "Antenna\tCtrl+Shift+A",
             () => _window.FieldsPanel.ToggleCategory(4));

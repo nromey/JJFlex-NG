@@ -687,25 +687,8 @@ public partial class MainWindow : UserControl
                 return;
             }
 
-            // Category navigation hotkeys — Sprint 15 Track D
-            // Ctrl+Shift+letter toggles ScreenFieldsPanel expander categories
-            {
-                int categoryIndex = key switch
-                {
-                    Key.N => 0, // Noise Reduction and DSP
-                    Key.U => 1, // Audio
-                    Key.R => 2, // Receiver
-                    Key.T => 3, // Transmission
-                    Key.A => 4, // Antenna
-                    _ => -1
-                };
-                if (categoryIndex >= 0)
-                {
-                    FieldsPanel.ToggleCategory(categoryIndex);
-                    e.Handled = true;
-                    return;
-                }
-            }
+            // Category navigation hotkeys (Ctrl+Shift+N/U/R/X/A) moved to KeyCommands.vb
+            // Sprint 23 Phase 2: Unified hotkey dispatch — all through scope system now
         }
 
         // 1b. Alt+Ctrl+F — read current filter values
@@ -1901,6 +1884,16 @@ public partial class MainWindow : UserControl
     {
         MetersPanel.Visibility = Visibility.Visible;
         MetersPanel.ToggleMeters();
+    }
+
+    /// <summary>
+    /// Toggle a ScreenFields expander category by index.
+    /// Called from KeyCommands.vb after Sprint 23 hotkey unification.
+    /// 0=DSP, 1=Audio, 2=Receiver, 3=Transmission, 4=Antenna
+    /// </summary>
+    public void ToggleScreenFieldsCategory(int categoryIndex)
+    {
+        FieldsPanel.ToggleCategory(categoryIndex);
     }
 
     /// <summary>

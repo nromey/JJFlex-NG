@@ -116,6 +116,11 @@ Public Class KeyCommands
         ToggleMeters
         SixtyMeterChannelUp
         SixtyMeterChannelDown
+        ToggleDspExpander
+        ToggleAudioExpander
+        ToggleReceiverExpander
+        ToggleTransmissionExpander
+        ToggleAntennaExpander
     End Enum
     Friend Const FirstMessageCommandValue As Integer = 1000000
 
@@ -633,7 +638,22 @@ Public Class KeyCommands
             .Keywords = New String() {"60", "meter", "channel", "up", "next", "five", "navigate"}},
         New keyTbl(CommandValues.SixtyMeterChannelDown, KeyTypes.Command, AddressOf sixtyMeterChannelDownRtn,
             "Previous 60 meter channel", "60m Channel Down", False, FunctionGroups.tuning, KeyScope.Radio) With {
-            .Keywords = New String() {"60", "meter", "channel", "down", "previous", "five", "navigate"}}}
+            .Keywords = New String() {"60", "meter", "channel", "down", "previous", "five", "navigate"}},
+        New keyTbl(CommandValues.ToggleDspExpander, KeyTypes.Command, AddressOf toggleDspExpanderRtn,
+            "Toggle DSP expander in ScreenFields panel", "DSP Expander", False, FunctionGroups.general, KeyScope.Radio) With {
+            .Keywords = New String() {"dsp", "noise", "reduction", "expander", "screenfields", "panel"}},
+        New keyTbl(CommandValues.ToggleAudioExpander, KeyTypes.Command, AddressOf toggleAudioExpanderRtn,
+            "Toggle Audio expander in ScreenFields panel", "Audio Expander", False, FunctionGroups.audio, KeyScope.Radio) With {
+            .Keywords = New String() {"audio", "expander", "screenfields", "panel"}},
+        New keyTbl(CommandValues.ToggleReceiverExpander, KeyTypes.Command, AddressOf toggleReceiverExpanderRtn,
+            "Toggle Receiver expander in ScreenFields panel", "Receiver Expander", False, FunctionGroups.general, KeyScope.Radio) With {
+            .Keywords = New String() {"receiver", "rx", "expander", "screenfields", "panel"}},
+        New keyTbl(CommandValues.ToggleTransmissionExpander, KeyTypes.Command, AddressOf toggleTransmissionExpanderRtn,
+            "Toggle Transmission expander in ScreenFields panel", "Transmission Expander", False, FunctionGroups.general, KeyScope.Radio) With {
+            .Keywords = New String() {"transmission", "tx", "expander", "screenfields", "panel"}},
+        New keyTbl(CommandValues.ToggleAntennaExpander, KeyTypes.Command, AddressOf toggleAntennaExpanderRtn,
+            "Toggle Antenna expander in ScreenFields panel", "Antenna Expander", False, FunctionGroups.general, KeyScope.Radio) With {
+            .Keywords = New String() {"antenna", "ant", "expander", "screenfields", "panel"}}}
 
     ' Deleted from KeyTable.
     ' New keyTbl(CommandValues.LogForm, AddressOf BringUpLogForm,
@@ -666,7 +686,7 @@ Public Class KeyCommands
      New KeyDefType(Keys.D Or Keys.Alt, CommandValues.ArCluster, KeyScope.Radio),                    ' Alt+D = DX Cluster in Radio
      New KeyDefType(Keys.R Or Keys.Control Or Keys.Alt, CommandValues.ReverseBeacon, KeyScope.Radio), ' Ctrl+Alt+R = Reverse Beacon
      New KeyDefType(Keys.P Or Keys.Control, CommandValues.DoPanning, KeyScope.Radio),
-     New KeyDefType(Keys.U Or Keys.Control Or Keys.Shift, CommandValues.SavedScan, KeyScope.Radio),
+     New KeyDefType(Keys.None, CommandValues.SavedScan, KeyScope.Radio),  ' Was Ctrl+Shift+U — freed for Audio expander (Sprint 23)
      New KeyDefType(Keys.Z Or Keys.Control, CommandValues.StopScan, KeyScope.Radio),
      New KeyDefType(Keys.None, CommandValues.ShowMenus, KeyScope.Radio),
      New KeyDefType(Keys.PageUp Or Keys.Alt, CommandValues.AudioGainUp, KeyScope.Radio),
@@ -731,13 +751,18 @@ Public Class KeyCommands
      New KeyDefType(Keys.OemCloseBrackets Or Keys.Control Or Keys.Shift, CommandValues.TXFilterLowUp, KeyScope.Radio),
      New KeyDefType(Keys.OemOpenBrackets Or Keys.Control Or Keys.Alt, CommandValues.TXFilterHighDown, KeyScope.Radio),
      New KeyDefType(Keys.OemCloseBrackets Or Keys.Control Or Keys.Alt, CommandValues.TXFilterHighUp, KeyScope.Radio),
-     New KeyDefType(Keys.F Or Keys.Control Or Keys.Shift, CommandValues.SpeakTXFilter, KeyScope.Radio),
+     New KeyDefType(Keys.None, CommandValues.SpeakTXFilter, KeyScope.Radio),  ' Was Ctrl+Shift+F — conflicts with frequency readout; use JJ F instead (Sprint 23)
      New KeyDefType(Keys.W Or Keys.Control Or Keys.Shift, CommandValues.OpenAudioWorkshop, KeyScope.[Global]),
      New KeyDefType(Keys.T Or Keys.Control Or Keys.Shift, CommandValues.TuneToggle, KeyScope.Radio),  ' Ctrl+Shift+T = Tune carrier toggle
      New KeyDefType(Keys.T Or Keys.Control, CommandValues.ATUTune, KeyScope.Radio),                     ' Ctrl+T = ATU Tune
-     New KeyDefType(Keys.M Or Keys.Control, CommandValues.ToggleMeters, KeyScope.[Global]),             ' Ctrl+M = Toggle meters
+     New KeyDefType(Keys.None, CommandValues.ToggleMeters, KeyScope.[Global]),  ' Was Ctrl+M — conflicts with ShowMemory (Radio scope wins); use menu instead (Sprint 23)
      New KeyDefType(Keys.Up Or Keys.Alt Or Keys.Shift, CommandValues.SixtyMeterChannelUp, KeyScope.Radio),     ' Alt+Shift+Up = 60m channel up
-     New KeyDefType(Keys.Down Or Keys.Alt Or Keys.Shift, CommandValues.SixtyMeterChannelDown, KeyScope.Radio)} ' Alt+Shift+Down = 60m channel down
+     New KeyDefType(Keys.Down Or Keys.Alt Or Keys.Shift, CommandValues.SixtyMeterChannelDown, KeyScope.Radio), ' Alt+Shift+Down = 60m channel down
+     New KeyDefType(Keys.N Or Keys.Control Or Keys.Shift, CommandValues.ToggleDspExpander, KeyScope.Radio),             ' Ctrl+Shift+N = DSP expander
+     New KeyDefType(Keys.U Or Keys.Control Or Keys.Shift, CommandValues.ToggleAudioExpander, KeyScope.Radio),            ' Ctrl+Shift+U = Audio expander
+     New KeyDefType(Keys.R Or Keys.Control Or Keys.Shift, CommandValues.ToggleReceiverExpander, KeyScope.Radio),         ' Ctrl+Shift+R = Receiver expander
+     New KeyDefType(Keys.X Or Keys.Control Or Keys.Shift, CommandValues.ToggleTransmissionExpander, KeyScope.Radio),     ' Ctrl+Shift+X = Transmission expander
+     New KeyDefType(Keys.A Or Keys.Control Or Keys.Shift, CommandValues.ToggleAntennaExpander, KeyScope.Radio)}          ' Ctrl+Shift+A = Antenna expander
 
     ''' <summary>
     ''' Dictionary to access the keytable using a key.
@@ -1991,6 +2016,27 @@ Public Class KeyCommands
 
     Private Sub sixtyMeterChannelDownRtn()
         WpfMainWindow?.SixtyMeterChannelNavigate(-1)
+    End Sub
+
+    ' Sprint 23 Phase 2: ScreenFields expander toggle handlers (unified hotkey dispatch)
+    Private Sub toggleDspExpanderRtn()
+        WpfMainWindow?.ToggleScreenFieldsCategory(0)
+    End Sub
+
+    Private Sub toggleAudioExpanderRtn()
+        WpfMainWindow?.ToggleScreenFieldsCategory(1)
+    End Sub
+
+    Private Sub toggleReceiverExpanderRtn()
+        WpfMainWindow?.ToggleScreenFieldsCategory(2)
+    End Sub
+
+    Private Sub toggleTransmissionExpanderRtn()
+        WpfMainWindow?.ToggleScreenFieldsCategory(3)
+    End Sub
+
+    Private Sub toggleAntennaExpanderRtn()
+        WpfMainWindow?.ToggleScreenFieldsCategory(4)
     End Sub
 
     ' Region - remote audio
