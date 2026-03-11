@@ -111,7 +111,7 @@ public partial class MainWindow : UserControl
         FreqOut.FocusDisplay();
 
         string modeName = ActiveUIMode == UIMode.Classic ? "Classic" : "Modern";
-        Radios.ScreenReaderOutput.Speak($"Welcome to JJ Flexible Radio Access, {modeName} mode");
+        Radios.ScreenReaderOutput.Speak($"Welcome to JJ Flexible Radio Access, {modeName} tuning mode");
     }
 
     /// <summary>
@@ -552,14 +552,13 @@ public partial class MainWindow : UserControl
     }
 
     /// <summary>
-    /// Toggle between Classic and Modern modes.
-    /// Matches Form1.ToggleUIMode().
+    /// Toggle between Classic and Modern tuning modes.
+    /// Menus are unified — this only changes tuning behavior (FreqOut field set).
     /// </summary>
     public void ToggleUIMode()
     {
         if (ActiveUIMode == UIMode.Logging)
         {
-            // Phase 8.8: ExitLoggingMode() first
             return;
         }
 
@@ -567,7 +566,7 @@ public partial class MainWindow : UserControl
         LastNonLogMode = newMode;
         ApplyUIMode(newMode);
         SaveUIModeCallback?.Invoke(newMode);
-        Radios.ScreenReaderOutput.Speak($"Switched to {newMode} mode");
+        Radios.ScreenReaderOutput.Speak($"{newMode} tuning mode");
     }
 
     /// <summary>
@@ -619,7 +618,7 @@ public partial class MainWindow : UserControl
         // Focus FreqOut display (the primary control in Classic/Modern modes)
         FreqOut.FocusDisplay();
 
-        Radios.ScreenReaderOutput.Speak($"Returning to {LastNonLogMode} mode");
+        Radios.ScreenReaderOutput.Speak($"Returning to {LastNonLogMode} tuning mode");
     }
 
     #endregion

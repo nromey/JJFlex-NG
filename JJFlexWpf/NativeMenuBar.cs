@@ -121,10 +121,8 @@ public class NativeMenuBar : IDisposable
         // Build new menu bar for this mode
         _currentMenuBar = mode switch
         {
-            MainWindow.UIMode.Classic => BuildClassicMenuBar(),
-            MainWindow.UIMode.Modern => BuildModernMenuBar(),
             MainWindow.UIMode.Logging => BuildLoggingMenuBar(),
-            _ => BuildModernMenuBar()
+            _ => BuildMenuBar()
         };
 
         // Swap: set new menu first, then destroy old
@@ -753,183 +751,9 @@ public class NativeMenuBar : IDisposable
 
     #endregion
 
-    #region Classic Menu Bar
+    #region Main Menu Bar
 
-    private IntPtr BuildClassicMenuBar()
-    {
-        var bar = CreateMenu();
-
-        // === Actions ===
-        var actions = AddPopup(bar, "&Actions");
-
-        AddNotImplemented(actions, "List Operators");
-        AddWired(actions, "Select Rig", () => ConnectWithConfirmation());
-        AddWired(actions, "Manage SmartLink Accounts", () => _window.ShowSmartLinkAccountManager());
-        AddChecked(actions, "Auto-Connect Enabled",
-            () => { var msg = _window.ToggleAutoConnect(); if (msg != null) SpeakAfterMenuClose(msg); },
-            () => _window.IsAutoConnectEnabled?.Invoke() ?? false);
-        AddWired(actions, "Clear Auto-Connect",
-            () => { var msg = _window.ClearAutoConnect(); if (msg != null) SpeakAfterMenuClose(msg); });
-        AddWired(actions, "Manage Profiles", () => ShowManageProfilesDialog());
-        AddNotImplemented(actions, "Local PTT On");
-        AddNotImplemented(actions, "Connected Stations");
-        AddNotImplemented(actions, "Flex Knob Config");
-        AddNotImplemented(actions, "W2 Wattmeter");
-
-        var loggingSub = AddSubmenu(actions, "Logging");
-        AddNotImplemented(loggingSub, "Log Characteristics");
-        AddNotImplemented(loggingSub, "Import Log");
-        AddNotImplemented(loggingSub, "Export Log");
-        AddNotImplemented(loggingSub, "LOTW Merge");
-
-        AddWired(actions, "Export Profiles", () =>
-        {
-            if (Rig == null) { SpeakNoRadio(); return; }
-            bool success = Rig.ExportProfileDatabase();
-            if (!success)
-                SpeakAfterMenuClose("Profile export cancelled or failed");
-        });
-        AddNotImplemented(actions, "Export Setup");
-        AddNotImplemented(actions, "Show Bands and Frequencies");
-
-        AddSep(actions);
-
-        if (_diversityAvailable)
-            AddNotImplemented(actions, "Toggle Diversity");
-        if (_escAvailable)
-            AddNotImplemented(actions, "Open ESC Controls");
-        AddWired(actions, "Feature Availability", () => ShowFeatureAvailability());
-
-        AddSep(actions);
-
-        AddNotImplemented(actions, "Manage CW Messages");
-        AddNotImplemented(actions, "Change Key Mapping");
-        AddNotImplemented(actions, "Restore Default Key Mapping");
-        AddNotImplemented(actions, "Show All Messages");
-
-        AddSep(actions);
-
-        AddWired(actions, "Settings", () => ShowSettingsDialog());
-        AddNotImplemented(actions, "Toggle Screen Saver");
-        AddWired(actions, "Exit", () => _window.CloseShellCallback?.Invoke());
-
-        // === ScreenFields (Panel Navigation) — Sprint 15 Track D ===
-        var screenFields = AddPopup(bar, "&ScreenFields");
-
-        // Show/Hide Field Panel toggle
-        AddChecked(screenFields, "Show Field Panel", () =>
-        {
-            var panel = _window.FieldsPanel;
-            bool newVisible = panel.Visibility != Visibility.Visible;
-            panel.Visibility = newVisible ? Visibility.Visible : Visibility.Collapsed;
-            _window.FieldsPanelUserVisible = newVisible;
-            _window.SaveFieldsPanelVisibleCallback?.Invoke(newVisible);
-            SpeakAfterMenuClose(newVisible ? "Field panel shown" : "Field panel hidden");
-        }, () => _window.FieldsPanel.Visibility == Visibility.Visible);
-
-        AddSep(screenFields);
-
-        // Category navigation items — open/close expander sections in the field panel
-        AddWired(screenFields, "Noise Reduction and DSP\tCtrl+Shift+N",
-            () => _window.FieldsPanel.ToggleCategory(0));
-        AddWired(screenFields, "Audio\tCtrl+Shift+U",
-            () => _window.FieldsPanel.ToggleCategory(1));
-        AddWired(screenFields, "Receiver\tCtrl+Shift+R",
-            () => _window.FieldsPanel.ToggleCategory(2));
-        AddWired(screenFields, "Transmission",
-            () => _window.FieldsPanel.ToggleCategory(3));
-        AddWired(screenFields, "Antenna\tCtrl+Shift+A",
-            () => _window.FieldsPanel.ToggleCategory(4));
-
-        // === Operations (DSP toggles, controls, radio features) — Sprint 15 Track D ===
-        var operations = AddPopup(bar, "&Operations");
-        if (Rig != null)
-        {
-            // DSP controls (moved from ScreenFields — Sprint 15 Track D)
-            var dspSub = AddSubmenu(operations, "DSP");
-            BuildDSPItems(dspSub);
-
-            // Filter controls (moved from ScreenFields — Sprint 15 Track D)
-            var filterSub = AddSubmenu(operations, "Filter Controls");
-            BuildFilterItems(filterSub);
-
-            // Audio
-            var audioSub = AddSubmenu(operations, "Audio");
-            BuildAudioItems(audioSub);
-
-            // Slice management
-            AddSep(operations);
-            BuildSliceItems(operations);
-
-            // VOX / Transmission
-            var txSub = AddSubmenu(operations, "Transmission");
-            AddChecked(txSub, "Tune Carrier\tCtrl+Shift+T", () =>
-                _window.ToggleTuneCarrier(),
-                () => Rig?.TxTune == true);
-            AddSep(txSub);
-            AddChecked(txSub, "VOX On/Off", () =>
-                ToggleDSP("VOX", () => Rig.Vox, v => Rig.Vox = v),
-                () => Rig?.Vox == FlexBase.OffOnValues.on);
-            AddSep(txSub);
-            AddChecked(txSub, "Dummy Load Mode", () =>
-            {
-                Rig.DummyLoadMode = !Rig.DummyLoadMode;
-                if (Rig.DummyLoadMode)
-                    SpeakAfterMenuClose("Dummy load mode on. Power zero.");
-                else
-                    SpeakAfterMenuClose($"Dummy load mode off. Power restored to {Rig.XmitPower}.");
-            },
-            () => Rig?.DummyLoadMode == true);
-
-            // Antenna (RX/TX select + ATU)
-            var atuSub = AddSubmenu(operations, "Antenna");
-            BuildAntennaSelectItems(atuSub);
-            AddSep(atuSub);
-            BuildATUItems(atuSub);
-            AddSep(atuSub);
-            AddWired(atuSub, "ATU Tune\tCtrl+T", () => _window.StartATUTuneCycle());
-
-            // Receiver
-            var rxSub = AddSubmenu(operations, "Receiver");
-            BuildReceiverItems(rxSub);
-
-            // Diversity (moved from ScreenFields — Sprint 15 Track D)
-            AddSep(operations);
-            BuildDiversityItems(operations);
-
-            // Audio Workshop
-            AddSep(operations);
-            AddWired(operations, "Audio Workshop\tCtrl+Shift+W", () =>
-                Dialogs.AudioWorkshopDialog.ShowOrFocus(Rig, 0));
-        }
-        else
-        {
-            AddWired(operations, "Connect a radio to see operations", SpeakNoRadio);
-        }
-
-        // === Tools ===
-        AddSep(operations);
-        AddWired(operations, "Profile Report", () =>
-        {
-            if (Rig == null) { SpeakNoRadio(); return; }
-            var report = ProfileReporter.GenerateReport(Rig);
-            var path = ProfileReporter.SaveReport(report);
-            SpeakAfterMenuClose($"Profile report saved to {path}");
-            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(path) { UseShellExecute = true });
-        });
-        AddWired(operations, "View Test Results", () => _window.ShowTestResultsCallback?.Invoke());
-
-        // === Help (shared) ===
-        BuildHelpPopup(bar);
-
-        return bar;
-    }
-
-    #endregion
-
-    #region Modern Menu Bar
-
-    private IntPtr BuildModernMenuBar()
+    private IntPtr BuildMenuBar()
     {
         var bar = CreateMenu();
 
@@ -945,6 +769,14 @@ public class NativeMenuBar : IDisposable
         AddNotImplemented(radio, "Operators");
         AddWired(radio, "Profiles", () => ShowManageProfilesDialog());
         AddNotImplemented(radio, "Connected Stations");
+        AddNotImplemented(radio, "Local PTT On");
+
+        var loggingSub = AddSubmenu(radio, "Logging");
+        AddNotImplemented(loggingSub, "Log Characteristics");
+        AddNotImplemented(loggingSub, "Import Log");
+        AddNotImplemented(loggingSub, "Export Log");
+        AddNotImplemented(loggingSub, "LOTW Merge");
+
         AddSep(radio);
         AddWired(radio, "Disconnect", () => _window.CloseRadioCallback?.Invoke());
         AddWired(radio, "Exit", () => _window.CloseShellCallback?.Invoke());
@@ -1130,6 +962,29 @@ public class NativeMenuBar : IDisposable
             AddWired(filter, "Connect a radio first", SpeakNoRadio);
         }
 
+        // === ScreenFields (Panel Navigation) ===
+        var screenFields = AddPopup(bar, "Scree&nFields");
+        AddChecked(screenFields, "Show Field Panel", () =>
+        {
+            var panel = _window.FieldsPanel;
+            bool newVisible = panel.Visibility != Visibility.Visible;
+            panel.Visibility = newVisible ? Visibility.Visible : Visibility.Collapsed;
+            _window.FieldsPanelUserVisible = newVisible;
+            _window.SaveFieldsPanelVisibleCallback?.Invoke(newVisible);
+            SpeakAfterMenuClose(newVisible ? "Field panel shown" : "Field panel hidden");
+        }, () => _window.FieldsPanel.Visibility == Visibility.Visible);
+        AddSep(screenFields);
+        AddWired(screenFields, "Noise Reduction and DSP\tCtrl+Shift+N",
+            () => _window.FieldsPanel.ToggleCategory(0));
+        AddWired(screenFields, "Audio\tCtrl+Shift+U",
+            () => _window.FieldsPanel.ToggleCategory(1));
+        AddWired(screenFields, "Receiver\tCtrl+Shift+R",
+            () => _window.FieldsPanel.ToggleCategory(2));
+        AddWired(screenFields, "Transmission",
+            () => _window.FieldsPanel.ToggleCategory(3));
+        AddWired(screenFields, "Antenna\tCtrl+Shift+A",
+            () => _window.FieldsPanel.ToggleCategory(4));
+
         // === Audio ===
         var audio = AddPopup(bar, "&Audio");
         BuildAudioItems(audio);
@@ -1153,7 +1008,9 @@ public class NativeMenuBar : IDisposable
         AddNotImplemented(tools, "Station Lookup");
         AddSep(tools);
         AddWired(tools, "Enter Logging Mode", () => _window.EnterLoggingMode());
-        AddWired(tools, "Switch to Classic UI", () => _window.ToggleUIMode());
+        AddChecked(tools, "Classic Tuning Mode\tCtrl+Shift+M",
+            () => _window.ToggleUIMode(),
+            () => _window.ActiveUIMode == MainWindow.UIMode.Classic);
         AddSep(tools);
         AddNotImplemented(tools, "Hotkey Editor");
         AddNotImplemented(tools, "Band Plans");
@@ -1183,6 +1040,7 @@ public class NativeMenuBar : IDisposable
         });
         AddSep(tools);
         AddWired(tools, "View Test Results", () => _window.ShowTestResultsCallback?.Invoke());
+        AddNotImplemented(tools, "Manage CW Messages");
         AddSep(tools);
         AddWired(tools, "Audio Workshop\tCtrl+Shift+W", () =>
             Dialogs.AudioWorkshopDialog.ShowOrFocus(Rig, 0));
@@ -1263,12 +1121,12 @@ public class NativeMenuBar : IDisposable
 
         // === Mode ===
         var mode = AddPopup(bar, "&Mode");
-        AddWired(mode, "Switch to Classic", () =>
+        AddWired(mode, "Exit to Classic Tuning", () =>
         {
             _window.LastNonLogMode = MainWindow.UIMode.Classic;
             _window.ExitLoggingMode();
         });
-        AddWired(mode, "Switch to Modern", () =>
+        AddWired(mode, "Exit to Modern Tuning", () =>
         {
             _window.LastNonLogMode = MainWindow.UIMode.Modern;
             _window.ExitLoggingMode();
