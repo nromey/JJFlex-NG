@@ -11,31 +11,49 @@ This document captures the current state of JJ-Flex repository and active work.
 - **Migration complete:** .NET 8, dual x64/x86 architecture, WebView2 for Auth0
 - **Current version:** 4.1.15 (released 2026-03-07), pending bump to 4.1.16
 
-## Current State — Sprint 23 Complete, Testing Next
+## Current State — Sprint 24 Ready to Execute
 
-**Status:** Sprint 23 (QRM Fubar Dipole) merged to main. All 16 phases complete. 63 of 65 findings from Sprint 21+22 testing addressed. Guided testing needed before 4.1.16 release.
+**Status:** Sprint 23 + Mini Sprint 24a testing complete. All testing fixes and mini sprint work are uncommitted (~60 modified files). Sprint 24 plan written and ready to execute.
 
-**Sprint 23 stats:** 30 files changed, +1,227 / -344 lines across 16 serial phases.
+**Sprint 24 plan:** `docs/planning/skywave-negative-sweepstakes.md`
+- 13 phases, 40 items — biggest sprint yet
+- Theme: Key Migration (VB-to-C#) + Verbosity Engine + Slices + Audio Architecture + Status Dialog + About WebView2 + Audio Workshop fix
+- Structure: Serial foundation (Phases 1-6) → Parallel tracks (Phases 7-10) → Serial finishing (Phases 11-13)
+- Track A: Slices + Status Dialog (main repo)
+- Track B: Audio + About + Quick Wins (worktree `../jjflex-24b`)
 
 **Key documents:**
-- Sprint 23 plan: `docs/planning/agile/sprint23-qrm-fubar-dipole.md`
-- Test findings (input): `docs/planning/agile/sprint21-22-test-findings.md`
-- Test matrix (Sprint 22): `docs/planning/agile/sprint22-test-matrix.md`
+- Sprint 24 scope: `docs/planning/sprint24-scope.md`
+- Sprint 24 plan: `docs/planning/skywave-negative-sweepstakes.md`
 
-**Library versions bumped in Sprint 23:**
-- JJFlexWpf: 2.0.0 → 2.1.0
-- Radios: 3.2.5.1 → 3.2.6.0
+**Uncommitted work (~60 files):**
+- Sprint 23 testing fixes: double-speak fix, Neural NR hardware gating, Radio menu Disconnect wording, status speech improvements, About dialog ListBox, Ctrl+S for S-meter
+- Mini Sprint 24a (6 phases): earcon audit, dialog earcons removed, access keys on all 42 dialogs, meter hotkeys, wider filter presets, enriched status speech
+- Guided testing bug fixes: Ctrl+F/Shift+F bonks, frequency readback slice letters, ATU infinite beeps on 6300, missing toggle earcons, filter edge false positive, adaptive filter step, meter tones silent
 
 **Next steps:**
-1. Create Sprint 23 test matrix
-2. Guided testing against all 63 findings
-3. Version bump to 4.1.16 after testing passes
-4. Update changelog (user-facing, warm tone)
-5. Sprint 24 is pledged as VB-to-C# migration sprint
+1. Commit all uncommitted testing fixes + mini sprint work
+2. Begin Sprint 24 Phase 1 (Key Migration — extract types to Radios project)
 
-### 2 Findings Deferred to Backlog
+### Deferred to Backlog
 - FINDING-25: Multi-radio abstraction — wait for second radio platform
 - FINDING-48: Earcon fade-out/envelope — add selectively later
+- Connection error hang: SSL error made app unresponsive — needs deeper investigation
+
+## Open Bugs
+- BUG-013: Duplicate QSO warning beep not playing
+- BUG-015: F6 double-announces "Radio pane" in Logging Mode
+- BUG-049: RemoveSlice not updating MyNumSlices (Sprint 24 Phase 7A)
+
+## Mini Sprint 24a — COMPLETE (Tested, Uncommitted)
+
+All 6 phases coded and building clean:
+- Phase A1: Earcon audit (8 toggles fixed)
+- Phase A2: Dialog earcons removed
+- Phase A3: Access keys for all 42 dialogs
+- Phase A4: Meter hotkeys (Ctrl+Alt+P, Ctrl+Alt+V)
+- Phase A5: Wider filter presets (SSB to 10k, CW to 4k)
+- Phase A6: Ctrl+Shift+S status audit (tuning mode, filter preset, meter state)
 
 ---
 
@@ -61,33 +79,6 @@ This document captures the current state of JJ-Flex repository and active work.
 
 ---
 
-## Sprint 22 — MERGED TO MAIN
-
-**What landed:**
-- Phase 1: RigSelector Auto-Connect
-- Phase 2: About Dialog
-- Phase 3: Command Finder categories
-- Phase 4: Tuning speech debounce
-- Phase 5: Tune Carrier (Ctrl+Shift+T) + ATU Tune (Ctrl+T)
-- Phase 6: Antenna switching (menus + ScreenFields)
-- Phase 7: Slice management + enhanced status (Ctrl+Shift+S)
-- Phase 8: Startup speech on connect
-- Phase 9: Meters panel + waveform UI
-- Phase 10: 60m channelization
-
----
-
-## Sprint 21: Resonant Signal Sculpt — MERGED TO MAIN
-
-**What landed (65 files, +4,945 / -588 lines):**
-- Track A: Meter Sonification Engine
-- Track B: Audio Workshop dialog, ScreenFields TX expansion, AudioChainPreset
-- Track C: Leader key system (Ctrl+J), TX filter keyboard sculpting, Command Finder extensions
-- Track D: App renamed to "JJ Flexible Radio Access"
-- Track E: Compiled HTML Help (22 pages, F1 context-sensitive)
-
----
-
 ## Completed Sprints
 - Sprint 23: Fix sprint — 63 of 65 findings from Sprint 21+22 testing
 - Sprint 22: Auto-connect, About, Command Finder, debounce, tune carrier, antenna, slices, startup speech, meters, 60m
@@ -110,13 +101,6 @@ This document captures the current state of JJ-Flex repository and active work.
 - Sprint 2: Auto-Connect (v4.1.11)
 - Sprint 1: SmartLink Saved Accounts (v4.1.10)
 
-## Open Bugs
-- BUG-004: FIXED (Sprint 21)
-- BUG-013: Duplicate QSO warning beep not playing
-- BUG-015: F6 double-announces "Radio pane" in Logging Mode
-- BUG-016: FIXED (Sprint 23 Phase 5 — comprehensive feature gating)
-- BUG-023: FIXED (Sprint 21, wording improved Sprint 23 Phase 11)
-
 ## Build Commands
 
 ```batch
@@ -132,4 +116,4 @@ build-installers.bat
 
 ---
 
-*Updated: Mar 11, 2026 — Sprint 23 complete (16 phases, 63 findings fixed). Testing next, then 4.1.16 release. Sprint 24 pledged as VB-to-C# migration.*
+*Updated: Mar 12, 2026 — Sprint 24 plan written (`skywave-negative-sweepstakes.md`). Archived sprint 21-23 plan files. ~60 files uncommitted (testing fixes + mini sprint 24a). Ready to commit and begin Sprint 24.*

@@ -217,6 +217,10 @@ Last updated: 2026-02-12
 - [ ] StationLookup full redesign (distance/bearing, richer layout)
 
 ### Backlog — New Items (Sprint 7 testing, 2026-02-14)
+- [ ] **Earcon audit — all toggles need on/off beeps**: Audit every toggle action in the app and ensure all use `FeatureOnTone`/`FeatureOffTone` (ascending/descending double-beep). Some toggles already have them (DSP, ScreenFields, tune debounce), some were just added (meter tones, frequency readout), but there may be others missing. Non-verbal confirmation of state change is essential for screen reader users.
+- [ ] **Dialog open/close earcons need distinct sound**: `DialogOpenTone` (600→900) and `DialogCloseTone` (900→600) are ascending/descending double-beeps, too similar to `FeatureOnTone`/`FeatureOffTone` (500→700 / 700→500). Dialogs need a clearly different sound — maybe a single chime, a chord, or a different rhythm — so the operator instantly knows "that was a dialog" vs "that was a toggle."
+- [ ] **Access keys for all dialogs**: Every dialog (Settings, Audio Workshop, Rig Selector, Station Lookup, etc.) needs proper access keys (Alt+letter underlines) on buttons and controls so keyboard-only users can navigate without tabbing through everything. Audit all WPF dialogs for missing access keys.
+- [ ] **Connection error hang**: If SmartLink/SSL connection fails, the app can become unresponsive — "Connecting" status steals focus from error dialog, and the app can't be closed. Needs a connection timeout with a proper error dialog that doesn't fight with status text. Edge case but hard-locks the app when it hits.
 - [ ] "Update Current Operator" menu item in Modern and Logging — opens PersonalInfo directly for current operator (skip select step)
 - [ ] Rename "Operators" to "Edit or Change Operators" in Modern and Logging menus (leave Classic as-is)
 - [ ] GPS grid from FlexLib — query radio GPS for operator grid square (works mobile!). Add Speak GPS and View GPS hotkeys/dialog. Fallback: lookup operator call via QRZ/HamQTH for grid.
@@ -391,6 +395,55 @@ Alt+C → W1ABC → Alt+N → Bob → Alt+Q → Space (uncheck QRZ) → Ctrl+W �
 - [ ] Tab order logical, focus management correct across WinForms↔WPF boundary
 - [ ] No regression in existing functionality
 
+### Backlog — Mini Sprint 24a Items (Sprint 23 guided testing, 2026-03-12)
+
+**Earcon / Toggle audit:**
+- [x] Earcon audit: ensure ALL toggles have FeatureOnTone/FeatureOffTone — DONE (Mini Sprint 24a Phase A1, 8 toggles fixed)
+- [x] Dialog open/close earcons removed — DONE (Phase A2, user found them confusing with toggle beeps)
+- [x] Access keys (Alt+letter shortcuts) for all WPF dialogs — DONE (Phase A3, 42 XAML files + base class)
+
+**Meter tone engine improvements:**
+- [x] Hotkey to cycle meter presets — DONE (Phase A4, Ctrl+Alt+P)
+- [x] Hotkey to speak meter values on demand — DONE (Phase A4, Ctrl+Alt+V)
+- [ ] User-saveable presets — save current slot config as a named preset (e.g., "Don's Tuner")
+- [ ] Ability to create new presets from scratch, not just modify existing ones
+- [x] Auto-switch to TX-appropriate preset when tune carrier activates — DONE (already wired, OnTuneStarted/OnTuneStopped)
+- [x] Status announcement for meters in Ctrl+Shift+S — DONE (Phase A6)
+- [x] Ctrl+Shift+S status speech enriched — DONE (Phase A6: tuning mode, freq readout, filter preset, meter state)
+
+**Filter improvements:**
+- [x] Wider filter presets for SSB and CW — DONE (Phase A5: SSB to 10k, CW to 4k)
+- [ ] Update help text to explain filter edge grab mode (double-tap bracket, then both brackets move that edge)
+
+**Key binding fixes (2026-03-12):**
+- [x] Ctrl+Shift+S conflict: ReadSMeter (Radio) blocked SpeakStatus (Global) — DONE (ReadSMeter moved to Ctrl+S)
+- [x] ShowStatusDialog unbound (BUG-020, dialog disabled) — DONE (freed Ctrl+Alt+S for StartScan)
+
+**Connectivity / stability:**
+- [ ] Connection error hang: SSL/SmartLink error makes app unresponsive, requires taskkill — observed twice in one session
+
+### Backlog — Don's Feedback Items (2026-03-12)
+
+**HIGH PRIORITY — Slice interaction:**
+- [ ] Slice selector field in FreqOut: up/down arrows switch active slice, speaks short slice status on change (letter, freq, mode)
+- [ ] Slice operations field in FreqOut: adjacent to slice selector, allows pan/volume/release operations on current slice
+- [ ] Slice A/B switching unreliable for Don — needs trace session to diagnose (may be timing, scope, or MultiFlex ownership issue)
+- [ ] Slice status speech: when switching slices, speak a concise summary (letter, freq, mode, muted/unmuted)
+
+**HIGH PRIORITY — Status Dialog rebuild (BUG-020):**
+- [ ] Rebuild Status Dialog as proper accessible WPF dialog — tab stops, close button, window ownership
+- [ ] Display: radio model, connection type, all slice info, meter readings, active preset, tuning mode
+- [ ] Should be a live-updating view, not just a snapshot
+
+**HIGH PRIORITY — Key migration:**
+- [ ] Move KeyCommands.vb to C# — key conflicts keep accumulating, VB dispatch is hard to audit
+- [ ] Key conflict audit: systematic check for duplicate bindings across scopes (Sprint 24 scope)
+
+**MEDIUM PRIORITY — Modern mode tuning UX:**
+- [ ] Modern mode frequency: arrow keys move through frequency as a single unit (no char-by-char review), speaks frequency on change
+- [ ] Direct frequency typing: both Classic and Modern modes allow typing digits to enter frequency, with a typing timer to commit (like JJ Ctrl+F but without the leader key)
+- [ ] Classic vs Modern confusion: consider better onboarding, mode-switch announcement improvements, or unifying the modes
+
 ## Long-term
 - [ ] Wideband SDR support: RTL-SDR (RX-only, ~$30), HackRF (TX/RX, ~$350), ADALM-Pluto (TX/RX, ~$200), Airspy, SDRplay. Needs a radio abstraction layer that can talk to FlexLib, SoapySDR, and potentially Hamlib/CAT. This is the accessibility play — getting the entry cost for an accessible SDR station from $3,000+ down to $200-400.
 - [ ] QRP rig support: Research affordable QRP transceivers (QDX, QMX, (tr)uSDX, etc.) as low-cost accessible entry points. These are kit/assembled rigs in the $50-200 range with CAT control.
@@ -399,6 +452,7 @@ Alt+C → W1ABC → Alt+N → Bob → Alt+Q → Space (uncheck QRZ) → Ctrl+W �
 - [ ] DSP abstraction layer: Build a JJFlexRadio-side DSP engine (noise reduction, filtering, FFT, AGC) that runs on the PC regardless of radio backend. For Flex: stack on top of hardware DSP for deeper signal extraction. For cheap radios (HackRF, QRP rigs): provide Flex-grade signal processing they don't have natively. Research neural noise reduction models (RNNoise, etc.), FFT libraries, and real-time audio pipeline architecture. Same ScreenFields controls drive both hardware DSP (Flex) and software DSP (everything else) — operator doesn't need to know where the processing runs.
 - [ ] Weak signal / Dig Mode presets: One-keystroke DSP profiles optimized for FT8 and other weak signal digital modes — tight filter bandwidth, neural NR tuned for digital, optimized AGC/NB settings. Auto-load when switching to digital modes. Works with both hardware DSP (Flex) and software DSP (abstraction layer).
 - [ ] Braille + sonified waterfall "famous interface" implementation
+- [ ] Braille meter display: render active meter values on braille line, width-adaptive (20/40/80 char displays). Three hardware configs: (a) standard braille display only — meters share line, cursor routing keys for frequency digit tuning, (b) Dot Pad only — 20-char braille line for text meters plus tactile graphic meter panel, (c) both — standard display for tuning with cursor routing, Dot Pad for meter visualization
 - [ ] Multi-radio simultaneous operation (possible premium)
 - [ ] Auto-update / update notifications (needs server or web page for version checking; design update delivery mechanism)
 - [ ] AllStar (ASL) remote base: Connect JJFlexRadio to AllStar Link nodes, turning a supported radio (Flex for now) into a remote base accessible from the AllStar network. Research ASL protocol, audio routing (DAX/Opus to ASL), PTT integration, and node registration. Big project — needs feasibility study first.
