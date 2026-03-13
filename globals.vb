@@ -113,7 +113,7 @@ Module globals
     Friend ProgramInstance As Integer = 0
     Friend BootTrace As Boolean
     Friend ProgramDirectory As String ' This program's directory.
-    Friend Commands As KeyCommands
+    Friend Commands As JJFlexWpf.KeyCommands
     Friend ContactLog As LogClass
     Friend LookupStation As JJFlexWpf.StationLookupWindow = Nothing
 
@@ -437,7 +437,220 @@ Module globals
         AudioDevicesFile = BaseConfigDir & "\" & audioDevicesBasename
 
         ' Load keyboard command config data.
-        Commands = New KeyCommands
+        ' Set key config file path before constructing Commands.
+        KeyConfigType_V1.PathName = BaseConfigDir & "\" & "KeyDefs.xml"
+
+        ' Create the context for C# KeyCommands.
+        Dim keyContext = New JJFlexWpf.KeyCommandContext With {
+            .GetRigControl = Function() RigControl,
+            .GetPower = Function() Power,
+            .GetActiveUIMode = Function() CInt(ActiveUIMode),
+            .GetMainWindow = Function() WpfMainWindow,
+            .Trace = Sub(msg) Tracing.TraceLine(msg, TraceLevel.Info),
+            .GetScanRunning = Function() ScanInProcess,
+            .StopScan = Sub() If scan IsNot Nothing Then scan.StopScan(),
+            .BeginScan = Sub()
+                If (RigControl IsNot Nothing) AndAlso Power AndAlso
+                   (Not RigControl.Transmit) AndAlso (scanstate <> scans.memory) Then
+                    If scanstate = scans.linear Then
+                        If scan IsNot Nothing Then scan.StopScan()
+                    Else
+                        scan.ShowDialog()
+                    End If
+                End If
+            End Sub,
+            .ResumeScan = Sub()
+                If (scanstate <> scans.none) AndAlso (Not ScanInProcess) AndAlso
+                   (RigControl IsNot Nothing) AndAlso (Not RigControl.Transmit) Then
+                    scan.resumeScan()
+                End If
+            End Sub,
+            .UseSavedScan = Sub(name)
+                If (RigControl IsNot Nothing) AndAlso Power Then
+                    If SelectScan.ShowDialog() = DialogResult.OK Then
+                        Dim sd = SavedScans.Item(SelectScan.ItemIndex)
+                        Select Case sd.Type
+                            Case SavedScanData.ScanTypes.linear
+                                scan.doPreset(sd, True)
+                        End Select
+                    End If
+                End If
+            End Sub,
+            .MemoryScan = Sub()
+                Try
+                    If (RigControl IsNot Nothing) AndAlso (Not RigControl.Transmit) AndAlso (scanstate <> scans.linear) Then
+                        If (scanstate = scans.memory) Then
+                            If scan IsNot Nothing Then scan.StopScan()
+                        Else
+                            If MemoryGroupControl Is Nothing Then MemoryGroupControl = New MemoryGroup
+                            MemoryScan.ShowDialog()
+                        End If
+                    End If
+                Catch ex As Exception
+                    Tracing.TraceLine("memScan:" & ex.Message, TraceLevel.Error)
+                End Try
+            End Sub,
+            .BringUpLogForm = Sub(adifTag)
+                If ActiveUIMode = UIMode.Logging AndAlso WpfMainWindow.LoggingLogPanel IsNot Nothing Then
+                    Dim fieldName As String = Nothing
+                    Select Case adifTag
+                        Case "CALL" : fieldName = "CALL"
+                        Case "RST_SENT" : fieldName = "RSTSENT"
+                        Case "RST_RCVD" : fieldName = "RSTRCVD"
+                        Case "NAME" : fieldName = "NAME"
+                        Case "QTH" : fieldName = "QTH"
+                        Case "STATE" : fieldName = "STATE"
+                        Case "GRIDSQUARE" : fieldName = "GRID"
+                        Case "COMMENT" : fieldName = "COMMENTS"
+                        Case "MODE" : fieldName = "MODE"
+                        Case "RIG" : fieldName = "RIG"
+                        Case "ANTENNA" : fieldName = "ANTENNA"
+                    End Select
+                    If fieldName IsNot Nothing Then
+                        WpfMainWindow.LoggingLogPanel.FocusField(fieldName)
+                    ElseIf adifTag = JJFlexWpf.KeyCommands.IADIF_LogNewEntry Then
+                        WpfMainWindow.LoggingLogPanel.NewEntry()
+                        Radios.ScreenReaderOutput.Speak("New entry", True)
+                    End If
+                    Return
+                End If
+                LogEntry.FieldID = adifTag
+                Dim saveVisible = WpfMainWindow.Visible
+                WpfMainWindow.Visible = False
+                LogEntry.ShowDialog()
+                WpfMainWindow.Visible = saveVisible
+            End Sub,
+            .FinalizeLog = Sub()
+                If ActiveUIMode = UIMode.Logging AndAlso WpfMainWindow.LoggingLogPanel IsNot Nothing Then
+                    WpfMainWindow.LoggingLogPanel.WriteEntry()
+                    Return
+                End If
+                LogEntry.Write()
+            End Sub,
+            .SetLogDateTime = Sub() LogEntry.SetLogDateTime(),
+            .GetLogFileName = Sub()
+                If LogCharacteristics.ShowDialog() = DialogResult.OK Then ConfigContactLog()
+            End Sub,
+            .SearchLog = Sub()
+                Dim thrd As New Threading.Thread(Sub() SearchLog.ShowDialog())
+                thrd.SetApartmentState(Threading.ApartmentState.STA)
+                thrd.Start()
+            End Sub,
+            .LogStats = Sub()
+                Dim obj As New JJLogLib.LogStats()
+                obj.ShowLogStats()
+            End Sub,
+            .GetCWText = Function()
+                If CWText Is Nothing OrElse CWText.Messages Is Nothing Then Return Array.Empty(Of CWMessageItem)()
+                Dim items(CWText.Messages.Count - 1) As CWMessageItem
+                For i = 0 To CWText.Messages.Count - 1
+                    items(i) = New CWMessageItem(CWText.Messages(i).key, CWText.Messages(i).message, CWText.Messages(i).Label)
+                Next
+                Return items
+            End Function,
+            .SendCW = Sub(msg)
+                If (RigControl IsNot Nothing) AndAlso Power Then RigControl.CW(msg)
+            End Sub,
+            .WriteTextX = Sub(windowId, text, disposition, clear) WriteTextX(CType(windowId, WindowIDs), text, disposition, clear),
+            .DisplayFreq = Sub() WpfMainWindow.FreqOut.FocusDisplay(),
+            .WriteFreq = Sub()
+                If FreqInput.ShowDialog() = DialogResult.OK Then
+                    Dim input = FreqInput.Buffer.Trim()
+                    Tracing.TraceLine($"WriteFreq: FreqInput.Buffer='{input}'", TraceLevel.Info)
+                    If input.Equals("cqtest", StringComparison.OrdinalIgnoreCase) Then
+                        WpfMainWindow.ShowEarconScratchpad()
+                        Return
+                    End If
+                    If RigControl IsNot Nothing Then WriteFreq(input)
+                End If
+            End Sub,
+            .GotoReceive = Sub() WpfMainWindow.ReceivedTextBox.Focus(),
+            .GotoSend = Sub()
+                DirectCW = False
+                WpfMainWindow.SentTextBox.Focus()
+            End Sub,
+            .GotoSendDirect = Sub()
+                DirectCW = True
+                WpfMainWindow.SentTextBox.Focus()
+            End Sub,
+            .StartPanning = Sub()
+                If CurrentOp.BrailleDisplaySize = 0 Then
+                    MsgBox(RequiresBrailleDisplay)
+                    Return
+                End If
+                If (RigControl IsNot Nothing) AndAlso RigControl.myCaps.HasCap(Radios.RigCaps.Caps.Pan) Then
+                    If OpenParms IsNot Nothing AndAlso OpenParms.PanField IsNot Nothing Then
+                        OpenParms.PanField.Focus()
+                    End If
+                End If
+            End Sub,
+            .CycleContinuous = Sub() MsgBox("This feature is no longer supported."),
+            .DisplayMemory = Sub()
+                If RigControl Is Nothing Then Return
+                Try
+                    RigControl.ShowMemoriesDialog?.Invoke()
+                Catch ex As Exception
+                    Tracing.TraceLine("memory display:" & ex.Message, TraceLevel.Error)
+                End Try
+            End Sub,
+            .ShowMenus = Sub() MsgBox("Not available for this radio."),
+            .ShowReverseBeacon = Sub() ReverseBeacon.ShowDialog(),
+            .ShowDXCluster = Sub() ShowArCluster(),
+            .StationLookup = Sub() WpfMainWindow.ShowStationLookup(),
+            .GatherDebug = Sub() WpfMainWindow.GatherDebugInfo(),
+            .ShowATUMemories = Sub() WpfMainWindow.ShowATUMemoriesDialog(),
+            .RebootRadio = Sub() WpfMainWindow.RebootRadio(),
+            .ShowTXControls = Sub() WpfMainWindow.ShowTXControlsDialog(),
+            .AudioSetup = Sub() GetNewAudioDevices(),
+            .ShowLogCharacteristics = Sub() WpfMainWindow.ShowLogCharacteristicsDialog(),
+            .LogOpenFullForm = Sub() WpfMainWindow.OpenFullLogEntryForm(),
+            .PCAudioToggle = Sub() WpfMainWindow.TogglePCAudio(),
+            .AudioMenuString = Function()
+                If (RigControl IsNot Nothing) AndAlso RigControl.PCAudio Then
+                    Return "Turn off PC audio"
+                Else
+                    Return "Turn on PC audio"
+                End If
+            End Function,
+            .SMeterMenuString = Function()
+                If (RigControl IsNot Nothing) AndAlso RigControl.SMeterDBM Then
+                    Return "SMeter in S-units"
+                Else
+                    Return "SMeter in dBm"
+                End If
+            End Function,
+            .LogPaneSwitch = Sub() WpfMainWindow.LogPaneSwitch(),
+            .GetConfigDirectory = Function() BaseConfigDir,
+            .FormatKey = Function(k) KeyString(k),
+            .Toggle1 = Sub()
+                If (OpenParms IsNot Nothing) AndAlso (OpenParms.NextValue1 IsNot Nothing) AndAlso Power Then
+                    OpenParms.NextValue1()
+                End If
+            End Sub,
+            .ClusterShutdown = Sub()
+                If (ClusterScreens Is Nothing) OrElse (ClusterScreens.Count = 0) Then Return
+                Tracing.TraceLine("ClusterShutdown", TraceLevel.Info)
+                For i = 0 To ClusterScreens.Count - 1
+                    Dim cluster = ClusterScreens(i)
+                    Try
+                        If cluster IsNot Nothing Then
+                            cluster.LoginCancel()
+                            cluster.Close()
+                            cluster.Dispose()
+                        End If
+                    Catch ex As Exception
+                        Tracing.TraceLine("ClusterShutdown:" & ex.Message, TraceLevel.Error)
+                    End Try
+                Next
+                ClusterScreens.Clear()
+            End Sub,
+            .DisplayDecodedText = Sub(text)
+                Dim disposition As Integer = 0
+                If CurrentOp.ConstrainedDecode Then disposition = -CurrentOp.CWDecodeCells
+                WriteTextX(WindowIDs.ReceiveDataOut, text, disposition, False)
+            End Sub
+        }
+        Commands = New JJFlexWpf.KeyCommands(keyContext)
 
         ' Load operator and rig data.
         Operators = New PersonalData(BaseConfigDir)
@@ -559,25 +772,25 @@ Module globals
         End If
         StatusBox?.Write("LogFile", LogCharacteristics.TrimmedFilename(ContactLog.Name, 20))
         ' Set the keys from the log form.
-        Dim defs = New Collection(Of KeyCommands.KeyDefType)
+        Dim defs = New Collection(Of KeyDefType)
         For Each fld As LogField In session.FormData.Fields.Values
             If fld.KeyName <> vbNullString Then
                 ' First use the name to get the id.
-                fld.KeyID = KeyCommands.getKeyFromTypename(fld.KeyName)
+                fld.KeyID = JJFlexWpf.KeyCommands.GetKeyFromTypename(fld.KeyName)
                 ' Get the entry to set in my keyTable.
-                Dim t As KeyCommands.keyTbl = Commands.lookup(CType(fld.KeyID, KeyCommands.CommandValues))
+                Dim t As KeyTableEntry = Commands.Lookup(CType(fld.KeyID, CommandValues))
                 If (t IsNot Nothing) Then
-                    defs.Add(t.key)
+                    defs.Add(t.KeyDef)
                 End If
             End If
         Next
         ' Add any keys for use when logging.
-        For Each ktbl As KeyCommands.keyTbl In Commands.KeyTable
+        For Each ktbl As KeyTableEntry In Commands.KeyTable
             If ktbl.UseWhenLogging Then
-                defs.Add(ktbl.key)
+                defs.Add(ktbl.KeyDef)
             End If
         Next
-        Commands.SetValues(defs.ToArray, KeyCommands.KeyTypes.log, False)
+        Commands.SetValues(defs.ToArray, KeyTypes.Log, False)
 
         ' Setup dup checking and other log calculations and fixup.
         Dim dupCheck As LogDupChecking.DupTypes

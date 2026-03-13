@@ -1,4 +1,6 @@
-﻿Public Enum ShowHelpTypes
+﻿Imports Radios
+
+Public Enum ShowHelpTypes
     standard
     alphabetic
     byGroup
@@ -16,20 +18,20 @@ Friend Class ShowHelp
     Class alphabeticComparer
         Implements IComparer
         Public Function Compare(x As Object, y As Object) As Integer Implements IComparer.Compare
-            Dim i1 As KeyCommands.keyTbl = CType(x, KeyCommands.keyTbl)
-            Dim i2 As KeyCommands.keyTbl = CType(y, KeyCommands.keyTbl)
-            Return i1.helpText.CompareTo(i2.helpText)
+            Dim i1 As KeyTableEntry = CType(x, KeyTableEntry)
+            Dim i2 As KeyTableEntry = CType(y, KeyTableEntry)
+            Return i1.HelpText.CompareTo(i2.HelpText)
         End Function
     End Class
 
     Class groupComparer
         Implements IComparer
         Public Function Compare(x As Object, y As Object) As Integer Implements IComparer.Compare
-            Dim i1 As KeyCommands.keyTbl = CType(x, KeyCommands.keyTbl)
-            Dim i2 As KeyCommands.keyTbl = CType(y, KeyCommands.keyTbl)
+            Dim i1 As KeyTableEntry = CType(x, KeyTableEntry)
+            Dim i2 As KeyTableEntry = CType(y, KeyTableEntry)
             Dim rv As Integer = i1.Group.CompareTo(i2.Group)
             If rv = 0 Then
-                rv = i1.helpText.CompareTo(i2.helpText)
+                rv = i1.HelpText.CompareTo(i2.HelpText)
             End If
             Return rv
         End Function
@@ -37,7 +39,7 @@ Friend Class ShowHelp
 
     Private Sub ShowHelp_Load(ByVal sender As System.Object, ByVal e As System.EventArgs) Handles MyBase.Load
         DialogResult = DialogResult.None
-        Dim theKeys As KeyCommands.keyTbl() = Commands.CurrentKeys
+        Dim theKeys As KeyTableEntry() = Commands.CurrentKeys
         Dim displayPrefix As String = ""
         TextBox1.Clear()
         Select Case helpType
@@ -49,15 +51,15 @@ Friend Class ShowHelp
         End Select
         Dim displayGroup As String = vbNullString
         For i As Integer = 0 To theKeys.Length - 1
-            If theKeys(i).key.key <> Keys.None Then
+            If theKeys(i).KeyDef.Key <> Keys.None Then
                 If (helpType = ShowHelpTypes.byGroup) And (theKeys(i).Group.ToString <> displayGroup) Then
                     displayGroup = theKeys(i).Group.ToString
                     TextBox1.Text &= displayGroup
                     TextBox1.Text &= vbCrLf
                 End If
-                TextBox1.Text &= displayPrefix & KeyString(theKeys(i).key.key)
+                TextBox1.Text &= displayPrefix & KeyString(theKeys(i).KeyDef.Key)
                 TextBox1.Text &= " - "
-                TextBox1.Text &= theKeys(i).helpText
+                TextBox1.Text &= theKeys(i).HelpText
                 TextBox1.Text &= vbCrLf
             End If
         Next

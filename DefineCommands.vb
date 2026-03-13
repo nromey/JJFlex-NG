@@ -7,23 +7,23 @@ Public Class DefineCommands
     Const dupTitle As String = "Duplicate key Definitions"
     Const dupMessage As String = "Continue with duplicate key definitions?"
     Dim wasActive As Boolean ' true if active when activated
-    Dim theKeys As KeyCommands.keyTbl()
+    Dim theKeys As KeyTableEntry()
     Dim commandChanges, messageChanges As Boolean ' true if changes were made
-    Dim currentScope As KeyCommands.KeyScope = KeyCommands.KeyScope.Global
+    Dim currentScope As KeyScope = KeyScope.Global
 
     ''' <summary>
     ''' Get the scope for the currently selected tab.
     ''' </summary>
-    Private Function SelectedScope() As KeyCommands.KeyScope
+    Private Function SelectedScope() As KeyScope
         ' Sprint 8 Phase 8.6: 5-scope system (Global, Radio, Classic, Modern, Logging).
         ' Current tab control has 3 tabs. Sprint 9 will add Classic + Modern tabs
         ' when DefineCommands is converted to WPF. Until then, Classic/Modern scoped
         ' keys (if any) are not visible in this editor.
         Select Case ScopeTabControl.SelectedIndex
-            Case 0 : Return KeyCommands.KeyScope.Global
-            Case 1 : Return KeyCommands.KeyScope.Radio
-            Case 2 : Return KeyCommands.KeyScope.Logging
-            Case Else : Return KeyCommands.KeyScope.Global
+            Case 0 : Return KeyScope.Global
+            Case 1 : Return KeyScope.Radio
+            Case 2 : Return KeyScope.Logging
+            Case Else : Return KeyScope.Global
         End Select
     End Function
 
@@ -37,8 +37,8 @@ Public Class DefineCommands
         For i As Integer = 0 To theKeys.Length - 1
             Dim item = theKeys(i)
             If item.Scope <> currentScope Then Continue For
-            Dim lvi = New ListViewItem(KeyString(item.key.key))
-            lvi.SubItems.Add(item.helpText)
+            Dim lvi = New ListViewItem(KeyString(item.KeyDef.Key))
+            lvi.SubItems.Add(item.HelpText)
             lvi.SubItems.Add(item.Group.ToString())
             lvi.Tag = i ' index into theKeys
             CommandsListView.Items.Add(lvi)
@@ -60,22 +60,22 @@ Public Class DefineCommands
     ''' <param name="k">The key to check</param>
     ''' <param name="scope">The scope of the command being assigned</param>
     ''' <param name="excludeIndex">Index in theKeys to exclude (the entry being edited)</param>
-    Private Function CheckConflict(k As Keys, scope As KeyCommands.KeyScope, excludeIndex As Integer) As String
+    Private Function CheckConflict(k As Keys, scope As KeyScope, excludeIndex As Integer) As String
         If k = Keys.None Then Return Nothing
         For i As Integer = 0 To theKeys.Length - 1
             If i = excludeIndex Then Continue For
             Dim other = theKeys(i)
-            If other.key.key <> k Then Continue For
+            If other.KeyDef.Key <> k Then Continue For
             ' Check if scopes conflict.
             Dim conflicts As Boolean = False
-            If scope = KeyCommands.KeyScope.Global OrElse other.Scope = KeyCommands.KeyScope.Global Then
+            If scope = KeyScope.Global OrElse other.Scope = KeyScope.Global Then
                 conflicts = True
             ElseIf scope = other.Scope Then
                 conflicts = True
             End If
             ' Radio + Logging = no conflict (different scopes, never simultaneous).
             If conflicts Then
-                Return KeyString(k) & " conflicts with " & other.helpText & " in " & other.Scope.ToString() & " scope"
+                Return KeyString(k) & " conflicts with " & other.HelpText & " in " & other.Scope.ToString() & " scope"
             End If
         Next
         Return Nothing
@@ -90,7 +90,7 @@ Public Class DefineCommands
         Dim dupDict = New Dictionary(Of Keys, Integer)
         For Each lvi As ListViewItem In CommandsListView.Items
             Dim idx = CInt(lvi.Tag)
-            Dim k = theKeys(idx).key.key
+            Dim k = theKeys(idx).KeyDef.Key
             If k = Keys.None Then Continue For
             If dupDict.ContainsKey(k) Then
                 hasDups = True
@@ -106,14 +106,14 @@ Public Class DefineCommands
     ''' </summary>
     Private Function HasAnyConflicts() As Boolean
         For i As Integer = 0 To theKeys.Length - 1
-            Dim k = theKeys(i).key.key
+            Dim k = theKeys(i).KeyDef.Key
             If k = Keys.None Then Continue For
             For j As Integer = i + 1 To theKeys.Length - 1
-                If theKeys(j).key.key <> k Then Continue For
+                If theKeys(j).KeyDef.Key <> k Then Continue For
                 Dim s1 = theKeys(i).Scope
                 Dim s2 = theKeys(j).Scope
                 If s1 = s2 Then Return True
-                If s1 = KeyCommands.KeyScope.Global OrElse s2 = KeyCommands.KeyScope.Global Then Return True
+                If s1 = KeyScope.Global OrElse s2 = KeyScope.Global Then Return True
             Next
         Next
         Return False
@@ -142,7 +142,7 @@ Public Class DefineCommands
             Return
         End If
         Dim idx = CInt(CommandsListView.SelectedItems(0).Tag)
-        ValueBox.Text = KeyString(theKeys(idx).key.key)
+        ValueBox.Text = KeyString(theKeys(idx).KeyDef.Key)
         ValueBox.Enabled = True
         PressKeyLabel.Text = "Press desired key to change"
     End Sub
@@ -157,11 +157,11 @@ Public Class DefineCommands
         Dim idx = CInt(lvi.Tag)
         e.SuppressKeyPress = True
         Dim k As Keys = (e.KeyCode Or e.Modifiers)
-        If k = theKeys(idx).key.key Then Return
+        If k = theKeys(idx).KeyDef.Key Then Return
 
-        Tracing.TraceLine("defineKeys ValueBox_KeyDown:from " & theKeys(idx).key.key.ToString & " to " & k.ToString, TraceLevel.Info)
-        If (theKeys(idx).KeyType = KeyCommands.KeyTypes.Command) Or
-           (theKeys(idx).KeyType = KeyCommands.KeyTypes.log) Then
+        Tracing.TraceLine("defineKeys ValueBox_KeyDown:from " & theKeys(idx).KeyDef.Key.ToString & " to " & k.ToString, TraceLevel.Info)
+        If (theKeys(idx).KeyType = KeyTypes.Command) Or
+           (theKeys(idx).KeyType = KeyTypes.Log) Then
             commandChanges = True
         Else
             messageChanges = True
@@ -179,16 +179,16 @@ Public Class DefineCommands
                 ' Find and clear the conflicting entry.
                 For ci As Integer = 0 To theKeys.Length - 1
                     If ci = idx Then Continue For
-                    If theKeys(ci).key.key <> k Then Continue For
+                    If theKeys(ci).KeyDef.Key <> k Then Continue For
                     ' Check if scopes actually conflict.
                     Dim s1 = theKeys(idx).Scope
                     Dim s2 = theKeys(ci).Scope
                     Dim isConflict = (s1 = s2) OrElse
-                                     (s1 = KeyCommands.KeyScope.Global) OrElse
-                                     (s2 = KeyCommands.KeyScope.Global)
+                                     (s1 = KeyScope.Global) OrElse
+                                     (s2 = KeyScope.Global)
                     If isConflict Then
-                        Dim oldCmd = theKeys(ci).helpText
-                        theKeys(ci).key.key = Keys.None
+                        Dim oldCmd = theKeys(ci).HelpText
+                        theKeys(ci).KeyDef.Key = Keys.None
                         ' Update the ListView if the cleared entry is visible.
                         For Each otherLvi As ListViewItem In CommandsListView.Items
                             If CInt(otherLvi.Tag) = ci Then
@@ -204,14 +204,14 @@ Public Class DefineCommands
             End If
         End If
 
-        theKeys(idx).key.key = k
+        theKeys(idx).KeyDef.Key = k
         Dim str As String = KeyString(k)
         lvi.SubItems(0).Text = str
         ValueBox.Text = str
 
         ' Announce the assignment (conflict message was already spoken above if applicable).
         If ConflictLabel.Text = "" Then
-            ScreenReaderOutput.Speak(str & " assigned to " & theKeys(idx).helpText, True)
+            ScreenReaderOutput.Speak(str & " assigned to " & theKeys(idx).HelpText, True)
         End If
 
         CommandsListView.Focus()
@@ -247,17 +247,17 @@ Public Class DefineCommands
             End If
             If DialogResult = DialogResult.OK Then
                 ' Changes were made, so set values.
-                Dim cmdDefs = New Collection(Of KeyCommands.KeyDefType)
-                Dim CWDefs = New Collection(Of KeyCommands.KeyDefType)
-                For Each item As KeyCommands.keyTbl In theKeys
-                    If (item.KeyType = KeyCommands.KeyTypes.Command) Or (item.KeyType = KeyCommands.KeyTypes.log) Then
-                        cmdDefs.Add(item.key)
+                Dim cmdDefs = New Collection(Of KeyDefType)
+                Dim CWDefs = New Collection(Of KeyDefType)
+                For Each item As KeyTableEntry In theKeys
+                    If (item.KeyType = KeyTypes.Command) Or (item.KeyType = KeyTypes.Log) Then
+                        cmdDefs.Add(item.KeyDef)
                     Else
-                        CWDefs.Add(item.key)
+                        CWDefs.Add(item.KeyDef)
                     End If
                 Next
                 If commandChanges Then
-                    Commands.SetValues(cmdDefs.ToArray, KeyCommands.KeyTypes.allKeys, True)
+                    Commands.SetValues(cmdDefs.ToArray, KeyTypes.AllKeys, True)
                     If Not messageChanges Then
                         Commands.UpdateCWText(CWDefs.ToArray)
                     End If
@@ -279,15 +279,15 @@ Public Class DefineCommands
     Private Sub ResetButton_Click(sender As Object, e As EventArgs) Handles ResetButton.Click
         If CommandsListView.SelectedItems.Count = 0 Then Return
         Dim idx = CInt(CommandsListView.SelectedItems(0).Tag)
-        Dim cmdId = theKeys(idx).key.id
+        Dim cmdId = theKeys(idx).KeyDef.Id
         ' Find the default key for this command.
         Dim defaultCmd = Commands.GetDefaultKey(cmdId)
         If defaultCmd IsNot Nothing Then
-            theKeys(idx).key.key = defaultCmd.key
-            CommandsListView.SelectedItems(0).SubItems(0).Text = KeyString(defaultCmd.key)
-            ValueBox.Text = KeyString(defaultCmd.key)
+            theKeys(idx).KeyDef.Key = defaultCmd.Key
+            CommandsListView.SelectedItems(0).SubItems(0).Text = KeyString(defaultCmd.Key)
+            ValueBox.Text = KeyString(defaultCmd.Key)
             commandChanges = True
-            ScreenReaderOutput.Speak("Reset to " & KeyString(defaultCmd.key), True)
+            ScreenReaderOutput.Speak("Reset to " & KeyString(defaultCmd.Key), True)
         End If
     End Sub
 
@@ -295,11 +295,11 @@ Public Class DefineCommands
         Dim scope = SelectedScope()
         For Each lvi As ListViewItem In CommandsListView.Items
             Dim idx = CInt(lvi.Tag)
-            Dim cmdId = theKeys(idx).key.id
+            Dim cmdId = theKeys(idx).KeyDef.Id
             Dim defaultCmd = Commands.GetDefaultKey(cmdId)
             If defaultCmd IsNot Nothing Then
-                theKeys(idx).key.key = defaultCmd.key
-                lvi.SubItems(0).Text = KeyString(defaultCmd.key)
+                theKeys(idx).KeyDef.Key = defaultCmd.Key
+                lvi.SubItems(0).Text = KeyString(defaultCmd.Key)
             End If
         Next
         commandChanges = True

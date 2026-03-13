@@ -59,7 +59,7 @@ Public Class CWMessageAdd
             k = Keys.None
         Else
             ' Check for a dup
-            If Commands.lookup(k) IsNot Nothing Then
+            If Commands.Lookup(k) IsNot Nothing Then
                 MsgBox(alreadyDefined)
                 Return
             End If

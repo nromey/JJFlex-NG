@@ -86,4 +86,13 @@ public class KeyCommandContext
 
     // ── Key string formatter (from globals.vb KeyString) ──
     public Func<Keys, string> FormatKey { get; init; } = k => k.ToString();
+
+    // ── Toggle1 (FlexKnob NextValue callback) ──
+    public Action Toggle1 { get; init; } = () => { };
+
+    // ── Cluster shutdown ──
+    public Action ClusterShutdown { get; init; } = () => { };
+
+    // ── CW decoded text display ──
+    public Action<string> DisplayDecodedText { get; init; } = _ => { };
 }

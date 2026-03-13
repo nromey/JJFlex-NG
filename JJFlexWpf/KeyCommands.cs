@@ -24,14 +24,14 @@ public class KeyCommands
     private bool _leaderKeyActive;
 
     // ── Command ID tracking — handlers can read this to know which command triggered them. ──
-    public CommandValues CommandId { get; private set; }
+    public CommandValues CommandId { get; set; }
 
-    // ── Internal ADIF pseudotags (used by log field entries in the key table) ──
-    internal const string IADIF_Logform = "$LOGFORM";
-    internal const string IADIF_Logwrite = "$LOGWRITE";
-    internal const string IADIF_Logfile = "$LOGFILE";
-    internal const string IADIF_LogNewEntry = "$LOGNEWENTRY";
-    internal const string IADIF_Logsearch = "$LOGSEARCH";
+    // ── ADIF pseudotags (used by log field entries in the key table) ──
+    public const string IADIF_Logform = "$LOGFORM";
+    public const string IADIF_Logwrite = "$LOGWRITE";
+    public const string IADIF_Logfile = "$LOGFILE";
+    public const string IADIF_LogNewEntry = "$LOGNEWENTRY";
+    public const string IADIF_Logsearch = "$LOGSEARCH";
 
     // ── Config version — increment when keybindings are reshuffled ──
     // v5 = Sprint 23: unified hotkey dispatch, expander keys, scope cleanup
@@ -44,7 +44,7 @@ public class KeyCommands
     /// <summary>
     /// Master key table. It's in logical order, not CommandValues order.
     /// </summary>
-    internal KeyTableEntry[] KeyTable = null!; // Initialized in BuildKeyTable()
+    public KeyTableEntry[] KeyTable = null!; // Initialized in BuildKeyTable()
 
     /// <summary>
     /// Build the key table. Called from constructors after _context is set.
@@ -918,7 +918,7 @@ public class KeyCommands
     /// Dictionary to access the key table using a key.
     /// Each key maps to a list of KeyTableEntry entries (one per scope).
     /// </summary>
-    internal Dictionary<Keys, List<KeyTableEntry>> KeyDictionary = null!;
+    public Dictionary<Keys, List<KeyTableEntry>> KeyDictionary = null!;
 
     /// <summary>
     /// Dictionary to access the key table using a CommandValues.
@@ -935,7 +935,7 @@ public class KeyCommands
     /// <summary>
     /// Add to the key dictionary. Rejects duplicate scope on same key.
     /// </summary>
-    internal bool AddToKeyDictionary(KeyTableEntry item)
+    public bool AddToKeyDictionary(KeyTableEntry item)
     {
         Keys k = item.KeyDef.Key;
         if (k == Keys.None) return false;
@@ -982,7 +982,7 @@ public class KeyCommands
     /// <summary>
     /// Look for a defined key, resolved by current scope.
     /// </summary>
-    internal KeyTableEntry? Lookup(Keys k)
+    public KeyTableEntry? Lookup(Keys k)
     {
         if (!KeyDictionary.TryGetValue(k, out var entries))
             return null;
@@ -1009,7 +1009,7 @@ public class KeyCommands
     /// <summary>
     /// Get all KeyTableEntry entries across all keys (flattened).
     /// </summary>
-    internal IEnumerable<KeyTableEntry> AllKeyDictionaryEntries()
+    public IEnumerable<KeyTableEntry> AllKeyDictionaryEntries()
     {
         var result = new List<KeyTableEntry>();
         foreach (var entries in KeyDictionary.Values)
@@ -1020,7 +1020,7 @@ public class KeyCommands
     /// <summary>
     /// Add to the CommandValue dictionary if not already added.
     /// </summary>
-    internal bool AddToKeydefDictionary(KeyTableEntry item)
+    public bool AddToKeydefDictionary(KeyTableEntry item)
     {
         CommandValues k = item.KeyDef.Id;
         if (Lookup(k) != null) return false;
@@ -1031,7 +1031,7 @@ public class KeyCommands
     /// <summary>
     /// Look for a defined CommandValue.
     /// </summary>
-    internal KeyTableEntry? Lookup(CommandValues k)
+    public KeyTableEntry? Lookup(CommandValues k)
     {
         _keydefDictionary.TryGetValue(k, out var rv);
         return rv;
@@ -1207,7 +1207,7 @@ public class KeyCommands
     /// <summary>
     /// Set/reset the key table to the default values.
     /// </summary>
-    internal void KeyTableToDefault(bool save)
+    public void KeyTableToDefault(bool save)
     {
         _context.Trace("keyTableToDefault(" + save + ")");
         SetValues(_defaultKeys, KeyTypes.AllKeys, save);
@@ -1217,7 +1217,7 @@ public class KeyCommands
     /// Set key values for the commands. If CW messages are present,
     /// UpdateCWText() must be called after this.
     /// </summary>
-    internal void SetValues(KeyDefType[] defs, KeyTypes mask, bool wrt)
+    public void SetValues(KeyDefType[] defs, KeyTypes mask, bool wrt)
     {
         _context.Trace("SetValues:" + mask + " " + wrt);
         if (mask == KeyTypes.AllKeys)
@@ -1292,7 +1292,7 @@ public class KeyCommands
     /// Get the default KeyDefType for a given command.
     /// Used by the Reset button in DefineCommands.
     /// </summary>
-    internal KeyDefType? GetDefaultKey(CommandValues cmdId)
+    public KeyDefType? GetDefaultKey(CommandValues cmdId)
     {
         foreach (var def in _defaultKeys)
         {
@@ -1501,7 +1501,7 @@ public class KeyCommands
     /// <summary>
     /// Get the current key table entries (commands, log fields, and CW messages).
     /// </summary>
-    internal KeyTableEntry[] CurrentKeys()
+    public KeyTableEntry[] CurrentKeys()
     {
         var rv = new List<KeyTableEntry>();
         // KeyTable contains only command and logging keys.
@@ -1522,7 +1522,7 @@ public class KeyCommands
     /// <summary>
     /// Get the keys, key names and actions for commands in KeyTable plus CW macros.
     /// </summary>
-    internal void HelpText(out KeyDefType[]? keyCommandValues, out KeyDefType[]? keyTextValues,
+    public void HelpText(out KeyDefType[]? keyCommandValues, out KeyDefType[]? keyTextValues,
                            out string[] keyNames, out string[] actions)
     {
         int len = AllKeyDictionaryEntries().Count();
@@ -1575,7 +1575,7 @@ public class KeyCommands
     /// <summary>
     /// Get the key names and actions (simplified overload).
     /// </summary>
-    internal void HelpText(out string[] keyNames, out string[] actions)
+    public void HelpText(out string[] keyNames, out string[] actions)
     {
         HelpText(out _, out _, out keyNames, out actions);
     }
@@ -1587,7 +1587,7 @@ public class KeyCommands
     /// <summary>
     /// Update the dictionaries with new CW text messages.
     /// </summary>
-    internal void UpdateCWText()
+    public void UpdateCWText()
     {
         var cwText = _context.GetCWText();
         if (_cwMessageDefs != null)
@@ -1619,7 +1619,7 @@ public class KeyCommands
     /// <summary>
     /// Update the dictionaries with new CW text (overload accepting new keys from DefineKeys).
     /// </summary>
-    internal void UpdateCWText(KeyDefType[] items)
+    public void UpdateCWText(KeyDefType[] items)
     {
         var cwText = _context.GetCWText();
         for (int i = 0; i < items.Length; i++)
@@ -1627,7 +1627,7 @@ public class KeyCommands
         UpdateCWText();
     }
 
-    private void SendCWMessage()
+    protected void SendCWMessage()
     {
         int id = (int)CommandId - KeyCommandConstants.FirstMessageCommandValue;
         var cwText = _context.GetCWText();
@@ -1865,4 +1865,38 @@ public class KeyCommands
             "H for this help. Escape to cancel.";
         Radios.ScreenReaderOutput.Speak(help);
     }
+
+    // ────────────────────────────────────────────────────────────────
+    //  Public API — Sprint 24 Phase 4 (for VB callers)
+    // ────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Exposes the context for subclass construction (e.g. LogEntry.myKeyCommands).
+    /// </summary>
+    public KeyCommandContext Context => _context;
+
+    /// <summary>
+    /// Get the ADIF tag for this command ID.
+    /// Used by LogEntry.vb's myKeyCommands subclass.
+    /// </summary>
+    public string CommandIDToADIF(CommandValues id)
+    {
+        var kt = Lookup(id);
+        return kt?.ADIFTag ?? string.Empty;
+    }
+
+    /// <summary>
+    /// Toggle1 — dispatches to FlexKnob's NextValue callback.
+    /// </summary>
+    public void Toggle1() => _context.Toggle1();
+
+    /// <summary>
+    /// Shut down any open cluster connections.
+    /// </summary>
+    public void ClusterShutdown() => _context.ClusterShutdown();
+
+    /// <summary>
+    /// Display decoded CW text in the received text window.
+    /// </summary>
+    public void DisplayDecodedText(string text) => _context.DisplayDecodedText(text);
 }

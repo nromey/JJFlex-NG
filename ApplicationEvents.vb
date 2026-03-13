@@ -88,12 +88,12 @@ Namespace My
 
             ' Wire Speak Status / Status Dialog callbacks for menu items.
             WpfMainWindow.SpeakStatusCallback = Sub()
-                Dim kt = Commands.lookup(KeyCommands.CommandValues.SpeakStatus)
-                kt?.rtn()
+                Dim kt = Commands.Lookup(CommandValues.SpeakStatus)
+                If kt IsNot Nothing AndAlso kt.Handler IsNot Nothing Then kt.Handler.Invoke()
             End Sub
             WpfMainWindow.ShowStatusDialogCallback = Sub()
-                Dim kt = Commands.lookup(KeyCommands.CommandValues.ShowStatusDialog)
-                kt?.rtn()
+                Dim kt = Commands.Lookup(CommandValues.ShowStatusDialog)
+                If kt IsNot Nothing AndAlso kt.Handler IsNot Nothing Then kt.Handler.Invoke()
             End Sub
 
             ' Wire audio device callback for NativeMenuBar Audio menu.
@@ -104,10 +104,10 @@ Namespace My
                 Dim result = New List(Of JJFlexWpf.Dialogs.KeyActionItem)
                 For Each kt In Commands.KeyTable
                     result.Add(New JJFlexWpf.Dialogs.KeyActionItem With {
-                        .KeyName = KeyString(kt.key.key),
-                        .KeyDescription = KeyString(kt.key.key),
-                        .ActionName = kt.key.id.ToString(),
-                        .ActionDescription = kt.helpText
+                        .KeyName = KeyString(kt.KeyDef.Key),
+                        .KeyDescription = KeyString(kt.KeyDef.Key),
+                        .ActionName = kt.KeyDef.Id.ToString(),
+                        .ActionDescription = kt.HelpText
                     })
                 Next
                 Return result
@@ -117,8 +117,8 @@ Namespace My
                 Dim result = New List(Of JJFlexWpf.Dialogs.ActionItem)
                 For Each kt In Commands.KeyTable
                     result.Add(New JJFlexWpf.Dialogs.ActionItem With {
-                        .Name = kt.key.id.ToString(),
-                        .Description = kt.helpText
+                        .Name = kt.KeyDef.Id.ToString(),
+                        .Description = kt.HelpText
                     })
                 Next
                 Return result
@@ -130,13 +130,13 @@ Namespace My
                 JJTrace.Tracing.TraceLine($"CommandFinder: KeyTable has {Commands.KeyTable.Length} entries, CurrentKeys returned {currentKeys.Length} entries", TraceLevel.Info)
                 For Each kt In currentKeys
                     result.Add(New JJFlexWpf.Dialogs.CommandFinderItem With {
-                        .Description = kt.helpText,
-                        .KeyDisplay = KeyString(kt.key.key),
+                        .Description = kt.HelpText,
+                        .KeyDisplay = KeyString(kt.KeyDef.Key),
                         .Scope = kt.Scope.ToString(),
                         .Group = kt.Group.ToString(),
-                        .MenuText = kt.menuText,
+                        .MenuText = kt.MenuText,
                         .Keywords = kt.Keywords,
-                        .Tag = kt.key.id
+                        .Tag = kt.KeyDef.Id
                     })
                 Next
                 JJTrace.Tracing.TraceLine($"CommandFinder: {result.Count} key commands loaded", TraceLevel.Info)
@@ -247,13 +247,13 @@ Namespace My
             End Function
 
             WpfMainWindow.ExecuteCommandCallback = Sub(tag)
-                If TypeOf tag Is KeyCommands.CommandValues Then
-                    Dim cmdId = DirectCast(tag, KeyCommands.CommandValues)
-                    Dim kt = Commands.lookup(cmdId)
-                    If kt IsNot Nothing AndAlso kt.rtn IsNot Nothing Then
+                If TypeOf tag Is CommandValues Then
+                    Dim cmdId = DirectCast(tag, CommandValues)
+                    Dim kt = Commands.Lookup(cmdId)
+                    If kt IsNot Nothing AndAlso kt.Handler IsNot Nothing Then
                         Commands.CommandId = cmdId
                         Try
-                            kt.rtn()
+                            kt.Handler()
                         Catch ex As Exception
                             JJTrace.Tracing.TraceLine("ExecuteCommand:" & ex.Message, TraceLevel.Error)
                         End Try

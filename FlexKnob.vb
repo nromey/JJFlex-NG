@@ -240,7 +240,7 @@ Friend Class FlexKnob
 
     Private Sub NextValue1(ByVal parm As Object)
         Tracing.TraceLine("NextValue1:", TraceLevel.Info)
-        Commands.toggle1()
+        Commands.Toggle1()
     End Sub
 
     Private ReadOnly Property inRIT As Boolean

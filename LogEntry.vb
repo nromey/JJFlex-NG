@@ -23,36 +23,36 @@ Friend Class LogEntry
     Dim oldFields As Dictionary(Of String, LogFieldElement)
 
     Class myKeyCommands
-        Inherits KeyCommands
+        Inherits JJFlexWpf.KeyCommands
         ' Main program keys handled here.
-        Dim myKeys As Dictionary(Of KeyCommands.CommandValues, KeyCommands.CommandValues)
+        Dim myKeys As Dictionary(Of CommandValues, CommandValues)
         ' The rest of the keys we'll handle are specified with the log forms.
         Dim parent As LogEntry
         Public Sub New(ByVal p As LogEntry)
             ' Don't default the command table.
-            MyBase.New(False)
+            MyBase.New(Commands.Context, False)
             ' Include macros
 
-            myKeys = New Dictionary(Of KeyCommands.CommandValues, KeyCommands.CommandValues)
-            myKeys.Add(KeyCommands.CommandValues.NewLogEntry, Nothing)
-            myKeys.Add(KeyCommands.CommandValues.LogFinalize, Nothing)
-            myKeys.Add(KeyCommands.CommandValues.SearchLog, Nothing)
+            myKeys = New Dictionary(Of CommandValues, CommandValues)
+            myKeys.Add(CommandValues.NewLogEntry, Nothing)
+            myKeys.Add(CommandValues.LogFinalize, Nothing)
+            myKeys.Add(CommandValues.SearchLog, Nothing)
 
             parent = p
             ' Set the keys for logging commands in my KeyTable.
-            Dim dummy As KeyCommands.CommandValues = Nothing
+            Dim dummy As CommandValues = Nothing
             For Each entries In Commands.KeyDictionary.Values
-                For Each item As KeyCommands.keyTbl In entries
-                    If (item.KeyType = KeyCommands.KeyTypes.log) Or _
+                For Each item As KeyTableEntry In entries
+                    If (item.KeyType = KeyTypes.Log) Or _
                        item.UseWhenLogging Or _
-                       myKeys.TryGetValue(item.key.id, dummy) Then
-                        Dim myItem = New KeyCommands.keyTbl(item)
+                       myKeys.TryGetValue(item.KeyDef.Id, dummy) Then
+                        Dim myItem = New KeyTableEntry(item)
                         ' Note if UseWhenLogging is set, use the original handler.
                         If Not myItem.UseWhenLogging Then
-                            myItem.rtn = AddressOf setFieldID
+                            myItem.Handler = AddressOf setFieldID
                         ElseIf myItem.KeyType = KeyTypes.CWText Then
                             ' Use the current version of the routine which uses CommandID.
-                            myItem.rtn = AddressOf sendCWMessage
+                            myItem.Handler = AddressOf SendCWMessage
                         End If
                         AddToKeyDictionary(myItem)
                     End If
@@ -650,11 +650,11 @@ Friend Class LogEntry
     ''' <summary> go to the field, or do the action, indicated by fieldID, and invalidate fieldID </summary>
     Friend Sub GotoCommand()
         Select Case FieldID
-            Case KeyCommands.iADIF_Logwrite
+            Case JJFlexWpf.KeyCommands.IADIF_Logwrite
                 iWrite()
-            Case KeyCommands.iADIF_LogNewEntry
+            Case JJFlexWpf.KeyCommands.IADIF_LogNewEntry
                 newEntry()
-            Case KeyCommands.iADIF_Logsearch
+            Case JJFlexWpf.KeyCommands.IADIF_Logsearch
                 searchForThisCall()
             Case Else
                 gotoField(FieldID)
