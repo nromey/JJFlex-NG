@@ -732,6 +732,8 @@ public class FreqOutHandlers
         int total = Rig.MyNumSlices;
         if (total <= 0) return;
 
+        Tracing.TraceLine($"CycleVFO:dir={direction} current={current} total={total}", TraceLevel.Info);
+
         int next = current + direction;
         if (next >= total) next = 0;
         if (next < 0) next = total - 1;
@@ -756,6 +758,10 @@ public class FreqOutHandlers
             string ownerSuffix = owner != null ? $", {owner}" : "";
             string freqSuffix = freqMhz > 0 ? $", {freqMhz:F3} {mode}" : "";
             Radios.ScreenReaderOutput.Speak($"Slice {letter}{freqSuffix}{ownerSuffix}", VerbosityLevel.Terse);
+        }
+        else
+        {
+            Tracing.TraceLine($"CycleVFO:no valid VFO found after {attempts} attempts, next={next}", TraceLevel.Warning);
         }
     }
 

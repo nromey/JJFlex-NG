@@ -2527,13 +2527,36 @@ namespace Radios
                 {
                     lock (mySlices)
                     {
+                        int removedIndex = mySlices.IndexOf(slc);
                         mySlices.Remove(slc);
                         ct = mySlices.Count;
+
+                        // Adjust VFO indices: when a slice is removed from the list,
+                        // all indices above it shift down by 1. Without this fix,
+                        // _RXVFO and _TXVFO point to the wrong slice or go out of bounds,
+                        // breaking A/B switching (BUG: Don's intermittent VFO issue).
+                        if (removedIndex >= 0)
+                        {
+                            int oldRX = _RXVFO;
+                            int oldTX = _TXVFO;
+
+                            if (_RXVFO > removedIndex)
+                                _RXVFO--;
+                            else if (_RXVFO == removedIndex)
+                                _RXVFO = (ct > 0) ? 0 : noVFO;
+
+                            if (_TXVFO > removedIndex)
+                                _TXVFO--;
+                            else if (_TXVFO == removedIndex)
+                                _TXVFO = (ct > 0) ? 0 : noVFO;
+
+                            if (_RXVFO != oldRX || _TXVFO != oldTX)
+                                Tracing.TraceLine($"sliceRemoved:VFO adjust removedIdx={removedIndex} RXVFO {oldRX}→{_RXVFO} TXVFO {oldTX}→{_TXVFO}", TraceLevel.Info);
+                        }
                     }
                     mySliceRemoved = true;
                     Tracing.TraceLine("sliceRemoved:mine, new count:" + ct.ToString() + ':' + slc.ToString(), TraceLevel.Info);
                     SliceCountChanged?.Invoke();
-                    // Note: The user can't remove the active or transmit slices.
                 }
             }
             else Tracing.TraceLine("sliceRemoved:not mine" + slc.ToString(), TraceLevel.Info);
@@ -3091,6 +3114,8 @@ namespace Radios
             {
                 rv = (ValidVFO(vfo)) ? mySlices[vfo] : null;
             }
+            if (rv == null && vfo != noVFO)
+                Tracing.TraceLine($"VFOToSlice:null for vfo={vfo} slices={MyNumSlices}", TraceLevel.Warning);
             return rv;
         }
 
@@ -3155,7 +3180,9 @@ namespace Radios
             {
                 if (_RXVFO != value)
                 {
+                    int old = _RXVFO;
                     _RXVFO = value;
+                    Tracing.TraceLine($"RXVFO:{old}→{value} valid={ValidVFO(value)} slices={MyNumSlices}", TraceLevel.Info);
                     if (ValidVFO(value))
                     {
                         q.Enqueue((FunctionDel)(() => { VFOToSlice(value).Active = true; }), "Active");
