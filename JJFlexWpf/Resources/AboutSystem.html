@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<style>
+body { font-family: Segoe UI, sans-serif; font-size: 14px; color: #222; background: #f9f9f9; margin: 16px; line-height: 1.5; }
+h1 { font-size: 20px; margin-bottom: 4px; }
+h2 { font-size: 16px; margin-top: 16px; margin-bottom: 4px; }
+p { margin: 4px 0; }
+</style>
+</head>
+<body>
+<h1>System Information</h1>
+
+<h2>Runtime</h2>
+<p>.NET Runtime: {{DotNetVersion}}</p>
+<p>Windows: {{WindowsVersion}}</p>
+<p>Architecture: {{Architecture}}</p>
+
+<h2>Components</h2>
+<p>FlexLib: {{FlexLibVersion}}</p>
+<p>WebView2: {{WebView2Version}}</p>
+
+<h2>Accessibility</h2>
+<p>Screen reader: {{ScreenReader}}</p>
+{{BrailleLine}}
+</body>
+</html>
