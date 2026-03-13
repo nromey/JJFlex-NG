@@ -1070,6 +1070,7 @@ public class KeyCommands
         {
             // No key file or error — create one with defaults.
             KeyTableToDefault(true);
+            ValidateKeyBindings();
             cfgFile?.Dispose();
             return;
         }
@@ -1131,6 +1132,8 @@ public class KeyCommands
             cfgFile?.Close();
             cfgFile?.Dispose();
         }
+
+        ValidateKeyBindings();
     }
 
     /// <summary>
@@ -1869,6 +1872,51 @@ public class KeyCommands
     // ────────────────────────────────────────────────────────────────
     //  Public API — Sprint 24 Phase 4 (for VB callers)
     // ────────────────────────────────────────────────────────────────
+
+    // ────────────────────────────────────────────────────────────────
+    //  Key binding validation — Sprint 24 Phase 5
+    // ────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Validate default key bindings for scope conflicts.
+    /// Called at startup; logs any conflicts via trace output.
+    /// Returns true if no conflicts found.
+    /// </summary>
+    public bool ValidateKeyBindings()
+    {
+        bool clean = true;
+        var boundKeys = _defaultKeys.Where(d => d.Key != Keys.None).ToArray();
+
+        for (int i = 0; i < boundKeys.Length; i++)
+        {
+            for (int j = i + 1; j < boundKeys.Length; j++)
+            {
+                if (boundKeys[i].Key != boundKeys[j].Key) continue;
+
+                var s1 = boundKeys[i].Scope;
+                var s2 = boundKeys[j].Scope;
+
+                // Same scope = conflict.
+                // Global + anything = conflict (Global is always active).
+                // Radio + Logging = OK (never simultaneous).
+                bool conflict = (s1 == s2) ||
+                                (s1 == KeyScope.Global || s2 == KeyScope.Global);
+
+                if (conflict)
+                {
+                    var msg = $"KEY CONFLICT: {boundKeys[i].Key} bound to " +
+                              $"{boundKeys[i].Id} ({s1}) AND {boundKeys[j].Id} ({s2})";
+                    _context.Trace(msg);
+                    clean = false;
+                }
+            }
+        }
+
+        if (clean)
+            _context.Trace("ValidateKeyBindings: all bindings clean, no conflicts");
+
+        return clean;
+    }
 
     /// <summary>
     /// Exposes the context for subclass construction (e.g. LogEntry.myKeyCommands).
