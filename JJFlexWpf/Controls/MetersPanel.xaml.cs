@@ -58,6 +58,7 @@ public partial class MetersPanel : UserControl
         {
             // Turn off meters
             MeterToneEngine.Enabled = false;
+            EarconPlayer.FeatureOffTone();
             ScreenReaderOutput.Speak("Meter tones off");
         }
         else
@@ -70,6 +71,7 @@ public partial class MetersPanel : UserControl
             if (Visibility != Visibility.Visible)
                 Visibility = Visibility.Visible;
 
+            EarconPlayer.FeatureOnTone();
             ScreenReaderOutput.Speak("Meter tones on");
         }
     }

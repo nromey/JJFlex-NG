@@ -37,6 +37,17 @@ namespace JJFlexWpf
                     foreach (var slot in Slots)
                         slot.ToneProvider.Active = false;
                 }
+                else if (_rig != null)
+                {
+                    // Proactively activate slots so tones start immediately
+                    // rather than waiting for the next OnMeterChanged event.
+                    bool tx = _rig.Transmit;
+                    foreach (var slot in Slots)
+                    {
+                        if (!slot.Enabled) continue;
+                        slot.ToneProvider.Active = ShouldSlotSound(slot.Source, tx);
+                    }
+                }
             }
         }
         private static bool _enabled;
@@ -330,6 +341,7 @@ namespace JJFlexWpf
                     slot.ToneProvider.Frequency = freq;
                     slot.ToneProvider.Volume = slot.Volume * MasterVolume;
                     slot.ToneProvider.Waveform = slot.Waveform;
+
                 }
             }
 

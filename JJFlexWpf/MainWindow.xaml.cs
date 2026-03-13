@@ -246,6 +246,43 @@ public partial class MainWindow : UserControl
     /// Returns PTT status text for the Speak Status hotkey, or null if PTT is idle.
     /// </summary>
     public string? GetPttStatusText() => _pttController?.GetSpokenStatus();
+    public string? GetFilterEdgeStatus() => _freqOutHandlers?.FilterEdgeStatus;
+
+    /// <summary>
+    /// Returns tuning mode status for Speak Status, e.g. "coarse 1 kilohertz".
+    /// </summary>
+    public string? GetTuningModeStatus()
+    {
+        if (_freqOutHandlers == null) return null;
+        if (ActiveUIMode == UIMode.Classic)
+            return "classic tuning mode";
+        string step = _freqOutHandlers.IsCoarseMode ? "coarse" : "fine";
+        return $"modern tuning mode, {step}, {FreqOutHandlers.FormatStepForSpeech(_freqOutHandlers.CurrentTuneStep)}";
+    }
+
+    /// <summary>
+    /// Returns "frequency readout off" if readout is disabled, null otherwise.
+    /// Only report when off — "on" is the default and not notable.
+    /// </summary>
+    public string? GetFreqReadoutStatus()
+    {
+        if (_freqOutHandlers == null) return null;
+        return _freqOutHandlers.FreqReadoutEnabled ? null : "frequency readout off";
+    }
+
+    /// <summary>
+    /// Returns meter tone status for Speak Status, e.g. "meter tones on, RX Monitor".
+    /// </summary>
+    public string? GetMeterStatus()
+    {
+        if (!MeterToneEngine.Enabled) return null;
+        return $"meter tones {MeterToneEngine.CurrentPreset}";
+    }
+
+    /// <summary>
+    /// Returns active filter preset name, or null if not on a preset.
+    /// </summary>
+    public string? GetFilterPresetStatus() => _freqOutHandlers?.ActiveFilterPresetStatus;
 
     /// <summary>
     /// Apply settings changes from the Settings dialog.
@@ -1417,32 +1454,47 @@ public partial class MainWindow : UserControl
             SetButtonText(AntennaTuneButton, e.Status);
         }
 
-        // Audio narrative for ATU tune cycle
+        // Audio narrative for ATU tune cycle.
+        // Progress earcons only for automatic ATU operations (the radio is doing its
+        // own thing and the operator needs to know when it finishes).
+        // Manual tune (Ctrl+Shift+T) never gets progress beeps — the operator controls
+        // the carrier and uses meter tones/speech to monitor SWR, power, etc.
+        bool isAutoATU = e.Type == "auto" && RigControl.HasATU;
+
         switch (e.Status)
         {
             case "InProgress":
-                EarconPlayer.StartATUProgressEarcon();
-                StartATUTimeout();
+                if (isAutoATU)
+                {
+                    EarconPlayer.StartATUProgressEarcon();
+                    StartATUTimeout();
+                }
                 break;
             case "OK":
             case "Successful":
                 StopATUTimeout();
                 EarconPlayer.StopATUProgressEarcon();
-                EarconPlayer.ATUSuccessTone();
+                if (isAutoATU)
+                    EarconPlayer.ATUSuccessTone();
+                // SWR readback is useful for both auto and manual tune
                 Radios.ScreenReaderOutput.Speak($"SWR {e.SWR}");
                 break;
             case "Fail":
             case "FailBypass":
                 StopATUTimeout();
                 EarconPlayer.StopATUProgressEarcon();
-                EarconPlayer.ATUFailTone();
-                Radios.ScreenReaderOutput.Speak($"Tune failed, SWR {e.SWR}");
+                if (isAutoATU)
+                {
+                    EarconPlayer.ATUFailTone();
+                    Radios.ScreenReaderOutput.Speak($"Tune failed, SWR {e.SWR}");
+                }
                 break;
             case "Bypass":
             case "ManualBypass":
                 StopATUTimeout();
                 EarconPlayer.StopATUProgressEarcon();
-                Radios.ScreenReaderOutput.Speak("ATU bypassed");
+                if (isAutoATU)
+                    Radios.ScreenReaderOutput.Speak("ATU bypassed");
                 break;
             case "NotStarted":
             case "Aborted":
@@ -1865,10 +1917,18 @@ public partial class MainWindow : UserControl
     /// <summary>
     /// Toggle the tune carrier on/off with audio feedback.
     /// Called from both the UI button and the Ctrl+Shift+T hotkey.
+    /// Guards against key auto-repeat producing rapid on/off/on/off chirps.
     /// </summary>
+    private long _lastTuneToggleTicks;
     public void ToggleTuneCarrier()
     {
         if (RigControl == null) return;
+
+        // Debounce: ignore calls within 500ms (key auto-repeat protection)
+        long now = Environment.TickCount64;
+        if (now - _lastTuneToggleTicks < 500) return;
+        _lastTuneToggleTicks = now;
+
         bool newState = !RigControl.TxTune;
         RigControl.TxTune = newState;
         TuneToggleButton.IsChecked = newState;
@@ -1880,6 +1940,9 @@ public partial class MainWindow : UserControl
         }
         else
         {
+            // Stop ATU progress earcon in case auto-ATU started a tune cycle
+            EarconPlayer.StopATUProgressEarcon();
+            StopATUTimeout();
             EarconPlayer.TuneOffTone();
             MeterToneEngine.OnTuneStopped();
             Radios.ScreenReaderOutput.Speak("Tune off", true);
@@ -2152,7 +2215,7 @@ public partial class MainWindow : UserControl
                 : RigControl.VirtualRXFrequency;
             string freqText = OpenParms.FormatFreq(freq);
             int slice = RigControl.RXVFO;
-            string speech = $"Frequency {freqText}, slice {slice}";
+            string speech = $"Frequency {freqText}, slice {RigControl.VFOToLetter(slice)}";
 
             // In Modern mode, include the current tuning step and mode
             if (ActiveUIMode == UIMode.Modern && _freqOutHandlers != null)

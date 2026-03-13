@@ -17,43 +17,39 @@
                     AutomationProperties.Name="About information tabs">
             <!-- Tab 1: About -->
             <TabItem Header="About" AutomationProperties.Name="About">
-                <TextBox x:Name="AboutText" IsReadOnly="True"
-                         TextWrapping="Wrap" AcceptsReturn="True"
-                         VerticalScrollBarVisibility="Auto"
-                         Margin="8"
+                <ListBox x:Name="AboutList"
+                         Margin="8" BorderThickness="0" Background="Transparent"
                          AutomationProperties.Name="About information"
-                         BorderThickness="0" Background="Transparent"/>
+                         IsTabStop="True"
+                         KeyboardNavigation.TabNavigation="Once"/>
             </TabItem>
 
             <!-- Tab 2: Radio -->
             <TabItem Header="Radio" AutomationProperties.Name="Radio">
-                <TextBox x:Name="RadioText" IsReadOnly="True"
-                         TextWrapping="Wrap" AcceptsReturn="True"
-                         VerticalScrollBarVisibility="Auto"
-                         Margin="8"
+                <ListBox x:Name="RadioList"
+                         Margin="8" BorderThickness="0" Background="Transparent"
                          AutomationProperties.Name="Radio information"
-                         BorderThickness="0" Background="Transparent"/>
+                         IsTabStop="True"
+                         KeyboardNavigation.TabNavigation="Once"/>
             </TabItem>
 
             <!-- Tab 3: System -->
             <TabItem Header="System" AutomationProperties.Name="System">
-                <TextBox x:Name="SystemText" IsReadOnly="True"
-                         TextWrapping="Wrap" AcceptsReturn="True"
-                         VerticalScrollBarVisibility="Auto"
-                         Margin="8"
+                <ListBox x:Name="SystemList"
+                         Margin="8" BorderThickness="0" Background="Transparent"
                          AutomationProperties.Name="System information"
-                         BorderThickness="0" Background="Transparent"/>
+                         IsTabStop="True"
+                         KeyboardNavigation.TabNavigation="Once"/>
             </TabItem>
 
             <!-- Tab 4: Diagnostics -->
             <TabItem Header="Diagnostics" AutomationProperties.Name="Diagnostics">
                 <StackPanel Margin="8">
-                    <TextBox x:Name="DiagnosticsText" IsReadOnly="True"
-                             TextWrapping="Wrap" AcceptsReturn="True"
-                             Height="180"
-                             VerticalScrollBarVisibility="Auto"
+                    <ListBox x:Name="DiagnosticsList"
+                             Height="180" BorderThickness="0" Background="Transparent"
                              AutomationProperties.Name="Diagnostics information"
-                             BorderThickness="0" Background="Transparent"/>
+                             IsTabStop="True"
+                             KeyboardNavigation.TabNavigation="Once"/>
                     <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
                         <Button Content="Check for Updates" MinWidth="130" Height="28" Margin="0,0,8,0"
                                 AutomationProperties.Name="Check for updates"
@@ -75,7 +71,7 @@
             <Button Content="Export Diagnostic Report" MinWidth="160" Height="28" Margin="0,0,8,0"
                     AutomationProperties.Name="Export diagnostic report to file"
                     Click="ExportButton_Click"/>
-            <Button Content="Close" MinWidth="80" Height="28"
+            <Button Content="_Close" MinWidth="80" Height="28"
                     IsDefault="True" IsCancel="True"
                     AutomationProperties.Name="Close"
                     Click="CloseButton_Click"/>

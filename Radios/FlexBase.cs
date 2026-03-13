@@ -172,6 +172,19 @@ namespace Radios
         /// Use this for gating — "if NOT licensed, block" is the safe default.
         /// </summary>
         public bool NoiseReductionLicensed => theRadio?.FeatureLicense?.LicenseFeatNoiseReduction?.FeatureEnabled == true;
+        /// <summary>
+        /// True only on radios with hardware capable of Neural/Spectral NR (8000 series, Aurora).
+        /// 6000 series radios lack the DSP hardware even if a license is purchased.
+        /// </summary>
+        public bool AdvancedNRHardwareSupported
+        {
+            get
+            {
+                string model = RadioModel;
+                return model.StartsWith("FLEX-8", StringComparison.OrdinalIgnoreCase) ||
+                       model.StartsWith("AU-5", StringComparison.OrdinalIgnoreCase);
+            }
+        }
         public bool DiversityLicenseReported => theRadio?.FeatureLicense?.LicenseFeatDivEsc != null;
         public bool DiversityLicensed => theRadio?.FeatureLicense?.LicenseFeatDivEsc?.FeatureEnabled == true;
         public bool DiversityHardwareSupported => theRadio?.DiversityIsAllowed == true;

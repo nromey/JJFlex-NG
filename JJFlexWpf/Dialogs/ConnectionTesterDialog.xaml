@@ -59,7 +59,7 @@
             <Button x:Name="StartButton" Content="Start" MinWidth="100" Height="28" Margin="0,0,8,0"
                     AutomationProperties.Name="Start connection test"
                     Click="StartButton_Click"/>
-            <Button x:Name="CloseButton" Content="Close" MinWidth="100" Height="28"
+            <Button x:Name="CloseButton" Content="_Close" MinWidth="100" Height="28"
                     AutomationProperties.Name="Close connection tester"
                     Click="CloseButton_Click"/>
         </StackPanel>

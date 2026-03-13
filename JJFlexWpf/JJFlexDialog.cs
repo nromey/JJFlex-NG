@@ -65,9 +65,6 @@ namespace JJFlexWpf
         /// </summary>
         private void JJFlexDialog_Loaded(object sender, RoutedEventArgs e)
         {
-            // Play dialog open earcon
-            EarconPlayer.DialogOpenTone();
-
             // Set automation name from title for screen readers
             if (!string.IsNullOrEmpty(Title))
             {
@@ -85,7 +82,6 @@ namespace JJFlexWpf
         /// </summary>
         protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
         {
-            EarconPlayer.DialogCloseTone();
             base.OnClosing(e);
         }
 
@@ -113,8 +109,8 @@ namespace JJFlexWpf
         protected StackPanel CreateButtonPanel(
             Action? onOk = null,
             Action? onCancel = null,
-            string okText = "OK",
-            string cancelText = "Cancel")
+            string okText = "_OK",
+            string cancelText = "_Cancel")
         {
             var panel = new StackPanel
             {
@@ -123,6 +119,7 @@ namespace JJFlexWpf
                 Margin = new Thickness(0, 10, 0, 0)
             };
 
+            string okAccessName = okText.Replace("_", "");
             var okButton = new Button
             {
                 Content = okText,
@@ -131,7 +128,8 @@ namespace JJFlexWpf
                 Margin = new Thickness(0, 0, 8, 0),
                 IsDefault = true  // Enter key triggers this
             };
-            AutomationProperties.SetName(okButton, okText);
+            AutomationProperties.SetName(okButton, okAccessName);
+            SetAccessKeyProperty(okButton, okText);
             okButton.Click += (s, e) =>
             {
                 onOk?.Invoke();
@@ -143,6 +141,7 @@ namespace JJFlexWpf
                 }
             };
 
+            string cancelAccessName = cancelText.Replace("_", "");
             var cancelButton = new Button
             {
                 Content = cancelText,
@@ -150,7 +149,8 @@ namespace JJFlexWpf
                 Height = 28,
                 IsCancel = true  // ESC also triggers this (backup to PreviewKeyDown)
             };
-            AutomationProperties.SetName(cancelButton, cancelText);
+            AutomationProperties.SetName(cancelButton, cancelAccessName);
+            SetAccessKeyProperty(cancelButton, cancelText);
             cancelButton.Click += (s, e) =>
             {
                 onCancel?.Invoke();
@@ -174,13 +174,14 @@ namespace JJFlexWpf
             Action? onOk = null,
             Action? onApply = null,
             Action? onCancel = null,
-            string okText = "OK",
-            string applyText = "Apply",
-            string cancelText = "Cancel")
+            string okText = "_OK",
+            string applyText = "_Apply",
+            string cancelText = "_Cancel")
         {
             var panel = CreateButtonPanel(onOk, onCancel, okText, cancelText);
 
             // Insert Apply button before Cancel
+            string applyAccessName = applyText.Replace("_", "");
             var applyButton = new Button
             {
                 Content = applyText,
@@ -188,7 +189,8 @@ namespace JJFlexWpf
                 Height = 28,
                 Margin = new Thickness(0, 0, 8, 0)
             };
-            AutomationProperties.SetName(applyButton, applyText);
+            AutomationProperties.SetName(applyButton, applyAccessName);
+            SetAccessKeyProperty(applyButton, applyText);
             applyButton.Click += (s, e) =>
             {
                 onApply?.Invoke();
@@ -199,6 +201,20 @@ namespace JJFlexWpf
             panel.Children.Insert(panel.Children.Count - 1, applyButton);
 
             return panel;
+        }
+
+        /// <summary>
+        /// Extract the access key letter from underscore-prefixed text (e.g. "_OK" → "Alt+O")
+        /// and set AutomationProperties.AccessKey so screen readers announce it.
+        /// </summary>
+        private static void SetAccessKeyProperty(System.Windows.UIElement element, string text)
+        {
+            int idx = text.IndexOf('_');
+            if (idx >= 0 && idx < text.Length - 1)
+            {
+                char key = char.ToUpper(text[idx + 1]);
+                AutomationProperties.SetAccessKey(element, $"Alt+{key}");
+            }
         }
 
         /// <summary>

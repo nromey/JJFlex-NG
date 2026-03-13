@@ -32,7 +32,7 @@
             <Button Content="Start" MinWidth="80" Height="28" Margin="0,0,8,0"
                     IsDefault="True" Click="StartButton_Click"
                     AutomationProperties.Name="Start scan" />
-            <Button Content="Cancel" MinWidth="80" Height="28"
+            <Button Content="_Cancel" MinWidth="80" Height="28"
                     IsCancel="True"
                     AutomationProperties.Name="Cancel" />
         </StackPanel>

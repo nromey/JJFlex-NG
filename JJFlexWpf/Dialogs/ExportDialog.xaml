@@ -31,7 +31,7 @@
         <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
             <Button Content="Export" MinWidth="75" Margin="0,0,8,0" IsDefault="True"
                     AutomationProperties.Name="Export" Click="ExportButton_Click"/>
-            <Button Content="Cancel" MinWidth="75" IsCancel="True"
+            <Button Content="_Cancel" MinWidth="75" IsCancel="True"
                     AutomationProperties.Name="Cancel" Click="CancelButton_Click"/>
         </StackPanel>
     </StackPanel>

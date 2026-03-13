@@ -30,7 +30,7 @@
             <Button x:Name="MergeButton" Content="Merge" MinWidth="80" Height="28"
                     Margin="0,0,8,0" IsDefault="True" Click="MergeButton_Click"
                     AutomationProperties.Name="Start merge" />
-            <Button x:Name="CancelCloseButton" Content="Cancel" MinWidth="80" Height="28"
+            <Button x:Name="CancelCloseButton" Content="_Cancel" MinWidth="80" Height="28"
                     IsCancel="True" Click="CancelButton_Click"
                     AutomationProperties.Name="Cancel" />
         </StackPanel>

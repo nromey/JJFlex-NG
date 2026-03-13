@@ -130,8 +130,8 @@ public partial class ScreenFieldsPanel : UserControl
         if (rxAnts.Length > 0) _rxAntennaControl.SetOptions(rxAnts);
         if (txAnts.Length > 0) _txAntennaControl.SetOptions(txAnts);
 
-        // Neural and Spectral NR require the NR license — hide if not licensed
-        bool advancedNrAvailable = rig.NoiseReductionLicensed;
+        // Neural and Spectral NR require 8000-series/Aurora hardware — 6000 series lacks DSP
+        bool advancedNrAvailable = rig.AdvancedNRHardwareSupported;
         _neuralNrCheck.Visibility = advancedNrAvailable ? Visibility.Visible : Visibility.Collapsed;
         _spectralNrCheck.Visibility = advancedNrAvailable ? Visibility.Visible : Visibility.Collapsed;
         // Legacy NR is always available — no license required
@@ -253,13 +253,13 @@ public partial class ScreenFieldsPanel : UserControl
 
         // Meter Tones
         _meterToneCheck = MakeToggle("Meter Tones");
-        _meterToneCheck.Checked += (s, e) => { if (!_polling) { MeterToneEngine.Enabled = true; ScreenReaderOutput.Speak("Meter tones on"); } };
-        _meterToneCheck.Unchecked += (s, e) => { if (!_polling) { MeterToneEngine.Enabled = false; ScreenReaderOutput.Speak("Meter tones off"); } };
+        _meterToneCheck.Checked += (s, e) => { if (!_polling) { MeterToneEngine.Enabled = true; EarconPlayer.FeatureOnTone(); ScreenReaderOutput.Speak("Meter tones on"); } };
+        _meterToneCheck.Unchecked += (s, e) => { if (!_polling) { MeterToneEngine.Enabled = false; EarconPlayer.FeatureOffTone(); ScreenReaderOutput.Speak("Meter tones off"); } };
         DspContent.Children.Add(_meterToneCheck);
 
         _peakWatcherCheck = MakeToggle("Peak Watcher");
-        _peakWatcherCheck.Checked += (s, e) => { if (!_polling) { MeterToneEngine.PeakWatcherEnabled = true; ScreenReaderOutput.Speak("Peak Watcher on"); } };
-        _peakWatcherCheck.Unchecked += (s, e) => { if (!_polling) { MeterToneEngine.PeakWatcherEnabled = false; ScreenReaderOutput.Speak("Peak Watcher off"); } };
+        _peakWatcherCheck.Checked += (s, e) => { if (!_polling) { MeterToneEngine.PeakWatcherEnabled = true; EarconPlayer.FeatureOnTone(); ScreenReaderOutput.Speak("Peak Watcher on"); } };
+        _peakWatcherCheck.Unchecked += (s, e) => { if (!_polling) { MeterToneEngine.PeakWatcherEnabled = false; EarconPlayer.FeatureOffTone(); ScreenReaderOutput.Speak("Peak Watcher off"); } };
         DspContent.Children.Add(_peakWatcherCheck);
     }
 
@@ -828,10 +828,12 @@ public partial class ScreenFieldsPanel : UserControl
             expander.IsExpanded = true;
             ScreenReaderOutput.Speak($"{CategoryNames[index]} expanded");
 
-            // Focus the first focusable control in the expanded content
-            // (deferred until layout completes so the content is rendered)
-            Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded, () =>
+            // Focus the first focusable control in the expanded content.
+            // Delay slightly so the "expanded" speech finishes before the
+            // focused control announces itself (otherwise NVDA steps on it).
+            Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded, async () =>
             {
+                await System.Threading.Tasks.Task.Delay(150);
                 var content = GetCategoryContent(index);
                 if (content != null)
                 {

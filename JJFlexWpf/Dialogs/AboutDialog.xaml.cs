@@ -78,14 +78,14 @@ namespace JJFlexWpf.Dialogs
                 }
             }
 
-            AboutText.Text = sb.ToString();
+            PopulateListBox(AboutList, sb.ToString());
         }
 
         private void PopulateRadioTab()
         {
             if (Rig == null || !Rig.IsConnected)
             {
-                RadioText.Text = "Not connected to a radio.\r\n\r\nConnect to a radio to see its details here.";
+                PopulateListBox(RadioList, "Not connected to a radio.\r\n\r\nConnect to a radio to see its details here.");
                 return;
             }
 
@@ -121,7 +121,7 @@ namespace JJFlexWpf.Dialogs
             sb.AppendLine($"Active slices: {Rig.TotalNumSlices} of {Rig.MaxSlices}");
             sb.AppendLine($"Diversity: {(Rig.DiversityHardwareSupported ? "Available" : "Not available")}");
 
-            RadioText.Text = sb.ToString();
+            PopulateListBox(RadioList, sb.ToString());
         }
 
         private void PopulateSystemTab()
@@ -177,7 +177,7 @@ namespace JJFlexWpf.Dialogs
             if (ScreenReaderOutput.HasBraille)
                 sb.AppendLine("Braille: Available");
 
-            SystemText.Text = sb.ToString();
+            PopulateListBox(SystemList, sb.ToString());
         }
 
         private void PopulateDiagnosticsTab()
@@ -196,7 +196,7 @@ namespace JJFlexWpf.Dialogs
             sb.AppendLine();
             sb.AppendLine("Use the buttons below to check for updates or test your connection.");
 
-            DiagnosticsText.Text = sb.ToString();
+            PopulateListBox(DiagnosticsList, sb.ToString());
         }
 
         private string BuildFullReport()
@@ -206,16 +206,16 @@ namespace JJFlexWpf.Dialogs
             sb.AppendLine($"Generated: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
             sb.AppendLine();
             sb.AppendLine("--- About ---");
-            sb.AppendLine(AboutText.Text);
+            sb.AppendLine(ListBoxToText(AboutList));
             sb.AppendLine();
             sb.AppendLine("--- Radio ---");
-            sb.AppendLine(RadioText.Text);
+            sb.AppendLine(ListBoxToText(RadioList));
             sb.AppendLine();
             sb.AppendLine("--- System ---");
-            sb.AppendLine(SystemText.Text);
+            sb.AppendLine(ListBoxToText(SystemList));
             sb.AppendLine();
             sb.AppendLine("--- Diagnostics ---");
-            sb.AppendLine(DiagnosticsText.Text);
+            sb.AppendLine(ListBoxToText(DiagnosticsList));
             return sb.ToString();
         }
 
@@ -246,27 +246,27 @@ namespace JJFlexWpf.Dialogs
                     if (latest > current)
                     {
                         var msg = $"Update available: version {latestVersion} (you have {currentVersion})";
-                        DiagnosticsText.Text += $"\r\n\r\n{msg}";
+                        DiagnosticsList.Items.Add(msg);
                         SpeakCallback?.Invoke(msg, true);
                     }
                     else
                     {
                         var msg = $"You're up to date (version {currentVersion})";
-                        DiagnosticsText.Text += $"\r\n\r\n{msg}";
+                        DiagnosticsList.Items.Add(msg);
                         SpeakCallback?.Invoke(msg, true);
                     }
                 }
                 else
                 {
                     var msg = $"Latest release: {latestVersion}, current: {currentVersion}";
-                    DiagnosticsText.Text += $"\r\n\r\n{msg}";
+                    DiagnosticsList.Items.Add(msg);
                     SpeakCallback?.Invoke(msg, true);
                 }
             }
             catch (Exception ex)
             {
                 var msg = $"Could not check for updates: {ex.Message}";
-                DiagnosticsText.Text += $"\r\n\r\n{msg}";
+                DiagnosticsList.Items.Add(msg);
                 SpeakCallback?.Invoke("Could not check for updates", true);
             }
         }
@@ -317,6 +317,32 @@ namespace JJFlexWpf.Dialogs
         private void CloseButton_Click(object sender, RoutedEventArgs e)
         {
             Close();
+        }
+
+        /// <summary>
+        /// Populate a ListBox with lines from a multi-line string.
+        /// Each non-empty line becomes a ListBoxItem — screen readers announce
+        /// each item on arrow up/down, unlike TextBox which has UIA issues.
+        /// </summary>
+        private static void PopulateListBox(System.Windows.Controls.ListBox listBox, string text)
+        {
+            listBox.Items.Clear();
+            foreach (var line in text.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None))
+            {
+                if (!string.IsNullOrWhiteSpace(line))
+                    listBox.Items.Add(line.Trim());
+            }
+        }
+
+        /// <summary>
+        /// Reconstruct text from a ListBox for clipboard/export.
+        /// </summary>
+        private static string ListBoxToText(System.Windows.Controls.ListBox listBox)
+        {
+            var sb = new StringBuilder();
+            foreach (var item in listBox.Items)
+                sb.AppendLine(item.ToString());
+            return sb.ToString().TrimEnd();
         }
     }
 }

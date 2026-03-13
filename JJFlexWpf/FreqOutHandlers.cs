@@ -42,6 +42,9 @@ public class FreqOutHandlers
     // Frequency readout toggle — when off, tuning doesn't speak the new frequency
     private bool _freqReadout = true;
 
+    /// <summary>Whether frequency readout is currently enabled.</summary>
+    public bool FreqReadoutEnabled => _freqReadout;
+
     // Filter edge selection mode — double-tap bracket to adjust a single edge
     private enum FilterEdgeMode { None, LowerEdge, UpperEdge }
     private FilterEdgeMode _filterEdgeMode = FilterEdgeMode.None;
@@ -56,6 +59,7 @@ public class FreqOutHandlers
     public void ToggleFreqReadout()
     {
         _freqReadout = !_freqReadout;
+        if (_freqReadout) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
         Radios.ScreenReaderOutput.Speak(
             _freqReadout ? "Frequency readout on" : "Frequency readout off", true);
     }
@@ -593,6 +597,7 @@ public class FreqOutHandlers
                 {
                     bool newMute = !Rig.SliceMute;
                     Rig.SliceMute = newMute;
+                    if (newMute) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
                     Radios.ScreenReaderOutput.Speak(newMute ? "Muted" : "Unmuted");
                 }
                 e.Handled = true;
@@ -847,6 +852,7 @@ public class FreqOutHandlers
                 toggled.Active = !toggled.Active;
                 if (isRIT) Rig.RIT = toggled;
                 else Rig.XIT = toggled;
+                if (toggled.Active) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
                 Radios.ScreenReaderOutput.Speak($"{fieldKey} {(toggled.Active ? "on" : "off")}");
                 e.Handled = true;
                 break;
@@ -997,6 +1003,7 @@ public class FreqOutHandlers
         {
             bool newMute = !Rig.SliceMute;
             Rig.SliceMute = newMute;
+            if (newMute) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
             Radios.ScreenReaderOutput.Speak(newMute ? "Muted" : "Unmuted");
             e.Handled = true;
         }
@@ -1174,6 +1181,7 @@ public class FreqOutHandlers
                     {
                         bool newMute = !Rig.SliceMute;
                         Rig.SliceMute = newMute;
+                        if (newMute) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
                         Radios.ScreenReaderOutput.Speak(
                             newMute ? "Muted" : "Unmuted", true);
                     }
@@ -1193,6 +1201,7 @@ public class FreqOutHandlers
                         var rit = new FlexBase.RITData(Rig.RIT);
                         rit.Active = !rit.Active;
                         Rig.RIT = rit;
+                        if (rit.Active) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
                         Radios.ScreenReaderOutput.Speak(
                             rit.Active ? "RIT on" : "RIT off", true);
                     }
@@ -1206,6 +1215,7 @@ public class FreqOutHandlers
                         var xit = new FlexBase.RITData(Rig.XIT);
                         xit.Active = !xit.Active;
                         Rig.XIT = xit;
+                        if (xit.Active) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
                         Radios.ScreenReaderOutput.Speak(
                             xit.Active ? "XIT on" : "XIT off", true);
                     }
@@ -1268,7 +1278,9 @@ public class FreqOutHandlers
         int width = high - low;
         if (width < 200) return 10;
         if (width < 500) return 25;
-        return 50;
+        if (width < 2000) return 50;
+        if (width < 5000) return 100;
+        return 200;
     }
 
     /// <summary>
@@ -1396,14 +1408,18 @@ public class FreqOutHandlers
         }
         else return;
 
-        // Clamp to mode-specific bounds
+        // Clamp to mode-specific bounds — track what was requested vs what survived clamping
+        int requestedLow = low, requestedHigh = high;
         low = Math.Max(low, lowMin);
         high = Math.Min(high, highMax);
         if (high - low < minWidth) high = low + minWidth; // safety
 
         Rig.SetFilter(low, high);
 
-        // Boundary announcements
+        // Boundary announcements — only announce "at limit" when clamping actually
+        // restricted movement, not just because an edge sits at a mode boundary.
+        // In LSB, high is naturally 0 == highMax; the old OR check falsely said
+        // "at limit" on every adjustment even when the low edge had room to move.
         if (low == origLow && high == origHigh)
         {
             Radios.ScreenReaderOutput.Speak("Filter at limit", true);
@@ -1412,13 +1428,15 @@ public class FreqOutHandlers
         {
             int width = high - low;
             string widthStr = width >= 1000 ? $"{width / 1000.0:F1} k" : $"{width}";
+            bool lowClamped = low != requestedLow;
+            bool highClamped = high != requestedHigh;
             string atLimit = "";
-            if (shift && key == Key.OemOpenBrackets && low == lowMin)
-                atLimit = ", lower limit";
-            else if (shift && key == Key.OemCloseBrackets && high == highMax)
-                atLimit = ", upper limit";
-            else if (low == lowMin || high == highMax)
+            if (lowClamped && highClamped)
                 atLimit = ", at limit";
+            else if (lowClamped)
+                atLimit = ", lower limit";
+            else if (highClamped)
+                atLimit = ", upper limit";
             Radios.ScreenReaderOutput.Speak($"Filter {low} to {high}, {widthStr}{atLimit}", true);
         }
         e.Handled = true;
@@ -1497,6 +1515,30 @@ public class FreqOutHandlers
     /// True if currently in filter edge selection mode.
     /// </summary>
     public bool InFilterEdgeMode => _filterEdgeMode != FilterEdgeMode.None;
+
+    /// <summary>
+    /// Returns which filter edge is grabbed, or null if not in edge mode.
+    /// </summary>
+    public string? FilterEdgeStatus =>
+        _filterEdgeMode == FilterEdgeMode.LowerEdge ? "lower filter edge grabbed" :
+        _filterEdgeMode == FilterEdgeMode.UpperEdge ? "upper filter edge grabbed" :
+        null;
+
+    /// <summary>
+    /// Returns active filter preset description, or null if not on a named preset.
+    /// </summary>
+    public string? ActiveFilterPresetStatus
+    {
+        get
+        {
+            if (FilterPresets == null || Rig == null) return null;
+            string mode = Rig.Mode ?? "USB";
+            int idx = FilterPresets.FindActivePreset(mode, Rig.FilterLow, Rig.FilterHigh);
+            if (idx < 0) return null;
+            var presets = FilterPresets.GetPresetsForMode(mode);
+            return $"filter {presets[idx].FormatForSpeech()}";
+        }
+    }
 
     /// <summary>
     /// Get mode-specific filter bounds for boundary detection.

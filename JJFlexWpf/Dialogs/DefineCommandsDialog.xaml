@@ -37,9 +37,9 @@
 
             <!-- Action buttons -->
             <StackPanel Orientation="Horizontal">
-                <Button Content="OK" MinWidth="75" Margin="0,0,8,0" IsDefault="True"
+                <Button Content="_OK" MinWidth="75" Margin="0,0,8,0" IsDefault="True"
                         AutomationProperties.Name="OK" Click="OKButton_Click"/>
-                <Button Content="Cancel" MinWidth="75" Margin="0,0,20,0" IsCancel="True"
+                <Button Content="_Cancel" MinWidth="75" Margin="0,0,20,0" IsCancel="True"
                         AutomationProperties.Name="Cancel" Click="CancelButton_Click"/>
                 <Button x:Name="ResetButton" Content="Reset Selected" MinWidth="100" Margin="0,0,8,0"
                         AutomationProperties.Name="Reset selected hotkey to default"

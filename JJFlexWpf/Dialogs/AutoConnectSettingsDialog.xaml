@@ -35,10 +35,10 @@
 
         <!-- Buttons -->
         <StackPanel Grid.Row="4" Style="{StaticResource ButtonPanel}">
-            <Button Content="Save" Style="{StaticResource OkButton}"
+            <Button Content="_Save" Style="{StaticResource OkButton}"
                     AutomationProperties.Name="Save auto-connect settings"
                     Click="SaveButton_Click"/>
-            <Button Content="Cancel" Style="{StaticResource CancelButton}"
+            <Button Content="_Cancel" Style="{StaticResource CancelButton}"
                     AutomationProperties.Name="Cancel without saving"
                     Click="CancelButton_Click"/>
         </StackPanel>

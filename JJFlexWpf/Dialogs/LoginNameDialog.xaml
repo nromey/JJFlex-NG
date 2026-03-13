@@ -36,10 +36,10 @@
 
         <StackPanel Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="2"
                     Style="{StaticResource ButtonPanel}">
-            <Button Content="OK" Style="{StaticResource OkButton}"
+            <Button Content="_OK" Style="{StaticResource OkButton}"
                     AutomationProperties.Name="OK"
                     Click="OkButton_Click"/>
-            <Button Content="Cancel" Style="{StaticResource CancelButton}"
+            <Button Content="_Cancel" Style="{StaticResource CancelButton}"
                     AutomationProperties.Name="Cancel"
                     Click="CancelButton_Click"/>
         </StackPanel>

@@ -20,7 +20,7 @@
             <Button x:Name="DeleteButton" Content="Delete" MinWidth="70" Height="28"
                     Margin="0,0,8,0" Click="DeleteButton_Click"
                     AutomationProperties.Name="Delete" />
-            <Button Content="Cancel" MinWidth="70" Height="28"
+            <Button Content="_Cancel" MinWidth="70" Height="28"
                     IsCancel="True"
                     AutomationProperties.Name="Cancel" />
         </StackPanel>

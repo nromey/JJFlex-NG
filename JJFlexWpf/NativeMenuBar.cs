@@ -272,8 +272,8 @@ public class NativeMenuBar : IDisposable
 
         // === Noise Reduction submenu ===
         var nrSub = AddSubmenu(parent, "Noise Reduction");
-        // Neural and Spectral NR require the NR license — hide if not licensed
-        if (Rig.NoiseReductionLicensed)
+        // Neural and Spectral NR require 8000-series/Aurora hardware — 6000 series lacks DSP
+        if (Rig.AdvancedNRHardwareSupported)
         {
             AddChecked(nrSub, "Neural NR (RNN)\tCtrl+J, R", () =>
                 ToggleDSP("Neural NR", () => Rig.NeuralNoiseReduction, v => Rig.NeuralNoiseReduction = v),
@@ -762,10 +762,10 @@ public class NativeMenuBar : IDisposable
 
         // === Radio ===
         var radio = AddPopup(bar, "&Radio");
-        string connectLabel = (Rig != null && Rig.IsConnected)
-            ? "Connect to a Different Radio"
-            : "Connect to Radio";
-        AddWired(radio, connectLabel, () => ConnectWithConfirmation());
+        if (Rig != null && Rig.IsConnected)
+            AddWired(radio, "Disconnect", () => _window.CloseRadioCallback?.Invoke());
+        else
+            AddWired(radio, "Connect to Radio", () => ConnectWithConfirmation());
         AddWired(radio, "Manage SmartLink Accounts", () => _window.ShowSmartLinkAccountManager());
         AddChecked(radio, "Auto-Connect Enabled",
             () => { var msg = _window.ToggleAutoConnect(); if (msg != null) SpeakAfterMenuClose(msg); },
@@ -784,7 +784,6 @@ public class NativeMenuBar : IDisposable
         AddNotImplemented(loggingSub, "LOTW Merge");
 
         AddSep(radio);
-        AddWired(radio, "Disconnect", () => _window.CloseRadioCallback?.Invoke());
         AddWired(radio, "Exit", () => _window.CloseShellCallback?.Invoke());
 
         // === Slice ===

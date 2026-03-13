@@ -23,7 +23,7 @@
             <Button x:Name="ToggleButton" MinWidth="80" Height="28" Margin="0,0,8,0"
                     IsDefault="True" Click="ToggleButton_Click"
                     AutomationProperties.Name="Start or stop tracing" />
-            <Button Content="Cancel" MinWidth="80" Height="28"
+            <Button Content="_Cancel" MinWidth="80" Height="28"
                     IsCancel="True"
                     AutomationProperties.Name="Cancel" />
         </StackPanel>

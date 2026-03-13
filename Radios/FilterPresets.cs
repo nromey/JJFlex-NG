@@ -167,6 +167,8 @@ public class FilterPresets
                 new("Wide", 100, 2800),         // 2.7k
                 new("Extra Wide", 100, 3100),   // 3.0k
                 new("Wide Open", 100, 4100),    // 4.0k
+                new("Monitor", 100, 6100),      // 6.0k — ragchew / relaxed listening
+                new("Full Band", 100, 10100),   // 10.0k — wideband monitoring
             },
             "CW" => new List<FilterPreset>
             {
@@ -175,6 +177,7 @@ public class FilterPresets
                 new("Normal", -250, 250),      // 500 Hz
                 new("Wide", -500, 500),        // 1k
                 new("Wide Open", -1000, 1000), // 2k
+                new("Monitor", -2000, 2000),   // 4k — hear nearby CW signals
             },
             "DIGI" => new List<FilterPreset>
             {

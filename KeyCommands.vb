@@ -197,6 +197,31 @@ Public Class KeyCommands
                 i = CType(value, Integer)
             End Set
         End Property
+
+        ''' <summary>
+        ''' Stores the default key at the time this config was saved.
+        ''' On load, if the current default differs from this saved default,
+        ''' we know the default changed. If the user's key matches this old default,
+        ''' they never customized — apply new default. If their key differs,
+        ''' they customized — keep their binding.
+        ''' </summary>
+        <XmlIgnore()> Public savedDefaultKey As Keys = Keys.None
+        ''' <summary>XML proxy for savedDefaultKey — same integer pattern as key.</summary>
+        <XmlElement("defaultKey")>
+        Public Property savedDefaultKeyAsString As String
+            Get
+                Return CType(savedDefaultKey, Integer).ToString()
+            End Get
+            Set(value As String)
+                Dim n As Integer
+                If Integer.TryParse(value, n) Then
+                    savedDefaultKey = CType(n, Keys)
+                Else
+                    savedDefaultKey = Keys.None
+                End If
+            End Set
+        End Property
+
         Public Sub New()
             ' default constructor.
         End Sub
@@ -679,14 +704,14 @@ Public Class KeyCommands
      New KeyDefType(Keys.L Or Keys.Control, CommandValues.StationLookup, KeyScope.[Global]),
      New KeyDefType(Keys.None, CommandValues.GatherDebug, KeyScope.[Global]),
      New KeyDefType(Keys.F2, CommandValues.ShowFreq, KeyScope.Radio), ' --- Radio scope ---
-     New KeyDefType(Keys.F Or Keys.Control, CommandValues.SetFreq, KeyScope.Radio),
-     New KeyDefType(Keys.M Or Keys.Control, CommandValues.ShowMemory, KeyScope.Radio),
+     New KeyDefType(Keys.None, CommandValues.SetFreq, KeyScope.Radio),  ' Was Ctrl+F — moved to JJ Ctrl+F (Sprint 23)
+     New KeyDefType(Keys.None, CommandValues.ShowMemory, KeyScope.Radio),  ' Was Ctrl+M — moved to JJ M (Sprint 23)
      New KeyDefType(Keys.M Or Keys.Control Or Keys.Shift, CommandValues.MemoryScan, KeyScope.Radio),
      New KeyDefType(Keys.None, CommandValues.SmeterDBM, KeyScope.Radio),
-     New KeyDefType(Keys.S Or Keys.Control Or Keys.Shift, CommandValues.ReadSMeter, KeyScope.Radio), ' Ctrl+Shift+S = Read S-meter
+     New KeyDefType(Keys.S Or Keys.Control, CommandValues.ReadSMeter, KeyScope.Radio),                ' Ctrl+S = Read S-meter
      New KeyDefType(Keys.M Or Keys.Control Or Keys.Alt, CommandValues.ToggleMeterTones, KeyScope.Radio), ' Ctrl+Alt+M = Toggle meter tones
-     New KeyDefType(Keys.None, CommandValues.CycleMeterPreset, KeyScope.Radio),                         ' No default binding (use menu or leader key)
-     New KeyDefType(Keys.None, CommandValues.SpeakMeters, KeyScope.Radio),                              ' No default binding (use menu or leader key)
+     New KeyDefType(Keys.P Or Keys.Control Or Keys.Alt, CommandValues.CycleMeterPreset, KeyScope.Radio), ' Ctrl+Alt+P = Cycle meter preset
+     New KeyDefType(Keys.V Or Keys.Control Or Keys.Alt, CommandValues.SpeakMeters, KeyScope.Radio),     ' Ctrl+Alt+V = Speak meter values
      New KeyDefType(Keys.None, CommandValues.CycleContinuous, KeyScope.Radio),
      New KeyDefType(Keys.None, CommandValues.LogForm, KeyScope.Radio),
      New KeyDefType(Keys.C Or Keys.Control Or Keys.Shift, CommandValues.ClearRIT, KeyScope.Radio),
@@ -753,7 +778,7 @@ Public Class KeyCommands
      New KeyDefType(Keys.L Or Keys.Control Or Keys.Alt, CommandValues.LogOpenFullForm, KeyScope.Logging),
      New KeyDefType(Keys.Oem2 Or Keys.Control, CommandValues.ContextHelp, KeyScope.[Global]),
      New KeyDefType(Keys.S Or Keys.Control Or Keys.Shift, CommandValues.SpeakStatus, KeyScope.[Global]),
-     New KeyDefType(Keys.S Or Keys.Control Or Keys.Alt, CommandValues.ShowStatusDialog, KeyScope.[Global]),
+     New KeyDefType(Keys.None, CommandValues.ShowStatusDialog, KeyScope.[Global]),                      ' Unbound — dialog disabled (BUG-020)
      New KeyDefType(Keys.S Or Keys.Alt Or Keys.Shift, CommandValues.SpeakTxStatus, KeyScope.[Global]),
      New KeyDefType(Keys.OemOpenBrackets Or Keys.Control Or Keys.Shift, CommandValues.TXFilterLowDown, KeyScope.Radio),
      New KeyDefType(Keys.OemCloseBrackets Or Keys.Control Or Keys.Shift, CommandValues.TXFilterLowUp, KeyScope.Radio),
@@ -763,7 +788,7 @@ Public Class KeyCommands
      New KeyDefType(Keys.W Or Keys.Control Or Keys.Shift, CommandValues.OpenAudioWorkshop, KeyScope.[Global]),
      New KeyDefType(Keys.T Or Keys.Control Or Keys.Shift, CommandValues.TuneToggle, KeyScope.Radio),  ' Ctrl+Shift+T = Tune carrier toggle
      New KeyDefType(Keys.T Or Keys.Control, CommandValues.ATUTune, KeyScope.Radio),                     ' Ctrl+T = ATU Tune
-     New KeyDefType(Keys.None, CommandValues.ToggleMeters, KeyScope.[Global]),  ' Was Ctrl+M — conflicts with ShowMemory (Radio scope wins); use menu instead (Sprint 23)
+     New KeyDefType(Keys.M Or Keys.Control, CommandValues.ToggleMeters, KeyScope.[Global]),  ' Ctrl+M = meter tones (ShowMemory moved to JJ M)
      New KeyDefType(Keys.Up Or Keys.Alt Or Keys.Shift, CommandValues.SixtyMeterChannelUp, KeyScope.Radio),     ' Alt+Shift+Up = 60m channel up
      New KeyDefType(Keys.Down Or Keys.Alt Or Keys.Shift, CommandValues.SixtyMeterChannelDown, KeyScope.Radio), ' Alt+Shift+Down = 60m channel down
      New KeyDefType(Keys.N Or Keys.Control Or Keys.Shift, CommandValues.ToggleDspExpander, KeyScope.Radio),             ' Ctrl+Shift+N = DSP expander
@@ -771,7 +796,7 @@ Public Class KeyCommands
      New KeyDefType(Keys.R Or Keys.Control Or Keys.Shift, CommandValues.ToggleReceiverExpander, KeyScope.Radio),         ' Ctrl+Shift+R = Receiver expander
      New KeyDefType(Keys.X Or Keys.Control Or Keys.Shift, CommandValues.ToggleTransmissionExpander, KeyScope.Radio),     ' Ctrl+Shift+X = Transmission expander
      New KeyDefType(Keys.A Or Keys.Control Or Keys.Shift, CommandValues.ToggleAntennaExpander, KeyScope.Radio),          ' Ctrl+Shift+A = Antenna expander
-     New KeyDefType(Keys.F Or Keys.Alt, CommandValues.SpeakFrequency, KeyScope.Radio),                                  ' Alt+F = Speak frequency
+     New KeyDefType(Keys.F Or Keys.Control, CommandValues.SpeakFrequency, KeyScope.Radio),                               ' Ctrl+F = Speak frequency
      New KeyDefType(Keys.F4 Or Keys.Control, CommandValues.RepeatLastMessage, KeyScope.[Global])}                        ' Ctrl+F4 = Repeat last message
 
     ''' <summary>
@@ -927,8 +952,11 @@ Public Class KeyCommands
     ''' v2 = Sprint 17 F-key reshuffle (bands→F3-F9, mode→F10-F11, CW→Ctrl+Shift)
     ''' v3 = Sprint 17 bugfix: F10/F11→Alt+M/Alt+Shift+M (F10 intercepted by Windows)
     ''' v4 = Sprint 17.5: Alt+S→Ctrl+Alt+S, Alt+R→Ctrl+Alt+R (free Alt for menu accelerators)
+    ''' v5 = Sprint 23: unified hotkey dispatch — expander keys moved to KeyCommands,
+    '''      Ctrl+Shift+U freed from SavedScan for Audio expander, Ctrl+M freed from meters,
+    '''      new expander commands (DSP/Audio/Receiver/Transmission/Antenna)
     ''' </summary>
-    Private Const KeyConfigVersion As Integer = 4
+    Private Const KeyConfigVersion As Integer = 5
 
     Private Sub setupData()
         ' Setup the dictionaries.
@@ -965,13 +993,15 @@ Public Class KeyCommands
         Try
             Dim kData As KeyConfigType_V1 = xs.Deserialize(cfgFile)
             cfgFile.Close()
-            ' Force reset if saved config is from an older keybinding layout version.
-            If kData.Version < KeyConfigVersion Then
-                Tracing.TraceLine("KeyCommands: config version " & kData.Version & " < " & KeyConfigVersion & ", resetting to defaults", TraceLevel.Info)
+            ' Pre-v5 configs don't have per-key default tracking — force reset (one-time migration).
+            If kData.Version < 5 Then
+                Tracing.TraceLine("KeyCommands: config version " & kData.Version & " < 5, resetting to defaults (one-time migration to per-key tracking)", TraceLevel.Info)
                 keyTableToDefault(True)
                 Return
             End If
+            ' v5+: Load saved bindings, then smart-merge changed defaults.
             SetValues(kData.Items, KeyTypes.allKeys, False)
+            SmartMergeDefaults(kData.Items)
             murgeNewDefaults()
         Catch ex As Exception
             Tracing.TraceLine("KeyCommands new:" & ex.Message & vbCrLf & ex.InnerException.Message, TraceLevel.Error)
@@ -1032,6 +1062,11 @@ Public Class KeyCommands
         kData.Version = KeyConfigVersion
         For i = 0 To ktbl.Length - 1
             kData.Items(i) = ktbl(i).key
+            ' Store current default key alongside user's key for per-key smart merge on load.
+            Dim defKey = GetDefaultKey(ktbl(i).key.id)
+            If defKey IsNot Nothing Then
+                kData.Items(i).savedDefaultKey = defKey.key
+            End If
         Next
 #End If
         Dim xs As New XmlSerializer(GetType(KeyConfigType_V1))
@@ -1165,6 +1200,54 @@ Public Class KeyCommands
         End If
     End Sub
 
+    ''' <summary>
+    ''' Smart-merge changed defaults: for each command in the saved config,
+    ''' compare the savedDefaultKey to the current default. If the default changed
+    ''' and the user never customized (their key == old default), apply the new default.
+    ''' If they customized (their key != old default), keep their binding.
+    ''' </summary>
+    Private Sub SmartMergeDefaults(savedItems As KeyDefType())
+        If savedItems Is Nothing Then Return
+        Dim needWrite As Boolean = False
+        For Each saved In savedItems
+            Dim currentDefault = GetDefaultKey(saved.id)
+            If currentDefault Is Nothing Then Continue For
+
+            ' If saved default matches current default, nothing changed for this command.
+            If saved.savedDefaultKey = currentDefault.key Then Continue For
+
+            ' Default changed. Did the user customize this key?
+            If saved.key = saved.savedDefaultKey Then
+                ' User never customized — they had the old default. Apply new default.
+                Tracing.TraceLine($"KeyCommands:SmartMerge: {saved.id} default changed {saved.savedDefaultKey} -> {currentDefault.key}, user had old default, updating", TraceLevel.Info)
+
+                ' Remove old key binding from KeyDictionary
+                Dim oldEntries As List(Of keyTbl) = Nothing
+                If saved.key <> Keys.None AndAlso KeyDictionary.TryGetValue(saved.key, oldEntries) Then
+                    oldEntries.RemoveAll(Function(e) e.key.id = saved.id)
+                    If oldEntries.Count = 0 Then KeyDictionary.Remove(saved.key)
+                End If
+
+                ' Update the keyTbl entry and re-add to dictionary
+                Dim kt = lookup(saved.id)
+                If kt IsNot Nothing Then
+                    kt.key.key = currentDefault.key
+                    kt.key.Scope = currentDefault.Scope
+                    If currentDefault.key <> Keys.None Then
+                        AddToKeyDictionary(kt)
+                    End If
+                End If
+                needWrite = True
+            Else
+                ' User customized this key — keep their binding.
+                Tracing.TraceLine($"KeyCommands:SmartMerge: {saved.id} default changed but user has custom key {saved.key}, keeping", TraceLevel.Info)
+            End If
+        Next
+        If needWrite Then
+            write()
+        End If
+    End Sub
+
     Shared nameTable As String() = [Enum].GetNames(GetType(CommandValues))
     Shared idTable As Integer() = [Enum].GetValues(GetType(CommandValues))
     ''' <summary>
@@ -1262,7 +1345,7 @@ Public Class KeyCommands
         ' Just return if this is just the shift, alt, or control key.
         Dim theKey As Integer = (k And Keys.KeyCode)
         If (theKey = Keys.Menu) Or (theKey = Keys.ControlKey) Or _
-           (theKey = Keys.ShiftKey) Then
+           (theKey = Keys.ShiftKey) Or (theKey = 0) Then
             Return rv
         End If
 
@@ -1449,7 +1532,7 @@ Public Class KeyCommands
             Case Keys.R
                 If RigControl Is Nothing Then
                     LeaderNoRadio()
-                ElseIf Not RigControl.NoiseReductionLicensed Then
+                ElseIf Not RigControl.AdvancedNRHardwareSupported Then
                     JJFlexWpf.EarconPlayer.LeaderInvalidTone()
                     Radios.ScreenReaderOutput.Speak("Neural NR not available on this radio")
                 Else
@@ -1459,7 +1542,7 @@ Public Class KeyCommands
             Case Keys.S
                 If RigControl Is Nothing Then
                     LeaderNoRadio()
-                ElseIf Not RigControl.NoiseReductionLicensed Then
+                ElseIf Not RigControl.AdvancedNRHardwareSupported Then
                     JJFlexWpf.EarconPlayer.LeaderInvalidTone()
                     Radios.ScreenReaderOutput.Speak("Spectral NR not available on this radio")
                 Else
@@ -1487,7 +1570,13 @@ Public Class KeyCommands
                     End If
                 End If
 
-            ' TX Filter (F) and RX Filter (Shift+F)
+            ' TX Filter (F), RX Filter (Shift+F), Enter Frequency (Ctrl+F)
+            Case Keys.F Or Keys.Control
+                If RigControl Is Nothing Then
+                    LeaderNoRadio()
+                Else
+                    WriteFreq()
+                End If
             Case Keys.F Or Keys.Shift
                 SpeakRXFilterWidth()
             Case Keys.F
@@ -1501,6 +1590,14 @@ Public Class KeyCommands
             Case Keys.L
                 logStatsRTN()
                 JJFlexWpf.EarconPlayer.ConfirmTone()
+
+            ' Flex memories
+            Case Keys.M
+                If RigControl Is Nothing Then
+                    LeaderNoRadio()
+                Else
+                    DisplayMemory()
+                End If
 
             ' Help
             Case Keys.Oem2  ' ? key (forward slash, used with Shift for ?)
@@ -1586,7 +1683,7 @@ Public Class KeyCommands
         Dim help = "Leader key commands: " &
             "N legacy noise reduction, B noise blanker, W wideband NB, " &
             "R neural NR, S spectral NR, A auto notch, P audio peak filter, " &
-            "D tuning debounce, F speak TX filter, Shift F speak RX filter, L log statistics. " &
+            "M memories, D tuning debounce, F speak TX filter, Shift F speak RX filter, L log statistics. " &
             "H for this help. Escape to cancel."
         Radios.ScreenReaderOutput.Speak(help)
     End Sub
@@ -2329,6 +2426,11 @@ Public Class KeyCommands
     Private Sub toggleMeterTonesHandler()
         JJFlexWpf.MeterToneEngine.Enabled = Not JJFlexWpf.MeterToneEngine.Enabled
         Dim state As String = If(JJFlexWpf.MeterToneEngine.Enabled, "on", "off")
+        If JJFlexWpf.MeterToneEngine.Enabled Then
+            JJFlexWpf.EarconPlayer.FeatureOnTone()
+        Else
+            JJFlexWpf.EarconPlayer.FeatureOffTone()
+        End If
         Radios.ScreenReaderOutput.Speak($"Meter tones {state}")
     End Sub
 
@@ -2373,6 +2475,36 @@ Public Class KeyCommands
         Dim pttStatus = WpfMainWindow.GetPttStatusText()
         If pttStatus IsNot Nothing Then
             msg = msg & ", " & pttStatus
+        End If
+
+        ' Append filter edge mode if active
+        Dim filterEdge = WpfMainWindow.GetFilterEdgeStatus()
+        If filterEdge IsNot Nothing Then
+            msg = msg & ", " & filterEdge
+        End If
+
+        ' Append tuning mode (coarse/fine + step size)
+        Dim tuningMode = WpfMainWindow.GetTuningModeStatus()
+        If tuningMode IsNot Nothing Then
+            msg = msg & ", " & tuningMode
+        End If
+
+        ' Append frequency readout state if off (on is default, not notable)
+        Dim freqReadout = WpfMainWindow.GetFreqReadoutStatus()
+        If freqReadout IsNot Nothing Then
+            msg = msg & ", " & freqReadout
+        End If
+
+        ' Append filter preset if on a named preset
+        Dim filterPreset = WpfMainWindow.GetFilterPresetStatus()
+        If filterPreset IsNot Nothing Then
+            msg = msg & ", " & filterPreset
+        End If
+
+        ' Append meter tone state if active
+        Dim meterStatus = WpfMainWindow.GetMeterStatus()
+        If meterStatus IsNot Nothing Then
+            msg = msg & ", " & meterStatus
         End If
 
         Radios.ScreenReaderOutput.Speak(msg, True)

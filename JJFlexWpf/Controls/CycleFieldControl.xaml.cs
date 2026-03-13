@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Automation;
+using System.Windows.Automation.Peers;
 using System.Windows.Controls;
 using System.Windows.Input;
 using Radios;
@@ -92,12 +94,27 @@ public partial class CycleFieldControl : UserControl
         UpdateDisplay();
     }
 
+    /// <summary>
+    /// Full update: visual text + AutomationProperties.Name.
+    /// Use on setup and focus entry. Avoid during cycling (causes double-speak).
+    /// </summary>
     private void UpdateDisplay()
     {
         string optionText = SelectedOption;
         string text = string.IsNullOrEmpty(optionText) ? _label : $"{_label}: {optionText}";
         DisplayText.Text = text;
         AutomationProperties.SetName(this, text);
+    }
+
+    /// <summary>
+    /// Visual-only update: changes the TextBlock but NOT AutomationProperties.Name,
+    /// so NVDA doesn't auto-announce the Name change (Speak() handles it instead).
+    /// </summary>
+    private void UpdateVisual()
+    {
+        string optionText = SelectedOption;
+        string text = string.IsNullOrEmpty(optionText) ? _label : $"{_label}: {optionText}";
+        DisplayText.Text = text;
     }
 
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)
@@ -136,7 +153,7 @@ public partial class CycleFieldControl : UserControl
     {
         if (newIndex == _selectedIndex) return;
         _selectedIndex = newIndex;
-        UpdateDisplay();
+        UpdateVisual();
 
         if (!_suppressEvents)
         {
@@ -145,10 +162,27 @@ public partial class CycleFieldControl : UserControl
         }
     }
 
+    /// <summary>
+    /// Hide child TextBlock from UIA tree so NVDA reads only AutomationProperties.Name,
+    /// not the TextBlock content as well (which causes double-speak).
+    /// </summary>
+    protected override AutomationPeer OnCreateAutomationPeer()
+    {
+        return new LeafControlAutomationPeer(this);
+    }
+
+    private class LeafControlAutomationPeer : FrameworkElementAutomationPeer
+    {
+        public LeafControlAutomationPeer(FrameworkElement owner) : base(owner) { }
+        protected override List<AutomationPeer>? GetChildrenCore() => null;
+    }
+
     private void OnGotFocus(object sender, RoutedEventArgs e)
     {
         OuterBorder.BorderBrush = System.Windows.SystemColors.HighlightBrush;
-        // Announce current value with interaction hint on focus entry
+        // Don't call UpdateDisplay() here — it would set AutomationProperties.Name,
+        // causing NVDA to auto-read AND our Speak() to fire (double-speak).
+        // Just speak the value with the interaction hint directly.
         ScreenReaderOutput.Speak($"{_label} {SelectedOption}, arrows to change", interrupt: true);
     }
 

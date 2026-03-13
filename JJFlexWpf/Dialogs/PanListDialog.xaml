@@ -11,7 +11,7 @@
                  MouseDoubleClick="RangeList_DoubleClick"
                  KeyDown="RangeList_KeyDown" />
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
-            <Button Content="Cancel" MinWidth="80" Height="28"
+            <Button Content="_Cancel" MinWidth="80" Height="28"
                     IsCancel="True"
                     AutomationProperties.Name="Cancel" />
         </StackPanel>

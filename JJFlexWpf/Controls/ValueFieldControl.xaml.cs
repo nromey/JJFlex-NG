@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Automation;
+using System.Windows.Automation.Peers;
 using System.Windows.Controls;
 using System.Windows.Input;
 using Radios;
@@ -94,13 +96,24 @@ public partial class ValueFieldControl : UserControl
         AutomationProperties.SetName(this, $"{_label}: {_value}");
     }
 
+    /// <summary>
+    /// Full update: visual text + AutomationProperties.Name.
+    /// Use on setup and focus entry. Avoid during value changes (causes double-speak).
+    /// </summary>
     private void UpdateDisplay()
     {
         string text = $"{_label}: {_value}";
         DisplayText.Text = text;
-        // Keep AutomationProperties.Name always current so NVDA reads the right value
-        // on focus entry without triggering a PropertyChanged event during OnGotFocus.
         AutomationProperties.SetName(this, text);
+    }
+
+    /// <summary>
+    /// Visual-only update: changes the TextBlock but NOT AutomationProperties.Name,
+    /// so NVDA doesn't auto-announce the Name change (Speak() handles it instead).
+    /// </summary>
+    private void UpdateVisual()
+    {
+        DisplayText.Text = $"{_label}: {_value}";
     }
 
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)
@@ -273,7 +286,7 @@ public partial class ValueFieldControl : UserControl
         if (newValue == _value) return;
 
         _value = newValue;
-        UpdateDisplay();
+        UpdateVisual();
 
         if (!_suppressEvents)
         {
@@ -288,7 +301,7 @@ public partial class ValueFieldControl : UserControl
         if (newValue == _value) return;
 
         _value = newValue;
-        UpdateDisplay();
+        UpdateVisual();
 
         if (!_suppressEvents)
         {
@@ -297,12 +310,26 @@ public partial class ValueFieldControl : UserControl
         }
     }
 
+    /// <summary>
+    /// Hide child TextBlock from UIA tree so NVDA reads only AutomationProperties.Name,
+    /// not the TextBlock content as well (which causes double-speak).
+    /// </summary>
+    protected override AutomationPeer OnCreateAutomationPeer()
+    {
+        return new LeafControlAutomationPeer(this);
+    }
+
+    private class LeafControlAutomationPeer : FrameworkElementAutomationPeer
+    {
+        public LeafControlAutomationPeer(FrameworkElement owner) : base(owner) { }
+        protected override List<AutomationPeer>? GetChildrenCore() => null;
+    }
+
     private void OnGotFocus(object sender, RoutedEventArgs e)
     {
-        // Highlight border on focus for sighted users
         OuterBorder.BorderBrush = System.Windows.SystemColors.HighlightBrush;
-        // AutomationProperties.Name is kept current by UpdateDisplay(),
-        // so NVDA reads it naturally on focus without a PropertyChanged race.
+        // Refresh the accessible name so NVDA reads the current value on focus entry.
+        UpdateDisplay();
     }
 
     protected override void OnLostFocus(RoutedEventArgs e)

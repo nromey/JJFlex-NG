@@ -142,12 +142,17 @@ namespace JJFlexWpf.Dialogs
             _callbacks.StartLocalDiscovery();
 
             // Announce empty list after discovery settles (500ms)
+            // Also force keyboard focus to the ListBox so Tab works even when empty
             Loaded += async (_, _) =>
             {
+                // Ensure the empty ListBox is keyboard-focusable immediately
+                RadiosBox.Focus();
+                System.Windows.Input.Keyboard.Focus(RadiosBox);
+
                 await System.Threading.Tasks.Task.Delay(500);
                 if (RadiosBox.Items.Count == 0)
                 {
-                    _callbacks.ScreenReaderSpeak?.Invoke("No radios found", false);
+                    _callbacks.ScreenReaderSpeak?.Invoke("Radio list, empty. No radios found yet. Press Connect to SmartLink for remote radios.", false);
                 }
             };
 
