@@ -784,9 +784,9 @@ public class KeyCommands
 
     private void ShowStatusDialogHandler()
     {
-        // BUG-020: Status Dialog disabled — will be rebuilt in Sprint 24 Phase 9A.
-        Radios.ScreenReaderOutput.Speak(
-            "Status Dialog coming in a future update. Use Speak Status for a quick summary.", true);
+        var rig = _context.GetRigControl();
+        var dialog = new Dialogs.StatusDialog { Rig = rig };
+        dialog.ShowDialog();
     }
 
     private void SpeakTxStatusHandler()
@@ -938,7 +938,7 @@ public class KeyCommands
         // --- Back to Global ---
         new(Keys.Oem2 | Keys.Control, CommandValues.ContextHelp, KeyScope.Global),
         new(Keys.S | Keys.Control | Keys.Shift, CommandValues.SpeakStatus, KeyScope.Global),
-        new(Keys.None, CommandValues.ShowStatusDialog, KeyScope.Global),
+        new(Keys.S | Keys.Control | Keys.Alt, CommandValues.ShowStatusDialog, KeyScope.Global),
         new(Keys.S | Keys.Alt | Keys.Shift, CommandValues.SpeakTxStatus, KeyScope.Global),
 
         // TX Filter
