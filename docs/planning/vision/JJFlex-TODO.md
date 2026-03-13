@@ -1,250 +1,85 @@
 # JJ Flex — TODO / Rolling Backlog
 
-Last updated: 2026-02-12
+Last updated: 2026-03-13
 
-## Bug Reports
-
-### BUG-001: Modern menu "coming soon" items silent in JAWS (reported by Don, 2026-02-09)
-- **Steps:** Open Modern mode, navigate menus, press Enter on a stub/placeholder item
-- **JAWS:** Says nothing on Enter
-- **NVDA:** Says "coming soon"
-- **Root cause:** `AddModernStubItem()` in Form1.vb creates enabled menu items that speak "coming soon" via Tolk on click. JAWS doesn't reliably surface Tolk speech in menu context. No `AccessibleDescription` is set.
-- **Fix:** Set `AccessibleDescription = "coming soon"` on stub items, or disable them with `.Enabled = False` and set description to "Not yet available". Either way, both screen readers should announce the placeholder state.
-- **Priority:** Medium — affects JAWS users navigating Modern menus
-- **Status:** Superseded by BUG-011 — "coming soon" now in Text property directly
+## Open Bugs
 
 ### BUG-002: Brief rig audio leak on remote connect (reported by Don, 2026-02-09)
-- **Symptom:** When a remote user connects to Don's radio via SmartLink, Don hears 2-3 seconds of rig audio through his local speakers before the remote connection fully establishes and local audio goes silent. Remote audio works fine for the connecting user — this is a local-side issue at the radio owner's end.
-- **Frequency:** Unknown — needs a study with ~10 connect attempts to determine how often it happens.
-- **Hypothesis:** During SmartLink handshake, the radio may briefly route audio to local speakers before the remote client takes over the audio stream. The mute/routing switch may not happen until after the connection fully establishes.
-- **Action:** Review SmartLink connect sequence in code to find where local audio muting occurs relative to remote stream start. Look for a race condition or ordering issue. Low urgency but worth understanding the root cause.
-- **Priority:** Low — cosmetic annoyance, not a functional issue
+- **Symptom:** Don hears 2-3 seconds of rig audio through local speakers when a remote user connects via SmartLink, before local audio goes silent.
+- **Priority:** Low — cosmetic annoyance
 - **Status:** Logged for future investigation
 
-### BUG-004: Crash on shutdown — System.IO.Ports v9.0.0 missing (2026-02-09)
-- **Symptom:** App crashes on exit with `FileNotFoundException: Could not load file or assembly 'System.IO.Ports, Version=9.0.0.0'`
-- **Stack:** `JJFlexControl.Serial.Close() → FlexControl.Dispose() → FlexKnob.Dispose() → globals.knobThreadProc()`
-- **Root cause:** JJFlexControl references `System.IO.Ports` v9.0.0 (.NET 9) but app targets .NET 8. The assembly isn't in the build output. The knob thread tries to dispose the serial port on shutdown even if no knob is connected.
-- **Fix options:** (a) Downgrade System.IO.Ports to v8.x, (b) Add try/catch in FlexKnob.Dispose(), (c) Skip dispose if no knob was initialized
-- **Priority:** Medium — causes crash dump on every shutdown, even when no FlexControl knob is connected
-- **Status:** Pre-existing, logged for fix
-
 ### BUG-003: Modern mode tab stops need design (reported by Don, 2026-02-09)
-- **Description:** Tab in Modern mode cycles through controls, but there's no intentional design for what should be in the tab order. Classic mode has its own tab behavior; Modern should be different and purpose-built.
-- **Action:** Design Modern mode tab stops as part of a future Modern UI sprint. Consider: what controls should be reachable via Tab? What's the logical focus flow? Should RadioPane-like status be in the tab order?
-- **Priority:** Low — Modern mode is still under construction
+- **Description:** Tab in Modern mode has no intentional design for tab order. Needs purpose-built focus flow.
+- **Priority:** Low — Modern mode still under construction
 - **Status:** Logged for future sprint
 
-### BUG-005: UTC timestamp stuck at first QSO time (found during Sprint 5 testing, 2026-02-10)
-- **Symptom:** In Logging Mode, after logging the first QSO, all subsequent QSOs logged in the same session showed the same UTC timestamp as the first entry (time didn't update).
-- **Root cause:** `NewEntry()` cleared text fields but didn't clear the session's DateOn/TimeOn ADIF fields. `AutoFillFromRadio()` only set timestamps "if empty", so the first timestamp persisted across all entries.
-- **Fix:** `NewEntry()` now explicitly clears session DateOn/TimeOn fields before calling `AutoFillFromRadio()`, ensuring each QSO gets a fresh timestamp.
-- **Priority:** High — affects log accuracy
-- **Status:** FIXED (commit 9591a835, 2026-02-10)
-
-### BUG-006: Callbook announcement interrupts field announcements (found during Sprint 5 testing, 2026-02-10)
-- **Symptom:** When operator tabs out of Call Sign field and quickly tabs to next field (RST Sent), the screen reader field announcement ("RST Sent edit") gets cut off by the async callbook result announcement ("Bob, Seattle").
-- **Root cause:** `ApplyCallbookResult()` used `ScreenReaderOutput.Speak(..., interrupt=True)`, which interrupted the screen reader's field announcement in progress.
-- **Fix:** Changed interrupt parameter to `False` in `ApplyCallbookResult()`. Screen reader now queues callbook data after field announcement, so operator hears both: "RST Sent edit" followed by "Bob, Seattle".
-- **Priority:** Medium — affects screen reader UX during fast tabbing
-- **Status:** FIXED (commit 9591a835, 2026-02-10)
-
-### BUG-007: QRZ failure should auto-fallback to HamQTH (found during Sprint 5 testing, 2026-02-11)
-- **Symptom:** If QRZ login fails (wrong password, expired subscription), callbook lookups silently stop working. User gets no feedback during logging — just no auto-fill.
-- **Desired behavior:** On QRZ login failure, automatically fall back to built-in HamQTH ("JJRadio" account) so lookups keep working. After 3 failed QRZ logins, show a one-time dialog telling user HamQTH is being used as fallback. Also handle expired QRZ subscription as a distinct case with appropriate messaging. Recommend auto-switching the saved callbook source to HamQTH.
-- **Scope:** LogPanel callbook initialization + QRZ login failure handler + HamQTH fallback logic + user notification dialog
-- **Priority:** Medium — affects users whose QRZ subscriptions lapse
-- **Status:** FIXED in Sprint 6 (Track A)
-
-### BUG-008: HamQTH LogPanel lookup requires personal account (found during Sprint 5 testing, 2026-02-11)
-- **Symptom:** When operator selects HamQTH as callbook source but has no personal HamQTH credentials, LogPanel lookups don't work. The built-in "JJRadio" HamQTH account is only used by StationLookup dialog, not by LogPanel.
-- **Fix:** LogPanel now falls back to the built-in "JJRadio" account automatically when HamQTH is selected but no personal credentials are configured.
-- **Priority:** Medium — blocks HamQTH users without personal accounts from getting auto-fill
-- **Status:** FIXED in Sprint 6 (Track A)
-
-### BUG-009: Modern menu submenus silent in JAWS/NVDA (Sprint 5 testing, 2026-02-11)
-- **Symptom:** In Modern mode, submenus don't speak at all with JAWS or NVDA. Top-level menus and "coming soon" stubs were also not announcing.
-- **Root cause:** Modern menus were missing `AccessibleName` on top-level menus and submenus.
-- **Fix:** Added `AccessibleName` to all Modern mode top-level menus and submenus in Form1.vb.
-- **Priority:** Medium — affects all screen reader users in Modern mode
-- **Status:** FIXED in Sprint 6 (Track A)
-
-### BUG-010: Hotkeys not firing — ProcessCmdKey bypassed by MenuStrip (Sprint 6 testing, 2026-02-12)
-- **Symptom:** Multiple hotkey failures across all modes:
-  - F6 doesn't switch panes in Logging Mode (test D1/F3)
-  - Alt+C opens Radio menu instead of CW Zero Beat / Log Call (test D1)
-  - Alt+S opens Radio menu instead of Start Scan / Log State (test D2)
-  - F1 doesn't work in Logging Mode (test D3)
-  - Ctrl+/ (Command Finder) intermittent — works only when focus is on certain controls (test D3b/F1)
-- **Root cause:** `ProcessCmdKey` in Form1.vb delegated ALL keys to `MyBase.ProcessCmdKey()` which let the MenuStrip eat Alt+letter combinations before `DoCommand` could see them. Additionally, `DoCommand` was only wired to specific controls via `doCommand_KeyDown` — if focus was on LogPanel, SplitContainer, or any other control, hotkeys never reached the scope-aware registry.
-- **Fix:** Route ALL keys through `Commands.DoCommand(keyData)` in `ProcessCmdKey` BEFORE falling through to `MyBase.ProcessCmdKey`. This ensures scope-aware hotkeys always fire regardless of focus and take priority over menu accelerators.
-- **Priority:** High — blocked most hotkeys in Logging Mode and some in Modern Mode
-- **Status:** FIXED in Sprint 6 (2026-02-12)
-
-### BUG-011: "Coming soon" stubs don't announce in JAWS or NVDA (Sprint 6 testing, 2026-02-12)
-- **Symptom:** In Modern mode, stub menu items announce their label ("Select Slice") but NOT the "coming soon" suffix. Both JAWS and NVDA affected. (test B3)
-- **Root cause:** Screen readers read the `.Text` property of disabled ToolStripMenuItems, not `.AccessibleName`. The " - coming soon" suffix was only in `AccessibleName` and `AccessibleDescription`, not in `Text`.
-- **Fix:** Put "coming soon" directly in the `.Text` property: `"Select Slice - coming soon"`. Also set matching `AccessibleName`. All screen readers now announce the full label.
-- **Priority:** Medium — affects Modern mode navigation for all screen reader users
-- **Status:** FIXED in Sprint 6 (2026-02-12)
-- **Note:** Supersedes BUG-001 (same menu items, different symptom)
-
-### BUG-012: Hotkey conflict detection allows saving duplicates (Sprint 6 testing, 2026-02-12)
-- **Symptom:** In Hotkey Editor, assigning the same key to two functions in the same scope shows a conflict warning but still allows saving via the OK button. User can save conflicting bindings. Also, after declining to save, the conflict remains in the UI with no way to undo. (test E3)
-- **Root cause:** (a) `CheckConflict()` skipped same-scope entries (line 61: `If other.Scope = scope Then Continue For`), so same-scope duplicates weren't caught during assignment. (b) `OKButton_Click` only warned with Yes/No dialog — didn't block save.
-- **Fix:** (a) Auto-clear conflicting bindings on assignment (industry standard — like VS Code). When you assign a key that's already used, the OLD binding is cleared to `None` and the user is told. (b) Block save entirely if conflicts somehow still exist (belt and suspenders). (c) Fixed `CheckConflict` to use `excludeIndex` parameter instead of scope comparison for self-exclusion.
-- **Priority:** Medium — prevents confusing key binding states
-- **Status:** FIXED in Sprint 6 (2026-02-12)
+### BUG-004: Crash on shutdown — System.IO.Ports v9.0.0 missing (2026-02-09)
+- **Symptom:** App crashes on exit — `FileNotFoundException` for `System.IO.Ports v9.0.0`. Knob thread tries to dispose serial port even when no knob is connected.
+- **Fix options:** (a) Downgrade System.IO.Ports to v8.x, (b) Add try/catch in FlexKnob.Dispose(), (c) Skip dispose if no knob was initialized
+- **Priority:** Medium — crash dump on every shutdown
+- **Status:** Pre-existing, logged for fix
 
 ### BUG-013: Duplicate QSO beep not audible (Sprint 6 testing, 2026-02-12)
-- **Symptom:** When logging a duplicate QSO, "worked x calls" is announced but the duplicate warning beep is not heard. (test G1)
-- **Priority:** Low — speech announcement works, just the audio beep is missing
+- **Symptom:** Duplicate warning beep not heard when logging a duplicate QSO. Speech announcement works.
+- **Priority:** Low
 - **Status:** Logged for investigation
 
-### BUG-014: XmlSerializer corrupts combined Keys values in KeyDefs.xml (Sprint 6, 2026-02-12)
-- **Symptom:** Hotkey bindings with modifier keys (e.g., `Keys.C Or Keys.Alt`) get serialized as space-separated flag names ("LButton ShiftKey ...") that can't be parsed back, causing bindings to silently revert to `Keys.None` on next load.
-- **Root cause:** `XmlSerializer` treats `Keys` as a `[Flags]` enum and decomposes combined values. The decomposed names don't round-trip through `Enum.Parse`.
-- **Fix:** Store `Keys` as integer via XML proxy property (`keyAsString`). Backward-compatible: tries `Integer.TryParse` first, falls back to `Enum.Parse` for legacy files. Added contamination guard: if loaded key is `Keys.None` but built-in default has a real binding, preserve the default.
-- **Priority:** High — caused progressive hotkey data loss across app restarts
-- **Status:** FIXED in Sprint 6 (2026-02-12)
-
-### BUG-015: F6 double-announces "Radio pane" in Logging Mode (Sprint 6 testing, 2026-02-12)
-- **Symptom:** Pressing F6 to switch to RadioPane in Logging Mode announces "Radio pane" twice.
-- **Root cause:** `FreqBox.Enter` handler in `RadioPane.vb` explicitly calls `Speak("Radio pane")`, and the screen reader also reads `FreqBox.AccessibleName` which starts with "Radio pane". Both fire when focus lands on FreqBox.
-- **Fix:** Remove the explicit `Speak("Radio pane")` from the FreqBox Enter handler — the `AccessibleName` already provides the announcement naturally.
-- **Priority:** Low — cosmetic double-announcement
-- **Status:** Logged for Sprint 7
-
-### BUG-016: RNN toggles on radios that don't support it — no feature gating in Modern menu (Sprint 7 testing, 2026-02-14)
-- **Symptom:** Neural NR (RNN) can be toggled via Modern menu on a FLEX-6300, which doesn't support RNN. Should be grayed out or blocked based on radio model/subscription.
-- **Root cause:** Modern menu DSP toggles don't check `Radio.FeatureLicense` or radio capabilities before toggling. The Classic Filters form does gate these features.
-- **Fix:** Add feature gating checks before each DSP toggle in Modern menu. If feature unavailable, speak "Neural NR not available on this radio" or similar. Check both hardware capability and license subscription.
-- **Priority:** Medium — allows toggling unsupported features, confusing behavior
+### BUG-016: RNN toggles on radios that don't support it (Sprint 7 testing, 2026-02-14)
+- **Symptom:** Neural NR can be toggled on FLEX-6300 which doesn't support it. Needs feature gating.
+- **Priority:** Medium
 - **Status:** Open
 
-### BUG-017: APF toggle always says "on" — doesn't actually toggle off (Sprint 7 testing, 2026-02-14)
-- **Symptom:** Audio Peak Filter in Modern menu says "Audio Peak Filter on" every time it's pressed — never says "off". Tested in LSB mode on Don's 6300.
-- **Root cause:** APF is CW-only (FlexBase.cs line 4277 confirms). Non-CW modes silently ignored the toggle.
-- **Fix:** Added CW mode check — non-CW modes now announce "Audio Peak Filter is only available in CW mode".
-- **Priority:** Medium — broken toggle
-- **Status:** Fixed (Sprint 7)
-
-### BUG-018: Dup count inconsistent between tab and shift-tab (Sprint 7 testing, 2026-02-14)
-- **Symptom:** When entering a duplicate callsign (WA2IWC), pressing Tab says "6 contacts" but second tab says "2 duplicates". Two competing speech sources gave different counts.
-- **Root cause:** `ShowPreviousContact` counts all QSOs with call (6 total), while `CheckDup` counts by dup key (call+band+mode = 2). Both spoke, creating confusion.
-- **Fix:** Silenced CheckDup speech — ShowPreviousContact's "Previously worked, N contacts" is the primary announcement. Exclamation sound still plays for dups. Visual "Dup: N" label still set. Full unification deferred to Sprint 8+ (pure WPF).
-- **Priority:** Medium — confusing for operator
-- **Status:** Fixed (Sprint 7, partial — speech unified, full dup UX in WPF)
-
-### BUG-019: Log Contact doesn't announce pre-fill (Sprint 7 testing, 2026-02-14)
-- **Symptom:** Clicking "Log Contact" in Station Lookup enters Logging Mode with fields pre-filled, but speech stuttered ("eh...") from competing announcements.
-- **Root cause:** Generic "Entering Logging Mode" speech competed with pre-fill announcement through WPF-WinForms interop layer, causing garbled output.
-- **Fix:** Removed all speech from Log Contact path — user clicked "Log Contact" so mode entry is expected. SR naturally announces the pre-filled Call Sign field when focus arrives. Clean and stutter-free.
-- **Priority:** Low — functional, just missing feedback
-- **Status:** Fixed (Sprint 7)
-
-### BUG-020: Status Dialog not accessible — can't tab, no close button, appears outside app (Sprint 7 testing, 2026-02-14)
-- **Symptom:** Status Dialog (Ctrl+Alt+S) opens but: (a) can't tab through fields, (b) no OK button or Enter-to-close, (c) window appears outside the main JJFlex window.
-- **Root cause:** WPF Window missing tab stops, focusable elements, and window ownership/placement.
-- **Fix:** Disabled dialog entirely for this release. Ctrl+Alt+S now speaks "Status Dialog coming in a future update. Use Speak Status for a quick summary." Will rebuild properly in pure WPF (Sprint 8+).
-- **Priority:** High — completely inaccessible dialog
-- **Status:** Fixed (Sprint 7, disabled — full rebuild in WPF)
-
-### BUG-021: QSO grid count setting doesn't take effect (Sprint 7 testing, 2026-02-14)
-- **Symptom:** Changed operator's Recent QSOs setting to 10, but grid still shows 20.
-- **Root cause:** `LogEntryControl.xaml.cs` had hardcoded `const int MaxRecentQSOs = 20` that ignored operator settings.
-- **Fix:** Replaced with mutable `_maxRecentQSOs` field + `SetMaxRecentQSOs()` setter. LogPanel now passes operator setting via `wpfControl.SetMaxRecentQSOs(MaxRecentQSOs)` at build time and when loading recent QSOs.
-- **Priority:** Medium — setting appeared broken
-- **Status:** Fixed (Sprint 7)
-
-### BUG-022: QSO grid rows announce WPF type name instead of English (Sprint 7 testing, 2026-02-14)
-- **Symptom:** When arrowing through QSO grid rows, screen reader announces "JJFlexWPF.RecentQsoRow" instead of a meaningful label.
-- **Root cause:** WPF DataGrid row automation defaults to `ToString()` of the data item, which returned the type name.
-- **Fix:** Added `ToString()` override on `RecentQsoRow` to return the callsign. Up/down arrow now announces the callsign (e.g., "W1AW"). Left/right cell navigation has minor NVDA double-read quirk (see backlog — fixable with custom AutomationPeer in pure WPF).
-- **Priority:** Medium — bad screen reader experience in QSO grid
-- **Status:** Fixed (Sprint 7)
-
 ### BUG-023: Connect to Radio while already connected has messy flow (Sprint 7 testing, 2026-02-14)
-- **Symptom:** Clicking Radio → Connect to Radio while already connected disconnects without asking, opens rig selector, then SmartLink reconnect flow shows "session invalid" repeatedly. User has to click "No" multiple times to get back to a connected state.
-- **Root cause:** No guard to ask "You're already connected — disconnect first?" before proceeding. The disconnect + reconnect sequence has error handling issues with stale SmartLink sessions.
-- **Fix:** Add a confirmation dialog: "You are currently connected to [radio]. Disconnect and choose a new radio?" If No, cancel. If Yes, clean disconnect then open selector.
-- **Priority:** Medium — confusing and potentially destructive flow
+- **Symptom:** Connecting while already connected causes confusing disconnect/reconnect sequence with "session invalid" errors.
+- **Fix:** Add confirmation dialog before disconnecting.
+- **Priority:** Medium
 - **Status:** Open
 
 ## Near-term (next 1–3 sprints)
 
-### Sprint 21 (planned)
-- [ ] **TX bandwidth sculpting**: Adjust transmit filter edges from the keyboard, mirroring the RX filter bracket-key workflow. Research `Slice.TxFilterLow`/`Slice.TxFilterHigh` in FlexLib. Wire up controls in ScreenFields (Transmission category) and menus. Let operators shape their transmitted audio — narrow for contest, wide for ragchew.
-- [ ] **Editable filter & step presets**: UI for creating, editing, saving, and loading filter presets and tuning step presets. Export as shareable XML files so operators can share their setups — "here's my CW contest filter" or "my FT8 step config." Import from file or paste from clipboard.
-- [ ] **Compiled help file**: Set up CHM or similar help file workflow. Build integration so help file compiles with the installer. Content structure for all features, keyboard reference, getting started guide. F1 wiring to context-sensitive help topics.
+### Upcoming features
+- [ ] **TX bandwidth sculpting**: Adjust transmit filter edges from keyboard, mirroring RX filter bracket-key workflow
+- [ ] **Editable filter & step presets**: Create, edit, save, load, and share filter/step presets as XML
+- [ ] **Compiled help file**: CHM workflow, build integration, context-sensitive F1
 
-### Completed in Sprint 7
-- [x] Callbook graceful degradation: QRZ→HamQTH auto-fallback, built-in HamQTH for LogPanel (BUG-007, BUG-008) — Sprint 6
-- [x] Hotkeys v2: scope-aware registry, conflict detection, Command Finder, tabbed Settings UI — Sprint 6
-- [x] Station Lookup → Log Contact button + distance/bearing — Sprint 7 Track C
-- [x] WPF migration: LogPanel + Station Lookup — Sprint 7 Track B
-- [x] Plain-English Status: Speak Status + Status Dialog — Sprint 7 Track D
-- [x] Configurable QSO grid size — Sprint 7 Track E
-- [x] CW hotkey feedback — Sprint 7 Track A
-- [x] Modern UI Mode toggle (Modern default; Classic preserved)
-- [x] DSP toggle state inversion fix — Sprint 7 Track A
-- [x] Ctrl+Shift+L/M key forwarding through WPF — Sprint 7 Track A
-
-### Sprint 8 — Form1 WPF Conversion (boring but necessary)
+### Sprint 8 — Form1 WPF Conversion
 - [ ] Convert Form1 from WinForms to WPF Window (kills all interop issues)
 - [ ] Eliminate ElementHost — all WPF controls native in WPF Window
-- [ ] Fix R1 "unknown" interop artifact (goes away with pure WPF)
-- [ ] Remove the FreqOut radio box from Modern mode. A charming relic of JJ's circa-1947 UI philosophy and Don's personal favorite control, this thing freqks the current developer out. It will be replaced by proper keyboard tuning commands once Modern mode has its own tuning keystrokes. Don will survive — he can switch to Classic mode whenever he wishes to get nostalgic.
 
-### Sprint 9 — Remaining Forms WPF Conversion (boring but necessary)
-- [ ] Convert all remaining dialog forms to WPF (in stages)
-- [ ] WPF migration: Command Finder + DefineCommands
-- [ ] WPF migration: PersonalInfo + LogCharacteristics
-- [ ] WPF migration: remaining dialogs
+### Sprint 9 — Remaining Forms WPF Conversion
+- [ ] WPF migration: Command Finder + DefineCommands + PersonalInfo + LogCharacteristics + remaining dialogs
 
-### Sprint 10 (was Sprint 8)
+### Sprint 10
 - [ ] Slice Menu + Filter Menu (slice-centric operating model)
-- [ ] QSO Grid: full filtering (band, mode, country, date range, callsign) + paging
-- [ ] QSO Grid: row-0→1 indexing fix (comes free with WPF DataGrid)
+- [ ] QSO Grid: full filtering + paging
 
-### Sprint 11 (was Sprint 9)
-- [ ] QRZ per-QSO upload checkbox in LogPanel tab order (Alt+Q)
-- [ ] QRZ confirmation status check/request from QSO Grid
-- [ ] QRZ data import (bulk sync)
+### Sprint 11
+- [ ] QRZ per-QSO upload, confirmation status, data import
 
-### Sprint 12 (was Sprint 10)
-- [ ] Modern menus → WPF Menu control (eliminates AccessibleName workarounds)
-- [ ] StationLookup full redesign (distance/bearing, richer layout)
+### Sprint 12
+- [ ] Modern menus → WPF Menu control
+- [ ] StationLookup full redesign
 
-### Backlog — New Items (Sprint 7 testing, 2026-02-14)
-- [ ] **Earcon audit — all toggles need on/off beeps**: Audit every toggle action in the app and ensure all use `FeatureOnTone`/`FeatureOffTone` (ascending/descending double-beep). Some toggles already have them (DSP, ScreenFields, tune debounce), some were just added (meter tones, frequency readout), but there may be others missing. Non-verbal confirmation of state change is essential for screen reader users.
-- [ ] **Dialog open/close earcons need distinct sound**: `DialogOpenTone` (600→900) and `DialogCloseTone` (900→600) are ascending/descending double-beeps, too similar to `FeatureOnTone`/`FeatureOffTone` (500→700 / 700→500). Dialogs need a clearly different sound — maybe a single chime, a chord, or a different rhythm — so the operator instantly knows "that was a dialog" vs "that was a toggle."
-- [ ] **Access keys for all dialogs**: Every dialog (Settings, Audio Workshop, Rig Selector, Station Lookup, etc.) needs proper access keys (Alt+letter underlines) on buttons and controls so keyboard-only users can navigate without tabbing through everything. Audit all WPF dialogs for missing access keys.
-- [ ] **Connection error hang**: If SmartLink/SSL connection fails, the app can become unresponsive — "Connecting" status steals focus from error dialog, and the app can't be closed. Needs a connection timeout with a proper error dialog that doesn't fight with status text. Edge case but hard-locks the app when it hits.
-- [ ] "Update Current Operator" menu item in Modern and Logging — opens PersonalInfo directly for current operator (skip select step)
-- [ ] Rename "Operators" to "Edit or Change Operators" in Modern and Logging menus (leave Classic as-is)
-- [ ] GPS grid from FlexLib — query radio GPS for operator grid square (works mobile!). Add Speak GPS and View GPS hotkeys/dialog. Fallback: lookup operator call via QRZ/HamQTH for grid.
-- [ ] Grid refresh button in Station Lookup or PersonalInfo — re-lookup operator grid from callbook or GPS
-- [ ] Include slice number in mute/unmute speech ("Muted slice A" / "Unmuted slice A")
-- [ ] Audio management baseline: device selection + rig audio adjust entry point
+### Backlog — Open Items
+- [ ] "Update Current Operator" menu item — opens PersonalInfo directly for current operator
+- [ ] Rename "Operators" to "Edit or Change Operators" in Modern and Logging menus
+- [ ] GPS grid from FlexLib — query radio GPS for operator grid square
+- [ ] Include slice number in mute/unmute speech ("Muted slice A")
 - [ ] Filter presets / filter presets by mode
-- [ ] Earcon/tone beeps — replace SystemSounds with configurable tone-based audio cues
 - [ ] DSP current state display — show on/off state when arrowing through DSP menu items
 - [ ] Hotkeys for Modern menu DSP/filter items
-- [ ] "No stations connected" message in Connected Stations listbox when empty
 - [ ] BUG-015: Fix F6 double-announce "Radio pane" in Logging Mode
-- [ ] Focus-on-launch: App doesn't grab focus when launched from Explorer. Needs `Activate()`/`BringToFront()` or WPF equivalent after Sprint 9.
-- [ ] WPF DataGrid cell announcements: NVDA double-reads cell values (e.g., "SSB SSB mode"). JAWS handles it fine. Fixable with custom `AutomationPeer` in pure WPF (Sprint 8+).
+- [ ] Focus-on-launch: App doesn't grab focus when launched from Explorer
+- [ ] WPF DataGrid cell announcements: NVDA double-reads cell values (fixable with custom AutomationPeer)
 
 ## Slice UI & Status
 - [ ] Define ActiveSlice rules and announce/earcon behaviors
 - [ ] Implement Slice List (next/prev, select)
 - [ ] Implement Slice Menu entry point
-- [ ] Implement Speak Status (concise) + Status Dialog (full)
+- [ ] Status Dialog rebuild (BUG-020) — proper accessible WPF dialog with live-updating view
 
 ## Keyboard & Discoverability
-- [x] Command Finder (Ctrl+/) search by keywords/synonyms, returns key + can execute — Sprint 6
-- [x] Scope-aware conflict detection in Settings UI — Sprint 6
 - [ ] Contextual help: group help via H/?
 - [ ] Optional leader key design (Ctrl+J) + 2-step max
 
@@ -345,12 +180,7 @@ Alt+C → W1ABC → Alt+N → Bob → Alt+Q → Space (uncheck QRZ) → Ctrl+W �
 ### Contest Mode
 - [ ] Contest designer / contest mode: review JJ's existing contest C# files in JJLogLib (FieldDay.cs, NASprint.cs, SKCCWESLog.cs), assess whether they work and are useful. Consider building a contest designer that lets operators define required exchange fields and contest rules. May be complex — research scope before committing. At minimum, validate existing contest exchange definitions work with LogPanel.
 
-## Sprint 5 — QRZ + Logging Graduation (COMPLETED 2026-02-09)
-- [x] QRZ.com + HamQTH integration (callsign lookup, auto-fill from callbook)
-- [x] Credential validation on save (QRZ subscription check, HamQTH test login)
-- [x] Station Lookup upgraded (Ctrl+L, QRZ/HamQTH support, DX country SR)
-- [x] Full Log Access from Logging Mode (Ctrl+Alt+L)
-- [x] Removed 11 Classic/Modern log entry hotkeys
+## LogPanel Graduation & Logging Enhancements
 - [ ] Graduate LogPanel to full-featured: add record navigation (PageUp/Down browse)
 - [ ] Graduate LogPanel: edit existing records (load, modify, update)
 - [ ] Graduate LogPanel: search log (find QSOs by criteria)
@@ -377,15 +207,13 @@ Alt+C → W1ABC → Alt+N → Bob → Alt+Q → Space (uncheck QRZ) → Ctrl+W �
 
 | Priority | Form | Why | Sprint |
 |----------|------|-----|--------|
-| 1 | LogPanel (QSO grid + entry fields) | Biggest a11y win — fixes row-0, field nav | 7 ✅ |
-| 2 | Station Lookup (+ Log Contact button) | Small form, DX workflow, validates approach | 7 ✅ |
-| **3** | **Form1 shell → WPF Window** | **Kills all WPF-in-WinForms interop issues** | **8** |
-| 4 | Command Finder | Already new, natural WPF fit | 9 |
-| 5 | DefineCommands (hotkey settings) | Tabbed UI, benefits from WPF TabControl | 9 |
-| 6 | PersonalInfo (settings) | Straightforward form conversion | 9 |
-| 7 | LogCharacteristics | Small dialog | 9 |
-| 8 | All remaining dialogs | Finish the job | 9 |
-| 9 | Modern menus → WPF Menu control | Eliminates AccessibleName workarounds | 12 |
+| **1** | **Form1 shell → WPF Window** | **Kills all WPF-in-WinForms interop issues** | **8** |
+| 2 | Command Finder | Already new, natural WPF fit | 9 |
+| 3 | DefineCommands (hotkey settings) | Tabbed UI, benefits from WPF TabControl | 9 |
+| 4 | PersonalInfo (settings) | Straightforward form conversion | 9 |
+| 5 | LogCharacteristics | Small dialog | 9 |
+| 6 | All remaining dialogs | Finish the job | 9 |
+| 7 | Modern menus → WPF Menu control | Eliminates AccessibleName workarounds | 12 |
 
 **Acceptance criteria per conversion:**
 - [ ] WPF control/window created with proper AutomationProperties
@@ -395,29 +223,14 @@ Alt+C → W1ABC → Alt+N → Bob → Alt+Q → Space (uncheck QRZ) → Ctrl+W �
 - [ ] Tab order logical, focus management correct across WinForms↔WPF boundary
 - [ ] No regression in existing functionality
 
-### Backlog — Mini Sprint 24a Items (Sprint 23 guided testing, 2026-03-12)
+### Backlog — Mini Sprint 24a Remaining Items
 
-**Earcon / Toggle audit:**
-- [x] Earcon audit: ensure ALL toggles have FeatureOnTone/FeatureOffTone — DONE (Mini Sprint 24a Phase A1, 8 toggles fixed)
-- [x] Dialog open/close earcons removed — DONE (Phase A2, user found them confusing with toggle beeps)
-- [x] Access keys (Alt+letter shortcuts) for all WPF dialogs — DONE (Phase A3, 42 XAML files + base class)
-
-**Meter tone engine improvements:**
-- [x] Hotkey to cycle meter presets — DONE (Phase A4, Ctrl+Alt+P)
-- [x] Hotkey to speak meter values on demand — DONE (Phase A4, Ctrl+Alt+V)
+**Meter presets:**
 - [ ] User-saveable presets — save current slot config as a named preset (e.g., "Don's Tuner")
 - [ ] Ability to create new presets from scratch, not just modify existing ones
-- [x] Auto-switch to TX-appropriate preset when tune carrier activates — DONE (already wired, OnTuneStarted/OnTuneStopped)
-- [x] Status announcement for meters in Ctrl+Shift+S — DONE (Phase A6)
-- [x] Ctrl+Shift+S status speech enriched — DONE (Phase A6: tuning mode, freq readout, filter preset, meter state)
 
-**Filter improvements:**
-- [x] Wider filter presets for SSB and CW — DONE (Phase A5: SSB to 10k, CW to 4k)
+**Filter help:**
 - [ ] Update help text to explain filter edge grab mode (double-tap bracket, then both brackets move that edge)
-
-**Key binding fixes (2026-03-12):**
-- [x] Ctrl+Shift+S conflict: ReadSMeter (Radio) blocked SpeakStatus (Global) — DONE (ReadSMeter moved to Ctrl+S)
-- [x] ShowStatusDialog unbound (BUG-020, dialog disabled) — DONE (freed Ctrl+Alt+S for StartScan)
 
 **Connectivity / stability:**
 - [ ] Connection error hang: SSL/SmartLink error makes app unresponsive, requires taskkill — observed twice in one session
@@ -441,8 +254,6 @@ Alt+C → W1ABC → Alt+N → Bob → Alt+Q → Space (uncheck QRZ) → Ctrl+W �
 
 **MEDIUM PRIORITY — Modern mode tuning UX:**
 - [ ] Modern mode frequency: arrow keys move through frequency as a single unit (no char-by-char review), speaks frequency on change
-- [x] Direct frequency typing: both Classic and Modern modes allow typing digits to enter frequency, with a typing timer to commit (like JJ Ctrl+F but without the leader key) — **Sprint 24 Phase 8A**
-- [x] Classic mode frequency field read-only: arrow to frequency speaks it but doesn't allow changes — **Sprint 24 Phase 8A**
 - [ ] Classic vs Modern confusion: consider better onboarding, mode-switch announcement improvements, or unifying the modes
 
 **MEDIUM PRIORITY — Auth Config Externalization (Sprint 25):**
@@ -457,6 +268,28 @@ Alt+C → W1ABC → Alt+N → Bob → Alt+Q → Space (uncheck QRZ) → Ctrl+W �
 - [ ] Buttons duplicate existing hotkeys (Ctrl+Shift+T, Ctrl+T, Ctrl+Space) — second path for sighted users and discovery
 - [ ] Consider JJ key (Ctrl+J then B?) as direct jump to toolbar
 - [ ] Design note: F6/F8 are traditional toolbar jump keys but are taken for band navigation — Ctrl+Tab is the chosen alternative
+
+### Backlog — Frequency Entry Audio Feedback (Sprint 25)
+
+- [ ] Per-keystroke audio feedback during frequency entry (quick-type accumulator and JJ Ctrl+F) — multiple selectable sound modes
+- [ ] Confirmation ding on frequency commit (DingTone from Sprint 24 Phase 8A)
+- [ ] DTMF tone generator utility — reusable for future repeater control on non-Flex radios
+- [ ] Unlockable bonus sound modes with discovery mechanics (details in private planning docs)
+- [ ] Visual feedback sequences for sighted users alongside audio feedback
+- [ ] Earcon rename: `ConfirmTone()`/`confirm.wav` → `ClunkTone()`/`clunk.wav` (do during Sprint 24 Phase 8A)
+- [ ] Settings UI for sound mode selection in Audio tab
+
+### Backlog — Virtual Keyer / CW Practice Mode
+
+- [ ] Built-in virtual keyer: straight key (spacebar), iambic paddles (shift keys), and bug simulator with realistic mechanical spring character
+- [ ] Practice mode: local sidetone + CW decoder for real-time feedback, no radio required — practice anywhere
+- [ ] Live TX mode: local and remote (SmartLink) — keyer logic runs locally, sends element timing to radio
+- [ ] Real-time CW keying over remote — first-to-market on any radio platform. No other software allows paddle/bug feel over a network connection.
+- [ ] Full break-in (QSK) and semi break-in with configurable hang time (TW-2000 style)
+- [ ] No VOX required for CW — keyer state IS the PTT (improvement over Jim's design which required VOX)
+- [ ] Semi break-in hides network latency for smooth remote operation
+- [ ] Configurable WPM, weight, Farnsworth spacing for learners
+- [ ] CW decoder reused from multi-slice decode feature
 
 ## Long-term
 - [ ] Wideband SDR support: RTL-SDR (RX-only, ~$30), HackRF (TX/RX, ~$350), ADALM-Pluto (TX/RX, ~$200), Airspy, SDRplay. Needs a radio abstraction layer that can talk to FlexLib, SoapySDR, and potentially Hamlib/CAT. This is the accessibility play — getting the entry cost for an accessible SDR station from $3,000+ down to $200-400.
