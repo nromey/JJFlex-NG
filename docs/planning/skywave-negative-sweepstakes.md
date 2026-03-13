@@ -4,7 +4,7 @@
 
 **Sprint Goal:** Complete the VB-to-C# migration of the hotkey system, give users control over how much the app talks, significantly improve the slice and audio experience, and fix persistent dialog issues.
 
-**Version:** 4.1.16 (bump after sprint completion)
+**Version:** 4.1.16 (bump after sprint completion or after fix sprint completes)
 
 ---
 
@@ -125,9 +125,16 @@
 - Update C# files: `DefineCommandsDialog.xaml.cs`, `CWMessageAddDialog.xaml.cs`, `LogEntryDialog.xaml.cs`, `LogField.cs` — namespace changes
 - Delete `KeyCommands.vb`
 
-**Files modified:** `ApplicationEvents.vb`, `globals.vb`, `DefineCommands.vb`, `LogEntry.vb`, `ShowHelp.vb`, 4 C# dialog/lib files, delete `KeyCommands.vb`
+**Key editor cleanup:**
+- Delete `SetupKeysDialog.xaml` + `.cs` (superseded by DefineCommandsDialog — no scopes, no conflict detection)
+- Rewire `ShowKeysDialog` Edit button to open `DefineCommandsDialog` instead of `SetupKeysDialog`
+- Collapse three Help menu entries ("Key Assignments", "Key Assignments (Alphabetical)", "Key Assignments (By Function)") into one "Show Key Assignments" (ShowKeysDialog already has sort options internally)
+- Add new Help menu entry "Edit Key Assignments" → opens `DefineCommandsDialog` directly
+- Two paths to the editor: Help → Edit Key Assignments (direct), or Help → Show Key Assignments → Edit button (browse first, then edit)
 
-**Verify:** Full solution builds 0 errors. Run debug build: F1 help works, Ctrl+J leader key works, band jumps work, mode switching works, KeyDefs.xml loads correctly (existing user config not lost).
+**Files modified:** `ApplicationEvents.vb`, `globals.vb`, `DefineCommands.vb`, `LogEntry.vb`, `ShowHelp.vb`, 4 C# dialog/lib files, `NativeMenuBar.cs`, `ShowKeysDialog.xaml.cs`, delete `KeyCommands.vb`, delete `SetupKeysDialog.xaml` + `.cs`
+
+**Verify:** Full solution builds 0 errors. Run debug build: F1 help works, Ctrl+J leader key works, band jumps work, mode switching works, KeyDefs.xml loads correctly (existing user config not lost). Help menu shows "Edit Key Assignments" and "Show Key Assignments". Both paths reach DefineCommandsDialog. ShowKeysDialog Edit button opens DefineCommandsDialog.
 
 ---
 
@@ -136,12 +143,13 @@
 **Goal:** Systematic audit of all 126 commands across 5 scopes.
 
 **What gets built:**
-- `ValidateKeyBindings()` method that checks for duplicate key+scope combos
+- `ValidateKeyBindings()` method that checks for duplicate key+scope combos"
 - Review all scope assignments: logging commands in Logging scope, radio-only in Radio, universal in Global
 - Document and resolve any conflicts found
 - Verify leader key commands don't shadow top-level keys
-
-**Files modified:** `JJFlexWpf/KeyCommands.cs`
+- Special care should be taken to determine during validation and auditing of 
+	* keys, that we don't have repeat key assignments etc.
+**Files modified:** `JJFlexWpf/KeyCommands.cs` 
 
 **Verify:** Validation runs clean at startup (trace output). Full build.
 
@@ -234,15 +242,16 @@ git worktree add ../jjflex-24b sprint24/track-a -b sprint24/track-b
 **What gets built:**
 
 **Slice work:**
-- Slice Selector field: up/down cycles slices, speech "Slice B, 14.250 USB"
+- Slice Selector field: up/down cycles slices, speech "Slice B, 14.250 USB, yours"
 - Slice Operations field: per-slice volume, pan, mute
-- Shift+M hotkey: mute/unmute current slice with earcon + speech
+- JJ Shift+M hotkey: mute/unmute current slice with earcon + speech (Radio scope)
 - Add `MuteSlice` to CommandValues, wire in KeyCommands.cs
 
-**Classic mode frequency field — read-only navigation:**
-- When arrowing to the frequency field in classic tuning mode, speak the frequency but do NOT allow up/down arrows to change it
+**Modern mode frequency field — read-only navigation:**
+- When arrowing to the frequency field in modern tuning mode, speak the frequency but do NOT allow up/down arrows to change it based on mHZ, kHZ, etc. 
 - Prevents accidental frequency nudging when the user is just navigating between fields
-- Frequency field becomes informational in classic mode (read-only display)
+- Frequency field becomes informational in modern mode (read-only display, thus reminding the user that modern mode tunes using the up or down arrow while using default or user provided coarse and fine tuning steps)
+- Classic mode operates as it did in versions prior to version 4 or prior to WPF implementation.
 
 **Quick-type frequency entry (both tuning modes):**
 - If digits are typed rapidly (each keystroke within ~1 second of the last), accumulate as a frequency entry
@@ -253,7 +262,7 @@ git worktree add ../jjflex-24b sprint24/track-a -b sprint24/track-b
 
 **Files:** `JJFlexWpf/FreqOutHandlers.cs`, `JJFlexWpf/KeyCommands.cs`, `Radios/KeyCommandTypes.cs`, `Radios/FlexBase.cs`
 
-**Verify:** Slice selector cycles correctly. Shift+M toggles mute. Volume/pan adjust per-slice. Classic mode frequency field is read-only (arrows don't change freq). Quick-type entry works: type `7125`, hear confirmation, Enter commits. Escape cancels. Decimal format (`7.125`) also works.
+**Verify:** Slice selector cycles correctly. JJ Shift+M toggles mute with earcon. Volume/pan adjust per-slice. Modern mode frequency field is read-only (arrows don't change freq by digit position). Classic mode still tunes by kHz/MHz fields as before. Quick-type entry works in both modes: type `7125`, hear confirmation, Enter commits. Escape cancels. Decimal format (`7.125`) also works.
 
 ---
 
@@ -286,7 +295,7 @@ git worktree add ../jjflex-24b sprint24/track-a -b sprint24/track-b
 **What gets built:**
 - Add trace logging around VFO switching in FreqOutHandlers and FlexBase
 - If reproducible: fix root cause
-- If not: leave trace hooks for Don's next session, document investigation
+- If not: leave trace hooks for Don's next session, document investigation, trace can be removed if new slice layout fixes the problem.
 
 **Files:** `Radios/FlexBase.cs`, `JJFlexWpf/FreqOutHandlers.cs`
 
@@ -325,6 +334,7 @@ git worktree add ../jjflex-24b sprint24/track-a -b sprint24/track-b
   - Meter Volume + Meter Device dropdown (with "Same as Alerts" option)
   - Radio Volume (wrapping FlexLib audio gain)
   - All controls with AccessibleName and proper tab order
+- "Audio Workshop..." button — launches AudioWorkshopDialog directly from the Audio tab (second path alongside menu)
 - Persist in AudioOutputConfig.xml
 
 **Files:** `JJFlexWpf/Dialogs/SettingsDialog.xaml`, `SettingsDialog.xaml.cs`, `JJFlexWpf/AudioOutputConfig.cs`
@@ -339,7 +349,9 @@ git worktree add ../jjflex-24b sprint24/track-a -b sprint24/track-b
 
 **What gets built:**
 - Replace 4 ListBox controls with a single `Microsoft.Web.WebView2.Wpf.WebView2` control
-- Tab selector generates HTML loaded via `NavigateToString()`
+- HTML templates as embedded resources: separate `.html` files in source tree, marked as embedded resources in `.csproj`, loaded via `Assembly.GetManifestResourceStream()` at runtime
+- Templates use `{{placeholder}}` tokens for dynamic values (version, build date, etc.) — replaced at load time
+- Tab selector loads the appropriate template and pushes to WebView2 via `NavigateToString()`
 - HTML uses `<h2>` headings, `<p>` content — screen reader navigates with H key
 - Per-tab Copy to Clipboard (plain text version)
 - Copy All to Clipboard
@@ -347,7 +359,7 @@ git worktree add ../jjflex-24b sprint24/track-a -b sprint24/track-b
 - Check for Updates (already implemented, keep working)
 - Async WebView2 init (`EnsureCoreWebView2Async()`) with loading state
 
-**Files:** `JJFlexWpf/Dialogs/AboutDialog.xaml`, `AboutDialog.xaml.cs`
+**Files:** `JJFlexWpf/Dialogs/AboutDialog.xaml`, `AboutDialog.xaml.cs`, `JJFlexWpf/Resources/About*.html` (new, embedded), `JJFlexWpf/JJFlexWpf.csproj` (embed resources)
 
 **Verify:** Dialog opens. WebView2 shows content. H key navigates headings in NVDA. Tab switching loads correct content. Copy buttons work. Update check works.
 
@@ -355,14 +367,16 @@ git worktree add ../jjflex-24b sprint24/track-a -b sprint24/track-b
 
 ## PHASE 10B (Track B): Quick Wins
 
-**Goal:** NR Level minimum fix.
+**Goal:** DSP level minimum fixes.
 
-**NR Level minimum 0 to 1:**
-- Change NR Level field minimum from 0 to 1 (level 0 kills all audio — confusing)
+**DSP level minimums 0 to 1:**
+- NR Level: change minimum from 0 to 1 (level 0 kills all audio — confusing)
+- NB Level: change minimum from 0 to 1 (level 0 means blanker on but doing nothing)
+- WNB Level: change minimum from 0 to 1 (same — on but ineffective)
 
-**Files:** `JJFlexWpf/Controls/ScreenFieldsPanel.xaml.cs` or related ValueFieldControl configuration
+**Files:** `JJFlexWpf/Controls/ScreenFieldsPanel.xaml.cs`
 
-**Verify:** NR Level slider won't go below 1. Build clean.
+**Verify:** NR, NB, and WNB level sliders won't go below 1. Build clean.
 
 ---
 
