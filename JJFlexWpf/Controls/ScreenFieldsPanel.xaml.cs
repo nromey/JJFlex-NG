@@ -195,7 +195,7 @@ public partial class ScreenFieldsPanel : UserControl
         };
         DspContent.Children.Add(_legacyNrCheck);
 
-        _nrLevelControl = MakeValue("NR Level", 0, 15, 1);
+        _nrLevelControl = MakeValue("NR Level", 1, 15, 1);
         _nrLevelControl.Visibility = Visibility.Collapsed;
         _nrLevelControl.ValueChanged += (s, v) => { if (_rig != null) _rig.NoiseReductionLegacyLevel = v; };
         DspContent.Children.Add(_nrLevelControl);
@@ -213,7 +213,7 @@ public partial class ScreenFieldsPanel : UserControl
         };
         DspContent.Children.Add(_nbCheck);
 
-        _nbLevelControl = MakeValue("NB Level", 0, 100, 5);
+        _nbLevelControl = MakeValue("NB Level", 1, 100, 5);
         _nbLevelControl.Visibility = Visibility.Collapsed;
         _nbLevelControl.ValueChanged += (s, v) => { if (_rig != null) _rig.NoiseBlankerLevel = v; };
         DspContent.Children.Add(_nbLevelControl);
@@ -231,7 +231,7 @@ public partial class ScreenFieldsPanel : UserControl
         };
         DspContent.Children.Add(_wnbCheck);
 
-        _wnbLevelControl = MakeValue("WNB Level", 0, 100, 5);
+        _wnbLevelControl = MakeValue("WNB Level", 1, 100, 5);
         _wnbLevelControl.Visibility = Visibility.Collapsed;
         _wnbLevelControl.ValueChanged += (s, v) => { if (_rig != null) _rig.WidebandNoiseBlankerLevel = v; };
         DspContent.Children.Add(_wnbLevelControl);

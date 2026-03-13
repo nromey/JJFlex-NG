@@ -8,7 +8,7 @@
     <DockPanel Margin="12">
         <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal"
                     HorizontalAlignment="Right" Margin="0,8,0,0">
-            <Button Content="_OK" MinWidth="80" Height="28"
+            <Button Content="_OK" AutomationProperties.AcceleratorKey="Alt+O" MinWidth="80" Height="28"
                     IsDefault="True" IsCancel="True" Click="OKButton_Click"
                     AutomationProperties.Name="OK" />
         </StackPanel>
