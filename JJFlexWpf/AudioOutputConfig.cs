@@ -16,8 +16,23 @@ namespace JJFlexWpf
         /// <summary>NAudio device number for earcon output. -1 = Windows default.</summary>
         public int EarconDeviceNumber { get; set; } = -1;
 
-        /// <summary>Master earcon volume 0–100.</summary>
+        /// <summary>Master earcon volume 0–100. Kept for backward compatibility with old configs.</summary>
         public int MasterEarconVolume { get; set; } = 80;
+
+        /// <summary>Alert channel volume 0.0–1.0. Replaces int-based MasterEarconVolume.
+        /// Defaults to -1 which means "derive from MasterEarconVolume" for backward compat.</summary>
+        private float _alertVolume = -1f;
+        public float AlertVolume
+        {
+            get => _alertVolume >= 0 ? _alertVolume : MasterEarconVolume / 100f;
+            set => _alertVolume = value;
+        }
+
+        /// <summary>Master volume multiplier across all channels 0.0–1.0.</summary>
+        public float MasterVolume { get; set; } = 1.0f;
+
+        /// <summary>NAudio device number for meter tone output. -1 = same as alerts.</summary>
+        public int MeterDeviceNumber { get; set; } = -1;
 
         /// <summary>Whether meter tones are enabled.</summary>
         public bool MeterTonesEnabled { get; set; }
@@ -95,9 +110,10 @@ namespace JJFlexWpf
         /// <summary>Apply this config to the MeterToneEngine and EarconPlayer.</summary>
         public void Apply()
         {
-            EarconPlayer.MasterVolume = MasterEarconVolume / 100f;
-            if (EarconDeviceNumber != -1)
-                EarconPlayer.SetOutputDevice(EarconDeviceNumber);
+            EarconPlayer.MasterVolume = MasterVolume;
+            EarconPlayer.AlertVolume = AlertVolume;
+            EarconPlayer.SetAlertDevice(EarconDeviceNumber);
+            EarconPlayer.SetMeterDevice(MeterDeviceNumber);
 
             // Verbosity
             Radios.ScreenReaderOutput.CurrentVerbosity =
@@ -125,7 +141,11 @@ namespace JJFlexWpf
             MeterSpeechTimerActive = MeterToneEngine.SpeechTimerActive;
             MeterSpeechIntervalSeconds = MeterToneEngine.SpeechIntervalSeconds;
             AutoEnableOnTune = MeterToneEngine.AutoEnableOnTune;
-            MasterEarconVolume = (int)(EarconPlayer.MasterVolume * 100);
+            MasterVolume = EarconPlayer.MasterVolume;
+            AlertVolume = EarconPlayer.AlertVolume;
+            MasterEarconVolume = (int)(EarconPlayer.AlertVolume * 100);
+            EarconDeviceNumber = EarconPlayer.GetAlertDeviceNumber();
+            MeterDeviceNumber = EarconPlayer.GetMeterDeviceNumber();
         }
     }
 

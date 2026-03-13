@@ -10,18 +10,26 @@ namespace JJFlexWpf
 {
     /// <summary>
     /// Synthesized beep tones and .wav earcons for PTT warnings and UI feedback.
-    /// Uses NAudio for playback — persistent WaveOutEvent with stereo MixingSampleProvider
-    /// allows overlapping sounds, panning, and sample reversal without creating/disposing players.
+    /// Dual-channel architecture: separate Alert (earcons, beeps, PTT tones) and
+    /// Meter (continuous meter tones) channels with independent volume and device control.
+    /// Each channel has its own WaveOutEvent + MixingSampleProvider for isolation.
     /// </summary>
     public static class EarconPlayer
     {
-        private static WaveOutEvent? _waveOut;
-        private static MixingSampleProvider? _mixer;
-        private static VolumeSampleProvider? _masterVolume;
+        private static AudioChannel? _alertChannel;
+        private static AudioChannel? _meterChannel;
         private static bool _initialized;
-        private static int _deviceNumber = -1; // -1 = Windows default
 
-        // Continuous tone providers registered with the mixer (meter tones etc.)
+        // Volume levels tracked separately for master scaling
+        private static float _masterVolumeLevel = 1.0f;
+        private static float _alertVolumeLevel = 1.0f;
+        private static float _meterVolumeLevel = 1.0f;
+
+        // Device numbers
+        private static int _alertDeviceNumber = -1; // -1 = Windows default
+        private static int _meterDeviceNumber = -1; // -1 = same as alerts
+
+        // Continuous tone providers registered with the meter channel mixer
         private static readonly List<ISampleProvider> _continuousProviders = new();
 
         // Cached embedded sounds (stored as mono for panning flexibility)
@@ -36,28 +44,30 @@ namespace JJFlexWpf
         private const int SampleRate = 44100;
         private const int MixerChannels = 2; // Stereo mixer for panning support
 
+        // Convenience accessors for the channel mixers
+        private static MixingSampleProvider? AlertMixer => _alertChannel?.Mixer;
+        private static MixingSampleProvider? MeterMixer => _meterChannel?.Mixer;
+
         /// <summary>
         /// Initialize the audio engine. Call once at startup.
+        /// Creates separate Alert and Meter audio channels.
         /// </summary>
         public static void Initialize()
         {
             if (_initialized) return;
             try
             {
-                _mixer = new MixingSampleProvider(
-                    WaveFormat.CreateIeeeFloatWaveFormat(SampleRate, MixerChannels))
-                {
-                    ReadFully = true
-                };
-                _masterVolume = new VolumeSampleProvider(_mixer);
+                // Create alert channel (earcons, beeps, PTT tones)
+                _alertChannel = new AudioChannel();
+                _alertChannel.Initialize(_alertDeviceNumber);
 
-                _waveOut = new WaveOutEvent
-                {
-                    DeviceNumber = _deviceNumber,
-                    DesiredLatency = 100
-                };
-                _waveOut.Init(_masterVolume);
-                _waveOut.Play();
+                // Create meter channel (continuous tones from MeterToneEngine)
+                // If meter device is -1 (same as alerts), use alert device
+                _meterChannel = new AudioChannel();
+                int meterDevice = _meterDeviceNumber == -1 ? _alertDeviceNumber : _meterDeviceNumber;
+                _meterChannel.Initialize(meterDevice);
+
+                UpdateChannelVolumes();
 
                 // Load embedded sounds
                 _clickSound = LoadEmbeddedSound("JJFlexWpf.Sounds.click.wav");
@@ -82,23 +92,22 @@ namespace JJFlexWpf
         public static void Dispose()
         {
             _continuousProviders.Clear();
-            _waveOut?.Stop();
-            _waveOut?.Dispose();
-            _waveOut = null;
-            _masterVolume = null;
-            _mixer = null;
+            _alertChannel?.Dispose();
+            _meterChannel?.Dispose();
+            _alertChannel = null;
+            _meterChannel = null;
             _initialized = false;
         }
 
         #region Continuous Tone Support
 
         /// <summary>
-        /// Register a ContinuousToneSampleProvider with the mixer (panned).
+        /// Register a ContinuousToneSampleProvider with the meter channel mixer (panned).
         /// The provider stays in the mixer permanently — it generates silence when inactive.
         /// </summary>
         public static void RegisterContinuousTone(ContinuousToneSampleProvider provider, float pan = 0f)
         {
-            if (_mixer == null) return;
+            if (MeterMixer == null) return;
             try
             {
                 ISampleProvider stereo;
@@ -110,7 +119,7 @@ namespace JJFlexWpf
                 {
                     stereo = new PanningSampleProvider(provider) { Pan = pan };
                 }
-                _mixer.AddMixerInput(stereo);
+                MeterMixer.AddMixerInput(stereo);
                 _continuousProviders.Add(stereo);
             }
             catch (Exception ex)
@@ -120,15 +129,15 @@ namespace JJFlexWpf
         }
 
         /// <summary>
-        /// Remove a continuous tone from the mixer. The provider wrapper is removed
-        /// from the mixer's input list.
+        /// Remove a continuous tone from the meter channel mixer. The provider wrapper
+        /// is removed from the mixer's input list.
         /// </summary>
         public static void UnregisterContinuousTone(ISampleProvider stereoWrapper)
         {
-            if (_mixer == null) return;
+            if (MeterMixer == null) return;
             try
             {
-                _mixer.RemoveMixerInput(stereoWrapper);
+                MeterMixer.RemoveMixerInput(stereoWrapper);
                 _continuousProviders.Remove(stereoWrapper);
             }
             catch (Exception ex)
@@ -143,7 +152,7 @@ namespace JJFlexWpf
         /// </summary>
         public static void UnregisterContinuousTone(ContinuousToneSampleProvider monoProvider)
         {
-            if (_mixer == null) return;
+            if (MeterMixer == null) return;
             ISampleProvider? found = null;
             foreach (var wrapper in _continuousProviders)
             {
@@ -158,12 +167,10 @@ namespace JJFlexWpf
 
         private static ISampleProvider? GetInnerProvider(MonoToStereoSampleProvider wrapper)
         {
-            // MonoToStereoSampleProvider wraps a single ISampleProvider — access via reflection
-            // as NAudio doesn't expose it publicly. Safe fallback: try all providers.
             try
             {
                 var field = typeof(MonoToStereoSampleProvider).GetField("source",
-                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                    BindingFlags.NonPublic | BindingFlags.Instance);
                 return field?.GetValue(wrapper) as ISampleProvider;
             }
             catch { return null; }
@@ -174,21 +181,21 @@ namespace JJFlexWpf
             try
             {
                 var field = typeof(PanningSampleProvider).GetField("source",
-                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                    BindingFlags.NonPublic | BindingFlags.Instance);
                 return field?.GetValue(wrapper) as ISampleProvider;
             }
             catch { return null; }
         }
 
         /// <summary>
-        /// Remove all continuous tone providers from the mixer.
+        /// Remove all continuous tone providers from the meter channel mixer.
         /// </summary>
         public static void UnregisterAllContinuousTones()
         {
-            if (_mixer == null) return;
+            if (MeterMixer == null) return;
             foreach (var p in _continuousProviders)
             {
-                try { _mixer.RemoveMixerInput(p); }
+                try { MeterMixer.RemoveMixerInput(p); }
                 catch { }
             }
             _continuousProviders.Clear();
@@ -196,19 +203,54 @@ namespace JJFlexWpf
 
         #endregion
 
-        #region Device Selection & Master Volume
+        #region Device Selection & Volume
 
         /// <summary>
-        /// Get/set the master earcon volume (0.0 to 1.0).
+        /// Master volume multiplier across all channels (0.0 to 1.0).
+        /// Scales both alert and meter channel output.
         /// </summary>
         public static float MasterVolume
         {
-            get => _masterVolume?.Volume ?? 1.0f;
+            get => _masterVolumeLevel;
             set
             {
-                if (_masterVolume != null)
-                    _masterVolume.Volume = Math.Clamp(value, 0f, 1f);
+                _masterVolumeLevel = Math.Clamp(value, 0f, 1f);
+                UpdateChannelVolumes();
             }
+        }
+
+        /// <summary>
+        /// Alert channel volume (0.0 to 1.0). Controls earcons, beeps, PTT tones.
+        /// </summary>
+        public static float AlertVolume
+        {
+            get => _alertVolumeLevel;
+            set
+            {
+                _alertVolumeLevel = Math.Clamp(value, 0f, 1f);
+                UpdateChannelVolumes();
+            }
+        }
+
+        /// <summary>
+        /// Meter channel volume (0.0 to 1.0). Controls continuous meter tones.
+        /// </summary>
+        public static float MeterVolume
+        {
+            get => _meterVolumeLevel;
+            set
+            {
+                _meterVolumeLevel = Math.Clamp(value, 0f, 1f);
+                UpdateChannelVolumes();
+            }
+        }
+
+        private static void UpdateChannelVolumes()
+        {
+            if (_alertChannel != null)
+                _alertChannel.Volume = _alertVolumeLevel * _masterVolumeLevel;
+            if (_meterChannel != null)
+                _meterChannel.Volume = _meterVolumeLevel * _masterVolumeLevel;
         }
 
         /// <summary>
@@ -232,41 +274,41 @@ namespace JJFlexWpf
         }
 
         /// <summary>
-        /// Switch the audio output device. Recreates the WaveOutEvent.
+        /// Switch the alert audio output device. Also updates meter channel if
+        /// meter device is set to "Same as Alerts" (-1).
         /// </summary>
-        public static void SetOutputDevice(int deviceNumber)
+        public static void SetAlertDevice(int deviceNumber)
         {
-            _deviceNumber = deviceNumber;
-            if (!_initialized || _mixer == null) return;
-            try
-            {
-                // Stop and dispose old output
-                _waveOut?.Stop();
-                _waveOut?.Dispose();
+            _alertDeviceNumber = deviceNumber;
+            if (!_initialized) return;
+            _alertChannel?.SetDevice(deviceNumber);
 
-                // Create new output on the selected device
-                _waveOut = new WaveOutEvent
-                {
-                    DeviceNumber = deviceNumber,
-                    DesiredLatency = 100
-                };
-                _waveOut.Init(_masterVolume);
-                _waveOut.Play();
-            }
-            catch (Exception ex)
-            {
-                Trace.WriteLine($"EarconPlayer.SetOutputDevice failed: {ex.Message}");
-                // Fall back to default device
-                try
-                {
-                    _waveOut = new WaveOutEvent { DesiredLatency = 100 };
-                    _waveOut.Init(_masterVolume);
-                    _waveOut.Play();
-                    _deviceNumber = -1;
-                }
-                catch { }
-            }
+            // If meter is "same as alerts", update it too
+            if (_meterDeviceNumber == -1)
+                _meterChannel?.SetDevice(deviceNumber);
         }
+
+        /// <summary>
+        /// Switch the meter audio output device. Use -1 for "Same as Alerts".
+        /// </summary>
+        public static void SetMeterDevice(int deviceNumber)
+        {
+            _meterDeviceNumber = deviceNumber;
+            if (!_initialized) return;
+            int effectiveDevice = deviceNumber == -1 ? _alertDeviceNumber : deviceNumber;
+            _meterChannel?.SetDevice(effectiveDevice);
+        }
+
+        /// <summary>
+        /// Switch the audio output device. Alias for SetAlertDevice (backward compatibility).
+        /// </summary>
+        public static void SetOutputDevice(int deviceNumber) => SetAlertDevice(deviceNumber);
+
+        /// <summary>Get the current alert device number (-1 = Windows default).</summary>
+        public static int GetAlertDeviceNumber() => _alertDeviceNumber;
+
+        /// <summary>Get the current meter device number (-1 = same as alerts).</summary>
+        public static int GetMeterDeviceNumber() => _meterDeviceNumber;
 
         #endregion
 
@@ -395,7 +437,7 @@ namespace JJFlexWpf
         /// </summary>
         public static void FilterSqueezeTone()
         {
-            if (_mixer == null) return;
+            if (AlertMixer == null) return;
             try
             {
                 const int durationMs = 300;
@@ -414,7 +456,7 @@ namespace JJFlexWpf
         /// </summary>
         public static void FilterStretchTone()
         {
-            if (_mixer == null) return;
+            if (AlertMixer == null) return;
             try
             {
                 const int durationMs = 300;
@@ -492,7 +534,7 @@ namespace JJFlexWpf
         public static void StartATUProgressEarcon()
         {
             StopATUProgressEarcon(); // Stop any existing progress earcon
-            if (_mixer == null) return;
+            if (AlertMixer == null) return;
             try
             {
                 _atuProgressProvider = new ContinuousToneSampleProvider(450f, 0.25f)
@@ -501,7 +543,7 @@ namespace JJFlexWpf
                     Active = true
                 };
                 _atuProgressStereoWrapper = new MonoToStereoSampleProvider(_atuProgressProvider);
-                _mixer.AddMixerInput(_atuProgressStereoWrapper);
+                AlertMixer.AddMixerInput(_atuProgressStereoWrapper);
             }
             catch (Exception ex)
             {
@@ -518,7 +560,7 @@ namespace JJFlexWpf
             {
                 _atuProgressProvider.Active = false;
             }
-            if (_atuProgressStereoWrapper != null && _mixer != null)
+            if (_atuProgressStereoWrapper != null && AlertMixer != null)
             {
                 var wrapper = _atuProgressStereoWrapper;
                 _atuProgressStereoWrapper = null;
@@ -526,7 +568,7 @@ namespace JJFlexWpf
                 // Brief delay for fade-out, then remove from mixer
                 System.Threading.Tasks.Task.Delay(50).ContinueWith(_ =>
                 {
-                    try { _mixer?.RemoveMixerInput(wrapper); }
+                    try { AlertMixer?.RemoveMixerInput(wrapper); }
                     catch { }
                 });
             }
@@ -561,6 +603,25 @@ namespace JJFlexWpf
         #endregion
 
         /// <summary>
+        /// Confirmation ding with decay — a clear, pleasant tone that cuts through radio audio.
+        /// 1000 Hz fundamental + soft octave harmonic, exponential decay over 250ms.
+        /// Use for frequency entry confirmation and similar confirmations.
+        /// </summary>
+        public static void DingTone()
+        {
+            if (AlertMixer == null) return;
+            try
+            {
+                var ding = new DingToneSampleProvider(SampleRate, 1000, 250, 0.4f);
+                AddToMixer(ding);
+            }
+            catch (Exception ex)
+            {
+                Trace.WriteLine($"EarconPlayer.DingTone failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
         /// Play a tone with specific parameters and panning. Used by earcon scratchpad.
         /// </summary>
         public static void PlayScratchpadTone(int freqHz, int durationMs, float volume, float pan)
@@ -580,40 +641,40 @@ namespace JJFlexWpf
 
         #region Internal Playback
 
-        /// <summary>Add a mono source to the stereo mixer (auto-converts to stereo center).</summary>
+        /// <summary>Add a mono source to the alert channel stereo mixer (auto-converts to stereo center).</summary>
         private static void AddToMixer(ISampleProvider monoSource)
         {
-            if (_mixer == null) return;
+            if (AlertMixer == null) return;
             if (monoSource.WaveFormat.Channels == 1)
-                _mixer.AddMixerInput(new MonoToStereoSampleProvider(monoSource));
+                AlertMixer.AddMixerInput(new MonoToStereoSampleProvider(monoSource));
             else
-                _mixer.AddMixerInput(monoSource);
+                AlertMixer.AddMixerInput(monoSource);
         }
 
-        /// <summary>Add a mono source to the stereo mixer with panning (-1 left, 0 center, +1 right).</summary>
+        /// <summary>Add a mono source to the alert channel stereo mixer with panning (-1 left, 0 center, +1 right).</summary>
         private static void AddToMixerPanned(ISampleProvider monoSource, float pan)
         {
-            if (_mixer == null) return;
+            if (AlertMixer == null) return;
             // PanningSampleProvider takes mono → outputs stereo
             if (monoSource.WaveFormat.Channels != 1)
                 monoSource = monoSource.ToMono();
             var panned = new PanningSampleProvider(monoSource) { Pan = pan };
-            _mixer.AddMixerInput(panned);
+            AlertMixer.AddMixerInput(panned);
         }
 
         /// <summary>Add a mono source with panning that sweeps from startPan to endPan over durationMs.</summary>
         private static void AddToMixerSweptPan(ISampleProvider monoSource, float startPan, float endPan, int durationMs)
         {
-            if (_mixer == null) return;
+            if (AlertMixer == null) return;
             if (monoSource.WaveFormat.Channels != 1)
                 monoSource = monoSource.ToMono();
             var swept = new SweepPanningSampleProvider(monoSource, startPan, endPan, durationMs);
-            _mixer.AddMixerInput(swept);
+            AlertMixer.AddMixerInput(swept);
         }
 
         private static void PlayTone(int frequencyHz, int durationMs, float volume)
         {
-            if (_mixer == null) { FallbackBeep(frequencyHz, durationMs); return; }
+            if (AlertMixer == null) { FallbackBeep(frequencyHz, durationMs); return; }
             try
             {
                 var signal = new SignalGenerator(SampleRate, 1) // mono
@@ -637,7 +698,7 @@ namespace JJFlexWpf
 
         private static void PlayTonePanned(int frequencyHz, int durationMs, float volume, float pan)
         {
-            if (_mixer == null) { FallbackBeep(frequencyHz, durationMs); return; }
+            if (AlertMixer == null) { FallbackBeep(frequencyHz, durationMs); return; }
             try
             {
                 var signal = new SignalGenerator(SampleRate, 1)
@@ -661,7 +722,7 @@ namespace JJFlexWpf
 
         private static void PlayToneSequence((int freq, int ms)[] tones, float volume)
         {
-            if (_mixer == null) return;
+            if (AlertMixer == null) return;
             try
             {
                 var monoFormat = WaveFormat.CreateIeeeFloatWaveFormat(SampleRate, 1);
@@ -696,7 +757,7 @@ namespace JJFlexWpf
 
         private static void PlayChirp(int startHz, int endHz, int durationMs, float volume)
         {
-            if (_mixer == null) { FallbackBeep((startHz + endHz) / 2, durationMs); return; }
+            if (AlertMixer == null) { FallbackBeep((startHz + endHz) / 2, durationMs); return; }
             try
             {
                 var chirp = new ChirpSampleProvider(SampleRate, startHz, endHz, durationMs, volume);
@@ -711,7 +772,7 @@ namespace JJFlexWpf
 
         private static void PlayChirpPanned(int startHz, int endHz, int durationMs, float volume, float pan)
         {
-            if (_mixer == null) { FallbackBeep((startHz + endHz) / 2, durationMs); return; }
+            if (AlertMixer == null) { FallbackBeep((startHz + endHz) / 2, durationMs); return; }
             try
             {
                 var chirp = new ChirpSampleProvider(SampleRate, startHz, endHz, durationMs, volume);
@@ -725,7 +786,7 @@ namespace JJFlexWpf
 
         private static void PlayCachedSound(CachedSound sound)
         {
-            if (_mixer == null) return;
+            if (AlertMixer == null) return;
             try
             {
                 var provider = new CachedSoundSampleProvider(sound);
@@ -739,7 +800,7 @@ namespace JJFlexWpf
 
         private static void PlayCachedSoundPanned(CachedSound sound, float pan)
         {
-            if (_mixer == null) return;
+            if (AlertMixer == null) return;
             try
             {
                 var provider = new CachedSoundSampleProvider(sound);
@@ -753,7 +814,7 @@ namespace JJFlexWpf
 
         private static void PlayCachedSoundReversedPanned(CachedSound sound, float pan)
         {
-            if (_mixer == null) return;
+            if (AlertMixer == null) return;
             try
             {
                 var provider = new ReversedCachedSoundSampleProvider(sound);
@@ -794,6 +855,160 @@ namespace JJFlexWpf
         #endregion
 
         #region Internal Types
+
+        /// <summary>
+        /// An independent audio output channel with its own WaveOutEvent, mixer, and volume.
+        /// Each channel can target a different audio device.
+        /// </summary>
+        private class AudioChannel : IDisposable
+        {
+            private WaveOutEvent? _waveOut;
+            private VolumeSampleProvider? _volume;
+            private int _deviceNumber = -1;
+
+            public MixingSampleProvider? Mixer { get; private set; }
+
+            public float Volume
+            {
+                get => _volume?.Volume ?? 1.0f;
+                set { if (_volume != null) _volume.Volume = Math.Clamp(value, 0f, 1f); }
+            }
+
+            public int DeviceNumber => _deviceNumber;
+
+            public bool Initialize(int deviceNumber)
+            {
+                _deviceNumber = deviceNumber;
+                Mixer = new MixingSampleProvider(
+                    WaveFormat.CreateIeeeFloatWaveFormat(SampleRate, MixerChannels))
+                {
+                    ReadFully = true
+                };
+                _volume = new VolumeSampleProvider(Mixer);
+
+                try
+                {
+                    _waveOut = new WaveOutEvent
+                    {
+                        DeviceNumber = deviceNumber,
+                        DesiredLatency = 100
+                    };
+                    _waveOut.Init(_volume);
+                    _waveOut.Play();
+                    return true;
+                }
+                catch (Exception ex)
+                {
+                    Trace.WriteLine($"AudioChannel.Initialize failed on device {deviceNumber}: {ex.Message}");
+                    // Fall back to default device
+                    try
+                    {
+                        _waveOut = new WaveOutEvent { DesiredLatency = 100 };
+                        _waveOut.Init(_volume);
+                        _waveOut.Play();
+                        _deviceNumber = -1;
+                        return true;
+                    }
+                    catch (Exception ex2)
+                    {
+                        Trace.WriteLine($"AudioChannel.Initialize fallback failed: {ex2.Message}");
+                        return false;
+                    }
+                }
+            }
+
+            public void SetDevice(int deviceNumber)
+            {
+                _deviceNumber = deviceNumber;
+                if (Mixer == null || _volume == null) return;
+                try
+                {
+                    _waveOut?.Stop();
+                    _waveOut?.Dispose();
+
+                    _waveOut = new WaveOutEvent
+                    {
+                        DeviceNumber = deviceNumber,
+                        DesiredLatency = 100
+                    };
+                    _waveOut.Init(_volume);
+                    _waveOut.Play();
+                }
+                catch (Exception ex)
+                {
+                    Trace.WriteLine($"AudioChannel.SetDevice failed: {ex.Message}");
+                    // Fall back to default device
+                    try
+                    {
+                        _waveOut = new WaveOutEvent { DesiredLatency = 100 };
+                        _waveOut.Init(_volume);
+                        _waveOut.Play();
+                        _deviceNumber = -1;
+                    }
+                    catch { }
+                }
+            }
+
+            public void Dispose()
+            {
+                _waveOut?.Stop();
+                _waveOut?.Dispose();
+                _waveOut = null;
+                _volume = null;
+                Mixer = null;
+            }
+        }
+
+        /// <summary>
+        /// Sine tone with exponential decay — produces a clear "ding" that fades naturally.
+        /// Includes a soft octave harmonic for warmth.
+        /// </summary>
+        private class DingToneSampleProvider : ISampleProvider
+        {
+            private readonly int _totalSamples;
+            private readonly float _frequency;
+            private readonly float _volume;
+            private readonly float _decayRate;
+            private int _position;
+            private double _phase;
+            private double _phase2; // octave harmonic
+
+            public WaveFormat WaveFormat { get; }
+
+            public DingToneSampleProvider(int sampleRate, float frequency, int durationMs, float volume)
+            {
+                WaveFormat = WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 1);
+                _totalSamples = sampleRate * durationMs / 1000;
+                _frequency = frequency;
+                _volume = volume;
+                // Decay rate: envelope reaches ~1% at end of duration
+                _decayRate = -MathF.Log(0.01f) / _totalSamples;
+            }
+
+            public int Read(float[] buffer, int offset, int count)
+            {
+                int available = _totalSamples - _position;
+                int toCopy = Math.Min(available, count);
+                if (toCopy <= 0) return 0;
+
+                double phaseInc = 2.0 * Math.PI * _frequency / WaveFormat.SampleRate;
+                double phaseInc2 = 2.0 * Math.PI * (_frequency * 2) / WaveFormat.SampleRate;
+
+                for (int i = 0; i < toCopy; i++)
+                {
+                    double envelope = Math.Exp(-_decayRate * _position);
+
+                    // Fundamental (80%) + soft octave harmonic (20%)
+                    double sample = Math.Sin(_phase) * 0.8 + Math.Sin(_phase2) * 0.2;
+
+                    buffer[offset + i] = (float)(sample * envelope * _volume);
+                    _phase += phaseInc;
+                    _phase2 += phaseInc2;
+                    _position++;
+                }
+                return toCopy;
+            }
+        }
 
         /// <summary>
         /// Pre-loaded .wav audio data stored as mono float samples for instant playback.
