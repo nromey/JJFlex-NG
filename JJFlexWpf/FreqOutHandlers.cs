@@ -138,6 +138,12 @@ public class FreqOutHandlers
     /// </summary>
     public Radios.FilterPresets? FilterPresets { get; set; }
 
+    // Quick-type frequency entry — accumulate digits, confirm with Enter
+    private string _quickTypeBuffer = "";
+    private DateTime _lastDigitTime = DateTime.MinValue;
+    private CancellationTokenSource? _quickTypeTimeout;
+    private bool _inQuickType;
+
     public FreqOutHandlers(MainWindow window)
     {
         _window = window;
@@ -224,6 +230,9 @@ public class FreqOutHandlers
             return;
         }
 
+        // Quick-type frequency entry: digits, dot, Enter, Escape
+        if (HandleQuickTypeKey(key, ch, e)) return;
+
         // Reset tune debounce on non-tuning keys (Up/Down/U/D are tuning keys)
         if (key != Key.Up && key != Key.Down && ch != 'U' && ch != 'D')
             ResetTuneDebounce();
@@ -250,11 +259,6 @@ public class FreqOutHandlers
                     _stepBuffer = "";
                     _stepMultiplier = 1;
                     Radios.ScreenReaderOutput.Speak("Step entry");
-                    e.Handled = true;
-                }
-                else if (ch >= '0' && ch <= '9')
-                {
-                    EnterFreqDigit(ch, posInField, fieldLen);
                     e.Handled = true;
                 }
                 else if (ch == 'K')
@@ -481,6 +485,189 @@ public class FreqOutHandlers
 
     #endregion
 
+    #region QuickType
+
+    /// <summary>
+    /// Accumulate a digit into the quick-type frequency entry buffer.
+    /// After a 1-second pause, prompts for confirmation.
+    /// </summary>
+    private void QuickTypeDigit(char digit)
+    {
+        var now = DateTime.Now;
+        if (!_inQuickType || (now - _lastDigitTime).TotalMilliseconds > 1500)
+        {
+            // Start new quick-type session
+            _quickTypeBuffer = "";
+            _inQuickType = true;
+        }
+
+        _quickTypeBuffer += digit;
+        _lastDigitTime = now;
+
+        // Speak the digit for feedback
+        Radios.ScreenReaderOutput.Speak(digit.ToString(), VerbosityLevel.Terse, true);
+
+        // Cancel any pending timeout
+        _quickTypeTimeout?.Cancel();
+        _quickTypeTimeout = new CancellationTokenSource();
+        var token = _quickTypeTimeout.Token;
+
+        // Prompt after 1 second of no input
+        Task.Delay(1000, token).ContinueWith(t =>
+        {
+            if (!t.IsCanceled)
+                _window.Dispatcher.BeginInvoke(new Action(PromptQuickType));
+        });
+    }
+
+    /// <summary>
+    /// Accept a decimal point during quick-type entry.
+    /// </summary>
+    private void QuickTypeDot()
+    {
+        if (!_inQuickType) return;
+        if (_quickTypeBuffer.Contains('.')) return; // only one decimal allowed
+
+        _quickTypeBuffer += '.';
+        _lastDigitTime = DateTime.Now;
+        Radios.ScreenReaderOutput.Speak("point", VerbosityLevel.Terse, true);
+
+        // Reset the timeout
+        _quickTypeTimeout?.Cancel();
+        _quickTypeTimeout = new CancellationTokenSource();
+        var token = _quickTypeTimeout.Token;
+        Task.Delay(1000, token).ContinueWith(t =>
+        {
+            if (!t.IsCanceled)
+                _window.Dispatcher.BeginInvoke(new Action(PromptQuickType));
+        });
+    }
+
+    /// <summary>
+    /// Speak confirmation prompt after typing pause.
+    /// </summary>
+    private void PromptQuickType()
+    {
+        if (!_inQuickType || string.IsNullOrEmpty(_quickTypeBuffer)) return;
+
+        double? freqMhz = ParseQuickTypeFreq(_quickTypeBuffer);
+        if (freqMhz == null)
+        {
+            Radios.ScreenReaderOutput.Speak("Invalid frequency, press Escape to cancel", VerbosityLevel.Critical, true);
+            return;
+        }
+
+        string display = FormatFreqForSpeech(freqMhz.Value);
+        Radios.ScreenReaderOutput.Speak(
+            $"Change frequency to {display}? Press Enter to confirm, Escape to cancel",
+            VerbosityLevel.Terse, true);
+    }
+
+    /// <summary>
+    /// Parse the quick-type buffer into a frequency in MHz.
+    /// Digits without decimal = kHz. With decimal = MHz.
+    /// </summary>
+    private static double? ParseQuickTypeFreq(string input)
+    {
+        if (string.IsNullOrWhiteSpace(input)) return null;
+
+        if (input.Contains('.'))
+        {
+            // Contains decimal — treat as MHz
+            if (double.TryParse(input, System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out double mhz)
+                && mhz > 0.1 && mhz < 500)
+                return mhz;
+        }
+        else
+        {
+            // No decimal — treat as kHz, convert to MHz
+            if (double.TryParse(input, out double khz) && khz > 100 && khz < 500000)
+                return khz / 1000.0;
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Format a frequency in MHz for spoken output.
+    /// </summary>
+    private static string FormatFreqForSpeech(double mhz)
+    {
+        if (mhz >= 1.0) return $"{mhz:F3} megahertz";
+        return $"{mhz * 1000:F0} kilohertz";
+    }
+
+    /// <summary>
+    /// Commit the quick-type frequency entry.
+    /// </summary>
+    private void CommitQuickType()
+    {
+        if (!_inQuickType || string.IsNullOrEmpty(_quickTypeBuffer)) return;
+        _quickTypeTimeout?.Cancel();
+
+        double? freqMhz = ParseQuickTypeFreq(_quickTypeBuffer);
+        if (freqMhz == null)
+        {
+            Radios.ScreenReaderOutput.Speak("Invalid frequency", VerbosityLevel.Critical, true);
+            CancelQuickType();
+            return;
+        }
+
+        // Convert MHz to Hz (ulong, our internal format)
+        ulong freqHz = (ulong)(freqMhz.Value * 1_000_000);
+        SetRXFrequency?.Invoke(freqHz);
+
+        string display = FormatFreqForSpeech(freqMhz.Value);
+        Radios.ScreenReaderOutput.Speak($"Frequency set to {display}", VerbosityLevel.Terse, true);
+        CancelQuickType();
+    }
+
+    /// <summary>
+    /// Cancel quick-type entry and restore previous state.
+    /// </summary>
+    private void CancelQuickType()
+    {
+        _inQuickType = false;
+        _quickTypeBuffer = "";
+        _quickTypeTimeout?.Cancel();
+    }
+
+    /// <summary>
+    /// Handle Enter/Escape/digit/dot keys during quick-type mode in a frequency field.
+    /// Returns true if the key was consumed by quick-type.
+    /// </summary>
+    private bool HandleQuickTypeKey(Key key, char ch, KeyEventArgs e)
+    {
+        if (key == Key.Escape && _inQuickType)
+        {
+            CancelQuickType();
+            Radios.ScreenReaderOutput.Speak("Cancelled", VerbosityLevel.Terse, true);
+            e.Handled = true;
+            return true;
+        }
+        if (key == Key.Enter && _inQuickType)
+        {
+            CommitQuickType();
+            e.Handled = true;
+            return true;
+        }
+        if (ch >= '0' && ch <= '9')
+        {
+            QuickTypeDigit(ch);
+            e.Handled = true;
+            return true;
+        }
+        if (ch == '.' && _inQuickType)
+        {
+            QuickTypeDot();
+            e.Handled = true;
+            return true;
+        }
+        return false;
+    }
+
+    #endregion
+
     #region AdjustVFO
 
     /// <summary>
@@ -563,9 +750,12 @@ public class FreqOutHandlers
         {
             Rig.RXVFO = next;
             string letter = Rig.VFOToLetter(next);
+            double freqMhz = Rig.GetVFOFrequency(next);
+            string mode = Rig.GetVFOMode(next);
             string owner = Rig.GetSliceOwnerForVFO(next);
             string ownerSuffix = owner != null ? $", {owner}" : "";
-            Radios.ScreenReaderOutput.Speak($"Slice {letter}{ownerSuffix}", VerbosityLevel.Terse);
+            string freqSuffix = freqMhz > 0 ? $", {freqMhz:F3} {mode}" : "";
+            Radios.ScreenReaderOutput.Speak($"Slice {letter}{freqSuffix}{ownerSuffix}", VerbosityLevel.Terse);
         }
     }
 
@@ -705,23 +895,11 @@ public class FreqOutHandlers
                 switch (key)
                 {
                     case Key.Up:
-                        if (Rig.ValidVFO(vfo))
-                            AdjustGain(vfo, FlexBase.GainIncrement);
+                        CycleVFO(1);
                         e.Handled = true;
                         break;
                     case Key.Down:
-                        if (Rig.ValidVFO(vfo))
-                            AdjustGain(vfo, -FlexBase.GainIncrement);
-                        e.Handled = true;
-                        break;
-                    case Key.PageUp:
-                        if (Rig.ValidVFO(vfo))
-                            AdjustPan(vfo, FlexBase.PanIncrement);
-                        e.Handled = true;
-                        break;
-                    case Key.PageDown:
-                        if (Rig.ValidVFO(vfo))
-                            AdjustPan(vfo, -FlexBase.PanIncrement);
+                        CycleVFO(-1);
                         e.Handled = true;
                         break;
                 }
@@ -767,6 +945,59 @@ public class FreqOutHandlers
         int newVal = Math.Clamp(current + delta, FlexBase.MinPan, FlexBase.MaxPan);
         Rig.SetVFOPan(vfo, newVal);
         Radios.ScreenReaderOutput.Speak($"Pan {newVal}", VerbosityLevel.Terse);
+    }
+
+    #endregion
+
+    #region AdjustSliceOps
+
+    /// <summary>
+    /// Slice Operations field handler — per-slice volume, pan, and mute.
+    /// Up/Down = volume, PageUp/PageDown = pan, M/Space = mute toggle.
+    /// </summary>
+    public void AdjustSliceOps(FrequencyDisplay.DisplayField field, KeyEventArgs e)
+    {
+        if (Rig == null) return;
+        var key = RawKey(e);
+        char ch = KeyToChar(e);
+        int vfo = Rig.RXVFO;
+
+        switch (key)
+        {
+            case Key.Up:
+                if (Rig.ValidVFO(vfo))
+                    AdjustGain(vfo, FlexBase.GainIncrement);
+                e.Handled = true;
+                break;
+            case Key.Down:
+                if (Rig.ValidVFO(vfo))
+                    AdjustGain(vfo, -FlexBase.GainIncrement);
+                e.Handled = true;
+                break;
+            case Key.PageUp:
+                if (Rig.ValidVFO(vfo))
+                    AdjustPan(vfo, FlexBase.PanIncrement);
+                e.Handled = true;
+                break;
+            case Key.PageDown:
+                if (Rig.ValidVFO(vfo))
+                    AdjustPan(vfo, -FlexBase.PanIncrement);
+                e.Handled = true;
+                break;
+            default:
+                if (ch == 'M' || ch == ' ')
+                {
+                    bool newMute = !Rig.SliceMute;
+                    Rig.SliceMute = newMute;
+                    if (newMute) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
+                    string letter = Rig.VFOToLetter(vfo);
+                    Radios.ScreenReaderOutput.Speak(
+                        newMute ? $"Slice {letter} muted" : $"Slice {letter} unmuted",
+                        VerbosityLevel.Terse, true);
+                    e.Handled = true;
+                }
+                break;
+        }
     }
 
     #endregion
@@ -1130,19 +1361,15 @@ public class FreqOutHandlers
         var key = RawKey(e);
         char ch = KeyToChar(e);
 
-        // Reset tune debounce on non-tuning keys (Up/Down are tuning keys)
-        if (key != Key.Up && key != Key.Down)
-            ResetTuneDebounce();
+        // Quick-type frequency entry: digits, dot, Enter, Escape
+        if (HandleQuickTypeKey(key, ch, e)) return;
 
         switch (key)
         {
             case Key.Up:
-                TuneFreq((ulong)CurrentTuneStep);
-                e.Handled = true;
-                break;
-
             case Key.Down:
-                TuneFreq(unchecked((ulong)(-(long)CurrentTuneStep)));
+                // Modern mode: freq field is read-only for arrow keys.
+                // Prevents accidental frequency nudging. Use quick-type digits to change frequency.
                 e.Handled = true;
                 break;
 
@@ -1225,17 +1452,6 @@ public class FreqOutHandlers
                         Radios.ScreenReaderOutput.Speak(
                             xit.Active ? "XIT on" : "XIT off", VerbosityLevel.Terse, true);
                     }
-                    e.Handled = true;
-                }
-                else if (ch >= '0' && ch <= '9')
-                {
-                    // Digit entry: delegate to same logic as Classic
-                    int fieldStart = _window.FreqOut.GetFieldPosition("Freq");
-                    int posInField = _window.FreqOut.SelectionStart - fieldStart;
-                    int fieldLen = _window.FreqOut.GetFieldLength("Freq");
-                    if (posInField < 0) posInField = 0;
-                    if (posInField >= fieldLen) posInField = fieldLen - 1;
-                    EnterFreqDigit(ch, posInField, fieldLen);
                     e.Handled = true;
                 }
                 break;

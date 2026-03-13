@@ -2909,6 +2909,32 @@ namespace Radios
         public string VFOToLetter(int vfo) => VFOToSlice(vfo)?.Letter ?? vfo.ToString();
 
         /// <summary>
+        /// Get the frequency of a specific VFO index in MHz.
+        /// Returns 0 if the VFO is invalid.
+        /// </summary>
+        public double GetVFOFrequency(int vfo)
+        {
+            lock (mySlices)
+            {
+                var slice = ValidVFO(vfo) ? mySlices[vfo] : null;
+                return slice?.Freq ?? 0.0;
+            }
+        }
+
+        /// <summary>
+        /// Get the demodulation mode of a specific VFO index.
+        /// Returns empty string if the VFO is invalid.
+        /// </summary>
+        public string GetVFOMode(int vfo)
+        {
+            lock (mySlices)
+            {
+                var slice = ValidVFO(vfo) ? mySlices[vfo] : null;
+                return slice?.DemodMode ?? "";
+            }
+        }
+
+        /// <summary>
         /// Get the owner description for a VFO index.
         /// Public wrapper for external callers who don't have access to Slice objects.
         /// </summary>

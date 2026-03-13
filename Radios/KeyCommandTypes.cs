@@ -123,6 +123,7 @@ public enum CommandValues
     RepeatLastMessage,
     CycleVerbosity,
     ToggleMeterTonesGlobal,
+    MuteSlice,
 }
 
 /// <summary>

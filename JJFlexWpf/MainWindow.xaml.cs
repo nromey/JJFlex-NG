@@ -1080,12 +1080,14 @@ public partial class MainWindow : UserControl
 
         var fields = new List<FrequencyDisplay.DisplayField>();
 
-        // Field order: Slice → Freq → Mute → Volume → SMeter → Split → VOX → Offset → RIT → XIT
+        // Field order: Slice → SliceOps → Freq → Mute → Volume → SMeter → Split → VOX → Offset → RIT → XIT
         fields.Add(new FrequencyDisplay.DisplayField("Slice", 1, "", "") { Label = "Slice",
-            HelpItems = new() { ("Space", "next slice"), ("A-H or 0-7", "jump to slice"), ("M", "mute"),
+            HelpItems = new() { ("Up Down", "cycle slices"), ("Space", "next slice"), ("A-H or 0-7", "jump to slice"),
                 ("T", "set transmit"), ("Period", "create slice"), ("Comma", "release slice") } });
+        fields.Add(new FrequencyDisplay.DisplayField("SliceOps", 3, "", "") { Label = "Slice Audio",
+            HelpItems = new() { ("Up Down", "volume"), ("Page Up Down", "pan"), ("M or Space", "mute toggle") } });
         fields.Add(new FrequencyDisplay.DisplayField("Freq", 12, "", "") { Label = "Frequency", DefaultCursorOffset = 8,
-            HelpItems = new() { ("Up Down", "tune by cursor position"), ("Digits", "enter frequency"),
+            HelpItems = new() { ("Up Down", "tune by cursor position"), ("Digits", "type frequency then Enter"),
                 ("K", "round to nearest kilohertz"), ("C", "toggle coarse and fine"),
                 ("Plus N", "set step multiplier"), ("F", "speak frequency") } });
         fields.Add(new FrequencyDisplay.DisplayField("Mute", 1, "", "") { Label = "Mute",
@@ -1127,14 +1129,15 @@ public partial class MainWindow : UserControl
 
         var fields = new List<FrequencyDisplay.DisplayField>();
 
-        // Simplified: Slice → Freq → SMeter
+        // Simplified: Slice → SliceOps → Freq → SMeter
         fields.Add(new FrequencyDisplay.DisplayField("Slice", 1, "", "") { Label = "Slice",
-            HelpItems = new() { ("Space", "next slice"), ("A-H or 0-7", "jump to slice"), ("M", "mute"),
+            HelpItems = new() { ("Up Down", "cycle slices"), ("Space", "next slice"), ("A-H or 0-7", "jump to slice"),
                 ("T", "set transmit"), ("Period", "create slice"), ("Comma", "release slice") } });
+        fields.Add(new FrequencyDisplay.DisplayField("SliceOps", 3, "", "") { Label = "Slice Audio",
+            HelpItems = new() { ("Up Down", "volume"), ("Page Up Down", "pan"), ("M or Space", "mute toggle") } });
         fields.Add(new FrequencyDisplay.DisplayField("Freq", 12, "", "") { Label = "Frequency", DefaultCursorOffset = 8,
-            HelpItems = new() { ("Up Down", "tune by cursor position"), ("Digits", "enter frequency"),
-                ("K", "round to nearest kilohertz"), ("C", "toggle coarse and fine"),
-                ("Plus N", "set step multiplier"), ("F", "speak frequency") } });
+            HelpItems = new() { ("Digits", "type frequency then Enter"), ("F", "speak frequency"),
+                ("C", "toggle coarse and fine"), ("Page Up Down", "cycle step size") } });
         fields.Add(new FrequencyDisplay.DisplayField("SMeter", 4, " ", "") { Label = "S Meter",
             HelpItems = new() { ("This field is read-only", "shows signal strength") } });
 
@@ -1191,6 +1194,9 @@ public partial class MainWindow : UserControl
                 case "Slice":
                     _freqOutHandlers.AdjustSlice(field, e);
                     break;
+                case "SliceOps":
+                    _freqOutHandlers.AdjustSliceOps(field, e);
+                    break;
                 case "SMeter":
                     _freqOutHandlers.AdjustSMeter(field, e);
                     break;
@@ -1224,6 +1230,9 @@ public partial class MainWindow : UserControl
                 break;
             case "Slice":
                 _freqOutHandlers.AdjustSlice(field, e);
+                break;
+            case "SliceOps":
+                _freqOutHandlers.AdjustSliceOps(field, e);
                 break;
             case "Mute":
                 _freqOutHandlers.AdjustMute(field, e);
@@ -1290,6 +1299,9 @@ public partial class MainWindow : UserControl
             // Volume — current active slice gain (0-100)
             int vol = RigControl.GetVFOGain(RigControl.RXVFO);
             FreqOut.Write("Volume", vol.ToString());
+
+            // SliceOps — shows volume level for the slice audio field
+            FreqOut.Write("SliceOps", vol.ToString());
 
             // Split
             bool isSplit = _freqOutHandlers?.GetSplitVFOs?.Invoke() == true;
