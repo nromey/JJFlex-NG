@@ -52,6 +52,44 @@ namespace Radios
         }
 
         /// <summary>
+        /// Determines if the current mode is appropriate for a 60m frequency.
+        /// Returns (requiredMode, segmentLabel) if a mode change is needed,
+        /// (null, segmentLabel) if mode is already correct,
+        /// or null if the frequency is not on a recognized 60m allocation.
+        /// </summary>
+        public static (string? RequiredMode, string SegmentLabel)? GetModeAdvisory(
+            string countryCode, ulong frequencyHz, string currentMode)
+        {
+            var alloc = GetAllocation(countryCode);
+            if (alloc == null) return null;
+
+            double freqMHz = frequencyHz / 1_000_000.0;
+
+            // Check channelized frequencies (USB only)
+            foreach (var ch in alloc.Value.Channels)
+            {
+                if (System.Math.Abs(freqMHz - ch.FrequencyMHz) < 0.0001)
+                {
+                    if (!string.Equals(currentMode, ch.Mode, System.StringComparison.OrdinalIgnoreCase))
+                        return (ch.Mode, ch.Label);
+                    return (null, ch.Label);
+                }
+            }
+
+            // Check digi segment (CW/DIGU/DIGL only)
+            if (alloc.Value.Digi is { } digi && freqMHz >= digi.StartMHz && freqMHz <= digi.EndMHz)
+            {
+                string upper = (currentMode ?? "").ToUpperInvariant();
+                bool isDigiOrCW = upper is "CW" or "DIGU" or "DIGL";
+                if (!isDigiOrCW)
+                    return ("CW", "digital segment");
+                return (null, "digital segment");
+            }
+
+            return null;
+        }
+
+        /// <summary>
         /// Check if a frequency (in Hz) is on a valid 60m channel or within the digi segment.
         /// Returns true if the frequency is valid for 60m TX.
         /// </summary>

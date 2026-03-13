@@ -1905,7 +1905,21 @@ public class FreqOutHandlers
 
         string bandName = BandDisplayName(targetBand);
         string freqStr = FormatFreqForSpeech(targetFreq);
-        Radios.ScreenReaderOutput.Speak($"{bandName} band, {freqStr}", VerbosityLevel.Terse, interrupt: true);
+
+        // 60m mode advisory: auto-correct mode if inappropriate for the target segment
+        string modeAdvisory = "";
+        if (targetBand == Bands.BandNames.m60 && Rig != null)
+        {
+            string country = License?.Country ?? "US";
+            var advisory = SixtyMeterChannels.GetModeAdvisory(country, targetFreq, mode);
+            if (advisory?.RequiredMode != null)
+            {
+                Rig.Mode = advisory.Value.RequiredMode;
+                modeAdvisory = $", mode set to {advisory.Value.RequiredMode} for {advisory.Value.SegmentLabel}";
+            }
+        }
+
+        Radios.ScreenReaderOutput.Speak($"{bandName} band, {freqStr}{modeAdvisory}", VerbosityLevel.Terse, interrupt: true);
         EarconPlayer.BandBoundaryBeep();
 
         // Save band memory
