@@ -9,10 +9,10 @@
     <DockPanel Margin="12">
         <!-- Buttons at bottom -->
         <StackPanel DockPanel.Dock="Bottom" Style="{StaticResource ButtonPanel}">
-            <Button Content="_OK" Style="{StaticResource OkButton}"
+            <Button Content="_OK" AutomationProperties.AcceleratorKey="Alt+O" Style="{StaticResource OkButton}"
                     AutomationProperties.Name="OK"
                     Click="OkButton_Click"/>
-            <Button Content="_Cancel" Style="{StaticResource CancelButton}"
+            <Button Content="_Cancel" AutomationProperties.AcceleratorKey="Alt+C" Style="{StaticResource CancelButton}"
                     AutomationProperties.Name="Cancel"
                     Click="CancelButton_Click"/>
         </StackPanel>

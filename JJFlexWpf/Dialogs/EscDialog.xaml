@@ -61,7 +61,7 @@
 
         <!-- Close -->
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-            <Button Content="_Close" MinWidth="88" IsDefault="True" IsCancel="True"
+            <Button Content="_Close" AutomationProperties.AcceleratorKey="Alt+C" MinWidth="88" IsDefault="True" IsCancel="True"
                     AutomationProperties.Name="Close" Click="CloseButton_Click"/>
         </StackPanel>
     </StackPanel>

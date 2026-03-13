@@ -66,7 +66,7 @@
                     AutomationProperties.Name="Setup auto-connect for selected radio"
                     IsEnabled="False"
                     Click="AutoConnectButton_Click"/>
-            <Button Content="_Cancel" MinWidth="100" Height="28" IsCancel="True"
+            <Button Content="_Cancel" AutomationProperties.AcceleratorKey="Alt+C" MinWidth="100" Height="28" IsCancel="True"
                     AutomationProperties.Name="Cancel radio selection"
                     Click="CancelButton_Click"/>
         </StackPanel>

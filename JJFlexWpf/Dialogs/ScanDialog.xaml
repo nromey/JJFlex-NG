@@ -48,7 +48,7 @@
         <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
             <Button Content="Start Scan" MinWidth="80" Margin="0,0,8,0"
                     AutomationProperties.Name="Start Scan" Click="StartButton_Click"/>
-            <Button Content="_Cancel" MinWidth="75" Margin="0,0,8,0" IsCancel="True"
+            <Button Content="_Cancel" AutomationProperties.AcceleratorKey="Alt+C" MinWidth="75" Margin="0,0,8,0" IsCancel="True"
                     AutomationProperties.Name="Cancel" Click="CancelButton_Click"/>
             <Button Content="Clear" MinWidth="75"
                     AutomationProperties.Name="Clear all fields" Click="ClearButton_Click"/>
@@ -59,7 +59,7 @@
             <StackPanel Orientation="Horizontal" Margin="4">
                 <Button Content="Use Saved" MinWidth="80" Margin="0,0,8,0"
                         AutomationProperties.Name="Load a saved scan" Click="UseSavedButton_Click"/>
-                <Button Content="_Save" MinWidth="60" Margin="0,0,8,0"
+                <Button Content="_Save" AutomationProperties.AcceleratorKey="Alt+S" MinWidth="60" Margin="0,0,8,0"
                         AutomationProperties.Name="Save current scan settings" Click="SaveButton_Click"/>
                 <Button x:Name="ReplaceButton" Content="Replace" MinWidth="65" Margin="0,0,8,0"
                         IsEnabled="False"
