@@ -6,6 +6,47 @@ All notable changes to this project will be documented in this file. The opinion
 
 I've renamed the app to JJ Flexible Radio Access. The name reflects where we're headed — flexible radio control that puts accessibility first. Your settings, profiles, and everything else are exactly where you left them. No migration needed.
 
+### You Decide How Much I Talk
+
+New verbosity system! Press Ctrl+Shift+V to cycle between three levels: Terse (just the essentials), Normal (what you're used to), and Verbose (everything, all the time). Your choice is saved per operator, so it's waiting for you next session. If you've ever wished the app would just shut up and let you operate, Terse mode is your new best friend. If you want every last detail, Verbose has you covered.
+
+### Slices Got Smarter
+
+- Removing a slice no longer confuses the app about which slice you're on. The VFO stays locked to the right slice even after you remove one.
+- The slice selector now shows you only the slices you actually own — no more seeing phantom slices from other MultiFlex stations.
+- Slice operations (add, remove, lock TX) are more reliable and give you better feedback about what just happened.
+
+### Status Dialog: Rebuilt from Scratch
+
+Press Ctrl+Alt+S and you'll get a proper status dialog that shows everything about your radio at a glance. It refreshes live — frequency, mode, signal strength, TX state, all updating in real time. Your screen reader can read through it naturally, and it's organized by category so you can jump to what you care about. Way better than the old "speak everything at once" approach.
+
+### Audio Overhaul
+
+- The Audio tab in Settings now combines what used to be separate audio and meter tone controls into one unified tab. Less hunting, more adjusting.
+- Under the hood, the audio architecture now properly supports dual-channel audio for radios that have it.
+
+### About Dialog Upgrade
+
+The About dialog now uses a modern web browser engine instead of the ancient one it was running on. It loads faster, renders properly, and won't randomly fail on systems with strict security policies.
+
+### 60-Meter Band Smarts
+
+Jump to a 60-meter channel and the app automatically switches you to USB — because that's what the FCC requires on those channelized frequencies. If you land on the digital segment, it'll set CW mode. No more accidentally transmitting in the wrong mode on 60 meters. You'll hear a quick announcement telling you what mode was set and which channel or segment you're on.
+
+### Audio Workshop Fix
+
+The Audio Workshop dialog's Tab key navigation was broken — you'd get stuck tabbing in circles inside each tab instead of being able to move between controls normally. Fixed. Tab now moves through controls the way you'd expect.
+
+### DSP Level Minimums
+
+DSP controls like noise reduction level and noise blanker level now enforce sensible minimums. You won't accidentally set NR to zero and wonder why it's not doing anything — the minimum is set to a level where the feature actually works.
+
+### Under the Hood
+
+- The entire keyboard command system was rebuilt in C#. You won't notice any difference in how hotkeys work — that's the point. But it means we can add new keyboard features much faster going forward.
+- Access key announcements improved — your screen reader now tells you the keyboard shortcut for controls that have one.
+- Build system fixes ensure both 64-bit and 32-bit versions compile cleanly.
+
 ## 4.1.15.1: stop the presses, we got us a breaker breaker emergency
 
 The last version forgot how to connect to locally connected radios. In other words, we concentrated on connecting to remote radios so much that we forgot how to access radios you have sitting right next to you. Never fear, it was an easy fix. In short, we kicked it in the pants, and made sure that the application was OK with not displaying SmartLink Logon when it isn't necessary. Sorry about all that.
