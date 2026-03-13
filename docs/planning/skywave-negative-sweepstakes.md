@@ -227,19 +227,33 @@ git worktree add ../jjflex-24b sprint24/track-a -b sprint24/track-b
 
 ---
 
-## PHASE 8A (Track A): Slice Selector + Operations + Mute Hotkey
+## PHASE 8A (Track A): Slice Selector + Operations + Frequency Field Improvements
 
-**Goal:** New FreqOut fields for slice selection and per-slice operations.
+**Goal:** New FreqOut fields for slice selection and per-slice operations, plus frequency field behavior fixes for both tuning modes.
 
 **What gets built:**
+
+**Slice work:**
 - Slice Selector field: up/down cycles slices, speech "Slice B, 14.250 USB"
 - Slice Operations field: per-slice volume, pan, mute
 - Shift+M hotkey: mute/unmute current slice with earcon + speech
 - Add `MuteSlice` to CommandValues, wire in KeyCommands.cs
 
+**Classic mode frequency field — read-only navigation:**
+- When arrowing to the frequency field in classic tuning mode, speak the frequency but do NOT allow up/down arrows to change it
+- Prevents accidental frequency nudging when the user is just navigating between fields
+- Frequency field becomes informational in classic mode (read-only display)
+
+**Quick-type frequency entry (both tuning modes):**
+- If digits are typed rapidly (each keystroke within ~1 second of the last), accumulate as a frequency entry
+- Accept formats: `3525` (kHz implied) or `3.525` (MHz implied — presence of decimal distinguishes)
+- After typing pause (>1 second with no new digit), speak confirmation: "Change frequency to 3.525 MHz? Press Enter to confirm"
+- Enter commits the frequency change, Escape cancels and restores previous
+- Works in both classic and modern tuning modes when focus is on a frequency field
+
 **Files:** `JJFlexWpf/FreqOutHandlers.cs`, `JJFlexWpf/KeyCommands.cs`, `Radios/KeyCommandTypes.cs`, `Radios/FlexBase.cs`
 
-**Verify:** Slice selector cycles correctly. Shift+M toggles mute. Volume/pan adjust per-slice.
+**Verify:** Slice selector cycles correctly. Shift+M toggles mute. Volume/pan adjust per-slice. Classic mode frequency field is read-only (arrows don't change freq). Quick-type entry works: type `7125`, hear confirmation, Enter commits. Escape cancels. Decimal format (`7.125`) also works.
 
 ---
 
