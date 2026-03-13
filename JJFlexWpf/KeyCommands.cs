@@ -400,6 +400,14 @@ public class KeyCommands
             new(CommandValues.RepeatLastMessage, KeyTypes.Command, RepeatLastMessageHandler,
                 "Repeat the last spoken message", "Repeat Last Message", false, FunctionGroups.General, KeyScope.Global)
                 { Keywords = new[] { "repeat", "last", "message", "speech", "again" } },
+
+            // ── Verbosity (Sprint 24 Phase 6) ──
+            new(CommandValues.CycleVerbosity, KeyTypes.Command, CycleVerbosityHandler,
+                "Cycle speech verbosity (Chatty/Terse/Off)", "Cycle Verbosity", false, FunctionGroups.Audio, KeyScope.Global)
+                { Keywords = new[] { "verbosity", "speech", "level", "chatty", "terse", "off", "verbose" } },
+            new(CommandValues.ToggleMeterTonesGlobal, KeyTypes.Command, ToggleMeterTonesGlobalHandler,
+                "Toggle meter tones on/off", "Toggle Meter Tones", false, FunctionGroups.Audio, KeyScope.Global)
+                { Keywords = new[] { "meter", "tones", "toggle", "audio", "sonification" } },
         };
     }
 
@@ -778,6 +786,36 @@ public class KeyCommands
             Radios.ScreenReaderOutput.Speak(last, true);
     }
 
+    private void CycleVerbosityHandler()
+    {
+        var newLevel = Radios.ScreenReaderOutput.CycleVerbosity();
+        // Persist immediately
+        SaveVerbositySetting();
+    }
+
+    private void ToggleMeterTonesGlobalHandler()
+    {
+        MeterToneEngine.Enabled = !MeterToneEngine.Enabled;
+        string state = MeterToneEngine.Enabled ? "on" : "off";
+        Radios.ScreenReaderOutput.Speak($"Meter tones {state}", true);
+        if (MeterToneEngine.Enabled)
+            EarconPlayer.FeatureOnTone();
+        else
+            EarconPlayer.FeatureOffTone();
+    }
+
+    /// <summary>
+    /// Persist current verbosity to audio config.
+    /// </summary>
+    private void SaveVerbositySetting()
+    {
+        var configDir = _context.GetConfigDirectory?.Invoke();
+        if (configDir == null) return;
+        var config = AudioOutputConfig.Load(configDir);
+        config.CaptureFromEngine();
+        config.Save(configDir);
+    }
+
     #endregion
 
     // ────────────────────────────────────────────────────────────────
@@ -908,6 +946,10 @@ public class KeyCommands
         // Speak frequency, Repeat last message
         new(Keys.F | Keys.Control, CommandValues.SpeakFrequency, KeyScope.Radio),
         new(Keys.F4 | Keys.Control, CommandValues.RepeatLastMessage, KeyScope.Global),
+
+        // Verbosity (Sprint 24 Phase 6)
+        new(Keys.V | Keys.Control | Keys.Shift, CommandValues.CycleVerbosity, KeyScope.Global),
+        new(Keys.None, CommandValues.ToggleMeterTonesGlobal, KeyScope.Global), // leader key T
     };
 
     // ────────────────────────────────────────────────────────────────
@@ -1754,6 +1796,11 @@ public class KeyCommands
             case Keys.M:
                 if (rig == null) LeaderNoRadio();
                 else _context.DisplayMemory();
+                break;
+
+            // Tones toggle (Sprint 24 Phase 6)
+            case Keys.T:
+                ToggleMeterTonesGlobalHandler();
                 break;
 
             // Help

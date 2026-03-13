@@ -43,6 +43,9 @@ namespace JJFlexWpf
         /// <summary>Auto-enable meter tones when tune carrier is activated.</summary>
         public bool AutoEnableOnTune { get; set; }
 
+        /// <summary>Speech verbosity level: 0=Off(Critical only), 1=Terse, 2=Chatty (default).</summary>
+        public int SpeechVerbosity { get; set; } = 2; // VerbosityLevel.Chatty
+
         /// <summary>Whether tuning speech debounce is enabled. When false, every tuning step speaks immediately.</summary>
         public bool TuneDebounceEnabled { get; set; } = true;
 
@@ -96,6 +99,10 @@ namespace JJFlexWpf
             if (EarconDeviceNumber != -1)
                 EarconPlayer.SetOutputDevice(EarconDeviceNumber);
 
+            // Verbosity
+            Radios.ScreenReaderOutput.CurrentVerbosity =
+                (Radios.VerbosityLevel)Math.Clamp(SpeechVerbosity, 0, 2);
+
             MeterToneEngine.Enabled = MeterTonesEnabled;
             MeterToneEngine.MasterVolume = MeterMasterVolume;
             MeterToneEngine.PeakWatcherEnabled = PeakWatcherEnabled;
@@ -109,6 +116,7 @@ namespace JJFlexWpf
         /// <summary>Capture current state from the engine into this config.</summary>
         public void CaptureFromEngine()
         {
+            SpeechVerbosity = (int)Radios.ScreenReaderOutput.CurrentVerbosity;
             MeterTonesEnabled = MeterToneEngine.Enabled;
             MeterPreset = MeterToneEngine.CurrentPreset;
             MeterMasterVolume = MeterToneEngine.MasterVolume;

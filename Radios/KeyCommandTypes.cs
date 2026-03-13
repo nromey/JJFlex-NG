@@ -121,6 +121,8 @@ public enum CommandValues
     ToggleAntennaExpander,
     SpeakFrequency,
     RepeatLastMessage,
+    CycleVerbosity,
+    ToggleMeterTonesGlobal,
 }
 
 /// <summary>

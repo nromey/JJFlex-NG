@@ -5,6 +5,26 @@ using JJTrace;
 
 namespace Radios
 {
+    // ────────────────────────────────────────────────────────────────
+    //  VerbosityLevel — tags each Speak() call with its priority.
+    //  Also used as the user's current setting (Critical = Off).
+    //  Filtering: message spoken when (int)messageLevel <= (int)CurrentVerbosity.
+    // ────────────────────────────────────────────────────────────────
+    /// <summary>
+    /// Speech verbosity level. Tags each Speak() call with its importance.
+    /// Also used as the user's verbosity setting (Critical means "off — critical only").
+    /// Sprint 24 Phase 6.
+    /// </summary>
+    public enum VerbosityLevel
+    {
+        /// <summary>Always spoken: errors, safety warnings, connection status.</summary>
+        Critical = 0,
+        /// <summary>Spoken at Terse+Chatty: toggle confirmations, value changes, band/mode.</summary>
+        Terse = 1,
+        /// <summary>Spoken only at Chatty (default): hints, supplementary context.</summary>
+        Chatty = 2,
+    }
+
     /// <summary>
     /// Helper class for screen reader output using Tolk.
     /// Provides a simple interface to speak messages through NVDA, JAWS, or SAPI.
@@ -15,6 +35,14 @@ namespace Radios
         private static bool _available;
         private static string _screenReaderName;
         private static string _lastMessage;
+
+        // ── Verbosity engine (Sprint 24 Phase 6) ──
+
+        /// <summary>
+        /// Current verbosity setting. Default Chatty = all messages spoken (zero regression).
+        /// Critical = off (only safety/error messages). Terse = feature toggles and values.
+        /// </summary>
+        public static VerbosityLevel CurrentVerbosity { get; set; } = VerbosityLevel.Chatty;
 
         // Timing for speech delays - kept short so user isn't stuck waiting if they silence (Ctrl)
         // We only wait long enough for critical messages to be heard, not to complete fully
@@ -101,6 +129,44 @@ namespace Radios
             {
                 Tracing.TraceLine($"ScreenReaderOutput: Error speaking - {ex.Message}", TraceLevel.Warning);
             }
+        }
+
+        /// <summary>
+        /// Speak a message through the active screen reader, filtered by verbosity level.
+        /// Messages are only spoken if their level is at or below CurrentVerbosity.
+        /// Critical messages are always spoken (even at "Off"/Critical setting).
+        /// </summary>
+        /// <param name="message">The message to speak</param>
+        /// <param name="level">Verbosity level — Critical always spoken, Terse at Terse+, Chatty at Chatty only</param>
+        /// <param name="interrupt">If true, interrupts any current speech</param>
+        public static void Speak(string message, VerbosityLevel level, bool interrupt = false)
+        {
+            if ((int)level > (int)CurrentVerbosity) return;
+            Speak(message, interrupt);
+        }
+
+        /// <summary>
+        /// Cycle verbosity: Chatty → Terse → Off → Chatty.
+        /// Returns a spoken announcement of the new level.
+        /// </summary>
+        public static VerbosityLevel CycleVerbosity()
+        {
+            CurrentVerbosity = CurrentVerbosity switch
+            {
+                VerbosityLevel.Chatty => VerbosityLevel.Terse,
+                VerbosityLevel.Terse => VerbosityLevel.Critical,
+                _ => VerbosityLevel.Chatty,
+            };
+
+            // Always announce the new level (this is Critical-level — user needs to know)
+            string label = CurrentVerbosity switch
+            {
+                VerbosityLevel.Critical => "Speech off",
+                VerbosityLevel.Terse => "Speech terse",
+                _ => "Speech chatty",
+            };
+            Speak(label, true);
+            return CurrentVerbosity;
         }
 
         /// <summary>
