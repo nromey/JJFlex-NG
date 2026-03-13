@@ -49,26 +49,26 @@ namespace JJFlexWpf.Dialogs
                 _tester?.Cancel();
                 StartButton.IsEnabled = false;
                 StatusText.Text = "Cancelling...";
-                ScreenReaderOutput.Speak("Cancelling test");
+                ScreenReaderOutput.Speak("Cancelling test", VerbosityLevel.Terse);
                 return;
             }
 
             // Validate parameters
             if (!int.TryParse(TestCountBox.Text, out int testCount) || testCount < 3)
             {
-                ScreenReaderOutput.Speak("Test count must be at least 3");
+                ScreenReaderOutput.Speak("Test count must be at least 3", VerbosityLevel.Critical);
                 TestCountBox.Focus();
                 return;
             }
             if (!int.TryParse(DelayBox.Text, out int delay) || delay < 1)
             {
-                ScreenReaderOutput.Speak("Delay must be at least 1 second");
+                ScreenReaderOutput.Speak("Delay must be at least 1 second", VerbosityLevel.Critical);
                 DelayBox.Focus();
                 return;
             }
             if (!int.TryParse(ManualDelayBox.Text, out int manualDelay) || manualDelay < 0)
             {
-                ScreenReaderOutput.Speak("User delay must be 0 or more seconds");
+                ScreenReaderOutput.Speak("User delay must be 0 or more seconds", VerbosityLevel.Critical);
                 ManualDelayBox.Focus();
                 return;
             }
@@ -123,7 +123,7 @@ namespace JJFlexWpf.Dialogs
                     ResultsBox.ScrollIntoView(line);
 
                     StatusText.Text = $"Test {testNum}: {passText} ({durationMs / 1000.0:F1}s)";
-                    ScreenReaderOutput.Speak($"Test {testNum} {passText}");
+                    ScreenReaderOutput.Speak($"Test {testNum} {passText}", VerbosityLevel.Critical);
                 });
 
             _tester.AllTestsCompleted += (summary) =>
@@ -141,7 +141,7 @@ namespace JJFlexWpf.Dialogs
 
                     var msg = $"All tests complete. {summary.Passed} of {summary.TestCount} passed. " +
                               $"{summary.Failed} failed. Mode {summary.Mode}. Report saved.";
-                    ScreenReaderOutput.Speak(msg);
+                    ScreenReaderOutput.Speak(msg, VerbosityLevel.Critical);
                 });
 
             // STA needed for WebView2 login fallback in setupRemote
@@ -153,7 +153,7 @@ namespace JJFlexWpf.Dialogs
             testThread.SetApartmentState(ApartmentState.STA);
             testThread.Start();
 
-            ScreenReaderOutput.Speak($"Starting {testCount} {mode} tests on {_radioName}");
+            ScreenReaderOutput.Speak($"Starting {testCount} {mode} tests on {_radioName}", VerbosityLevel.Terse);
         }
 
         private void CloseButton_Click(object sender, RoutedEventArgs e)

@@ -147,7 +147,7 @@ namespace JJFlexWpf
             // License-aware TX lockout check
             if (CanTransmitHereCheck != null && !CanTransmitHereCheck())
             {
-                ScreenReaderOutput.Speak("Unable to transmit here. Select license options in Settings to change.", interrupt: true);
+                ScreenReaderOutput.Speak("Unable to transmit here. Select license options in Settings to change.", VerbosityLevel.Critical, interrupt: true);
                 EarconPlayer.Warning2Beep();
                 return;
             }
@@ -159,7 +159,7 @@ namespace JJFlexWpf
                 if (_config.ChirpEnabled) EarconPlayer.TxStartTone();
                 _updateStatusDisplay?.Invoke("Transmitting");
                 if (_config.SpeechEnabled)
-                    ScreenReaderOutput.Speak("Transmitting", interrupt: true);
+                    ScreenReaderOutput.Speak("Transmitting", VerbosityLevel.Critical, interrupt: true);
                 Tracing.TraceLine("PTT: Hold started", TraceLevel.Info);
             }
             // If already locked/warning, ignore key-down (don't double-TX)
@@ -216,7 +216,7 @@ namespace JJFlexWpf
             // License-aware TX lockout check
             if (CanTransmitHereCheck != null && !CanTransmitHereCheck())
             {
-                ScreenReaderOutput.Speak("Unable to transmit here. Select license options in Settings to change.", interrupt: true);
+                ScreenReaderOutput.Speak("Unable to transmit here. Select license options in Settings to change.", VerbosityLevel.Critical, interrupt: true);
                 EarconPlayer.Warning2Beep();
                 return;
             }
@@ -232,7 +232,7 @@ namespace JJFlexWpf
 
             _updateStatusDisplay?.Invoke("TX Locked");
             if (_config.SpeechEnabled)
-                ScreenReaderOutput.Speak("Transmitting, locked", interrupt: true);
+                ScreenReaderOutput.Speak("Transmitting, locked", VerbosityLevel.Critical, interrupt: true);
             Tracing.TraceLine("PTT: Locked", TraceLevel.Info);
 
             StartWarningTimer();
@@ -255,7 +255,7 @@ namespace JJFlexWpf
 
             _updateStatusDisplay?.Invoke("");
             if ((forceSpeech || _config.SpeechEnabled) && !string.IsNullOrEmpty(speechMessage))
-                ScreenReaderOutput.Speak(speechMessage, interrupt: true);
+                ScreenReaderOutput.Speak(speechMessage, VerbosityLevel.Critical, interrupt: true);
 
             Tracing.TraceLine($"PTT: Idle (was {wasState})", TraceLevel.Info);
         }
@@ -307,7 +307,7 @@ namespace JJFlexWpf
         private void EnterWarning1()
         {
             State = PttState.Warning1;
-            ScreenReaderOutput.Speak("Transmit timeout approaching");
+            ScreenReaderOutput.Speak("Transmit timeout approaching", VerbosityLevel.Critical);
             Tracing.TraceLine("PTT: Warning1 (10s beeps)", TraceLevel.Info);
 
             _beepTimer!.Interval = TimeSpan.FromSeconds(10);
@@ -318,7 +318,7 @@ namespace JJFlexWpf
         private void EnterWarning2()
         {
             State = PttState.Warning2;
-            ScreenReaderOutput.Speak("Transmit timeout soon");
+            ScreenReaderOutput.Speak("Transmit timeout soon", VerbosityLevel.Critical);
             Tracing.TraceLine("PTT: Warning2 (5s beeps)", TraceLevel.Info);
 
             _beepTimer!.Stop();
@@ -330,7 +330,7 @@ namespace JJFlexWpf
         private void EnterOhCrap()
         {
             State = PttState.OhCrap;
-            ScreenReaderOutput.Speak("Transmit ending now!", interrupt: true);
+            ScreenReaderOutput.Speak("Transmit ending now!", VerbosityLevel.Critical, interrupt: true);
             Tracing.TraceLine("PTT: OhCrap (1s beeps)", TraceLevel.Info);
 
             _beepTimer!.Stop();
@@ -433,14 +433,14 @@ namespace JJFlexWpf
                 if (!_healthSilentMicWarned && rig.MicData < 0.01f && rig.ALC <= 0.001f)
                 {
                     _healthSilentMicWarned = true;
-                    ScreenReaderOutput.Speak("Check microphone");
+                    ScreenReaderOutput.Speak("Check microphone", VerbosityLevel.Critical);
                     Tracing.TraceLine("PTT: Health warning — silent mic", TraceLevel.Info);
                 }
 
                 if (!_healthAlcHighWarned && rig.ALC > 0.95f)
                 {
                     _healthAlcHighWarned = true;
-                    ScreenReaderOutput.Speak("Microphone level too high");
+                    ScreenReaderOutput.Speak("Microphone level too high", VerbosityLevel.Critical);
                     Tracing.TraceLine("PTT: Health warning — ALC pegging", TraceLevel.Info);
                 }
             }

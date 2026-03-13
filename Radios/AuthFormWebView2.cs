@@ -293,7 +293,7 @@ namespace Radios
                         // Exchange code for tokens
                         isExchangingCode = true;
                         urlLabel.Text = "Exchanging authorization code for tokens...";
-                        ScreenReaderOutput.Speak("Completing authentication, please wait.", true);
+                        ScreenReaderOutput.Speak("Completing authentication, please wait.", VerbosityLevel.Terse, true);
 
                         bool success = await ExchangeCodeForTokens(code);
 
@@ -425,7 +425,7 @@ namespace Radios
                     _lastSpokenError = message;
 
                     Tracing.TraceLine($"AuthFormWebView2: Login error detected: {message}", TraceLevel.Info);
-                    ScreenReaderOutput.Speak("Incorrect login. Please try again.", true);
+                    ScreenReaderOutput.Speak("Incorrect login. Please try again.", VerbosityLevel.Critical, true);
 
                     if (urlLabel != null)
                     {

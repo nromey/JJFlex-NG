@@ -346,7 +346,7 @@ namespace Radios
             }
 
             Tracing.TraceLine($"TryAutoConnect: BEGIN {config.RadioName} ({config.RadioSerial}), remote={config.IsRemote}, timeout={timeoutMs}ms", TraceLevel.Info);
-            if (!SuppressSpeech) ScreenReaderOutput.Speak($"Connecting to {config.RadioName}", true);
+            if (!SuppressSpeech) ScreenReaderOutput.Speak($"Connecting to {config.RadioName}", VerbosityLevel.Critical, true);
 
             try
             {
@@ -390,7 +390,7 @@ namespace Radios
                     {
                         Tracing.TraceLine($"  myRadioList entry: serial={r.Serial} name={r.Nickname} status={r.Status}", TraceLevel.Info);
                     }
-                    if (!SuppressSpeech) ScreenReaderOutput.Speak($"{config.RadioName} not found", true);
+                    if (!SuppressSpeech) ScreenReaderOutput.Speak($"{config.RadioName} not found", VerbosityLevel.Critical, true);
                     return false;
                 }
 
@@ -402,12 +402,12 @@ namespace Radios
                 if (connected)
                 {
                     Tracing.TraceLine($"TryAutoConnect: END connected successfully (total {sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
-                    if (!SuppressSpeech) ScreenReaderOutput.Speak($"Connected to {config.RadioName}", true);
+                    if (!SuppressSpeech) ScreenReaderOutput.Speak($"Connected to {config.RadioName}", VerbosityLevel.Critical, true);
                 }
                 else
                 {
                     Tracing.TraceLine($"TryAutoConnect: END Connect() FAILED (total {sw.ElapsedMilliseconds}ms)", TraceLevel.Error);
-                    if (!SuppressSpeech) ScreenReaderOutput.Speak($"Failed to connect to {config.RadioName}", true);
+                    if (!SuppressSpeech) ScreenReaderOutput.Speak($"Failed to connect to {config.RadioName}", VerbosityLevel.Critical, true);
                 }
 
                 return connected;
@@ -512,7 +512,7 @@ namespace Radios
             if (account == null)
             {
                 Tracing.TraceLine($"TryAutoConnectRemote: no saved account for '{config.SmartLinkAccountEmail}', aborting ({sw.ElapsedMilliseconds}ms)", TraceLevel.Warning);
-                if (!SuppressSpeech) ScreenReaderOutput.Speak("SmartLink account not found. Please log in manually.", true);
+                if (!SuppressSpeech) ScreenReaderOutput.Speak("SmartLink account not found. Please log in manually.", VerbosityLevel.Critical, true);
                 return false;
             }
 
@@ -581,7 +581,7 @@ namespace Radios
             {
                 sw.Stop();
                 Tracing.TraceLine($"TryAutoConnectRemote: SmartLink connection FAILED (total {sw.ElapsedMilliseconds}ms)", TraceLevel.Error);
-                if (!SuppressSpeech) ScreenReaderOutput.Speak("SmartLink connection failed", true);
+                if (!SuppressSpeech) ScreenReaderOutput.Speak("SmartLink connection failed", VerbosityLevel.Critical, true);
                 return false;
             }
 
@@ -761,7 +761,7 @@ namespace Radios
                     { "clientRemovedDuringStart", _clientRemovedDuringStart },
                     { "ticksSinceRemoval", _clientRemovedDuringStart ? (Environment.TickCount64 - _clientRemovedTickCount) : 0 }
                 });
-                if (!SuppressSpeech) ScreenReaderOutput.Speak("Connection slow, retrying");
+                if (!SuppressSpeech) ScreenReaderOutput.Speak("Connection slow, retrying", VerbosityLevel.Critical);
                 try { theRadio.Disconnect(); } catch { }
                 return false;
             }
@@ -1225,7 +1225,7 @@ namespace Radios
                             AccountManager.SaveAccount(account);
                             _currentAccount = account;
 
-                            ScreenReaderOutput.Speak("Account saved", true);
+                            ScreenReaderOutput.Speak("Account saved", VerbosityLevel.Terse, true);
                             Tracing.TraceLine($"setupRemote: saved account for {form.Email}", TraceLevel.Info);
                         }
                     }

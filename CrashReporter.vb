@@ -44,7 +44,7 @@ Module CrashReporter
             End Using
 
             Dim crashMsg = $"JJ Flexible Radio Access hit an unexpected error.{Environment.NewLine}A report was saved to:{Environment.NewLine}{zipPath}"
-            Radios.ScreenReaderOutput.Speak("JJ Flexible Radio Access hit an unexpected error. A crash report was saved.", True)
+            Radios.ScreenReaderOutput.Speak("JJ Flexible Radio Access hit an unexpected error. A crash report was saved.", Radios.VerbosityLevel.Critical, True)
             MessageBox.Show(AppShellForm, crashMsg, "JJ Flexible Radio Access crash report", MessageBoxButtons.OK, MessageBoxIcon.Error)
         Catch reportEx As Exception
             ' Last-chance logging; do not rethrow.

@@ -409,7 +409,7 @@ namespace JJFlexWpf.Dialogs
             if (count == 0)
             {
                 System.Windows.Automation.AutomationProperties.SetName(RadiosBox, "Radio list, 0 items. Searching for radios.");
-                ScreenReaderOutput.Speak("No radios found yet. Searching.", true);
+                ScreenReaderOutput.Speak("No radios found yet. Searching.", VerbosityLevel.Critical, true);
             }
             else
             {
@@ -417,7 +417,7 @@ namespace JJFlexWpf.Dialogs
                 int idx = RadiosBox.SelectedIndex + 1;
                 string name = selected?.DisplayText ?? "none selected";
                 System.Windows.Automation.AutomationProperties.SetName(RadiosBox, $"Radio list, {count} items. {name}, {idx} of {count}");
-                ScreenReaderOutput.Speak($"{name}, {idx} of {count}", true);
+                ScreenReaderOutput.Speak($"{name}, {idx} of {count}", VerbosityLevel.Terse, true);
             }
         }
 
@@ -450,7 +450,7 @@ namespace JJFlexWpf.Dialogs
             {
                 int idx = RadiosBox.SelectedIndex + 1;
                 int count = RadiosBox.Items.Count;
-                ScreenReaderOutput.Speak($"{item.DisplayText}, {idx} of {count}", true);
+                ScreenReaderOutput.Speak($"{item.DisplayText}, {idx} of {count}", VerbosityLevel.Terse, true);
             }
         }
 

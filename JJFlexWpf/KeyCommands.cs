@@ -483,11 +483,11 @@ public class KeyCommands
         if (rig != null)
         {
             rig.StopCW();
-            Radios.ScreenReaderOutput.Speak("CW stopped", false);
+            Radios.ScreenReaderOutput.Speak("CW stopped", Radios.VerbosityLevel.Terse, false);
         }
         else
         {
-            Radios.ScreenReaderOutput.Speak("No radio connected", true);
+            Radios.ScreenReaderOutput.Speak("No radio connected", Radios.VerbosityLevel.Critical, true);
         }
     }
 
@@ -550,11 +550,11 @@ public class KeyCommands
         if (rig == null) return;
         if (rig.Mode != "CW")
         {
-            Radios.ScreenReaderOutput.Speak("Zerobeat requires CW mode", true);
+            Radios.ScreenReaderOutput.Speak("Zerobeat requires CW mode", Radios.VerbosityLevel.Critical, true);
             return;
         }
         rig.CWZeroBeat();
-        Radios.ScreenReaderOutput.Speak("Zerobeat", true);
+        Radios.ScreenReaderOutput.Speak("Zerobeat", Radios.VerbosityLevel.Terse, true);
     }
 
     #endregion
@@ -574,7 +574,7 @@ public class KeyCommands
         var rig = _context.GetRigControl();
         if (rig == null)
         {
-            Radios.ScreenReaderOutput.Speak("No radio connected");
+            Radios.ScreenReaderOutput.Speak("No radio connected", Radios.VerbosityLevel.Critical);
             return;
         }
         int smeter = (int)rig.SMeter;
@@ -587,7 +587,7 @@ public class KeyCommands
             msg = $"S 9 plus {(smeter - 9) * 10}";
         else
             msg = $"S {smeter}";
-        Radios.ScreenReaderOutput.Speak(msg, true);
+        Radios.ScreenReaderOutput.Speak(msg, Radios.VerbosityLevel.Terse, true);
     }
 
     private void ToggleMeterTonesHandler()
@@ -598,13 +598,13 @@ public class KeyCommands
             EarconPlayer.FeatureOnTone();
         else
             EarconPlayer.FeatureOffTone();
-        Radios.ScreenReaderOutput.Speak($"Meter tones {state}");
+        Radios.ScreenReaderOutput.Speak($"Meter tones {state}", Radios.VerbosityLevel.Terse);
     }
 
     private void CycleMeterPresetHandler()
     {
         MeterToneEngine.CyclePreset();
-        Radios.ScreenReaderOutput.Speak($"Meter preset: {MeterToneEngine.CurrentPreset}");
+        Radios.ScreenReaderOutput.Speak($"Meter preset: {MeterToneEngine.CurrentPreset}", Radios.VerbosityLevel.Terse);
     }
 
     private void SpeakMetersHandler() => MeterToneEngine.SpeakMeters();
@@ -621,7 +621,7 @@ public class KeyCommands
         rig.TXFilterLow = newLow;
         EarconPlayer.FilterEdgeMoveTone(true);
         int width = rig.TXFilterHigh - newLow;
-        Radios.ScreenReaderOutput.Speak($"TX low {newLow}, width {width}");
+        Radios.ScreenReaderOutput.Speak($"TX low {newLow}, width {width}", Radios.VerbosityLevel.Terse);
     }
 
     private void TXFilterLowUpHandler()
@@ -640,7 +640,7 @@ public class KeyCommands
         }
         rig.TXFilterLow = newLow;
         int width = rig.TXFilterHigh - newLow;
-        Radios.ScreenReaderOutput.Speak($"TX low {newLow}, width {width}");
+        Radios.ScreenReaderOutput.Speak($"TX low {newLow}, width {width}", Radios.VerbosityLevel.Terse);
     }
 
     private void TXFilterHighDownHandler()
@@ -659,7 +659,7 @@ public class KeyCommands
         }
         rig.TXFilterHigh = newHigh;
         int width = newHigh - rig.TXFilterLow;
-        Radios.ScreenReaderOutput.Speak($"TX high {newHigh}, width {width}");
+        Radios.ScreenReaderOutput.Speak($"TX high {newHigh}, width {width}", Radios.VerbosityLevel.Terse);
     }
 
     private void TXFilterHighUpHandler()
@@ -670,7 +670,7 @@ public class KeyCommands
         rig.TXFilterHigh = newHigh;
         EarconPlayer.FilterEdgeMoveTone(false);
         int width = newHigh - rig.TXFilterLow;
-        Radios.ScreenReaderOutput.Speak($"TX high {newHigh}, width {width}");
+        Radios.ScreenReaderOutput.Speak($"TX high {newHigh}, width {width}", Radios.VerbosityLevel.Terse);
     }
 
     private void SpeakTXFilterHandler() => SpeakTXFilterWidth();
@@ -715,7 +715,7 @@ public class KeyCommands
         if (!rig.HasATU)
         {
             EarconPlayer.LeaderInvalidTone();
-            Radios.ScreenReaderOutput.Speak("No antenna tuner on this radio");
+            Radios.ScreenReaderOutput.Speak("No antenna tuner on this radio", Radios.VerbosityLevel.Critical);
             return;
         }
         _context.GetMainWindow()?.StartATUTuneCycle();
@@ -757,7 +757,7 @@ public class KeyCommands
         var meterStatus = mw?.GetMeterStatus();
         if (meterStatus != null) msg = msg + ", " + meterStatus;
 
-        Radios.ScreenReaderOutput.Speak(msg, true);
+        Radios.ScreenReaderOutput.Speak(msg, Radios.VerbosityLevel.Terse, true);
     }
 
     private void ShowStatusDialogHandler()
@@ -772,9 +772,9 @@ public class KeyCommands
         var mw = _context.GetMainWindow();
         var pttStatus = mw?.GetPttStatusText();
         if (pttStatus != null)
-            Radios.ScreenReaderOutput.Speak(pttStatus, true);
+            Radios.ScreenReaderOutput.Speak(pttStatus, Radios.VerbosityLevel.Terse, true);
         else
-            Radios.ScreenReaderOutput.Speak("Receiving", true);
+            Radios.ScreenReaderOutput.Speak("Receiving", Radios.VerbosityLevel.Terse, true);
     }
 
     private void RepeatLastMessageHandler()
@@ -797,7 +797,7 @@ public class KeyCommands
     {
         MeterToneEngine.Enabled = !MeterToneEngine.Enabled;
         string state = MeterToneEngine.Enabled ? "on" : "off";
-        Radios.ScreenReaderOutput.Speak($"Meter tones {state}", true);
+        Radios.ScreenReaderOutput.Speak($"Meter tones {state}", Radios.VerbosityLevel.Terse, true);
         if (MeterToneEngine.Enabled)
             EarconPlayer.FeatureOnTone();
         else
@@ -1479,7 +1479,7 @@ public class KeyCommands
             if (k == Keys.Escape)
             {
                 EarconPlayer.LeaderCancelTone();
-                Radios.ScreenReaderOutput.Speak("Cancelled", true);
+                Radios.ScreenReaderOutput.Speak("Cancelled", Radios.VerbosityLevel.Terse, true);
                 return true;
             }
             return DoLeaderCommand(k);
@@ -1490,7 +1490,7 @@ public class KeyCommands
         {
             _leaderKeyActive = true;
             EarconPlayer.LeaderEnterTone();
-            Radios.ScreenReaderOutput.Speak("JJ", true);
+            Radios.ScreenReaderOutput.Speak("JJ", Radios.VerbosityLevel.Terse, true);
             return true;
         }
 
@@ -1527,7 +1527,7 @@ public class KeyCommands
             var cwText = _context.GetCWText();
             if (mods == Keys.Control && keyCode >= Keys.D1 && keyCode <= Keys.D7 && cwText.Length == 0)
             {
-                Radios.ScreenReaderOutput.Speak("No CW messages configured", true);
+                Radios.ScreenReaderOutput.Speak("No CW messages configured", Radios.VerbosityLevel.Critical, true);
                 rv = true;
             }
             else
@@ -1678,7 +1678,7 @@ public class KeyCommands
         var cwText = _context.GetCWText();
         if (id < 0 || id >= cwText.Length)
         {
-            Radios.ScreenReaderOutput.Speak("No CW message at this position", true);
+            Radios.ScreenReaderOutput.Speak("No CW message at this position", Radios.VerbosityLevel.Critical, true);
         }
         else
         {
@@ -1689,7 +1689,7 @@ public class KeyCommands
             _context.SendCW(msg);
             _context.WriteTextX(1, msg, 0, false); // WindowIDs.SendDataOut = 1
             if (!string.IsNullOrEmpty(label))
-                Radios.ScreenReaderOutput.Speak("Sending " + label, false);
+                Radios.ScreenReaderOutput.Speak("Sending " + label, Radios.VerbosityLevel.Terse, false);
         }
     }
 
@@ -1729,7 +1729,7 @@ public class KeyCommands
                 else if (!rig.AdvancedNRHardwareSupported)
                 {
                     EarconPlayer.LeaderInvalidTone();
-                    Radios.ScreenReaderOutput.Speak("Neural NR not available on this radio");
+                    Radios.ScreenReaderOutput.Speak("Neural NR not available on this radio", Radios.VerbosityLevel.Critical);
                 }
                 else
                     ToggleLeaderDSP("Neural NR",
@@ -1741,7 +1741,7 @@ public class KeyCommands
                 else if (!rig.AdvancedNRHardwareSupported)
                 {
                     EarconPlayer.LeaderInvalidTone();
-                    Radios.ScreenReaderOutput.Speak("Spectral NR not available on this radio");
+                    Radios.ScreenReaderOutput.Speak("Spectral NR not available on this radio", Radios.VerbosityLevel.Critical);
                 }
                 else
                     ToggleLeaderDSP("Spectral NR",
@@ -1761,7 +1761,7 @@ public class KeyCommands
                     if (mode != null && !mode.StartsWith("CW", StringComparison.OrdinalIgnoreCase))
                     {
                         EarconPlayer.LeaderInvalidTone();
-                        Radios.ScreenReaderOutput.Speak("Audio Peak Filter is CW only");
+                        Radios.ScreenReaderOutput.Speak("Audio Peak Filter is CW only", Radios.VerbosityLevel.Critical);
                     }
                     else
                         ToggleLeaderDSP("Audio Peak Filter",
@@ -1823,7 +1823,7 @@ public class KeyCommands
     private void LeaderNoRadio()
     {
         EarconPlayer.LeaderInvalidTone();
-        Radios.ScreenReaderOutput.Speak("No radio connected");
+        Radios.ScreenReaderOutput.Speak("No radio connected", Radios.VerbosityLevel.Critical);
     }
 
     private void ToggleLeaderDSP(string label, Func<FlexBase.OffOnValues> getter, Action<FlexBase.OffOnValues> setter)
@@ -1837,12 +1837,12 @@ public class KeyCommands
         if (newVal == FlexBase.OffOnValues.on)
         {
             EarconPlayer.FeatureOnTone();
-            Radios.ScreenReaderOutput.Speak(label + " on");
+            Radios.ScreenReaderOutput.Speak(label + " on", Radios.VerbosityLevel.Terse);
         }
         else
         {
             EarconPlayer.FeatureOffTone();
-            Radios.ScreenReaderOutput.Speak(label + " off");
+            Radios.ScreenReaderOutput.Speak(label + " off", Radios.VerbosityLevel.Terse);
         }
     }
 
@@ -1853,7 +1853,7 @@ public class KeyCommands
         if (config == null)
         {
             EarconPlayer.LeaderInvalidTone();
-            Radios.ScreenReaderOutput.Speak("No audio configuration loaded");
+            Radios.ScreenReaderOutput.Speak("No audio configuration loaded", Radios.VerbosityLevel.Critical);
             return;
         }
 
@@ -1861,12 +1861,12 @@ public class KeyCommands
         if (config.TuneDebounceEnabled)
         {
             EarconPlayer.FeatureOnTone();
-            Radios.ScreenReaderOutput.Speak("Tuning debounce on");
+            Radios.ScreenReaderOutput.Speak("Tuning debounce on", Radios.VerbosityLevel.Terse);
         }
         else
         {
             EarconPlayer.FeatureOffTone();
-            Radios.ScreenReaderOutput.Speak("Tuning debounce off");
+            Radios.ScreenReaderOutput.Speak("Tuning debounce off", Radios.VerbosityLevel.Terse);
         }
 
         // Persist immediately.
@@ -1880,14 +1880,14 @@ public class KeyCommands
         var rig = _context.GetRigControl();
         if (rig == null)
         {
-            Radios.ScreenReaderOutput.Speak("No radio connected");
+            Radios.ScreenReaderOutput.Speak("No radio connected", Radios.VerbosityLevel.Critical);
             return;
         }
         int low = rig.FilterLow;
         int high = rig.FilterHigh;
         int width = high - low;
         string widthKHz = (width / 1000.0).ToString("F1");
-        Radios.ScreenReaderOutput.Speak($"RX filter {low} to {high}, {widthKHz} kilohertz");
+        Radios.ScreenReaderOutput.Speak($"RX filter {low} to {high}, {widthKHz} kilohertz", Radios.VerbosityLevel.Terse);
     }
 
     private void SpeakTXFilterWidth()
@@ -1895,14 +1895,14 @@ public class KeyCommands
         var rig = _context.GetRigControl();
         if (rig == null)
         {
-            Radios.ScreenReaderOutput.Speak("No radio connected");
+            Radios.ScreenReaderOutput.Speak("No radio connected", Radios.VerbosityLevel.Critical);
             return;
         }
         int low = rig.TXFilterLow;
         int high = rig.TXFilterHigh;
         int width = high - low;
         string widthKHz = (width / 1000.0).ToString("F1");
-        Radios.ScreenReaderOutput.Speak($"TX filter {low} to {high}, {widthKHz} kilohertz");
+        Radios.ScreenReaderOutput.Speak($"TX filter {low} to {high}, {widthKHz} kilohertz", Radios.VerbosityLevel.Terse);
     }
 
     private void LeaderKeyHelp()

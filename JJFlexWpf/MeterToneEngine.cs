@@ -456,7 +456,7 @@ namespace JJFlexWpf
                 _lastPeakWarningTicks = nowTicks;
                 try { EarconPlayer.Warning2Beep(); } catch { }
                 if (SpeechEnabled)
-                    ScreenReaderOutput.Speak("ALC high");
+                    ScreenReaderOutput.Speak("ALC high", VerbosityLevel.Critical);
             }
             else if (alcValue > AlcWarningThreshold)
             {
@@ -472,7 +472,7 @@ namespace JJFlexWpf
                     _lastPeakWarningTicks = nowTicks;
                     try { EarconPlayer.Warning1Beep(); } catch { }
                     if (SpeechEnabled)
-                        ScreenReaderOutput.Speak("ALC warning");
+                        ScreenReaderOutput.Speak("ALC warning", VerbosityLevel.Critical);
                 }
             }
             else
@@ -533,7 +533,7 @@ namespace JJFlexWpf
         public static void SpeakMeters()
         {
             string summary = GetMeterSpeechSummary();
-            ScreenReaderOutput.Speak(summary, true);
+            ScreenReaderOutput.Speak(summary, VerbosityLevel.Terse, true);
         }
 
         #endregion

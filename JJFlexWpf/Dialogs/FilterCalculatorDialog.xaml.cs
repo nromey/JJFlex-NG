@@ -86,7 +86,7 @@ namespace JJFlexWpf.Dialogs
             if (ResultLow.HasValue && ResultHigh.HasValue)
             {
                 DialogResult = true;
-                ScreenReaderOutput.Speak($"Filter set to {ResultLow} to {ResultHigh}", true);
+                ScreenReaderOutput.Speak($"Filter set to {ResultLow} to {ResultHigh}", VerbosityLevel.Terse, true);
                 Close();
             }
         }

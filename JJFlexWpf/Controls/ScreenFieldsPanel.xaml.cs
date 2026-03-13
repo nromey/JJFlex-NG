@@ -253,13 +253,13 @@ public partial class ScreenFieldsPanel : UserControl
 
         // Meter Tones
         _meterToneCheck = MakeToggle("Meter Tones");
-        _meterToneCheck.Checked += (s, e) => { if (!_polling) { MeterToneEngine.Enabled = true; EarconPlayer.FeatureOnTone(); ScreenReaderOutput.Speak("Meter tones on"); } };
-        _meterToneCheck.Unchecked += (s, e) => { if (!_polling) { MeterToneEngine.Enabled = false; EarconPlayer.FeatureOffTone(); ScreenReaderOutput.Speak("Meter tones off"); } };
+        _meterToneCheck.Checked += (s, e) => { if (!_polling) { MeterToneEngine.Enabled = true; EarconPlayer.FeatureOnTone(); ScreenReaderOutput.Speak("Meter tones on", VerbosityLevel.Terse); } };
+        _meterToneCheck.Unchecked += (s, e) => { if (!_polling) { MeterToneEngine.Enabled = false; EarconPlayer.FeatureOffTone(); ScreenReaderOutput.Speak("Meter tones off", VerbosityLevel.Terse); } };
         DspContent.Children.Add(_meterToneCheck);
 
         _peakWatcherCheck = MakeToggle("Peak Watcher");
-        _peakWatcherCheck.Checked += (s, e) => { if (!_polling) { MeterToneEngine.PeakWatcherEnabled = true; EarconPlayer.FeatureOnTone(); ScreenReaderOutput.Speak("Peak Watcher on"); } };
-        _peakWatcherCheck.Unchecked += (s, e) => { if (!_polling) { MeterToneEngine.PeakWatcherEnabled = false; EarconPlayer.FeatureOffTone(); ScreenReaderOutput.Speak("Peak Watcher off"); } };
+        _peakWatcherCheck.Checked += (s, e) => { if (!_polling) { MeterToneEngine.PeakWatcherEnabled = true; EarconPlayer.FeatureOnTone(); ScreenReaderOutput.Speak("Peak Watcher on", VerbosityLevel.Terse); } };
+        _peakWatcherCheck.Unchecked += (s, e) => { if (!_polling) { MeterToneEngine.PeakWatcherEnabled = false; EarconPlayer.FeatureOffTone(); ScreenReaderOutput.Speak("Peak Watcher off", VerbosityLevel.Terse); } };
         DspContent.Children.Add(_peakWatcherCheck);
     }
 
@@ -303,9 +303,9 @@ public partial class ScreenFieldsPanel : UserControl
             if (_rig == null) return;
             bool ok = _rig.NewSlice();
             if (ok)
-                ScreenReaderOutput.Speak($"Slice created, {_rig.MyNumSlices} slices active");
+                ScreenReaderOutput.Speak($"Slice created, {_rig.MyNumSlices} slices active", VerbosityLevel.Terse);
             else
-                ScreenReaderOutput.Speak("Maximum slices reached");
+                ScreenReaderOutput.Speak("Maximum slices reached", VerbosityLevel.Terse);
         };
         AudioContent.Children.Add(_createSliceButton);
 
@@ -323,15 +323,15 @@ public partial class ScreenFieldsPanel : UserControl
             int numSlices = _rig.MyNumSlices;
             if (numSlices <= 1)
             {
-                ScreenReaderOutput.Speak("Cannot release the only slice");
+                ScreenReaderOutput.Speak("Cannot release the only slice", VerbosityLevel.Terse);
                 return;
             }
             // Release the last slice (highest index)
             bool ok = _rig.RemoveSlice(numSlices - 1);
             if (ok)
-                ScreenReaderOutput.Speak($"Slice released, {_rig.MyNumSlices} slices active");
+                ScreenReaderOutput.Speak($"Slice released, {_rig.MyNumSlices} slices active", VerbosityLevel.Terse);
             else
-                ScreenReaderOutput.Speak("Could not release slice");
+                ScreenReaderOutput.Speak("Could not release slice", VerbosityLevel.Terse);
         };
         AudioContent.Children.Add(_releaseSliceButton);
     }
@@ -392,7 +392,7 @@ public partial class ScreenFieldsPanel : UserControl
         };
         _rxFilterWidthDisplay.GotFocus += (s, e) =>
         {
-            Radios.ScreenReaderOutput.Speak(_rxFilterWidthDisplay.Text, interrupt: true);
+            Radios.ScreenReaderOutput.Speak(_rxFilterWidthDisplay.Text, VerbosityLevel.Terse, interrupt: true);
         };
         System.Windows.Automation.AutomationProperties.SetName(_rxFilterWidthDisplay, "RX Filter Width");
         ReceiverContent.Children.Add(_rxFilterWidthDisplay);
@@ -516,7 +516,7 @@ public partial class ScreenFieldsPanel : UserControl
             if (idx >= 0 && idx < list.Count)
             {
                 _rig.RXAntennaName = list[idx];
-                Radios.ScreenReaderOutput.Speak($"RX antenna {list[idx]}");
+                Radios.ScreenReaderOutput.Speak($"RX antenna {list[idx]}", VerbosityLevel.Terse);
             }
         };
         AntennaContent.Children.Add(_rxAntennaControl);
@@ -529,7 +529,7 @@ public partial class ScreenFieldsPanel : UserControl
             if (idx >= 0 && idx < list.Count)
             {
                 _rig.TXAntennaName = list[idx];
-                Radios.ScreenReaderOutput.Speak($"TX antenna {list[idx]}");
+                Radios.ScreenReaderOutput.Speak($"TX antenna {list[idx]}", VerbosityLevel.Terse);
             }
         };
         AntennaContent.Children.Add(_txAntennaControl);
@@ -601,7 +601,7 @@ public partial class ScreenFieldsPanel : UserControl
         setter(isOn ? FlexBase.OffOnValues.on : FlexBase.OffOnValues.off);
         if (isOn) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
         // interrupt: true cuts off NVDA's native "checked"/"not checked" announcement
-        ScreenReaderOutput.Speak($"{label} {(isOn ? "on" : "off")}", interrupt: true);
+        ScreenReaderOutput.Speak($"{label} {(isOn ? "on" : "off")}", VerbosityLevel.Terse, interrupt: true);
     }
 
     private void ToggleBoolRig(string label, Action<bool> setter, bool isOn)
@@ -609,7 +609,7 @@ public partial class ScreenFieldsPanel : UserControl
         if (_polling || _rig == null) return;
         setter(isOn);
         if (isOn) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
-        ScreenReaderOutput.Speak($"{label} {(isOn ? "on" : "off")}", interrupt: true);
+        ScreenReaderOutput.Speak($"{label} {(isOn ? "on" : "off")}", VerbosityLevel.Terse, interrupt: true);
     }
 
     #endregion
@@ -820,13 +820,13 @@ public partial class ScreenFieldsPanel : UserControl
         if (expander.IsExpanded)
         {
             expander.IsExpanded = false;
-            ScreenReaderOutput.Speak($"{CategoryNames[index]} collapsed");
+            ScreenReaderOutput.Speak($"{CategoryNames[index]} collapsed", VerbosityLevel.Terse);
             ReturnFocusToFreqOut?.Invoke();
         }
         else
         {
             expander.IsExpanded = true;
-            ScreenReaderOutput.Speak($"{CategoryNames[index]} expanded");
+            ScreenReaderOutput.Speak($"{CategoryNames[index]} expanded", VerbosityLevel.Terse);
 
             // Focus the first focusable control in the expanded content.
             // Delay slightly so the "expanded" speech finishes before the

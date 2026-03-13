@@ -158,7 +158,7 @@ public partial class CycleFieldControl : UserControl
         if (!_suppressEvents)
         {
             SelectionChanged?.Invoke(this, _selectedIndex);
-            ScreenReaderOutput.Speak($"{_label} {SelectedOption}", interrupt: true);
+            ScreenReaderOutput.Speak($"{_label} {SelectedOption}", VerbosityLevel.Terse, interrupt: true);
         }
     }
 

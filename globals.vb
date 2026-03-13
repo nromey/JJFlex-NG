@@ -510,7 +510,7 @@ Module globals
                         WpfMainWindow.LoggingLogPanel.FocusField(fieldName)
                     ElseIf adifTag = JJFlexWpf.KeyCommands.IADIF_LogNewEntry Then
                         WpfMainWindow.LoggingLogPanel.NewEntry()
-                        Radios.ScreenReaderOutput.Speak("New entry", True)
+                        Radios.ScreenReaderOutput.Speak("New entry", VerbosityLevel.Terse, True)
                     End If
                     Return
                 End If
@@ -1833,7 +1833,7 @@ Module globals
             If Not connectOk Then
                 _connectingForm?.CloseForm()
                 _connectingForm = Nothing
-                Radios.ScreenReaderOutput.Speak("Connection failed", True)
+                Radios.ScreenReaderOutput.Speak("Connection failed", VerbosityLevel.Critical, True)
                 radioSelected = DialogResult.Cancel
                 RigControl.Dispose()
                 RigControl = Nothing
@@ -1990,7 +1990,7 @@ RadioConnected:
 
                         If Not rv Then
                             Tracing.TraceLine("OpenTheRadio:retry also failed", TraceLevel.Error)
-                            Radios.ScreenReaderOutput.Speak("Connection failed")
+                            Radios.ScreenReaderOutput.Speak("Connection failed", VerbosityLevel.Critical)
                         End If
 
                     ElseIf _autoConnectConfig IsNot Nothing AndAlso _autoConnectConfig.ShouldAutoConnect Then
@@ -2013,7 +2013,7 @@ RadioConnected:
 
                         If Not rv Then
                             Tracing.TraceLine("OpenTheRadio:retry also failed", TraceLevel.Error)
-                            Radios.ScreenReaderOutput.Speak("Connection failed")
+                            Radios.ScreenReaderOutput.Speak("Connection failed", VerbosityLevel.Critical)
                         End If
                     Else
                         Tracing.TraceLine("OpenTheRadio:Start failed, no retry path available (local or no serial)", TraceLevel.Info)
@@ -2083,9 +2083,9 @@ RadioConnected:
             If RigControl IsNot Nothing Then
                 Dim radioName = RigControl.RadioNickname
                 If Not String.IsNullOrEmpty(radioName) Then
-                    Radios.ScreenReaderOutput.Speak("Disconnecting from " & radioName, True)
+                    Radios.ScreenReaderOutput.Speak("Disconnecting from " & radioName, VerbosityLevel.Critical, True)
                 Else
-                    Radios.ScreenReaderOutput.Speak("Disconnecting from radio", True)
+                    Radios.ScreenReaderOutput.Speak("Disconnecting from radio", VerbosityLevel.Critical, True)
                 End If
                 CloseTheRadio()
             End If
@@ -2117,11 +2117,11 @@ RadioConnected:
                 ' Open the file in the default text editor
                 Process.Start(New ProcessStartInfo(reportPath) With {.UseShellExecute = True})
             Else
-                Radios.ScreenReaderOutput.Speak("Failed to save test report")
+                Radios.ScreenReaderOutput.Speak("Failed to save test report", VerbosityLevel.Critical)
             End If
         Catch ex As Exception
             Tracing.TraceLine("ShowTestResults:exception " & ex.Message, TraceLevel.Error)
-            Radios.ScreenReaderOutput.Speak("Error loading test results")
+            Radios.ScreenReaderOutput.Speak("Error loading test results", VerbosityLevel.Critical)
         End Try
     End Sub
 

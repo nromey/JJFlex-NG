@@ -18,7 +18,7 @@ Public Class ReverseBeacon
             Radios.ScreenReaderOutput.Speak("Opening Reverse Beacon in your browser")
         Catch ex As Exception
             Tracing.TraceLine("Reverse Beacon launch failed: " & ex.Message, TraceLevel.Error)
-            Radios.ScreenReaderOutput.Speak("Could not open browser")
+            Radios.ScreenReaderOutput.Speak("Could not open browser", Radios.VerbosityLevel.Critical)
         End Try
         DialogResult = System.Windows.Forms.DialogResult.OK
     End Sub

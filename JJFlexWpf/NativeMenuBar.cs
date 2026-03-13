@@ -1288,7 +1288,7 @@ public class NativeMenuBar : IDisposable
             // Interrupt: cut off NVDA's window title re-announcement so user hears
             // the actual result (e.g., "Antenna 1") instead of the title first.
             await System.Threading.Tasks.Task.Delay(500);
-            Radios.ScreenReaderOutput.Speak(message, interrupt: true);
+            Radios.ScreenReaderOutput.Speak(message, Radios.VerbosityLevel.Terse, interrupt: true);
         });
     }
 

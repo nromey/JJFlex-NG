@@ -126,7 +126,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
             if (_rig != null && !_polling)
             {
                 _rig.MicGain = v;
-                ScreenReaderOutput.Speak($"Mic gain {v}");
+                ScreenReaderOutput.Speak($"Mic gain {v}", VerbosityLevel.Terse);
             }
         };
         TxAudioContent.Children.Add(_micGainControl);
@@ -164,7 +164,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
             if (_rig != null && !_polling)
             {
                 _rig.CompanderLevel = v;
-                ScreenReaderOutput.Speak($"Compander level {v}");
+                ScreenReaderOutput.Speak($"Compander level {v}", VerbosityLevel.Terse);
             }
         };
         TxAudioContent.Children.Add(_companderLevelControl);
@@ -190,7 +190,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
             {
                 _rig.ProcessorSetting = (FlexBase.ProcessorSettings)idx;
                 string[] names = { "Normal", "DX", "DX Plus" };
-                ScreenReaderOutput.Speak($"Processor mode {names[Math.Min(idx, 2)]}");
+                ScreenReaderOutput.Speak($"Processor mode {names[Math.Min(idx, 2)]}", VerbosityLevel.Terse);
             }
         };
         TxAudioContent.Children.Add(_processorSettingControl);
@@ -205,7 +205,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
             {
                 _rig.TXFilterLow = v;
                 UpdateFilterWidth();
-                ScreenReaderOutput.Speak($"TX low {v}");
+                ScreenReaderOutput.Speak($"TX low {v}", VerbosityLevel.Terse);
             }
         };
         TxAudioContent.Children.Add(_txFilterLowControl);
@@ -217,7 +217,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
             {
                 _rig.TXFilterHigh = v;
                 UpdateFilterWidth();
-                ScreenReaderOutput.Speak($"TX high {v}");
+                ScreenReaderOutput.Speak($"TX high {v}", VerbosityLevel.Terse);
             }
         };
         TxAudioContent.Children.Add(_txFilterHighControl);
@@ -257,7 +257,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
             if (_rig != null && !_polling)
             {
                 _rig.SBMonitorLevel = v;
-                ScreenReaderOutput.Speak($"Monitor level {v}");
+                ScreenReaderOutput.Speak($"Monitor level {v}", VerbosityLevel.Terse);
             }
         };
         TxAudioContent.Children.Add(_monitorLevelControl);
@@ -269,7 +269,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
             if (_rig != null && !_polling)
             {
                 _rig.SBMonitorPan = v;
-                ScreenReaderOutput.Speak($"Monitor pan {v}");
+                ScreenReaderOutput.Speak($"Monitor pan {v}", VerbosityLevel.Terse);
             }
         };
         TxAudioContent.Children.Add(_monitorPanControl);
@@ -462,7 +462,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         AutomationProperties.SetName(button, $"Play {label}");
         button.Click += (s, e) =>
         {
-            ScreenReaderOutput.Speak(label);
+            ScreenReaderOutput.Speak(label, VerbosityLevel.Terse);
             playAction();
         };
 
@@ -479,7 +479,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         var presets = GetPresetsCallback?.Invoke();
         if (presets == null || presets.Presets.Count == 0)
         {
-            ScreenReaderOutput.Speak("No presets available");
+            ScreenReaderOutput.Speak("No presets available", VerbosityLevel.Terse);
             return;
         }
 
@@ -507,7 +507,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
                 var preset = presets.Presets[listBox.SelectedIndex];
                 preset.ApplyTo(_rig);
                 PollTxAudio();
-                ScreenReaderOutput.Speak($"Preset {preset.Name} loaded");
+                ScreenReaderOutput.Speak($"Preset {preset.Name} loaded", VerbosityLevel.Terse);
             }
             picker.Close();
         };
@@ -526,7 +526,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
     {
         if (_rig == null)
         {
-            ScreenReaderOutput.Speak("No radio connected");
+            ScreenReaderOutput.Speak("No radio connected", VerbosityLevel.Critical);
             return;
         }
 
@@ -552,14 +552,14 @@ public partial class AudioWorkshopDialog : JJFlexDialog
             string name = nameBox.Text.Trim();
             if (string.IsNullOrEmpty(name))
             {
-                ScreenReaderOutput.Speak("Please enter a name");
+                ScreenReaderOutput.Speak("Please enter a name", VerbosityLevel.Terse);
                 return;
             }
             var preset = AudioChainPreset.CaptureFrom(_rig, name);
             var presets = GetPresetsCallback?.Invoke() ?? AudioChainPresets.CreateDefaults();
             presets.Presets.Add(preset);
             SavePresetsCallback?.Invoke(presets);
-            ScreenReaderOutput.Speak($"Preset {name} saved");
+            ScreenReaderOutput.Speak($"Preset {name} saved", VerbosityLevel.Terse);
             inputDialog.Close();
         };
         cancelBtn.Click += (s2, e2) => inputDialog.Close();
@@ -576,7 +576,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
     {
         if (_rig == null)
         {
-            ScreenReaderOutput.Speak("No radio connected");
+            ScreenReaderOutput.Speak("No radio connected", VerbosityLevel.Critical);
             return;
         }
 
@@ -591,7 +591,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         {
             var preset = AudioChainPreset.CaptureFrom(_rig, System.IO.Path.GetFileNameWithoutExtension(sfd.FileName));
             preset.Save(sfd.FileName);
-            ScreenReaderOutput.Speak($"Preset exported to {System.IO.Path.GetFileName(sfd.FileName)}");
+            ScreenReaderOutput.Speak($"Preset exported to {System.IO.Path.GetFileName(sfd.FileName)}", VerbosityLevel.Terse);
         }
     }
 
@@ -599,14 +599,14 @@ public partial class AudioWorkshopDialog : JJFlexDialog
     {
         if (_rig == null)
         {
-            ScreenReaderOutput.Speak("No radio connected");
+            ScreenReaderOutput.Speak("No radio connected", VerbosityLevel.Critical);
             return;
         }
 
         var defaults = new AudioChainPreset();
         defaults.ApplyTo(_rig);
         PollTxAudio();
-        ScreenReaderOutput.Speak("Audio settings reset to defaults");
+        ScreenReaderOutput.Speak("Audio settings reset to defaults", VerbosityLevel.Terse);
     }
 
     #endregion
@@ -670,7 +670,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         if (_polling || _rig == null) return;
         setter(isOn ? FlexBase.OffOnValues.on : FlexBase.OffOnValues.off);
         if (isOn) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
-        ScreenReaderOutput.Speak($"{label} {(isOn ? "on" : "off")}", interrupt: true);
+        ScreenReaderOutput.Speak($"{label} {(isOn ? "on" : "off")}", VerbosityLevel.Terse, interrupt: true);
     }
 
     #endregion

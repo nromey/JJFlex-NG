@@ -134,7 +134,7 @@ public partial class MainWindow : UserControl
                 // The full status already includes frequency/mode/slice detail.
                 // Prepend with connection info that BuildFullSliceStatus doesn't cover.
                 string message = $"Connected to {model}, {connType}. {status}";
-                Radios.ScreenReaderOutput.Speak(message);
+                Radios.ScreenReaderOutput.Speak(message, VerbosityLevel.Critical);
             });
         });
     }
@@ -608,7 +608,7 @@ public partial class MainWindow : UserControl
         LastNonLogMode = newMode;
         ApplyUIMode(newMode);
         SaveUIModeCallback?.Invoke(newMode);
-        Radios.ScreenReaderOutput.Speak($"{newMode} tuning mode");
+        Radios.ScreenReaderOutput.Speak($"{newMode} tuning mode", VerbosityLevel.Terse);
     }
 
     /// <summary>
@@ -636,7 +636,7 @@ public partial class MainWindow : UserControl
         // In pure WPF, this just works — no BeginInvoke, no ElementHost dance.
         LoggingLogEntry.FocusCallSign();
 
-        Radios.ScreenReaderOutput.Speak("Entering Logging Mode, Call Sign");
+        Radios.ScreenReaderOutput.Speak("Entering Logging Mode, Call Sign", VerbosityLevel.Terse);
     }
 
     /// <summary>
@@ -660,7 +660,7 @@ public partial class MainWindow : UserControl
         // Focus FreqOut display (the primary control in Classic/Modern modes)
         FreqOut.FocusDisplay();
 
-        Radios.ScreenReaderOutput.Speak($"Returning to {LastNonLogMode} tuning mode");
+        Radios.ScreenReaderOutput.Speak($"Returning to {LastNonLogMode} tuning mode", VerbosityLevel.Terse);
     }
 
     #endregion
@@ -724,7 +724,7 @@ public partial class MainWindow : UserControl
                 if (_freqOutHandlers != null)
                     _freqOutHandlers.ToggleFreqReadout();
                 else
-                    Radios.ScreenReaderOutput.Speak("No radio connected", true);
+                    Radios.ScreenReaderOutput.Speak("No radio connected", VerbosityLevel.Critical, true);
                 e.Handled = true;
                 return;
             }
@@ -740,11 +740,11 @@ public partial class MainWindow : UserControl
             {
                 int low = RigControl.FilterLow;
                 int high = RigControl.FilterHigh;
-                Radios.ScreenReaderOutput.Speak($"Filter {low} to {high}", true);
+                Radios.ScreenReaderOutput.Speak($"Filter {low} to {high}", VerbosityLevel.Terse, true);
             }
             else
             {
-                Radios.ScreenReaderOutput.Speak("No radio connected", true);
+                Radios.ScreenReaderOutput.Speak("No radio connected", VerbosityLevel.Critical, true);
             }
             e.Handled = true;
             return;
@@ -1389,7 +1389,7 @@ public partial class MainWindow : UserControl
             return;
         }
 
-        Radios.ScreenReaderOutput.Speak(msg, true);
+        Radios.ScreenReaderOutput.Speak(msg, VerbosityLevel.Critical, true);
 
         if (ShowErrorCallback != null)
             ShowErrorCallback(msg, "Error");
@@ -1477,7 +1477,7 @@ public partial class MainWindow : UserControl
                 if (isAutoATU)
                     EarconPlayer.ATUSuccessTone();
                 // SWR readback is useful for both auto and manual tune
-                Radios.ScreenReaderOutput.Speak($"SWR {e.SWR}");
+                Radios.ScreenReaderOutput.Speak($"SWR {e.SWR}", VerbosityLevel.Terse);
                 break;
             case "Fail":
             case "FailBypass":
@@ -1486,7 +1486,7 @@ public partial class MainWindow : UserControl
                 if (isAutoATU)
                 {
                     EarconPlayer.ATUFailTone();
-                    Radios.ScreenReaderOutput.Speak($"Tune failed, SWR {e.SWR}");
+                    Radios.ScreenReaderOutput.Speak($"Tune failed, SWR {e.SWR}", VerbosityLevel.Critical);
                 }
                 break;
             case "Bypass":
@@ -1494,7 +1494,7 @@ public partial class MainWindow : UserControl
                 StopATUTimeout();
                 EarconPlayer.StopATUProgressEarcon();
                 if (isAutoATU)
-                    Radios.ScreenReaderOutput.Speak("ATU bypassed");
+                    Radios.ScreenReaderOutput.Speak("ATU bypassed", VerbosityLevel.Terse);
                 break;
             case "NotStarted":
             case "Aborted":
@@ -1516,7 +1516,7 @@ public partial class MainWindow : UserControl
         if (_radioPowerOn && !e.Connected)
         {
             PowerNowOffInternal();
-            Radios.ScreenReaderOutput.Speak("The radio disconnected", true);
+            Radios.ScreenReaderOutput.Speak("The radio disconnected", VerbosityLevel.Critical, true);
 
             if (ShowErrorCallback != null)
                 ShowErrorCallback("The radio disconnected", "Error");
@@ -1936,7 +1936,7 @@ public partial class MainWindow : UserControl
         {
             EarconPlayer.TuneOnTone();
             MeterToneEngine.OnTuneStarted();
-            Radios.ScreenReaderOutput.Speak("Tune on", true);
+            Radios.ScreenReaderOutput.Speak("Tune on", VerbosityLevel.Terse, true);
         }
         else
         {
@@ -1945,7 +1945,7 @@ public partial class MainWindow : UserControl
             StopATUTimeout();
             EarconPlayer.TuneOffTone();
             MeterToneEngine.OnTuneStopped();
-            Radios.ScreenReaderOutput.Speak("Tune off", true);
+            Radios.ScreenReaderOutput.Speak("Tune off", VerbosityLevel.Terse, true);
         }
     }
 
@@ -1979,13 +1979,13 @@ public partial class MainWindow : UserControl
         if (!RigControl.MyCaps.HasCap(Radios.RigCaps.Caps.ATGet))
         {
             EarconPlayer.LeaderInvalidTone();
-            Radios.ScreenReaderOutput.Speak("No antenna tuner available");
+            Radios.ScreenReaderOutput.Speak("No antenna tuner available", VerbosityLevel.Terse);
             return;
         }
         // ATU tune uses FlexTunerOn which handles auto/manual tuner logic
         _oldSwr = "";
         RigControl.FlexTunerOn = true;
-        Radios.ScreenReaderOutput.Speak("ATU tuning", true);
+        Radios.ScreenReaderOutput.Speak("ATU tuning", VerbosityLevel.Terse, true);
     }
 
     private void StartATUTimeout()
@@ -2000,7 +2000,7 @@ public partial class MainWindow : UserControl
             StopATUTimeout();
             EarconPlayer.StopATUProgressEarcon();
             EarconPlayer.ATUFailTone();
-            Radios.ScreenReaderOutput.Speak("ATU tune timed out", true);
+            Radios.ScreenReaderOutput.Speak("ATU tune timed out", VerbosityLevel.Critical, true);
         };
         _atuTuneTimer.Start();
     }
@@ -2204,7 +2204,7 @@ public partial class MainWindow : UserControl
     {
         if (RigControl == null || !_radioPowerOn || OpenParms?.FormatFreq == null)
         {
-            Radios.ScreenReaderOutput.Speak("No radio connected", true);
+            Radios.ScreenReaderOutput.Speak("No radio connected", VerbosityLevel.Critical, true);
             return;
         }
 
@@ -2224,11 +2224,11 @@ public partial class MainWindow : UserControl
                 speech += $", {stepMode} {FreqOutHandlers.FormatStepForSpeech(_freqOutHandlers.CurrentTuneStep)}";
             }
 
-            Radios.ScreenReaderOutput.Speak(speech, true);
+            Radios.ScreenReaderOutput.Speak(speech, VerbosityLevel.Terse, true);
         }
         catch
         {
-            Radios.ScreenReaderOutput.Speak("Frequency unavailable", true);
+            Radios.ScreenReaderOutput.Speak("Frequency unavailable", VerbosityLevel.Critical, true);
         }
     }
 
@@ -2266,7 +2266,7 @@ public partial class MainWindow : UserControl
         var alloc = SixtyMeterChannels.GetAllocation(country);
         if (alloc == null)
         {
-            ScreenReaderOutput.Speak("No 60 meter channels configured for this country");
+            ScreenReaderOutput.Speak("No 60 meter channels configured for this country", VerbosityLevel.Terse);
             return;
         }
 
@@ -2282,14 +2282,14 @@ public partial class MainWindow : UserControl
             ulong freqHz = (ulong)(ch.FrequencyMHz * 1_000_000.0 + 0.5);
             RigControl.Frequency = freqHz;
             RigControl.Mode = ch.Mode;
-            ScreenReaderOutput.Speak($"{ch.Label}, {ch.FrequencyMHz:F4} megahertz, {ch.Mode}");
+            ScreenReaderOutput.Speak($"{ch.Label}, {ch.FrequencyMHz:F4} megahertz, {ch.Mode}", VerbosityLevel.Terse);
         }
         else if (alloc.Value.Digi is { } digi)
         {
             // Digital segment — tune to start
             ulong freqHz = (ulong)(digi.StartMHz * 1_000_000.0 + 0.5);
             RigControl.Frequency = freqHz;
-            ScreenReaderOutput.Speak($"60 meter digital and CW segment, {digi.StartMHz:F4} megahertz");
+            ScreenReaderOutput.Speak($"60 meter digital and CW segment, {digi.StartMHz:F4} megahertz", VerbosityLevel.Terse);
         }
     }
 
@@ -2321,7 +2321,7 @@ public partial class MainWindow : UserControl
         int next = (idx + direction + CommonModes.Length) % CommonModes.Length;
         string newMode = CommonModes[next];
         RigControl.Mode = newMode;
-        Radios.ScreenReaderOutput.Speak(newMode, true);
+        Radios.ScreenReaderOutput.Speak(newMode, VerbosityLevel.Terse, true);
     }
 
     /// <summary>
@@ -2335,11 +2335,11 @@ public partial class MainWindow : UserControl
         string currentMode = RigControl.Mode ?? "";
         if (string.Equals(currentMode, mode, StringComparison.OrdinalIgnoreCase))
         {
-            Radios.ScreenReaderOutput.Speak($"Already {mode}", true);
+            Radios.ScreenReaderOutput.Speak($"Already {mode}", VerbosityLevel.Terse, true);
             return;
         }
         RigControl.Mode = mode;
-        Radios.ScreenReaderOutput.Speak(mode, true);
+        Radios.ScreenReaderOutput.Speak(mode, VerbosityLevel.Terse, true);
     }
 
     #endregion
@@ -2381,7 +2381,7 @@ public partial class MainWindow : UserControl
             if (dialog.NewLoginRequested)
             {
                 // Launch Auth0 PKCE flow via WPF AuthDialog
-                Radios.ScreenReaderOutput.Speak("Opening SmartLink login", true);
+                Radios.ScreenReaderOutput.Speak("Opening SmartLink login", VerbosityLevel.Terse, true);
                 var authDialog = new Dialogs.AuthDialog(
                     trace: (msg, level) => JJTrace.Tracing.TraceLine(msg, (System.Diagnostics.TraceLevel)level),
                     screenReaderSpeak: (msg, interrupt) => Radios.ScreenReaderOutput.Speak(msg, interrupt));
@@ -2405,14 +2405,14 @@ public partial class MainWindow : UserControl
                     };
 
                     mgr.SaveAccount(newAccount);
-                    Radios.ScreenReaderOutput.Speak($"Account saved for {friendlyName}", true);
+                    Radios.ScreenReaderOutput.Speak($"Account saved for {friendlyName}", VerbosityLevel.Terse, true);
 
                     // Loop back to show the account list with the new account
                     continue;
                 }
                 else
                 {
-                    Radios.ScreenReaderOutput.Speak("Login cancelled", true);
+                    Radios.ScreenReaderOutput.Speak("Login cancelled", VerbosityLevel.Terse, true);
                     // Loop back to show account list
                     continue;
                 }

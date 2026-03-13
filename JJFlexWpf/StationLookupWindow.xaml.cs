@@ -278,7 +278,7 @@ public partial class StationLookupWindow : Window
         if (parts.Count > 0)
         {
             string msg = lookupSource + ": " + string.Join(", ", parts);
-            ScreenReaderOutput.Speak(msg, true);
+            ScreenReaderOutput.Speak(msg, VerbosityLevel.Terse, true);
         }
     }
 

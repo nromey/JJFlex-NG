@@ -177,7 +177,7 @@ namespace Radios
         {
             // Announce for screen reader users
             var displayName = string.IsNullOrWhiteSpace(radioName) ? "Your radio" : radioName;
-            ScreenReaderOutput.Speak($"{displayName} is offline", true);
+            ScreenReaderOutput.Speak($"{displayName} is offline", VerbosityLevel.Critical, true);
 
             using var dialog = new AutoConnectFailedDialog(radioName);
             dialog.ShowDialog(owner);

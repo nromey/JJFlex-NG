@@ -59,7 +59,7 @@ public partial class MetersPanel : UserControl
             // Turn off meters
             MeterToneEngine.Enabled = false;
             EarconPlayer.FeatureOffTone();
-            ScreenReaderOutput.Speak("Meter tones off");
+            ScreenReaderOutput.Speak("Meter tones off", VerbosityLevel.Terse);
         }
         else
         {
@@ -72,7 +72,7 @@ public partial class MetersPanel : UserControl
                 Visibility = Visibility.Visible;
 
             EarconPlayer.FeatureOnTone();
-            ScreenReaderOutput.Speak("Meter tones on");
+            ScreenReaderOutput.Speak("Meter tones on", VerbosityLevel.Terse);
         }
     }
 
@@ -341,18 +341,18 @@ public partial class MetersPanel : UserControl
         var slot = MeterToneEngine.AddSlot();
         if (slot == null)
         {
-            ScreenReaderOutput.Speak("Maximum meter slots reached");
+            ScreenReaderOutput.Speak("Maximum meter slots reached", VerbosityLevel.Terse);
             return;
         }
         AddSlotUI(MeterToneEngine.Slots.Count - 1);
-        ScreenReaderOutput.Speak($"Meter slot {MeterToneEngine.Slots.Count} added");
+        ScreenReaderOutput.Speak($"Meter slot {MeterToneEngine.Slots.Count} added", VerbosityLevel.Terse);
     }
 
     private void RemoveSlotAt(int index)
     {
         if (!MeterToneEngine.RemoveSlot(index))
         {
-            ScreenReaderOutput.Speak("Cannot remove the only meter slot");
+            ScreenReaderOutput.Speak("Cannot remove the only meter slot", VerbosityLevel.Terse);
             return;
         }
 
@@ -371,7 +371,7 @@ public partial class MetersPanel : UserControl
         }
 
         UpdateRemoveButtonStates();
-        ScreenReaderOutput.Speak($"Slot removed, {MeterToneEngine.Slots.Count} slots remaining");
+        ScreenReaderOutput.Speak($"Slot removed, {MeterToneEngine.Slots.Count} slots remaining", VerbosityLevel.Terse);
     }
 
     private void TestSlot(int index)
@@ -379,7 +379,7 @@ public partial class MetersPanel : UserControl
         if (index >= MeterToneEngine.Slots.Count) return;
         var slot = MeterToneEngine.Slots[index];
         string sourceName = MeterSourceNames[(int)slot.Source];
-        ScreenReaderOutput.Speak($"Testing {sourceName} tone");
+        ScreenReaderOutput.Speak($"Testing {sourceName} tone", VerbosityLevel.Terse);
 
         // Play a 2-second preview at mid-range
         slot.ToneProvider.Frequency = (slot.PitchLow + slot.PitchHigh) / 2f;

@@ -49,7 +49,7 @@ Public Class DefineCommands
         ConflictLabel.Text = ""
         Dim count = CommandsListView.Items.Count
         Dim tabName = currentScope.ToString()
-        ScreenReaderOutput.Speak(tabName & " hotkeys tab, " & count.ToString() & " commands", True)
+        ScreenReaderOutput.Speak(tabName & " hotkeys tab, " & count.ToString() & " commands", VerbosityLevel.Terse, True)
     End Sub
 
     ''' <summary>
@@ -197,7 +197,7 @@ Public Class DefineCommands
                             End If
                         Next
                         ConflictLabel.Text = "Cleared " & KeyString(k) & " from " & oldCmd
-                        ScreenReaderOutput.Speak("Cleared " & KeyString(k) & " from " & oldCmd, True)
+                        ScreenReaderOutput.Speak("Cleared " & KeyString(k) & " from " & oldCmd, VerbosityLevel.Terse, True)
                         commandChanges = True
                     End If
                 Next
@@ -211,7 +211,7 @@ Public Class DefineCommands
 
         ' Announce the assignment (conflict message was already spoken above if applicable).
         If ConflictLabel.Text = "" Then
-            ScreenReaderOutput.Speak(str & " assigned to " & theKeys(idx).HelpText, True)
+            ScreenReaderOutput.Speak(str & " assigned to " & theKeys(idx).HelpText, VerbosityLevel.Terse, True)
         End If
 
         CommandsListView.Focus()
@@ -239,7 +239,7 @@ Public Class DefineCommands
                 ' but if they do, refuse to save and tell the user.
                 MessageBox.Show("There are conflicting key assignments. Please resolve them before saving.",
                                 dupTitle, MessageBoxButtons.OK, MessageBoxIcon.Warning)
-                ScreenReaderOutput.Speak("Cannot save. Conflicting key assignments exist. Please resolve them first.", True)
+                ScreenReaderOutput.Speak("Cannot save. Conflicting key assignments exist. Please resolve them first.", VerbosityLevel.Critical, True)
                 DialogResult = DialogResult.None
                 Return
             Else
@@ -287,7 +287,7 @@ Public Class DefineCommands
             CommandsListView.SelectedItems(0).SubItems(0).Text = KeyString(defaultCmd.Key)
             ValueBox.Text = KeyString(defaultCmd.Key)
             commandChanges = True
-            ScreenReaderOutput.Speak("Reset to " & KeyString(defaultCmd.Key), True)
+            ScreenReaderOutput.Speak("Reset to " & KeyString(defaultCmd.Key), VerbosityLevel.Terse, True)
         End If
     End Sub
 
@@ -303,6 +303,6 @@ Public Class DefineCommands
             End If
         Next
         commandChanges = True
-        ScreenReaderOutput.Speak("All " & scope.ToString() & " keys reset to defaults", True)
+        ScreenReaderOutput.Speak("All " & scope.ToString() & " keys reset to defaults", VerbosityLevel.Terse, True)
     End Sub
 End Class

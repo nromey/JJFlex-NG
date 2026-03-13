@@ -473,7 +473,7 @@ public partial class FrequencyDisplay : UserControl
         // Clamp check — announce boundary instead of silently stopping
         if (newPos < 0 || newPos >= totalLen)
         {
-            Radios.ScreenReaderOutput.Speak(direction < 0 ? "Beginning" : "End", true);
+            Radios.ScreenReaderOutput.Speak(direction < 0 ? "Beginning" : "End", Radios.VerbosityLevel.Terse, true);
             return;
         }
 
@@ -498,7 +498,7 @@ public partial class FrequencyDisplay : UserControl
                     speech += $", {stepName}";
             }
 
-            Radios.ScreenReaderOutput.Speak(speech, true);
+            Radios.ScreenReaderOutput.Speak(speech, Radios.VerbosityLevel.Terse, true);
         }
         else
         {
@@ -509,7 +509,7 @@ public partial class FrequencyDisplay : UserControl
             if (stepName != null)
             {
                 char digit = posInField < newField.Text.Length ? newField.Text[posInField] : ' ';
-                Radios.ScreenReaderOutput.Speak($"{digit}, {stepName}", true);
+                Radios.ScreenReaderOutput.Speak($"{digit}, {stepName}", Radios.VerbosityLevel.Terse, true);
             }
         }
     }
@@ -539,7 +539,7 @@ public partial class FrequencyDisplay : UserControl
                 speech += $", {stepName}";
         }
 
-        Radios.ScreenReaderOutput.Speak(speech, true);
+        Radios.ScreenReaderOutput.Speak(speech, Radios.VerbosityLevel.Terse, true);
     }
 
     /// <summary>
@@ -624,9 +624,9 @@ public partial class FrequencyDisplay : UserControl
         string label = field.Label ?? field.Key;
         string value = GetSpeechText(field);
         if (string.IsNullOrEmpty(value))
-            Radios.ScreenReaderOutput.Speak(label, true);
+            Radios.ScreenReaderOutput.Speak(label, Radios.VerbosityLevel.Terse, true);
         else
-            Radios.ScreenReaderOutput.Speak($"{label} {value}", true);
+            Radios.ScreenReaderOutput.Speak($"{label} {value}", Radios.VerbosityLevel.Terse, true);
     }
 
     /// <summary>

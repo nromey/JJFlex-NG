@@ -235,7 +235,7 @@ public partial class ValueFieldControl : UserControl
         {
             _numberEntryMode = false;
             _numberBuffer = "";
-            ScreenReaderOutput.Speak("Cancelled");
+            ScreenReaderOutput.Speak("Cancelled", VerbosityLevel.Terse);
             UpdateDisplay();
             return true;
         }
@@ -258,13 +258,13 @@ public partial class ValueFieldControl : UserControl
             if (!_suppressEvents)
             {
                 ValueChanged?.Invoke(this, _value);
-                ScreenReaderOutput.Speak($"{_label} {_value}");
+                ScreenReaderOutput.Speak($"{_label} {_value}", VerbosityLevel.Terse);
                 EarconPlayer.ConfirmTone();
             }
         }
         else
         {
-            ScreenReaderOutput.Speak("Invalid, cancelled");
+            ScreenReaderOutput.Speak("Invalid, cancelled", VerbosityLevel.Terse);
             UpdateDisplay();
         }
         _numberBuffer = "";
@@ -291,7 +291,7 @@ public partial class ValueFieldControl : UserControl
         if (!_suppressEvents)
         {
             ValueChanged?.Invoke(this, _value);
-            ScreenReaderOutput.Speak($"{_label} {_value}", interrupt: true);
+            ScreenReaderOutput.Speak($"{_label} {_value}", VerbosityLevel.Terse, interrupt: true);
         }
     }
 
@@ -306,7 +306,7 @@ public partial class ValueFieldControl : UserControl
         if (!_suppressEvents)
         {
             ValueChanged?.Invoke(this, _value);
-            ScreenReaderOutput.Speak($"{_label} {_value}", interrupt: true);
+            ScreenReaderOutput.Speak($"{_label} {_value}", VerbosityLevel.Terse, interrupt: true);
         }
     }
 
