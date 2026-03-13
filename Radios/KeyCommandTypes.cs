@@ -131,6 +131,25 @@ public static class KeyCommandConstants
     public const int FirstMessageCommandValue = 1_000_000;
 }
 
+/// <summary>
+/// Shared CW message item type. Used by KeyCommands (C#) and wired from
+/// CWMessages.MessageItem (VB) via the KeyCommandContext delegate.
+/// </summary>
+public class CWMessageItem
+{
+    public Keys Key;
+    public string Message = string.Empty;
+    public string Label = string.Empty;
+
+    public CWMessageItem() { }
+    public CWMessageItem(Keys k, string message, string label)
+    {
+        Key = k;
+        Message = message;
+        Label = label;
+    }
+}
+
 // ────────────────────────────────────────────────────────────────
 //  KeyScope — determines when a hotkey binding is active
 // ────────────────────────────────────────────────────────────────
