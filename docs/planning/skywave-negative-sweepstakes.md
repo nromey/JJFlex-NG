@@ -316,10 +316,11 @@ git worktree add ../jjflex-24b sprint24/track-a -b sprint24/track-b
 - Master volume multiplier across all channels
 - "Same as Alerts" default: other channels inherit alert device unless explicitly set
 - Update MeterToneEngine to register with meter channel
+- New `DingTone()` — confirmation ding with decay, cuts through radio audio better than the current click. Use for frequency entry confirmation (JJ Ctrl+F and quick-type). Model for future decay-style tones on enable/disable toggles.
 
 **Files:** `JJFlexWpf/EarconPlayer.cs` (major refactor), `JJFlexWpf/MeterToneEngine.cs`, `JJFlexWpf/AudioOutputConfig.cs`
 
-**Verify:** Earcons play on alert channel. Meter tones on meter channel. Volume controls independent. Device selection independent. Master volume scales both.
+**Verify:** Earcons play on alert channel. Meter tones on meter channel. Volume controls independent. Device selection independent. Master volume scales both. Ding tone audible over radio audio.
 
 ---
 
@@ -367,16 +368,22 @@ git worktree add ../jjflex-24b sprint24/track-a -b sprint24/track-b
 
 ## PHASE 10B (Track B): Quick Wins
 
-**Goal:** DSP level minimum fixes.
+**Goal:** DSP level minimums, access key announcements.
 
 **DSP level minimums 0 to 1:**
 - NR Level: change minimum from 0 to 1 (level 0 kills all audio — confusing)
 - NB Level: change minimum from 0 to 1 (level 0 means blanker on but doing nothing)
 - WNB Level: change minimum from 0 to 1 (same — on but ineffective)
 
-**Files:** `JJFlexWpf/Controls/ScreenFieldsPanel.xaml.cs`
+**Access key announcements for screen readers:**
+- Buttons with access keys (from Mini Sprint 24a) don't announce their shortcut when tabbed to
+- Set `AutomationProperties.AcceleratorKey` on all buttons with access keys across 42 dialogs
+- Especially important for non-obvious labels (e.g., "Connect to Remote Radio" — is it Alt+C? Alt+R?)
+- Screen reader should announce the access key so users know the shortcut exists
 
-**Verify:** NR, NB, and WNB level sliders won't go below 1. Build clean.
+**Files:** `JJFlexWpf/Controls/ScreenFieldsPanel.xaml.cs`, 42 dialog XAML files
+
+**Verify:** NR, NB, and WNB level sliders won't go below 1. Tabbing to buttons announces access key in NVDA. Build clean.
 
 ---
 
