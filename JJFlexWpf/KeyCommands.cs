@@ -38,8 +38,7 @@ public class KeyCommands
     private const int KeyConfigVersion = 5;
 
     // ────────────────────────────────────────────────────────────────
-    //  Key Table — one entry per bindable action. Handlers are null
-    //  in this skeleton; Phase 3 fills them in.
+    //  Key Table — one entry per bindable action
     // ────────────────────────────────────────────────────────────────
 
     /// <summary>
@@ -56,353 +55,730 @@ public class KeyCommands
         KeyTable = new KeyTableEntry[]
         {
             // ── Help ──
-            new(CommandValues.ShowHelp, null!,
+            new(CommandValues.ShowHelp, ShowHelpHandler,
                 "Show keys help", null, FunctionGroups.Help, KeyScope.Global)
                 { Keywords = new[] { "help", "keys", "hotkeys", "shortcuts", "keyboard" } },
-            new(CommandValues.ShowContextHelp, KeyTypes.Command, null!,
+            new(CommandValues.ShowContextHelp, KeyTypes.Command, ShowContextHelpHandler,
                 "Open help file", "Help file", false, FunctionGroups.Help, KeyScope.Global)
                 { Keywords = new[] { "help", "file", "chm", "documentation", "manual", "f1" } },
 
             // ── Routing / Scan ──
-            new(CommandValues.ShowFreq, null!,
+            new(CommandValues.ShowFreq, DisplayFreqHandler,
                 "Focus frequency display", null, FunctionGroups.RoutingScan, KeyScope.Radio)
                 { Keywords = new[] { "frequency", "focus", "display", "tune", "tuning" } },
-            new(CommandValues.ResumeTheScan, null!,
+            new(CommandValues.ResumeTheScan, ResumeScanHandler,
                 "Resume the scan.", "resume scan", FunctionGroups.Scan, KeyScope.Radio)
                 { Keywords = new[] { "scan", "resume", "continue", "scanning" } },
-            new(CommandValues.ShowReceived, null!,
+            new(CommandValues.ShowReceived, GotoReceiveHandler,
                 "goto the received text window", null, FunctionGroups.Routing, KeyScope.Radio)
                 { Keywords = new[] { "receive", "text", "window", "cw", "morse", "focus" } },
-            new(CommandValues.ShowSend, null!,
+            new(CommandValues.ShowSend, GotoSendHandler,
                 "go to the send text window", null, FunctionGroups.Routing, KeyScope.Radio)
                 { Keywords = new[] { "send", "text", "window", "cw", "morse", "focus" } },
-            new(CommandValues.ShowSendDirect, null!,
+            new(CommandValues.ShowSendDirect, GotoSendDirectHandler,
                 "go to the send text window and send direct from keyboard", null, FunctionGroups.Routing, KeyScope.Radio)
                 { Keywords = new[] { "send", "direct", "keyboard", "cw", "morse", "type" } },
 
             // ── General ──
-            new(CommandValues.SmeterDBM, KeyTypes.Command, null!,
+            new(CommandValues.SmeterDBM, KeyTypes.Command, SmeterDisplayHandler,
                 "Display SMeter in DBM or S-units", _context.SMeterMenuString, false, FunctionGroups.General, KeyScope.Radio)
                 { Keywords = new[] { "s meter", "signal", "strength", "dbm", "s-units", "meter" } },
-            new(CommandValues.ReadSMeter, null!,
+            new(CommandValues.ReadSMeter, ReadSMeterHandler,
                 "Read the S-meter value aloud", null, FunctionGroups.General, KeyScope.Radio)
                 { Keywords = new[] { "s meter", "signal", "strength", "read", "speak", "announce" } },
 
             // ── Audio / Meter ──
-            new(CommandValues.ToggleMeterTones, null!,
+            new(CommandValues.ToggleMeterTones, ToggleMeterTonesHandler,
                 "Toggle meter sonification tones", null, FunctionGroups.Audio, KeyScope.Radio)
                 { Keywords = new[] { "meter", "tone", "sonification", "audio", "pitch", "toggle" } },
-            new(CommandValues.CycleMeterPreset, null!,
+            new(CommandValues.CycleMeterPreset, CycleMeterPresetHandler,
                 "Cycle meter tone preset (RX, TX, Full Monitor)", null, FunctionGroups.Audio, KeyScope.Radio)
                 { Keywords = new[] { "meter", "preset", "cycle", "rx", "tx", "monitor" } },
-            new(CommandValues.SpeakMeters, null!,
+            new(CommandValues.SpeakMeters, SpeakMetersHandler,
                 "Speak current meter values", null, FunctionGroups.Audio, KeyScope.Radio)
                 { Keywords = new[] { "meter", "speak", "read", "alc", "swr", "power", "signal" } },
 
             // ── CW ──
-            new(CommandValues.StopCW, KeyTypes.Command, null!,
+            new(CommandValues.StopCW, KeyTypes.Command, StopCWHandler,
                 "Stop sending CW", "cw stop", true, FunctionGroups.General, KeyScope.Global)
                 { Keywords = new[] { "cw", "morse", "stop", "abort", "sending" } },
 
             // ── Frequency / Memory ──
-            new(CommandValues.SetFreq, null!,
+            new(CommandValues.SetFreq, WriteFreqHandler,
                 "Enter frequency", "frequency", FunctionGroups.General, KeyScope.Radio)
                 { Keywords = new[] { "frequency", "enter", "type", "tune", "tuning", "dial" } },
-            new(CommandValues.ShowMemory, null!,
+            new(CommandValues.ShowMemory, DisplayMemoryHandler,
                 "Bring up the memory dialogue", "memories", FunctionGroups.Dialog, KeyScope.Radio)
                 { Keywords = new[] { "memory", "memories", "store", "recall", "save", "channel" } },
-            new(CommandValues.CycleContinuous, null!,
+            new(CommandValues.CycleContinuous, CycleContinuousHandler,
                 "Toggle continuous frequency display", null, FunctionGroups.General, KeyScope.Radio)
                 { Keywords = new[] { "continuous", "frequency", "display", "toggle" } },
 
             // ── Logging ──
-            new(CommandValues.LogDateTime, null!,
+            new(CommandValues.LogDateTime, SetLogDateTimeHandler,
                 "Set log date/time", "log date/time", "QSO_DATE", KeyTypes.Log, FunctionGroups.Logging, KeyScope.Logging)
                 { Keywords = new[] { "log", "date", "time", "contact", "logging" } },
-            new(CommandValues.LogFinalize, null!,
+            new(CommandValues.LogFinalize, FinalizeLogHandler,
                 "Write log entry", "log write", IADIF_Logwrite, KeyTypes.Command, FunctionGroups.Logging, KeyScope.Logging)
                 { Keywords = new[] { "log", "write", "save", "entry", "contact", "finalize", "logging" } },
-            new(CommandValues.LogFileName, null!,
+            new(CommandValues.LogFileName, GetLogFileNameHandler,
                 "Enter log file name", "log file name", IADIF_Logfile, KeyTypes.Command, FunctionGroups.Logging, KeyScope.Logging)
                 { Keywords = new[] { "log", "file", "name", "logging" } },
-            new(CommandValues.LogMode, null!,
+            new(CommandValues.LogMode, BringUpLogFormHandler,
                 "Log the mode", "log mode", "MODE", KeyTypes.Log, FunctionGroups.Logging, KeyScope.Logging)
                 { Keywords = new[] { "log", "mode", "contact", "logging" } },
-            new(CommandValues.LogCall, null!,
+            new(CommandValues.LogCall, BringUpLogFormHandler,
                 "Log callsign", "log call", "CALL", KeyTypes.Log, FunctionGroups.Logging, KeyScope.Logging)
                 { Keywords = new[] { "log", "call", "callsign", "contact", "logging" } },
-            new(CommandValues.LogHisRST, null!,
+            new(CommandValues.LogHisRST, BringUpLogFormHandler,
                 "Log his RST", "log his RST", "RST_SENT", KeyTypes.Log, FunctionGroups.Logging, KeyScope.Logging)
                 { Keywords = new[] { "log", "rst", "signal", "report", "his", "contact", "logging" } },
-            new(CommandValues.LogMyRST, null!,
+            new(CommandValues.LogMyRST, BringUpLogFormHandler,
                 "Log my RST", "log my RST", "RST_RCVD", KeyTypes.Log, FunctionGroups.Logging, KeyScope.Logging)
                 { Keywords = new[] { "log", "rst", "signal", "report", "my", "contact", "logging" } },
-            new(CommandValues.LogQTH, null!,
+            new(CommandValues.LogQTH, BringUpLogFormHandler,
                 "Log QTH", "log QTH", "QTH", KeyTypes.Log, FunctionGroups.Logging, KeyScope.Logging)
                 { Keywords = new[] { "log", "qth", "location", "contact", "logging" } },
-            new(CommandValues.LogState, null!,
+            new(CommandValues.LogState, BringUpLogFormHandler,
                 "Log state/province", "log state", "STATE", KeyTypes.Log, FunctionGroups.Logging, KeyScope.Logging)
                 { Keywords = new[] { "log", "state", "province", "contact", "logging" } },
-            new(CommandValues.LogGrid, null!,
+            new(CommandValues.LogGrid, BringUpLogFormHandler,
                 "Log Grid square", "log Grid", "GRIDSQUARE", KeyTypes.Log, FunctionGroups.Logging, KeyScope.Logging)
                 { Keywords = new[] { "log", "grid", "square", "locator", "contact", "logging" } },
-            new(CommandValues.LogHandle, null!,
+            new(CommandValues.LogHandle, BringUpLogFormHandler,
                 "Log name", "log name", "NAME", KeyTypes.Log, FunctionGroups.Logging, KeyScope.Logging)
                 { Keywords = new[] { "log", "name", "handle", "operator", "contact", "logging" } },
-            new(CommandValues.LogRig, null!,
+            new(CommandValues.LogRig, BringUpLogFormHandler,
                 "Log rig", "log rig", "RIG", KeyTypes.Log, FunctionGroups.Logging, KeyScope.Logging)
                 { Keywords = new[] { "log", "rig", "radio", "contact", "logging" } },
-            new(CommandValues.LogAnt, null!,
+            new(CommandValues.LogAnt, BringUpLogFormHandler,
                 "Log antenna", "log antenna", "ANTENNA", KeyTypes.Log, FunctionGroups.Logging, KeyScope.Logging)
                 { Keywords = new[] { "log", "antenna", "contact", "logging" } },
-            new(CommandValues.LogComments, null!,
+            new(CommandValues.LogComments, BringUpLogFormHandler,
                 "Log comments", "log comments", "COMMENT", KeyTypes.Log, FunctionGroups.Logging, KeyScope.Logging)
                 { Keywords = new[] { "log", "comments", "notes", "contact", "logging" } },
-            new(CommandValues.NewLogEntry, null!,
+            new(CommandValues.NewLogEntry, BringUpLogFormHandler,
                 "New log entry", "new log entry", IADIF_LogNewEntry, KeyTypes.Command, FunctionGroups.Logging, KeyScope.Logging)
                 { Keywords = new[] { "log", "new", "entry", "contact", "logging" } },
-            new(CommandValues.SearchLog, null!,
+            new(CommandValues.SearchLog, SearchLogHandler,
                 "Find a log entry", "log search", IADIF_Logsearch, KeyTypes.Command, FunctionGroups.Logging, KeyScope.Logging)
                 { Keywords = new[] { "log", "search", "find", "contact", "logging" } },
 
             // ── Navigation / Panning ──
-            new(CommandValues.DoPanning, null!,
+            new(CommandValues.DoPanning, StartPanningHandler,
                 "Focus to panning", "panning", FunctionGroups.General, KeyScope.Radio)
                 { Keywords = new[] { "pan", "panning", "stereo", "audio", "balance" } },
 
             // ── Scan ──
-            new(CommandValues.StartScan, null!,
+            new(CommandValues.StartScan, BeginScanHandler,
                 "Start/stop scan", "start scan", FunctionGroups.Scan, KeyScope.Radio)
                 { Keywords = new[] { "scan", "start", "stop", "search", "scanning" } },
-            new(CommandValues.SavedScan, null!,
+            new(CommandValues.SavedScan, UseSavedScanHandler,
                 "Use a saved scan", "saved scan", FunctionGroups.Scan, KeyScope.Radio)
                 { Keywords = new[] { "scan", "saved", "preset", "scanning" } },
-            new(CommandValues.StopScan, null!,
+            new(CommandValues.StopScan, StopScanHandler,
                 "Stop the current scan", "stop scan", FunctionGroups.Scan, KeyScope.Radio)
                 { Keywords = new[] { "scan", "stop", "halt", "scanning" } },
-            new(CommandValues.MemoryScan, null!,
+            new(CommandValues.MemoryScan, MemoryScanHandler,
                 "Memory scan", "memory scan", FunctionGroups.Scan, KeyScope.Radio)
                 { Keywords = new[] { "scan", "memory", "memories", "scanning", "channel" } },
 
             // ── Dialogs ──
-            new(CommandValues.ShowMenus, null!,
+            new(CommandValues.ShowMenus, ShowMenusHandler,
                 "Show the rig's menus.", "menus", FunctionGroups.Dialog, KeyScope.Radio)
                 { Keywords = new[] { "menu", "menus", "rig", "radio", "settings" } },
 
             // ── Audio volume ──
-            new(CommandValues.AudioGainUp, KeyTypes.Command, null!,
+            new(CommandValues.AudioGainUp, KeyTypes.Command, AudioGainUpHandler,
                 "Raise RF gain or Flex slice gain.", string.Empty, true, FunctionGroups.Audio, KeyScope.Radio)
                 { Keywords = new[] { "volume", "gain", "audio", "louder", "up", "slice" } },
-            new(CommandValues.AudioGainDown, KeyTypes.Command, null!,
+            new(CommandValues.AudioGainDown, KeyTypes.Command, AudioGainDownHandler,
                 "Lower RF gain or Flex slice gain.", string.Empty, true, FunctionGroups.Audio, KeyScope.Radio)
                 { Keywords = new[] { "volume", "gain", "audio", "quieter", "down", "slice" } },
-            new(CommandValues.HeadphonesUp, KeyTypes.Command, null!,
+            new(CommandValues.HeadphonesUp, KeyTypes.Command, HeadphonesUpHandler,
                 "If supported, raise headphone gain.", string.Empty, true, FunctionGroups.Audio, KeyScope.Radio)
                 { Keywords = new[] { "headphones", "volume", "audio", "louder", "gain" } },
-            new(CommandValues.HeadphonesDown, KeyTypes.Command, null!,
+            new(CommandValues.HeadphonesDown, KeyTypes.Command, HeadphonesDownHandler,
                 "If supported, lower headphone gain.", string.Empty, true, FunctionGroups.Audio, KeyScope.Radio)
                 { Keywords = new[] { "headphones", "volume", "audio", "quieter", "gain" } },
-            new(CommandValues.LineoutUp, KeyTypes.Command, null!,
+            new(CommandValues.LineoutUp, KeyTypes.Command, LineoutUpHandler,
                 "Raise audio gain or Flex lineout gain.", string.Empty, true, FunctionGroups.Audio, KeyScope.Radio)
                 { Keywords = new[] { "lineout", "volume", "audio", "gain", "output" } },
-            new(CommandValues.LineoutDown, KeyTypes.Command, null!,
+            new(CommandValues.LineoutDown, KeyTypes.Command, LineoutDownHandler,
                 "lower audio gain or Flex lineout gain.", string.Empty, true, FunctionGroups.Audio, KeyScope.Radio)
                 { Keywords = new[] { "lineout", "volume", "audio", "gain", "output" } },
 
             // ── CW / RIT / Beacon / Cluster ──
-            new(CommandValues.CWZeroBeat, KeyTypes.Command, null!,
+            new(CommandValues.CWZeroBeat, KeyTypes.Command, ZerobeatHandler,
                 "Zerobeat CW signal.", "Zerobeat CW signal", true, FunctionGroups.General, KeyScope.Radio)
                 { Keywords = new[] { "cw", "morse", "zerobeat", "zero beat", "tune" } },
-            new(CommandValues.ClearRIT, KeyTypes.Command, null!,
+            new(CommandValues.ClearRIT, KeyTypes.Command, ClearRitHandler,
                 "Clear RIT.", "Clear Rit", true, FunctionGroups.General, KeyScope.Radio)
                 { Keywords = new[] { "rit", "clear", "offset", "receive", "incremental" } },
-            new(CommandValues.ReverseBeacon, KeyTypes.Command, null!,
+            new(CommandValues.ReverseBeacon, KeyTypes.Command, ReverseBeaconHandler,
                 "Bring up a reverse beacon site for a call.", "Reverse Beacon", false, FunctionGroups.General, KeyScope.Radio)
                 { Keywords = new[] { "beacon", "reverse", "spots", "dx", "rbn" } },
-            new(CommandValues.ArCluster, KeyTypes.Command, null!,
+            new(CommandValues.ArCluster, KeyTypes.Command, DXClusterHandler,
                 "Bring up the DX spotting cluster.", "DX cluster", false, FunctionGroups.General, KeyScope.Radio)
                 { Keywords = new[] { "cluster", "dx", "spots", "spotting" } },
 
             // ── Logging (continued) ──
-            new(CommandValues.LogStats, KeyTypes.Command, null!,
+            new(CommandValues.LogStats, KeyTypes.Command, LogStatsHandler,
                 "Show log statistics", "Show log statistics", false, FunctionGroups.Logging, KeyScope.Logging)
                 { Keywords = new[] { "log", "statistics", "stats", "contact", "count", "logging" } },
 
             // ── Audio features ──
-            new(CommandValues.RemoteAudio, KeyTypes.Command, null!,
+            new(CommandValues.RemoteAudio, KeyTypes.Command, PCAudioHandler,
                 "PC audio on/off", _context.AudioMenuString, false, FunctionGroups.Audio, KeyScope.Radio)
                 { Keywords = new[] { "audio", "remote", "pc", "mute", "unmute", "on", "off" } },
-            new(CommandValues.AudioSetup, KeyTypes.Command, null!,
+            new(CommandValues.AudioSetup, KeyTypes.Command, AudioSetupHandler,
                 "Select audio device", "Select Audio Device", false, FunctionGroups.Audio, KeyScope.Radio)
                 { Keywords = new[] { "audio", "device", "setup", "settings", "configure", "preferences", "sound" } },
 
             // ── Lookups / Debug / ATU / Reboot / TX ──
-            new(CommandValues.StationLookup, KeyTypes.Command, null!,
+            new(CommandValues.StationLookup, KeyTypes.Command, StationLookupHandler,
                 "Station lookup", "Station lookup", false, FunctionGroups.Logging, KeyScope.Global)
                 { Keywords = new[] { "station", "lookup", "callsign", "qrz", "search" } },
-            new(CommandValues.GatherDebug, KeyTypes.Command, null!,
+            new(CommandValues.GatherDebug, KeyTypes.Command, GatherDebugHandler,
                 "Collect debug info", "Collect debug info", false, FunctionGroups.General, KeyScope.Global)
                 { Keywords = new[] { "debug", "info", "diagnostic", "troubleshoot" } },
-            new(CommandValues.ATUMemories, KeyTypes.Command, null!,
+            new(CommandValues.ATUMemories, KeyTypes.Command, ATUMemoriesHandler,
                 "Tuner memories", "Tuner memories", false, FunctionGroups.General, KeyScope.Radio)
                 { Keywords = new[] { "tuner", "atu", "antenna", "memories", "tune" } },
-            new(CommandValues.Reboot, KeyTypes.Command, null!,
+            new(CommandValues.Reboot, KeyTypes.Command, RebootHandler,
                 "Reboot the radio", "Reboot the radio", false, FunctionGroups.General, KeyScope.Radio)
                 { Keywords = new[] { "reboot", "restart", "radio", "reset" } },
-            new(CommandValues.TXControls, KeyTypes.Command, null!,
+            new(CommandValues.TXControls, KeyTypes.Command, TXControlsHandler,
                 "Transmit controls", "Transmit controls", false, FunctionGroups.General, KeyScope.Radio)
                 { Keywords = new[] { "transmit", "tx", "power", "controls", "watts", "ptt" } },
 
             // ── Logging-only actions ──
-            new(CommandValues.LogPaneSwitchF6, KeyTypes.Command, null!,
+            new(CommandValues.LogPaneSwitchF6, KeyTypes.Command, LogPaneSwitchHandler,
                 "Switch between radio and log panes", "Switch panes", false, FunctionGroups.Logging, KeyScope.Logging)
                 { Keywords = new[] { "log", "pane", "switch", "focus", "logging" } },
-            new(CommandValues.LogCharacteristicsDialog, KeyTypes.Command, null!,
+            new(CommandValues.LogCharacteristicsDialog, KeyTypes.Command, LogCharacteristicsHandler,
                 "Open log characteristics dialog", "Log characteristics", false, FunctionGroups.Logging, KeyScope.Logging)
                 { Keywords = new[] { "log", "characteristics", "settings", "configure", "logging" } },
-            new(CommandValues.LogOpenFullForm, KeyTypes.Command, null!,
+            new(CommandValues.LogOpenFullForm, KeyTypes.Command, LogOpenFullFormHandler,
                 "Open full log entry form", "Full log form", false, FunctionGroups.Logging, KeyScope.Logging)
                 { Keywords = new[] { "log", "full", "form", "entry", "logging" } },
 
             // ── Context help / Status ──
-            new(CommandValues.ContextHelp, KeyTypes.Command, null!,
+            new(CommandValues.ContextHelp, KeyTypes.Command, ContextHelpHandler,
                 "Context-aware command finder", "Command finder", false, FunctionGroups.Help, KeyScope.Global)
                 { Keywords = new[] { "help", "context", "command", "finder", "search", "keys" } },
-            new(CommandValues.SpeakStatus, KeyTypes.Command, null!,
+            new(CommandValues.SpeakStatus, KeyTypes.Command, SpeakStatusHandler,
                 "Speak radio status summary", "Speak status", false, FunctionGroups.General, KeyScope.Global)
                 { Keywords = new[] { "status", "speak", "info", "radio", "summary" } },
-            new(CommandValues.ShowStatusDialog, KeyTypes.Command, null!,
+            new(CommandValues.ShowStatusDialog, KeyTypes.Command, ShowStatusDialogHandler,
                 "Show radio status dialog", "Status dialog", false, FunctionGroups.General, KeyScope.Global)
                 { Keywords = new[] { "status", "dialog", "info", "radio", "show" } },
-            new(CommandValues.SpeakTxStatus, KeyTypes.Command, null!,
+            new(CommandValues.SpeakTxStatus, KeyTypes.Command, SpeakTxStatusHandler,
                 "Speak transmit status and time remaining", "Transmit status", false, FunctionGroups.General, KeyScope.Global)
                 { Keywords = new[] { "transmit", "ptt", "push to talk", "status", "tx", "time" } },
 
             // ── Band jumps ──
-            new(CommandValues.BandJump160, KeyTypes.Command, null!,
+            new(CommandValues.BandJump160, KeyTypes.Command, () => _context.GetMainWindow()?.BandJump(HamBands.Bands.BandNames.m160),
                 "Jump to 160 meter band", "160m", false, FunctionGroups.General, KeyScope.Radio)
                 { Keywords = new[] { "band", "160", "meter", "jump", "frequency" } },
-            new(CommandValues.BandJump80, KeyTypes.Command, null!,
+            new(CommandValues.BandJump80, KeyTypes.Command, () => _context.GetMainWindow()?.BandJump(HamBands.Bands.BandNames.m80),
                 "Jump to 80 meter band", "80m", false, FunctionGroups.General, KeyScope.Radio)
                 { Keywords = new[] { "band", "80", "meter", "jump", "frequency" } },
-            new(CommandValues.BandJump60, KeyTypes.Command, null!,
+            new(CommandValues.BandJump60, KeyTypes.Command, () => _context.GetMainWindow()?.BandJump(HamBands.Bands.BandNames.m60),
                 "Jump to 60 meter band", "60m", false, FunctionGroups.General, KeyScope.Radio)
                 { Keywords = new[] { "band", "60", "meter", "jump", "frequency" } },
-            new(CommandValues.BandJump40, KeyTypes.Command, null!,
+            new(CommandValues.BandJump40, KeyTypes.Command, () => _context.GetMainWindow()?.BandJump(HamBands.Bands.BandNames.m40),
                 "Jump to 40 meter band", "40m", false, FunctionGroups.General, KeyScope.Radio)
                 { Keywords = new[] { "band", "40", "meter", "jump", "frequency" } },
-            new(CommandValues.BandJump30, KeyTypes.Command, null!,
+            new(CommandValues.BandJump30, KeyTypes.Command, () => _context.GetMainWindow()?.BandJump(HamBands.Bands.BandNames.m30),
                 "Jump to 30 meter band", "30m", false, FunctionGroups.General, KeyScope.Radio)
                 { Keywords = new[] { "band", "30", "meter", "jump", "frequency", "warc" } },
-            new(CommandValues.BandJump20, KeyTypes.Command, null!,
+            new(CommandValues.BandJump20, KeyTypes.Command, () => _context.GetMainWindow()?.BandJump(HamBands.Bands.BandNames.m20),
                 "Jump to 20 meter band", "20m", false, FunctionGroups.General, KeyScope.Radio)
                 { Keywords = new[] { "band", "20", "meter", "jump", "frequency" } },
-            new(CommandValues.BandJump17, KeyTypes.Command, null!,
+            new(CommandValues.BandJump17, KeyTypes.Command, () => _context.GetMainWindow()?.BandJump(HamBands.Bands.BandNames.m17),
                 "Jump to 17 meter band", "17m", false, FunctionGroups.General, KeyScope.Radio)
                 { Keywords = new[] { "band", "17", "meter", "jump", "frequency", "warc" } },
-            new(CommandValues.BandJump15, KeyTypes.Command, null!,
+            new(CommandValues.BandJump15, KeyTypes.Command, () => _context.GetMainWindow()?.BandJump(HamBands.Bands.BandNames.m15),
                 "Jump to 15 meter band", "15m", false, FunctionGroups.General, KeyScope.Radio)
                 { Keywords = new[] { "band", "15", "meter", "jump", "frequency" } },
-            new(CommandValues.BandJump12, KeyTypes.Command, null!,
+            new(CommandValues.BandJump12, KeyTypes.Command, () => _context.GetMainWindow()?.BandJump(HamBands.Bands.BandNames.m12),
                 "Jump to 12 meter band", "12m", false, FunctionGroups.General, KeyScope.Radio)
                 { Keywords = new[] { "band", "12", "meter", "jump", "frequency", "warc" } },
-            new(CommandValues.BandJump10, KeyTypes.Command, null!,
+            new(CommandValues.BandJump10, KeyTypes.Command, () => _context.GetMainWindow()?.BandJump(HamBands.Bands.BandNames.m10),
                 "Jump to 10 meter band", "10m", false, FunctionGroups.General, KeyScope.Radio)
                 { Keywords = new[] { "band", "10", "meter", "jump", "frequency" } },
-            new(CommandValues.BandJump6, KeyTypes.Command, null!,
+            new(CommandValues.BandJump6, KeyTypes.Command, () => _context.GetMainWindow()?.BandJump(HamBands.Bands.BandNames.m6),
                 "Jump to 6 meter band", "6m", false, FunctionGroups.General, KeyScope.Radio)
                 { Keywords = new[] { "band", "6", "meter", "jump", "frequency", "vhf" } },
-            new(CommandValues.BandUp, KeyTypes.Command, null!,
+            new(CommandValues.BandUp, KeyTypes.Command, () => _context.GetMainWindow()?.BandNavigate(1),
                 "Next higher band", "Band up", false, FunctionGroups.General, KeyScope.Radio)
                 { Keywords = new[] { "band", "up", "next", "higher", "navigate" } },
-            new(CommandValues.BandDown, KeyTypes.Command, null!,
+            new(CommandValues.BandDown, KeyTypes.Command, () => _context.GetMainWindow()?.BandNavigate(-1),
                 "Next lower band", "Band down", false, FunctionGroups.General, KeyScope.Radio)
                 { Keywords = new[] { "band", "down", "previous", "lower", "navigate" } },
 
             // ── Mode switching ──
-            new(CommandValues.ModeNext, KeyTypes.Command, null!,
+            new(CommandValues.ModeNext, KeyTypes.Command, () => _context.GetMainWindow()?.CycleMode(1),
                 "Cycle to next mode", "Next mode", false, FunctionGroups.General, KeyScope.Radio)
                 { Keywords = new[] { "mode", "next", "cycle", "usb", "lsb", "cw", "am", "fm", "digu", "digl" } },
-            new(CommandValues.ModePrev, KeyTypes.Command, null!,
+            new(CommandValues.ModePrev, KeyTypes.Command, () => _context.GetMainWindow()?.CycleMode(-1),
                 "Cycle to previous mode", "Previous mode", false, FunctionGroups.General, KeyScope.Radio)
                 { Keywords = new[] { "mode", "previous", "back", "cycle", "usb", "lsb", "cw" } },
-            new(CommandValues.ModeUSB, KeyTypes.Command, null!,
+            new(CommandValues.ModeUSB, KeyTypes.Command, () => _context.GetMainWindow()?.SetMode("USB"),
                 "Switch to USB mode", "USB", false, FunctionGroups.General, KeyScope.Radio)
                 { Keywords = new[] { "mode", "usb", "upper", "sideband", "ssb", "phone" } },
-            new(CommandValues.ModeLSB, KeyTypes.Command, null!,
+            new(CommandValues.ModeLSB, KeyTypes.Command, () => _context.GetMainWindow()?.SetMode("LSB"),
                 "Switch to LSB mode", "LSB", false, FunctionGroups.General, KeyScope.Radio)
                 { Keywords = new[] { "mode", "lsb", "lower", "sideband", "ssb", "phone" } },
-            new(CommandValues.ModeCW, KeyTypes.Command, null!,
+            new(CommandValues.ModeCW, KeyTypes.Command, () => _context.GetMainWindow()?.SetMode("CW"),
                 "Switch to CW mode", "CW", false, FunctionGroups.General, KeyScope.Radio)
                 { Keywords = new[] { "mode", "cw", "morse", "code", "continuous wave" } },
 
             // ── TX Filter ──
-            new(CommandValues.TXFilterLowDown, KeyTypes.Command, null!,
+            new(CommandValues.TXFilterLowDown, KeyTypes.Command, TXFilterLowDownHandler,
                 "Nudge TX filter low edge down", (string?)null, false, FunctionGroups.Audio, KeyScope.Radio)
                 { Keywords = new[] { "tx", "filter", "low", "down", "transmit", "sculpt" } },
-            new(CommandValues.TXFilterLowUp, KeyTypes.Command, null!,
+            new(CommandValues.TXFilterLowUp, KeyTypes.Command, TXFilterLowUpHandler,
                 "Nudge TX filter low edge up", (string?)null, false, FunctionGroups.Audio, KeyScope.Radio)
                 { Keywords = new[] { "tx", "filter", "low", "up", "transmit", "sculpt" } },
-            new(CommandValues.TXFilterHighDown, KeyTypes.Command, null!,
+            new(CommandValues.TXFilterHighDown, KeyTypes.Command, TXFilterHighDownHandler,
                 "Nudge TX filter high edge down", (string?)null, false, FunctionGroups.Audio, KeyScope.Radio)
                 { Keywords = new[] { "tx", "filter", "high", "down", "transmit", "sculpt" } },
-            new(CommandValues.TXFilterHighUp, KeyTypes.Command, null!,
+            new(CommandValues.TXFilterHighUp, KeyTypes.Command, TXFilterHighUpHandler,
                 "Nudge TX filter high edge up", (string?)null, false, FunctionGroups.Audio, KeyScope.Radio)
                 { Keywords = new[] { "tx", "filter", "high", "up", "transmit", "sculpt" } },
-            new(CommandValues.SpeakTXFilter, KeyTypes.Command, null!,
+            new(CommandValues.SpeakTXFilter, KeyTypes.Command, SpeakTXFilterHandler,
                 "Speak TX filter width", (string?)null, false, FunctionGroups.Audio, KeyScope.Radio)
                 { Keywords = new[] { "tx", "filter", "width", "bandwidth", "speak", "transmit", "sculpt" } },
 
             // ── Dialog launchers ──
-            new(CommandValues.OpenAudioWorkshop, KeyTypes.Command, null!,
+            new(CommandValues.OpenAudioWorkshop, KeyTypes.Command, OpenAudioWorkshopHandler,
                 "Open Audio Workshop dialog", "Audio Workshop", false, FunctionGroups.Dialog, KeyScope.Global)
                 { Keywords = new[] { "audio", "workshop", "tx", "transmit", "mic", "compander", "preset", "earcon" } },
 
             // ── Tuning ──
-            new(CommandValues.TuneToggle, KeyTypes.Command, null!,
+            new(CommandValues.TuneToggle, KeyTypes.Command, TuneToggleHandler,
                 "Toggle tune carrier on or off", "Tune carrier", false, FunctionGroups.General, KeyScope.Radio)
                 { Keywords = new[] { "tune", "carrier", "toggle", "cw", "manual" } },
-            new(CommandValues.ATUTune, KeyTypes.Command, null!,
+            new(CommandValues.ATUTune, KeyTypes.Command, ATUTuneHandler,
                 "Start ATU tune cycle", "ATU Tune", false, FunctionGroups.General, KeyScope.Radio)
                 { Keywords = new[] { "atu", "tune", "antenna", "tuner", "auto", "match", "swr" } },
-            new(CommandValues.ToggleMeters, KeyTypes.Command, null!,
+            new(CommandValues.ToggleMeters, KeyTypes.Command, ToggleMetersHandler,
                 "Toggle meter tones on or off", "Toggle Meters", false, FunctionGroups.General, KeyScope.Global)
                 { Keywords = new[] { "meter", "tones", "sonification", "audio", "s-meter", "alc", "swr" } },
 
             // ── 60m channels ──
-            new(CommandValues.SixtyMeterChannelUp, KeyTypes.Command, null!,
+            new(CommandValues.SixtyMeterChannelUp, KeyTypes.Command, () => _context.GetMainWindow()?.SixtyMeterChannelNavigate(1),
                 "Next 60 meter channel", "60m Channel Up", false, FunctionGroups.Tuning, KeyScope.Radio)
                 { Keywords = new[] { "60", "meter", "channel", "up", "next", "five", "navigate" } },
-            new(CommandValues.SixtyMeterChannelDown, KeyTypes.Command, null!,
+            new(CommandValues.SixtyMeterChannelDown, KeyTypes.Command, () => _context.GetMainWindow()?.SixtyMeterChannelNavigate(-1),
                 "Previous 60 meter channel", "60m Channel Down", false, FunctionGroups.Tuning, KeyScope.Radio)
                 { Keywords = new[] { "60", "meter", "channel", "down", "previous", "five", "navigate" } },
 
             // ── ScreenFields expanders ──
-            new(CommandValues.ToggleDspExpander, KeyTypes.Command, null!,
+            new(CommandValues.ToggleDspExpander, KeyTypes.Command, () => _context.GetMainWindow()?.ToggleScreenFieldsCategory(0),
                 "Toggle DSP expander in ScreenFields panel", "DSP Expander", false, FunctionGroups.General, KeyScope.Radio)
                 { Keywords = new[] { "dsp", "noise", "reduction", "expander", "screenfields", "panel" } },
-            new(CommandValues.ToggleAudioExpander, KeyTypes.Command, null!,
+            new(CommandValues.ToggleAudioExpander, KeyTypes.Command, () => _context.GetMainWindow()?.ToggleScreenFieldsCategory(1),
                 "Toggle Audio expander in ScreenFields panel", "Audio Expander", false, FunctionGroups.Audio, KeyScope.Radio)
                 { Keywords = new[] { "audio", "expander", "screenfields", "panel" } },
-            new(CommandValues.ToggleReceiverExpander, KeyTypes.Command, null!,
+            new(CommandValues.ToggleReceiverExpander, KeyTypes.Command, () => _context.GetMainWindow()?.ToggleScreenFieldsCategory(2),
                 "Toggle Receiver expander in ScreenFields panel", "Receiver Expander", false, FunctionGroups.General, KeyScope.Radio)
                 { Keywords = new[] { "receiver", "rx", "expander", "screenfields", "panel" } },
-            new(CommandValues.ToggleTransmissionExpander, KeyTypes.Command, null!,
+            new(CommandValues.ToggleTransmissionExpander, KeyTypes.Command, () => _context.GetMainWindow()?.ToggleScreenFieldsCategory(3),
                 "Toggle Transmission expander in ScreenFields panel", "Transmission Expander", false, FunctionGroups.General, KeyScope.Radio)
                 { Keywords = new[] { "transmission", "tx", "expander", "screenfields", "panel" } },
-            new(CommandValues.ToggleAntennaExpander, KeyTypes.Command, null!,
+            new(CommandValues.ToggleAntennaExpander, KeyTypes.Command, () => _context.GetMainWindow()?.ToggleScreenFieldsCategory(4),
                 "Toggle Antenna expander in ScreenFields panel", "Antenna Expander", false, FunctionGroups.General, KeyScope.Radio)
                 { Keywords = new[] { "antenna", "ant", "expander", "screenfields", "panel" } },
 
             // ── Speak / Repeat ──
-            new(CommandValues.SpeakFrequency, KeyTypes.Command, null!,
+            new(CommandValues.SpeakFrequency, KeyTypes.Command, () => _context.GetMainWindow()?.SpeakFrequency(),
                 "Speak current frequency and mode", "Speak Frequency", false, FunctionGroups.General, KeyScope.Radio)
                 { Keywords = new[] { "frequency", "freq", "speak", "readback" } },
-            new(CommandValues.RepeatLastMessage, KeyTypes.Command, null!,
+            new(CommandValues.RepeatLastMessage, KeyTypes.Command, RepeatLastMessageHandler,
                 "Repeat the last spoken message", "Repeat Last Message", false, FunctionGroups.General, KeyScope.Global)
                 { Keywords = new[] { "repeat", "last", "message", "speech", "again" } },
         };
     }
+
+    // ────────────────────────────────────────────────────────────────
+    //  Handler Methods — Sprint 24 Phase 3
+    //  Each handler wraps VB functionality via _context delegates
+    //  or calls MainWindow/EarconPlayer/MeterToneEngine directly.
+    // ────────────────────────────────────────────────────────────────
+
+    #region Help Handlers
+
+    private void ShowHelpHandler() => _context.GetMainWindow()?.DisplayHelp();
+    private void ShowContextHelpHandler() => HelpLauncher.ShowHelp();
+
+    #endregion
+
+    #region Navigation / Routing Handlers
+
+    private void DisplayFreqHandler()
+    {
+        // If scanning, pause first.
+        if (_context.GetScanRunning())
+            _context.StopScan();
+        _context.DisplayFreq();
+    }
+
+    private void ResumeScanHandler() => _context.ResumeScan();
+    private void GotoReceiveHandler() => _context.GotoReceive();
+    private void GotoSendHandler() => _context.GotoSend();
+    private void GotoSendDirectHandler() => _context.GotoSendDirect();
+    private void WriteFreqHandler() => _context.WriteFreq();
+    private void DisplayMemoryHandler() => _context.DisplayMemory();
+    private void CycleContinuousHandler() => _context.CycleContinuous();
+    private void StartPanningHandler() => _context.StartPanning();
+
+    #endregion
+
+    #region Scan Handlers
+
+    private void BeginScanHandler() => _context.BeginScan();
+    private void UseSavedScanHandler() => _context.UseSavedScan("");
+    private void StopScanHandler() => _context.StopScan();
+    private void MemoryScanHandler() => _context.MemoryScan();
+
+    #endregion
+
+    #region Logging Handlers
+
+    private void BringUpLogFormHandler()
+    {
+        // Get the ADIF tag for the current command.
+        var kt = Lookup(CommandId);
+        var adifTag = kt?.ADIFTag ?? string.Empty;
+        _context.BringUpLogForm(adifTag);
+    }
+
+    private void SetLogDateTimeHandler() => _context.SetLogDateTime();
+    private void FinalizeLogHandler() => _context.FinalizeLog();
+    private void GetLogFileNameHandler() => _context.GetLogFileName();
+    private void SearchLogHandler() => _context.SearchLog();
+    private void LogStatsHandler() => _context.LogStats();
+    private void LogPaneSwitchHandler() => _context.LogPaneSwitch();
+    private void LogCharacteristicsHandler() => _context.ShowLogCharacteristics();
+    private void LogOpenFullFormHandler() => _context.LogOpenFullForm();
+
+    #endregion
+
+    #region CW Handlers
+
+    private void StopCWHandler()
+    {
+        var rig = _context.GetRigControl();
+        if (rig != null)
+        {
+            rig.StopCW();
+            Radios.ScreenReaderOutput.Speak("CW stopped", false);
+        }
+        else
+        {
+            Radios.ScreenReaderOutput.Speak("No radio connected", true);
+        }
+    }
+
+    #endregion
+
+    #region Audio Volume Handlers
+
+    private void AudioGainUpHandler()
+    {
+        var rig = _context.GetRigControl();
+        if (rig != null) rig.AudioGain += 5;
+    }
+
+    private void AudioGainDownHandler()
+    {
+        var rig = _context.GetRigControl();
+        if (rig != null) rig.AudioGain -= 5;
+    }
+
+    private void HeadphonesUpHandler()
+    {
+        var rig = _context.GetRigControl();
+        if (rig != null) rig.HeadphoneGain += 5;
+    }
+
+    private void HeadphonesDownHandler()
+    {
+        var rig = _context.GetRigControl();
+        if (rig != null) rig.HeadphoneGain -= 5;
+    }
+
+    private void LineoutUpHandler()
+    {
+        var rig = _context.GetRigControl();
+        if (rig != null && !rig.PCAudio) rig.LineoutGain += 5;
+    }
+
+    private void LineoutDownHandler()
+    {
+        var rig = _context.GetRigControl();
+        if (rig != null && !rig.PCAudio) rig.LineoutGain -= 5;
+    }
+
+    #endregion
+
+    #region RIT / Zerobeat Handlers
+
+    private void ClearRitHandler()
+    {
+        var rig = _context.GetRigControl();
+        if (rig == null) return;
+        var r = rig.RIT;
+        r.Value = 0;
+        rig.RIT = r;
+    }
+
+    private void ZerobeatHandler()
+    {
+        var rig = _context.GetRigControl();
+        if (rig == null) return;
+        if (rig.Mode != "CW")
+        {
+            Radios.ScreenReaderOutput.Speak("Zerobeat requires CW mode", true);
+            return;
+        }
+        rig.CWZeroBeat();
+        Radios.ScreenReaderOutput.Speak("Zerobeat", true);
+    }
+
+    #endregion
+
+    #region S-Meter / Meter Handlers
+
+    private void SmeterDisplayHandler()
+    {
+        var rig = _context.GetRigControl();
+        if (rig == null) return;
+        rig.SmeterInDBM = !rig.SmeterInDBM;
+        _context.GetMainWindow()?.SetupOperationsMenu();
+    }
+
+    private void ReadSMeterHandler()
+    {
+        var rig = _context.GetRigControl();
+        if (rig == null)
+        {
+            Radios.ScreenReaderOutput.Speak("No radio connected");
+            return;
+        }
+        int smeter = (int)rig.SMeter;
+        string msg;
+        if (rig.Transmit)
+            msg = $"Power {smeter}";
+        else if (rig.SmeterInDBM)
+            msg = $"S meter {smeter} dBm";
+        else if (smeter > 9)
+            msg = $"S 9 plus {(smeter - 9) * 10}";
+        else
+            msg = $"S {smeter}";
+        Radios.ScreenReaderOutput.Speak(msg, true);
+    }
+
+    private void ToggleMeterTonesHandler()
+    {
+        MeterToneEngine.Enabled = !MeterToneEngine.Enabled;
+        var state = MeterToneEngine.Enabled ? "on" : "off";
+        if (MeterToneEngine.Enabled)
+            EarconPlayer.FeatureOnTone();
+        else
+            EarconPlayer.FeatureOffTone();
+        Radios.ScreenReaderOutput.Speak($"Meter tones {state}");
+    }
+
+    private void CycleMeterPresetHandler()
+    {
+        MeterToneEngine.CyclePreset();
+        Radios.ScreenReaderOutput.Speak($"Meter preset: {MeterToneEngine.CurrentPreset}");
+    }
+
+    private void SpeakMetersHandler() => MeterToneEngine.SpeakMeters();
+
+    #endregion
+
+    #region TX Filter Handlers
+
+    private void TXFilterLowDownHandler()
+    {
+        var rig = _context.GetRigControl();
+        if (rig == null) return;
+        int newLow = Math.Max(0, rig.TXFilterLow - 50);
+        rig.TXFilterLow = newLow;
+        EarconPlayer.FilterEdgeMoveTone(true);
+        int width = rig.TXFilterHigh - newLow;
+        Radios.ScreenReaderOutput.Speak($"TX low {newLow}, width {width}");
+    }
+
+    private void TXFilterLowUpHandler()
+    {
+        var rig = _context.GetRigControl();
+        if (rig == null) return;
+        int newLow = rig.TXFilterLow + 50;
+        if (newLow >= rig.TXFilterHigh - 50)
+        {
+            newLow = rig.TXFilterHigh - 50;
+            EarconPlayer.FilterBoundaryHitTone(true);
+        }
+        else
+        {
+            EarconPlayer.FilterEdgeMoveTone(true);
+        }
+        rig.TXFilterLow = newLow;
+        int width = rig.TXFilterHigh - newLow;
+        Radios.ScreenReaderOutput.Speak($"TX low {newLow}, width {width}");
+    }
+
+    private void TXFilterHighDownHandler()
+    {
+        var rig = _context.GetRigControl();
+        if (rig == null) return;
+        int newHigh = rig.TXFilterHigh - 50;
+        if (newHigh <= rig.TXFilterLow + 50)
+        {
+            newHigh = rig.TXFilterLow + 50;
+            EarconPlayer.FilterBoundaryHitTone(false);
+        }
+        else
+        {
+            EarconPlayer.FilterEdgeMoveTone(false);
+        }
+        rig.TXFilterHigh = newHigh;
+        int width = newHigh - rig.TXFilterLow;
+        Radios.ScreenReaderOutput.Speak($"TX high {newHigh}, width {width}");
+    }
+
+    private void TXFilterHighUpHandler()
+    {
+        var rig = _context.GetRigControl();
+        if (rig == null) return;
+        int newHigh = Math.Min(10000, rig.TXFilterHigh + 50);
+        rig.TXFilterHigh = newHigh;
+        EarconPlayer.FilterEdgeMoveTone(false);
+        int width = newHigh - rig.TXFilterLow;
+        Radios.ScreenReaderOutput.Speak($"TX high {newHigh}, width {width}");
+    }
+
+    private void SpeakTXFilterHandler() => SpeakTXFilterWidth();
+
+    #endregion
+
+    #region Dialog / Feature Handlers
+
+    private void ShowMenusHandler() => _context.ShowMenus();
+    private void ReverseBeaconHandler() => _context.ShowReverseBeacon();
+    private void DXClusterHandler() => _context.ShowDXCluster();
+    private void StationLookupHandler() => _context.StationLookup();
+    private void GatherDebugHandler() => _context.GatherDebug();
+    private void ATUMemoriesHandler() => _context.ShowATUMemories();
+    private void RebootHandler() => _context.RebootRadio();
+    private void TXControlsHandler() => _context.ShowTXControls();
+    private void PCAudioHandler() => _context.PCAudioToggle();
+    private void AudioSetupHandler() => _context.AudioSetup();
+    private void ContextHelpHandler() => _context.GetMainWindow()?.ShowCommandFinder();
+
+    private void OpenAudioWorkshopHandler()
+    {
+        var rig = _context.GetRigControl();
+        var mw = _context.GetMainWindow();
+        mw?.Dispatcher.Invoke(() => Dialogs.AudioWorkshopDialog.ShowOrFocus(rig, 0));
+    }
+
+    #endregion
+
+    #region Tuning Handlers
+
+    private void TuneToggleHandler()
+    {
+        if (_context.GetRigControl() == null) return;
+        _context.GetMainWindow()?.ToggleTuneCarrier();
+    }
+
+    private void ATUTuneHandler()
+    {
+        var rig = _context.GetRigControl();
+        if (rig == null) return;
+        if (!rig.HasATU)
+        {
+            EarconPlayer.LeaderInvalidTone();
+            Radios.ScreenReaderOutput.Speak("No antenna tuner on this radio");
+            return;
+        }
+        _context.GetMainWindow()?.StartATUTuneCycle();
+    }
+
+    private void ToggleMetersHandler() => _context.GetMainWindow()?.ToggleMetersPanel();
+
+    #endregion
+
+    #region Status Handlers
+
+    private void SpeakStatusHandler()
+    {
+        var rig = _context.GetRigControl();
+        var mw = _context.GetMainWindow();
+        var msg = RadioStatusBuilder.BuildFullSliceStatus(rig);
+
+        // Append PTT detail if transmitting
+        var pttStatus = mw?.GetPttStatusText();
+        if (pttStatus != null) msg = msg + ", " + pttStatus;
+
+        // Append filter edge mode if active
+        var filterEdge = mw?.GetFilterEdgeStatus();
+        if (filterEdge != null) msg = msg + ", " + filterEdge;
+
+        // Append tuning mode
+        var tuningMode = mw?.GetTuningModeStatus();
+        if (tuningMode != null) msg = msg + ", " + tuningMode;
+
+        // Append frequency readout state if off
+        var freqReadout = mw?.GetFreqReadoutStatus();
+        if (freqReadout != null) msg = msg + ", " + freqReadout;
+
+        // Append filter preset if on a named preset
+        var filterPreset = mw?.GetFilterPresetStatus();
+        if (filterPreset != null) msg = msg + ", " + filterPreset;
+
+        // Append meter tone state if active
+        var meterStatus = mw?.GetMeterStatus();
+        if (meterStatus != null) msg = msg + ", " + meterStatus;
+
+        Radios.ScreenReaderOutput.Speak(msg, true);
+    }
+
+    private void ShowStatusDialogHandler()
+    {
+        // BUG-020: Status Dialog disabled — will be rebuilt in Sprint 24 Phase 9A.
+        Radios.ScreenReaderOutput.Speak(
+            "Status Dialog coming in a future update. Use Speak Status for a quick summary.", true);
+    }
+
+    private void SpeakTxStatusHandler()
+    {
+        var mw = _context.GetMainWindow();
+        var pttStatus = mw?.GetPttStatusText();
+        if (pttStatus != null)
+            Radios.ScreenReaderOutput.Speak(pttStatus, true);
+        else
+            Radios.ScreenReaderOutput.Speak("Receiving", true);
+    }
+
+    private void RepeatLastMessageHandler()
+    {
+        var last = Radios.ScreenReaderOutput.LastMessage;
+        if (string.IsNullOrEmpty(last))
+            Radios.ScreenReaderOutput.Speak("No previous message");
+        else
+            Radios.ScreenReaderOutput.Speak(last, true);
+    }
+
+    #endregion
 
     // ────────────────────────────────────────────────────────────────
     //  Default key bindings — scope-aware
