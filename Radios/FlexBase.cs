@@ -2479,6 +2479,14 @@ namespace Radios
         }
 
         private bool mySliceAdded;
+        private bool mySliceRemoved;
+
+        /// <summary>
+        /// Fired when a slice is added or removed from this client.
+        /// UI layers can subscribe to trigger menu/display rebuilds.
+        /// </summary>
+        public event Action SliceCountChanged;
+
         private void sliceAdded(Slice slc)
         {
             if (myClient(slc.ClientHandle))
@@ -2495,6 +2503,7 @@ namespace Radios
                     ct = mySlices.Count;
                 }
                 Tracing.TraceLine("sliceAdded:mine " + ct.ToString() + ':' + slc.ToString(), TraceLevel.Info);
+                SliceCountChanged?.Invoke();
                 if (slc.IsTransmitSlice)
                 {
                     Tracing.TraceLine("sliceAdded:IsTransmitSlice", TraceLevel.Info);
@@ -2521,7 +2530,9 @@ namespace Radios
                         mySlices.Remove(slc);
                         ct = mySlices.Count;
                     }
+                    mySliceRemoved = true;
                     Tracing.TraceLine("sliceRemoved:mine, new count:" + ct.ToString() + ':' + slc.ToString(), TraceLevel.Info);
+                    SliceCountChanged?.Invoke();
                     // Note: The user can't remove the active or transmit slices.
                 }
             }
@@ -5407,7 +5418,7 @@ namespace Radios
         /// <returns>true if id valid</returns>
         public bool RemoveSlice(int id)
         {
-            if ((id < 0) | (id > MyNumSlices)) return false;
+            if ((id < 0) | (id >= MyNumSlices)) return false;
             // Can't remove the active or transmit VFO.
             if ((id == RXVFO) | (CanTransmit & (id == TXVFO))) return false;
 
@@ -5419,8 +5430,21 @@ namespace Radios
             }
             pan = slc.Panadapter;
 
-            q.Enqueue((FunctionDel)(() => { slc.Close(); ; }));
-            q.Enqueue((FunctionDel)(() => { pan.Close(); }));
+            Tracing.TraceLine($"RemoveSlice:{id} letter={slc.Letter} count={MyNumSlices}", TraceLevel.Info);
+            mySliceRemoved = false;
+            q.Enqueue((FunctionDel)(() =>
+            {
+                slc.Close();
+                pan.Close();
+                if (!await(() => mySliceRemoved, 3000))
+                {
+                    Tracing.TraceLine("RemoveSlice:slice removal not confirmed within timeout", TraceLevel.Error);
+                }
+                else
+                {
+                    Tracing.TraceLine($"RemoveSlice:confirmed, new count={MyNumSlices}", TraceLevel.Info);
+                }
+            }));
             return true;
         }
 

@@ -7,6 +7,7 @@ Imports adif
 Imports JJLogLib
 Imports JJRadio.LogDupChecking
 Imports JJTrace
+Imports Radios
 
 ''' <summary>
 ''' log entry form and data

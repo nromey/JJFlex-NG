@@ -647,13 +647,16 @@ public class FreqOutHandlers
                 break;
             case '.':
                 // Create/activate a new slice
-                if (Rig.NewSlice())
                 {
-                    Radios.ScreenReaderOutput.Speak($"Slice {Rig.VFOToLetter(Rig.MyNumSlices - 1)} activated", VerbosityLevel.Terse, true);
-                }
-                else
-                {
-                    Radios.ScreenReaderOutput.Speak("Maximum slices reached", VerbosityLevel.Critical, true);
+                    int countBefore = Rig.MyNumSlices;
+                    if (Rig.NewSlice())
+                    {
+                        Radios.ScreenReaderOutput.Speak($"Slice created, {countBefore + 1} active", VerbosityLevel.Terse, true);
+                    }
+                    else
+                    {
+                        Radios.ScreenReaderOutput.Speak("Maximum slices reached", VerbosityLevel.Critical, true);
+                    }
                 }
                 e.Handled = true;
                 break;
@@ -666,9 +669,11 @@ public class FreqOutHandlers
                 else
                 {
                     int toRemove = vfo;
+                    int countBefore = Rig.MyNumSlices;
+                    string removedLetter = Rig.VFOToLetter(toRemove);
                     // Find another slice to switch to
                     int switchTo = -1;
-                    for (int i = 0; i < Rig.MyNumSlices; i++)
+                    for (int i = 0; i < countBefore; i++)
                     {
                         if (i != toRemove)
                         {
@@ -678,13 +683,14 @@ public class FreqOutHandlers
                     }
                     if (switchTo >= 0)
                     {
+                        string switchLetter = Rig.VFOToLetter(switchTo);
                         // Move TX away from the slice being removed if needed
                         if (Rig.CanTransmit && toRemove == Rig.TXVFO)
                             Rig.TXVFO = switchTo;
                         Rig.RXVFO = switchTo;
                         if (Rig.RemoveSlice(toRemove))
                         {
-                            Radios.ScreenReaderOutput.Speak($"Slice {Rig.VFOToLetter(toRemove)} released, slice {Rig.VFOToLetter(switchTo)} active", VerbosityLevel.Terse, true);
+                            Radios.ScreenReaderOutput.Speak($"Slice {removedLetter} released, {countBefore - 1} active", VerbosityLevel.Terse, true);
                         }
                         else
                         {
