@@ -13,7 +13,7 @@ Name "JJFlexRadio"
 OutFile "Setup JJFlexRadio_4.1.15.1.exe"
 
 ; The default installation directory (architecture-specific Program Files)
-InstallDir "$PROGRAMFILES\JJFlexRadio"
+InstallDir "$PROGRAMFILES64\JJFlexRadio"
 
 ; Registry key to check for directory (so if you install again, it will 
 ; overwrite the old one automatically)
@@ -72,7 +72,7 @@ Section "JJFlexRadio (required)"
   SetOutPath $INSTDIR
   
   ; Put files there - recurse all built outputs
-  File /r /x "*.pdb" /x "runPgm.bat" "C:\dev\JJFlex-NG\\bin\x86\Release\net8.0-windows\win-x86\*.*"
+  File /r /x "*.pdb" /x "runPgm.bat" "C:\dev\JJFlex-NG\bin\x64\Release\net8.0-windows\win-x64\*.*"
 
   ; Include changelog
   File "docs\CHANGELOG.md"
