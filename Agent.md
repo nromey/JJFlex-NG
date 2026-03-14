@@ -44,15 +44,30 @@ This document captures the current state of JJ-Flex repository and active work.
 - Radios.csproj had RuntimeIdentifier that broke clean x86 builds (NETSDK1047)
 - DX Cluster (ShowArCluster) is a placeholder — cluster UI needs reimplementation after key migration
 
+### Smoke Test (2026-03-13 evening)
+- **Tolk DLL fix**: Speech was completely broken — Tolk.dll and nvdaControllerClient64.dll missing from output. Radios.csproj conditioned DLL copy on Platform==x64 but solution maps Radios to AnyCPU. Fixed by adding AnyCPU to condition.
+- **Key migration verified**: Mute (M on slice field), verbosity cycling (Ctrl+Shift+V), speak status (Ctrl+Shift+S) all working after Tolk fix
+- **SmartLink connects OK** when Don's radio is on
+- **Findings for Sprint 25 fixes**:
+  - Slice Operations field accessible name says "audio 60" instead of "Slice A Operations"
+  - Access key announcements missing in Rig Selector (only Cancel announces Alt+C)
+  - SmartLink zero-radios loops back to Auth0 instead of saying "No remote radios available" (pre-existing)
+
 ### Library Versions Bumped
 - JJFlexWpf: 2.1.0 → 2.2.0 (minor: key migration, verbosity engine, status dialog, audio workshop)
 - Radios: 3.2.6 → 3.2.7 (patch: KeyCommandTypes, SixtyMeterChannels, slice fix)
 
 **Next steps:**
-1. Test Sprint 24 using test matrix
+1. Continue directed testing of Sprint 24 using test matrix
 2. Merge sprint24/track-a to main
-3. Begin Sprint 25 (speech catalog, message editor, localization prep, action toolbar)
-4. Bump version to 4.1.16 after Sprint 25
+3. Begin Sprint 25 — scope defined:
+   - Fix sprint items (slice ops accessible name, access key announcements, SmartLink zero-radio UX, Tolk missing DLL error reporting)
+   - Easter eggs: "autopatch" → DTMF tones (Patric's repeater welcome sound), "qrm" → PS/2 mechanical keyboard sounds
+   - Typing sound options: default beep on/off; if easter egg unlocked, selector expands to beep / mechanical / touch tone / off
+   - Standard braille display verbosity design (NOT Dot Pad — save for later sprint)
+   - NR provider architecture research (RNNoise, OpenVoiceSharp, RM Noise)
+   - Action toolbar (Ctrl+Tab, Tune/ATU/Transmit buttons)
+4. Bump version to 4.1.16 and release after Sprint 25
 
 ### Deferred to Backlog
 - DX Cluster reimplementation (ShowArCluster placeholder — needs event handlers, ClusterForm UI)
