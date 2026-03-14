@@ -21,8 +21,9 @@
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="9.0.0" />
   </ItemGroup>
 
-  <!-- Tolk native DLLs - architecture-specific screen reader support -->
-  <ItemGroup Condition="'$(Platform)'=='x64'">
+  <!-- Tolk native DLLs - architecture-specific screen reader support.
+       Solution maps Radios to AnyCPU even when building x64, so include both conditions. -->
+  <ItemGroup Condition="'$(Platform)'=='x64' Or '$(Platform)'=='AnyCPU'">
     <ContentWithTargetPath Include="..\runtimes\win-x64\native\Tolk.dll">
       <TargetPath>Tolk.dll</TargetPath>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
