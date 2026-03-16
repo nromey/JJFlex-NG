@@ -24,7 +24,7 @@ public partial class StatusDialog : JJFlexDialog
 
         _refreshTimer = new DispatcherTimer
         {
-            Interval = TimeSpan.FromSeconds(2)
+            Interval = TimeSpan.FromSeconds(5)
         };
         _refreshTimer.Tick += (s, e) => RefreshStatus();
 
@@ -48,6 +48,7 @@ public partial class StatusDialog : JJFlexDialog
     /// </summary>
     private void RefreshStatus()
     {
+        int savedIndex = StatusList.SelectedIndex;
         StatusList.Items.Clear();
 
         if (Rig == null)
@@ -126,6 +127,10 @@ public partial class StatusDialog : JJFlexDialog
             };
             AddItem(tunerState);
         }
+
+        // Restore selection after rebuild
+        if (savedIndex >= 0 && savedIndex < StatusList.Items.Count)
+            StatusList.SelectedIndex = savedIndex;
     }
 
     private void AddSection(string heading)

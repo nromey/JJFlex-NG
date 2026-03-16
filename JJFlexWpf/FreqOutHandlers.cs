@@ -617,6 +617,7 @@ public class FreqOutHandlers
         ulong freqHz = (ulong)(freqMhz.Value * 1_000_000);
         SetRXFrequency?.Invoke(freqHz);
 
+        EarconPlayer.DingTone();
         string display = FormatFreqForSpeech(freqMhz.Value);
         Radios.ScreenReaderOutput.Speak($"Frequency set to {display}", VerbosityLevel.Terse, true);
         CancelQuickType();
@@ -735,16 +736,27 @@ public class FreqOutHandlers
         Tracing.TraceLine($"CycleVFO:dir={direction} current={current} total={total}", TraceLevel.Info);
 
         int next = current + direction;
-        if (next >= total) next = 0;
-        if (next < 0) next = total - 1;
+        if (next >= total)
+        {
+            Radios.ScreenReaderOutput.Speak("Last slice", VerbosityLevel.Terse, true);
+            return;
+        }
+        if (next < 0)
+        {
+            Radios.ScreenReaderOutput.Speak("First slice", VerbosityLevel.Terse, true);
+            return;
+        }
 
-        // Find next valid VFO
+        // Find next valid VFO (search forward only, don't wrap)
         int attempts = 0;
         while (!Rig.ValidVFO(next) && attempts < total)
         {
             next += direction;
-            if (next >= total) next = 0;
-            if (next < 0) next = total - 1;
+            if (next >= total || next < 0)
+            {
+                Radios.ScreenReaderOutput.Speak(direction > 0 ? "Last slice" : "First slice", VerbosityLevel.Terse, true);
+                return;
+            }
             attempts++;
         }
 

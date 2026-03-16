@@ -865,7 +865,7 @@ public class KeyCommands
         new(Keys.None, CommandValues.CycleContinuous, KeyScope.Radio),
         new(Keys.None, CommandValues.LogForm, KeyScope.Radio),
         new(Keys.C | Keys.Control | Keys.Shift, CommandValues.ClearRIT, KeyScope.Radio),
-        new(Keys.S | Keys.Control | Keys.Alt, CommandValues.StartScan, KeyScope.Radio),
+        new(Keys.None, CommandValues.StartScan, KeyScope.Radio),
         new(Keys.D | Keys.Alt, CommandValues.ArCluster, KeyScope.Radio),
         new(Keys.R | Keys.Control | Keys.Alt, CommandValues.ReverseBeacon, KeyScope.Radio),
         new(Keys.P | Keys.Control, CommandValues.DoPanning, KeyScope.Radio),
