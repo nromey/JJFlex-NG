@@ -147,8 +147,20 @@ public partial class ScreenFieldsPanel : UserControl
         _rfGainControl.Max = rig.RFGainMax;
         _rfGainControl.Step = rig.RFGainIncrement;
 
+        // Subscribe to mode changes for immediate DSP refresh
+        rig.ModeChanged += OnModeChanged;
+
         // Force initial poll to populate values
         PollUpdate();
+    }
+
+    private void OnModeChanged(string newMode)
+    {
+        Dispatcher.BeginInvoke(() =>
+        {
+            if (_rig != null && DspExpander.IsExpanded)
+                PollDSP();
+        });
     }
 
     /// <summary>
@@ -156,6 +168,8 @@ public partial class ScreenFieldsPanel : UserControl
     /// </summary>
     public void Detach()
     {
+        if (_rig != null)
+            _rig.ModeChanged -= OnModeChanged;
         _rig = null;
     }
 

@@ -2120,6 +2120,7 @@ namespace Radios
                             if (s.Active)
                             {
                                 FilterObj.RXFreqChange(s);
+                                ModeChanged?.Invoke(s.DemodMode);
                             }
 #if CWMonitor
                             try
@@ -2486,6 +2487,12 @@ namespace Radios
         /// UI layers can subscribe to trigger menu/display rebuilds.
         /// </summary>
         public event Action SliceCountChanged;
+
+        /// <summary>
+        /// Fired when the active slice's demod mode changes (e.g., USB→CW).
+        /// UI layers subscribe to force immediate DSP state refresh.
+        /// </summary>
+        public event Action<string> ModeChanged;
 
         private void sliceAdded(Slice slc)
         {

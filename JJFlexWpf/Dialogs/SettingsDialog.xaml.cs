@@ -60,13 +60,21 @@ namespace JJFlexWpf.Dialogs
             AddHandler(TextBox.GotKeyboardFocusEvent,
                 new KeyboardFocusChangedEventHandler(TextBox_GotKeyboardFocus));
 
-            // Slider value change labels
-            MasterVolumeSlider.ValueChanged += (s, e) =>
-                MasterVolumeLabel.Text = ((int)MasterVolumeSlider.Value).ToString();
-            EarconVolumeSlider.ValueChanged += (s, e) =>
-                EarconVolumeLabel.Text = ((int)EarconVolumeSlider.Value).ToString();
-            MeterVolumeSlider.ValueChanged += (s, e) =>
-                MeterVolumeLabel.Text = ((int)MeterVolumeSlider.Value).ToString();
+            // Configure volume controls
+            MasterVolumeControl.Label = "Master volume";
+            MasterVolumeControl.Min = 0;
+            MasterVolumeControl.Max = 100;
+            MasterVolumeControl.Step = 5;
+
+            EarconVolumeControl.Label = "Alert volume";
+            EarconVolumeControl.Min = 0;
+            EarconVolumeControl.Max = 100;
+            EarconVolumeControl.Step = 5;
+
+            MeterVolumeControl.Label = "Meter volume";
+            MeterVolumeControl.Min = 0;
+            MeterVolumeControl.Max = 100;
+            MeterVolumeControl.Step = 5;
 
             LoadSettings();
         }
@@ -143,14 +151,10 @@ namespace JJFlexWpf.Dialogs
             EnforceTxRulesCheckbox.IsChecked = _licenseConfig.EnforceTxRules;
 
             // Audio tab — master volume
-            int masterVolPct = (int)(_audioConfig.MasterVolume * 100);
-            MasterVolumeSlider.Value = masterVolPct;
-            MasterVolumeLabel.Text = masterVolPct.ToString();
+            MasterVolumeControl.Value = (int)(_audioConfig.MasterVolume * 100);
 
             // Alert section
-            int alertVolPct = (int)(_audioConfig.AlertVolume * 100);
-            EarconVolumeSlider.Value = alertVolPct;
-            EarconVolumeLabel.Text = alertVolPct.ToString();
+            EarconVolumeControl.Value = (int)(_audioConfig.AlertVolume * 100);
 
             var devices = EarconPlayer.GetOutputDevices();
             foreach (var (devNum, name) in devices)
@@ -162,9 +166,7 @@ namespace JJFlexWpf.Dialogs
             if (EarconDeviceCombo.SelectedIndex < 0) EarconDeviceCombo.SelectedIndex = 0;
 
             // Meter section
-            int meterVolPct = (int)(_audioConfig.MeterMasterVolume * 100);
-            MeterVolumeSlider.Value = meterVolPct;
-            MeterVolumeLabel.Text = meterVolPct.ToString();
+            MeterVolumeControl.Value = (int)(_audioConfig.MeterMasterVolume * 100);
 
             // Meter device dropdown: first item is "Same as Alerts", then all devices
             MeterDeviceCombo.Items.Add("Same as Alerts");
@@ -281,18 +283,18 @@ namespace JJFlexWpf.Dialogs
             _licenseConfig.EnforceTxRules = EnforceTxRulesCheckbox.IsChecked == true;
 
             // Audio tab — master volume
-            _audioConfig.MasterVolume = (float)MasterVolumeSlider.Value / 100f;
+            _audioConfig.MasterVolume = MasterVolumeControl.Value / 100f;
 
             // Alert section
-            _audioConfig.AlertVolume = (float)EarconVolumeSlider.Value / 100f;
-            _audioConfig.MasterEarconVolume = (int)EarconVolumeSlider.Value; // backward compat
+            _audioConfig.AlertVolume = EarconVolumeControl.Value / 100f;
+            _audioConfig.MasterEarconVolume = EarconVolumeControl.Value; // backward compat
             var devices = EarconPlayer.GetOutputDevices();
             int devIdx = EarconDeviceCombo.SelectedIndex;
             if (devIdx >= 0 && devIdx < devices.Count)
                 _audioConfig.EarconDeviceNumber = devices[devIdx].deviceNumber;
 
             // Meter section
-            _audioConfig.MeterMasterVolume = (float)MeterVolumeSlider.Value / 100f;
+            _audioConfig.MeterMasterVolume = MeterVolumeControl.Value / 100f;
             int meterDevSel = MeterDeviceCombo.SelectedIndex;
             if (meterDevSel <= 0)
             {

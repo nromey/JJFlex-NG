@@ -2,6 +2,7 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:local="clr-namespace:JJFlexWpf"
+    xmlns:controls="clr-namespace:JJFlexWpf.Controls"
     Title="Settings"
     Width="460" Height="540"
     ResizeMode="NoResize"
@@ -193,36 +194,18 @@
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                 <StackPanel Margin="8">
                     <!-- Master Volume -->
-                    <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-                        <TextBlock Text="Master volume:"
-                                   VerticalAlignment="Center"
-                                   Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
-                        <Slider x:Name="MasterVolumeSlider"
-                                Width="150" Minimum="0" Maximum="100"
-                                TickFrequency="10" IsSnapToTickEnabled="False"
-                                AutomationProperties.Name="Master volume, 0 to 100, scales all audio"/>
-                        <TextBlock x:Name="MasterVolumeLabel"
-                                   Width="30" TextAlignment="Right"
-                                   VerticalAlignment="Center" Margin="4,0,0,0"/>
-                    </StackPanel>
+                    <controls:ValueFieldControl x:Name="MasterVolumeControl"
+                        Margin="0,0,0,8"
+                        AutomationProperties.Name="Master volume, 0 to 100, scales all audio"/>
 
                     <Separator Margin="0,4,0,8"/>
 
                     <!-- Alert section -->
                     <TextBlock Text="Alerts" FontWeight="SemiBold"
                                Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
-                    <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-                        <TextBlock Text="Alert volume:"
-                                   VerticalAlignment="Center"
-                                   Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
-                        <Slider x:Name="EarconVolumeSlider"
-                                Width="150" Minimum="0" Maximum="100"
-                                TickFrequency="10" IsSnapToTickEnabled="False"
-                                AutomationProperties.Name="Alert volume, 0 to 100"/>
-                        <TextBlock x:Name="EarconVolumeLabel"
-                                   Width="30" TextAlignment="Right"
-                                   VerticalAlignment="Center" Margin="4,0,0,0"/>
-                    </StackPanel>
+                    <controls:ValueFieldControl x:Name="EarconVolumeControl"
+                        Margin="0,0,0,8"
+                        AutomationProperties.Name="Alert volume, 0 to 100"/>
                     <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
                         <TextBlock Text="Alert device:"
                                    VerticalAlignment="Center"
@@ -237,18 +220,9 @@
                     <!-- Meter section -->
                     <TextBlock Text="Meter Tones" FontWeight="SemiBold"
                                Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
-                    <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-                        <TextBlock Text="Meter volume:"
-                                   VerticalAlignment="Center"
-                                   Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
-                        <Slider x:Name="MeterVolumeSlider"
-                                Width="150" Minimum="0" Maximum="100"
-                                TickFrequency="10" IsSnapToTickEnabled="False"
-                                AutomationProperties.Name="Meter tone volume, 0 to 100"/>
-                        <TextBlock x:Name="MeterVolumeLabel"
-                                   Width="30" TextAlignment="Right"
-                                   VerticalAlignment="Center" Margin="4,0,0,0"/>
-                    </StackPanel>
+                    <controls:ValueFieldControl x:Name="MeterVolumeControl"
+                        Margin="0,0,0,8"
+                        AutomationProperties.Name="Meter tone volume, 0 to 100"/>
                     <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
                         <TextBlock Text="Meter device:"
                                    VerticalAlignment="Center"
