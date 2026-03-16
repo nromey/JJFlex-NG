@@ -77,6 +77,9 @@ public class NativeMenuBar : IDisposable
     private bool _diversityAvailable;
     private bool _escAvailable;
 
+    // Slice event subscription tracking (to trigger menu rebuild on slice add/remove)
+    private FlexBase? _subscribedRig;
+
     public NativeMenuBar(MainWindow window)
     {
         _window = window;
@@ -132,7 +135,26 @@ public class NativeMenuBar : IDisposable
         if (oldMenu != IntPtr.Zero)
             DestroyMenu(oldMenu);
 
+        // Subscribe to slice count changes so menu label stays accurate
+        EnsureSliceEventSubscription();
+
         Tracing.TraceLine($"NativeMenuBar.ApplyUIMode: {mode} complete, {_handlers.Count} items", TraceLevel.Info);
+    }
+
+    private void EnsureSliceEventSubscription()
+    {
+        var rig = Rig;
+        if (rig == _subscribedRig) return;
+        if (_subscribedRig != null)
+            _subscribedRig.SliceCountChanged -= OnSliceCountChanged;
+        if (rig != null)
+            rig.SliceCountChanged += OnSliceCountChanged;
+        _subscribedRig = rig;
+    }
+
+    private void OnSliceCountChanged()
+    {
+        _window.Dispatcher.BeginInvoke(new Action(() => RebuildCurrentMenu()));
     }
 
     /// <summary>
@@ -192,6 +214,11 @@ public class NativeMenuBar : IDisposable
 
     public void Dispose()
     {
+        if (_subscribedRig != null)
+        {
+            _subscribedRig.SliceCountChanged -= OnSliceCountChanged;
+            _subscribedRig = null;
+        }
         if (_currentMenuBar != IntPtr.Zero)
         {
             if (_hwnd != IntPtr.Zero)
@@ -573,9 +600,9 @@ public class NativeMenuBar : IDisposable
         AddWired(parent, "Create Slice", () =>
         {
             if (Rig == null) { SpeakNoRadio(); return; }
-            bool ok = Rig.NewSlice();
-            if (ok)
-                SpeakAfterMenuClose($"Slice created, {Rig.MyNumSlices} slices active");
+            int countBefore = Rig.MyNumSlices;
+            if (Rig.NewSlice())
+                SpeakAfterMenuClose($"Slice created, {countBefore + 1} active");
             else
                 SpeakAfterMenuClose("Maximum slices reached");
         });
@@ -589,9 +616,10 @@ public class NativeMenuBar : IDisposable
                 SpeakAfterMenuClose("Cannot release the only slice");
                 return;
             }
-            bool ok = Rig.RemoveSlice(numSlices - 1);
-            if (ok)
-                SpeakAfterMenuClose($"Slice released, {Rig.MyNumSlices} slices active");
+            int toRemove = numSlices - 1;
+            string letter = Rig.VFOToLetter(toRemove);
+            if (Rig.RemoveSlice(toRemove))
+                SpeakAfterMenuClose($"Slice {letter} released, {numSlices - 1} active");
             else
                 SpeakAfterMenuClose("Could not release slice");
         });
@@ -815,8 +843,9 @@ public class NativeMenuBar : IDisposable
             AddWired(selSub, "New Slice", () =>
             {
                 if (Rig == null) { SpeakNoRadio(); return; }
+                int countBefore = Rig.MyNumSlices;
                 if (Rig.NewSlice())
-                    SpeakAfterMenuClose($"Slice {Rig.VFOToLetter(Rig.MyNumSlices - 1)} created");
+                    SpeakAfterMenuClose($"Slice created, {countBefore + 1} active");
                 else
                     SpeakAfterMenuClose("Cannot create slice, maximum reached");
             });
@@ -841,11 +870,13 @@ public class NativeMenuBar : IDisposable
                     }
                     if (switchTo >= 0)
                     {
+                        string removedLetter = Rig.VFOToLetter(toRemove);
+                        int countBefore = Rig.MyNumSlices;
                         if (Rig.CanTransmit && toRemove == Rig.TXVFO)
                             Rig.TXVFO = switchTo;
                         Rig.RXVFO = switchTo;
                         if (Rig.RemoveSlice(toRemove))
-                            SpeakAfterMenuClose($"Slice {Rig.VFOToLetter(toRemove)} released, slice {Rig.VFOToLetter(switchTo)} active");
+                            SpeakAfterMenuClose($"Slice {removedLetter} released, {countBefore - 1} active");
                         else
                             SpeakAfterMenuClose("Cannot release this slice");
                     }

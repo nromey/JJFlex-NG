@@ -78,7 +78,7 @@
             <Button Content="Finished" MinWidth="75" Margin="0,0,8,0" IsDefault="True"
                     AutomationProperties.Name="Accept changes and close"
                     Click="FinishedButton_Click"/>
-            <Button Content="_Cancel" MinWidth="75" IsCancel="True"
+            <Button Content="_Cancel" AutomationProperties.AcceleratorKey="Alt+C" MinWidth="75" IsCancel="True"
                     AutomationProperties.Name="Cancel changes"
                     Click="CancelButton_Click"/>
         </StackPanel>

@@ -7,9 +7,9 @@
     <Platforms>AnyCPU;x64;x86</Platforms>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <Version>2.1.0</Version>
-    <AssemblyVersion>2.1.0.0</AssemblyVersion>
-    <FileVersion>2.1.0.0</FileVersion>
+    <Version>2.2.0</Version>
+    <AssemblyVersion>2.2.0.0</AssemblyVersion>
+    <FileVersion>2.2.0.0</FileVersion>
   </PropertyGroup>
 
   <ItemGroup>
@@ -25,6 +25,10 @@
     <EmbeddedResource Include="Resources\Sounds\mode-exit.wav" LogicalName="JJFlexWpf.Sounds.mode-exit.wav" />
     <EmbeddedResource Include="Resources\Sounds\slide03.wav" LogicalName="JJFlexWpf.Sounds.slide03.wav" />
     <EmbeddedResource Include="Resources\Sounds\zip01.wav" LogicalName="JJFlexWpf.Sounds.zip01.wav" />
+    <EmbeddedResource Include="Resources\AboutGeneral.html" LogicalName="JJFlexWpf.Resources.AboutGeneral.html" />
+    <EmbeddedResource Include="Resources\AboutRadio.html" LogicalName="JJFlexWpf.Resources.AboutRadio.html" />
+    <EmbeddedResource Include="Resources\AboutSystem.html" LogicalName="JJFlexWpf.Resources.AboutSystem.html" />
+    <EmbeddedResource Include="Resources\AboutDiagnostics.html" LogicalName="JJFlexWpf.Resources.AboutDiagnostics.html" />
   </ItemGroup>
 
   <ItemGroup>

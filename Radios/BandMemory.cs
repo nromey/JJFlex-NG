@@ -18,13 +18,21 @@ namespace Radios
 
         /// <summary>
         /// Get the remembered frequency for a band+mode combination.
-        /// Falls back to band center if no memory exists.
+        /// Falls back to band center, or Channel 1 for channelized bands (60m).
         /// </summary>
         public ulong GetFrequency(Bands.BandNames band, string mode)
         {
             var entry = Entries.FirstOrDefault(e => e.Band == band &&
                 string.Equals(e.Mode, mode, StringComparison.OrdinalIgnoreCase));
             if (entry != null) return entry.Frequency;
+
+            // Channelized bands: fall back to Channel 1 instead of band center
+            if (band == Bands.BandNames.m60)
+            {
+                var alloc = SixtyMeterChannels.GetAllocation("US");
+                if (alloc?.Channels.Length > 0)
+                    return (ulong)(alloc.Value.Channels[0].FrequencyMHz * 1_000_000.0 + 0.5);
+            }
 
             // Fall back to band center
             var bandInfo = Bands.Query(band);

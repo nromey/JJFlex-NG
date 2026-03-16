@@ -1,79 +1,65 @@
 <local:JJFlexDialog x:Class="JJFlexWpf.Dialogs.AboutDialog"
-        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:local="clr-namespace:JJFlexWpf"
-        Title="About JJ Flexible Radio Access"
-        Width="520" Height="460"
-        ResizeMode="NoResize"
-        AutomationProperties.Name="About JJ Flexible Radio Access">
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="clr-namespace:JJFlexWpf"
+    xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
+    Title="About JJ Flexible Radio Access"
+    Width="520" Height="500"
+    ResizeMode="NoResize"
+    AutomationProperties.Name="About JJ Flexible Radio Access">
     <Grid Margin="12">
         <Grid.RowDefinitions>
             <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
         <!-- Tabbed content -->
         <TabControl x:Name="AboutTabs" Grid.Row="0"
+                    SelectionChanged="AboutTabs_SelectionChanged"
                     AutomationProperties.Name="About information tabs">
-            <!-- Tab 1: About -->
-            <TabItem Header="About" AutomationProperties.Name="About">
-                <ListBox x:Name="AboutList"
-                         Margin="8" BorderThickness="0" Background="Transparent"
-                         AutomationProperties.Name="About information"
-                         IsTabStop="True"
-                         KeyboardNavigation.TabNavigation="Once"/>
-            </TabItem>
-
-            <!-- Tab 2: Radio -->
-            <TabItem Header="Radio" AutomationProperties.Name="Radio">
-                <ListBox x:Name="RadioList"
-                         Margin="8" BorderThickness="0" Background="Transparent"
-                         AutomationProperties.Name="Radio information"
-                         IsTabStop="True"
-                         KeyboardNavigation.TabNavigation="Once"/>
-            </TabItem>
-
-            <!-- Tab 3: System -->
-            <TabItem Header="System" AutomationProperties.Name="System">
-                <ListBox x:Name="SystemList"
-                         Margin="8" BorderThickness="0" Background="Transparent"
-                         AutomationProperties.Name="System information"
-                         IsTabStop="True"
-                         KeyboardNavigation.TabNavigation="Once"/>
-            </TabItem>
-
-            <!-- Tab 4: Diagnostics -->
-            <TabItem Header="Diagnostics" AutomationProperties.Name="Diagnostics">
-                <StackPanel Margin="8">
-                    <ListBox x:Name="DiagnosticsList"
-                             Height="180" BorderThickness="0" Background="Transparent"
-                             AutomationProperties.Name="Diagnostics information"
-                             IsTabStop="True"
-                             KeyboardNavigation.TabNavigation="Once"/>
-                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
-                        <Button Content="Check for Updates" MinWidth="130" Height="28" Margin="0,0,8,0"
-                                AutomationProperties.Name="Check for updates"
-                                Click="CheckUpdatesButton_Click"/>
-                        <Button Content="Run Connection Test" MinWidth="140" Height="28"
-                                AutomationProperties.Name="Run connection test"
-                                x:Name="ConnectionTestButton"
-                                Click="ConnectionTestButton_Click"/>
-                    </StackPanel>
-                </StackPanel>
-            </TabItem>
+            <TabItem Header="About" AutomationProperties.Name="About"/>
+            <TabItem Header="Radio" AutomationProperties.Name="Radio"/>
+            <TabItem Header="System" AutomationProperties.Name="System"/>
+            <TabItem Header="Diagnostics" AutomationProperties.Name="Diagnostics"/>
         </TabControl>
 
+        <!-- WebView2 content area (below tabs, shared across all tabs) -->
+        <wv2:WebView2 x:Name="ContentWebView" Grid.Row="0" Margin="0,28,0,0"
+                      AutomationProperties.Name="About content"
+                      Visibility="Collapsed"/>
+        <TextBlock x:Name="LoadingLabel" Grid.Row="0" Margin="0,28,0,0"
+                   Text="Loading..." VerticalAlignment="Center" HorizontalAlignment="Center"
+                   AutomationProperties.Name="Loading content"/>
+
+        <!-- Diagnostics buttons -->
+        <StackPanel x:Name="DiagButtonsPanel" Grid.Row="1" Orientation="Horizontal"
+                    Margin="0,8,0,0" Visibility="Collapsed">
+            <Button Content="Check for _Updates" MinWidth="130" Height="28" Margin="0,0,8,0"
+                    AutomationProperties.Name="Check for updates"
+                    AutomationProperties.AcceleratorKey="Alt+U"
+                    Click="CheckUpdatesButton_Click"/>
+            <Button Content="Run Connection _Test" MinWidth="140" Height="28"
+                    AutomationProperties.Name="Run connection test"
+                    AutomationProperties.AcceleratorKey="Alt+T"
+                    x:Name="ConnectionTestButton"
+                    Click="ConnectionTestButton_Click"/>
+        </StackPanel>
+
         <!-- Bottom buttons -->
-        <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
-            <Button Content="Copy to Clipboard" MinWidth="120" Height="28" Margin="0,0,8,0"
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
+            <Button Content="_Copy to Clipboard" MinWidth="120" Height="28" Margin="0,0,8,0"
                     AutomationProperties.Name="Copy all information to clipboard"
+                    AutomationProperties.AcceleratorKey="Alt+C"
                     Click="CopyButton_Click"/>
-            <Button Content="Export Diagnostic Report" MinWidth="160" Height="28" Margin="0,0,8,0"
+            <Button Content="_Export Diagnostic Report" MinWidth="160" Height="28" Margin="0,0,8,0"
                     AutomationProperties.Name="Export diagnostic report to file"
+                    AutomationProperties.AcceleratorKey="Alt+E"
                     Click="ExportButton_Click"/>
-            <Button Content="_Close" MinWidth="80" Height="28"
+            <Button Content="C_lose" MinWidth="80" Height="28"
                     IsDefault="True" IsCancel="True"
                     AutomationProperties.Name="Close"
+                    AutomationProperties.AcceleratorKey="Alt+L"
                     Click="CloseButton_Click"/>
         </StackPanel>
     </Grid>

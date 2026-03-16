@@ -408,6 +408,11 @@ public class KeyCommands
             new(CommandValues.ToggleMeterTonesGlobal, KeyTypes.Command, ToggleMeterTonesGlobalHandler,
                 "Toggle meter tones on/off", "Toggle Meter Tones", false, FunctionGroups.Audio, KeyScope.Global)
                 { Keywords = new[] { "meter", "tones", "toggle", "audio", "sonification" } },
+
+            // ── Slice (Sprint 24 Phase 8) ──
+            new(CommandValues.MuteSlice, KeyTypes.Command, MuteSliceHandler,
+                "Mute or unmute current slice", "Mute Slice", false, FunctionGroups.Audio, KeyScope.Radio)
+                { Keywords = new[] { "mute", "slice", "audio", "unmute", "silence" } },
         };
     }
 
@@ -760,11 +765,28 @@ public class KeyCommands
         Radios.ScreenReaderOutput.Speak(msg, Radios.VerbosityLevel.Terse, true);
     }
 
+    private void MuteSliceHandler()
+    {
+        var rig = _context.GetRigControl();
+        if (rig == null)
+        {
+            Radios.ScreenReaderOutput.Speak("No radio connected", Radios.VerbosityLevel.Critical, true);
+            return;
+        }
+        bool newMute = !rig.SliceMute;
+        rig.SliceMute = newMute;
+        if (newMute) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
+        string letter = rig.VFOToLetter(rig.RXVFO);
+        Radios.ScreenReaderOutput.Speak(
+            newMute ? $"Slice {letter} muted" : $"Slice {letter} unmuted",
+            Radios.VerbosityLevel.Terse, true);
+    }
+
     private void ShowStatusDialogHandler()
     {
-        // BUG-020: Status Dialog disabled — will be rebuilt in Sprint 24 Phase 9A.
-        Radios.ScreenReaderOutput.Speak(
-            "Status Dialog coming in a future update. Use Speak Status for a quick summary.", true);
+        var rig = _context.GetRigControl();
+        var dialog = new Dialogs.StatusDialog { Rig = rig };
+        dialog.ShowDialog();
     }
 
     private void SpeakTxStatusHandler()
@@ -916,7 +938,7 @@ public class KeyCommands
         // --- Back to Global ---
         new(Keys.Oem2 | Keys.Control, CommandValues.ContextHelp, KeyScope.Global),
         new(Keys.S | Keys.Control | Keys.Shift, CommandValues.SpeakStatus, KeyScope.Global),
-        new(Keys.None, CommandValues.ShowStatusDialog, KeyScope.Global),
+        new(Keys.S | Keys.Control | Keys.Alt, CommandValues.ShowStatusDialog, KeyScope.Global),
         new(Keys.S | Keys.Alt | Keys.Shift, CommandValues.SpeakTxStatus, KeyScope.Global),
 
         // TX Filter
@@ -950,6 +972,9 @@ public class KeyCommands
         // Verbosity (Sprint 24 Phase 6)
         new(Keys.V | Keys.Control | Keys.Shift, CommandValues.CycleVerbosity, KeyScope.Global),
         new(Keys.None, CommandValues.ToggleMeterTonesGlobal, KeyScope.Global), // leader key T
+
+        // Slice (Sprint 24 Phase 8)
+        new(Keys.M | Keys.Shift, CommandValues.MuteSlice, KeyScope.Radio),
     };
 
     // ────────────────────────────────────────────────────────────────

@@ -14,6 +14,7 @@ Imports System.Threading
 Imports System.Xml.Serialization
 Imports adif
 Imports JJCountriesDB
+Imports JJArClusterLib
 Imports JJFlexControl
 Imports JJLogLib
 Imports JJPortaudio
@@ -116,6 +117,7 @@ Module globals
     Friend Commands As JJFlexWpf.KeyCommands
     Friend ContactLog As LogClass
     Friend LookupStation As JJFlexWpf.StationLookupWindow = Nothing
+    Friend ClusterScreens As New List(Of ClusterForm)
 
     Friend Dups As LogDupChecking
     ''' <summary>
@@ -391,6 +393,28 @@ Module globals
     End Function
 
     ''' <summary>
+    ''' Send a frequency string (in Hz) to the radio.
+    ''' Restored from pre-Sprint-24 KeyCommands.vb.
+    ''' </summary>
+    Friend Sub WriteFreq(ByVal str As String)
+        Dim hz As Long = CLng(str)
+        Tracing.TraceLine($"WriteFreq: input='{str}' parsed={hz} Hz", TraceLevel.Info)
+        RigControl.Frequency = hz
+        Dim display As String = RigControl.Callouts.FormatFreq(CULng(hz))
+        If display IsNot Nothing AndAlso display.Length > 0 Then
+            Radios.ScreenReaderOutput.Speak($"Tuned to {display}", True)
+        End If
+        JJFlexWpf.EarconPlayer.ConfirmTone()
+    End Sub
+
+    ''' <summary>
+    ''' Show DX cluster. Placeholder — cluster UI requires reimplementation after key migration.
+    ''' </summary>
+    Friend Sub ShowArCluster()
+        Tracing.TraceLine("ShowArCluster: not yet reimplemented after key migration", TraceLevel.Warning)
+    End Sub
+
+    ''' <summary>
     ''' W2 wattmeter.
     ''' </summary>
     Friend W2WattMeter As W2
@@ -532,24 +556,24 @@ Module globals
                 If LogCharacteristics.ShowDialog() = DialogResult.OK Then ConfigContactLog()
             End Sub,
             .SearchLog = Sub()
-                Dim thrd As New Threading.Thread(Sub() SearchLog.ShowDialog())
+                Dim thrd As New Threading.Thread(Sub() FindLogEntry.ShowDialog())
                 thrd.SetApartmentState(Threading.ApartmentState.STA)
                 thrd.Start()
             End Sub,
             .LogStats = Sub()
-                Dim obj As New JJLogLib.LogStats()
+                Dim obj As New LogStats()
                 obj.ShowLogStats()
             End Sub,
             .GetCWText = Function()
-                If CWText Is Nothing OrElse CWText.Messages Is Nothing Then Return Array.Empty(Of CWMessageItem)()
-                Dim items(CWText.Messages.Count - 1) As CWMessageItem
-                For i = 0 To CWText.Messages.Count - 1
-                    items(i) = New CWMessageItem(CWText.Messages(i).key, CWText.Messages(i).message, CWText.Messages(i).Label)
+                If CWText Is Nothing OrElse CWText.Length = 0 Then Return Array.Empty(Of CWMessageItem)()
+                Dim items(CWText.Length - 1) As CWMessageItem
+                For i = 0 To CWText.Length - 1
+                    items(i) = New CWMessageItem(CWText(i).key, CWText(i).message, CWText(i).Label)
                 Next
                 Return items
             End Function,
             .SendCW = Sub(msg)
-                If (RigControl IsNot Nothing) AndAlso Power Then RigControl.CW(msg)
+                If (RigControl IsNot Nothing) AndAlso Power Then RigControl.SendCW(msg)
             End Sub,
             .WriteTextX = Sub(windowId, text, disposition, clear) WriteTextX(CType(windowId, WindowIDs), text, disposition, clear),
             .DisplayFreq = Sub() WpfMainWindow.FreqOut.FocusDisplay(),
@@ -596,15 +620,45 @@ Module globals
             .ShowMenus = Sub() MsgBox("Not available for this radio."),
             .ShowReverseBeacon = Sub() ReverseBeacon.ShowDialog(),
             .ShowDXCluster = Sub() ShowArCluster(),
-            .StationLookup = Sub() WpfMainWindow.ShowStationLookup(),
-            .GatherDebug = Sub() WpfMainWindow.GatherDebugInfo(),
-            .ShowATUMemories = Sub() WpfMainWindow.ShowATUMemoriesDialog(),
-            .RebootRadio = Sub() WpfMainWindow.RebootRadio(),
-            .ShowTXControls = Sub() WpfMainWindow.ShowTXControlsDialog(),
+            .StationLookup = Sub()
+                If LookupStation IsNot Nothing Then LookupStation.Finished()
+                LookupStation = CreateStationLookupWindow()
+                LookupStation.ShowDialog()
+                WpfMainWindow.HandleLogContactResult()
+            End Sub,
+            .GatherDebug = Sub() DebugInfo.GetDebugInfo(),
+            .ShowATUMemories = Sub()
+                Try
+                    If RigControl IsNot Nothing AndAlso RigControl.myCaps.HasCap(RigCaps.Caps.ATMems) Then
+                        RigControl.AntennaTunerMemories()
+                    Else
+                        MsgBox("Not supported for this radio.")
+                    End If
+                Catch
+                End Try
+            End Sub,
+            .RebootRadio = Sub()
+                If RigControl Is Nothing Then Return
+                If MessageBox.Show("Are you sure you want to reboot the radio?", "Reboot Radio",
+                                   MessageBoxButtons.YesNo) = DialogResult.Yes Then
+                    WpfMainWindow.powerNowOff()
+                    Dim rebootThread As New Threading.Thread(Sub() RigControl.Reboot(Not RigControl.RemoteRig))
+                    rebootThread.Name = "reboot"
+                    rebootThread.Start()
+                    rebootThread.Join()
+                End If
+            End Sub,
+            .ShowTXControls = Sub()
+                If RigControl Is Nothing Then Return
+                RigControl.ShowTXControlsDialog?.Invoke()
+                WpfMainWindow.FreqOut.FocusDisplay()
+            End Sub,
             .AudioSetup = Sub() GetNewAudioDevices(),
-            .ShowLogCharacteristics = Sub() WpfMainWindow.ShowLogCharacteristicsDialog(),
-            .LogOpenFullForm = Sub() WpfMainWindow.OpenFullLogEntryForm(),
-            .PCAudioToggle = Sub() WpfMainWindow.TogglePCAudio(),
+            .ShowLogCharacteristics = Sub() WpfMainWindow.LogCharacteristicsForHotkey(),
+            .LogOpenFullForm = Sub() WpfMainWindow.OpenFullLogEntryForHotkey(),
+            .PCAudioToggle = Sub()
+                If RigControl IsNot Nothing Then RigControl.PCAudio = Not RigControl.PCAudio
+            End Sub,
             .AudioMenuString = Function()
                 If (RigControl IsNot Nothing) AndAlso RigControl.PCAudio Then
                     Return "Turn off PC audio"
@@ -613,13 +667,13 @@ Module globals
                 End If
             End Function,
             .SMeterMenuString = Function()
-                If (RigControl IsNot Nothing) AndAlso RigControl.SMeterDBM Then
+                If (RigControl IsNot Nothing) AndAlso RigControl.SmeterInDBM Then
                     Return "SMeter in S-units"
                 Else
                     Return "SMeter in dBm"
                 End If
             End Function,
-            .LogPaneSwitch = Sub() WpfMainWindow.LogPaneSwitch(),
+            .LogPaneSwitch = Sub() WpfMainWindow.ToggleLoggingPaneFocusForHotkey(),
             .GetConfigDirectory = Function() BaseConfigDir,
             .FormatKey = Function(k) KeyString(k),
             .Toggle1 = Sub()

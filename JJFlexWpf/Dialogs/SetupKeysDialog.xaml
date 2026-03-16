@@ -11,7 +11,7 @@
             <Button Content="Done" MinWidth="80" Height="28" Margin="0,0,8,0"
                     IsDefault="True" Click="DoneButton_Click"
                     AutomationProperties.Name="Done" />
-            <Button Content="_Cancel" MinWidth="80" Height="28"
+            <Button Content="_Cancel" AutomationProperties.AcceleratorKey="Alt+C" MinWidth="80" Height="28"
                     IsCancel="True"
                     AutomationProperties.Name="Cancel" />
         </StackPanel>

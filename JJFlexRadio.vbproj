@@ -142,7 +142,6 @@
       <SubType>Form</SubType>
     </Compile>
     <Compile Include="ImportSetup.vb" />
-    <Compile Include="KeyCommands.vb" />
     <Compile Include="Levels.vb" />
     <Compile Include="Lister.Designer.vb">
       <DependentUpon>Lister.vb</DependentUpon>

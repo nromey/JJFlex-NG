@@ -20,28 +20,26 @@
                     AutomationProperties.Name="Reset to defaults" Click="Reset_Click"/>
         </StackPanel>
 
-        <TabControl x:Name="MainTabs" Margin="4">
+        <TabControl x:Name="MainTabs" Margin="4"
+                    KeyboardNavigation.TabNavigation="Cycle">
             <!-- Tab 1: TX Audio -->
             <TabItem Header="TX Audio" AutomationProperties.Name="TX Audio Settings">
                 <ScrollViewer VerticalScrollBarVisibility="Auto" Focusable="False">
-                    <StackPanel x:Name="TxAudioContent" Margin="8"
-                                KeyboardNavigation.TabNavigation="Cycle" />
+                    <StackPanel x:Name="TxAudioContent" Margin="8" />
                 </ScrollViewer>
             </TabItem>
 
             <!-- Tab 2: Live Meters -->
             <TabItem Header="Live Meters" AutomationProperties.Name="Live Meter Readings">
                 <ScrollViewer VerticalScrollBarVisibility="Auto" Focusable="False">
-                    <StackPanel x:Name="LiveMetersContent" Margin="8"
-                                KeyboardNavigation.TabNavigation="Cycle" />
+                    <StackPanel x:Name="LiveMetersContent" Margin="8" />
                 </ScrollViewer>
             </TabItem>
 
             <!-- Tab 3: Earcon Explorer -->
             <TabItem Header="Earcon Explorer" AutomationProperties.Name="Earcon Sound Explorer">
                 <ScrollViewer VerticalScrollBarVisibility="Auto" Focusable="False">
-                    <StackPanel x:Name="EarconExplorerContent" Margin="8"
-                                KeyboardNavigation.TabNavigation="Cycle" />
+                    <StackPanel x:Name="EarconExplorerContent" Margin="8" />
                 </ScrollViewer>
             </TabItem>
         </TabControl>

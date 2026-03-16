@@ -59,9 +59,12 @@ public partial class AudioWorkshopDialog : JJFlexDialog
     {
         InitializeComponent();
 
-        // Non-modal: show in taskbar, allow resize
+        // Non-modal: show in taskbar, allow resize, independent of main window.
+        // Clear Owner so Alt+Tab works properly — owned windows steal focus
+        // from their owner in WinForms/WPF interop.
         ShowInTaskbar = true;
         ResizeMode = ResizeMode.CanResize;
+        new System.Windows.Interop.WindowInteropHelper(this).Owner = IntPtr.Zero;
 
         BuildTxAudioTab();
         BuildLiveMetersTab();
@@ -88,6 +91,9 @@ public partial class AudioWorkshopDialog : JJFlexDialog
             _instance = new AudioWorkshopDialog();
             _instance.SetRig(rig);
             _instance.Show();
+            // Non-modal WPF windows in a WinForms app don't receive keyboard input
+            // without this — the WinForms message loop doesn't route keys to WPF.
+            System.Windows.Forms.Integration.ElementHost.EnableModelessKeyboardInterop(_instance);
         }
         _instance.FocusTab(tabIndex);
         _instance.Activate();

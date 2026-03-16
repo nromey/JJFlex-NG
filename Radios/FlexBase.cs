@@ -2479,6 +2479,14 @@ namespace Radios
         }
 
         private bool mySliceAdded;
+        private bool mySliceRemoved;
+
+        /// <summary>
+        /// Fired when a slice is added or removed from this client.
+        /// UI layers can subscribe to trigger menu/display rebuilds.
+        /// </summary>
+        public event Action SliceCountChanged;
+
         private void sliceAdded(Slice slc)
         {
             if (myClient(slc.ClientHandle))
@@ -2495,6 +2503,7 @@ namespace Radios
                     ct = mySlices.Count;
                 }
                 Tracing.TraceLine("sliceAdded:mine " + ct.ToString() + ':' + slc.ToString(), TraceLevel.Info);
+                SliceCountChanged?.Invoke();
                 if (slc.IsTransmitSlice)
                 {
                     Tracing.TraceLine("sliceAdded:IsTransmitSlice", TraceLevel.Info);
@@ -2518,11 +2527,36 @@ namespace Radios
                 {
                     lock (mySlices)
                     {
+                        int removedIndex = mySlices.IndexOf(slc);
                         mySlices.Remove(slc);
                         ct = mySlices.Count;
+
+                        // Adjust VFO indices: when a slice is removed from the list,
+                        // all indices above it shift down by 1. Without this fix,
+                        // _RXVFO and _TXVFO point to the wrong slice or go out of bounds,
+                        // breaking A/B switching (BUG: Don's intermittent VFO issue).
+                        if (removedIndex >= 0)
+                        {
+                            int oldRX = _RXVFO;
+                            int oldTX = _TXVFO;
+
+                            if (_RXVFO > removedIndex)
+                                _RXVFO--;
+                            else if (_RXVFO == removedIndex)
+                                _RXVFO = (ct > 0) ? 0 : noVFO;
+
+                            if (_TXVFO > removedIndex)
+                                _TXVFO--;
+                            else if (_TXVFO == removedIndex)
+                                _TXVFO = (ct > 0) ? 0 : noVFO;
+
+                            if (_RXVFO != oldRX || _TXVFO != oldTX)
+                                Tracing.TraceLine($"sliceRemoved:VFO adjust removedIdx={removedIndex} RXVFO {oldRX}→{_RXVFO} TXVFO {oldTX}→{_TXVFO}", TraceLevel.Info);
+                        }
                     }
+                    mySliceRemoved = true;
                     Tracing.TraceLine("sliceRemoved:mine, new count:" + ct.ToString() + ':' + slc.ToString(), TraceLevel.Info);
-                    // Note: The user can't remove the active or transmit slices.
+                    SliceCountChanged?.Invoke();
                 }
             }
             else Tracing.TraceLine("sliceRemoved:not mine" + slc.ToString(), TraceLevel.Info);
@@ -2898,6 +2932,32 @@ namespace Radios
         public string VFOToLetter(int vfo) => VFOToSlice(vfo)?.Letter ?? vfo.ToString();
 
         /// <summary>
+        /// Get the frequency of a specific VFO index in MHz.
+        /// Returns 0 if the VFO is invalid.
+        /// </summary>
+        public double GetVFOFrequency(int vfo)
+        {
+            lock (mySlices)
+            {
+                var slice = ValidVFO(vfo) ? mySlices[vfo] : null;
+                return slice?.Freq ?? 0.0;
+            }
+        }
+
+        /// <summary>
+        /// Get the demodulation mode of a specific VFO index.
+        /// Returns empty string if the VFO is invalid.
+        /// </summary>
+        public string GetVFOMode(int vfo)
+        {
+            lock (mySlices)
+            {
+                var slice = ValidVFO(vfo) ? mySlices[vfo] : null;
+                return slice?.DemodMode ?? "";
+            }
+        }
+
+        /// <summary>
         /// Get the owner description for a VFO index.
         /// Public wrapper for external callers who don't have access to Slice objects.
         /// </summary>
@@ -3054,6 +3114,8 @@ namespace Radios
             {
                 rv = (ValidVFO(vfo)) ? mySlices[vfo] : null;
             }
+            if (rv == null && vfo != noVFO)
+                Tracing.TraceLine($"VFOToSlice:null for vfo={vfo} slices={MyNumSlices}", TraceLevel.Warning);
             return rv;
         }
 
@@ -3118,7 +3180,9 @@ namespace Radios
             {
                 if (_RXVFO != value)
                 {
+                    int old = _RXVFO;
                     _RXVFO = value;
+                    Tracing.TraceLine($"RXVFO:{old}→{value} valid={ValidVFO(value)} slices={MyNumSlices}", TraceLevel.Info);
                     if (ValidVFO(value))
                     {
                         q.Enqueue((FunctionDel)(() => { VFOToSlice(value).Active = true; }), "Active");
@@ -5318,11 +5382,45 @@ namespace Radios
         }
 
         /// <summary>
-        /// Maximum slices supported by this radio model.
+        /// Maximum slices currently available (from FlexLib discovery — unreliable, may be 0).
+        /// Prefer TotalMaxSlices for capacity checks.
         /// </summary>
         public int MaxSlices => theRadio?.MaxSlices ?? 0;
 
+        /// <summary>
+        /// Total maximum slices for this radio model (from hardware specs, always correct).
+        /// FlexLib's MaxSlices reports available-remaining which can be 0 at startup
+        /// when a profile loads all slots. This gives the true model capacity.
+        /// </summary>
+        public int TotalMaxSlices
+        {
+            get
+            {
+                string model = theRadio?.Model ?? string.Empty;
+                return model switch
+                {
+                    "FLEX-6300" => 2,
+                    "FLEX-6400" or "FLEX-6400M" => 2,
+                    "FLEX-6500" => 4,
+                    "FLEX-6600" or "FLEX-6600M" => 4,
+                    "FLEX-6700" or "FLEX-6700R" => 8,
+                    "FLEX-8400" or "FLEX-8400M" => 2,
+                    "FLEX-8600" or "FLEX-8600M" => 4,
+                    "AU-510" or "AU-510M" => 2,
+                    "AU-520" or "AU-520M" => 4,
+                    _ => theRadio?.MaxSlices > 0 ? theRadio.MaxSlices : 2 // safe fallback
+                };
+            }
+        }
+
         internal List<Slice> mySlices = new List<Slice>();
+
+        /// <summary>
+        /// Tracks slice removals that have been enqueued but not yet processed.
+        /// Prevents NewSlice() from seeing stale SliceList.Count on the UI thread
+        /// before the queue thread processes the Close() call. (BUG-049 fix)
+        /// </summary>
+        private volatile int _pendingRemovals;
 
         /// <summary>
         /// number of Panadapters and slices for this radio instance.
@@ -5372,9 +5470,12 @@ namespace Radios
         /// </summary>
         public bool NewSlice()
         {
-            Tracing.TraceLine("NewSlice:", TraceLevel.Info);
-            // Check actual radio capacity, not just local slice count
-            if (theRadio == null || theRadio.SliceList.Count >= theRadio.MaxSlices) return false;
+            // Use model-based TotalMaxSlices (always correct) instead of theRadio.MaxSlices
+            // which reports available-remaining (can be 0 at startup when profile fills all slots).
+            // Subtract _pendingRemovals to account for queued-but-not-yet-processed Close() calls.
+            int effectiveCount = (theRadio?.SliceList.Count ?? 0) - _pendingRemovals;
+            Tracing.TraceLine($"NewSlice: effective={effectiveCount} totalMax={TotalMaxSlices}", TraceLevel.Info);
+            if (theRadio == null || effectiveCount >= TotalMaxSlices) return false;
 
             int myRXVFO = RXVFO;
             int myTXVFO = TXVFO;
@@ -5407,7 +5508,7 @@ namespace Radios
         /// <returns>true if id valid</returns>
         public bool RemoveSlice(int id)
         {
-            if ((id < 0) | (id > MyNumSlices)) return false;
+            if ((id < 0) | (id >= MyNumSlices)) return false;
             // Can't remove the active or transmit VFO.
             if ((id == RXVFO) | (CanTransmit & (id == TXVFO))) return false;
 
@@ -5419,8 +5520,23 @@ namespace Radios
             }
             pan = slc.Panadapter;
 
-            q.Enqueue((FunctionDel)(() => { slc.Close(); ; }));
-            q.Enqueue((FunctionDel)(() => { pan.Close(); }));
+            Tracing.TraceLine($"RemoveSlice:{id} letter={slc.Letter} count={MyNumSlices}", TraceLevel.Info);
+            mySliceRemoved = false;
+            _pendingRemovals++;
+            q.Enqueue((FunctionDel)(() =>
+            {
+                slc.Close();
+                pan.Close();
+                _pendingRemovals--;
+                if (!await(() => mySliceRemoved, 3000))
+                {
+                    Tracing.TraceLine("RemoveSlice:slice removal not confirmed within timeout", TraceLevel.Error);
+                }
+                else
+                {
+                    Tracing.TraceLine($"RemoveSlice:confirmed, new count={MyNumSlices}", TraceLevel.Info);
+                }
+            }));
             return true;
         }
 

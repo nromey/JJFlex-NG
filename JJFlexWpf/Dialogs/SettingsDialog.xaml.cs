@@ -61,6 +61,8 @@ namespace JJFlexWpf.Dialogs
                 new KeyboardFocusChangedEventHandler(TextBox_GotKeyboardFocus));
 
             // Slider value change labels
+            MasterVolumeSlider.ValueChanged += (s, e) =>
+                MasterVolumeLabel.Text = ((int)MasterVolumeSlider.Value).ToString();
             EarconVolumeSlider.ValueChanged += (s, e) =>
                 EarconVolumeLabel.Text = ((int)EarconVolumeSlider.Value).ToString();
             MeterVolumeSlider.ValueChanged += (s, e) =>
@@ -140,7 +142,16 @@ namespace JJFlexWpf.Dialogs
 
             EnforceTxRulesCheckbox.IsChecked = _licenseConfig.EnforceTxRules;
 
-            // Audio tab
+            // Audio tab — master volume
+            int masterVolPct = (int)(_audioConfig.MasterVolume * 100);
+            MasterVolumeSlider.Value = masterVolPct;
+            MasterVolumeLabel.Text = masterVolPct.ToString();
+
+            // Alert section
+            int alertVolPct = (int)(_audioConfig.AlertVolume * 100);
+            EarconVolumeSlider.Value = alertVolPct;
+            EarconVolumeLabel.Text = alertVolPct.ToString();
+
             var devices = EarconPlayer.GetOutputDevices();
             foreach (var (devNum, name) in devices)
             {
@@ -150,10 +161,31 @@ namespace JJFlexWpf.Dialogs
             }
             if (EarconDeviceCombo.SelectedIndex < 0) EarconDeviceCombo.SelectedIndex = 0;
 
-            EarconVolumeSlider.Value = _audioConfig.MasterEarconVolume;
-            EarconVolumeLabel.Text = _audioConfig.MasterEarconVolume.ToString();
+            // Meter section
+            int meterVolPct = (int)(_audioConfig.MeterMasterVolume * 100);
+            MeterVolumeSlider.Value = meterVolPct;
+            MeterVolumeLabel.Text = meterVolPct.ToString();
 
-            // Meter Tones tab
+            // Meter device dropdown: first item is "Same as Alerts", then all devices
+            MeterDeviceCombo.Items.Add("Same as Alerts");
+            foreach (var (devNum, name) in devices)
+                MeterDeviceCombo.Items.Add(name);
+            if (_audioConfig.MeterDeviceNumber == -1)
+            {
+                MeterDeviceCombo.SelectedIndex = 0; // "Same as Alerts"
+            }
+            else
+            {
+                // Find matching device: offset by 1 for the "Same as Alerts" entry
+                int meterDevIdx = -1;
+                for (int i = 0; i < devices.Count; i++)
+                {
+                    if (devices[i].deviceNumber == _audioConfig.MeterDeviceNumber)
+                    { meterDevIdx = i + 1; break; }
+                }
+                MeterDeviceCombo.SelectedIndex = meterDevIdx >= 0 ? meterDevIdx : 0;
+            }
+
             MeterTonesEnabledCheck.IsChecked = _audioConfig.MeterTonesEnabled;
 
             foreach (var preset in MeterPresetOptions)
@@ -163,10 +195,6 @@ namespace JJFlexWpf.Dialogs
                     MeterPresetCombo.SelectedIndex = MeterPresetCombo.Items.Count - 1;
             }
             if (MeterPresetCombo.SelectedIndex < 0) MeterPresetCombo.SelectedIndex = 0;
-
-            int meterVolPct = (int)(_audioConfig.MeterMasterVolume * 100);
-            MeterVolumeSlider.Value = meterVolPct;
-            MeterVolumeLabel.Text = meterVolPct.ToString();
 
             PeakWatcherCheck.IsChecked = _audioConfig.PeakWatcherEnabled;
             MeterSpeechCheck.IsChecked = _audioConfig.MeterSpeechEnabled;
@@ -252,19 +280,35 @@ namespace JJFlexWpf.Dialogs
             _licenseConfig.Country = cIdx >= 0 && cIdx < _countryMap.Length ? _countryMap[cIdx].Item1 : "US";
             _licenseConfig.EnforceTxRules = EnforceTxRulesCheckbox.IsChecked == true;
 
-            // Audio tab
+            // Audio tab — master volume
+            _audioConfig.MasterVolume = (float)MasterVolumeSlider.Value / 100f;
+
+            // Alert section
+            _audioConfig.AlertVolume = (float)EarconVolumeSlider.Value / 100f;
+            _audioConfig.MasterEarconVolume = (int)EarconVolumeSlider.Value; // backward compat
             var devices = EarconPlayer.GetOutputDevices();
             int devIdx = EarconDeviceCombo.SelectedIndex;
             if (devIdx >= 0 && devIdx < devices.Count)
                 _audioConfig.EarconDeviceNumber = devices[devIdx].deviceNumber;
-            _audioConfig.MasterEarconVolume = (int)EarconVolumeSlider.Value;
 
-            // Meter Tones tab
+            // Meter section
+            _audioConfig.MeterMasterVolume = (float)MeterVolumeSlider.Value / 100f;
+            int meterDevSel = MeterDeviceCombo.SelectedIndex;
+            if (meterDevSel <= 0)
+            {
+                _audioConfig.MeterDeviceNumber = -1; // Same as Alerts
+            }
+            else
+            {
+                // Offset by 1 for the "Same as Alerts" entry
+                int devListIdx = meterDevSel - 1;
+                if (devListIdx >= 0 && devListIdx < devices.Count)
+                    _audioConfig.MeterDeviceNumber = devices[devListIdx].deviceNumber;
+            }
             _audioConfig.MeterTonesEnabled = MeterTonesEnabledCheck.IsChecked == true;
             int presetIdx = MeterPresetCombo.SelectedIndex;
             if (presetIdx >= 0 && presetIdx < MeterPresetOptions.Length)
                 _audioConfig.MeterPreset = MeterPresetOptions[presetIdx];
-            _audioConfig.MeterMasterVolume = (float)MeterVolumeSlider.Value / 100f;
             _audioConfig.PeakWatcherEnabled = PeakWatcherCheck.IsChecked == true;
             _audioConfig.MeterSpeechEnabled = MeterSpeechCheck.IsChecked == true;
 
@@ -292,6 +336,13 @@ namespace JJFlexWpf.Dialogs
         private void TuneDebounceCheckbox_Changed(object sender, RoutedEventArgs e)
         {
             DebounceDelayPanel.IsEnabled = TuneDebounceCheckbox.IsChecked == true;
+        }
+
+        private void AudioWorkshopButton_Click(object sender, RoutedEventArgs e)
+        {
+            var workshop = new AudioWorkshopDialog();
+            workshop.Owner = this;
+            workshop.ShowDialog();
         }
     }
 }

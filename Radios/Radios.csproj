@@ -9,8 +9,9 @@
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
     <UseWindowsForms>true</UseWindowsForms>
     <UseWpf>true</UseWpf>
-    <RuntimeIdentifier Condition="'$(Platform)'=='x64'">win-x64</RuntimeIdentifier>
-    <RuntimeIdentifier Condition="'$(Platform)'=='x86'">win-x86</RuntimeIdentifier>
+    <!-- RuntimeIdentifier removed: Radios is a class library, not an exe.
+         The exe project (JJFlexRadio.vbproj) sets RuntimeIdentifier for final output.
+         Having it here broke clean x86 builds (NETSDK1047 assets file mismatch). -->
   </PropertyGroup>
 
   <ItemGroup>
@@ -20,8 +21,9 @@
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="9.0.0" />
   </ItemGroup>
 
-  <!-- Tolk native DLLs - architecture-specific screen reader support -->
-  <ItemGroup Condition="'$(Platform)'=='x64'">
+  <!-- Tolk native DLLs - architecture-specific screen reader support.
+       Solution maps Radios to AnyCPU even when building x64, so include both conditions. -->
+  <ItemGroup Condition="'$(Platform)'=='x64' Or '$(Platform)'=='AnyCPU'">
     <ContentWithTargetPath Include="..\runtimes\win-x64\native\Tolk.dll">
       <TargetPath>Tolk.dll</TargetPath>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>

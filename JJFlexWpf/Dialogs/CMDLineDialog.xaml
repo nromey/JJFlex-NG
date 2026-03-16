@@ -17,7 +17,7 @@
             <Button Content="Send" MinWidth="80" Height="28" Margin="0,0,8,0"
                     IsDefault="True" Click="SendButton_Click"
                     AutomationProperties.Name="Send" />
-            <Button Content="_Cancel" MinWidth="80" Height="28"
+            <Button Content="_Cancel" AutomationProperties.AcceleratorKey="Alt+C" MinWidth="80" Height="28"
                     IsCancel="True"
                     AutomationProperties.Name="Cancel" />
         </StackPanel>

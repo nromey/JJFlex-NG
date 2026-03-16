@@ -30,7 +30,7 @@
             <Button Content="Choose Another" MinWidth="110" Height="32" Margin="0,0,8,0"
                     AutomationProperties.Name="Choose Another Radio - open radio selector"
                     Click="ChooseAnotherButton_Click"/>
-            <Button Content="_Cancel" MinWidth="75" Height="32" IsCancel="True"
+            <Button Content="_Cancel" AutomationProperties.AcceleratorKey="Alt+C" MinWidth="75" Height="32" IsCancel="True"
                     AutomationProperties.Name="Cancel - close this dialog and stay disconnected"
                     Click="CancelButton_Click"/>
         </StackPanel>

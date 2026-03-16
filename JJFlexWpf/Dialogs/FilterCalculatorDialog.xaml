@@ -39,10 +39,10 @@
                    Focusable="True" AutomationProperties.Name="Computed result" />
 
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
-            <Button x:Name="ApplyButton" Content="_Apply" Padding="12,4" Margin="0,0,8,0"
+            <Button x:Name="ApplyButton" Content="_Apply" AutomationProperties.AcceleratorKey="Alt+A" Padding="12,4" Margin="0,0,8,0"
                     AutomationProperties.Name="Apply filter to current slice"
                     Click="ApplyButton_Click" IsEnabled="False" />
-            <Button Content="_Close" Padding="12,4"
+            <Button Content="_Close" AutomationProperties.AcceleratorKey="Alt+C" Padding="12,4"
                     AutomationProperties.Name="Close filter calculator"
                     Click="CloseButton_Click" />
         </StackPanel>

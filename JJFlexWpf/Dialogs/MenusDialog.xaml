@@ -35,9 +35,9 @@
 
         <!-- Buttons -->
         <StackPanel Orientation="Horizontal">
-            <Button Content="_OK" MinWidth="75" Margin="0,0,8,0" IsDefault="True"
+            <Button Content="_OK" AutomationProperties.AcceleratorKey="Alt+O" MinWidth="75" Margin="0,0,8,0" IsDefault="True"
                     AutomationProperties.Name="OK" Click="OKButton_Click"/>
-            <Button Content="_Cancel" MinWidth="75" IsCancel="True"
+            <Button Content="_Cancel" AutomationProperties.AcceleratorKey="Alt+C" MinWidth="75" IsCancel="True"
                     AutomationProperties.Name="Cancel" Click="CancelButton_Click"/>
         </StackPanel>
     </StackPanel>
