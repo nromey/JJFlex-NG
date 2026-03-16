@@ -5382,11 +5382,45 @@ namespace Radios
         }
 
         /// <summary>
-        /// Maximum slices supported by this radio model.
+        /// Maximum slices currently available (from FlexLib discovery — unreliable, may be 0).
+        /// Prefer TotalMaxSlices for capacity checks.
         /// </summary>
         public int MaxSlices => theRadio?.MaxSlices ?? 0;
 
+        /// <summary>
+        /// Total maximum slices for this radio model (from hardware specs, always correct).
+        /// FlexLib's MaxSlices reports available-remaining which can be 0 at startup
+        /// when a profile loads all slots. This gives the true model capacity.
+        /// </summary>
+        public int TotalMaxSlices
+        {
+            get
+            {
+                string model = theRadio?.Model ?? string.Empty;
+                return model switch
+                {
+                    "FLEX-6300" => 2,
+                    "FLEX-6400" or "FLEX-6400M" => 2,
+                    "FLEX-6500" => 4,
+                    "FLEX-6600" or "FLEX-6600M" => 4,
+                    "FLEX-6700" or "FLEX-6700R" => 8,
+                    "FLEX-8400" or "FLEX-8400M" => 2,
+                    "FLEX-8600" or "FLEX-8600M" => 4,
+                    "AU-510" or "AU-510M" => 2,
+                    "AU-520" or "AU-520M" => 4,
+                    _ => theRadio?.MaxSlices > 0 ? theRadio.MaxSlices : 2 // safe fallback
+                };
+            }
+        }
+
         internal List<Slice> mySlices = new List<Slice>();
+
+        /// <summary>
+        /// Tracks slice removals that have been enqueued but not yet processed.
+        /// Prevents NewSlice() from seeing stale SliceList.Count on the UI thread
+        /// before the queue thread processes the Close() call. (BUG-049 fix)
+        /// </summary>
+        private volatile int _pendingRemovals;
 
         /// <summary>
         /// number of Panadapters and slices for this radio instance.
@@ -5436,9 +5470,12 @@ namespace Radios
         /// </summary>
         public bool NewSlice()
         {
-            Tracing.TraceLine("NewSlice:", TraceLevel.Info);
-            // Check actual radio capacity, not just local slice count
-            if (theRadio == null || theRadio.SliceList.Count >= theRadio.MaxSlices) return false;
+            // Use model-based TotalMaxSlices (always correct) instead of theRadio.MaxSlices
+            // which reports available-remaining (can be 0 at startup when profile fills all slots).
+            // Subtract _pendingRemovals to account for queued-but-not-yet-processed Close() calls.
+            int effectiveCount = (theRadio?.SliceList.Count ?? 0) - _pendingRemovals;
+            Tracing.TraceLine($"NewSlice: effective={effectiveCount} totalMax={TotalMaxSlices}", TraceLevel.Info);
+            if (theRadio == null || effectiveCount >= TotalMaxSlices) return false;
 
             int myRXVFO = RXVFO;
             int myTXVFO = TXVFO;
@@ -5485,10 +5522,12 @@ namespace Radios
 
             Tracing.TraceLine($"RemoveSlice:{id} letter={slc.Letter} count={MyNumSlices}", TraceLevel.Info);
             mySliceRemoved = false;
+            _pendingRemovals++;
             q.Enqueue((FunctionDel)(() =>
             {
                 slc.Close();
                 pan.Close();
+                _pendingRemovals--;
                 if (!await(() => mySliceRemoved, 3000))
                 {
                     Tracing.TraceLine("RemoveSlice:slice removal not confirmed within timeout", TraceLevel.Error);

@@ -1900,6 +1900,25 @@ public class FreqOutHandlers
 
         if (targetFreq == 0) return;
 
+        // 60m channel validation: snap off-channel frequencies to the nearest valid channel.
+        // Catches stale band memory and ensures we never land between channels.
+        if (targetBand == Bands.BandNames.m60)
+        {
+            string country = License?.Country ?? "US";
+            if (!SixtyMeterChannels.IsValidSixtyMeterFrequency(country, targetFreq))
+            {
+                var alloc = SixtyMeterChannels.GetAllocation(country);
+                if (alloc?.Channels.Length > 0)
+                {
+                    double freqMHz = targetFreq / 1_000_000.0;
+                    var nearest = alloc.Value.Channels
+                        .OrderBy(ch => System.Math.Abs(ch.FrequencyMHz - freqMHz))
+                        .First();
+                    targetFreq = (ulong)(nearest.FrequencyMHz * 1_000_000.0 + 0.5);
+                }
+            }
+        }
+
         SetRXFrequency(targetFreq);
         _lastBand = targetBand;
 
@@ -2019,13 +2038,13 @@ public class FreqOutHandlers
             if (newSubKey != _lastSubBandKey
                 && (_lastBand == null || _lastBand == newBand)) // only within same band
             {
-                // Beep first, then speak — interrupt:true so it cuts through any
-                // tuning speech that's still in the screen reader queue.
+                // Beep always fires; speech only at Normal+ verbosity so Terse
+                // users just hear the tone without tuning speech getting chatty.
                 EarconPlayer.BandBoundaryBeep();
                 if (newSubKey != null)
-                    Radios.ScreenReaderOutput.Speak($"Entering {newSubKey} segment", VerbosityLevel.Terse, interrupt: true);
+                    Radios.ScreenReaderOutput.Speak($"Entering {newSubKey}", VerbosityLevel.Chatty, interrupt: true);
                 else if (_lastSubBandKey != null)
-                    Radios.ScreenReaderOutput.Speak($"Leaving {_lastSubBandKey} segment", VerbosityLevel.Terse, interrupt: true);
+                    Radios.ScreenReaderOutput.Speak($"Leaving {_lastSubBandKey}", VerbosityLevel.Chatty, interrupt: true);
             }
             _lastSubBandKey = newSubKey;
         }
@@ -2039,6 +2058,19 @@ public class FreqOutHandlers
     /// </summary>
     private string? GetSubBandKey(ulong freq, Bands.BandNames band)
     {
+        // 60m: detect digital segment boundaries only.
+        // Channels are point frequencies, not zones — they don't need boundary tracking.
+        // The digital segment has real edges that matter for mode legality.
+        if (band == Bands.BandNames.m60)
+        {
+            string country = License?.Country ?? "US";
+            double freqMHz = freq / 1_000_000.0;
+            var alloc = Radios.SixtyMeterChannels.GetAllocation(country);
+            if (alloc?.Digi is { } digi && freqMHz >= digi.StartMHz && freqMHz <= digi.EndMHz)
+                return "digital segment";
+            return null;
+        }
+
         if (License == null) return null;
         var bandInfo = Bands.Query(band, License.LicenseClass);
         if (bandInfo?.Divisions == null) return null;
@@ -2047,16 +2079,37 @@ public class FreqOutHandlers
         {
             if (freq >= div.Low && freq <= div.High)
             {
-                // Build a key from license + mode
                 string licStr = div.License != null && div.License.Length > 0
-                    ? div.License[0].ToString() : "all";
+                    ? FormatLicense(div.License[0]) : "All";
                 string modeStr = div.Mode != null && div.Mode.Length > 0
-                    ? div.Mode[0].ToString() : "";
-                return $"{licStr} {modeStr}".Trim();
+                    ? FormatMode(div.Mode[0]) : "";
+                return string.IsNullOrEmpty(modeStr) ? licStr : $"{licStr} {modeStr}";
             }
         }
         return null;
     }
+
+    private static string FormatLicense(Bands.Licenses lic) => lic switch
+    {
+        Bands.Licenses.novice => "Novice",
+        Bands.Licenses.technition => "Technician",
+        Bands.Licenses.general => "General",
+        Bands.Licenses.advanced => "Advanced",
+        Bands.Licenses.extra => "Extra",
+        _ => "All"
+    };
+
+    private static string FormatMode(Bands.Modes mode) => mode switch
+    {
+        Bands.Modes.CW => "CW",
+        Bands.Modes.MCW => "CW",
+        Bands.Modes.PhoneCW => "Phone and CW",
+        Bands.Modes.USB => "USB",
+        Bands.Modes.Image => "Image",
+        Bands.Modes.RTTYData => "RTTY and Data",
+        Bands.Modes.M60Data => "Data",
+        _ => ""
+    };
 
     /// <summary>
     /// Check if the current frequency + filter is within the operator's

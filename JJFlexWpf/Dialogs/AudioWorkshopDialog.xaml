@@ -20,7 +20,8 @@
                     AutomationProperties.Name="Reset to defaults" Click="Reset_Click"/>
         </StackPanel>
 
-        <TabControl x:Name="MainTabs" Margin="4">
+        <TabControl x:Name="MainTabs" Margin="4"
+                    KeyboardNavigation.TabNavigation="Cycle">
             <!-- Tab 1: TX Audio -->
             <TabItem Header="TX Audio" AutomationProperties.Name="TX Audio Settings">
                 <ScrollViewer VerticalScrollBarVisibility="Auto" Focusable="False">
