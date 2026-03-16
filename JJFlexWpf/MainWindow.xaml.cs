@@ -1111,6 +1111,7 @@ public partial class MainWindow : UserControl
 
         // Classic mode uses position-based step names (no override)
         FreqOut.StepNameOverride = null;
+        FreqOut.IsModernMode = false;
         FreqOut.Populate(fields.ToArray());
         _firstFreqDisplay = true;
     }
@@ -1145,6 +1146,8 @@ public partial class MainWindow : UserControl
         // ShowFrequency checks if the field exists before writing, so only
         // the three above get updated.
 
+        // Modern mode: Freq field uses modifier keys, not cursor position
+        FreqOut.IsModernMode = true;
         // Modern mode: override step name with actual preset-based step
         FreqOut.StepNameOverride = (field) =>
         {
@@ -1292,6 +1295,9 @@ public partial class MainWindow : UserControl
 
             // Slice indicator — shows current active slice number
             FreqOut.Write("Slice", RigControl.ActiveSliceLetter);
+
+            // Dynamic label for SliceOps — "Slice A Operations" etc.
+            FreqOut.SetFieldLabel("SliceOps", $"Slice {RigControl.ActiveSliceLetter} Operations");
 
             // Mute — current active slice mute state (GetVFOAudio true = audio on = not muted)
             FreqOut.Write("Mute", RigControl.GetVFOAudio(RigControl.RXVFO) ? " " : "M");
