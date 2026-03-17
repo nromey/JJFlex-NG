@@ -146,13 +146,24 @@ public class NativeMenuBar : IDisposable
         var rig = Rig;
         if (rig == _subscribedRig) return;
         if (_subscribedRig != null)
+        {
             _subscribedRig.SliceCountChanged -= OnSliceCountChanged;
+            _subscribedRig.ConnectionStateChanged -= OnConnectionStateChanged;
+        }
         if (rig != null)
+        {
             rig.SliceCountChanged += OnSliceCountChanged;
+            rig.ConnectionStateChanged += OnConnectionStateChanged;
+        }
         _subscribedRig = rig;
     }
 
     private void OnSliceCountChanged()
+    {
+        _window.Dispatcher.BeginInvoke(new Action(() => RebuildCurrentMenu()));
+    }
+
+    private void OnConnectionStateChanged(bool connected)
     {
         _window.Dispatcher.BeginInvoke(new Action(() => RebuildCurrentMenu()));
     }

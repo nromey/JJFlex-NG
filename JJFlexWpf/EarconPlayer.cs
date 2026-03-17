@@ -29,6 +29,13 @@ namespace JJFlexWpf
         private static int _alertDeviceNumber = -1; // -1 = Windows default
         private static int _meterDeviceNumber = -1; // -1 = same as alerts
 
+        /// <summary>
+        /// Global earcon mute. When false, all alert channel sounds (earcons, beeps, tones)
+        /// are suppressed. Meter tones are NOT affected (they have their own toggle).
+        /// Persisted in AudioOutputConfig.
+        /// </summary>
+        public static bool EarconsEnabled { get; set; } = true;
+
         // Continuous tone providers registered with the meter channel mixer
         private static readonly List<ISampleProvider> _continuousProviders = new();
 
@@ -644,7 +651,7 @@ namespace JJFlexWpf
         /// <summary>Add a mono source to the alert channel stereo mixer (auto-converts to stereo center).</summary>
         private static void AddToMixer(ISampleProvider monoSource)
         {
-            if (AlertMixer == null) return;
+            if (!EarconsEnabled || AlertMixer == null) return;
             if (monoSource.WaveFormat.Channels == 1)
                 AlertMixer.AddMixerInput(new MonoToStereoSampleProvider(monoSource));
             else
@@ -654,7 +661,7 @@ namespace JJFlexWpf
         /// <summary>Add a mono source to the alert channel stereo mixer with panning (-1 left, 0 center, +1 right).</summary>
         private static void AddToMixerPanned(ISampleProvider monoSource, float pan)
         {
-            if (AlertMixer == null) return;
+            if (!EarconsEnabled || AlertMixer == null) return;
             // PanningSampleProvider takes mono → outputs stereo
             if (monoSource.WaveFormat.Channels != 1)
                 monoSource = monoSource.ToMono();
@@ -665,7 +672,7 @@ namespace JJFlexWpf
         /// <summary>Add a mono source with panning that sweeps from startPan to endPan over durationMs.</summary>
         private static void AddToMixerSweptPan(ISampleProvider monoSource, float startPan, float endPan, int durationMs)
         {
-            if (AlertMixer == null) return;
+            if (!EarconsEnabled || AlertMixer == null) return;
             if (monoSource.WaveFormat.Channels != 1)
                 monoSource = monoSource.ToMono();
             var swept = new SweepPanningSampleProvider(monoSource, startPan, endPan, durationMs);
@@ -674,6 +681,7 @@ namespace JJFlexWpf
 
         private static void PlayTone(int frequencyHz, int durationMs, float volume)
         {
+            if (!EarconsEnabled) return;
             if (AlertMixer == null) { FallbackBeep(frequencyHz, durationMs); return; }
             try
             {

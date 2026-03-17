@@ -826,6 +826,21 @@ public class KeyCommands
             EarconPlayer.FeatureOffTone();
     }
 
+    private void ToggleEarconMute()
+    {
+        EarconPlayer.EarconsEnabled = !EarconPlayer.EarconsEnabled;
+        string state = EarconPlayer.EarconsEnabled ? "on" : "off";
+        Radios.ScreenReaderOutput.Speak($"Alert sounds {state}", Radios.VerbosityLevel.Terse, true);
+        // Save to config
+        var configDir = _context.GetConfigDirectory?.Invoke();
+        if (configDir != null)
+        {
+            var config = AudioOutputConfig.Load(configDir);
+            config.EarconsEnabled = EarconPlayer.EarconsEnabled;
+            config.Save(configDir);
+        }
+    }
+
     /// <summary>
     /// Persist current verbosity to audio config.
     /// </summary>
@@ -1826,6 +1841,11 @@ public class KeyCommands
             // Tones toggle (Sprint 24 Phase 6)
             case Keys.T:
                 ToggleMeterTonesGlobalHandler();
+                break;
+
+            // Earcon mute toggle (Sprint 25 Phase 4)
+            case Keys.T | Keys.Shift:
+                ToggleEarconMute();
                 break;
 
             // Help

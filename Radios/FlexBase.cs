@@ -1872,6 +1872,7 @@ namespace Radios
                     {
                         Tracing.TraceLine("Connected:" + r.Connected.ToString(), TraceLevel.Error);
                         _IsConnected = r.Connected;
+                        ConnectionStateChanged?.Invoke(r.Connected);
 #if zero
                         bool justReconnected = false;
                         if (!r.Connected &&
@@ -2493,6 +2494,12 @@ namespace Radios
         /// UI layers subscribe to force immediate DSP state refresh.
         /// </summary>
         public event Action<string> ModeChanged;
+
+        /// <summary>
+        /// Fired when the radio connection state changes (connected/disconnected).
+        /// UI layers subscribe to rebuild menus and update connection-dependent controls.
+        /// </summary>
+        public event Action<bool> ConnectionStateChanged;
 
         private void sliceAdded(Slice slc)
         {

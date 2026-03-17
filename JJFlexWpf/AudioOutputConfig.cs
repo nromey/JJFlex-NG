@@ -61,6 +61,9 @@ namespace JJFlexWpf
         /// <summary>Speech verbosity level: 0=Off(Critical only), 1=Terse, 2=Chatty (default).</summary>
         public int SpeechVerbosity { get; set; } = 2; // VerbosityLevel.Chatty
 
+        /// <summary>Whether alert sounds (earcons, beeps, tones) are enabled. Meter tones are separate.</summary>
+        public bool EarconsEnabled { get; set; } = true;
+
         /// <summary>Whether tuning speech debounce is enabled. When false, every tuning step speaks immediately.</summary>
         public bool TuneDebounceEnabled { get; set; } = true;
 
@@ -110,6 +113,7 @@ namespace JJFlexWpf
         /// <summary>Apply this config to the MeterToneEngine and EarconPlayer.</summary>
         public void Apply()
         {
+            EarconPlayer.EarconsEnabled = EarconsEnabled;
             EarconPlayer.MasterVolume = MasterVolume;
             EarconPlayer.AlertVolume = AlertVolume;
             EarconPlayer.SetAlertDevice(EarconDeviceNumber);
@@ -141,6 +145,7 @@ namespace JJFlexWpf
             MeterSpeechTimerActive = MeterToneEngine.SpeechTimerActive;
             MeterSpeechIntervalSeconds = MeterToneEngine.SpeechIntervalSeconds;
             AutoEnableOnTune = MeterToneEngine.AutoEnableOnTune;
+            EarconsEnabled = EarconPlayer.EarconsEnabled;
             MasterVolume = EarconPlayer.MasterVolume;
             AlertVolume = EarconPlayer.AlertVolume;
             MasterEarconVolume = (int)(EarconPlayer.AlertVolume * 100);
