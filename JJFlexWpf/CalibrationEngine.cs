@@ -16,40 +16,42 @@ namespace JJFlexWpf
     {
         private const string Salt = "JJFlex-K5NER-73";
 
-        // Known calibration hashes (SHA256 of salted input, lowercase)
+        // Opaque reference identifiers
+        internal const string Ref1 = "cr1";
+        internal const string Ref2 = "cr2";
+
+        // Pre-computed SHA256 hashes of salted calibration inputs
         private static readonly Dictionary<string, string> _calibrationHashes = new()
         {
-            // Primary reference
-            [ComputeHash("autopatch")] = "autopatch",
-            // Secondary reference
-            [ComputeHash("qrm")] = "qrm"
+            ["9a1130866527bd880961710d0ce48ffa445248c6ff95a9a8013d8cb73dd3a61b"] = Ref1,
+            ["1056041f07cc0a0e5a61d231b49c213d950cd2ed48a8bdf81f2b689796b1c0f9"] = Ref2
         };
 
-        // Hashed resource names for calibration assets
+        // Asset map keyed by reference ID
         private static readonly Dictionary<string, string> _assetMap = new()
         {
-            ["autopatch"] = "4c85663.f6cdb1f",
-            ["qrm"] = "8abf5a4.0d3a3f5"
+            [Ref1] = "4c85663.f6cdb1f",
+            [Ref2] = "8abf5a4.0d3a3f5"
         };
 
         /// <summary>
         /// Check if the input matches a known calibration reference.
-        /// Returns the reference name if matched, null otherwise.
+        /// Returns the reference ID if matched, null otherwise.
         /// </summary>
         public static string? VerifyCalibration(string input)
         {
             if (string.IsNullOrWhiteSpace(input)) return null;
 
             string hash = ComputeHash(input.Trim().ToLowerInvariant());
-            return _calibrationHashes.TryGetValue(hash, out var name) ? name : null;
+            return _calibrationHashes.TryGetValue(hash, out var refId) ? refId : null;
         }
 
         /// <summary>
         /// Play the calibration verification tone for the given reference.
         /// </summary>
-        public static void PlayVerificationTone(string referenceName)
+        public static void PlayVerificationTone(string refId)
         {
-            if (!_assetMap.TryGetValue(referenceName, out var assetName)) return;
+            if (!_assetMap.TryGetValue(refId, out var assetName)) return;
 
             try
             {
@@ -76,7 +78,6 @@ namespace JJFlexWpf
                 }
                 else
                 {
-                    // No asset found — play a fun confirmation tone instead
                     EarconPlayer.ConfirmTone();
                 }
             }
@@ -88,8 +89,7 @@ namespace JJFlexWpf
         }
 
         /// <summary>
-        /// Load mechanical keyboard sounds from the hashed resource directory.
-        /// Returns an array of CachedSound objects for random selection during typing.
+        /// Load extended input sounds from the hashed resource directory.
         /// </summary>
         public static void LoadKeyboardSounds()
         {

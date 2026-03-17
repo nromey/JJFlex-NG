@@ -220,8 +220,8 @@ namespace JJFlexWpf.Dialogs
             TypingSoundCombo.Items.Add("Off");
 
             // Unlockable modes only shown when TuningHash contains them
-            bool mechUnlocked = FreqOutHandlers.IsCalibrationUnlocked("qrm", _audioConfig.TuningHash);
-            bool dtmfUnlocked = FreqOutHandlers.IsCalibrationUnlocked("autopatch", _audioConfig.TuningHash);
+            bool mechUnlocked = FreqOutHandlers.IsCalibrationUnlocked(CalibrationEngine.Ref2, _audioConfig.TuningHash);
+            bool dtmfUnlocked = FreqOutHandlers.IsCalibrationUnlocked(CalibrationEngine.Ref1, _audioConfig.TuningHash);
 
             if (mechUnlocked) TypingSoundCombo.Items.Add("Mechanical keyboard");
             if (dtmfUnlocked) TypingSoundCombo.Items.Add("Touch-tone (DTMF)");
@@ -351,8 +351,8 @@ namespace JJFlexWpf.Dialogs
             _audioConfig.MeterSpeechEnabled = MeterSpeechCheck.IsChecked == true;
 
             // Typing sound mode
-            bool mechUnlocked = FreqOutHandlers.IsCalibrationUnlocked("qrm", _audioConfig.TuningHash);
-            bool dtmfUnlocked = FreqOutHandlers.IsCalibrationUnlocked("autopatch", _audioConfig.TuningHash);
+            bool mechUnlocked = FreqOutHandlers.IsCalibrationUnlocked(CalibrationEngine.Ref2, _audioConfig.TuningHash);
+            bool dtmfUnlocked = FreqOutHandlers.IsCalibrationUnlocked(CalibrationEngine.Ref1, _audioConfig.TuningHash);
             int tsIdx = TypingSoundCombo.SelectedIndex;
             _audioConfig.TypingSound = tsIdx switch
             {

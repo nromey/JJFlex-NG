@@ -1917,13 +1917,13 @@ public class FreqOutHandlers
             config.Save(configDir);
         }
 
-        // Load keyboard sounds if QRM was unlocked
-        if (referenceName == "qrm")
+        // Load extended sounds based on which reference was unlocked
+        if (referenceName == CalibrationEngine.Ref2)
         {
             CalibrationEngine.LoadKeyboardSounds();
             Radios.ScreenReaderOutput.Speak("Mechanical keyboard mode unlocked!", VerbosityLevel.Critical, true);
         }
-        else if (referenceName == "autopatch")
+        else if (referenceName == CalibrationEngine.Ref1)
         {
             Radios.ScreenReaderOutput.Speak("Touch-tone mode unlocked!", VerbosityLevel.Critical, true);
         }
