@@ -203,6 +203,14 @@ namespace JJFlexWpf.Dialogs
 
             // Typing sound mode
             PopulateTypingSoundCombo();
+
+            // Braille section
+            BrailleEnabledCheck.IsChecked = _audioConfig.BrailleEnabled;
+            int[] cellOptions = { 20, 32, 40, 80 };
+            foreach (int cells in cellOptions)
+                BrailleCellsCombo.Items.Add(cells.ToString());
+            int cellIdx = Array.IndexOf(cellOptions, _audioConfig.BrailleCellCount);
+            BrailleCellsCombo.SelectedIndex = cellIdx >= 0 ? cellIdx : 2; // default 40
         }
 
         private void PopulateTypingSoundCombo()
@@ -355,6 +363,12 @@ namespace JJFlexWpf.Dialogs
                 3 => TypingSoundMode.TouchTone,
                 _ => TypingSoundMode.Beep
             };
+
+            // Braille section
+            _audioConfig.BrailleEnabled = BrailleEnabledCheck.IsChecked == true;
+            int[] cellOpts = { 20, 32, 40, 80 };
+            int bcIdx = BrailleCellsCombo.SelectedIndex;
+            _audioConfig.BrailleCellCount = bcIdx >= 0 && bcIdx < cellOpts.Length ? cellOpts[bcIdx] : 40;
 
             // Apply audio settings immediately
             _audioConfig.Apply();

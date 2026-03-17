@@ -268,6 +268,24 @@
 
                     <Separator Margin="0,4,0,8"/>
 
+                    <!-- Braille Display section -->
+                    <TextBlock Text="Braille Display" FontWeight="SemiBold"
+                               Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
+                    <CheckBox x:Name="BrailleEnabledCheck"
+                              Content="Enable braille status line"
+                              Margin="0,0,0,8"
+                              AutomationProperties.Name="Enable braille status line on home position"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                        <TextBlock Text="Display cells:"
+                                   VerticalAlignment="Center"
+                                   Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
+                        <ComboBox x:Name="BrailleCellsCombo" Width="80"
+                                  Style="{StaticResource DialogComboBox}"
+                                  AutomationProperties.Name="Braille display cell count"/>
+                    </StackPanel>
+
+                    <Separator Margin="0,4,0,8"/>
+
                     <!-- Audio Workshop shortcut -->
                     <Button Content="Audio _Workshop..."
                             Width="160" HorizontalAlignment="Left"

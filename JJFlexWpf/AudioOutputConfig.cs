@@ -76,6 +76,15 @@ namespace JJFlexWpf
         /// <summary>Tuning speech debounce delay in milliseconds (50-1000, default 300).</summary>
         public int TuneDebounceMs { get; set; } = 300;
 
+        /// <summary>Whether braille status line is enabled.</summary>
+        public bool BrailleEnabled { get; set; }
+
+        /// <summary>Braille display cell count (20, 32, 40, 80).</summary>
+        public int BrailleCellCount { get; set; } = 40;
+
+        /// <summary>Braille display enabled fields (flags enum as int for XML serialization).</summary>
+        public int BrailleFields { get; set; } = (int)JJFlexWpf.BrailleFields.All;
+
         /// <summary>Per-slot meter tone configurations.</summary>
         public List<MeterSlotConfig> MeterSlots { get; set; } = new();
 

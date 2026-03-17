@@ -73,6 +73,10 @@ public partial class MainWindow : UserControl
             }
         };
 
+        // Wire braille display focus events
+        FreqOut.GotKeyboardFocus += (s, e) => _brailleEngine.OnHomePositionFocused();
+        FreqOut.LostKeyboardFocus += (s, e) => _brailleEngine.OnHomePositionBlurred();
+
         // Wire ScreenFieldsPanel Escape handler (Sprint 14) — once, not per-connect
         FieldsPanel.EscapePressed += (s, e) => FreqOut.FocusDisplay();
         FieldsPanel.ReturnFocusToFreqOut = () => FreqOut.FocusDisplay();
@@ -1058,6 +1062,9 @@ public partial class MainWindow : UserControl
     /// </summary>
     private FreqOutHandlers? _freqOutHandlers;
 
+    /// <summary>Braille display status line engine.</summary>
+    private readonly BrailleStatusEngine _brailleEngine = new();
+
     /// <summary>
     /// Expose FreqOutHandlers for Settings dialog tuning step access.
     /// </summary>
@@ -1591,6 +1598,7 @@ public partial class MainWindow : UserControl
         if (RigControl != null)
         {
             FieldsPanel.Initialize(RigControl);
+            _brailleEngine.SetRig(RigControl);
         }
 
         _radioPowerOn = true;
@@ -1628,6 +1636,16 @@ public partial class MainWindow : UserControl
             CurrentAudioConfig.Apply();
             if (RigControl != null)
                 MeterToneEngine.AttachToRadio(RigControl);
+
+            // Apply braille config
+            _brailleEngine.Enabled = CurrentAudioConfig.BrailleEnabled;
+            _brailleEngine.CellCount = CurrentAudioConfig.BrailleCellCount;
+            _brailleEngine.EnabledFields = (BrailleFields)CurrentAudioConfig.BrailleFields;
+            _brailleEngine.UpdateTimerState();
+
+            // Apply typing sound to FreqOutHandlers
+            if (_freqOutHandlers != null)
+                _freqOutHandlers.TypingSound = CurrentAudioConfig.TypingSound;
         }
 
         // VB-side tasks (knob setup, tracing)
