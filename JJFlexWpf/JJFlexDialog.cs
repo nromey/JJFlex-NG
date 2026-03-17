@@ -3,6 +3,7 @@ using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Interop;
+using System.Windows.Threading;
 
 namespace JJFlexWpf
 {
@@ -13,6 +14,12 @@ namespace JJFlexWpf
     /// </summary>
     public class JJFlexDialog : Window
     {
+        /// <summary>
+        /// Callback invoked after a dialog closes to announce focus-return context.
+        /// Set by MainWindow to speak compact status (e.g., "Slice A, 14.175, USB").
+        /// </summary>
+        public static Action? FocusReturnCallback { get; set; }
+
         public JJFlexDialog()
         {
             // Load shared dialog styles
@@ -78,11 +85,18 @@ namespace JJFlexWpf
         }
 
         /// <summary>
-        /// Play close earcon when dialog is closing, regardless of how it was closed.
+        /// On close: schedule deferred focus-return context announcement.
+        /// Uses ApplicationIdle priority so it fires after focus settles back to main window.
         /// </summary>
         protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
         {
             base.OnClosing(e);
+
+            // Deferred context announcement — fires after focus returns to main window
+            if (FocusReturnCallback != null)
+            {
+                Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, FocusReturnCallback);
+            }
         }
 
         /// <summary>

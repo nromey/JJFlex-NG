@@ -63,6 +63,16 @@ public partial class MainWindow : UserControl
 
         Loaded += MainWindow_Loaded;
 
+        // Focus-return context: when any JJFlexDialog closes, speak compact status
+        JJFlexDialog.FocusReturnCallback = () =>
+        {
+            if (RigControl != null)
+            {
+                string status = Radios.RadioStatusBuilder.BuildSpokenStatus(RigControl);
+                Radios.ScreenReaderOutput.Speak(status, Radios.VerbosityLevel.Chatty);
+            }
+        };
+
         // Wire ScreenFieldsPanel Escape handler (Sprint 14) — once, not per-connect
         FieldsPanel.EscapePressed += (s, e) => FreqOut.FocusDisplay();
         FieldsPanel.ReturnFocusToFreqOut = () => FreqOut.FocusDisplay();
