@@ -200,6 +200,34 @@ namespace JJFlexWpf.Dialogs
 
             PeakWatcherCheck.IsChecked = _audioConfig.PeakWatcherEnabled;
             MeterSpeechCheck.IsChecked = _audioConfig.MeterSpeechEnabled;
+
+            // Typing sound mode
+            PopulateTypingSoundCombo();
+        }
+
+        private void PopulateTypingSoundCombo()
+        {
+            TypingSoundCombo.Items.Clear();
+            TypingSoundCombo.Items.Add("Click beep");
+            TypingSoundCombo.Items.Add("Off");
+
+            // Unlockable modes only shown when TuningHash contains them
+            bool mechUnlocked = FreqOutHandlers.IsCalibrationUnlocked("qrm", _audioConfig.TuningHash);
+            bool dtmfUnlocked = FreqOutHandlers.IsCalibrationUnlocked("autopatch", _audioConfig.TuningHash);
+
+            if (mechUnlocked) TypingSoundCombo.Items.Add("Mechanical keyboard");
+            if (dtmfUnlocked) TypingSoundCombo.Items.Add("Touch-tone (DTMF)");
+
+            // Select current mode
+            int idx = _audioConfig.TypingSound switch
+            {
+                TypingSoundMode.Beep => 0,
+                TypingSoundMode.Off => 1,
+                TypingSoundMode.Mechanical when mechUnlocked => 2,
+                TypingSoundMode.TouchTone when dtmfUnlocked => mechUnlocked ? 3 : 2,
+                _ => 0
+            };
+            TypingSoundCombo.SelectedIndex = idx;
         }
 
         private bool SaveSettings()
@@ -313,6 +341,20 @@ namespace JJFlexWpf.Dialogs
                 _audioConfig.MeterPreset = MeterPresetOptions[presetIdx];
             _audioConfig.PeakWatcherEnabled = PeakWatcherCheck.IsChecked == true;
             _audioConfig.MeterSpeechEnabled = MeterSpeechCheck.IsChecked == true;
+
+            // Typing sound mode
+            bool mechUnlocked = FreqOutHandlers.IsCalibrationUnlocked("qrm", _audioConfig.TuningHash);
+            bool dtmfUnlocked = FreqOutHandlers.IsCalibrationUnlocked("autopatch", _audioConfig.TuningHash);
+            int tsIdx = TypingSoundCombo.SelectedIndex;
+            _audioConfig.TypingSound = tsIdx switch
+            {
+                0 => TypingSoundMode.Beep,
+                1 => TypingSoundMode.Off,
+                2 when mechUnlocked => TypingSoundMode.Mechanical,
+                2 when dtmfUnlocked => TypingSoundMode.TouchTone,
+                3 => TypingSoundMode.TouchTone,
+                _ => TypingSoundMode.Beep
+            };
 
             // Apply audio settings immediately
             _audioConfig.Apply();

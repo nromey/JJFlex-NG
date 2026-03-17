@@ -646,6 +646,165 @@ namespace JJFlexWpf
 
         #endregion
 
+        #region Typing Sounds (Phase 7)
+
+        private static CachedSound[]? _keyboardSounds;
+        private static readonly Random _keyRandom = new();
+
+        // DTMF frequency pairs per ITU-T Q.23
+        private static readonly Dictionary<char, (int low, int high)> DtmfFreqs = new()
+        {
+            ['1'] = (697, 1209), ['2'] = (697, 1336), ['3'] = (697, 1477),
+            ['4'] = (770, 1209), ['5'] = (770, 1336), ['6'] = (770, 1477),
+            ['7'] = (852, 1209), ['8'] = (852, 1336), ['9'] = (852, 1477),
+            ['*'] = (941, 1209), ['0'] = (941, 1336), ['#'] = (941, 1477),
+        };
+
+        /// <summary>
+        /// Play a typing sound for a digit keystroke based on current mode.
+        /// </summary>
+        public static void PlayTypingSound(char digit, TypingSoundMode mode)
+        {
+            switch (mode)
+            {
+                case TypingSoundMode.Beep:
+                    PlayTone(1000, 30, 0.25f);
+                    break;
+                case TypingSoundMode.Mechanical:
+                    PlayMechanicalKey();
+                    break;
+                case TypingSoundMode.TouchTone:
+                    PlayDtmfTone(digit);
+                    break;
+                case TypingSoundMode.Off:
+                    break;
+            }
+        }
+
+        /// <summary>
+        /// Play a random mechanical keyboard sound from the loaded pool.
+        /// </summary>
+        private static void PlayMechanicalKey()
+        {
+            if (_keyboardSounds == null || _keyboardSounds.Length == 0)
+            {
+                // Fallback: short click
+                PlayTone(800, 15, 0.3f);
+                return;
+            }
+            int idx = _keyRandom.Next(_keyboardSounds.Length);
+            PlayCachedSound(_keyboardSounds[idx]);
+        }
+
+        /// <summary>
+        /// Play a DTMF dual-tone for the given digit (50ms burst).
+        /// </summary>
+        private static void PlayDtmfTone(char digit)
+        {
+            if (!DtmfFreqs.TryGetValue(digit, out var freqs))
+            {
+                PlayTone(800, 30, 0.25f); // fallback for non-digit chars
+                return;
+            }
+
+            if (!EarconsEnabled || AlertMixer == null) return;
+            try
+            {
+                const int durationMs = 60;
+                // Two simultaneous sine waves at standard DTMF frequencies
+                var low = new SignalGenerator(SampleRate, 1)
+                {
+                    Type = SignalGeneratorType.Sin,
+                    Frequency = freqs.low,
+                    Gain = 0.25f
+                };
+                var high = new SignalGenerator(SampleRate, 1)
+                {
+                    Type = SignalGeneratorType.Sin,
+                    Frequency = freqs.high,
+                    Gain = 0.25f
+                };
+                var lowTimed = low.Take(TimeSpan.FromMilliseconds(durationMs));
+                var highTimed = high.Take(TimeSpan.FromMilliseconds(durationMs));
+                AddToMixer(lowTimed);
+                AddToMixer(highTimed);
+            }
+            catch (Exception ex)
+            {
+                Trace.WriteLine($"EarconPlayer.PlayDtmfTone failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Load keyboard sounds from the hashed resource directory.
+        /// Called by CalibrationEngine when mechanical keyboard mode is unlocked.
+        /// </summary>
+        public static void LoadKeyboardSoundsFromDirectory(string relativeDir)
+        {
+            try
+            {
+                var assembly = Assembly.GetExecutingAssembly();
+                string baseDir = Path.GetDirectoryName(assembly.Location) ?? "";
+                string fullDir = Path.Combine(baseDir, relativeDir);
+
+                if (!Directory.Exists(fullDir))
+                {
+                    Trace.WriteLine($"EarconPlayer: keyboard sound directory not found: {fullDir}");
+                    return;
+                }
+
+                var files = Directory.GetFiles(fullDir);
+                var sounds = new List<CachedSound>();
+                foreach (var file in files)
+                {
+                    try
+                    {
+                        using var stream = File.OpenRead(file);
+                        sounds.Add(new CachedSound(stream));
+                    }
+                    catch (Exception ex)
+                    {
+                        Trace.WriteLine($"EarconPlayer: failed to load keyboard sound '{file}': {ex.Message}");
+                    }
+                }
+
+                if (sounds.Count > 0)
+                {
+                    _keyboardSounds = sounds.ToArray();
+                    Trace.WriteLine($"EarconPlayer: loaded {sounds.Count} keyboard sounds");
+                }
+            }
+            catch (Exception ex)
+            {
+                Trace.WriteLine($"EarconPlayer.LoadKeyboardSoundsFromDirectory failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Play a WAV stream through the alert channel. Used by CalibrationEngine for
+        /// verification tones.
+        /// </summary>
+        public static void PlayStreamAsWav(Stream wavStream)
+        {
+            if (!EarconsEnabled || AlertMixer == null) return;
+            try
+            {
+                var sound = new CachedSound(wavStream);
+                PlayCachedSound(sound);
+            }
+            catch (Exception ex)
+            {
+                Trace.WriteLine($"EarconPlayer.PlayStreamAsWav failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Check if mechanical keyboard sounds are loaded and available.
+        /// </summary>
+        public static bool HasKeyboardSounds => _keyboardSounds != null && _keyboardSounds.Length > 0;
+
+        #endregion
+
         #region Internal Playback
 
         /// <summary>Add a mono source to the alert channel stereo mixer (auto-converts to stereo center).</summary>

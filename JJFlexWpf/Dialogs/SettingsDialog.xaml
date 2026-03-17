@@ -254,6 +254,20 @@
 
                     <Separator Margin="0,4,0,8"/>
 
+                    <!-- Typing sound -->
+                    <TextBlock Text="Frequency Entry" FontWeight="SemiBold"
+                               Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                        <TextBlock Text="Typing sound:"
+                                   VerticalAlignment="Center"
+                                   Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
+                        <ComboBox x:Name="TypingSoundCombo" Width="180"
+                                  Style="{StaticResource DialogComboBox}"
+                                  AutomationProperties.Name="Frequency entry typing sound mode"/>
+                    </StackPanel>
+
+                    <Separator Margin="0,4,0,8"/>
+
                     <!-- Audio Workshop shortcut -->
                     <Button Content="Audio _Workshop..."
                             Width="160" HorizontalAlignment="Left"

@@ -64,6 +64,12 @@ namespace JJFlexWpf
         /// <summary>Whether alert sounds (earcons, beeps, tones) are enabled. Meter tones are separate.</summary>
         public bool EarconsEnabled { get; set; } = true;
 
+        /// <summary>Frequency entry typing sound mode.</summary>
+        public TypingSoundMode TypingSound { get; set; } = TypingSoundMode.Beep;
+
+        /// <summary>Calibration tuning hash — stores verified reference data.</summary>
+        public string TuningHash { get; set; } = "";
+
         /// <summary>Whether tuning speech debounce is enabled. When false, every tuning step speaks immediately.</summary>
         public bool TuneDebounceEnabled { get; set; } = true;
 
@@ -152,6 +158,19 @@ namespace JJFlexWpf
             EarconDeviceNumber = EarconPlayer.GetAlertDeviceNumber();
             MeterDeviceNumber = EarconPlayer.GetMeterDeviceNumber();
         }
+    }
+
+    /// <summary>Frequency entry typing sound mode.</summary>
+    public enum TypingSoundMode
+    {
+        /// <summary>Simple click beep (always available).</summary>
+        Beep,
+        /// <summary>No sound on keystrokes.</summary>
+        Off,
+        /// <summary>Mechanical keyboard sounds (requires calibration unlock).</summary>
+        Mechanical,
+        /// <summary>DTMF touch-tone sounds (requires calibration unlock).</summary>
+        TouchTone
     }
 
     /// <summary>Per-slot configuration for XML serialization.</summary>

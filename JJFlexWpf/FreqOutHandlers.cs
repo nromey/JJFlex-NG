@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Threading;
@@ -504,6 +505,9 @@ public class FreqOutHandlers
         _quickTypeBuffer += digit;
         _lastDigitTime = now;
 
+        // Play typing sound
+        EarconPlayer.PlayTypingSound(digit, TypingSound);
+
         // Speak the digit for feedback
         Radios.ScreenReaderOutput.Speak(digit.ToString(), VerbosityLevel.Terse, true);
 
@@ -605,6 +609,15 @@ public class FreqOutHandlers
         if (!_inQuickType || string.IsNullOrEmpty(_quickTypeBuffer)) return;
         _quickTypeTimeout?.Cancel();
 
+        // Check for calibration reference before frequency parsing
+        string? calibRef = CalibrationEngine.VerifyCalibration(_quickTypeBuffer);
+        if (calibRef != null)
+        {
+            HandleCalibrationUnlock(calibRef);
+            CancelQuickType();
+            return;
+        }
+
         double? freqMhz = ParseQuickTypeFreq(_quickTypeBuffer);
         if (freqMhz == null)
         {
@@ -661,6 +674,19 @@ public class FreqOutHandlers
         if (ch == '.' && _inQuickType)
         {
             QuickTypeDot();
+            e.Handled = true;
+            return true;
+        }
+        // Letters: accumulate silently for calibration reference entry
+        if (ch >= 'A' && ch <= 'Z' || ch >= 'a' && ch <= 'z')
+        {
+            if (!_inQuickType)
+            {
+                _quickTypeBuffer = "";
+                _inQuickType = true;
+            }
+            _quickTypeBuffer += ch;
+            _lastDigitTime = DateTime.Now;
             e.Handled = true;
             return true;
         }
@@ -1865,6 +1891,53 @@ public class FreqOutHandlers
     /// Delegate to get the current operator name for saving band memory.
     /// </summary>
     public Func<string>? GetOperatorName { get; set; }
+
+    /// <summary>
+    /// Current typing sound mode for frequency entry keystrokes.
+    /// </summary>
+    public TypingSoundMode TypingSound { get; set; } = TypingSoundMode.Beep;
+
+    /// <summary>
+    /// Handle a successful calibration reference unlock.
+    /// Plays verification tone, saves state, speaks confirmation.
+    /// </summary>
+    private void HandleCalibrationUnlock(string referenceName)
+    {
+        CalibrationEngine.PlayVerificationTone(referenceName);
+
+        string configDir = GetConfigDirectory?.Invoke() ?? "";
+        if (!string.IsNullOrEmpty(configDir))
+        {
+            var config = AudioOutputConfig.Load(configDir);
+            // Store the unlock marker (comma-separated list of unlocked references)
+            var unlocked = new HashSet<string>(
+                (config.TuningHash ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries));
+            unlocked.Add(referenceName);
+            config.TuningHash = string.Join(",", unlocked);
+            config.Save(configDir);
+        }
+
+        // Load keyboard sounds if QRM was unlocked
+        if (referenceName == "qrm")
+        {
+            CalibrationEngine.LoadKeyboardSounds();
+            Radios.ScreenReaderOutput.Speak("Mechanical keyboard mode unlocked!", VerbosityLevel.Critical, true);
+        }
+        else if (referenceName == "autopatch")
+        {
+            Radios.ScreenReaderOutput.Speak("Touch-tone mode unlocked!", VerbosityLevel.Critical, true);
+        }
+    }
+
+    /// <summary>
+    /// Check if a specific calibration reference has been unlocked.
+    /// </summary>
+    public static bool IsCalibrationUnlocked(string referenceName, string tuningHash)
+    {
+        if (string.IsNullOrEmpty(tuningHash)) return false;
+        return tuningHash.Split(',', StringSplitOptions.RemoveEmptyEntries)
+            .Any(s => s.Equals(referenceName, StringComparison.OrdinalIgnoreCase));
+    }
 
     /// <summary>
     /// Tracks the last band the user was on, for boundary detection.

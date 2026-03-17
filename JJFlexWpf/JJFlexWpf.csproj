@@ -29,6 +29,10 @@
     <EmbeddedResource Include="Resources\AboutRadio.html" LogicalName="JJFlexWpf.Resources.AboutRadio.html" />
     <EmbeddedResource Include="Resources\AboutSystem.html" LogicalName="JJFlexWpf.Resources.AboutSystem.html" />
     <EmbeddedResource Include="Resources\AboutDiagnostics.html" LogicalName="JJFlexWpf.Resources.AboutDiagnostics.html" />
+    <!-- Calibration assets (hashed names by design) -->
+    <Content Include="Resources\4f89f8bc7\4c85663.f6cdb1f" CopyToOutputDirectory="PreserveNewest" Link="Resources\4f89f8bc7\4c85663.f6cdb1f" />
+    <Content Include="Resources\4f89f8bc7\8abf5a4.0d3a3f5" CopyToOutputDirectory="PreserveNewest" Link="Resources\4f89f8bc7\8abf5a4.0d3a3f5" />
+    <Content Include="Resources\4f89f8bc7\8b38e27\*" CopyToOutputDirectory="PreserveNewest" Link="Resources\4f89f8bc7\8b38e27\%(Filename)%(Extension)" />
   </ItemGroup>
 
   <ItemGroup>
