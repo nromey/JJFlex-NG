@@ -706,8 +706,15 @@ public partial class MainWindow : UserControl
     /// </summary>
     private void MainWindow_PreviewKeyDown(object sender, KeyEventArgs e)
     {
-        // 0. Let Tab pass through to WPF default handling.
+        // 0. Ctrl+Tab opens action toolbar
         var rawKey = e.Key == Key.System ? e.SystemKey : e.Key;
+        if (rawKey == Key.Tab && Keyboard.Modifiers == ModifierKeys.Control)
+        {
+            ShowActionToolbar();
+            e.Handled = true;
+            return;
+        }
+        // Let regular Tab pass through to WPF default handling
         if (rawKey == Key.Tab)
             return;
 
@@ -2063,6 +2070,89 @@ public partial class MainWindow : UserControl
     private void TransmitButton_Click(object sender, RoutedEventArgs e)
     {
         ToggleTransmit();
+    }
+
+    /// <summary>
+    /// Show the action toolbar popup (Ctrl+Tab). Lightweight ListBox with common TX actions.
+    /// Arrow keys navigate, Enter activates, Escape closes.
+    /// </summary>
+    private void ShowActionToolbar()
+    {
+        if (RigControl == null || !_radioPowerOn)
+        {
+            Radios.ScreenReaderOutput.Speak("No radio connected", VerbosityLevel.Critical, true);
+            return;
+        }
+
+        var dlg = new JJFlexDialog
+        {
+            Title = "Actions",
+            Width = 250,
+            Height = 200,
+            ShowInTaskbar = false,
+            ResizeMode = System.Windows.ResizeMode.NoResize
+        };
+
+        var list = new System.Windows.Controls.ListBox
+        {
+            Margin = new System.Windows.Thickness(8),
+        };
+        System.Windows.Automation.AutomationProperties.SetName(list, "Actions");
+
+        // Build action items based on radio state
+        bool hasATU = RigControl.HasATU;
+        bool canTx = RigControl.CanTransmit;
+        bool isTx = RigControl.Transmit;
+
+        if (hasATU)
+            list.Items.Add("ATU Tune");
+        if (canTx)
+        {
+            bool tuning = RigControl.TxTune;
+            list.Items.Add(tuning ? "Stop Tune Carrier" : "Start Tune Carrier");
+            list.Items.Add(isTx ? "Stop Transmit" : "Start Transmit");
+        }
+        list.Items.Add("Speak Status");
+        list.Items.Add("Cancel");
+
+        list.SelectedIndex = 0;
+        dlg.Content = list;
+
+        list.PreviewKeyDown += (s, e) =>
+        {
+            if (e.Key == Key.Enter && list.SelectedItem is string item)
+            {
+                dlg.Close();
+                ExecuteActionToolbarItem(item);
+                e.Handled = true;
+            }
+        };
+
+        dlg.Loaded += (s, e) => list.Focus();
+        dlg.ShowDialog();
+    }
+
+    private void ExecuteActionToolbarItem(string item)
+    {
+        if (RigControl == null) return;
+
+        switch (item)
+        {
+            case "ATU Tune":
+                RigControl.FlexTunerOn = !RigControl.FlexTunerOn;
+                break;
+            case "Start Tune Carrier":
+            case "Stop Tune Carrier":
+                ToggleTuneCarrier();
+                break;
+            case "Start Transmit":
+            case "Stop Transmit":
+                ToggleTransmit();
+                break;
+            case "Speak Status":
+                SpeakStatusCallback?.Invoke();
+                break;
+        }
     }
 
     #endregion
