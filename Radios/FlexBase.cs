@@ -1276,10 +1276,11 @@ namespace Radios
             // If the JWT exp claim is expired, we MUST get a new id_token.
             // Auth0 frtest doesn't return a new id_token on refresh, so token refresh
             // can't fix an expired JWT — go straight to interactive login.
+            // Force new login so WebView2 doesn't auto-reuse a different account's session.
             if (isJwtExpired)
             {
-                Tracing.TraceLine($"GetJwtFromSavedAccount: JWT exp claim is expired, skipping to PerformNewLogin ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
-                return PerformNewLogin();
+                Tracing.TraceLine($"GetJwtFromSavedAccount: JWT exp claim is expired, forcing new login for {account.Email} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+                return PerformNewLogin(forceNewLogin: true);
             }
 
             // Check if account-level token is expired and needs refresh
@@ -1302,8 +1303,8 @@ namespace Radios
 
                 if (!refreshed)
                 {
-                    Tracing.TraceLine($"GetJwtFromSavedAccount: refresh failed, falling back to PerformNewLogin ({sw.ElapsedMilliseconds}ms)", TraceLevel.Warning);
-                    return PerformNewLogin();
+                    Tracing.TraceLine($"GetJwtFromSavedAccount: refresh failed, forcing new login for {account.Email} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Warning);
+                    return PerformNewLogin(forceNewLogin: true);
                 }
 
                 // After refresh, check if JWT is still valid
@@ -1311,8 +1312,8 @@ namespace Radios
                 Tracing.TraceLine($"GetJwtFromSavedAccount: after refresh, isJwtExpired={isJwtExpired} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
                 if (isJwtExpired)
                 {
-                    Tracing.TraceLine($"GetJwtFromSavedAccount: JWT still expired after refresh (Auth0 frtest), falling back to PerformNewLogin ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
-                    return PerformNewLogin();
+                    Tracing.TraceLine($"GetJwtFromSavedAccount: JWT still expired after refresh, forcing new login for {account.Email} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+                    return PerformNewLogin(forceNewLogin: true);
                 }
             }
 
