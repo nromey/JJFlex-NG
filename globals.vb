@@ -1890,6 +1890,15 @@ Module globals
             .ShowSmartLinkAccountManager = Sub() WpfMainWindow.ShowSmartLinkAccountManager()
         }
 
+        ' Wire the save-default delegate so ShowSmartLinkAccountManager can persist the selection
+        WpfMainWindow.SaveDefaultSmartLinkAccount = Sub(email)
+                                                         Dim opName = PersonalData.UniqueOpName(CurrentOp)
+                                                         Dim cfg = Radios.AutoConnectConfig.Load(BaseConfigDir, opName)
+                                                         cfg.SmartLinkAccountEmail = email
+                                                         cfg.Save(BaseConfigDir, opName)
+                                                         Tracing.TraceLine($"SaveDefaultSmartLinkAccount: saved {email} to auto-connect config", TraceLevel.Info)
+                                                     End Sub
+
         ' Show the WPF selector dialog
         Dim dialog As New JJFlexWpf.Dialogs.RigSelectorDialog(callbacks)
         Dim wpfResult = dialog.ShowDialog()

@@ -874,6 +874,12 @@ public partial class MainWindow : UserControl
     public Action? CloseRadioCallback { get; set; }
 
     /// <summary>
+    /// Save a SmartLink account email as the default for Remote connections.
+    /// Wired by globals.vb since it needs BaseConfigDir + operator name.
+    /// </summary>
+    public Action<string>? SaveDefaultSmartLinkAccount { get; set; }
+
+    /// <summary>
     /// Callback for VB-side exit sequence. Returns true to proceed, false to cancel.
     /// Set by ApplicationEvents.vb, called from MainWindow_Closing.
     /// </summary>
@@ -2555,13 +2561,9 @@ public partial class MainWindow : UserControl
             }
 
             // User selected an existing account — save as default
-            if (dialog.SelectedAccountData is Radios.SmartLinkAccount selectedAcct && OpenParms != null)
+            if (dialog.SelectedAccountData is Radios.SmartLinkAccount selectedAcct)
             {
-                var configDir = OpenParms.ConfigDirectory;
-                var opName = OpenParms.GetOperatorName();
-                var autoConfig = Radios.AutoConnectConfig.Load(configDir, opName);
-                autoConfig.SmartLinkAccountEmail = selectedAcct.Email;
-                autoConfig.Save(configDir, opName);
+                SaveDefaultSmartLinkAccount?.Invoke(selectedAcct.Email);
                 Radios.ScreenReaderOutput.Speak($"Default account set to {selectedAcct.FriendlyName}", VerbosityLevel.Terse, true);
             }
             break;
