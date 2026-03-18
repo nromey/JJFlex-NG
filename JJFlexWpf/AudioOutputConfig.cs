@@ -76,6 +76,15 @@ namespace JJFlexWpf
         /// <summary>Tuning speech debounce delay in milliseconds (50-1000, default 300).</summary>
         public int TuneDebounceMs { get; set; } = 300;
 
+        /// <summary>Whether JJ Neural NR (RNNoise) is enabled.</summary>
+        public bool RNNoiseEnabled { get; set; }
+
+        /// <summary>RNNoise wet/dry mix strength 0.0-1.0.</summary>
+        public float RNNoiseStrength { get; set; } = 0.8f;
+
+        /// <summary>Auto-disable RNNoise in CW/digital modes.</summary>
+        public bool RNNoiseAutoDisableNonVoice { get; set; } = true;
+
         /// <summary>Whether braille status line is enabled.</summary>
         public bool BrailleEnabled { get; set; }
 
