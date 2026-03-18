@@ -90,6 +90,9 @@ namespace JJFlexWpf.Dialogs
         /// <summary>Show a WinForms connecting window (message). Returns an action to close it.</summary>
         public Func<string, Action>? ShowConnecting { get; init; }
 
+        /// <summary>Open the SmartLink account manager to switch accounts.</summary>
+        public Action? ShowSmartLinkAccountManager { get; init; }
+
     }
 
     public partial class RigSelectorDialog : JJFlexDialog
@@ -303,6 +306,12 @@ namespace JJFlexWpf.Dialogs
             _closeConnecting = _callbacks.ShowConnecting?.Invoke("Connecting to SmartLink...");
 
             _callbacks.StartRemoteDiscovery();
+        }
+
+        private void SwitchAccountButton_Click(object sender, RoutedEventArgs e)
+        {
+            _callbacks.ShowSmartLinkAccountManager?.Invoke();
+            _callbacks.ScreenReaderSpeak?.Invoke("Account updated. Press Remote to connect.", false);
         }
 
         private void CancelButton_Click(object sender, RoutedEventArgs e)

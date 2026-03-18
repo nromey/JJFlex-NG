@@ -322,7 +322,7 @@ namespace Radios
                 {
                     // local audio on
                     //LocalAudioMute(false);
-                    theRadio.IsMuteLocalAudioWhenRemoteOn = false; ;
+                    theRadio.IsMuteLocalAudioWhenRemoteOn = false;
                 }
             }
             else
@@ -4261,7 +4261,7 @@ namespace Radios
             {
                 lock (_XIT)
                 {
-                    return _XIT; ;
+                    return _XIT;
                 }
             }
             set

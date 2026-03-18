@@ -62,6 +62,10 @@
                     AutomationProperties.Name="Remote"
                     AutomationProperties.AcceleratorKey="Alt+R"
                     Click="RemoteButton_Click"/>
+            <Button Content="_Switch Account" MinWidth="100" Height="28" Margin="0,0,0,8"
+                    AutomationProperties.Name="Switch Account"
+                    AutomationProperties.AcceleratorKey="Alt+S"
+                    Click="SwitchAccountButton_Click"/>
             <Button x:Name="TestButton" Content="_Test" MinWidth="100" Height="28" Margin="0,0,0,8"
                     AutomationProperties.Name="Test"
                     AutomationProperties.AcceleratorKey="Alt+T"

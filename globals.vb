@@ -1766,9 +1766,60 @@ Module globals
                                                  Tracing.TraceLine("ShowAccountSelector: no accounts, triggering new login", TraceLevel.Info)
                                                  Return (True, Nothing, True) ' trigger new login
                                              End If
-                                             Dim best = accounts.OrderByDescending(Function(a) a.LastUsed).First()
-                                             Tracing.TraceLine($"ShowAccountSelector: auto-selected '{best.FriendlyName}' ({best.Email}), LastUsed={best.LastUsed}, ExpiresAt={best.ExpiresAt}", TraceLevel.Info)
-                                             Return (False, best, True) ' use most recent account
+                                             ' If only one account, auto-select it
+                                             If accounts.Count = 1 Then
+                                                 Dim only = accounts(0)
+                                                 Tracing.TraceLine($"ShowAccountSelector: single account '{only.FriendlyName}' ({only.Email}), auto-selected", TraceLevel.Info)
+                                                 Return (False, only, True)
+                                             End If
+                                             ' Multiple accounts — try to use the saved default from auto-connect config
+                                             Dim opName = PersonalData.UniqueOpName(CurrentOp)
+                                             Dim savedConfig = Radios.AutoConnectConfig.Load(BaseConfigDir, opName)
+                                             If Not String.IsNullOrEmpty(savedConfig.SmartLinkAccountEmail) Then
+                                                 Dim defaultAcct = accounts.FirstOrDefault(Function(a) a.Email.Equals(savedConfig.SmartLinkAccountEmail, StringComparison.OrdinalIgnoreCase))
+                                                 If defaultAcct IsNot Nothing Then
+                                                     Tracing.TraceLine($"ShowAccountSelector: using default account '{defaultAcct.FriendlyName}' ({defaultAcct.Email}) from auto-connect config", TraceLevel.Info)
+                                                     Return (False, defaultAcct, True)
+                                                 End If
+                                             End If
+                                             ' No default found — show picker dialog on UI thread
+                                             Dim selectedAccount As Radios.SmartLinkAccount = Nothing
+                                             Dim newLogin As Boolean = False
+                                             Dim cancelled As Boolean = False
+                                             WpfMainWindow.Dispatcher.Invoke(
+                                                 Sub()
+                                                     Dim acctCallbacks As New JJFlexWpf.Dialogs.SmartLinkAccountCallbacks() With {
+                                                         .GetAccounts = Function() mgr.Accounts.OrderByDescending(Function(a) a.LastUsed).
+                                                             Select(Function(a) New JJFlexWpf.Dialogs.SmartLinkAccountInfo() With {
+                                                                 .FriendlyName = a.FriendlyName,
+                                                                 .Email = a.Email,
+                                                                 .LastUsed = a.LastUsed,
+                                                                 .AccountData = a
+                                                             }).ToList(),
+                                                         .RenameAccount = Function(oldName, newName) mgr.RenameAccount(oldName, newName),
+                                                         .DeleteAccount = Sub(name) mgr.DeleteAccount(name),
+                                                         .ScreenReaderSpeak = Sub(msg, interrupt) Radios.ScreenReaderOutput.Speak(msg, interrupt)
+                                                     }
+                                                     Dim dlg As New JJFlexWpf.Dialogs.SmartLinkAccountDialog(acctCallbacks)
+                                                     Dim result = dlg.ShowDialog()
+                                                     If result <> True Then
+                                                         cancelled = True
+                                                     ElseIf dlg.NewLoginRequested Then
+                                                         newLogin = True
+                                                     Else
+                                                         selectedAccount = TryCast(dlg.SelectedAccountData, Radios.SmartLinkAccount)
+                                                     End If
+                                                 End Sub)
+                                             If cancelled Then
+                                                 Tracing.TraceLine("ShowAccountSelector: user cancelled", TraceLevel.Info)
+                                                 Return (False, Nothing, False)
+                                             End If
+                                             If newLogin Then
+                                                 Tracing.TraceLine("ShowAccountSelector: user requested new login", TraceLevel.Info)
+                                                 Return (True, Nothing, True)
+                                             End If
+                                             Tracing.TraceLine($"ShowAccountSelector: user selected '{selectedAccount?.FriendlyName}' ({selectedAccount?.Email})", TraceLevel.Info)
+                                             Return (False, selectedAccount, True)
                                          End Function
 
         ' Load auto-connect config for this operator
@@ -1835,7 +1886,8 @@ Module globals
                                   Dim frm = New ConnectingForm(msg)
                                   frm.Show()
                                   Return Sub() frm.CloseForm()
-                              End Function
+                              End Function,
+            .ShowSmartLinkAccountManager = Sub() WpfMainWindow.ShowSmartLinkAccountManager()
         }
 
         ' Show the WPF selector dialog
