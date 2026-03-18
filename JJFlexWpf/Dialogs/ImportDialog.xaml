@@ -29,8 +29,10 @@
 
         <!-- Buttons -->
         <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
-            <Button Content="Import" MinWidth="75" Margin="0,0,8,0" IsDefault="True"
-                    AutomationProperties.Name="Import" Click="ImportButton_Click"/>
+            <Button Content="_Import" MinWidth="75" Margin="0,0,8,0" IsDefault="True"
+                    AutomationProperties.Name="Import"
+                    AutomationProperties.AcceleratorKey="Alt+I"
+                    Click="ImportButton_Click"/>
             <Button Content="_Cancel" AutomationProperties.AcceleratorKey="Alt+C" MinWidth="75" IsCancel="True"
                     AutomationProperties.Name="Cancel" Click="CancelButton_Click"/>
         </StackPanel>

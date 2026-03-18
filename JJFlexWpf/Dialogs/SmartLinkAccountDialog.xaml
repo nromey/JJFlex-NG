@@ -32,20 +32,24 @@
 
         <!-- Action buttons -->
         <StackPanel Grid.Row="1" Grid.Column="1" VerticalAlignment="Top">
-            <Button x:Name="ConnectButton" Content="Connect" MinWidth="90" Height="28" Margin="0,0,0,8"
+            <Button x:Name="ConnectButton" Content="Co_nnect" MinWidth="90" Height="28" Margin="0,0,0,8"
                     IsEnabled="False"
-                    AutomationProperties.Name="Connect using selected account"
+                    AutomationProperties.Name="Connect"
+                    AutomationProperties.AcceleratorKey="Alt+N"
                     Click="ConnectButton_Click"/>
-            <Button Content="New Login" MinWidth="90" Height="28" Margin="0,0,0,8"
-                    AutomationProperties.Name="Log in with a new SmartLink account"
+            <Button Content="New _Login" MinWidth="90" Height="28" Margin="0,0,0,8"
+                    AutomationProperties.Name="New Login"
+                    AutomationProperties.AcceleratorKey="Alt+L"
                     Click="NewLoginButton_Click"/>
-            <Button x:Name="RenameButton" Content="Rename" MinWidth="90" Height="28" Margin="0,0,0,8"
+            <Button x:Name="RenameButton" Content="_Rename" MinWidth="90" Height="28" Margin="0,0,0,8"
                     IsEnabled="False"
-                    AutomationProperties.Name="Rename selected account"
+                    AutomationProperties.Name="Rename"
+                    AutomationProperties.AcceleratorKey="Alt+R"
                     Click="RenameButton_Click"/>
-            <Button x:Name="DeleteButton" Content="Delete" MinWidth="90" Height="28" Margin="0,0,0,8"
+            <Button x:Name="DeleteButton" Content="_Delete" MinWidth="90" Height="28" Margin="0,0,0,8"
                     IsEnabled="False"
-                    AutomationProperties.Name="Delete selected account"
+                    AutomationProperties.Name="Delete"
+                    AutomationProperties.AcceleratorKey="Alt+D"
                     Click="DeleteButton_Click"/>
             <Button Content="_Cancel" AutomationProperties.AcceleratorKey="Alt+C" MinWidth="90" Height="28" IsCancel="True"
                     Margin="0,20,0,0"

@@ -279,6 +279,13 @@ Alt+C → W1ABC → Alt+N → Bob → Alt+Q → Space (uncheck QRZ) → Ctrl+W �
 - [ ] Earcon rename: `ConfirmTone()`/`confirm.wav` → `ClunkTone()`/`clunk.wav` (do during Sprint 24 Phase 8A)
 - [ ] Settings UI for sound mode selection in Audio tab
 
+### Backlog — FM / Repeater Support
+
+- [ ] PL/CTCSS tone decode — FFT on sub-audible 67-254 Hz range in RX audio, auto-detect and speak the tone. Blind operators can't see it on a spectrum display.
+- [ ] PL/CTCSS tone encode for TX — needed for 10m and 6m FM repeaters. Check if FlexLib already exposes tone properties in slice settings.
+- [ ] Pairs well with waterfall sprint — FFT infrastructure overlaps
+- [ ] SmartSDR already handles repeater offsets but may not expose PL tone settings — investigate
+
 ### Backlog — Virtual Keyer / CW Practice Mode
 
 - [ ] Built-in virtual keyer: straight key (spacebar), iambic paddles (shift keys), and bug simulator with realistic mechanical spring character

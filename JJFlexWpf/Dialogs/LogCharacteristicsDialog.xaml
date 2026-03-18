@@ -9,9 +9,10 @@
         <DockPanel Margin="0,0,0,8">
             <Label Content="Log File:" DockPanel.Dock="Left" Width="80"
                    VerticalAlignment="Center" />
-            <Button Content="Browse" DockPanel.Dock="Right" MinWidth="60" Height="24"
+            <Button Content="_Browse" DockPanel.Dock="Right" MinWidth="60" Height="24"
                     Margin="8,0,0,0" Click="BrowseButton_Click"
-                    AutomationProperties.Name="Browse for log file" />
+                    AutomationProperties.Name="Browse"
+                    AutomationProperties.AcceleratorKey="Alt+B" />
             <TextBox x:Name="NameBox"
                      AutomationProperties.Name="Log file name"
                      LostFocus="NameBox_LostFocus"

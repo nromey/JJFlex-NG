@@ -143,9 +143,10 @@
                         <TextBox x:Name="QrzLogbookApiKeyBox" Grid.Column="1" Style="{StaticResource DialogTextBox}"
                                  Margin="0,4,8,4"
                                  AutomationProperties.Name="QRZ Logbook API key"/>
-                        <Button x:Name="QrzLogbookValidateButton" Grid.Column="2" Content="Validate"
+                        <Button x:Name="QrzLogbookValidateButton" Grid.Column="2" Content="_Validate"
                                 MinWidth="70" Height="28"
-                                AutomationProperties.Name="Validate QRZ Logbook API key"
+                                AutomationProperties.Name="Validate"
+                                AutomationProperties.AcceleratorKey="Alt+V"
                                 Click="QrzLogbookValidateButton_Click"/>
                     </Grid>
                 </StackPanel>
@@ -155,9 +156,10 @@
             <CheckBox x:Name="DefaultBox" Content="Default operator" Margin="0,8,0,0"
                       AutomationProperties.Name="Set as default operator"/>
 
-            <Button Content="Log Settings..." Margin="0,8,0,0" HorizontalAlignment="Left"
+            <Button Content="Log _Settings..." Margin="0,8,0,0" HorizontalAlignment="Left"
                     MinWidth="110" Height="28"
-                    AutomationProperties.Name="Open log settings"
+                    AutomationProperties.Name="Log Settings"
+                    AutomationProperties.AcceleratorKey="Alt+S"
                     Click="LogButton_Click"/>
 
             <!-- Buttons -->

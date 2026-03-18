@@ -219,7 +219,8 @@ namespace JJFlexWpf
 
         /// <summary>
         /// Extract the access key letter from underscore-prefixed text (e.g. "_OK" → "Alt+O")
-        /// and set AutomationProperties.AccessKey so screen readers announce it.
+        /// and set both AccessKey and AcceleratorKey for screen reader compatibility.
+        /// NVDA reads AcceleratorKey, JAWS reads the underscore access key from Content.
         /// </summary>
         private static void SetAccessKeyProperty(System.Windows.UIElement element, string text)
         {
@@ -227,7 +228,9 @@ namespace JJFlexWpf
             if (idx >= 0 && idx < text.Length - 1)
             {
                 char key = char.ToUpper(text[idx + 1]);
-                AutomationProperties.SetAccessKey(element, $"Alt+{key}");
+                string combo = $"Alt+{key}";
+                AutomationProperties.SetAccessKey(element, combo);
+                AutomationProperties.SetAcceleratorKey(element, combo);
             }
         }
 

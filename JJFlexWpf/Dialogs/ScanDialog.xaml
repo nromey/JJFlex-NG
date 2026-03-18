@@ -46,27 +46,37 @@
 
         <!-- Scan Control Buttons -->
         <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-            <Button Content="Start Scan" MinWidth="80" Margin="0,0,8,0"
-                    AutomationProperties.Name="Start Scan" Click="StartButton_Click"/>
+            <Button Content="S_tart Scan" MinWidth="80" Margin="0,0,8,0"
+                    AutomationProperties.Name="Start Scan"
+                    AutomationProperties.AcceleratorKey="Alt+T"
+                    Click="StartButton_Click"/>
             <Button Content="_Cancel" AutomationProperties.AcceleratorKey="Alt+C" MinWidth="75" Margin="0,0,8,0" IsCancel="True"
                     AutomationProperties.Name="Cancel" Click="CancelButton_Click"/>
-            <Button Content="Clear" MinWidth="75"
-                    AutomationProperties.Name="Clear all fields" Click="ClearButton_Click"/>
+            <Button Content="C_lear" MinWidth="75"
+                    AutomationProperties.Name="Clear"
+                    AutomationProperties.AcceleratorKey="Alt+L"
+                    Click="ClearButton_Click"/>
         </StackPanel>
 
         <!-- Saved Scans -->
         <GroupBox Header="Saved Scans" AutomationProperties.Name="Saved Scans">
             <StackPanel Orientation="Horizontal" Margin="4">
-                <Button Content="Use Saved" MinWidth="80" Margin="0,0,8,0"
-                        AutomationProperties.Name="Load a saved scan" Click="UseSavedButton_Click"/>
+                <Button Content="_Use Saved" MinWidth="80" Margin="0,0,8,0"
+                        AutomationProperties.Name="Use Saved"
+                        AutomationProperties.AcceleratorKey="Alt+U"
+                        Click="UseSavedButton_Click"/>
                 <Button Content="_Save" AutomationProperties.AcceleratorKey="Alt+S" MinWidth="60" Margin="0,0,8,0"
                         AutomationProperties.Name="Save current scan settings" Click="SaveButton_Click"/>
-                <Button x:Name="ReplaceButton" Content="Replace" MinWidth="65" Margin="0,0,8,0"
+                <Button x:Name="ReplaceButton" Content="_Replace" MinWidth="65" Margin="0,0,8,0"
                         IsEnabled="False"
-                        AutomationProperties.Name="Replace saved scan" Click="ReplaceButton_Click"/>
-                <Button x:Name="RemoveButton" Content="Remove" MinWidth="65"
+                        AutomationProperties.Name="Replace"
+                        AutomationProperties.AcceleratorKey="Alt+R"
+                        Click="ReplaceButton_Click"/>
+                <Button x:Name="RemoveButton" Content="Re_move" MinWidth="65"
                         IsEnabled="False"
-                        AutomationProperties.Name="Remove saved scan" Click="RemoveButton_Click"/>
+                        AutomationProperties.Name="Remove"
+                        AutomationProperties.AcceleratorKey="Alt+M"
+                        Click="RemoveButton_Click"/>
             </StackPanel>
         </GroupBox>
     </StackPanel>

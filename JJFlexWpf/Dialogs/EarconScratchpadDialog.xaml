@@ -66,27 +66,41 @@
         </Grid>
 
         <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
-            <Button x:Name="PlayToneButton" Content="Play Tone" Width="100" Height="28" Margin="0,0,8,0"
-                    AutomationProperties.Name="Play tone" Click="PlayTone_Click"/>
-            <Button x:Name="PlaySweepButton" Content="Play Sweep" Width="100" Height="28" Margin="0,0,8,0"
-                    AutomationProperties.Name="Play sweep from start to end frequency" Click="PlaySweep_Click"/>
-            <Button x:Name="PlaySlideButton" Content="Play Slide" Width="100" Height="28" Margin="0,0,8,0"
-                    AutomationProperties.Name="Play slide sound with current pan" Click="PlaySlide_Click"/>
+            <Button x:Name="PlayToneButton" Content="Play _Tone" Width="100" Height="28" Margin="0,0,8,0"
+                    AutomationProperties.Name="Play Tone"
+                    AutomationProperties.AcceleratorKey="Alt+T"
+                    Click="PlayTone_Click"/>
+            <Button x:Name="PlaySweepButton" Content="Play S_weep" Width="100" Height="28" Margin="0,0,8,0"
+                    AutomationProperties.Name="Play Sweep"
+                    AutomationProperties.AcceleratorKey="Alt+W"
+                    Click="PlaySweep_Click"/>
+            <Button x:Name="PlaySlideButton" Content="Play S_lide" Width="100" Height="28" Margin="0,0,8,0"
+                    AutomationProperties.Name="Play Slide"
+                    AutomationProperties.AcceleratorKey="Alt+L"
+                    Click="PlaySlide_Click"/>
         </StackPanel>
 
         <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
-            <Button Content="Play Zip" Width="100" Height="28" Margin="0,0,8,0"
-                    AutomationProperties.Name="Play zip sound with current pan" Click="PlayZip_Click"/>
-            <Button Content="Play Zip Reversed" Width="100" Height="28" Margin="0,0,8,0"
-                    AutomationProperties.Name="Play zip sound reversed with current pan" Click="PlayZipReversed_Click"/>
+            <Button Content="Play _Zip" Width="100" Height="28" Margin="0,0,8,0"
+                    AutomationProperties.Name="Play Zip"
+                    AutomationProperties.AcceleratorKey="Alt+Z"
+                    Click="PlayZip_Click"/>
+            <Button Content="Play Zip _Reversed" Width="100" Height="28" Margin="0,0,8,0"
+                    AutomationProperties.Name="Play Zip Reversed"
+                    AutomationProperties.AcceleratorKey="Alt+R"
+                    Click="PlayZipReversed_Click"/>
         </StackPanel>
 
         <TextBlock Text="Filter Sounds" FontWeight="Bold" Margin="0,12,0,4" />
         <StackPanel Orientation="Horizontal" Margin="0,0,0,0">
-            <Button Content="Squeeze" Width="100" Height="28" Margin="0,0,8,0"
-                    AutomationProperties.Name="Play filter squeeze sound" Click="PlaySqueeze_Click"/>
-            <Button Content="Stretch" Width="100" Height="28" Margin="0,0,8,0"
-                    AutomationProperties.Name="Play filter stretch sound" Click="PlayStretch_Click"/>
+            <Button Content="S_queeze" Width="100" Height="28" Margin="0,0,8,0"
+                    AutomationProperties.Name="Squeeze"
+                    AutomationProperties.AcceleratorKey="Alt+Q"
+                    Click="PlaySqueeze_Click"/>
+            <Button Content="_Stretch" Width="100" Height="28" Margin="0,0,8,0"
+                    AutomationProperties.Name="Stretch"
+                    AutomationProperties.AcceleratorKey="Alt+S"
+                    Click="PlayStretch_Click"/>
         </StackPanel>
 
         <TextBlock x:Name="StatusText" Margin="0,12,0,0" TextWrapping="Wrap"

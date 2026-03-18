@@ -29,11 +29,13 @@
 
         <!-- Phase Presets -->
         <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-            <Button Content="90 degrees" MinWidth="60" Margin="0,0,8,0"
-                    AutomationProperties.Name="Set phase to 90 degrees"
+            <Button Content="_90 degrees" MinWidth="60" Margin="0,0,8,0"
+                    AutomationProperties.Name="90 degrees"
+                    AutomationProperties.AcceleratorKey="Alt+9"
                     Click="Preset90Button_Click"/>
-            <Button Content="180 degrees" MinWidth="60"
-                    AutomationProperties.Name="Set phase to 180 degrees"
+            <Button Content="_180 degrees" MinWidth="60"
+                    AutomationProperties.Name="180 degrees"
+                    AutomationProperties.AcceleratorKey="Alt+1"
                     Click="Preset180Button_Click"/>
         </StackPanel>
 

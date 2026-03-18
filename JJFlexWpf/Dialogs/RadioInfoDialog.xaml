@@ -9,8 +9,9 @@
     <DockPanel Margin="12">
         <!-- Done button at bottom -->
         <StackPanel DockPanel.Dock="Bottom" Style="{StaticResource ButtonPanel}" Margin="0,8,0,0">
-            <Button Content="Done" Style="{StaticResource OkButton}"
+            <Button Content="_Done" Style="{StaticResource OkButton}"
                     AutomationProperties.Name="Done"
+                    AutomationProperties.AcceleratorKey="Alt+D"
                     Click="DoneButton_Click"/>
         </StackPanel>
 
@@ -75,9 +76,10 @@
             <!-- Feature Availability tab -->
             <TabItem Header="Feature Availability" AutomationProperties.Name="Feature availability">
                 <DockPanel Margin="8">
-                    <Button DockPanel.Dock="Bottom" Content="Refresh License" MinWidth="120" Height="28"
+                    <Button DockPanel.Dock="Bottom" Content="_Refresh License" MinWidth="120" Height="28"
                             HorizontalAlignment="Left" Margin="0,8,0,0"
-                            AutomationProperties.Name="Refresh license status"
+                            AutomationProperties.Name="Refresh License"
+                            AutomationProperties.AcceleratorKey="Alt+R"
                             Click="RefreshLicenseButton_Click"/>
                     <TextBox x:Name="FeatureAvailabilityBox" IsReadOnly="True"
                              TextWrapping="Wrap" AcceptsReturn="True"

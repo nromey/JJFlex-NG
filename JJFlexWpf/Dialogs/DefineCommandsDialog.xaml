@@ -41,11 +41,13 @@
                         AutomationProperties.Name="OK" Click="OKButton_Click"/>
                 <Button Content="_Cancel" AutomationProperties.AcceleratorKey="Alt+C" MinWidth="75" Margin="0,0,20,0" IsCancel="True"
                         AutomationProperties.Name="Cancel" Click="CancelButton_Click"/>
-                <Button x:Name="ResetButton" Content="Reset Selected" MinWidth="100" Margin="0,0,8,0"
-                        AutomationProperties.Name="Reset selected hotkey to default"
+                <Button x:Name="ResetButton" Content="_Reset Selected" MinWidth="100" Margin="0,0,8,0"
+                        AutomationProperties.Name="Reset Selected"
+                        AutomationProperties.AcceleratorKey="Alt+R"
                         Click="ResetButton_Click"/>
-                <Button x:Name="ResetAllButton" Content="Reset All in Tab" MinWidth="100"
-                        AutomationProperties.Name="Reset all hotkeys in current tab to defaults"
+                <Button x:Name="ResetAllButton" Content="Rese_t All in Tab" MinWidth="100"
+                        AutomationProperties.Name="Reset All in Tab"
+                        AutomationProperties.AcceleratorKey="Alt+T"
                         Click="ResetAllButton_Click"/>
             </StackPanel>
         </StackPanel>

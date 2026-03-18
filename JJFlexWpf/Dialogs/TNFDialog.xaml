@@ -46,14 +46,18 @@
 
         <!-- Buttons -->
         <StackPanel Orientation="Horizontal">
-            <Button Content="Add" MinWidth="60" Margin="0,0,8,0"
-                    AutomationProperties.Name="Add tracking notch filter"
+            <Button Content="_Add" MinWidth="60" Margin="0,0,8,0"
+                    AutomationProperties.Name="Add"
+                    AutomationProperties.AcceleratorKey="Alt+A"
                     Click="AddButton_Click"/>
-            <Button Content="Remove" MinWidth="60" Margin="0,0,8,0"
-                    AutomationProperties.Name="Remove selected tracking notch filter"
+            <Button Content="_Remove" MinWidth="60" Margin="0,0,8,0"
+                    AutomationProperties.Name="Remove"
+                    AutomationProperties.AcceleratorKey="Alt+R"
                     Click="RemoveButton_Click"/>
-            <Button Content="Done" MinWidth="75" IsCancel="True"
-                    AutomationProperties.Name="Done" Click="DoneButton_Click"/>
+            <Button Content="_Done" MinWidth="75" IsCancel="True"
+                    AutomationProperties.Name="Done"
+                    AutomationProperties.AcceleratorKey="Alt+D"
+                    Click="DoneButton_Click"/>
         </StackPanel>
     </StackPanel>
 </local:JJFlexDialog>

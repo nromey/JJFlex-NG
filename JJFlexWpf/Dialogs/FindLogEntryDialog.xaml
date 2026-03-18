@@ -10,9 +10,11 @@
     <DockPanel Margin="8">
         <TextBlock DockPanel.Dock="Top" Text="Found Items" FontWeight="Bold" Margin="0,0,0,4"/>
 
-        <Button x:Name="DoneButton" DockPanel.Dock="Bottom" Content="Done" MinWidth="75"
+        <Button x:Name="DoneButton" DockPanel.Dock="Bottom" Content="_Done" MinWidth="75"
                 HorizontalAlignment="Left" Margin="0,8,0,0" IsCancel="True"
-                AutomationProperties.Name="Done" Click="DoneButton_Click"/>
+                AutomationProperties.Name="Done"
+                AutomationProperties.AcceleratorKey="Alt+D"
+                Click="DoneButton_Click"/>
 
         <ListBox x:Name="ItemList"
                  AutomationProperties.Name="Found items"

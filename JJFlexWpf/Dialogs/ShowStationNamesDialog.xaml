@@ -10,9 +10,10 @@
         <ListBox x:Name="StationsList" Height="160"
                  AutomationProperties.Name="Stations" />
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
-            <Button Content="Done" MinWidth="80" Height="28"
+            <Button Content="_Done" MinWidth="80" Height="28"
                     IsDefault="True" IsCancel="True" Click="DoneButton_Click"
-                    AutomationProperties.Name="Done" />
+                    AutomationProperties.Name="Done"
+                    AutomationProperties.AcceleratorKey="Alt+D" />
         </StackPanel>
     </StackPanel>
 </local:JJFlexDialog>

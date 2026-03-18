@@ -8,15 +8,18 @@
     <DockPanel Margin="12">
         <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal"
                     HorizontalAlignment="Right" Margin="0,8,0,0">
-            <Button Content="Add" MinWidth="70" Height="28" Margin="0,0,8,0"
+            <Button Content="_Add" MinWidth="70" Height="28" Margin="0,0,8,0"
                     Click="AddButton_Click"
-                    AutomationProperties.Name="Add" />
-            <Button Content="Update" MinWidth="70" Height="28" Margin="0,0,8,0"
+                    AutomationProperties.Name="Add"
+                    AutomationProperties.AcceleratorKey="Alt+A" />
+            <Button Content="_Update" MinWidth="70" Height="28" Margin="0,0,8,0"
                     Click="UpdateButton_Click"
-                    AutomationProperties.Name="Update" />
-            <Button Content="Delete" MinWidth="70" Height="28" Margin="0,0,8,0"
+                    AutomationProperties.Name="Update"
+                    AutomationProperties.AcceleratorKey="Alt+U" />
+            <Button Content="_Delete" MinWidth="70" Height="28" Margin="0,0,8,0"
                     Click="DeleteButton_Click"
-                    AutomationProperties.Name="Delete" />
+                    AutomationProperties.Name="Delete"
+                    AutomationProperties.AcceleratorKey="Alt+D" />
             <Button Content="_Cancel" AutomationProperties.AcceleratorKey="Alt+C" MinWidth="70" Height="28"
                     IsCancel="True"
                     AutomationProperties.Name="Cancel" />

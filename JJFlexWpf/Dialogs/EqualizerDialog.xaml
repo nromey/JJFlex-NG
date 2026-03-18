@@ -69,14 +69,17 @@
 
         <!-- Buttons -->
         <StackPanel Orientation="Horizontal">
-            <Button Content="Restore" MinWidth="75" Margin="0,0,8,0"
-                    AutomationProperties.Name="Restore original values"
+            <Button Content="_Restore" MinWidth="75" Margin="0,0,8,0"
+                    AutomationProperties.Name="Restore"
+                    AutomationProperties.AcceleratorKey="Alt+R"
                     Click="RestoreButton_Click"/>
-            <Button Content="Clear" MinWidth="75" Margin="0,0,8,0"
-                    AutomationProperties.Name="Clear all bands to zero"
+            <Button Content="Cl_ear" MinWidth="75" Margin="0,0,8,0"
+                    AutomationProperties.Name="Clear"
+                    AutomationProperties.AcceleratorKey="Alt+E"
                     Click="ClearButton_Click"/>
-            <Button Content="Finished" MinWidth="75" Margin="0,0,8,0" IsDefault="True"
-                    AutomationProperties.Name="Accept changes and close"
+            <Button Content="_Finished" MinWidth="75" Margin="0,0,8,0" IsDefault="True"
+                    AutomationProperties.Name="Finished"
+                    AutomationProperties.AcceleratorKey="Alt+F"
                     Click="FinishedButton_Click"/>
             <Button Content="_Cancel" AutomationProperties.AcceleratorKey="Alt+C" MinWidth="75" IsCancel="True"
                     AutomationProperties.Name="Cancel changes"

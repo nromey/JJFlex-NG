@@ -20,11 +20,13 @@
 
         <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
             <Button Content="_Copy to Clipboard" MinWidth="130" Height="28" Margin="0,0,8,0"
-                    AutomationProperties.Name="Copy status to clipboard"
+                    AutomationProperties.Name="Copy to Clipboard"
+                    AutomationProperties.AcceleratorKey="Alt+C"
                     Click="CopyButton_Click"/>
             <Button Content="C_lose" MinWidth="80" Height="28"
                     IsDefault="True" IsCancel="True"
                     AutomationProperties.Name="Close"
+                    AutomationProperties.AcceleratorKey="Alt+L"
                     Click="CloseButton_Click"/>
         </StackPanel>
     </Grid>

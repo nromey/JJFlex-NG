@@ -10,19 +10,23 @@
         <!-- Button panel at bottom -->
         <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal"
                     HorizontalAlignment="Right" Margin="0,10,0,0">
-            <Button Content="Read Documentation" MinWidth="130" Height="28" Margin="0,0,8,0"
+            <Button Content="_Read Documentation" MinWidth="130" Height="28" Margin="0,0,8,0"
                     AutomationProperties.Name="Read Documentation"
+                    AutomationProperties.AcceleratorKey="Alt+R"
                     Click="DocButton_Click"/>
-            <Button Content="Import Settings" MinWidth="110" Height="28" Margin="0,0,8,0"
+            <Button Content="_Import Settings" MinWidth="110" Height="28" Margin="0,0,8,0"
                     AutomationProperties.Name="Import Settings"
+                    AutomationProperties.AcceleratorKey="Alt+I"
                     Click="ImportButton_Click"/>
-            <Button Content="Continue" MinWidth="80" Height="28" Margin="0,0,8,0"
+            <Button Content="_Continue" MinWidth="80" Height="28" Margin="0,0,8,0"
                     IsDefault="True"
-                    AutomationProperties.Name="Continue to configuration"
+                    AutomationProperties.Name="Continue"
+                    AutomationProperties.AcceleratorKey="Alt+C"
                     Click="ConfigButton_Click"/>
-            <Button Content="Quit" MinWidth="80" Height="28"
+            <Button Content="_Quit" MinWidth="80" Height="28"
                     IsCancel="True"
-                    AutomationProperties.Name="Quit JJ Flexible Radio Access"
+                    AutomationProperties.Name="Quit"
+                    AutomationProperties.AcceleratorKey="Alt+Q"
                     Click="QuitButton_Click"/>
         </StackPanel>
 
