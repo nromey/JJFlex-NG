@@ -85,6 +85,15 @@ namespace JJFlexWpf
         /// <summary>Auto-disable RNNoise in CW/digital modes.</summary>
         public bool RNNoiseAutoDisableNonVoice { get; set; } = true;
 
+        /// <summary>Whether JJ Trained NR (spectral subtraction) is enabled.</summary>
+        public bool SpectralSubEnabled { get; set; }
+
+        /// <summary>Spectral subtraction strength 0.0-1.0.</summary>
+        public float SpectralSubStrength { get; set; } = 0.7f;
+
+        /// <summary>Noise sampling duration in seconds (1-5).</summary>
+        public int SpectralSubSampleDuration { get; set; } = 2;
+
         /// <summary>Whether braille status line is enabled.</summary>
         public bool BrailleEnabled { get; set; }
 
