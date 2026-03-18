@@ -38,6 +38,7 @@ public partial class ScreenFieldsPanel : UserControl
 
     private CheckBox _neuralNrCheck = null!;
     private CheckBox _spectralNrCheck = null!;
+    private CheckBox _nrfCheck = null!;
     private CheckBox _legacyNrCheck = null!;
     private ValueFieldControl _nrLevelControl = null!;
     private CheckBox _nbCheck = null!;
@@ -134,6 +135,7 @@ public partial class ScreenFieldsPanel : UserControl
         bool advancedNrAvailable = rig.NeuralNRHardwareSupported;
         _neuralNrCheck.Visibility = advancedNrAvailable ? Visibility.Visible : Visibility.Collapsed;
         _spectralNrCheck.Visibility = advancedNrAvailable ? Visibility.Visible : Visibility.Collapsed;
+        _nrfCheck.Visibility = advancedNrAvailable ? Visibility.Visible : Visibility.Collapsed;
         // Legacy NR is always available — no license required
         _nrLevelControl.Visibility = Visibility.Collapsed; // shown only when Legacy NR is on
 
@@ -195,6 +197,11 @@ public partial class ScreenFieldsPanel : UserControl
         _spectralNrCheck.Checked += (s, e) => ToggleRig("Spectral NR", v => { if (_rig != null) _rig.SpectralNoiseReduction = v; }, true);
         _spectralNrCheck.Unchecked += (s, e) => ToggleRig("Spectral NR", v => { if (_rig != null) _rig.SpectralNoiseReduction = v; }, false);
         DspContent.Children.Add(_spectralNrCheck);
+
+        _nrfCheck = MakeToggle("NR Filter (NRF)");
+        _nrfCheck.Checked += (s, e) => ToggleRig("NR Filter", v => { if (_rig != null) _rig.NoiseReductionFilter = v; }, true);
+        _nrfCheck.Unchecked += (s, e) => ToggleRig("NR Filter", v => { if (_rig != null) _rig.NoiseReductionFilter = v; }, false);
+        DspContent.Children.Add(_nrfCheck);
 
         _legacyNrCheck = MakeToggle("Legacy NR");
         _legacyNrCheck.Checked += (s, e) =>
@@ -667,6 +674,7 @@ public partial class ScreenFieldsPanel : UserControl
         {
             _neuralNrCheck.IsChecked = _rig.NeuralNoiseReduction == FlexBase.OffOnValues.on;
             _spectralNrCheck.IsChecked = _rig.SpectralNoiseReduction == FlexBase.OffOnValues.on;
+            _nrfCheck.IsChecked = _rig.NoiseReductionFilter == FlexBase.OffOnValues.on;
 
             bool legacyNrOn = _rig.NoiseReductionLegacy == FlexBase.OffOnValues.on;
             _legacyNrCheck.IsChecked = legacyNrOn;

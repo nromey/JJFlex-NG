@@ -1787,6 +1787,18 @@ public class KeyCommands
                     ToggleLeaderDSP("Spectral NR",
                         () => rig.SpectralNoiseReduction, v => rig.SpectralNoiseReduction = v);
                 break;
+            case Keys.N | Keys.Shift:
+                if (rig == null)
+                    LeaderNoRadio();
+                else if (!rig.NeuralNRHardwareSupported)
+                {
+                    EarconPlayer.LeaderInvalidTone();
+                    Radios.ScreenReaderOutput.Speak("NR Filter not available on this radio", Radios.VerbosityLevel.Critical);
+                }
+                else
+                    ToggleLeaderDSP("NR Filter",
+                        () => rig.NoiseReductionFilter, v => rig.NoiseReductionFilter = v);
+                break;
             case Keys.A:
                 if (rig == null) LeaderNoRadio();
                 else ToggleLeaderDSP("Auto Notch",

@@ -325,6 +325,9 @@ public class NativeMenuBar : IDisposable
             AddChecked(nrSub, "Spectral NR (NRS)\tCtrl+J, S", () =>
                 ToggleDSP("Spectral NR", () => Rig.SpectralNoiseReduction, v => Rig.SpectralNoiseReduction = v),
                 () => Rig?.SpectralNoiseReduction == FlexBase.OffOnValues.on);
+            AddChecked(nrSub, "NR Filter (NRF)\tCtrl+J, Shift+N", () =>
+                ToggleDSP("NR Filter", () => Rig.NoiseReductionFilter, v => Rig.NoiseReductionFilter = v),
+                () => Rig?.NoiseReductionFilter == FlexBase.OffOnValues.on);
         }
         // Legacy NR always available
         AddChecked(nrSub, "Legacy NR", () =>
