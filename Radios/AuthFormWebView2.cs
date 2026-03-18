@@ -75,6 +75,12 @@ namespace Radios
         public bool ForceNewLogin { get; set; }
 
         /// <summary>
+        /// Account email for per-account WebView2 cookie storage.
+        /// Each account gets its own browser profile so sessions don't cross.
+        /// </summary>
+        public string AccountEmail { get; set; } = "";
+
+        /// <summary>
         /// When true, the form starts hidden and only shows if Auth0 requires user interaction
         /// (i.e., doesn't auto-redirect within a short period). Used for token refreshes
         /// where the user has an existing session — prevents focus theft.
@@ -185,10 +191,11 @@ namespace Radios
                     urlLabel.Text = "Authenticating with SmartLink...";
                 }
 
-                // Initialize WebView2 with a user data folder in AppData
+                // Initialize WebView2 — per-account data folder for isolated cookie storage
+                string profileFolder = string.IsNullOrEmpty(AccountEmail) ? "default" : AccountEmail;
                 string userDataFolder = System.IO.Path.Combine(
                     Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                    "JJFlexRadio", "WebView2");
+                    "JJFlexRadio", "WebView2", profileFolder);
 
                 // Async initialization keeps UI thread responsive for screen readers
                 var env = await CoreWebView2Environment.CreateAsync(null, userDataFolder, null);

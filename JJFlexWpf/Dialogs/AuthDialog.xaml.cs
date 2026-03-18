@@ -52,6 +52,12 @@ namespace JJFlexWpf.Dialogs
         /// <summary>When true, forces Auth0 to show a fresh login page.</summary>
         public bool ForceNewLogin { get; set; }
 
+        /// <summary>
+        /// Account email for per-account WebView2 cookie storage.
+        /// Each account gets its own browser profile so sessions don't cross.
+        /// </summary>
+        public string AccountEmail { get; set; } = "";
+
         private readonly Action<string, int>? _trace;
         private readonly Action<string, bool>? _screenReaderSpeak;
 
@@ -106,10 +112,11 @@ namespace JJFlexWpf.Dialogs
                 string uriString = BuildAuth0Url();
                 _trace?.Invoke("AuthDialog URI: " + uriString, 1);
 
-                // Initialize WebView2
+                // Initialize WebView2 — per-account data folder for isolated cookie storage
+                string profileFolder = string.IsNullOrEmpty(AccountEmail) ? "default" : AccountEmail;
                 string userDataFolder = System.IO.Path.Combine(
                     Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                    "JJFlexRadio", "WebView2");
+                    "JJFlexRadio", "WebView2", profileFolder);
 
                 var env = await CoreWebView2Environment.CreateAsync(null, userDataFolder, null);
                 await WebView.EnsureCoreWebView2Async(env);
