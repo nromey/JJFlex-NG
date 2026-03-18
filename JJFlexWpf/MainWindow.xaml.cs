@@ -2554,7 +2554,16 @@ public partial class MainWindow : UserControl
                 }
             }
 
-            // User selected an existing account — done
+            // User selected an existing account — save as default
+            if (dialog.SelectedAccountData is Radios.SmartLinkAccount selectedAcct && OpenParms != null)
+            {
+                var configDir = OpenParms.ConfigDirectory;
+                var opName = OpenParms.GetOperatorName();
+                var autoConfig = Radios.AutoConnectConfig.Load(configDir, opName);
+                autoConfig.SmartLinkAccountEmail = selectedAcct.Email;
+                autoConfig.Save(configDir, opName);
+                Radios.ScreenReaderOutput.Speak($"Default account set to {selectedAcct.FriendlyName}", VerbosityLevel.Terse, true);
+            }
             break;
         }
     }
