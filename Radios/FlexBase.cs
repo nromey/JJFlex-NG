@@ -1311,14 +1311,11 @@ namespace Radios
                     return PerformNewLogin(forceNewLogin: true);
                 }
 
-                // After refresh, verify we got a fresh JWT
-                isJwtExpired = SmartLinkAccountManager.IsJwtExpired(account.IdToken);
-                Tracing.TraceLine($"GetJwtFromSavedAccount: after refresh, isJwtExpired={isJwtExpired} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
-                if (isJwtExpired)
-                {
-                    Tracing.TraceLine($"GetJwtFromSavedAccount: JWT still expired after refresh, forcing new login for {account.Email} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
-                    return PerformNewLogin(forceNewLogin: true);
-                }
+                // Auth0's frtest tenant doesn't return a new id_token on refresh.
+                // But a successful refresh means the session is valid (got fresh access_token).
+                // The saved id_token's exp claim will look old, but SmartLink accepts it
+                // when paired with the refreshed session. Don't re-check isJwtExpired here.
+                Tracing.TraceLine($"GetJwtFromSavedAccount: refresh succeeded, session valid until {account.ExpiresAt} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
             }
 
             // Mark account as used

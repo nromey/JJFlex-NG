@@ -1320,8 +1320,8 @@ public partial class MainWindow : UserControl
             // Slice indicator — shows current active slice number
             FreqOut.Write("Slice", RigControl.ActiveSliceLetter);
 
-            // Dynamic label for SliceOps — "Slice A Operations" etc.
-            FreqOut.SetFieldLabel("SliceOps", $"Slice {RigControl.ActiveSliceLetter} Operations");
+            // Dynamic label for SliceOps — "Slice A Operations: Volume" etc.
+            FreqOut.SetFieldLabel("SliceOps", $"Slice {RigControl.ActiveSliceLetter} Operations: Volume");
 
             // Mute — current active slice mute state (GetVFOAudio true = audio on = not muted)
             FreqOut.Write("Mute", RigControl.GetVFOAudio(RigControl.RXVFO) ? " " : "M");
