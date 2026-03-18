@@ -706,6 +706,15 @@ Module globals
         }
         Commands = New JJFlexWpf.KeyCommands(keyContext)
 
+        ' Wire SaveDefaultSmartLinkAccount early so menu → Manage SmartLink works
+        WpfMainWindow.SaveDefaultSmartLinkAccount = Sub(email)
+                                                         Dim opName = PersonalData.UniqueOpName(CurrentOp)
+                                                         Dim cfg = Radios.AutoConnectConfig.Load(BaseConfigDir, opName)
+                                                         cfg.SmartLinkAccountEmail = email
+                                                         cfg.Save(BaseConfigDir, opName)
+                                                         Tracing.TraceLine($"SaveDefaultSmartLinkAccount: saved {email}", TraceLevel.Info)
+                                                     End Sub
+
         ' Load operator and rig data.
         Operators = New PersonalData(BaseConfigDir)
         ' There must be a default operator!
