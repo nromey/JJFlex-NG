@@ -447,17 +447,24 @@ namespace Radios
 
             try
             {
-                // Re-authenticate and connect to SmartLink server.
-                // setupRemote() uses ShowAccountSelector delegate (must be wired by caller)
-                // to pick the SmartLink account, then gets JWT and connects to SmartLink.
+                // If WAN is already connected (from RemoteRadios() discovery), reuse it.
+                // SmartLink JWTs expire in ~1 min, so calling setupRemote again would
+                // require re-authentication. The existing WAN session is still valid.
                 apiInit();
-                bool remoteOk = setupRemote();
-                Tracing.TraceLine($"ReconnectRemote: setupRemote returned {remoteOk} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
-
-                if (!remoteOk)
+                bool wanAlreadyConnected = wan != null && wan.IsConnected;
+                if (wanAlreadyConnected)
                 {
-                    Tracing.TraceLine($"ReconnectRemote: setupRemote FAILED ({sw.ElapsedMilliseconds}ms)", TraceLevel.Error);
-                    return false;
+                    Tracing.TraceLine($"ReconnectRemote: WAN already connected, reusing session ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+                }
+                else
+                {
+                    bool remoteOk = setupRemote();
+                    Tracing.TraceLine($"ReconnectRemote: setupRemote returned {remoteOk} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+                    if (!remoteOk)
+                    {
+                        Tracing.TraceLine($"ReconnectRemote: setupRemote FAILED ({sw.ElapsedMilliseconds}ms)", TraceLevel.Error);
+                        return false;
+                    }
                 }
 
                 // Wait for the radio to appear in myRadioList.
@@ -1273,20 +1280,11 @@ namespace Radios
             bool isJwtExpired = SmartLinkAccountManager.IsJwtExpired(account.IdToken);
             Tracing.TraceLine($"GetJwtFromSavedAccount: needsRefresh={needsRefresh}, isJwtExpired={isJwtExpired}, hasRefreshToken={!string.IsNullOrEmpty(account.RefreshToken)}", TraceLevel.Info);
 
-            // SmartLink id_tokens have very short exp claims (~1 min) but the session
-            // is valid for 24 hours via refresh token. If the account-level token is still
-            // valid (ExpiresAt not reached), use the saved id_token even if exp looks short.
-            // Only force re-login when the account itself is expired AND jwt is expired.
-            if (isJwtExpired && needsRefresh)
+            // SmartLink enforces the JWT exp claim (~1 min). If expired, must get fresh token.
+            if (isJwtExpired)
             {
-                Tracing.TraceLine($"GetJwtFromSavedAccount: both JWT and account expired, forcing new login for {account.Email} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
-                return PerformNewLogin(forceNewLogin: true);
-            }
-            if (isJwtExpired && !needsRefresh)
-            {
-                // JWT exp claim is short-lived but account is still valid — use it anyway.
-                // SmartLink accepts these tokens for the full session duration.
-                Tracing.TraceLine($"GetJwtFromSavedAccount: JWT exp short but account valid until {account.ExpiresAt}, using saved token ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+                Tracing.TraceLine($"GetJwtFromSavedAccount: JWT expired, attempting refresh for {account.Email} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+                needsRefresh = true;
             }
 
             // Check if account-level token is expired and needs refresh
@@ -1313,9 +1311,14 @@ namespace Radios
                     return PerformNewLogin(forceNewLogin: true);
                 }
 
-                // After refresh, the JWT exp claim may still look short (~1 min) but
-                // the refresh succeeded so the session is valid. Accept it.
-                Tracing.TraceLine($"GetJwtFromSavedAccount: refresh succeeded, account valid until {account.ExpiresAt} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+                // After refresh, verify we got a fresh JWT
+                isJwtExpired = SmartLinkAccountManager.IsJwtExpired(account.IdToken);
+                Tracing.TraceLine($"GetJwtFromSavedAccount: after refresh, isJwtExpired={isJwtExpired} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+                if (isJwtExpired)
+                {
+                    Tracing.TraceLine($"GetJwtFromSavedAccount: JWT still expired after refresh, forcing new login for {account.Email} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+                    return PerformNewLogin(forceNewLogin: true);
+                }
             }
 
             // Mark account as used
