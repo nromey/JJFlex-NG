@@ -177,8 +177,9 @@ namespace Radios
         /// 6000 series radios lack the DSP hardware even if a license is purchased.
         /// </summary>
         /// <summary>
-        /// True when the radio hardware supports Neural NR (RNN).
+        /// True when the radio hardware supports advanced NR (NRF, NRS, RNN).
         /// Only available on 8000-series and Aurora — requires their DSP hardware.
+        /// 6000 series has Legacy NR and ANF only.
         /// </summary>
         public bool NeuralNRHardwareSupported
         {

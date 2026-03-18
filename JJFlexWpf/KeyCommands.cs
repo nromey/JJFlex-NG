@@ -1778,6 +1778,11 @@ public class KeyCommands
             case Keys.S:
                 if (rig == null)
                     LeaderNoRadio();
+                else if (!rig.NeuralNRHardwareSupported)
+                {
+                    EarconPlayer.LeaderInvalidTone();
+                    Radios.ScreenReaderOutput.Speak("Spectral NR not available on this radio", Radios.VerbosityLevel.Critical);
+                }
                 else
                     ToggleLeaderDSP("Spectral NR",
                         () => rig.SpectralNoiseReduction, v => rig.SpectralNoiseReduction = v);
