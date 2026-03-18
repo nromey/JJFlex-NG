@@ -1312,10 +1312,15 @@ namespace Radios
                 }
 
                 // Auth0's frtest tenant doesn't return a new id_token on refresh.
-                // But a successful refresh means the session is valid (got fresh access_token).
-                // The saved id_token's exp claim will look old, but SmartLink accepts it
-                // when paired with the refreshed session. Don't re-check isJwtExpired here.
-                Tracing.TraceLine($"GetJwtFromSavedAccount: refresh succeeded, session valid until {account.ExpiresAt} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+                // SmartLink enforces JWT exp, so the old id_token will be rejected.
+                // Use silent PerformNewLogin (cached Auth0 session) to get a fresh JWT.
+                isJwtExpired = SmartLinkAccountManager.IsJwtExpired(account.IdToken);
+                if (isJwtExpired)
+                {
+                    Tracing.TraceLine($"GetJwtFromSavedAccount: refresh didn't return new id_token, doing silent re-auth ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+                    return PerformNewLogin(forceNewLogin: false);
+                }
+                Tracing.TraceLine($"GetJwtFromSavedAccount: refresh succeeded with fresh JWT ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
             }
 
             // Mark account as used
