@@ -50,6 +50,9 @@ public class NativeMenuBar : IDisposable
     [DllImport("user32.dll")]
     private static extern uint CheckMenuItem(IntPtr hMenu, uint uIDCheckItem, uint uCheck);
 
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern bool ModifyMenuW(IntPtr hMenu, uint uPosition, uint uFlags, UIntPtr uIDNewItem, string lpNewItem);
+
     private const uint MF_STRING = 0x0000;
     private const uint MF_POPUP = 0x0010;
     private const uint MF_SEPARATOR = 0x0800;
@@ -68,7 +71,7 @@ public class NativeMenuBar : IDisposable
     private IntPtr _currentMenuBar;
     private readonly Dictionary<int, Action> _handlers = new();
     // Items with dynamic checkmarks: menu item ID → (parent HMENU, state getter)
-    private readonly List<(IntPtr popup, int id, Func<bool> stateGetter)> _checkItems = new();
+    private readonly List<(IntPtr popup, int id, Func<bool> stateGetter, string baseText)> _checkItems = new();
     // Top-level popup handle → menu name (for screen reader announcement on open)
     private readonly Dictionary<IntPtr, string> _popupNames = new();
     private int _nextId;
@@ -202,13 +205,16 @@ public class NativeMenuBar : IDisposable
 
         // Only update checkmarks that belong to this specific popup —
         // updating ALL checkmarks on every popup caused NVDA to stutter.
-        foreach (var (itemPopup, id, stateGetter) in _checkItems)
+        foreach (var (itemPopup, id, stateGetter, baseText) in _checkItems)
         {
             if (itemPopup != popup) continue;
             try
             {
                 bool isOn = stateGetter();
                 CheckMenuItem(itemPopup, (uint)id, MF_BYCOMMAND | (isOn ? MF_CHECKED : MF_UNCHECKED));
+                // Update text with state suffix so screen readers always announce on/off
+                string stateText = isOn ? "On" : "Off";
+                ModifyMenuW(itemPopup, (uint)id, MF_BYCOMMAND | MF_STRING, (UIntPtr)id, $"{baseText}: {stateText}");
             }
             catch { /* don't let state read errors block menu display */ }
         }
@@ -1292,7 +1298,7 @@ public class NativeMenuBar : IDisposable
         int id = _nextId++;
         AppendMenuW(popup, MF_STRING, (UIntPtr)id, text);
         _handlers[id] = handler;
-        _checkItems.Add((popup, id, stateGetter));
+        _checkItems.Add((popup, id, stateGetter, text));
     }
 
     /// <summary>Add a menu item that speaks "not yet connected to radio".</summary>
