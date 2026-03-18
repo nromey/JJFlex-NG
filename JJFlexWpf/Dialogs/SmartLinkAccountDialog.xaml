@@ -32,10 +32,10 @@
 
         <!-- Action buttons -->
         <StackPanel Grid.Row="1" Grid.Column="1" VerticalAlignment="Top">
-            <Button x:Name="ConnectButton" Content="Co_nnect" MinWidth="90" Height="28" Margin="0,0,0,8"
+            <Button x:Name="ConnectButton" Content="_Set Default" MinWidth="90" Height="28" Margin="0,0,0,8"
                     IsEnabled="False"
-                    AutomationProperties.Name="Connect"
-                    AutomationProperties.AcceleratorKey="Alt+N"
+                    AutomationProperties.Name="Set Default"
+                    AutomationProperties.AcceleratorKey="Alt+S"
                     Click="ConnectButton_Click"/>
             <Button Content="New _Login" MinWidth="90" Height="28" Margin="0,0,0,8"
                     AutomationProperties.Name="New Login"
