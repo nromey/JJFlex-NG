@@ -41,11 +41,64 @@ The Audio Workshop dialog's Tab key navigation was broken — you'd get stuck ta
 
 DSP controls like noise reduction level and noise blanker level now enforce sensible minimums. You won't accidentally set NR to zero and wonder why it's not doing anything — the minimum is set to a level where the feature actually works.
 
+### SmartLink Multi-Account Support
+
+Big one here. You can now save multiple SmartLink accounts and switch between them. If you use your buddy's radio via SmartLink and also have your own, you don't have to log in and out anymore. Each account gets its own saved session — switch accounts, hit Remote, and you're on the other radio. No re-entering passwords after the first login. The Switch Account button on the Radio Selector makes it easy, and Set Default in Manage SmartLink Accounts lets you pick which account Remote uses by default.
+
+### Action Toolbar
+
+Press Ctrl+Tab anywhere and you get a quick popup with your most-used TX actions: ATU Tune, Tune Carrier, Transmit, and Speak Status. Arrow to what you want, hit Enter, done. Faster than hunting through menus when you need to hit that tuner right now.
+
+### Every Button Tells You Its Shortcut
+
+Tabbing through any dialog now tells you the keyboard shortcut for every button. NVDA says "Connect, Alt+N" and JAWS says "Connect, N" — both screen readers get the right info without being redundant. This covers every single dialog in the app, not just the main ones.
+
+### Menu Toggles Say On or Off
+
+DSP toggles in the menu (NR, NB, ANF, meter tones, etc.) now say "Legacy NR: On" or "Legacy NR: Off" instead of relying on the checkmark glyph that some screen readers don't announce. You always know the state.
+
+### Earcon Mute
+
+Ctrl+J then Shift+T mutes all alert sounds (earcons, beeps, confirmation tones) without touching meter tones. Handy when you want the meter tones for tuning but don't need the app dinging at you. Your preference is saved.
+
+### When Dialogs Close, You Know Where You Are
+
+Close any dialog and you'll hear a quick status announcement — "Listening on 14.175, USB, 20 meter band, slice A" — so your screen reader doesn't just say "pane" and leave you wondering.
+
+### Frequency Entry Sounds (and a Secret or Two)
+
+When you type a frequency, you now get audio feedback on each digit. The default is a click, but there might be other options if you look hard enough. Also, confirming a frequency with Enter now plays a ding so you know it took.
+
+### Braille Display Status Line
+
+If you have a braille display, the app now pushes a compact status line to it when you're on the main frequency field. S-meter, SWR, power, mode — packed into however many cells your display has. It only activates when you're on the home position and yields to NVDA when you navigate away. Configure cell count and which fields to show in Settings.
+
+### Noise Reduction: More Options
+
+- NR Filter (NRF) is now exposed on 8000-series and Aurora radios alongside Neural NR and Spectral NR. Toggle with Ctrl+J, Shift+N.
+- Under the hood, we've built two PC-side noise reduction engines that will work on ANY Flex radio — even the 6300 that doesn't have the fancy DSP hardware. They're not wired into the audio chain yet (that's coming), but the infrastructure is ready.
+
+### Settings Improvements
+
+- Volume controls in Settings (master, alert, meter) are now accessible value controls instead of sliders. Up/Down adjusts by 5, your screen reader announces the value. Way better than a slider you can't tell the position of.
+- DSP state updates immediately when you change modes — no more waiting for the poll cycle to notice that switching from USB to CW changed your NR settings.
+
+### Quick Fixes
+
+- The Ctrl+Alt+S hotkey conflict between Start Scan and Status Dialog is resolved. Status Dialog keeps the hotkey; Start Scan is menu-only.
+- Slice cycling (Up/Down in the VFO field) no longer wraps around — it stops at the first and last slice and tells you.
+- The Status Dialog holds your place when it refreshes instead of jumping back to the top.
+- The Slice Operations field now says "Slice A Operations: Volume 60" instead of the cryptic "Slice Audio 60."
+- Modern tuning mode no longer forces position-sensitive navigation in the frequency field.
+
 ### Under the Hood
 
 - The entire keyboard command system was rebuilt in C#. You won't notice any difference in how hotkeys work — that's the point. But it means we can add new keyboard features much faster going forward.
 - Access key announcements improved — your screen reader now tells you the keyboard shortcut for controls that have one.
 - Build system fixes ensure both 64-bit and 32-bit versions compile cleanly.
+- Per-account WebView2 browser profiles keep SmartLink sessions isolated — the cookie jar fix that makes multi-account work.
+- Connection state changes now trigger menu rebuilds so you never get stuck on "Disconnect" when the connection failed.
+- ModeChanged event fires immediately so DSP controls update without waiting for the poll timer.
 
 ## 4.1.15.1: stop the presses, we got us a breaker breaker emergency
 
