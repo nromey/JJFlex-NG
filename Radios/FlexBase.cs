@@ -988,6 +988,8 @@ namespace Radios
 
         // Current SmartLink account (for token refresh on re-auth)
         private SmartLinkAccount _currentAccount;
+        // Email of the last account that successfully authenticated via Auth0 WebView2
+        private string _lastAuthenticatedEmail = "";
 
         /// <summary>
         /// Gets the email address of the currently active SmartLink account, if any.
@@ -1151,6 +1153,8 @@ namespace Radios
                 RestoreParentFocus();
 
                 jwt = form.IdToken;
+                if (!string.IsNullOrEmpty(form.Email))
+                    _lastAuthenticatedEmail = form.Email;
 
                 // Diagnostic: log the exp claim from the fresh token
                 if (!string.IsNullOrEmpty(jwt))
@@ -1281,6 +1285,14 @@ namespace Radios
             Tracing.TraceLine($"GetJwtFromSavedAccount: needsRefresh={needsRefresh}, isJwtExpired={isJwtExpired}, hasRefreshToken={!string.IsNullOrEmpty(account.RefreshToken)}", TraceLevel.Info);
 
             // SmartLink enforces the JWT exp claim (~1 min). If expired, must get fresh token.
+            // If no refresh token available, go straight to login.
+            if (isJwtExpired && string.IsNullOrEmpty(account.RefreshToken))
+            {
+                bool switchingAccount = !string.IsNullOrEmpty(_lastAuthenticatedEmail) &&
+                    !_lastAuthenticatedEmail.Equals(account.Email, StringComparison.OrdinalIgnoreCase);
+                Tracing.TraceLine($"GetJwtFromSavedAccount: JWT expired, no refresh token, login for {account.Email} (switching={switchingAccount}) ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+                return PerformNewLogin(forceNewLogin: switchingAccount);
+            }
             if (isJwtExpired)
             {
                 Tracing.TraceLine($"GetJwtFromSavedAccount: JWT expired, attempting refresh for {account.Email} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
@@ -1307,18 +1319,23 @@ namespace Radios
 
                 if (!refreshed)
                 {
-                    Tracing.TraceLine($"GetJwtFromSavedAccount: refresh failed, forcing new login for {account.Email} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Warning);
-                    return PerformNewLogin(forceNewLogin: true);
+                    bool switchingAccount = !string.IsNullOrEmpty(_lastAuthenticatedEmail) &&
+                        !_lastAuthenticatedEmail.Equals(account.Email, StringComparison.OrdinalIgnoreCase);
+                    Tracing.TraceLine($"GetJwtFromSavedAccount: refresh failed, login for {account.Email} (switching={switchingAccount}) ({sw.ElapsedMilliseconds}ms)", TraceLevel.Warning);
+                    return PerformNewLogin(forceNewLogin: switchingAccount);
                 }
 
                 // Auth0's frtest tenant doesn't return a new id_token on refresh.
                 // SmartLink enforces JWT exp, so the old id_token will be rejected.
-                // Use silent PerformNewLogin (cached Auth0 session) to get a fresh JWT.
+                // Use PerformNewLogin to get a fresh JWT. If switching accounts, force
+                // new login so Auth0 doesn't reuse the wrong cached session.
                 isJwtExpired = SmartLinkAccountManager.IsJwtExpired(account.IdToken);
                 if (isJwtExpired)
                 {
-                    Tracing.TraceLine($"GetJwtFromSavedAccount: refresh didn't return new id_token, doing silent re-auth ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
-                    return PerformNewLogin(forceNewLogin: false);
+                    bool switchingAccount = !string.IsNullOrEmpty(_lastAuthenticatedEmail) &&
+                        !_lastAuthenticatedEmail.Equals(account.Email, StringComparison.OrdinalIgnoreCase);
+                    Tracing.TraceLine($"GetJwtFromSavedAccount: refresh didn't return new id_token, re-auth for {account.Email} (switching={switchingAccount}) ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+                    return PerformNewLogin(forceNewLogin: switchingAccount);
                 }
                 Tracing.TraceLine($"GetJwtFromSavedAccount: refresh succeeded with fresh JWT ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
             }
