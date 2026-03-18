@@ -176,7 +176,11 @@ namespace Radios
         /// True only on radios with hardware capable of Neural/Spectral NR (8000 series, Aurora).
         /// 6000 series radios lack the DSP hardware even if a license is purchased.
         /// </summary>
-        public bool AdvancedNRHardwareSupported
+        /// <summary>
+        /// True when the radio hardware supports Neural NR (RNN).
+        /// Only available on 8000-series and Aurora — requires their DSP hardware.
+        /// </summary>
+        public bool NeuralNRHardwareSupported
         {
             get
             {
@@ -185,6 +189,12 @@ namespace Radios
                        model.StartsWith("AU-5", StringComparison.OrdinalIgnoreCase);
             }
         }
+
+        /// <summary>
+        /// Legacy alias — use NeuralNRHardwareSupported for Neural NR gating.
+        /// Spectral NR is available on all models (subscription-gated, not hardware-gated).
+        /// </summary>
+        public bool AdvancedNRHardwareSupported => NeuralNRHardwareSupported;
         public bool DiversityLicenseReported => theRadio?.FeatureLicense?.LicenseFeatDivEsc != null;
         public bool DiversityLicensed => theRadio?.FeatureLicense?.LicenseFeatDivEsc?.FeatureEnabled == true;
         public bool DiversityHardwareSupported => theRadio?.DiversityIsAllowed == true;

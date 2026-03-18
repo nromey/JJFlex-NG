@@ -316,17 +316,18 @@ public class NativeMenuBar : IDisposable
 
         // === Noise Reduction submenu ===
         var nrSub = AddSubmenu(parent, "Noise Reduction");
-        // Neural and Spectral NR require 8000-series/Aurora hardware — 6000 series lacks DSP
-        if (Rig.AdvancedNRHardwareSupported)
+        // Neural NR (RNN) requires 8000-series/Aurora DSP hardware
+        if (Rig.NeuralNRHardwareSupported)
         {
             AddChecked(nrSub, "Neural NR (RNN)\tCtrl+J, R", () =>
                 ToggleDSP("Neural NR", () => Rig.NeuralNoiseReduction, v => Rig.NeuralNoiseReduction = v),
                 () => Rig?.NeuralNoiseReduction == FlexBase.OffOnValues.on);
-            AddChecked(nrSub, "Spectral NR (NRS)\tCtrl+J, S", () =>
-                ToggleDSP("Spectral NR", () => Rig.SpectralNoiseReduction, v => Rig.SpectralNoiseReduction = v),
-                () => Rig?.SpectralNoiseReduction == FlexBase.OffOnValues.on);
         }
-        // Legacy NR is always available — no license required
+        // Spectral NR available on all models
+        AddChecked(nrSub, "Spectral NR (NRS)\tCtrl+J, S", () =>
+            ToggleDSP("Spectral NR", () => Rig.SpectralNoiseReduction, v => Rig.SpectralNoiseReduction = v),
+            () => Rig?.SpectralNoiseReduction == FlexBase.OffOnValues.on);
+        // Legacy NR always available
         AddChecked(nrSub, "Legacy NR", () =>
             ToggleDSP("Legacy NR", () => Rig.NoiseReductionLegacy, v => Rig.NoiseReductionLegacy = v),
             () => Rig?.NoiseReductionLegacy == FlexBase.OffOnValues.on);

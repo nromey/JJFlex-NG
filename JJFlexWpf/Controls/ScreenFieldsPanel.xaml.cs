@@ -130,10 +130,10 @@ public partial class ScreenFieldsPanel : UserControl
         if (rxAnts.Length > 0) _rxAntennaControl.SetOptions(rxAnts);
         if (txAnts.Length > 0) _txAntennaControl.SetOptions(txAnts);
 
-        // Neural and Spectral NR require 8000-series/Aurora hardware — 6000 series lacks DSP
-        bool advancedNrAvailable = rig.AdvancedNRHardwareSupported;
-        _neuralNrCheck.Visibility = advancedNrAvailable ? Visibility.Visible : Visibility.Collapsed;
-        _spectralNrCheck.Visibility = advancedNrAvailable ? Visibility.Visible : Visibility.Collapsed;
+        // Neural NR (RNN) requires 8000-series/Aurora DSP hardware
+        _neuralNrCheck.Visibility = rig.NeuralNRHardwareSupported ? Visibility.Visible : Visibility.Collapsed;
+        // Spectral NR available on all models
+        _spectralNrCheck.Visibility = Visibility.Visible;
         // Legacy NR is always available — no license required
         _nrLevelControl.Visibility = Visibility.Collapsed; // shown only when Legacy NR is on
 
