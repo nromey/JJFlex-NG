@@ -480,6 +480,40 @@ namespace JJFlexWpf
             }
         }
 
+        /// <summary>
+        /// Reverse boom — ascending sweep with layered harmonics.
+        /// Sounds like a rewind/implosion. Used for calibration reset.
+        /// </summary>
+        public static void ReverseBoomTone()
+        {
+            if (!EarconsEnabled || AlertMixer == null) return;
+            try
+            {
+                // Low sweep: 80Hz → 800Hz over 400ms (the "whoosh")
+                var low = new ChirpSampleProvider(SampleRate, 80, 800, 400, 0.5f);
+                AddToMixer(low);
+                // Mid sweep: 200Hz → 1200Hz over 300ms (harmonic layer, slightly shorter)
+                var mid = new ChirpSampleProvider(SampleRate, 200, 1200, 300, 0.3f);
+                AddToMixer(mid);
+                // High click at the end: short 1500Hz burst (the "snap")
+                var click = new SignalGenerator(SampleRate, 1)
+                {
+                    Type = SignalGeneratorType.Sin,
+                    Frequency = 1500,
+                    Gain = 0.4f
+                };
+                // Delay the click by 350ms then play for 50ms
+                var silence = new SilenceProvider(new WaveFormat(SampleRate, 1)).ToSampleProvider().Take(TimeSpan.FromMilliseconds(350));
+                var clickTimed = click.Take(TimeSpan.FromMilliseconds(50));
+                var clickDelayed = new OffsetSampleProvider(clickTimed) { DelayBySamples = (int)(SampleRate * 0.35) };
+                AddToMixer(clickDelayed);
+            }
+            catch (Exception ex)
+            {
+                Trace.WriteLine($"EarconPlayer.ReverseBoomTone failed: {ex.Message}");
+            }
+        }
+
         /// <summary>Rising chirp — entering leader key mode.</summary>
         public static void LeaderEnterTone()
         {

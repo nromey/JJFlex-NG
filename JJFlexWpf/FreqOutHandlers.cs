@@ -1915,7 +1915,7 @@ public class FreqOutHandlers
                 config2.Save(configDir2);
             }
             TypingSound = TypingSoundMode.Beep;
-            EarconPlayer.ConfirmTone();
+            EarconPlayer.ReverseBoomTone();
             Radios.ScreenReaderOutput.Speak("All modes reset.", VerbosityLevel.Critical, true);
             return;
         }
