@@ -345,9 +345,11 @@ namespace Radios
                 }
                 else
                 {
-                    // Login page loaded - announce to screen reader and set focus
-                    ScreenReaderOutput.Speak("Login page ready. Enter your email address.", true);
+                    // Login page loaded - bring to front and announce to screen reader
+                    this.Activate();
+                    this.BringToFront();
                     webView.Focus();
+                    ScreenReaderOutput.Speak("SmartLink login page. Enter your email address.", true);
 
                     // Inject script to detect login errors shown inline by Auth0
                     await InjectLoginErrorDetector();
