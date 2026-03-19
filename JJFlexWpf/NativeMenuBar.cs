@@ -1404,10 +1404,22 @@ public class NativeMenuBar : IDisposable
         var licenseConfig = handlers?.License;
 
         // Reload audio config from disk to pick up any changes (e.g., calibration unlocks)
+        // Calibration unlocks save to the root config dir (BaseConfigDir), but the main
+        // audio config loads from the Radios subdirectory. Merge TuningHash from root.
         var audioConfig = _window.CurrentAudioConfig;
         if (audioConfig != null && _window.OpenParms != null)
         {
             audioConfig = AudioOutputConfig.Load(_window.OpenParms.ConfigDirectory);
+            // Merge TuningHash from root config (where calibration unlock saves)
+            string rootDir = System.IO.Path.GetDirectoryName(_window.OpenParms.ConfigDirectory) ?? "";
+            if (!string.IsNullOrEmpty(rootDir))
+            {
+                var rootConfig = AudioOutputConfig.Load(rootDir);
+                if (!string.IsNullOrEmpty(rootConfig.TuningHash))
+                    audioConfig.TuningHash = rootConfig.TuningHash;
+                if (rootConfig.TypingSound != TypingSoundMode.Beep)
+                    audioConfig.TypingSound = rootConfig.TypingSound;
+            }
             _window.CurrentAudioConfig = audioConfig;
         }
         audioConfig ??= new AudioOutputConfig();
