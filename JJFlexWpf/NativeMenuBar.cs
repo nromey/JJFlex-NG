@@ -1425,7 +1425,6 @@ public class NativeMenuBar : IDisposable
         audioConfig ??= new AudioOutputConfig();
         var dialog = new Dialogs.SettingsDialog(pttConfig, coarseStep, fineStep, licenseConfig, audioConfig);
         var result = dialog.ShowDialog();
-        Tracing.TraceLine($"ShowSettingsDialog: result={result}, TypingSound={audioConfig.TypingSound}", TraceLevel.Info);
         if (result == true)
         {
             _window.ApplySettingsChanges(dialog.CoarseTuneStep, dialog.FineTuneStep);

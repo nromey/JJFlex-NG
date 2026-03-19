@@ -725,7 +725,6 @@ namespace JJFlexWpf
         /// </summary>
         public static void PlayTypingSound(char digit, TypingSoundMode mode)
         {
-            System.Diagnostics.Trace.WriteLine($"EarconPlayer.PlayTypingSound: digit={digit} mode={mode}");
             switch (mode)
             {
                 case TypingSoundMode.Beep:
@@ -832,11 +831,7 @@ namespace JJFlexWpf
                     }
                 }
 
-                float maxSample = 0;
-                foreach (var s in sounds)
-                    foreach (var v in s.AudioData)
-                        if (Math.Abs(v) > maxSample) maxSample = Math.Abs(v);
-                Radios.ScreenReaderOutput.Speak($"Debug: loaded {sounds.Count} keyboard sounds, max amplitude {maxSample:F4}", true);
+                Trace.WriteLine($"EarconPlayer: loaded {sounds.Count} keyboard sounds");
                 if (sounds.Count > 0)
                 {
                     _keyboardSounds = sounds.ToArray();
