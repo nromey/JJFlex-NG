@@ -1424,17 +1424,15 @@ public class NativeMenuBar : IDisposable
         }
         audioConfig ??= new AudioOutputConfig();
         var dialog = new Dialogs.SettingsDialog(pttConfig, coarseStep, fineStep, licenseConfig, audioConfig);
-        if (dialog.ShowDialog() == true)
+        var result = dialog.ShowDialog();
+        Tracing.TraceLine($"ShowSettingsDialog: result={result}, TypingSound={audioConfig.TypingSound}", TraceLevel.Info);
+        if (result == true)
         {
             _window.ApplySettingsChanges(dialog.CoarseTuneStep, dialog.FineTuneStep);
-            // Apply typing sound — reload from the config the dialog just saved
-            if (_window.FreqHandlers != null)
-            {
-                var savedTyping = audioConfig.TypingSound;
-                _window.FreqHandlers.TypingSound = savedTyping;
-                Tracing.TraceLine($"ShowSettingsDialog: applied TypingSound={savedTyping}", TraceLevel.Info);
-            }
         }
+        // Always apply typing sound after Settings (config may have been saved even on Cancel)
+        if (_window.FreqHandlers != null)
+            _window.FreqHandlers.TypingSound = audioConfig.TypingSound;
     }
 
     /// <summary>

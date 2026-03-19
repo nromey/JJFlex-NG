@@ -1204,6 +1204,17 @@ public partial class MainWindow : UserControl
             FreqOutHandlersWireCallback?.Invoke(_freqOutHandlers);
             // Wire FieldKeyDown event to route keys to the handler for the field under cursor
             FreqOut.FieldKeyDown += FreqOut_FieldKeyDown;
+            // Apply typing sound from saved config
+            if (CurrentAudioConfig != null)
+            {
+                _freqOutHandlers.TypingSound = CurrentAudioConfig.TypingSound;
+                // Pre-load keyboard sounds if mechanical mode is unlocked
+                if (!EarconPlayer.HasKeyboardSounds &&
+                    FreqOutHandlers.IsCalibrationUnlocked(CalibrationEngine.Ref2, CurrentAudioConfig.TuningHash))
+                {
+                    CalibrationEngine.LoadKeyboardSounds();
+                }
+            }
         }
     }
 

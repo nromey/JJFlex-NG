@@ -725,6 +725,7 @@ namespace JJFlexWpf
         /// </summary>
         public static void PlayTypingSound(char digit, TypingSoundMode mode)
         {
+            System.Diagnostics.Trace.WriteLine($"EarconPlayer.PlayTypingSound: digit={digit} mode={mode}");
             switch (mode)
             {
                 case TypingSoundMode.Beep:
