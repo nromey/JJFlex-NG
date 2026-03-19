@@ -47,6 +47,7 @@ namespace JJFlexWpf
         private static CachedSound? _modeExitSound;
         private static CachedSound? _slideSound;      // slide03.wav — filter edge drag
         private static CachedSound? _zipSound;         // zip01.wav — filter boundary hit
+        private static CachedSound? _typewriterBellSound; // typewriter-bell.wav — mechanical mode Enter
 
         private const int SampleRate = 44100;
         private const int MixerChannels = 2; // Stereo mixer for panning support
@@ -84,6 +85,7 @@ namespace JJFlexWpf
                 _modeExitSound = LoadEmbeddedSound("JJFlexWpf.Sounds.mode-exit.wav");
                 _slideSound = LoadEmbeddedSound("JJFlexWpf.Sounds.slide03.wav");
                 _zipSound = LoadEmbeddedSound("JJFlexWpf.Sounds.zip01.wav");
+                _typewriterBellSound = LoadEmbeddedSound("JJFlexWpf.Sounds.typewriter-bell.wav");
 
                 _initialized = true;
             }
@@ -362,6 +364,15 @@ namespace JJFlexWpf
                 PlayCachedSound(_confirmSound);
             else
                 PlayToneSequence(new[] { (800, 25), (0, 30), (800, 25), (0, 30), (800, 25) }, 0.5f);
+        }
+
+        /// <summary>Typewriter bell — plays at end of frequency entry in mechanical keyboard mode.</summary>
+        public static void TypewriterBellTone()
+        {
+            if (_typewriterBellSound != null)
+                PlayCachedSound(_typewriterBellSound);
+            else
+                DingTone(); // fallback
         }
 
         /// <summary>Band boundary beep — 600 Hz double-beep.</summary>

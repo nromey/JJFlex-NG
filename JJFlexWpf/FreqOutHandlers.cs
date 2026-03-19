@@ -630,7 +630,11 @@ public class FreqOutHandlers
         ulong freqHz = (ulong)(freqMhz.Value * 1_000_000);
         SetRXFrequency?.Invoke(freqHz);
 
-        EarconPlayer.DingTone();
+        // Typewriter bell in mechanical mode, regular ding otherwise
+        if (TypingSound == TypingSoundMode.Mechanical)
+            EarconPlayer.TypewriterBellTone();
+        else
+            EarconPlayer.DingTone();
         string display = FormatFreqForSpeech(freqMhz.Value);
         Radios.ScreenReaderOutput.Speak($"Frequency set to {display}", VerbosityLevel.Terse, true);
         CancelQuickType();
