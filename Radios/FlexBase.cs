@@ -964,6 +964,25 @@ namespace Radios
         private WanServer wan;
         private string wanConnectionHandle;
         private bool WanRadioConnectReadyReceived = false;
+
+        /// <summary>
+        /// Detach the WAN connection so it survives Dispose(). Used by retry path
+        /// to transfer an active SmartLink session to a new FlexBase instance.
+        /// </summary>
+        public WanServer PreserveWanForRetry()
+        {
+            var preserved = wan;
+            wan = null; // prevent Dispose from killing it
+            return preserved;
+        }
+
+        /// <summary>
+        /// Attach a WAN connection from a previous FlexBase instance.
+        /// </summary>
+        public void RestoreWanFromRetry(WanServer preservedWan)
+        {
+            wan = preservedWan;
+        }
         private void WanRadioConnectReadyHandler(string handle, string serial)
         {
             Tracing.TraceLine("WanRadioConnectReadyHandler:" + handle + ' ' + serial);

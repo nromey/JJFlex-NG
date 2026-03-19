@@ -2077,12 +2077,10 @@ RadioConnected:
                     Dim isRemote = (CurrentRig IsNot Nothing AndAlso CurrentRig.Remote)
 
                     If Not String.IsNullOrEmpty(retrySerial) AndAlso isRemote Then
-                        ' Remote retry: just retry Start() on the existing connected radio.
-                        ' The WAN session and radio connection are still alive — the GUIClient
-                        ' lifecycle just needs another attempt. Don't dispose/recreate — that
-                        ' loses the SmartLink session and forces re-auth which fails due to
-                        ' WebView2 folder lock from the still-running browser process.
-                        Tracing.TraceLine($"OpenTheRadio:Start failed, retrying Start() on existing connection (serial={retrySerial})", TraceLevel.Info)
+                        ' Remote retry: dispose old rig, create new one, reconnect using
+                        ' existing WAN session. ReconnectRemote checks wan.IsConnected and
+                        ' skips setupRemote (no re-auth, no WebView2).
+                        Tracing.TraceLine($"OpenTheRadio:Start failed with disconnected remote radio, retrying (serial={retrySerial})", TraceLevel.Info)
 
                         Radios.ConnectionProfiler.Current = New Radios.ConnectionProfiler()
                         Radios.ConnectionProfiler.Current.RecordEvent("retry_begin", New Dictionary(Of String, Object) From {
@@ -2090,14 +2088,27 @@ RadioConnected:
                             {"serial", retrySerial}
                         })
 
-                        ' 3-second delay — gives the radio time to clean up the stale GUIClient
+                        ' 3-second delay — gives SmartLink time to clean up stale GUIClient
                         Threading.Thread.Sleep(3000)
 
-                        Tracing.TraceLine("OpenTheRadio:retry - calling Start() again", TraceLevel.Info)
-                        rv = RigControl.Start()
+                        ' Dispose the dead connection but keep WAN alive
+                        WpfMainWindow?.UnwireRadioEvents()
+                        Dim keepWan = RigControl.PreserveWanForRetry()
+                        RigControl.Dispose()
+
+                        ' Create new rig instance with preserved WAN
+                        RigControl = New FlexBase(OpenParms)
+                        RigControl.RestoreWanFromRetry(keepWan)
+                        WpfMainWindow.RigControl = RigControl
+
+                        If RigControl.ReconnectRemote(retrySerial, retryLowBW) Then
+                            WpfMainWindow.WireRadioEvents()
+                            Tracing.TraceLine("OpenTheRadio:retry - rig is starting", TraceLevel.Info)
+                            rv = RigControl.Start()
+                        End If
 
                         If Not rv Then
-                            Tracing.TraceLine("OpenTheRadio:retry Start() also failed", TraceLevel.Error)
+                            Tracing.TraceLine("OpenTheRadio:retry also failed", TraceLevel.Error)
                             Radios.ScreenReaderOutput.Speak("Connection failed. Please try Remote again.", VerbosityLevel.Critical)
                         End If
 
