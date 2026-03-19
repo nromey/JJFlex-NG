@@ -1903,6 +1903,23 @@ public class FreqOutHandlers
     /// </summary>
     private void HandleCalibrationUnlock(string referenceName)
     {
+        // Reset handler — clear all unlocks
+        if (referenceName == CalibrationEngine.ResetRef)
+        {
+            string configDir2 = GetConfigDirectory?.Invoke() ?? "";
+            if (!string.IsNullOrEmpty(configDir2))
+            {
+                var config2 = AudioOutputConfig.Load(configDir2);
+                config2.TuningHash = "";
+                config2.TypingSound = TypingSoundMode.Beep;
+                config2.Save(configDir2);
+            }
+            TypingSound = TypingSoundMode.Beep;
+            EarconPlayer.ConfirmTone();
+            Radios.ScreenReaderOutput.Speak("All modes reset.", VerbosityLevel.Critical, true);
+            return;
+        }
+
         CalibrationEngine.PlayVerificationTone(referenceName);
 
         string configDir = GetConfigDirectory?.Invoke() ?? "";

@@ -19,12 +19,14 @@ namespace JJFlexWpf
         // Opaque reference identifiers
         internal const string Ref1 = "cr1";
         internal const string Ref2 = "cr2";
+        internal const string ResetRef = "reset";
 
         // Pre-computed SHA256 hashes of salted calibration inputs
         private static readonly Dictionary<string, string> _calibrationHashes = new()
         {
             ["9a1130866527bd880961710d0ce48ffa445248c6ff95a9a8013d8cb73dd3a61b"] = Ref1,
-            ["1056041f07cc0a0e5a61d231b49c213d950cd2ed48a8bdf81f2b689796b1c0f9"] = Ref2
+            ["1056041f07cc0a0e5a61d231b49c213d950cd2ed48a8bdf81f2b689796b1c0f9"] = Ref2,
+            ["3fc741118210aa3d2ac0c2e5b2652d982271cc81a994bbd6ba07db085c214d98"] = ResetRef
         };
 
         // Asset map keyed by reference ID
