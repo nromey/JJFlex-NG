@@ -448,24 +448,17 @@ namespace Radios
 
             try
             {
-                // If WAN is already connected (from RemoteRadios() discovery), reuse it.
-                // SmartLink JWTs expire in ~1 min, so calling setupRemote again would
-                // require re-authentication. The existing WAN session is still valid.
+                // Re-authenticate and connect to SmartLink server.
+                // A fresh WAN session avoids stale GUIClient lifecycle issues that
+                // cause "client removed without prior add" during Start().
                 apiInit();
-                bool wanAlreadyConnected = wan != null && wan.IsConnected;
-                if (wanAlreadyConnected)
+                bool remoteOk = setupRemote();
+                Tracing.TraceLine($"ReconnectRemote: setupRemote returned {remoteOk} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+
+                if (!remoteOk)
                 {
-                    Tracing.TraceLine($"ReconnectRemote: WAN already connected, reusing session ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
-                }
-                else
-                {
-                    bool remoteOk = setupRemote();
-                    Tracing.TraceLine($"ReconnectRemote: setupRemote returned {remoteOk} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
-                    if (!remoteOk)
-                    {
-                        Tracing.TraceLine($"ReconnectRemote: setupRemote FAILED ({sw.ElapsedMilliseconds}ms)", TraceLevel.Error);
-                        return false;
-                    }
+                    Tracing.TraceLine($"ReconnectRemote: setupRemote FAILED ({sw.ElapsedMilliseconds}ms)", TraceLevel.Error);
+                    return false;
                 }
 
                 // Wait for the radio to appear in myRadioList.
