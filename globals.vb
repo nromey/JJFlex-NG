@@ -585,6 +585,12 @@ Module globals
                         WpfMainWindow.ShowEarconScratchpad()
                         Return
                     End If
+                    ' Check for calibration reference
+                    Dim calibRef = JJFlexWpf.CalibrationEngine.VerifyCalibration(input)
+                    If calibRef IsNot Nothing Then
+                        WpfMainWindow.HandleCalibrationFromFreqInput(calibRef)
+                        Return
+                    End If
                     If RigControl IsNot Nothing Then WriteFreq(input)
                 End If
             End Sub,

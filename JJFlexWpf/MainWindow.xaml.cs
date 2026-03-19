@@ -2681,6 +2681,25 @@ public partial class MainWindow : UserControl
     /// Show the earcon scratchpad — easter egg triggered by typing "cqtest" in Ctrl+F.
     /// Mutes the radio while open so you can hear the sounds you're designing.
     /// </summary>
+    /// <summary>
+    /// Handle calibration reference entered via JJ Ctrl+F frequency input.
+    /// Delegates to FreqOutHandlers if available, otherwise handles directly.
+    /// </summary>
+    public void HandleCalibrationFromFreqInput(string calibRef)
+    {
+        if (_freqOutHandlers != null)
+        {
+            // Use the existing handler which manages config, sounds, and speech
+            _freqOutHandlers.HandleCalibrationPublic(calibRef);
+        }
+        else
+        {
+            // No handler — just play confirmation and speak
+            CalibrationEngine.PlayVerificationTone(calibRef);
+            Radios.ScreenReaderOutput.Speak("Calibration reference accepted", Radios.VerbosityLevel.Critical, true);
+        }
+    }
+
     public void ShowEarconScratchpad()
     {
         // Save and mute radio so earcon sounds are audible

@@ -1905,6 +1905,9 @@ public class FreqOutHandlers
     /// Handle a successful calibration reference unlock.
     /// Plays verification tone, saves state, speaks confirmation.
     /// </summary>
+    /// <summary>Public entry point for calibration unlock from JJ Ctrl+F.</summary>
+    public void HandleCalibrationPublic(string referenceName) => HandleCalibrationUnlock(referenceName);
+
     private void HandleCalibrationUnlock(string referenceName)
     {
         // Reset handler — clear all unlocks
