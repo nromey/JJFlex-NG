@@ -952,8 +952,7 @@ namespace Radios
                 oldRadio.NegotiatedHolePunchPort = newRadio.NegotiatedHolePunchPort;
             if (oldRadio.MaxLicensedVersion != newRadio.MaxLicensedVersion)
                 oldRadio.MaxLicensedVersion = newRadio.MaxLicensedVersion;
-            if (oldRadio.RequiresAdditionalLicense != newRadio.RequiresAdditionalLicense)
-                oldRadio.RequiresAdditionalLicense = newRadio.RequiresAdditionalLicense;
+            // RequiresAdditionalLicense removed in FlexLib v4.1.5
             if (oldRadio.RadioLicenseId != newRadio.RadioLicenseId)
                 oldRadio.RadioLicenseId = newRadio.RadioLicenseId;
             if (oldRadio.LowBandwidthConnect != newRadio.LowBandwidthConnect)
@@ -3864,8 +3863,9 @@ namespace Radios
         /// </summary>
         public List<Flex.Smoothlake.FlexLib.Meter> GetAllMeters()
         {
-            if (theRadio == null) return new List<Flex.Smoothlake.FlexLib.Meter>();
-            return theRadio.GetAllMeters();
+            // GetAllMeters removed in FlexLib v4.1.5 — _meters is private now.
+            // This method is unused but kept for API compatibility.
+            return new List<Flex.Smoothlake.FlexLib.Meter>();
         }
 
         /// <summary>
