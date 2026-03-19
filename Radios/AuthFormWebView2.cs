@@ -195,11 +195,10 @@ namespace Radios
                     urlLabel.Text = "Authenticating with SmartLink...";
                 }
 
-                // Initialize WebView2 — per-account data folder for isolated cookie storage
-                string profileFolder = string.IsNullOrEmpty(AccountEmail) ? "default" : AccountEmail;
+                // Initialize WebView2 with a user data folder in AppData
                 string userDataFolder = System.IO.Path.Combine(
                     Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                    "JJFlexRadio", "WebView2", profileFolder);
+                    "JJFlexRadio", "WebView2");
 
                 // Async initialization keeps UI thread responsive for screen readers
                 // Retry up to 5 times with 2s delay — WebView2 data folder may be locked
