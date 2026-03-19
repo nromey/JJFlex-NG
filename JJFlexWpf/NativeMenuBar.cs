@@ -1427,6 +1427,9 @@ public class NativeMenuBar : IDisposable
         if (dialog.ShowDialog() == true)
         {
             _window.ApplySettingsChanges(dialog.CoarseTuneStep, dialog.FineTuneStep);
+            // Apply typing sound to handler
+            if (_window.FreqHandlers != null && _window.CurrentAudioConfig != null)
+                _window.FreqHandlers.TypingSound = _window.CurrentAudioConfig.TypingSound;
         }
     }
 
