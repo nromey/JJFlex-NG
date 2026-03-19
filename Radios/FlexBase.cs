@@ -685,7 +685,7 @@ namespace Radios
             {
                 int maxWaitMs = 45000;       // 45s overall timeout (SmartLink re-add can take 30s+ over WAN)
                 int removalGraceMs = 15000;  // 15s grace after client removal (Don's 6300 over WAN needs 10s+)
-                int earlyAbortMs = 5000;     // 5s: if removed without ever being added during Start(), abort for retry
+                int earlyAbortMs = 15000;    // 15s: if removed without ever being added during Start(), abort for retry
                 int interval = 25;
                 int iterations = maxWaitMs / interval;
                 _clientRemovedDuringStart = false;
