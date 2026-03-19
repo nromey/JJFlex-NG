@@ -1920,6 +1920,16 @@ public class FreqOutHandlers
                 config2.TuningHash = "";
                 config2.TypingSound = TypingSoundMode.Beep;
                 config2.Save(configDir2);
+
+                // Also clear in Radios subdirectory
+                string radiosDir2 = System.IO.Path.Combine(configDir2, "Radios");
+                if (System.IO.Directory.Exists(radiosDir2))
+                {
+                    var rc = AudioOutputConfig.Load(radiosDir2);
+                    rc.TuningHash = "";
+                    rc.TypingSound = TypingSoundMode.Beep;
+                    rc.Save(radiosDir2);
+                }
             }
             TypingSound = TypingSoundMode.Beep;
             EarconPlayer.ReverseBoomTone();
@@ -1932,13 +1942,24 @@ public class FreqOutHandlers
         string configDir = GetConfigDirectory?.Invoke() ?? "";
         if (!string.IsNullOrEmpty(configDir))
         {
+            string tuningHash = "";
+            // Save to root config dir
             var config = AudioOutputConfig.Load(configDir);
-            // Store the unlock marker (comma-separated list of unlocked references)
             var unlocked = new HashSet<string>(
                 (config.TuningHash ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries));
             unlocked.Add(referenceName);
-            config.TuningHash = string.Join(",", unlocked);
+            tuningHash = string.Join(",", unlocked);
+            config.TuningHash = tuningHash;
             config.Save(configDir);
+
+            // Also save to Radios subdirectory (where Settings reads from)
+            string radiosDir = System.IO.Path.Combine(configDir, "Radios");
+            if (System.IO.Directory.Exists(radiosDir))
+            {
+                var radiosConfig = AudioOutputConfig.Load(radiosDir);
+                radiosConfig.TuningHash = tuningHash;
+                radiosConfig.Save(radiosDir);
+            }
         }
 
         // Load extended sounds based on which reference was unlocked
