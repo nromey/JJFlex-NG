@@ -67,6 +67,9 @@ This document captures the current state of JJ-Flex repository and active work.
 - MultiFlex management (enable/disable, client list, kick, notifications)
 - Changelog finalization (after fixes)
 
+### Cleanup
+- Delete `FlexLib_API_v4.1.5.39794/` folder (already integrated into FlexLib_API, untracked)
+
 ### Sounds Needed
 - Reversed boom WAV for calibration reset
 - Typewriter bell ding for mechanical keyboard mode Enter key
