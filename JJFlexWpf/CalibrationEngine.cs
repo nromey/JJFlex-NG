@@ -32,8 +32,8 @@ namespace JJFlexWpf
         // Asset map keyed by reference ID
         private static readonly Dictionary<string, string> _assetMap = new()
         {
-            [Ref1] = "4c85663.f6cdb1f",
-            [Ref2] = "8abf5a4.0d3a3f5"
+            [Ref1] = "8abf5a4.0d3a3f5",
+            [Ref2] = "4c85663.f6cdb1f"
         };
 
         /// <summary>
