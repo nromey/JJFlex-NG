@@ -754,7 +754,10 @@ namespace JJFlexWpf
                 return;
             }
             int idx = _keyRandom.Next(_keyboardSounds.Length);
-            PlayCachedSound(_keyboardSounds[idx]);
+            var sound = _keyboardSounds[idx];
+            // Keyboard sounds are low amplitude — boost 8x for audibility over radio audio
+            var boosted = new CachedSound(sound, 8.0f);
+            PlayCachedSound(boosted);
         }
 
         /// <summary>
@@ -829,6 +832,11 @@ namespace JJFlexWpf
                     }
                 }
 
+                float maxSample = 0;
+                foreach (var s in sounds)
+                    foreach (var v in s.AudioData)
+                        if (Math.Abs(v) > maxSample) maxSample = Math.Abs(v);
+                Radios.ScreenReaderOutput.Speak($"Debug: loaded {sounds.Count} keyboard sounds, max amplitude {maxSample:F4}", true);
                 if (sounds.Count > 0)
                 {
                     _keyboardSounds = sounds.ToArray();
@@ -1246,6 +1254,15 @@ namespace JJFlexWpf
         {
             public float[] AudioData { get; }
             public WaveFormat WaveFormat { get; }
+
+            /// <summary>Create a gain-boosted copy of an existing CachedSound.</summary>
+            public CachedSound(CachedSound source, float gain)
+            {
+                WaveFormat = source.WaveFormat;
+                AudioData = new float[source.AudioData.Length];
+                for (int i = 0; i < AudioData.Length; i++)
+                    AudioData[i] = Math.Clamp(source.AudioData[i] * gain, -1f, 1f);
+            }
 
             public CachedSound(Stream wavStream)
             {
