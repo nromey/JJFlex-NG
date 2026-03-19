@@ -12,6 +12,7 @@ using System.Web;
 using System.Windows.Forms;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
+using System.Runtime.InteropServices;
 using JJTrace;
 
 namespace Radios
@@ -22,6 +23,9 @@ namespace Radios
     /// </summary>
     public class AuthFormWebView2 : Form
     {
+        [DllImport("user32.dll")]
+        private static extern bool SetForegroundWindow(IntPtr hWnd);
+
         private WebView2 webView;
         private Label urlLabel;
         private bool isInitialized;
@@ -345,9 +349,9 @@ namespace Radios
                 }
                 else
                 {
-                    // Login page loaded - bring to front and announce to screen reader
+                    // Login page loaded - force to foreground and announce to screen reader
+                    SetForegroundWindow(this.Handle);
                     this.Activate();
-                    this.BringToFront();
                     webView.Focus();
                     ScreenReaderOutput.Speak("SmartLink login page. Enter your email address.", true);
 
