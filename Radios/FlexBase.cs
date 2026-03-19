@@ -302,6 +302,7 @@ namespace Radios
 
             if (rv)
             {
+                Tracing.TraceLine($"Connect: IsWan={theRadio.IsWan} RequiresHolePunch={theRadio.RequiresHolePunch} PublicTlsPort={theRadio.PublicTlsPort} NegotiatedHolePunchPort={theRadio.NegotiatedHolePunchPort} IP={theRadio.IP}", TraceLevel.Info);
                 ConnectionProfiler.Current?.RecordEvent("flexlib_connect_begin");
                 rv = theRadio.Connect();
                 ConnectionProfiler.Current?.RecordEvent("flexlib_connect_end", new Dictionary<string, object>

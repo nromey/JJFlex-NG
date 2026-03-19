@@ -198,7 +198,22 @@ namespace Radios
                     "JJFlexRadio", "WebView2", profileFolder);
 
                 // Async initialization keeps UI thread responsive for screen readers
-                var env = await CoreWebView2Environment.CreateAsync(null, userDataFolder, null);
+                // Retry up to 3 times with delay — WebView2 data folder may be locked
+                // briefly after a previous auth dialog closes.
+                CoreWebView2Environment env = null;
+                for (int attempt = 1; attempt <= 3; attempt++)
+                {
+                    try
+                    {
+                        env = await CoreWebView2Environment.CreateAsync(null, userDataFolder, null);
+                        break;
+                    }
+                    catch (Exception) when (attempt < 3)
+                    {
+                        Tracing.TraceLine($"AuthFormWebView2: CreateAsync attempt {attempt} failed, retrying in 1s", TraceLevel.Warning);
+                        await Task.Delay(1000);
+                    }
+                }
                 await webView.EnsureCoreWebView2Async(env);
                 isInitialized = true;
 
