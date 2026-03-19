@@ -27,7 +27,6 @@
     <EmbeddedResource Include="Resources\Sounds\mode-exit.wav" LogicalName="JJFlexWpf.Sounds.mode-exit.wav" />
     <EmbeddedResource Include="Resources\Sounds\slide03.wav" LogicalName="JJFlexWpf.Sounds.slide03.wav" />
     <EmbeddedResource Include="Resources\Sounds\zip01.wav" LogicalName="JJFlexWpf.Sounds.zip01.wav" />
-    <EmbeddedResource Include="Resources\Sounds\typewriter-bell.wav" LogicalName="JJFlexWpf.Sounds.typewriter-bell.wav" />
     <EmbeddedResource Include="Resources\AboutGeneral.html" LogicalName="JJFlexWpf.Resources.AboutGeneral.html" />
     <EmbeddedResource Include="Resources\AboutRadio.html" LogicalName="JJFlexWpf.Resources.AboutRadio.html" />
     <EmbeddedResource Include="Resources\AboutSystem.html" LogicalName="JJFlexWpf.Resources.AboutSystem.html" />
@@ -35,6 +34,7 @@
     <!-- Calibration assets (hashed names by design) -->
     <Content Include="Resources\4f89f8bc7\4c85663.f6cdb1f" CopyToOutputDirectory="PreserveNewest" Link="Resources\4f89f8bc7\4c85663.f6cdb1f" />
     <Content Include="Resources\4f89f8bc7\8abf5a4.0d3a3f5" CopyToOutputDirectory="PreserveNewest" Link="Resources\4f89f8bc7\8abf5a4.0d3a3f5" />
+    <Content Include="Resources\4f89f8bc7\d7d8480.7605032" CopyToOutputDirectory="PreserveNewest" Link="Resources\4f89f8bc7\d7d8480.7605032" />
     <Content Include="Resources\4f89f8bc7\8b38e27\*" CopyToOutputDirectory="PreserveNewest" Link="Resources\4f89f8bc7\8b38e27\%(Filename)%(Extension)" />
   </ItemGroup>
 

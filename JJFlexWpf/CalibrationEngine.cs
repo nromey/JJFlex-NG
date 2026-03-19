@@ -104,5 +104,16 @@ namespace JJFlexWpf
             byte[] hash = SHA256.HashData(bytes);
             return Convert.ToHexString(hash).ToLowerInvariant();
         }
+
+        /// <summary>
+        /// Generate a hashed filename for an asset. Uses the same salt as calibration hashes.
+        /// Format: first 7 hex chars as name, next 7 as extension (e.g., "d7d8480.7605032").
+        /// Usage: place the file in Resources/4f89f8bc7/ with the generated name.
+        /// </summary>
+        public static string HashAssetName(string word)
+        {
+            string hex = ComputeHash(word);
+            return $"{hex[..7]}.{hex[7..14]}";
+        }
     }
 }

@@ -85,7 +85,22 @@ namespace JJFlexWpf
                 _modeExitSound = LoadEmbeddedSound("JJFlexWpf.Sounds.mode-exit.wav");
                 _slideSound = LoadEmbeddedSound("JJFlexWpf.Sounds.slide03.wav");
                 _zipSound = LoadEmbeddedSound("JJFlexWpf.Sounds.zip01.wav");
-                _typewriterBellSound = LoadEmbeddedSound("JJFlexWpf.Sounds.typewriter-bell.wav");
+                // Typewriter bell loaded from hashed asset folder (file-based, not embedded)
+                try
+                {
+                    var bellPath = System.IO.Path.Combine(
+                        System.IO.Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? "",
+                        "Resources", "4f89f8bc7", "d7d8480.7605032");
+                    if (System.IO.File.Exists(bellPath))
+                    {
+                        using var bellStream = System.IO.File.OpenRead(bellPath);
+                        _typewriterBellSound = new CachedSound(bellStream);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Trace.WriteLine($"EarconPlayer: failed to load typewriter bell: {ex.Message}");
+                }
 
                 _initialized = true;
             }
