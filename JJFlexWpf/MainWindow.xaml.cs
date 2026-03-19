@@ -254,7 +254,7 @@ public partial class MainWindow : UserControl
     /// <summary>
     /// Audio output configuration (earcon device, meter tones). Loaded at radio connect.
     /// </summary>
-    public AudioOutputConfig? CurrentAudioConfig { get; private set; }
+    public AudioOutputConfig? CurrentAudioConfig { get; set; }
 
     /// <summary>
     /// Returns PTT status text for the Speak Status hotkey, or null if PTT is idle.

@@ -1403,7 +1403,14 @@ public class NativeMenuBar : IDisposable
         int fineStep = handlers?.FineTuneStep ?? 10;
         var licenseConfig = handlers?.License;
 
-        var audioConfig = _window.CurrentAudioConfig ?? new AudioOutputConfig();
+        // Reload audio config from disk to pick up any changes (e.g., calibration unlocks)
+        var audioConfig = _window.CurrentAudioConfig;
+        if (audioConfig != null && _window.OpenParms != null)
+        {
+            audioConfig = AudioOutputConfig.Load(_window.OpenParms.ConfigDirectory);
+            _window.CurrentAudioConfig = audioConfig;
+        }
+        audioConfig ??= new AudioOutputConfig();
         var dialog = new Dialogs.SettingsDialog(pttConfig, coarseStep, fineStep, licenseConfig, audioConfig);
         if (dialog.ShowDialog() == true)
         {
