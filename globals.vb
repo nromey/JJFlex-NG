@@ -2074,7 +2074,6 @@ RadioConnected:
                         ' Remote manual connection retry — uses ReconnectRemote (no auto-connect config needed)
                         Tracing.TraceLine($"OpenTheRadio:Start failed with disconnected remote radio, retrying once (serial={retrySerial})", TraceLevel.Info)
 
-                        ' Start new profiler for the retry attempt
                         Radios.ConnectionProfiler.Current = New Radios.ConnectionProfiler()
                         Radios.ConnectionProfiler.Current.RecordEvent("retry_begin", New Dictionary(Of String, Object) From {
                             {"attemptNumber", 2},
@@ -2082,7 +2081,6 @@ RadioConnected:
                         })
 
                         ' 2-second delay — gives SmartLink time to clean up the previous session.
-                        ' Fast early-abort means less stale state, so shorter delay is safe.
                         Threading.Thread.Sleep(2000)
 
                         ' Clean up the dead connection
@@ -2093,13 +2091,23 @@ RadioConnected:
                         RigControl = New FlexBase(OpenParms)
                         WpfMainWindow.RigControl = RigControl
 
-                        ' Wire ShowAccountSelector — auto-select most recent account (same as wpfSelectorProc)
+                        ' Wire ShowAccountSelector — use saved default from auto-connect config
                         RigControl.ShowAccountSelector = Function(mgr)
                                                              Dim accounts = mgr.Accounts
                                                              Tracing.TraceLine($"ShowAccountSelector(retry): {accounts.Count} saved account(s)", TraceLevel.Info)
                                                              If accounts.Count = 0 Then
                                                                  Tracing.TraceLine("ShowAccountSelector(retry): no accounts, triggering new login", TraceLevel.Info)
                                                                  Return (True, Nothing, True)
+                                                             End If
+                                                             ' Use saved default from auto-connect config
+                                                             Dim opName = PersonalData.UniqueOpName(CurrentOp)
+                                                             Dim savedCfg = Radios.AutoConnectConfig.Load(BaseConfigDir, opName)
+                                                             If Not String.IsNullOrEmpty(savedCfg.SmartLinkAccountEmail) Then
+                                                                 Dim defaultAcct = accounts.FirstOrDefault(Function(a) a.Email.Equals(savedCfg.SmartLinkAccountEmail, StringComparison.OrdinalIgnoreCase))
+                                                                 If defaultAcct IsNot Nothing Then
+                                                                     Tracing.TraceLine($"ShowAccountSelector(retry): using default '{defaultAcct.FriendlyName}' ({defaultAcct.Email})", TraceLevel.Info)
+                                                                     Return (False, defaultAcct, True)
+                                                                 End If
                                                              End If
                                                              Dim best = accounts.OrderByDescending(Function(a) a.LastUsed).First()
                                                              Tracing.TraceLine($"ShowAccountSelector(retry): auto-selected '{best.FriendlyName}' ({best.Email})", TraceLevel.Info)
