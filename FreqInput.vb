@@ -9,8 +9,15 @@
         DialogResult = Nothing
         Dim raw = FreqBox.Text.Trim()
 
-        ' Pass through special terms (easter eggs) without frequency validation
+        ' Pass through special terms without frequency validation
         If raw.Equals("cqtest", StringComparison.OrdinalIgnoreCase) Then
+            DialogResult = DialogResult.OK
+            Buffer = raw
+            Return
+        End If
+
+        ' Pass through calibration references
+        If JJFlexWpf.CalibrationEngine.VerifyCalibration(raw) IsNot Nothing Then
             DialogResult = DialogResult.OK
             Buffer = raw
             Return

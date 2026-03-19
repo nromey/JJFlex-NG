@@ -586,7 +586,9 @@ Module globals
                         Return
                     End If
                     ' Check for calibration reference
+                    Tracing.TraceLine($"WriteFreq: checking calibration for '{input}'", TraceLevel.Info)
                     Dim calibRef = JJFlexWpf.CalibrationEngine.VerifyCalibration(input)
+                    Tracing.TraceLine($"WriteFreq: calibRef={If(calibRef, "null")}", TraceLevel.Info)
                     If calibRef IsNot Nothing Then
                         WpfMainWindow.HandleCalibrationFromFreqInput(calibRef)
                         Return
