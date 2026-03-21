@@ -1204,17 +1204,8 @@ public partial class MainWindow : UserControl
             FreqOutHandlersWireCallback?.Invoke(_freqOutHandlers);
             // Wire FieldKeyDown event to route keys to the handler for the field under cursor
             FreqOut.FieldKeyDown += FreqOut_FieldKeyDown;
-            // Apply typing sound from saved config
-            if (CurrentAudioConfig != null)
-            {
-                _freqOutHandlers.TypingSound = CurrentAudioConfig.TypingSound;
-                // Pre-load keyboard sounds if mechanical mode is unlocked
-                if (!EarconPlayer.HasKeyboardSounds &&
-                    FreqOutHandlers.IsCalibrationUnlocked(CalibrationEngine.Ref2, CurrentAudioConfig.TuningHash))
-                {
-                    CalibrationEngine.LoadKeyboardSounds();
-                }
-            }
+            // Typing sound and keyboard sounds applied later in PowerOn
+            // after CurrentAudioConfig is loaded from disk.
         }
     }
 
@@ -1669,7 +1660,15 @@ public partial class MainWindow : UserControl
 
             // Apply typing sound to FreqOutHandlers
             if (_freqOutHandlers != null)
+            {
                 _freqOutHandlers.TypingSound = CurrentAudioConfig.TypingSound;
+                // Pre-load keyboard sounds if mechanical mode is unlocked
+                if (!EarconPlayer.HasKeyboardSounds &&
+                    FreqOutHandlers.IsCalibrationUnlocked(CalibrationEngine.Ref2, CurrentAudioConfig.TuningHash))
+                {
+                    CalibrationEngine.LoadKeyboardSounds();
+                }
+            }
         }
 
         // VB-side tasks (knob setup, tracing)
