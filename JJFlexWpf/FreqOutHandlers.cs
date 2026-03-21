@@ -775,12 +775,14 @@ public class FreqOutHandlers
         {
             if (next >= total)
             {
-                Radios.ScreenReaderOutput.Speak("Last slice", VerbosityLevel.Terse, true);
+                string letter = Rig.VFOToLetter(current);
+                Radios.ScreenReaderOutput.Speak($"Slice {letter}, last slice", VerbosityLevel.Terse, true);
                 return;
             }
             if (next < 0)
             {
-                Radios.ScreenReaderOutput.Speak("First slice", VerbosityLevel.Terse, true);
+                string letter = Rig.VFOToLetter(current);
+                Radios.ScreenReaderOutput.Speak($"Slice {letter}, first slice", VerbosityLevel.Terse, true);
                 return;
             }
         }
@@ -797,7 +799,8 @@ public class FreqOutHandlers
             }
             if (!wrap && (next >= total || next < 0))
             {
-                Radios.ScreenReaderOutput.Speak(direction > 0 ? "Last slice" : "First slice", VerbosityLevel.Terse, true);
+                string letter = Rig.VFOToLetter(current);
+                Radios.ScreenReaderOutput.Speak($"Slice {letter}, {(direction > 0 ? "last" : "first")} slice", VerbosityLevel.Terse, true);
                 return;
             }
             attempts++;
