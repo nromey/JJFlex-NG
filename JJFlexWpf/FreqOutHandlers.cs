@@ -355,7 +355,11 @@ public class FreqOutHandlers
 
             case Radios.FrequencyUnits.MHz:
                 double mhz = freqHz / 1_000_000.0;
-                return $"{mhz:N3} megahertz";
+                // Show enough decimals to represent the actual frequency
+                // 3.806.000 → "3.806", 3.806.250 → "3.806250"
+                if (freqHz % 1000 == 0)
+                    return $"{mhz:N3} megahertz";
+                return $"{mhz:N6} megahertz";
 
             default: // Hz — original dotted format
                 string s = freqHz.ToString();
@@ -1411,9 +1415,12 @@ public class FreqOutHandlers
         switch (key)
         {
             case Key.Up:
+                TuneFreq((ulong)CurrentTuneStep);
+                e.Handled = true;
+                break;
+
             case Key.Down:
-                // Modern mode: freq field is read-only for arrow keys.
-                // Prevents accidental frequency nudging. Use quick-type digits to change frequency.
+                TuneFreq(unchecked((ulong)(-(long)CurrentTuneStep)));
                 e.Handled = true;
                 break;
 

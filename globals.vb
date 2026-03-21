@@ -576,7 +576,7 @@ Module globals
                 If (RigControl IsNot Nothing) AndAlso Power Then RigControl.SendCW(msg)
             End Sub,
             .WriteTextX = Sub(windowId, text, disposition, clear) WriteTextX(CType(windowId, WindowIDs), text, disposition, clear),
-            .DisplayFreq = Sub() WpfMainWindow.FreqOut.FocusDisplay(),
+            .DisplayFreq = Sub() WpfMainWindow.FreqOut.FocusFrequencyField(),
             .WriteFreq = Sub()
                 If FreqInput.ShowDialog() = DialogResult.OK Then
                     Dim input = FreqInput.Buffer.Trim()
@@ -2080,25 +2080,22 @@ RadioConnected:
 
                     If Not String.IsNullOrEmpty(retrySerial) AndAlso isRemote Then
                         ' Remote retry: lightweight reconnect using existing WAN session.
-                        ' No re-auth, no WebView2, no new FlexBase instance.
-                        ' Just re-sends remote connect + Radio.Connect() + Start().
-                        Tracing.TraceLine($"OpenTheRadio:Start failed, retrying radio-level reconnect (serial={retrySerial})", TraceLevel.Info)
+                        ' No re-auth, no WebView2, no new FlexBase. Up to 3 attempts total.
+                        Dim maxAttempts = 3
+                        For attempt = 2 To maxAttempts
+                            Tracing.TraceLine($"OpenTheRadio:retry attempt {attempt}/{maxAttempts} (serial={retrySerial})", TraceLevel.Info)
 
-                        Radios.ConnectionProfiler.Current = New Radios.ConnectionProfiler()
-                        Radios.ConnectionProfiler.Current.RecordEvent("retry_begin", New Dictionary(Of String, Object) From {
-                            {"attemptNumber", 2},
-                            {"serial", retrySerial}
-                        })
-
-                        If RigControl.RetryConnect() Then
-                            Tracing.TraceLine("OpenTheRadio:retry - RetryConnect succeeded, calling Start", TraceLevel.Info)
-                            rv = RigControl.Start()
-                        Else
-                            Tracing.TraceLine("OpenTheRadio:retry - RetryConnect failed", TraceLevel.Error)
-                        End If
+                            If RigControl.RetryConnect() Then
+                                Tracing.TraceLine($"OpenTheRadio:retry {attempt} - RetryConnect succeeded, calling Start", TraceLevel.Info)
+                                rv = RigControl.Start()
+                                If rv Then Exit For
+                            Else
+                                Tracing.TraceLine($"OpenTheRadio:retry {attempt} - RetryConnect failed", TraceLevel.Error)
+                            End If
+                        Next
 
                         If Not rv Then
-                            Tracing.TraceLine("OpenTheRadio:retry also failed", TraceLevel.Error)
+                            Tracing.TraceLine("OpenTheRadio:all retry attempts failed", TraceLevel.Error)
                             Radios.ScreenReaderOutput.Speak("Connection failed. Please try Remote again.", VerbosityLevel.Critical)
                         End If
 

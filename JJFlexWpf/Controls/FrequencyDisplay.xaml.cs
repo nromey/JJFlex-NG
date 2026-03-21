@@ -719,5 +719,18 @@ public partial class FrequencyDisplay : UserControl
         System.Windows.Input.Keyboard.Focus(DisplayBox);
     }
 
+    /// <summary>
+    /// Focus the display and navigate to the Frequency field specifically.
+    /// Positions cursor at the default offset (kHz in Classic, full field in Modern)
+    /// and speaks the field label, value, and step size.
+    /// </summary>
+    public void FocusFrequencyField()
+    {
+        DisplayBox.Focus();
+        System.Windows.Input.Keyboard.Focus(DisplayBox);
+        if (_fieldDict.TryGetValue("Freq", out var freqField))
+            NavigateToField(freqField);
+    }
+
     #endregion
 }
