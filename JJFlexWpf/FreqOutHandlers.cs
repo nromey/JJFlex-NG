@@ -681,14 +681,10 @@ public class FreqOutHandlers
             e.Handled = true;
             return true;
         }
-        // Letters: accumulate silently for calibration reference entry
-        if (ch >= 'A' && ch <= 'Z' || ch >= 'a' && ch <= 'z')
+        // Letters: accumulate only when ALREADY in quick-type mode (for calibration references).
+        // Do NOT start quick-type with letters — that would eat C (coarse/fine), F (speak freq), etc.
+        if (_inQuickType && (ch >= 'A' && ch <= 'Z' || ch >= 'a' && ch <= 'z'))
         {
-            if (!_inQuickType)
-            {
-                _quickTypeBuffer = "";
-                _inQuickType = true;
-            }
             _quickTypeBuffer += ch;
             _lastDigitTime = DateTime.Now;
             e.Handled = true;
