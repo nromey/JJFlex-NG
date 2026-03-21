@@ -2163,6 +2163,18 @@ public class FreqOutHandlers
     /// notifications and license boundary crossings if enabled.
     /// Called from TuneFreq after frequency changes.
     /// </summary>
+    /// <summary>
+    /// Initialize band tracking from current frequency so the first tune
+    /// doesn't trigger a false boundary notification.
+    /// </summary>
+    public void InitializeBandTracking(ulong currentFreq)
+    {
+        var bandInfo = Bands.Query(currentFreq);
+        _lastBand = bandInfo?.Band;
+        if (_lastBand != null)
+            _lastSubBandKey = GetSubBandKey(currentFreq, _lastBand.Value);
+    }
+
     public void CheckBandBoundary(ulong newFreq)
     {
         if (License == null || !License.BoundaryNotifications) return;

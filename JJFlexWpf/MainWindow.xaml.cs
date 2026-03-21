@@ -1686,6 +1686,14 @@ public partial class MainWindow : UserControl
             }
         }
 
+        // Initialize band tracking from current frequency so first tune doesn't
+        // trigger a false "Entering extra phone" boundary notification
+        if (_freqOutHandlers != null && RigControl != null)
+        {
+            ulong freq = RigControl.VirtualRXFrequency;
+            if (freq > 0) _freqOutHandlers.InitializeBandTracking(freq);
+        }
+
         // VB-side tasks (knob setup, tracing)
         PowerOnCallback?.Invoke();
 
