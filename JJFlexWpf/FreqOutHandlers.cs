@@ -633,6 +633,7 @@ public class FreqOutHandlers
         // Convert MHz to Hz (ulong, our internal format)
         ulong freqHz = (ulong)(freqMhz.Value * 1_000_000);
         SetRXFrequency?.Invoke(freqHz);
+        CheckBandBoundary(freqHz);
 
         // Typewriter bell in mechanical mode, regular ding otherwise
         if (TypingSound == TypingSoundMode.Mechanical)

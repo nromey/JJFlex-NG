@@ -593,7 +593,14 @@ Module globals
                         WpfMainWindow.HandleCalibrationFromFreqInput(calibRef)
                         Return
                     End If
-                    If RigControl IsNot Nothing Then WriteFreq(input)
+                    If RigControl IsNot Nothing Then
+                        WriteFreq(input)
+                        ' Check band boundary after frequency jump
+                        Dim handlers = WpfMainWindow.FreqHandlers
+                        If handlers IsNot Nothing Then
+                            handlers.CheckBandBoundary(CULng(RigControl.VirtualRXFrequency))
+                        End If
+                    End If
                 End If
             End Sub,
             .GotoReceive = Sub() WpfMainWindow.ReceivedTextBox.Focus(),

@@ -1087,7 +1087,7 @@ public partial class MainWindow : UserControl
     /// <summary>
     /// Expose FreqOutHandlers for Settings dialog tuning step access.
     /// </summary>
-    internal FreqOutHandlers? FreqHandlers => _freqOutHandlers;
+    public FreqOutHandlers? FreqHandlers => _freqOutHandlers;
 
     /// <summary>
     /// Set up the frequency display fields with interactive handlers.

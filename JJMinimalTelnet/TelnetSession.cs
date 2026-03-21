@@ -160,7 +160,7 @@ namespace JJMinimalTelnet
                 {
                     string str = buf.Substring(startID, len);
                     rv.Add(str);
-                    Tracing.TraceLine("telnetSession read adding:" + Escapes.Escapes.Decode(str), TraceLevel.Verbose);
+                    Tracing.TraceLine("telnetSession read adding:" + Escapes.EscapeHelper.Decode(str), TraceLevel.Verbose);
                     startID += len;
                 } while ((len = buf.Substring(startID).IndexOf(TelnetConnection.TCNewline) +
                     TelnetConnection.TCNewline.Length) >= TelnetConnection.TCNewline.Length);
@@ -197,7 +197,7 @@ namespace JJMinimalTelnet
                 string str = tc.Read();
                 if (!string.IsNullOrEmpty(str))
                 {
-                    Tracing.TraceLine("readProc read:" + Escapes.Escapes.Decode(str), TraceLevel.Verbose);
+                    Tracing.TraceLine("readProc read:" + Escapes.EscapeHelper.Decode(str), TraceLevel.Verbose);
                     intQueue.Lock.WaitOne();
                     intQueue.Q.Enqueue(str);
                     if (str.IndexOf(lastCharOfNewline) != -1)
