@@ -2597,7 +2597,12 @@ public partial class MainWindow : UserControl
             if (dialog.SelectedAccountData is Radios.SmartLinkAccount selectedAcct)
             {
                 SaveDefaultSmartLinkAccount?.Invoke(selectedAcct.Email);
-                Radios.ScreenReaderOutput.Speak($"Default account set to {selectedAcct.FriendlyName}", VerbosityLevel.Terse, true);
+                Radios.ScreenReaderOutput.Speak($"Default set to {selectedAcct.FriendlyName}", VerbosityLevel.Terse, true);
+            }
+            else if (dialog.SelectedAccountData != null)
+            {
+                // AccountData wasn't a SmartLinkAccount — shouldn't happen but handle gracefully
+                Radios.ScreenReaderOutput.Speak("Account selected", VerbosityLevel.Terse, true);
             }
             break;
         }

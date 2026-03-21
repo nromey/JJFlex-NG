@@ -869,7 +869,7 @@ public class KeyCommands
 
         // --- Radio scope ---
         new(Keys.F2, CommandValues.ShowFreq, KeyScope.Radio),
-        new(Keys.None, CommandValues.SetFreq, KeyScope.Radio),
+        new(Keys.F | Keys.Control, CommandValues.SetFreq, KeyScope.Radio),
         new(Keys.None, CommandValues.ShowMemory, KeyScope.Radio),
         new(Keys.M | Keys.Control | Keys.Shift, CommandValues.MemoryScan, KeyScope.Radio),
         new(Keys.None, CommandValues.SmeterDBM, KeyScope.Radio),
