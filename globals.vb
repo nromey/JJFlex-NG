@@ -2079,9 +2079,10 @@ RadioConnected:
                     Dim isRemote = (CurrentRig IsNot Nothing AndAlso CurrentRig.Remote)
 
                     If Not String.IsNullOrEmpty(retrySerial) AndAlso isRemote Then
-                        ' Remote manual connection retry — full teardown + fresh reconnect.
-                        ' Must create fresh WAN session to avoid stale GUIClient lifecycle.
-                        Tracing.TraceLine($"OpenTheRadio:Start failed with disconnected remote radio, retrying once (serial={retrySerial})", TraceLevel.Info)
+                        ' Remote retry: lightweight reconnect using existing WAN session.
+                        ' No re-auth, no WebView2, no new FlexBase instance.
+                        ' Just re-sends remote connect + Radio.Connect() + Start().
+                        Tracing.TraceLine($"OpenTheRadio:Start failed, retrying radio-level reconnect (serial={retrySerial})", TraceLevel.Info)
 
                         Radios.ConnectionProfiler.Current = New Radios.ConnectionProfiler()
                         Radios.ConnectionProfiler.Current.RecordEvent("retry_begin", New Dictionary(Of String, Object) From {
@@ -2089,50 +2090,16 @@ RadioConnected:
                             {"serial", retrySerial}
                         })
 
-                        ' 2-second delay — gives SmartLink time to clean up the previous session.
-                        Threading.Thread.Sleep(2000)
-
-                        ' Full teardown
-                        WpfMainWindow?.UnwireRadioEvents()
-                        RigControl.Dispose()
-
-                        ' Create new rig instance
-                        RigControl = New FlexBase(OpenParms)
-                        WpfMainWindow.RigControl = RigControl
-
-                        ' Wire ShowAccountSelector with saved default
-                        RigControl.ShowAccountSelector = Function(mgr)
-                                                             Dim accounts = mgr.Accounts
-                                                             Tracing.TraceLine($"ShowAccountSelector(retry): {accounts.Count} saved account(s)", TraceLevel.Info)
-                                                             If accounts.Count = 0 Then
-                                                                 Return (True, Nothing, True)
-                                                             End If
-                                                             If accounts.Count = 1 Then
-                                                                 Return (False, accounts(0), True)
-                                                             End If
-                                                             Dim opName = PersonalData.UniqueOpName(CurrentOp)
-                                                             Dim savedCfg = Radios.AutoConnectConfig.Load(BaseConfigDir, opName)
-                                                             If Not String.IsNullOrEmpty(savedCfg.SmartLinkAccountEmail) Then
-                                                                 Dim defaultAcct = accounts.FirstOrDefault(Function(a) a.Email.Equals(savedCfg.SmartLinkAccountEmail, StringComparison.OrdinalIgnoreCase))
-                                                                 If defaultAcct IsNot Nothing Then
-                                                                     Tracing.TraceLine($"ShowAccountSelector(retry): using default '{defaultAcct.FriendlyName}'", TraceLevel.Info)
-                                                                     Return (False, defaultAcct, True)
-                                                                 End If
-                                                             End If
-                                                             Dim best = accounts.OrderByDescending(Function(a) a.LastUsed).First()
-                                                             Tracing.TraceLine($"ShowAccountSelector(retry): auto-selected '{best.FriendlyName}'", TraceLevel.Info)
-                                                             Return (False, best, True)
-                                                         End Function
-
-                        If RigControl.ReconnectRemote(retrySerial, retryLowBW) Then
-                            WpfMainWindow.WireRadioEvents()
-                            Tracing.TraceLine("OpenTheRadio:retry - rig is starting", TraceLevel.Info)
+                        If RigControl.RetryConnect() Then
+                            Tracing.TraceLine("OpenTheRadio:retry - RetryConnect succeeded, calling Start", TraceLevel.Info)
                             rv = RigControl.Start()
+                        Else
+                            Tracing.TraceLine("OpenTheRadio:retry - RetryConnect failed", TraceLevel.Error)
                         End If
 
                         If Not rv Then
                             Tracing.TraceLine("OpenTheRadio:retry also failed", TraceLevel.Error)
-                            Radios.ScreenReaderOutput.Speak("Connection failed. Please try again.", VerbosityLevel.Critical)
+                            Radios.ScreenReaderOutput.Speak("Connection failed. Please try Remote again.", VerbosityLevel.Critical)
                         End If
 
                     ElseIf _autoConnectConfig IsNot Nothing AndAlso _autoConnectConfig.ShouldAutoConnect Then

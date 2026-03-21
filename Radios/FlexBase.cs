@@ -448,17 +448,23 @@ namespace Radios
 
             try
             {
-                // Re-authenticate and connect to SmartLink server.
-                // A fresh WAN session avoids stale GUIClient lifecycle issues that
-                // cause "client removed without prior add" during Start().
+                // Skip auth if WAN is already connected from discovery phase.
+                // GUIClient lifecycle issues are handled by RetryConnect if Start() fails.
                 apiInit();
-                bool remoteOk = setupRemote();
-                Tracing.TraceLine($"ReconnectRemote: setupRemote returned {remoteOk} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
-
-                if (!remoteOk)
+                bool wanAlreadyConnected = wan != null && wan.IsConnected;
+                if (wanAlreadyConnected)
                 {
-                    Tracing.TraceLine($"ReconnectRemote: setupRemote FAILED ({sw.ElapsedMilliseconds}ms)", TraceLevel.Error);
-                    return false;
+                    Tracing.TraceLine($"ReconnectRemote: WAN already connected, skipping auth ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+                }
+                else
+                {
+                    bool remoteOk = setupRemote();
+                    Tracing.TraceLine($"ReconnectRemote: setupRemote returned {remoteOk} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+                    if (!remoteOk)
+                    {
+                        Tracing.TraceLine($"ReconnectRemote: setupRemote FAILED ({sw.ElapsedMilliseconds}ms)", TraceLevel.Error);
+                        return false;
+                    }
                 }
 
                 // Wait for the radio to appear in myRadioList.
@@ -497,6 +503,51 @@ namespace Radios
             {
                 sw.Stop();
                 Tracing.TraceLine($"ReconnectRemote: EXCEPTION {ex.GetType().Name}: {ex.Message} (total {sw.ElapsedMilliseconds}ms)\n{ex.StackTrace}", TraceLevel.Error);
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Lightweight retry: reconnect to the radio using existing WAN session.
+        /// No re-auth, no handler re-wiring. Just sends remote connect + Radio.Connect().
+        /// Used when Start() fails due to GUIClient lifecycle race.
+        /// </summary>
+        public bool RetryConnect()
+        {
+            if (theRadio == null)
+            {
+                Tracing.TraceLine("RetryConnect: no radio object", TraceLevel.Error);
+                return false;
+            }
+
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            Tracing.TraceLine($"RetryConnect: BEGIN serial={theRadio.Serial}", TraceLevel.Info);
+
+            try
+            {
+                // Reset the client tracking flags for the new Start() attempt
+                _clientRemovedDuringStart = false;
+                _clientAddedDuringStart = false;
+
+                bool rv = true;
+
+                if (RemoteRig)
+                {
+                    rv = sendRemoteConnect(theRadio);
+                    Tracing.TraceLine($"RetryConnect: sendRemoteConnect returned {rv} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+                }
+
+                if (rv)
+                {
+                    rv = theRadio.Connect();
+                    Tracing.TraceLine($"RetryConnect: Radio.Connect returned {rv} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+                }
+
+                return rv;
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine($"RetryConnect: EXCEPTION {ex.Message} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Error);
                 return false;
             }
         }
