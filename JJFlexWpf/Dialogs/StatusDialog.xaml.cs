@@ -35,6 +35,11 @@ public partial class StatusDialog : JJFlexDialog
     private void StatusDialog_Loaded(object sender, RoutedEventArgs e)
     {
         RefreshStatus();
+        if (StatusList.Items.Count > 0)
+        {
+            StatusList.SelectedIndex = 0;
+            StatusList.Focus();
+        }
         _refreshTimer.Start();
     }
 
