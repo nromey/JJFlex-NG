@@ -32,13 +32,25 @@ public partial class StatusDialog : JJFlexDialog
         Closing += StatusDialog_Closing;
     }
 
+    protected override void FocusFirstControl()
+    {
+        // Don't use base MoveFocus — we'll set focus after items are populated
+    }
+
     private void StatusDialog_Loaded(object sender, RoutedEventArgs e)
     {
         RefreshStatus();
         if (StatusList.Items.Count > 0)
         {
             StatusList.SelectedIndex = 0;
-            StatusList.Focus();
+            // Deferred focus so ListBoxItem containers are generated
+            Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded, () =>
+            {
+                StatusList.Focus();
+                var container = StatusList.ItemContainerGenerator
+                    .ContainerFromIndex(0) as System.Windows.Controls.ListBoxItem;
+                container?.Focus();
+            });
         }
         _refreshTimer.Start();
     }
