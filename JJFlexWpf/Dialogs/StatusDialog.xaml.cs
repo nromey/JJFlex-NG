@@ -48,6 +48,9 @@ public partial class StatusDialog : JJFlexDialog
     /// </summary>
     private void RefreshStatus()
     {
+        // Don't refresh while user is reading the list — it steals selection
+        if (StatusList.IsKeyboardFocusWithin) return;
+
         int savedIndex = StatusList.SelectedIndex;
         StatusList.Items.Clear();
 

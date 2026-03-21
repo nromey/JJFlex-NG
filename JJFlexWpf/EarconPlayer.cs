@@ -728,7 +728,10 @@ namespace JJFlexWpf
             switch (mode)
             {
                 case TypingSoundMode.Beep:
-                    PlayTone(1000, 30, 0.25f);
+                    // Random musical note from C4-C8 (4 octaves, MIDI 60-108)
+                    int midiNote = 60 + _keyRandom.Next(49); // 49 semitones = 4 octaves
+                    int freq = (int)(440.0 * Math.Pow(2.0, (midiNote - 69) / 12.0));
+                    PlayTone(freq, 30, 0.25f);
                     break;
                 case TypingSoundMode.Mechanical:
                     PlayMechanicalKey();
