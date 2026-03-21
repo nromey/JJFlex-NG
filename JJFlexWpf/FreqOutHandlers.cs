@@ -756,33 +756,46 @@ public class FreqOutHandlers
         }
     }
 
-    private void CycleVFO(int direction)
+    private void CycleVFO(int direction, bool wrap = false)
     {
         if (Rig == null) return;
         int current = Rig.RXVFO;
         int total = Rig.MyNumSlices;
         if (total <= 0) return;
 
-        Tracing.TraceLine($"CycleVFO:dir={direction} current={current} total={total}", TraceLevel.Info);
+        Tracing.TraceLine($"CycleVFO:dir={direction} current={current} total={total} wrap={wrap}", TraceLevel.Info);
 
         int next = current + direction;
-        if (next >= total)
+        if (wrap)
         {
-            Radios.ScreenReaderOutput.Speak("Last slice", VerbosityLevel.Terse, true);
-            return;
+            if (next >= total) next = 0;
+            if (next < 0) next = total - 1;
         }
-        if (next < 0)
+        else
         {
-            Radios.ScreenReaderOutput.Speak("First slice", VerbosityLevel.Terse, true);
-            return;
+            if (next >= total)
+            {
+                Radios.ScreenReaderOutput.Speak("Last slice", VerbosityLevel.Terse, true);
+                return;
+            }
+            if (next < 0)
+            {
+                Radios.ScreenReaderOutput.Speak("First slice", VerbosityLevel.Terse, true);
+                return;
+            }
         }
 
-        // Find next valid VFO (search forward only, don't wrap)
+        // Find next valid VFO
         int attempts = 0;
         while (!Rig.ValidVFO(next) && attempts < total)
         {
             next += direction;
-            if (next >= total || next < 0)
+            if (wrap)
+            {
+                if (next >= total) next = 0;
+                if (next < 0) next = total - 1;
+            }
+            if (!wrap && (next >= total || next < 0))
             {
                 Radios.ScreenReaderOutput.Speak(direction > 0 ? "Last slice" : "First slice", VerbosityLevel.Terse, true);
                 return;
@@ -826,8 +839,8 @@ public class FreqOutHandlers
         switch (ch)
         {
             case ' ':
-                // Cycle to next valid slice
-                CycleVFO(1);
+                // Cycle to next valid slice (wraps around)
+                CycleVFO(1, wrap: true);
                 e.Handled = true;
                 break;
             case 'M':
