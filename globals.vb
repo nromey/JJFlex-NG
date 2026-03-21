@@ -2036,6 +2036,11 @@ RadioConnected:
                                                     SetupKnob()
                                                     StartDailyTraceIfEnabled()
                                                 End Sub
+                WpfMainWindow.UpdateTitleBar = Sub(title)
+                                                   If AppShellForm IsNot Nothing Then
+                                                       AppShellForm.Text = title
+                                                   End If
+                                               End Sub
                 WpfMainWindow.WireRadioEvents()
 
                 ' Ensure ShellForm is visible before Start() so error dialogs

@@ -880,6 +880,12 @@ public partial class MainWindow : UserControl
     public Action<string>? SaveDefaultSmartLinkAccount { get; set; }
 
     /// <summary>
+    /// Update the shell form title bar with radio status.
+    /// Wired by globals.vb to AppShellForm.Text.
+    /// </summary>
+    public Action<string>? UpdateTitleBar { get; set; }
+
+    /// <summary>
     /// Callback for VB-side exit sequence. Returns true to proceed, false to cancel.
     /// Set by ApplicationEvents.vb, called from MainWindow_Closing.
     /// </summary>
@@ -1383,6 +1389,15 @@ public partial class MainWindow : UserControl
             if (FreqOut.Changed)
             {
                 FreqOut.Display();
+            }
+
+            // Update title bar with compact status for Insert+T (screen reader reads window title)
+            if (UpdateTitleBar != null)
+            {
+                string sliceLetter = RigControl.ActiveSliceLetter;
+                string mode = RigControl.Mode ?? "";
+                double freqMhz = (RigControl.Transmit ? RigControl.TXFrequency : RigControl.VirtualRXFrequency) / 1_000_000.0;
+                UpdateTitleBar($"JJ Flexible Radio Access — Slice {sliceLetter}, {freqMhz:F3}, {mode}");
             }
         }
         catch (Exception ex)
