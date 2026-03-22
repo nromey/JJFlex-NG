@@ -2594,15 +2594,18 @@ public partial class MainWindow : UserControl
             }
 
             // User selected an existing account — save as default
+            Tracing.TraceLine($"ShowSmartLinkAccountManager: result={result}, SelectedAccountData={dialog.SelectedAccountData?.GetType()?.Name ?? "null"}, NewLogin={dialog.NewLoginRequested}", TraceLevel.Info);
             if (dialog.SelectedAccountData is Radios.SmartLinkAccount selectedAcct)
             {
                 SaveDefaultSmartLinkAccount?.Invoke(selectedAcct.Email);
-                Radios.ScreenReaderOutput.Speak($"Default set to {selectedAcct.FriendlyName}", VerbosityLevel.Terse, true);
-            }
-            else if (dialog.SelectedAccountData != null)
-            {
-                // AccountData wasn't a SmartLinkAccount — shouldn't happen but handle gracefully
-                Radios.ScreenReaderOutput.Speak("Account selected", VerbosityLevel.Terse, true);
+                // Speech gets swallowed by focus changes — use Tolk directly with a delay
+                System.Threading.Tasks.Task.Delay(200).ContinueWith(_ =>
+                {
+                    Dispatcher.BeginInvoke(() =>
+                    {
+                        Radios.ScreenReaderOutput.Speak($"Default account set to {selectedAcct.FriendlyName}", VerbosityLevel.Critical, true);
+                    });
+                });
             }
             break;
         }

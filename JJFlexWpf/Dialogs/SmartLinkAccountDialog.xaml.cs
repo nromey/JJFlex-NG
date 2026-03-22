@@ -118,7 +118,9 @@ namespace JJFlexWpf.Dialogs
 
         private void ConnectButton_Click(object sender, RoutedEventArgs e)
         {
+            JJTrace.Tracing.TraceLine("SmartLinkAccountDialog: Set Default clicked", System.Diagnostics.TraceLevel.Info);
             var item = GetSelectedAccount();
+            JJTrace.Tracing.TraceLine($"SmartLinkAccountDialog: selected item = {item?.FriendlyName ?? "null"}, AccountData type = {item?.AccountData?.GetType()?.Name ?? "null"}", System.Diagnostics.TraceLevel.Info);
             if (item != null)
             {
                 SelectedAccountData = item.AccountData;
