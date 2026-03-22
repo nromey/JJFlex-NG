@@ -45,8 +45,8 @@ namespace JJFlexWpf.Dialogs
         /// <summary>Start local radio discovery.</summary>
         public required Action StartLocalDiscovery { get; init; }
 
-        /// <summary>Start remote (SmartLink) radio discovery.</summary>
-        public required Action StartRemoteDiscovery { get; init; }
+        /// <summary>Start remote (SmartLink) radio discovery. Callback fires when complete (true=success).</summary>
+        public required Action<Action<bool>> StartRemoteDiscovery { get; init; }
 
         /// <summary>Register for radio-found events. Action receives RadioListItem.</summary>
         public required Action<Action<RadioListItem>> RegisterRadioFound { get; init; }
@@ -302,10 +302,33 @@ namespace JJFlexWpf.Dialogs
         private void RemoteButton_Click(object sender, RoutedEventArgs e)
         {
             // Show WinForms connecting window to hold focus while SmartLink auth runs.
-            // WinForms because standalone WPF windows from VB.NET lose keyboard focus.
             _closeConnecting = _callbacks.ShowConnecting?.Invoke("Connecting to SmartLink...");
 
-            _callbacks.StartRemoteDiscovery();
+            _callbacks.StartRemoteDiscovery((success) =>
+            {
+                // Called from SmartLink thread when discovery completes.
+                // Close ConnectingForm first.
+                if (_closeConnecting != null)
+                {
+                    _closeConnecting();
+                    _closeConnecting = null;
+                }
+                // Show error dialog on UI thread if no radios found
+                Dispatcher.BeginInvoke(() =>
+                {
+                    Activate();
+                    if (RadiosBox.Items.Count == 0)
+                    {
+                        new MessageDialog
+                        {
+                            Title = "No Radios Found",
+                            Message = "No radios were found on SmartLink. The radio may be powered off or not connected.",
+                            Owner = this
+                        }.ShowDialog();
+                    }
+                    RadiosBox.Focus();
+                });
+            });
         }
 
         private void SwitchAccountButton_Click(object sender, RoutedEventArgs e)

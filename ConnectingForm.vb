@@ -64,7 +64,7 @@ Public Class ConnectingForm
     ''' </summary>
     Public Sub CloseForm()
         If InvokeRequired Then
-            Invoke(Sub() CloseForm())
+            BeginInvoke(Sub() CloseForm())
             Return
         End If
         _focusTimer.Stop()

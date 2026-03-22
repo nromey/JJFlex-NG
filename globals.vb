@@ -1615,9 +1615,10 @@ Module globals
 
     Private Sub turnTracingOff()
         If BootTrace Then
-            Tracing.TraceLine("Boot tracing off")
-            Tracing.On = False
-            BootTrace = False
+            ' Keep tracing on for connection debugging
+            'Tracing.TraceLine("Boot tracing off")
+            'Tracing.On = False
+            'BootTrace = False
         End If
     End Sub
 
@@ -1853,11 +1854,15 @@ Module globals
         ' Build the callbacks for the WPF dialog
         Dim callbacks As New JJFlexWpf.Dialogs.RigSelectorCallbacks() With {
             .StartLocalDiscovery = Sub() RigControl.LocalRadios(),
-            .StartRemoteDiscovery = Sub()
+            .StartRemoteDiscovery = Sub(onComplete As Action(Of Boolean))
                                         ' Run on background thread — WebView2 auth can take seconds
                                         Dim t As New Thread(
                                             Sub()
                                                 RigControl.RemoteRadios()
+                                                ' Notify completion immediately
+                                                Tracing.TraceLine("StartRemoteDiscovery: calling onComplete", TraceLevel.Info)
+                                                onComplete?.Invoke(RigControl.IsConnected)
+                                                Tracing.TraceLine("StartRemoteDiscovery: onComplete returned", TraceLevel.Info)
                                             End Sub)
                                         t.IsBackground = True
                                         t.SetApartmentState(ApartmentState.STA)

@@ -1202,7 +1202,20 @@ namespace Radios
                     form.Text = title;
                 }
 
-                if (form.ShowDialog() != DialogResult.OK)
+                // Show dialog on the main UI thread so it gets foreground focus.
+                // PerformNewLogin may be called from the SmartLink background thread.
+                DialogResult dialogResult = DialogResult.Cancel;
+                var parent = Callouts?.ParentWindow as Control;
+                if (parent != null && parent.IsHandleCreated && parent.InvokeRequired)
+                {
+                    parent.Invoke(new Action(() => { dialogResult = form.ShowDialog(parent as IWin32Window); }));
+                }
+                else
+                {
+                    dialogResult = form.ShowDialog();
+                }
+
+                if (dialogResult != DialogResult.OK)
                 {
                     Tracing.TraceLine("setupRemote: auth form cancelled or failed", TraceLevel.Info);
                     RestoreParentFocus();
