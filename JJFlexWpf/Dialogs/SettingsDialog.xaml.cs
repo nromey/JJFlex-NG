@@ -188,8 +188,6 @@ namespace JJFlexWpf.Dialogs
                 MeterDeviceCombo.SelectedIndex = meterDevIdx >= 0 ? meterDevIdx : 0;
             }
 
-            MeterTonesEnabledCheck.IsChecked = _audioConfig.MeterTonesEnabled;
-
             foreach (var preset in MeterPresetOptions)
             {
                 MeterPresetCombo.Items.Add(preset);
@@ -211,6 +209,21 @@ namespace JJFlexWpf.Dialogs
                 BrailleCellsCombo.Items.Add(cells.ToString());
             int cellIdx = Array.IndexOf(cellOptions, _audioConfig.BrailleCellCount);
             BrailleCellsCombo.SelectedIndex = cellIdx >= 0 ? cellIdx : 2; // default 40
+
+            // Verbosity & Notifications tab
+            SpeechVerbosityCombo.Items.Add("Off (critical only)");  // 0
+            SpeechVerbosityCombo.Items.Add("Terse");                // 1
+            SpeechVerbosityCombo.Items.Add("Chatty");               // 2
+            SpeechVerbosityCombo.SelectedIndex = Math.Clamp(_audioConfig.SpeechVerbosity, 0, 2);
+
+            EarconsEnabledCheck.IsChecked = _audioConfig.EarconsEnabled;
+
+            CwNotificationsCheck.IsChecked = _audioConfig.CwNotificationsEnabled;
+            CwSidetoneBox.Text = _audioConfig.CwSidetoneHz.ToString();
+            CwSpeedBox.Text = _audioConfig.CwSpeedWpm.ToString();
+            CwModeAnnounceCheck.IsChecked = _audioConfig.CwModeAnnounce;
+
+            MeterTonesNotifCheck.IsChecked = _audioConfig.MeterTonesEnabled;
         }
 
         // Typing sound combo indices (always-available items first, then unlockable)
@@ -351,7 +364,6 @@ namespace JJFlexWpf.Dialogs
                 if (devListIdx >= 0 && devListIdx < devices.Count)
                     _audioConfig.MeterDeviceNumber = devices[devListIdx].deviceNumber;
             }
-            _audioConfig.MeterTonesEnabled = MeterTonesEnabledCheck.IsChecked == true;
             int presetIdx = MeterPresetCombo.SelectedIndex;
             if (presetIdx >= 0 && presetIdx < MeterPresetOptions.Length)
                 _audioConfig.MeterPreset = MeterPresetOptions[presetIdx];
@@ -382,6 +394,19 @@ namespace JJFlexWpf.Dialogs
             int[] cellOpts = { 20, 32, 40, 80 };
             int bcIdx = BrailleCellsCombo.SelectedIndex;
             _audioConfig.BrailleCellCount = bcIdx >= 0 && bcIdx < cellOpts.Length ? cellOpts[bcIdx] : 40;
+
+            // Verbosity & Notifications tab
+            _audioConfig.SpeechVerbosity = SpeechVerbosityCombo.SelectedIndex;
+            _audioConfig.EarconsEnabled = EarconsEnabledCheck.IsChecked == true;
+            _audioConfig.CwNotificationsEnabled = CwNotificationsCheck.IsChecked == true;
+            if (int.TryParse(CwSidetoneBox.Text, out int sidetone) && sidetone >= 400 && sidetone <= 1200)
+                _audioConfig.CwSidetoneHz = sidetone;
+            if (int.TryParse(CwSpeedBox.Text, out int cwSpeed) && cwSpeed >= 10 && cwSpeed <= 30)
+                _audioConfig.CwSpeedWpm = cwSpeed;
+            _audioConfig.CwModeAnnounce = CwModeAnnounceCheck.IsChecked == true;
+
+            // Sync the meter tones checkbox on Notifications tab with Audio tab
+            _audioConfig.MeterTonesEnabled = MeterTonesNotifCheck.IsChecked == true;
 
             // Apply audio settings immediately
             _audioConfig.Apply();

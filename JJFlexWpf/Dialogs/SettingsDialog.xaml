@@ -231,10 +231,6 @@
                                   Style="{StaticResource DialogComboBox}"
                                   AutomationProperties.Name="Meter tone audio output device"/>
                     </StackPanel>
-                    <CheckBox x:Name="MeterTonesEnabledCheck"
-                              Content="Enable meter tones"
-                              Margin="0,0,0,8"
-                              AutomationProperties.Name="Enable meter tones"/>
                     <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
                         <TextBlock Text="Preset:"
                                    VerticalAlignment="Center"
@@ -292,6 +288,80 @@
                             AutomationProperties.Name="Audio Workshop"
                             AutomationProperties.AcceleratorKey="Alt+W"
                             Click="AudioWorkshopButton_Click"/>
+                </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+            <!-- Verbosity & Notifications Tab -->
+            <TabItem Header="Notifications" AutomationProperties.Name="Verbosity and notifications settings">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <StackPanel Margin="8">
+                    <!-- Speech section -->
+                    <TextBlock Text="Speech" FontWeight="SemiBold"
+                               Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                        <TextBlock Text="Speech verbosity:"
+                                   VerticalAlignment="Center"
+                                   Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
+                        <ComboBox x:Name="SpeechVerbosityCombo" Width="120"
+                                  Style="{StaticResource DialogComboBox}"
+                                  AutomationProperties.Name="Speech verbosity level"/>
+                    </StackPanel>
+
+                    <Separator Margin="0,4,0,8"/>
+
+                    <!-- Earcons section -->
+                    <TextBlock Text="Alert Sounds" FontWeight="SemiBold"
+                               Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
+                    <CheckBox x:Name="EarconsEnabledCheck"
+                              Content="Enable alert sounds (earcons)"
+                              Margin="0,0,0,8"
+                              AutomationProperties.Name="Enable alert sounds such as beeps and tones"/>
+
+                    <Separator Margin="0,4,0,8"/>
+
+                    <!-- CW Notifications section -->
+                    <TextBlock Text="CW Morse Notifications" FontWeight="SemiBold"
+                               Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
+                    <CheckBox x:Name="CwNotificationsCheck"
+                              Content="Enable CW notifications (AS, BT, SK prosigns)"
+                              Margin="0,0,0,8"
+                              AutomationProperties.Name="Enable Morse code notifications for connection events"/>
+                    <Grid Margin="20,0,0,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="100"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <TextBlock Grid.Row="0" Grid.Column="0"
+                                   Text="Sidetone frequency (Hz):"
+                                   Style="{StaticResource DialogLabel}" Margin="0,4,8,4"/>
+                        <TextBox x:Name="CwSidetoneBox" Grid.Row="0" Grid.Column="1"
+                                 Style="{StaticResource DialogTextBox}"
+                                 AutomationProperties.Name="CW sidetone frequency, 400 to 1200 hertz"/>
+                        <TextBlock Grid.Row="1" Grid.Column="0"
+                                   Text="Speed (WPM):"
+                                   Style="{StaticResource DialogLabel}" Margin="0,4,8,4"/>
+                        <TextBox x:Name="CwSpeedBox" Grid.Row="1" Grid.Column="1"
+                                 Style="{StaticResource DialogTextBox}"
+                                 AutomationProperties.Name="CW notification speed, 10 to 30 words per minute"/>
+                    </Grid>
+                    <CheckBox x:Name="CwModeAnnounceCheck"
+                              Content="Announce mode changes in CW (when speech is off)"
+                              Margin="0,0,0,8"
+                              AutomationProperties.Name="Play mode name in Morse code when speech verbosity is off"/>
+
+                    <Separator Margin="0,4,0,8"/>
+
+                    <!-- Meter Tones enable (moved from Audio) -->
+                    <TextBlock Text="Meter Tones" FontWeight="SemiBold"
+                               Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
+                    <CheckBox x:Name="MeterTonesNotifCheck"
+                              Content="Enable meter tones"
+                              Margin="0,0,0,8"
+                              AutomationProperties.Name="Enable meter tones"/>
                 </StackPanel>
                 </ScrollViewer>
             </TabItem>
