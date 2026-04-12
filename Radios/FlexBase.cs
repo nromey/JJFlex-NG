@@ -2475,6 +2475,16 @@ namespace Radios
                 _LocalPTT = client.IsLocalPtt;
             }
 
+            // Notify when another client connects (not during initial startup)
+            if (!client.IsThisClient && _clientAddedDuringStart)
+            {
+                string who = !string.IsNullOrEmpty(client.Station) ? client.Station
+                    : !string.IsNullOrEmpty(client.Program) ? client.Program
+                    : "Another client";
+                ScreenReaderOutput.Speak($"{who} connected", VerbosityLevel.Terse);
+                ScreenReaderOutput.PlayClientConnectedEarcon?.Invoke();
+            }
+
             Tracing.TraceLine("guiClientAdded:" +
                 "id:" + client.ClientID +
                 " my client:" + client.IsThisClient.ToString() +
@@ -2500,6 +2510,56 @@ namespace Radios
         private bool myClient(uint handle)
         {
             return ((clientHandle == handle)) ? true : false;
+        }
+
+        /// <summary>
+        /// Get a snapshot of connected MultiFlex GUI clients with their owned slices.
+        /// Returns tuples: (program, station, handle, isThisClient, ownedSliceLetters).
+        /// </summary>
+        public List<(string program, string station, uint handle, bool isThisClient, string slices)> GetGuiClients()
+        {
+            var result = new List<(string, string, uint, bool, string)>();
+            if (theRadio == null) return result;
+
+            lock (theRadio.GuiClientsLockObj)
+            {
+                foreach (var gc in theRadio.GuiClients)
+                {
+                    var ownedSlices = new List<string>();
+                    foreach (var s in theRadio.SliceList)
+                    {
+                        if (s.ClientHandle == gc.ClientHandle && !string.IsNullOrEmpty(s.Letter))
+                            ownedSlices.Add(s.Letter);
+                    }
+
+                    result.Add((
+                        gc.Program ?? "Unknown",
+                        gc.Station ?? "",
+                        gc.ClientHandle,
+                        gc.IsThisClient,
+                        string.Join(", ", ownedSlices)
+                    ));
+                }
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// Disconnect a MultiFlex GUI client by handle.
+        /// </summary>
+        public bool DisconnectGuiClient(uint handle)
+        {
+            if (theRadio == null || myClient(handle)) return false;
+            try
+            {
+                theRadio.DisconnectClientByHandle(handle.ToString());
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine($"DisconnectGuiClient: {ex.Message}", TraceLevel.Error);
+                return false;
+            }
         }
 
         internal GUIClient TheGuiClient
@@ -2543,6 +2603,16 @@ namespace Radios
                 _clientRemovedDuringStart = true;
                 _clientRemovedTickCount = Environment.TickCount64;
                 Tracing.TraceLine("guiClientRemoved:my client", TraceLevel.Info);
+            }
+
+            // Notify when another client disconnects
+            if (!myClient(client.ClientHandle))
+            {
+                string who = !string.IsNullOrEmpty(client.Station) ? client.Station
+                    : !string.IsNullOrEmpty(client.Program) ? client.Program
+                    : "A client";
+                ScreenReaderOutput.Speak($"{who} disconnected", VerbosityLevel.Terse);
+                ScreenReaderOutput.PlayClientDisconnectedEarcon?.Invoke();
             }
 
             Tracing.TraceLine("guiClientRemoved:" +

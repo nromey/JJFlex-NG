@@ -1,0 +1,29 @@
+<local:JJFlexDialog x:Class="JJFlexWpf.Dialogs.MultiFlexDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="clr-namespace:JJFlexWpf"
+    Title="MultiFlex Clients"
+    Width="420" Height="340"
+    ResizeMode="NoResize"
+    AutomationProperties.Name="MultiFlex connected clients">
+    <DockPanel Margin="12">
+        <!-- Buttons at bottom -->
+        <StackPanel DockPanel.Dock="Bottom" Style="{StaticResource ButtonPanel}">
+            <Button x:Name="DisconnectButton" Content="_Disconnect Selected"
+                    Width="160"
+                    AutomationProperties.Name="Disconnect selected client"
+                    Click="DisconnectButton_Click"/>
+            <Button Content="_Close" Style="{StaticResource CancelButton}"
+                    AutomationProperties.Name="Close"
+                    Click="CloseButton_Click"/>
+        </StackPanel>
+
+        <StackPanel>
+            <TextBlock x:Name="SummaryText" Text="Connected clients:"
+                       Style="{StaticResource DialogLabel}" Margin="0,0,0,8"/>
+            <ListBox x:Name="ClientList" Height="200"
+                     AutomationProperties.Name="Connected clients"
+                     SelectionChanged="ClientList_SelectionChanged"/>
+        </StackPanel>
+    </DockPanel>
+</local:JJFlexDialog>

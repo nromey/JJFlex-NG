@@ -1692,6 +1692,10 @@ public partial class MainWindow : UserControl
             Radios.ScreenReaderOutput.PlayCwSK = () => _morseNotifier.PlaySK();
             Radios.ScreenReaderOutput.PlayCwMode = (mode) => _morseNotifier.PlayString(mode);
 
+            // MultiFlex client connect/disconnect earcons
+            Radios.ScreenReaderOutput.PlayClientConnectedEarcon = () => EarconPlayer.PlayChirp(600, 900, 120, 0.2f);
+            Radios.ScreenReaderOutput.PlayClientDisconnectedEarcon = () => EarconPlayer.PlayChirp(900, 600, 120, 0.2f);
+
             // Apply typing sound to FreqOutHandlers
             if (_freqOutHandlers != null)
             {
@@ -2630,6 +2634,37 @@ public partial class MainWindow : UserControl
             }
             break;
         }
+    }
+
+    /// <summary>Show the MultiFlex client management dialog.</summary>
+    public void ShowMultiFlexDialog()
+    {
+        if (RigControl == null || !_radioPowerOn)
+        {
+            Radios.ScreenReaderOutput.Speak("MultiFlex requires an active radio connection", VerbosityLevel.Critical, true);
+            return;
+        }
+
+        var rig = RigControl;
+
+        var callbacks = new Dialogs.MultiFlexCallbacks
+        {
+            GetClients = () =>
+            {
+                return rig.GetGuiClients().Select(gc => new Dialogs.MultiFlexClientInfo
+                {
+                    Program = gc.program,
+                    Station = gc.station,
+                    Handle = gc.handle,
+                    IsThisClient = gc.isThisClient,
+                    OwnedSlices = gc.slices
+                }).ToList();
+            },
+            DisconnectClient = (handle) => rig.DisconnectGuiClient(handle)
+        };
+
+        var dialog = new Dialogs.MultiFlexDialog(callbacks);
+        dialog.ShowDialog();
     }
 
     // --- Auto-Connect callbacks (wired from ApplicationEvents.vb) ---

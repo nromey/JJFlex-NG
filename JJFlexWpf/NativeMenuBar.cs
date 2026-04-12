@@ -815,6 +815,7 @@ public class NativeMenuBar : IDisposable
         else
             AddWired(radio, "Connect to Radio", () => ConnectWithConfirmation());
         AddWired(radio, "Manage SmartLink Accounts", () => _window.ShowSmartLinkAccountManager());
+        AddWired(radio, "MultiFlex Clients", () => _window.ShowMultiFlexDialog());
         AddChecked(radio, "Auto-Connect Enabled",
             () => { var msg = _window.ToggleAutoConnect(); if (msg != null) SpeakAfterMenuClose(msg); },
             () => _window.IsAutoConnectEnabled?.Invoke() ?? false);

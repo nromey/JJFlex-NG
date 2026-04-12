@@ -995,7 +995,7 @@ namespace JJFlexWpf
             }
         }
 
-        private static void PlayChirp(int startHz, int endHz, int durationMs, float volume)
+        internal static void PlayChirp(int startHz, int endHz, int durationMs, float volume)
         {
             if (AlertMixer == null) { FallbackBeep((startHz + endHz) / 2, durationMs); return; }
             try

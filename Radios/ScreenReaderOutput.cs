@@ -320,5 +320,13 @@ namespace Radios
 
         /// <summary>Whether CW mode announcements are enabled (when speech is off).</summary>
         public static bool CwModeAnnounceEnabled { get; set; }
+
+        // ── MultiFlex client notifications (Sprint 25 Phase 19) ──
+
+        /// <summary>Play ascending chirp for client connected.</summary>
+        public static Action? PlayClientConnectedEarcon { get; set; }
+
+        /// <summary>Play descending chirp for client disconnected.</summary>
+        public static Action? PlayClientDisconnectedEarcon { get; set; }
     }
 }
