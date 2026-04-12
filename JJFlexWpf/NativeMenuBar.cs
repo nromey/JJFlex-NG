@@ -1424,6 +1424,11 @@ public class NativeMenuBar : IDisposable
         }
         audioConfig ??= new AudioOutputConfig();
         var dialog = new Dialogs.SettingsDialog(pttConfig, coarseStep, fineStep, licenseConfig, audioConfig);
+        if (_window.OpenParms != null)
+        {
+            dialog.ConfigDirectory = _window.OpenParms.ConfigDirectory;
+            dialog.OperatorName = _window.OpenParms.GetOperatorName?.Invoke();
+        }
         var result = dialog.ShowDialog();
         if (result == true)
         {

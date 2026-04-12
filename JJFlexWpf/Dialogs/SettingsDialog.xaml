@@ -126,6 +126,16 @@
                                   AutomationProperties.Name="Frequency speech units"/>
                     </StackPanel>
 
+                    <Separator Margin="0,8,0,8"/>
+
+                    <Button Content="Edit _Filter Presets..."
+                            Width="160" HorizontalAlignment="Left"
+                            AutomationProperties.Name="Edit filter presets"
+                            AutomationProperties.AcceleratorKey="Alt+F"
+                            Click="EditFilterPresetsButton_Click"/>
+
+                    <Separator Margin="0,8,0,8"/>
+
                     <CheckBox x:Name="TuneDebounceCheckbox"
                               Content="Debounce tuning speech (group rapid steps)"
                               Margin="0,12,0,0"

@@ -12,6 +12,12 @@ namespace JJFlexWpf.Dialogs
         private readonly AudioOutputConfig _audioConfig;
         private (string, string)[] _countryMap = Array.Empty<(string, string)>();
 
+        /// <summary>Config directory for per-operator file storage (filter presets, etc.).</summary>
+        public string? ConfigDirectory { get; set; }
+
+        /// <summary>Current operator name for per-operator file naming.</summary>
+        public string? OperatorName { get; set; }
+
         // Tuning step results (read after DialogResult == true)
         public int CoarseTuneStep { get; private set; }
         public int FineTuneStep { get; private set; }
@@ -439,6 +445,25 @@ namespace JJFlexWpf.Dialogs
             var workshop = new AudioWorkshopDialog();
             workshop.Owner = this;
             workshop.ShowDialog();
+        }
+
+        private void EditFilterPresetsButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (string.IsNullOrEmpty(ConfigDirectory) || string.IsNullOrEmpty(OperatorName))
+            {
+                MessageBox.Show("Filter presets require an active operator profile.",
+                    "Not Available", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            var presets = Radios.FilterPresets.Load(ConfigDirectory, OperatorName);
+            var editor = new FilterPresetEditorDialog(presets);
+            editor.Owner = this;
+            if (editor.ShowDialog() == true && editor.Changed)
+            {
+                presets.Save(ConfigDirectory, OperatorName);
+                Radios.ScreenReaderOutput.Speak("Filter presets saved", true);
+            }
         }
     }
 }
