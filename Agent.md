@@ -13,7 +13,7 @@ This document captures the current state of JJ-Flex repository and active work.
 
 ## Current State — Sprint 25 In Progress
 
-**Status:** Interactive fixes complete. Planning foundational features/fixes before coding. Next up: waterfall sprint after 25 ships.
+**Status:** Foundational features coded. Phases 13-19 + 21 complete. Remaining: Phase 20 (NR pipeline — needs exploration), Phase 22 (changelog). Testing needed for all phases.
 
 **Sprint 25 plan:** `docs/planning/barefoot-qrp-ragchew.md`
 **Test matrix:** `docs/planning/agile/sprint25-test-matrix.md`
