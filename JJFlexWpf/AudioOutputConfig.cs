@@ -190,14 +190,18 @@ namespace JJFlexWpf
     /// <summary>Frequency entry typing sound mode.</summary>
     public enum TypingSoundMode
     {
-        /// <summary>Simple click beep (always available).</summary>
+        /// <summary>Random musical notes from C4-C8 (always available). Display: "Musical notes".</summary>
         Beep,
         /// <summary>No sound on keystrokes.</summary>
         Off,
         /// <summary>Mechanical keyboard sounds (requires calibration unlock).</summary>
         Mechanical,
         /// <summary>DTMF touch-tone sounds (requires calibration unlock).</summary>
-        TouchTone
+        TouchTone,
+        /// <summary>Fixed pitch beep every keystroke (always available).</summary>
+        SingleTone,
+        /// <summary>Random frequency beep, not snapped to musical notes (always available).</summary>
+        RandomTones
     }
 
     /// <summary>Per-slot configuration for XML serialization.</summary>

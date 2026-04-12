@@ -733,6 +733,12 @@ namespace JJFlexWpf
                     int freq = (int)(440.0 * Math.Pow(2.0, (midiNote - 69) / 12.0));
                     PlayTone(freq, 30, 0.25f);
                     break;
+                case TypingSoundMode.SingleTone:
+                    PlayTone(800, 30, 0.25f);
+                    break;
+                case TypingSoundMode.RandomTones:
+                    PlayTone(_keyRandom.Next(300, 2001), 30, 0.25f);
+                    break;
                 case TypingSoundMode.Mechanical:
                     PlayMechanicalKey();
                     break;

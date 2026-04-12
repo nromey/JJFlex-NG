@@ -213,26 +213,34 @@ namespace JJFlexWpf.Dialogs
             BrailleCellsCombo.SelectedIndex = cellIdx >= 0 ? cellIdx : 2; // default 40
         }
 
+        // Typing sound combo indices (always-available items first, then unlockable)
+        // 0: Musical notes, 1: Single tone, 2: Random tones, 3: Off
+        // 4+: Mechanical keyboard (if unlocked), Touch-tone (if unlocked)
         private void PopulateTypingSoundCombo()
         {
             TypingSoundCombo.Items.Clear();
-            TypingSoundCombo.Items.Add("Click beep");
-            TypingSoundCombo.Items.Add("Off");
+            TypingSoundCombo.Items.Add("Musical notes");       // 0 — was "Click beep", maps to Beep enum
+            TypingSoundCombo.Items.Add("Single tone");         // 1
+            TypingSoundCombo.Items.Add("Random tones");        // 2
+            TypingSoundCombo.Items.Add("Off");                 // 3
 
             // Unlockable modes only shown when TuningHash contains them
             bool mechUnlocked = FreqOutHandlers.IsCalibrationUnlocked(CalibrationEngine.Ref2, _audioConfig.TuningHash);
             bool dtmfUnlocked = FreqOutHandlers.IsCalibrationUnlocked(CalibrationEngine.Ref1, _audioConfig.TuningHash);
 
-            if (mechUnlocked) TypingSoundCombo.Items.Add("Mechanical keyboard");
-            if (dtmfUnlocked) TypingSoundCombo.Items.Add("Touch-tone (DTMF)");
+            int mechIdx = -1, dtmfIdx = -1;
+            if (mechUnlocked) { mechIdx = TypingSoundCombo.Items.Count; TypingSoundCombo.Items.Add("Mechanical keyboard"); }
+            if (dtmfUnlocked) { dtmfIdx = TypingSoundCombo.Items.Count; TypingSoundCombo.Items.Add("Touch-tone (DTMF)"); }
 
             // Select current mode
             int idx = _audioConfig.TypingSound switch
             {
                 TypingSoundMode.Beep => 0,
-                TypingSoundMode.Off => 1,
-                TypingSoundMode.Mechanical when mechUnlocked => 2,
-                TypingSoundMode.TouchTone when dtmfUnlocked => mechUnlocked ? 3 : 2,
+                TypingSoundMode.SingleTone => 1,
+                TypingSoundMode.RandomTones => 2,
+                TypingSoundMode.Off => 3,
+                TypingSoundMode.Mechanical when mechIdx >= 0 => mechIdx,
+                TypingSoundMode.TouchTone when dtmfIdx >= 0 => dtmfIdx,
                 _ => 0
             };
             TypingSoundCombo.SelectedIndex = idx;
@@ -350,17 +358,22 @@ namespace JJFlexWpf.Dialogs
             _audioConfig.PeakWatcherEnabled = PeakWatcherCheck.IsChecked == true;
             _audioConfig.MeterSpeechEnabled = MeterSpeechCheck.IsChecked == true;
 
-            // Typing sound mode
+            // Typing sound mode — map combo index back to enum
+            // Fixed indices: 0=Musical notes(Beep), 1=SingleTone, 2=RandomTones, 3=Off
+            // Dynamic indices 4+ depend on which easter eggs are unlocked
             bool mechUnlocked = FreqOutHandlers.IsCalibrationUnlocked(CalibrationEngine.Ref2, _audioConfig.TuningHash);
             bool dtmfUnlocked = FreqOutHandlers.IsCalibrationUnlocked(CalibrationEngine.Ref1, _audioConfig.TuningHash);
             int tsIdx = TypingSoundCombo.SelectedIndex;
+            int mechIdx = mechUnlocked ? 4 : -1;
+            int dtmfIdx = dtmfUnlocked ? (mechUnlocked ? 5 : 4) : -1;
             _audioConfig.TypingSound = tsIdx switch
             {
                 0 => TypingSoundMode.Beep,
-                1 => TypingSoundMode.Off,
-                2 when mechUnlocked => TypingSoundMode.Mechanical,
-                2 when dtmfUnlocked => TypingSoundMode.TouchTone,
-                3 => TypingSoundMode.TouchTone,
+                1 => TypingSoundMode.SingleTone,
+                2 => TypingSoundMode.RandomTones,
+                3 => TypingSoundMode.Off,
+                _ when tsIdx == mechIdx => TypingSoundMode.Mechanical,
+                _ when tsIdx == dtmfIdx => TypingSoundMode.TouchTone,
                 _ => TypingSoundMode.Beep
             };
 
