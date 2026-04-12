@@ -1,0 +1,60 @@
+<local:JJFlexDialog x:Class="JJFlexWpf.Dialogs.TuningStepEditorDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="clr-namespace:JJFlexWpf"
+    Title="Edit Tuning Steps"
+    Width="420" Height="400"
+    ResizeMode="NoResize"
+    AutomationProperties.Name="Edit tuning steps">
+    <DockPanel Margin="12">
+        <!-- Buttons at bottom -->
+        <StackPanel DockPanel.Dock="Bottom" Style="{StaticResource ButtonPanel}">
+            <Button Content="_OK" Style="{StaticResource OkButton}"
+                    AutomationProperties.Name="OK"
+                    Click="OkButton_Click"/>
+            <Button Content="_Cancel" Style="{StaticResource CancelButton}"
+                    AutomationProperties.Name="Cancel"
+                    Click="CancelButton_Click"/>
+        </StackPanel>
+
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="12"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- Coarse steps -->
+            <StackPanel Grid.Column="0">
+                <TextBlock Text="Coarse Steps" FontWeight="SemiBold"
+                           Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
+                <ListBox x:Name="CoarseList" Height="180" Margin="0,0,0,8"
+                         AutomationProperties.Name="Coarse tuning steps"/>
+                <StackPanel Orientation="Horizontal">
+                    <Button x:Name="CoarseAddButton" Content="_Add" Width="55" Margin="0,0,4,0"
+                            AutomationProperties.Name="Add coarse step"
+                            Click="CoarseAddButton_Click"/>
+                    <Button x:Name="CoarseRemoveButton" Content="_Remove" Width="65"
+                            AutomationProperties.Name="Remove coarse step"
+                            Click="CoarseRemoveButton_Click"/>
+                </StackPanel>
+            </StackPanel>
+
+            <!-- Fine steps -->
+            <StackPanel Grid.Column="2">
+                <TextBlock Text="Fine Steps" FontWeight="SemiBold"
+                           Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
+                <ListBox x:Name="FineList" Height="180" Margin="0,0,0,8"
+                         AutomationProperties.Name="Fine tuning steps"/>
+                <StackPanel Orientation="Horizontal">
+                    <Button x:Name="FineAddButton" Content="A_dd" Width="55" Margin="0,0,4,0"
+                            AutomationProperties.Name="Add fine step"
+                            Click="FineAddButton_Click"/>
+                    <Button x:Name="FineRemoveButton" Content="Re_move" Width="65"
+                            AutomationProperties.Name="Remove fine step"
+                            Click="FineRemoveButton_Click"/>
+                </StackPanel>
+            </StackPanel>
+        </Grid>
+    </DockPanel>
+</local:JJFlexDialog>

@@ -113,6 +113,12 @@
                                   AutomationProperties.Name="Default fine tuning step"/>
                     </Grid>
 
+                    <Button Content="Edit _Tuning Steps..."
+                            Width="160" HorizontalAlignment="Left" Margin="0,12,0,0"
+                            AutomationProperties.Name="Edit tuning steps"
+                            AutomationProperties.AcceleratorKey="Alt+T"
+                            Click="EditTuningStepsButton_Click"/>
+
                     <CheckBox x:Name="BandMemoryCheckbox"
                               Content="Enable band memory"
                               IsChecked="True" Margin="0,12,0,0"

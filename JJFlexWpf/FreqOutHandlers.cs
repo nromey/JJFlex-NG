@@ -128,6 +128,30 @@ public class FreqOutHandlers
     /// </summary>
     public bool IsCoarseMode => _coarseMode;
 
+    /// <summary>Get a copy of the current coarse step list.</summary>
+    public int[] GetCoarseSteps() => (int[])_coarseSteps.Clone();
+
+    /// <summary>Get a copy of the current fine step list.</summary>
+    public int[] GetFineSteps() => (int[])_fineSteps.Clone();
+
+    /// <summary>Replace the coarse step list. Must have at least one value, sorted ascending.</summary>
+    public void SetCoarseSteps(int[] steps)
+    {
+        if (steps == null || steps.Length == 0) return;
+        _coarseSteps = (int[])steps.Clone();
+        Array.Sort(_coarseSteps);
+        if (_coarseStepIndex >= _coarseSteps.Length) _coarseStepIndex = 0;
+    }
+
+    /// <summary>Replace the fine step list. Must have at least one value, sorted ascending.</summary>
+    public void SetFineSteps(int[] steps)
+    {
+        if (steps == null || steps.Length == 0) return;
+        _fineSteps = (int[])steps.Clone();
+        Array.Sort(_fineSteps);
+        if (_fineStepIndex >= _fineSteps.Length) _fineStepIndex = 0;
+    }
+
     /// <summary>
     /// Callback to persist step sizes to operator profile.
     /// Set by ApplicationEvents.vb.
