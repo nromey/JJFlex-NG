@@ -64,18 +64,23 @@ The NR ISampleProviders exist (NoiseReductionProvider at 48kHz, SpectralSubtract
 - Live title bar status: Insert+T reads slice/freq/mode
 - Mechanical keyboard sound gain boost (4x→8x)
 
-### Foundational Features/Fixes (planning, not yet coded)
-1. CW prosign status notifications — AS (connecting/slow), BT (connected), SK (app close); mode changes in CW when speech off; uses configured sidetone freq/speed; output provider abstraction for future haptics/vibration
-2. Wire RNNoise + spectral subtraction into audio pipeline — ISampleProviders exist, need pipeline integration
-3. MultiFlex management — toggle MultiFlex on/off, connect/disconnect notifications (earcon + speech), connected client list, kick/disconnect clients to reclaim slices
-4. Expanded typing sound modes — add single fixed tone, random tones, musical notes as always-available (unlocked) options alongside existing easter egg modes (Mechanical, DTMF)
-5. Editable filter presets — create, edit, save, load, share filter presets as XML
-6. Editable tuning step presets — user adds/removes from coarse/fine step lists, persisted per operator
-7. Braille status line display-size-aware formatting — different content layouts per display width (20/32/40/80), foundation for Dot Pad X
-8. Default radio indicator — Manage SmartLink / radio selector should indicate which account/radio is the default (screen reader + visual)
-9. RigSelector label fix — says "press Connect to SmartLink" but the button is actually "Remote"; fix the instructional text
-10. Trace cleanup — audit and remove verbose dev tracing from Sprint 25 that inflates log files
-11. Changelog finalization — after all work complete
+### Foundational Features/Fixes
+**DONE (untested — need directed testing session):**
+- Phase 13: RigSelector "Press Remote" label fix + "(Default)" indicator in Manage SmartLink
+- Phase 14: Expanded typing sounds — Single tone, Random tones, Musical notes (always available)
+- Phase 15: CW prosign notifications (AS/BT/SK) + Verbosity & Notifications tab in Settings
+  - ICwNotificationOutput abstraction for future haptics/vibration
+  - MorseNotifier engine with configurable sidetone/WPM
+  - Wired: AS on slow connection, BT on connect, SK on app close, CW mode announce when speech off
+- Phase 16: Editable filter presets dialog (Settings → Tuning → Edit Filter Presets)
+- Phase 17: Editable tuning step presets dialog (Settings → Tuning → Edit Tuning Steps)
+- Phase 18: Braille status line display-size-aware formatting (20/32/40/80 cell profiles)
+- Phase 19: MultiFlex management — client list dialog, connect/disconnect earcons + speech, kick clients
+- Phase 21: Trace cleanup — removed SmartLink dialog debug traces, connection traces are properly gated
+
+**REMAINING:**
+- Phase 20: Wire RNNoise + spectral subtraction into audio pipeline — NEEDS DEDICATED SESSION (see notes below)
+- Phase 22: Changelog finalization — after all testing complete
 
 ### Testing Results (so far)
 - Earcon mute: PASS
