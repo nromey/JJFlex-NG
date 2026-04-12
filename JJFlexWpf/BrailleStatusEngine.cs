@@ -96,7 +96,12 @@ namespace JJFlexWpf
         }
 
         /// <summary>
-        /// Build a priority-packed braille status string that fits within CellCount.
+        /// Build a display-size-aware braille status string.
+        /// Content and formatting adapt to CellCount:
+        ///   20 cells: freq + mode (critical minimum)
+        ///   32 cells: freq + mode + meter + slice
+        ///   40 cells: all fields, compact labels (current default behavior)
+        ///   80 cells: all fields, full labels with extra spacing
         /// </summary>
         private string BuildBrailleStatus()
         {
@@ -104,35 +109,53 @@ namespace JJFlexWpf
 
             var parts = new List<string>();
             bool tx = _rig.Transmit;
+            bool wide = CellCount >= 80;
+            string sep = wide ? "  " : " "; // double spacing for wide displays
 
-            // Mandatory: Frequency (always first, ~8 chars)
+            // --- Mandatory: Frequency + Mode (all profiles) ---
             ulong freq = tx ? _rig.TXFrequency : _rig.VirtualRXFrequency;
             if (freq > 0)
             {
                 double mhz = freq / 1_000_000.0;
-                parts.Add(mhz.ToString("F3"));
+                // Wide displays get 2 extra decimal places
+                parts.Add(wide ? mhz.ToString("F5") : mhz.ToString("F3"));
             }
 
-            // Mandatory: Mode (2-4 chars)
             string mode = _rig.Mode ?? "";
             if (!string.IsNullOrEmpty(mode))
                 parts.Add(mode);
 
-            // Optional fields in priority order
+            // --- 20-cell profile: stop here (freq + mode only) ---
+            if (CellCount <= 20)
+                return PackParts(parts, sep);
+
+            // --- 32+ cells: add primary meter + slice ---
             if (!tx && EnabledFields.HasFlag(BrailleFields.SMeter))
             {
                 int s = _rig.SMeter;
-                if (s <= 9)
-                    parts.Add($"SM{s}");
+                if (wide)
+                    parts.Add(s <= 9 ? $"S{s}" : $"S9+{(s - 9) * 6}dB");
                 else
-                    parts.Add($"SM9+{(s - 9) * 6}");
+                    parts.Add(s <= 9 ? $"SM{s}" : $"SM9+{(s - 9) * 6}");
             }
 
+            if (EnabledFields.HasFlag(BrailleFields.Slice) && _rig.MyNumSlices > 1)
+            {
+                string letter = _rig.ActiveSliceLetter;
+                if (!string.IsNullOrEmpty(letter))
+                    parts.Add(wide ? $"Slice {letter}" : letter);
+            }
+
+            // --- 32-cell profile: stop here (freq + mode + meter + slice) ---
+            if (CellCount <= 32)
+                return PackParts(parts, sep);
+
+            // --- 40+ cells: add TX meters, DSP flags ---
             if (tx && EnabledFields.HasFlag(BrailleFields.SWR))
             {
                 float swr = _rig.SWRValue;
                 if (swr > 0)
-                    parts.Add($"SW{swr:F1}");
+                    parts.Add(wide ? $"SWR {swr:F1}" : $"SW{swr:F1}");
             }
 
             if (tx && EnabledFields.HasFlag(BrailleFields.Power))
@@ -140,13 +163,13 @@ namespace JJFlexWpf
                 float dbm = _rig.PowerDBM;
                 int watts = (int)(Math.Pow(10.0, dbm / 10.0) / 1000.0 + 0.5);
                 if (watts > 0)
-                    parts.Add($"PW{watts}");
+                    parts.Add(wide ? $"{watts}W" : $"PW{watts}");
             }
 
             if (tx && EnabledFields.HasFlag(BrailleFields.ALC))
             {
                 float alc = _rig.ALC;
-                parts.Add($"AL{(int)alc}");
+                parts.Add(wide ? $"ALC {(int)alc}" : $"AL{(int)alc}");
             }
 
             if (EnabledFields.HasFlag(BrailleFields.DSPFlags))
@@ -157,28 +180,26 @@ namespace JJFlexWpf
                     parts.Add("NB");
             }
 
-            if (EnabledFields.HasFlag(BrailleFields.Slice) && _rig.MyNumSlices > 1)
-            {
-                string letter = _rig.ActiveSliceLetter;
-                if (!string.IsNullOrEmpty(letter))
-                    parts.Add(letter);
-            }
+            return PackParts(parts, sep);
+        }
 
-            // Pack into CellCount, space-separated
+        /// <summary>
+        /// Pack parts into exactly CellCount characters, truncating if needed.
+        /// </summary>
+        private string PackParts(List<string> parts, string separator)
+        {
             var sb = new StringBuilder();
             foreach (var part in parts)
             {
                 if (sb.Length > 0)
                 {
-                    // Check if adding this part would exceed cell count
-                    if (sb.Length + 1 + part.Length > CellCount)
+                    if (sb.Length + separator.Length + part.Length > CellCount)
                         break;
-                    sb.Append(' ');
+                    sb.Append(separator);
                 }
                 sb.Append(part);
             }
 
-            // Pad to exact cell count
             while (sb.Length < CellCount)
                 sb.Append(' ');
 
