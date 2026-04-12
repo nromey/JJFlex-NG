@@ -729,6 +729,11 @@ Module globals
                                                          cfg.Save(BaseConfigDir, opName)
                                                          Tracing.TraceLine($"SaveDefaultSmartLinkAccount: saved {email}", TraceLevel.Info)
                                                      End Sub
+        WpfMainWindow.GetDefaultSmartLinkEmail = Function() As String
+                                                     Dim opName = PersonalData.UniqueOpName(CurrentOp)
+                                                     Dim cfg = Radios.AutoConnectConfig.Load(BaseConfigDir, opName)
+                                                     Return If(cfg.SmartLinkAccountEmail, "")
+                                                 End Function
 
         ' Load operator and rig data.
         Operators = New PersonalData(BaseConfigDir)
@@ -1927,6 +1932,11 @@ Module globals
                                                          cfg.Save(BaseConfigDir, opName)
                                                          Tracing.TraceLine($"SaveDefaultSmartLinkAccount: saved {email} to auto-connect config", TraceLevel.Info)
                                                      End Sub
+        WpfMainWindow.GetDefaultSmartLinkEmail = Function() As String
+                                                     Dim opName = PersonalData.UniqueOpName(CurrentOp)
+                                                     Dim cfg = Radios.AutoConnectConfig.Load(BaseConfigDir, opName)
+                                                     Return If(cfg.SmartLinkAccountEmail, "")
+                                                 End Function
 
         ' Show the WPF selector dialog
         Dim dialog As New JJFlexWpf.Dialogs.RigSelectorDialog(callbacks)

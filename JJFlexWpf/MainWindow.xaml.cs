@@ -880,6 +880,12 @@ public partial class MainWindow : UserControl
     public Action<string>? SaveDefaultSmartLinkAccount { get; set; }
 
     /// <summary>
+    /// Get the current default SmartLink account email.
+    /// Wired by globals.vb since it needs BaseConfigDir + operator name.
+    /// </summary>
+    public Func<string>? GetDefaultSmartLinkEmail { get; set; }
+
+    /// <summary>
     /// Update the shell form title bar with radio status.
     /// Wired by globals.vb to AppShellForm.Text.
     /// </summary>
@@ -2532,6 +2538,7 @@ public partial class MainWindow : UserControl
 
         while (true)
         {
+            var defaultEmail = GetDefaultSmartLinkEmail?.Invoke() ?? "";
             var callbacks = new Dialogs.SmartLinkAccountCallbacks
             {
                 GetAccounts = () => mgr.Accounts.OrderByDescending(a => a.LastUsed)
@@ -2540,7 +2547,8 @@ public partial class MainWindow : UserControl
                         FriendlyName = a.FriendlyName,
                         Email = a.Email,
                         LastUsed = a.LastUsed,
-                        AccountData = a
+                        AccountData = a,
+                        IsDefault = a.Email.Equals(defaultEmail, StringComparison.OrdinalIgnoreCase)
                     }).ToList(),
                 RenameAccount = (oldName, newName) => mgr.RenameAccount(oldName, newName),
                 DeleteAccount = (name) => { mgr.DeleteAccount(name); },

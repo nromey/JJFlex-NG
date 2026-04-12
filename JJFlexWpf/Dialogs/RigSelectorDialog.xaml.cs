@@ -155,7 +155,7 @@ namespace JJFlexWpf.Dialogs
                 await System.Threading.Tasks.Task.Delay(500);
                 if (RadiosBox.Items.Count == 0)
                 {
-                    _callbacks.ScreenReaderSpeak?.Invoke("Radio list, empty. No radios found yet. Press Connect to SmartLink for remote radios.", false);
+                    _callbacks.ScreenReaderSpeak?.Invoke("Radio list, empty. No radios found yet. Press Remote for remote radios.", false);
                 }
             };
 
