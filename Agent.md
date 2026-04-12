@@ -13,7 +13,17 @@ This document captures the current state of JJ-Flex repository and active work.
 
 ## Current State — Sprint 25 In Progress
 
-**Status:** Foundational features coded. Phases 13-19 + 21 complete. Remaining: Phase 20 (NR pipeline — needs exploration), Phase 22 (changelog). Testing needed for all phases.
+**Status:** Foundational features coded. Phases 13-19 + 21 complete. Remaining: Phase 20 (NR pipeline — needs dedicated audio architecture session), Phase 22 (changelog after testing). Testing needed for all phases.
+
+### Phase 20 Notes (NR Pipeline — next session)
+The NR ISampleProviders exist (NoiseReductionProvider at 48kHz, SpectralSubtractionProvider with FFT) but are not wired into live audio. Before coding, the next session must explore the full RX audio path:
+- Where does FlexLib RXAudioStream data enter the app?
+- Does it flow through PortAudio callbacks (JJPortaudio) or NAudio?
+- Where is the insertion point for ISampleProvider processing?
+- What sample rate and format does the radio audio arrive in?
+- Key files to explore: JJPortaudio/Audio.cs, FlexLib/RXAudioStream.cs, FlexBase.cs audio setup sections
+- This architecture is foundational for waterfall FFT, record/replay, and the DSP abstraction layer
+- Design goal: ISampleProvider chain pattern where NR, spectral sub, recording tap, and waterfall FFT can all plug in as pipeline stages
 
 **Sprint 25 plan:** `docs/planning/barefoot-qrp-ragchew.md`
 **Test matrix:** `docs/planning/agile/sprint25-test-matrix.md`
