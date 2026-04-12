@@ -911,7 +911,7 @@ namespace JJFlexWpf
             AlertMixer.AddMixerInput(swept);
         }
 
-        private static void PlayTone(int frequencyHz, int durationMs, float volume)
+        internal static void PlayTone(int frequencyHz, int durationMs, float volume)
         {
             if (!EarconsEnabled) return;
             if (AlertMixer == null) { FallbackBeep(frequencyHz, durationMs); return; }

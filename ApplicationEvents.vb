@@ -346,6 +346,14 @@ Namespace My
         End Sub
 
         Private Sub MyApplication_Shutdown(sender As Object, e As System.EventArgs) Handles Me.Shutdown
+            ' Play SK prosign (end of contact) on app close
+            If Radios.ScreenReaderOutput.CwNotificationsEnabled AndAlso
+               Radios.ScreenReaderOutput.PlayCwSK IsNot Nothing Then
+                Try
+                    Radios.ScreenReaderOutput.PlayCwSK.Invoke().Wait(2000)
+                Catch
+                End Try
+            End If
             ' Shut down meter sonification engine.
             JJFlexWpf.MeterToneEngine.Shutdown()
             ' Clean up NAudio earcon player.

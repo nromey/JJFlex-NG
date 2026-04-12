@@ -94,6 +94,18 @@ namespace JJFlexWpf
         /// <summary>Noise sampling duration in seconds (1-5).</summary>
         public int SpectralSubSampleDuration { get; set; } = 2;
 
+        /// <summary>Whether CW Morse code notifications are enabled (AS/BT/SK prosigns).</summary>
+        public bool CwNotificationsEnabled { get; set; }
+
+        /// <summary>CW sidetone frequency in Hz (400-1200, default 700).</summary>
+        public int CwSidetoneHz { get; set; } = 700;
+
+        /// <summary>CW notification speed in WPM (10-30, default 20).</summary>
+        public int CwSpeedWpm { get; set; } = 20;
+
+        /// <summary>Announce mode changes in CW when speech verbosity is Off.</summary>
+        public bool CwModeAnnounce { get; set; }
+
         /// <summary>Whether braille status line is enabled.</summary>
         public bool BrailleEnabled { get; set; }
 

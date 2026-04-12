@@ -298,5 +298,27 @@ namespace Radios
                 return _available && Tolk.HasBraille();
             }
         }
+
+        // ── CW Morse notifications (Sprint 25 Phase 15) ──
+        // Delegates wired by MainWindow to MorseNotifier. FlexBase calls these
+        // without taking a dependency on JJFlexWpf.
+
+        /// <summary>Play the AS prosign (wait / connection in progress).</summary>
+        public static Func<Task>? PlayCwAS { get; set; }
+
+        /// <summary>Play the BT prosign (break / connected).</summary>
+        public static Func<Task>? PlayCwBT { get; set; }
+
+        /// <summary>Play the SK prosign (end of contact / app closing).</summary>
+        public static Func<Task>? PlayCwSK { get; set; }
+
+        /// <summary>Play a mode name in CW (e.g., "USB", "CW").</summary>
+        public static Func<string, Task>? PlayCwMode { get; set; }
+
+        /// <summary>Whether CW notifications are currently enabled.</summary>
+        public static bool CwNotificationsEnabled { get; set; }
+
+        /// <summary>Whether CW mode announcements are enabled (when speech is off).</summary>
+        public static bool CwModeAnnounceEnabled { get; set; }
     }
 }

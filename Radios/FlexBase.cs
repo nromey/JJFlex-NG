@@ -415,6 +415,7 @@ namespace Radios
                 {
                     Tracing.TraceLine($"TryAutoConnect: END connected successfully (total {sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
                     if (!SuppressSpeech) ScreenReaderOutput.Speak($"Connected to {config.RadioName}", VerbosityLevel.Critical, true);
+                    if (ScreenReaderOutput.CwNotificationsEnabled) _ = ScreenReaderOutput.PlayCwBT?.Invoke();
                 }
                 else
                 {
@@ -825,6 +826,7 @@ namespace Radios
                     { "ticksSinceRemoval", _clientRemovedDuringStart ? (Environment.TickCount64 - _clientRemovedTickCount) : 0 }
                 });
                 if (!SuppressSpeech) ScreenReaderOutput.Speak("Connection slow, retrying", VerbosityLevel.Critical);
+                if (ScreenReaderOutput.CwNotificationsEnabled) _ = ScreenReaderOutput.PlayCwAS?.Invoke();
                 try { theRadio.Disconnect(); } catch { }
                 return false;
             }
@@ -833,6 +835,7 @@ namespace Radios
             mainThread.Start();
             Thread.Sleep(0);
             ConnectionProfiler.Current?.RecordAndSave("start_success");
+            if (ScreenReaderOutput.CwNotificationsEnabled) _ = ScreenReaderOutput.PlayCwBT?.Invoke();
             return true;
         }
 
@@ -2218,6 +2221,12 @@ namespace Radios
                             {
                                 FilterObj.RXFreqChange(s);
                                 ModeChanged?.Invoke(s.DemodMode);
+                                // CW mode announcement when speech is off
+                                if (ScreenReaderOutput.CwNotificationsEnabled &&
+                                    ScreenReaderOutput.CwModeAnnounceEnabled &&
+                                    ScreenReaderOutput.CurrentVerbosity == VerbosityLevel.Critical &&
+                                    ScreenReaderOutput.PlayCwMode != null)
+                                    _ = ScreenReaderOutput.PlayCwMode(s.DemodMode);
                             }
 #if CWMonitor
                             try

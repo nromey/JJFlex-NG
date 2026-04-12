@@ -1090,6 +1090,9 @@ public partial class MainWindow : UserControl
     /// <summary>Braille display status line engine.</summary>
     private readonly BrailleStatusEngine _brailleEngine = new();
 
+    /// <summary>CW Morse code notification engine for connection/status events.</summary>
+    private readonly MorseNotifier _morseNotifier = new(new EarconCwOutput());
+
     /// <summary>
     /// Expose FreqOutHandlers for Settings dialog tuning step access.
     /// </summary>
@@ -1678,6 +1681,16 @@ public partial class MainWindow : UserControl
             _brailleEngine.CellCount = CurrentAudioConfig.BrailleCellCount;
             _brailleEngine.EnabledFields = (BrailleFields)CurrentAudioConfig.BrailleFields;
             _brailleEngine.UpdateTimerState();
+
+            // Apply CW notification config
+            _morseNotifier.SidetoneHz = Math.Clamp(CurrentAudioConfig.CwSidetoneHz, 400, 1200);
+            _morseNotifier.SpeedWpm = Math.Clamp(CurrentAudioConfig.CwSpeedWpm, 10, 30);
+            Radios.ScreenReaderOutput.CwNotificationsEnabled = CurrentAudioConfig.CwNotificationsEnabled;
+            Radios.ScreenReaderOutput.CwModeAnnounceEnabled = CurrentAudioConfig.CwModeAnnounce;
+            Radios.ScreenReaderOutput.PlayCwAS = () => _morseNotifier.PlayAS();
+            Radios.ScreenReaderOutput.PlayCwBT = () => _morseNotifier.PlayBT();
+            Radios.ScreenReaderOutput.PlayCwSK = () => _morseNotifier.PlaySK();
+            Radios.ScreenReaderOutput.PlayCwMode = (mode) => _morseNotifier.PlayString(mode);
 
             // Apply typing sound to FreqOutHandlers
             if (_freqOutHandlers != null)
