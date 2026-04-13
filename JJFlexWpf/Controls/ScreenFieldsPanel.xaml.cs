@@ -24,6 +24,13 @@ public partial class ScreenFieldsPanel : UserControl
 {
     private FlexBase? _rig;
     private bool _polling;
+    private RxAudioPipeline? _audioPipeline;
+
+    /// <summary>
+    /// The PC-side audio processing pipeline, available for hotkey and menu wiring.
+    /// Created when a rig connects, disposed on detach. Works on ALL radios.
+    /// </summary>
+    public RxAudioPipeline? AudioPipeline => _audioPipeline;
 
     /// <summary>Fired when user presses Escape — MainWindow wires this to FreqOut.FocusDisplay().</summary>
     public event EventHandler? EscapePressed;
@@ -48,6 +55,9 @@ public partial class ScreenFieldsPanel : UserControl
     private CheckBox _fftNotchCheck = null!;
     private CheckBox _legacyNotchCheck = null!;
     private CheckBox _apfCheck = null!;
+    // PC-side NR controls (work on ALL radios, processing runs on PC)
+    private CheckBox _pcRnnCheck = null!;
+    private CheckBox _pcSpectralCheck = null!;
     private CheckBox _meterToneCheck = null!;
     private CheckBox _peakWatcherCheck = null!;
 
@@ -152,12 +162,22 @@ public partial class ScreenFieldsPanel : UserControl
         // Subscribe to mode changes for immediate DSP refresh
         rig.ModeChanged += OnModeChanged;
 
+        // Create PC-side audio processing pipeline (works on ALL radios)
+        _audioPipeline?.Dispose();
+        _audioPipeline = new RxAudioPipeline();
+        rig.AudioPostProcessor = _audioPipeline.Process;
+        // Feed current mode so RNNoise auto-disables for CW/digital
+        _audioPipeline.SetCurrentMode(rig.Mode ?? "");
+
         // Force initial poll to populate values
         PollUpdate();
     }
 
     private void OnModeChanged(string newMode)
     {
+        // Update pipeline mode (thread-safe, can be called from any thread)
+        _audioPipeline?.SetCurrentMode(newMode ?? "");
+
         Dispatcher.BeginInvoke(() =>
         {
             if (_rig != null && DspExpander.IsExpanded)
@@ -171,7 +191,12 @@ public partial class ScreenFieldsPanel : UserControl
     public void Detach()
     {
         if (_rig != null)
+        {
             _rig.ModeChanged -= OnModeChanged;
+            _rig.AudioPostProcessor = null;
+        }
+        _audioPipeline?.Dispose();
+        _audioPipeline = null;
         _rig = null;
     }
 
@@ -271,6 +296,43 @@ public partial class ScreenFieldsPanel : UserControl
         _apfCheck.Checked += (s, e) => ToggleRig("APF", v => { if (_rig != null) _rig.APF = v; }, true);
         _apfCheck.Unchecked += (s, e) => ToggleRig("APF", v => { if (_rig != null) _rig.APF = v; }, false);
         DspContent.Children.Add(_apfCheck);
+
+        // PC-side noise reduction (runs on computer, works on ALL radios)
+        _pcRnnCheck = MakeToggle("PC Neural NR");
+        _pcRnnCheck.Checked += (s, e) =>
+        {
+            if (_polling || _audioPipeline == null) return;
+            _audioPipeline.RnnEnabled = true;
+            EarconPlayer.FeatureOnTone();
+            ScreenReaderOutput.Speak("PC Neural NR on", VerbosityLevel.Terse, interrupt: true);
+        };
+        _pcRnnCheck.Unchecked += (s, e) =>
+        {
+            if (_polling || _audioPipeline == null) return;
+            _audioPipeline.RnnEnabled = false;
+            EarconPlayer.FeatureOffTone();
+            ScreenReaderOutput.Speak("PC Neural NR off", VerbosityLevel.Terse, interrupt: true);
+        };
+        DspContent.Children.Add(_pcRnnCheck);
+
+        _pcSpectralCheck = MakeToggle("PC Spectral NR");
+        _pcSpectralCheck.Checked += (s, e) =>
+        {
+            if (_polling || _audioPipeline == null) return;
+            _audioPipeline.SpectralEnabled = true;
+            EarconPlayer.FeatureOnTone();
+            ScreenReaderOutput.Speak(_audioPipeline.HasNoiseProfile
+                ? "PC Spectral NR on"
+                : "PC Spectral NR on, no noise profile loaded", VerbosityLevel.Terse, interrupt: true);
+        };
+        _pcSpectralCheck.Unchecked += (s, e) =>
+        {
+            if (_polling || _audioPipeline == null) return;
+            _audioPipeline.SpectralEnabled = false;
+            EarconPlayer.FeatureOffTone();
+            ScreenReaderOutput.Speak("PC Spectral NR off", VerbosityLevel.Terse, interrupt: true);
+        };
+        DspContent.Children.Add(_pcSpectralCheck);
 
         // Meter Tones
         _meterToneCheck = MakeToggle("Meter Tones");
@@ -700,6 +762,13 @@ public partial class ScreenFieldsPanel : UserControl
         string mode = _rig.Mode?.ToUpperInvariant() ?? "";
         bool isCW = mode == "CW" || mode == "CWL" || mode == "CWU";
         _apfCheck.Visibility = isCW ? Visibility.Visible : Visibility.Collapsed;
+
+        // PC-side NR (pipeline state, not rig state)
+        if (_audioPipeline != null)
+        {
+            _pcRnnCheck.IsChecked = _audioPipeline.RnnEnabled;
+            _pcSpectralCheck.IsChecked = _audioPipeline.SpectralEnabled;
+        }
 
         // Meter tones (engine state, not rig state)
         _meterToneCheck.IsChecked = MeterToneEngine.Enabled;

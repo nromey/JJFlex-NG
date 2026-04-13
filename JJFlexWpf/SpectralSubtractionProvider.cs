@@ -15,7 +15,8 @@ namespace JJFlexWpf
     /// </summary>
     public class SpectralSubtractionProvider : ISampleProvider
     {
-        private readonly ISampleProvider _source;
+        private readonly ISampleProvider? _source;
+        private readonly WaveFormat _waveFormat;
 
         // FFT parameters
         private const int FftSize = 1024;
@@ -64,11 +65,33 @@ namespace JJFlexWpf
         /// <summary>Name of the currently loaded profile.</summary>
         public string ProfileName { get; set; } = "";
 
-        public WaveFormat WaveFormat => _source.WaveFormat;
+        public WaveFormat WaveFormat => _waveFormat;
 
+        /// <summary>
+        /// ISampleProvider constructor — wraps an existing audio source for NAudio chain use.
+        /// </summary>
         public SpectralSubtractionProvider(ISampleProvider source)
         {
             _source = source;
+            _waveFormat = source.WaveFormat;
+            _window = FftSharp.Window.Hanning(FftSize);
+            _fftBuffer = new double[FftSize];
+            _overlapBuffer = new double[FftSize];
+            _inputAccum = new float[FftSize];
+            _inputAccumCount = 0;
+            _outputBuffer = new float[OutputBufferSize];
+            _outputReadPos = 0;
+            _outputWritePos = 0;
+        }
+
+        /// <summary>
+        /// Standalone constructor for live audio pipeline use (no ISampleProvider source).
+        /// Call ProcessInPlace() to process buffers directly.
+        /// </summary>
+        public SpectralSubtractionProvider(int sampleRate = 48000, int channels = 2)
+        {
+            _source = null;
+            _waveFormat = WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, channels);
             _window = FftSharp.Window.Hanning(FftSize);
             _fftBuffer = new double[FftSize];
             _overlapBuffer = new double[FftSize];
@@ -104,14 +127,13 @@ namespace JJFlexWpf
 
         public int Read(float[] buffer, int offset, int count)
         {
-            int totalRead = _source.Read(buffer, offset, count);
+            int totalRead = _source?.Read(buffer, offset, count) ?? 0;
             if (totalRead == 0) return 0;
 
             int channels = WaveFormat.Channels;
 
             if (_sampling)
             {
-                // Accumulate samples for noise profiling (don't modify audio)
                 AccumulateForSampling(buffer, offset, totalRead, channels);
                 return totalRead;
             }
@@ -119,8 +141,26 @@ namespace JJFlexWpf
             if (!Enabled || _noiseProfile == null)
                 return totalRead;
 
-            // Active subtraction mode
             return ProcessSubtraction(buffer, offset, totalRead, channels);
+        }
+
+        /// <summary>
+        /// Process audio buffer in-place without ISampleProvider chain.
+        /// Used by the live RX audio pipeline. Handles both sampling and
+        /// active subtraction modes.
+        /// </summary>
+        public void ProcessInPlace(float[] buffer, int offset, int count, int channels)
+        {
+            if (count == 0) return;
+
+            if (_sampling)
+            {
+                AccumulateForSampling(buffer, offset, count, channels);
+                return;
+            }
+
+            if (!Enabled || _noiseProfile == null) return;
+            ProcessSubtraction(buffer, offset, count, channels);
         }
 
         private void AccumulateForSampling(float[] buffer, int offset, int count, int channels)

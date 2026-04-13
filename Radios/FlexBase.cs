@@ -196,6 +196,28 @@ namespace Radios
         /// Spectral NR is available on all models (subscription-gated, not hardware-gated).
         /// </summary>
         public bool AdvancedNRHardwareSupported => NeuralNRHardwareSupported;
+
+        // --- PC-side audio processing pipeline ---
+
+        /// <summary>
+        /// Optional delegate for PC-side audio processing (RNNoise, spectral subtraction, etc.).
+        /// Set by the UI layer (JJFlexWpf) which owns the processing pipeline.
+        /// Forwarded to JJAudioStream.PostDecodeProcessor when the audio channel is created.
+        /// Works on ALL radios — processing runs on the PC, not on radio hardware.
+        /// </summary>
+        private Action<float[]>? _audioPostProcessor;
+        public Action<float[]>? AudioPostProcessor
+        {
+            get => _audioPostProcessor;
+            set
+            {
+                _audioPostProcessor = value;
+                // Forward to active audio stream if one exists
+                if (opusOutputChannel?.PortAudioStream != null)
+                    opusOutputChannel.PortAudioStream.PostDecodeProcessor = value;
+            }
+        }
+
         public bool DiversityLicenseReported => theRadio?.FeatureLicense?.LicenseFeatDivEsc != null;
         public bool DiversityLicensed => theRadio?.FeatureLicense?.LicenseFeatDivEsc?.FeatureEnabled == true;
         public bool DiversityHardwareSupported => theRadio?.DiversityIsAllowed == true;
@@ -5979,7 +6001,9 @@ namespace Radios
             // Raw Opus peaks ~0.16. 4x = comfortable, 6x = clean, 8x = hot.
             // Default 4x; user can adjust via Settings > Audio Boost menu.
             opusOutputChannel.PortAudioStream.OutputGain = 4.0f;
-            Tracing.TraceLine("remoteAudioProc:opusOutputChannel:" + opusOutputChannel.Name + " setup, OutputGain=" + opusOutputChannel.PortAudioStream.OutputGain, TraceLevel.Info);
+            // Wire PC-side audio processing if a pipeline has been configured
+            opusOutputChannel.PortAudioStream.PostDecodeProcessor = _audioPostProcessor;
+            Tracing.TraceLine("remoteAudioProc:opusOutputChannel:" + opusOutputChannel.Name + " setup, OutputGain=" + opusOutputChannel.PortAudioStream.OutputGain + ", PostDecodeProcessor=" + (_audioPostProcessor != null ? "yes" : "none"), TraceLevel.Info);
 
             if (!startOpusOutputChannel())
             {

@@ -13,7 +13,8 @@ namespace JJFlexWpf
     /// </summary>
     public class NoiseReductionProvider : ISampleProvider, IDisposable
     {
-        private readonly ISampleProvider _source;
+        private readonly ISampleProvider? _source;
+        private readonly WaveFormat _waveFormat;
         private Denoiser? _denoiser;
         private readonly float[] _frameBuffer;
         private readonly float[] _originalBuffer;
@@ -38,11 +39,37 @@ namespace JJFlexWpf
         /// <summary>Current mode from radio — set externally to control auto-disable.</summary>
         public string CurrentMode { get; set; } = "";
 
-        public WaveFormat WaveFormat => _source.WaveFormat;
+        public WaveFormat WaveFormat => _waveFormat;
 
+        /// <summary>
+        /// ISampleProvider constructor — wraps an existing audio source for NAudio chain use.
+        /// </summary>
         public NoiseReductionProvider(ISampleProvider source)
         {
             _source = source;
+            _waveFormat = source.WaveFormat;
+            _frameBuffer = new float[FrameSize];
+            _originalBuffer = new float[FrameSize];
+
+            try
+            {
+                _denoiser = new Denoiser();
+            }
+            catch (Exception ex)
+            {
+                Trace.WriteLine($"NoiseReductionProvider: RNNoise init failed: {ex.Message}");
+                _denoiser = null;
+            }
+        }
+
+        /// <summary>
+        /// Standalone constructor for live audio pipeline use (no ISampleProvider source).
+        /// Call ProcessInPlace() to process buffers directly.
+        /// </summary>
+        public NoiseReductionProvider(int sampleRate = 48000, int channels = 2)
+        {
+            _source = null;
+            _waveFormat = WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, channels);
             _frameBuffer = new float[FrameSize];
             _originalBuffer = new float[FrameSize];
 
@@ -59,7 +86,7 @@ namespace JJFlexWpf
 
         public int Read(float[] buffer, int offset, int count)
         {
-            int totalRead = _source.Read(buffer, offset, count);
+            int totalRead = _source?.Read(buffer, offset, count) ?? 0;
 
             // Pass through if disabled, no denoiser, or auto-disabled for non-voice modes
             if (!Enabled || _denoiser == null || totalRead == 0)
@@ -72,6 +99,18 @@ namespace JJFlexWpf
             ProcessSamples(buffer, offset, totalRead, channels);
 
             return totalRead;
+        }
+
+        /// <summary>
+        /// Process audio buffer in-place without ISampleProvider chain.
+        /// Used by the live RX audio pipeline where decoded Opus frames
+        /// are pushed through processing before PortAudio enqueue.
+        /// </summary>
+        public void ProcessInPlace(float[] buffer, int offset, int count, int channels)
+        {
+            if (!Enabled || _denoiser == null || count == 0) return;
+            if (AutoDisableNonVoice && IsNonVoiceMode(CurrentMode)) return;
+            ProcessSamples(buffer, offset, count, channels);
         }
 
         private void ProcessSamples(float[] buffer, int offset, int count, int channels)

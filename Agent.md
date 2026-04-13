@@ -13,17 +13,20 @@ This document captures the current state of JJ-Flex repository and active work.
 
 ## Current State — Sprint 25 In Progress
 
-**Status:** Foundational features coded. Phases 13-19 + 21 complete. Remaining: Phase 20 (NR pipeline — needs dedicated audio architecture session), Phase 22 (changelog after testing). Testing needed for all phases.
+**Status:** All coding phases complete (13-21 + 20). Remaining: Phase 22 (changelog after testing). Testing needed for all phases.
 
-### Phase 20 Notes (NR Pipeline — next session)
-The NR ISampleProviders exist (NoiseReductionProvider at 48kHz, SpectralSubtractionProvider with FFT) but are not wired into live audio. Before coding, the next session must explore the full RX audio path:
-- Where does FlexLib RXAudioStream data enter the app?
-- Does it flow through PortAudio callbacks (JJPortaudio) or NAudio?
-- Where is the insertion point for ISampleProvider processing?
-- What sample rate and format does the radio audio arrive in?
-- Key files to explore: JJPortaudio/Audio.cs, FlexLib/RXAudioStream.cs, FlexBase.cs audio setup sections
-- This architecture is foundational for waterfall FFT, record/replay, and the DSP abstraction layer
-- Design goal: ISampleProvider chain pattern where NR, spectral sub, recording tap, and waterfall FFT can all plug in as pipeline stages
+### Phase 20: RX Audio Pipeline — COMPLETE
+Wired RNNoise and spectral subtraction into the live RX audio path:
+- Architecture: Opus decode → gain → PostDecodeProcessor delegate → PortAudio queue
+- RxAudioPipeline class (JJFlexWpf) orchestrates chain: spectral sub → RNNoise
+- Providers got ProcessInPlace() methods + standalone constructors for push-based pipeline
+- JJAudioStream.PostDecodeProcessor delegate bridges JJPortaudio ↔ JJFlexWpf (no circular deps)
+- FlexBase.AudioPostProcessor forwards to active stream, handles set-before and set-after audio start
+- ScreenFieldsPanel creates pipeline on connect, disposes on detach, feeds mode changes
+- PC-side NR works on ALL radios (6000/8000/Aurora) — processing runs on PC, not radio hardware
+- UI: "PC Neural NR" and "PC Spectral NR" toggles in DSP section
+- Hotkeys: Ctrl+J, Shift+R (PC RNNoise), Ctrl+J, Shift+S (PC Spectral NR)
+- Foundational for waterfall FFT tap, recording tap, DSP abstraction layer
 
 **Sprint 25 plan:** `docs/planning/barefoot-qrp-ragchew.md`
 **Test matrix:** `docs/planning/agile/sprint25-test-matrix.md`
@@ -76,10 +79,10 @@ The NR ISampleProviders exist (NoiseReductionProvider at 48kHz, SpectralSubtract
 - Phase 17: Editable tuning step presets dialog (Settings → Tuning → Edit Tuning Steps)
 - Phase 18: Braille status line display-size-aware formatting (20/32/40/80 cell profiles)
 - Phase 19: MultiFlex management — client list dialog, connect/disconnect earcons + speech, kick clients
+- Phase 20: RX audio pipeline — RNNoise + spectral subtraction wired into live Opus decode path, PC-side NR for all radios
 - Phase 21: Trace cleanup — removed SmartLink dialog debug traces, connection traces are properly gated
 
 **REMAINING:**
-- Phase 20: Wire RNNoise + spectral subtraction into audio pipeline — NEEDS DEDICATED SESSION (see notes below)
 - Phase 22: Changelog finalization — after all testing complete
 
 ### Testing Results (so far)

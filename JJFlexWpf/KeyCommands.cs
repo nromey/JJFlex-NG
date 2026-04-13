@@ -1799,6 +1799,48 @@ public class KeyCommands
                     ToggleLeaderDSP("NR Filter",
                         () => rig.NoiseReductionFilter, v => rig.NoiseReductionFilter = v);
                 break;
+
+            // PC-side NR (works on ALL radios — processing runs on the PC)
+            case Keys.R | Keys.Shift:
+                {
+                    var pipeline = _context.GetMainWindow()?.FieldsPanel.AudioPipeline;
+                    if (rig == null)
+                        LeaderNoRadio();
+                    else if (pipeline == null)
+                    {
+                        EarconPlayer.LeaderInvalidTone();
+                        Radios.ScreenReaderOutput.Speak("PC audio pipeline not ready", Radios.VerbosityLevel.Critical);
+                    }
+                    else
+                    {
+                        pipeline.RnnEnabled = !pipeline.RnnEnabled;
+                        if (pipeline.RnnEnabled) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
+                        Radios.ScreenReaderOutput.Speak($"PC Neural NR {(pipeline.RnnEnabled ? "on" : "off")}", Radios.VerbosityLevel.Terse);
+                    }
+                }
+                break;
+            case Keys.S | Keys.Shift:
+                {
+                    var pipeline = _context.GetMainWindow()?.FieldsPanel.AudioPipeline;
+                    if (rig == null)
+                        LeaderNoRadio();
+                    else if (pipeline == null)
+                    {
+                        EarconPlayer.LeaderInvalidTone();
+                        Radios.ScreenReaderOutput.Speak("PC audio pipeline not ready", Radios.VerbosityLevel.Critical);
+                    }
+                    else
+                    {
+                        pipeline.SpectralEnabled = !pipeline.SpectralEnabled;
+                        if (pipeline.SpectralEnabled) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
+                        string msg = pipeline.SpectralEnabled
+                            ? (pipeline.HasNoiseProfile ? "PC Spectral NR on" : "PC Spectral NR on, no noise profile loaded")
+                            : "PC Spectral NR off";
+                        Radios.ScreenReaderOutput.Speak(msg, Radios.VerbosityLevel.Terse);
+                    }
+                }
+                break;
+
             case Keys.A:
                 if (rig == null) LeaderNoRadio();
                 else ToggleLeaderDSP("Auto Notch",
