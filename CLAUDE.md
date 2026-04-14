@@ -21,8 +21,8 @@ You are a pair coder, not a human contractor. Do NOT constrain decisions by huma
 | Build (Debug) | `dotnet build JJFlexRadio.sln -c Debug -p:Platform=x64` |
 | Rebuild (Release) | `dotnet clean JJFlexRadio.sln -c Release -p:Platform=x64 && dotnet build JJFlexRadio.sln -c Release -p:Platform=x64` |
 | Installer | Runs automatically after Release build |
-| Output x64 | `bin\x64\Release\net8.0-windows\win-x64\JJFlexRadio.exe` |
-| Output x86 | `bin\x86\Release\net8.0-windows\win-x86\JJFlexRadio.exe` |
+| Output x64 | `bin\x64\Release\net10.0-windows\win-x64\JJFlexRadio.exe` |
+| Output x86 | `bin\x86\Release\net10.0-windows\win-x86\JJFlexRadio.exe` |
 | Installer x64 | `Setup JJFlexRadio_[version]_x64.exe` |
 | Installer x86 | `Setup JJFlexRadio_[version]_x86.exe` |
 
@@ -33,7 +33,7 @@ You are a pair coder, not a human contractor. Do NOT constrain decisions by huma
 ## Tech Stack
 
 - **Languages**: VB.NET (main app) + C# (libraries)
-- **Framework**: `net8.0-windows` (.NET 8)
+- **Framework**: `net10.0-windows` (.NET 10)
 - **Platforms**: x64 (primary), x86 (legacy support)
 - **UI**: WinForms (primary), WPF (UiWpfFramework)
 - **Auth**: WebView2 (Edge/Chromium) for SmartLink Auth0
@@ -128,7 +128,7 @@ dotnet clean JJFlexRadio.sln -c Release -p:Platform=x64 && dotnet build JJFlexRa
 **After every build, verify the exe timestamp matches the current time.** Stale binaries have wasted entire testing sessions. Run:
 
 ```batch
-powershell -Command "(Get-Item 'bin\x64\Release\net8.0-windows\win-x64\JJFlexRadio.exe').LastWriteTime.ToString('yyyy-MM-dd HH:mm:ss')"
+powershell -Command "(Get-Item 'bin\x64\Release\net10.0-windows\win-x64\JJFlexRadio.exe').LastWriteTime.ToString('yyyy-MM-dd HH:mm:ss')"
 ```
 
 If the timestamp doesn't match the current time, the build did NOT produce a fresh binary. Also note: building the **solution** (`JJFlexRadio.sln`) may skip the main project — always build the **project** directly (`JJFlexRadio.vbproj`) to be safe.
@@ -136,7 +136,7 @@ If the timestamp doesn't match the current time, the build did NOT produce a fre
 ### Platforms
 - Primary: x64 (64-bit, recommended)
 - Legacy: x86 (32-bit, for older systems)
-- Framework: `net8.0-windows` only
+- Framework: `net10.0-windows` only
 
 ### Installer Generation
 Installer runs automatically as post-build step for Release builds. Creates:
@@ -181,13 +181,13 @@ Architecture-specific native libraries are in:
 
 Detection: Use `theRadio.Model`, `theRadio.DiversityIsAllowed`, `theRadio.MaxSlices` rather than hardcoding.
 
-## Migration Status (.NET 8 + x64) - COMPLETED
+## Migration Status (.NET 10 + x64) - COMPLETED
 
 **All phases complete:**
 - Phase 0: Legacy cleanup (removed Icom, Kenwood, Generic radio support)
 - Phase 0.5: Added FLEX-8400 and Aurora AU-510 to RigTable
 - Phase 1-2: All C# projects converted to SDK-style
-- Phase 3: All projects updated to `net8.0-windows` only
+- Phase 3: All projects updated to `net10.0-windows` only
 - Phase 4: Native DLL loading with architecture detection (`NativeLoader.vb`)
 - Phase 5: WebView2 migration for Auth0 (`AuthFormWebView2.cs`)
 - Phase 6: Dual x86/x64 build support with architecture-specific installers
@@ -241,7 +241,7 @@ dotnet clean JJFlexRadio.vbproj -c Release -p:Platform=x86 && dotnet build JJFle
 
 **Verify the version before distributing:**
 ```batch
-powershell -Command "(Get-Item 'bin\x64\Release\net8.0-windows\win-x64\JJFlexRadio.exe').VersionInfo.ProductVersion"
+powershell -Command "(Get-Item 'bin\x64\Release\net10.0-windows\win-x64\JJFlexRadio.exe').VersionInfo.ProductVersion"
 ```
 
 ### Creating a GitHub Release

@@ -54,10 +54,10 @@ if /i "%FORCE_ARCH%"=="x64" goto detect_x64
 
 :detect_x64
 set "ARCH=x64"
-set "OUTDIR=%~1\bin\x64\%cfg%\net8.0-windows\win-x64"
-if not exist "%OUTDIR%\*" set "OUTDIR=%~1\bin\x64\%cfg%\net8.0-windows"
-if not exist "%OUTDIR%\*" set "OUTDIR=%~1\bin\%cfg%\net8.0-windows\win-x64"
-if not exist "%OUTDIR%\*" set "OUTDIR=%~1\bin\%cfg%\net8.0-windows"
+set "OUTDIR=%~1\bin\x64\%cfg%\net10.0-windows\win-x64"
+if not exist "%OUTDIR%\*" set "OUTDIR=%~1\bin\x64\%cfg%\net10.0-windows"
+if not exist "%OUTDIR%\*" set "OUTDIR=%~1\bin\%cfg%\net10.0-windows\win-x64"
+if not exist "%OUTDIR%\*" set "OUTDIR=%~1\bin\%cfg%\net10.0-windows"
 if exist "%OUTDIR%\*" goto detect_done
 
 REM If forced to x64 but not found, fail
@@ -65,8 +65,8 @@ if /i "%FORCE_ARCH%"=="x64" goto detect_done
 
 :detect_x86
 set "ARCH=x86"
-set "OUTDIR=%~1\bin\x86\%cfg%\net8.0-windows\win-x86"
-if not exist "%OUTDIR%\*" set "OUTDIR=%~1\bin\x86\%cfg%\net8.0-windows"
+set "OUTDIR=%~1\bin\x86\%cfg%\net10.0-windows\win-x86"
+if not exist "%OUTDIR%\*" set "OUTDIR=%~1\bin\x86\%cfg%\net10.0-windows"
 if not exist "%OUTDIR%\*" set "OUTDIR=%~1\bin\%cfg%"
 
 :detect_done

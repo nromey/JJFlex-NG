@@ -74,6 +74,7 @@ namespace JJArClusterLib
         /// <summary>
         /// Cluster's address
         /// </summary>
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public string ClusterAddress { get; set; }
         public string ClusterHostname
         {
@@ -105,6 +106,7 @@ namespace JJArClusterLib
         /// <summary>
         /// Login name, set initially to login automatically.
         /// </summary>
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public string LoginName { get; set; }
 
         /// <summary>

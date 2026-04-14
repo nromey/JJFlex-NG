@@ -106,13 +106,13 @@ echo ============================================
 REM Verify versions match
 echo.
 echo Verifying embedded versions:
-if exist "bin\x64\Release\net8.0-windows\win-x64\JJFlexRadio.exe" (
-    for /f "usebackq delims=" %%v in (`powershell -NoProfile -Command "(Get-Item 'bin\x64\Release\net8.0-windows\win-x64\JJFlexRadio.exe').VersionInfo.ProductVersion"`) do (
+if exist "bin\x64\Release\net10.0-windows\win-x64\JJFlexRadio.exe" (
+    for /f "usebackq delims=" %%v in (`powershell -NoProfile -Command "(Get-Item 'bin\x64\Release\net10.0-windows\win-x64\JJFlexRadio.exe').VersionInfo.ProductVersion"`) do (
         echo   x64: %%v
     )
 )
-if exist "bin\x86\Release\net8.0-windows\win-x86\JJFlexRadio.exe" (
-    for /f "usebackq delims=" %%v in (`powershell -NoProfile -Command "(Get-Item 'bin\x86\Release\net8.0-windows\win-x86\JJFlexRadio.exe').VersionInfo.ProductVersion"`) do (
+if exist "bin\x86\Release\net10.0-windows\win-x86\JJFlexRadio.exe" (
+    for /f "usebackq delims=" %%v in (`powershell -NoProfile -Command "(Get-Item 'bin\x86\Release\net10.0-windows\win-x86\JJFlexRadio.exe').VersionInfo.ProductVersion"`) do (
         echo   x86: %%v
     )
 )

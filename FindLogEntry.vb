@@ -16,6 +16,7 @@ Public Class FindLogEntry
     ''' <summary>
     ''' Find entries for this call.
     ''' </summary>
+    <DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)>
     Public Property SearchCall As String
 
     Private matchData As LogSession = Nothing

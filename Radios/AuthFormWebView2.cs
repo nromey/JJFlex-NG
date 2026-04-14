@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Drawing;
 using System.Net.Http;
@@ -76,12 +77,14 @@ namespace Radios
         /// When true, forces Auth0 to show the login page even if a session already exists.
         /// Use this when the user explicitly wants to log in with a different account.
         /// </summary>
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public bool ForceNewLogin { get; set; }
 
         /// <summary>
         /// Account email for per-account WebView2 cookie storage.
         /// Each account gets its own browser profile so sessions don't cross.
         /// </summary>
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public string AccountEmail { get; set; } = "";
 
         /// <summary>
@@ -90,6 +93,7 @@ namespace Radios
         /// where the user has an existing session — prevents focus theft.
         /// Reserved for future use — WebView2 requires a visible window to initialize.
         /// </summary>
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public bool StartHidden { get; set; }
 
         public AuthFormWebView2()

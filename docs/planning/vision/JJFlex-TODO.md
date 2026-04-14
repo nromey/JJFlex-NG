@@ -39,6 +39,7 @@ Last updated: 2026-03-13
 ## Near-term (next 1–3 sprints)
 
 ### Upcoming features
+- [x] **Migrate to .NET 10 LTS**: Completed 2026-04-13. All 25 active projects updated from `net8.0-windows` to `net10.0-windows`. Breaking change in .NET 10: new WFO1000 WinForms analyzer requires explicit `DesignerSerializationVisibility` on runtime-only public properties on Form classes (fixed 11 occurrences). Both x64 and x86 Release builds clean, installers generated successfully. ComPortPTT (still on .NET Framework 4.0) not in sln, left alone for now.
 - [ ] **TX bandwidth sculpting**: Adjust transmit filter edges from keyboard, mirroring RX filter bracket-key workflow
 - [ ] **Editable filter & step presets**: Create, edit, save, load, and share filter/step presets as XML
 - [ ] **Compiled help file**: CHM workflow, build integration, context-sensitive F1
@@ -90,7 +91,7 @@ Last updated: 2026-03-13
 - [ ] **Off-air self-monitoring**: Use a second receiver (MultiFlex second slice, or a cheap SDR like RTL-SDR) to receive your own transmitted signal off a nearby antenna and analyze it in real-time. Hear exactly what you sound like over the air — not what your mic sounds like, what your *signal* sounds like. On a dual-SCU Flex (6600/6700), TX on Slice A at low power, receive on Slice B via a separate antenna. With future cheap receiver support, anyone could do this with an RTL-SDR dongle and a piece of wire. Feed the received audio into the peak watcher for objective analysis.
 - [ ] **Audio chain presets (save/load/share)**: Save the entire TX/RX audio configuration as a shareable preset file — mic gain, compression, EQ, TX filter width, RX volume, AGC settings. Import/export so operators can share “my ragchew voice” or “contest audio” profiles with friends. Same XML-based approach as filter presets.
 - [ ] Recording/playback and “parrot” concept (design + feasibility)
-- [ ] DAX integration research and decision (use Flex manager vs internal config)
+- [ ] DAX integration: superseded by JJ Audio interfaces (see SmartLink Independence section)
 
 ## Operator Profile & Band Plans (future sprint)
 - [ ] QRZ self-lookup: if operator has a QRZ subscription and is logged in, auto-populate operator data (name, QTH, grid, etc.) from QRZ. Trigger from settings or on first callbook login.
@@ -235,6 +236,19 @@ Alt+C → W1ABC → Alt+N → Bob → Alt+Q → Space (uncheck QRZ) → Ctrl+W �
 **Connectivity / stability:**
 - [ ] Connection error hang: SSL/SmartLink error makes app unresponsive, requires taskkill — observed twice in one session
 
+### SmartLink Independence — Eliminate SmartSDR Dependency
+
+**Goal:** JJFlexRadio becomes a fully standalone client — no SmartSDR required for any SmartLink operation.
+
+- [ ] **Port forwarding settings (NEXT TO DEVELOP)**: Add TCP/UDP external port configuration to SmartLink settings. FlexLib has `Radio.WanSetForwardedPorts()` — we just need UI. Includes connection test results display (`WanTestConnectionResults`). Don needs this for his 6300.
+- [ ] **SmartLink radio registration**: Register/unregister radios with SmartLink directly from JJFlex. FlexLib has `Radio.WanRegisterRadio(owner_token)` and `WanUnregisterRadio()` — uses our existing Auth0 JWT. Eliminates the last reason to open SmartSDR for setup.
+- [ ] **JJ Audio interfaces**: Replace DAX dependency with direct FlexLib audio streams. FlexLib has DAXRXAudioStream, DAXTXAudioStream, RXRemoteAudioStream (with OPUS), TXRemoteAudioStream. Create JJFlex-managed audio routing for digital mode programs (fldigi, WSJT-X) — virtual audio devices or direct pipe.
+- [ ] **JJ CAT ports**: Replace SDR-CAT dependency with FlexLib-native CAT control. FlexLib has full Slice API (freq, mode, filter) and UsbCatCable virtual COM port support. Create JJFlex-managed virtual serial ports for external programs. Potentially expose Hamlib-compatible interface.
+- [ ] **Connection test UI**: Surface WanTestConnectionResults (UPnP TCP/UDP, forwarded TCP/UDP, hole punch capability) as a "Test SmartLink Connection" feature so operators can diagnose connectivity issues without SmartSDR.
+- [ ] **Firmware update from JJFlex**: FlexLib has `Radio.SendUpdateFile(filename)` — uploads firmware via TCP port 4995, tracks progress. **Decompile revealed (2026-04-12):** SmartSDR bundles firmware in installer, stores at `C:\ProgramData\FlexRadio Systems\SmartSDR\Updates\`. Files named `FLEX-6x00_v{version}.ssdr` (6000 series) or `FLEX-9600_v{version}.ssdr` (8000/Aurora "BigBend" platform). No download API exists — files ship with the installer. **NOTE: Firmware updates are LAN-only (SmartSDR explicitly blocks over SmartLink).** Implementation phases: (1) Auto-detect firmware files from SmartSDR's ProgramData folder if installed, (2) Manual file browse as fallback, (3) Accessible progress dialog monitoring UpdateStatus/ConnectedState/UpdateFailed properties, (4) Host firmware files on web server (blindhams.network/Netlify initially, or dedicated domain like jjflexible.radio long-term). JJFlex builds filename from `radio.IsBigBend` + `radio.ReqVersion`, downloads only the file needed for that radio platform (~61 MB for 6000 series, ~372 MB for 8000/Aurora). Noel uploads new .ssdr files when Flex releases firmware. (5) Future: investigate Mac client or Flex download page for standalone firmware file source.
+- [ ] **License refresh**: Refresh radio feature licenses (SmartLink subscription, Multi-Flex, etc.) directly from JJFlex without SmartSDR. FlexLib exposes `Radio.FeatureLicense` — research how license activation/refresh works on the server side. Eliminates another "go open SmartSDR" moment.
+- [ ] **"Box to QSO" setup wizard**: Guided first-run experience — create SmartLink account, discover radio on LAN, register with SmartLink, update firmware if needed, configure network (UPnP or port forwarding), test connection, connect. Zero sighted assistance, zero SmartSDR. The pitch: from opening the Flex box to your first QSO, all in one accessible app.
+
 ### Backlog — Don's Feedback Items (2026-03-12)
 
 **HIGH PRIORITY — Slice interaction:**
@@ -298,6 +312,34 @@ Alt+C → W1ABC → Alt+N → Bob → Alt+Q → Space (uncheck QRZ) → Ctrl+W �
 - [ ] Configurable WPM, weight, Farnsworth spacing for learners
 - [ ] CW decoder reused from multi-slice decode feature
 
+## Accessible Receive Path (Zero to Low Cost Entry)
+
+The cheapest path into accessible ham radio — no transmitter required.
+
+- [ ] **Web SDR integration**: Connect to KiwiSDR, WebSDR, OpenWebRX receivers with full accessible tuning, braille waterfall, and JJFlex's keyboard-first UX. Zero cost, zero hardware — just an internet connection. Research APIs/protocols for each platform (KiwiSDR has a documented WebSocket API). An iOS TestFlight app already proves accessible Web SDR control is viable.
+- [ ] **RTL-SDR receive station**: $30 dongle + JJFlex = complete accessible receive station. PC-side DSP (from DSP abstraction layer) provides filtering, NR, AGC. Braille waterfall from IQ data. Full tuning experience. SoapySDR library for device abstraction.
+- [ ] **Upgrade funnel**: Free (Web SDR) → $30 (RTL-SDR) → $50-200 (QRP TX) → $1,100 (IC-7300) → $3,000+ (Flex). Same app at every tier, same interface, same muscle memory. Each step adds capability (TX, hardware DSP, more bands) but the core experience is consistent.
+
+## Digital Voice — FreeDV2 via Pi Proxy
+
+- [ ] **FreeDV2 / RADEV2 integration**: Full planning session completed — see `docs/planning/future items from chatgpt brainstorming session.md` EPIC 1. Architecture: SSH-managed Pi node as external vocoder, with future native in-radio support. Includes Node Manager UI (Tools → FreeDV2 Node Manager), runtime backend selection (prefer node vs native), mode status states. Determined to be more than doable.
+
+## Radio Memory Programming (RT Systems Alternative)
+
+- [ ] **Radio memory/channel snapshots**: Read, write, and manage radio memories and channel programming — accessible alternative to RT Systems. RT Systems charges per-radio, is not accessible. Research memory formats for popular rigs (IC-7300, Yaesu FT-991A, etc.). Import/export, backup/restore, share channel plans between operators. Way down the line but fills a real gap.
+
+## Website & Distribution Infrastructure
+
+- [ ] **jjflexible.radio domain**: Register dedicated domain for the project. Host on Netlify (already paying $9/month). Ruby-based site (same stack as blindhams.network). Landing page, download links, release notes, setup guide.
+- [ ] **Firmware hosting**: Serve .ssdr firmware files as Netlify assets from jjflexible.radio. Two files per Flex firmware release (~61 MB for 6000 series, ~372 MB for 8000/Aurora). Noel uploads new files when Flex releases firmware. Flex contacted for permission (2026-04-12).
+- [ ] **Auto-update check for JJ Flexible**: App checks jjflexible.radio (or GitHub releases API) for new versions on startup. Notify user if update available with download link. Compare current version against latest published version.
+- [ ] **Firmware version check**: When connected to a Flex radio, check `radio.Version` vs latest available firmware on jjflexible.radio. Notify user if firmware update available. Offer to download and install (LAN-only).
+- [ ] **Donate link**: Add donation link to website — users have been requesting this. Prominent but not pushy.
+- [ ] **App distribution**: Serve installers from jjflexible.radio, link to GitHub releases, or both. Consider which is better for discoverability vs reliability.
+- [ ] **Fix blindhams.network**: Site currently broken — fix alongside jjflexible.radio spinup (same Ruby/Netlify stack, work with Codex).
+- [ ] **Crash report upload**: Crash zip capture already exists (saves locally). Add a "Send Report" button that uploads the crash zip to jjflexible.radio endpoint (Netlify function or simple POST). Ping ntfy.sh to push notification to Noel's phone when a crash report arrives. User-initiated (click to send), not automatic — respects privacy. Add before next release once web endpoint exists.
+- [ ] **Premium features infrastructure**: Future — iOS app, Android app, premium features (multi-radio, etc.) with revenue to cover hosting costs.
+
 ## Long-term
 - [ ] Wideband SDR support: RTL-SDR (RX-only, ~$30), HackRF (TX/RX, ~$350), ADALM-Pluto (TX/RX, ~$200), Airspy, SDRplay. Needs a radio abstraction layer that can talk to FlexLib, SoapySDR, and potentially Hamlib/CAT. This is the accessibility play — getting the entry cost for an accessible SDR station from $3,000+ down to $200-400.
 - [ ] QRP rig support: Research affordable QRP transceivers (QDX, QMX, (tr)uSDX, etc.) as low-cost accessible entry points. These are kit/assembled rigs in the $50-200 range with CAT control.
@@ -309,6 +351,8 @@ Alt+C → W1ABC → Alt+N → Bob → Alt+Q → Space (uncheck QRZ) → Ctrl+W �
 - [ ] Braille meter display: render active meter values on braille line, width-adaptive (20/40/80 char displays). Three hardware configs: (a) standard braille display only — meters share line, cursor routing keys for frequency digit tuning, (b) Dot Pad only — 20-char braille line for text meters plus tactile graphic meter panel, (c) both — standard display for tuning with cursor routing, Dot Pad for meter visualization
 - [ ] Multi-radio simultaneous operation (possible premium)
 - [ ] Auto-update / update notifications (needs server or web page for version checking; design update delivery mechanism)
+- [ ] **Mac port**: FlexLib is .NET 10 LTS, runs on macOS natively. UI layer needs platform-specific approach (Avalonia, MAUI, or native). Dogpark and SmartSDR for Mac are competitors — Justin AI5OS reports Dogpark is usable with VoiceOver, SmartSDR Mac is "not fun." Key advantage: JJFlex would be the only Mac client with full setup wizard (registration, firmware, port forwarding). Keep business logic separated from WinForms/WPF to enable this.
+- [ ] **iOS remote client**: Remote radio control from iPhone/iPad. Three connection models: (a) bridge through Mac/Windows JJFlex instance, (b) direct SmartLink connection (SmartLink for iOS proves this works), (c) limited standalone operation. Ties into CW notification / haptic vision work for deaf-blind users. VoiceOver on iOS is mature — accessibility comes almost free if built with standard UIKit/SwiftUI.
 - [ ] AllStar (ASL) remote base: Connect JJFlexRadio to AllStar Link nodes, turning a supported radio (Flex for now) into a remote base accessible from the AllStar network. Research ASL protocol, audio routing (DAX/Opus to ASL), PTT integration, and node registration. Big project — needs feasibility study first.
 - [ ] Transmit signal sculpting: Adjust TX filter width from the keyboard, similar to how RX filter edges can be adjusted with bracket keys. Let operators narrow or widen their transmitted audio bandwidth for tight band conditions or signal shaping. Research FlexLib TX filter properties (`Slice.TxFilterLow`, `Slice.TxFilterHigh`) and determine safe limits per mode.
 - [ ] Braille art on the waterfall: Render callsigns, CQ markers, or ASCII art as braille characters on the panadapter braille display. If sighted hams get to paint their callsigns in the waterfall, blind hams deserve the same fun. Arr. 🏴‍☠️

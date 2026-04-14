@@ -36,6 +36,7 @@ Friend Class Lister
     Private listObj As Object ' the data to operate on.
     Private screenItems As ArrayList ' DataSource for ScreenList
     ' TheList is the data supplied by the user.
+    <DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)>
     Public Property TheList As Object
         Get
             Return listObj

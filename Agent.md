@@ -8,7 +8,7 @@ This document captures the current state of JJ-Flex repository and active work.
 ## 1) Overview
 - JJFlexRadio: Windows desktop app for FlexRadio 6000/8000 series transceivers
 - **Display name:** JJ Flexible Radio Access (internals stay JJFlexRadio)
-- **Migration complete:** .NET 8, dual x64/x86 architecture, WebView2 for Auth0
+- **Migration complete:** .NET 10 LTS (migrated 2026-04-13), dual x64/x86 architecture, WebView2 for Auth0
 - **Current version:** 4.1.16 (version bumped in Sprint 25 Phase 12)
 
 ## Current State — Sprint 25 In Progress
