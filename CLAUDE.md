@@ -289,6 +289,45 @@ powershell -Command "(Get-Item 'bin\x64\Release\net10.0-windows\win-x64\JJFlexRa
 | `build-installers.bat x86` | Build x86 installer only |
 | `install.bat` | Low-level installer script (called by build-installers.bat) |
 
+### Nightly Debug Builds (end-of-dev-day to private testers)
+
+At the end of a dev session that produced testable changes, stage a Debug build for private testers (currently Don) in the Dropbox folder. This is a deliberate act, not automatic — only run when Noel confirms.
+
+**Channel purpose:**
+- **Nightly Debug** = work-in-progress builds, testers accept instability, daily cadence
+- **Stable Release** = milestone installers, periodic, goes top-level in Dropbox
+- **Public Release** = GitHub Releases + jjflexible.radio (future)
+
+Content flows forward: nightly → stable → public. Nothing skips tiers. See `memory/project_distribution_channels.md` for full model.
+
+**Nightly procedure (run at end of dev day when asked):**
+
+1. Verify a fresh Debug x64 build exists:
+   - `dotnet build JJFlexRadio.sln -c Debug -p:Platform=x64 --verbosity minimal`
+   - Confirm exe timestamp is current: `powershell -Command "(Get-Item 'bin\x64\Debug\net10.0-windows\win-x64\JJFlexRadio.exe').LastWriteTime"`
+
+2. Zip the build folder into Don's nightly folder:
+   - `powershell -Command "Compress-Archive -Path 'bin\x64\Debug\net10.0-windows\win-x64\*' -DestinationPath 'C:\Users\nrome\Dropbox\JJFlexRadio\don\jjflex-debug-YYYYMMDD.zip' -Force"`
+   - Substitute YYYYMMDD with today's date
+
+3. Write a brief `NOTES-YYYYMMDD.txt` next to the zip — plain text, screen-reader friendly:
+   - Date and current version from vbproj
+   - What changed today (1-3 bullets)
+   - Specific things to test
+   - Known issues
+
+**Rules:**
+- Do NOT bump the version for nightlies — nightlies share the current dev version. The date in the filename disambiguates multiple nightlies that share a version.
+- Do NOT auto-publish to public channels (GitHub, website). Only Noel initiates public releases.
+- Do NOT ping testers — Noel handles communication with Don and other testers.
+- Only run the nightly procedure after Noel confirms. Distribution is a deliberate act.
+
+**Dropbox layout:**
+- `C:\Users\nrome\Dropbox\JJFlexRadio\` — stable installers at top level
+- `...\don\` — Don's nightly debug zips + NOTES-YYYYMMDD.txt
+- `...\old\` — archived previous stables (for rollback)
+- `...\crash\` — user-submitted crash dumps
+
 ## Common Tasks
 
 ### Add new DSP feature
