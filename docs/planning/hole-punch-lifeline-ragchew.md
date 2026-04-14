@@ -77,15 +77,27 @@ On wake: check shutdown flag. If set, exit cleanly. Otherwise loop back to conne
 
 Once we own the WAN session properly (instead of letting it churn with FlexBase), several additional capabilities become natural. These aren't separate projects — they fall out of the architecture.
 
-### Port forwarding / external port specification
+### User-configurable networking (three-tier options)
 
-Currently users must run SmartSDR to configure port forwarding for SmartLink, and SmartSDR's settings only affect SmartSDR's connection — not ours. Users have had to choose between UPnP (which doesn't work on many networks) or running SmartSDR separately for configuration. Accessibility problem (SmartSDR config UI is not screen-reader friendly) AND a workflow problem.
+Currently users must run SmartSDR to configure port forwarding for SmartLink. This is *not a workaround that's inconvenient* — it fundamentally doesn't help our app. SmartSDR's port config applies to SmartSDR's process; JJ Flex is a separate process with its own TCP listeners on different ports. Even a sighted user who perfectly configured SmartSDR's settings would still have zero effect on our app's connection. The architecture *requires* port config to happen inside our process, for our process.
 
-With a proper WAN session owner in our code, **we implement port config directly.** User can specify external port in our UI (screen-reader accessible). No dependency on SmartSDR. No UPnP reliance.
+**This is both an accessibility blocker AND a security/compliance requirement** — not just a convenience feature:
 
-### Hole-punching / NAT traversal
+- **Accessibility:** SmartSDR's config UI isn't screen-reader friendly. Blind users currently have no path to configure SmartLink networking at all. With a proper WAN session owner in our code, we can provide a screen-reader-accessible port config UI inside JJ Flex — the *only* such path that exists for blind hams.
 
-Similarly, NAT hole-punch logic (for users without port forwarding capability) can be implemented alongside our WAN session owner. Currently this behavior is entirely inside SmartSDR or absent.
+- **Security:** UPnP is actively dangerous. It lets any LAN process open router ports without user consent. Exploited in the wild (Mirai family, webcam hijacks, etc.). Security-conscious users disable UPnP at the router level.
+
+- **Compliance:** Multiple regimes effectively require UPnP off — DISA STIGs, PCI-DSS, HIPAA, Section 508-adjacent federal ICT policies. A Flex radio deployed in a military ham club, state EOC AuxComm setup, university research station, or any organization with a real sysadmin is very likely on a UPnP-disabled network. Today those users can't use SmartLink from JJ Flex robustly. After this refactor they can.
+
+**The refactor unlocks a three-tier networking options model:**
+
+**Tier 1 — Manual port specification (user-sovereign, UPnP-free).** User specifies a port, forwards it on their router themselves, tells JJ Flex to bind there. Works on any network, any security posture, any router. **This should be the recommended default**, not the "advanced" option. Respects user competence.
+
+**Tier 2 — UPnP auto-config (convenience for casual users).** Optional, off by default, explicit opt-in with a clear warning about automatic port opening. For users who don't want to touch their router and whose network allows UPnP.
+
+**Tier 3 — Hole-punching / NAT traversal via outbound connections only.** For users who can't configure their router AND can't use UPnP (restrictive networks, hotel wifi, cellular, corporate guest wifi). No inbound port forwarding required. Works by having both ends make outbound connections to a rendezvous point.
+
+**Default posture: sovereign (Tier 1), not auto-magic (Tier 2).** Hams tend to be exactly the demographic with UPnP disabled — they run servers, understand networking, take firewall rules seriously. Requiring UPnP insults their competence; letting them specify a port respects it.
 
 ### NetworkTest integration
 
