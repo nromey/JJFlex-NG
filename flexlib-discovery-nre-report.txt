@@ -1,0 +1,131 @@
+FlexLib Bug Report: NullReferenceException in Discovery.Receive()
+==================================================================
+File:         FlexLib_API/FlexLib/Discovery.cs, line 75
+Present in:   At least v4.0.1 and v4.1.5.39794 (file unchanged in that upgrade)
+Repro under:  .NET 10 (reproducible); likely latent in earlier runtimes too
+Reporter:     Noel Romey (K5NER), JJ Flexible Radio Access
+Date:         2026-04-15
+
+Summary
+-------
+Discovery.Receive() throws NullReferenceException at
+`var packet = await udp.ReceiveAsync();` when Discovery.Start() is
+called a second time before a prior Receive task has fully terminated.
+Because Receive is an async-void task, the exception is unobserved,
+propagates to ThreadPool.UnhandledException, and terminates the host
+process.
+
+Root Cause
+----------
+Discovery.cs uses static singletons for the UDP socket and the
+cancellation token source:
+
+    private static UdpClient udp;
+    private static CancellationTokenSource _loopCts;
+
+Start() unconditionally overwrites both and fires a new Receive task:
+
+    udp = new UdpClient();
+    ...
+    _loopCts = new CancellationTokenSource();
+    Task.Run(Receive);
+
+Stop() just cancels _loopCts. The live Receive task is expected to
+notice cancellation and run `udp.Close(); udp = null;` on exit.
+
+Race window
+-----------
+Sequence that produces the NRE:
+
+  1. Start() #1  -> udp1, cts1; Receive1 pending on udp1.ReceiveAsync()
+  2. Stop()      -> cts1.Cancel()
+  3. Start() #2  -> udp2, cts2 (overwrites statics);
+                    Receive2 pending on udp2.ReceiveAsync()
+  4. Receive1 wakes (cancellation or packet), breaks out of its loop,
+     runs `udp.Close(); udp = null;`. This closes udp2 (the NEW client)
+     and nulls the static field, because Receive1 re-reads `udp` at
+     that point and sees udp2.
+  5. Receive2's next iteration does `await udp.ReceiveAsync();` with
+     udp == null -> NullReferenceException.
+
+A typical caller trigger is any `API.CloseSession()` followed by
+`API.Init()` in quick succession (e.g. a reconnect path that forces
+re-initialization). The race is timing sensitive; .NET 10's async
+scheduling appears to widen the window vs earlier runtimes.
+
+Minimal Stack Trace
+-------------------
+System.NullReferenceException: Object reference not set to an
+instance of an object.
+   at Flex.Smoothlake.FlexLib.Discovery.Receive() in
+      ...\FlexLib\Discovery.cs:line 75
+   at System.Threading.Tasks.Task.<>c.<ThrowAsync>b__124_1(Object state)
+   at System.Threading.QueueUserWorkItemCallback.Execute()
+   at System.Threading.ThreadPoolWorkQueue.Dispatch()
+
+Suggested Fix
+-------------
+1. In Receive(), capture a local reference to the UDP client at entry
+   and use only that local. This keeps each Receive task bound to its
+   own socket and avoids cross-task interference.
+
+2. Null-guard the local on entry.
+
+3. Catch ObjectDisposedException and SocketException around the await
+   (so a socket closed from under us exits cleanly instead of throwing
+   unobserved).
+
+4. When the loop exits, only null the static `udp` field if it still
+   points at the captured local (i.e. we still "own" it).
+
+Patch sketch:
+
+    private static async void Receive()
+    {
+        var token = _loopCts.Token;
+        var localUdp = udp;                 // snapshot
+        if (localUdp == null) return;
+
+        while (!token.IsCancellationRequested)
+        {
+            UdpReceiveResult packet;
+            try
+            {
+                packet = await localUdp.ReceiveAsync();
+            }
+            catch (ObjectDisposedException) { break; }
+            catch (SocketException)          { break; }
+
+            if (token.IsCancellationRequested) break;
+            if (packet.Buffer.Length < 16)    continue;
+
+            var vita = new VitaPacketPreamble(packet.Buffer);
+            if (vita.class_id.OUI != VitaFlex.FLEX_OUI ||
+                vita.header.pkt_type != VitaPacketType.ExtDataWithStream ||
+                vita.class_id.PacketClassCode != VitaFlex.SL_VITA_DISCOVERY_CLASS)
+                continue;
+
+            var radio = ProcessVitaDiscoveryDataPacket(
+                new VitaDiscoveryPacket(packet.Buffer, packet.Buffer.Length));
+            OnRadioDiscoveredEventHandler(radio);
+        }
+
+        try { localUdp.Close(); } catch { }
+        if (udp == localUdp) udp = null;    // only if we still own it
+    }
+
+Optional hardening: make Start() idempotent and serialize with Stop()
+so overlapping lifecycles never spawn concurrent Receive tasks in the
+first place.
+
+Our workaround
+--------------
+Applied the above patch locally to Discovery.cs. Documented in our
+MIGRATION.md for re-apply on future FlexLib upgrades. Happy to share
+the exact diff if useful.
+
+Contact
+-------
+Noel Romey, K5NER
+nromey@gmail.com
+JJ Flexible Radio Access (alternative accessible UI for FlexRadio 6000/8000)

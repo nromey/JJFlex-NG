@@ -66,40 +66,62 @@ namespace Flex.Smoothlake.FlexLib
 
         private static async void Receive()
         {
-            //Stopwatch watch = new Stopwatch();
+            // JJFlex patch: FlexLib Discovery had a race where a second Discovery.Start()
+            // (e.g. via apiInit force=true path) could spawn a new Receive task while the
+            // previous one was still pending; on exit the old task would null the static
+            // `udp` out from under the new task, causing an NRE at the await below.
+            // Fix: capture a local reference, guard against null, catch ObjectDisposed /
+            // SocketException around the await, and only null the static if we still own it.
+            // See flexlib-discovery-nre-report.txt and MIGRATION.md.
             var token = _loopCts.Token;
-            
+            var localUdp = udp;
+            Debug.WriteLine($"Discovery.Receive: task started (udp={(localUdp == null ? "null" : "set")})");
+            if (localUdp == null)
+            {
+                Debug.WriteLine("Discovery.Receive: exiting immediately, udp was null at entry");
+                return;
+            }
+
             while (!token.IsCancellationRequested)
             {
-                // TODO: Pass the cancellation token here when we move to .NET 6/8
-                var packet = await udp.ReceiveAsync();
-                //watch.Restart();
+                UdpReceiveResult packet;
+                try
+                {
+                    packet = await localUdp.ReceiveAsync();
+                }
+                catch (ObjectDisposedException)
+                {
+                    Debug.WriteLine("Discovery.Receive: socket disposed under us, exiting");
+                    break;
+                }
+                catch (SocketException sex)
+                {
+                    Debug.WriteLine($"Discovery.Receive: socket exception {sex.SocketErrorCode}, exiting");
+                    break;
+                }
 
                 // since the call above is blocking, we need to check active again here
-                if (token.IsCancellationRequested) 
+                if (token.IsCancellationRequested)
                     break;
 
                 // ensure that the packet is at least long enough to inspect for VITA info
                 if (packet.Buffer.Length < 16)
                     continue;
-                
+
                 var vita = new VitaPacketPreamble(packet.Buffer);
 
                 // Check for a valid discovery packet
-                if (vita.class_id.OUI != VitaFlex.FLEX_OUI ||vita.header.pkt_type != VitaPacketType.ExtDataWithStream ||
+                if (vita.class_id.OUI != VitaFlex.FLEX_OUI || vita.header.pkt_type != VitaPacketType.ExtDataWithStream ||
                     vita.class_id.PacketClassCode != VitaFlex.SL_VITA_DISCOVERY_CLASS)
                     continue;
 
                 Radio radio = ProcessVitaDiscoveryDataPacket(new VitaDiscoveryPacket(packet.Buffer, packet.Buffer.Length));
                 OnRadioDiscoveredEventHandler(radio);
-
-                //watch.Stop();
-                //if(radio.Serial == "3424-1213-8601-4043")
-                //    Debug.WriteLine(DateTime.Now.ToString("HH:mm:ss.fff")+": Discovery watch stop (" + watch.ElapsedMilliseconds + " ms)");
             }
 
-            udp.Close();
-            udp = null;
+            try { localUdp.Close(); } catch { }
+            if (udp == localUdp) udp = null;    // only null the static if it's still ours
+            Debug.WriteLine("Discovery.Receive: task exited cleanly");
         }
 
         private static Radio ProcessVitaDiscoveryDataPacket(VitaDiscoveryPacket packet)
