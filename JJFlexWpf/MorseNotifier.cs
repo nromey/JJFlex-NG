@@ -85,7 +85,6 @@ namespace JJFlexWpf
         };
 
         private ICwNotificationOutput _output;
-        private CancellationTokenSource? _cts;
 
         /// <summary>Sidetone frequency in Hz (default 700 — traditional CW sidetone).</summary>
         public int SidetoneHz { get; set; } = 700;
@@ -104,9 +103,6 @@ namespace JJFlexWpf
         /// operator-preference work.
         /// </summary>
         public int RiseFallMs { get; set; } = 5;
-
-        /// <summary>True if a notification is currently playing.</summary>
-        public bool IsPlaying => _cts != null && !_cts.IsCancellationRequested;
 
         public MorseNotifier(ICwNotificationOutput output)
         {
@@ -142,35 +138,35 @@ namespace JJFlexWpf
             PlayCharacter(ProsignSK, ct);
 
         /// <summary>Play a string as Morse code (mode names, digits, etc.).</summary>
+        /// <remarks>
+        /// Enqueues the string's element sequence on the output's FIFO queue
+        /// and returns a Task that resolves when it finishes playing. Does
+        /// NOT cancel any in-flight sequence — concurrent Play* calls are
+        /// serialized in arrival order. See BUG-057 and
+        /// <c>docs/planning/design/cw-keying-design.md</c> for the queue
+        /// design rationale.
+        /// </remarks>
         public async Task PlayString(string text, CancellationToken ct = default)
         {
             if (string.IsNullOrEmpty(text)) return;
-
-            Cancel();
-            _cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            var token = _cts.Token;
 
             try
             {
                 var elements = BuildStringElements(text);
                 if (elements.Count == 0) return;
                 await _output.PlayElementsAsync(
-                    elements, SidetoneHz, Volume, RiseFallMs, token).ConfigureAwait(false);
+                    elements, SidetoneHz, Volume, RiseFallMs, ct).ConfigureAwait(false);
             }
             catch (OperationCanceledException) { /* normal cancel path */ }
-            finally
-            {
-                _cts?.Dispose();
-                _cts = null;
-            }
         }
 
-        /// <summary>Cancel any currently-playing notification.</summary>
+        /// <summary>
+        /// Shutdown-style interrupt. Tells the output to drop its in-flight
+        /// sequence and flush any queued items. New Play* calls after this
+        /// will still enqueue normally.
+        /// </summary>
         public void Cancel()
         {
-            _cts?.Cancel();
-            _cts?.Dispose();
-            _cts = null;
             _output.Cancel();
         }
 
@@ -178,23 +174,14 @@ namespace JJFlexWpf
 
         private async Task PlayCharacter(byte[] encodedChar, CancellationToken ct)
         {
-            Cancel();
-            _cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            var token = _cts.Token;
-
             try
             {
                 var elements = BuildCharacterElements(encodedChar);
                 if (elements.Count == 0) return;
                 await _output.PlayElementsAsync(
-                    elements, SidetoneHz, Volume, RiseFallMs, token).ConfigureAwait(false);
+                    elements, SidetoneHz, Volume, RiseFallMs, ct).ConfigureAwait(false);
             }
             catch (OperationCanceledException) { /* normal */ }
-            finally
-            {
-                _cts?.Dispose();
-                _cts = null;
-            }
         }
 
         /// <summary>

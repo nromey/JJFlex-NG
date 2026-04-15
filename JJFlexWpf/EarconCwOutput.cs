@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Threading;
+using System.Threading.Channels;
 using System.Threading.Tasks;
 using NAudio.Wave;
 using NAudio.Wave.SampleProviders;
@@ -9,29 +10,57 @@ using NAudio.Wave.SampleProviders;
 namespace JJFlexWpf
 {
     /// <summary>
-    /// Speaker-based CW notification output. Builds one concatenated
-    /// ISampleProvider for the whole element sequence — the audio engine
-    /// drives inter-element timing at sample-accurate resolution, so dits
-    /// and dahs keep their PARIS ratio even when the UI thread is busy.
+    /// Speaker-based CW notification output. Each sequence is rendered as one
+    /// sample-accurate <see cref="ConcatenatingSampleProvider"/> (sine +
+    /// raised-cosine envelope) and played through a single-consumer FIFO
+    /// queue.
     /// </summary>
     /// <remarks>
-    /// Each mark element is rendered by a <see cref="CwToneSampleProvider"/>
-    /// (sine wave with raised-cosine attack/release envelope). Each gap is a
-    /// silence of the specified duration. The sequence goes to the alert
-    /// mixer in one submission via <see cref="EarconPlayer.SubmitCwSequence"/>.
-    ///
-    /// The previous implementation iterated tone-by-tone using Task.Delay
-    /// between elements. Two bugs fell out of that design: (1) a
-    /// FadeInOutSampleProvider misuse that turned every tone into an almost-
-    /// entirely-fading envelope with no sustain, making dits sound weak and
-    /// dahs sound short; (2) Task.Delay's ~15 ms Windows timer granularity
-    /// corrupted timing at speeds above about 12 WPM. Batching the whole
-    /// sequence into one sample provider eliminates both problems.
+    /// <para>
+    /// The queue exists to serialize rapid notification events (AS on slow
+    /// connect, BT on connected, mode-change Morse right after BT, etc.).
+    /// The prior implementation cancelled any in-flight sequence at the
+    /// start of each new Play call, but the alert mixer has a roughly
+    /// 50 ms buffer window before playback begins — a second event fired
+    /// in that window would cancel the first before any audio reached the
+    /// speaker. On a real connect sequence only SK (the last event) ever
+    /// played. The queue fixes that by playing every sequence to
+    /// completion and dequeuing the next one. See BUG-057 and the
+    /// "Cancellation — and why the next revision replaces it with a queue"
+    /// section of <c>docs/planning/design/cw-keying-design.md</c>.
+    /// </para>
+    /// <para>
+    /// The same primitive is the foundation for future on-air CW message
+    /// send, iambic keyer element streams, and code-practice-tutor pacing —
+    /// each of those will enqueue CwElement sequences and let the consumer
+    /// loop drain them in order at PARIS timing.
+    /// </para>
+    /// <para>
+    /// <see cref="Cancel"/> is retained for shutdown-style interrupts (app
+    /// close, user-initiated stop): it disposes the in-flight handle and
+    /// drains any pending queue items as cancelled. Normal Play calls
+    /// never cancel — they enqueue and await their own completion.
+    /// </para>
     /// </remarks>
-    public class EarconCwOutput : ICwNotificationOutput
+    public class EarconCwOutput : ICwNotificationOutput, IDisposable
     {
-        private IDisposable? _currentSequence;
+        private readonly Channel<QueuedSequence> _queue =
+            Channel.CreateUnbounded<QueuedSequence>(new UnboundedChannelOptions
+            {
+                SingleReader = true,
+                SingleWriter = false
+            });
+
+        private readonly CancellationTokenSource _shutdown = new();
+        private readonly Task _consumerLoop;
+
+        private IDisposable? _currentHandle;
         private readonly object _lock = new();
+
+        public EarconCwOutput()
+        {
+            _consumerLoop = Task.Run(ConsumerLoop);
+        }
 
         public Task PlayElementsAsync(
             IReadOnlyList<CwElement> elements,
@@ -43,20 +72,81 @@ namespace JJFlexWpf
             if (elements == null) throw new ArgumentNullException(nameof(elements));
             if (elements.Count == 0) return Task.CompletedTask;
 
-            Cancel(); // interrupt any in-flight sequence
+            var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var item = new QueuedSequence(elements, sidetoneHz, volume, riseFallMs, ct, tcs);
+
+            if (!_queue.Writer.TryWrite(item))
+            {
+                // Writer is completed (we're being disposed) — treat as cancelled.
+                tcs.TrySetCanceled();
+            }
+            return tcs.Task;
+        }
+
+        /// <summary>
+        /// Shutdown-style interrupt: kill the in-flight sequence and drop any
+        /// queued-but-not-yet-playing sequences. New Play calls made after
+        /// this will still enqueue normally — the consumer loop is not
+        /// terminated. Use <see cref="Dispose"/> to shut down the output
+        /// entirely.
+        /// </summary>
+        public void Cancel()
+        {
+            IDisposable? h;
+            lock (_lock) { h = _currentHandle; _currentHandle = null; }
+            try { h?.Dispose(); }
+            catch (Exception ex) { Trace.WriteLine($"EarconCwOutput.Cancel: dispose in-flight: {ex.Message}"); }
+
+            while (_queue.Reader.TryRead(out var pending))
+            {
+                pending.Completion.TrySetCanceled();
+            }
+        }
+
+        public void Dispose()
+        {
+            _queue.Writer.TryComplete();
+            _shutdown.Cancel();
+            try { _consumerLoop.Wait(TimeSpan.FromSeconds(2)); } catch { }
+            _shutdown.Dispose();
+        }
+
+        private async Task ConsumerLoop()
+        {
+            try
+            {
+                await foreach (var item in _queue.Reader.ReadAllAsync(_shutdown.Token).ConfigureAwait(false))
+                {
+                    await PlayOne(item).ConfigureAwait(false);
+                }
+            }
+            catch (OperationCanceledException) { /* shutdown */ }
+            catch (Exception ex)
+            {
+                Trace.WriteLine($"EarconCwOutput.ConsumerLoop: {ex.Message}");
+            }
+        }
+
+        private async Task PlayOne(QueuedSequence item)
+        {
+            if (item.CallerToken.IsCancellationRequested)
+            {
+                item.Completion.TrySetCanceled(item.CallerToken);
+                return;
+            }
 
             int totalMs = 0;
-            var providers = new List<ISampleProvider>(elements.Count);
+            var providers = new List<ISampleProvider>(item.Elements.Count);
             int sr = EarconPlayer.MixerSampleRate;
 
-            foreach (var el in elements)
+            foreach (var el in item.Elements)
             {
                 if (el.DurationMs <= 0) continue;
                 totalMs += el.DurationMs;
                 if (el.Type == CwElementType.Mark)
                 {
                     providers.Add(new CwToneSampleProvider(
-                        sr, sidetoneHz, el.DurationMs, riseFallMs, volume));
+                        sr, item.SidetoneHz, el.DurationMs, item.RiseFallMs, item.Volume));
                 }
                 else
                 {
@@ -66,7 +156,11 @@ namespace JJFlexWpf
                 }
             }
 
-            if (providers.Count == 0) return Task.CompletedTask;
+            if (providers.Count == 0)
+            {
+                item.Completion.TrySetResult();
+                return;
+            }
 
             var concat = new ConcatenatingSampleProvider(providers);
             IDisposable handle;
@@ -76,48 +170,61 @@ namespace JJFlexWpf
             }
             catch (Exception ex)
             {
-                Trace.WriteLine($"EarconCwOutput.PlayElementsAsync: submit failed: {ex.Message}");
-                return Task.CompletedTask;
+                Trace.WriteLine($"EarconCwOutput.PlayOne: submit failed: {ex.Message}");
+                item.Completion.TrySetResult();
+                return;
             }
 
-            lock (_lock) { _currentSequence = handle; }
+            lock (_lock) { _currentHandle = handle; }
 
-            return WaitForCompletion(totalMs, handle, ct);
-        }
-
-        public void Cancel()
-        {
-            IDisposable? h;
-            lock (_lock) { h = _currentSequence; _currentSequence = null; }
-            try { h?.Dispose(); }
-            catch (Exception ex) { Trace.WriteLine($"EarconCwOutput.Cancel: {ex.Message}"); }
-        }
-
-        private async Task WaitForCompletion(int totalMs, IDisposable handle, CancellationToken ct)
-        {
-            // Add a small tail so the audio engine finishes consuming the last
-            // samples before we consider the sequence "done" from the caller's
-            // perspective (useful when the caller chains PlaySK() → Close()).
+            // Small tail after the computed duration so the mixer finishes
+            // consuming the last samples before the caller's Task resolves.
             int waitMs = totalMs + 50;
+            using var linked = CancellationTokenSource.CreateLinkedTokenSource(
+                item.CallerToken, _shutdown.Token);
 
             try
             {
-                await Task.Delay(waitMs, ct).ConfigureAwait(false);
+                await Task.Delay(waitMs, linked.Token).ConfigureAwait(false);
+                item.Completion.TrySetResult();
             }
             catch (OperationCanceledException)
             {
-                // Caller cancelled — stop the sequence mid-playback.
                 try { handle.Dispose(); } catch { }
-                throw;
+                item.Completion.TrySetCanceled();
             }
             finally
             {
                 lock (_lock)
                 {
-                    if (ReferenceEquals(_currentSequence, handle))
-                        _currentSequence = null;
+                    if (ReferenceEquals(_currentHandle, handle))
+                        _currentHandle = null;
                 }
             }
+        }
+
+        private readonly struct QueuedSequence
+        {
+            public QueuedSequence(
+                IReadOnlyList<CwElement> elements,
+                int sidetoneHz, float volume, int riseFallMs,
+                CancellationToken callerToken,
+                TaskCompletionSource completion)
+            {
+                Elements = elements;
+                SidetoneHz = sidetoneHz;
+                Volume = volume;
+                RiseFallMs = riseFallMs;
+                CallerToken = callerToken;
+                Completion = completion;
+            }
+
+            public IReadOnlyList<CwElement> Elements { get; }
+            public int SidetoneHz { get; }
+            public float Volume { get; }
+            public int RiseFallMs { get; }
+            public CancellationToken CallerToken { get; }
+            public TaskCompletionSource Completion { get; }
         }
     }
 
