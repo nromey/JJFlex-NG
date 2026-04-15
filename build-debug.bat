@@ -162,14 +162,17 @@ if errorlevel 1 (
 )
 
 echo Generating NOTES: %NOTES_PATH%
+REM Use a helper PS1 invocation with ASCII-only header and explicit UTF-8 output
+REM so the em-dash encoding issue / inline-string-concat quirks don't corrupt
+REM the file. The helper is called with: <appver> <gitsha> <notes_path> <optional body file>.
 if exist "%~dp0debug-notes.txt" (
     echo   using debug-notes.txt at repo root
-    powershell -NoProfile -Command ^
-        "$header = @('JJ Flexible Radio Access — Debug Build','Version: %APPVER% (Debug x64)','Built:   ' + (Get-Date -Format 'yyyy-MM-dd HH:mm'),'Commit:  %GITSHA%',''); $body = Get-Content -Raw '%~dp0debug-notes.txt'; Set-Content -Path '%NOTES_PATH%' -Value (($header -join [Environment]::NewLine) + [Environment]::NewLine + $body)"
+    powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+        "$built = Get-Date -Format 'yyyy-MM-dd HH:mm'; $body = Get-Content -Raw '%~dp0debug-notes.txt'; $text = \"JJ Flexible Radio Access -- Debug Build`nVersion: %APPVER% (Debug x64)`nBuilt:   $built`nCommit:  %GITSHA%`n`n$body\"; [System.IO.File]::WriteAllText('%NOTES_PATH%', $text, [System.Text.UTF8Encoding]::new($false))"
 ) else (
     echo   auto-generating from recent git log
-    powershell -NoProfile -Command ^
-        "$hdr = @('JJ Flexible Radio Access — Debug Build','Version: %APPVER% (Debug x64)','Built:   ' + (Get-Date -Format 'yyyy-MM-dd HH:mm'),'Commit:  %GITSHA%','','Recent commits:'); $log = (git log --oneline -n 10 HEAD) -join [Environment]::NewLine; Set-Content -Path '%NOTES_PATH%' -Value (($hdr -join [Environment]::NewLine) + [Environment]::NewLine + $log)"
+    powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+        "$built = Get-Date -Format 'yyyy-MM-dd HH:mm'; $log = (git log --oneline -n 10 HEAD) -join [Environment]::NewLine; $text = \"JJ Flexible Radio Access -- Debug Build`nVersion: %APPVER% (Debug x64)`nBuilt:   $built`nCommit:  %GITSHA%`n`nRecent commits:`n$log`n\"; [System.IO.File]::WriteAllText('%NOTES_PATH%', $text, [System.Text.UTF8Encoding]::new($false))"
 )
 
 REM ---------------------------------------------------------------------------
