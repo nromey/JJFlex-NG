@@ -92,8 +92,11 @@ if not exist "%PGM_EXE%" (
     echo ERROR: Expected exe "%PGM_EXE%" not found.
     exit /b 6
 )
+REM Read FileVersion (always a clean 4-part number). ProductVersion may carry a
+REM +commit-hash suffix from SDK source-link metadata, which would pollute the
+REM installer filename.
 set "APPVER=0.0.0.0"
-for /f "usebackq delims=" %%v in (`powershell -NoProfile -Command "(Get-Item '%PGM_EXE%').VersionInfo.ProductVersion"`) do set "APPVER=%%v"
+for /f "usebackq delims=" %%v in (`powershell -NoProfile -Command "(Get-Item '%PGM_EXE%').VersionInfo.FileVersion"`) do set "APPVER=%%v"
 echo Program (final): %pgm%   Version: %APPVER%   Architecture: %ARCH%
 set "VIAPPVER=%APPVER%.0.0.0"
 for /f "tokens=1-4 delims=." %%a in ("%VIAPPVER%") do set "VIAPPVER=%%a.%%b.%%c.%%d"

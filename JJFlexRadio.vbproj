@@ -13,9 +13,10 @@
     <RuntimeIdentifier Condition="'$(Platform)'=='x86'">win-x86</RuntimeIdentifier>
     <RootNamespace>JJRadio</RootNamespace>
     <AssemblyName>JJFlexRadio</AssemblyName>
+    <!-- Base X.Y.Z. build-installers.bat overrides with -p:Version=X.Y.Z.Y on the
+         command line, where Y = git commit count + BuildNumberOffset (see script).
+         If no override is supplied (plain `dotnet build`), SDK fills the 4th part with .0. -->
     <Version>4.1.16</Version>
-    <AssemblyVersion>4.1.16.0</AssemblyVersion>
-    <FileVersion>4.1.16.0</FileVersion>
     <!-- Sprint 8: Still WindowsForms MyType to preserve My.* namespace (My.Application, My.Computer).
          OnCreateMainForm bridges to WPF MainWindow. Full MyType migration in Sprint 9 cleanup. -->
     <MyType>WindowsForms</MyType>
@@ -23,7 +24,16 @@
     <OptionStrict>Off</OptionStrict>
     <OptionInfer>On</OptionInfer>
     <OptionCompare>Binary</OptionCompare>
-    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <!-- Let SDK generate the 3 version attributes (driven by the Version property above)
+         but suppress the rest; those still live in My Project\AssemblyInfo.vb. -->
+    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+    <GenerateAssemblyTitleAttribute>false</GenerateAssemblyTitleAttribute>
+    <GenerateAssemblyDescriptionAttribute>false</GenerateAssemblyDescriptionAttribute>
+    <GenerateAssemblyCompanyAttribute>false</GenerateAssemblyCompanyAttribute>
+    <GenerateAssemblyProductAttribute>false</GenerateAssemblyProductAttribute>
+    <GenerateAssemblyCopyrightAttribute>false</GenerateAssemblyCopyrightAttribute>
+    <GenerateAssemblyTrademarkAttribute>false</GenerateAssemblyTrademarkAttribute>
+    <GenerateAssemblyConfigurationAttribute>false</GenerateAssemblyConfigurationAttribute>
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
     <EnableDefaultEmbeddedResourceItems>false</EnableDefaultEmbeddedResourceItems>
     <GenerateResourceUsePreserializedResources>true</GenerateResourceUsePreserializedResources>

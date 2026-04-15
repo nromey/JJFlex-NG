@@ -14,8 +14,10 @@ REM   Same rules as build-installers.bat. Base version lives in JJFlexRadio.vbpr
 REM   Y = git rev-list --count HEAD + BUILDNUM_OFFSET (see below).
 REM
 REM LAYOUT
-REM   NAS  \\nas.macaw-jazz.ts.net\jjflex\debug\JJFlex_<ver>_x64_debug_<stamp>.zip
-REM        always written; never overwrites; permanent history for bisect.
+REM   NAS  \\nas.macaw-jazz.ts.net\jjflex\historical\<ver>\x64-debug\
+REM        Every build drops here: JJFlexRadio.exe + .pdb (overwritten per
+REM        version) plus the distributed zip + NOTES (timestamped, never
+REM        overwritten). Bisect uses the zips; symbolication uses exe+pdb.
 REM   Dropbox C:\Users\nrome\Dropbox\JJFlexRadio\debug\JJFlex_<ver>_x64_debug.zip
 REM           only written on --publish; purges prior debug files first so the
 REM           folder holds exactly one current zip + NOTES for testers.
@@ -34,7 +36,7 @@ REM CONFIG
 REM ---------------------------------------------------------------------------
 set "BUILDNUM_OFFSET=-468"
 set "DROPBOX_DEBUG=C:\Users\nrome\Dropbox\JJFlexRadio\debug"
-set "NAS_DEBUG=\\nas.macaw-jazz.ts.net\jjflex\debug"
+set "NAS_HISTORICAL=\\nas.macaw-jazz.ts.net\jjflex\historical"
 
 REM ---------------------------------------------------------------------------
 REM ARGS
@@ -162,32 +164,40 @@ if errorlevel 1 (
 )
 
 echo Generating NOTES: %NOTES_PATH%
-REM Use a helper PS1 invocation with ASCII-only header and explicit UTF-8 output
-REM so the em-dash encoding issue / inline-string-concat quirks don't corrupt
-REM the file. The helper is called with: <appver> <gitsha> <notes_path> <optional body file>.
+REM Delegated to scripts\build-debug-notes.ps1. Inline PowerShell inside an
+REM if/else batch block is too fragile (the "(Debug x64)" parens in the NOTES
+REM header text confused cmd.exe's parser — it closed the if-block early).
+REM Helper file accepts -Version/-GitSha/-OutPath/-BodyPath and produces the
+REM same output cleanly.
 if exist "%~dp0debug-notes.txt" (
     echo   using debug-notes.txt at repo root
-    powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-        "$built = Get-Date -Format 'yyyy-MM-dd HH:mm'; $body = Get-Content -Raw '%~dp0debug-notes.txt'; $text = \"JJ Flexible Radio Access -- Debug Build`nVersion: %APPVER% (Debug x64)`nBuilt:   $built`nCommit:  %GITSHA%`n`n$body\"; [System.IO.File]::WriteAllText('%NOTES_PATH%', $text, [System.Text.UTF8Encoding]::new($false))"
+    powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\build-debug-notes.ps1" -Version "%APPVER%" -GitSha "%GITSHA%" -OutPath "%NOTES_PATH%" -BodyPath "%~dp0debug-notes.txt"
 ) else (
     echo   auto-generating from recent git log
-    powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-        "$built = Get-Date -Format 'yyyy-MM-dd HH:mm'; $log = (git log --oneline -n 10 HEAD) -join [Environment]::NewLine; $text = \"JJ Flexible Radio Access -- Debug Build`nVersion: %APPVER% (Debug x64)`nBuilt:   $built`nCommit:  %GITSHA%`n`nRecent commits:`n$log`n\"; [System.IO.File]::WriteAllText('%NOTES_PATH%', $text, [System.Text.UTF8Encoding]::new($false))"
+    powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\build-debug-notes.ps1" -Version "%APPVER%" -GitSha "%GITSHA%" -OutPath "%NOTES_PATH%"
 )
 
 REM ---------------------------------------------------------------------------
-REM NAS archive (always)
+REM NAS archive (always) — everything lands in historical\<ver>\x64-debug\
+REM   JJFlexRadio.exe + .pdb  — overwritten per version (symbolication target)
+REM   JJFlex_<ver>_x64_debug_<stamp>.zip  — timestamped, never overwritten
+REM   NOTES-<ver>-debug_<stamp>.txt       — matches the zip
 REM ---------------------------------------------------------------------------
+set "NAS_HIST_DIR=%NAS_HISTORICAL%\%APPVER%\x64-debug"
 echo.
-echo NAS archive: %NAS_DEBUG%
-powershell -NoProfile -Command "if (-not (Test-Path -LiteralPath '%NAS_DEBUG%')) { Write-Host '  WARNING: NAS not reachable, skipping NAS archive'; exit 10 }"
+echo NAS archive: %NAS_HIST_DIR%
+powershell -NoProfile -Command "if (-not (Test-Path -LiteralPath '%NAS_HISTORICAL%')) { Write-Host '  WARNING: NAS not reachable, skipping NAS archive'; exit 10 }"
 if errorlevel 10 (
     echo   WARNING: skipped NAS archive ^(offline or no Tailscale^)
 ) else (
-    powershell -NoProfile -Command "Copy-Item -LiteralPath '%ZIP_PATH%' -Destination '%NAS_DEBUG%\JJFlex_%APPVER%_x64_debug_%STAMP%.zip' -Force"
-    powershell -NoProfile -Command "Copy-Item -LiteralPath '%NOTES_PATH%' -Destination '%NAS_DEBUG%\NOTES-%APPVER%-debug_%STAMP%.txt' -Force"
+    powershell -NoProfile -Command "New-Item -Path '%NAS_HIST_DIR%' -ItemType Directory -Force | Out-Null"
+    powershell -NoProfile -Command "Copy-Item -LiteralPath '%ZIP_PATH%' -Destination '%NAS_HIST_DIR%\JJFlex_%APPVER%_x64_debug_%STAMP%.zip' -Force"
+    powershell -NoProfile -Command "Copy-Item -LiteralPath '%NOTES_PATH%' -Destination '%NAS_HIST_DIR%\NOTES-%APPVER%-debug_%STAMP%.txt' -Force"
+    powershell -NoProfile -Command "Copy-Item -LiteralPath '%CD%\%BIN_DIR%\JJFlexRadio.exe' -Destination '%NAS_HIST_DIR%\JJFlexRadio.exe' -Force"
+    powershell -NoProfile -Command "Copy-Item -LiteralPath '%CD%\%BIN_DIR%\JJFlexRadio.pdb' -Destination '%NAS_HIST_DIR%\JJFlexRadio.pdb' -Force"
     echo   JJFlex_%APPVER%_x64_debug_%STAMP%.zip
     echo   NOTES-%APPVER%-debug_%STAMP%.txt
+    echo   JJFlexRadio.exe + .pdb ^(refreshed^)
 )
 
 REM ---------------------------------------------------------------------------

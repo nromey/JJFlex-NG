@@ -306,11 +306,11 @@ Content flows forward: nightly → stable → public. Nothing skips tiers. See `
    - `dotnet build JJFlexRadio.sln -c Debug -p:Platform=x64 --verbosity minimal`
    - Confirm exe timestamp is current: `powershell -Command "(Get-Item 'bin\x64\Debug\net10.0-windows\win-x64\JJFlexRadio.exe').LastWriteTime"`
 
-2. Zip the build folder into the shared debug folder using the versioned filename:
-   - **Invariant:** a nightly build IS a Debug build, stamped with the full 4-part version. Release nightlies live separately in `build-installers.bat` / NAS `nightly\` — do not conflate.
+2. Zip the build folder and archive to the NAS historical tree:
+   - **Invariant:** a nightly build IS a Debug build, stamped with the full 4-part version. Release installers go through `build-installers.bat` and land in the same per-version historical tree, just under `installers\` / `x64\` / `x86\` instead of `x64-debug\` — do not conflate Debug and Release subfolders.
    - Filename pattern: `JJFlex_<version>_<arch>_debug.zip` (e.g. `JJFlex_4.1.16.1_x64_debug.zip`), mirroring the Release installer naming.
-   - Version comes from the exe's `FileVersion`. Until `build-debug.bat` is written, pass `-p:Version=<base>.<Y>` to `dotnet build` so the 4-part version gets baked in; compute Y = `git rev-list --count HEAD` + BUILDNUM_OFFSET (see `build-installers.bat`).
-   - **NAS (always, every build — history layer):** copy to `\\nas.macaw-jazz.ts.net\jjflex\debug\JJFlex_<version>_x64_debug_YYYYMMDD-HHMM.zip`. Never overwrites. Full bisectable build history lives here.
+   - Version comes from the exe's `FileVersion`. `build-debug.bat` computes it automatically from `<Version>` in `JJFlexRadio.vbproj` + `git rev-list --count HEAD` + `BUILDNUM_OFFSET`, and passes it to `dotnet build -p:Version=...`. (For manual builds, use the same formula — see `build-installers.bat`.)
+   - **NAS (always, every build — history layer):** `build-debug.bat` copies the zip, NOTES, exe, and pdb to `\\nas.macaw-jazz.ts.net\jjflex\historical\<version>\x64-debug\`. Zip + NOTES are timestamped and never overwrite; exe + pdb refresh per version. Full bisectable build history lives here.
    - **Dropbox (only on `--publish` / tester-broadcast — current layer):** first delete any existing `JJFlex_*_debug*.zip` and `NOTES-*-debug*.txt` from Dropbox `debug\`, then copy the new zip + NOTES. Keeps Dropbox holding only the latest debug — testers never have to guess which is current. Rollback comes from NAS history, not from Dropbox.
    - All private testers (Don, Justin, etc.) read from the shared Dropbox `debug\` folder.
 
