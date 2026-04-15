@@ -116,9 +116,22 @@ Future haptic or visual implementations get the same element list and render on 
 
 Phase continuity across a single element is preserved by a running `_phase` field; across elements a new provider starts at phase 0, which is audibly fine because there's always a gap (silence) between marks of the same character.
 
-### Cancellation
+### Cancellation — and why the next revision replaces it with a queue
 
-MorseNotifier.Cancel() → EarconCwOutput.Cancel() → disposes the `CancellableCwProvider` wrapper, which makes its next `Read()` return 0 and the mixer drops it. Used when a second prosign fires before the first finishes (e.g. connect flaps during retry).
+MorseNotifier.Cancel() → EarconCwOutput.Cancel() → disposes the `CancellableCwProvider` wrapper, which makes its next `Read()` return 0 and the mixer drops it.
+
+**Known defect (BUG-057 in `JJFlex-TODO.md`):** the cancellation happens eagerly whenever a new prosign fires, and the new engine has a ~50 ms mixer-buffer window before any audio is actually produced. If a second event (mode-change Morse, another prosign, etc.) fires during that window, the first event gets cancelled before it plays. In practice only SK reliably fires — it's the only event where nothing fires after it.
+
+**Correct design is a queue**, not cancellation. Conceptually simple: one `Channel<CwSequence>` or equivalent per output, a single consumer loop that plays sequences to completion and dequeues the next. Incoming events Enqueue; the player serializes. This also sets up every future CW audio feature cleanly:
+
+- **On-air CW message send** — typed characters Enqueue individual character-sequences; the queue naturally plays them in order at PARIS timing.
+- **Iambic keyer** — paddle presses Enqueue individual elements; held paddles Enqueue alternating element streams. Same queue drains at wire speed.
+- **Code practice** — whole lessons Enqueue once; queue drains at configured WPM.
+- **Prosigns** — Enqueue on each notification event; queue plays in arrival order without clobbering.
+
+Priority semantics stay simple: one queue, FIFO. If a future feature needs **preemption** ("urgent — kill what's playing and jump to this"), add a priority flag that causes Clear() before Enqueue. Default is never preempt — rapid events play in sequence.
+
+Action item carried into the next session: replace the Cancel-and-Replace path in `EarconCwOutput` and `MorseNotifier` with a single-consumer queue. See BUG-057 for the three fix options; option (a) is this queue design.
 
 ## On-air CW (future)
 
