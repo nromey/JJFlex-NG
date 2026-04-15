@@ -42,13 +42,25 @@ REM ---------------------------------------------------------------------------
 set "PUBLISH=0"
 set "NOCOMMIT=0"
 :parse_args
-if "%~1"=="" goto :end_parse_args
-if /I "%~1"=="--publish"   set "PUBLISH=1"  & shift & goto :parse_args
-if /I "%~1"=="--testers"   set "PUBLISH=1"  & shift & goto :parse_args
-if /I "%~1"=="--no-commit" set "NOCOMMIT=1" & shift & goto :parse_args
+if "%~1"=="" goto end_parse_args
+if /I "%~1"=="--publish" (
+    set "PUBLISH=1"
+    shift
+    goto parse_args
+)
+if /I "%~1"=="--testers" (
+    set "PUBLISH=1"
+    shift
+    goto parse_args
+)
+if /I "%~1"=="--no-commit" (
+    set "NOCOMMIT=1"
+    shift
+    goto parse_args
+)
 echo WARNING: unknown argument: %~1
 shift
-goto :parse_args
+goto parse_args
 :end_parse_args
 
 echo ============================================
