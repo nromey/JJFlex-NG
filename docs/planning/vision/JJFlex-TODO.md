@@ -15,6 +15,16 @@ Last updated: 2026-04-15
 - **Symptom:** Dits sound weak/wrong, dahs don't sound long enough. Root cause was `FadeInOutSampleProvider` misuse that turned every tone into a ~90%-fading envelope. Tones should be click-free sine with proper attack/release.
 - **Status:** FIXED in the commit bundle that lands this TODO update. New engine (CwToneSampleProvider + element-batch ICwNotificationOutput + rewritten MorseNotifier) replaces the tone-by-tone + Task.Delay pattern. See `docs/planning/design/cw-keying-design.md`.
 
+### BUG-057: CW prosign cancellation race — only SK fires reliably (2026-04-15 testing of 4.1.16.10)
+- **Symptom:** In 4.1.16.10, the CW engine rewrite works (prosign tones sound clean), but on a real connect sequence the user only hears SK (app-close). BT (connected) and AS (slow connect) don't fire. Mode-change CW does work.
+- **Hypothesis:** The new engine submits the whole element sequence to the mixer in one call; there's a ~50 ms buffer window before actual audio starts playing. If a subsequent prosign or PlayString fires during that window, its `Cancel()` disposes the CancellableCwProvider before any audio has reached output — the earlier prosign never becomes audible. SK is the only one that works because it fires at app-close with nothing firing after it. The old engine's Task.Delay-driven element-by-element approach didn't have a buffer window, so a second prosign cancelling the first before it played was rarer.
+- **Fix options:**
+  - (a) Queue prosigns instead of cancel-and-replace — multiple events in quick succession play in sequence (preferred UX).
+  - (b) Add a short "minimum-audible" grace period before a sequence is cancellable.
+  - (c) Scope `Cancel()` only to `PlayString` (long messages), not to prosign helpers (short, always run to completion).
+- **Priority:** High — defeats the whole CW-notification feature for connection events even though the engine itself is fine.
+- **Status:** Logged. Sample-accurate engine rewrite shipped 2026-04-15 (`02bc948f`) introduced this race; wasn't caught because single-prosign tests worked.
+
 ### BUG-056: CW "speech off" silences navigation along with status (2026-04-15 testing)
 - **Symptom:** Setting speech verbosity to Off suppresses everything — including navigation feedback the user needs to operate the app. Separately, "Off" didn't actually silence the initial connect speech, so the dial is incoherent.
 - **Priority:** Medium — accessibility regression for operators who want to rely on CW/braille for status while keeping navigation feedback.
