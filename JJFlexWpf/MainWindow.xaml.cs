@@ -1774,7 +1774,12 @@ public partial class MainWindow : UserControl
             {
                 if (_isClosing) return;
                 PanDisplayBox.Text = line;
-                if (pos >= 0 && pos < line.Length)
+                // Only snap the caret to current-freq position when the user
+                // is NOT focused here — while focused, the user owns the caret
+                // and pan refreshes must not move it out from under them.
+                // Combined with the focus-transition guard in PanNavTimer_Tick,
+                // this keeps the radio from drifting on passive pan updates.
+                if (!PanDisplayBox.IsKeyboardFocused && pos >= 0 && pos < line.Length)
                     PanDisplayBox.SelectionStart = pos;
 
                 // Show panel if hidden
@@ -1805,9 +1810,15 @@ public partial class MainWindow : UserControl
     }
 
     /// <summary>
-    /// Timer for pan navigation — cursor position tunes radio to frequency under cursor.
+    /// Timer for pan navigation — tunes the radio to the frequency under the
+    /// cursor when the user moves the caret with Left/Right. Only fires a
+    /// tune when the cursor has actually moved since focus entered — prevents
+    /// Tab/Shift+Tab focus transitions from mutating radio state (the caret
+    /// is sticky across focus changes and without this guard a focus event
+    /// alone would make the radio jump to wherever the caret happened to be).
     /// </summary>
     private System.Windows.Threading.DispatcherTimer? _panNavTimer;
+    private int _panNavLastCursorPos = -1;
 
     private void PanDisplayBox_PreviewKeyDown(object sender, KeyEventArgs e)
     {
@@ -1835,6 +1846,13 @@ public partial class MainWindow : UserControl
 
     private void PanDisplayBox_GotFocus(object sender, RoutedEventArgs e)
     {
+        // Seed the move-detection baseline with the current caret position so
+        // the first timer tick doesn't interpret "focus entered" as "user
+        // moved cursor" — without this, Tab-in would fire gotoFreq on the
+        // stale SelectionStart and jerk the radio to wherever the caret was
+        // last left (sometimes hundreds of kHz from the actual slice freq).
+        _panNavLastCursorPos = PanDisplayBox.SelectionStart;
+
         if (_panNavTimer == null)
         {
             _panNavTimer = new System.Windows.Threading.DispatcherTimer();
@@ -1847,6 +1865,7 @@ public partial class MainWindow : UserControl
     private void PanDisplayBox_LostFocus(object sender, RoutedEventArgs e)
     {
         _panNavTimer?.Stop();
+        _panNavLastCursorPos = -1;
     }
 
     private void PanNavTimer_Tick(object? sender, EventArgs e)
@@ -1855,6 +1874,11 @@ public partial class MainWindow : UserControl
         if (adapter.PanManager?.CurrentPanData == null) return;
 
         int cursorPos = PanDisplayBox.SelectionStart;
+        // Only tune when the cursor has actually moved. Focus alone should
+        // never cause a frequency change — see field doc comment above.
+        if (cursorPos == _panNavLastCursorPos) return;
+        _panNavLastCursorPos = cursorPos;
+
         var panData = adapter.PanManager.CurrentPanData;
         if (cursorPos >= 0 && cursorPos < panData.frequencies.Length)
         {
