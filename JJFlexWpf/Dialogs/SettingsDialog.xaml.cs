@@ -18,6 +18,17 @@ namespace JJFlexWpf.Dialogs
         /// <summary>Current operator name for per-operator file naming.</summary>
         public string? OperatorName { get; set; }
 
+        /// <summary>
+        /// Connected radio, used by the Network tab to configure SmartLink port forwarding.
+        /// Set by NativeMenuBar after construction. Setter refreshes the Network tab UI.
+        /// </summary>
+        private FlexBase? _rig;
+        public FlexBase? Rig
+        {
+            get => _rig;
+            set { _rig = value; RefreshNetworkTabFromRig(); }
+        }
+
         // Tuning step results (read after DialogResult == true)
         public int CoarseTuneStep { get; private set; }
         public int FineTuneStep { get; private set; }
@@ -230,6 +241,130 @@ namespace JJFlexWpf.Dialogs
             CwModeAnnounceCheck.IsChecked = _audioConfig.CwModeAnnounce;
 
             MeterTonesNotifCheck.IsChecked = _audioConfig.MeterTonesEnabled;
+
+            // Network tab — defaults shown until Rig property is set (see RefreshNetworkTabFromRig)
+            PortForwardEnabledCheck.IsChecked = false;
+            PortForwardTcpBox.Text = "4992";
+            PortForwardUdpBox.Text = "4992";
+            PortForwardSeparatePortsCheck.IsChecked = false;
+            PortForwardUdpBox.IsEnabled = false;
+            PortForwardTcpLabel.Text = "Port (TCP and UDP):";
+            NetworkCurrentStateText.Text = "No radio connected.";
+        }
+
+        /// <summary>
+        /// Populate the Network tab from the connected radio's current state.
+        /// Called whenever the Rig property is assigned.
+        /// </summary>
+        private void RefreshNetworkTabFromRig()
+        {
+            // These controls are only present after InitializeComponent. If the Rig setter
+            // is called before the constructor finishes, skip.
+            if (PortForwardEnabledCheck == null) return;
+
+            if (_rig == null || !_rig.IsConnected)
+            {
+                NetworkCurrentStateText.Text = "No radio connected. Connect to a radio to configure port forwarding.";
+                PortForwardEnabledCheck.IsChecked = false;
+                PortForwardTcpBox.Text = "4992";
+                PortForwardUdpBox.Text = "4992";
+                PortForwardSeparatePortsCheck.IsChecked = false;
+                PortForwardUdpBox.IsEnabled = false;
+                PortForwardTcpLabel.Text = "Port (TCP and UDP):";
+                return;
+            }
+
+            bool enabled = _rig.PortForwardingEnabled;
+            int tcp = _rig.PortForwardingTcpPort;
+            int udp = _rig.PortForwardingUdpPort;
+            bool portsDiffer = enabled && tcp > 0 && udp > 0 && tcp != udp;
+
+            PortForwardEnabledCheck.IsChecked = enabled;
+            PortForwardTcpBox.Text = (tcp > 0 ? tcp : 4992).ToString();
+            PortForwardUdpBox.Text = (udp > 0 ? udp : 4992).ToString();
+            PortForwardSeparatePortsCheck.IsChecked = portsDiffer;
+            PortForwardUdpBox.IsEnabled = portsDiffer;
+            PortForwardTcpLabel.Text = portsDiffer ? "TCP port:" : "Port (TCP and UDP):";
+            NetworkCurrentStateText.Text = enabled
+                ? (portsDiffer
+                    ? $"Radio currently listens on TCP {tcp}, UDP {udp}."
+                    : $"Radio currently listens on port {tcp} (TCP and UDP).")
+                : "Radio currently uses UPnP or hole-punch (no manual forwarding).";
+        }
+
+        /// <summary>
+        /// Advanced checkbox: when checked, UDP field is editable. When unchecked,
+        /// UDP automatically mirrors TCP.
+        /// </summary>
+        private void PortForwardSeparatePortsCheck_Changed(object sender, RoutedEventArgs e)
+        {
+            if (PortForwardUdpBox == null || PortForwardTcpLabel == null) return;
+            bool separate = PortForwardSeparatePortsCheck.IsChecked == true;
+            PortForwardUdpBox.IsEnabled = separate;
+            PortForwardTcpLabel.Text = separate ? "TCP port:" : "Port (TCP and UDP):";
+            if (!separate)
+                PortForwardUdpBox.Text = PortForwardTcpBox.Text;
+        }
+
+        /// <summary>
+        /// When the user edits the TCP port, sync UDP to match unless the advanced
+        /// "use different ports" checkbox is on.
+        /// </summary>
+        private void PortForwardTcpBox_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            if (PortForwardUdpBox == null || PortForwardSeparatePortsCheck == null) return;
+            if (PortForwardSeparatePortsCheck.IsChecked != true)
+                PortForwardUdpBox.Text = PortForwardTcpBox.Text;
+        }
+
+        /// <summary>
+        /// Apply the Network tab's port forwarding settings to the connected radio.
+        /// Sends a "wan set" command to the radio's firmware (persists until changed again).
+        /// </summary>
+        private void ApplyPortForwardButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (_rig == null || !_rig.IsConnected)
+            {
+                NetworkCurrentStateText.Text = "No radio connected. Connect locally to the radio first.";
+                ScreenReaderOutput.Speak("No radio connected.", VerbosityLevel.Terse, interrupt: true);
+                return;
+            }
+
+            bool enabled = PortForwardEnabledCheck.IsChecked == true;
+            int tcp = 0, udp = 0;
+            if (enabled)
+            {
+                if (!int.TryParse(PortForwardTcpBox.Text, out tcp) || tcp < 1024 || tcp > 65535)
+                {
+                    NetworkCurrentStateText.Text = "Invalid TCP port. Must be 1024 to 65535.";
+                    ScreenReaderOutput.Speak("Invalid TCP port.", VerbosityLevel.Terse, interrupt: true);
+                    PortForwardTcpBox.Focus();
+                    return;
+                }
+                if (!int.TryParse(PortForwardUdpBox.Text, out udp) || udp < 1024 || udp > 65535)
+                {
+                    NetworkCurrentStateText.Text = "Invalid UDP port. Must be 1024 to 65535.";
+                    ScreenReaderOutput.Speak("Invalid UDP port.", VerbosityLevel.Terse, interrupt: true);
+                    PortForwardUdpBox.Focus();
+                    return;
+                }
+            }
+
+            bool ok = _rig.SetSmartLinkPortForwarding(enabled, tcp, udp);
+            if (ok)
+            {
+                NetworkCurrentStateText.Text = enabled
+                    ? $"Applied. Radio now listens on TCP {tcp}, UDP {udp}. Configure your router to forward these ports to the radio's LAN IP."
+                    : "Applied. Port forwarding disabled on the radio.";
+                ScreenReaderOutput.Speak(enabled
+                    ? $"Port forwarding set to {tcp}."
+                    : "Port forwarding disabled.", VerbosityLevel.Terse, interrupt: true);
+            }
+            else
+            {
+                NetworkCurrentStateText.Text = "Command failed. See trace file for details.";
+                ScreenReaderOutput.Speak("Command failed.", VerbosityLevel.Terse, interrupt: true);
+            }
         }
 
         // Typing sound combo indices (always-available items first, then unlockable)

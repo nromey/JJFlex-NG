@@ -1426,6 +1426,7 @@ public class NativeMenuBar : IDisposable
         audioConfig ??= new AudioOutputConfig();
         var dialog = new Dialogs.SettingsDialog(pttConfig, coarseStep, fineStep, licenseConfig, audioConfig);
         dialog.FreqHandlers = _window.FreqHandlers;
+        dialog.Rig = _window.RigControl;
         if (_window.OpenParms != null)
         {
             dialog.ConfigDirectory = _window.OpenParms.ConfigDirectory;

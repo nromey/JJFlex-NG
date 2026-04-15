@@ -226,6 +226,48 @@ namespace Radios
         /// FLEX-6300 has optional ATU — this detects actual hardware presence.
         /// </summary>
         public bool HasATU => theRadio?.ATUEnabled == true;
+
+        // --- SmartLink manual port forwarding (Sprint 27 preview) ---
+
+        /// <summary>True when the radio has manual port forwarding configured.</summary>
+        public bool PortForwardingEnabled => theRadio?.IsPortForwardOn ?? false;
+
+        /// <summary>The TCP port the radio is listening on for SmartLink, or -1 if none.</summary>
+        public int PortForwardingTcpPort => theRadio?.PublicTlsPort ?? -1;
+
+        /// <summary>The UDP port the radio is listening on for SmartLink, or -1 if none.</summary>
+        public int PortForwardingUdpPort => theRadio?.PublicUdpPort ?? -1;
+
+        /// <summary>
+        /// Configure SmartLink manual port forwarding on the radio's firmware.
+        /// The setting persists in the radio until changed again. Works when connected
+        /// locally (LAN) or remotely. Radio must be connected.
+        /// When enabled, the radio listens on <paramref name="tcpPort"/> and
+        /// <paramref name="udpPort"/>; the router must forward those ports to the
+        /// radio's LAN IP for external clients to connect.
+        /// </summary>
+        public bool SetSmartLinkPortForwarding(bool enabled, int tcpPort, int udpPort)
+        {
+            if (theRadio == null)
+            {
+                Tracing.TraceLine("SetSmartLinkPortForwarding: no radio connected", TraceLevel.Warning);
+                return false;
+            }
+            try
+            {
+                if (enabled)
+                    theRadio.WanSetForwardedPorts(true, tcpPort, udpPort);
+                else
+                    theRadio.WanSetForwardedPorts(false, -1, -1);
+                Tracing.TraceLine($"SetSmartLinkPortForwarding: enabled={enabled} tcp={tcpPort} udp={udpPort}", TraceLevel.Info);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine($"SetSmartLinkPortForwarding failed: {ex.Message}", TraceLevel.Error);
+                return false;
+            }
+        }
         private Thread mainThread;
 
         // Track connection parameters for retry support.

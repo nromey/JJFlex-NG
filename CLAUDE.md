@@ -306,9 +306,13 @@ Content flows forward: nightly → stable → public. Nothing skips tiers. See `
    - `dotnet build JJFlexRadio.sln -c Debug -p:Platform=x64 --verbosity minimal`
    - Confirm exe timestamp is current: `powershell -Command "(Get-Item 'bin\x64\Debug\net10.0-windows\win-x64\JJFlexRadio.exe').LastWriteTime"`
 
-2. Zip the build folder into Don's nightly folder:
-   - `powershell -Command "Compress-Archive -Path 'bin\x64\Debug\net10.0-windows\win-x64\*' -DestinationPath 'C:\Users\nrome\Dropbox\JJFlexRadio\don\jjflex-debug-YYYYMMDD.zip' -Force"`
-   - Substitute YYYYMMDD with today's date
+2. Zip the build folder into the shared debug folder using the versioned filename:
+   - **Invariant:** a nightly build IS a Debug build, stamped with the full 4-part version. Release nightlies live separately in `build-installers.bat` / NAS `nightly\` — do not conflate.
+   - Filename pattern: `JJFlex_<version>_<arch>_debug.zip` (e.g. `JJFlex_4.1.16.1_x64_debug.zip`), mirroring the Release installer naming.
+   - Version comes from the exe's `FileVersion`. Until `build-debug.bat` is written, pass `-p:Version=<base>.<Y>` to `dotnet build` so the 4-part version gets baked in; compute Y = `git rev-list --count HEAD` + BUILDNUM_OFFSET (see `build-installers.bat`).
+   - **NAS (always, every build — history layer):** copy to `\\nas.macaw-jazz.ts.net\jjflex\debug\JJFlex_<version>_x64_debug_YYYYMMDD-HHMM.zip`. Never overwrites. Full bisectable build history lives here.
+   - **Dropbox (only on `--publish` / tester-broadcast — current layer):** first delete any existing `JJFlex_*_debug*.zip` and `NOTES-*-debug*.txt` from Dropbox `debug\`, then copy the new zip + NOTES. Keeps Dropbox holding only the latest debug — testers never have to guess which is current. Rollback comes from NAS history, not from Dropbox.
+   - All private testers (Don, Justin, etc.) read from the shared Dropbox `debug\` folder.
 
 3. Write a brief `NOTES-YYYYMMDD.txt` next to the zip — plain text, screen-reader friendly:
    - Date and current version from vbproj
@@ -324,7 +328,9 @@ Content flows forward: nightly → stable → public. Nothing skips tiers. See `
 
 **Dropbox layout:**
 - `C:\Users\nrome\Dropbox\JJFlexRadio\` — stable installers at top level
-- `...\don\` — Don's nightly debug zips + NOTES-YYYYMMDD.txt
+- `...\debug\` — shared debug nightlies + NOTES-YYYYMMDD.txt (all private testers read from here)
+- `...\don\` — Don-specific artifacts (his crash dumps, custom builds, saved configs)
+- `...\justin\` — Justin-specific artifacts (as he comes online as a tester)
 - `...\old\` — archived previous stables (for rollback)
 - `...\crash\` — user-submitted crash dumps
 

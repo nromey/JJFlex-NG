@@ -307,6 +307,65 @@
                 </StackPanel>
                 </ScrollViewer>
             </TabItem>
+            <!-- Network Tab (SmartLink port forwarding) -->
+            <TabItem Header="Network" AutomationProperties.Name="Network and SmartLink settings">
+                <StackPanel Margin="8">
+                    <TextBlock Text="SmartLink Port Forwarding" FontWeight="SemiBold"
+                               Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
+                    <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
+                               Text="Configure the radio's firmware to listen on a specific port for SmartLink. Your router must also forward the same TCP and UDP port to the radio's LAN IP address. Requires an active radio connection."/>
+
+                    <TextBlock x:Name="NetworkCurrentStateText"
+                               Style="{StaticResource DialogLabel}" Margin="0,0,0,8"
+                               AutomationProperties.LiveSetting="Polite"/>
+
+                    <CheckBox x:Name="PortForwardEnabledCheck"
+                              Content="Enable manual port forwarding"
+                              Margin="0,0,0,8"
+                              AutomationProperties.Name="Enable manual port forwarding on the radio"/>
+
+                    <Grid Margin="20,0,0,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="100"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <TextBlock Grid.Row="0" Grid.Column="0"
+                                   Text="Port (TCP and UDP):"
+                                   x:Name="PortForwardTcpLabel"
+                                   Style="{StaticResource DialogLabel}" Margin="0,4,8,4"/>
+                        <TextBox x:Name="PortForwardTcpBox" Grid.Row="0" Grid.Column="1"
+                                 Text="4992"
+                                 Style="{StaticResource DialogTextBox}"
+                                 AutomationProperties.Name="Port number, 1024 to 65535, applied to TCP and UDP"
+                                 TextChanged="PortForwardTcpBox_TextChanged"/>
+                        <TextBlock Grid.Row="1" Grid.Column="0"
+                                   Text="UDP port:"
+                                   Style="{StaticResource DialogLabel}" Margin="0,4,8,4"/>
+                        <TextBox x:Name="PortForwardUdpBox" Grid.Row="1" Grid.Column="1"
+                                 Text="4992" IsEnabled="False"
+                                 Style="{StaticResource DialogTextBox}"
+                                 AutomationProperties.Name="UDP port number, 1024 to 65535"/>
+                    </Grid>
+
+                    <CheckBox x:Name="PortForwardSeparatePortsCheck"
+                              Content="Use different TCP and UDP ports (advanced)"
+                              Margin="20,0,0,8"
+                              AutomationProperties.Name="Allow different TCP and UDP ports"
+                              Checked="PortForwardSeparatePortsCheck_Changed"
+                              Unchecked="PortForwardSeparatePortsCheck_Changed"/>
+
+                    <Button Content="_Apply to connected radio"
+                            Width="220" HorizontalAlignment="Left" Margin="0,4,0,0"
+                            AutomationProperties.Name="Apply port forwarding to connected radio"
+                            AutomationProperties.AcceleratorKey="Alt+A"
+                            Click="ApplyPortForwardButton_Click"/>
+                </StackPanel>
+            </TabItem>
+
             <!-- Verbosity & Notifications Tab -->
             <TabItem Header="Notifications" AutomationProperties.Name="Verbosity and notifications settings">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
