@@ -778,11 +778,14 @@ namespace Radios
                 return false;
             }
 
-            // Must have an antenna.
+            // Must have an antenna. Wait up to 20s — FlexLib fetches the list via an
+            // async "ant list" command at connect time and populates RXAntList from the
+            // reply. Over WAN that round trip routinely takes 5–15s (same timing profile
+            // as the station-name wait below). LAN connections settle in <200ms.
             if (!await(() =>
             {
                 return ((theRadio.RXAntList != null) && (theRadio.RXAntList.Length > 0));
-            }, 5000))
+            }, 20000))
             {
                 Tracing.TraceLine("start:no RX antenna", TraceLevel.Error);
                 LastStartFailureReason = "No RX antenna detected";
