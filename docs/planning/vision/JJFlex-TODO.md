@@ -1,8 +1,25 @@
 # JJ Flex — TODO / Rolling Backlog
 
-Last updated: 2026-03-13
+Last updated: 2026-04-15
 
 ## Open Bugs
+
+### BUG-054: Ctrl+F frequency entry doesn't announce license sub-band crossings (2026-04-15 testing)
+- **Symptom:** Type a frequency via Ctrl+F that crosses into a different license class sub-band (e.g. into the extra-only portion of 20 m). Boundary announcement does not fire on Enter. The same crossing via arrow-key tuning DOES announce.
+- **Hypothesis:** The boundary-check code compares old vs new frequency (delta-based). Arrow-tuning updates `_lastFreq` before the check; Ctrl+F's set-frequency path likely bypasses or runs after `_lastFreq` has been updated to the new value, making the delta zero.
+- **Fix sketch:** centralize the boundary check in a set-frequency helper that both tuning paths call, or invoke the check explicitly from the Ctrl+F Enter handler before `_lastFreq` rolls forward.
+- **Priority:** Low — license-safety redundancy (arrow keys still announce), but noisy gap in feedback
+- **Status:** Logged — caught during Sprint 25 testing
+
+### BUG-055: CW prosign envelope and timing quality (2026-04-15 testing)
+- **Symptom:** Dits sound weak/wrong, dahs don't sound long enough. Root cause was `FadeInOutSampleProvider` misuse that turned every tone into a ~90%-fading envelope. Tones should be click-free sine with proper attack/release.
+- **Status:** FIXED in the commit bundle that lands this TODO update. New engine (CwToneSampleProvider + element-batch ICwNotificationOutput + rewritten MorseNotifier) replaces the tone-by-tone + Task.Delay pattern. See `docs/planning/design/cw-keying-design.md`.
+
+### BUG-056: CW "speech off" silences navigation along with status (2026-04-15 testing)
+- **Symptom:** Setting speech verbosity to Off suppresses everything — including navigation feedback the user needs to operate the app. Separately, "Off" didn't actually silence the initial connect speech, so the dial is incoherent.
+- **Priority:** Medium — accessibility regression for operators who want to rely on CW/braille for status while keeping navigation feedback.
+- **Fix sketch:** Replace single-dial verbosity with categorized channels (Status / Navigation / Data readout / Hints), each with its own on/off. Three profiles + custom. See "Speech verbosity redesign" in Future Work below.
+- **Status:** Logged — design sketched, implementation deferred to Sprint 26 or 27.
 
 ### BUG-002: Brief rig audio leak on remote connect (reported by Don, 2026-02-09)
 - **Symptom:** Don hears 2-3 seconds of rig audio through local speakers when a remote user connects via SmartLink, before local audio goes silent.
@@ -92,6 +109,50 @@ Last updated: 2026-03-13
 - [ ] **Audio chain presets (save/load/share)**: Save the entire TX/RX audio configuration as a shareable preset file — mic gain, compression, EQ, TX filter width, RX volume, AGC settings. Import/export so operators can share “my ragchew voice” or “contest audio” profiles with friends. Same XML-based approach as filter presets.
 - [ ] Recording/playback and “parrot” concept (design + feasibility)
 - [ ] DAX integration: superseded by JJ Audio interfaces (see SmartLink Independence section)
+- [ ] **Announce final SWR after tune** (Don's suggestion 2026-04-15): after Ctrl+T manual tune or ATU auto-tune completes, speak the settled SWR reading ("SWR 1.3 to 1"). Wait ~200 ms after tuner-off before reading so mid-sweep transients don't get announced. Gated by a Notifications-tab checkbox, defaults on. In the Verbosity category redesign this is a Status-class announcement.
+
+## CW Audio Engine (Sprint 25 landed; extensions planned)
+
+See `docs/planning/design/cw-keying-design.md` for full architecture.
+
+- [x] **Prosign engine fix** (landed 2026-04-15): replaced tone-by-tone + Task.Delay with element-batch `ICwNotificationOutput` and raised-cosine-envelope `CwToneSampleProvider`. Sample-accurate PARIS timing, click-free sine waves. AS / BT / SK + arbitrary strings.
+- [ ] **Farnsworth timing for code-practice use**: element speed at character-speed WPM, gaps stretched to overall-speed WPM. Drops in via an overridable `InterCharMs` / `InterWordMs` on MorseNotifier.
+- [ ] **Weighting** (adjustable dit/dah ratio, 2.8:1 to 3.3:1). Operator-preference feature for learning mode.
+- [ ] **Code-practice / learning mode**: same engine, no radio involvement. Random letter groups, common-word groups, imported text. Valuable accessible learning tool since there's very little software in this space for blind hams.
+- [ ] **On-air CW via PC synthesis** (future sprint, 28+): PC generates audio, streams to radio TX via DAX in SSB mode (CW mode doesn't accept audio — confirmed). Operator hears sidetone from PC in real time; receiver hears it with SmartLink+internet latency.
+- [ ] **Iambic keyer** (future, requires on-air path): Mode A and Mode B, pluggable via `IIambicKeyer`. Input adapters for keyboard, gamepad thumbsticks, touchscreen.
+- [ ] **CW keying bandwidth configurable**: riseFallMs exposed in Settings. Default 5 ms (ARRL recommendation for ≤30 WPM); power users can tighten for crispness or loosen for cleaner on-air spectrum.
+
+## Session Latency Service (designed; implements in Sprint 26 or 27)
+
+See `docs/planning/design/session-latency.md`.
+
+- [ ] **Per-session RTT and jitter probe**, median + MAD over rolling 20-sample window. Piggybacks on keepalive traffic where possible; falls back to a cheap dedicated probe over the TLS control channel.
+- [ ] **Exposed on `IWanSessionOwner.Latency`** (fits the Sprint 26 Phase 1 refactor).
+- [ ] **CW keyer consumes** to extend PTT-hold / VOX-tail appropriately.
+- [ ] **Multi-radio mixer consumes** (Sprint 28+) to align per-stream PlayoutDelay so concurrent radios are time-coherent at the operator's ears.
+- [ ] **Session health watches** RTT spikes and jitter bursts to fire preemptive reconnect and "connection shaky" status.
+- [ ] **Status UI displays** live RTT + jitter per session ("round trip 52 ms, jitter 3 ms — connection stable").
+- [ ] **Auto-quality tuning** uses initial probe to pick low-bandwidth mode on slow connections.
+
+## Speech Verbosity Redesign (BUG-056 fix path)
+
+Replace the single VerbosityLevel dial with categorized channels:
+
+- [ ] **Categories**: Status (connect/error), Navigation (focus/field feedback), Data readout (freq/mode/meters), Hints/chatty (tooltips/help).
+- [ ] **Three predefined profiles** plus Custom:
+  - **Full speech** (default) — all categories on, Chatty.
+  - **Status and navigation** (CW-assisted mode) — status + navigation on; data readout on but Terse; hints off.
+  - **Status only** (true minimal — requires braille for detail) — status on, everything else off.
+- [ ] **Per-call categorization**: every `ScreenReaderOutput.Speak` site tagged with `SpeechCategory`. Large touch surface but bounded.
+- [ ] **Integrates with CW notifications**: "Speech off + CW on" becomes a coherent operating profile — fluent CW operators hear Morse for events, silence otherwise.
+
+## PC-side Noise Reduction UX
+
+- [ ] **Bundled noise profiles**: ship 2–4 canned Spectral NR profiles (typical 40 m atmospheric noise, urban mains hum, OTH radar sweep) so users can evaluate Spectral NR without waiting for capture-UI work.
+- [ ] **Noise profile capture UI**: button in DSP section / Settings to capture the current band's noise floor into a profile that Spectral NR can subtract. Per memory `project_noise_profile_sharing.md`, eventually shareable with metadata (band, antenna, location).
+- [ ] **PC NR menu entries**: today PC Neural NR and PC Spectral NR only appear as ScreenFieldsPanel checkboxes and hotkeys. Add menu items under DSP → Noise Reduction so the feature is discoverable via menu, not only via hotkey memorization.
+- [ ] **PC NR strength / mode selection**: `RnnEnabled` is binary; `Strength` and `AutoDisableNonVoice` are not exposed. Either as a sub-menu (choose strength levels) or as ValueFieldControls in ScreenFieldsPanel.
 
 ## Operator Profile & Band Plans (future sprint)
 - [ ] QRZ self-lookup: if operator has a QRZ subscription and is logged in, auto-populate operator data (name, QTH, grid, etc.) from QRZ. Trigger from settings or on first callbook login.

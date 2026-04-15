@@ -50,6 +50,8 @@ namespace JJFlexWpf
         private static CachedSound? _typewriterBellSound; // typewriter-bell.wav — mechanical mode Enter
 
         private const int SampleRate = 44100;
+        /// <summary>Sample rate used by the alert mixer. Exposed for CW sample providers.</summary>
+        internal const int MixerSampleRate = SampleRate;
         private const int MixerChannels = 2; // Stereo mixer for panning support
 
         // Convenience accessors for the channel mixers
@@ -934,6 +936,38 @@ namespace JJFlexWpf
                 Trace.WriteLine($"EarconPlayer.PlayTone failed: {ex.Message}");
                 FallbackBeep(frequencyHz, durationMs);
             }
+        }
+
+        /// <summary>
+        /// Submit a pre-composed CW element sequence to the alert mixer.
+        /// The caller constructs the full sequence as a ConcatenatingSampleProvider
+        /// of shaped CwToneSampleProviders and silences so the audio engine drives
+        /// inter-element timing at sample-accurate resolution — no Task.Delay
+        /// jitter. Returns an IDisposable whose Dispose() cancels the sequence
+        /// mid-stream (used by MorseNotifier to interrupt a long string if a
+        /// newer one fires before it finishes).
+        /// </summary>
+        internal static IDisposable SubmitCwSequence(ISampleProvider sequence)
+        {
+            if (sequence == null) throw new ArgumentNullException(nameof(sequence));
+            if (!EarconsEnabled || AlertMixer == null) return NullCancellable.Instance;
+            try
+            {
+                var cancellable = new CancellableCwProvider(sequence);
+                AddToMixer(cancellable);
+                return cancellable;
+            }
+            catch (Exception ex)
+            {
+                Trace.WriteLine($"EarconPlayer.SubmitCwSequence failed: {ex.Message}");
+                return NullCancellable.Instance;
+            }
+        }
+
+        private sealed class NullCancellable : IDisposable
+        {
+            public static readonly NullCancellable Instance = new();
+            public void Dispose() { }
         }
 
         private static void PlayTonePanned(int frequencyHz, int durationMs, float volume, float pan)
