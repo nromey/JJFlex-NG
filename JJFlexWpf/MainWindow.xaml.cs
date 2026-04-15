@@ -332,6 +332,21 @@ public partial class MainWindow : UserControl
             CurrentAudioConfig.CaptureFromEngine();
             CurrentAudioConfig.Save(OpenParms.ConfigDirectory);
         }
+
+        // Reflect any "Show panadapter" change immediately (toggle acts live)
+        ApplyPanadapterVisibility();
+    }
+
+    /// <summary>
+    /// Sync PanadapterPanel.Visibility to CurrentAudioConfig.ShowPanadapter.
+    /// Collapsed removes the panel from layout AND the tab order so users
+    /// who don't use the waterfall aren't forced to Tab through it. Called
+    /// at startup and after Settings OK.
+    /// </summary>
+    private void ApplyPanadapterVisibility()
+    {
+        bool show = CurrentAudioConfig?.ShowPanadapter ?? true;
+        PanadapterPanel.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
     }
 
     /// <summary>
@@ -1682,6 +1697,11 @@ public partial class MainWindow : UserControl
             _brailleEngine.EnabledFields = (BrailleFields)CurrentAudioConfig.BrailleFields;
             _brailleEngine.UpdateTimerState();
 
+            // Apply panadapter visibility — Collapsed removes the control from layout
+            // AND the tab order, so users who don't use the waterfall aren't forced to
+            // Tab through it. Pan callback suppresses Tolk.Braille when hidden too.
+            ApplyPanadapterVisibility();
+
             // Apply CW notification config
             _morseNotifier.SidetoneHz = Math.Clamp(CurrentAudioConfig.CwSidetoneHz, 400, 1200);
             _morseNotifier.SpeedWpm = Math.Clamp(CurrentAudioConfig.CwSpeedWpm, 10, 30);
@@ -1782,12 +1802,17 @@ public partial class MainWindow : UserControl
                 if (!PanDisplayBox.IsKeyboardFocused && pos >= 0 && pos < line.Length)
                     PanDisplayBox.SelectionStart = pos;
 
-                // Show panel if hidden
-                if (PanadapterPanel.Visibility != Visibility.Visible)
+                // Respect user's Show-panadapter preference. When hidden, the callback
+                // still refreshes the backing Text (harmless on a Collapsed control) so
+                // re-enabling is instant — but we skip auto-showing the panel and
+                // suppress the braille push so we don't spam a braille display the user
+                // isn't looking at.
+                bool showPan = CurrentAudioConfig?.ShowPanadapter ?? true;
+                if (showPan && PanadapterPanel.Visibility != Visibility.Visible)
                     PanadapterPanel.Visibility = Visibility.Visible;
 
-                // Send to braille display if available
-                if (Radios.ScreenReaderOutput.HasBraille)
+                // Send to braille display if available and panadapter is shown
+                if (showPan && Radios.ScreenReaderOutput.HasBraille)
                     Radios.Tolk.Braille(line);
             });
         };

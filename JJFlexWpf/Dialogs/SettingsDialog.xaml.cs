@@ -241,6 +241,7 @@ namespace JJFlexWpf.Dialogs
             CwModeAnnounceCheck.IsChecked = _audioConfig.CwModeAnnounce;
 
             MeterTonesNotifCheck.IsChecked = _audioConfig.MeterTonesEnabled;
+            ShowPanadapterCheck.IsChecked = _audioConfig.ShowPanadapter;
 
             // Network tab — defaults shown until Rig property is set (see RefreshNetworkTabFromRig)
             PortForwardEnabledCheck.IsChecked = false;
@@ -548,6 +549,8 @@ namespace JJFlexWpf.Dialogs
 
             // Sync the meter tones checkbox on Notifications tab with Audio tab
             _audioConfig.MeterTonesEnabled = MeterTonesNotifCheck.IsChecked == true;
+
+            _audioConfig.ShowPanadapter = ShowPanadapterCheck.IsChecked == true;
 
             // Apply audio settings immediately
             _audioConfig.Apply();

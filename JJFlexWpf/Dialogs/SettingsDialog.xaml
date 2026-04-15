@@ -437,6 +437,16 @@
                               Content="Enable meter tones"
                               Margin="0,0,0,8"
                               AutomationProperties.Name="Enable meter tones"/>
+
+                    <Separator Margin="0,4,0,8"/>
+
+                    <!-- Display elements -->
+                    <TextBlock Text="Display" FontWeight="SemiBold"
+                               Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
+                    <CheckBox x:Name="ShowPanadapterCheck"
+                              Content="Show panadapter / waterfall display"
+                              Margin="0,0,0,8"
+                              AutomationProperties.Name="Show the panadapter and waterfall display. When unchecked, the display is hidden from view and removed from the tab order and braille refreshes are suppressed."/>
                 </StackPanel>
                 </ScrollViewer>
             </TabItem>

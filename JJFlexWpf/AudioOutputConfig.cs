@@ -115,6 +115,14 @@ namespace JJFlexWpf
         /// <summary>Braille display enabled fields (flags enum as int for XML serialization).</summary>
         public int BrailleFields { get; set; } = (int)JJFlexWpf.BrailleFields.All;
 
+        /// <summary>
+        /// Whether the panadapter / waterfall braille display is visible and in the tab order.
+        /// When false, PanadapterPanel is collapsed (removed from layout and focus) and the
+        /// per-tile braille callback skips its Tolk.Braille push so braille displays aren't
+        /// refreshed with data the user isn't viewing. Default true preserves existing behavior.
+        /// </summary>
+        public bool ShowPanadapter { get; set; } = true;
+
         /// <summary>Per-slot meter tone configurations.</summary>
         public List<MeterSlotConfig> MeterSlots { get; set; } = new();
 
