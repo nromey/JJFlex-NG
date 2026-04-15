@@ -55,6 +55,15 @@ Last updated: 2026-04-15
 
 ## Near-term (next 1–3 sprints)
 
+### High priority — ship ASAP
+
+- [ ] **Announce final SWR after tune** (Don's ask, 2026-04-15). Priority: **HIGH** — Don explicitly asked for this; small bounded scope.
+  - After Ctrl+T manual tune releases OR ATU auto-tune completes, speak the settled SWR reading ("SWR 1.3 to 1").
+  - Wait ~200 ms after tuner-off before reading so mid-sweep transients don't get announced.
+  - Track last SWR via `FlexBase.SWRDataReady` event; detect tune-end via `FlexTunerOn: true→false` transition.
+  - Gated by a Notifications-tab checkbox, defaults **on** (low noise — one line per tune operation).
+  - In the future verbosity-category redesign, this is a **Status**-class announcement (survives the "speech off, status on" profile).
+
 ### Upcoming features
 - [x] **Migrate to .NET 10 LTS**: Completed 2026-04-13. All 25 active projects updated from `net8.0-windows` to `net10.0-windows`. Breaking change in .NET 10: new WFO1000 WinForms analyzer requires explicit `DesignerSerializationVisibility` on runtime-only public properties on Form classes (fixed 11 occurrences). Both x64 and x86 Release builds clean, installers generated successfully. ComPortPTT (still on .NET Framework 4.0) not in sln, left alone for now.
 - [ ] **TX bandwidth sculpting**: Adjust transmit filter edges from keyboard, mirroring RX filter bracket-key workflow
@@ -109,7 +118,6 @@ Last updated: 2026-04-15
 - [ ] **Audio chain presets (save/load/share)**: Save the entire TX/RX audio configuration as a shareable preset file — mic gain, compression, EQ, TX filter width, RX volume, AGC settings. Import/export so operators can share “my ragchew voice” or “contest audio” profiles with friends. Same XML-based approach as filter presets.
 - [ ] Recording/playback and “parrot” concept (design + feasibility)
 - [ ] DAX integration: superseded by JJ Audio interfaces (see SmartLink Independence section)
-- [ ] **Announce final SWR after tune** (Don's suggestion 2026-04-15): after Ctrl+T manual tune or ATU auto-tune completes, speak the settled SWR reading ("SWR 1.3 to 1"). Wait ~200 ms after tuner-off before reading so mid-sweep transients don't get announced. Gated by a Notifications-tab checkbox, defaults on. In the Verbosity category redesign this is a Status-class announcement.
 
 ## CW Audio Engine (Sprint 25 landed; extensions planned)
 
