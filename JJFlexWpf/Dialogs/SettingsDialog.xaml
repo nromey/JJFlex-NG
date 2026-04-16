@@ -447,6 +447,16 @@
                               Content="Show panadapter / waterfall display"
                               Margin="0,0,0,8"
                               AutomationProperties.Name="Show the panadapter and waterfall display. When unchecked, the display is hidden from view and removed from the tab order and braille refreshes are suppressed."/>
+
+                    <Separator Margin="0,4,0,8"/>
+
+                    <!-- Tune feedback -->
+                    <TextBlock Text="Tune Feedback" FontWeight="SemiBold"
+                               Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
+                    <CheckBox x:Name="AnnounceSwrAfterTuneCheck"
+                              Content="Announce SWR after tune completes"
+                              Margin="0,0,0,8"
+                              AutomationProperties.Name="Speak the settled SWR after manual tune with Ctrl Shift T or ATU auto-tune completes. Waits 200 milliseconds after tuner-off so mid-sweep transients do not get announced. Format is SWR 1.3 to 1."/>
                 </StackPanel>
                 </ScrollViewer>
             </TabItem>

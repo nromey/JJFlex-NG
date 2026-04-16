@@ -1565,8 +1565,7 @@ public partial class MainWindow : UserControl
                 EarconPlayer.StopATUProgressEarcon();
                 if (isAutoATU)
                     EarconPlayer.ATUSuccessTone();
-                // SWR readback is useful for both auto and manual tune
-                Radios.ScreenReaderOutput.Speak($"SWR {e.SWR}", VerbosityLevel.Terse);
+                AnnounceSettledSwrAfterTune(isFailure: false);
                 break;
             case "Fail":
             case "FailBypass":
@@ -1575,7 +1574,7 @@ public partial class MainWindow : UserControl
                 if (isAutoATU)
                 {
                     EarconPlayer.ATUFailTone();
-                    Radios.ScreenReaderOutput.Speak($"Tune failed, SWR {e.SWR}", VerbosityLevel.Critical);
+                    AnnounceSettledSwrAfterTune(isFailure: true);
                 }
                 break;
             case "Bypass":
@@ -1590,6 +1589,35 @@ public partial class MainWindow : UserControl
                 StopATUTimeout();
                 EarconPlayer.StopATUProgressEarcon();
                 break;
+        }
+    }
+
+    /// <summary>
+    /// Speak the settled SWR 200 ms after a tune-end transition. The delay
+    /// lets mid-sweep transients drop off before the value is read, and
+    /// reading from <see cref="Radios.FlexBase.SWRValue"/> (rather than the
+    /// event's snapshot) catches the freshest reading. Gated by
+    /// <see cref="AudioOutputConfig.AnnounceSwrAfterTune"/>.
+    /// </summary>
+    private async void AnnounceSettledSwrAfterTune(bool isFailure)
+    {
+        if (CurrentAudioConfig?.AnnounceSwrAfterTune == false) return;
+        if (RigControl == null) return;
+
+        try
+        {
+            await Task.Delay(200).ConfigureAwait(true);
+            if (RigControl == null) return;
+            float swr = RigControl.SWRValue;
+            string text = isFailure
+                ? $"Tune failed, SWR {swr:F1} to 1"
+                : $"SWR {swr:F1} to 1";
+            VerbosityLevel level = isFailure ? VerbosityLevel.Critical : VerbosityLevel.Terse;
+            Radios.ScreenReaderOutput.Speak(text, level);
+        }
+        catch (Exception ex)
+        {
+            Tracing.TraceLine($"AnnounceSettledSwrAfterTune: {ex.Message}", TraceLevel.Warning);
         }
     }
 

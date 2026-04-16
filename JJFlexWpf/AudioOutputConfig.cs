@@ -106,6 +106,14 @@ namespace JJFlexWpf
         /// <summary>Announce mode changes in CW when speech verbosity is Off.</summary>
         public bool CwModeAnnounce { get; set; }
 
+        /// <summary>
+        /// Speak the settled SWR after manual tune (Ctrl+Shift+T) or ATU auto-tune
+        /// completes. Format: "SWR 1.3 to 1". Reads the current SWR value ~200 ms
+        /// after the tuner-off transition so mid-sweep transients don't get
+        /// announced. Default true.
+        /// </summary>
+        public bool AnnounceSwrAfterTune { get; set; } = true;
+
         /// <summary>Whether braille status line is enabled.</summary>
         public bool BrailleEnabled { get; set; }
 

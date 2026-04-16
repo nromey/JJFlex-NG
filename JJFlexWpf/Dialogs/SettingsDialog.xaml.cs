@@ -242,6 +242,7 @@ namespace JJFlexWpf.Dialogs
 
             MeterTonesNotifCheck.IsChecked = _audioConfig.MeterTonesEnabled;
             ShowPanadapterCheck.IsChecked = _audioConfig.ShowPanadapter;
+            AnnounceSwrAfterTuneCheck.IsChecked = _audioConfig.AnnounceSwrAfterTune;
 
             // Network tab — defaults shown until Rig property is set (see RefreshNetworkTabFromRig)
             PortForwardEnabledCheck.IsChecked = false;
@@ -551,6 +552,7 @@ namespace JJFlexWpf.Dialogs
             _audioConfig.MeterTonesEnabled = MeterTonesNotifCheck.IsChecked == true;
 
             _audioConfig.ShowPanadapter = ShowPanadapterCheck.IsChecked == true;
+            _audioConfig.AnnounceSwrAfterTune = AnnounceSwrAfterTuneCheck.IsChecked == true;
 
             // Apply audio settings immediately
             _audioConfig.Apply();
