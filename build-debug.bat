@@ -79,7 +79,10 @@ REM ---------------------------------------------------------------------------
 REM Working-tree clean check
 REM ---------------------------------------------------------------------------
 if "%NOCOMMIT%"=="0" (
-    for /f %%c in ('git status --porcelain 2^>nul ^| find /c /v ""') do set "DIRTY=%%c"
+    REM Use full path to Windows find.exe so PATH shadowing (e.g. when
+    REM cmd is launched from Git Bash, which puts GNU find ahead of
+    REM Windows find) cannot redirect us into a recursive C: scan.
+    for /f %%c in ('git status --porcelain 2^>nul ^| %SystemRoot%\System32\find.exe /c /v ""') do set "DIRTY=%%c"
     if not "!DIRTY!"=="0" (
         echo.
         echo ERROR: Working tree has !DIRTY! uncommitted change^(s^).
