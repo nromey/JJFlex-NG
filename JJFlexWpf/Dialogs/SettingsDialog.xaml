@@ -454,9 +454,9 @@
                     <TextBlock Text="Tune Feedback" FontWeight="SemiBold"
                                Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
                     <CheckBox x:Name="AnnounceSwrAfterTuneCheck"
-                              Content="Announce SWR after tune completes"
+                              Content="Read final SWR reading after manual or automatic tune"
                               Margin="0,0,0,8"
-                              AutomationProperties.Name="Speak the settled SWR after manual tune with Ctrl Shift T or ATU auto-tune completes. Waits 200 milliseconds after tuner-off so mid-sweep transients do not get announced. Format is SWR 1.3 to 1."/>
+                              AutomationProperties.Name="Read final SWR reading after manual or automatic tune."/>
                 </StackPanel>
                 </ScrollViewer>
             </TabItem>

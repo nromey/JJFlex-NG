@@ -1593,11 +1593,14 @@ public partial class MainWindow : UserControl
     }
 
     /// <summary>
-    /// Speak the settled SWR 200 ms after a tune-end transition. The delay
-    /// lets mid-sweep transients drop off before the value is read, and
-    /// reading from <see cref="Radios.FlexBase.SWRValue"/> (rather than the
-    /// event's snapshot) catches the freshest reading. Gated by
-    /// <see cref="AudioOutputConfig.AnnounceSwrAfterTune"/>.
+    /// Speak the settled SWR after an auto-ATU tune cycle. 200 ms delay
+    /// lets mid-sweep transients drop off before the value is read. This
+    /// overload is for the auto-ATU path where TX is still active briefly
+    /// after the OK/Fail status hits. For manual carrier (Ctrl+Shift+T),
+    /// TX stops the instant the operator releases — use the float overload
+    /// with the pre-captured value, because reading SWR post-TX gives the
+    /// meter's idle rest value (~1.0), not the final match.
+    /// Gated by <see cref="AudioOutputConfig.AnnounceSwrAfterTune"/>.
     /// </summary>
     private async void AnnounceSettledSwrAfterTune(bool isFailure)
     {
@@ -1608,17 +1611,36 @@ public partial class MainWindow : UserControl
         {
             await Task.Delay(200).ConfigureAwait(true);
             if (RigControl == null) return;
-            float swr = RigControl.SWRValue;
-            string text = isFailure
-                ? $"Tune failed, SWR {swr:F1} to 1"
-                : $"SWR {swr:F1} to 1";
-            VerbosityLevel level = isFailure ? VerbosityLevel.Critical : VerbosityLevel.Terse;
-            Radios.ScreenReaderOutput.Speak(text, level);
+            SpeakSwrAfterTune(isFailure, RigControl.SWRValue);
         }
         catch (Exception ex)
         {
             Tracing.TraceLine($"AnnounceSettledSwrAfterTune: {ex.Message}", TraceLevel.Warning);
         }
+    }
+
+    /// <summary>
+    /// Manual-carrier variant: caller has already captured the SWR while
+    /// TX was active (before setting TxTune = false). No delay, no re-read —
+    /// reading post-TX would give ~1.0 because the meter snaps to its idle
+    /// rest value when forward power drops to zero.
+    /// Gated by <see cref="AudioOutputConfig.AnnounceSwrAfterTune"/>.
+    /// </summary>
+    private void AnnounceCapturedSwrAfterTune(bool isFailure, float capturedSwr)
+    {
+        if (CurrentAudioConfig?.AnnounceSwrAfterTune == false) return;
+        SpeakSwrAfterTune(isFailure, capturedSwr);
+    }
+
+    private static void SpeakSwrAfterTune(bool isFailure, float swr)
+    {
+        // "SWR is X to 1" is technically accurate but verbose for a status
+        // readout. Hams say the leading number and the ratio is implicit.
+        string text = isFailure
+            ? $"Tune failed, SWR {swr:F1}"
+            : $"SWR {swr:F1}";
+        VerbosityLevel level = isFailure ? VerbosityLevel.Critical : VerbosityLevel.Terse;
+        Radios.ScreenReaderOutput.Speak(text, level);
     }
 
     private void ConnectedEventHandler(object sender, FlexBase.ConnectedArg e)
@@ -2122,6 +2144,11 @@ public partial class MainWindow : UserControl
         _lastTuneToggleTicks = now;
 
         bool newState = !RigControl.TxTune;
+        // Capture SWR while TX is still active. Must happen BEFORE TxTune = false,
+        // because the meter snaps to ~1.0 the instant forward power drops to zero —
+        // reading any time after this line gives the idle rest value, not the
+        // final measured SWR (Don's "SWR 1.0 to 1 every time" bug).
+        float capturedSwr = newState ? 0f : RigControl.SWRValue;
         RigControl.TxTune = newState;
         TuneToggleButton.IsChecked = newState;
         if (newState)
@@ -2140,9 +2167,9 @@ public partial class MainWindow : UserControl
             Radios.ScreenReaderOutput.Speak("Tune off", VerbosityLevel.Terse, true);
             // TXTune falling edge raises no FlexAntTuneStartStop event, so the
             // ATU-status-driven announce path never fires for manual carrier.
-            // Call directly here so external/manual tuners (Don's rooftop unit)
-            // still get "SWR X.X to 1" after tune-off.
-            AnnounceSettledSwrAfterTune(isFailure: false);
+            // Call directly here with the captured SWR so external/manual tuners
+            // (Don's rooftop unit) get the real final match, not the idle 1.0.
+            AnnounceCapturedSwrAfterTune(isFailure: false, capturedSwr);
         }
     }
 
