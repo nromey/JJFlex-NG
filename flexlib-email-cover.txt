@@ -1,0 +1,49 @@
+Subject: FlexLib bug report + a few small upstream asks (JJ Flexible Radio Access)
+
+Hi team,
+
+I'm Noel Romey, K5NER, developer of JJ Flexible Radio Access — an
+accessible alternative UI for the 6000 and 8000 series aimed at blind
+and low-vision operators. We're actively shipping builds to a small
+group of private testers and our usage of FlexLib is deep and ongoing.
+
+Attached (or below) is a bug report for a race condition in
+Discovery.Receive() that we've been able to reproduce consistently
+under .NET 10 and have patched locally. The write-up covers root
+cause, repro sequence, and a suggested minimal patch. The race has
+been present in at least v4.0.1 through v4.1.5.39794 with Discovery.cs
+unchanged across those releases. Happy to share the exact diff or
+run additional repros if useful.
+
+While I have your attention, three small upstream items would let us
+retire local patches we're currently maintaining:
+
+  1. An explicit minimum-TLS-version knob on the command transport.
+     We wrap SslClient with SslClientTls12.cs to guarantee 1.2+
+     regardless of OS/runtime defaults. A MinTlsVersion property
+     (or similar) would let us drop the wrapper entirely.
+
+  2. Have TlsCommandCommunication selected automatically when
+     PublicTlsPort > 0 (not only IsWan == true). We carry a small
+     Radio.cs change to make SmartLink-capable local radios also
+     prefer TLS when the radio exposes a TLS port. Right now the
+     WAN/local split forces plaintext on some otherwise-TLS-capable
+     sessions.
+
+  3. A first-class tune-lifecycle event with (Type, Status, SWR).
+     We currently synthesize this in our wrapper from TXTune and
+     ATUTuneStatus propertyChanged — three different code paths
+     depending on whether the user has an internal auto ATU, an
+     internal manual ATU, or (like one of our testers) an external
+     matchbox tuner. A single FlexLib-level event covering all
+     three cases would simplify every consumer (us, SmartSDR,
+     anyone else building on FlexLib).
+
+None of the three is urgent — they're quality-of-life asks. The
+Discovery.Receive NRE is the one real defect and the reason for
+this email.
+
+Noel Romey (K5NER)
+nromey@gmail.com
+JJ Flexible Radio Access
+github.com/nromey/JJFlex-NG
