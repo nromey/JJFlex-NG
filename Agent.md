@@ -27,10 +27,21 @@ Two commits landed on `sprint25/track-a`:
 
 **Build + publish:** `build-debug.bat --publish` shipped **`4.1.16.24`** to NAS `historical\4.1.16.24\x64-debug\` (zip + NOTES + exe + pdb, timestamped 2026-04-16 11:25) AND Dropbox `debug\` for Don to grab. Clean build, 0 errors. NOTES auto-generated from git log (no `debug-notes.txt` at repo root for this build).
 
+### Don's morning crash report → BUG-058 + BUG-054 fixes (commit `02a723c0`)
+
+Don dropped `JJFlexError-20260416-072117.zip` (560 MB minidump + 1.7 KB context txt) in his Dropbox folder. He flagged it as "one and done." Inspection: `Terminating: False` — UI thread NRE that the app caught and survived. Stack pointed at `globals.vb:WriteFreq` line 403, called from a leader-key lambda at line 597, dispatched from `KeyCommands.cs:1869` — i.e. the Ctrl+J → Ctrl+F (Enter Frequency) flow. Two bugs co-located on that path got fixed in one commit:
+
+- **BUG-058 (NEW from Don's crash)** — `RigControl.Callouts.FormatFreq` is a delegate field on per-radio `OpenParms` (`AllRadios.cs:2466`), wired by `FormatFreq = p.FormatFreq` at `AllRadios.cs:2566`. If the leader command fires during the connect window before that wire-up, the delegate is null and Invoke throws NRE that surfaces at the call site. Existing code at `MainWindow.xaml.cs:1319` and `:2485` already guards the same field with `OpenParms?.FormatFreq == null`; `WriteFreq` was missed. Fix: null-guard `Callouts?.FormatFreq` and `RigControl` itself before invoking.
+- **BUG-054 (logged 2026-04-15, fixed today)** — license sub-band boundary announcement was deferred to the next tune step after a Ctrl+F frequency jump. Root cause: lambda was calling `CheckBandBoundary(CULng(RigControl.VirtualRXFrequency))` after `WriteFreq(input)` — but `VirtualRXFrequency` reads through to the slice and lags behind the FlexLib round-trip, so the boundary check saw the OLD freq. Fix: `WriteFreq` now returns the parsed Hz it already had locally; lambda passes that authoritative value to `CheckBandBoundary`. Arrow-key tuning unaffected (it already passes its own `newFreq`).
+
+**Build:** `build-debug.bat` (no `--publish`) archived **`4.1.16.26`** to NAS `historical\4.1.16.26\x64-debug\` (zip + NOTES + exe + pdb, timestamped 2026-04-16 11:36). Dropbox intentionally untouched per Noel's directive — Don still on 4.1.16.24 for this morning's SWR-fix testing.
+
 ### What's still open for next session
 
 - **Don's verification of 4.1.16.24** — manual-tune Ctrl+Shift+T should now announce SWR ~200 ms after tune-off. Setting checkbox in Settings → Notifications → Tune Feedback should silence it when off. Auto-ATU path should be unchanged.
-- All carryover items from yesterday's session note still apply (BUG-054, BUG-056, Sprint 25 testing matrix completion, Sprint 25 → main merge, Flex upstream bug report).
+- **Promote 4.1.16.26 to Dropbox when ready** — copy from NAS or rebuild with `--publish`. Ships the BUG-058 + BUG-054 fixes. Likely will fold into tonight's daily ceremony.
+- BUG-056 (speech-off silences navigation) — design sketched for Sprint 27 Track F, still open.
+- Sprint 25 testing matrix completion, Sprint 25 → main merge, Flex upstream bug report still pending.
 
 ## Session 2026-04-15 (evening) — BUG-057 queue + SWR-after-tune + WIP commits
 
