@@ -15,6 +15,33 @@ This document captures the current state of JJ-Flex repository and active work.
 
 **Status:** All coding phases complete (13-21 + 20) plus a run of testing-driven fixes (see below). Remaining: Phase 22 (changelog after testing). Testing largely done for basic + remote + CW.
 
+## Session 2026-04-15 (evening) — BUG-057 queue + SWR-after-tune + WIP commits
+
+Picked up from `session-next.md` brief. Six commits on `sprint25/track-a`, HEAD advanced from `5e030221` through to the build-publish commit. Plan in order:
+
+1. **`9eb5017f` — Build pipeline + version-attr modernization.** Committed the other agent's in-flight work: `build-debug.bat` / `build-installers.bat` using `NAS_HISTORICAL` layout; new publish scripts (`publish-to-nas.ps1`, `publish-daily-to-dropbox.ps1`, `backfill-historical-debug.ps1`, `migrate-nas-to-historical.ps1`); `JJFlexRadio.vbproj` now has `<GenerateAssemblyInfo>true</GenerateAssemblyInfo>` with Title/Description/etc. opted out so version attrs flow from `<Version>` and `-p:Version=` override; duplicate version attrs removed from `My Project\AssemblyInfo.vb`; `install.bat` reads `FileVersion` (clean 4-part) instead of `ProductVersion` (source-link `+hash` suffix was polluting installer filenames); `install.nsi` `$PROGRAMFILES64` + x64 path; `deleteList.txt` bumped nvda/SAAPI 32→64 and dropped `dolapi32.dll`; `CLAUDE.md` docs of new nightly flow.
+2. **`835cc7a4` — Sprint 26/27 planning docs** (hole-punch-lifeline-ragchew vision update + sprint26-ragchew-keepalive-kerchunk + sprint27-barefoot-openport-hotel).
+3. **`19df517a` — Fix BUG-057 (CW prosign cancellation race) via FIFO queue.**
+   - `EarconCwOutput`: single-consumer `Channel<QueuedSequence>`. `PlayElementsAsync` now enqueues and returns a Task that resolves when *its* sequence finishes. Consumer loop dequeues, submits to the alert mixer, awaits `totalMs + 50` tail, then dequeues the next. Rapid events (AS → BT → mode-Morse → SK) play in arrival order, nothing gets clobbered by the ~50 ms mixer-buffer window.
+   - `Cancel()` retained for shutdown-style interrupts — disposes in-flight handle and drains pending. Consumer loop keeps running (later Play calls still enqueue). `Dispose()` is the terminal shutdown.
+   - `MorseNotifier`: dropped the `Cancel()` calls at the top of `PlayCharacter` and `PlayString`; dropped the `_cts` field and `IsPlaying` property (neither used externally). Caller's `CancellationToken` passes straight through.
+   - Same primitive is the foundation for future on-air CW message send, iambic keyer, bug, straight key, and code-practice-tutor (one primitive, N downstream features).
+4. **`f08a1d52` — SWR-after-tune announcement (Don's HIGH priority ask).** `MainWindow.FlexAntTuneStartStopHandler` now defers the SWR speak 200 ms post-transition and reads the fresher `RigControl.SWRValue` (not the event-time snapshot). Wording changed from `SWR 1.3` to `SWR 1.3 to 1` (ratio form). Gated by new `AudioOutputConfig.AnnounceSwrAfterTune` (default true). Checkbox in Settings → Notifications tab under new "Tune Feedback" section.
+5. **`f2ee06d0` — CW design doc additions.** Noel raised: extend the on-air CW section beyond iambic to include **bug** (auto-dit paddle + manual dah lever) and **straight key** (one input, Mark for as long as held), covering haptic / gamepad / mobile / HID inputs. Added "Sending grade" section under practice mode — element duration vs PARIS, inter-element spacing, weighting consistency, rhythm variance, per-style grading. Scope stays Sprint 28+ (engine is ready; input adapters + grading scoring are the work).
+6. **`c013bf7e` — `.gitignore /debug2/`** (ad-hoc scratch folder was tripping build-debug.bat's working-tree-clean check).
+
+**Build + publish:** `build-debug.bat --publish --no-commit` shipped **`4.1.16.21`** to NAS `historical\4.1.16.21\x64-debug\` (zip + NOTES + exe + pdb, timestamped at 2026-04-15 20:23) AND Dropbox `debug\` (prior `JJFlex_*_debug*.zip` and `NOTES-*-debug*.txt` purged first). Clean build, 0 errors, 1396 warnings (all pre-existing). `--no-commit` was used because `build-debug.bat`'s working-tree-clean check at line 82 uses `git status --porcelain | find /c /v ""` which gets resolved to MSYS Unix `find` (recurses C:\ with permission-denied spam) when the .bat is invoked from a bash-launched cmd.exe. Tree WAS clean before publish (verified via `git status --short` — only `/debug2/` gitignored). Worth fixing build-debug.bat's clean check to not rely on `find /c /v ""` in a future pass.
+
+### What's still open for next session
+
+- **Ear-check 4.1.16.<N> CW on a real connect sequence** — BUG-057 should make BT (connect) + mode-change Morse + SK (app close) all fire audibly now. Disconnect + reconnect should also fire BT again. Speech-off + CW-on is the full CW-assisted experience to confirm.
+- **SWR-after-tune UX check** — Ctrl+Shift+T manual tune and ATU auto-tune should each announce "SWR X.X to 1" 200 ms after tuner-off. Test with tuner toggled off via the Settings checkbox (should go silent).
+- **Remainder of `docs/planning/agile/sprint25-test-matrix.md`.**
+- **BUG-054** (Ctrl+F license sub-band boundary announcement lag) — still logged, small fix.
+- **BUG-056** (speech-off silences navigation) — design sketched for Sprint 27 Track F.
+- **Sprint 25 merge to `main`** — once testing is fully green.
+- **Flex upstream bug report** — `flexlib-discovery-nre-report.txt` ready; Noel to send.
+
 ## Session 2026-04-15 — testing, fixes, ship pipeline, design docs
 
 Large session. Everything below landed on `sprint25/track-a` and is pushed to `origin`. Head: `bf2d245c`. Current debug build: **4.1.16.10** (commit `02bc948f`).
