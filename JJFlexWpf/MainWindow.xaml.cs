@@ -2138,6 +2138,11 @@ public partial class MainWindow : UserControl
             EarconPlayer.TuneOffTone();
             MeterToneEngine.OnTuneStopped();
             Radios.ScreenReaderOutput.Speak("Tune off", VerbosityLevel.Terse, true);
+            // TXTune falling edge raises no FlexAntTuneStartStop event, so the
+            // ATU-status-driven announce path never fires for manual carrier.
+            // Call directly here so external/manual tuners (Don's rooftop unit)
+            // still get "SWR X.X to 1" after tune-off.
+            AnnounceSettledSwrAfterTune(isFailure: false);
         }
     }
 
