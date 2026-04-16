@@ -36,6 +36,16 @@ Don dropped `JJFlexError-20260416-072117.zip` (560 MB minidump + 1.7 KB context 
 
 **Build:** `build-debug.bat` (no `--publish`) archived **`4.1.16.26`** to NAS `historical\4.1.16.26\x64-debug\` (zip + NOTES + exe + pdb, timestamped 2026-04-16 11:36). Dropbox intentionally untouched per Noel's directive — Don still on 4.1.16.24 for this morning's SWR-fix testing.
 
+### Don hit BUG-058 twice more — not a connect race → **published 4.1.16.28**
+
+While Noel was off-keyboard, Don dropped two more crash zips in his Dropbox folder: `JJFlexError-20260416-124604.zip` (12:46:04Z) and `JJFlexError-20260416-124920.zip` (12:49:20Z). Both identical to the morning crash — NRE in `globals.vb:WriteFreq:403`, same stack, same leader Ctrl+F trigger.
+
+**Important finding:** three crashes across the day (07:21, 12:46, 12:49) disproves my initial "connect-window race" theory for why `Callouts.FormatFreq` was null. If it were only unwired during connect, Don would see it once per session at most. Three hits (two within 3 minutes of each other, 5 hours after the morning crash) means **the delegate is null during normal operation**, not just during the connect handshake. The defensive guard in commit `02a723c0` still makes the crash benign (app speaks/plays nothing for the FormatFreq path and returns the parsed Hz), so Don's session keeps running. But the *root cause* — why `Callouts.FormatFreq` ends up null in a running, connected session — is a separate investigation.
+
+Likely candidates for next session: (a) `Callouts = p` at `AllRadios.cs:2565` vs `Callouts = new OpenParms()` at `:2281` — are both constructors getting the delegate wired? (b) does something replace `Callouts` mid-session (disconnect/reconnect, client-switch, MultiFlex slot change)? (c) is `OpenParms` being deep-copied somewhere and the delegate not being re-pointed?
+
+**Publish:** `build-debug.bat --publish` shipped **`4.1.16.28`** to both NAS `historical\4.1.16.28\x64-debug\` and Dropbox `debug\` (replacing 4.1.16.24; purge-and-push). Y landed at 28 not 27 because two doc commits (`0dad60f0` Agent.md + `05817bcf` FlexLib email cover) ticked the count between builds. Functionally identical to 4.1.16.26 — same code fixes, just intervening doc commits.
+
 ### What's still open for next session
 
 - **Don's verification of 4.1.16.24** — manual-tune Ctrl+Shift+T should now announce SWR ~200 ms after tune-off. Setting checkbox in Settings → Notifications → Tune Feedback should silence it when off. Auto-ATU path should be unchanged.
