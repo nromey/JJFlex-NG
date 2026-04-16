@@ -402,17 +402,10 @@ Module globals
     Friend Function WriteFreq(ByVal str As String) As Long
         Dim hz As Long = CLng(str)
         Tracing.TraceLine($"WriteFreq: input='{str}' parsed={hz} Hz", TraceLevel.Info)
-        If RigControl Is Nothing Then Return hz
         RigControl.Frequency = hz
-        ' Callouts.FormatFreq is a delegate copied per-radio; can be null mid-
-        ' connect before AllRadios.cs:2566 wires it. Don's 2026-04-16 crash
-        ' (NRE in WriteFreq via leader Ctrl+F) hit exactly this race.
-        Dim formatter = RigControl.Callouts?.FormatFreq
-        If formatter IsNot Nothing Then
-            Dim display As String = formatter(CULng(hz))
-            If display IsNot Nothing AndAlso display.Length > 0 Then
-                Radios.ScreenReaderOutput.Speak($"Tuned to {display}", True)
-            End If
+        Dim display As String = RigControl.Callouts.FormatFreq(CULng(hz))
+        If display IsNot Nothing AndAlso display.Length > 0 Then
+            Radios.ScreenReaderOutput.Speak($"Tuned to {display}", True)
         End If
         JJFlexWpf.EarconPlayer.ConfirmTone()
         Return hz

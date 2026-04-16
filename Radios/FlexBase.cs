@@ -6620,9 +6620,17 @@ namespace Radios
             public List<Profile_t> Profiles;
         }
         /// <summary>
-        /// Callout vector provided at open().
+        /// Callout vector provided at open(). MUST be public: this field
+        /// shadows <see cref="AllRadios.Callouts"/> (which is a different
+        /// type — <see cref="AllRadios.OpenParms"/> vs this class's
+        /// <see cref="FlexBase.OpenParms"/> — and is only ever set to a
+        /// blank stub in the base constructor). If this field is less
+        /// accessible than the base field, external callers' name lookup
+        /// binds `rig.Callouts` to the blank base field instead of this
+        /// wired one, and every `rig.Callouts.X(...)` delegate call NREs.
+        /// Diagnosed 2026-04-16 (Don's BUG-058). Do not downgrade access.
         /// </summary>
-        internal OpenParms Callouts;
+        public OpenParms Callouts;
         internal string ConfigDirectory { get { return Callouts.ConfigDirectory; } }
         internal string OperatorName { get { return Callouts.OperatorName; } }
         /// <summary>
