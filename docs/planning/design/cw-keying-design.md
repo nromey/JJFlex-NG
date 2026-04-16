@@ -156,6 +156,40 @@ Action item carried into the next session: replace the Cancel-and-Replace path i
 
 Pluggable as an `IIambicKeyer` interface producing a stream of `CwElement`s from paddle events.
 
+### Keying style — three pluggable modes
+
+The same paddle/gamepad/haptic inputs can drive three historically distinct keying styles. Each is its own `IKeyer` implementation producing the same `CwElement` stream into the queue.
+
+- **Iambic** (already described above). Both paddles auto-key; squeezing both alternates.
+- **Bug** — one paddle is an auto-dit paddle (holds a stream of dits at configured WPM while pressed), the other is a **manual dah lever** (each press sends one dah at whatever length the operator holds it for). Models a Vibroplex-style mechanical bug. Lets operators who learned on a bug keep their sending feel with electronic precision where they want it (dit side) and hand-sent character where they want it (dah side).
+- **Straight key** — one paddle (or single input: spacebar, one gamepad button, one haptic tap zone) directly keys a Mark for as long as the operator holds it. No auto-timing. This is the most primitive, highest-fidelity, and the only mode where sending rhythm is 100% the operator's own hand.
+
+Rationale for supporting all three: the app's accessibility mission covers deaf-blind operators (via haptic outputs), operators with limited mobility (via gamepad / touchscreen / eye-tracking), and operators with traditional skills (bug / straight key). One input-driver abstraction, three keying implementations on top of the same queue primitive, covers every combination.
+
+**Hybrid dual-lever mode** — a useful side-effect of the plug architecture: one lever can run the bug (auto-dits), the other the straight key (manual dahs with manual timing). Combines the speed of an electronic bug with the personality of straight-key dahs. Uncommon in hardware (you'd need both a bug and a straight key on the same desk), trivial in software once the abstraction is in place.
+
+**Input sources** (any of these can feed any keying mode):
+
+- Keyboard keys as paddles (two keys for iambic, one for straight key).
+- USB HID paddle / straight key.
+- Gamepad — thumbsticks, shoulder buttons, or D-pad as paddle inputs; trigger as straight key.
+- Touchscreen paddle zones (mobile, tablet accessory).
+- Haptic / vibration controller — configurable zones on a haptic glove or wearable (deaf-blind operator path).
+
+### Sending grade — part of practice mode
+
+Once the queue + input stream is in place, the app can **grade** operator sending in practice mode. For each sent character:
+
+- **Element duration** — measure actual mark lengths. Compare against PARIS ideal at the configured WPM. Report deviation (e.g. "dit 68 ms vs 60 ms ideal — 13% long").
+- **Inter-element spacing** — intra-character gap should equal one dit, inter-character should equal three dits. Call out stuck keys or rushed gaps.
+- **Weighting consistency** — operator's personal dit-to-dah ratio. Consistency matters more than hitting 1:3 exactly; operators develop a "fist" and the grader should recognize a consistent fist as good, a drifting one as needing work.
+- **Rhythm** — variance of dit lengths across the transmission. High-variance hand fists are harder to copy.
+- **Per-style grading** — iambic/bug/straight all get graded differently. Straight key grade weights consistency highly; iambic grades timing precision; bug grades the blend of mechanical auto-dits plus hand-sent dahs (did the dahs match the bug's element timing?).
+
+Output is a per-session summary ("25 WPM target, 23 average, 4% element drift, 2 stuck gaps") plus pointers to specific characters that went off. Accessible via speech, braille, and a per-character log the user can review.
+
+**Why this belongs in the app.** There is essentially no accessible CW learning and practice software. An app that also hosts a radio can bridge practice (sending off-air with grading) into real contacts (sending on-air with the same engine) seamlessly. Graded practice on-ramps new blind ops; the grading approach also gives experienced ops a way to measure fist consistency they would not get on a mechanical key.
+
 **Scope caveat.** This is Sprint 28+ territory at earliest, probably later. The engine is ready to support it; the input adapters and the latency service are the additional work.
 
 ## Code practice mode (future bonus)
