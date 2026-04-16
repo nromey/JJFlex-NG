@@ -15,6 +15,23 @@ This document captures the current state of JJ-Flex repository and active work.
 
 **Status:** All coding phases complete (13-21 + 20) plus a run of testing-driven fixes (see below). Remaining: Phase 22 (changelog after testing). Testing largely done for basic + remote + CW.
 
+## Session 2026-04-16 (morning) — SWR-on-manual-carrier fix + build script gotcha
+
+Don reported the SWR-after-tune feature from f08a1d52 wasn't speaking on his side. He uses Ctrl+Shift+T to key the carrier; an external rooftop manual tuner senses RF and matches; he releases Ctrl+Shift+T. He expected "SWR X.X to 1" — got silence.
+
+Two commits landed on `sprint25/track-a`:
+
+1. **`5582596c` — Fix SWR-after-tune silence on manual carrier (Ctrl+Shift+T).** Root cause: `MainWindow.ToggleTuneCarrier()` writes `RigControl.TxTune` directly. FlexBase's `TXTune` propertyChanged handler (`Radios/FlexBase.cs:2254`) only raises `FlexAntTuneStartStop` on the **rising** edge — the falling edge raises nothing. So the f08a1d52 announce path (which lives in `FlexAntTuneStartStopHandler`) never fired for manual carrier. Auto-ATU works because its OK event comes from `ATUTuneStatus` propertyChanged, a different code path. Fix: in `ToggleTuneCarrier()`'s tune-off branch (line 2141), call `AnnounceSettledSwrAfterTune(isFailure: false)` directly. Reuses the existing helper (settings gate, 200 ms settle, "SWR X.X to 1" wording). Covers both the Ctrl+Shift+T hotkey and the on-screen Tune toggle button (both route through `ToggleTuneCarrier`). Auto-ATU path unchanged.
+
+2. **`0ad30b33` — `build-debug.bat`: use full path to Windows `find.exe`.** Yesterday's session note already flagged this as a known issue; this session it was actually blocking publish, so it had to be fixed. The working-tree-clean check at line 82 used bare `find /c /v ""`. When `cmd.exe` is launched from Git Bash, cmd inherits MSYS's PATH where GNU find shadows Windows `find.exe`. GNU find then reads `/c` as the directory to search and `/v ""` as junk options — and the script silently recurses through the entire C: drive (Recycle Bin permission errors were the giveaway), never reaching the `dotnet build` line. No error output, looks like a hung compile. Wasted 20+ minutes of confusion before the tail of `cat`'d output finally showed the GNU-find error pattern. Fix: pin the call to `%SystemRoot%\System32\find.exe` so PATH order can't substitute the wrong binary. Single defensive change, costs nothing.
+
+**Build + publish:** `build-debug.bat --publish` shipped **`4.1.16.24`** to NAS `historical\4.1.16.24\x64-debug\` (zip + NOTES + exe + pdb, timestamped 2026-04-16 11:25) AND Dropbox `debug\` for Don to grab. Clean build, 0 errors. NOTES auto-generated from git log (no `debug-notes.txt` at repo root for this build).
+
+### What's still open for next session
+
+- **Don's verification of 4.1.16.24** — manual-tune Ctrl+Shift+T should now announce SWR ~200 ms after tune-off. Setting checkbox in Settings → Notifications → Tune Feedback should silence it when off. Auto-ATU path should be unchanged.
+- All carryover items from yesterday's session note still apply (BUG-054, BUG-056, Sprint 25 testing matrix completion, Sprint 25 → main merge, Flex upstream bug report).
+
 ## Session 2026-04-15 (evening) — BUG-057 queue + SWR-after-tune + WIP commits
 
 Picked up from `session-next.md` brief. Six commits on `sprint25/track-a`, HEAD advanced from `5e030221` through to the build-publish commit. Plan in order:
