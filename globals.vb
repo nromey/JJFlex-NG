@@ -393,19 +393,30 @@ Module globals
     End Function
 
     ''' <summary>
-    ''' Send a frequency string (in Hz) to the radio.
+    ''' Send a frequency string (in Hz) to the radio. Returns the parsed Hz
+    ''' so the caller can drive boundary/sub-band checks against the
+    ''' authoritative new value (RigControl.VirtualRXFrequency lags behind
+    ''' a FlexLib round-trip and gave stale-band reads on Ctrl+F jumps).
     ''' Restored from pre-Sprint-24 KeyCommands.vb.
     ''' </summary>
-    Friend Sub WriteFreq(ByVal str As String)
+    Friend Function WriteFreq(ByVal str As String) As Long
         Dim hz As Long = CLng(str)
         Tracing.TraceLine($"WriteFreq: input='{str}' parsed={hz} Hz", TraceLevel.Info)
+        If RigControl Is Nothing Then Return hz
         RigControl.Frequency = hz
-        Dim display As String = RigControl.Callouts.FormatFreq(CULng(hz))
-        If display IsNot Nothing AndAlso display.Length > 0 Then
-            Radios.ScreenReaderOutput.Speak($"Tuned to {display}", True)
+        ' Callouts.FormatFreq is a delegate copied per-radio; can be null mid-
+        ' connect before AllRadios.cs:2566 wires it. Don's 2026-04-16 crash
+        ' (NRE in WriteFreq via leader Ctrl+F) hit exactly this race.
+        Dim formatter = RigControl.Callouts?.FormatFreq
+        If formatter IsNot Nothing Then
+            Dim display As String = formatter(CULng(hz))
+            If display IsNot Nothing AndAlso display.Length > 0 Then
+                Radios.ScreenReaderOutput.Speak($"Tuned to {display}", True)
+            End If
         End If
         JJFlexWpf.EarconPlayer.ConfirmTone()
-    End Sub
+        Return hz
+    End Function
 
     ''' <summary>
     ''' Show DX cluster. Placeholder — cluster UI requires reimplementation after key migration.
@@ -594,11 +605,15 @@ Module globals
                         Return
                     End If
                     If RigControl IsNot Nothing Then
-                        WriteFreq(input)
-                        ' Check band boundary after frequency jump
+                        Dim newHz As Long = WriteFreq(input)
+                        ' Check band boundary against the value we just wrote.
+                        ' RigControl.VirtualRXFrequency lags behind a FlexLib
+                        ' round-trip so reading it back here saw the OLD freq
+                        ' and the boundary speech was deferred to the next
+                        ' tune step (BUG-054).
                         Dim handlers = WpfMainWindow.FreqHandlers
                         If handlers IsNot Nothing Then
-                            handlers.CheckBandBoundary(CULng(RigControl.VirtualRXFrequency))
+                            handlers.CheckBandBoundary(CULng(newHz))
                         End If
                     End If
                 End If
