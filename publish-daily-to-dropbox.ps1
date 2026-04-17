@@ -265,3 +265,21 @@ if (Test-Path $memoryScript) {
 } else {
     Write-Warning "backup-memory-to-nas.ps1 not found at repo root; skipping memory snapshot."
 }
+
+# --- Seal: also snapshot Noel's private JJFlex docs -----------------------
+# Same non-fatal pattern as memory backup. Captures the human-curated
+# private docs (TODO-detailed, easter-egg-manifest) to NAS
+# historical\private\. Private docs change on a human cadence but losing
+# them would lose plaintext unlock words, strategic plans, and other
+# material we deliberately don't put in the public repo.
+$privateScript = Join-Path $RepoRoot 'backup-private-to-nas.ps1'
+if (Test-Path $privateScript) {
+    try {
+        & $privateScript -NasRoot $NasRoot
+    } catch {
+        Write-Warning "Private docs snapshot step failed: $_"
+        Write-Warning "(Daily publish itself succeeded; re-run backup-private-to-nas.ps1 manually if needed.)"
+    }
+} else {
+    Write-Warning "backup-private-to-nas.ps1 not found at repo root; skipping private docs snapshot."
+}

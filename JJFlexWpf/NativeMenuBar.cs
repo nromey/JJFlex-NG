@@ -1404,18 +1404,24 @@ public class NativeMenuBar : IDisposable
         int fineStep = handlers?.FineTuneStep ?? 10;
         var licenseConfig = handlers?.License;
 
-        // Reload audio config from disk to pick up any changes (e.g., calibration unlocks)
-        // Calibration unlocks save to the root config dir (BaseConfigDir), but the main
-        // audio config loads from the Radios subdirectory. Merge TuningHash from root.
-        var audioConfig = _window.CurrentAudioConfig;
-        if (audioConfig != null && _window.OpenParms != null)
+        // User-scope config lives at BaseConfigDir (root). The FreqHandlers
+        // GetConfigDirectory delegate returns BaseConfigDir regardless of
+        // connection state -- this is how user-global preferences (calibration
+        // unlocks, typing sound) stay visible in Settings even when no radio
+        // is connected.
+        string? rootConfigDir = handlers?.GetConfigDirectory?.Invoke();
+
+        AudioOutputConfig audioConfig;
+        if (_window.OpenParms != null)
         {
+            // Connected: load the per-radio config (radio-specific fields) and
+            // merge user-global fields from root. Root is authoritative for
+            // TuningHash and TypingSound -- the unlock handler always writes
+            // them there, and changes made in Settings OK also persist there.
             audioConfig = AudioOutputConfig.Load(_window.OpenParms.ConfigDirectory);
-            // Merge TuningHash from root config (where calibration unlock saves)
-            string rootDir = System.IO.Path.GetDirectoryName(_window.OpenParms.ConfigDirectory) ?? "";
-            if (!string.IsNullOrEmpty(rootDir))
+            if (!string.IsNullOrEmpty(rootConfigDir))
             {
-                var rootConfig = AudioOutputConfig.Load(rootDir);
+                var rootConfig = AudioOutputConfig.Load(rootConfigDir);
                 if (!string.IsNullOrEmpty(rootConfig.TuningHash))
                     audioConfig.TuningHash = rootConfig.TuningHash;
                 if (rootConfig.TypingSound != TypingSoundMode.Beep)
@@ -1423,7 +1429,19 @@ public class NativeMenuBar : IDisposable
             }
             _window.CurrentAudioConfig = audioConfig;
         }
-        audioConfig ??= new AudioOutputConfig();
+        else if (!string.IsNullOrEmpty(rootConfigDir))
+        {
+            // Disconnected: load directly from root. TuningHash (unlock state)
+            // and TypingSound preference are visible; radio-specific fields
+            // show whatever was last saved there. Changes persist back to
+            // root on Settings OK.
+            audioConfig = AudioOutputConfig.Load(rootConfigDir);
+        }
+        else
+        {
+            audioConfig = new AudioOutputConfig();
+        }
+
         var dialog = new Dialogs.SettingsDialog(pttConfig, coarseStep, fineStep, licenseConfig, audioConfig);
         dialog.FreqHandlers = _window.FreqHandlers;
         dialog.Rig = _window.RigControl;
@@ -1436,6 +1454,20 @@ public class NativeMenuBar : IDisposable
         if (result == true)
         {
             _window.ApplySettingsChanges(dialog.CoarseTuneStep, dialog.FineTuneStep);
+
+            // Persist user-scope fields (TuningHash, TypingSound) to root so
+            // they're available in any subsequent session regardless of which
+            // radio is connected. When connected, the per-radio config also
+            // gets the full save at PowerOff (existing flow). When
+            // disconnected, this is the only persist path for user changes
+            // made in Settings.
+            if (!string.IsNullOrEmpty(rootConfigDir))
+            {
+                var rootConfig = AudioOutputConfig.Load(rootConfigDir);
+                rootConfig.TuningHash = audioConfig.TuningHash;
+                rootConfig.TypingSound = audioConfig.TypingSound;
+                rootConfig.Save(rootConfigDir);
+            }
         }
         // Always apply typing sound after Settings (config may have been saved even on Cancel)
         if (_window.FreqHandlers != null)

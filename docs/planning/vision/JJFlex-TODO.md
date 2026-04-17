@@ -1,8 +1,25 @@
 # JJ Flex — TODO / Rolling Backlog
 
-Last updated: 2026-04-15
+Last updated: 2026-04-17
 
 ## Open Bugs
+
+### BUG-059: Earcon audibility under loud radio audio (2026-04-17 testing, reported by Don + Noel agrees)
+- **Symptom:** Earcons (alert tones, toggle feedback) are sometimes unhearable when radio audio is loud. AlertVolume at 100 is not enough headroom to cut through a loud signal on the rig audio channel. Users can miss alerts they should hear.
+- **Why simple volume boost isn't enough:** at AlertVolume = 100 we're already at software unity gain. Going higher either distorts or requires raising the digital amplification ceiling. Even max earcon volume can't beat radio audio that's actively loud.
+- **Design — three tiers:**
+  1. **Tier 1 (cheap, near-term):** raise the AlertVolume ValueFieldControl ceiling above 100 (e.g. to 200) for software amplification. Document distortion tradeoff in the UI label or a tooltip. Users who need raw dB can push past unity.
+  2. **Tier 2 (proper fix, sprint-sized):** audio ducking. When an earcon fires, momentarily drop radio audio output by a configurable dB (default ~12) for the ~150-300 ms the earcon plays, then restore. This is what every GPS nav system and car infotainment does for the same reason. Needs an earcon start/stop event hook into the radio-audio channel's gain.
+  3. **Tier 3 (orthogonal):** better discoverability of the already-existing `EarconDeviceNumber` separate-device routing. Users can already route earcons to PC speakers while radio audio goes to a different output — but most don't know. Add a "Use separate device for alerts" helper toggle in Settings Audio tab that surfaces this option prominently.
+- **Priority:** Medium — real usability gap for the people who care about hearing alerts over loud audio. Tier 1 is a few lines; Tier 2 is a real design pass.
+- **Status:** Logged during Sprint 25 Phase 3 testing; deferred to a post-foundation sprint.
+
+### BUG-060: AudioOutputConfig mixes user-scope and per-radio fields (2026-04-17 testing)
+- **Symptom (surface):** When no radio is connected, the Frequency Entry Sound dropdown in Settings → Audio tab shows only the three always-on modes — Mechanical and DTMF unlocks are hidden even though TuningHash is persisted at BaseConfigDir. Connecting a radio makes the unlocks reappear. Found during Sprint 25 Phase 7 testing; minimum-viable fix already applied (Settings now loads from BaseConfigDir when disconnected and always saves user-global fields to root on OK).
+- **Root cause (architectural):** `AudioOutputConfig` conflates truly user-global preferences (TuningHash, TypingSound, SpeechVerbosity, EarconsEnabled, AlertVolume, MasterVolume, CwNotificationsEnabled, CwSidetoneHz, CwSpeedWpm, TuneDebounceEnabled, TuneDebounceMs, BrailleEnabled, BrailleCellCount, AnnounceSwrAfterTune) with truly per-radio settings (EarconDeviceNumber — device enumeration is machine-local but may legitimately differ between a headset-connected session vs a shack-speakers session on a different radio). One XML file serializes everything; both root and per-radio locations have copies; the load path depends on connection state.
+- **Proper fix (later sprint):** split serialization into two files. `userPrefs.xml` at BaseConfigDir holds user-global fields (loaded regardless of connection). `audioConfig.xml` per-radio holds only truly per-radio fields. Migration on first load reads the old single-file format from both locations and splits it. No user-visible regression — just a cleaner separation.
+- **Priority:** Medium — today's fix works for the Phase 7 case. But as the config grows, the scope question will keep reappearing (e.g. Sprint 26+ network settings, multi-radio session prefs). Splitting now prevents per-feature special-casing later.
+- **Status:** Logged. Minimum fix in commit bundle for today's session. Full split deferred.
 
 ### BUG-054: Ctrl+F frequency entry doesn't announce license sub-band crossings (2026-04-15 testing)
 - **Symptom:** Type a frequency via Ctrl+F that crosses into a different license class sub-band (e.g. into the extra-only portion of 20 m). Boundary announcement does not fire on Enter. The same crossing via arrow-key tuning DOES announce.

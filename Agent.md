@@ -15,6 +15,51 @@ This document captures the current state of JJ-Flex repository and active work.
 
 **Status:** All coding phases complete (13-21 + 20) plus a run of testing-driven fixes (see below). Remaining: Phase 22 (changelog after testing). Testing largely done for basic + remote + CW.
 
+## Session 2026-04-17 (late morning) — Phases 4-7 pass + Off-at-bottom polish + private backup + user-scope Settings fix
+
+Continuation of the morning session. Noel paused for a Toastmasters meeting, leaving me to work autonomously.
+
+### Phases 4-7 walked through and passing
+- **Phase 4:** earcon mute (Ctrl+J Shift+T) pass; connection menu rebuild already verified prior.
+- **Phase 5:** focus-return context announcement pass.
+- **Phase 6a:** access key announcements pass on NVDA + JAWS across Radio Selector, Settings, and spot-checked dialogs.
+- **Phase 6b:** DSP menu checkbox state pass (Legacy NR, NB, ANF, meter tones — all report On/Off correctly).
+- **Phase 7:** typing sounds + easter eggs pass. Two polish items surfaced during testing:
+
+### Phase 7 polish: "Off" pinned to bottom of dropdown
+- User observation: when easter-egg modes (Mechanical / DTMF) are unlocked, they appeared *below* "Off" in the Settings → Audio → Frequency Entry Sound dropdown. Preferred layout: Off always at the bottom.
+- Fix in `SettingsDialog.xaml.cs` (both `PopulateTypingSoundCombo` and the save-side index mapping in `SaveSettings`). "Off" now added last; its index is computed as `3 + unlocks`, matching both directions of the read/save flow. No magic numbers remain on the save side pretending Off is fixed at index 3.
+
+### Phase 7 polish: BOOM reset word recovery
+- Noel designed the reset easter-egg word when he wrote the feature but never documented the plaintext — only AUTOPATCH and QRM ended up in `JJFlex-TODO-detailed.md`.
+- Salt (`JJFlex-K5NER-73`) and hash (`3fc741118210...`) are in `CalibrationEngine.cs`. Plaintext was recoverable by brute-forcing a ham-themed wordlist — `ReverseBoomTone()` function name in the reset handler leaked the theme, and BOOM was on the first-pass candidate list.
+- All three unlock words + salt + hashes + thematic design notes now documented authoritatively in `C:\Users\nrome\JJFlex-private\easter-egg-manifest.md` under a new "Unlock Reference" section. Future sessions look here, not at the sprawling TODO.
+- `reference_private_docs.md` memory updated to point at the manifest as the unlock source of truth.
+
+### Private docs NAS backup
+- Paralleling the memory-backup work: new `backup-private-to-nas.ps1` at repo root, snapshots `C:\Users\nrome\JJFlex-private\` to `\\nas.macaw-jazz.ts.net\jjflex\historical\private\private-YYYYMMDD-HHMMSS.zip`.
+- Hooked into `publish-daily-to-dropbox.ps1` tail alongside the memory hook. Both backups are non-fatal — if one fails, the daily publish still counts.
+- Smoke-tested: 2 files (TODO-detailed + easter-egg-manifest) → 23 KB → `private-20260417-113711.zip`.
+- `reference_private_docs.md` documents the backup location and cadence.
+
+### Phase 7 discovered issue: unlock visibility gated on connection
+- Noel reported that when disconnected, the Frequency Entry Sound dropdown showed only the three always-on modes (unlocks hidden). When he connected, the unlocks reappeared.
+- Root cause in `NativeMenuBar.ShowSettingsDialog`: when `_window.OpenParms` was null (no radio), the reload branch was skipped and `audioConfig ??= new AudioOutputConfig();` kicked in with an empty TuningHash. The unlock handler had always been writing TuningHash to BaseConfigDir (root), but Settings wasn't reading from there when disconnected.
+- **Fix:** refactor `ShowSettingsDialog` to resolve `rootConfigDir = handlers?.GetConfigDirectory?.Invoke()` (the VB-side BaseConfigDir, available regardless of connection). Three load branches now: connected loads per-radio + merges user-global from root; disconnected loads from root directly; no-handlers falls back to new config. On Settings OK, user-global fields (TuningHash + TypingSound) are always saved back to root, so root stays authoritative.
+- This is a **minimum-viable fix** for Phase 7 acceptance. The broader architectural question — which fields in `AudioOutputConfig` should be user-global vs per-radio — is flagged for a later sprint. See `JJFlex-TODO-detailed.md` for the backlog capture.
+
+### State when Noel returns
+
+- **Phase 3-7 pass** in the matrix. Tasks #1-6 completed. Phase 8 (braille status line) task in-progress but not yet tested.
+- **Fresh Debug build at 12:03** (exe + JJFlexWpf.dll). Noel should relaunch and verify two things when back:
+  - Open Settings *disconnected* — Audio tab's Frequency Entry Sound dropdown should show Mechanical + DTMF options (unlocks are visible regardless of connection state).
+  - Select Touch-tone (DTMF) or Mechanical keyboard, click OK, quit, relaunch (still disconnected), reopen Settings — selected mode should persist.
+- **Not touched yet:** Phase 8 (braille), Phase 9 (action toolbar). Directed test steps for both have been prepped in conversation context.
+
+### Backlog items captured (for `JJFlex-TODO-detailed.md`)
+- **Earcon audibility under loud radio audio** — Don reports earcons sometimes unhearable; Noel agrees. Three-tier design: (1) raise AlertVolume ceiling above 100 for software amplification, (2) proper audio ducking when earcon fires, (3) better discoverability of already-existing separate-device routing for earcons vs radio audio.
+- **User-scope vs per-radio config split** — `AudioOutputConfig` currently mixes user-scope fields (TuningHash, TypingSound, SpeechVerbosity, AlertVolume, CwNotificationsEnabled, EarconsEnabled) with per-radio fields (EarconDeviceNumber, MeterDeviceNumber). Today's minimum fix makes user-scope fields authoritative at root, but the file serialization still writes everything to both locations. Proper fix: split into `userPrefs.xml` (root) and `audioConfig.xml` (per-radio), migration on first load.
+
 ## Session 2026-04-17 (morning) — Phase 3 testing fixes + memory-backup wiring + NRL upstream report
 
 Don't-publish commit. Testing-driven fixes landed on `sprint25/track-a`:

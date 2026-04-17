@@ -23,35 +23,35 @@
 
 ## Phase 4: Earcon Mute + Connection Menu
 
-- [ ] **Earcon mute**: Press Ctrl+J then Shift+T. Should hear "Alert sounds off." Press again — "Alert sounds on." While muted, confirm earcons don't play but meter tones still work.
-- [ ] **Connection menu rebuild**: Connect to a radio. Open Radio menu — should show "Disconnect." Disconnect. Open Radio menu — should show "Connect to Radio" (not stuck on Disconnect).
+- [x] **Earcon mute**: Press Ctrl+J then Shift+T. Should hear "Alert sounds off." Press again — "Alert sounds on." While muted, confirm earcons don't play but meter tones still work.
+- [x] **Connection menu rebuild**: Connect to a radio. Open Radio menu — should show "Disconnect." Disconnect. Open Radio menu — should show "Connect to Radio" (not stuck on Disconnect). *Verified passing from prior testing.*
 
 ## Phase 5: Focus-Return Context
 
-- [ ] **Dialog close announcement**: Open any dialog (e.g., Settings). Close it. Should hear a compact status announcement: "Listening on [freq], [mode], [band], slice [letter]." Should NOT just say "pane."
+- [x] **Dialog close announcement**: Open any dialog (e.g., Settings). Close it. Should hear a compact status announcement: "Listening on [freq], [mode], [band], slice [letter]." Should NOT just say "pane."
 
 ## Phase 6a: Access Key Announcements
 
-- [ ] **NVDA access keys**: Open Radio Selector. Tab through buttons. Each should announce "Connect, Alt+N", "Low BW, Alt+L", "Remote, Alt+R", etc.
-- [ ] **JAWS access keys**: Same test with JAWS. Should announce the access key letter (e.g., "Connect, N").
-- [ ] **Settings dialog**: Open Settings. Tab to OK and Cancel. Both should announce access keys.
-- [ ] **Spot check 2-3 other dialogs**: Verify access keys are announced.
+- [x] **NVDA access keys**: Open Radio Selector. Tab through buttons. Each should announce "Connect, Alt+N", "Low BW, Alt+L", "Remote, Alt+R", etc.
+- [x] **JAWS access keys**: Same test with JAWS. Should announce the access key letter (e.g., "Connect, N").
+- [x] **Settings dialog**: Open Settings. Tab to OK and Cancel. Both should announce access keys.
+- [x] **Spot check 2-3 other dialogs**: Verify access keys are announced. *Noel spot-checked multiple dialogs; no dialog missed.*
 
 ## Phase 6b: Menu Checkbox State
 
-- [ ] **DSP toggle On**: Enable Legacy NR. Open DSP menu, arrow to Legacy NR. Should say "Legacy NR: On."
-- [ ] **DSP toggle Off**: Disable Legacy NR. Open DSP menu again. Should say "Legacy NR: Off."
-- [ ] **Other toggles**: Check NB, ANF, meter tones — all should show ": On" or ": Off."
+- [x] **DSP toggle On**: Enable Legacy NR. Open DSP menu, arrow to Legacy NR. Should say "Legacy NR: On."
+- [x] **DSP toggle Off**: Disable Legacy NR. Open DSP menu again. Should say "Legacy NR: Off."
+- [x] **Other toggles**: Check NB, ANF, meter tones — all should show ": On" or ": Off."
 
 ## Phase 7: Easter Eggs + Typing Sounds
 
-- [ ] **Default typing sound**: Start quick-type (press a digit in frequency field). Should hear a click beep on each digit.
-- [ ] **Easter egg unlock — test 1**: In frequency field, type the first unlock word then Enter. Should hear verification tone and "Touch-tone mode unlocked!" Open Settings, Audio tab — Frequency Entry Sound dropdown should show "Touch-tone (DTMF)" option.
-- [ ] **Easter egg unlock — test 2**: Type the second unlock word then Enter. Should hear verification tone and "Mechanical keyboard mode unlocked!" Settings should now show "Mechanical keyboard" option.
-- [ ] **DTMF mode**: Select Touch-tone in Settings. Quick-type digits — should hear DTMF dual-tones.
-- [ ] **Mechanical mode**: Select Mechanical keyboard in Settings. Quick-type digits — should hear keyboard clack sounds.
-- [ ] **Off mode**: Select Off. Quick-type digits — no sound.
-- [ ] **Reset for re-testing**: Type the reset keyword (TBD — needs implementation) to re-lock easter eggs.
+- [x] **Default typing sound**: Start quick-type (press a digit in frequency field). Should hear a click beep on each digit.
+- [x] **Easter egg unlock — test 1**: In frequency field, type the first unlock word then Enter. Should hear verification tone and "Touch-tone mode unlocked!" Open Settings, Audio tab — Frequency Entry Sound dropdown should show "Touch-tone (DTMF)" option.
+- [x] **Easter egg unlock — test 2**: Type the second unlock word then Enter. Should hear verification tone and "Mechanical keyboard mode unlocked!" Settings should now show "Mechanical keyboard" option.
+- [x] **DTMF mode**: Select Touch-tone in Settings. Quick-type digits — should hear DTMF dual-tones.
+- [x] **Mechanical mode**: Select Mechanical keyboard in Settings. Quick-type digits — should hear keyboard clack sounds.
+- [x] **Off mode**: Select Off. Quick-type digits — no sound. *"Off" is pinned to bottom of dropdown regardless of which unlocks are active — fix applied during testing.*
+- [x] **Reset for re-testing**: Type the reset keyword to re-lock easter eggs. *Reset is implemented (`HandleCalibrationUnlock` in FreqOutHandlers.cs). Plaintext word recovered via brute-force and now documented in private docs.*
 
 ## Phase 8: Braille Status Line
 
