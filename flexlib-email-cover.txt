@@ -7,13 +7,33 @@ accessible alternative UI for the 6000 and 8000 series aimed at blind
 and low-vision operators. We're actively shipping builds to a small
 group of private testers and our usage of FlexLib is deep and ongoing.
 
-Attached (or below) is a bug report for a race condition in
-Discovery.Receive() that we've been able to reproduce consistently
-under .NET 10 and have patched locally. The write-up covers root
-cause, repro sequence, and a suggested minimal patch. The race has
-been present in at least v4.0.1 through v4.1.5.39794 with Discovery.cs
-unchanged across those releases. Happy to share the exact diff or
-run additional repros if useful.
+Attached (or below) are two bug reports we've hit consistently and
+patched or worked around locally:
+
+  1. A race condition in Discovery.Receive() that throws an
+     unobserved NullReferenceException and terminates the host
+     process under reconnect-style lifecycles. Reproducible under
+     .NET 10; likely latent on earlier runtimes. Present in at
+     least v4.0.1 through v4.1.5.39794 with Discovery.cs unchanged
+     across those releases. Patched locally; suggested minimal
+     patch in the writeup.
+
+  2. Legacy Noise Reduction (NRL) stops processing after a DemodMode
+     round-trip on FLEX-6300 via SmartLink. The Slice.NRLOn flag
+     reads back as true, but the firmware is no longer applying NR
+     to the audio. A user uncheck-then-recheck with a human-paced
+     delay between the two reliably re-applies it; back-to-back
+     programmatic off-then-on is ignored. A ~500 ms mid-delay
+     exceeds whatever coalescing window collapses the pair. Could
+     be a FlexLib setter short-circuit, could be firmware -- we
+     can't distinguish without source/firmware visibility. RNN and
+     the newer NR providers do NOT exhibit this behavior under the
+     same conditions, which hints that the issue lives in the older
+     NRL-specific code path rather than something generic.
+
+Both writeups cover root cause where known, repro sequence, and
+what we tried. Happy to share exact diffs, additional repros, or
+trace captures if useful.
 
 While I have your attention, three small upstream items would let us
 retire local patches we're currently maintaining:

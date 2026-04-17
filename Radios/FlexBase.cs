@@ -2288,6 +2288,36 @@ namespace Radios
                             {
                                 FilterObj.RXFreqChange(s);
                                 ModeChanged?.Invoke(s.DemodMode);
+
+                                // Firmware leaves NRLOn flag set across mode round-trips but stops
+                                // applying Legacy NR processing. The user-visible workaround is to
+                                // uncheck then recheck the UI; this mimics that -- but back-to-back
+                                // queued commands appear to be coalesced somewhere in FlexLib or
+                                // firmware (a plain false-then-true does NOT re-apply). A real time
+                                // gap between off and on is required, matching how the UI path
+                                // naturally has click-react-click delay. 500 ms is our approximation
+                                // of a human re-click interval.
+                                if (s.NRLOn)
+                                {
+                                    Slice sliceRef = s;
+                                    Task.Run(async () =>
+                                    {
+                                        try
+                                        {
+                                            // Let mode change settle on the radio side first.
+                                            await Task.Delay(150);
+                                            q.Enqueue((FunctionDel)(() => { sliceRef.NRLOn = false; }), "NRLOn-mode-reapply-off");
+                                            // Human-click-interval between off and on so firmware doesn't collapse.
+                                            await Task.Delay(500);
+                                            q.Enqueue((FunctionDel)(() => { sliceRef.NRLOn = true; }), "NRLOn-mode-reapply-on");
+                                        }
+                                        catch (Exception ex)
+                                        {
+                                            Tracing.TraceLine("NRLOn-mode-reapply failed: " + ex.Message, TraceLevel.Warning);
+                                        }
+                                    });
+                                }
+
                                 // CW mode announcement when speech is off
                                 if (ScreenReaderOutput.CwNotificationsEnabled &&
                                     ScreenReaderOutput.CwModeAnnounceEnabled &&

@@ -249,3 +249,19 @@ Write-Host ""
 Write-Host "============================================"
 Write-Host "Daily published: $expected"
 Write-Host "============================================"
+
+# --- Seal: also snapshot Claude's memory folder ---------------------------
+# Rides this end-of-day trigger so every "done developing" ceremony also
+# captures a matching memory snapshot to NAS historical\memory\. Memory
+# backup is non-fatal -- if it fails, the daily publish still counts.
+$memoryScript = Join-Path $RepoRoot 'backup-memory-to-nas.ps1'
+if (Test-Path $memoryScript) {
+    try {
+        & $memoryScript -NasRoot $NasRoot
+    } catch {
+        Write-Warning "Memory snapshot step failed: $_"
+        Write-Warning "(Daily publish itself succeeded; re-run backup-memory-to-nas.ps1 manually if needed.)"
+    }
+} else {
+    Write-Warning "backup-memory-to-nas.ps1 not found at repo root; skipping memory snapshot."
+}

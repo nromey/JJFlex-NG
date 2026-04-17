@@ -133,14 +133,14 @@ public partial class ValueFieldControl : UserControl
         switch (e.Key)
         {
             case Key.Up:
-                // Up=1, Shift+Up=5
-                AdjustValue(shift ? 5 : 1);
+                // Up = configured Step (default 5); Shift+Up = 1 as fine-grain escape hatch.
+                AdjustValue(shift ? 1 : _step);
                 e.Handled = true;
                 break;
 
             case Key.Down:
-                // Down=1, Shift+Down=5
-                AdjustValue(shift ? -5 : -1);
+                // Down = configured Step (default 5); Shift+Down = 1 as fine-grain escape hatch.
+                AdjustValue(shift ? -1 : -_step);
                 e.Handled = true;
                 break;
 
@@ -177,13 +177,6 @@ public partial class ValueFieldControl : UserControl
                     HandleNumberEntryKey(e.Key); // Process the first digit
                     e.Handled = true;
                 }
-                break;
-
-            case Key.Enter:
-                _numberEntryMode = true;
-                _numberBuffer = "";
-                ScreenReaderOutput.Speak($"Enter {_label} value", interrupt: true);
-                e.Handled = true;
                 break;
         }
     }

@@ -15,6 +15,83 @@ This document captures the current state of JJ-Flex repository and active work.
 
 **Status:** All coding phases complete (13-21 + 20) plus a run of testing-driven fixes (see below). Remaining: Phase 22 (changelog after testing). Testing largely done for basic + remote + CW.
 
+## Session 2026-04-17 (morning) — Phase 3 testing fixes + memory-backup wiring + NRL upstream report
+
+Don't-publish commit. Testing-driven fixes landed on `sprint25/track-a`:
+
+### Memory-backup to NAS historicals
+- New script `backup-memory-to-nas.ps1` at repo root. Zips `C:\Users\nrome\.claude\projects\c--dev-JJFlex-NG\memory\` to `\\nas...\jjflex\historical\memory\memory-YYYYMMDD-HHMMSS.zip`. Memory gets its own sibling folder under `historical\`, not nested per-version (memory changes on its own cadence, not per build). Builds in local temp then copies to NAS (avoids partial files on network hiccups).
+- `publish-daily-to-dropbox.ps1` now invokes the memory backup at the tail, after daily publish succeeds. Non-fatal if memory backup fails. So every "done developing" ceremony auto-seals a memory snapshot.
+- Smoke-tested on first run: 38 files → 58,555 bytes → `memory-20260417-061401.zip` on NAS.
+- Memory pointer added: `project_memory_backup_location.md`, indexed in MEMORY.md.
+
+### Phase 3 testing — three testing-driven code fixes
+
+Phase 1 + 2 already passed. Phase 3 testing surfaced three bugs:
+
+1. **ValueFieldControl step hardcoded to 1** — `Settings → Audio` volume controls ignored the configured `Step = 5` because `OnPreviewKeyDown` hardcoded `AdjustValue(shift ? 5 : 1)`. Fix: honor `_step` (`ValueFieldControl.xaml.cs:135-145`). Up = Step, Shift+Up = 1 as fine-grain escape hatch.
+2. **Surplus cold-Enter re-prompt** — pressing Enter when NOT in number-entry mode restarted number-entry with "Enter {label} value" prompt. Confusing on top of the digit-auto-enter path. Fix: removed the cold Enter case (`ValueFieldControl.xaml.cs:182-187`). Enter is now purely "confirm active entry."
+3. **Legacy NR stops processing after DemodMode round-trip** — `Slice.NRLOn` flag reads back as true but firmware silently stops applying NR. Required three attempts to find a working client-side fix:
+   - (A) Same-value re-send: ignored.
+   - (B) Back-to-back off-then-on via queue: ignored (coalesced somewhere).
+   - (C) Task.Run with 150 ms pre-delay then 500 ms mid-delay between off and on: works. Matches user manual uncheck-recheck cadence.
+   - Implemented (C) in `FlexBase.cs` DemodMode propertyChanged handler (around line 2290). Fire-and-forget Task.Run with try/catch logging. Adds ~650 ms NR-off window on mode changes, acceptable given mode-change audio discontinuity.
+   - RNN and newer NR providers do NOT exhibit this behavior, which is the hint that it's an older NRL-specific code path (FlexLib setter short-circuit or firmware-level coalescing).
+
+### Upstream bug report
+
+- Appended second bug section to `flexlib-discovery-nre-report.txt`. Structure mirrors the Discovery NRE writeup (Summary / Repro / What doesn't work / Likely location / Our workaround). No suggested fix — we don't have FlexLib source or firmware visibility to say where the coalescing lives.
+- `flexlib-email-cover.txt` updated to "two bug reports" with concise summaries of each. The three quality-of-life asks (TLS knob, auto-TLS selection, unified tune event) are untouched.
+- Filename `flexlib-discovery-nre-report.txt` is now mildly misleading (two bugs inside, not just Discovery) — noted for optional rename next time.
+
+### Sprint 25 testing state
+
+- Phase 1: done (hotkey, ding, slice clamp, status dialog)
+- Phase 2: done (slice ops label, modern-mode freq nav)
+- Phase 3: done (audio tab ValueFieldControls + DSP refresh on mode change, with the workaround above)
+- Phase 4 onward: pending next session
+
+Phase 10-11 (NR providers positive half) deferred: needs a >6300 radio. Noel's 8600 is boxed pending alpha or public firmware trigger (see `project_8600_unbox_firmware_trigger.md`); Justin's 8400 is a candidate once SmartLink access is confirmed (Justin is Mac-side — port forwarding is a router question, not a Mac question).
+
+### Memory updates
+
+- `project_8600_unbox_firmware_trigger.md` — 8600 stays boxed until new firmware drops; unbox + add firmware-upload mechanics to JJFlex in the same pass.
+- `project_smartsdr_plus_tester_access.md` — Don and Justin both have paid SmartSDR Plus early access; tester pool covers subscription-gated features end-to-end.
+- `project_memory_backup_location.md` — memory backup script and cadence.
+- MEMORY.md index updated with all three new pointers; Testing Setup section now mentions Justin's 8400.
+
+### What's still open
+
+- **Earcon audibility design** (Don reports earcons sometimes un-hearable under loud radio audio) — logged in discussion as a Sprint 27-ish item. Three-tier sketch: raise AlertVolume max above 100 (software amp), proper audio ducking on earcon fire, better discoverability of the already-existing separate-device routing. NOT captured in JJFlex-TODO yet (deferred from this session).
+- **Phase 4 onwards** — connection menu rebuild, focus-return context, access key announcements, menu checkbox state, easter eggs + typing sounds, braille status line, action toolbar, NR provider positive half (needs >6300 radio).
+- **NRL mode-reapply bug report** — ready to send alongside the Discovery NRE writeup when Noel sends the email.
+
+## Session 2026-04-16 (evening) — publish-daily rewrite + 4.1.16.33 daily published
+
+End-of-dev-day seal. Two commits on `sprint25/track-a`:
+
+1. **`cc870072` — `publish-daily-to-dropbox.ps1` made intelligent, always debug.** Old script was stuck in release-tier drift: it scanned `historical\<ver>\installers\` for `Setup JJFlex_*.exe` and renamed to `-daily.exe`. Memory (`feedback_daily_is_debug.md`) already said daily = debug, but the script hadn't been updated. Tonight's rewrite:
+   - Computes expected version from HEAD: `base + (git rev-list --count HEAD + offset)`.
+   - Looks for matching debug zip at `NAS\historical\<ver>\x64-debug\JJFlex_<ver>_x64_debug_*.zip`.
+   - Match found → pure copy to Dropbox top level as `JJFlex_<ver>_x64_daily.zip` + `NOTES-daily.txt`.
+   - No match + clean tree → auto-invoke `build-debug.bat`, re-scan, then copy.
+   - No match + dirty tree → refuse and **list** the dirty files so the blocker is visible.
+   - Purges prior daily zip/NOTES plus any stray `Setup JJFlex_*-daily.exe` left by the old release-oriented version (swept one tonight — `Setup JJFlex_4.1.16.1_x64-daily.exe` from 4/14).
+   - Opt-in escape hatch: `-AutoCommit -CommitMessage "<msg>"`. Both flags required — we don't auto-generate commit messages. Stages `git add -A`, commits with the supplied message, then proceeds. Only for narrow "I know exactly what's dirty" cases.
+   - `-NoBuild` skips the auto-build step for older-zip promotions.
+
+2. **(commit above was the only code change tonight.)** The matching BUG-058 root-cause fix `a141d043` and the OpenParms/Callouts refactor TODO capture `3297317c` were the backlog that made `4.1.16.33` worth shipping as tonight's daily.
+
+**Build + publish:** `publish-daily-to-dropbox.ps1` (no args) detected clean tree after the commit, expected `4.1.16.33`, found no matching NAS build, invoked `build-debug.bat`, cleanly built (55 s, 0 errors), archived to NAS `historical\4.1.16.33\x64-debug\`, then promoted to Dropbox top level. First real end-to-end exercise of the new flow — every branch of the logic ran clean on the first try.
+
+**Dropbox top level after seal** (exactly what should be there):
+- `JJFlex_4.1.16.33_x64_daily.zip` (21:32)
+- `NOTES-daily.txt` (21:32)
+- Old 4.1.15.1 stable installers (untouched)
+- `CHANGELOG.md` (untouched)
+
+**Minor drift noted for a future session:** `CLAUDE.md`'s "Nightly Debug Builds" section documents the `debug\` subfolder publish (via `build-debug.bat --publish`) but doesn't mention the end-of-day top-level daily workflow that `publish-daily-to-dropbox.ps1` now drives. Not fixing tonight — low-impact doc gap, worth a small CLAUDE.md update next session.
+
 ## Session 2026-04-16 (morning) — SWR-on-manual-carrier fix + build script gotcha
 
 Don reported the SWR-after-tune feature from f08a1d52 wasn't speaking on his side. He uses Ctrl+Shift+T to key the carrier; an external rooftop manual tuner senses RF and matches; he releases Ctrl+Shift+T. He expected "SWR X.X to 1" — got silence.

@@ -6,20 +6,20 @@
 
 ## Phase 1: Quick Fixes
 
-- [ ] **Hotkey conflict**: Press Ctrl+Alt+S. Should open Status Dialog, NOT start a scan.
-- [ ] **Ding on frequency entry**: Press a digit to start quick-type, then Enter. Should hear a ding before the frequency confirmation speech.
-- [ ] **Slice clamp**: Cycle slices with Up arrow until you reach the last slice. Should hear "Last slice" and stop (no wrap). Cycle Down to first — should hear "First slice."
-- [ ] **Status Dialog selection**: Open Status Dialog (Ctrl+Alt+S). Arrow down to select an item. Wait 5+ seconds for refresh. Selection should stay on the same item, not jump to top.
+- [x] **Hotkey conflict**: Press Ctrl+Alt+S. Should open Status Dialog, NOT start a scan.
+- [x] **Ding on frequency entry**: Press a digit to start quick-type, then Enter. Should hear a ding before the frequency confirmation speech.
+- [x] **Slice clamp**: Cycle slices with Up arrow until you reach the last slice. Should hear "Last slice" and stop (no wrap). Cycle Down to first — should hear "First slice."
+- [x] **Status Dialog selection**: Open Status Dialog (Ctrl+Alt+S). Arrow down to select an item. Wait 5+ seconds for refresh. Selection should stay on the same item, not jump to top.
 
 ## Phase 2: Slice Ops Label + Modern Mode
 
-- [ ] **Slice Operations label**: Tab to Slice Operations field. NVDA should say "Slice A Operations: Volume 60" (or whatever volume is).
-- [ ] **Modern mode frequency**: Switch to Modern tuning mode (Ctrl+Shift+M). Tab to Frequency field. Left/Right arrows should jump between fields, NOT move digit-by-digit within frequency.
+- [x] **Slice Operations label**: Tab to Slice Operations field. NVDA should say "Slice A Operations: Volume 60" (or whatever volume is).
+- [x] **Modern mode frequency**: Switch to Modern tuning mode (Ctrl+Shift+M). Tab to Frequency field. Left/Right arrows should jump between fields, NOT move digit-by-digit within frequency.
 
 ## Phase 3: Settings Sliders + DSP Refresh
 
-- [ ] **Volume controls accessible**: Open Settings, go to Audio tab. Tab to Master volume, Alert volume, Meter volume. Each should be a ValueFieldControl (Up/Down changes by 5, screen reader announces value), NOT a slider.
-- [ ] **DSP refresh on mode change**: Connect to radio. Toggle NR on. Change mode (e.g., USB to CW via Alt+C). Check DSP panel (Ctrl+Shift+N) — NR state should update immediately.
+- [x] **Volume controls accessible**: Open Settings, go to Audio tab. Tab to Master volume, Alert volume, Meter volume. Each should be a ValueFieldControl (Up/Down changes by 5, screen reader announces value), NOT a slider. *Fix applied during testing: ValueFieldControl now honors configured Step (was hardcoded to 1); surplus cold-Enter re-prompt path removed.*
+- [x] **DSP refresh on mode change**: Connect to radio. Toggle NR on. Change mode (e.g., USB to CW via Alt+C). Check DSP panel (Ctrl+Shift+N) — NR state should update immediately. *Root-cause investigation found firmware stops applying Legacy NR after DemodMode round-trip though flag reads back as on. Client-side workaround: delayed off-then-on (150 ms pre-delay + 500 ms gap between off and on) — implemented in FlexBase.cs DemodMode handler. Upstream bug report appended to flexlib-discovery-nre-report.txt.*
 
 ## Phase 4: Earcon Mute + Connection Menu
 
