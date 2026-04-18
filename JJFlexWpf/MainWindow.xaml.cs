@@ -333,6 +333,17 @@ public partial class MainWindow : UserControl
             CurrentAudioConfig.Save(OpenParms.ConfigDirectory);
         }
 
+        // Re-apply braille config to the engine so Settings changes take effect
+        // without requiring a reconnect. PowerOn also applies these at connect
+        // time; this covers the Settings-while-running case.
+        if (CurrentAudioConfig != null)
+        {
+            _brailleEngine.Enabled = CurrentAudioConfig.BrailleEnabled;
+            _brailleEngine.CellCount = CurrentAudioConfig.BrailleCellCount;
+            _brailleEngine.EnabledFields = (BrailleFields)CurrentAudioConfig.BrailleFields;
+            _brailleEngine.UpdateTimerState();
+        }
+
         // Reflect any "Show panadapter" change immediately (toggle acts live)
         ApplyPanadapterVisibility();
     }

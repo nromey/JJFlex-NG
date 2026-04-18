@@ -55,10 +55,10 @@
 
 ## Phase 8: Braille Status Line
 
-- [ ] **Enable braille**: Open Settings, Audio tab. Check "Enable braille status line." Set cell count to match your display (40 for Focus 40).
-- [ ] **Home position**: Tab to frequency field (home position). Braille display should show compact status: frequency, mode, S-meter, etc.
-- [ ] **Leave home position**: Tab to another field. Braille display should revert to NVDA's normal output.
-- [ ] **Return to home**: Tab back to frequency field. Braille status should resume after a moment.
+- [x] **Enable braille**: Open Settings, Audio tab. Check "Enable braille status line." Set cell count to match your display (40 for Focus 40). *Fix applied during testing: Settings OK now re-applies braille config to the engine at runtime (was only applied at PowerOn).*
+- [x] **Home position**: Tab to frequency field (home position). Braille display should show compact status: frequency, mode, S-meter, etc. *Verified on Focus 40 via SmartLink to Don's 6300 — showed "3.730 lsb sm8" then updated live to sm9 as noise floor changed.*
+- [x] **Leave home position**: Tab to another field. Braille display should revert to NVDA's normal output.
+- [x] **Return to home**: Tab back to frequency field. Braille status should resume after a moment. *Fix applied during testing: removed _lastPushed change-detection and shortened timer interval from 1s to 500ms so NVDA can no longer reclaim the display between pushes during stable radio state.*
 
 ## Phase 9: Action Toolbar
 

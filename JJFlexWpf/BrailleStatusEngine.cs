@@ -32,9 +32,12 @@ namespace JJFlexWpf
 
         public BrailleStatusEngine()
         {
+            // 500 ms tick. Shorter than the original 1 s so NVDA's own
+            // focus/caret-driven braille redraws can't reclaim the display for
+            // more than half a second before we reassert ownership.
             _timer = new DispatcherTimer
             {
-                Interval = TimeSpan.FromSeconds(1)
+                Interval = TimeSpan.FromMilliseconds(500)
             };
             _timer.Tick += (s, e) => PushStatus();
         }
@@ -82,12 +85,16 @@ namespace JJFlexWpf
             {
                 if (!ScreenReaderOutput.HasBraille) return;
 
+                // Always push on every tick regardless of whether the status
+                // string changed since last push. The _lastPushed guard was
+                // causing NVDA's own braille redraws (caret/focus tracking) to
+                // reclaim the display during stable radio state, since we
+                // weren't re-asserting ownership. Driver-side diffs against
+                // the last pin state mean identical pushes cost effectively
+                // nothing on the wire.
                 string status = BuildBrailleStatus();
-                if (status != _lastPushed)
-                {
-                    Tolk.Braille(status);
-                    _lastPushed = status;
-                }
+                Tolk.Braille(status);
+                _lastPushed = status;
             }
             catch (Exception ex)
             {
