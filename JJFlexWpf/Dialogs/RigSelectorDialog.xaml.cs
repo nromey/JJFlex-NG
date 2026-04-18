@@ -273,6 +273,9 @@ namespace JJFlexWpf.Dialogs
         {
             var radioName = string.IsNullOrWhiteSpace(radio.Name) ? "radio" : radio.Name;
             _callbacks.ScreenReaderSpeak?.Invoke($"Connecting to {radioName}", true);
+            // AS prosign (wait / standing by) alongside the "Connecting to X" speech.
+            // Pair with BT which fires at connect-ready in MainWindow.PowerOn.
+            if (ScreenReaderOutput.CwNotificationsEnabled) _ = ScreenReaderOutput.PlayCwAS?.Invoke();
 
             SelectedRigData = radio.RigData;
             SelectedSerial = radio.Serial;

@@ -423,6 +423,9 @@ namespace Radios
 
             Tracing.TraceLine($"TryAutoConnect: BEGIN {config.RadioName} ({config.RadioSerial}), remote={config.IsRemote}, timeout={timeoutMs}ms", TraceLevel.Info);
             if (!SuppressSpeech) ScreenReaderOutput.Speak($"Connecting to {config.RadioName}", VerbosityLevel.Critical, true);
+            // AS prosign (wait / standing by) at connect-start — CW-flavored signal that we're
+            // mid-handshake. Pair with BT which fires at connect-ready (MainWindow.PowerOn).
+            if (ScreenReaderOutput.CwNotificationsEnabled) _ = ScreenReaderOutput.PlayCwAS?.Invoke();
 
             try
             {
@@ -479,7 +482,9 @@ namespace Radios
                 {
                     Tracing.TraceLine($"TryAutoConnect: END connected successfully (total {sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
                     if (!SuppressSpeech) ScreenReaderOutput.Speak($"Connected to {config.RadioName}", VerbosityLevel.Critical, true);
-                    if (ScreenReaderOutput.CwNotificationsEnabled) _ = ScreenReaderOutput.PlayCwBT?.Invoke();
+                    // BT prosign moved to MainWindow.PowerOn so it fires AFTER the CW delegate is
+                    // wired and CwNotificationsEnabled is loaded from config. Previous location
+                    // (here) raced with MainWindow init -- PlayCwBT was null on first connect.
                 }
                 else
                 {
@@ -902,7 +907,8 @@ namespace Radios
             mainThread.Start();
             Thread.Sleep(0);
             ConnectionProfiler.Current?.RecordAndSave("start_success");
-            if (ScreenReaderOutput.CwNotificationsEnabled) _ = ScreenReaderOutput.PlayCwBT?.Invoke();
+            // BT prosign moved to MainWindow.PowerOn so it fires AFTER CW delegates are wired
+            // and CwNotificationsEnabled is loaded. Previous location raced with init.
             return true;
         }
 
@@ -2289,6 +2295,16 @@ namespace Radios
                                 FilterObj.RXFreqChange(s);
                                 ModeChanged?.Invoke(s.DemodMode);
 
+                                // CW mode announcement. Runs alongside speech (not only when
+                                // speech is off) -- CW is a parallel notification channel when
+                                // CwNotificationsEnabled + CwModeAnnounceEnabled. With speech
+                                // on, the operator gets both the spoken mode and the CW mode
+                                // name. With speech off, CW is the only mode announcement.
+                                if (ScreenReaderOutput.CwNotificationsEnabled &&
+                                    ScreenReaderOutput.CwModeAnnounceEnabled &&
+                                    ScreenReaderOutput.PlayCwMode != null)
+                                    _ = ScreenReaderOutput.PlayCwMode(s.DemodMode);
+
                                 // Firmware leaves NRLOn flag set across mode round-trips but stops
                                 // applying Legacy NR processing. The user-visible workaround is to
                                 // uncheck then recheck the UI; this mimics that -- but back-to-back
@@ -2318,12 +2334,6 @@ namespace Radios
                                     });
                                 }
 
-                                // CW mode announcement when speech is off
-                                if (ScreenReaderOutput.CwNotificationsEnabled &&
-                                    ScreenReaderOutput.CwModeAnnounceEnabled &&
-                                    ScreenReaderOutput.CurrentVerbosity == VerbosityLevel.Critical &&
-                                    ScreenReaderOutput.PlayCwMode != null)
-                                    _ = ScreenReaderOutput.PlayCwMode(s.DemodMode);
                             }
 #if CWMonitor
                             try

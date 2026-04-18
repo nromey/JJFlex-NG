@@ -4,6 +4,34 @@ Last updated: 2026-04-17
 
 ## Open Bugs
 
+### BUG-061: CW word/prosign spacing timing not standard (2026-04-17 testing)
+- **Symptom:** "73 SK" and other multi-element CW output runs together — inter-word and prosign-boundary spacing feels tighter than standard Morse timing. Noel's ear against W1AW practice streams and electronic keyers flagged it. Not fatal for notification-level CW (BT/SK/mode names still readable) but noticeable.
+- **Standard:** PARIS word timing — 50 dit-durations total including 7-unit inter-word gap. Inter-character gap is 3 units. Our generator may be using shorter gaps.
+- **Why it matters now vs later:** For notification-level CW this is cosmetic. For the future CW practice mode (virtual keyer + decoder, planned for a post-foundation sprint), incorrect timing would teach operators bad habits and fail real-decoder testing. Whatever fix we land must hit PARIS-compliant timing precisely.
+- **Related:** BUG-055 (CW prosign envelope + timing quality) — partially addressed in Sprint 25 with CwToneSampleProvider rewrite. Timing math may need a second pass.
+- **Scope:** Audit `MorseNotifier` + `EarconCwOutput` + `CwToneSampleProvider` — element durations, inter-element space, inter-character space, inter-word space, prosign no-gap semantics. Compare to PARIS standard. Instrument with a test harness that feeds sample patterns and verifies gap lengths.
+- **Priority:** Medium. Address as a dedicated CW-quality pass before CW practice mode ships — the practice decoder will expose any timing flaws immediately since it grades the operator's timing against standard.
+- **Status:** Logged.
+
+### FEATURE: Ctrl+Tab action palette expansion (2026-04-17 testing insight)
+- **Context:** Sprint 25 Phase 9 added a Ctrl+Tab "Actions" dialog (command palette) at `MainWindow.xaml.cs:2280`. Current items are context-gated: ATU Tune (if hasATU), Start/Stop Tune Carrier (if canTx), Start/Stop Transmit, Speak Status, Cancel. Labels flip based on state ("Start" vs "Stop") which doubles as status readout.
+- **Architecture:** `ExecuteActionToolbarItem` is a switch-on-string at `:2317`. Adding a new action is one `list.Items.Add()` + one case in the switch. Context-gating pattern (`hasATU`, `canTx`) is already established for conditional items.
+- **Direction:** grow this into JJFlex's primary *command discovery* surface — keyboard-native, state-aware, discoverable via a single hotkey. Obvious candidates for additional entries:
+  - DSP: Toggle Legacy NR, RNN, NRS, NRF (each with license/feature gating), Toggle NB, Toggle ANF
+  - Audio: Toggle meter tones, Toggle earcon mute, Open Audio Workshop
+  - Tuning: Jump to band (sub-palette or quick-pick), Toggle tune debounce
+  - Radio: Disconnect, Switch slice, Open RadioInfo / Feature Availability
+  - Modes: Cycle mode forward/back, Jump to CW/USB/LSB/digital
+  - Braille: Toggle status line, Cycle cell-count profile
+  - Settings shortcut, Speak full status (vs current compact Speak Status)
+- **UX enhancements to consider** (not required for basic expansion):
+  - Recent/favorited items at top
+  - Type-to-filter text search (like VS Code Ctrl+Shift+P) for discoverability at scale
+  - Grouped sections with spoken group headers for screen-reader navigation
+  - Visual polish: icons, grouped separators — accessibility-first, visual second
+- **Priority:** Medium. The base is working; growth is pure additive feature work. Good candidate for a dedicated "action palette expansion" mini-sprint after Foundation phase completes. Could also be incremental — add items as adjacent features land.
+- **Status:** Logged during Sprint 25 Phase 9 testing.
+
 ### BUG-059: Earcon audibility under loud radio audio (2026-04-17 testing, reported by Don + Noel agrees)
 - **Symptom:** Earcons (alert tones, toggle feedback) are sometimes unhearable when radio audio is loud. AlertVolume at 100 is not enough headroom to cut through a loud signal on the rig audio channel. Users can miss alerts they should hear.
 - **Why simple volume boost isn't enough:** at AlertVolume = 100 we're already at software unity gain. Going higher either distorts or requires raising the digital amplification ceiling. Even max earcon volume can't beat radio audio that's actively loud.

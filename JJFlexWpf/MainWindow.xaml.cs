@@ -84,6 +84,48 @@ public partial class MainWindow : UserControl
         // Wire MetersPanel Escape handler (Sprint 22 Phase 9)
         MetersPanel.EscapePressed += (s, e) => FreqOut.FocusDisplay();
         MetersPanel.ReturnFocusToFreqOut = () => FreqOut.FocusDisplay();
+
+        // Wire CW notification delegates once at construction so they're available
+        // during connect (AS fires on "Connecting to X", which happens BEFORE PowerOn).
+        // Previously these were wired inside PowerOn, which raced with the connect path --
+        // AS and BT delegates were null on first-connect and silently skipped.
+        // The delegates only need _morseNotifier, which is field-initialized.
+        Radios.ScreenReaderOutput.PlayCwAS = () => _morseNotifier.PlayAS();
+        Radios.ScreenReaderOutput.PlayCwBT = () => _morseNotifier.PlayBT();
+        // PlayCwSK signs off with proper ham etiquette at any speed: "73" + prosign SK
+        // always; at speed >= 25 WPM, extend with "de JJF" app-callsign signature. Bare SK
+        // is never sent -- feels abrupt, not how real operators sign off.
+        Radios.ScreenReaderOutput.PlayCwSK = async () =>
+        {
+            string prefix = _morseNotifier.SpeedWpm >= 25 ? "73 de JJF" : "73";
+            await _morseNotifier.PlayString(prefix);
+            await _morseNotifier.PlaySK();
+        };
+        Radios.ScreenReaderOutput.PlayCwMode = (mode) => _morseNotifier.PlayString(mode);
+
+        // Load user-scope CW settings from BaseConfigDir (root of %AppData%\JJFlexRadio\)
+        // so CwNotificationsEnabled + speed + sidetone are set before any connect
+        // triggers AS. Per-radio PowerOn and Settings OK also re-apply these, but this
+        // is the earliest point where they must be correct for the first-connect AS
+        // prosign to actually fire.
+        try
+        {
+            string baseConfigDir = System.IO.Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "JJFlexRadio");
+            if (System.IO.Directory.Exists(baseConfigDir))
+            {
+                var userConfig = AudioOutputConfig.Load(baseConfigDir);
+                _morseNotifier.SidetoneHz = Math.Clamp(userConfig.CwSidetoneHz, 400, 1200);
+                _morseNotifier.SpeedWpm = Math.Clamp(userConfig.CwSpeedWpm, 10, 30);
+                Radios.ScreenReaderOutput.CwNotificationsEnabled = userConfig.CwNotificationsEnabled;
+                Radios.ScreenReaderOutput.CwModeAnnounceEnabled = userConfig.CwModeAnnounce;
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"MainWindow ctor: user-scope CW config load failed: {ex.Message}");
+        }
     }
 
     /// <summary>
@@ -342,6 +384,18 @@ public partial class MainWindow : UserControl
             _brailleEngine.CellCount = CurrentAudioConfig.BrailleCellCount;
             _brailleEngine.EnabledFields = (BrailleFields)CurrentAudioConfig.BrailleFields;
             _brailleEngine.UpdateTimerState();
+        }
+
+        // Re-apply CW notification config so Settings changes (speed WPM,
+        // sidetone frequency, enable toggle, mode-announce toggle) take effect
+        // at runtime. PowerOn applies these at connect; this covers the
+        // Settings-while-running case, same as the braille pattern above.
+        if (CurrentAudioConfig != null)
+        {
+            _morseNotifier.SidetoneHz = Math.Clamp(CurrentAudioConfig.CwSidetoneHz, 400, 1200);
+            _morseNotifier.SpeedWpm = Math.Clamp(CurrentAudioConfig.CwSpeedWpm, 10, 30);
+            Radios.ScreenReaderOutput.CwNotificationsEnabled = CurrentAudioConfig.CwNotificationsEnabled;
+            Radios.ScreenReaderOutput.CwModeAnnounceEnabled = CurrentAudioConfig.CwModeAnnounce;
         }
 
         // Reflect any "Show panadapter" change immediately (toggle acts live)
@@ -1768,10 +1822,55 @@ public partial class MainWindow : UserControl
             _morseNotifier.SpeedWpm = Math.Clamp(CurrentAudioConfig.CwSpeedWpm, 10, 30);
             Radios.ScreenReaderOutput.CwNotificationsEnabled = CurrentAudioConfig.CwNotificationsEnabled;
             Radios.ScreenReaderOutput.CwModeAnnounceEnabled = CurrentAudioConfig.CwModeAnnounce;
+
+            // Migrate CW settings to root on every connect. CW is user-scope (not per-radio)
+            // but historically lived only in per-radio config. The MainWindow constructor
+            // loads root at app startup to set CwNotificationsEnabled BEFORE any connect
+            // fires AS. Without this migration, users with CW enabled in per-radio config
+            // would still have false in root after app restart and AS would silently skip.
+            // Defense-in-depth vs the NativeMenuBar save-to-root which only fires if the
+            // user explicitly opens Settings → OK.
+            try
+            {
+                string baseConfigDir = System.IO.Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                    "JJFlexRadio");
+                if (System.IO.Directory.Exists(baseConfigDir))
+                {
+                    var rootConfig = AudioOutputConfig.Load(baseConfigDir);
+                    rootConfig.CwNotificationsEnabled = CurrentAudioConfig.CwNotificationsEnabled;
+                    rootConfig.CwModeAnnounce = CurrentAudioConfig.CwModeAnnounce;
+                    rootConfig.CwSidetoneHz = CurrentAudioConfig.CwSidetoneHz;
+                    rootConfig.CwSpeedWpm = CurrentAudioConfig.CwSpeedWpm;
+                    rootConfig.Save(baseConfigDir);
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"PowerOn: CW migrate-to-root failed: {ex.Message}");
+            }
+
             Radios.ScreenReaderOutput.PlayCwAS = () => _morseNotifier.PlayAS();
             Radios.ScreenReaderOutput.PlayCwBT = () => _morseNotifier.PlayBT();
-            Radios.ScreenReaderOutput.PlayCwSK = () => _morseNotifier.PlaySK();
+            // PlayCwSK signs off with proper ham etiquette at any speed. Always prefix with
+            // "73" (best regards -- the universal ham farewell) followed by the prosign SK.
+            // At speed >= 25 WPM, extend with "de JJF" callsign signature, which a trained
+            // operator can read comfortably at that rate. Raw bare SK is never sent -- feels
+            // abrupt, not how real operators sign off. "JJF" is our app-callsign signature.
+            Radios.ScreenReaderOutput.PlayCwSK = async () =>
+            {
+                string prefix = _morseNotifier.SpeedWpm >= 25 ? "73 de JJF" : "73";
+                await _morseNotifier.PlayString(prefix);
+                await _morseNotifier.PlaySK();
+            };
             Radios.ScreenReaderOutput.PlayCwMode = (mode) => _morseNotifier.PlayString(mode);
+
+            // Fire BT (connected) prosign now that delegates are wired and CwNotificationsEnabled
+            // is loaded. This used to fire in FlexBase at connect success, but that location
+            // raced with MainWindow init -- PlayCwBT was null on first connect. PowerOn is the
+            // semantically correct moment: radio is up, delegates are live, CW config is applied.
+            if (Radios.ScreenReaderOutput.CwNotificationsEnabled)
+                _ = Radios.ScreenReaderOutput.PlayCwBT?.Invoke();
 
             // MultiFlex client connect/disconnect earcons
             Radios.ScreenReaderOutput.PlayClientConnectedEarcon = () => EarconPlayer.PlayChirp(600, 900, 120, 0.2f);

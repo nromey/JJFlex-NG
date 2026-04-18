@@ -62,15 +62,15 @@
 
 ## Phase 9: Action Toolbar
 
-- [ ] **Open toolbar**: Press Ctrl+Tab. Should hear "Actions" dialog with a list of items.
-- [ ] **Navigate**: Arrow up/down through items (ATU Tune, Tune Carrier, Transmit, Speak Status, Cancel).
-- [ ] **Activate**: Select Speak Status, press Enter. Should hear the full radio status spoken.
-- [ ] **Cancel**: Press Escape. Should close the toolbar.
+- [x] **Open toolbar**: Press Ctrl+Tab. Should hear "Actions" dialog with a list of items.
+- [x] **Navigate**: Arrow up/down through items (ATU Tune, Tune Carrier, Transmit, Speak Status, Cancel). *First item "Start Tune Carrier" is the Ctrl+Shift+T equivalent; label flips to "Stop Tune Carrier" when tuning is active — doubles as status readout.*
+- [x] **Activate**: Select Speak Status, press Enter. Should hear the full radio status spoken.
+- [x] **Cancel**: Press Escape. Should close the toolbar.
 
 ## Phase 10-11: NR Providers (not wired to audio yet)
 
-- [ ] **Build verification**: Confirm both NuGet packages (YellowDogMan.RRNoise.NET, FftSharp) are included and build succeeds.
-- [ ] **NR gating on 6300**: Neural NR (RNN), Spectral NR (NRS), and NR Filter (NRF) should NOT appear in DSP menu or ScreenFieldsPanel on a 6300. Legacy NR and ANF should appear.
+- [x] **Build verification**: Confirm both NuGet packages (YellowDogMan.RRNoise.NET, FftSharp) are included and build succeeds. *Verified across every build today — 0 errors.*
+- [x] **NR gating on 6300**: Neural NR (RNN), Spectral NR (NRS), and NR Filter (NRF) should NOT appear in DSP menu or ScreenFieldsPanel on a 6300. Legacy NR and ANF should appear. *Negative gating verified on Don's 6300; hotkey tests (Ctrl+J R/S/Shift+N) all announce "not available on this radio" correctly.* Positive half (features visible on >6300) deferred pending 8600 unbox or Justin's 8400 SmartLink access.
 
 ## SmartLink Multi-Account
 
@@ -82,11 +82,11 @@
 
 ## NR Gating
 
-- [ ] **6300**: NR menu should show only Legacy NR. NRF, NRS, RNN should be hidden.
-- [ ] **Ctrl+J, R on 6300**: Should say "Neural NR not available on this radio."
-- [ ] **Ctrl+J, S on 6300**: Should say "Spectral NR not available on this radio."
-- [ ] **Ctrl+J, Shift+N on 6300**: Should say "NR Filter not available on this radio."
-- [ ] **ANF on 6300**: Should work normally (Ctrl+J, A toggles Auto Notch).
+- [x] **6300**: NR menu should show only Legacy NR. NRF, NRS, RNN should be hidden.
+- [x] **Ctrl+J, R on 6300**: Should say "Neural NR not available on this radio."
+- [x] **Ctrl+J, S on 6300**: Should say "Spectral NR not available on this radio."
+- [x] **Ctrl+J, Shift+N on 6300**: Should say "NR Filter not available on this radio."
+- [x] **ANF on 6300**: Should work normally (Ctrl+J, A toggles Auto Notch).
 
 ## Screen Reader Matrix
 

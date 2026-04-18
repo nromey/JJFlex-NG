@@ -1455,17 +1455,26 @@ public class NativeMenuBar : IDisposable
         {
             _window.ApplySettingsChanges(dialog.CoarseTuneStep, dialog.FineTuneStep);
 
-            // Persist user-scope fields (TuningHash, TypingSound) to root so
-            // they're available in any subsequent session regardless of which
-            // radio is connected. When connected, the per-radio config also
-            // gets the full save at PowerOff (existing flow). When
-            // disconnected, this is the only persist path for user changes
-            // made in Settings.
+            // Persist user-scope fields to root so they're available in any
+            // subsequent session regardless of which radio is connected. When
+            // connected, the per-radio config also gets the full save at
+            // PowerOff (existing flow). When disconnected, this is the only
+            // persist path for user changes made in Settings.
+            //
+            // CW fields matter at app startup BEFORE any connect -- the
+            // MainWindow constructor loads these from root so CW delegates are
+            // live + CwNotificationsEnabled is set in time for AS to fire at
+            // connect-start. Without these being in root, AS was silently
+            // skipping because the flag was false until per-radio PowerOn.
             if (!string.IsNullOrEmpty(rootConfigDir))
             {
                 var rootConfig = AudioOutputConfig.Load(rootConfigDir);
                 rootConfig.TuningHash = audioConfig.TuningHash;
                 rootConfig.TypingSound = audioConfig.TypingSound;
+                rootConfig.CwNotificationsEnabled = audioConfig.CwNotificationsEnabled;
+                rootConfig.CwModeAnnounce = audioConfig.CwModeAnnounce;
+                rootConfig.CwSidetoneHz = audioConfig.CwSidetoneHz;
+                rootConfig.CwSpeedWpm = audioConfig.CwSpeedWpm;
                 rootConfig.Save(rootConfigDir);
             }
         }
