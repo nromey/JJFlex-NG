@@ -7,10 +7,34 @@ Last updated: 2026-04-17
 ### BUG-061: CW word/prosign spacing timing not standard (2026-04-17 testing)
 - **Symptom:** "73 SK" and other multi-element CW output runs together — inter-word and prosign-boundary spacing feels tighter than standard Morse timing. Noel's ear against W1AW practice streams and electronic keyers flagged it. Not fatal for notification-level CW (BT/SK/mode names still readable) but noticeable.
 - **Standard:** PARIS word timing — 50 dit-durations total including 7-unit inter-word gap. Inter-character gap is 3 units. Our generator may be using shorter gaps.
-- **Why it matters now vs later:** For notification-level CW this is cosmetic. For the future CW practice mode (virtual keyer + decoder, planned for a post-foundation sprint), incorrect timing would teach operators bad habits and fail real-decoder testing. Whatever fix we land must hit PARIS-compliant timing precisely.
-- **Related:** BUG-055 (CW prosign envelope + timing quality) — partially addressed in Sprint 25 with CwToneSampleProvider rewrite. Timing math may need a second pass.
+- **Leading theory (Noel 2026-04-17):** the running-together effect may be because `PlayCwSK` calls `PlayString("73")` + `PlaySK()` back-to-back — two separate rendering passes through the FIFO queue. Each pass has its own envelope and inter-element timing context; the gap between them is the queue/buffer gap, not a true 7-unit word space. Fix may be to build a single rendering pass that takes a list of elements (plain chars + prosigns) and emits one continuous waveform with PARIS-standard gaps throughout. Candidate API: `_morseNotifier.PlaySequence(List<CwElement>)` or extend `PlayString` to understand prosign syntax (e.g. `"73 <SK>"` where `<SK>` renders as the joined prosign).
+- **Why it matters now vs later:** For notification-level CW this is cosmetic. For the future CW practice mode (virtual keyer + decoder), incorrect timing would teach operators bad habits and fail real-decoder testing. Whatever fix we land must hit PARIS-compliant timing precisely.
+- **Related:** BUG-055 (CW prosign envelope + timing quality) — partially addressed in Sprint 25 with CwToneSampleProvider rewrite. Timing math may need a second pass. Also see FEATURE below for dedicated CW processor.
 - **Scope:** Audit `MorseNotifier` + `EarconCwOutput` + `CwToneSampleProvider` — element durations, inter-element space, inter-character space, inter-word space, prosign no-gap semantics. Compare to PARIS standard. Instrument with a test harness that feeds sample patterns and verifies gap lengths.
-- **Priority:** Medium. Address as a dedicated CW-quality pass before CW practice mode ships — the practice decoder will expose any timing flaws immediately since it grades the operator's timing against standard.
+- **Priority:** Medium. Address as a dedicated CW-quality pass before CW practice mode ships.
+- **Status:** Logged.
+
+### FEATURE: Dedicated CW processor/engine (2026-04-17 design direction, Noel)
+- **Context:** As JJFlex grows into CW practice mode + on-air CW keying + iambic/bug/straight-key support, the CW rendering logic is becoming a first-class subsystem, not a notification helper. Currently spread across `MorseNotifier`, `EarconCwOutput`, `CwToneSampleProvider` with notification-level assumptions baked in.
+- **Scope for the engine:**
+  - Timing standards: PARIS (default) and the alternative word-length standards (CODEX, etc.) — configurable.
+  - Speed: adjustable WPM with NO upper clamp (current: 30 WPM max). CW expert operators and contest regulars routinely run 35-45+ WPM; the engine should support whatever's plausibly decodable.
+  - Farnsworth timing: slow char rate with normal inter-char spacing for learners.
+  - Single-utterance rendering: accept a sequence of elements (chars + prosigns + explicit word gaps) and emit one continuous waveform with precise PARIS-spec gaps throughout. No back-to-back-utterance artifact.
+  - Prosign syntax in string input: bracket notation (`<SK>`, `<BT>`, `<AR>`) that the engine resolves to joined prosigns with no inter-character gap.
+  - Envelope shaping: proper attack/release for click-free signals (already partially addressed in BUG-055 fix).
+  - Weight / rhythm variance controls for future sending-grade work (CW practice tutor mode).
+  - Separate from output: engine produces elements/waveforms, output layer routes to earcon channel (notification) or TX pipeline (on-air) or practice sidetone. Same engine, different destinations.
+- **Why this vs piecemeal fixes:** BUG-055, BUG-061, and the eventual CW practice mode all point at the same underlying engine. Doing the engine properly once makes all three land naturally. A piecemeal fix just to tighten "73 SK" spacing wouldn't unlock the future work.
+- **Priority:** Medium-High. Foundation for CW practice mode + on-air CW + any future CW feature. Not urgent today but high leverage when scheduled.
+- **Status:** Logged. Likely a dedicated sprint post-foundation phase, paired with CW practice mode planning.
+
+### FEATURE: Hide CW message management UI outside CW mode (2026-04-17 design direction, Noel)
+- **Context:** Jim-era code carries CW message add/edit/send UI — `CWMessageAddDialog.xaml`, `CWMessageUpdateDialog.xaml`, plus the VB files `CWMessageAdd.vb`, `CWMessageUpdate.vb`, `CWMessages.vb`. These let operators compose and store memorized CW messages for on-air transmission (CQ / call-contact / contest-exchange templates).
+- **Noel's design:** these fields are CW-only by nature. When the active slice is in SSB / FM / digital mode, exposing them is clutter for a feature that doesn't apply. Only surface the management UI when the active mode is CW / CWL / CWU. Hide menu entries, access shortcuts, and dialog triggers otherwise.
+- **Investigation needed:** confirm no non-CW code path references these dialogs. Grep for call sites, verify they're all mode-gated or gateable. If any are unconditional, either gate them or remove unused code paths.
+- **Implementation:** mode-aware visibility on menu items / toolbar entries / hotkeys referencing CW message management. Listen to DemodMode changes and update visibility. Default: hidden; enable when mode is CW variant.
+- **Priority:** Low-Medium. Cleanup, not functional. But reduces screen-reader tab-order noise for non-CW operators (most users) who never touch these fields.
 - **Status:** Logged.
 
 ### FEATURE: Ctrl+Tab action palette expansion (2026-04-17 testing insight)
