@@ -13,7 +13,81 @@ This document captures the current state of JJ-Flex repository and active work.
 
 ## Current State — Sprint 25 In Progress
 
-**Status:** All coding phases complete (13-21 + 20) plus a run of testing-driven fixes (see below). Remaining: Phase 22 (changelog after testing). Testing largely done for basic + remote + CW.
+**Status:** Sprint 25 functional testing essentially complete. All nine phase tasks green. Phase 10-11 positive half (NR providers visible on >6300) deferred pending 8600 unbox or Justin's 8400 SmartLink. Remaining: Phase 22 (changelog), Sprint 25 → main merge, Flex upstream bug email.
+
+## Session 2026-04-17 (evening) — Phases 8-10 pass + CW session bookending + end-of-day seal
+
+Final session of the day after Toastmasters. Noel returned with a Focus 40 Blue braille display, and we closed out Sprint 25's functional testing arc.
+
+### Phase 8 — braille status line passes on Focus 40
+- Noel's first real-life "watch frequencies tick up and down" moment on a braille display — he called it out as unprecedented in ham radio accessibility. Meaningful.
+- Two fixes surfaced during testing:
+  - `ApplySettingsChanges` (MainWindow) now re-applies braille config at runtime. Settings toggle didn't take effect without reconnect because `_brailleEngine` fields were only applied at PowerOn.
+  - `BrailleStatusEngine` timer interval dropped 1s → 500ms, and the `_lastPushed` change-detection guard removed so we always push on tick. NVDA's own caret/focus-tracking braille redraws were reclaiming the display during stable state; now we continuously reassert ownership.
+- Verified on SmartLink to Don's 6300: "3.730 lsb sm8" held steady and updated live to sm9 as NYC urban noise floor moved.
+- Memory saved: `project_multi_braille_output_vision.md` — Dot Pad + Focus 40 two-channel tactile output for the waterfall sprint. The three-channel stack (audio + linear braille + graphics braille) makes JJFlex "an audio game with utility" per Noel's framing. MEMORY.md index updated.
+
+### Phase 9 — Ctrl+Tab action palette passes
+- Directed test passed: Ctrl+Tab opens Actions dialog, arrow-nav through items (ATU Tune, Start Tune Carrier [= Ctrl+Shift+T equivalent], Start Transmit, Speak Status, Cancel), Enter activates, Escape closes cleanly.
+- Noel asked insightful design questions about the toolbar pattern and extensibility. Logged "Ctrl+Tab action palette expansion" as a FEATURE in JJFlex-TODO.md with candidate items (DSP toggles, band jump, audio workshop, mode cycles, etc.) and UX enhancement ideas (recent items, type-to-filter, grouped sections). The palette is the natural home for keyboard-native command discovery.
+
+### Phase 10-11 negative NR gating — verified on Don's 6300
+- Ctrl+J R/S/Shift+N each announce "not available on this radio" correctly.
+- DSP menu/panel correctly hides RNN, NRS, NRF items on 6300.
+- ANF (Ctrl+J A) works normally — positive path confirmed.
+- Positive half (features visible on >6300) deferred pending 8600 unbox or Justin's 8400 SmartLink access. Marked in matrix.
+
+### Phase 10 — CW prosign session bookending landed end to end
+Big architectural arc. Current state: ham-flavored CW session narrative is complete:
+- **AS** (wait / standing by) at connect-start — fires alongside "Connecting to X" speech.
+- **BT** (break / ready to receive) at connect-complete — fires at end of MainWindow PowerOn CW setup.
+- **CW mode name** alongside speech on mode change (verbosity gate removed — CW is now a parallel notification channel, not a speech-off replacement).
+- **73 + SK** or **73 de JJF + SK** at app close depending on WPM (>=25 gets the callsign signature; below gets the short form). Bare SK never sent.
+
+**Architectural moves to make this work:**
+1. CW delegates (`PlayCwAS/BT/SK/Mode`) moved from PowerOn to MainWindow constructor. They only need `_morseNotifier` which is field-initialized. Solves the race where AS/BT fired with null delegates on first-connect.
+2. User-scope CW config loaded from BaseConfigDir root at MainWindow construction. CwNotificationsEnabled + speed + sidetone set before any connect triggers AS.
+3. PowerOn migrates CW settings (CwNotificationsEnabled, CwModeAnnounce, CwSidetoneHz, CwSpeedWpm) from per-radio config to root on every connect. Self-healing: historical per-radio-only CW config propagates to root automatically, so users with CW enabled don't have to open Settings once to seed root.
+4. `ApplySettingsChanges` now re-applies CW config at runtime (same pattern as braille). Settings OK takes effect without reconnect.
+5. `NativeMenuBar` save-to-root extended with CW fields alongside TuningHash and TypingSound. Ensures Settings OK keeps root authoritative.
+6. BT moved from FlexBase connect-success sites (both TryAutoConnect and manual Connect) to end of MainWindow PowerOn CW setup. Semantically correct moment: radio up, delegates live, config applied.
+7. AS added at both "Connecting to X" speech sites: FlexBase auto-connect path + RigSelectorDialog manual path.
+8. Mode-change Morse verbosity gate removed — CW plays regardless of speech state.
+9. `PlayCwSK` smart-branches on speed (>= 25 WPM → "73 de JJF" + prosign SK; below → "73" + prosign SK).
+10. ApplicationEvents.vb shutdown SK wait bumped 2s → 5s to cover the richer farewell at lower WPM.
+
+**Known follow-ups captured:**
+- **BUG-061** extended with Noel's leading theory: "73 SK" running together because PlayString + PlaySK are two separate rendering passes through the FIFO queue. Inter-utterance gap is queue/mixer latency, not PARIS 7-unit word space. Fix path: single-pass sequence API or prosign bracket syntax in strings (`"73 <SK>"`).
+- **FEATURE: Dedicated CW processor/engine** — first-class subsystem for PARIS + alternative timing, unclamped WPM, Farnsworth, single-utterance rendering, prosign bracket syntax, envelope shaping, weight/rhythm controls. Foundation for CW practice mode + on-air keying + iambic/bug/straight-key. One refactor unlocks multiple features.
+- **FEATURE: CW message UI modernization** — Jim-era `CWMessageAddDialog` + `CWMessageUpdateDialog` + related VB files. Noel noted seeing them used only for send-CW-over-remote, but Jim may have had other purposes. Investigation first, then likely move to Ctrl+Tab action palette ("Send Message" with mode-aware backend) rather than simple mode-gated hide — preserves Jim's generality.
+
+### Commits landed today on `sprint25/track-a`
+
+1. **`c27d5f15`** — Sprint 25 Phase 3 fixes: ValueFieldControl + NRL reapply workaround + memory backup (morning session)
+2. **`82fe262b`** — Sprint 25 Phases 4-7 fixes: Off-at-bottom dropdown + user-scope Settings load + private docs backup (late morning)
+3. **`20f05252`** — Sprint 25 Phase 8 braille fixes: Settings-time re-apply + always-push at 500 ms (evening)
+4. **`61210edc`** — Sprint 25 Phase 10 CW prosign session + user-scope CW + NR gating verified (evening)
+5. **`daef92b7`** — JJFlex-TODO: three CW design captures from end-of-day review (evening)
+
+### What's left for Sprint 25 close-out
+
+- **Phase 22 — user-facing changelog** for 4.1.16. All tested features confirmed green; ready to write.
+- **Phase 10-11 positive half** — NR providers visible on >6300. Blocked on hardware (8600 boxed per `project_8600_unbox_firmware_trigger.md`; Justin's 8400 SmartLink needs verification).
+- **Sprint 25 → main merge** — after changelog.
+- **Flex upstream bug email** — two bug reports ready (`flexlib-discovery-nre-report.txt` has both Discovery NRE + NRL mode reapply; `flexlib-email-cover.txt` is the cover letter).
+- **Tomorrow's starter investigations:**
+  - SmartLink multi-account — never checked off in matrix, needs Don + Justin.
+  - Full integrated CW session smoke test — AS → BT → mode change → SK in a single uninterrupted run.
+  - Investigation of Jim-era CWMessage dialogs before deciding between mode-gating vs. Ctrl+Tab action palette modernization.
+  - BUG-061 CW timing pass: single-utterance sequence API so "73 SK" gaps are PARIS-compliant.
+
+### CLAUDE.md drift noted
+
+Still carrying from previous session + extended today: CLAUDE.md's "Nightly Debug Builds" section documents the `debug\` subfolder publish (via `build-debug.bat --publish`) but doesn't mention:
+- The end-of-day top-level daily workflow that `publish-daily-to-dropbox.ps1` now drives.
+- The memory backup + private docs backup hooks that ride the daily publish.
+
+Low-impact doc gap. Worth a short CLAUDE.md update in a future session — not fixing tonight.
 
 ## Session 2026-04-17 (late morning) — Phases 4-7 pass + Off-at-bottom polish + private backup + user-scope Settings fix
 
