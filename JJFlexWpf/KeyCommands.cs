@@ -334,6 +334,18 @@ public class KeyCommands
             new(CommandValues.ModeCW, KeyTypes.Command, () => _context.GetMainWindow()?.SetMode("CW"),
                 "Switch to CW mode", "CW", false, FunctionGroups.General, KeyScope.Radio)
                 { Keywords = new[] { "mode", "cw", "morse", "code", "continuous wave" } },
+            new(CommandValues.ModeAM, KeyTypes.Command, () => _context.GetMainWindow()?.SetMode("AM"),
+                "Switch to AM mode", "AM", false, FunctionGroups.General, KeyScope.Radio)
+                { Keywords = new[] { "mode", "am", "amplitude", "modulation", "broadcast" } },
+            new(CommandValues.ModeFM, KeyTypes.Command, () => _context.GetMainWindow()?.SetMode("FM"),
+                "Switch to FM mode", "FM", false, FunctionGroups.General, KeyScope.Radio)
+                { Keywords = new[] { "mode", "fm", "frequency", "modulation", "repeater" } },
+            new(CommandValues.ModeDIGU, KeyTypes.Command, () => _context.GetMainWindow()?.SetMode("DIGU"),
+                "Switch to DIGU mode", "DIGU", false, FunctionGroups.General, KeyScope.Radio)
+                { Keywords = new[] { "mode", "digu", "digital", "upper", "ft8", "rtty", "psk" } },
+            new(CommandValues.ModeDIGL, KeyTypes.Command, () => _context.GetMainWindow()?.SetMode("DIGL"),
+                "Switch to DIGL mode", "DIGL", false, FunctionGroups.General, KeyScope.Radio)
+                { Keywords = new[] { "mode", "digl", "digital", "lower", "ft8", "rtty", "psk" } },
 
             // ── TX Filter ──
             new(CommandValues.TXFilterLowDown, KeyTypes.Command, TXFilterLowDownHandler,
@@ -881,7 +893,7 @@ public class KeyCommands
         new(Keys.None, CommandValues.LogForm, KeyScope.Radio),
         new(Keys.C | Keys.Control | Keys.Shift, CommandValues.ClearRIT, KeyScope.Radio),
         new(Keys.None, CommandValues.StartScan, KeyScope.Radio),
-        new(Keys.D | Keys.Alt, CommandValues.ArCluster, KeyScope.Radio),
+        new(Keys.X | Keys.Alt | Keys.Shift, CommandValues.ArCluster, KeyScope.Radio),
         new(Keys.R | Keys.Control | Keys.Alt, CommandValues.ReverseBeacon, KeyScope.Radio),
         new(Keys.P | Keys.Control, CommandValues.DoPanning, KeyScope.Radio),
         new(Keys.None, CommandValues.SavedScan, KeyScope.Radio),
@@ -920,6 +932,10 @@ public class KeyCommands
         new(Keys.U | Keys.Alt, CommandValues.ModeUSB, KeyScope.Radio),
         new(Keys.L | Keys.Alt, CommandValues.ModeLSB, KeyScope.Radio),
         new(Keys.C | Keys.Alt, CommandValues.ModeCW, KeyScope.Radio),
+        new(Keys.A | Keys.Alt, CommandValues.ModeAM, KeyScope.Radio),
+        new(Keys.F | Keys.Alt, CommandValues.ModeFM, KeyScope.Radio),
+        new(Keys.D | Keys.Alt, CommandValues.ModeDIGU, KeyScope.Radio),
+        new(Keys.D | Keys.Alt | Keys.Shift, CommandValues.ModeDIGL, KeyScope.Radio),
         new(Keys.Z | Keys.Alt, CommandValues.CWZeroBeat, KeyScope.Radio),
 
         // Routing

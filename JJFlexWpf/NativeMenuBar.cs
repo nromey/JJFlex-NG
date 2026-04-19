@@ -915,6 +915,10 @@ public class NativeMenuBar : IDisposable
                     "USB" => "\tAlt+U",
                     "LSB" => "\tAlt+L",
                     "CW" => "\tAlt+C",
+                    "AM" => "\tAlt+A",
+                    "FM" => "\tAlt+F",
+                    "DIGU" => "\tAlt+D",
+                    "DIGL" => "\tAlt+Shift+D",
                     _ => ""
                 };
                 AddWired(modeSub, m + accel, () =>
@@ -1015,7 +1019,7 @@ public class NativeMenuBar : IDisposable
         }
 
         // === Filter ===
-        var filter = AddPopup(bar, "&Filter");
+        var filter = AddPopup(bar, "Filt&er");
         if (Rig != null)
         {
             BuildFilterItems(filter);
@@ -1049,7 +1053,7 @@ public class NativeMenuBar : IDisposable
             () => _window.FieldsPanel.ToggleCategory(4));
 
         // === Audio ===
-        var audio = AddPopup(bar, "&Audio");
+        var audio = AddPopup(bar, "Audi&o");
         BuildAudioItems(audio);
 
         // === Tools ===
