@@ -1,8 +1,62 @@
 # JJ Flex — TODO / Rolling Backlog
 
-Last updated: 2026-04-17
+Last updated: 2026-04-19
 
 ## Open Bugs
+
+### BUG-062: MultiFlex stack has multiple sync/event issues (2026-04-19 testing with Don)
+Testing MultiFlex with Don (station WA2IWC) on his FLEX-6300 via SmartLink surfaced a cluster of related bugs in the multi-client synchronization and event pipeline. Captured as one bug because they all point to the same underlying subsystem (session / client-sync / event routing).
+
+**Test setup:** Don primary on local 6300 with 2 slices (A and B). Noel connecting remotely via SmartLink.
+
+**Observed issues:**
+1. **Slice visibility broken:** When Noel connected, his app only showed slice A (not Don's slice B). Don's app then also dropped to showing only 1 slice. Expected: both clients see both slices (ownership annotated per client).
+2. **New Slice refused despite capacity:** With only 1 slice visible on Noel's side (of a 2-slice-max 6300), creating a new slice was refused. If the visible-slice count is wrong, the capacity check may be reading the wrong state.
+3. **Connected-client list not propagating to Don:** With Noel connected, Don's MultiFlex Clients dialog did NOT show Noel as a connected client. Consequence: Don cannot kick Noel — the primary-client kick path is effectively broken when the client list doesn't populate.
+4. **Flaky connection:** One connection attempt timed out rather than succeeding. Not reproducible on every attempt but indicates connection-initiation robustness issue.
+5. **Connect/disconnect event announcements unreliable on Don's side:** When remote clients (Noel) connect or disconnect, Don's speech isn't firing the "connecting" / "disconnecting" events consistently. Sometimes silent, sometimes delayed, sometimes wrong.
+6. **Wrong-event-on-disconnect:** When Noel disconnected, Don's app spoke "wa2iwc connected" — i.e. announced a CONNECT event using Don's own callsign at the moment Noel DISCONNECTED. Event source (who) and event type (what) both appear mis-wired.
+
+**Likely subsystem:** the multi-client state synchronization layer — possibly in `WanSession` / `FlexLib` discovery / the station-event dispatcher. Needs investigation into:
+- How remote clients are registered into the client list broadcast
+- When/how slice ownership is synced across clients
+- Connection event emission pathway (who speaks, with whose station ID, for what action)
+- Possible race between client join/leave and slice-inventory refresh
+
+**Why these belong together:** all six symptoms are consistent with a single broken state-replication or event-emission pathway. A fix in one area may resolve multiple symptoms.
+
+**Priority:** HIGH. MultiFlex is a core Flex feature; current state makes it essentially unusable for genuine two-client operation. But this is explicitly in Sprint 26+27 "network fixing" scope per foundation-phase memory — natural landing target, not a Sprint 25 emergency.
+
+**4.1.16 ship impact:** MultiFlex was not new to Sprint 25 — these bugs were likely present before. Unlikely to be a ship blocker for 4.1.16, but warrants a "MultiFlex improvements coming" note in the changelog so users know we're aware.
+
+**Status:** Logged 2026-04-19. Deferred to Sprint 26 scope.
+
+### FEATURE: Mode-key deconfliction + expanded mode hotkeys (2026-04-19 design, Noel)
+- **Problem:** Main menu mnemonics own Alt+A (Audio) and Alt+F (Filter), which blocks adding Alt+A = AM and Alt+F = FM as mode-change hotkeys. Windows menu bar mnemonics swallow the Alt+letter before a global hotkey can fire.
+- **Design direction (Path A — expand Alt+ mode hotkeys, preserve existing muscle memory):**
+  - **Menu mnemonic moves:**
+    - Audio menu: `&Audio` (Alt+A) → `Audi&o` (Alt+O)
+    - Filter menu: `&Filter` (Alt+F) → `Filt&er` (Alt+E)
+  - **Existing hotkey move:**
+    - DX Cluster: Alt+D → **Alt+Shift+X** (KeyCommands.cs line 884, `CommandValues.ArCluster`)
+  - **New mode hotkeys (all Radio scope):**
+    - Alt+A = AM
+    - Alt+F = FM
+    - Alt+D = DIGU
+    - Alt+Shift+D = DIGL
+  - **Unchanged:** Alt+U = USB, Alt+L = LSB, Alt+C = CW, Alt+M = ModeNext, Alt+Shift+M = ModePrev
+  - **Not hotkeyed:** SAM, NFM, DFM — reached via Alt+M cycle from AM (Noel uses SAM occasionally but fine with cycle access)
+- **Why Path A over wholesale Alt+Shift mode scheme:** preserves USB/LSB/CW muscle memory (the three most-typed modes for a ham). Cost is moving two menu mnemonics + one hotkey (Cluster).
+- **Why Alt+O and Alt+E for the menu moves:** Alt+O is the only free distinctive letter in "Audio" after A/U/D/I are ruled out (U = USB, D = Cluster/DIGU, I = weak). Alt+E in "Filter" is free and phonetically clearer than Alt+I.
+- **Why Alt+Shift+X for DX Cluster:** mnemonic for "DX" works better than stashing under Ctrl+Alt+D; X is free across all scopes.
+- **Searchable command palette:** all new mode-change commands and the moved Cluster command will appear in the Ctrl+Tab Actions palette / keyboard search, so users who forget the binding can still find them by name.
+- **Files to touch:**
+  - `JJFlexWpf/NativeMenuBar.cs` lines 1052, 1018 (Audio + Filter menu labels)
+  - `JJFlexWpf/KeyCommands.cs` line 884 (Cluster rebind), mode section around lines 320-340 (new ModeAM, ModeFM, ModeDIGU, ModeDIGL CommandValues + bindings)
+  - Mode-menu accelerator hints in `NativeMenuBar.cs` line 913-919 (extend switch statement to show Alt+A, Alt+F, Alt+D, Alt+Shift+D next to the mode names in the Slice → Mode submenu)
+- **Priority:** Medium. Quality-of-life + accessibility; not blocking a ship. Good Sprint 26 or late-Sprint-25-slip-in candidate.
+- **Status:** Design locked 2026-04-19. Ready for implementation.
+
 
 ### BUG-061: CW word/prosign spacing timing not standard (2026-04-17 testing)
 - **Symptom:** "73 SK" and other multi-element CW output runs together — inter-word and prosign-boundary spacing feels tighter than standard Morse timing. Noel's ear against W1AW practice streams and electronic keyers flagged it. Not fatal for notification-level CW (BT/SK/mode names still readable) but noticeable.

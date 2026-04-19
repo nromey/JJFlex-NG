@@ -1,7 +1,7 @@
-# Sprint 26 — WAN Session Owner Refactor (Connection Fix)
+# Sprint 26 — WAN Session Owner Refactor + MultiFlex Fix + CW Processor
 
 **Status:** Planning complete — ready for Phase 0 audits
-**Created:** 2026-04-13 (investigation), 2026-04-14 (Shape 2 decision + audio UX + multi-radio context), 2026-04-15 (sprint plan finalized under max-effort reasoning)
+**Created:** 2026-04-13 (investigation), 2026-04-14 (Shape 2 decision + audio UX + multi-radio context), 2026-04-15 (sprint plan finalized under max-effort reasoning), 2026-04-19 (scope expanded: MultiFlex BUG-062 fix + CW processor engine + CW dialog mode-gating + Sprint 25 regression pass)
 **Authors:** Noel (architecture, root cause analysis, multi-radio vision), Claude (clean-room pattern translation, decomposition)
 **Parent vision doc:** `docs/planning/hole-punch-lifeline-ragchew.md`
 **Branch target:** `sprint26/connection-fix` (serial, one track, one CLI session — no parallel tracks)
@@ -10,9 +10,13 @@
 
 ## Sprint goal
 
-Ship a reliable SmartLink session lifecycle. Users notice: fewer unexpected disconnects, meaningful status messages when things go wrong, automatic recovery without manual re-auth, no mystery "it just broke" errors. Developers notice: session ownership is no longer coupled to radio connections; the path to future multi-radio, tabbed UI, session-level panning, and eventual multi-process isolation is cleared by design.
+Ship a reliable SmartLink session lifecycle AND fix MultiFlex multi-client state sync + event routing (BUG-062) AND land the first pass of the dedicated CW processor engine. Users notice: fewer unexpected disconnects, meaningful status messages when things go wrong, automatic recovery without manual re-auth, no mystery "it just broke" errors, working two-client MultiFlex (slice visibility, client list propagation, kick/disconnect announcement), and a more musical CW prosign cadence. Developers notice: session ownership is no longer coupled to radio connections; multi-client state replication flows through the new coordinator rather than ad-hoc across FlexLib events; the CW rendering subsystem is a first-class engine ready for CW practice mode + on-air keying in future sprints. The path to future multi-radio, tabbed UI, session-level panning, and eventual multi-process isolation is cleared by design.
 
-This is a **foundation-setting sprint**. The visible user payoff is the reliability improvement; the invisible payoff is every subsequent sprint (Sprint 27 networking config, Sprint 28 tabbed multi-radio) builds on this without fighting the old ownership model.
+This is a **foundation-setting sprint**. The visible user payoff is the reliability improvement + MultiFlex unbrokenness + smoother CW; the invisible payoff is every subsequent sprint (Sprint 27 networking config, Sprint 28 tabbed multi-radio, later CW practice mode) builds on this without fighting old ownership, sync, or rendering models.
+
+**Why MultiFlex fix belongs in this sprint:** BUG-062 (discovered 2026-04-19 testing with Don, WA2IWC on 6300) surfaces in exactly the layer WanSessionOwner rewrites — multi-client state replication + connect/disconnect event emission. Patching it in the pre-refactor codebase would be patching code about to be thrown away. Rewiring MultiFlex through the new coordinator + event-payload discipline fixes all six BUG-062 symptoms together AND acts as the real-world stress test that proves the new session abstraction before Sprint 28's tabbed-architecture work depends on it.
+
+**Why CW processor belongs in this sprint:** CW audio output is explicitly in `ISessionAudioSink`'s crosshairs. Doing the CW engine rewrite alongside the session sink lets the new engine target the new sink from day one, instead of wiring the new engine to today's direct-to-output path and then rewiring to the sink in Sprint 28. One seam change instead of two.
 
 ---
 
@@ -121,6 +125,19 @@ Small, bounded investigations with one-paragraph findings each. None produces pr
 **Output:** one sentence describing the shape, plus a note on where the eventual invocation should live (monitor thread? Task.Run from UI?). Affects Sprint 27 architecture more than Sprint 26; can be done now or deferred.
 
 **Time:** ~10 minutes if done.
+
+### 0.4 — MultiFlex event + client-sync enumeration (for BUG-062 rewire)
+
+**Query:** grep `FlexLib_API/FlexLib/`, `Radios/`, and `JJFlexWpf/` for every site that:
+- Emits or consumes multi-client events: client-join, client-leave, slice-ownership-change, connection-state-change, remote-disconnect.
+- Reads or writes the client-list data structure that `MultiFlexDialog.GetClients()` surfaces (i.e. `MultiFlexClientInfo` producers).
+- Speaks connection-state announcements ("[callsign] connected/disconnecting") — including the code path that incorrectly produced "wa2iwc connected" when Noel disconnected (Symptom 6 of BUG-062). Note which callsign source each announcement reads from and which action-type each event carries.
+
+For every hit produce one bullet line: file, line, what it does, and tentative classification as **emit / consume / state-read / state-write / announce**.
+
+**Output:** bulleted list. This becomes the rewire map Phase 2.5 executes against. Without it, Phase 2.5 would be writing blind.
+
+**Time:** ~45 minutes.
 
 ### Phase 0 exit criterion
 
@@ -273,6 +290,28 @@ Each commit passes the existing smoke test. Bisect-friendly if something regress
 
 ---
 
+## Phase 2.5 — MultiFlex client-sync and event-dispatch rewire (BUG-062 fix)
+
+Fixes the six BUG-062 symptoms observed 2026-04-19 in two-client testing with Don (WA2IWC on 6300) via SmartLink. All six symptoms point at the same subsystem: multi-client state replication + connect/disconnect event emission. With Phase 2 now routing radio ownership through the coordinator, this phase rewires the MultiFlex-specific pathways to match — fixing the symptoms together rather than individually.
+
+### Phase 2.5 deliverables
+
+- Consume the Phase 0.4 enumeration as the rewire map. For every emit/consume/state-read/state-write/announce site on the list, route it through the new coordinator-and-session-owner discipline.
+- **Client list propagation fix (Symptom 3):** when a remote MultiFlex client joins or leaves, the coordinator raises a structured event with (session-id, client-handle, program, station, owned-slice-letters, action-type). Every local JJ Flex instance consuming this event updates its `MultiFlexDialog`-backing client list from the event payload — not by re-reading arbitrary FlexLib state post-change.
+- **Slice visibility fix (Symptoms 1 + 2):** slice inventory is authoritative from the radio's own state machine, not from any client's local cache. The coordinator exposes a read-through observable of slice inventory. When a new client connects to a multi-client radio, the slice inventory it receives matches the radio's true count, annotated with per-client ownership. The "New Slice" capacity check reads the true radio slice count, not the local view.
+- **Connection event emission fix (Symptoms 5 + 6):** announcements of remote client connects and disconnects are driven by the event payload (which callsign, which action) — never by post-change state inference. The pattern "wa2iwc connected" when Noel disconnected is architecturally prevented by the payload-first rule. Every announcement site in the Phase 0.4 list is audited to confirm it reads from the event object, not from app-global state.
+- **Connection robustness (Symptom 4):** timeout during connect-initiation. Exact fix depends on Phase 0.1 + 0.4 findings — may be a WAN session handshake race, a TLS negotiation edge case, or an AutoResetEvent signaling issue in the monitor thread. Scope this deliverable to "investigate once Phase 0.4 enumerates the connect path; apply minimal fix or escalate if it's deeper than Sprint 26 can absorb."
+
+### Phase 2.5 exit criterion
+
+Two-client MultiFlex smoke test with Don: both clients connect, both clients see each other's entries in MultiFlex Clients dialog with correct owned-slice letters, both clients see true radio slice inventory, Don can kick Noel cleanly (with an announced state change on Noel's side), Noel cannot kick Don (primary-client protection holds), post-kick reconnect works. Every remote-client connect/disconnect announcement says the correct callsign and the correct action. All six BUG-062 symptoms verified resolved.
+
+### Phase 2.5 commit cadence
+
+Commits are structured around the Phase 0.4 enumeration. Each enumerated site that gets rewired is its own commit with "Sprint 26 Phase 2.5: Rewire [site] through coordinator" message. Keeps bisect granular.
+
+---
+
 ## Phase 3 — Intelligent disconnect diagnosis UI (basic)
 
 The user-visible payoff. This lands the "minimal rich" version of disconnect diagnosis; Sprint 27 Track D will extend it with NetworkTest-informed richer messages.
@@ -343,11 +382,68 @@ Write `docs/planning/agile/sprint26-test-matrix.md` (new file) with manual test 
 
 Execute TM-1 through TM-8 as manual cases, recording pass/fail in the matrix. TM-9 runs overnight and is reviewed next morning.
 
+**Sprint 25 regression pass (new in 2026-04-19 scope expansion):**
+
+The Phase 2 FlexBase migration + Phase 2.5 MultiFlex rewire touch code paths that Sprint 25 behaviors ride on. Not because those behaviors are broken by Sprint 26 — because the plumbing beneath them has been rewritten, re-verification is the prudent close-out.
+
+- **TM-R1 CW prosign bookending.** Cold launch → expect AS on "Connecting" speech. Connect completes → expect BT. Mode change (Alt+C from USB) → expect "CW" speech + Morse "CW" parallel. Alt+F4 exit → expect "73" or "73 de JJF" + SK prosign depending on WPM.
+- **TM-R2 Braille status line (Focus 40 or equivalent).** Tab to frequency field at home position — expect compact radio status on braille display (frequency + mode + S-meter). Tab away — expect braille yielded back to NVDA. Tab back — expect status resumes within ~1s.
+- **TM-R3 NR gating on 6300 (via Don's radio).** Ctrl+J R / S / Shift+N each announce "not available on this radio." ANF (Ctrl+J A) works normally. DSP menu / ScreenFieldsPanel hide the three 8000-series-only items.
+- **TM-R4 DSP refresh on mode change.** Enable Legacy NR on USB → change mode to CW → check DSP panel: NR state should reflect correct on/off. This tests the FlexBase DemodMode workaround survived the refactor.
+- **TM-R5 RX audio pipeline (Phase 20 RNN + spectral sub).** Verify Neural NR and Spectral NR each produce audible noise-floor reduction on an active voice slice (on 8000-series hardware when available; otherwise mark deferred). This tests that the `ISessionAudioSink` DirectPassthroughSink impl didn't disrupt the PC audio routing that Sprint 25 Phase 20 landed.
+- **TM-R6 Mode-key deconfliction (Sprint 25 2026-04-19 slip-in).** Verify Alt+A = AM, Alt+F = FM, Alt+D = DIGU, Alt+Shift+D = DIGL still fire correctly. Alt+O opens Audio menu; Alt+E opens Filter menu. Alt+Shift+X opens DX Cluster. Unchanged: Alt+U/L/C = USB/LSB/CW, Alt+M / Alt+Shift+M cycle modes.
+
 ### Phase 5 exit criterion
 
 - Test matrix `sprint26-test-matrix.md` is green (TM-1 through TM-8 all pass).
 - Soak test TM-9 passes: app still connected next morning; reconnect cycles explicable (zero or tied to documented network events); no exceptions in trace; memory within 10% of baseline.
-- Sprint 26 is shippable — merge `sprint26/connection-fix` to `main` via a `--no-ff` merge commit with a summary of what changed and any notable soak observations.
+- Sprint 25 regression matrix (TM-R1 through TM-R6) all green, or deferred with explicit reason (e.g. TM-R5 deferred pending 8000-series hardware access).
+
+---
+
+## Phase 6 — CW processor engine
+
+The dedicated CW rendering engine that BUG-061 (CW word/prosign spacing) and the existing CW-processor FEATURE in `docs/planning/vision/JJFlex-TODO.md` both point at. Sprint 26 lands the foundation; CW practice mode + on-air keying + iambic/bug/straight-key build on it in later sprints.
+
+### Phase 6 deliverables
+
+- **Single-utterance sequence API.** Accept a sequence of elements (chars + prosigns + explicit word gaps) and emit one continuous waveform with precise PARIS-spec gaps throughout. Eliminates the inter-utterance gap artifact that makes "73 SK" run together today (back-to-back `PlayString("73")` + `PlaySK()` passes have queue/buffer latency between them, not standard PARIS 7-unit word space).
+- **Prosign bracket syntax in string input.** `"73 <SK>"` renders as "73" + joined SK prosign with a standard word space between them. `<AS>`, `<BT>`, `<AR>`, `<KN>` all supported. Engine resolves brackets to prosign elements internally.
+- **PARIS timing as the authoritative default.** Engine math operates in dit-units; WPM → dit-duration conversion is a single well-named function. Inter-character gap is 3 units; inter-word gap is 7 units. Prosigns have zero inter-character gap within the prosign.
+- **Unclamped WPM.** Remove the 30-WPM cap. CW experts run 35-45+; engine supports whatever is plausibly decodable (soft cap at 60 WPM for safety; no hard cap).
+- **Farnsworth timing.** Slow character-rate with normal inter-character spacing for learners. Configurable independent of word-rate.
+- **Envelope shaping.** Proper attack/release for click-free signals. Extends the `CwToneSampleProvider` work from Sprint 25's BUG-055 fix into the new engine.
+- **ISessionAudioSink target.** Engine emits samples through the session audio sink established in Phase 1 — not through a direct audio-output call. This is what makes the CW engine compatible with future per-session panning and multi-process isolation from day one.
+- **Migrate `MorseNotifier` / `EarconCwOutput` callers.** The new engine replaces the rendering internals; the notification surface (PlayCwAS, PlayCwBT, PlayCwMode, PlayCwSK, etc.) stays as a thin facade that calls the engine. No caller code outside the MorseNotifier facade changes.
+
+### Phase 6 exit criterion
+
+- "73 SK" renders as one continuous waveform with standard PARIS word spacing between "73" and the SK prosign — no perceptible inter-utterance gap artifact. Verified by ear against a W1AW practice stream at matched WPM.
+- Bracket syntax test: `"CQ CQ CQ DE K5NER K5NER K5NER <KN>"` renders correctly with proper spacing and joined KN prosign.
+- WPM 45 renders cleanly; WPM 15 with Farnsworth char-rate 20 renders with clear inter-character gaps but full-speed characters.
+- All Sprint 25 CW notification surfaces (AS, BT, mode-name, 73+SK, 73 de JJF+SK) still fire through the new engine with no caller-code changes.
+- BUG-061 resolved.
+
+---
+
+## Phase 7 — CW message dialog mode-gating
+
+Low-risk cleanup landing alongside the CW engine. Implements the existing FEATURE in `docs/planning/vision/JJFlex-TODO.md` — Jim-era `CWMessageAddDialog` / `CWMessageUpdateDialog` / related `CWMessages.vb` surfaces visible only when active slice mode is CW/CWL/CWU.
+
+### Phase 7 deliverables
+
+- **Investigation pass first.** Grep the codebase for every call site referencing `CWMessageAdd`, `CWMessageUpdate`, `CWMessages.vb`, and related dialog triggers. Enumerate which paths surface these dialogs today. Confirm none are load-bearing outside CW use cases (Jim may have had generality in mind that we shouldn't break).
+- **Mode-aware visibility.** Menu items, hotkey handlers, and toolbar triggers that surface CW message management respond to `DemodMode` changes. Visible when mode is CW variant; hidden otherwise.
+- **Default-hidden policy.** When no radio is connected or no slice is active, default to hidden (CW is not the dominant mode for most new connections).
+- **Screen reader hygiene.** Hidden menu items leave tab order. Hidden toolbar triggers do not announce at all (not "dimmed" — just absent) to minimize non-CW-operator noise.
+- **Preserve Jim's generality.** If investigation finds uses that aren't strictly CW-bound, either leave those paths visible across all modes OR move them to a mode-independent home (e.g. Ctrl+Tab action palette with mode-aware backend behavior), per Noel's note in the JJFlex-TODO FEATURE.
+
+### Phase 7 exit criterion
+
+- In CW mode: CW message management UI is reachable via menu / palette / hotkey.
+- In USB/LSB/AM/FM/DIGU/DIGL: CW message management UI is absent from menus, absent from screen-reader tab order, does not fire on attempted hotkeys.
+- Mode-switching (e.g. CW → USB) hides the UI live without requiring a restart.
+- No investigation finding is left unaddressed — either preserved as pre-refactor OR moved to a mode-independent surface with a documented rationale.
 
 ---
 
@@ -367,12 +463,23 @@ Sprint 26 is serial and single-track, so commits are on `sprint26/connection-fix
   - "Sprint 26 Phase 1: Add MockWanServer + 13 unit tests covering state machine"
   - "Sprint 26 Phase 1: Add SmartLinkSessionHarness console harness for integration testing"
 - **Phase 2 end:** 5 commits per the migration map above, each bisect-safe.
+- **Phase 2.5 end:** 1 commit per Phase 0.4-enumerated site rewired. "Sprint 26 Phase 2.5: Rewire [site] through coordinator" — plus a final "Sprint 26 Phase 2.5: BUG-062 verified resolved (two-client smoke test with Don)".
 - **Phase 3 end:** 2–3 commits:
   - "Sprint 26 Phase 3: Add status-bar binding to IWanSessionOwner state"
   - "Sprint 26 Phase 3: Add message dictionary for state transitions"
   - "Sprint 26 Phase 3: Live-region screen-reader announcements on state change"
 - **Phase 4 end:** 1 commit per session-level retry site deleted, grouped by file if sites are adjacent. "Sprint 26 Phase 4: Remove session-level retry band-aids from <file>"
-- **Phase 5 end:** 1 commit, "Sprint 26 Phase 5: Test matrix green; soak test passed overnight" — updates the test-matrix file; no code.
+- **Phase 5 end:** 1 commit, "Sprint 26 Phase 5: Test matrix green; soak test + Sprint 25 regression pass complete" — updates the test-matrix file; no code.
+- **Phase 6 end:** multiple commits as the CW engine lands:
+  - "Sprint 26 Phase 6: Define CW engine sequence + prosign APIs"
+  - "Sprint 26 Phase 6: Implement PARIS timing and WPM/Farnsworth model"
+  - "Sprint 26 Phase 6: Prosign bracket syntax parser"
+  - "Sprint 26 Phase 6: Envelope shaping (inherits BUG-055 fix)"
+  - "Sprint 26 Phase 6: Migrate MorseNotifier facade to new engine"
+  - "Sprint 26 Phase 6: BUG-061 verified resolved"
+- **Phase 7 end:** 2 commits:
+  - "Sprint 26 Phase 7: CW message dialog investigation findings (plan-doc update, no code)"
+  - "Sprint 26 Phase 7: Mode-gate CW message UI"
 
 **Don't batch commits across phases.** Phase boundaries are verification boundaries; a commit that crosses them is harder to review and harder to bisect.
 
@@ -411,6 +518,12 @@ If Sprint 26 hits trouble that can't be resolved in-session:
 **NG-10:** Do not refactor non-SmartLink connection paths. Direct-IP and local-network radio connections already work and are out of scope.
 
 **NG-11:** Do not retroactively update `CLAUDE.md`'s Release Process inside Sprint 26. The version-bump / NAS-publish changes from 2026-04-14 land in `CLAUDE.md` as a separate, intentional refresh.
+
+**NG-12:** Do not implement the MultiFlex time-slot scheduler (`project_multiflex_scheduling.md`) in Sprint 26. Basic MultiFlex has to demonstrably work first — scheduler sits on top of working client-sync + event-dispatch. Phase 2.5 fixes the foundation; scheduler is a later sprint.
+
+**NG-13:** Do not implement CW practice mode in Sprint 26. Phase 6 builds the CW engine foundation; practice mode (decoder + tutor + sending-grade feedback) is its own dedicated sprint that builds on the engine.
+
+**NG-14:** Do not implement on-air CW keying in Sprint 26. Phase 6 designs the engine with TX as a future destination (samples flow to `ISessionAudioSink`, which Sprint 28+ can route to TX pipeline), but no TX-side code lands this sprint.
 
 ---
 
@@ -454,14 +567,18 @@ These are design decisions likely resolved in-flight during Phase 1, flagged her
 
 Sprint is done when:
 
-1. Phase 0 findings are documented.
+1. Phase 0 findings are documented (including 0.4 MultiFlex event/client-sync enumeration).
 2. Phase 1 code lands, unit tests pass, integration harness demonstrates correctness in isolation.
 3. Phase 2 migration is merged, user-facing SmartLink behavior is indistinguishable from pre-refactor.
-4. Phase 3 UI ships with basic intelligent-disconnect messages and screen-reader announcements.
-5. Phase 4 cleanup verifies exactly one session-level retry mechanism exists (WanSessionOwner's monitor thread).
-6. Phase 5 soak test passes overnight with stable memory and no unexpected disconnects or exceptions.
-7. Test matrix in `sprint26-test-matrix.md` is green.
-8. No regressions in existing SmartLink behavior from the user's perspective.
+4. **Phase 2.5 BUG-062 verified resolved:** two-client MultiFlex smoke test with Don shows correct client list propagation, correct slice visibility, correct kick behavior (primary can kick, guest cannot), correct connect/disconnect announcements with correct callsign and action.
+5. Phase 3 UI ships with basic intelligent-disconnect messages and screen-reader announcements.
+6. Phase 4 cleanup verifies exactly one session-level retry mechanism exists (WanSessionOwner's monitor thread).
+7. Phase 5 soak test passes overnight with stable memory and no unexpected disconnects or exceptions.
+8. **Phase 5 Sprint 25 regression pass (TM-R1 through TM-R6) all green or deferred with explicit reason.**
+9. **Phase 6 CW engine lands:** BUG-061 verified resolved; all Sprint 25 CW notification surfaces still fire; bracket syntax + Farnsworth + unclamped WPM all functional.
+10. **Phase 7 CW message UI is mode-gated:** surfaces in CW variants only; investigation findings documented.
+11. Test matrix in `sprint26-test-matrix.md` is green.
+12. No regressions in existing SmartLink behavior from the user's perspective.
 
 When these are all true, Sprint 26 is shippable. Archive this plan to `docs/planning/agile/archive/`; promote any outstanding open questions to Sprint 27 or vision-doc backlog.
 

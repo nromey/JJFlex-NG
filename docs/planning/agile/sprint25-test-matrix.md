@@ -74,11 +74,11 @@
 
 ## SmartLink Multi-Account
 
-- [ ] **Default account (Don)**: Launch app, hit Remote. Should connect to Don's 6300 silently (no login page after first time).
-- [ ] **Switch to Justin**: Click Switch Account. In Manage SmartLink, select Justin, click Set Default. Should hear "Default account set to [Justin's name]."
-- [ ] **Connect Justin**: Hit Remote. Should discover Justin's 8400 (login page only on first use for Justin's profile).
-- [ ] **Switch back to Don**: Switch Account, select Don, Set Default. Hit Remote. Should connect to Don silently.
-- [ ] **Persistence**: Close app, relaunch, hit Remote. Should use whichever account was last Set Default.
+- [x] **Default account (Don)**: Launch app, hit Remote. Should connect to Don's 6300 silently (no login page after first time).
+- [x] **Switch to Justin**: Click Switch Account. In Manage SmartLink, select Justin, click Set Default. Should hear "Default account set to [Justin's name]."
+- [x] **Connect Justin**: Hit Remote. Should discover Justin's 8400 (login page only on first use for Justin's profile).
+- [x] **Switch back to Don**: Switch Account, select Don, Set Default. Hit Remote. Should connect to Don silently.
+- [x] **Persistence**: Close app, relaunch, hit Remote. Should use whichever account was last Set Default.
 
 ## NR Gating
 
@@ -91,15 +91,15 @@
 ## Screen Reader Matrix
 
 ### NVDA
-- [ ] Access keys on all dialog buttons (spot check 5 dialogs)
-- [ ] Menu toggle states (On/Off)
-- [ ] Focus-return context after dialog close
-- [ ] Action toolbar navigation
-- [ ] Slice Operations label reads correctly
-- [ ] Status Dialog holds selection on refresh
+- [x] Access keys on all dialog buttons (spot check 5 dialogs)
+- [x] Menu toggle states (On/Off)
+- [x] Focus-return context after dialog close
+- [x] Action toolbar navigation
+- [x] Slice Operations label reads correctly
+- [x] Status Dialog holds selection on refresh
 
 ### JAWS
-- [ ] Access keys on dialog buttons (spot check 3 dialogs)
-- [ ] Menu toggle states
-- [ ] Focus-return context
-- [ ] Action toolbar
+- [x] Access keys on dialog buttons (spot check 3 dialogs)
+- [x] Menu toggle states
+- [x] Focus-return context
+- [x] Action toolbar
