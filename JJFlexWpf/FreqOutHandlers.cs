@@ -1614,6 +1614,34 @@ public class FreqOutHandlers
     }
 
     /// <summary>
+    /// Sprint 26 Phase 8: public wrappers for menu access to tuning actions
+    /// that are also bound to hotkeys on the frequency field (C, PageUp/Down,
+    /// Shift+S). The "JJ Flexible in threes" pattern — every tuning action
+    /// reachable via field keypress, global hotkey, AND menu item.
+    /// </summary>
+    public void ToggleCoarseFineFromMenu()
+    {
+        _coarseMode = !_coarseMode;
+        string modeName = _coarseMode ? "Coarse" : "Fine";
+        Radios.ScreenReaderOutput.Speak(
+            $"{modeName}, {FormatStepForSpeech(CurrentTuneStep)}", VerbosityLevel.Terse, true);
+    }
+
+    /// <summary>Step up or down through the active step list (menu caller).</summary>
+    public void CycleStepFromMenu(int direction)
+    {
+        CycleStep(direction);
+    }
+
+    /// <summary>Announce current tuning mode + step (menu caller).</summary>
+    public void SpeakCurrentStepFromMenu()
+    {
+        string modeName = _coarseMode ? "Coarse" : "Fine";
+        Radios.ScreenReaderOutput.Speak(
+            $"{modeName}, {FormatStepForSpeech(CurrentTuneStep)}", VerbosityLevel.Terse, true);
+    }
+
+    /// <summary>
     /// Cycle through the active step list (coarse or fine depending on current mode).
     /// </summary>
     private void CycleStep(int direction)

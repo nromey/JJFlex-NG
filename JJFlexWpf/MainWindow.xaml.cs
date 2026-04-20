@@ -352,6 +352,47 @@ public partial class MainWindow : UserControl
     public string? GetPttStatusText() => _pttController?.GetSpokenStatus();
     public string? GetFilterEdgeStatus() => _freqOutHandlers?.FilterEdgeStatus;
 
+    // Sprint 26 Phase 8: menu → handler bridges for the expanded Slice > Tuning
+    // submenu. "JJ Flexible in threes" — field keypress + hotkey + menu. These
+    // delegate to FreqOutHandlers methods that also run on field keypress, so
+    // the menu path and the keyboard path share identical behavior.
+
+    /// <summary>Menu: toggle coarse/fine tuning mode (modern mode).</summary>
+    public void TuningMenuToggleCoarseFine()
+    {
+        if (ActiveUIMode == UIMode.Classic)
+        {
+            Radios.ScreenReaderOutput.Speak("Coarse and fine apply only in modern tuning mode",
+                Radios.VerbosityLevel.Terse, true);
+            return;
+        }
+        _freqOutHandlers?.ToggleCoarseFineFromMenu();
+    }
+
+    /// <summary>Menu: cycle through the active step list.</summary>
+    public void TuningMenuCycleStep(int direction)
+    {
+        if (ActiveUIMode == UIMode.Classic)
+        {
+            Radios.ScreenReaderOutput.Speak("Step sizes apply only in modern tuning mode",
+                Radios.VerbosityLevel.Terse, true);
+            return;
+        }
+        _freqOutHandlers?.CycleStepFromMenu(direction);
+    }
+
+    /// <summary>Menu: announce current tuning mode + step.</summary>
+    public void TuningMenuSpeakStep()
+    {
+        if (ActiveUIMode == UIMode.Classic)
+        {
+            Radios.ScreenReaderOutput.Speak("Classic tuning mode",
+                Radios.VerbosityLevel.Terse, true);
+            return;
+        }
+        _freqOutHandlers?.SpeakCurrentStepFromMenu();
+    }
+
     /// <summary>
     /// Returns tuning mode status for Speak Status, e.g. "coarse 1 kilohertz".
     /// </summary>
