@@ -95,6 +95,7 @@ The changelog (`docs/CHANGELOG.md`) is **user-facing** — it's read by hams, no
 - **Explain the *what*, not the *how***: "DSP toggles now tell you on or off" — not "Fixed async property pattern using local variable to capture toggled state before FlexLib round-trip."
 - **Screen reader details are OK**: Our users *are* screen reader users. "Your screen reader now announces the callsign" is fine. Just don't say "added AutomationProperties.Name to the DataGrid row template."
 - **Technical details live in planning docs**: Sprint plans, test matrices, `JJFlex-TODO.md`, and `Agent.md` are the developer record. The changelog is the user record.
+- **Bullets report user state, not developer action**: A bullet that starts with a past-tense verb ("Fixed X", "Added Y") reads as a developer log entry. Restructure to article + noun + state ("The X is now fixed", "Y is now available") so the subject is a thing the reader interacts with, not the developer's action on it. This centers the reader's current reality, not the developer's past timeline. Noun-phrase-starting bullets that already describe state ("Slice cycling no longer wraps", "The Status Dialog holds your place") are fine as-is — the rule specifically targets action-verb openers. Bolded label bullets (**SWR after tune now gets announced**, **Crash fix: Callouts NRE**) follow a separate label+em-dash pattern and don't need restructuring.
 
 ## Build Notes
 
@@ -206,23 +207,15 @@ Detection: Use `theRadio.Model`, `theRadio.DiversityIsAllowed`, `theRadio.MaxSli
 
 ### Version Bump Checklist (IMPORTANT!)
 
-**You MUST update BOTH files when bumping the version:**
+**Edit `JJFlexRadio.vbproj` only** — update this line:
 
-1. **`JJFlexRadio.vbproj`** - Update these three lines:
-   ```xml
-   <Version>4.1.X</Version>
-   <AssemblyVersion>4.1.X.0</AssemblyVersion>
-   <FileVersion>4.1.X.0</FileVersion>
-   ```
+```xml
+<Version>4.1.X</Version>
+```
 
-2. **`My Project\AssemblyInfo.vb`** - Update these three lines:
-   ```vb
-   <Assembly: AssemblyVersion("4.1.X.0")>
-   <Assembly: AssemblyFileVersion("4.1.X.0")>
-   <Assembly: AssemblyInformationalVersion("4.1.X")>
-   ```
+**Do NOT touch `My Project\AssemblyInfo.vb`.** Since the .NET 10 migration, version attributes are SDK-generated from the project file via `GenerateAssemblyInfo`. Only the vbproj's `<Version>` element matters. The 4-part build number (e.g. `4.1.16.42`) is computed automatically at build time from `<Version>` + `git rev-list --count HEAD` + `BUILDNUM_OFFSET`, so you never specify the 4th component by hand.
 
-**Why both?** The AssemblyInfo.vb attributes override the project file settings. If you only update the .vbproj, the compiled exe will have the OLD version number. This has confused multiple AI assistants (Claude, Codex, Gemini) - don't let it confuse you too!
+**Why this changed:** Pre-migration CLAUDE.md required updating both `.vbproj` AND `AssemblyInfo.vb` because the VB attributes overrode the project file. Post-migration, AssemblyInfo.vb no longer carries version attributes — they're SDK-generated. If you see older scripts or docs reference both files for version bumps, they're stale. Only the vbproj is the version source of truth now.
 
 ### Building Clean Installers
 
@@ -250,7 +243,7 @@ powershell -Command "(Get-Item 'bin\x64\Release\net10.0-windows\win-x64\JJFlexRa
 
 2. **Commit the version bump**:
    ```batch
-   git add JJFlexRadio.vbproj "My Project\AssemblyInfo.vb"
+   git add JJFlexRadio.vbproj
    git commit -m "Bump version to 4.1.X"
    ```
 
@@ -327,12 +320,28 @@ Content flows forward: nightly → stable → public. Nothing skips tiers. See `
 - Only run the nightly procedure after Noel confirms. Distribution is a deliberate act.
 
 **Dropbox layout:**
-- `C:\Users\nrome\Dropbox\JJFlexRadio\` — stable installers at top level
+- `C:\Users\nrome\Dropbox\JJFlexRadio\` — stable installers AND the latest end-of-day "daily" debug zip (top level)
 - `...\debug\` — shared debug nightlies + NOTES-YYYYMMDD.txt (all private testers read from here)
 - `...\don\` — Don-specific artifacts (his crash dumps, custom builds, saved configs)
 - `...\justin\` — Justin-specific artifacts (as he comes online as a tester)
 - `...\old\` — archived previous stables (for rollback)
 - `...\crash\` — user-submitted crash dumps
+
+**End-of-day "done developing" workflow (distinct from per-tester `--publish`):**
+
+When Noel says "done developing" or equivalent, that's the seal-the-day trigger. This is separate from the tester-broadcast nightly publish (`build-debug.bat --publish` to the `debug\` subfolder). End-of-day publishes a "daily" debug snapshot to the Dropbox TOP LEVEL — a single artifact that represents today's state, replacing any prior day's daily.
+
+1. **Promote latest debug zip to Dropbox top level as daily:** Run `publish-daily-to-dropbox.ps1`. Copies the newest debug zip from NAS `nightly\` to Dropbox top level, replacing any existing `JJFlex_*_debug*.zip` and `NOTES-*-debug*.txt` there. This is the easy-to-find "what's today's build?" artifact, distinct from the `debug\` subfolder tester distribution.
+2. **Memory backup:** `backup-memory-to-nas.ps1` snapshots `C:\Users\nrome\.claude\projects\c--dev-JJFlex-NG\memory\` to NAS `historical\memory\<date>\`. Ensures memory is durable across machine loss.
+3. **Private docs backup:** `backup-private-to-nas.ps1` snapshots `C:\Users\nrome\JJFlex-private\` to NAS `historical\private\<date>\`. Captures easter eggs, unlock codes, and other private-docs state.
+4. **Agent.md update:** Record what happened today and what's next, so the resume path for the next session is clear.
+5. **CLAUDE.md drift check:** If the day's work exposed stale guidance in CLAUDE.md (e.g. referenced a retired script, missed a new workflow), flag for update.
+
+**Key distinction — two layers of debug distribution:**
+- `build-debug.bat --publish` writes to Dropbox `debug\` subfolder. This is tester distribution — Don, Justin, etc. read from here. Can run multiple times a day if you have testers actively hammering a specific fix.
+- `publish-daily-to-dropbox.ps1` writes to Dropbox TOP LEVEL. This is the end-of-day seal — one artifact per dev day, the "this is where things stand tonight" marker. Not tester-directed; more like a convenient top-level pointer for anyone checking in.
+
+Both can coexist. Nightly `--publish` satisfies tester needs; end-of-day daily satisfies "what's the current state of the dev branch" without hunting through subfolders.
 
 ## Common Tasks
 

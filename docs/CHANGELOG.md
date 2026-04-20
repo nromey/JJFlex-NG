@@ -6,6 +6,14 @@ All notable changes to this project will be documented in this file. The opinion
 
 I've renamed the app to JJ Flexible Radio Access. The name reflects where we're headed — flexible radio control that puts accessibility first. Your settings, profiles, and everything else are exactly where you left them. No migration needed.
 
+### Headlines (skim here, details below)
+
+- **Neural Noise Reduction and Spectral Subtraction on every Flex radio — fuh free, man.** PC-side NR engines are now wired into the RX audio chain for every Flex, including the 6300 that's never had fancy DSP hardware. No license, no hardware, no catch. It's free. Because it's free. Fuh free.
+- **CW prosigns speak alongside your radio.** AS/BT for connect, mode names in Morse, 73 SK for the farewell. A second channel in the language CW operators are already wired for.
+- **Braille display status line.** Live radio state — frequency, mode, S-meter, SWR, power — on your refreshable braille display. First in ham software that we know of.
+- **SmartLink multi-account + port forwarding controls.** Save multiple SmartLink accounts and switch without re-login, plus a new Network tab for tough-NAT manual port forwarding. Things most SmartLink software doesn't let you do.
+- **Running on .NET 10 LTS.** Fresh platform, four years of runway, performance and accessibility-API improvements under the hood.
+
 ### You Decide How Much I Talk
 
 New verbosity system! Press Ctrl+Shift+V to cycle between three levels: Terse (just the essentials), Normal (what you're used to), and Verbose (everything, all the time). Your choice is saved per operator, so it's waiting for you next session. If you've ever wished the app would just shut up and let you operate, Terse mode is your new best friend. If you want every last detail, Verbose has you covered.
@@ -13,41 +21,53 @@ New verbosity system! Press Ctrl+Shift+V to cycle between three levels: Terse (j
 ### Slices Got Smarter
 
 - Removing a slice no longer confuses the app about which slice you're on. The VFO stays locked to the right slice even after you remove one.
-- The slice selector now shows you only the slices you actually own — no more seeing phantom slices from other MultiFlex stations.
+- The slice selector now shows you only the slices you actually own by default — cleaner list when you're solo, no more seeing phantom slices from other MultiFlex stations. (We're working on better visibility into other clients' slices for the next release — when another operator is on the same radio, you should be able to see what they've got going on.) Stay tuned for better usability coming down the pike.
 - Slice operations (add, remove, lock TX) are more reliable and give you better feedback about what just happened.
 
 ### Status Dialog: Rebuilt from Scratch
 
-Press Ctrl+Alt+S and you'll get a proper status dialog that shows everything about your radio at a glance. It refreshes live — frequency, mode, signal strength, TX state, all updating in real time. Your screen reader can read through it naturally, and it's organized by category so you can jump to what you care about. Way better than the old "speak everything at once" approach.
+Press Ctrl+Alt+S and you'll get a complete status dialog which will give you the skinny on operating conditions, frequency, and other important operating data that your Flex (cause that's the only radio we support now) advertises.  It refreshes live — frequency, mode, signal strength, TX state, all updating in real time, just use your up and down arrows to navigate through the info.  The status data is organized by category so you can jump to what you care about within the accessible list of status. We think this is way better than the old "speak everything at once" approach, though you can still get that any time with Ctrl+Shift+S if you want it.
 
 ### Audio Overhaul
 
 - The Audio tab in Settings now combines what used to be separate audio and meter tone controls into one unified tab. Less hunting, more adjusting.
-- Under the hood, the audio architecture now properly supports dual-channel audio for radios that have it.
+- Under the hood, the audio architecture now properly supports dual, and multi-channel audio for radios that have it.
 
 ### About Dialog Upgrade
 
-The About dialog now uses a modern web browser engine instead of the ancient one it was running on. It loads faster, renders properly, and won't randomly fail on systems with strict security policies.
+The About dialog now uses a modern web browser engine instead of the ancient one it was running on. It loads faster, renders properly, and won't randomly fail on systems with strict security policies. We will be using this dialog to deliver update notifications and notification settings as well as including links to our web page and support options all on the internal about page.
 
 ### 60-Meter Band Smarts
 
-Jump to a 60-meter channel and the app automatically switches you to USB — because that's what the FCC requires on those channelized frequencies. If you land on the digital segment, it'll set CW mode. No more accidentally transmitting in the wrong mode on 60 meters. You'll hear a quick announcement telling you what mode was set and which channel or segment you're on.
+You know what I hate about 60 meters? The channels, before I got my Flex, I was terrified to get onto 60, mainly because I was terrified that I'd be transmitting out of band. Fear no more Mr. NER, fear no more. Jump to a 60-meter channel and JJ Flexible Radio automatically switches you to USB — because that's what the FCC requires on those channelized frequencies in the U.S. If you land on the digital segment, it'll set CW mode. No more accidentally transmitting in the wrong mode on 60 meters. You'll hear a quick announcement telling you what mode was set and which channel or segment you're on. We will use the same approach for custom band segments that are available in other countries. This will have me and good ol Claude delving through pages and pages of radio regulations from lands near and far, but we're up for it, because we know that JJ Flexible will be a worldwide success once it lands in operator shacks worldwide.
 
 ### Audio Workshop Fix
 
-The Audio Workshop dialog's Tab key navigation was broken — you'd get stuck tabbing in circles inside each tab instead of being able to move between controls normally. Fixed. Tab now moves through controls the way you'd expect.
+The Audio Workshop dialog's Tab key navigation was broken — you'd get stuck tabbing in circles inside each tab instead of being able to move between controls normally, definitely no bueno.  Tab now moves through controls the way you'd expect a normally behaving application to act.
 
 ### DSP Level Minimums
 
-DSP controls like noise reduction level and noise blanker level now enforce sensible minimums. You won't accidentally set NR to zero and wonder why it's not doing anything — the minimum is set to a level where the feature actually works.
+DSP controls like radio based noise reduction level and noise blanker level now enforce sensible minimums for the flex-controlled algorithm you choose. You won't accidentally set NR to zero and wonder why it's not doing anything — the minimum is set to a level where the feature actually works.
 
 ### SmartLink Multi-Account Support
 
-Big one here. You can now save multiple SmartLink accounts and switch between them. If you use your buddy's radio via SmartLink and also have your own, you don't have to log in and out anymore. Each account gets its own saved session — switch accounts, hit Remote, and you're on the other radio. No re-entering passwords after the first login. The Switch Account button on the Radio Selector makes it easy, and Set Default in Manage SmartLink Accounts lets you pick which account Remote uses by default.
+Big one here. You can now save multiple SmartLink accounts and switch between them. If you use your buddy's radio via SmartLink and also have your own, you don't have to log in and out anymore. Each account gets its own saved session — switch accounts, hit Remote, and you're on the other radio. No re-entering passwords after the first login. The Switch Account button on the Radio Selector makes it easy, and Set Default in Manage SmartLink Accounts lets you pick which account Remote uses by default. Not even Flex does this stuff, so we're living on the edge here by giving you this capability, but that's when JJ Flexible shines, right at its honed technological edge.
+
+### See Who Else Is On the Radio (MultiFlex Client Management)
+
+When you connect to a radio that has multiple clients on it — MultiFlex, in Flex terminology — you can now see who's there. Radio menu → MultiFlex Clients opens a dialog listing every connected person, their station name, and which slices they own. Your own client is marked "(This client)" so you can tell yourself apart. Primary clients can kick guests from the same dialog if you need your radio back — selecting a client and pressing Disconnect will do the trick. Note: basic MultiFlex across two remote SmartLink clients still has some rough edges we're fixing in the next release — if you see odd slice visibility or missed connect/disconnect announcements, that's known and on the fix list.
+
+### SmartLink Port Forwarding Controls (for Tough Networks)
+
+SmartLink normally handles your port forwarding automatically through UPnP, but sometimes that path just doesn't work — you're behind restrictive NAT, your router doesn't support UPnP properly, or you've turned UPnP off for security reasons. Until now, your only option was wrestling with an inaccessible radio control tool to set it up manually. No longer. The new Network tab in Settings lets you configure port forwarding directly within JJ Flexible: specify the port, point SmartLink at it, done. For the security-minded operator or anyone on a network where UPnP just won't cooperate, you'll herald this as the best thing since sliced bread — a real game-changer, because it's the first step toward the complete radio-control-and-firmware-update pathway we're building right into JJ Flexible Radio. The next version rounds this out with full UPnP support, automatic hole-punch, and help docs that explain the whole setup in plain, accessible English. For now, if you need guidance on which ports to forward, check Flex Radio's SmartLink setup documentation and take note of what they say you need to open.
 
 ### Action Toolbar
 
 Press Ctrl+Tab anywhere and you get a quick popup with your most-used TX actions: ATU Tune, Tune Carrier, Transmit, and Speak Status. Arrow to what you want, hit Enter, done. Faster than hunting through menus when you need to hit that tuner right now.
+
+### Manual Tuner Carrier: Ctrl+Shift+T
+
+If you're using an external antenna tuner that needs a live TX carrier to tune against, press **Ctrl+Shift+T** to drop carrier at your configured tune power. Press again to kill it. The app speaks "Tune carrier on" and "Tune carrier off" each time you toggle, so you always know the TX state without looking. No more tabbing over to a Transmit button or digging through menus when you just need to dial in an external tuner. This one's a dedicated hotkey in addition to its Ctrl+Tab palette entry, for the operators who reach for it often.
 
 ### Every Button Tells You Its Shortcut
 
@@ -61,44 +81,111 @@ DSP toggles in the menu (NR, NB, ANF, meter tones, etc.) now say "Legacy NR: On"
 
 Ctrl+J then Shift+T mutes all alert sounds (earcons, beeps, confirmation tones) without touching meter tones. Handy when you want the meter tones for tuning but don't need the app dinging at you. Your preference is saved.
 
-### When Dialogs Close, You Know Where You Are
+### When Dialogs Close, You Know Where You're Operating
 
-Close any dialog and you'll hear a quick status announcement — "Listening on 14.175, USB, 20 meter band, slice A" — so your screen reader doesn't just say "pane" and leave you wondering.
+Close any of JJ Flexible Radio's dialogs and you'll hear a quick status announcement — "Listening on 14.175, USB, 20 meter band, slice A" — so your screen reader doesn't just say "pane" and leave you wondering, "where's the pain, man?"
 
 ### Frequency Entry Sounds (and a Secret or Two)
 
-When you type a frequency, you now get audio feedback on each digit. The default is a click, but there might be other options if you look hard enough. Also, confirming a frequency with Enter now plays a ding so you know it took.
+Type a frequency and you'll hear a click beep on each digit — straightforward confirmation that each keypress registered. Hit Enter to commit and a ding plays to tell you it took. The click is the default, visible right there in Settings → Audio → Frequency Entry Sound, and you can switch it off anytime if you'd rather type in silence. And if you poke around the app in the right way, you might stumble across a couple of alternative sound modes tucked away as little rewards for the curious — but that's all we'll say about those.
+
+### Ctrl+F: A Dedicated Frequency Entry Dialog
+
+New hotkey — Ctrl+F from anywhere opens a focused frequency entry dialog. Type the frequency you want, hit Enter, you're there. Escape cancels without changing anything. The dialog honors all the same typing sounds as the main frequency field, and it gives you cleaner feedback on band edges: if you try to tune somewhere you're not licensed or outside any amateur band, the dialog tells you before it commits. Better than quick-type in the main field when you want a distraction-free "just go here" moment.
 
 ### Braille Display Status Line
 
-If you have a braille display, the app now pushes a compact status line to it when you're on the main frequency field. S-meter, SWR, power, mode — packed into however many cells your display has. It only activates when you're on the home position and yields to NVDA when you navigate away. Configure cell count and which fields to show in Settings.
+If you have a braille display, the app now pushes a compact status line to it when you're on the main frequency field — or "home," as we call it, the spot where you'll spend most of your time operating. S-meter, SWR, power, mode — packed into however many cells your display supports. When your screen reader has something to say, the status line yields so you never miss an important message; it pops back into view a moment later once the screen reader's done. Configure your cell count and which fields to show under Settings → Audio tab.
 
-### Noise Reduction: More Options
+### Your App Speaks CW With You
 
-- NR Filter (NRF) is now exposed on 8000-series and Aurora radios alongside Neural NR and Spectral NR. Toggle with Ctrl+J, Shift+N.
-- Under the hood, we've built two PC-side noise reduction engines that will work on ANY Flex radio — even the 6300 that doesn't have the fancy DSP hardware. They're not wired into the audio chain yet (that's coming), but the infrastructure is ready.
+New this release — if you're a CW operator, the app punctuates major moments with proper Morse prosigns over your computer speaker. Think of it as your radio talking back in the same language it uses on the air.
+
+- **AS** (wait, standing by) plays alongside the "Connecting to [radio]" speech when you start a connection.
+- **BT** (break, ready to receive) plays when the radio is up and ready for you.
+- **CW for the mode name** plays in parallel with the mode announcement when you change modes — so switching to CW gives you both "CW" via speech and dah-di-dah-dit dah-dah in Morse. Same for the other modes — each gets its Morse letters played alongside the speech.
+- **73 SK** plays when you close the app — or **73 de JJF SK** if your speed is 25 WPM or above. A proper ham farewell.
+
+This isn't replacing speech — both channels play together, so you don't lose anything. You just get a second layer of feedback in the language CW operators are wired for. Turn it on in Settings → Audio → CW Notifications. You can adjust CW speed (WPM), sidetone frequency, and which prosigns you want to hear. Your preferences are saved per operator. Please note: purists may notice code jitter ... phrases that might run together, we're working on that for our next big release. The CW sidetone generation moved into its own dedicated engine this release, so the timing is cleaner and the tones are click-free. More polish coming.
+
+### Noise Reduction: More Options, For Every Radio
+
+- **The full on-radio NR trio is now exposed on 8000-series and Aurora radios** with their adjustable level settings wired up: Neural NR (Ctrl+J, R), Spectral NR (Ctrl+J, S), and NR Filter / NRF (Ctrl+J, Shift+N). All three run on the radio's own DSP hardware — zero PC cycles — and are license-gated per your Flex subscription. If your radio or license doesn't include them, the menu entries stay hidden rather than taunting you with things you can't use.
+- **and ... the Big one — the big cahuna! And yes, I'm sorry I hid this in a bullet hundreds of words after teasing the feature in our headlines, I'm a mean old amateur radio operator, what can I say? PC-side noise reduction is now live on every Flex radio**, including all 6000 series radios which don't have fancy DSP hardware and beefy processors on the radio. Two freely available, open source DSP noise processing engines are wired into the RX audio chain: a neural RNNoise engine and a spectral subtraction engine. These run on your computer, so they work whether your radio has built-in DSP or not. Toggle them from the DSP menu. No separate hardware, no license required — just more noise reduction available on more radios when you use JJ Flexible Radio. Note: you must have PC audio turned on to enjoy this feature. Also, expect these features to become much more customizable in our next public release.
+
+### More Mode Hotkeys: AM, FM, DIGU, DIGL
+
+Direct mode-change hotkeys were added for most popular modes in this release. You've had Alt+U (USB), Alt+L (LSB), and Alt+C (CW) for a while. Now you also get:
+
+- **Alt+A** = AM
+- **Alt+F** = FM
+- **Alt+D** = DIGU
+- **Alt+Shift+D** = DIGL
+- **alt+m** = cycle to the next mode in the Flex Radio mode stack
+- **alt+shift+m** = cycle to the previous mode  in your current Flex Radio mode stack.
+
+To make room on the keyboard, a couple of menu access keys and one hotkey had to move:
+
+- The Audio menu now lives on  **Alt+O** (it was Alt+A).
+- the Filter menu  now resides on **Alt+E** (it was Alt+F).
+- Activate DX Cluster functions is now **Alt+Shift+X** previously, it was Alt+D.
+
+The Slice → Mode submenu shows every hotkey next to its mode, so you can open the menu, arrow through, and learn the bindings without memorizing them. SAM, NFM, and DFM don't get direct hotkeys since though amateur operators use them, the ones that do probably won't mind cycling through the mode stack or using the menu to select their favorite mode. I'm partial to SAM myself, don't judge.
+
+### Your Title Bar Now Tells You the Essentials
+
+Press **Insert+T** anytime and your screen reader will read the title bar, which now carries live radio status — active slice letter, frequency, mode. It offers you a Quick glance option, available without even tabbing anywhere. Cool eh? Thought so! This stealthy title bar updates in real time as the radio changes state, so Insert+T always tells you where you are right now, not where you were a poll cycle age--old news.
+
+### Smarter Band Edge Speech
+
+We included a couple of  band-edge announcement improvements that we think you might learn to love:
+
+- Tuning across a band edge now announces which slice you're on: "Slice A, out of band" instead of just "out of band" — so if you have multiple slices open, you know which one tripped the warning.
+- First-tune after connect no longer fires a false-positive out-of-band warning while the radio is still handshaking its initial frequency.
+- Band-edge wrap behavior cleaned up so you can tune past an edge and back without spurious extra announcements.
+
+### Customizable Filter Presets
+
+The filter preset dialog can now be edited. Open it, tweak the widths for each mode, save. Your presets are stored per operator and loaded automatically. If you've got a preferred SSB wide that's different from our defaults, or a CW narrow you swear by for contest filtering, dial them in and forget about it, it's that easy friends!
+
+### Customizable Tuning Step Presets
+
+While we're talking presets, we had the same idea for tuning steps, no deja vou here. Normally, you can move through your step-size presets by press C (coarse/fine toggle). PageUp/PageDown in Modern mode are now editable per operator. If you want 5 Hz, 25 Hz, 100 Hz on CW instead of our defaults, make that happen and save it for posterity.
+
+### Panadapter Visibility Toggle
+
+We added a new toggle in Settings → Notifications: "Show panadapter." Hide the visual panadapter if you don't use it and want JJ Flex's window and tab chain to be more clean. Show it if a sighted helper is looking over your shoulder. Your choice is saved.
 
 ### Settings Improvements
 
-- Volume controls in Settings (master, alert, meter) are now accessible value controls instead of sliders. Up/Down adjusts by 5, your screen reader announces the value. Way better than a slider you can't tell the position of.
-- DSP state updates immediately when you change modes — no more waiting for the poll cycle to notice that switching from USB to CW changed your NR settings.
+- We added volume controls in Settings (master, alert, and meter volume). These settings are now accessible value controls instead of sliders. Press Up/Down to adjust by the configured step (5 by default), Shift+Up or Shift+Down for fine-grain 1-unit nudges, PageUp or PageDown for 10-unit jumps, and Home or End to snap to the minimum or maximum. Your screen reader announces the new value after every change.
+- The DSP state now updates immediately when you change modes — no more waiting for the poll cycle to notice that switching from USB to CW changed your NR settings.
 
 ### Quick Fixes
 
-- The Ctrl+Alt+S hotkey conflict between Start Scan and Status Dialog is resolved. Status Dialog keeps the hotkey; Start Scan is menu-only.
-- Slice cycling (Up/Down in the VFO field) no longer wraps around — it stops at the first and last slice and tells you.
-- The Status Dialog holds your place when it refreshes instead of jumping back to the top.
+- The Ctrl+Alt+S hotkey conflict between Start Scan and Status Dialog is now resolved. Status Dialog keeps the hotkey; Start Scan is menu-only.
+- Slice cycling (Up/Down in the VFO field) no longer wraps around — it stops at the first and last slice and tells you when you've reached the bottom of your list of slices.
+- The Status Dialog holds your place when it refreshes instead of jumping back to the top. This little change made the dialog usable rather than a dialog where, like an oasis in the desert, you'd never get to the end of the list.
 - The Slice Operations field now says "Slice A Operations: Volume 60" instead of the cryptic "Slice Audio 60."
 - Modern tuning mode no longer forces position-sensitive navigation in the frequency field.
+- **SWR after tune now gets announced** — after either using the internal Flex Radio ATU or an external tuner, when the ATU finishes tuning, or you turn off the manual tuning signal, the app waits for the SWR reading to settle and then speaks it. Previously it would read a stale or idle value. One of our star testers, Don (WA2IWC) asked for this one and he was right — it's a huge help knowing what the actual match came out to.
+- **Crash fix: Callouts NRE** — the app could crash when the radio fired a Callouts event in certain edge cases (Don hit this three times). Root cause was an inaccessible shadow field; fixed.
+- **Band-edge boundary lag in Ctrl+F** — typing a frequency and hitting Enter could let you commit just past a band edge before the boundary check caught it. Now the check fires before commit.
+- **CW prosign cancellation race** — if you triggered two CW prosigns in quick succession (for example, mode-change-then-disconnect), the second could cut off the first. A FIFO queue in the new CW engine handles this cleanly now.
 
 ### Under the Hood
 
-- The entire keyboard command system was rebuilt in C#. You won't notice any difference in how hotkeys work — that's the point. But it means we can add new keyboard features much faster going forward.
-- Access key announcements improved — your screen reader now tells you the keyboard shortcut for controls that have one.
+- **Running on .NET 10 LTS.** This release migrated from .NET 8 to .NET 10, the latest long-term-support release from Microsoft. Why'd we do it? Simple. You can now expect stability for years to come, better performance, better and more mature native accessibility support, and the groundwork for modern features we'll build on later.
+- The entire keyboard command system was rebuilt in C#. You won't notice any difference in how hotkeys work — that's the point. But it means we can add new keyboard features much more quickly and more reliably going forward.
+- Access key announcements are now greatly improved — your screen reader now tells you the keyboard shortcut for controls that have one.
 - Build system fixes ensure both 64-bit and 32-bit versions compile cleanly.
-- Per-account WebView2 browser profiles keep SmartLink sessions isolated — the cookie jar fix that makes multi-account work.
+- Per-account WebView2 browser profiles keep SmartLink sessions isolated — the cookie jar fix that makes multi-account work. If you want details, find me, this author loves talking about cookies and cookie jars.
 - Connection state changes now trigger menu rebuilds so you never get stuck on "Disconnect" when the connection failed.
-- ModeChanged event fires immediately so DSP controls update without waiting for the poll timer.
+- The ModeChanged event fires immediately so DSP controls update without waiting for the poll timer.
+- **CW prosign engine rewrite** with proper envelope shaping for click-free tones and a FIFO queue to prevent cancellation races. Builds the foundation for CW practice mode + on-air keying coming in a future release.
+- **The Discovery race condition is now fixed** — FlexLib's local-network radio discovery could throw a null-reference exception on the second Start/Stop cycle. Rare in practice but it would crash the discovery thread when it hit.
+- **New build-number versioning** — our installer filenames now include a 4-part version (e.g. `Setup JJFlex_4.1.16.42_x64.exe`). The fourth component auto-increments per commit, so every build you see is uniquely identified. This will make bug reports way easier to triangulate to a specific build and configuration, and it'll make our upcoming automatic crash reporter that much more robust.
+- RX antenna list wait bumped from 5s to 20s to handle slow SmartLink handshakes without falsely reporting "no antennas" upon connection to the radio.
 
 ## 4.1.15.1: stop the presses, we got us a breaker breaker emergency
 
