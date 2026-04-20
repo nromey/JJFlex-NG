@@ -95,11 +95,16 @@ public partial class MainWindow : UserControl
         // PlayCwSK signs off with proper ham etiquette at any speed: "73" + prosign SK
         // always; at speed >= 25 WPM, extend with "de JJF" app-callsign signature. Bare SK
         // is never sent -- feels abrupt, not how real operators sign off.
-        Radios.ScreenReaderOutput.PlayCwSK = async () =>
+        //
+        // Sprint 26 Phase 6 (BUG-061): use PlaySignoff so "73" + SK render as one
+        // continuous PARIS-spaced utterance. Previously two separate PlayString +
+        // PlaySK queue entries produced a small gap at the queue boundary that
+        // didn't match standard word spacing. PlaySignoff appends "<SK>" and
+        // emits the whole thing atomically.
+        Radios.ScreenReaderOutput.PlayCwSK = () =>
         {
             string prefix = _morseNotifier.SpeedWpm >= 25 ? "73 de JJF" : "73";
-            await _morseNotifier.PlayString(prefix);
-            await _morseNotifier.PlaySK();
+            return _morseNotifier.PlaySignoff(prefix);
         };
         Radios.ScreenReaderOutput.PlayCwMode = (mode) => _morseNotifier.PlayString(mode);
 
@@ -117,7 +122,11 @@ public partial class MainWindow : UserControl
             {
                 var userConfig = AudioOutputConfig.Load(baseConfigDir);
                 _morseNotifier.SidetoneHz = Math.Clamp(userConfig.CwSidetoneHz, 400, 1200);
-                _morseNotifier.SpeedWpm = Math.Clamp(userConfig.CwSpeedWpm, 10, 30);
+                // Sprint 26 Phase 6: soft cap raised from 30 to 60 WPM. CW experts
+                // operate at 35-45+ WPM and the notifier's PARIS math handles
+                // anything decodable. Minimum stays at 10 WPM — below that the
+                // dit lengths become UI-distracting slow.
+                _morseNotifier.SpeedWpm = Math.Clamp(userConfig.CwSpeedWpm, 10, 60);
                 Radios.ScreenReaderOutput.CwNotificationsEnabled = userConfig.CwNotificationsEnabled;
                 Radios.ScreenReaderOutput.CwModeAnnounceEnabled = userConfig.CwModeAnnounce;
             }
@@ -432,7 +441,7 @@ public partial class MainWindow : UserControl
         if (CurrentAudioConfig != null)
         {
             _morseNotifier.SidetoneHz = Math.Clamp(CurrentAudioConfig.CwSidetoneHz, 400, 1200);
-            _morseNotifier.SpeedWpm = Math.Clamp(CurrentAudioConfig.CwSpeedWpm, 10, 30);
+            _morseNotifier.SpeedWpm = Math.Clamp(CurrentAudioConfig.CwSpeedWpm, 10, 60);
             Radios.ScreenReaderOutput.CwNotificationsEnabled = CurrentAudioConfig.CwNotificationsEnabled;
             Radios.ScreenReaderOutput.CwModeAnnounceEnabled = CurrentAudioConfig.CwModeAnnounce;
         }
@@ -1858,7 +1867,7 @@ public partial class MainWindow : UserControl
 
             // Apply CW notification config
             _morseNotifier.SidetoneHz = Math.Clamp(CurrentAudioConfig.CwSidetoneHz, 400, 1200);
-            _morseNotifier.SpeedWpm = Math.Clamp(CurrentAudioConfig.CwSpeedWpm, 10, 30);
+            _morseNotifier.SpeedWpm = Math.Clamp(CurrentAudioConfig.CwSpeedWpm, 10, 60);
             Radios.ScreenReaderOutput.CwNotificationsEnabled = CurrentAudioConfig.CwNotificationsEnabled;
             Radios.ScreenReaderOutput.CwModeAnnounceEnabled = CurrentAudioConfig.CwModeAnnounce;
 
