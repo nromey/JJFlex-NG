@@ -962,11 +962,12 @@ namespace Radios
 
                 PCAudio = false;
 
-                if (RemoteRig)
-                {
-                    wan.Disconnect();
-                    wan = null;
-                }
+                // Sprint 26 Phase 4: SmartLink session is owned by the coordinator
+                // and lives across radio connect/disconnect cycles. FlexBase no
+                // longer tears down the session here; the user's next connect
+                // reuses the live session (faster, fewer SSL handshakes, and
+                // exactly the ownership fix that motivated this sprint).
+
                 theRadio = null;
             }
         }
@@ -1081,30 +1082,10 @@ namespace Radios
             oldRadio.UpdateGuiClientsList(newGuiClients: newRadio.GuiClients);
         }
 
-        // Sprint 26 Phase 2: `wan` field, `PreserveWanForRetry`, and `RestoreWanFromRetry`
-        // stay in place for Phase 4 to delete alongside the matching Sprint 25 retry
-        // band-aids. The field is no longer written — new code uses the coordinator.
-        private WanServer wan;
-
-        /// <summary>
-        /// Detach the WAN connection so it survives Dispose(). Sprint 25 retry
-        /// band-aid — Phase 4 deletes this and the matching caller in globals.vb.
-        /// </summary>
-        public WanServer PreserveWanForRetry()
-        {
-            var preserved = wan;
-            wan = null; // prevent Dispose from killing it
-            return preserved;
-        }
-
-        /// <summary>
-        /// Attach a WAN connection from a previous FlexBase instance. Sprint 25
-        /// retry band-aid — Phase 4 deletion target.
-        /// </summary>
-        public void RestoreWanFromRetry(WanServer preservedWan)
-        {
-            wan = preservedWan;
-        }
+        // Sprint 26 Phase 4 deleted the `wan` field and the PreserveWanForRetry /
+        // RestoreWanFromRetry methods. The SmartLink session now lives inside
+        // SmartLinkServices.Coordinator and survives radio connect/disconnect
+        // cycles by design — the preserve/restore band-aid is no longer needed.
 
         // SmartLink account manager for saved credentials
         private static SmartLinkAccountManager _accountManager;
@@ -1770,11 +1751,9 @@ namespace Radios
                     Disconnect();
                 }
 
-                if (wan != null)
-                {
-                    wan.Disconnect();
-                    wan = null;
-                }
+                // Sprint 26 Phase 4: coordinator owns session lifecycle; FlexBase
+                // no longer tears down WanServer on Dispose. App-shutdown wiring
+                // should Dispose the coordinator itself.
 
                 if (_apiInit)
                 {
@@ -6846,7 +6825,6 @@ namespace Radios
             Tracing.TraceLine("Flex constructor", TraceLevel.Info);
             theRadio = null;
             _apiInit = false;
-            wan = null;
 
             Callouts = p;
             FormatFreq = p.FormatFreq;
