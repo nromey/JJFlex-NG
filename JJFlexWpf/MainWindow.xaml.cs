@@ -147,7 +147,16 @@ public partial class MainWindow : UserControl
             var session = Radios.SmartLink.SmartLinkServices.Coordinator.ActiveSession;
             int attempts = session?.ReconnectAttemptCount ?? 0;
             var lastErr = session?.LastError;
-            string message = Radios.SmartLink.SessionStatusMessages.ForStatus(status, attempts, lastErr);
+            // Sprint 27 Track D — pass NetworkTest context + account mode into
+            // the richer message resolver so failure states get specific
+            // overlays ("UPnP didn't take", "NAT symmetric", etc.) instead of
+            // a generic "Reconnecting" line.
+            var report = session?.MostRecentNetworkReport;
+            var mode = RigControl?.CurrentAccountConnectionMode
+                       ?? Radios.SmartLinkConnectionMode.ManualPortForwardOnly;
+            bool verbose = Radios.SmartLink.DiagnosticVerbosityPreference.Verbose;
+            string message = Radios.SmartLink.SessionStatusMessages.ForStatusRich(
+                status, attempts, lastErr, report, mode, verbose);
             // StatusChanged runs on the session monitor thread; marshal to UI.
             Dispatcher.BeginInvoke(new Action(() =>
             {

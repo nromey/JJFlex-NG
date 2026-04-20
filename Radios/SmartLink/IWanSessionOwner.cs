@@ -156,6 +156,15 @@ namespace Radios.SmartLink
         NetworkDiagnosticReport? GetLastNetworkReport(string radioSerial);
 
         /// <summary>
+        /// Sprint 27 Track D — most recent NetworkTest report across any
+        /// radio on this session, by report timestamp. Used by the status-
+        /// announcement path that doesn't know a specific serial (e.g., a
+        /// disconnect event that didn't tell us which radio dropped). Null
+        /// when no probe has ever completed on this session.
+        /// </summary>
+        NetworkDiagnosticReport? MostRecentNetworkReport { get; }
+
+        /// <summary>
         /// Sprint 27 Track C — fires on the SmartLink listener thread
         /// whenever a NetworkTest probe completes (fresh or late). UI
         /// consumers must marshal to the dispatcher thread before touching

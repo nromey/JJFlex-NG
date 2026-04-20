@@ -199,6 +199,8 @@ namespace Radios.SmartLink
             return _networkTestRunner.GetLastReport(radioSerial);
         }
 
+        public NetworkDiagnosticReport? MostRecentNetworkReport => _networkTestRunner.MostRecent;
+
         private void OnNetworkReportReady(object? sender, NetworkDiagnosticReport report)
         {
             NetworkReportReady?.Invoke(this, report);

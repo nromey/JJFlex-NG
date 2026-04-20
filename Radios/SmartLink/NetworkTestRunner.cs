@@ -177,6 +177,30 @@ namespace Radios.SmartLink
         }
 
         /// <summary>
+        /// Sprint 27 Track D — most recent cached report by timestamp across
+        /// all cached serials on this runner. Null when nothing has ever been
+        /// probed. Used by status-announcement paths that don't know a serial.
+        /// </summary>
+        public NetworkDiagnosticReport? MostRecent
+        {
+            get
+            {
+                lock (_gate)
+                {
+                    NetworkDiagnosticReport? best = null;
+                    foreach (var entry in _cache.Values)
+                    {
+                        if (best == null || entry.Report.TimestampUtc > best.TimestampUtc)
+                        {
+                            best = entry.Report;
+                        }
+                    }
+                    return best;
+                }
+            }
+        }
+
+        /// <summary>
         /// Invalidate cache entries so the next <see cref="RunAsync"/> is
         /// forced to probe fresh. Pass null to clear every entry (e.g. when
         /// the user switches accounts); pass a serial to clear just that
