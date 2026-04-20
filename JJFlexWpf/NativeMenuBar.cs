@@ -939,8 +939,30 @@ public class NativeMenuBar : IDisposable
             // Slice management
             BuildSliceItems(slice);
 
-            // Tuning
+            // Tuning — Sprint 26 Phase 8 expansion per Don's 2026-04-20 request.
+            // "JJ Flexible in threes" pattern: every action on this submenu is
+            // also reachable as a field keypress (on the FreqOut) or a global
+            // hotkey. The menu is the third, discovery-friendly surface.
             var tuningSub = AddSubmenu(slice, "Tuning");
+
+            // Classic/Modern mode toggle — also on Tools menu; duplicated here
+            // so operators looking for "tuning" don't have to know it lives
+            // under Tools.
+            AddChecked(tuningSub, "Classic Tuning Mode\tCtrl+Shift+M",
+                () => _window.ToggleUIMode(),
+                () => _window.ActiveUIMode == MainWindow.UIMode.Classic);
+
+            // Modern-mode-only tuning actions. In classic mode these are no-ops
+            // at the handler level (classic uses digit-position tuning); we still
+            // list them on the menu because menu discoverability matters even
+            // when the current mode doesn't use them.
+            AddWired(tuningSub, "Toggle Coarse/Fine", () => _window.TuningMenuToggleCoarseFine());
+            AddWired(tuningSub, "Step Size Larger\tPage Up", () => _window.TuningMenuCycleStep(+1));
+            AddWired(tuningSub, "Step Size Smaller\tPage Down", () => _window.TuningMenuCycleStep(-1));
+            AddWired(tuningSub, "Speak Current Step\tShift+S", () => _window.TuningMenuSpeakStep());
+
+            AddSep(tuningSub);
+
             AddWired(tuningSub, "RIT On/Off", () =>
             {
                 if (Rig == null) { SpeakNoRadio(); return; }

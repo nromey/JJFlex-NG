@@ -554,7 +554,8 @@ namespace JJFlexWpf.Dialogs
             _audioConfig.CwNotificationsEnabled = CwNotificationsCheck.IsChecked == true;
             if (int.TryParse(CwSidetoneBox.Text, out int sidetone) && sidetone >= 400 && sidetone <= 1200)
                 _audioConfig.CwSidetoneHz = sidetone;
-            if (int.TryParse(CwSpeedBox.Text, out int cwSpeed) && cwSpeed >= 10 && cwSpeed <= 30)
+            // Sprint 26 Phase 6: soft cap raised from 30 to 60 WPM for CW experts.
+            if (int.TryParse(CwSpeedBox.Text, out int cwSpeed) && cwSpeed >= 10 && cwSpeed <= 60)
                 _audioConfig.CwSpeedWpm = cwSpeed;
             _audioConfig.CwModeAnnounce = CwModeAnnounceCheck.IsChecked == true;
 

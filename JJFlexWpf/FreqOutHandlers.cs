@@ -1042,7 +1042,15 @@ public class FreqOutHandlers
 
     /// <summary>
     /// Slice Operations field handler — per-slice volume, pan, and mute.
-    /// Up/Down = volume, PageUp/PageDown = pan, M/Space = mute toggle.
+    /// Up/Down = volume, PageUp/PageDown = pan, Space = mute toggle.
+    ///
+    /// <para>
+    /// Sprint 26 Phase 8 Jim-parity: letter shortcuts match Jim's original
+    /// slice-status-row vocabulary. <c>S</c> sets sound (unmute), <c>M</c>
+    /// sets mute (explicit), <c>Space</c> toggles. Setting is idempotent
+    /// — pressing <c>S</c> when already sounding re-announces the state
+    /// for confirmation.
+    /// </para>
     /// </summary>
     public void AdjustSliceOps(FrequencyDisplay.DisplayField field, KeyEventArgs e)
     {
@@ -1074,8 +1082,9 @@ public class FreqOutHandlers
                 e.Handled = true;
                 break;
             default:
-                if (ch == 'M' || ch == ' ')
+                if (ch == ' ')
                 {
+                    // Toggle mute — fastest path, Jim's "space bar" pattern.
                     bool newMute = !Rig.SliceMute;
                     Rig.SliceMute = newMute;
                     if (newMute) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
@@ -1083,6 +1092,60 @@ public class FreqOutHandlers
                     Radios.ScreenReaderOutput.Speak(
                         newMute ? $"Slice {letter} muted" : $"Slice {letter} unmuted",
                         VerbosityLevel.Terse, true);
+                    e.Handled = true;
+                }
+                else if (ch == 'M')
+                {
+                    // Jim parity: explicit mute (idempotent — re-announces if already muted).
+                    Rig.SliceMute = true;
+                    EarconPlayer.FeatureOnTone();
+                    string letter = Rig.VFOToLetter(vfo);
+                    Radios.ScreenReaderOutput.Speak($"Slice {letter} muted", VerbosityLevel.Terse, true);
+                    e.Handled = true;
+                }
+                else if (ch == 'S')
+                {
+                    // Jim parity: explicit sound / unmute (idempotent).
+                    Rig.SliceMute = false;
+                    EarconPlayer.FeatureOffTone();
+                    string letter = Rig.VFOToLetter(vfo);
+                    Radios.ScreenReaderOutput.Speak($"Slice {letter} sounding", VerbosityLevel.Terse, true);
+                    e.Handled = true;
+                }
+                else if (ch == 'A')
+                {
+                    // Jim parity: make this slice the active (RX) slice. Redundant with
+                    // the Slice-selector field's cycling, but matches Jim's muscle-memory
+                    // vocabulary so operators used to JJ Flex 3 don't have to relearn.
+                    if (Rig.ValidVFO(vfo))
+                    {
+                        Rig.RXVFO = vfo;
+                        string letter = Rig.VFOToLetter(vfo);
+                        Radios.ScreenReaderOutput.Speak($"Slice {letter} active", VerbosityLevel.Terse, true);
+                    }
+                    e.Handled = true;
+                }
+                else if (ch == 'T')
+                {
+                    // Jim parity: make this slice the TX slice.
+                    if (Rig.CanTransmit && Rig.ValidVFO(vfo))
+                    {
+                        Rig.TXVFO = vfo;
+                        string letter = Rig.VFOToLetter(vfo);
+                        Radios.ScreenReaderOutput.Speak($"Slice {letter} transmit", VerbosityLevel.Terse, true);
+                    }
+                    e.Handled = true;
+                }
+                else if (ch == 'X')
+                {
+                    // Jim parity: transceive — set both RX and TX to this slice.
+                    if (Rig.ValidVFO(vfo))
+                    {
+                        Rig.RXVFO = vfo;
+                        if (Rig.CanTransmit) Rig.TXVFO = vfo;
+                        string letter = Rig.VFOToLetter(vfo);
+                        Radios.ScreenReaderOutput.Speak($"Slice {letter} transceive", VerbosityLevel.Terse, true);
+                    }
                     e.Handled = true;
                 }
                 break;
@@ -1548,6 +1611,34 @@ public class FreqOutHandlers
                 }
                 break;
         }
+    }
+
+    /// <summary>
+    /// Sprint 26 Phase 8: public wrappers for menu access to tuning actions
+    /// that are also bound to hotkeys on the frequency field (C, PageUp/Down,
+    /// Shift+S). The "JJ Flexible in threes" pattern — every tuning action
+    /// reachable via field keypress, global hotkey, AND menu item.
+    /// </summary>
+    public void ToggleCoarseFineFromMenu()
+    {
+        _coarseMode = !_coarseMode;
+        string modeName = _coarseMode ? "Coarse" : "Fine";
+        Radios.ScreenReaderOutput.Speak(
+            $"{modeName}, {FormatStepForSpeech(CurrentTuneStep)}", VerbosityLevel.Terse, true);
+    }
+
+    /// <summary>Step up or down through the active step list (menu caller).</summary>
+    public void CycleStepFromMenu(int direction)
+    {
+        CycleStep(direction);
+    }
+
+    /// <summary>Announce current tuning mode + step (menu caller).</summary>
+    public void SpeakCurrentStepFromMenu()
+    {
+        string modeName = _coarseMode ? "Coarse" : "Fine";
+        Radios.ScreenReaderOutput.Speak(
+            $"{modeName}, {FormatStepForSpeech(CurrentTuneStep)}", VerbosityLevel.Terse, true);
     }
 
     /// <summary>

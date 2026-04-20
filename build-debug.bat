@@ -149,6 +149,30 @@ echo Built exe version : %EXEVER%  (matches expected)
 echo.
 
 REM ---------------------------------------------------------------------------
+REM Bundle tools — Debug builds include SmartLinkSessionHarness (Sprint 26).
+REM The harness lives outside the main bin dir; copy it into a `tools\harness\`
+REM subfolder of the main bin dir so the single zip below picks it up.
+REM Release installers DO NOT go through this path and therefore do not bundle
+REM the harness — build-installers.bat builds the vbproj only, not the sln.
+REM ---------------------------------------------------------------------------
+set "HARNESS_SRC=tools\SmartLinkSessionHarness\bin\x64\Debug\net10.0-windows"
+set "HARNESS_DST=%BIN_DIR%\tools\harness"
+if exist "%HARNESS_SRC%\SmartLinkSessionHarness.exe" (
+    echo Bundling harness  : %HARNESS_SRC%\ -> %HARNESS_DST%\
+    if not exist "%HARNESS_DST%" mkdir "%HARNESS_DST%"
+    xcopy /Y /Q /E "%HARNESS_SRC%\*" "%HARNESS_DST%\" >nul
+    REM Also copy the harness README so testers see usage docs alongside the exe.
+    if exist "tools\SmartLinkSessionHarness\README.md" (
+        copy /Y "tools\SmartLinkSessionHarness\README.md" "%HARNESS_DST%\README.md" >nul
+    )
+) else (
+    echo WARNING: harness exe not found at %HARNESS_SRC% — proceeding without it.
+    echo   ^(sln build should produce it; check that SmartLinkSessionHarness.csproj
+    echo   is still in JJFlexRadio.sln.^)
+)
+echo.
+
+REM ---------------------------------------------------------------------------
 REM Zip + NOTES
 REM ---------------------------------------------------------------------------
 set "STAMP="

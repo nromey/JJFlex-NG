@@ -95,11 +95,16 @@ public partial class MainWindow : UserControl
         // PlayCwSK signs off with proper ham etiquette at any speed: "73" + prosign SK
         // always; at speed >= 25 WPM, extend with "de JJF" app-callsign signature. Bare SK
         // is never sent -- feels abrupt, not how real operators sign off.
-        Radios.ScreenReaderOutput.PlayCwSK = async () =>
+        //
+        // Sprint 26 Phase 6 (BUG-061): use PlaySignoff so "73" + SK render as one
+        // continuous PARIS-spaced utterance. Previously two separate PlayString +
+        // PlaySK queue entries produced a small gap at the queue boundary that
+        // didn't match standard word spacing. PlaySignoff appends "<SK>" and
+        // emits the whole thing atomically.
+        Radios.ScreenReaderOutput.PlayCwSK = () =>
         {
             string prefix = _morseNotifier.SpeedWpm >= 25 ? "73 de JJF" : "73";
-            await _morseNotifier.PlayString(prefix);
-            await _morseNotifier.PlaySK();
+            return _morseNotifier.PlaySignoff(prefix);
         };
         Radios.ScreenReaderOutput.PlayCwMode = (mode) => _morseNotifier.PlayString(mode);
 
@@ -117,7 +122,11 @@ public partial class MainWindow : UserControl
             {
                 var userConfig = AudioOutputConfig.Load(baseConfigDir);
                 _morseNotifier.SidetoneHz = Math.Clamp(userConfig.CwSidetoneHz, 400, 1200);
-                _morseNotifier.SpeedWpm = Math.Clamp(userConfig.CwSpeedWpm, 10, 30);
+                // Sprint 26 Phase 6: soft cap raised from 30 to 60 WPM. CW experts
+                // operate at 35-45+ WPM and the notifier's PARIS math handles
+                // anything decodable. Minimum stays at 10 WPM — below that the
+                // dit lengths become UI-distracting slow.
+                _morseNotifier.SpeedWpm = Math.Clamp(userConfig.CwSpeedWpm, 10, 60);
                 Radios.ScreenReaderOutput.CwNotificationsEnabled = userConfig.CwNotificationsEnabled;
                 Radios.ScreenReaderOutput.CwModeAnnounceEnabled = userConfig.CwModeAnnounce;
             }
@@ -126,7 +135,46 @@ public partial class MainWindow : UserControl
         {
             Debug.WriteLine($"MainWindow ctor: user-scope CW config load failed: {ex.Message}");
         }
+
+        // Sprint 26 Phase 3: announce SmartLink session status transitions via screen
+        // reader. The coordinator lives behind SmartLinkServices; we subscribe to its
+        // ActiveSessionChanged event so that as sessions come and go (N=1 today, N>1
+        // with tabs in Sprint 28+) we rebind the per-session StatusChanged handler.
+        // All speech is marshalled to the UI thread because StatusChanged fires on
+        // the session owner's monitor thread.
+        _sessionStatusHandler = (s, status) =>
+        {
+            var session = Radios.SmartLink.SmartLinkServices.Coordinator.ActiveSession;
+            int attempts = session?.ReconnectAttemptCount ?? 0;
+            var lastErr = session?.LastError;
+            string message = Radios.SmartLink.SessionStatusMessages.ForStatus(status, attempts, lastErr);
+            // StatusChanged runs on the session monitor thread; marshal to UI.
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                Radios.ScreenReaderOutput.Speak(message, Radios.VerbosityLevel.Terse);
+            }));
+        };
+        Radios.SmartLink.SmartLinkServices.Coordinator.ActiveSessionChanged += (s, newSession) =>
+        {
+            if (_subscribedSession != null)
+            {
+                _subscribedSession.StatusChanged -= _sessionStatusHandler;
+                _subscribedSession = null;
+            }
+            if (newSession != null)
+            {
+                _subscribedSession = newSession;
+                newSession.StatusChanged += _sessionStatusHandler;
+            }
+        };
     }
+
+    // Sprint 26 Phase 3: tracks the session we're currently subscribed to so we can
+    // unsubscribe cleanly when ActiveSession changes. Only one subscription at a time
+    // (matches the N=1 coordinator reality for Sprint 26; Sprint 28+ tabbed UI will
+    // need per-session subscriptions for each tab).
+    private Radios.SmartLink.IWanSessionOwner? _subscribedSession;
+    private readonly EventHandler<Radios.SmartLink.SessionStatus> _sessionStatusHandler;
 
     /// <summary>
     /// Main initialization sequence — replaces Form1_Load.
@@ -304,6 +352,47 @@ public partial class MainWindow : UserControl
     public string? GetPttStatusText() => _pttController?.GetSpokenStatus();
     public string? GetFilterEdgeStatus() => _freqOutHandlers?.FilterEdgeStatus;
 
+    // Sprint 26 Phase 8: menu → handler bridges for the expanded Slice > Tuning
+    // submenu. "JJ Flexible in threes" — field keypress + hotkey + menu. These
+    // delegate to FreqOutHandlers methods that also run on field keypress, so
+    // the menu path and the keyboard path share identical behavior.
+
+    /// <summary>Menu: toggle coarse/fine tuning mode (modern mode).</summary>
+    public void TuningMenuToggleCoarseFine()
+    {
+        if (ActiveUIMode == UIMode.Classic)
+        {
+            Radios.ScreenReaderOutput.Speak("Coarse and fine apply only in modern tuning mode",
+                Radios.VerbosityLevel.Terse, true);
+            return;
+        }
+        _freqOutHandlers?.ToggleCoarseFineFromMenu();
+    }
+
+    /// <summary>Menu: cycle through the active step list.</summary>
+    public void TuningMenuCycleStep(int direction)
+    {
+        if (ActiveUIMode == UIMode.Classic)
+        {
+            Radios.ScreenReaderOutput.Speak("Step sizes apply only in modern tuning mode",
+                Radios.VerbosityLevel.Terse, true);
+            return;
+        }
+        _freqOutHandlers?.CycleStepFromMenu(direction);
+    }
+
+    /// <summary>Menu: announce current tuning mode + step.</summary>
+    public void TuningMenuSpeakStep()
+    {
+        if (ActiveUIMode == UIMode.Classic)
+        {
+            Radios.ScreenReaderOutput.Speak("Classic tuning mode",
+                Radios.VerbosityLevel.Terse, true);
+            return;
+        }
+        _freqOutHandlers?.SpeakCurrentStepFromMenu();
+    }
+
     /// <summary>
     /// Returns tuning mode status for Speak Status, e.g. "coarse 1 kilohertz".
     /// </summary>
@@ -393,7 +482,7 @@ public partial class MainWindow : UserControl
         if (CurrentAudioConfig != null)
         {
             _morseNotifier.SidetoneHz = Math.Clamp(CurrentAudioConfig.CwSidetoneHz, 400, 1200);
-            _morseNotifier.SpeedWpm = Math.Clamp(CurrentAudioConfig.CwSpeedWpm, 10, 30);
+            _morseNotifier.SpeedWpm = Math.Clamp(CurrentAudioConfig.CwSpeedWpm, 10, 60);
             Radios.ScreenReaderOutput.CwNotificationsEnabled = CurrentAudioConfig.CwNotificationsEnabled;
             Radios.ScreenReaderOutput.CwModeAnnounceEnabled = CurrentAudioConfig.CwModeAnnounce;
         }
@@ -702,7 +791,16 @@ public partial class MainWindow : UserControl
         LastNonLogMode = newMode;
         ApplyUIMode(newMode);
         SaveUIModeCallback?.Invoke(newMode);
-        Radios.ScreenReaderOutput.Speak($"{newMode} tuning mode", VerbosityLevel.Terse);
+
+        // Sprint 26 Phase 8: mode-change announcement includes the brief tuning-key
+        // summary for the new mode. Addresses Don's discoverability gap — without
+        // this, operators toggling modes have no cue that the keys have changed.
+        // Verbose on first-focus-after-load would annoy regular users; once-per-
+        // mode-switch is the right cadence.
+        string hint = newMode == UIMode.Classic
+            ? "Classic tuning mode. Cursor on a digit, up down to tune. Space on RIT or XIT to activate."
+            : "Modern tuning mode. Up down tune, C toggle coarse and fine, page up down change step size.";
+        Radios.ScreenReaderOutput.Speak(hint, VerbosityLevel.Terse);
     }
 
     /// <summary>
@@ -1210,7 +1308,9 @@ public partial class MainWindow : UserControl
             HelpItems = new() { ("Up Down", "cycle slices"), ("Space", "next slice"), ("A-H or 0-7", "jump to slice"),
                 ("T", "set transmit"), ("Period", "create slice"), ("Comma", "release slice") } });
         fields.Add(new FrequencyDisplay.DisplayField("SliceOps", 3, "", "") { Label = "Slice Audio",
-            HelpItems = new() { ("Up Down", "volume"), ("Page Up Down", "pan"), ("M or Space", "mute toggle") } });
+            HelpItems = new() { ("Up Down", "volume"), ("Page Up Down", "pan"),
+                ("Space", "toggle mute"), ("M", "mute"), ("S", "sound"),
+                ("A", "make active"), ("T", "make transmit"), ("X", "transceive") } });
         fields.Add(new FrequencyDisplay.DisplayField("Freq", 12, "", "") { Label = "Frequency", DefaultCursorOffset = 8,
             HelpItems = new() { ("Up Down", "tune by cursor position"), ("Digits", "type frequency then Enter"),
                 ("K", "round to nearest kilohertz"), ("C", "toggle coarse and fine"),
@@ -1255,21 +1355,41 @@ public partial class MainWindow : UserControl
 
         var fields = new List<FrequencyDisplay.DisplayField>();
 
-        // Simplified: Slice → SliceOps → Freq → SMeter
+        // Sprint 26 Phase 8: modern mode now mirrors classic's checkbox fields
+        // (Split, VOX, Offset, RIT, XIT) to the right of SMeter so operators
+        // can arrow-right to toggle them without leaving modern tuning mode.
+        // Don's workflow: modern for frequency tuning, arrow-right to RIT, use
+        // classic digit-position editing inside the RIT field to "tune in
+        // teensies." Modern's Freq-field handler owns its own tuning model;
+        // these fields reuse the classic-mode handlers unchanged.
+        //
+        // Field order: Slice → SliceOps → Freq → SMeter → Split → VOX → Offset → RIT → XIT
         fields.Add(new FrequencyDisplay.DisplayField("Slice", 1, "", "") { Label = "Slice",
             HelpItems = new() { ("Up Down", "cycle slices"), ("Space", "next slice"), ("A-H or 0-7", "jump to slice"),
                 ("T", "set transmit"), ("Period", "create slice"), ("Comma", "release slice") } });
         fields.Add(new FrequencyDisplay.DisplayField("SliceOps", 3, "", "") { Label = "Slice Audio",
-            HelpItems = new() { ("Up Down", "volume"), ("Page Up Down", "pan"), ("M or Space", "mute toggle") } });
+            HelpItems = new() { ("Up Down", "volume"), ("Page Up Down", "pan"),
+                ("Space", "toggle mute"), ("M", "mute"), ("S", "sound"),
+                ("A", "make active"), ("T", "make transmit"), ("X", "transceive") } });
         fields.Add(new FrequencyDisplay.DisplayField("Freq", 12, "", "") { Label = "Frequency", DefaultCursorOffset = 8,
-            HelpItems = new() { ("Digits", "type frequency then Enter"), ("F", "speak frequency"),
-                ("C", "toggle coarse and fine"), ("Page Up Down", "cycle step size") } });
+            HelpItems = new() { ("Up Down", "tune"), ("Digits", "type frequency then Enter"), ("F", "speak frequency"),
+                ("C", "toggle coarse and fine"), ("Page Up Down", "cycle step size"),
+                ("Shift S", "speak current step"), ("M", "mute"), ("V", "cycle slice"),
+                ("R", "toggle RIT"), ("X", "toggle XIT") } });
         fields.Add(new FrequencyDisplay.DisplayField("SMeter", 4, " ", "") { Label = "S Meter",
             HelpItems = new() { ("This field is read-only", "shows signal strength") } });
-
-        // Hidden fields still written by ShowFrequency but not displayed.
-        // ShowFrequency checks if the field exists before writing, so only
-        // the three above get updated.
+        fields.Add(new FrequencyDisplay.DisplayField("Split", 1, "", "") { Label = "Split",
+            HelpItems = new() { ("Space", "toggle split mode") } });
+        fields.Add(new FrequencyDisplay.DisplayField("VOX", 1, "", "") { Label = "VOX",
+            HelpItems = new() { ("Space", "toggle VOX") } });
+        fields.Add(new FrequencyDisplay.DisplayField("Offset", 1, "", "") { Label = "Offset",
+            HelpItems = new() { ("Space", "cycle RIT XIT offset") } });
+        fields.Add(new FrequencyDisplay.DisplayField("RIT", 5, "", "") { Label = "RIT", DefaultCursorOffset = 2,
+            HelpItems = new() { ("Up Down", "adjust by cursor position"), ("Space", "toggle RIT on off"),
+                ("Digits", "enter value"), ("Equals", "copy to XIT and clear RIT") } });
+        fields.Add(new FrequencyDisplay.DisplayField("XIT", 5, " ", "") { Label = "XIT", DefaultCursorOffset = 2,
+            HelpItems = new() { ("Up Down", "adjust by cursor position"), ("Space", "toggle XIT on off"),
+                ("Digits", "enter value") } });
 
         // Modern mode: Freq field uses modifier keys, not cursor position
         FreqOut.IsModernMode = true;
@@ -1329,6 +1449,24 @@ public partial class MainWindow : UserControl
                     break;
                 case "SMeter":
                     _freqOutHandlers.AdjustSMeter(field, e);
+                    break;
+                // Sprint 26 Phase 8: modern-mode checkbox fields share the
+                // classic handlers — same behavior, Don can arrow-right to
+                // them without dropping into classic mode.
+                case "Split":
+                    _freqOutHandlers.AdjustSplit(field, e);
+                    break;
+                case "VOX":
+                    _freqOutHandlers.AdjustVox(field, e);
+                    break;
+                case "Offset":
+                    _freqOutHandlers.AdjustOffset(field, e);
+                    break;
+                case "RIT":
+                    _freqOutHandlers.AdjustRit(field, e);
+                    break;
+                case "XIT":
+                    _freqOutHandlers.AdjustXit(field, e);
                     break;
             }
             return;
@@ -1819,7 +1957,7 @@ public partial class MainWindow : UserControl
 
             // Apply CW notification config
             _morseNotifier.SidetoneHz = Math.Clamp(CurrentAudioConfig.CwSidetoneHz, 400, 1200);
-            _morseNotifier.SpeedWpm = Math.Clamp(CurrentAudioConfig.CwSpeedWpm, 10, 30);
+            _morseNotifier.SpeedWpm = Math.Clamp(CurrentAudioConfig.CwSpeedWpm, 10, 60);
             Radios.ScreenReaderOutput.CwNotificationsEnabled = CurrentAudioConfig.CwNotificationsEnabled;
             Radios.ScreenReaderOutput.CwModeAnnounceEnabled = CurrentAudioConfig.CwModeAnnounce;
 
@@ -2879,7 +3017,9 @@ public partial class MainWindow : UserControl
                     OwnedSlices = gc.slices
                 }).ToList();
             },
-            DisconnectClient = (handle) => rig.DisconnectGuiClient(handle)
+            DisconnectClient = (handle) => rig.DisconnectGuiClient(handle),
+            SubscribeClientListChanged = h => rig.GuiClientChanged += h,
+            UnsubscribeClientListChanged = h => rig.GuiClientChanged -= h
         };
 
         var dialog = new Dialogs.MultiFlexDialog(callbacks);

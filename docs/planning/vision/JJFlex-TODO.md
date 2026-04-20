@@ -21,6 +21,26 @@ Last updated: 2026-04-19
 
 **Status:** Logged 2026-04-19 after 4.1.16.44 release surfaced it.
 
+### FEATURE: On-demand tuning-key announcement hotkey (2026-04-20 design, Don via Noel)
+
+**Context:** Sprint 26 Phase 8c added a mode-change announcement that speaks the tuning-key summary on Ctrl+Shift+M mode toggle. Good for the moment of switching, but operators in a long session may forget the vocabulary halfway through and want a mid-session refresher without toggling modes just to hear it.
+
+**Proposed fix:** an explicit "speak tuning keys for current mode" hotkey. Candidate bindings: Ctrl+Shift+/ (universally-usable) or ? / Shift+/ when focused on the Freq field specifically. Action speaks the same hint string Phase 8c emits on mode change, keyed off `ActiveUIMode`.
+
+**Sizing:** small — ~10 lines to wire in KeyCommands.cs + expose a `SpeakTuningKeyHint()` on MainWindow. Could land in Sprint 28 polish or defer to a dedicated accessibility-improvement pass.
+
+**Priority:** Low-medium. Accessibility polish; discoverability help. Mode-change announcement already covers the common case.
+
+### FEATURE: First-focus frequency-home orientation announcement (2026-04-20 design, Don via Noel)
+
+**Context:** Don asked for the frequency home position to announce the tuning keys whenever focus lands there. Phase 8 scoped that out because announcing on every focus is too verbose (operators Tab through fields constantly). A once-per-session "orientation" announcement on first focus after app launch might be the right compromise.
+
+**Proposed fix:** track per-session "has freq-home been focused yet?" flag. On first focus after app launch, speak the mode-appropriate tuning-key hint. Subsequent focuses only speak the current frequency + mode status like today.
+
+**Sizing:** small — a bool flag + focus-handler guard + existing hint-string reuse from Phase 8c.
+
+**Priority:** Low. Nice-to-have; the mode-change announcement + F1 help + the new menu items together cover the discoverability need. Revisit if real-world tester feedback indicates it's still a gap.
+
 ### FEATURE: Ctrl+F commit speaks band-segment context (2026-04-19 design, Noel — Sprint 27 target)
 
 **Gap:** when the Ctrl+F frequency entry dialog commits, the app announces the new frequency but does not speak which portion of the band the operator just landed in (e.g., "20-meter CW segment," "40-meter phone," "80-meter DX window"). A sighted operator can glance at the band plan; a screen-reader or braille operator has no cue.

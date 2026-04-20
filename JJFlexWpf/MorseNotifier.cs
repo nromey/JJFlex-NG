@@ -35,9 +35,24 @@ namespace JJFlexWpf
 
         // Prosigns (single "characters" — no intra-character gap between
         // these elements, because a prosign is one run-together character).
-        private static readonly byte[] ProsignAS = { Dit, Dah, Dit, Dit, Dit };       // &
-        private static readonly byte[] ProsignBT = { Dah, Dit, Dit, Dit, Dah };       // =
-        private static readonly byte[] ProsignSK = { Dit, Dit, Dit, Dah, Dit, Dah };  // $
+        private static readonly byte[] ProsignAS = { Dit, Dah, Dit, Dit, Dit };       // & — wait / standing by
+        private static readonly byte[] ProsignBT = { Dah, Dit, Dit, Dit, Dah };       // = — break / ready
+        private static readonly byte[] ProsignSK = { Dit, Dit, Dit, Dah, Dit, Dah };  // $ — end of contact
+        private static readonly byte[] ProsignAR = { Dit, Dah, Dit, Dah, Dit };       // + — end of message
+        private static readonly byte[] ProsignKN = { Dah, Dit, Dah, Dah, Dit };       // (  — invitation to named station
+
+        // Prosign lookup by symbolic name (Sprint 26 Phase 6: bracket syntax
+        // "<AS>" / "<SK>" etc. in PlayUtterance strings). Names are uppercase
+        // lookup keys; users can type them in any case but the parser
+        // uppercases.
+        private static readonly Dictionary<string, byte[]> ProsignsByName = new(StringComparer.OrdinalIgnoreCase)
+        {
+            { "AS", ProsignAS },
+            { "BT", ProsignBT },
+            { "SK", ProsignSK },
+            { "AR", ProsignAR },
+            { "KN", ProsignKN },
+        };
 
         private static readonly byte[][] Letters =
         {
@@ -142,9 +157,18 @@ namespace JJFlexWpf
         /// Enqueues the string's element sequence on the output's FIFO queue
         /// and returns a Task that resolves when it finishes playing. Does
         /// NOT cancel any in-flight sequence — concurrent Play* calls are
-        /// serialized in arrival order. See BUG-057 and
-        /// <c>docs/planning/design/cw-keying-design.md</c> for the queue
-        /// design rationale.
+        /// serialized in arrival order.
+        ///
+        /// <para>
+        /// Sprint 26 Phase 6: the parser now understands prosign bracket syntax.
+        /// <c>"73 &lt;SK&gt;"</c> renders as "73" + the joined SK prosign with a
+        /// standard PARIS inter-word gap between them — one continuous waveform,
+        /// no inter-utterance boundary artifact (the BUG-061 pattern that
+        /// resulted from calling <c>PlayString("73")</c> then <c>PlaySK()</c>
+        /// as two separate queue items). Supported bracket names:
+        /// <c>&lt;AS&gt;</c>, <c>&lt;BT&gt;</c>, <c>&lt;SK&gt;</c>,
+        /// <c>&lt;AR&gt;</c>, <c>&lt;KN&gt;</c>.
+        /// </para>
         /// </remarks>
         public async Task PlayString(string text, CancellationToken ct = default)
         {
@@ -158,6 +182,20 @@ namespace JJFlexWpf
                     elements, SidetoneHz, Volume, RiseFallMs, ct).ConfigureAwait(false);
             }
             catch (OperationCanceledException) { /* normal cancel path */ }
+        }
+
+        /// <summary>
+        /// Single-utterance sign-off — equivalent to calling
+        /// <see cref="PlayString"/> with <c>"&lt;text&gt; &lt;SK&gt;"</c> if
+        /// <paramref name="text"/> doesn't already contain a bracket. Guarantees
+        /// one continuous waveform with standard PARIS word spacing before the
+        /// SK prosign, fixing BUG-061's inter-utterance artifact.
+        /// </summary>
+        public Task PlaySignoff(string text, CancellationToken ct = default)
+        {
+            if (string.IsNullOrEmpty(text)) return PlayString("<SK>", ct);
+            if (text.Contains('<')) return PlayString(text, ct);
+            return PlayString($"{text} <SK>", ct);
         }
 
         /// <summary>
@@ -209,7 +247,9 @@ namespace JJFlexWpf
 
         /// <summary>
         /// Build the element list for a string — characters separated by
-        /// inter-character gaps, words separated by inter-word gaps.
+        /// inter-character gaps, words separated by inter-word gaps. Supports
+        /// prosign bracket syntax <c>&lt;AS&gt;</c>, <c>&lt;BT&gt;</c>,
+        /// <c>&lt;SK&gt;</c>, <c>&lt;AR&gt;</c>, <c>&lt;KN&gt;</c>.
         /// </summary>
         private List<CwElement> BuildStringElements(string text)
         {
@@ -218,25 +258,58 @@ namespace JJFlexWpf
 
             var elements = new List<CwElement>(text.Length * 6);
             bool firstChar = true;
+            int i = 0;
 
-            for (int i = 0; i < text.Length; i++)
+            while (i < text.Length)
             {
-                char c = char.ToUpperInvariant(text[i]);
+                char c = text[i];
 
                 if (c == ' ')
                 {
                     if (!firstChar) elements.Add(CwElement.Gap(interWord));
                     firstChar = true;
+                    i++;
                     continue;
                 }
 
-                byte[]? encoded = GetEncodingForChar(c);
-                if (encoded == null) continue;
+                // Bracket prosign: <NAME> scans until the closing '>' and
+                // resolves via ProsignsByName. Unknown names are skipped
+                // silently (dropping the whole <...> token) so operators
+                // typing something odd don't produce mangled audio.
+                if (c == '<')
+                {
+                    int closeIdx = text.IndexOf('>', i + 1);
+                    if (closeIdx > i + 1)
+                    {
+                        string name = text.Substring(i + 1, closeIdx - i - 1);
+                        if (ProsignsByName.TryGetValue(name, out byte[]? prosign))
+                        {
+                            if (!firstChar) elements.Add(CwElement.Gap(interChar));
+                            elements.AddRange(BuildCharacterElements(prosign));
+                            firstChar = false;
+                        }
+                        // else: unknown bracket name, drop silently
+                        i = closeIdx + 1;
+                        continue;
+                    }
+                    // no closing '>' — treat '<' as a regular un-encodable char (dropped)
+                    i++;
+                    continue;
+                }
+
+                char uc = char.ToUpperInvariant(c);
+                byte[]? encoded = GetEncodingForChar(uc);
+                if (encoded == null)
+                {
+                    i++;
+                    continue;
+                }
 
                 if (!firstChar) elements.Add(CwElement.Gap(interChar));
                 var charElements = BuildCharacterElements(encoded);
                 elements.AddRange(charElements);
                 firstChar = false;
+                i++;
             }
             return elements;
         }
@@ -245,10 +318,13 @@ namespace JJFlexWpf
         {
             if (c >= 'A' && c <= 'Z') return Letters[c - 'A'];
             if (c >= '0' && c <= '9') return Digits[c - '0'];
-            // Prosign shortcuts
+            // Legacy prosign shortcuts (kept for backward compat with any
+            // callers passing '&', '=', '$'). Prefer <AS>/<BT>/<SK> syntax
+            // in new code.
             if (c == '&') return ProsignAS;
             if (c == '=') return ProsignBT;
             if (c == '$') return ProsignSK;
+            if (c == '+') return ProsignAR;
             return null;
         }
     }
