@@ -84,7 +84,7 @@ Four mandatory tracks (A, B, C, D) and one optional track (E). Track A is the se
 
 - Wrap FlexLib's `NetworkTest` in a session-owned wrapper. Shape determined by Sprint 26 Phase 0.3 audit (sync / async / event-driven). If that audit was deferred, it runs at the start of this track.
 - Invocation points: (a) initial session connect, (b) on-demand via a "Test network" button in Settings, (c) automatically after an unexplained disconnect when the session owner's reconnect logic suspects network trouble.
-- Structured result type: `NetworkDiagnosticReport` with fields for each subtest, pass/fail, optional detail string, timestamp. Persisted to trace log; exposed to Track D's UI.
+- Structured result type: `NetworkDiagnosticReport` with fields for each subtest, pass/fail, optional detail string, timestamp. Persisted to trace log; exposed to Track D's UI. Includes a `ToMarkdown()` method that renders the full report as a plain-readable markdown document (format spec in Track D's copy-to-clipboard / save-to-file deliverables) — kept in Track C so the data type owns its own serialization.
 - Threading: if blocking, call from `WanSessionOwner`'s monitor thread (already off UI thread). If async, subscribe to completion. If event-driven, subscribe to completion event and update `NetworkDiagnosticReport` on callback.
 - Caching policy: cache result for 5 minutes if passed, 30 seconds if failed, to avoid hammering during a flaky period. Invalidation on explicit user trigger (clicking "Test network" again).
 
@@ -114,6 +114,9 @@ Four mandatory tracks (A, B, C, D) and one optional track (E). Track A is the se
 - Help-link affordances: each failure class links to a local markdown doc in `docs\help\networking\` (or similar). Help docs can be minimal stubs in this sprint; full prose lands in Track E.
 - Screen-reader announcement: live-region announces new diagnostic messages when they change (not just silent status-bar update).
 - Configurable verbosity: a setting ("Verbose network diagnostics" or similar) that toggles between short-form user-facing messages and longer-form debug messages with timestamps and raw diagnostic data. Off by default; advanced users turn it on.
+- **Copy to clipboard.** A button on the diagnostic panel that calls `Clipboard.SetText(report.ToMarkdown())`. Matches the About dialog's "Copy All to Clipboard" precedent (Sprint 24). Enables screen-reader users to paste a diagnostic snapshot into an email, forum post, or bug report without transcribing from speech.
+- **Save to file.** A sibling button that writes the same markdown to a user-chosen file path via standard Save dialog. Default filename: `JJFlex-NetworkDiagnostic-YYYY-MM-DD-HHmm.md`. Lets users attach a diagnostic file to an email or GitHub issue.
+- **`NetworkDiagnosticReport.ToMarkdown()` format.** Plain-readable markdown (no tables — Noel's memory preference). H1 title with timestamp + radio nickname + session ID. H2 section per subtest group (UPnP, Manual port forward, NAT, SmartLink backend, Auth). Bulleted list under each H2 with result: `- **UPnP TCP forward:** yes (port 4992)` / `- **Manual TCP 4992 reachable:** no — timeout after 3s`. Human-readable as plain text even without a markdown renderer; parses cleanly when pasted into anything that does render markdown. Format is part of Track C's `NetworkDiagnosticReport` deliverable; Track D's buttons invoke it.
 
 **Deliverable:** users understand *why* a connection is failing, not just *that* it failed.
 
