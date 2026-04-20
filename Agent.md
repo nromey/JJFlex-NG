@@ -5,7 +5,7 @@ This document captures the current state of JJ-Flex repository and active work.
 **Repository root:** `C:\dev\JJFlex-NG`
 **Branch:** `sprint27/networking-config` (Track A Phase 1 complete; Phase 2 fan-out next)
 
-## Current State — Sprint 27 Tracks A + B + C COMPLETE, Track F next (serial)
+## Current State — Sprint 27 Tracks A + B + C + F COMPLETE, Track E next (serial)
 
 **Sprint 27 Track A landed 2026-04-20** in four commits on `sprint27/networking-config` (branched off `main` which now includes Sprint 26):
 
@@ -30,11 +30,13 @@ This document captures the current state of JJ-Flex repository and active work.
 
 **Track C landed 2026-04-20** in four commits. C.0 findings revised plan scope (FlexLib NetworkTest exposes only 5 booleans, no NAT-type/backend/auth signals), C.1 added `NetworkDiagnosticReport` + `ToMarkdown()` (9 tests), C.2 added `NetworkTestRunner` with TTL cache + dedup + timeout (13 tests), C.3 wired invocation points (a) post-connect fire-and-forget + (b) Settings "Test _network" button. Scenario (c) post-disconnect heuristic deferred to Track D. `WanSessionOwner` now owns a `NetworkTestRunner`; `IWanSessionOwner` grew three pass-through members.
 
-**Track B landed 2026-04-20** in five commits. B.0 resolved Q27.1 in favor of native Windows UPnPNAT COM (zero NuGet dependency; reflection-dispatched; stable API). B.1 added `UPnPPortMapper` public class with internal `IUPnPBackend` seam + `ComUPnPBackend` production impl (15 tests covering wrapper behavior). B.2 added `SmartLinkAccount.UPnPEnabled` persistence + Tier 2 Settings UI block (checkbox gated on valid Tier 1 port; italic security warning; Apply extended to save both preferences). B.3 wired `ApplyAccountUPnPPreferenceIfAny` on Connect (TCP + UDP separately; private-IP gate skips roaming) and `ReleaseUPnPMappingsIfAny` on Disconnect.
+**Track B landed 2026-04-20** in five commits. B.0 resolved Q27.1 in favor of native Windows UPnPNAT COM. B.1 added `UPnPPortMapper` with internal `IUPnPBackend` seam + `ComUPnPBackend` production impl (15 tests). B.2 added Tier 2 persistence + Settings UI. B.3 wired map-on-connect (private-IP gate) + release-on-disconnect.
 
-**Debug build 4.1.16.90** archived to NAS `historical\4.1.16.90\x64-debug\`. No Dropbox publish — three tracks worth of code awaiting smoke test; Track A's auto-apply and Track B's UPnP path are the highest-leverage verifications to run against a live radio + router when convenient.
+**Track F landed 2026-04-20** in three commits. F.0 replaced B.2's `UPnPEnabled` bool with a three-state `SmartLinkConnectionMode` enum (cumulative tier semantics; JSON string-name serialization; ordinal monotonicity pinned by test). F.1 replaced the Tier 2 checkbox with an accessible three-option radio group (per-item explanations inline; mode-change speech; Tier 2/3 gated on Tier 1 port validity). F.2 threaded `holePunchPort` through `IWanServer.SendConnectMessageToRadio` + `IWanSessionOwner.ConnectToRadio`; `FlexBase.sendRemoteConnect` derives the port from the active account's ConnectionMode (AutomaticHolePunch + configured port → that port; otherwise 0). Zero new server infrastructure — Flex's SmartLink coordinates the hole-punch on its side.
 
-**Next session target:** continue serial execution with **Track F** (Tier 3 accessible hole-punch exposure). Builds on Track A's port-config data model. Uses FlexLib's existing `WanServer.SendConnectMessageToRadio(serial, holePunchPort)` — infrastructure already there, Track F is the accessibility client layer. Serial order after F: E (help docs) → D (integrator: rich diagnostic messages + copy/save, must be last because it consumes outputs from B/C/F).
+**Debug build 4.1.16.94** archived to NAS `historical\4.1.16.94\x64-debug\`. Still no Dropbox publish — four tracks' worth of unverified networking code; smoke test against live router + radio outstanding.
+
+**Next session target:** continue serial execution with **Track E** (help docs, prose-only). Three files in `docs/help/networking/`: `tier1-manual-port.md`, `tier2-upnp.md`, `diagnostics.md`. Accessibility: prose + bullets, no tables, no diagrams, no images. Copied to output dir so Settings help links resolve locally. After E comes **Track D** — the integrator: rich disconnect diagnostic messages, post-disconnect NetworkTest auto-run (scenario c deferred from C.3), copy-to-clipboard + save-to-file buttons using `NetworkDiagnosticReport.ToMarkdown()`.
 
 ---
 

@@ -366,6 +366,26 @@ Track B landed in five commits on `sprint27/networking-config`:
 
 ---
 
+## Track F complete (2026-04-20)
+
+Track F landed in three commits on `sprint27/networking-config` (serial after Track B):
+
+- **F.0 (`941f774c`)** — replaced Track B.2's `UPnPEnabled` bool with a three-state `SmartLinkConnectionMode` enum (`ManualPortForwardOnly`, `ManualPlusUpnp`, `AutomaticHolePunch`). Cumulative tier semantics — enum ordinals are monotonic so callers can gate with `mode >= ManualPlusUpnp` / `mode >= AutomaticHolePunch`. JSON serialization uses readable string names. `SmartLinkAccountManager.Get/SetConnectionMode`, `FlexBase.CurrentAccountConnectionMode` + `SaveCurrentAccountConnectionMode`, `ApplyAccountUPnPPreferenceIfAny` retargeted to check `mode >= ManualPlusUpnp`. 7 updated/new tests (including ordinal-monotonicity pin + JSON-string-name invariant).
+- **F.1 (`f9e7beba`)** — replaced the Tier 2 single checkbox with a true three-option accessible radio group (GroupBox + three RadioButtons in a shared GroupName). Each option has its own per-item explanation inline. `RecomputeConnectionModeAvailability` gates Tier 2/3 on Tier 1 port validity + falls back to Tier 1 when the current selection is no longer valid. Mode-change announcement via `ScreenReaderOutput.Speak`, suppressed during programmatic loads (`_suppressConnectionModeAnnouncements`).
+- **F.2 (`ceacc03c`)** — renamed the historical `flags` int on `IWanServer.SendConnectMessageToRadio` to `holePunchPort` (its actual semantic). Added optional `holePunchPort` parameter (default 0) on `IWanSessionOwner.ConnectToRadio`. `FlexBase.sendRemoteConnect` now computes the hole-punch port from `_currentAccount.ConnectionMode`: `AutomaticHolePunch` + configured port → that port, otherwise 0. `WanSessionOwner` passes it through to `_wan.SendConnectMessageToRadio` instead of the hardcoded 0. `MockWanServer` records `LastSendConnectHolePunchPort` for future Tier-3 dispatch tests.
+
+**F.3 verification rollup:**
+
+- Full solution Debug x64 build clean (0 errors).
+- `Radios.Tests` full suite: 64/64 passed.
+- `build-debug.bat` produced `4.1.16.94` → NAS `historical\4.1.16.94\x64-debug\`. Dropbox untouched.
+
+**Exit criterion (Track F):** accessible Tier 1/2/3 selector lives in Settings with screen-reader-friendly semantics; `holePunchPort` flows end-to-end from Settings selection → account persistence → session connect → FlexLib `SendConnectMessageToRadio`; Tier 2 UPnP gating is mode-derived. The "automatic fallback Tier 3 → Tier 2 → Tier 1 on failure" path is handled by FlexLib/SmartLink on the server side; JJ Flex doesn't need to reimplement it.
+
+**Zero new server-side infrastructure** on our end — the whole track is a client-side accessibility layer over Flex's existing hole-punch coordination, consistent with NG-1 and NG-2. "We don't implement UPnP, we ask Windows' service. We don't implement hole-punch, we advertise a port so Flex's server can coordinate it." (Noel, 2026-04-20.)
+
+---
+
 ## Next session action
 
-Sprint 27 Track B complete. Next track in the serial order is **Track F** (Tier 3 accessible hole-punch exposure). Track F builds on Track A's port-config data model and uses FlexLib's existing `WanServer.SendConnectMessageToRadio(serial, holePunchPort)` — the infrastructure is already there, we just accessibly surface the opt-in. After F comes E (help docs) and finally D (integrator — rich diagnostic messages + copy/save).
+Sprint 27 Track F complete. Next track in the serial order is **Track E** (help docs, prose-only — `tier1-manual-port.md`, `tier2-upnp.md`, `diagnostics.md`). After E comes **Track D** — the integrator: rich disconnect diagnostic messages, post-disconnect NetworkTest auto-run (scenario c deferred from C.3), copy-to-clipboard + save-to-file buttons for `NetworkDiagnosticReport.ToMarkdown()`. D must land last because it consumes outputs from B/C/F.
