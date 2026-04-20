@@ -267,6 +267,25 @@ Before starting Track A coding, a pre-design audit was run against the current c
 
 ---
 
+## Phase 1 complete (Track A, 2026-04-20)
+
+Track A landed on `sprint27/networking-config` in four commits:
+
+- **A.0 (`28329f23`)** — pre-design audit findings added to this plan; scope of A.2 and A.3 revised based on what the codebase already provides (Network tab already existed; FlexLib has no pre-connect port API; port applies post-connect via `Radio.WanSetForwardedPorts`).
+- **A.1 (`f9ba1e40`)** — `SmartLinkAccount.ConfiguredListenPort` (nullable int), `StoredAccount` field + JSON round-trip (now internal for tests), `SmartLinkAccountManager.GetConfiguredPort` / `SetConfiguredPort` / `IsValidPort`. 13 new unit tests, all 27 `Radios.Tests` tests green.
+- **A.2 (`a66012f3`)** — `FlexBase.ApplyAccountPortPreferenceIfAny()` invoked from the post-connect success branch of `Connect(serial, lowBW)` for `RemoteRig`-only. Silent no-op when no account, no preference, or radio already matches.
+- **A.3 (`b49cb750`)** — `FlexBase.SaveCurrentAccountListenPort` + `HasCurrentSmartLinkAccount` + `CurrentSmartLinkAccountEmail`. Existing Network tab extended in place: Tier 1 framing prose, `Apply` now also saves preference to account, new `Test port` button for local validation (range + common-conflict blocklist — 3389/5900/8080 — warnings only). All announcements route through the existing `NetworkCurrentStateText` live region + `ScreenReaderOutput.Speak`.
+
+**A.4 verification rollup:**
+- Full solution Debug x64 build clean (0 errors, ~1400 warnings — existing / non-regressions).
+- `Radios.Tests` full suite: 27/27 passed.
+- `build-debug.bat` produced `4.1.16.79` → NAS `historical\4.1.16.79\x64-debug\` (zip + NOTES + exe + pdb). Dropbox untouched (internal verification only).
+- No smoke test against a live SmartLink radio yet — deferred until Noel has time to connect Don's 6300 or his own radio. Auto-apply-on-connect is trace-instrumented so any mis-application will be visible in the trace log.
+
+**Exit criterion (Phase 1):** met on the code side. Manual smoke confirmation against a real SmartLink connection is outstanding but does not block Tracks B, C, E, F from starting. Auto-apply is a safe idempotent no-op when no preference is set, so Phase 2 tracks can proceed in parallel without risking interaction with Track A's behavior.
+
+---
+
 ## Next session action
 
-Sprint 27 commences after Sprint 26 ships. Track A starts solo; Tracks B, C, E fan out after Track A lands; Track D integrates at the end. Sprint 28 (tabbed multi-radio) can begin planning in parallel with Sprint 27 execution since it depends on Sprint 26 foundations, not Sprint 27.
+Sprint 27 Phase 1 (Track A) complete. Phase 2 fan-out next: Tracks B (UPnP), C (NetworkTest), E (help docs), F (Tier 3 hole-punch) in four parallel worktrees. Track D integrates at the end. Smoke-test Track A against a live SmartLink radio when convenient; any defects feed back into A as fix-forward, not back into the phase gate.

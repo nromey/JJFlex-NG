@@ -3,9 +3,36 @@
 This document captures the current state of JJ-Flex repository and active work.
 
 **Repository root:** `C:\dev\JJFlex-NG`
-**Branch:** `sprint26/connection-fix` (23 commits ahead of main; Sprint 26 complete through Phase 8)
+**Branch:** `sprint27/networking-config` (Track A Phase 1 complete; Phase 2 fan-out next)
 
-## Current State — Sprint 26 COMPLETE, awaiting Sprint 27 kickoff
+## Current State — Sprint 27 Phase 1 (Track A) COMPLETE, Phase 2 fan-out pending
+
+**Sprint 27 Track A landed 2026-04-20** in four commits on `sprint27/networking-config` (branched off `main` which now includes Sprint 26):
+
+- **A.0 (`28329f23`)** — pre-design audit findings in the sprint plan; revised scope of A.2 + A.3 based on existing codebase (Network tab already existed; FlexLib has no pre-connect port API).
+- **A.1 (`f9ba1e40`)** — `SmartLinkAccount.ConfiguredListenPort` (nullable int) + JSON round-trip + `SmartLinkAccountManager.{Get,Set}ConfiguredPort` + `IsValidPort` helper + 13 new tests (all 27 green).
+- **A.2 (`a66012f3`)** — auto-apply on connect: `FlexBase.ApplyAccountPortPreferenceIfAny()` invoked from post-connect success branch for `RemoteRig`-only. Silent no-op when no account, no preference, or radio already matches.
+- **A.3 (`b49cb750`)** — existing Network tab wired to per-account persistence + new Test button (local validation only — range + common-conflict blocklist) + Tier 1 framing prose. All new UI announcements route through the existing `NetworkCurrentStateText` live region + `ScreenReaderOutput.Speak`.
+
+**Debug build 4.1.16.79** archived to NAS `historical\4.1.16.79\x64-debug\`. No Dropbox publish — Track A has not been smoke-tested against a live SmartLink radio yet, so no tester broadcast.
+
+**Smoke-test outstanding (non-blocking):** run against Noel's radio or Don's 6300 to verify auto-apply-on-connect actually pushes the saved port to the radio's firmware. Auto-apply is trace-instrumented so behavior is observable in the trace log when tested. Defects feed back into Track A as fix-forward; Phase 2 tracks (B/C/E/F) can start in parallel since Track A's auto-apply is a safe no-op when no preference is set.
+
+**Current branch arc (sprint27/networking-config from main tip):**
+1. Sprint 26 merge → main (commit `521c1831`) — prior session, 30 commits brought forward from `sprint26/connection-fix`
+2. Sprint 27 Phase A.0 findings (`28329f23`)
+3. Sprint 27 Phase A.1 persistence (`f9ba1e40`)
+4. Sprint 27 Phase A.2 auto-apply (`a66012f3`)
+5. Sprint 27 Phase A.3 UI wiring (`b49cb750`)
+6. Sprint 27 Phase 1 rollup (this commit) — plan + Agent.md updates
+
+**Next session target:** kick off Sprint 27 Phase 2 fan-out — Tracks B (UPnP opt-in), C (NetworkTest integration + `NetworkDiagnosticReport`), E (help docs), F (Tier 3 hole-punch accessibility layer) in four parallel worktrees. Track D integrates at the end once C's diagnostic report shape settles. Run `build-installers.bat` only when a release milestone is reached, not between phases.
+
+---
+
+## Prior state — Sprint 26 COMPLETE, merged to main
+
+**Sprint 26 merged to `main` 2026-04-20** (commit `521c1831`, `--no-ff` so the branch history is preserved as a visible bump). All 8 phases landed; full solution builds clean; 14 unit tests green at merge; Sprint 27 Track A added another 13 tests on top.
 
 **Sprint 26 status (2026-04-20):** all 8 phases landed on `sprint26/connection-fix`. Full solution builds clean, 14 unit tests green, no runtime smoke test yet (deferred to Sprint 27 final phase's help audit + pre-release testing).
 
