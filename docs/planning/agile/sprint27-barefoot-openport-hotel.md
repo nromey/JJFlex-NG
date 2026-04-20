@@ -328,6 +328,25 @@ Track D's message dictionary ("Network appears healthy but authentication failed
 
 ---
 
+## Track C complete (2026-04-20)
+
+Track C landed in four commits on `sprint27/networking-config` (serial execution after Track A):
+
+- **C.0 (`0f01c8c5`)** — FlexLib NetworkTest API audit. Key findings: event-driven fire-and-forget surface (`WanServer.SendTestConnection` + `TestConnectionResultsReceived`), five-boolean result payload (`WanTestConnectionResults`), no NAT-type classification, no backend-reachability or auth signals, event fires on SSL listener thread, no SDK-enforced timeout. Plan's Track D ToMarkdown sections narrowed from 5 to 3 fillable groups.
+- **C.1 (`768f488e`)** — `NetworkDiagnosticReport` DTO (FlexLib-free) with five nullable-bool subtest fields + timestamp + serial + error-detail slot. `ToMarkdown()` renders plain-readable markdown per Track D's format spec: H1 title with metadata, H2 per subtest group (UPnP / Manual port forward / NAT), bulleted entries. Error-state collapses to short form. 9 tests including an explicit no-markdown-table accessibility invariant.
+- **C.2 (`59558bbc`)** — `NetworkTestRunner` async-friendly facade: `RunAsync(serial, forceRefresh, timeout, ct)` returns `Task<NetworkDiagnosticReport>`. TTL cache (5 min pass / 30 sec fail), concurrent-call dedup, caller-enforceable timeout with late-event-still-updates-cache semantics, `ReportReady` event, `InvalidateCache` for user-initiated refresh, `Dispose` unsubscribes. Extended `IWanServer` + `WanServerAdapter` + `MockWanServer` with the new method and event. 13 tests covering cache, dedup, timeout, cancellation, late event, invalidation, Dispose.
+- **C.3 (`59311c8a`)** — Invocation points wired: (a) `FlexBase.Connect` post-connect branch kicks a fire-and-forget probe via `KickPostConnectNetworkTest`, so the cache is warm before the user interacts. (b) New Settings "Test _network" button next to the Track A "Te_st port" button, with its own `NetworkDiagnosticResultText` live region + one-line yes/no/unknown summary. `WanSessionOwner` owns a `NetworkTestRunner` internally; `IWanSessionOwner` grows three thin pass-through members (`RunNetworkDiagnosticAsync`, `GetLastNetworkReport`, `NetworkReportReady`). Scenario (c) post-disconnect heuristic deferred to Track D where it fits alongside the richer diagnostic UI.
+
+**C.4 verification rollup:**
+
+- Full solution Debug x64 build clean (0 errors, ~1400 warnings — non-regressions).
+- `Radios.Tests` full suite: 49/49 passed (27 pre-existing + 22 new from C.1 and C.2).
+- `build-debug.bat` produced `4.1.16.85` → NAS `historical\4.1.16.85\x64-debug\` (zip + NOTES + exe + pdb). Dropbox untouched.
+
+**Exit criterion (Track C):** met on the code side. NetworkTest runs on connect (scenario a) and on-demand (scenario b); results are logged; caching policy verified by unit tests; `NetworkDiagnosticReport.ToMarkdown()` produces clean plain-readable markdown. Track D will consume the report type in its message dictionary and copy/save buttons.
+
+---
+
 ## Next session action
 
-Sprint 27 Phase 1 (Track A) complete. Next track in the serial order is **Track C** (NetworkTest integration + `NetworkDiagnosticReport` with `ToMarkdown()`). Smoke-test Track A against a live SmartLink radio when convenient; any defects feed back into A as fix-forward, not back into a phase gate.
+Sprint 27 Track C complete. Next track in the serial order is **Track B** (UPnP opt-in). Track B spike first: evaluate `Open.NAT` / `Mono.Nat` / native `UPnPNAT` COM, write decision to plan, then implement.

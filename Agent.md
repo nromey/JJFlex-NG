@@ -5,7 +5,7 @@ This document captures the current state of JJ-Flex repository and active work.
 **Repository root:** `C:\dev\JJFlex-NG`
 **Branch:** `sprint27/networking-config` (Track A Phase 1 complete; Phase 2 fan-out next)
 
-## Current State — Sprint 27 Phase 1 (Track A) COMPLETE, Phase 2 fan-out pending
+## Current State — Sprint 27 Tracks A + C COMPLETE, Track B next (serial)
 
 **Sprint 27 Track A landed 2026-04-20** in four commits on `sprint27/networking-config` (branched off `main` which now includes Sprint 26):
 
@@ -28,7 +28,11 @@ This document captures the current state of JJ-Flex repository and active work.
 
 **Execution mode:** Sprint 27 runs **serial on a single branch** (`sprint27/networking-config`) — no worktrees, no parallel CLI sessions. Noel's choice for this sprint; see `memory/project_sprint27_serial_execution.md`. Ignore the sprint-plan template language about "parallel after A".
 
-**Next session target:** continue serial execution with **Track C** (NetworkTest integration + `NetworkDiagnosticReport` with `ToMarkdown()` method). Serial order after C: B (UPnP) → F (Tier 3 hole-punch) → E (help docs) → D (rich disconnect diagnostics + copy/save, must be last since it integrates B/C/F outputs). Run `build-installers.bat` only when a release milestone is reached, not between tracks.
+**Track C landed 2026-04-20** in four commits. C.0 findings revised plan scope (FlexLib NetworkTest exposes only 5 booleans, no NAT-type/backend/auth signals), C.1 added `NetworkDiagnosticReport` + `ToMarkdown()` (9 tests), C.2 added `NetworkTestRunner` with TTL cache + dedup + timeout (13 tests), C.3 wired invocation points (a) post-connect fire-and-forget + (b) Settings "Test _network" button. Scenario (c) post-disconnect heuristic deferred to Track D. `WanSessionOwner` now owns a `NetworkTestRunner`; `IWanSessionOwner` grew three pass-through members.
+
+**Debug build 4.1.16.85** archived to NAS `historical\4.1.16.85\x64-debug\`. No Dropbox publish — two tracks worth of untested code; smoke test still outstanding.
+
+**Next session target:** continue serial execution with **Track B** (UPnP opt-in). Track B spike first — evaluate `Open.NAT` / `Mono.Nat` / native `UPnPNAT` COM interop for UPnP client; write decision to plan before coding. Then: settings-UI checkbox + warning paragraph, UPnP mapping on session start, release on session end / toggle-off, fallback with diagnostic surface. Serial order after B: F (Tier 3 hole-punch) → E (help docs) → D (integrator, last).
 
 ---
 
