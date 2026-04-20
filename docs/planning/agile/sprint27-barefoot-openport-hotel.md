@@ -282,10 +282,20 @@ Track A landed on `sprint27/networking-config` in four commits:
 - `build-debug.bat` produced `4.1.16.79` → NAS `historical\4.1.16.79\x64-debug\` (zip + NOTES + exe + pdb). Dropbox untouched (internal verification only).
 - No smoke test against a live SmartLink radio yet — deferred until Noel has time to connect Don's 6300 or his own radio. Auto-apply-on-connect is trace-instrumented so any mis-application will be visible in the trace log.
 
-**Exit criterion (Phase 1):** met on the code side. Manual smoke confirmation against a real SmartLink connection is outstanding but does not block Tracks B, C, E, F from starting. Auto-apply is a safe idempotent no-op when no preference is set, so Phase 2 tracks can proceed in parallel without risking interaction with Track A's behavior.
+**Exit criterion (Phase 1):** met on the code side. Manual smoke confirmation against a real SmartLink connection is outstanding but does not block subsequent tracks from starting. Auto-apply is a safe idempotent no-op when no preference is set.
+
+**Execution-mode correction (2026-04-20):** Sprint 27 runs **serial, single-branch, no worktrees** — Noel's explicit decision at the top of the sprint. The "parallel after A" phrasing earlier in this document is a vestige of CLAUDE.md's default sprint-lifecycle template; it does not describe how this sprint actually runs. Each track lands in commits on `sprint27/networking-config`, in sequence, before the next starts.
+
+**Serial track order (Track A complete; remaining order):**
+
+1. **Track C** — `NetworkTest` wrapper + `NetworkDiagnosticReport` (defines types Track D consumes).
+2. **Track B** — UPnP opt-in.
+3. **Track F** — Tier 3 accessible hole-punch.
+4. **Track E** — help docs (prose-only, no code dependencies).
+5. **Track D** — rich disconnect diagnostics + copy-to-clipboard + save-to-file (integrator; must land last because it consumes outputs from B, C, and F).
 
 ---
 
 ## Next session action
 
-Sprint 27 Phase 1 (Track A) complete. Phase 2 fan-out next: Tracks B (UPnP), C (NetworkTest), E (help docs), F (Tier 3 hole-punch) in four parallel worktrees. Track D integrates at the end. Smoke-test Track A against a live SmartLink radio when convenient; any defects feed back into A as fix-forward, not back into the phase gate.
+Sprint 27 Phase 1 (Track A) complete. Next track in the serial order is **Track C** (NetworkTest integration + `NetworkDiagnosticReport` with `ToMarkdown()`). Smoke-test Track A against a live SmartLink radio when convenient; any defects feed back into A as fix-forward, not back into a phase gate.

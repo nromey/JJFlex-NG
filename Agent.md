@@ -26,7 +26,9 @@ This document captures the current state of JJ-Flex repository and active work.
 5. Sprint 27 Phase A.3 UI wiring (`b49cb750`)
 6. Sprint 27 Phase 1 rollup (this commit) — plan + Agent.md updates
 
-**Next session target:** kick off Sprint 27 Phase 2 fan-out — Tracks B (UPnP opt-in), C (NetworkTest integration + `NetworkDiagnosticReport`), E (help docs), F (Tier 3 hole-punch accessibility layer) in four parallel worktrees. Track D integrates at the end once C's diagnostic report shape settles. Run `build-installers.bat` only when a release milestone is reached, not between phases.
+**Execution mode:** Sprint 27 runs **serial on a single branch** (`sprint27/networking-config`) — no worktrees, no parallel CLI sessions. Noel's choice for this sprint; see `memory/project_sprint27_serial_execution.md`. Ignore the sprint-plan template language about "parallel after A".
+
+**Next session target:** continue serial execution with **Track C** (NetworkTest integration + `NetworkDiagnosticReport` with `ToMarkdown()` method). Serial order after C: B (UPnP) → F (Tier 3 hole-punch) → E (help docs) → D (rich disconnect diagnostics + copy/save, must be last since it integrates B/C/F outputs). Run `build-installers.bat` only when a release milestone is reached, not between tracks.
 
 ---
 
