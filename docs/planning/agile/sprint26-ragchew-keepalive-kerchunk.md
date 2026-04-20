@@ -547,19 +547,151 @@ These are design decisions likely resolved in-flight during Phase 1, flagged her
 
 ## Phase 0 Findings
 
-*(Populated during Phase 0 execution. Currently empty.)*
+Audits completed 2026-04-20 in parallel (four independent Explore investigations). Each produced concrete evidence with file-and-line citations. Three findings reshape later-phase planning — flagged under "Replanning Triggers" below. Phase 1 should not start until those three are decided.
 
-### 0.1 Thread-safety audit results
+### Replanning triggers (review before starting Phase 1)
 
-*(To be filled after audit runs.)*
+**R1 — Lock primitive choice (from 0.1). Reshapes Phase 1 adapter design.**
 
-### 0.2 Sprint 25 retry code enumeration
+FlexLib's `WanServer` raises `PropertyChanged("IsConnected")` synchronously on the mutator thread — no `Dispatcher.Invoke`, no `SynchronizationContext.Post`, no dispatch hop at all (`ObservableObject.cs` lines 31-38 confirm; the event raise is a direct handler invocation). The mutator thread can be a background socket-receive thread inside `SslClient.StartListener()` (line 112). This means if our adapter holds a `SemaphoreSlim` and an event handler tries to acquire that semaphore on the same thread that's currently holding it, we deadlock — `SemaphoreSlim` is not reentrant.
 
-*(To be filled after audit runs. Format: bulleted list, one bullet per hit.)*
+The Phase 1 design language "SemaphoreSlim at the adapter boundary" is invalidated by this finding. Options:
 
-### 0.3 NetworkTest signature
+- **(a) Swap to `lock` (Monitor).** `lock` is reentrant on the same thread. Callers on the WanServer mutator thread can re-enter safely. Simplest fix, matches the synchronous nature of FlexLib's event model, zero new concepts. **Recommendation.**
+- **(b) Keep `SemaphoreSlim` + post property-change events through a known `SynchronizationContext`.** Heavier: requires every `WanServer` event to traverse a queue, and we don't have an obvious sync context in the session-owner monitor thread without creating one. Adds latency to every state transition.
+- **(c) Keep `SemaphoreSlim` + document "event handlers must not acquire this semaphore."** Brittle — relies on everyone remembering the rule; a future handler that reaches through the adapter to fetch state would deadlock silently.
 
-*(Optional; to be filled if audit runs, otherwise deferred to Sprint 27.)*
+Decision gate: confirm (a) `lock`-based adapter before Phase 1 implementation begins. Also update Phase 1 test case `SemaphoreSlim_SerializesConcurrentCalls` to `Lock_SerializesConcurrentCalls` (still a valid test; the primitive changes).
+
+Additional note from 0.1: FlexLib's own `Connect()` and `Disconnect()` do `check-then-act` on `_sslClient` with no synchronization — a classic race window. This means our adapter's lock isn't just protocol serialization; it's also our only protection against FlexLib's own internal races. The "always lock at our boundary" commitment is reinforced by this finding, even if the primitive changes.
+
+**R2 — Phase 2.5 Symptom 6 is likely not in our code (from 0.4). Scope cut.**
+
+The 0.4 enumeration turned up no smoking gun in JJ-written code for the wa2iwc-wrong-callsign-on-disconnect bug. All announcement sites in `FlexBase.cs` (lines 2588-2591 for connect, 2718-2721 for disconnect) correctly read from the event payload (`client.Station`, `client.Program`) — not from post-change app-global state. The pattern-bug the sprint plan was worried about does not exist in our code.
+
+Most likely root cause: FlexLib's `Radio.parseGuiClientStatus` (Radio.cs ~13550-13640) mutates `GUIClient.Station` and `GUIClient.Program` before firing `OnGUIClientRemoved`, so the `client` object our handler receives is already blanked-out by the time we read it. Two paths forward:
+
+- **Patch FlexLib:** fragile — reverts on every FlexLib upgrade, sits outside our control, would need upstream-flex coordination.
+- **Snapshot at subscribe time:** when we attach to `GUIClientAdded`, cache the client's `Station` and `Program` into our own dictionary keyed by `ClientHandle`. When `GUIClientRemoved` fires, look up the snapshot by handle rather than reading the (possibly-blanked) event-delivered object. This is clean, upgrade-safe, and is a 15-line change.
+
+Implication: Phase 2.5's "rewire every announcement through coordinator" goal, originally scoped as a universal rewire, tightens to "snapshot client identity at subscribe time." The coordinator-based rewire still happens for the real multi-client symptoms (1, 2, 3, 5), but the announcement-code rewire shrinks substantially.
+
+**R3 — Surgical fix for Symptom 3 could ship as 4.1.17 slip-in (from 0.4). Tester win ahead of Sprint 26 merge.**
+
+`MultiFlexDialog.RefreshClientList` (`JJFlexWpf/Dialogs/MultiFlexDialog.xaml.cs:53-68`) is only called on dialog open (line 50) and after user-initiated disconnect (line 105). It is **not** subscribed to `GUIClientAdded` / `GUIClientRemoved` events. This means: if another client joins or leaves while the dialog is already open, the list does not update. This is the entirety of Symptom 3 — a missing event subscription.
+
+Fix: in `MultiFlexDialog`'s `OnInitialized` (or equivalent), subscribe to the relevant `FlexBase` event wrappers for client add/remove/update; in the dialog's `Closed` handler, unsubscribe. Have each handler invoke `RefreshClientList()` on the dispatcher thread. Total ~20 lines.
+
+This could ship as a 4.1.17 bug-fix ahead of Sprint 26 merging to main. Tester Don benefits immediately. Phase 2.5 then inherits a Symptom 3 that's already fixed and can focus on 1, 2, 4, 5.
+
+**Decisions needed before Phase 1 starts:**
+1. Confirm R1 option (a) `lock` for adapter primitive. (Strong recommend.)
+2. Confirm R2 snapshot-at-subscribe pattern for announcement code. (Strong recommend — either way this gets addressed; decision is whether it lands in Phase 2.5 proper or pulls out to a smaller fix.)
+3. Decide on R3: ship the Symptom 3 fix as 4.1.17 slip-in (recommended) or bundle into Phase 2.5. If slip-in: requires a quick side-branch + tag cycle, ~30 min of coding plus build/release time.
+
+---
+
+### 0.1 Thread-safety audit of FlexLib's WanServer — results
+
+FlexLib's `WanServer` (`FlexLib_API/FlexLib/WanServer.cs`) has minimal internal synchronization. No `lock`, `SemaphoreSlim`, `Interlocked`, or `MethodImplOptions.Synchronized` are used within the class itself — thread-safety is delegated to its underlying `SslClient`. `SslClient.Write()` (`SslClient.cs:59-79`) is guarded by `lock (_writerLockObj)` protecting concurrent access to the `StreamWriter`, but `Disconnect()` (`SslClient.cs:182-209`) and internal event raises (`SslClient.cs:129-132` unguarded) are not symmetric with that lock. WanServer's own `Connect()` and `Disconnect()` (lines 52-90) perform `check-then-act` patterns on `_sslClient` with no synchronization — a classic race window.
+
+Critical finding: `PropertyChanged` events (including `IsConnected` at line 58: `RaisePropertyChanged("IsConnected")`) are raised **synchronously on the mutator thread** via `ObservableObject.cs` lines 31-38 and 46-50 — no dispatcher hop, no sync-context post, no queue. The mutator thread may be a background receive thread inside `SslClient.StartListener()` (line 112 invokes the event directly). Our adapter's planned `SemaphoreSlim` would deadlock if a handler running on the mutator thread tried to acquire it. See Replanning Trigger R1 above.
+
+### 0.2 Sprint 25 retry code enumeration — results
+
+Thirteen hits total, concentrated in two files. All but one are clear session-level band-aids scheduled for Phase 4 deletion.
+
+**`Radios/FlexBase.cs`:**
+- `:585` — `RetryConnect()` method: lightweight reconnect using existing WAN session, resets client tracking flags for re-attempt. **Session-level, DELETE.**
+- `:599-600` — `_clientRemovedDuringStart` / `_clientAddedDuringStart` reset inside `RetryConnect()`. **Session-level, DELETE.**
+- `:606-607` — `sendRemoteConnect()` call in `RetryConnect()` (retry-only path). **Session-level, DELETE.**
+- `:811` — `removalGraceMs = 15000ms` (grace period for client removal before retry). **Session-level, DELETE.**
+- `:812` — `earlyAbortMs = 1000ms` (fast abort for client-removed-without-re-add case). **Session-level, DELETE.**
+- `:836-847` — Early-abort detection (abort early for retry instead of waiting full timeout). **Session-level, DELETE.**
+- `:849-858` — Grace-period abort (wait then abort for retry if add-then-remove). **Session-level, DELETE.**
+- `:1092-1097` — `PreserveWanForRetry()` method. **Session-level, DELETE** (flagged in plan).
+- `:1102-1105` — `RestoreWanFromRetry()` method. **Session-level, DELETE** (flagged in plan).
+- `:2542-2545` — Client lifecycle tracking fields (`_clientRemovedDuringStart`, `_clientAddedDuringStart`, tick counts). **Session-level, DELETE.**
+- `:2710-2711` — `guiClientRemoved()` sets removal flag and tick count to drive early abort. **Session-level, DELETE.**
+
+**`globals.vb`:**
+- `:2116-2135` — Remote retry loop: up to 3 attempts of `RetryConnect()` + `Start()`. **Session-level, DELETE.**
+- `:2137-2158` — Auto-connect retry path: dispose old FlexBase, create new, call `TryAutoConnect()`. **Ambiguous — DISCUSS.** Auto-connect retry is a legitimate separate concern, but its interaction with the new `WanSessionOwner` needs review. May keep with adapter; may delete if coordinator-level retry subsumes it.
+
+**Framing insight:** The Sprint 25 retry code is largely about a *GUIClient lifecycle race* (client added then removed during start, or removed without being added), not purely about WAN session reconnect. The `RetryConnect` path specifically handles "radio disconnected my GUIClient, let me get a fresh slot" rather than "SmartLink session dropped." This is worth keeping in mind during Phase 4 — some of these band-aids may transfer their *problem* (GUIClient race detection) to the new architecture even if the *mechanism* (ad-hoc retry) is deleted. Phase 4 should verify the new ownership model handles the GUIClient lifecycle race inherent in SmartLink-brokered connects.
+
+### 0.3 NetworkTest signature — results
+
+Method is named **`SendTestConnection`** (not `NetworkTest`). Lives at `FlexLib_API/FlexLib/WanServer.cs:583-604`.
+
+Signature: `public void SendTestConnection(string serial)` — synchronous fire-and-forget, void return, no timeout parameter. Takes only the radio serial string. Sends a command to SmartLink server asynchronously; results arrive via event `TestConnectionResultsReceivedEventHandler` (raised at line 588 when server responds) carrying a `WanTestConnectionResults` payload with five booleans (UPnP TCP/UDP working, forwarded TCP/UDP, NAT hole-punch support).
+
+Integration note for Sprint 27 Track C: subscribe to `WanServer.TestConnectionResultsReceived`, cache the result per session in the `WanSessionOwner`, expose it as read-only state. Calling context (UI or monitor thread) doesn't matter since results arrive via event — no `Task.Run` wrapper needed. Takes no timeout, so the session owner should time-out itself if results don't arrive within a sensible window (30s?).
+
+### 0.4 MultiFlex event + client-sync enumeration (BUG-062 rewire map)
+
+Organized by category, with each bullet citing file + line + classification + smell notes.
+
+**Category A — Multi-client events: emission and consumption**
+
+FlexLib event declarations and emission points (all in `FlexLib_API/FlexLib/Radio.cs`):
+- `:13725` — `GUIClientAdded` event declaration. **Emit source.**
+- `:13741` — `GUIClientUpdated` event declaration. **Emit source.**
+- `:13709` — `GUIClientRemoved` event declaration. **Emit source.**
+- `:13685` — `OnGUIClientAdded(gui_client)` raise inside `AddGUIClient()` (list mutation at `:13677-13687`). **Emit.**
+- `:13629` — `OnGUIClientUpdated(existingGuiClient)` raise during message parse (Station/Program/IsLocalPtt change). **Emit.**
+- `:13697` — `OnGUIClientRemoved(gui_client)` raise inside `RemoveGUIClient()` (list mutation at `:13689-13699`). **Emit.**
+
+JJ-side consumption (all in `Radios/FlexBase.cs`):
+- `:326` — Subscribe to `GUIClientAdded`. **Consume.**
+- `:327` — Subscribe to `GUIClientUpdated`. **Consume.**
+- `:328` — Subscribe to `GUIClientRemoved`. **Consume.**
+- `:2546-2615` — `guiClientAdded(GUIClient)` handler: tracks "my client" state, sets `Callouts.StationName`, registers property-changed listener. Announces `"{who} connected"` at line 2591 reading `client.Station/Program` from event payload. **Consume + announce — payload-clean.**
+- `:2681-2702` — `guiClientUpdated(GUIClient)` handler: logs only, no UI action. **Consume.**
+- `:2704-2744` — `guiClientRemoved(GUIClient)` handler: announces `"{who} disconnected"` at line 2721 reading `client.Station/Program`. **Consume + announce — payload-clean in our code; see R2 re FlexLib blanking possibility.**
+- `:2747-2763` — `guiClientPropertyChanged` handler for Station/IsLocalPtt changes on "my client" only. **Consume.**
+
+**Category B — Client-list data structure reads/writes**
+
+Type definition and DTO:
+- `JJFlexWpf/Dialogs/MultiFlexDialog.xaml.cs:13-28` — `public class MultiFlexClientInfo` (Program, Station, Handle, IsThisClient, OwnedSlices). **State-write** (constructor/setters).
+
+Producers:
+- `JJFlexWpf/MainWindow.xaml.cs:2871-2881` — `GetClients` callback: builds `MultiFlexClientInfo` list from `rig.GetGuiClients()` snapshot. **State-write.**
+- `Radios/FlexBase.cs:2626-2652` — `GetGuiClients()` method: iterates `theRadio.GuiClients` (locked) and matches slices from `theRadio.SliceList` by `ClientHandle`. **State-read from FlexLib-local state, not fresh radio query.** Line 2638: `s.ClientHandle == gc.ClientHandle` match against local `SliceList` — this is the inventory-staleness source. If `SliceAdded` / `SliceRemoved` events haven't caught up yet, slice count reported to the dialog is wrong. **Symptom 2 root cause.**
+
+Consumers:
+- `JJFlexWpf/Dialogs/MultiFlexDialog.xaml.cs:50` — `RefreshClientList()` called on dialog open. **State-read.**
+- `JJFlexWpf/Dialogs/MultiFlexDialog.xaml.cs:53-68` — `RefreshClientList()` method. Clears and rebuilds `ClientList` from `GetClients()` callback. **State-read. Not subscribed to GUIClient events.** This is the Symptom 3 root cause — dialog doesn't auto-refresh on remote client add/remove. See R3.
+- `JJFlexWpf/Dialogs/MultiFlexDialog.xaml.cs:105` — `Task.Delay` + `RefreshClientList()` after user-initiated disconnect. **State-read.**
+
+Slice inventory (radio-side "truth" question):
+- `Radios/FlexBase.cs:2636-2640` — `theRadio.SliceList` iteration in `GetGuiClients`. **State-read stale (comment claims "radio truth" but this is local FlexLib cache).**
+- `Radios/FlexBase.cs:5773` — `NewSlice()` capacity check: `effectiveCount = (theRadio?.SliceList.Count ?? 0) - _pendingRemovals`. **State-read stale.** Comment claims radio-truth; actually reads local cache.
+
+**Category C — Connection-state announcement sites**
+
+Payload-clean announcements (read from event `client` parameter, not post-change global state):
+- `Radios/FlexBase.cs:2588-2591` — `guiClientAdded` announcement. **Announce, payload-clean.**
+- `Radios/FlexBase.cs:2718-2721` — `guiClientRemoved` announcement. **Announce, payload-clean.**
+
+UI-initiated announcement:
+- `JJFlexWpf/Dialogs/MultiFlexDialog.xaml.cs:102` — `Speak($"{selected.Program} disconnected")` after user-initiated disconnect. Reads from `selected` (UI snapshot at click time). **Announce, UI-snapshot.** Stable since user-driven.
+
+Radio-level (not client-specific, no callsign):
+- `MainWindow.xaml.cs:1723` — "The radio disconnected" speech. **Announce, no callsign.**
+- `Radios/FlexBase.cs:425, 472, 484, 492, 648, 717, 900` — Radio-connection announcements; no client callsigns involved. **Announce, no callsign.**
+
+**Smoking gun for Symptom 6 (wa2iwc-wrong-callsign): NOT found in JJ-written code.** All three JJ announce sites correctly read from event payload or UI snapshot. The wrong-callsign effect is most likely FlexLib's `parseGuiClientStatus` (`Radio.cs` ~13550-13640) mutating `GUIClient.Station` / `Program` before firing `OnGUIClientRemoved` — so the "payload" our handler receives is already blanked out by that point. See R2 for fix path.
+
+**Summary of BUG-062 symptom-to-fix mapping based on Phase 0.4:**
+
+- Symptom 1 (slice visibility on multi-connect): needs coordinator-backed slice inventory. Phase 2.5 proper.
+- Symptom 2 (slice count wrong): fix `GetGuiClients` slice-count source and `NewSlice` capacity check — push past FlexLib's local cache, either by awaiting a freshness signal or by querying radio directly. Phase 2.5.
+- **Symptom 3 (client list doesn't propagate)**: surgical fix — wire `RefreshClientList` to `GUIClientAdded`/`GUIClientRemoved`. **Candidate 4.1.17 slip-in (R3).**
+- Symptom 4 (connect timeout): investigate during Phase 1 once adapter exists and can instrument the connect path. Probably session-handshake edge; handle within `WanSessionOwner` monitor thread. Phase 1 / Phase 2.5.
+- Symptom 5 (kick-refuse): primary-client-permission check in `MultiFlexDialog` disconnect path needs audit; likely reads stale `IsThisClient` or falls through to the wrong API on FlexLib. Phase 2.5 investigation, fix follows.
+- **Symptom 6 (wrong callsign)**: snapshot-at-subscribe pattern. Either smaller scope in Phase 2.5 or a surgical fix in its own commit (R2).
 
 ---
 
