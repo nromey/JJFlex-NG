@@ -285,6 +285,32 @@ namespace Radios
         public string CurrentSmartLinkAccountEmail => _currentAccount?.Email ?? string.Empty;
 
         /// <summary>
+        /// Sprint 27 Track B. Current account's UPnP opt-in state, or null if
+        /// no SmartLink account is bound. UI gates its Tier 2 checkbox on this.
+        /// </summary>
+        public bool? CurrentAccountUPnPEnabled => _currentAccount?.UPnPEnabled;
+
+        /// <summary>
+        /// Sprint 27 Track B / Phase B.2 — persists the Tier 2 UPnP opt-in
+        /// state on the account currently bound to this connection. Saves to
+        /// disk. Returns false when no account is bound. Note: this sets only
+        /// the preference; actual UPnP mapping happens on next session
+        /// connect (see the Track B.3 hook in FlexBase.Connect).
+        /// </summary>
+        public bool SaveCurrentAccountUPnPEnabled(bool enabled)
+        {
+            if (_currentAccount == null)
+            {
+                Tracing.TraceLine("SaveCurrentAccountUPnPEnabled: no current account; skipping", TraceLevel.Warning);
+                return false;
+            }
+            _currentAccount.UPnPEnabled = enabled;
+            AccountManager.SaveAccounts();
+            Tracing.TraceLine($"SaveCurrentAccountUPnPEnabled: saved enabled={enabled} for account={_currentAccount.Email}", TraceLevel.Info);
+            return true;
+        }
+
+        /// <summary>
         /// Sprint 27 Track A / Phase A.3 — persists a SmartLink listen-port
         /// preference on the account currently bound to this connection, and
         /// refreshes the in-memory account reference so the next auto-apply

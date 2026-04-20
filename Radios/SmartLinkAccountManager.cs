@@ -372,6 +372,30 @@ namespace Radios
             return port.Value >= 1024 && port.Value <= 65535;
         }
 
+        /// <summary>
+        /// Sprint 27 Track B / Tier 2. Returns whether UPnP automatic port
+        /// mapping is enabled for the given account, or false when the email
+        /// is unknown. In-memory read; does not touch disk.
+        /// </summary>
+        public bool GetUPnPEnabled(string email)
+        {
+            return GetAccountByEmail(email)?.UPnPEnabled ?? false;
+        }
+
+        /// <summary>
+        /// Sprint 27 Track B / Tier 2. Persists the UPnP opt-in state for the
+        /// given account. Returns false if the email is unknown. Saves to
+        /// disk on success.
+        /// </summary>
+        public bool SetUPnPEnabled(string email, bool enabled)
+        {
+            var account = GetAccountByEmail(email);
+            if (account == null) return false;
+            account.UPnPEnabled = enabled;
+            SaveAccounts();
+            return true;
+        }
+
         #region DPAPI Encryption Helpers
 
         private static string EncryptWithDpapi(string plainText)
@@ -435,6 +459,11 @@ namespace Radios
             [JsonPropertyName("configuredListenPort")]
             public int? ConfiguredListenPort { get; set; }
 
+            // Sprint 27 Track B. Plain bool defaults to false when absent from
+            // JSON, which is the correct Tier 2 default (off) for legacy files.
+            [JsonPropertyName("upnpEnabled")]
+            public bool UPnPEnabled { get; set; }
+
             public static StoredAccount FromSmartLinkAccount(SmartLinkAccount account)
             {
                 return new StoredAccount
@@ -445,7 +474,8 @@ namespace Radios
                     RefreshTokenEncrypted = EncryptWithDpapi(account.RefreshToken),
                     ExpiresAt = account.ExpiresAt,
                     LastUsed = account.LastUsed,
-                    ConfiguredListenPort = account.ConfiguredListenPort
+                    ConfiguredListenPort = account.ConfiguredListenPort,
+                    UPnPEnabled = account.UPnPEnabled
                 };
             }
 
@@ -459,7 +489,8 @@ namespace Radios
                     RefreshToken = DecryptWithDpapi(RefreshTokenEncrypted),
                     ExpiresAt = ExpiresAt,
                     LastUsed = LastUsed,
-                    ConfiguredListenPort = ConfiguredListenPort
+                    ConfiguredListenPort = ConfiguredListenPort,
+                    UPnPEnabled = UPnPEnabled
                 };
             }
         }
@@ -528,6 +559,15 @@ namespace Radios
         /// forwarded port matches what the radio listens on.
         /// </summary>
         public int? ConfiguredListenPort { get; set; }
+
+        /// <summary>
+        /// Sprint 27 Track B / Tier 2 — whether JJ Flex should ask the router
+        /// (via UPnP) to open <see cref="ConfiguredListenPort"/> automatically
+        /// on session connect. Default false (Tier 2 is opt-in; Tier 1 is the
+        /// recommended sovereign default). Ignored when
+        /// <see cref="ConfiguredListenPort"/> is null — UPnP needs a port.
+        /// </summary>
+        public bool UPnPEnabled { get; set; }
 
         /// <summary>
         /// Display string for UI.

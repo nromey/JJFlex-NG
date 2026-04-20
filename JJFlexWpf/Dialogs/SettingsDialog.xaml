@@ -326,7 +326,8 @@
                     <CheckBox x:Name="PortForwardEnabledCheck"
                               Content="Enable manual port forwarding"
                               Margin="0,0,0,8"
-                              AutomationProperties.Name="Enable manual port forwarding on the radio"/>
+                              AutomationProperties.Name="Enable manual port forwarding on the radio"
+                              Click="PortForwardEnabledCheck_Click"/>
 
                     <Grid Margin="20,0,0,8">
                         <Grid.ColumnDefinitions>
@@ -375,6 +376,19 @@
                                 AutomationProperties.AcceleratorKey="Alt+S"
                                 Click="TestPortButton_Click"/>
                     </StackPanel>
+
+                    <!-- Sprint 27 Track B: Tier 2 UPnP opt-in section. Off by default. Checkbox is gated on a valid Tier 1 port being entered. -->
+                    <Separator Margin="0,16,0,8"/>
+                    <TextBlock Text="Tier 2 — UPnP (optional, off by default)" FontWeight="SemiBold"
+                               Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
+                    <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
+                               Text="Automatic port forwarding via UPnP. JJ Flex asks your router to open the port configured above; the router obliges without requiring you to log into its admin page. Convenient, but trades sovereignty for convenience. Off by default."/>
+                    <CheckBox x:Name="UPnPEnabledCheck"
+                              Content="Allow JJ Flex to open the port on my router automatically via UPnP"
+                              Margin="0,0,0,8"
+                              AutomationProperties.Name="Enable UPnP automatic port mapping"/>
+                    <TextBlock TextWrapping="Wrap" Margin="0,0,0,8" FontStyle="Italic"
+                               Text="Security note: UPnP lets any program running on your LAN punch holes through your router without asking. It is disabled by enterprise security policies (DISA STIGs, PCI-DSS, HIPAA) and by some home routers by default. If you can comfortably forward the port manually on the router, prefer Tier 1 above. If UPnP fails — no supporting router, disabled at the router, or the router refuses the mapping — JJ Flex falls back to Tier 1 silently; check the trace log for details."/>
 
                     <!-- Sprint 27 Track C: full NetworkTest probe via SmartLink backend. Distinct from Te_st port above, which is local-only validation. -->
                     <Separator Margin="0,16,0,8"/>

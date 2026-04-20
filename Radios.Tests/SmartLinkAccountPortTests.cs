@@ -143,5 +143,63 @@ namespace Radios.Tests
             var mgr = new SmartLinkAccountManager();
             Assert.Null(mgr.GetConfiguredPort("unknown@example.com"));
         }
+
+        // --- Sprint 27 Track B Phase B.2 — UPnP opt-in persistence ---
+
+        [Fact]
+        public void SmartLinkAccount_DefaultsToUPnPDisabled()
+        {
+            var a = new SmartLinkAccount();
+            Assert.False(a.UPnPEnabled);
+        }
+
+        [Fact]
+        public void StoredAccount_Serialization_PreservesUPnPEnabled()
+        {
+            var src = new SmartLinkAccount
+            {
+                FriendlyName = "Home",
+                Email = "test@example.com",
+                UPnPEnabled = true
+            };
+            var stored = SmartLinkAccountManager.StoredAccount.FromSmartLinkAccount(src);
+            var json = JsonSerializer.Serialize(stored);
+            var restored = JsonSerializer.Deserialize<SmartLinkAccountManager.StoredAccount>(json)!;
+            var final = restored.ToSmartLinkAccount();
+            Assert.True(final.UPnPEnabled);
+        }
+
+        [Fact]
+        public void StoredAccount_Deserialization_OldFormatDefaultsUPnPToFalse()
+        {
+            // Pre-Sprint-27-Track-B JSON has no upnpEnabled field. Load must
+            // default to false — Tier 2 is opt-in, so legacy accounts get zero
+            // behavior change until the user explicitly enables.
+            const string oldJson = @"{
+                ""friendlyName"": ""Legacy"",
+                ""email"": ""old@example.com"",
+                ""idTokenEncrypted"": """",
+                ""refreshTokenEncrypted"": """",
+                ""expiresAt"": ""2025-01-01T00:00:00"",
+                ""lastUsed"": ""2025-01-01T00:00:00""
+            }";
+            var restored = JsonSerializer.Deserialize<SmartLinkAccountManager.StoredAccount>(oldJson)!;
+            var final = restored.ToSmartLinkAccount();
+            Assert.False(final.UPnPEnabled);
+        }
+
+        [Fact]
+        public void GetUPnPEnabled_ReturnsFalseForUnknownAccount()
+        {
+            var mgr = new SmartLinkAccountManager();
+            Assert.False(mgr.GetUPnPEnabled("unknown@example.com"));
+        }
+
+        [Fact]
+        public void SetUPnPEnabled_ReturnsFalseForUnknownAccount()
+        {
+            var mgr = new SmartLinkAccountManager();
+            Assert.False(mgr.SetUPnPEnabled("unknown@example.com", true));
+        }
     }
 }

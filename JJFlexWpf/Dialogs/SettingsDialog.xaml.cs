@@ -273,6 +273,12 @@ namespace JJFlexWpf.Dialogs
                 PortForwardSeparatePortsCheck.IsChecked = false;
                 PortForwardUdpBox.IsEnabled = false;
                 PortForwardTcpLabel.Text = "Port (TCP and UDP):";
+                // Sprint 27 Track B — Tier 2 UPnP is meaningless without a connected radio.
+                if (UPnPEnabledCheck != null)
+                {
+                    UPnPEnabledCheck.IsChecked = false;
+                    UPnPEnabledCheck.IsEnabled = false;
+                }
                 return;
             }
 
@@ -292,6 +298,45 @@ namespace JJFlexWpf.Dialogs
                     ? $"Radio currently listens on TCP {tcp}, UDP {udp}."
                     : $"Radio currently listens on port {tcp} (TCP and UDP).")
                 : "Radio currently uses UPnP or hole-punch (no manual forwarding).";
+
+            // Sprint 27 Track B — UPnP checkbox reflects the account preference,
+            // not the radio's firmware state. Null / no-account → unchecked + disabled.
+            if (UPnPEnabledCheck != null)
+            {
+                UPnPEnabledCheck.IsChecked = _rig.CurrentAccountUPnPEnabled ?? false;
+            }
+            RecomputeUPnPCheckboxEnablement();
+        }
+
+        /// <summary>
+        /// Sprint 27 Track B — Tier 2 requires a valid Tier 1 port first.
+        /// Disable the UPnP checkbox until port-forward is enabled and the
+        /// TCP port parses to a valid value. When disabling, also uncheck
+        /// so the user can't leave the checkbox showing "checked but inert".
+        /// </summary>
+        private void RecomputeUPnPCheckboxEnablement()
+        {
+            if (UPnPEnabledCheck == null) return;
+
+            bool tier1On = PortForwardEnabledCheck?.IsChecked == true;
+            bool portValid = int.TryParse(PortForwardTcpBox?.Text, out int tcp)
+                             && SmartLinkAccountManager.IsValidPort(tcp);
+            bool shouldEnable = tier1On && portValid;
+
+            UPnPEnabledCheck.IsEnabled = shouldEnable;
+            if (!shouldEnable && UPnPEnabledCheck.IsChecked == true)
+            {
+                UPnPEnabledCheck.IsChecked = false;
+            }
+        }
+
+        /// <summary>
+        /// Sprint 27 Track B — re-evaluate UPnP checkbox enablement when the
+        /// user toggles Tier 1 port-forward on/off.
+        /// </summary>
+        private void PortForwardEnabledCheck_Click(object sender, RoutedEventArgs e)
+        {
+            RecomputeUPnPCheckboxEnablement();
         }
 
         /// <summary>
@@ -317,6 +362,8 @@ namespace JJFlexWpf.Dialogs
             if (PortForwardUdpBox == null || PortForwardSeparatePortsCheck == null) return;
             if (PortForwardSeparatePortsCheck.IsChecked != true)
                 PortForwardUdpBox.Text = PortForwardTcpBox.Text;
+            // Sprint 27 Track B — port validity feeds into UPnP gate.
+            RecomputeUPnPCheckboxEnablement();
         }
 
         /// <summary>
@@ -366,6 +413,12 @@ namespace JJFlexWpf.Dialogs
                 {
                     int? preference = enabled ? (int?)tcp : null;
                     savedPreference = _rig.SaveCurrentAccountListenPort(preference);
+
+                    // Sprint 27 Track B / Phase B.2 — also persist Tier 2 UPnP opt-in.
+                    // When Tier 1 is disabled (enabled=false), UPnP is meaningless;
+                    // force the saved preference to false regardless of checkbox state.
+                    bool upnpPref = enabled && UPnPEnabledCheck?.IsChecked == true;
+                    _rig.SaveCurrentAccountUPnPEnabled(upnpPref);
                 }
 
                 string baseMessage = enabled
