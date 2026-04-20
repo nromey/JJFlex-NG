@@ -26,6 +26,7 @@ using Flex.Smoothlake.Vita;
 using HamBands;
 using JJPortaudio;
 using JJTrace;
+using Radios.SmartLink;
 
 namespace Radios
 {
@@ -410,6 +411,100 @@ namespace Radios
             });
         }
 
+        // Sprint 27 Track B — shared UPnP mapper instance (lazy). Per FlexBase
+        // instance so each connection owns its own; the underlying COM object
+        // is cheap to recreate and not worth pooling.
+        private UPnPPortMapper? _upnpMapper;
+        // Remember which ports we actually mapped so Disconnect can release them.
+        private int? _upnpMappedTcpPort;
+        private int? _upnpMappedUdpPort;
+
+        /// <summary>
+        /// Sprint 27 Track B / Phase B.3 — if the active account has Tier 2
+        /// UPnP opt-in enabled and a configured port, ask the local router via
+        /// UPnP to forward that port (TCP + UDP) to the radio's LAN IP.
+        /// Silent no-op in all the following cases (trace only):
+        /// no account, UPnP opt-in is false, no configured port, radio's IP
+        /// is not a private / LAN address (we're roaming — UPnP would target
+        /// the wrong router). Individual TCP / UDP failures don't disable the
+        /// other; each is attempted independently and its result remembered
+        /// for Disconnect cleanup.
+        /// </summary>
+        private void ApplyAccountUPnPPreferenceIfAny()
+        {
+            if (_currentAccount == null || !_currentAccount.UPnPEnabled)
+            {
+                Tracing.TraceLine("ApplyAccountUPnPPreferenceIfAny: UPnP not enabled for this account", TraceLevel.Info);
+                return;
+            }
+            if (_currentAccount.ConfiguredListenPort == null)
+            {
+                Tracing.TraceLine("ApplyAccountUPnPPreferenceIfAny: UPnP enabled but no port preference configured; skipping", TraceLevel.Warning);
+                return;
+            }
+            if (theRadio == null) return;
+
+            string radioIp = theRadio.IP?.ToString() ?? string.Empty;
+            if (!IsPrivateIPv4(radioIp))
+            {
+                Tracing.TraceLine($"ApplyAccountUPnPPreferenceIfAny: radio IP '{radioIp}' is not a private LAN address; UPnP not applicable from this network (roaming). Relying on manual port forward only.", TraceLevel.Info);
+                return;
+            }
+
+            int port = _currentAccount.ConfiguredListenPort.Value;
+            _upnpMapper ??= new UPnPPortMapper();
+
+            Tracing.TraceLine($"ApplyAccountUPnPPreferenceIfAny: attempting UPnP mapping port={port} radioIp={radioIp}", TraceLevel.Info);
+
+            bool tcpOk = _upnpMapper.TryAddMapping(port, UPnPProtocol.Tcp, port, radioIp, "JJFlexRadio SmartLink TCP");
+            if (tcpOk) _upnpMappedTcpPort = port;
+
+            bool udpOk = _upnpMapper.TryAddMapping(port, UPnPProtocol.Udp, port, radioIp, "JJFlexRadio SmartLink UDP");
+            if (udpOk) _upnpMappedUdpPort = port;
+
+            Tracing.TraceLine($"ApplyAccountUPnPPreferenceIfAny: tcpMapped={tcpOk} udpMapped={udpOk}", TraceLevel.Info);
+        }
+
+        /// <summary>
+        /// Sprint 27 Track B / Phase B.3 — release UPnP mappings we added in
+        /// <see cref="ApplyAccountUPnPPreferenceIfAny"/>. Called from
+        /// <see cref="Disconnect"/>. Safe to call when no mappings exist —
+        /// the per-port trackers are nulled out on success and checked here.
+        /// </summary>
+        private void ReleaseUPnPMappingsIfAny()
+        {
+            if (_upnpMapper == null) return;
+            if (_upnpMappedTcpPort is int tcp)
+            {
+                _upnpMapper.TryRemoveMapping(tcp, UPnPProtocol.Tcp);
+                _upnpMappedTcpPort = null;
+            }
+            if (_upnpMappedUdpPort is int udp)
+            {
+                _upnpMapper.TryRemoveMapping(udp, UPnPProtocol.Udp);
+                _upnpMappedUdpPort = null;
+            }
+        }
+
+        /// <summary>
+        /// Sprint 27 Track B — true only for RFC1918 IPv4 addresses (10/8,
+        /// 172.16/12, 192.168/16). We gate UPnP attempts on this so roaming
+        /// users don't have us punching holes in the wrong router; the
+        /// user's manual port forward (configured from home) still works
+        /// in that scenario.
+        /// </summary>
+        private static bool IsPrivateIPv4(string ip)
+        {
+            if (string.IsNullOrWhiteSpace(ip)) return false;
+            if (!System.Net.IPAddress.TryParse(ip, out var addr)) return false;
+            if (addr.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork) return false;
+            byte[] b = addr.GetAddressBytes();
+            if (b[0] == 10) return true;
+            if (b[0] == 172 && b[1] >= 16 && b[1] <= 31) return true;
+            if (b[0] == 192 && b[1] == 168) return true;
+            return false;
+        }
+
         private void ApplyAccountPortPreferenceIfAny()
         {
             if (_currentAccount == null)
@@ -568,6 +663,13 @@ namespace Radios
                     // account has no preference, the radio's firmware already
                     // matches, or no account is bound to the session.
                     ApplyAccountPortPreferenceIfAny();
+
+                    // Sprint 27 Track B / Phase B.3 — attempt UPnP mapping
+                    // for Tier 2 opt-in accounts. Silent no-op when UPnP is
+                    // not opted in, no port is configured, or the radio IP
+                    // isn't a private (LAN) address. Failures fall back to
+                    // Tier 1 behavior silently.
+                    ApplyAccountUPnPPreferenceIfAny();
 
                     // Sprint 27 Track C / Phase C.3 — kick a NetworkTest in
                     // the background so the diagnostic report is warm by the
@@ -1143,6 +1245,10 @@ namespace Radios
 
             if (theRadio.Connected)
             {
+                // Sprint 27 Track B / Phase B.3 — release any UPnP mappings
+                // we added in Connect before we lose the radio-IP context.
+                ReleaseUPnPMappingsIfAny();
+
                 theRadio.Disconnect();
                 if (!await(() =>
                 {
