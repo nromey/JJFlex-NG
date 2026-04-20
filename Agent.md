@@ -5,7 +5,7 @@ This document captures the current state of JJ-Flex repository and active work.
 **Repository root:** `C:\dev\JJFlex-NG`
 **Branch:** `sprint27/networking-config` (Track A Phase 1 complete; Phase 2 fan-out next)
 
-## Current State — Sprint 27 Tracks A + C COMPLETE, Track B next (serial)
+## Current State — Sprint 27 Tracks A + B + C COMPLETE, Track F next (serial)
 
 **Sprint 27 Track A landed 2026-04-20** in four commits on `sprint27/networking-config` (branched off `main` which now includes Sprint 26):
 
@@ -30,9 +30,11 @@ This document captures the current state of JJ-Flex repository and active work.
 
 **Track C landed 2026-04-20** in four commits. C.0 findings revised plan scope (FlexLib NetworkTest exposes only 5 booleans, no NAT-type/backend/auth signals), C.1 added `NetworkDiagnosticReport` + `ToMarkdown()` (9 tests), C.2 added `NetworkTestRunner` with TTL cache + dedup + timeout (13 tests), C.3 wired invocation points (a) post-connect fire-and-forget + (b) Settings "Test _network" button. Scenario (c) post-disconnect heuristic deferred to Track D. `WanSessionOwner` now owns a `NetworkTestRunner`; `IWanSessionOwner` grew three pass-through members.
 
-**Debug build 4.1.16.85** archived to NAS `historical\4.1.16.85\x64-debug\`. No Dropbox publish — two tracks worth of untested code; smoke test still outstanding.
+**Track B landed 2026-04-20** in five commits. B.0 resolved Q27.1 in favor of native Windows UPnPNAT COM (zero NuGet dependency; reflection-dispatched; stable API). B.1 added `UPnPPortMapper` public class with internal `IUPnPBackend` seam + `ComUPnPBackend` production impl (15 tests covering wrapper behavior). B.2 added `SmartLinkAccount.UPnPEnabled` persistence + Tier 2 Settings UI block (checkbox gated on valid Tier 1 port; italic security warning; Apply extended to save both preferences). B.3 wired `ApplyAccountUPnPPreferenceIfAny` on Connect (TCP + UDP separately; private-IP gate skips roaming) and `ReleaseUPnPMappingsIfAny` on Disconnect.
 
-**Next session target:** continue serial execution with **Track B** (UPnP opt-in). Track B spike first — evaluate `Open.NAT` / `Mono.Nat` / native `UPnPNAT` COM interop for UPnP client; write decision to plan before coding. Then: settings-UI checkbox + warning paragraph, UPnP mapping on session start, release on session end / toggle-off, fallback with diagnostic surface. Serial order after B: F (Tier 3 hole-punch) → E (help docs) → D (integrator, last).
+**Debug build 4.1.16.90** archived to NAS `historical\4.1.16.90\x64-debug\`. No Dropbox publish — three tracks worth of code awaiting smoke test; Track A's auto-apply and Track B's UPnP path are the highest-leverage verifications to run against a live radio + router when convenient.
+
+**Next session target:** continue serial execution with **Track F** (Tier 3 accessible hole-punch exposure). Builds on Track A's port-config data model. Uses FlexLib's existing `WanServer.SendConnectMessageToRadio(serial, holePunchPort)` — infrastructure already there, Track F is the accessibility client layer. Serial order after F: E (help docs) → D (integrator: rich diagnostic messages + copy/save, must be last because it consumes outputs from B/C/F).
 
 ---
 

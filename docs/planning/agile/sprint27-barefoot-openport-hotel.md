@@ -347,6 +347,25 @@ Track C landed in four commits on `sprint27/networking-config` (serial execution
 
 ---
 
+## Track B complete (2026-04-20)
+
+Track B landed in five commits on `sprint27/networking-config`:
+
+- **B.0 (`8893cd7d`)** — library decision: native Windows UPnPNAT COM (`HNetCfg.NATUPnP`, reflection-dispatched). Zero NuGet dependency, stable API since Windows XP, aligns with JJFlex's Windows-only posture. Open.NAT and Mono.Nat rejected on maintenance risk.
+- **B.1 (`1730cc88`)** — `UPnPPortMapper` public class with an internal `IUPnPBackend` seam + `ComUPnPBackend` production impl. Reflection (not `dynamic`) so no Microsoft.CSharp reference needed. Public surface: `IsAvailable`, `TryAddMapping`, `TryRemoveMapping`, `TryGetExternalIpAddress` (returns null in v1). Every op funnels through a `SafeCall<T>` that swallows all exceptions to bool/null and traces them. 15 tests including a case-regression guard on the `TCP`/`UDP` string mapping.
+- **B.2 (`6172e6d0`)** — `SmartLinkAccount.UPnPEnabled` (bool, default false) + JSON round-trip; `SmartLinkAccountManager.{Get,Set}UPnPEnabled(email)`; `FlexBase.CurrentAccountUPnPEnabled` + `SaveCurrentAccountUPnPEnabled`. Settings Network tab gains a Tier 2 block below Tier 1 with checkbox, italic security-warning prose, and a `RecomputeUPnPCheckboxEnablement` helper that gates the checkbox on `PortForwardEnabledCheck` being ON + a valid Tier 1 port parsing. Apply button extended to save both Tier 1 and Tier 2 preferences together. 5 new persistence tests (64 total green).
+- **B.3 (`d58d6780`)** — `FlexBase.ApplyAccountUPnPPreferenceIfAny()` in the Connect success branch (after A.2 auto-apply, before C.3 NetworkTest kick); `ReleaseUPnPMappingsIfAny()` in Disconnect before `theRadio = null`. Private-IP gate (`IsPrivateIPv4`) skips UPnP attempts when the radio's IP is not RFC1918 — the roaming case where JJ Flex on a hotel LAN would punch holes in the wrong router. Per-port success tracking so Disconnect only removes mappings we actually added.
+
+**B.4 verification rollup:**
+
+- Full solution Debug x64 build clean (0 errors).
+- `Radios.Tests` full suite: 64/64 passed (49 pre-existing + 15 new from B.1 + some B.2 coverage already counted there).
+- `build-debug.bat` produced `4.1.16.90` → NAS `historical\4.1.16.90\x64-debug\`. Dropbox untouched.
+
+**Exit criterion (Track B):** the code-side pieces are all in place. The UPnPPortMapper has exhaustive unit coverage for its wrapper / input validation / exception handling. The real UPnP path — a router that speaks UPnP, actually accepting a mapping, SmartLink traffic successfully reaching the radio through it — is inherently untestable without live hardware. B.4 smoke test against Noel's router will confirm (a) UPnP attempts run on a cold connect, (b) mapping appears in the router admin UI, (c) Disconnect cleans up the mapping, (d) roaming (non-RFC1918 radio IP) silently skips the attempt.
+
+---
+
 ## Next session action
 
-Sprint 27 Track C complete. Next track in the serial order is **Track B** (UPnP opt-in). Track B spike first: evaluate `Open.NAT` / `Mono.Nat` / native `UPnPNAT` COM, write decision to plan, then implement.
+Sprint 27 Track B complete. Next track in the serial order is **Track F** (Tier 3 accessible hole-punch exposure). Track F builds on Track A's port-config data model and uses FlexLib's existing `WanServer.SendConnectMessageToRadio(serial, holePunchPort)` — the infrastructure is already there, we just accessibly surface the opt-in. After F comes E (help docs) and finally D (integrator — rich diagnostic messages + copy/save).
