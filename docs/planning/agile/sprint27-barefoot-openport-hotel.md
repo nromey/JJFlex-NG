@@ -386,6 +386,27 @@ Track F landed in three commits on `sprint27/networking-config` (serial after Tr
 
 ---
 
+## Track E complete (2026-04-20)
+
+Track E landed in two commits on `sprint27/networking-config`:
+
+- **E.0 (`a88ac543`)** — three user-facing networking help docs in `docs/help/networking/`: `tier1-manual-port.md`, `tier2-upnp.md`, `diagnostics.md`. Warm conversational tone matching the changelog voice. Prose + bulleted lists only; no tables, no ASCII diagrams, no images. Deliberately avoids brand-specific router-admin walkthroughs (stale menu names mislead worse than no instructions) — concept-level guidance with a pointer to manufacturer docs.
+- **E.1 (`9adabb58`)** — `ContentWithTargetPath` entries in `JJFlexRadio.vbproj` copy the docs to `help\networking\` under the exe output directory. Verified Debug x64 build places them where Track D's help-open-link code will expect them.
+
+**Scope note:** Track E as delivered covers Sprint 27 networking docs only. A broader cross-sprint help audit (Sprint 25 + Sprint 26 Phase 8 Jim-parity + any pre-existing undocumented features) is a named follow-up task queued for post-Track-D, pre-sprint-close. See `memory/feedback_docs_ship_with_features.md` for the durable working-practice rule Noel established 2026-04-20: features henceforth ship with a doc or an explicit "needs doc" flag.
+
+---
+
 ## Next session action
 
-Sprint 27 Track F complete. Next track in the serial order is **Track E** (help docs, prose-only — `tier1-manual-port.md`, `tier2-upnp.md`, `diagnostics.md`). After E comes **Track D** — the integrator: rich disconnect diagnostic messages, post-disconnect NetworkTest auto-run (scenario c deferred from C.3), copy-to-clipboard + save-to-file buttons for `NetworkDiagnosticReport.ToMarkdown()`. D must land last because it consumes outputs from B/C/F.
+Sprint 27 Track E complete. Next (and final) track in the serial order is **Track D** — the integrator. Scope per the plan:
+
+- Extend Sprint 26 Phase 3's message dictionary with NetworkTest-informed messages (SmartLink unreachable / NAT symmetric / auth failed / UPnP failed / internet down).
+- Help-link affordances — clicking a failure message opens the relevant `docs/help/networking/*.md` via `Process.Start("explorer.exe", <path>)` so the user's default markdown viewer handles it.
+- Live-region announcement on diagnostic-state change.
+- Configurable verbosity toggle (short user-facing vs. long debug).
+- Copy-to-clipboard button (uses `NetworkDiagnosticReport.ToMarkdown()` from Track C).
+- Save-to-file button (same payload, user-chosen path, default filename `JJFlex-NetworkDiagnostic-YYYY-MM-DD-HHmm.md`).
+- Post-disconnect NetworkTest auto-run (scenario c deferred from Phase C.3) — runs when reconnect heuristic suspects network trouble; populates the diagnostic display with the latest probe.
+
+After D: **broader cross-sprint help-docs audit** (tracked task), then sprint close-out.

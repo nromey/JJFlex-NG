@@ -5,7 +5,7 @@ This document captures the current state of JJ-Flex repository and active work.
 **Repository root:** `C:\dev\JJFlex-NG`
 **Branch:** `sprint27/networking-config` (Track A Phase 1 complete; Phase 2 fan-out next)
 
-## Current State — Sprint 27 Tracks A + B + C + F COMPLETE, Track E next (serial)
+## Current State — Sprint 27 Tracks A + B + C + F + E COMPLETE, Track D next (final serial)
 
 **Sprint 27 Track A landed 2026-04-20** in four commits on `sprint27/networking-config` (branched off `main` which now includes Sprint 26):
 
@@ -34,9 +34,13 @@ This document captures the current state of JJ-Flex repository and active work.
 
 **Track F landed 2026-04-20** in three commits. F.0 replaced B.2's `UPnPEnabled` bool with a three-state `SmartLinkConnectionMode` enum (cumulative tier semantics; JSON string-name serialization; ordinal monotonicity pinned by test). F.1 replaced the Tier 2 checkbox with an accessible three-option radio group (per-item explanations inline; mode-change speech; Tier 2/3 gated on Tier 1 port validity). F.2 threaded `holePunchPort` through `IWanServer.SendConnectMessageToRadio` + `IWanSessionOwner.ConnectToRadio`; `FlexBase.sendRemoteConnect` derives the port from the active account's ConnectionMode (AutomaticHolePunch + configured port → that port; otherwise 0). Zero new server infrastructure — Flex's SmartLink coordinates the hole-punch on its side.
 
-**Debug build 4.1.16.94** archived to NAS `historical\4.1.16.94\x64-debug\`. Still no Dropbox publish — four tracks' worth of unverified networking code; smoke test against live router + radio outstanding.
+**Track E landed 2026-04-20** in two commits. E.0 wrote three user-facing networking help docs (`tier1-manual-port.md`, `tier2-upnp.md`, `diagnostics.md`) in `docs/help/networking/` — warm conversational tone, prose + bullets only. E.1 wired them into the build output via `ContentWithTargetPath` so Track D's help-link buttons can resolve them as local file paths.
 
-**Next session target:** continue serial execution with **Track E** (help docs, prose-only). Three files in `docs/help/networking/`: `tier1-manual-port.md`, `tier2-upnp.md`, `diagnostics.md`. Accessibility: prose + bullets, no tables, no diagrams, no images. Copied to output dir so Settings help links resolve locally. After E comes **Track D** — the integrator: rich disconnect diagnostic messages, post-disconnect NetworkTest auto-run (scenario c deferred from C.3), copy-to-clipboard + save-to-file buttons using `NetworkDiagnosticReport.ToMarkdown()`.
+**Broader help-docs audit** (Sprint 25 + Sprint 26 Phase 8 + any pre-existing gaps) queued as a named task for after Track D ships, per Noel's 2026-04-20 ask. Durable working-practice rule saved to `memory/feedback_docs_ship_with_features.md`: features henceforth ship with a doc or an explicit "needs doc" flag.
+
+**Debug build 4.1.16.97** archived to NAS `historical\4.1.16.97\x64-debug\`. Still no Dropbox publish — five tracks of unverified code; smoke test outstanding.
+
+**Next session target:** final track in the serial order — **Track D**, the integrator. Scope: extend Sprint 26 Phase 3's message dictionary with NetworkTest-informed failure messages, add help-link affordances opening local markdown, live-region announcement on diagnostic-state change, configurable short-vs-debug verbosity toggle, copy-to-clipboard + save-to-file buttons using `NetworkDiagnosticReport.ToMarkdown()`, and the deferred C.3 scenario (c) post-disconnect NetworkTest auto-run. After D: the broader help-docs audit, then sprint close-out.
 
 ---
 
