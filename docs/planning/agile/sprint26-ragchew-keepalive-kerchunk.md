@@ -44,7 +44,7 @@ That vision ruled out the simpler Shape 1 ("singleton session owner, switch acco
 **`IWanServer`** — our abstraction over FlexLib's `WanServer`. Every call surface FlexBase reaches for goes through this interface. Buys us:
 - Testability (mock implementations for unit tests of the session owner's state machine).
 - Version insulation (future FlexLib updates don't break us at the API level).
-- Protocol safety (our `SemaphoreSlim` for call serialization lives here).
+- Protocol safety (our `lock` / Monitor for call serialization lives here — reentrant primitive chosen per R1 finding 2026-04-20 because FlexLib raises `PropertyChanged` synchronously on the mutator thread).
 - Tracing layer (the adapter traces every call before forwarding).
 
 **`IWanSessionOwner`** — the session contract. Exposes:
@@ -177,7 +177,7 @@ Largest phase. All new scaffolding gets built; **nothing in the rest of the code
 
 **Implementations:**
 
-- `WanServerAdapter : IWanServer` — thin shell that forwards to FlexLib's `WanServer`. Holds the `SemaphoreSlim` that serializes all calls. Also the natural home for call-level tracing.
+- `WanServerAdapter : IWanServer` — thin shell that forwards to FlexLib's `WanServer`. Holds the `lock` (Monitor) that serializes all calls — reentrant primitive per R1 decision; non-reentrant `SemaphoreSlim` would deadlock when FlexLib's synchronous `PropertyChanged` callbacks reach back through our adapter on the mutator thread. Also the natural home for call-level tracing.
 - `WanSessionOwner : IWanSessionOwner` — owns the `IWanServer`, owns the monitor thread, implements behavioral spec (backoff, AutoResetEvent, signal-triggered wake, clean shutdown). Emits structured traces on every state transition.
 - `SmartLinkSessionCoordinator` — holds `Dictionary<SessionId, IWanSessionOwner>`, exposes `ActiveSession` and account-switch semantics.
 - `DirectPassthroughSink : ISessionAudioSink` — Sprint 26 audio stub. Ignores Pan/Gain/Muted/IsFocused; writes to default output.
@@ -195,7 +195,8 @@ Largest phase. All new scaffolding gets built; **nothing in the rest of the code
   - `Shutdown_While_InBackoff_CleanlyExitsThread` — session is mid-backoff wait, call Shutdown, thread wakes and exits cleanly without completing the backoff wait.
   - `Shutdown_While_ConnectInFlight_CleanlyExitsThread` — mock Connect is blocked (injected delay), call Shutdown during it, verify thread exits cleanly when Connect completes.
   - `IsConnectedRace_DoesNotCauseDoubleConnect` — IsConnected flips false→true→false in rapid succession; session doesn't try to Connect twice.
-  - `SemaphoreSlim_SerializesConcurrentCalls` — two threads call session operations simultaneously; verify they serialize via the WanServerAdapter's semaphore (no interleaving).
+  - `Lock_SerializesConcurrentCalls` — two threads call session operations simultaneously; verify they serialize via the WanServerAdapter's lock (no interleaving).
+  - `Lock_IsReentrantOnSameThread` — thread acquires the adapter's lock, then during an event-handler callback reaches back through the adapter to read state. Verify the re-entry succeeds (does not deadlock). This is the regression test for R1's core finding.
   - `Status_Property_ReflectsStateTransitions` — verify `Status` enum goes through the expected states: `Disconnected → Connecting → Connected → Reconnecting → Connected → Disconnected` across an induced drop cycle.
   - `LastError_Populated_OnConnectFailure` — mock Connect throws with specific exception; session's `LastError` field holds it for UI consumption.
   - `ReconnectAttemptCount_IncrementsPerRetry_ResetsOnSuccess` — verify counter math matches UI expectations.
@@ -292,19 +293,20 @@ Each commit passes the existing smoke test. Bisect-friendly if something regress
 
 ## Phase 2.5 — MultiFlex client-sync and event-dispatch rewire (BUG-062 fix)
 
-Fixes the six BUG-062 symptoms observed 2026-04-19 in two-client testing with Don (WA2IWC on 6300) via SmartLink. All six symptoms point at the same subsystem: multi-client state replication + connect/disconnect event emission. With Phase 2 now routing radio ownership through the coordinator, this phase rewires the MultiFlex-specific pathways to match — fixing the symptoms together rather than individually.
+Fixes the BUG-062 symptoms observed 2026-04-19 in two-client testing with Don (WA2IWC on 6300) via SmartLink. **Scope narrowed 2026-04-20 after Phase 0.4 findings:** Symptom 3 ships as a 4.1.17 slip-in ahead of Sprint 26 (per R3); Symptom 6 is a snapshot-at-subscribe fix rather than a universal announcement rewire (per R2). The remaining symptoms (1, 2, 4, 5) are the Phase 2.5 workload proper, and they genuinely benefit from the Phase 2 coordinator routing to fix cleanly.
 
 ### Phase 2.5 deliverables
 
-- Consume the Phase 0.4 enumeration as the rewire map. For every emit/consume/state-read/state-write/announce site on the list, route it through the new coordinator-and-session-owner discipline.
-- **Client list propagation fix (Symptom 3):** when a remote MultiFlex client joins or leaves, the coordinator raises a structured event with (session-id, client-handle, program, station, owned-slice-letters, action-type). Every local JJ Flex instance consuming this event updates its `MultiFlexDialog`-backing client list from the event payload — not by re-reading arbitrary FlexLib state post-change.
-- **Slice visibility fix (Symptoms 1 + 2):** slice inventory is authoritative from the radio's own state machine, not from any client's local cache. The coordinator exposes a read-through observable of slice inventory. When a new client connects to a multi-client radio, the slice inventory it receives matches the radio's true count, annotated with per-client ownership. The "New Slice" capacity check reads the true radio slice count, not the local view.
-- **Connection event emission fix (Symptoms 5 + 6):** announcements of remote client connects and disconnects are driven by the event payload (which callsign, which action) — never by post-change state inference. The pattern "wa2iwc connected" when Noel disconnected is architecturally prevented by the payload-first rule. Every announcement site in the Phase 0.4 list is audited to confirm it reads from the event object, not from app-global state.
-- **Connection robustness (Symptom 4):** timeout during connect-initiation. Exact fix depends on Phase 0.1 + 0.4 findings — may be a WAN session handshake race, a TLS negotiation edge case, or an AutoResetEvent signaling issue in the monitor thread. Scope this deliverable to "investigate once Phase 0.4 enumerates the connect path; apply minimal fix or escalate if it's deeper than Sprint 26 can absorb."
+- Consume the Phase 0.4 enumeration as the rewire map. For the symptoms still in Phase 2.5 scope (1, 2, 4, 5), route the relevant emit/consume/state-read/state-write sites through the new coordinator-and-session-owner discipline.
+- ~~**Client list propagation fix (Symptom 3)**~~ — **MOVED to 4.1.17 slip-in (R3).** Dialog event-subscription fix shipped independently on `fix/multiflex-client-list-autorefresh` branch; reaches Don's hands before Sprint 26 merges. Phase 2.5 inherits a fixed Symptom 3 and can focus on the deeper four.
+- **Slice visibility fix (Symptoms 1 + 2):** slice inventory is authoritative from the radio's own state machine, not from any client's local cache. The coordinator exposes a read-through observable of slice inventory. When a new client connects to a multi-client radio, the slice inventory it receives matches the radio's true count, annotated with per-client ownership. The "New Slice" capacity check in `FlexBase.NewSlice()` (line 5773) and `FlexBase.GetGuiClients()` (line 2636) must push past FlexLib's local `SliceList` cache — either by waiting for `SliceAdded`/`SliceRemoved` events to quiesce, or by requesting a fresh radio query when accuracy matters. Exact mechanism resolved during Phase 2.5 implementation after a 30-minute spike on FlexLib's SliceList freshness guarantees.
+- **Connection event snapshot fix (Symptom 6):** per R2 finding, our announcement code correctly reads from event payload — the blank-out happens inside FlexLib's `parseGuiClientStatus` before `OnGUIClientRemoved` fires. Fix: at `GUIClientAdded` subscribe time, snapshot `(client.Station, client.Program)` into a `Dictionary<ClientHandle, (Station, Program)>` owned by `FlexBase` (or the coordinator at Phase 2). On `GUIClientRemoved`, look up by `ClientHandle` and use the snapshotted values for the announcement — ignoring whatever FlexLib's event delivers. Snapshot entry removed after the remove-announce completes. Small addition: on `GUIClientUpdated`, refresh the snapshot so Station/Program changes mid-session are tracked correctly. ~15-20 lines.
+- **Kick behavior fix (Symptom 5):** primary-client vs. guest-client kick-permission audit. `MultiFlexDialog` disconnect path may be reading stale `IsThisClient` flag or falling through to the wrong FlexLib API. Investigate during Phase 2.5 using the connected coordinator + two-client harness with Don. Likely a client-side check that needs to consult the coordinator's authoritative session identity rather than a per-dialog cached flag.
+- **Connection robustness (Symptom 4):** timeout during connect-initiation under multi-client conditions. Investigate during Phase 1 once the `WanSessionOwner` adapter is in place and can instrument the connect path. With R1's reentrant-lock primitive + the monitor thread's structured tracing, any race/deadlock in the handshake should surface directly. May turn out to be a session-handshake edge case handled within the monitor thread; may require coordinator-level coordination across two session owners.
 
 ### Phase 2.5 exit criterion
 
-Two-client MultiFlex smoke test with Don: both clients connect, both clients see each other's entries in MultiFlex Clients dialog with correct owned-slice letters, both clients see true radio slice inventory, Don can kick Noel cleanly (with an announced state change on Noel's side), Noel cannot kick Don (primary-client protection holds), post-kick reconnect works. Every remote-client connect/disconnect announcement says the correct callsign and the correct action. All six BUG-062 symptoms verified resolved.
+Two-client MultiFlex smoke test with Don: both clients connect, both clients see each other's entries in MultiFlex Clients dialog with correct owned-slice letters (Symptom 3 was pre-verified by the 4.1.17 slip-in; re-confirm it still holds after the Phase 2 migration), both clients see true radio slice inventory, Don can kick Noel cleanly (with an announced state change on Noel's side), Noel cannot kick Don (primary-client protection holds), post-kick reconnect works. Every remote-client connect/disconnect announcement says the correct callsign and the correct action, even when FlexLib blanks the client's Station/Program before firing `OnGUIClientRemoved` (the Symptom 6 snapshot fix guards against this). All six BUG-062 symptoms verified resolved (3 in the slip-in, 1/2/4/5/6 in this phase).
 
 ### Phase 2.5 commit cadence
 
@@ -456,7 +458,7 @@ Sprint 26 is serial and single-track, so commits are on `sprint26/connection-fix
 - **Phase 0 end:** one commit, "Sprint 26 Phase 0: Audit findings" — updates this plan doc with the findings paragraphs, no code change.
 - **Phase 1 end:** multiple commits as the code lands incrementally:
   - "Sprint 26 Phase 1: Define IWanServer, IWanSessionOwner, ISessionAudioSink interfaces"
-  - "Sprint 26 Phase 1: Implement WanServerAdapter with SemaphoreSlim and tracing"
+  - "Sprint 26 Phase 1: Implement WanServerAdapter with reentrant lock and tracing"
   - "Sprint 26 Phase 1: Implement WanSessionOwner monitor thread and state machine"
   - "Sprint 26 Phase 1: Implement SmartLinkSessionCoordinator"
   - "Sprint 26 Phase 1: Implement DirectPassthroughSink audio stub"
