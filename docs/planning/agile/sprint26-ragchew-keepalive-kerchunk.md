@@ -428,6 +428,35 @@ The dedicated CW rendering engine that BUG-061 (CW word/prosign spacing) and the
 
 ---
 
+## Phase 8 — Jim-parity SliceOps + modern-mode checkbox parity + tuning submenu (added 2026-04-20)
+
+Late addition to Sprint 26 per Don's 2026-04-20 feedback relayed by Noel. Discoverability + Jim-parity restoration that surfaced during conversation with Don about tuning key confusion. Scope was decided live; not in the original plan.
+
+**Background:** Jim's original JJFlexRadio (`JJFlexRadioReadme.htm`) documented a status-row design where single-letter shortcuts (s/m/a/t/x) operated on slices, and RIT/XIT fields used Space to activate + digit-position editing to tune. Classic mode today already implements Jim's digit-position frequency tuning and the Space-toggle RIT/XIT pattern. But modern mode hides RIT/XIT/Split/VOX as fields (only exposes them via hotkeys), and the SliceOps field was missing Jim's full letter vocabulary.
+
+### Phase 8 deliverables (split into three commits for bisect clarity)
+
+**8a — SliceOps letters + modern-mode checkbox field parity.** AdjustSliceOps gains Jim's letter vocabulary — Space toggles mute (unchanged), M/S are explicit mute/sound, A/T/X make the slice active/transmit/transceive respectively. Modern-mode field list gains Split/VOX/Offset/RIT/XIT to the right of SMeter so Don can arrow-right to them and use digit-position editing ("tune in teensies") without dropping to classic mode. Classic-mode handlers reused unchanged; modern-mode dispatcher extended with routes to them.
+
+**8b — Slice > Tuning submenu expansion ("JJ Flexible in threes").** The existing Slice > Tuning submenu (previously only RIT On/Off + XIT On/Off) gains Classic Tuning Mode checkbox (duplicate from Tools), Toggle Coarse/Fine, Step Size Larger / Smaller, Speak Current Step. Each is also reachable as a field keypress and a global hotkey. FreqOutHandlers gains public wrappers (ToggleCoarseFineFromMenu, CycleStepFromMenu, SpeakCurrentStepFromMenu) so the menu path and keypress path share identical behavior; MainWindow gains mode-aware bridges that announce "coarse and fine apply only in modern tuning mode" when invoked from classic.
+
+**8c — Mode-change announcement includes tuning-key summary.** ToggleUIMode now speaks a brief tuning-key hint on switch. Classic: "Classic tuning mode. Cursor on a digit, up down to tune. Space on RIT or XIT to activate." Modern: "Modern tuning mode. Up down tune, C toggle coarse and fine, page up down change step size." Addresses Don's discoverability gap — toggling modes now cues the operator that the key vocabulary changed.
+
+### Phase 8 exit criterion
+
+- SliceOps field accepts S/M/A/T/X letter shortcuts and announces each action with the slice letter.
+- Modern mode's FreqOut UI exposes RIT, XIT, Split, VOX, Offset as arrow-navigable fields; digit-position editing works inside them unchanged.
+- Slice > Tuning submenu shows the full tuning vocabulary with their accelerators; each item works from classic or modern (mode-aware message in classic for mode-specific actions).
+- Toggling Classic ↔ Modern via Ctrl+Shift+M or the menu item speaks the new-mode tuning-key hint.
+- Full solution builds clean.
+
+### Follow-up captures (not in Phase 8 scope)
+
+- **On-demand tuning-key announcement hotkey.** Could layer on top of Phase 8c with an explicit "speak keys" key (e.g. Ctrl+Shift+/ or ? when focused on frequency field) for mid-session refresh. Captured in JJFlex-TODO.md.
+- **First-focus frequency-home orientation announcement.** Announcing keys on every focus is too verbose; once-per-session orientation could help new users. Needs UX judgment; defer to a later polish pass.
+
+---
+
 ## Phase 7 — CW message dialog mode-gating
 
 Low-risk cleanup landing alongside the CW engine. Implements the existing FEATURE in `docs/planning/vision/JJFlex-TODO.md` — Jim-era `CWMessageAddDialog` / `CWMessageUpdateDialog` / related `CWMessages.vb` surfaces visible only when active slice mode is CW/CWL/CWU.
