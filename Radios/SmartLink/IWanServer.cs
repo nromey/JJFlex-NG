@@ -83,6 +83,23 @@ namespace Radios.SmartLink
         /// </para>
         /// </summary>
         event EventHandler<WanRadioListReceivedEventArgs>? WanRadioRadioListReceived;
+
+        /// <summary>
+        /// Sprint 27 Track C — request a SmartLink NetworkTest probe for the
+        /// given radio serial. Fire-and-forget: the call returns immediately,
+        /// and results arrive asynchronously via
+        /// <see cref="TestConnectionResultsReceived"/>. Silently no-ops when
+        /// the underlying SmartLink SSL connection is not up (FlexLib's behavior
+        /// per the C.0 audit — no exception, no event).
+        /// </summary>
+        void SendTestConnection(string serial);
+
+        /// <summary>
+        /// Sprint 27 Track C — fires when SmartLink returns the results of a
+        /// NetworkTest probe. Event fires on FlexLib's SSL listener thread;
+        /// consumers must marshal to the UI thread before touching WPF state.
+        /// </summary>
+        event EventHandler<WanTestConnectionResultsEventArgs>? TestConnectionResultsReceived;
     }
 
     /// <summary>Event payload for <see cref="IWanServer.WanRadioConnectReady"/>.</summary>
@@ -106,6 +123,40 @@ namespace Radios.SmartLink
         public WanRadioListReceivedEventArgs(IReadOnlyList<Radio> radios)
         {
             Radios = radios;
+        }
+    }
+
+    /// <summary>
+    /// Sprint 27 Track C — event payload for
+    /// <see cref="IWanServer.TestConnectionResultsReceived"/>. Mirrors the
+    /// five booleans on FlexLib's <c>WanTestConnectionResults</c> plus the
+    /// radio serial. Kept as a FlexLib-free DTO so consumers (including
+    /// tests via MockWanServer) don't need to build a FlexLib object to
+    /// simulate a probe response.
+    /// </summary>
+    public sealed class WanTestConnectionResultsEventArgs : EventArgs
+    {
+        public string RadioSerial { get; }
+        public bool UpnpTcpWorking { get; }
+        public bool UpnpUdpWorking { get; }
+        public bool ForwardTcpWorking { get; }
+        public bool ForwardUdpWorking { get; }
+        public bool NatSupportsHolePunch { get; }
+
+        public WanTestConnectionResultsEventArgs(
+            string radioSerial,
+            bool upnpTcpWorking,
+            bool upnpUdpWorking,
+            bool forwardTcpWorking,
+            bool forwardUdpWorking,
+            bool natSupportsHolePunch)
+        {
+            RadioSerial = radioSerial ?? string.Empty;
+            UpnpTcpWorking = upnpTcpWorking;
+            UpnpUdpWorking = upnpUdpWorking;
+            ForwardTcpWorking = forwardTcpWorking;
+            ForwardUdpWorking = forwardUdpWorking;
+            NatSupportsHolePunch = natSupportsHolePunch;
         }
     }
 }

@@ -24,6 +24,7 @@ namespace Radios.Tests
         public event EventHandler<WanRadioConnectReadyEventArgs>? WanRadioConnectReady;
         public event EventHandler? WanApplicationRegistrationInvalid;
         public event EventHandler<WanRadioListReceivedEventArgs>? WanRadioRadioListReceived;
+        public event EventHandler<WanTestConnectionResultsEventArgs>? TestConnectionResultsReceived;
 
         // --- Test-controllable behavior hooks ---
 
@@ -106,6 +107,15 @@ namespace Radios.Tests
             LastSendConnectSerial = serial;
         }
 
+        public int SendTestConnectionCallCount { get; private set; }
+        public string? LastSendTestConnectionSerial { get; private set; }
+
+        public void SendTestConnection(string serial)
+        {
+            SendTestConnectionCallCount++;
+            LastSendTestConnectionSerial = serial;
+        }
+
         // --- Test-side triggers ---
 
         /// <summary>
@@ -130,6 +140,18 @@ namespace Radios.Tests
         public void RaiseWanApplicationRegistrationInvalid()
         {
             WanApplicationRegistrationInvalid?.Invoke(this, EventArgs.Empty);
+        }
+
+        public void RaiseTestConnectionResultsReceived(
+            string radioSerial,
+            bool upnpTcp,
+            bool upnpUdp,
+            bool forwardTcp,
+            bool forwardUdp,
+            bool natSupportsHolePunch)
+        {
+            TestConnectionResultsReceived?.Invoke(this, new WanTestConnectionResultsEventArgs(
+                radioSerial, upnpTcp, upnpUdp, forwardTcp, forwardUdp, natSupportsHolePunch));
         }
 
         private void SetIsConnected(bool value)

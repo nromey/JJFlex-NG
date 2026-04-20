@@ -48,6 +48,7 @@ namespace Radios.SmartLink
             _wan.PropertyChanged += OnWanPropertyChanged;
             _wan.WanRadioConnectReady += OnWanRadioConnectReady;
             _wan.WanApplicationRegistrationInvalid += OnWanApplicationRegistrationInvalid;
+            _wan.TestConnectionResultsReceived += OnTestConnectionResultsReceived;
             WanServer.WanRadioRadioListRecieved += OnWanRadioRadioListReceived;
         }
 
@@ -101,12 +102,24 @@ namespace Radios.SmartLink
             }
         }
 
+        public void SendTestConnection(string serial)
+        {
+            Tracing.TraceLine(
+                $"{_tracePrefix}WanServerAdapter.SendTestConnection serial={serial}",
+                TraceLevel.Info);
+            lock (_gate)
+            {
+                _wan.SendTestConnection(serial);
+            }
+        }
+
         // --- Events (re-raised from FlexLib) ---
 
         public event PropertyChangedEventHandler? PropertyChanged;
         public event EventHandler<WanRadioConnectReadyEventArgs>? WanRadioConnectReady;
         public event EventHandler? WanApplicationRegistrationInvalid;
         public event EventHandler<WanRadioListReceivedEventArgs>? WanRadioRadioListReceived;
+        public event EventHandler<WanTestConnectionResultsEventArgs>? TestConnectionResultsReceived;
 
         // --- FlexLib bridging handlers ---
 
@@ -144,6 +157,20 @@ namespace Radios.SmartLink
             WanRadioRadioListReceived?.Invoke(this, new WanRadioListReceivedEventArgs(radios));
         }
 
+        private void OnTestConnectionResultsReceived(WanTestConnectionResults r)
+        {
+            Tracing.TraceLine(
+                $"{_tracePrefix}WanServerAdapter.TestConnectionResultsReceived serial={r.radio_serial} upnpTcp={r.upnp_tcp_port_working} upnpUdp={r.upnp_udp_port_working} fwdTcp={r.forward_tcp_port_working} fwdUdp={r.forward_udp_port_working} holePunch={r.nat_supports_hole_punch}",
+                TraceLevel.Info);
+            TestConnectionResultsReceived?.Invoke(this, new WanTestConnectionResultsEventArgs(
+                r.radio_serial ?? string.Empty,
+                r.upnp_tcp_port_working,
+                r.upnp_udp_port_working,
+                r.forward_tcp_port_working,
+                r.forward_udp_port_working,
+                r.nat_supports_hole_punch));
+        }
+
         // --- Disposal ---
 
         public void Dispose()
@@ -156,6 +183,7 @@ namespace Radios.SmartLink
             _wan.PropertyChanged -= OnWanPropertyChanged;
             _wan.WanRadioConnectReady -= OnWanRadioConnectReady;
             _wan.WanApplicationRegistrationInvalid -= OnWanApplicationRegistrationInvalid;
+            _wan.TestConnectionResultsReceived -= OnTestConnectionResultsReceived;
             WanServer.WanRadioRadioListRecieved -= OnWanRadioRadioListReceived;
 
             try
