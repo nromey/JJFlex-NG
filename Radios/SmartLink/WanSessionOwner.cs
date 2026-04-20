@@ -387,7 +387,52 @@ namespace Radios.SmartLink
             {
                 Tracing.TraceLine($"{_tracePrefix} status → {newStatus}", TraceLevel.Info);
                 StatusChanged?.Invoke(this, newStatus);
+
+                // Sprint 27 Track D / Phase D.2 — post-disconnect diagnostic
+                // probe. On the transition INTO Reconnecting (we had a
+                // connection and now we're retrying), fire a NetworkTest so
+                // the next status announcement ForStatusRich call has fresh
+                // data to inform its overlay. Runner's cache + dedup handle
+                // rate-limiting if Reconnecting re-fires rapidly.
+                if (newStatus == SessionStatus.Reconnecting)
+                {
+                    MaybeKickDiagnosticProbe();
+                }
             }
+        }
+
+        /// <summary>
+        /// Sprint 27 Track D / Phase D.2 — fire-and-forget NetworkTest probe
+        /// against the first known radio on this session. Silent no-op if no
+        /// radios have been announced yet. The runner handles caching, dedup,
+        /// and timeout internally; this method just schedules the work off
+        /// the monitor thread.
+        /// </summary>
+        private void MaybeKickDiagnosticProbe()
+        {
+            IReadOnlyList<Radio> radios;
+            lock (_stateGate) { radios = _availableRadios; }
+            if (radios.Count == 0)
+            {
+                Tracing.TraceLine($"{_tracePrefix} D.2 diagnostic probe skipped — no radios known yet", TraceLevel.Info);
+                return;
+            }
+
+            string serial = radios[0].Serial;
+            Tracing.TraceLine($"{_tracePrefix} D.2 kicking post-disconnect diagnostic probe serial={serial}", TraceLevel.Info);
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    var report = await _networkTestRunner.RunAsync(serial).ConfigureAwait(false);
+                    Tracing.TraceLine($"{_tracePrefix} D.2 probe complete: probeCompleted={report.ProbeCompleted}", TraceLevel.Info);
+                }
+                catch (Exception ex)
+                {
+                    Tracing.TraceLine($"{_tracePrefix} D.2 probe threw: {ex.Message}", TraceLevel.Warning);
+                }
+            });
         }
 
         private void TraceWarn(string label, Exception ex)
