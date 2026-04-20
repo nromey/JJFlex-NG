@@ -43,6 +43,7 @@ namespace Radios.SmartLink
         private readonly Thread _monitorThread;
         private readonly AutoResetEvent _wakeEvent = new(initialState: false);
         private readonly System.Threading.Lock _stateGate = new();
+        private readonly int[] _backoffScheduleMs;
 
         // State guarded by _stateGate for cross-thread reads. Mutated only on the monitor thread
         // except for _userWantsConnected / _shutdownRequested which are user-API driven.
@@ -54,6 +55,7 @@ namespace Radios.SmartLink
         private volatile bool _userWantsConnected;
         private volatile bool _shutdownRequested;
         private volatile bool _started;
+        private volatile bool _hasBeenConnected; // true after any successful Connect; reset only on Reset() or Dispose
 
         // Pending ConnectToRadio request. Only one may be in flight per session at a time.
         private TaskCompletionSource<bool>? _pendingRadioConnect;
@@ -66,7 +68,12 @@ namespace Radios.SmartLink
         public event EventHandler<SessionStatus>? StatusChanged;
         public event EventHandler<SignalThresholdEventArgs>? SignalThresholdCrossed;
 
-        public WanSessionOwner(string sessionId, string accountId, IWanServer wanServer, ISessionAudioSink audioSink)
+        public WanSessionOwner(
+            string sessionId,
+            string accountId,
+            IWanServer wanServer,
+            ISessionAudioSink audioSink,
+            int[]? backoffScheduleMs = null)
         {
             if (string.IsNullOrWhiteSpace(sessionId)) throw new ArgumentException("sessionId required", nameof(sessionId));
             if (string.IsNullOrWhiteSpace(accountId)) throw new ArgumentException("accountId required", nameof(accountId));
@@ -76,6 +83,7 @@ namespace Radios.SmartLink
             _audioSink = audioSink ?? throw new ArgumentNullException(nameof(audioSink));
             _tracePrefix = $"[session={sessionId}]";
             _status = SessionStatus.Disconnected;
+            _backoffScheduleMs = backoffScheduleMs ?? BackoffScheduleMs;
 
             _wan.PropertyChanged += OnWanPropertyChanged;
             _wan.WanRadioRadioListReceived += OnWanRadioListReceived;
@@ -147,6 +155,7 @@ namespace Radios.SmartLink
         {
             Tracing.TraceLine($"{_tracePrefix} Reset requested", TraceLevel.Info);
             _userWantsConnected = true;
+            _hasBeenConnected = false;
             lock (_stateGate)
             {
                 _reconnectAttemptCount = 0;
@@ -277,7 +286,10 @@ namespace Radios.SmartLink
                 attemptIndex = _reconnectAttemptCount;
             }
 
-            TransitionStatus(attemptIndex == 0 ? SessionStatus.Connecting : SessionStatus.Reconnecting, resetAttempts: false);
+            var attemptStatus = (_hasBeenConnected || attemptIndex > 0)
+                ? SessionStatus.Reconnecting
+                : SessionStatus.Connecting;
+            TransitionStatus(attemptStatus, resetAttempts: false);
 
             try
             {
@@ -300,12 +312,13 @@ namespace Radios.SmartLink
                     _reconnectAttemptCount = 0;
                     _lastError = null;
                 }
+                _hasBeenConnected = true;
                 Tracing.TraceLine($"{_tracePrefix} Connect succeeded", TraceLevel.Info);
                 return;
             }
 
             // Failed. Advance backoff and wait the schedule interval (or wake signal).
-            int waitMs = BackoffForIndex(attemptIndex);
+            int waitMs = BackoffForIndex(attemptIndex, _backoffScheduleMs);
             Tracing.TraceLine($"{_tracePrefix} Connect failed; backoff {waitMs}ms (attempt {attemptIndex + 1})", TraceLevel.Warning);
             lock (_stateGate)
             {
@@ -314,11 +327,14 @@ namespace Radios.SmartLink
             _wakeEvent.WaitOne(waitMs);
         }
 
-        internal static int BackoffForIndex(int index)
+        internal static int BackoffForIndex(int index) => BackoffForIndex(index, BackoffScheduleMs);
+
+        internal static int BackoffForIndex(int index, int[] schedule)
         {
+            if (schedule.Length == 0) return 0;
             if (index < 0) index = 0;
-            if (index >= BackoffScheduleMs.Length) index = BackoffScheduleMs.Length - 1;
-            return BackoffScheduleMs[index];
+            if (index >= schedule.Length) index = schedule.Length - 1;
+            return schedule[index];
         }
 
         private void TransitionStatus(SessionStatus newStatus, bool resetAttempts)
