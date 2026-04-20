@@ -268,6 +268,62 @@ namespace Radios
                 return false;
             }
         }
+
+        /// <summary>
+        /// Sprint 27 Track A / Phase A.2 — auto-apply the active SmartLink
+        /// account's saved listen-port preference (Tier 1) to the connected
+        /// radio. Called from the post-connect success branch of
+        /// <see cref="Connect(string, bool)"/> for remote (WAN) rigs only.
+        ///
+        /// <para>Silent no-op (trace only) in all of the following cases:</para>
+        /// <list type="bullet">
+        /// <item>No account is bound to the current connection.</item>
+        /// <item>The account has no <see cref="SmartLinkAccount.ConfiguredListenPort"/> set.</item>
+        /// <item>The radio's firmware already reports the account's configured port on TCP and UDP (nothing to change).</item>
+        /// </list>
+        ///
+        /// <para>Only calls <see cref="SetSmartLinkPortForwarding"/> when a
+        /// change is actually needed, to avoid spurious radio commands on every
+        /// reconnect.</para>
+        /// </summary>
+        private void ApplyAccountPortPreferenceIfAny()
+        {
+            if (_currentAccount == null)
+            {
+                Tracing.TraceLine("ApplyAccountPortPreferenceIfAny: no current account; skipping", TraceLevel.Info);
+                return;
+            }
+            int? preferred = _currentAccount.ConfiguredListenPort;
+            if (!preferred.HasValue)
+            {
+                Tracing.TraceLine($"ApplyAccountPortPreferenceIfAny: account {_currentAccount.Email} has no preference; using FlexLib default", TraceLevel.Info);
+                return;
+            }
+            if (theRadio == null)
+            {
+                Tracing.TraceLine("ApplyAccountPortPreferenceIfAny: theRadio is null; skipping", TraceLevel.Warning);
+                return;
+            }
+
+            int port = preferred.Value;
+            bool alreadyMatches =
+                PortForwardingEnabled &&
+                PortForwardingTcpPort == port &&
+                PortForwardingUdpPort == port;
+            if (alreadyMatches)
+            {
+                Tracing.TraceLine($"ApplyAccountPortPreferenceIfAny: radio already reports tcp={port} udp={port} enabled; no-op", TraceLevel.Info);
+                return;
+            }
+
+            Tracing.TraceLine($"ApplyAccountPortPreferenceIfAny: account={_currentAccount.Email} applying port={port} (radio reports enabled={PortForwardingEnabled} tcp={PortForwardingTcpPort} udp={PortForwardingUdpPort})", TraceLevel.Info);
+            bool ok = SetSmartLinkPortForwarding(true, port, port);
+            if (!ok)
+            {
+                Tracing.TraceLine($"ApplyAccountPortPreferenceIfAny: SetSmartLinkPortForwarding returned false; preference not applied", TraceLevel.Warning);
+            }
+        }
+
         private Thread mainThread;
 
         // Track connection parameters for retry support.
@@ -382,6 +438,12 @@ namespace Radios
                 if (RemoteRig)
                 {
                     //PCAudio = true;
+
+                    // Sprint 27 Track A / Phase A.2 — auto-apply per-account
+                    // listen-port preference (Tier 1). Silent no-op when the
+                    // account has no preference, the radio's firmware already
+                    // matches, or no account is bound to the session.
+                    ApplyAccountPortPreferenceIfAny();
                 }
                 else
                 {
