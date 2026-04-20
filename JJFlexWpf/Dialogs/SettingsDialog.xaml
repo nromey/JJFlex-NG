@@ -433,11 +433,34 @@
                                AutomationProperties.LiveSetting="Polite"
                                TextWrapping="Wrap"/>
 
-                    <Button Content="Test _network"
-                            Width="180" HorizontalAlignment="Left"
-                            AutomationProperties.Name="Run a fresh SmartLink network diagnostic probe against the connected radio"
-                            AutomationProperties.AcceleratorKey="Alt+N"
-                            Click="TestNetworkButton_Click"/>
+                    <!-- Sprint 27 Track D: Test / Copy / Save / Help row + Verbose toggle. -->
+                    <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                        <Button Content="Test _network"
+                                Width="150" Margin="0,0,8,0"
+                                AutomationProperties.Name="Run a fresh SmartLink network diagnostic probe against the connected radio"
+                                AutomationProperties.AcceleratorKey="Alt+N"
+                                Click="TestNetworkButton_Click"/>
+                        <Button Content="Copy _report"
+                                Width="130" Margin="0,0,8,0"
+                                AutomationProperties.Name="Copy the last network diagnostic report to the clipboard as markdown"
+                                AutomationProperties.AcceleratorKey="Alt+R"
+                                Click="CopyNetworkReportButton_Click"/>
+                        <Button Content="Sa_ve report"
+                                Width="130" Margin="0,0,8,0"
+                                AutomationProperties.Name="Save the last network diagnostic report to a file"
+                                AutomationProperties.AcceleratorKey="Alt+V"
+                                Click="SaveNetworkReportButton_Click"/>
+                        <Button Content="_Help"
+                                Width="90"
+                                AutomationProperties.Name="Open the help document relevant to the current network state"
+                                AutomationProperties.AcceleratorKey="Alt+H"
+                                Click="NetworkHelpButton_Click"/>
+                    </StackPanel>
+                    <CheckBox x:Name="VerboseDiagnosticsCheck"
+                              Content="Verbose network diagnostics (include raw details in status announcements)"
+                              Margin="0,8,0,0"
+                              AutomationProperties.Name="Enable verbose network diagnostic output"
+                              Click="VerboseDiagnosticsCheck_Click"/>
                 </StackPanel>
             </TabItem>
 

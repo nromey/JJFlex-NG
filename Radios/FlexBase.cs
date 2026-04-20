@@ -361,6 +361,34 @@ namespace Radios
         /// reconnect.</para>
         /// </summary>
         /// <summary>
+        /// Sprint 27 Track D. Most-recent NetworkTest report for the active
+        /// session (any radio, latest timestamp). Null if nothing cached.
+        /// Used by Settings > Network diagnostic Copy / Save buttons without
+        /// forcing a fresh probe.
+        /// </summary>
+        public Radios.SmartLink.NetworkDiagnosticReport? MostRecentNetworkReport =>
+            Radios.SmartLink.SmartLinkServices.Coordinator.ActiveSession?.MostRecentNetworkReport;
+
+        /// <summary>
+        /// Sprint 27 Track D. Filename (bare, no path) of the help doc most
+        /// relevant to the current session status + last network report +
+        /// account mode. Null when no help doc applies (e.g., session is
+        /// Connected and working fine). Callers prepend
+        /// <c>help\networking\</c> and the app base directory.
+        /// </summary>
+        public string? CurrentHelpDocFileName
+        {
+            get
+            {
+                var session = Radios.SmartLink.SmartLinkServices.Coordinator.ActiveSession;
+                var status = session?.Status ?? Radios.SmartLink.SessionStatus.Disconnected;
+                var report = session?.MostRecentNetworkReport;
+                var mode = CurrentAccountConnectionMode ?? SmartLinkConnectionMode.ManualPortForwardOnly;
+                return Radios.SmartLink.SessionStatusMessages.HelpDocFor(status, report, mode);
+            }
+        }
+
+        /// <summary>
         /// Sprint 27 Track C / Phase C.3 — user-facing entry point for the
         /// "Test network" button in Settings. Runs a NetworkTest probe
         /// against the currently-connected radio via the active session's

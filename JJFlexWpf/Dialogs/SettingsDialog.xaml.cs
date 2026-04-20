@@ -264,6 +264,13 @@ namespace JJFlexWpf.Dialogs
             // is called before the constructor finishes, skip.
             if (PortForwardEnabledCheck == null) return;
 
+            // Sprint 27 Track D — reflect the global Verbose preference regardless
+            // of rig state. It's a viewing pref, not a radio / account pref.
+            if (VerboseDiagnosticsCheck != null)
+            {
+                VerboseDiagnosticsCheck.IsChecked = Radios.SmartLink.DiagnosticVerbosityPreference.Verbose;
+            }
+
             if (_rig == null || !_rig.IsConnected)
             {
                 NetworkCurrentStateText.Text = "No radio connected. Connect to a radio to configure port forwarding.";
@@ -618,6 +625,117 @@ namespace JJFlexWpf.Dialogs
                 $"UPnP TCP {Yn(r.UpnpTcpReachable)}, UPnP UDP {Yn(r.UpnpUdpReachable)}, " +
                 $"manual TCP {Yn(r.ManualForwardTcpReachable)}, manual UDP {Yn(r.ManualForwardUdpReachable)}, " +
                 $"hole-punch support {Yn(r.NatSupportsHolePunch)}.";
+        }
+
+        /// <summary>
+        /// Sprint 27 Track D / Phase D.3 — copy the last NetworkDiagnosticReport
+        /// to the clipboard as markdown. Precondition: a probe has run at
+        /// least once (Test network button or an auto-probe). Announces
+        /// success / "no report available yet" via live region + speech.
+        /// </summary>
+        private void CopyNetworkReportButton_Click(object sender, RoutedEventArgs e)
+        {
+            var report = _rig?.MostRecentNetworkReport;
+            if (report == null)
+            {
+                NetworkDiagnosticResultText.Text = "No network diagnostic report yet. Run 'Test network' first.";
+                ScreenReaderOutput.Speak("No report to copy.", VerbosityLevel.Terse, interrupt: true);
+                return;
+            }
+            try
+            {
+                System.Windows.Clipboard.SetText(report.ToMarkdown());
+                NetworkDiagnosticResultText.Text = "Network diagnostic report copied to clipboard as markdown.";
+                ScreenReaderOutput.Speak("Report copied.", VerbosityLevel.Terse, interrupt: true);
+            }
+            catch (Exception ex)
+            {
+                NetworkDiagnosticResultText.Text = $"Copy failed: {ex.Message}";
+                ScreenReaderOutput.Speak("Copy failed.", VerbosityLevel.Terse, interrupt: true);
+            }
+        }
+
+        /// <summary>
+        /// Sprint 27 Track D / Phase D.3 — save the last NetworkDiagnosticReport
+        /// to a file via SaveFileDialog. Default filename encodes the
+        /// timestamp so successive saves don't overwrite each other silently.
+        /// </summary>
+        private void SaveNetworkReportButton_Click(object sender, RoutedEventArgs e)
+        {
+            var report = _rig?.MostRecentNetworkReport;
+            if (report == null)
+            {
+                NetworkDiagnosticResultText.Text = "No network diagnostic report yet. Run 'Test network' first.";
+                ScreenReaderOutput.Speak("No report to save.", VerbosityLevel.Terse, interrupt: true);
+                return;
+            }
+
+            var dlg = new Microsoft.Win32.SaveFileDialog
+            {
+                FileName = $"JJFlex-NetworkDiagnostic-{report.TimestampUtc:yyyy-MM-dd-HHmm}.md",
+                DefaultExt = ".md",
+                Filter = "Markdown (*.md)|*.md|Text file (*.txt)|*.txt|All files (*.*)|*.*",
+                Title = "Save network diagnostic report",
+            };
+            bool? ok = dlg.ShowDialog(this);
+            if (ok != true) return;
+
+            try
+            {
+                System.IO.File.WriteAllText(dlg.FileName, report.ToMarkdown());
+                NetworkDiagnosticResultText.Text = $"Report saved to {dlg.FileName}.";
+                ScreenReaderOutput.Speak("Report saved.", VerbosityLevel.Terse, interrupt: true);
+            }
+            catch (Exception ex)
+            {
+                NetworkDiagnosticResultText.Text = $"Save failed: {ex.Message}";
+                ScreenReaderOutput.Speak("Save failed.", VerbosityLevel.Terse, interrupt: true);
+            }
+        }
+
+        /// <summary>
+        /// Sprint 27 Track D / Phase D.3 — open the help doc that best
+        /// matches the current (status, report, mode) state via the user's
+        /// default markdown viewer (System.Diagnostics.Process.Start with
+        /// UseShellExecute so Windows picks the handler). Falls back to
+        /// diagnostics.md when the resolver returns null (e.g., session is
+        /// Connected but the user wants to look things up anyway).
+        /// </summary>
+        private void NetworkHelpButton_Click(object sender, RoutedEventArgs e)
+        {
+            string fileName = _rig?.CurrentHelpDocFileName ?? "diagnostics.md";
+            string path = System.IO.Path.Combine(AppContext.BaseDirectory, "help", "networking", fileName);
+            if (!System.IO.File.Exists(path))
+            {
+                NetworkDiagnosticResultText.Text = $"Help file not found at {path}.";
+                ScreenReaderOutput.Speak("Help file not found.", VerbosityLevel.Terse, interrupt: true);
+                return;
+            }
+            try
+            {
+                var psi = new System.Diagnostics.ProcessStartInfo(path) { UseShellExecute = true };
+                System.Diagnostics.Process.Start(psi);
+                NetworkDiagnosticResultText.Text = $"Opened {fileName}.";
+                ScreenReaderOutput.Speak($"Opened help for {fileName}.", VerbosityLevel.Terse, interrupt: true);
+            }
+            catch (Exception ex)
+            {
+                NetworkDiagnosticResultText.Text = $"Could not open help: {ex.Message}";
+                ScreenReaderOutput.Speak("Could not open help.", VerbosityLevel.Terse, interrupt: true);
+            }
+        }
+
+        /// <summary>
+        /// Sprint 27 Track D / Phase D.3 — update the process-wide verbose
+        /// flag immediately on checkbox toggle (no Apply click required;
+        /// verbose is a viewing preference, not a radio / account preference).
+        /// </summary>
+        private void VerboseDiagnosticsCheck_Click(object sender, RoutedEventArgs e)
+        {
+            bool newState = VerboseDiagnosticsCheck?.IsChecked == true;
+            Radios.SmartLink.DiagnosticVerbosityPreference.Verbose = newState;
+            ScreenReaderOutput.Speak(newState ? "Verbose diagnostics on." : "Verbose diagnostics off.",
+                VerbosityLevel.Terse, interrupt: true);
         }
 
         // Typing sound combo order: always-available audio modes first, then any
