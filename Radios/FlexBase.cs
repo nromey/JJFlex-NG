@@ -1081,13 +1081,14 @@ namespace Radios
             oldRadio.UpdateGuiClientsList(newGuiClients: newRadio.GuiClients);
         }
 
+        // Sprint 26 Phase 2: `wan` field, `PreserveWanForRetry`, and `RestoreWanFromRetry`
+        // stay in place for Phase 4 to delete alongside the matching Sprint 25 retry
+        // band-aids. The field is no longer written — new code uses the coordinator.
         private WanServer wan;
-        private string wanConnectionHandle;
-        private bool WanRadioConnectReadyReceived = false;
 
         /// <summary>
-        /// Detach the WAN connection so it survives Dispose(). Used by retry path
-        /// to transfer an active SmartLink session to a new FlexBase instance.
+        /// Detach the WAN connection so it survives Dispose(). Sprint 25 retry
+        /// band-aid — Phase 4 deletes this and the matching caller in globals.vb.
         /// </summary>
         public WanServer PreserveWanForRetry()
         {
@@ -1097,17 +1098,12 @@ namespace Radios
         }
 
         /// <summary>
-        /// Attach a WAN connection from a previous FlexBase instance.
+        /// Attach a WAN connection from a previous FlexBase instance. Sprint 25
+        /// retry band-aid — Phase 4 deletion target.
         /// </summary>
         public void RestoreWanFromRetry(WanServer preservedWan)
         {
             wan = preservedWan;
-        }
-        private void WanRadioConnectReadyHandler(string handle, string serial)
-        {
-            Tracing.TraceLine("WanRadioConnectReadyHandler:" + handle + ' ' + serial);
-            wanConnectionHandle = handle;
-            WanRadioConnectReadyReceived = true;
         }
 
         // SmartLink account manager for saved credentials
@@ -1650,50 +1646,6 @@ namespace Radios
                 sw.Stop();
                 Tracing.TraceLine($"ConnectToSmartLink: EXCEPTION {ex.GetType().Name}: {ex.Message} (total {sw.ElapsedMilliseconds}ms)", TraceLevel.Error);
                 return false;
-            }
-        }
-
-        /// <summary>
-        /// Handles invalid token registration from SmartLink server.
-        /// </summary>
-        private void WanApplicationRegistrationInvalidHandler()
-        {
-            // This handler fires asynchronously when the SmartLink server rejects our JWT.
-            // Previously it would attempt token refresh and spawn PromptReLogin dialogs,
-            // but these run concurrently with setupRemote's own retry logic, causing:
-            //   - Ghost PKCE login flows (2-3 extra Auth0 round-trips)
-            //   - Redundant ConnectToSmartLink calls on an already-connected session
-            //   - "Invalid state for application registration" errors
-            //   - guiClient removal and station name timeouts
-            //
-            // Fix: Just log the rejection. setupRemote/GetJwtFromSavedAccount now handles
-            // expired JWTs by going straight to PerformNewLogin before ever sending them
-            // to the server, so this handler should rarely fire. If it does, setupRemote's
-            // retry logic will handle re-authentication.
-            Tracing.TraceLine("WanApplicationRegistrationInvalid: *** TOKEN REJECTED BY SERVER ***", TraceLevel.Warning);
-            Tracing.TraceLine($"WanApplicationRegistrationInvalid: _currentAccount={(_currentAccount != null ? _currentAccount.Email : "null")}. setupRemote will handle re-auth.", TraceLevel.Warning);
-        }
-
-        /// <summary>
-        /// Prompts user to re-login after session invalidation. Must run on UI thread.
-        /// </summary>
-        private void PromptReLogin()
-        {
-            var result = MessageBox.Show(
-                "Your SmartLink session is no longer valid.\n\n" +
-                "Would you like to log in again?",
-                "Session Invalid",
-                MessageBoxButtons.YesNo,
-                MessageBoxIcon.Warning,
-                MessageBoxDefaultButton.Button1);
-
-            if (result == DialogResult.Yes)
-            {
-                string jwt = PerformNewLogin();
-                if (!string.IsNullOrEmpty(jwt) && wan != null && wan.IsConnected)
-                {
-                    wan.SendRegisterApplicationMessageToServer(API.ProgramName, "Win10", jwt);
-                }
             }
         }
 
