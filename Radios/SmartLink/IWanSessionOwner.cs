@@ -113,8 +113,12 @@ namespace Radios.SmartLink
         /// Broker a connection to a specific radio via SmartLink. Awaits the
         /// <see cref="IWanServer.WanRadioConnectReady"/> response.
         /// </summary>
-        /// <returns>True when the broker responds positively; false on timeout.</returns>
-        System.Threading.Tasks.Task<bool> ConnectToRadio(string serial, System.Threading.CancellationToken cancellationToken = default);
+        /// <returns>
+        /// The WAN connection handle on success (the <c>handle</c> value from the
+        /// broker's response, which the caller assigns to <c>Radio.WANConnectionHandle</c>),
+        /// or null on timeout/cancellation/failure.
+        /// </returns>
+        System.Threading.Tasks.Task<string?> ConnectToRadio(string serial, System.Threading.CancellationToken cancellationToken = default);
 
         /// <summary>
         /// Force a full reset: clear state, tear down the IWanServer, and

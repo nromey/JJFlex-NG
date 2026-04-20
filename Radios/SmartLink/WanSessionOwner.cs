@@ -58,7 +58,8 @@ namespace Radios.SmartLink
         private volatile bool _hasBeenConnected; // true after any successful Connect; reset only on Reset() or Dispose
 
         // Pending ConnectToRadio request. Only one may be in flight per session at a time.
-        private TaskCompletionSource<bool>? _pendingRadioConnect;
+        // Completes with the WAN connection handle (string) on success, or null on failure.
+        private TaskCompletionSource<string?>? _pendingRadioConnect;
         private string? _pendingRadioSerial;
 
         public string SessionId { get; }
@@ -176,15 +177,15 @@ namespace Radios.SmartLink
             _wan.SendRegisterApplicationMessageToServer(programName, platform, jwt);
         }
 
-        public async Task<bool> ConnectToRadio(string serial, CancellationToken cancellationToken = default)
+        public async Task<string?> ConnectToRadio(string serial, CancellationToken cancellationToken = default)
         {
             if (!IsConnected)
             {
                 Tracing.TraceLine($"{_tracePrefix} ConnectToRadio requested but session not connected", TraceLevel.Warning);
-                return false;
+                return null;
             }
 
-            TaskCompletionSource<bool> tcs;
+            TaskCompletionSource<string?> tcs;
             lock (_stateGate)
             {
                 if (_pendingRadioConnect is { } prior && !prior.Task.IsCompleted)
@@ -192,9 +193,9 @@ namespace Radios.SmartLink
                     Tracing.TraceLine(
                         $"{_tracePrefix} ConnectToRadio {serial} overlaps pending {_pendingRadioSerial}; cancelling prior",
                         TraceLevel.Warning);
-                    prior.TrySetResult(false);
+                    prior.TrySetResult(null);
                 }
-                tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                tcs = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
                 _pendingRadioConnect = tcs;
                 _pendingRadioSerial = serial;
             }
@@ -216,7 +217,7 @@ namespace Radios.SmartLink
             catch (Exception ex)
             {
                 Tracing.TraceLine($"{_tracePrefix} ConnectToRadio SendConnectMessageToRadio threw: {ex.Message}", TraceLevel.Error);
-                tcs.TrySetResult(false);
+                tcs.TrySetResult(null);
             }
 
             try
@@ -225,7 +226,7 @@ namespace Radios.SmartLink
             }
             catch (OperationCanceledException)
             {
-                return false;
+                return null;
             }
             finally
             {
@@ -387,7 +388,7 @@ namespace Radios.SmartLink
 
         private void OnWanRadioConnectReady(object? sender, WanRadioConnectReadyEventArgs e)
         {
-            TaskCompletionSource<bool>? tcs;
+            TaskCompletionSource<string?>? tcs;
             string? expectedSerial;
             lock (_stateGate)
             {
@@ -397,7 +398,7 @@ namespace Radios.SmartLink
             if (tcs != null && string.Equals(expectedSerial, e.Serial, StringComparison.Ordinal))
             {
                 Tracing.TraceLine($"{_tracePrefix} radio connect ready serial={e.Serial} handle={e.Handle}", TraceLevel.Info);
-                tcs.TrySetResult(true);
+                tcs.TrySetResult(e.Handle);
             }
             else
             {
@@ -417,7 +418,7 @@ namespace Radios.SmartLink
 
         private void CancelPendingRadioConnect(string reason)
         {
-            TaskCompletionSource<bool>? tcs;
+            TaskCompletionSource<string?>? tcs;
             lock (_stateGate)
             {
                 tcs = _pendingRadioConnect;
@@ -427,7 +428,7 @@ namespace Radios.SmartLink
             if (tcs != null && !tcs.Task.IsCompleted)
             {
                 Tracing.TraceLine($"{_tracePrefix} pending radio connect cancelled: {reason}", TraceLevel.Warning);
-                tcs.TrySetResult(false);
+                tcs.TrySetResult(null);
             }
         }
 
