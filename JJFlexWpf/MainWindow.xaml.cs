@@ -2879,7 +2879,9 @@ public partial class MainWindow : UserControl
                     OwnedSlices = gc.slices
                 }).ToList();
             },
-            DisconnectClient = (handle) => rig.DisconnectGuiClient(handle)
+            DisconnectClient = (handle) => rig.DisconnectGuiClient(handle),
+            SubscribeClientListChanged = h => rig.GuiClientChanged += h,
+            UnsubscribeClientListChanged = h => rig.GuiClientChanged -= h
         };
 
         var dialog = new Dialogs.MultiFlexDialog(callbacks);

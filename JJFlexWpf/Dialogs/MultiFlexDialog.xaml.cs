@@ -37,6 +37,16 @@ namespace JJFlexWpf.Dialogs
 
         /// <summary>Disconnect a client by handle. Returns true if successful.</summary>
         public required Func<uint, bool> DisconnectClient { get; init; }
+
+        /// <summary>
+        /// Subscribe a handler that runs whenever a MultiFlex client is added,
+        /// removed, or updated. Optional — if null, the dialog falls back to
+        /// refresh-on-open-only behavior.
+        /// </summary>
+        public Action<Action>? SubscribeClientListChanged { get; init; }
+
+        /// <summary>Unsubscribe a handler previously passed to SubscribeClientListChanged.</summary>
+        public Action<Action>? UnsubscribeClientListChanged { get; init; }
     }
 
     public partial class MultiFlexDialog : JJFlexDialog
@@ -47,6 +57,30 @@ namespace JJFlexWpf.Dialogs
         {
             _callbacks = callbacks ?? throw new ArgumentNullException(nameof(callbacks));
             InitializeComponent();
+            RefreshClientList();
+
+            if (_callbacks.SubscribeClientListChanged != null)
+            {
+                _callbacks.SubscribeClientListChanged(OnClientListChanged);
+                Closed += OnDialogClosed;
+            }
+        }
+
+        private void OnDialogClosed(object? sender, EventArgs e)
+        {
+            Closed -= OnDialogClosed;
+            _callbacks.UnsubscribeClientListChanged?.Invoke(OnClientListChanged);
+        }
+
+        private void OnClientListChanged()
+        {
+            // Event fires on FlexLib's receive thread; marshal to the UI thread
+            // before touching WPF controls.
+            if (!Dispatcher.CheckAccess())
+            {
+                Dispatcher.BeginInvoke(new Action(OnClientListChanged));
+                return;
+            }
             RefreshClientList();
         }
 

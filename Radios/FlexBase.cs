@@ -2543,6 +2543,14 @@ namespace Radios
         private volatile bool _clientAddedDuringStart = false;
         private long _clientRemovedTickCount = 0;
         private long _startBeginTickCount = 0;
+
+        /// <summary>
+        /// Fires when any MultiFlex GUI client is added, removed, or updated.
+        /// Subscribers marshal to UI thread as needed — event fires on FlexLib's
+        /// receive thread, same thread that invoked the underlying GUIClient event.
+        /// </summary>
+        public event Action? GuiClientChanged;
+
         private void guiClientAdded(GUIClient client)
         {
             if (client == null) return;
@@ -2612,6 +2620,8 @@ namespace Radios
                 { "isAvailable", client.IsAvailable },
                 { "msSinceStartBegin", _startBeginTickCount > 0 ? (Environment.TickCount64 - _startBeginTickCount) : -1 }
             });
+
+            GuiClientChanged?.Invoke();
         }
 
         private bool myClient(uint handle)
@@ -2699,6 +2709,8 @@ namespace Radios
                 { "station", client.Station ?? "" },
                 { "isThisClient", client.IsThisClient }
             });
+
+            GuiClientChanged?.Invoke();
         }
 
         private void guiClientRemoved(GUIClient client)
@@ -2741,6 +2753,8 @@ namespace Radios
                 { "station", client.Station ?? "" },
                 { "msSinceStartBegin", _startBeginTickCount > 0 ? (Environment.TickCount64 - _startBeginTickCount) : -1 }
             });
+
+            GuiClientChanged?.Invoke();
         }
 
         // These properties are for my client.
