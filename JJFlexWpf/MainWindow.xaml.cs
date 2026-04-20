@@ -791,7 +791,16 @@ public partial class MainWindow : UserControl
         LastNonLogMode = newMode;
         ApplyUIMode(newMode);
         SaveUIModeCallback?.Invoke(newMode);
-        Radios.ScreenReaderOutput.Speak($"{newMode} tuning mode", VerbosityLevel.Terse);
+
+        // Sprint 26 Phase 8: mode-change announcement includes the brief tuning-key
+        // summary for the new mode. Addresses Don's discoverability gap — without
+        // this, operators toggling modes have no cue that the keys have changed.
+        // Verbose on first-focus-after-load would annoy regular users; once-per-
+        // mode-switch is the right cadence.
+        string hint = newMode == UIMode.Classic
+            ? "Classic tuning mode. Cursor on a digit, up down to tune. Space on RIT or XIT to activate."
+            : "Modern tuning mode. Up down tune, C toggle coarse and fine, page up down change step size.";
+        Radios.ScreenReaderOutput.Speak(hint, VerbosityLevel.Terse);
     }
 
     /// <summary>
