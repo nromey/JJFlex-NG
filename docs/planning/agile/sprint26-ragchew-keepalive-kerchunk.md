@@ -447,6 +447,24 @@ Low-risk cleanup landing alongside the CW engine. Implements the existing FEATUR
 - Mode-switching (e.g. CW → USB) hides the UI live without requiring a restart.
 - No investigation finding is left unaddressed — either preserved as pre-refactor OR moved to a mode-independent surface with a documented rationale.
 
+### Phase 7 investigation findings (executed 2026-04-20)
+
+**Summary: no user-visible CW message UI surface exists to mode-gate. Phase 7 closes with documentation only.**
+
+Grep results for the CW message dialog classes and their triggers:
+
+- `CWMessageAdd.vb` / `CWMessageAdd.Designer.vb` — legacy VB WinForms add dialog. Referenced only from `CWMessages.vb:106` and `CWMessages.vb:121` (internal calls from the Add and Update methods on the `CWMessages` class).
+- `CWMessageUpdate.vb` / `CWMessageUpdate.Designer.vb` — legacy VB WinForms update/list dialog. No external call sites.
+- `CWMessages.vb` — holds the list + Add/Update methods. No external code calls `CWMessages.Add`, `.Update`, or constructs a `CWMessages` instance. Grep across the whole repo: zero production reachers.
+- `CWMessageAddDialog.xaml.cs` / `CWMessageUpdateDialog.xaml.cs` (the WPF counterparts under `JJFlexWpf/Dialogs/`) — defined but never instantiated. Zero call sites.
+- Menu / hotkey path: `KeyCommands.cs:1731 SendCWMessage()` is present and uses `_context.GetCWText()` / `_context.SendCW(msg)` — a different, text-only mechanism, not a dialog surface. It's TX-only and already implicitly mode-aware (calling `SendCW` outside CW mode is a user error but doesn't open a dialog).
+
+**Interpretation:** the CW message Add/Update dialog surface is currently unreachable from any user action. Whatever Jim built is dormant — not shown in menus, not hooked to hotkeys, not reachable from any toolbar or palette in the current codebase. Mode-gating something that isn't exposed has no user-visible effect.
+
+**Action:** no code change needed for Phase 7 exit. The underlying files are kept intact (in case a future sprint wants to revive them as the foundation for a proper CW message manager). The `docs/planning/vision/JJFlex-TODO.md` FEATURE note for CW message UI modernization is the future-work capture; a proper implementation should design mode-awareness from scratch rather than retrofit these legacy files.
+
+**No investigation findings left unaddressed.** The plan's exit criterion "In USB/LSB/AM/FM/…: CW message UI is absent" is trivially true — it's absent in *every* mode today.
+
 ---
 
 ## Commit strategy (sprint-wide)
