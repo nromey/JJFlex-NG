@@ -176,7 +176,12 @@ namespace Radios
         /// True only on radios with hardware capable of Neural/Spectral NR (8000 series, Aurora).
         /// 6000 series radios lack the DSP hardware even if a license is purchased.
         /// </summary>
-        public bool AdvancedNRHardwareSupported
+        /// <summary>
+        /// True when the radio hardware supports advanced NR (NRF, NRS, RNN).
+        /// Only available on 8000-series and Aurora — requires their DSP hardware.
+        /// 6000 series has Legacy NR and ANF only.
+        /// </summary>
+        public bool NeuralNRHardwareSupported
         {
             get
             {
@@ -185,6 +190,34 @@ namespace Radios
                        model.StartsWith("AU-5", StringComparison.OrdinalIgnoreCase);
             }
         }
+
+        /// <summary>
+        /// Legacy alias — use NeuralNRHardwareSupported for Neural NR gating.
+        /// Spectral NR is available on all models (subscription-gated, not hardware-gated).
+        /// </summary>
+        public bool AdvancedNRHardwareSupported => NeuralNRHardwareSupported;
+
+        // --- PC-side audio processing pipeline ---
+
+        /// <summary>
+        /// Optional delegate for PC-side audio processing (RNNoise, spectral subtraction, etc.).
+        /// Set by the UI layer (JJFlexWpf) which owns the processing pipeline.
+        /// Forwarded to JJAudioStream.PostDecodeProcessor when the audio channel is created.
+        /// Works on ALL radios — processing runs on the PC, not on radio hardware.
+        /// </summary>
+        private Action<float[]>? _audioPostProcessor;
+        public Action<float[]>? AudioPostProcessor
+        {
+            get => _audioPostProcessor;
+            set
+            {
+                _audioPostProcessor = value;
+                // Forward to active audio stream if one exists
+                if (opusOutputChannel?.PortAudioStream != null)
+                    opusOutputChannel.PortAudioStream.PostDecodeProcessor = value;
+            }
+        }
+
         public bool DiversityLicenseReported => theRadio?.FeatureLicense?.LicenseFeatDivEsc != null;
         public bool DiversityLicensed => theRadio?.FeatureLicense?.LicenseFeatDivEsc?.FeatureEnabled == true;
         public bool DiversityHardwareSupported => theRadio?.DiversityIsAllowed == true;
@@ -193,6 +226,48 @@ namespace Radios
         /// FLEX-6300 has optional ATU — this detects actual hardware presence.
         /// </summary>
         public bool HasATU => theRadio?.ATUEnabled == true;
+
+        // --- SmartLink manual port forwarding (Sprint 27 preview) ---
+
+        /// <summary>True when the radio has manual port forwarding configured.</summary>
+        public bool PortForwardingEnabled => theRadio?.IsPortForwardOn ?? false;
+
+        /// <summary>The TCP port the radio is listening on for SmartLink, or -1 if none.</summary>
+        public int PortForwardingTcpPort => theRadio?.PublicTlsPort ?? -1;
+
+        /// <summary>The UDP port the radio is listening on for SmartLink, or -1 if none.</summary>
+        public int PortForwardingUdpPort => theRadio?.PublicUdpPort ?? -1;
+
+        /// <summary>
+        /// Configure SmartLink manual port forwarding on the radio's firmware.
+        /// The setting persists in the radio until changed again. Works when connected
+        /// locally (LAN) or remotely. Radio must be connected.
+        /// When enabled, the radio listens on <paramref name="tcpPort"/> and
+        /// <paramref name="udpPort"/>; the router must forward those ports to the
+        /// radio's LAN IP for external clients to connect.
+        /// </summary>
+        public bool SetSmartLinkPortForwarding(bool enabled, int tcpPort, int udpPort)
+        {
+            if (theRadio == null)
+            {
+                Tracing.TraceLine("SetSmartLinkPortForwarding: no radio connected", TraceLevel.Warning);
+                return false;
+            }
+            try
+            {
+                if (enabled)
+                    theRadio.WanSetForwardedPorts(true, tcpPort, udpPort);
+                else
+                    theRadio.WanSetForwardedPorts(false, -1, -1);
+                Tracing.TraceLine($"SetSmartLinkPortForwarding: enabled={enabled} tcp={tcpPort} udp={udpPort}", TraceLevel.Info);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine($"SetSmartLinkPortForwarding failed: {ex.Message}", TraceLevel.Error);
+                return false;
+            }
+        }
         private Thread mainThread;
 
         // Track connection parameters for retry support.
@@ -291,6 +366,7 @@ namespace Radios
 
             if (rv)
             {
+                Tracing.TraceLine($"Connect: IsWan={theRadio.IsWan} RequiresHolePunch={theRadio.RequiresHolePunch} PublicTlsPort={theRadio.PublicTlsPort} NegotiatedHolePunchPort={theRadio.NegotiatedHolePunchPort} IP={theRadio.IP}", TraceLevel.Info);
                 ConnectionProfiler.Current?.RecordEvent("flexlib_connect_begin");
                 rv = theRadio.Connect();
                 ConnectionProfiler.Current?.RecordEvent("flexlib_connect_end", new Dictionary<string, object>
@@ -311,7 +387,7 @@ namespace Radios
                 {
                     // local audio on
                     //LocalAudioMute(false);
-                    theRadio.IsMuteLocalAudioWhenRemoteOn = false; ;
+                    theRadio.IsMuteLocalAudioWhenRemoteOn = false;
                 }
             }
             else
@@ -347,6 +423,9 @@ namespace Radios
 
             Tracing.TraceLine($"TryAutoConnect: BEGIN {config.RadioName} ({config.RadioSerial}), remote={config.IsRemote}, timeout={timeoutMs}ms", TraceLevel.Info);
             if (!SuppressSpeech) ScreenReaderOutput.Speak($"Connecting to {config.RadioName}", VerbosityLevel.Critical, true);
+            // AS prosign (wait / standing by) at connect-start — CW-flavored signal that we're
+            // mid-handshake. Pair with BT which fires at connect-ready (MainWindow.PowerOn).
+            if (ScreenReaderOutput.CwNotificationsEnabled) _ = ScreenReaderOutput.PlayCwAS?.Invoke();
 
             try
             {
@@ -403,6 +482,9 @@ namespace Radios
                 {
                     Tracing.TraceLine($"TryAutoConnect: END connected successfully (total {sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
                     if (!SuppressSpeech) ScreenReaderOutput.Speak($"Connected to {config.RadioName}", VerbosityLevel.Critical, true);
+                    // BT prosign moved to MainWindow.PowerOn so it fires AFTER the CW delegate is
+                    // wired and CwNotificationsEnabled is loaded from config. Previous location
+                    // (here) raced with MainWindow init -- PlayCwBT was null on first connect.
                 }
                 else
                 {
@@ -436,17 +518,23 @@ namespace Radios
 
             try
             {
-                // Re-authenticate and connect to SmartLink server.
-                // setupRemote() uses ShowAccountSelector delegate (must be wired by caller)
-                // to pick the SmartLink account, then gets JWT and connects to SmartLink.
+                // Skip auth if WAN is already connected from discovery phase.
+                // GUIClient lifecycle issues are handled by RetryConnect if Start() fails.
                 apiInit();
-                bool remoteOk = setupRemote();
-                Tracing.TraceLine($"ReconnectRemote: setupRemote returned {remoteOk} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
-
-                if (!remoteOk)
+                bool wanAlreadyConnected = wan != null && wan.IsConnected;
+                if (wanAlreadyConnected)
                 {
-                    Tracing.TraceLine($"ReconnectRemote: setupRemote FAILED ({sw.ElapsedMilliseconds}ms)", TraceLevel.Error);
-                    return false;
+                    Tracing.TraceLine($"ReconnectRemote: WAN already connected, skipping auth ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+                }
+                else
+                {
+                    bool remoteOk = setupRemote();
+                    Tracing.TraceLine($"ReconnectRemote: setupRemote returned {remoteOk} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+                    if (!remoteOk)
+                    {
+                        Tracing.TraceLine($"ReconnectRemote: setupRemote FAILED ({sw.ElapsedMilliseconds}ms)", TraceLevel.Error);
+                        return false;
+                    }
                 }
 
                 // Wait for the radio to appear in myRadioList.
@@ -485,6 +573,51 @@ namespace Radios
             {
                 sw.Stop();
                 Tracing.TraceLine($"ReconnectRemote: EXCEPTION {ex.GetType().Name}: {ex.Message} (total {sw.ElapsedMilliseconds}ms)\n{ex.StackTrace}", TraceLevel.Error);
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Lightweight retry: reconnect to the radio using existing WAN session.
+        /// No re-auth, no handler re-wiring. Just sends remote connect + Radio.Connect().
+        /// Used when Start() fails due to GUIClient lifecycle race.
+        /// </summary>
+        public bool RetryConnect()
+        {
+            if (theRadio == null)
+            {
+                Tracing.TraceLine("RetryConnect: no radio object", TraceLevel.Error);
+                return false;
+            }
+
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            Tracing.TraceLine($"RetryConnect: BEGIN serial={theRadio.Serial}", TraceLevel.Info);
+
+            try
+            {
+                // Reset the client tracking flags for the new Start() attempt
+                _clientRemovedDuringStart = false;
+                _clientAddedDuringStart = false;
+
+                bool rv = true;
+
+                if (RemoteRig)
+                {
+                    rv = sendRemoteConnect(theRadio);
+                    Tracing.TraceLine($"RetryConnect: sendRemoteConnect returned {rv} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+                }
+
+                if (rv)
+                {
+                    rv = theRadio.Connect();
+                    Tracing.TraceLine($"RetryConnect: Radio.Connect returned {rv} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+                }
+
+                return rv;
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine($"RetryConnect: EXCEPTION {ex.Message} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Error);
                 return false;
             }
         }
@@ -650,11 +783,14 @@ namespace Radios
                 return false;
             }
 
-            // Must have an antenna.
+            // Must have an antenna. Wait up to 20s — FlexLib fetches the list via an
+            // async "ant list" command at connect time and populates RXAntList from the
+            // reply. Over WAN that round trip routinely takes 5–15s (same timing profile
+            // as the station-name wait below). LAN connections settle in <200ms.
             if (!await(() =>
             {
                 return ((theRadio.RXAntList != null) && (theRadio.RXAntList.Length > 0));
-            }, 5000))
+            }, 20000))
             {
                 Tracing.TraceLine("start:no RX antenna", TraceLevel.Error);
                 LastStartFailureReason = "No RX antenna detected";
@@ -673,7 +809,7 @@ namespace Radios
             {
                 int maxWaitMs = 45000;       // 45s overall timeout (SmartLink re-add can take 30s+ over WAN)
                 int removalGraceMs = 15000;  // 15s grace after client removal (Don's 6300 over WAN needs 10s+)
-                int earlyAbortMs = 5000;     // 5s: if removed without ever being added during Start(), abort for retry
+                int earlyAbortMs = 1000;     // 1s: if removed without ever being added, abort fast for retry
                 int interval = 25;
                 int iterations = maxWaitMs / interval;
                 _clientRemovedDuringStart = false;
@@ -762,6 +898,7 @@ namespace Radios
                     { "ticksSinceRemoval", _clientRemovedDuringStart ? (Environment.TickCount64 - _clientRemovedTickCount) : 0 }
                 });
                 if (!SuppressSpeech) ScreenReaderOutput.Speak("Connection slow, retrying", VerbosityLevel.Critical);
+                if (ScreenReaderOutput.CwNotificationsEnabled) _ = ScreenReaderOutput.PlayCwAS?.Invoke();
                 try { theRadio.Disconnect(); } catch { }
                 return false;
             }
@@ -770,6 +907,8 @@ namespace Radios
             mainThread.Start();
             Thread.Sleep(0);
             ConnectionProfiler.Current?.RecordAndSave("start_success");
+            // BT prosign moved to MainWindow.PowerOn so it fires AFTER CW delegates are wired
+            // and CwNotificationsEnabled is loaded. Previous location raced with init.
             return true;
         }
 
@@ -934,8 +1073,7 @@ namespace Radios
                 oldRadio.NegotiatedHolePunchPort = newRadio.NegotiatedHolePunchPort;
             if (oldRadio.MaxLicensedVersion != newRadio.MaxLicensedVersion)
                 oldRadio.MaxLicensedVersion = newRadio.MaxLicensedVersion;
-            if (oldRadio.RequiresAdditionalLicense != newRadio.RequiresAdditionalLicense)
-                oldRadio.RequiresAdditionalLicense = newRadio.RequiresAdditionalLicense;
+            // RequiresAdditionalLicense removed in FlexLib v4.1.5
             if (oldRadio.RadioLicenseId != newRadio.RadioLicenseId)
                 oldRadio.RadioLicenseId = newRadio.RadioLicenseId;
             if (oldRadio.LowBandwidthConnect != newRadio.LowBandwidthConnect)
@@ -946,6 +1084,25 @@ namespace Radios
         private WanServer wan;
         private string wanConnectionHandle;
         private bool WanRadioConnectReadyReceived = false;
+
+        /// <summary>
+        /// Detach the WAN connection so it survives Dispose(). Used by retry path
+        /// to transfer an active SmartLink session to a new FlexBase instance.
+        /// </summary>
+        public WanServer PreserveWanForRetry()
+        {
+            var preserved = wan;
+            wan = null; // prevent Dispose from killing it
+            return preserved;
+        }
+
+        /// <summary>
+        /// Attach a WAN connection from a previous FlexBase instance.
+        /// </summary>
+        public void RestoreWanFromRetry(WanServer preservedWan)
+        {
+            wan = preservedWan;
+        }
         private void WanRadioConnectReadyHandler(string handle, string serial)
         {
             Tracing.TraceLine("WanRadioConnectReadyHandler:" + handle + ' ' + serial);
@@ -1115,12 +1272,26 @@ namespace Radios
             using (var form = (AuthFormWebView2)AuthForm.CreateAuthForm())
             {
                 form.ForceNewLogin = forceNewLogin;
+                form.AccountEmail = _currentAccount?.Email ?? "";
                 if (!string.IsNullOrEmpty(title))
                 {
                     form.Text = title;
                 }
 
-                if (form.ShowDialog() != DialogResult.OK)
+                // Show dialog on the main UI thread so it gets foreground focus.
+                // PerformNewLogin may be called from the SmartLink background thread.
+                DialogResult dialogResult = DialogResult.Cancel;
+                var parent = Callouts?.ParentWindow as Control;
+                if (parent != null && parent.IsHandleCreated && parent.InvokeRequired)
+                {
+                    parent.Invoke(new Action(() => { dialogResult = form.ShowDialog(parent as IWin32Window); }));
+                }
+                else
+                {
+                    dialogResult = form.ShowDialog();
+                }
+
+                if (dialogResult != DialogResult.OK)
                 {
                     Tracing.TraceLine("setupRemote: auth form cancelled or failed", TraceLevel.Info);
                     RestoreParentFocus();
@@ -1265,9 +1436,10 @@ namespace Radios
             // If the JWT exp claim is expired, we MUST get a new id_token.
             // Auth0 frtest doesn't return a new id_token on refresh, so token refresh
             // can't fix an expired JWT — go straight to interactive login.
+            // forceNewLogin only when switching accounts (to clear cached Auth0 session).
             if (isJwtExpired)
             {
-                Tracing.TraceLine($"GetJwtFromSavedAccount: JWT exp claim is expired, skipping to PerformNewLogin ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+                Tracing.TraceLine($"GetJwtFromSavedAccount: JWT exp expired, PerformNewLogin for {account.Email} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
                 return PerformNewLogin();
             }
 
@@ -1291,7 +1463,7 @@ namespace Radios
 
                 if (!refreshed)
                 {
-                    Tracing.TraceLine($"GetJwtFromSavedAccount: refresh failed, falling back to PerformNewLogin ({sw.ElapsedMilliseconds}ms)", TraceLevel.Warning);
+                    Tracing.TraceLine($"GetJwtFromSavedAccount: refresh failed, PerformNewLogin for {account.Email} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Warning);
                     return PerformNewLogin();
                 }
 
@@ -1300,7 +1472,7 @@ namespace Radios
                 Tracing.TraceLine($"GetJwtFromSavedAccount: after refresh, isJwtExpired={isJwtExpired} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
                 if (isJwtExpired)
                 {
-                    Tracing.TraceLine($"GetJwtFromSavedAccount: JWT still expired after refresh (Auth0 frtest), falling back to PerformNewLogin ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+                    Tracing.TraceLine($"GetJwtFromSavedAccount: JWT still expired after refresh, PerformNewLogin for {account.Email} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
                     return PerformNewLogin();
                 }
             }
@@ -1872,6 +2044,7 @@ namespace Radios
                     {
                         Tracing.TraceLine("Connected:" + r.Connected.ToString(), TraceLevel.Error);
                         _IsConnected = r.Connected;
+                        ConnectionStateChanged?.Invoke(r.Connected);
 #if zero
                         bool justReconnected = false;
                         if (!r.Connected &&
@@ -2120,6 +2293,47 @@ namespace Radios
                             if (s.Active)
                             {
                                 FilterObj.RXFreqChange(s);
+                                ModeChanged?.Invoke(s.DemodMode);
+
+                                // CW mode announcement. Runs alongside speech (not only when
+                                // speech is off) -- CW is a parallel notification channel when
+                                // CwNotificationsEnabled + CwModeAnnounceEnabled. With speech
+                                // on, the operator gets both the spoken mode and the CW mode
+                                // name. With speech off, CW is the only mode announcement.
+                                if (ScreenReaderOutput.CwNotificationsEnabled &&
+                                    ScreenReaderOutput.CwModeAnnounceEnabled &&
+                                    ScreenReaderOutput.PlayCwMode != null)
+                                    _ = ScreenReaderOutput.PlayCwMode(s.DemodMode);
+
+                                // Firmware leaves NRLOn flag set across mode round-trips but stops
+                                // applying Legacy NR processing. The user-visible workaround is to
+                                // uncheck then recheck the UI; this mimics that -- but back-to-back
+                                // queued commands appear to be coalesced somewhere in FlexLib or
+                                // firmware (a plain false-then-true does NOT re-apply). A real time
+                                // gap between off and on is required, matching how the UI path
+                                // naturally has click-react-click delay. 500 ms is our approximation
+                                // of a human re-click interval.
+                                if (s.NRLOn)
+                                {
+                                    Slice sliceRef = s;
+                                    Task.Run(async () =>
+                                    {
+                                        try
+                                        {
+                                            // Let mode change settle on the radio side first.
+                                            await Task.Delay(150);
+                                            q.Enqueue((FunctionDel)(() => { sliceRef.NRLOn = false; }), "NRLOn-mode-reapply-off");
+                                            // Human-click-interval between off and on so firmware doesn't collapse.
+                                            await Task.Delay(500);
+                                            q.Enqueue((FunctionDel)(() => { sliceRef.NRLOn = true; }), "NRLOn-mode-reapply-on");
+                                        }
+                                        catch (Exception ex)
+                                        {
+                                            Tracing.TraceLine("NRLOn-mode-reapply failed: " + ex.Message, TraceLevel.Warning);
+                                        }
+                                    });
+                                }
+
                             }
 #if CWMonitor
                             try
@@ -2368,6 +2582,16 @@ namespace Radios
                 _LocalPTT = client.IsLocalPtt;
             }
 
+            // Notify when another client connects (not during initial startup)
+            if (!client.IsThisClient && _clientAddedDuringStart)
+            {
+                string who = !string.IsNullOrEmpty(client.Station) ? client.Station
+                    : !string.IsNullOrEmpty(client.Program) ? client.Program
+                    : "Another client";
+                ScreenReaderOutput.Speak($"{who} connected", VerbosityLevel.Terse);
+                ScreenReaderOutput.PlayClientConnectedEarcon?.Invoke();
+            }
+
             Tracing.TraceLine("guiClientAdded:" +
                 "id:" + client.ClientID +
                 " my client:" + client.IsThisClient.ToString() +
@@ -2393,6 +2617,56 @@ namespace Radios
         private bool myClient(uint handle)
         {
             return ((clientHandle == handle)) ? true : false;
+        }
+
+        /// <summary>
+        /// Get a snapshot of connected MultiFlex GUI clients with their owned slices.
+        /// Returns tuples: (program, station, handle, isThisClient, ownedSliceLetters).
+        /// </summary>
+        public List<(string program, string station, uint handle, bool isThisClient, string slices)> GetGuiClients()
+        {
+            var result = new List<(string, string, uint, bool, string)>();
+            if (theRadio == null) return result;
+
+            lock (theRadio.GuiClientsLockObj)
+            {
+                foreach (var gc in theRadio.GuiClients)
+                {
+                    var ownedSlices = new List<string>();
+                    foreach (var s in theRadio.SliceList)
+                    {
+                        if (s.ClientHandle == gc.ClientHandle && !string.IsNullOrEmpty(s.Letter))
+                            ownedSlices.Add(s.Letter);
+                    }
+
+                    result.Add((
+                        gc.Program ?? "Unknown",
+                        gc.Station ?? "",
+                        gc.ClientHandle,
+                        gc.IsThisClient,
+                        string.Join(", ", ownedSlices)
+                    ));
+                }
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// Disconnect a MultiFlex GUI client by handle.
+        /// </summary>
+        public bool DisconnectGuiClient(uint handle)
+        {
+            if (theRadio == null || myClient(handle)) return false;
+            try
+            {
+                theRadio.DisconnectClientByHandle(handle.ToString());
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine($"DisconnectGuiClient: {ex.Message}", TraceLevel.Error);
+                return false;
+            }
         }
 
         internal GUIClient TheGuiClient
@@ -2436,6 +2710,16 @@ namespace Radios
                 _clientRemovedDuringStart = true;
                 _clientRemovedTickCount = Environment.TickCount64;
                 Tracing.TraceLine("guiClientRemoved:my client", TraceLevel.Info);
+            }
+
+            // Notify when another client disconnects
+            if (!myClient(client.ClientHandle))
+            {
+                string who = !string.IsNullOrEmpty(client.Station) ? client.Station
+                    : !string.IsNullOrEmpty(client.Program) ? client.Program
+                    : "A client";
+                ScreenReaderOutput.Speak($"{who} disconnected", VerbosityLevel.Terse);
+                ScreenReaderOutput.PlayClientDisconnectedEarcon?.Invoke();
             }
 
             Tracing.TraceLine("guiClientRemoved:" +
@@ -2486,6 +2770,18 @@ namespace Radios
         /// UI layers can subscribe to trigger menu/display rebuilds.
         /// </summary>
         public event Action SliceCountChanged;
+
+        /// <summary>
+        /// Fired when the active slice's demod mode changes (e.g., USB→CW).
+        /// UI layers subscribe to force immediate DSP state refresh.
+        /// </summary>
+        public event Action<string> ModeChanged;
+
+        /// <summary>
+        /// Fired when the radio connection state changes (connected/disconnected).
+        /// UI layers subscribe to rebuild menus and update connection-dependent controls.
+        /// </summary>
+        public event Action<bool> ConnectionStateChanged;
 
         private void sliceAdded(Slice slc)
         {
@@ -3830,8 +4126,9 @@ namespace Radios
         /// </summary>
         public List<Flex.Smoothlake.FlexLib.Meter> GetAllMeters()
         {
-            if (theRadio == null) return new List<Flex.Smoothlake.FlexLib.Meter>();
-            return theRadio.GetAllMeters();
+            // GetAllMeters removed in FlexLib v4.1.5 — _meters is private now.
+            // This method is unused but kept for API compatibility.
+            return new List<Flex.Smoothlake.FlexLib.Meter>();
         }
 
         /// <summary>
@@ -4236,7 +4533,7 @@ namespace Radios
             {
                 lock (_XIT)
                 {
-                    return _XIT; ;
+                    return _XIT;
                 }
             }
             set
@@ -5789,7 +6086,9 @@ namespace Radios
             // Raw Opus peaks ~0.16. 4x = comfortable, 6x = clean, 8x = hot.
             // Default 4x; user can adjust via Settings > Audio Boost menu.
             opusOutputChannel.PortAudioStream.OutputGain = 4.0f;
-            Tracing.TraceLine("remoteAudioProc:opusOutputChannel:" + opusOutputChannel.Name + " setup, OutputGain=" + opusOutputChannel.PortAudioStream.OutputGain, TraceLevel.Info);
+            // Wire PC-side audio processing if a pipeline has been configured
+            opusOutputChannel.PortAudioStream.PostDecodeProcessor = _audioPostProcessor;
+            Tracing.TraceLine("remoteAudioProc:opusOutputChannel:" + opusOutputChannel.Name + " setup, OutputGain=" + opusOutputChannel.PortAudioStream.OutputGain + ", PostDecodeProcessor=" + (_audioPostProcessor != null ? "yes" : "none"), TraceLevel.Info);
 
             if (!startOpusOutputChannel())
             {
@@ -6361,9 +6660,17 @@ namespace Radios
             public List<Profile_t> Profiles;
         }
         /// <summary>
-        /// Callout vector provided at open().
+        /// Callout vector provided at open(). MUST be public: this field
+        /// shadows <see cref="AllRadios.Callouts"/> (which is a different
+        /// type — <see cref="AllRadios.OpenParms"/> vs this class's
+        /// <see cref="FlexBase.OpenParms"/> — and is only ever set to a
+        /// blank stub in the base constructor). If this field is less
+        /// accessible than the base field, external callers' name lookup
+        /// binds `rig.Callouts` to the blank base field instead of this
+        /// wired one, and every `rig.Callouts.X(...)` delegate call NREs.
+        /// Diagnosed 2026-04-16 (Don's BUG-058). Do not downgrade access.
         /// </summary>
-        internal OpenParms Callouts;
+        public OpenParms Callouts;
         internal string ConfigDirectory { get { return Callouts.ConfigDirectory; } }
         internal string OperatorName { get { return Callouts.OperatorName; } }
         /// <summary>

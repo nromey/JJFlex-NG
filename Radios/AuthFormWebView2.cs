@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Drawing;
 using System.Net.Http;
@@ -12,6 +13,7 @@ using System.Web;
 using System.Windows.Forms;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
+using System.Runtime.InteropServices;
 using JJTrace;
 
 namespace Radios
@@ -22,6 +24,9 @@ namespace Radios
     /// </summary>
     public class AuthFormWebView2 : Form
     {
+        [DllImport("user32.dll")]
+        private static extern bool SetForegroundWindow(IntPtr hWnd);
+
         private WebView2 webView;
         private Label urlLabel;
         private bool isInitialized;
@@ -72,7 +77,15 @@ namespace Radios
         /// When true, forces Auth0 to show the login page even if a session already exists.
         /// Use this when the user explicitly wants to log in with a different account.
         /// </summary>
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public bool ForceNewLogin { get; set; }
+
+        /// <summary>
+        /// Account email for per-account WebView2 cookie storage.
+        /// Each account gets its own browser profile so sessions don't cross.
+        /// </summary>
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+        public string AccountEmail { get; set; } = "";
 
         /// <summary>
         /// When true, the form starts hidden and only shows if Auth0 requires user interaction
@@ -80,6 +93,7 @@ namespace Radios
         /// where the user has an existing session — prevents focus theft.
         /// Reserved for future use — WebView2 requires a visible window to initialize.
         /// </summary>
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public bool StartHidden { get; set; }
 
         public AuthFormWebView2()
@@ -191,7 +205,23 @@ namespace Radios
                     "JJFlexRadio", "WebView2");
 
                 // Async initialization keeps UI thread responsive for screen readers
-                var env = await CoreWebView2Environment.CreateAsync(null, userDataFolder, null);
+                // Retry up to 5 times with 2s delay — WebView2 data folder may be locked
+                // after a previous auth dialog or connection attempt. The browser process
+                // can take several seconds to fully release the profile folder.
+                CoreWebView2Environment env = null;
+                for (int attempt = 1; attempt <= 5; attempt++)
+                {
+                    try
+                    {
+                        env = await CoreWebView2Environment.CreateAsync(null, userDataFolder, null);
+                        break;
+                    }
+                    catch (Exception ex) when (attempt < 5)
+                    {
+                        Tracing.TraceLine($"AuthFormWebView2: CreateAsync attempt {attempt}/5 failed ({ex.Message}), retrying in 2s", TraceLevel.Warning);
+                        await Task.Delay(2000);
+                    }
+                }
                 await webView.EnsureCoreWebView2Async(env);
                 isInitialized = true;
 
@@ -323,9 +353,11 @@ namespace Radios
                 }
                 else
                 {
-                    // Login page loaded - announce to screen reader and set focus
-                    ScreenReaderOutput.Speak("Login page ready. Enter your email address.", true);
+                    // Login page loaded - force to foreground and announce to screen reader
+                    SetForegroundWindow(this.Handle);
+                    this.Activate();
                     webView.Focus();
+                    ScreenReaderOutput.Speak("SmartLink login page. Enter your email address.", true);
 
                     // Inject script to detect login errors shown inline by Auth0
                     await InjectLoginErrorDetector();

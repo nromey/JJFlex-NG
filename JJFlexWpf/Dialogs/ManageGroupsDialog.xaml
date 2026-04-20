@@ -8,18 +8,22 @@
     <DockPanel Margin="12">
         <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal"
                     HorizontalAlignment="Right" Margin="0,8,0,0">
-            <Button Content="Add Group" MinWidth="90" Height="28" Margin="0,0,8,0"
+            <Button Content="_Add Group" MinWidth="90" Height="28" Margin="0,0,8,0"
                     Click="AddButton_Click"
-                    AutomationProperties.Name="Add group" />
-            <Button Content="Edit Group" MinWidth="90" Height="28" Margin="0,0,8,0"
+                    AutomationProperties.Name="Add Group"
+                    AutomationProperties.AcceleratorKey="Alt+A" />
+            <Button Content="_Edit Group" MinWidth="90" Height="28" Margin="0,0,8,0"
                     Click="EditButton_Click"
-                    AutomationProperties.Name="Edit group" />
-            <Button Content="Delete Group" MinWidth="90" Height="28" Margin="0,0,8,0"
+                    AutomationProperties.Name="Edit Group"
+                    AutomationProperties.AcceleratorKey="Alt+E" />
+            <Button Content="_Delete Group" MinWidth="90" Height="28" Margin="0,0,8,0"
                     Click="DeleteButton_Click"
-                    AutomationProperties.Name="Delete group" />
-            <Button Content="Done" MinWidth="80" Height="28"
+                    AutomationProperties.Name="Delete Group"
+                    AutomationProperties.AcceleratorKey="Alt+D" />
+            <Button Content="D_one" MinWidth="80" Height="28"
                     IsDefault="True" IsCancel="True" Click="DoneButton_Click"
-                    AutomationProperties.Name="Done" />
+                    AutomationProperties.Name="Done"
+                    AutomationProperties.AcceleratorKey="Alt+O" />
         </StackPanel>
         <Grid>
             <Grid.ColumnDefinitions>

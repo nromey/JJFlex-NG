@@ -3359,7 +3359,8 @@ namespace Flex.Smoothlake.FlexLib
             get => _escEnabled;
             set
             {
-                if (value == _escEnabled) return;
+                // We stil want to raise this property changed even if it is the same
+                // due to relying on this property from our child slice
                 _escEnabled = value;
 
                 // If this is the diversity parent, update the radio.

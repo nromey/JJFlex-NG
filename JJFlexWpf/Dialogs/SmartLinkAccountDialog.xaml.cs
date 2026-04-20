@@ -16,13 +16,15 @@ namespace JJFlexWpf.Dialogs
         public string Email { get; set; } = "";
         public DateTime LastUsed { get; set; }
         public object AccountData { get; set; } = null!;
+        public bool IsDefault { get; set; }
 
         public override string ToString()
         {
             string lastUsed = LastUsed > DateTime.MinValue
                 ? LastUsed.ToLocalTime().ToString("g")
                 : "Never";
-            return $"{FriendlyName} ({Email}) - Last used: {lastUsed}";
+            string defaultTag = IsDefault ? " (Default)" : "";
+            return $"{FriendlyName} ({Email}){defaultTag} - Last used: {lastUsed}";
         }
     }
 

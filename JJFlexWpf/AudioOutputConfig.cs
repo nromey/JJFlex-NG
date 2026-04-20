@@ -61,11 +61,75 @@ namespace JJFlexWpf
         /// <summary>Speech verbosity level: 0=Off(Critical only), 1=Terse, 2=Chatty (default).</summary>
         public int SpeechVerbosity { get; set; } = 2; // VerbosityLevel.Chatty
 
+        /// <summary>Whether alert sounds (earcons, beeps, tones) are enabled. Meter tones are separate.</summary>
+        public bool EarconsEnabled { get; set; } = true;
+
+        /// <summary>Frequency entry typing sound mode.</summary>
+        public TypingSoundMode TypingSound { get; set; } = TypingSoundMode.Beep;
+
+        /// <summary>Calibration tuning hash — stores verified reference data.</summary>
+        public string TuningHash { get; set; } = "";
+
         /// <summary>Whether tuning speech debounce is enabled. When false, every tuning step speaks immediately.</summary>
         public bool TuneDebounceEnabled { get; set; } = true;
 
         /// <summary>Tuning speech debounce delay in milliseconds (50-1000, default 300).</summary>
         public int TuneDebounceMs { get; set; } = 300;
+
+        /// <summary>Whether JJ Neural NR (RNNoise) is enabled.</summary>
+        public bool RNNoiseEnabled { get; set; }
+
+        /// <summary>RNNoise wet/dry mix strength 0.0-1.0.</summary>
+        public float RNNoiseStrength { get; set; } = 0.8f;
+
+        /// <summary>Auto-disable RNNoise in CW/digital modes.</summary>
+        public bool RNNoiseAutoDisableNonVoice { get; set; } = true;
+
+        /// <summary>Whether JJ Trained NR (spectral subtraction) is enabled.</summary>
+        public bool SpectralSubEnabled { get; set; }
+
+        /// <summary>Spectral subtraction strength 0.0-1.0.</summary>
+        public float SpectralSubStrength { get; set; } = 0.7f;
+
+        /// <summary>Noise sampling duration in seconds (1-5).</summary>
+        public int SpectralSubSampleDuration { get; set; } = 2;
+
+        /// <summary>Whether CW Morse code notifications are enabled (AS/BT/SK prosigns).</summary>
+        public bool CwNotificationsEnabled { get; set; }
+
+        /// <summary>CW sidetone frequency in Hz (400-1200, default 700).</summary>
+        public int CwSidetoneHz { get; set; } = 700;
+
+        /// <summary>CW notification speed in WPM (10-30, default 20).</summary>
+        public int CwSpeedWpm { get; set; } = 20;
+
+        /// <summary>Announce mode changes in CW when speech verbosity is Off.</summary>
+        public bool CwModeAnnounce { get; set; }
+
+        /// <summary>
+        /// Speak the settled SWR after manual tune (Ctrl+Shift+T) or ATU auto-tune
+        /// completes. Format: "SWR 1.3 to 1". Reads the current SWR value ~200 ms
+        /// after the tuner-off transition so mid-sweep transients don't get
+        /// announced. Default true.
+        /// </summary>
+        public bool AnnounceSwrAfterTune { get; set; } = true;
+
+        /// <summary>Whether braille status line is enabled.</summary>
+        public bool BrailleEnabled { get; set; }
+
+        /// <summary>Braille display cell count (20, 32, 40, 80).</summary>
+        public int BrailleCellCount { get; set; } = 40;
+
+        /// <summary>Braille display enabled fields (flags enum as int for XML serialization).</summary>
+        public int BrailleFields { get; set; } = (int)JJFlexWpf.BrailleFields.All;
+
+        /// <summary>
+        /// Whether the panadapter / waterfall braille display is visible and in the tab order.
+        /// When false, PanadapterPanel is collapsed (removed from layout and focus) and the
+        /// per-tile braille callback skips its Tolk.Braille push so braille displays aren't
+        /// refreshed with data the user isn't viewing. Default true preserves existing behavior.
+        /// </summary>
+        public bool ShowPanadapter { get; set; } = true;
 
         /// <summary>Per-slot meter tone configurations.</summary>
         public List<MeterSlotConfig> MeterSlots { get; set; } = new();
@@ -110,6 +174,7 @@ namespace JJFlexWpf
         /// <summary>Apply this config to the MeterToneEngine and EarconPlayer.</summary>
         public void Apply()
         {
+            EarconPlayer.EarconsEnabled = EarconsEnabled;
             EarconPlayer.MasterVolume = MasterVolume;
             EarconPlayer.AlertVolume = AlertVolume;
             EarconPlayer.SetAlertDevice(EarconDeviceNumber);
@@ -141,12 +206,30 @@ namespace JJFlexWpf
             MeterSpeechTimerActive = MeterToneEngine.SpeechTimerActive;
             MeterSpeechIntervalSeconds = MeterToneEngine.SpeechIntervalSeconds;
             AutoEnableOnTune = MeterToneEngine.AutoEnableOnTune;
+            EarconsEnabled = EarconPlayer.EarconsEnabled;
             MasterVolume = EarconPlayer.MasterVolume;
             AlertVolume = EarconPlayer.AlertVolume;
             MasterEarconVolume = (int)(EarconPlayer.AlertVolume * 100);
             EarconDeviceNumber = EarconPlayer.GetAlertDeviceNumber();
             MeterDeviceNumber = EarconPlayer.GetMeterDeviceNumber();
         }
+    }
+
+    /// <summary>Frequency entry typing sound mode.</summary>
+    public enum TypingSoundMode
+    {
+        /// <summary>Random musical notes from C4-C8 (always available). Display: "Musical notes".</summary>
+        Beep,
+        /// <summary>No sound on keystrokes.</summary>
+        Off,
+        /// <summary>Mechanical keyboard sounds (requires calibration unlock).</summary>
+        Mechanical,
+        /// <summary>DTMF touch-tone sounds (requires calibration unlock).</summary>
+        TouchTone,
+        /// <summary>Fixed pitch beep every keystroke (always available).</summary>
+        SingleTone,
+        /// <summary>Random frequency beep, not snapped to musical notes (always available).</summary>
+        RandomTones
     }
 
     /// <summary>Per-slot configuration for XML serialization.</summary>

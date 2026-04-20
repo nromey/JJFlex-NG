@@ -2,6 +2,7 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:local="clr-namespace:JJFlexWpf"
+    xmlns:controls="clr-namespace:JJFlexWpf.Controls"
     Title="Settings"
     Width="460" Height="540"
     ResizeMode="NoResize"
@@ -112,6 +113,12 @@
                                   AutomationProperties.Name="Default fine tuning step"/>
                     </Grid>
 
+                    <Button Content="Edit _Tuning Steps..."
+                            Width="160" HorizontalAlignment="Left" Margin="0,12,0,0"
+                            AutomationProperties.Name="Edit tuning steps"
+                            AutomationProperties.AcceleratorKey="Alt+T"
+                            Click="EditTuningStepsButton_Click"/>
+
                     <CheckBox x:Name="BandMemoryCheckbox"
                               Content="Enable band memory"
                               IsChecked="True" Margin="0,12,0,0"
@@ -124,6 +131,16 @@
                                   Style="{StaticResource DialogComboBox}"
                                   AutomationProperties.Name="Frequency speech units"/>
                     </StackPanel>
+
+                    <Separator Margin="0,8,0,8"/>
+
+                    <Button Content="Edit _Filter Presets..."
+                            Width="160" HorizontalAlignment="Left"
+                            AutomationProperties.Name="Edit filter presets"
+                            AutomationProperties.AcceleratorKey="Alt+F"
+                            Click="EditFilterPresetsButton_Click"/>
+
+                    <Separator Margin="0,8,0,8"/>
 
                     <CheckBox x:Name="TuneDebounceCheckbox"
                               Content="Debounce tuning speech (group rapid steps)"
@@ -193,36 +210,18 @@
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                 <StackPanel Margin="8">
                     <!-- Master Volume -->
-                    <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-                        <TextBlock Text="Master volume:"
-                                   VerticalAlignment="Center"
-                                   Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
-                        <Slider x:Name="MasterVolumeSlider"
-                                Width="150" Minimum="0" Maximum="100"
-                                TickFrequency="10" IsSnapToTickEnabled="False"
-                                AutomationProperties.Name="Master volume, 0 to 100, scales all audio"/>
-                        <TextBlock x:Name="MasterVolumeLabel"
-                                   Width="30" TextAlignment="Right"
-                                   VerticalAlignment="Center" Margin="4,0,0,0"/>
-                    </StackPanel>
+                    <controls:ValueFieldControl x:Name="MasterVolumeControl"
+                        Margin="0,0,0,8"
+                        AutomationProperties.Name="Master volume, 0 to 100, scales all audio"/>
 
                     <Separator Margin="0,4,0,8"/>
 
                     <!-- Alert section -->
                     <TextBlock Text="Alerts" FontWeight="SemiBold"
                                Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
-                    <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-                        <TextBlock Text="Alert volume:"
-                                   VerticalAlignment="Center"
-                                   Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
-                        <Slider x:Name="EarconVolumeSlider"
-                                Width="150" Minimum="0" Maximum="100"
-                                TickFrequency="10" IsSnapToTickEnabled="False"
-                                AutomationProperties.Name="Alert volume, 0 to 100"/>
-                        <TextBlock x:Name="EarconVolumeLabel"
-                                   Width="30" TextAlignment="Right"
-                                   VerticalAlignment="Center" Margin="4,0,0,0"/>
-                    </StackPanel>
+                    <controls:ValueFieldControl x:Name="EarconVolumeControl"
+                        Margin="0,0,0,8"
+                        AutomationProperties.Name="Alert volume, 0 to 100"/>
                     <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
                         <TextBlock Text="Alert device:"
                                    VerticalAlignment="Center"
@@ -237,18 +236,9 @@
                     <!-- Meter section -->
                     <TextBlock Text="Meter Tones" FontWeight="SemiBold"
                                Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
-                    <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-                        <TextBlock Text="Meter volume:"
-                                   VerticalAlignment="Center"
-                                   Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
-                        <Slider x:Name="MeterVolumeSlider"
-                                Width="150" Minimum="0" Maximum="100"
-                                TickFrequency="10" IsSnapToTickEnabled="False"
-                                AutomationProperties.Name="Meter tone volume, 0 to 100"/>
-                        <TextBlock x:Name="MeterVolumeLabel"
-                                   Width="30" TextAlignment="Right"
-                                   VerticalAlignment="Center" Margin="4,0,0,0"/>
-                    </StackPanel>
+                    <controls:ValueFieldControl x:Name="MeterVolumeControl"
+                        Margin="0,0,0,8"
+                        AutomationProperties.Name="Meter tone volume, 0 to 100"/>
                     <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
                         <TextBlock Text="Meter device:"
                                    VerticalAlignment="Center"
@@ -257,10 +247,6 @@
                                   Style="{StaticResource DialogComboBox}"
                                   AutomationProperties.Name="Meter tone audio output device"/>
                     </StackPanel>
-                    <CheckBox x:Name="MeterTonesEnabledCheck"
-                              Content="Enable meter tones"
-                              Margin="0,0,0,8"
-                              AutomationProperties.Name="Enable meter tones"/>
                     <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
                         <TextBlock Text="Preset:"
                                    VerticalAlignment="Center"
@@ -280,12 +266,197 @@
 
                     <Separator Margin="0,4,0,8"/>
 
+                    <!-- Typing sound -->
+                    <TextBlock Text="Frequency Entry" FontWeight="SemiBold"
+                               Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                        <TextBlock Text="Typing sound:"
+                                   VerticalAlignment="Center"
+                                   Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
+                        <ComboBox x:Name="TypingSoundCombo" Width="180"
+                                  Style="{StaticResource DialogComboBox}"
+                                  AutomationProperties.Name="Frequency entry typing sound mode"/>
+                    </StackPanel>
+
+                    <Separator Margin="0,4,0,8"/>
+
+                    <!-- Braille Display section -->
+                    <TextBlock Text="Braille Display" FontWeight="SemiBold"
+                               Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
+                    <CheckBox x:Name="BrailleEnabledCheck"
+                              Content="Enable braille status line"
+                              Margin="0,0,0,8"
+                              AutomationProperties.Name="Enable braille status line on home position"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                        <TextBlock Text="Display cells:"
+                                   VerticalAlignment="Center"
+                                   Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
+                        <ComboBox x:Name="BrailleCellsCombo" Width="80"
+                                  Style="{StaticResource DialogComboBox}"
+                                  AutomationProperties.Name="Braille display cell count"/>
+                    </StackPanel>
+
+                    <Separator Margin="0,4,0,8"/>
+
                     <!-- Audio Workshop shortcut -->
                     <Button Content="Audio _Workshop..."
                             Width="160" HorizontalAlignment="Left"
                             AutomationProperties.Name="Audio Workshop"
                             AutomationProperties.AcceleratorKey="Alt+W"
                             Click="AudioWorkshopButton_Click"/>
+                </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+            <!-- Network Tab (SmartLink port forwarding) -->
+            <TabItem Header="Network" AutomationProperties.Name="Network and SmartLink settings">
+                <StackPanel Margin="8">
+                    <TextBlock Text="SmartLink Port Forwarding" FontWeight="SemiBold"
+                               Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
+                    <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
+                               Text="Configure the radio's firmware to listen on a specific port for SmartLink. Your router must also forward the same TCP and UDP port to the radio's LAN IP address. Requires an active radio connection."/>
+
+                    <TextBlock x:Name="NetworkCurrentStateText"
+                               Style="{StaticResource DialogLabel}" Margin="0,0,0,8"
+                               AutomationProperties.LiveSetting="Polite"/>
+
+                    <CheckBox x:Name="PortForwardEnabledCheck"
+                              Content="Enable manual port forwarding"
+                              Margin="0,0,0,8"
+                              AutomationProperties.Name="Enable manual port forwarding on the radio"/>
+
+                    <Grid Margin="20,0,0,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="100"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <TextBlock Grid.Row="0" Grid.Column="0"
+                                   Text="Port (TCP and UDP):"
+                                   x:Name="PortForwardTcpLabel"
+                                   Style="{StaticResource DialogLabel}" Margin="0,4,8,4"/>
+                        <TextBox x:Name="PortForwardTcpBox" Grid.Row="0" Grid.Column="1"
+                                 Text="4992"
+                                 Style="{StaticResource DialogTextBox}"
+                                 AutomationProperties.Name="Port number, 1024 to 65535, applied to TCP and UDP"
+                                 TextChanged="PortForwardTcpBox_TextChanged"/>
+                        <TextBlock Grid.Row="1" Grid.Column="0"
+                                   Text="UDP port:"
+                                   Style="{StaticResource DialogLabel}" Margin="0,4,8,4"/>
+                        <TextBox x:Name="PortForwardUdpBox" Grid.Row="1" Grid.Column="1"
+                                 Text="4992" IsEnabled="False"
+                                 Style="{StaticResource DialogTextBox}"
+                                 AutomationProperties.Name="UDP port number, 1024 to 65535"/>
+                    </Grid>
+
+                    <CheckBox x:Name="PortForwardSeparatePortsCheck"
+                              Content="Use different TCP and UDP ports (advanced)"
+                              Margin="20,0,0,8"
+                              AutomationProperties.Name="Allow different TCP and UDP ports"
+                              Checked="PortForwardSeparatePortsCheck_Changed"
+                              Unchecked="PortForwardSeparatePortsCheck_Changed"/>
+
+                    <Button Content="_Apply to connected radio"
+                            Width="220" HorizontalAlignment="Left" Margin="0,4,0,0"
+                            AutomationProperties.Name="Apply port forwarding to connected radio"
+                            AutomationProperties.AcceleratorKey="Alt+A"
+                            Click="ApplyPortForwardButton_Click"/>
+                </StackPanel>
+            </TabItem>
+
+            <!-- Verbosity & Notifications Tab -->
+            <TabItem Header="Notifications" AutomationProperties.Name="Verbosity and notifications settings">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <StackPanel Margin="8">
+                    <!-- Speech section -->
+                    <TextBlock Text="Speech" FontWeight="SemiBold"
+                               Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                        <TextBlock Text="Speech verbosity:"
+                                   VerticalAlignment="Center"
+                                   Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
+                        <ComboBox x:Name="SpeechVerbosityCombo" Width="120"
+                                  Style="{StaticResource DialogComboBox}"
+                                  AutomationProperties.Name="Speech verbosity level"/>
+                    </StackPanel>
+
+                    <Separator Margin="0,4,0,8"/>
+
+                    <!-- Earcons section -->
+                    <TextBlock Text="Alert Sounds" FontWeight="SemiBold"
+                               Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
+                    <CheckBox x:Name="EarconsEnabledCheck"
+                              Content="Enable alert sounds (earcons)"
+                              Margin="0,0,0,8"
+                              AutomationProperties.Name="Enable alert sounds such as beeps and tones"/>
+
+                    <Separator Margin="0,4,0,8"/>
+
+                    <!-- CW Notifications section -->
+                    <TextBlock Text="CW Morse Notifications" FontWeight="SemiBold"
+                               Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
+                    <CheckBox x:Name="CwNotificationsCheck"
+                              Content="Enable CW notifications (AS, BT, SK prosigns)"
+                              Margin="0,0,0,8"
+                              AutomationProperties.Name="Enable Morse code notifications for connection events"/>
+                    <Grid Margin="20,0,0,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="100"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <TextBlock Grid.Row="0" Grid.Column="0"
+                                   Text="Sidetone frequency (Hz):"
+                                   Style="{StaticResource DialogLabel}" Margin="0,4,8,4"/>
+                        <TextBox x:Name="CwSidetoneBox" Grid.Row="0" Grid.Column="1"
+                                 Style="{StaticResource DialogTextBox}"
+                                 AutomationProperties.Name="CW sidetone frequency, 400 to 1200 hertz"/>
+                        <TextBlock Grid.Row="1" Grid.Column="0"
+                                   Text="Speed (WPM):"
+                                   Style="{StaticResource DialogLabel}" Margin="0,4,8,4"/>
+                        <TextBox x:Name="CwSpeedBox" Grid.Row="1" Grid.Column="1"
+                                 Style="{StaticResource DialogTextBox}"
+                                 AutomationProperties.Name="CW notification speed, 10 to 30 words per minute"/>
+                    </Grid>
+                    <CheckBox x:Name="CwModeAnnounceCheck"
+                              Content="Announce mode changes in CW (when speech is off)"
+                              Margin="0,0,0,8"
+                              AutomationProperties.Name="Play mode name in Morse code when speech verbosity is off"/>
+
+                    <Separator Margin="0,4,0,8"/>
+
+                    <!-- Meter Tones enable (moved from Audio) -->
+                    <TextBlock Text="Meter Tones" FontWeight="SemiBold"
+                               Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
+                    <CheckBox x:Name="MeterTonesNotifCheck"
+                              Content="Enable meter tones"
+                              Margin="0,0,0,8"
+                              AutomationProperties.Name="Enable meter tones"/>
+
+                    <Separator Margin="0,4,0,8"/>
+
+                    <!-- Display elements -->
+                    <TextBlock Text="Display" FontWeight="SemiBold"
+                               Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
+                    <CheckBox x:Name="ShowPanadapterCheck"
+                              Content="Show panadapter / waterfall display"
+                              Margin="0,0,0,8"
+                              AutomationProperties.Name="Show the panadapter and waterfall display. When unchecked, the display is hidden from view and removed from the tab order and braille refreshes are suppressed."/>
+
+                    <Separator Margin="0,4,0,8"/>
+
+                    <!-- Tune feedback -->
+                    <TextBlock Text="Tune Feedback" FontWeight="SemiBold"
+                               Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
+                    <CheckBox x:Name="AnnounceSwrAfterTuneCheck"
+                              Content="Read final SWR reading after manual or automatic tune"
+                              Margin="0,0,0,8"
+                              AutomationProperties.Name="Read final SWR reading after manual or automatic tune."/>
                 </StackPanel>
                 </ScrollViewer>
             </TabItem>

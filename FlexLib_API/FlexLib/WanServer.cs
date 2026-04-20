@@ -324,6 +324,19 @@ namespace Flex.Smoothlake.FlexLib
                     requiresHolePunch = true;
                 }
 
+                // DIAGNOSTIC (JJ Flex): Log raw discovery fields to diagnose SmartLink
+                // hole-punch/UPnP connection failures. Read UPnP port fields unconditionally
+                // so we see what the radio reported even when upnpSupported parsed false.
+                keyValuePairs.TryGetValue("public_upnp_tls_port", out string diagUpnpTlsStr);
+                keyValuePairs.TryGetValue("public_upnp_udp_port", out string diagUpnpUdpStr);
+                Debug.WriteLine(
+                    $"WanServer.ParseRadioListMessage DIAG: serial={serial} " +
+                    $"upnp_supported='{upnpSupportedString}' " +
+                    $"public_tls_port='{publicTlsPortString}' public_udp_port='{publicUdpPortString}' " +
+                    $"public_upnp_tls_port='{diagUpnpTlsStr}' public_upnp_udp_port='{diagUpnpUdpStr}' " +
+                    $"-> publicTlsPortToUse={publicTlsPortToUse} publicUdpPortToUse={publicUdpPortToUse} " +
+                    $"isPortForwardOn={isPortForwardOn} requiresHolePunch={requiresHolePunch}");
+
                 // Get reference to radio from flexlib
                 // Add radioviewmodel, 
                 // Fire Radio added event..., radio chooser will catch it

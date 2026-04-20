@@ -2542,6 +2542,11 @@ namespace Radios
         /// <summary>
         /// Callout vector provided at open().
         /// </summary>
+        // Shadowed by FlexBase.Callouts (different OpenParms type) for any
+        // Flex-derived radio. This base field is only wired by AllRadios.Open()
+        // which is not on the JJFlex startup path — so for a FlexBase rig this
+        // field is a blank stub. External callers should access via a
+        // FlexBase-typed reference so name lookup binds to the derived field.
         public OpenParms Callouts;
         internal string ConfigDirectory { get { return Callouts.ConfigDirectory; } }
         internal string OperatorName { get { return Callouts.OperatorName; } }

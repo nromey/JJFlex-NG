@@ -8,14 +8,16 @@
         Closing="OnFormClosing">
     <DockPanel Margin="8">
         <DockPanel DockPanel.Dock="Bottom" Margin="0,4,0,0">
-            <Button x:Name="BeepButton" Content="Beep On" MinWidth="80" Height="28"
+            <Button x:Name="BeepButton" Content="_Beep On" MinWidth="80" Height="28"
                     DockPanel.Dock="Left" Margin="0,0,8,0"
                     Click="BeepButton_Click"
-                    AutomationProperties.Name="Toggle beep mode" />
-            <Button x:Name="TrackButton" Content="Track last post On" MinWidth="120" Height="28"
+                    AutomationProperties.Name="Beep On"
+                    AutomationProperties.AcceleratorKey="Alt+B" />
+            <Button x:Name="TrackButton" Content="_Track last post On" MinWidth="120" Height="28"
                     DockPanel.Dock="Left"
                     Click="TrackButton_Click"
-                    AutomationProperties.Name="Toggle scroll tracking" />
+                    AutomationProperties.Name="Track last post On"
+                    AutomationProperties.AcceleratorKey="Alt+T" />
         </DockPanel>
         <DockPanel DockPanel.Dock="Bottom" Margin="0,4,0,0">
             <Label Content="Telnet cmd:" DockPanel.Dock="Left" Padding="0,0,8,0"

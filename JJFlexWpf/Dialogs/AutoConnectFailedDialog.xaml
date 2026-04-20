@@ -21,14 +21,17 @@
         <!-- Buttons -->
         <StackPanel Grid.Row="2" Orientation="Horizontal"
                     HorizontalAlignment="Right" Margin="0,8,0,0">
-            <Button Content="Try Again" MinWidth="90" Height="32" Margin="0,0,8,0"
-                    AutomationProperties.Name="Try Again - retry connecting to the radio"
+            <Button Content="Try _Again" MinWidth="90" Height="32" Margin="0,0,8,0"
+                    AutomationProperties.Name="Try Again"
+                    AutomationProperties.AcceleratorKey="Alt+A"
                     Click="TryAgainButton_Click"/>
-            <Button Content="Disable" MinWidth="90" Height="32" Margin="0,0,8,0"
-                    AutomationProperties.Name="Disable Auto-Connect for this radio"
+            <Button Content="_Disable" MinWidth="90" Height="32" Margin="0,0,8,0"
+                    AutomationProperties.Name="Disable"
+                    AutomationProperties.AcceleratorKey="Alt+D"
                     Click="DisableButton_Click"/>
-            <Button Content="Choose Another" MinWidth="110" Height="32" Margin="0,0,8,0"
-                    AutomationProperties.Name="Choose Another Radio - open radio selector"
+            <Button Content="C_hoose Another" MinWidth="110" Height="32" Margin="0,0,8,0"
+                    AutomationProperties.Name="Choose Another"
+                    AutomationProperties.AcceleratorKey="Alt+H"
                     Click="ChooseAnotherButton_Click"/>
             <Button Content="_Cancel" AutomationProperties.AcceleratorKey="Alt+C" MinWidth="75" Height="32" IsCancel="True"
                     AutomationProperties.Name="Cancel - close this dialog and stay disconnected"

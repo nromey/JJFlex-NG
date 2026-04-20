@@ -24,7 +24,7 @@ public partial class StatusDialog : JJFlexDialog
 
         _refreshTimer = new DispatcherTimer
         {
-            Interval = TimeSpan.FromSeconds(2)
+            Interval = TimeSpan.FromSeconds(5)
         };
         _refreshTimer.Tick += (s, e) => RefreshStatus();
 
@@ -32,9 +32,26 @@ public partial class StatusDialog : JJFlexDialog
         Closing += StatusDialog_Closing;
     }
 
+    protected override void FocusFirstControl()
+    {
+        // Don't use base MoveFocus — we'll set focus after items are populated
+    }
+
     private void StatusDialog_Loaded(object sender, RoutedEventArgs e)
     {
         RefreshStatus();
+        if (StatusList.Items.Count > 0)
+        {
+            StatusList.SelectedIndex = 0;
+            // Deferred focus so ListBoxItem containers are generated
+            Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded, () =>
+            {
+                StatusList.Focus();
+                var container = StatusList.ItemContainerGenerator
+                    .ContainerFromIndex(0) as System.Windows.Controls.ListBoxItem;
+                container?.Focus();
+            });
+        }
         _refreshTimer.Start();
     }
 
@@ -48,6 +65,10 @@ public partial class StatusDialog : JJFlexDialog
     /// </summary>
     private void RefreshStatus()
     {
+        // Don't refresh while user is reading the list — it steals selection
+        if (StatusList.IsKeyboardFocusWithin) return;
+
+        int savedIndex = StatusList.SelectedIndex;
         StatusList.Items.Clear();
 
         if (Rig == null)
@@ -126,6 +147,10 @@ public partial class StatusDialog : JJFlexDialog
             };
             AddItem(tunerState);
         }
+
+        // Restore selection after rebuild
+        if (savedIndex >= 0 && savedIndex < StatusList.Items.Count)
+            StatusList.SelectedIndex = savedIndex;
     }
 
     private void AddSection(string heading)

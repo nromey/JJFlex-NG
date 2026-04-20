@@ -10,14 +10,22 @@
     <DockPanel>
         <!-- Toolbar at top -->
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="8,4">
-            <Button x:Name="LoadPresetButton" Content="Load Preset" Margin="0,0,4,0" Padding="8,4"
-                    AutomationProperties.Name="Load audio preset" Click="LoadPreset_Click"/>
-            <Button x:Name="SavePresetButton" Content="Save Preset" Margin="0,0,4,0" Padding="8,4"
-                    AutomationProperties.Name="Save current settings as audio preset" Click="SavePreset_Click"/>
-            <Button x:Name="ExportButton" Content="Export" Margin="0,0,4,0" Padding="8,4"
-                    AutomationProperties.Name="Export preset to file" Click="Export_Click"/>
-            <Button x:Name="ResetButton" Content="Reset" Margin="0,0,4,0" Padding="8,4"
-                    AutomationProperties.Name="Reset to defaults" Click="Reset_Click"/>
+            <Button x:Name="LoadPresetButton" Content="_Load Preset" Margin="0,0,4,0" Padding="8,4"
+                    AutomationProperties.Name="Load Preset"
+                    AutomationProperties.AcceleratorKey="Alt+L"
+                    Click="LoadPreset_Click"/>
+            <Button x:Name="SavePresetButton" Content="_Save Preset" Margin="0,0,4,0" Padding="8,4"
+                    AutomationProperties.Name="Save Preset"
+                    AutomationProperties.AcceleratorKey="Alt+S"
+                    Click="SavePreset_Click"/>
+            <Button x:Name="ExportButton" Content="_Export" Margin="0,0,4,0" Padding="8,4"
+                    AutomationProperties.Name="Export"
+                    AutomationProperties.AcceleratorKey="Alt+E"
+                    Click="Export_Click"/>
+            <Button x:Name="ResetButton" Content="_Reset" Margin="0,0,4,0" Padding="8,4"
+                    AutomationProperties.Name="Reset"
+                    AutomationProperties.AcceleratorKey="Alt+R"
+                    Click="Reset_Click"/>
         </StackPanel>
 
         <TabControl x:Name="MainTabs" Margin="4"

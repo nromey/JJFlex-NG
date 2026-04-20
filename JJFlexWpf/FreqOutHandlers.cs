@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Threading;
@@ -126,6 +127,30 @@ public class FreqOutHandlers
     /// Whether currently in coarse tuning mode (vs fine).
     /// </summary>
     public bool IsCoarseMode => _coarseMode;
+
+    /// <summary>Get a copy of the current coarse step list.</summary>
+    public int[] GetCoarseSteps() => (int[])_coarseSteps.Clone();
+
+    /// <summary>Get a copy of the current fine step list.</summary>
+    public int[] GetFineSteps() => (int[])_fineSteps.Clone();
+
+    /// <summary>Replace the coarse step list. Must have at least one value, sorted ascending.</summary>
+    public void SetCoarseSteps(int[] steps)
+    {
+        if (steps == null || steps.Length == 0) return;
+        _coarseSteps = (int[])steps.Clone();
+        Array.Sort(_coarseSteps);
+        if (_coarseStepIndex >= _coarseSteps.Length) _coarseStepIndex = 0;
+    }
+
+    /// <summary>Replace the fine step list. Must have at least one value, sorted ascending.</summary>
+    public void SetFineSteps(int[] steps)
+    {
+        if (steps == null || steps.Length == 0) return;
+        _fineSteps = (int[])steps.Clone();
+        Array.Sort(_fineSteps);
+        if (_fineStepIndex >= _fineSteps.Length) _fineStepIndex = 0;
+    }
 
     /// <summary>
     /// Callback to persist step sizes to operator profile.
@@ -354,7 +379,11 @@ public class FreqOutHandlers
 
             case Radios.FrequencyUnits.MHz:
                 double mhz = freqHz / 1_000_000.0;
-                return $"{mhz:N3} megahertz";
+                // Show enough decimals to represent the actual frequency
+                // 3.806.000 → "3.806", 3.806.250 → "3.806250"
+                if (freqHz % 1000 == 0)
+                    return $"{mhz:N3} megahertz";
+                return $"{mhz:N6} megahertz";
 
             default: // Hz — original dotted format
                 string s = freqHz.ToString();
@@ -504,6 +533,9 @@ public class FreqOutHandlers
         _quickTypeBuffer += digit;
         _lastDigitTime = now;
 
+        // Play typing sound
+        EarconPlayer.PlayTypingSound(digit, TypingSound);
+
         // Speak the digit for feedback
         Radios.ScreenReaderOutput.Speak(digit.ToString(), VerbosityLevel.Terse, true);
 
@@ -605,6 +637,15 @@ public class FreqOutHandlers
         if (!_inQuickType || string.IsNullOrEmpty(_quickTypeBuffer)) return;
         _quickTypeTimeout?.Cancel();
 
+        // Check for calibration reference before frequency parsing
+        string? calibRef = CalibrationEngine.VerifyCalibration(_quickTypeBuffer);
+        if (calibRef != null)
+        {
+            HandleCalibrationUnlock(calibRef);
+            CancelQuickType();
+            return;
+        }
+
         double? freqMhz = ParseQuickTypeFreq(_quickTypeBuffer);
         if (freqMhz == null)
         {
@@ -616,7 +657,13 @@ public class FreqOutHandlers
         // Convert MHz to Hz (ulong, our internal format)
         ulong freqHz = (ulong)(freqMhz.Value * 1_000_000);
         SetRXFrequency?.Invoke(freqHz);
+        CheckBandBoundary(freqHz);
 
+        // Typewriter bell in mechanical mode, regular ding otherwise
+        if (TypingSound == TypingSoundMode.Mechanical)
+            EarconPlayer.TypewriterBellTone();
+        else
+            EarconPlayer.DingTone();
         string display = FormatFreqForSpeech(freqMhz.Value);
         Radios.ScreenReaderOutput.Speak($"Frequency set to {display}", VerbosityLevel.Terse, true);
         CancelQuickType();
@@ -660,6 +707,15 @@ public class FreqOutHandlers
         if (ch == '.' && _inQuickType)
         {
             QuickTypeDot();
+            e.Handled = true;
+            return true;
+        }
+        // Letters: accumulate only when ALREADY in quick-type mode (for calibration references).
+        // Do NOT start quick-type with letters — that would eat C (coarse/fine), F (speak freq), etc.
+        if (_inQuickType && (ch >= 'A' && ch <= 'Z' || ch >= 'a' && ch <= 'z'))
+        {
+            _quickTypeBuffer += ch;
+            _lastDigitTime = DateTime.Now;
             e.Handled = true;
             return true;
         }
@@ -725,26 +781,53 @@ public class FreqOutHandlers
         }
     }
 
-    private void CycleVFO(int direction)
+    private void CycleVFO(int direction, bool wrap = false)
     {
         if (Rig == null) return;
         int current = Rig.RXVFO;
         int total = Rig.MyNumSlices;
         if (total <= 0) return;
 
-        Tracing.TraceLine($"CycleVFO:dir={direction} current={current} total={total}", TraceLevel.Info);
+        Tracing.TraceLine($"CycleVFO:dir={direction} current={current} total={total} wrap={wrap}", TraceLevel.Info);
 
         int next = current + direction;
-        if (next >= total) next = 0;
-        if (next < 0) next = total - 1;
+        if (wrap)
+        {
+            if (next >= total) next = 0;
+            if (next < 0) next = total - 1;
+        }
+        else
+        {
+            if (next >= total)
+            {
+                string letter = Rig.VFOToLetter(current);
+                Radios.ScreenReaderOutput.Speak($"Slice {letter}, last slice", VerbosityLevel.Terse, true);
+                return;
+            }
+            if (next < 0)
+            {
+                string letter = Rig.VFOToLetter(current);
+                Radios.ScreenReaderOutput.Speak($"Slice {letter}, first slice", VerbosityLevel.Terse, true);
+                return;
+            }
+        }
 
         // Find next valid VFO
         int attempts = 0;
         while (!Rig.ValidVFO(next) && attempts < total)
         {
             next += direction;
-            if (next >= total) next = 0;
-            if (next < 0) next = total - 1;
+            if (wrap)
+            {
+                if (next >= total) next = 0;
+                if (next < 0) next = total - 1;
+            }
+            if (!wrap && (next >= total || next < 0))
+            {
+                string letter = Rig.VFOToLetter(current);
+                Radios.ScreenReaderOutput.Speak($"Slice {letter}, {(direction > 0 ? "last" : "first")} slice", VerbosityLevel.Terse, true);
+                return;
+            }
             attempts++;
         }
 
@@ -784,8 +867,8 @@ public class FreqOutHandlers
         switch (ch)
         {
             case ' ':
-                // Cycle to next valid slice
-                CycleVFO(1);
+                // Cycle to next valid slice (wraps around)
+                CycleVFO(1, wrap: true);
                 e.Handled = true;
                 break;
             case 'M':
@@ -1373,9 +1456,12 @@ public class FreqOutHandlers
         switch (key)
         {
             case Key.Up:
+                TuneFreq((ulong)CurrentTuneStep);
+                e.Handled = true;
+                break;
+
             case Key.Down:
-                // Modern mode: freq field is read-only for arrow keys.
-                // Prevents accidental frequency nudging. Use quick-type digits to change frequency.
+                TuneFreq(unchecked((ulong)(-(long)CurrentTuneStep)));
                 e.Handled = true;
                 break;
 
@@ -1855,6 +1941,94 @@ public class FreqOutHandlers
     public Func<string>? GetOperatorName { get; set; }
 
     /// <summary>
+    /// Current typing sound mode for frequency entry keystrokes.
+    /// </summary>
+    public TypingSoundMode TypingSound { get; set; } = TypingSoundMode.Beep;
+
+    /// <summary>
+    /// Handle a successful calibration reference unlock.
+    /// Plays verification tone, saves state, speaks confirmation.
+    /// </summary>
+    /// <summary>Public entry point for calibration unlock from JJ Ctrl+F.</summary>
+    public void HandleCalibrationPublic(string referenceName) => HandleCalibrationUnlock(referenceName);
+
+    private void HandleCalibrationUnlock(string referenceName)
+    {
+        // Reset handler — clear all unlocks
+        if (referenceName == CalibrationEngine.ResetRef)
+        {
+            string configDir2 = GetConfigDirectory?.Invoke() ?? "";
+            if (!string.IsNullOrEmpty(configDir2))
+            {
+                var config2 = AudioOutputConfig.Load(configDir2);
+                config2.TuningHash = "";
+                config2.TypingSound = TypingSoundMode.Beep;
+                config2.Save(configDir2);
+
+                // Also clear in Radios subdirectory
+                string radiosDir2 = System.IO.Path.Combine(configDir2, "Radios");
+                if (System.IO.Directory.Exists(radiosDir2))
+                {
+                    var rc = AudioOutputConfig.Load(radiosDir2);
+                    rc.TuningHash = "";
+                    rc.TypingSound = TypingSoundMode.Beep;
+                    rc.Save(radiosDir2);
+                }
+            }
+            TypingSound = TypingSoundMode.Beep;
+            EarconPlayer.ReverseBoomTone();
+            Radios.ScreenReaderOutput.Speak("All modes reset.", VerbosityLevel.Critical, true);
+            return;
+        }
+
+        CalibrationEngine.PlayVerificationTone(referenceName);
+
+        string configDir = GetConfigDirectory?.Invoke() ?? "";
+        if (!string.IsNullOrEmpty(configDir))
+        {
+            string tuningHash = "";
+            // Save to root config dir
+            var config = AudioOutputConfig.Load(configDir);
+            var unlocked = new HashSet<string>(
+                (config.TuningHash ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries));
+            unlocked.Add(referenceName);
+            tuningHash = string.Join(",", unlocked);
+            config.TuningHash = tuningHash;
+            config.Save(configDir);
+
+            // Also save to Radios subdirectory (where Settings reads from)
+            string radiosDir = System.IO.Path.Combine(configDir, "Radios");
+            if (System.IO.Directory.Exists(radiosDir))
+            {
+                var radiosConfig = AudioOutputConfig.Load(radiosDir);
+                radiosConfig.TuningHash = tuningHash;
+                radiosConfig.Save(radiosDir);
+            }
+        }
+
+        // Load extended sounds based on which reference was unlocked
+        if (referenceName == CalibrationEngine.Ref2)
+        {
+            CalibrationEngine.LoadKeyboardSounds();
+            Radios.ScreenReaderOutput.Speak("Mechanical keyboard mode unlocked!", VerbosityLevel.Critical, true);
+        }
+        else if (referenceName == CalibrationEngine.Ref1)
+        {
+            Radios.ScreenReaderOutput.Speak("Touch-tone mode unlocked!", VerbosityLevel.Critical, true);
+        }
+    }
+
+    /// <summary>
+    /// Check if a specific calibration reference has been unlocked.
+    /// </summary>
+    public static bool IsCalibrationUnlocked(string referenceName, string tuningHash)
+    {
+        if (string.IsNullOrEmpty(tuningHash)) return false;
+        return tuningHash.Split(',', StringSplitOptions.RemoveEmptyEntries)
+            .Any(s => s.Equals(referenceName, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
     /// Tracks the last band the user was on, for boundary detection.
     /// </summary>
     private Bands.BandNames? _lastBand;
@@ -2014,6 +2188,18 @@ public class FreqOutHandlers
     /// notifications and license boundary crossings if enabled.
     /// Called from TuneFreq after frequency changes.
     /// </summary>
+    /// <summary>
+    /// Initialize band tracking from current frequency so the first tune
+    /// doesn't trigger a false boundary notification.
+    /// </summary>
+    public void InitializeBandTracking(ulong currentFreq)
+    {
+        var bandInfo = Bands.Query(currentFreq);
+        _lastBand = bandInfo?.Band;
+        if (_lastBand != null)
+            _lastSubBandKey = GetSubBandKey(currentFreq, _lastBand.Value);
+    }
+
     public void CheckBandBoundary(ulong newFreq)
     {
         if (License == null || !License.BoundaryNotifications) return;

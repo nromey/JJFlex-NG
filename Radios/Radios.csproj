@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net8.0-windows</TargetFramework>
+    <TargetFramework>net10.0-windows</TargetFramework>
     <Platforms>x64;x86;AnyCPU</Platforms>
     <PlatformTarget Condition="'$(Platform)'=='x64'">x64</PlatformTarget>
     <PlatformTarget Condition="'$(Platform)'=='x86'">x86</PlatformTarget>

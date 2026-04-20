@@ -1,0 +1,248 @@
+FlexLib Bug Report: NullReferenceException in Discovery.Receive()
+==================================================================
+File:         FlexLib_API/FlexLib/Discovery.cs, line 75
+Present in:   At least v4.0.1 and v4.1.5.39794 (file unchanged in that upgrade)
+Repro under:  .NET 10 (reproducible); likely latent in earlier runtimes too
+Reporter:     Noel Romey (K5NER), JJ Flexible Radio Access
+Date:         2026-04-15
+
+Summary
+-------
+Discovery.Receive() throws NullReferenceException at
+`var packet = await udp.ReceiveAsync();` when Discovery.Start() is
+called a second time before a prior Receive task has fully terminated.
+Because Receive is an async-void task, the exception is unobserved,
+propagates to ThreadPool.UnhandledException, and terminates the host
+process.
+
+Root Cause
+----------
+Discovery.cs uses static singletons for the UDP socket and the
+cancellation token source:
+
+    private static UdpClient udp;
+    private static CancellationTokenSource _loopCts;
+
+Start() unconditionally overwrites both and fires a new Receive task:
+
+    udp = new UdpClient();
+    ...
+    _loopCts = new CancellationTokenSource();
+    Task.Run(Receive);
+
+Stop() just cancels _loopCts. The live Receive task is expected to
+notice cancellation and run `udp.Close(); udp = null;` on exit.
+
+Race window
+-----------
+Sequence that produces the NRE:
+
+  1. Start() #1  -> udp1, cts1; Receive1 pending on udp1.ReceiveAsync()
+  2. Stop()      -> cts1.Cancel()
+  3. Start() #2  -> udp2, cts2 (overwrites statics);
+                    Receive2 pending on udp2.ReceiveAsync()
+  4. Receive1 wakes (cancellation or packet), breaks out of its loop,
+     runs `udp.Close(); udp = null;`. This closes udp2 (the NEW client)
+     and nulls the static field, because Receive1 re-reads `udp` at
+     that point and sees udp2.
+  5. Receive2's next iteration does `await udp.ReceiveAsync();` with
+     udp == null -> NullReferenceException.
+
+A typical caller trigger is any `API.CloseSession()` followed by
+`API.Init()` in quick succession (e.g. a reconnect path that forces
+re-initialization). The race is timing sensitive; .NET 10's async
+scheduling appears to widen the window vs earlier runtimes.
+
+Minimal Stack Trace
+-------------------
+System.NullReferenceException: Object reference not set to an
+instance of an object.
+   at Flex.Smoothlake.FlexLib.Discovery.Receive() in
+      ...\FlexLib\Discovery.cs:line 75
+   at System.Threading.Tasks.Task.<>c.<ThrowAsync>b__124_1(Object state)
+   at System.Threading.QueueUserWorkItemCallback.Execute()
+   at System.Threading.ThreadPoolWorkQueue.Dispatch()
+
+Suggested Fix
+-------------
+1. In Receive(), capture a local reference to the UDP client at entry
+   and use only that local. This keeps each Receive task bound to its
+   own socket and avoids cross-task interference.
+
+2. Null-guard the local on entry.
+
+3. Catch ObjectDisposedException and SocketException around the await
+   (so a socket closed from under us exits cleanly instead of throwing
+   unobserved).
+
+4. When the loop exits, only null the static `udp` field if it still
+   points at the captured local (i.e. we still "own" it).
+
+Patch sketch:
+
+    private static async void Receive()
+    {
+        var token = _loopCts.Token;
+        var localUdp = udp;                 // snapshot
+        if (localUdp == null) return;
+
+        while (!token.IsCancellationRequested)
+        {
+            UdpReceiveResult packet;
+            try
+            {
+                packet = await localUdp.ReceiveAsync();
+            }
+            catch (ObjectDisposedException) { break; }
+            catch (SocketException)          { break; }
+
+            if (token.IsCancellationRequested) break;
+            if (packet.Buffer.Length < 16)    continue;
+
+            var vita = new VitaPacketPreamble(packet.Buffer);
+            if (vita.class_id.OUI != VitaFlex.FLEX_OUI ||
+                vita.header.pkt_type != VitaPacketType.ExtDataWithStream ||
+                vita.class_id.PacketClassCode != VitaFlex.SL_VITA_DISCOVERY_CLASS)
+                continue;
+
+            var radio = ProcessVitaDiscoveryDataPacket(
+                new VitaDiscoveryPacket(packet.Buffer, packet.Buffer.Length));
+            OnRadioDiscoveredEventHandler(radio);
+        }
+
+        try { localUdp.Close(); } catch { }
+        if (udp == localUdp) udp = null;    // only if we still own it
+    }
+
+Optional hardening: make Start() idempotent and serialize with Stop()
+so overlapping lifecycles never spawn concurrent Receive tasks in the
+first place.
+
+Our workaround
+--------------
+Applied the above patch locally to Discovery.cs. Documented in our
+MIGRATION.md for re-apply on future FlexLib upgrades. Happy to share
+the exact diff if useful.
+
+Contact
+-------
+Noel Romey, K5NER
+nromey@gmail.com
+JJ Flexible Radio Access (alternative accessible UI for FlexRadio 6000/8000)
+
+
+==================================================================
+FlexLib / Firmware Bug Report: Legacy Noise Reduction (NRL) stops
+processing after DemodMode round-trip; flag reads back as on
+==================================================================
+Observed on: FLEX-6300 via SmartLink
+FlexLib:     v4.0.1 (same symptom confirmed pre- and post-upgrade
+             path consistent with v4.1.5.x)
+Repro by:    Noel Romey (K5NER), JJ Flexible Radio Access
+Date:        2026-04-17
+
+Summary
+-------
+After the active slice's DemodMode changes twice (mode X -> mode Y
+-> mode X), the slice's NRLOn flag continues to read back as true
+but the firmware is no longer applying Legacy NR processing to the
+audio. The UI-facing property (Slice.NRLOn) returns true; the radio
+audibly sounds un-NR'd. The only way for a client to force the
+firmware back into actually-processing state is to toggle NRLOn
+false then true again -- AND there must be a real-time gap between
+the two commands. Without that gap, the off-then-on pair is
+effectively ignored (see "What does not work" below).
+
+Repro
+-----
+  1. Set active slice to a mode where NRL is relevant (e.g. USB/LSB).
+  2. Set Slice.NRLOn = true. Confirm audio is NR'd (hiss reduced).
+  3. Change DemodMode to CW (or any other mode).
+  4. Change DemodMode back to the original mode.
+  5. Read back Slice.NRLOn: returns true.
+  6. Listen to audio: NR is NOT being applied. Clearly un-NR'd.
+
+The flag/state divergence is stable -- it persists until something
+forces a real state transition on the firmware side.
+
+What does NOT work (client-side re-apply attempts)
+--------------------------------------------------
+We attempted three client-side workarounds before finding one that
+works. Attempts are listed in order, all firing from within our
+FlexBase DemodMode propertyChanged handler, on the same slice
+reference:
+
+  A. Same-value re-assignment:
+       q.Enqueue(() => slice.NRLOn = true);
+     Result: ignored. Audio remains un-NR'd.
+     Hypothesis: same-value setter is short-circuited somewhere
+     below our code (possibly FlexLib's own setter, possibly
+     firmware).
+
+  B. Back-to-back off-then-on via command queue:
+       q.Enqueue(() => slice.NRLOn = false);
+       q.Enqueue(() => slice.NRLOn = true);
+     Result: ignored. Audio remains un-NR'd.
+     Hypothesis: the off-then-on pair is coalesced into a no-op
+     somewhere -- either FlexLib batching the two commands before
+     send, or firmware processing them fast enough to net-zero.
+
+  C. Delayed off-then-on (the workaround that works):
+       Task.Run(async () =>
+       {
+           await Task.Delay(150);
+           q.Enqueue(() => slice.NRLOn = false);
+           await Task.Delay(500);
+           q.Enqueue(() => slice.NRLOn = true);
+       });
+     Result: reliably re-applies NR. Audio is NR'd as expected.
+     The 150 ms pre-delay lets mode-change DSP reconfiguration
+     settle; the 500 ms mid-delay exceeds whatever coalescing
+     window collapses faster off-on pairs.
+
+User-facing manual workaround (which works and hinted at the fix):
+a user unchecking the Legacy NR checkbox, pausing briefly, and
+re-checking it -- i.e. a human-paced off-then-on -- consistently
+re-applies NR. Click-react-click is naturally well beyond 500 ms,
+which matches our programmatic finding.
+
+Likely location
+---------------
+Two possibilities (we can't distinguish without FlexLib source or
+firmware visibility):
+
+  1. FlexLib's Slice.NRLOn setter has an equality short-circuit or
+     a debounce that swallows rapid transitions. If so, the fix is
+     to remove the short-circuit for this particular property or
+     make debouncing opt-in.
+
+  2. Firmware collapses same-property commands within some window.
+     If so, this is a firmware patch -- FlexLib is passing commands
+     through cleanly, the radio simply isn't honoring them.
+
+A third dimension: mode change itself appears to leave NR in a
+"flag set but not processing" state on the radio. Whether this is
+an intentional firmware behavior (e.g. "clear DSP pipeline, user
+will have to rearm") or an unintended side effect is unclear.
+
+RNN and the newer NR providers (Spectral NR, NR Filter) do NOT
+exhibit this behavior. On the same radio, under the same mode
+round-trip conditions, RNN's applied state matches its flag. This
+is the hint that points toward "older FlexLib/firmware code paths"
+rather than something generic.
+
+Our workaround
+--------------
+In our DemodMode propertyChanged handler, when the active slice's
+NRLOn is observed as true after the mode change completes, we
+schedule the delayed off-then-on sequence described in attempt C
+above. This is noisy -- extra command traffic on every mode change,
+plus an audible ~650 ms window where NR is actually off -- but it
+restores expected behavior for users. We'd rather retire this
+workaround when the underlying issue is addressed upstream.
+
+Contact
+-------
+Noel Romey, K5NER
+nromey@gmail.com
+JJ Flexible Radio Access (alternative accessible UI for FlexRadio 6000/8000)

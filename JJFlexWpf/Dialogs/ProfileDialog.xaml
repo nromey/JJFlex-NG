@@ -29,17 +29,21 @@
 
         <!-- Action buttons -->
         <StackPanel Grid.Row="1" Grid.Column="1" VerticalAlignment="Top">
-            <Button Content="Select" MinWidth="90" Height="28" Margin="0,0,0,8"
-                    AutomationProperties.Name="Select profile"
+            <Button Content="Se_lect" MinWidth="90" Height="28" Margin="0,0,0,8"
+                    AutomationProperties.Name="Select"
+                    AutomationProperties.AcceleratorKey="Alt+L"
                     Click="SelectButton_Click"/>
-            <Button Content="Add" MinWidth="90" Height="28" Margin="0,0,0,8"
-                    AutomationProperties.Name="Add new profile"
+            <Button Content="_Add" MinWidth="90" Height="28" Margin="0,0,0,8"
+                    AutomationProperties.Name="Add"
+                    AutomationProperties.AcceleratorKey="Alt+A"
                     Click="AddButton_Click"/>
-            <Button Content="Update" MinWidth="90" Height="28" Margin="0,0,0,8"
-                    AutomationProperties.Name="Update selected profile"
+            <Button Content="_Update" MinWidth="90" Height="28" Margin="0,0,0,8"
+                    AutomationProperties.Name="Update"
+                    AutomationProperties.AcceleratorKey="Alt+U"
                     Click="UpdateButton_Click"/>
-            <Button Content="Delete" MinWidth="90" Height="28" Margin="0,0,0,8"
-                    AutomationProperties.Name="Delete selected profile"
+            <Button Content="_Delete" MinWidth="90" Height="28" Margin="0,0,0,8"
+                    AutomationProperties.Name="Delete"
+                    AutomationProperties.AcceleratorKey="Alt+D"
                     Click="DeleteButton_Click"/>
             <Button x:Name="SaveButton" Content="_Save" AutomationProperties.AcceleratorKey="Alt+S" MinWidth="90" Height="28" Margin="0,0,0,8"
                     Visibility="Collapsed"

@@ -11,6 +11,7 @@ Public Class CWMessageAdd
     ''' </summary>
     ''' <value>a MessageItem object</value>
     ''' <returns>a MessageItem object</returns>
+    <DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)>
     Friend Property TheItem As CWMessages.MessageItem
     Private newItem As CWMessages.MessageItem
     Private isUpdate As Boolean

@@ -9,9 +9,10 @@
         <DockPanel Margin="0,0,0,8">
             <Label Content="File Name:" DockPanel.Dock="Left" Padding="0,0,8,0"
                    VerticalAlignment="Center" />
-            <Button Content="Browse" DockPanel.Dock="Right" MinWidth="60" Height="24"
+            <Button Content="_Browse" DockPanel.Dock="Right" MinWidth="60" Height="24"
                     Margin="8,0,0,0" Click="BrowseButton_Click"
-                    AutomationProperties.Name="Browse for trace file" />
+                    AutomationProperties.Name="Browse"
+                    AutomationProperties.AcceleratorKey="Alt+B" />
             <TextBox x:Name="FileNameBox"
                      AutomationProperties.Name="Trace file name"
                      VerticalAlignment="Center" />
@@ -22,7 +23,8 @@
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
             <Button x:Name="ToggleButton" MinWidth="80" Height="28" Margin="0,0,8,0"
                     IsDefault="True" Click="ToggleButton_Click"
-                    AutomationProperties.Name="Start or stop tracing" />
+                    AutomationProperties.Name="Start or stop tracing"
+                    AutomationProperties.AcceleratorKey="Alt+T" />
             <Button Content="_Cancel" AutomationProperties.AcceleratorKey="Alt+C" MinWidth="80" Height="28"
                     IsCancel="True"
                     AutomationProperties.Name="Cancel" />

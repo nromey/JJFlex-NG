@@ -45,8 +45,8 @@ namespace JJFlexWpf.Dialogs
         /// <summary>Start local radio discovery.</summary>
         public required Action StartLocalDiscovery { get; init; }
 
-        /// <summary>Start remote (SmartLink) radio discovery.</summary>
-        public required Action StartRemoteDiscovery { get; init; }
+        /// <summary>Start remote (SmartLink) radio discovery. Callback fires when complete (true=success).</summary>
+        public required Action<Action<bool>> StartRemoteDiscovery { get; init; }
 
         /// <summary>Register for radio-found events. Action receives RadioListItem.</summary>
         public required Action<Action<RadioListItem>> RegisterRadioFound { get; init; }
@@ -89,6 +89,9 @@ namespace JJFlexWpf.Dialogs
 
         /// <summary>Show a WinForms connecting window (message). Returns an action to close it.</summary>
         public Func<string, Action>? ShowConnecting { get; init; }
+
+        /// <summary>Open the SmartLink account manager to switch accounts.</summary>
+        public Action? ShowSmartLinkAccountManager { get; init; }
 
     }
 
@@ -152,7 +155,7 @@ namespace JJFlexWpf.Dialogs
                 await System.Threading.Tasks.Task.Delay(500);
                 if (RadiosBox.Items.Count == 0)
                 {
-                    _callbacks.ScreenReaderSpeak?.Invoke("Radio list, empty. No radios found yet. Press Connect to SmartLink for remote radios.", false);
+                    _callbacks.ScreenReaderSpeak?.Invoke("Radio list, empty. No radios found yet. Press Remote for remote radios.", false);
                 }
             };
 
@@ -270,6 +273,9 @@ namespace JJFlexWpf.Dialogs
         {
             var radioName = string.IsNullOrWhiteSpace(radio.Name) ? "radio" : radio.Name;
             _callbacks.ScreenReaderSpeak?.Invoke($"Connecting to {radioName}", true);
+            // AS prosign (wait / standing by) alongside the "Connecting to X" speech.
+            // Pair with BT which fires at connect-ready in MainWindow.PowerOn.
+            if (ScreenReaderOutput.CwNotificationsEnabled) _ = ScreenReaderOutput.PlayCwAS?.Invoke();
 
             SelectedRigData = radio.RigData;
             SelectedSerial = radio.Serial;
@@ -299,10 +305,39 @@ namespace JJFlexWpf.Dialogs
         private void RemoteButton_Click(object sender, RoutedEventArgs e)
         {
             // Show WinForms connecting window to hold focus while SmartLink auth runs.
-            // WinForms because standalone WPF windows from VB.NET lose keyboard focus.
             _closeConnecting = _callbacks.ShowConnecting?.Invoke("Connecting to SmartLink...");
 
-            _callbacks.StartRemoteDiscovery();
+            _callbacks.StartRemoteDiscovery((success) =>
+            {
+                // Called from SmartLink thread when discovery completes.
+                // Close ConnectingForm first.
+                if (_closeConnecting != null)
+                {
+                    _closeConnecting();
+                    _closeConnecting = null;
+                }
+                // Show error dialog on UI thread if no radios found
+                Dispatcher.BeginInvoke(() =>
+                {
+                    Activate();
+                    if (RadiosBox.Items.Count == 0)
+                    {
+                        new MessageDialog
+                        {
+                            Title = "No Radios Found",
+                            Message = "No radios were found on SmartLink. The radio may be powered off or not connected.",
+                            Owner = this
+                        }.ShowDialog();
+                    }
+                    RadiosBox.Focus();
+                });
+            });
+        }
+
+        private void SwitchAccountButton_Click(object sender, RoutedEventArgs e)
+        {
+            _callbacks.ShowSmartLinkAccountManager?.Invoke();
+            _callbacks.ScreenReaderSpeak?.Invoke("Account updated. Press Remote to connect.", false);
         }
 
         private void CancelButton_Click(object sender, RoutedEventArgs e)

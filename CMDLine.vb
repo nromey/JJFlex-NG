@@ -8,8 +8,8 @@ Friend Class CMDLine
     Friend Buffer As String
 
     Private Sub Button1_Click(ByVal sender As System.Object, ByVal e As System.EventArgs) Handles OKButton.Click
-        Buffer = Escapes.Escapes.Encode(TextBox1.Text)
-        Tracing.TraceLine("cmdline:" & Escapes.Escapes.Decode(Buffer), TraceLevel.Info)
+        Buffer = Escapes.EscapeHelper.Encode(TextBox1.Text)
+        Tracing.TraceLine("cmdline:" & Escapes.EscapeHelper.Decode(Buffer), TraceLevel.Info)
         DialogResult = DialogResult.OK
     End Sub
 

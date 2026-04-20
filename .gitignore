@@ -429,3 +429,6 @@ build-native/
 Prepare4Test.bat
 RestoreAfterTest.bat
 read-trace*.ps1
+
+# Local scratch / ad-hoc debug copy folders
+/debug2/

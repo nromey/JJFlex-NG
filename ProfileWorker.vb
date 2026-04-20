@@ -11,6 +11,7 @@ Public Class ProfileWorker
     ''' <remarks>
     ''' On an update, this is a copy of the original.
     ''' </remarks>
+    <DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)>
     Friend Property TheProfile As Profile_t
 
     Private updt As Boolean

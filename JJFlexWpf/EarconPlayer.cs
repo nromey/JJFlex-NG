@@ -29,6 +29,13 @@ namespace JJFlexWpf
         private static int _alertDeviceNumber = -1; // -1 = Windows default
         private static int _meterDeviceNumber = -1; // -1 = same as alerts
 
+        /// <summary>
+        /// Global earcon mute. When false, all alert channel sounds (earcons, beeps, tones)
+        /// are suppressed. Meter tones are NOT affected (they have their own toggle).
+        /// Persisted in AudioOutputConfig.
+        /// </summary>
+        public static bool EarconsEnabled { get; set; } = true;
+
         // Continuous tone providers registered with the meter channel mixer
         private static readonly List<ISampleProvider> _continuousProviders = new();
 
@@ -40,8 +47,11 @@ namespace JJFlexWpf
         private static CachedSound? _modeExitSound;
         private static CachedSound? _slideSound;      // slide03.wav — filter edge drag
         private static CachedSound? _zipSound;         // zip01.wav — filter boundary hit
+        private static CachedSound? _typewriterBellSound; // typewriter-bell.wav — mechanical mode Enter
 
         private const int SampleRate = 44100;
+        /// <summary>Sample rate used by the alert mixer. Exposed for CW sample providers.</summary>
+        internal const int MixerSampleRate = SampleRate;
         private const int MixerChannels = 2; // Stereo mixer for panning support
 
         // Convenience accessors for the channel mixers
@@ -77,6 +87,22 @@ namespace JJFlexWpf
                 _modeExitSound = LoadEmbeddedSound("JJFlexWpf.Sounds.mode-exit.wav");
                 _slideSound = LoadEmbeddedSound("JJFlexWpf.Sounds.slide03.wav");
                 _zipSound = LoadEmbeddedSound("JJFlexWpf.Sounds.zip01.wav");
+                // Typewriter bell loaded from hashed asset folder (file-based, not embedded)
+                try
+                {
+                    var bellPath = System.IO.Path.Combine(
+                        System.IO.Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? "",
+                        "Resources", "4f89f8bc7", "d7d8480.7605032");
+                    if (System.IO.File.Exists(bellPath))
+                    {
+                        using var bellStream = System.IO.File.OpenRead(bellPath);
+                        _typewriterBellSound = new CachedSound(bellStream);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Trace.WriteLine($"EarconPlayer: failed to load typewriter bell: {ex.Message}");
+                }
 
                 _initialized = true;
             }
@@ -357,6 +383,15 @@ namespace JJFlexWpf
                 PlayToneSequence(new[] { (800, 25), (0, 30), (800, 25), (0, 30), (800, 25) }, 0.5f);
         }
 
+        /// <summary>Typewriter bell — plays at end of frequency entry in mechanical keyboard mode.</summary>
+        public static void TypewriterBellTone()
+        {
+            if (_typewriterBellSound != null)
+                PlayCachedSound(_typewriterBellSound);
+            else
+                DingTone(); // fallback
+        }
+
         /// <summary>Band boundary beep — 600 Hz double-beep.</summary>
         public static void BandBoundaryBeep()
         {
@@ -470,6 +505,40 @@ namespace JJFlexWpf
             catch (Exception ex)
             {
                 Trace.WriteLine($"EarconPlayer.FilterStretchTone failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Reverse boom — ascending sweep with layered harmonics.
+        /// Sounds like a rewind/implosion. Used for calibration reset.
+        /// </summary>
+        public static void ReverseBoomTone()
+        {
+            if (!EarconsEnabled || AlertMixer == null) return;
+            try
+            {
+                // Low sweep: 80Hz → 800Hz over 400ms (the "whoosh")
+                var low = new ChirpSampleProvider(SampleRate, 80, 800, 400, 0.5f);
+                AddToMixer(low);
+                // Mid sweep: 200Hz → 1200Hz over 300ms (harmonic layer, slightly shorter)
+                var mid = new ChirpSampleProvider(SampleRate, 200, 1200, 300, 0.3f);
+                AddToMixer(mid);
+                // High click at the end: short 1500Hz burst (the "snap")
+                var click = new SignalGenerator(SampleRate, 1)
+                {
+                    Type = SignalGeneratorType.Sin,
+                    Frequency = 1500,
+                    Gain = 0.4f
+                };
+                // Delay the click by 350ms then play for 50ms
+                var silence = new SilenceProvider(new WaveFormat(SampleRate, 1)).ToSampleProvider().Take(TimeSpan.FromMilliseconds(350));
+                var clickTimed = click.Take(TimeSpan.FromMilliseconds(50));
+                var clickDelayed = new OffsetSampleProvider(clickTimed) { DelayBySamples = (int)(SampleRate * 0.35) };
+                AddToMixer(clickDelayed);
+            }
+            catch (Exception ex)
+            {
+                Trace.WriteLine($"EarconPlayer.ReverseBoomTone failed: {ex.Message}");
             }
         }
 
@@ -639,12 +708,184 @@ namespace JJFlexWpf
 
         #endregion
 
+        #region Typing Sounds (Phase 7)
+
+        private static CachedSound[]? _keyboardSounds;
+        private static readonly Random _keyRandom = new();
+
+        // DTMF frequency pairs per ITU-T Q.23
+        private static readonly Dictionary<char, (int low, int high)> DtmfFreqs = new()
+        {
+            ['1'] = (697, 1209), ['2'] = (697, 1336), ['3'] = (697, 1477),
+            ['4'] = (770, 1209), ['5'] = (770, 1336), ['6'] = (770, 1477),
+            ['7'] = (852, 1209), ['8'] = (852, 1336), ['9'] = (852, 1477),
+            ['*'] = (941, 1209), ['0'] = (941, 1336), ['#'] = (941, 1477),
+        };
+
+        /// <summary>
+        /// Play a typing sound for a digit keystroke based on current mode.
+        /// </summary>
+        public static void PlayTypingSound(char digit, TypingSoundMode mode)
+        {
+            switch (mode)
+            {
+                case TypingSoundMode.Beep:
+                    // Random musical note from C4-C8 (4 octaves, MIDI 60-108)
+                    int midiNote = 60 + _keyRandom.Next(49); // 49 semitones = 4 octaves
+                    int freq = (int)(440.0 * Math.Pow(2.0, (midiNote - 69) / 12.0));
+                    PlayTone(freq, 30, 0.25f);
+                    break;
+                case TypingSoundMode.SingleTone:
+                    PlayTone(800, 30, 0.25f);
+                    break;
+                case TypingSoundMode.RandomTones:
+                    PlayTone(_keyRandom.Next(300, 2001), 30, 0.25f);
+                    break;
+                case TypingSoundMode.Mechanical:
+                    PlayMechanicalKey();
+                    break;
+                case TypingSoundMode.TouchTone:
+                    PlayDtmfTone(digit);
+                    break;
+                case TypingSoundMode.Off:
+                    break;
+            }
+        }
+
+        /// <summary>
+        /// Play a random mechanical keyboard sound from the loaded pool.
+        /// </summary>
+        private static void PlayMechanicalKey()
+        {
+            if (_keyboardSounds == null || _keyboardSounds.Length == 0)
+            {
+                // Fallback: short click
+                PlayTone(800, 15, 0.3f);
+                return;
+            }
+            int idx = _keyRandom.Next(_keyboardSounds.Length);
+            var sound = _keyboardSounds[idx];
+            // Keyboard sounds are low amplitude — boost 8x for audibility over radio audio
+            var boosted = new CachedSound(sound, 8.0f);
+            PlayCachedSound(boosted);
+        }
+
+        /// <summary>
+        /// Play a DTMF dual-tone for the given digit (50ms burst).
+        /// </summary>
+        private static void PlayDtmfTone(char digit)
+        {
+            if (!DtmfFreqs.TryGetValue(digit, out var freqs))
+            {
+                PlayTone(800, 30, 0.25f); // fallback for non-digit chars
+                return;
+            }
+
+            if (!EarconsEnabled || AlertMixer == null) return;
+            try
+            {
+                const int durationMs = 60;
+                // Two simultaneous sine waves at standard DTMF frequencies
+                var low = new SignalGenerator(SampleRate, 1)
+                {
+                    Type = SignalGeneratorType.Sin,
+                    Frequency = freqs.low,
+                    Gain = 0.25f
+                };
+                var high = new SignalGenerator(SampleRate, 1)
+                {
+                    Type = SignalGeneratorType.Sin,
+                    Frequency = freqs.high,
+                    Gain = 0.25f
+                };
+                var lowTimed = low.Take(TimeSpan.FromMilliseconds(durationMs));
+                var highTimed = high.Take(TimeSpan.FromMilliseconds(durationMs));
+                AddToMixer(lowTimed);
+                AddToMixer(highTimed);
+            }
+            catch (Exception ex)
+            {
+                Trace.WriteLine($"EarconPlayer.PlayDtmfTone failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Load keyboard sounds from the hashed resource directory.
+        /// Called by CalibrationEngine when mechanical keyboard mode is unlocked.
+        /// </summary>
+        public static void LoadKeyboardSoundsFromDirectory(string relativeDir)
+        {
+            try
+            {
+                var assembly = Assembly.GetExecutingAssembly();
+                string baseDir = Path.GetDirectoryName(assembly.Location) ?? "";
+                string fullDir = Path.Combine(baseDir, relativeDir);
+
+                if (!Directory.Exists(fullDir))
+                {
+                    Trace.WriteLine($"EarconPlayer: keyboard sound directory not found: {fullDir}");
+                    return;
+                }
+
+                var files = Directory.GetFiles(fullDir);
+                var sounds = new List<CachedSound>();
+                foreach (var file in files)
+                {
+                    try
+                    {
+                        using var stream = File.OpenRead(file);
+                        sounds.Add(new CachedSound(stream));
+                    }
+                    catch (Exception ex)
+                    {
+                        Trace.WriteLine($"EarconPlayer: failed to load keyboard sound '{file}': {ex.Message}");
+                    }
+                }
+
+                Trace.WriteLine($"EarconPlayer: loaded {sounds.Count} keyboard sounds");
+                if (sounds.Count > 0)
+                {
+                    _keyboardSounds = sounds.ToArray();
+                    Trace.WriteLine($"EarconPlayer: loaded {sounds.Count} keyboard sounds");
+                }
+            }
+            catch (Exception ex)
+            {
+                Trace.WriteLine($"EarconPlayer.LoadKeyboardSoundsFromDirectory failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Play a WAV stream through the alert channel. Used by CalibrationEngine for
+        /// verification tones.
+        /// </summary>
+        public static void PlayStreamAsWav(Stream wavStream)
+        {
+            if (!EarconsEnabled || AlertMixer == null) return;
+            try
+            {
+                var sound = new CachedSound(wavStream);
+                PlayCachedSound(sound);
+            }
+            catch (Exception ex)
+            {
+                Trace.WriteLine($"EarconPlayer.PlayStreamAsWav failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Check if mechanical keyboard sounds are loaded and available.
+        /// </summary>
+        public static bool HasKeyboardSounds => _keyboardSounds != null && _keyboardSounds.Length > 0;
+
+        #endregion
+
         #region Internal Playback
 
         /// <summary>Add a mono source to the alert channel stereo mixer (auto-converts to stereo center).</summary>
         private static void AddToMixer(ISampleProvider monoSource)
         {
-            if (AlertMixer == null) return;
+            if (!EarconsEnabled || AlertMixer == null) return;
             if (monoSource.WaveFormat.Channels == 1)
                 AlertMixer.AddMixerInput(new MonoToStereoSampleProvider(monoSource));
             else
@@ -654,7 +895,7 @@ namespace JJFlexWpf
         /// <summary>Add a mono source to the alert channel stereo mixer with panning (-1 left, 0 center, +1 right).</summary>
         private static void AddToMixerPanned(ISampleProvider monoSource, float pan)
         {
-            if (AlertMixer == null) return;
+            if (!EarconsEnabled || AlertMixer == null) return;
             // PanningSampleProvider takes mono → outputs stereo
             if (monoSource.WaveFormat.Channels != 1)
                 monoSource = monoSource.ToMono();
@@ -665,15 +906,16 @@ namespace JJFlexWpf
         /// <summary>Add a mono source with panning that sweeps from startPan to endPan over durationMs.</summary>
         private static void AddToMixerSweptPan(ISampleProvider monoSource, float startPan, float endPan, int durationMs)
         {
-            if (AlertMixer == null) return;
+            if (!EarconsEnabled || AlertMixer == null) return;
             if (monoSource.WaveFormat.Channels != 1)
                 monoSource = monoSource.ToMono();
             var swept = new SweepPanningSampleProvider(monoSource, startPan, endPan, durationMs);
             AlertMixer.AddMixerInput(swept);
         }
 
-        private static void PlayTone(int frequencyHz, int durationMs, float volume)
+        internal static void PlayTone(int frequencyHz, int durationMs, float volume)
         {
+            if (!EarconsEnabled) return;
             if (AlertMixer == null) { FallbackBeep(frequencyHz, durationMs); return; }
             try
             {
@@ -694,6 +936,38 @@ namespace JJFlexWpf
                 Trace.WriteLine($"EarconPlayer.PlayTone failed: {ex.Message}");
                 FallbackBeep(frequencyHz, durationMs);
             }
+        }
+
+        /// <summary>
+        /// Submit a pre-composed CW element sequence to the alert mixer.
+        /// The caller constructs the full sequence as a ConcatenatingSampleProvider
+        /// of shaped CwToneSampleProviders and silences so the audio engine drives
+        /// inter-element timing at sample-accurate resolution — no Task.Delay
+        /// jitter. Returns an IDisposable whose Dispose() cancels the sequence
+        /// mid-stream (used by MorseNotifier to interrupt a long string if a
+        /// newer one fires before it finishes).
+        /// </summary>
+        internal static IDisposable SubmitCwSequence(ISampleProvider sequence)
+        {
+            if (sequence == null) throw new ArgumentNullException(nameof(sequence));
+            if (!EarconsEnabled || AlertMixer == null) return NullCancellable.Instance;
+            try
+            {
+                var cancellable = new CancellableCwProvider(sequence);
+                AddToMixer(cancellable);
+                return cancellable;
+            }
+            catch (Exception ex)
+            {
+                Trace.WriteLine($"EarconPlayer.SubmitCwSequence failed: {ex.Message}");
+                return NullCancellable.Instance;
+            }
+        }
+
+        private sealed class NullCancellable : IDisposable
+        {
+            public static readonly NullCancellable Instance = new();
+            public void Dispose() { }
         }
 
         private static void PlayTonePanned(int frequencyHz, int durationMs, float volume, float pan)
@@ -755,7 +1029,7 @@ namespace JJFlexWpf
             }
         }
 
-        private static void PlayChirp(int startHz, int endHz, int durationMs, float volume)
+        internal static void PlayChirp(int startHz, int endHz, int durationMs, float volume)
         {
             if (AlertMixer == null) { FallbackBeep((startHz + endHz) / 2, durationMs); return; }
             try
@@ -1018,6 +1292,15 @@ namespace JJFlexWpf
         {
             public float[] AudioData { get; }
             public WaveFormat WaveFormat { get; }
+
+            /// <summary>Create a gain-boosted copy of an existing CachedSound.</summary>
+            public CachedSound(CachedSound source, float gain)
+            {
+                WaveFormat = source.WaveFormat;
+                AudioData = new float[source.AudioData.Length];
+                for (int i = 0; i < AudioData.Length; i++)
+                    AudioData[i] = Math.Clamp(source.AudioData[i] * gain, -1f, 1f);
+            }
 
             public CachedSound(Stream wavStream)
             {

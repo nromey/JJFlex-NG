@@ -17,6 +17,12 @@ used in JJ Flexible Radio Access.
 - **Source:** https://freesound.org/s/836185/
 - **License:** Creative Commons 0 (public domain)
 
+### Typewriter Ending Bell
+- **File:** typewriter-bell.wav (converted from MP3)
+- **Author:** khwez
+- **Source:** https://freesound.org/s/712225/
+- **License:** Creative Commons 0 (public domain)
+
 ### Autopatch Welcome Sound
 - **File:** autopatch.wav (converted from M4A)
 - **Author:** Patrick Perdue (pdaudio.net)
@@ -24,7 +30,7 @@ used in JJ Flexible Radio Access.
 
 ## Libraries
 
-### FlexLib v4.0.1
+### FlexLib v4.1.5
 - **Source:** FlexRadio Systems
 - **Usage:** Radio control API for FlexRadio 6000/8000 series
 

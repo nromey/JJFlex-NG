@@ -50,6 +50,9 @@ public class NativeMenuBar : IDisposable
     [DllImport("user32.dll")]
     private static extern uint CheckMenuItem(IntPtr hMenu, uint uIDCheckItem, uint uCheck);
 
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern bool ModifyMenuW(IntPtr hMenu, uint uPosition, uint uFlags, UIntPtr uIDNewItem, string lpNewItem);
+
     private const uint MF_STRING = 0x0000;
     private const uint MF_POPUP = 0x0010;
     private const uint MF_SEPARATOR = 0x0800;
@@ -68,7 +71,7 @@ public class NativeMenuBar : IDisposable
     private IntPtr _currentMenuBar;
     private readonly Dictionary<int, Action> _handlers = new();
     // Items with dynamic checkmarks: menu item ID → (parent HMENU, state getter)
-    private readonly List<(IntPtr popup, int id, Func<bool> stateGetter)> _checkItems = new();
+    private readonly List<(IntPtr popup, int id, Func<bool> stateGetter, string baseText)> _checkItems = new();
     // Top-level popup handle → menu name (for screen reader announcement on open)
     private readonly Dictionary<IntPtr, string> _popupNames = new();
     private int _nextId;
@@ -146,13 +149,24 @@ public class NativeMenuBar : IDisposable
         var rig = Rig;
         if (rig == _subscribedRig) return;
         if (_subscribedRig != null)
+        {
             _subscribedRig.SliceCountChanged -= OnSliceCountChanged;
+            _subscribedRig.ConnectionStateChanged -= OnConnectionStateChanged;
+        }
         if (rig != null)
+        {
             rig.SliceCountChanged += OnSliceCountChanged;
+            rig.ConnectionStateChanged += OnConnectionStateChanged;
+        }
         _subscribedRig = rig;
     }
 
     private void OnSliceCountChanged()
+    {
+        _window.Dispatcher.BeginInvoke(new Action(() => RebuildCurrentMenu()));
+    }
+
+    private void OnConnectionStateChanged(bool connected)
     {
         _window.Dispatcher.BeginInvoke(new Action(() => RebuildCurrentMenu()));
     }
@@ -191,13 +205,16 @@ public class NativeMenuBar : IDisposable
 
         // Only update checkmarks that belong to this specific popup —
         // updating ALL checkmarks on every popup caused NVDA to stutter.
-        foreach (var (itemPopup, id, stateGetter) in _checkItems)
+        foreach (var (itemPopup, id, stateGetter, baseText) in _checkItems)
         {
             if (itemPopup != popup) continue;
             try
             {
                 bool isOn = stateGetter();
                 CheckMenuItem(itemPopup, (uint)id, MF_BYCOMMAND | (isOn ? MF_CHECKED : MF_UNCHECKED));
+                // Update text with state suffix so screen readers always announce on/off
+                string stateText = isOn ? "On" : "Off";
+                ModifyMenuW(itemPopup, (uint)id, MF_BYCOMMAND | MF_STRING, (UIntPtr)id, $"{baseText}: {stateText}");
             }
             catch { /* don't let state read errors block menu display */ }
         }
@@ -299,8 +316,8 @@ public class NativeMenuBar : IDisposable
 
         // === Noise Reduction submenu ===
         var nrSub = AddSubmenu(parent, "Noise Reduction");
-        // Neural and Spectral NR require 8000-series/Aurora hardware — 6000 series lacks DSP
-        if (Rig.AdvancedNRHardwareSupported)
+        // NRF, NRS, RNN all require 8000-series/Aurora DSP hardware
+        if (Rig.NeuralNRHardwareSupported)
         {
             AddChecked(nrSub, "Neural NR (RNN)\tCtrl+J, R", () =>
                 ToggleDSP("Neural NR", () => Rig.NeuralNoiseReduction, v => Rig.NeuralNoiseReduction = v),
@@ -308,8 +325,11 @@ public class NativeMenuBar : IDisposable
             AddChecked(nrSub, "Spectral NR (NRS)\tCtrl+J, S", () =>
                 ToggleDSP("Spectral NR", () => Rig.SpectralNoiseReduction, v => Rig.SpectralNoiseReduction = v),
                 () => Rig?.SpectralNoiseReduction == FlexBase.OffOnValues.on);
+            AddChecked(nrSub, "NR Filter (NRF)\tCtrl+J, Shift+N", () =>
+                ToggleDSP("NR Filter", () => Rig.NoiseReductionFilter, v => Rig.NoiseReductionFilter = v),
+                () => Rig?.NoiseReductionFilter == FlexBase.OffOnValues.on);
         }
-        // Legacy NR is always available — no license required
+        // Legacy NR always available
         AddChecked(nrSub, "Legacy NR", () =>
             ToggleDSP("Legacy NR", () => Rig.NoiseReductionLegacy, v => Rig.NoiseReductionLegacy = v),
             () => Rig?.NoiseReductionLegacy == FlexBase.OffOnValues.on);
@@ -795,6 +815,7 @@ public class NativeMenuBar : IDisposable
         else
             AddWired(radio, "Connect to Radio", () => ConnectWithConfirmation());
         AddWired(radio, "Manage SmartLink Accounts", () => _window.ShowSmartLinkAccountManager());
+        AddWired(radio, "MultiFlex Clients", () => _window.ShowMultiFlexDialog());
         AddChecked(radio, "Auto-Connect Enabled",
             () => { var msg = _window.ToggleAutoConnect(); if (msg != null) SpeakAfterMenuClose(msg); },
             () => _window.IsAutoConnectEnabled?.Invoke() ?? false);
@@ -894,6 +915,10 @@ public class NativeMenuBar : IDisposable
                     "USB" => "\tAlt+U",
                     "LSB" => "\tAlt+L",
                     "CW" => "\tAlt+C",
+                    "AM" => "\tAlt+A",
+                    "FM" => "\tAlt+F",
+                    "DIGU" => "\tAlt+D",
+                    "DIGL" => "\tAlt+Shift+D",
                     _ => ""
                 };
                 AddWired(modeSub, m + accel, () =>
@@ -994,7 +1019,7 @@ public class NativeMenuBar : IDisposable
         }
 
         // === Filter ===
-        var filter = AddPopup(bar, "&Filter");
+        var filter = AddPopup(bar, "Filt&er");
         if (Rig != null)
         {
             BuildFilterItems(filter);
@@ -1028,7 +1053,7 @@ public class NativeMenuBar : IDisposable
             () => _window.FieldsPanel.ToggleCategory(4));
 
         // === Audio ===
-        var audio = AddPopup(bar, "&Audio");
+        var audio = AddPopup(bar, "Audi&o");
         BuildAudioItems(audio);
 
         // === Tools ===
@@ -1281,7 +1306,7 @@ public class NativeMenuBar : IDisposable
         int id = _nextId++;
         AppendMenuW(popup, MF_STRING, (UIntPtr)id, text);
         _handlers[id] = handler;
-        _checkItems.Add((popup, id, stateGetter));
+        _checkItems.Add((popup, id, stateGetter, text));
     }
 
     /// <summary>Add a menu item that speaks "not yet connected to radio".</summary>
@@ -1383,12 +1408,83 @@ public class NativeMenuBar : IDisposable
         int fineStep = handlers?.FineTuneStep ?? 10;
         var licenseConfig = handlers?.License;
 
-        var audioConfig = _window.CurrentAudioConfig ?? new AudioOutputConfig();
+        // User-scope config lives at BaseConfigDir (root). The FreqHandlers
+        // GetConfigDirectory delegate returns BaseConfigDir regardless of
+        // connection state -- this is how user-global preferences (calibration
+        // unlocks, typing sound) stay visible in Settings even when no radio
+        // is connected.
+        string? rootConfigDir = handlers?.GetConfigDirectory?.Invoke();
+
+        AudioOutputConfig audioConfig;
+        if (_window.OpenParms != null)
+        {
+            // Connected: load the per-radio config (radio-specific fields) and
+            // merge user-global fields from root. Root is authoritative for
+            // TuningHash and TypingSound -- the unlock handler always writes
+            // them there, and changes made in Settings OK also persist there.
+            audioConfig = AudioOutputConfig.Load(_window.OpenParms.ConfigDirectory);
+            if (!string.IsNullOrEmpty(rootConfigDir))
+            {
+                var rootConfig = AudioOutputConfig.Load(rootConfigDir);
+                if (!string.IsNullOrEmpty(rootConfig.TuningHash))
+                    audioConfig.TuningHash = rootConfig.TuningHash;
+                if (rootConfig.TypingSound != TypingSoundMode.Beep)
+                    audioConfig.TypingSound = rootConfig.TypingSound;
+            }
+            _window.CurrentAudioConfig = audioConfig;
+        }
+        else if (!string.IsNullOrEmpty(rootConfigDir))
+        {
+            // Disconnected: load directly from root. TuningHash (unlock state)
+            // and TypingSound preference are visible; radio-specific fields
+            // show whatever was last saved there. Changes persist back to
+            // root on Settings OK.
+            audioConfig = AudioOutputConfig.Load(rootConfigDir);
+        }
+        else
+        {
+            audioConfig = new AudioOutputConfig();
+        }
+
         var dialog = new Dialogs.SettingsDialog(pttConfig, coarseStep, fineStep, licenseConfig, audioConfig);
-        if (dialog.ShowDialog() == true)
+        dialog.FreqHandlers = _window.FreqHandlers;
+        dialog.Rig = _window.RigControl;
+        if (_window.OpenParms != null)
+        {
+            dialog.ConfigDirectory = _window.OpenParms.ConfigDirectory;
+            dialog.OperatorName = _window.OpenParms.GetOperatorName?.Invoke();
+        }
+        var result = dialog.ShowDialog();
+        if (result == true)
         {
             _window.ApplySettingsChanges(dialog.CoarseTuneStep, dialog.FineTuneStep);
+
+            // Persist user-scope fields to root so they're available in any
+            // subsequent session regardless of which radio is connected. When
+            // connected, the per-radio config also gets the full save at
+            // PowerOff (existing flow). When disconnected, this is the only
+            // persist path for user changes made in Settings.
+            //
+            // CW fields matter at app startup BEFORE any connect -- the
+            // MainWindow constructor loads these from root so CW delegates are
+            // live + CwNotificationsEnabled is set in time for AS to fire at
+            // connect-start. Without these being in root, AS was silently
+            // skipping because the flag was false until per-radio PowerOn.
+            if (!string.IsNullOrEmpty(rootConfigDir))
+            {
+                var rootConfig = AudioOutputConfig.Load(rootConfigDir);
+                rootConfig.TuningHash = audioConfig.TuningHash;
+                rootConfig.TypingSound = audioConfig.TypingSound;
+                rootConfig.CwNotificationsEnabled = audioConfig.CwNotificationsEnabled;
+                rootConfig.CwModeAnnounce = audioConfig.CwModeAnnounce;
+                rootConfig.CwSidetoneHz = audioConfig.CwSidetoneHz;
+                rootConfig.CwSpeedWpm = audioConfig.CwSpeedWpm;
+                rootConfig.Save(rootConfigDir);
+            }
         }
+        // Always apply typing sound after Settings (config may have been saved even on Cancel)
+        if (_window.FreqHandlers != null)
+            _window.FreqHandlers.TypingSound = audioConfig.TypingSound;
     }
 
     /// <summary>

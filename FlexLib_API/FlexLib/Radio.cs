@@ -512,7 +512,6 @@ namespace Flex.Smoothlake.FlexLib
                     {
                         // no -- prompt to run the update process
                         _updateRequired = true;
-
                     }
                     else
                     {
@@ -525,21 +524,6 @@ namespace Flex.Smoothlake.FlexLib
                 // before the Status can cause confusing/annoying debug output
                 if (_status != null)
                     UpdateConnectedState();
-            }
-        }
-
-        private bool _requiresAdditionalLicense;
-        public bool RequiresAdditionalLicense
-        {
-            get => _requiresAdditionalLicense;
-            set
-            {
-                if (_requiresAdditionalLicense == value)
-                {
-                    return;
-                }
-                _requiresAdditionalLicense = value;
-                RaisePropertyChanged(nameof(RequiresAdditionalLicense));
             }
         }
 
@@ -6302,15 +6286,6 @@ namespace Flex.Smoothlake.FlexLib
         {
             lock (_meters)
                 return _meters.FirstOrDefault(m => m.Name == s);
-        }
-
-        /// <summary>
-        /// Returns a snapshot of all meters currently known to the radio.
-        /// </summary>
-        public List<Meter> GetAllMeters()
-        {
-            lock (_meters)
-                return new List<Meter>(_meters);
         }
 
         public ImmutableList<Meter> FindMetersByAmplifier(Amplifier amp)

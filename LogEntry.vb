@@ -114,6 +114,7 @@ Friend Class LogEntry
     ''' </summary>
     ''' <value>True if needed.  Not set if getting a search argument.</value>
     ''' <returns>True if needed.</returns>
+    <DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)>
     Friend Property NeedsWrite As Boolean
         Get
             If Not formExists() Then
@@ -313,6 +314,7 @@ Friend Class LogEntry
     ''' </summary>
     ''' <value>position as long</value>
     ''' <returns>position</returns>
+    <DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)>
     Public Property FilePosition As Long
         Get
             Return fPos

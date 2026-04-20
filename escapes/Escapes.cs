@@ -5,7 +5,7 @@ using System.Text;
 
 namespace Escapes
 {
-    public static class Escapes
+    public static class EscapeHelper
     {
         /// <summary>
         /// Escapes.dll version

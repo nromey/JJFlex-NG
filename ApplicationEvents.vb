@@ -346,6 +346,16 @@ Namespace My
         End Sub
 
         Private Sub MyApplication_Shutdown(sender As Object, e As System.EventArgs) Handles Me.Shutdown
+            ' Play SK prosign on app close. Timeout bumped to 5 seconds to cover the
+            ' richer "73 de JJF SK" farewell at speed >= 25 WPM (the MainWindow-side
+            ' PlayCwSK delegate picks short-or-long based on current WPM).
+            If Radios.ScreenReaderOutput.CwNotificationsEnabled AndAlso
+               Radios.ScreenReaderOutput.PlayCwSK IsNot Nothing Then
+                Try
+                    Radios.ScreenReaderOutput.PlayCwSK.Invoke().Wait(5000)
+                Catch
+                End Try
+            End If
             ' Shut down meter sonification engine.
             JJFlexWpf.MeterToneEngine.Shutdown()
             ' Clean up NAudio earcon player.

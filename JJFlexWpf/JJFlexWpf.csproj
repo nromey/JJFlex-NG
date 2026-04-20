@@ -1,20 +1,22 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net8.0-windows</TargetFramework>
+    <TargetFramework>net10.0-windows</TargetFramework>
     <UseWPF>true</UseWPF>
     <RootNamespace>JJFlexWpf</RootNamespace>
     <AssemblyName>JJFlexWpf</AssemblyName>
     <Platforms>AnyCPU;x64;x86</Platforms>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <Version>2.2.0</Version>
-    <AssemblyVersion>2.2.0.0</AssemblyVersion>
-    <FileVersion>2.2.0.0</FileVersion>
+    <Version>2.3.0</Version>
+    <AssemblyVersion>2.3.0.0</AssemblyVersion>
+    <FileVersion>2.3.0.0</FileVersion>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2478.35" />
     <PackageReference Include="NAudio" Version="2.2.1" />
+    <PackageReference Include="YellowDogMan.RRNoise.NET" Version="0.1.9" />
+    <PackageReference Include="FftSharp" Version="2.1.0" />
   </ItemGroup>
 
   <ItemGroup>
@@ -29,6 +31,11 @@
     <EmbeddedResource Include="Resources\AboutRadio.html" LogicalName="JJFlexWpf.Resources.AboutRadio.html" />
     <EmbeddedResource Include="Resources\AboutSystem.html" LogicalName="JJFlexWpf.Resources.AboutSystem.html" />
     <EmbeddedResource Include="Resources\AboutDiagnostics.html" LogicalName="JJFlexWpf.Resources.AboutDiagnostics.html" />
+    <!-- Calibration assets (hashed names by design) -->
+    <Content Include="Resources\4f89f8bc7\4c85663.f6cdb1f" CopyToOutputDirectory="PreserveNewest" Link="Resources\4f89f8bc7\4c85663.f6cdb1f" />
+    <Content Include="Resources\4f89f8bc7\8abf5a4.0d3a3f5" CopyToOutputDirectory="PreserveNewest" Link="Resources\4f89f8bc7\8abf5a4.0d3a3f5" />
+    <Content Include="Resources\4f89f8bc7\d7d8480.7605032" CopyToOutputDirectory="PreserveNewest" Link="Resources\4f89f8bc7\d7d8480.7605032" />
+    <Content Include="Resources\4f89f8bc7\8b38e27\*" CopyToOutputDirectory="PreserveNewest" Link="Resources\4f89f8bc7\8b38e27\%(Filename)%(Extension)" />
   </ItemGroup>
 
   <ItemGroup>

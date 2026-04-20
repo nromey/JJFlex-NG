@@ -13,8 +13,9 @@
 
         <!-- Buttons -->
         <StackPanel Orientation="Horizontal">
-            <Button Content="Select" MinWidth="75" Margin="0,0,8,0" IsDefault="True"
-                    AutomationProperties.Name="Select COM port"
+            <Button Content="_Select" MinWidth="75" Margin="0,0,8,0" IsDefault="True"
+                    AutomationProperties.Name="Select"
+                    AutomationProperties.AcceleratorKey="Alt+S"
                     Click="SelectButton_Click"/>
             <Button Content="_Cancel" AutomationProperties.AcceleratorKey="Alt+C" MinWidth="75" IsCancel="True"
                     AutomationProperties.Name="Cancel"

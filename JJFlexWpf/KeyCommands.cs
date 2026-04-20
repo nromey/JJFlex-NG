@@ -334,6 +334,18 @@ public class KeyCommands
             new(CommandValues.ModeCW, KeyTypes.Command, () => _context.GetMainWindow()?.SetMode("CW"),
                 "Switch to CW mode", "CW", false, FunctionGroups.General, KeyScope.Radio)
                 { Keywords = new[] { "mode", "cw", "morse", "code", "continuous wave" } },
+            new(CommandValues.ModeAM, KeyTypes.Command, () => _context.GetMainWindow()?.SetMode("AM"),
+                "Switch to AM mode", "AM", false, FunctionGroups.General, KeyScope.Radio)
+                { Keywords = new[] { "mode", "am", "amplitude", "modulation", "broadcast" } },
+            new(CommandValues.ModeFM, KeyTypes.Command, () => _context.GetMainWindow()?.SetMode("FM"),
+                "Switch to FM mode", "FM", false, FunctionGroups.General, KeyScope.Radio)
+                { Keywords = new[] { "mode", "fm", "frequency", "modulation", "repeater" } },
+            new(CommandValues.ModeDIGU, KeyTypes.Command, () => _context.GetMainWindow()?.SetMode("DIGU"),
+                "Switch to DIGU mode", "DIGU", false, FunctionGroups.General, KeyScope.Radio)
+                { Keywords = new[] { "mode", "digu", "digital", "upper", "ft8", "rtty", "psk" } },
+            new(CommandValues.ModeDIGL, KeyTypes.Command, () => _context.GetMainWindow()?.SetMode("DIGL"),
+                "Switch to DIGL mode", "DIGL", false, FunctionGroups.General, KeyScope.Radio)
+                { Keywords = new[] { "mode", "digl", "digital", "lower", "ft8", "rtty", "psk" } },
 
             // ── TX Filter ──
             new(CommandValues.TXFilterLowDown, KeyTypes.Command, TXFilterLowDownHandler,
@@ -826,6 +838,21 @@ public class KeyCommands
             EarconPlayer.FeatureOffTone();
     }
 
+    private void ToggleEarconMute()
+    {
+        EarconPlayer.EarconsEnabled = !EarconPlayer.EarconsEnabled;
+        string state = EarconPlayer.EarconsEnabled ? "on" : "off";
+        Radios.ScreenReaderOutput.Speak($"Alert sounds {state}", Radios.VerbosityLevel.Terse, true);
+        // Save to config
+        var configDir = _context.GetConfigDirectory?.Invoke();
+        if (configDir != null)
+        {
+            var config = AudioOutputConfig.Load(configDir);
+            config.EarconsEnabled = EarconPlayer.EarconsEnabled;
+            config.Save(configDir);
+        }
+    }
+
     /// <summary>
     /// Persist current verbosity to audio config.
     /// </summary>
@@ -854,7 +881,7 @@ public class KeyCommands
 
         // --- Radio scope ---
         new(Keys.F2, CommandValues.ShowFreq, KeyScope.Radio),
-        new(Keys.None, CommandValues.SetFreq, KeyScope.Radio),
+        new(Keys.F | Keys.Control, CommandValues.SetFreq, KeyScope.Radio),
         new(Keys.None, CommandValues.ShowMemory, KeyScope.Radio),
         new(Keys.M | Keys.Control | Keys.Shift, CommandValues.MemoryScan, KeyScope.Radio),
         new(Keys.None, CommandValues.SmeterDBM, KeyScope.Radio),
@@ -865,8 +892,8 @@ public class KeyCommands
         new(Keys.None, CommandValues.CycleContinuous, KeyScope.Radio),
         new(Keys.None, CommandValues.LogForm, KeyScope.Radio),
         new(Keys.C | Keys.Control | Keys.Shift, CommandValues.ClearRIT, KeyScope.Radio),
-        new(Keys.S | Keys.Control | Keys.Alt, CommandValues.StartScan, KeyScope.Radio),
-        new(Keys.D | Keys.Alt, CommandValues.ArCluster, KeyScope.Radio),
+        new(Keys.None, CommandValues.StartScan, KeyScope.Radio),
+        new(Keys.X | Keys.Alt | Keys.Shift, CommandValues.ArCluster, KeyScope.Radio),
         new(Keys.R | Keys.Control | Keys.Alt, CommandValues.ReverseBeacon, KeyScope.Radio),
         new(Keys.P | Keys.Control, CommandValues.DoPanning, KeyScope.Radio),
         new(Keys.None, CommandValues.SavedScan, KeyScope.Radio),
@@ -905,6 +932,10 @@ public class KeyCommands
         new(Keys.U | Keys.Alt, CommandValues.ModeUSB, KeyScope.Radio),
         new(Keys.L | Keys.Alt, CommandValues.ModeLSB, KeyScope.Radio),
         new(Keys.C | Keys.Alt, CommandValues.ModeCW, KeyScope.Radio),
+        new(Keys.A | Keys.Alt, CommandValues.ModeAM, KeyScope.Radio),
+        new(Keys.F | Keys.Alt, CommandValues.ModeFM, KeyScope.Radio),
+        new(Keys.D | Keys.Alt, CommandValues.ModeDIGU, KeyScope.Radio),
+        new(Keys.D | Keys.Alt | Keys.Shift, CommandValues.ModeDIGL, KeyScope.Radio),
         new(Keys.Z | Keys.Alt, CommandValues.CWZeroBeat, KeyScope.Radio),
 
         // Routing
@@ -1751,7 +1782,7 @@ public class KeyCommands
             case Keys.R:
                 if (rig == null)
                     LeaderNoRadio();
-                else if (!rig.AdvancedNRHardwareSupported)
+                else if (!rig.NeuralNRHardwareSupported)
                 {
                     EarconPlayer.LeaderInvalidTone();
                     Radios.ScreenReaderOutput.Speak("Neural NR not available on this radio", Radios.VerbosityLevel.Critical);
@@ -1763,7 +1794,7 @@ public class KeyCommands
             case Keys.S:
                 if (rig == null)
                     LeaderNoRadio();
-                else if (!rig.AdvancedNRHardwareSupported)
+                else if (!rig.NeuralNRHardwareSupported)
                 {
                     EarconPlayer.LeaderInvalidTone();
                     Radios.ScreenReaderOutput.Speak("Spectral NR not available on this radio", Radios.VerbosityLevel.Critical);
@@ -1772,6 +1803,60 @@ public class KeyCommands
                     ToggleLeaderDSP("Spectral NR",
                         () => rig.SpectralNoiseReduction, v => rig.SpectralNoiseReduction = v);
                 break;
+            case Keys.N | Keys.Shift:
+                if (rig == null)
+                    LeaderNoRadio();
+                else if (!rig.NeuralNRHardwareSupported)
+                {
+                    EarconPlayer.LeaderInvalidTone();
+                    Radios.ScreenReaderOutput.Speak("NR Filter not available on this radio", Radios.VerbosityLevel.Critical);
+                }
+                else
+                    ToggleLeaderDSP("NR Filter",
+                        () => rig.NoiseReductionFilter, v => rig.NoiseReductionFilter = v);
+                break;
+
+            // PC-side NR (works on ALL radios — processing runs on the PC)
+            case Keys.R | Keys.Shift:
+                {
+                    var pipeline = _context.GetMainWindow()?.FieldsPanel.AudioPipeline;
+                    if (rig == null)
+                        LeaderNoRadio();
+                    else if (pipeline == null)
+                    {
+                        EarconPlayer.LeaderInvalidTone();
+                        Radios.ScreenReaderOutput.Speak("PC audio pipeline not ready", Radios.VerbosityLevel.Critical);
+                    }
+                    else
+                    {
+                        pipeline.RnnEnabled = !pipeline.RnnEnabled;
+                        if (pipeline.RnnEnabled) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
+                        Radios.ScreenReaderOutput.Speak($"PC Neural NR {(pipeline.RnnEnabled ? "on" : "off")}", Radios.VerbosityLevel.Terse);
+                    }
+                }
+                break;
+            case Keys.S | Keys.Shift:
+                {
+                    var pipeline = _context.GetMainWindow()?.FieldsPanel.AudioPipeline;
+                    if (rig == null)
+                        LeaderNoRadio();
+                    else if (pipeline == null)
+                    {
+                        EarconPlayer.LeaderInvalidTone();
+                        Radios.ScreenReaderOutput.Speak("PC audio pipeline not ready", Radios.VerbosityLevel.Critical);
+                    }
+                    else
+                    {
+                        pipeline.SpectralEnabled = !pipeline.SpectralEnabled;
+                        if (pipeline.SpectralEnabled) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
+                        string msg = pipeline.SpectralEnabled
+                            ? (pipeline.HasNoiseProfile ? "PC Spectral NR on" : "PC Spectral NR on, no noise profile loaded")
+                            : "PC Spectral NR off";
+                        Radios.ScreenReaderOutput.Speak(msg, Radios.VerbosityLevel.Terse);
+                    }
+                }
+                break;
+
             case Keys.A:
                 if (rig == null) LeaderNoRadio();
                 else ToggleLeaderDSP("Auto Notch",
@@ -1826,6 +1911,11 @@ public class KeyCommands
             // Tones toggle (Sprint 24 Phase 6)
             case Keys.T:
                 ToggleMeterTonesGlobalHandler();
+                break;
+
+            // Earcon mute toggle (Sprint 25 Phase 4)
+            case Keys.T | Keys.Shift:
+                ToggleEarconMute();
                 break;
 
             // Help

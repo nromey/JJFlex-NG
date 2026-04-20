@@ -56,8 +56,9 @@
 
         <!-- Buttons -->
         <StackPanel Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Right">
-            <Button x:Name="StartButton" Content="Start" MinWidth="100" Height="28" Margin="0,0,8,0"
-                    AutomationProperties.Name="Start connection test"
+            <Button x:Name="StartButton" Content="_Start" MinWidth="100" Height="28" Margin="0,0,8,0"
+                    AutomationProperties.Name="Start"
+                    AutomationProperties.AcceleratorKey="Alt+S"
                     Click="StartButton_Click"/>
             <Button x:Name="CloseButton" Content="_Close" AutomationProperties.AcceleratorKey="Alt+C" MinWidth="100" Height="28"
                     AutomationProperties.Name="Close connection tester"

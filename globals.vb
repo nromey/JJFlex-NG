@@ -393,10 +393,13 @@ Module globals
     End Function
 
     ''' <summary>
-    ''' Send a frequency string (in Hz) to the radio.
+    ''' Send a frequency string (in Hz) to the radio. Returns the parsed Hz
+    ''' so the caller can drive boundary/sub-band checks against the
+    ''' authoritative new value (RigControl.VirtualRXFrequency lags behind
+    ''' a FlexLib round-trip and gave stale-band reads on Ctrl+F jumps).
     ''' Restored from pre-Sprint-24 KeyCommands.vb.
     ''' </summary>
-    Friend Sub WriteFreq(ByVal str As String)
+    Friend Function WriteFreq(ByVal str As String) As Long
         Dim hz As Long = CLng(str)
         Tracing.TraceLine($"WriteFreq: input='{str}' parsed={hz} Hz", TraceLevel.Info)
         RigControl.Frequency = hz
@@ -405,7 +408,8 @@ Module globals
             Radios.ScreenReaderOutput.Speak($"Tuned to {display}", True)
         End If
         JJFlexWpf.EarconPlayer.ConfirmTone()
-    End Sub
+        Return hz
+    End Function
 
     ''' <summary>
     ''' Show DX cluster. Placeholder — cluster UI requires reimplementation after key migration.
@@ -576,7 +580,7 @@ Module globals
                 If (RigControl IsNot Nothing) AndAlso Power Then RigControl.SendCW(msg)
             End Sub,
             .WriteTextX = Sub(windowId, text, disposition, clear) WriteTextX(CType(windowId, WindowIDs), text, disposition, clear),
-            .DisplayFreq = Sub() WpfMainWindow.FreqOut.FocusDisplay(),
+            .DisplayFreq = Sub() WpfMainWindow.FreqOut.FocusFrequencyField(),
             .WriteFreq = Sub()
                 If FreqInput.ShowDialog() = DialogResult.OK Then
                     Dim input = FreqInput.Buffer.Trim()
@@ -585,7 +589,26 @@ Module globals
                         WpfMainWindow.ShowEarconScratchpad()
                         Return
                     End If
-                    If RigControl IsNot Nothing Then WriteFreq(input)
+                    ' Check for calibration reference
+                    Tracing.TraceLine($"WriteFreq: checking calibration for '{input}'", TraceLevel.Info)
+                    Dim calibRef = JJFlexWpf.CalibrationEngine.VerifyCalibration(input)
+                    Tracing.TraceLine($"WriteFreq: calibRef={If(calibRef, "null")}", TraceLevel.Info)
+                    If calibRef IsNot Nothing Then
+                        WpfMainWindow.HandleCalibrationFromFreqInput(calibRef)
+                        Return
+                    End If
+                    If RigControl IsNot Nothing Then
+                        Dim newHz As Long = WriteFreq(input)
+                        ' Check band boundary against the value we just wrote.
+                        ' RigControl.VirtualRXFrequency lags behind a FlexLib
+                        ' round-trip so reading it back here saw the OLD freq
+                        ' and the boundary speech was deferred to the next
+                        ' tune step (BUG-054).
+                        Dim handlers = WpfMainWindow.FreqHandlers
+                        If handlers IsNot Nothing Then
+                            handlers.CheckBandBoundary(CULng(newHz))
+                        End If
+                    End If
                 End If
             End Sub,
             .GotoReceive = Sub() WpfMainWindow.ReceivedTextBox.Focus(),
@@ -705,6 +728,20 @@ Module globals
             End Sub
         }
         Commands = New JJFlexWpf.KeyCommands(keyContext)
+
+        ' Wire SaveDefaultSmartLinkAccount early so menu → Manage SmartLink works
+        WpfMainWindow.SaveDefaultSmartLinkAccount = Sub(email)
+                                                         Dim opName = PersonalData.UniqueOpName(CurrentOp)
+                                                         Dim cfg = Radios.AutoConnectConfig.Load(BaseConfigDir, opName)
+                                                         cfg.SmartLinkAccountEmail = email
+                                                         cfg.Save(BaseConfigDir, opName)
+                                                         Tracing.TraceLine($"SaveDefaultSmartLinkAccount: saved {email}", TraceLevel.Info)
+                                                     End Sub
+        WpfMainWindow.GetDefaultSmartLinkEmail = Function() As String
+                                                     Dim opName = PersonalData.UniqueOpName(CurrentOp)
+                                                     Dim cfg = Radios.AutoConnectConfig.Load(BaseConfigDir, opName)
+                                                     Return If(cfg.SmartLinkAccountEmail, "")
+                                                 End Function
 
         ' Load operator and rig data.
         Operators = New PersonalData(BaseConfigDir)
@@ -1591,9 +1628,10 @@ Module globals
 
     Private Sub turnTracingOff()
         If BootTrace Then
-            Tracing.TraceLine("Boot tracing off")
-            Tracing.On = False
-            BootTrace = False
+            ' Keep tracing on for connection debugging
+            'Tracing.TraceLine("Boot tracing off")
+            'Tracing.On = False
+            'BootTrace = False
         End If
     End Sub
 
@@ -1766,9 +1804,60 @@ Module globals
                                                  Tracing.TraceLine("ShowAccountSelector: no accounts, triggering new login", TraceLevel.Info)
                                                  Return (True, Nothing, True) ' trigger new login
                                              End If
-                                             Dim best = accounts.OrderByDescending(Function(a) a.LastUsed).First()
-                                             Tracing.TraceLine($"ShowAccountSelector: auto-selected '{best.FriendlyName}' ({best.Email}), LastUsed={best.LastUsed}, ExpiresAt={best.ExpiresAt}", TraceLevel.Info)
-                                             Return (False, best, True) ' use most recent account
+                                             ' If only one account, auto-select it
+                                             If accounts.Count = 1 Then
+                                                 Dim only = accounts(0)
+                                                 Tracing.TraceLine($"ShowAccountSelector: single account '{only.FriendlyName}' ({only.Email}), auto-selected", TraceLevel.Info)
+                                                 Return (False, only, True)
+                                             End If
+                                             ' Multiple accounts — try to use the saved default from auto-connect config
+                                             Dim opName = PersonalData.UniqueOpName(CurrentOp)
+                                             Dim savedConfig = Radios.AutoConnectConfig.Load(BaseConfigDir, opName)
+                                             If Not String.IsNullOrEmpty(savedConfig.SmartLinkAccountEmail) Then
+                                                 Dim defaultAcct = accounts.FirstOrDefault(Function(a) a.Email.Equals(savedConfig.SmartLinkAccountEmail, StringComparison.OrdinalIgnoreCase))
+                                                 If defaultAcct IsNot Nothing Then
+                                                     Tracing.TraceLine($"ShowAccountSelector: using default account '{defaultAcct.FriendlyName}' ({defaultAcct.Email}) from auto-connect config", TraceLevel.Info)
+                                                     Return (False, defaultAcct, True)
+                                                 End If
+                                             End If
+                                             ' No default found — show picker dialog on UI thread
+                                             Dim selectedAccount As Radios.SmartLinkAccount = Nothing
+                                             Dim newLogin As Boolean = False
+                                             Dim cancelled As Boolean = False
+                                             WpfMainWindow.Dispatcher.Invoke(
+                                                 Sub()
+                                                     Dim acctCallbacks As New JJFlexWpf.Dialogs.SmartLinkAccountCallbacks() With {
+                                                         .GetAccounts = Function() mgr.Accounts.OrderByDescending(Function(a) a.LastUsed).
+                                                             Select(Function(a) New JJFlexWpf.Dialogs.SmartLinkAccountInfo() With {
+                                                                 .FriendlyName = a.FriendlyName,
+                                                                 .Email = a.Email,
+                                                                 .LastUsed = a.LastUsed,
+                                                                 .AccountData = a
+                                                             }).ToList(),
+                                                         .RenameAccount = Function(oldName, newName) mgr.RenameAccount(oldName, newName),
+                                                         .DeleteAccount = Sub(name) mgr.DeleteAccount(name),
+                                                         .ScreenReaderSpeak = Sub(msg, interrupt) Radios.ScreenReaderOutput.Speak(msg, interrupt)
+                                                     }
+                                                     Dim dlg As New JJFlexWpf.Dialogs.SmartLinkAccountDialog(acctCallbacks)
+                                                     Dim result = dlg.ShowDialog()
+                                                     If result <> True Then
+                                                         cancelled = True
+                                                     ElseIf dlg.NewLoginRequested Then
+                                                         newLogin = True
+                                                     Else
+                                                         selectedAccount = TryCast(dlg.SelectedAccountData, Radios.SmartLinkAccount)
+                                                     End If
+                                                 End Sub)
+                                             If cancelled Then
+                                                 Tracing.TraceLine("ShowAccountSelector: user cancelled", TraceLevel.Info)
+                                                 Return (False, Nothing, False)
+                                             End If
+                                             If newLogin Then
+                                                 Tracing.TraceLine("ShowAccountSelector: user requested new login", TraceLevel.Info)
+                                                 Return (True, Nothing, True)
+                                             End If
+                                             Tracing.TraceLine($"ShowAccountSelector: user selected '{selectedAccount?.FriendlyName}' ({selectedAccount?.Email})", TraceLevel.Info)
+                                             Return (False, selectedAccount, True)
                                          End Function
 
         ' Load auto-connect config for this operator
@@ -1778,11 +1867,15 @@ Module globals
         ' Build the callbacks for the WPF dialog
         Dim callbacks As New JJFlexWpf.Dialogs.RigSelectorCallbacks() With {
             .StartLocalDiscovery = Sub() RigControl.LocalRadios(),
-            .StartRemoteDiscovery = Sub()
+            .StartRemoteDiscovery = Sub(onComplete As Action(Of Boolean))
                                         ' Run on background thread — WebView2 auth can take seconds
                                         Dim t As New Thread(
                                             Sub()
                                                 RigControl.RemoteRadios()
+                                                ' Notify completion immediately
+                                                Tracing.TraceLine("StartRemoteDiscovery: calling onComplete", TraceLevel.Info)
+                                                onComplete?.Invoke(RigControl.IsConnected)
+                                                Tracing.TraceLine("StartRemoteDiscovery: onComplete returned", TraceLevel.Info)
                                             End Sub)
                                         t.IsBackground = True
                                         t.SetApartmentState(ApartmentState.STA)
@@ -1835,8 +1928,23 @@ Module globals
                                   Dim frm = New ConnectingForm(msg)
                                   frm.Show()
                                   Return Sub() frm.CloseForm()
-                              End Function
+                              End Function,
+            .ShowSmartLinkAccountManager = Sub() WpfMainWindow.ShowSmartLinkAccountManager()
         }
+
+        ' Wire the save-default delegate so ShowSmartLinkAccountManager can persist the selection
+        WpfMainWindow.SaveDefaultSmartLinkAccount = Sub(email)
+                                                         Dim opName = PersonalData.UniqueOpName(CurrentOp)
+                                                         Dim cfg = Radios.AutoConnectConfig.Load(BaseConfigDir, opName)
+                                                         cfg.SmartLinkAccountEmail = email
+                                                         cfg.Save(BaseConfigDir, opName)
+                                                         Tracing.TraceLine($"SaveDefaultSmartLinkAccount: saved {email} to auto-connect config", TraceLevel.Info)
+                                                     End Sub
+        WpfMainWindow.GetDefaultSmartLinkEmail = Function() As String
+                                                     Dim opName = PersonalData.UniqueOpName(CurrentOp)
+                                                     Dim cfg = Radios.AutoConnectConfig.Load(BaseConfigDir, opName)
+                                                     Return If(cfg.SmartLinkAccountEmail, "")
+                                                 End Function
 
         ' Show the WPF selector dialog
         Dim dialog As New JJFlexWpf.Dialogs.RigSelectorDialog(callbacks)
@@ -1958,6 +2066,11 @@ RadioConnected:
                                                     SetupKnob()
                                                     StartDailyTraceIfEnabled()
                                                 End Sub
+                WpfMainWindow.UpdateTitleBar = Sub(title)
+                                                   If AppShellForm IsNot Nothing Then
+                                                       AppShellForm.Text = title
+                                                   End If
+                                               End Sub
                 WpfMainWindow.WireRadioEvents()
 
                 ' Ensure ShellForm is visible before Start() so error dialogs
@@ -2001,50 +2114,24 @@ RadioConnected:
                     Dim isRemote = (CurrentRig IsNot Nothing AndAlso CurrentRig.Remote)
 
                     If Not String.IsNullOrEmpty(retrySerial) AndAlso isRemote Then
-                        ' Remote manual connection retry — uses ReconnectRemote (no auto-connect config needed)
-                        Tracing.TraceLine($"OpenTheRadio:Start failed with disconnected remote radio, retrying once (serial={retrySerial})", TraceLevel.Info)
+                        ' Remote retry: lightweight reconnect using existing WAN session.
+                        ' No re-auth, no WebView2, no new FlexBase. Up to 3 attempts total.
+                        Dim maxAttempts = 3
+                        For attempt = 2 To maxAttempts
+                            Tracing.TraceLine($"OpenTheRadio:retry attempt {attempt}/{maxAttempts} (serial={retrySerial})", TraceLevel.Info)
 
-                        ' Start new profiler for the retry attempt
-                        Radios.ConnectionProfiler.Current = New Radios.ConnectionProfiler()
-                        Radios.ConnectionProfiler.Current.RecordEvent("retry_begin", New Dictionary(Of String, Object) From {
-                            {"attemptNumber", 2},
-                            {"serial", retrySerial}
-                        })
-
-                        ' 2-second delay — gives SmartLink time to clean up the previous session.
-                        ' Fast early-abort means less stale state, so shorter delay is safe.
-                        Threading.Thread.Sleep(2000)
-
-                        ' Clean up the dead connection
-                        WpfMainWindow?.UnwireRadioEvents()
-                        RigControl.Dispose()
-
-                        ' Create new rig instance
-                        RigControl = New FlexBase(OpenParms)
-                        WpfMainWindow.RigControl = RigControl
-
-                        ' Wire ShowAccountSelector — auto-select most recent account (same as wpfSelectorProc)
-                        RigControl.ShowAccountSelector = Function(mgr)
-                                                             Dim accounts = mgr.Accounts
-                                                             Tracing.TraceLine($"ShowAccountSelector(retry): {accounts.Count} saved account(s)", TraceLevel.Info)
-                                                             If accounts.Count = 0 Then
-                                                                 Tracing.TraceLine("ShowAccountSelector(retry): no accounts, triggering new login", TraceLevel.Info)
-                                                                 Return (True, Nothing, True)
-                                                             End If
-                                                             Dim best = accounts.OrderByDescending(Function(a) a.LastUsed).First()
-                                                             Tracing.TraceLine($"ShowAccountSelector(retry): auto-selected '{best.FriendlyName}' ({best.Email})", TraceLevel.Info)
-                                                             Return (False, best, True)
-                                                         End Function
-
-                        If RigControl.ReconnectRemote(retrySerial, retryLowBW) Then
-                            WpfMainWindow.WireRadioEvents()
-                            Tracing.TraceLine("OpenTheRadio:retry - rig is starting", TraceLevel.Info)
-                            rv = RigControl.Start()
-                        End If
+                            If RigControl.RetryConnect() Then
+                                Tracing.TraceLine($"OpenTheRadio:retry {attempt} - RetryConnect succeeded, calling Start", TraceLevel.Info)
+                                rv = RigControl.Start()
+                                If rv Then Exit For
+                            Else
+                                Tracing.TraceLine($"OpenTheRadio:retry {attempt} - RetryConnect failed", TraceLevel.Error)
+                            End If
+                        Next
 
                         If Not rv Then
-                            Tracing.TraceLine("OpenTheRadio:retry also failed", TraceLevel.Error)
-                            Radios.ScreenReaderOutput.Speak("Connection failed", VerbosityLevel.Critical)
+                            Tracing.TraceLine("OpenTheRadio:all retry attempts failed", TraceLevel.Error)
+                            Radios.ScreenReaderOutput.Speak("Connection failed. Please try Remote again.", VerbosityLevel.Critical)
                         End If
 
                     ElseIf _autoConnectConfig IsNot Nothing AndAlso _autoConnectConfig.ShouldAutoConnect Then

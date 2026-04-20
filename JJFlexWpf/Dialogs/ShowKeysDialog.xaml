@@ -8,12 +8,14 @@
     <DockPanel Margin="12">
         <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal"
                     HorizontalAlignment="Right" Margin="0,8,0,0">
-            <Button Content="Update" MinWidth="80" Height="28" Margin="0,0,8,0"
+            <Button Content="_Update" MinWidth="80" Height="28" Margin="0,0,8,0"
                     Click="UpdateButton_Click"
-                    AutomationProperties.Name="Update key bindings" />
-            <Button Content="Done" MinWidth="80" Height="28"
+                    AutomationProperties.Name="Update"
+                    AutomationProperties.AcceleratorKey="Alt+U" />
+            <Button Content="_Done" MinWidth="80" Height="28"
                     IsDefault="True" IsCancel="True" Click="DoneButton_Click"
-                    AutomationProperties.Name="Done" />
+                    AutomationProperties.Name="Done"
+                    AutomationProperties.AcceleratorKey="Alt+D" />
         </StackPanel>
         <DockPanel DockPanel.Dock="Bottom" Margin="0,4,0,0">
             <Label Content="Action:" DockPanel.Dock="Left" Width="50"

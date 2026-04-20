@@ -12,6 +12,23 @@ namespace JJFlexWpf.Dialogs
         private readonly AudioOutputConfig _audioConfig;
         private (string, string)[] _countryMap = Array.Empty<(string, string)>();
 
+        /// <summary>Config directory for per-operator file storage (filter presets, etc.).</summary>
+        public string? ConfigDirectory { get; set; }
+
+        /// <summary>Current operator name for per-operator file naming.</summary>
+        public string? OperatorName { get; set; }
+
+        /// <summary>
+        /// Connected radio, used by the Network tab to configure SmartLink port forwarding.
+        /// Set by NativeMenuBar after construction. Setter refreshes the Network tab UI.
+        /// </summary>
+        private FlexBase? _rig;
+        public FlexBase? Rig
+        {
+            get => _rig;
+            set { _rig = value; RefreshNetworkTabFromRig(); }
+        }
+
         // Tuning step results (read after DialogResult == true)
         public int CoarseTuneStep { get; private set; }
         public int FineTuneStep { get; private set; }
@@ -60,13 +77,21 @@ namespace JJFlexWpf.Dialogs
             AddHandler(TextBox.GotKeyboardFocusEvent,
                 new KeyboardFocusChangedEventHandler(TextBox_GotKeyboardFocus));
 
-            // Slider value change labels
-            MasterVolumeSlider.ValueChanged += (s, e) =>
-                MasterVolumeLabel.Text = ((int)MasterVolumeSlider.Value).ToString();
-            EarconVolumeSlider.ValueChanged += (s, e) =>
-                EarconVolumeLabel.Text = ((int)EarconVolumeSlider.Value).ToString();
-            MeterVolumeSlider.ValueChanged += (s, e) =>
-                MeterVolumeLabel.Text = ((int)MeterVolumeSlider.Value).ToString();
+            // Configure volume controls
+            MasterVolumeControl.Label = "Master volume";
+            MasterVolumeControl.Min = 0;
+            MasterVolumeControl.Max = 100;
+            MasterVolumeControl.Step = 5;
+
+            EarconVolumeControl.Label = "Alert volume";
+            EarconVolumeControl.Min = 0;
+            EarconVolumeControl.Max = 100;
+            EarconVolumeControl.Step = 5;
+
+            MeterVolumeControl.Label = "Meter volume";
+            MeterVolumeControl.Min = 0;
+            MeterVolumeControl.Max = 100;
+            MeterVolumeControl.Step = 5;
 
             LoadSettings();
         }
@@ -143,14 +168,10 @@ namespace JJFlexWpf.Dialogs
             EnforceTxRulesCheckbox.IsChecked = _licenseConfig.EnforceTxRules;
 
             // Audio tab — master volume
-            int masterVolPct = (int)(_audioConfig.MasterVolume * 100);
-            MasterVolumeSlider.Value = masterVolPct;
-            MasterVolumeLabel.Text = masterVolPct.ToString();
+            MasterVolumeControl.Value = (int)(_audioConfig.MasterVolume * 100);
 
             // Alert section
-            int alertVolPct = (int)(_audioConfig.AlertVolume * 100);
-            EarconVolumeSlider.Value = alertVolPct;
-            EarconVolumeLabel.Text = alertVolPct.ToString();
+            EarconVolumeControl.Value = (int)(_audioConfig.AlertVolume * 100);
 
             var devices = EarconPlayer.GetOutputDevices();
             foreach (var (devNum, name) in devices)
@@ -162,9 +183,7 @@ namespace JJFlexWpf.Dialogs
             if (EarconDeviceCombo.SelectedIndex < 0) EarconDeviceCombo.SelectedIndex = 0;
 
             // Meter section
-            int meterVolPct = (int)(_audioConfig.MeterMasterVolume * 100);
-            MeterVolumeSlider.Value = meterVolPct;
-            MeterVolumeLabel.Text = meterVolPct.ToString();
+            MeterVolumeControl.Value = (int)(_audioConfig.MeterMasterVolume * 100);
 
             // Meter device dropdown: first item is "Same as Alerts", then all devices
             MeterDeviceCombo.Items.Add("Same as Alerts");
@@ -186,8 +205,6 @@ namespace JJFlexWpf.Dialogs
                 MeterDeviceCombo.SelectedIndex = meterDevIdx >= 0 ? meterDevIdx : 0;
             }
 
-            MeterTonesEnabledCheck.IsChecked = _audioConfig.MeterTonesEnabled;
-
             foreach (var preset in MeterPresetOptions)
             {
                 MeterPresetCombo.Items.Add(preset);
@@ -198,6 +215,198 @@ namespace JJFlexWpf.Dialogs
 
             PeakWatcherCheck.IsChecked = _audioConfig.PeakWatcherEnabled;
             MeterSpeechCheck.IsChecked = _audioConfig.MeterSpeechEnabled;
+
+            // Typing sound mode
+            PopulateTypingSoundCombo();
+
+            // Braille section
+            BrailleEnabledCheck.IsChecked = _audioConfig.BrailleEnabled;
+            int[] cellOptions = { 20, 32, 40, 80 };
+            foreach (int cells in cellOptions)
+                BrailleCellsCombo.Items.Add(cells.ToString());
+            int cellIdx = Array.IndexOf(cellOptions, _audioConfig.BrailleCellCount);
+            BrailleCellsCombo.SelectedIndex = cellIdx >= 0 ? cellIdx : 2; // default 40
+
+            // Verbosity & Notifications tab
+            SpeechVerbosityCombo.Items.Add("Off (critical only)");  // 0
+            SpeechVerbosityCombo.Items.Add("Terse");                // 1
+            SpeechVerbosityCombo.Items.Add("Chatty");               // 2
+            SpeechVerbosityCombo.SelectedIndex = Math.Clamp(_audioConfig.SpeechVerbosity, 0, 2);
+
+            EarconsEnabledCheck.IsChecked = _audioConfig.EarconsEnabled;
+
+            CwNotificationsCheck.IsChecked = _audioConfig.CwNotificationsEnabled;
+            CwSidetoneBox.Text = _audioConfig.CwSidetoneHz.ToString();
+            CwSpeedBox.Text = _audioConfig.CwSpeedWpm.ToString();
+            CwModeAnnounceCheck.IsChecked = _audioConfig.CwModeAnnounce;
+
+            MeterTonesNotifCheck.IsChecked = _audioConfig.MeterTonesEnabled;
+            ShowPanadapterCheck.IsChecked = _audioConfig.ShowPanadapter;
+            AnnounceSwrAfterTuneCheck.IsChecked = _audioConfig.AnnounceSwrAfterTune;
+
+            // Network tab — defaults shown until Rig property is set (see RefreshNetworkTabFromRig)
+            PortForwardEnabledCheck.IsChecked = false;
+            PortForwardTcpBox.Text = "4992";
+            PortForwardUdpBox.Text = "4992";
+            PortForwardSeparatePortsCheck.IsChecked = false;
+            PortForwardUdpBox.IsEnabled = false;
+            PortForwardTcpLabel.Text = "Port (TCP and UDP):";
+            NetworkCurrentStateText.Text = "No radio connected.";
+        }
+
+        /// <summary>
+        /// Populate the Network tab from the connected radio's current state.
+        /// Called whenever the Rig property is assigned.
+        /// </summary>
+        private void RefreshNetworkTabFromRig()
+        {
+            // These controls are only present after InitializeComponent. If the Rig setter
+            // is called before the constructor finishes, skip.
+            if (PortForwardEnabledCheck == null) return;
+
+            if (_rig == null || !_rig.IsConnected)
+            {
+                NetworkCurrentStateText.Text = "No radio connected. Connect to a radio to configure port forwarding.";
+                PortForwardEnabledCheck.IsChecked = false;
+                PortForwardTcpBox.Text = "4992";
+                PortForwardUdpBox.Text = "4992";
+                PortForwardSeparatePortsCheck.IsChecked = false;
+                PortForwardUdpBox.IsEnabled = false;
+                PortForwardTcpLabel.Text = "Port (TCP and UDP):";
+                return;
+            }
+
+            bool enabled = _rig.PortForwardingEnabled;
+            int tcp = _rig.PortForwardingTcpPort;
+            int udp = _rig.PortForwardingUdpPort;
+            bool portsDiffer = enabled && tcp > 0 && udp > 0 && tcp != udp;
+
+            PortForwardEnabledCheck.IsChecked = enabled;
+            PortForwardTcpBox.Text = (tcp > 0 ? tcp : 4992).ToString();
+            PortForwardUdpBox.Text = (udp > 0 ? udp : 4992).ToString();
+            PortForwardSeparatePortsCheck.IsChecked = portsDiffer;
+            PortForwardUdpBox.IsEnabled = portsDiffer;
+            PortForwardTcpLabel.Text = portsDiffer ? "TCP port:" : "Port (TCP and UDP):";
+            NetworkCurrentStateText.Text = enabled
+                ? (portsDiffer
+                    ? $"Radio currently listens on TCP {tcp}, UDP {udp}."
+                    : $"Radio currently listens on port {tcp} (TCP and UDP).")
+                : "Radio currently uses UPnP or hole-punch (no manual forwarding).";
+        }
+
+        /// <summary>
+        /// Advanced checkbox: when checked, UDP field is editable. When unchecked,
+        /// UDP automatically mirrors TCP.
+        /// </summary>
+        private void PortForwardSeparatePortsCheck_Changed(object sender, RoutedEventArgs e)
+        {
+            if (PortForwardUdpBox == null || PortForwardTcpLabel == null) return;
+            bool separate = PortForwardSeparatePortsCheck.IsChecked == true;
+            PortForwardUdpBox.IsEnabled = separate;
+            PortForwardTcpLabel.Text = separate ? "TCP port:" : "Port (TCP and UDP):";
+            if (!separate)
+                PortForwardUdpBox.Text = PortForwardTcpBox.Text;
+        }
+
+        /// <summary>
+        /// When the user edits the TCP port, sync UDP to match unless the advanced
+        /// "use different ports" checkbox is on.
+        /// </summary>
+        private void PortForwardTcpBox_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            if (PortForwardUdpBox == null || PortForwardSeparatePortsCheck == null) return;
+            if (PortForwardSeparatePortsCheck.IsChecked != true)
+                PortForwardUdpBox.Text = PortForwardTcpBox.Text;
+        }
+
+        /// <summary>
+        /// Apply the Network tab's port forwarding settings to the connected radio.
+        /// Sends a "wan set" command to the radio's firmware (persists until changed again).
+        /// </summary>
+        private void ApplyPortForwardButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (_rig == null || !_rig.IsConnected)
+            {
+                NetworkCurrentStateText.Text = "No radio connected. Connect locally to the radio first.";
+                ScreenReaderOutput.Speak("No radio connected.", VerbosityLevel.Terse, interrupt: true);
+                return;
+            }
+
+            bool enabled = PortForwardEnabledCheck.IsChecked == true;
+            int tcp = 0, udp = 0;
+            if (enabled)
+            {
+                if (!int.TryParse(PortForwardTcpBox.Text, out tcp) || tcp < 1024 || tcp > 65535)
+                {
+                    NetworkCurrentStateText.Text = "Invalid TCP port. Must be 1024 to 65535.";
+                    ScreenReaderOutput.Speak("Invalid TCP port.", VerbosityLevel.Terse, interrupt: true);
+                    PortForwardTcpBox.Focus();
+                    return;
+                }
+                if (!int.TryParse(PortForwardUdpBox.Text, out udp) || udp < 1024 || udp > 65535)
+                {
+                    NetworkCurrentStateText.Text = "Invalid UDP port. Must be 1024 to 65535.";
+                    ScreenReaderOutput.Speak("Invalid UDP port.", VerbosityLevel.Terse, interrupt: true);
+                    PortForwardUdpBox.Focus();
+                    return;
+                }
+            }
+
+            bool ok = _rig.SetSmartLinkPortForwarding(enabled, tcp, udp);
+            if (ok)
+            {
+                NetworkCurrentStateText.Text = enabled
+                    ? $"Applied. Radio now listens on TCP {tcp}, UDP {udp}. Configure your router to forward these ports to the radio's LAN IP."
+                    : "Applied. Port forwarding disabled on the radio.";
+                ScreenReaderOutput.Speak(enabled
+                    ? $"Port forwarding set to {tcp}."
+                    : "Port forwarding disabled.", VerbosityLevel.Terse, interrupt: true);
+            }
+            else
+            {
+                NetworkCurrentStateText.Text = "Command failed. See trace file for details.";
+                ScreenReaderOutput.Speak("Command failed.", VerbosityLevel.Terse, interrupt: true);
+            }
+        }
+
+        // Typing sound combo order: always-available audio modes first, then any
+        // unlocked easter-egg modes, then "Off" pinned at the end. "Off" lives at
+        // the bottom of the list independent of how many easter eggs are unlocked
+        // so the "disabled" choice is always where users expect it.
+        //   0: Musical notes, 1: Single tone, 2: Random tones
+        //   3+: Mechanical keyboard (if unlocked), Touch-tone (if unlocked)
+        //   last: Off
+        private void PopulateTypingSoundCombo()
+        {
+            TypingSoundCombo.Items.Clear();
+            TypingSoundCombo.Items.Add("Musical notes");       // 0 — was "Click beep", maps to Beep enum
+            TypingSoundCombo.Items.Add("Single tone");         // 1
+            TypingSoundCombo.Items.Add("Random tones");        // 2
+
+            // Unlockable modes slot in between the always-on audio modes and "Off".
+            bool mechUnlocked = FreqOutHandlers.IsCalibrationUnlocked(CalibrationEngine.Ref2, _audioConfig.TuningHash);
+            bool dtmfUnlocked = FreqOutHandlers.IsCalibrationUnlocked(CalibrationEngine.Ref1, _audioConfig.TuningHash);
+
+            int mechIdx = -1, dtmfIdx = -1;
+            if (mechUnlocked) { mechIdx = TypingSoundCombo.Items.Count; TypingSoundCombo.Items.Add("Mechanical keyboard"); }
+            if (dtmfUnlocked) { dtmfIdx = TypingSoundCombo.Items.Count; TypingSoundCombo.Items.Add("Touch-tone (DTMF)"); }
+
+            // "Off" is always last.
+            int offIdx = TypingSoundCombo.Items.Count;
+            TypingSoundCombo.Items.Add("Off");
+
+            // Select current mode
+            int idx = _audioConfig.TypingSound switch
+            {
+                TypingSoundMode.Beep => 0,
+                TypingSoundMode.SingleTone => 1,
+                TypingSoundMode.RandomTones => 2,
+                TypingSoundMode.Off => offIdx,
+                TypingSoundMode.Mechanical when mechIdx >= 0 => mechIdx,
+                TypingSoundMode.TouchTone when dtmfIdx >= 0 => dtmfIdx,
+                _ => 0
+            };
+            TypingSoundCombo.SelectedIndex = idx;
         }
 
         private bool SaveSettings()
@@ -281,18 +490,18 @@ namespace JJFlexWpf.Dialogs
             _licenseConfig.EnforceTxRules = EnforceTxRulesCheckbox.IsChecked == true;
 
             // Audio tab — master volume
-            _audioConfig.MasterVolume = (float)MasterVolumeSlider.Value / 100f;
+            _audioConfig.MasterVolume = MasterVolumeControl.Value / 100f;
 
             // Alert section
-            _audioConfig.AlertVolume = (float)EarconVolumeSlider.Value / 100f;
-            _audioConfig.MasterEarconVolume = (int)EarconVolumeSlider.Value; // backward compat
+            _audioConfig.AlertVolume = EarconVolumeControl.Value / 100f;
+            _audioConfig.MasterEarconVolume = EarconVolumeControl.Value; // backward compat
             var devices = EarconPlayer.GetOutputDevices();
             int devIdx = EarconDeviceCombo.SelectedIndex;
             if (devIdx >= 0 && devIdx < devices.Count)
                 _audioConfig.EarconDeviceNumber = devices[devIdx].deviceNumber;
 
             // Meter section
-            _audioConfig.MeterMasterVolume = (float)MeterVolumeSlider.Value / 100f;
+            _audioConfig.MeterMasterVolume = MeterVolumeControl.Value / 100f;
             int meterDevSel = MeterDeviceCombo.SelectedIndex;
             if (meterDevSel <= 0)
             {
@@ -305,12 +514,55 @@ namespace JJFlexWpf.Dialogs
                 if (devListIdx >= 0 && devListIdx < devices.Count)
                     _audioConfig.MeterDeviceNumber = devices[devListIdx].deviceNumber;
             }
-            _audioConfig.MeterTonesEnabled = MeterTonesEnabledCheck.IsChecked == true;
             int presetIdx = MeterPresetCombo.SelectedIndex;
             if (presetIdx >= 0 && presetIdx < MeterPresetOptions.Length)
                 _audioConfig.MeterPreset = MeterPresetOptions[presetIdx];
             _audioConfig.PeakWatcherEnabled = PeakWatcherCheck.IsChecked == true;
             _audioConfig.MeterSpeechEnabled = MeterSpeechCheck.IsChecked == true;
+
+            // Typing sound mode — map combo index back to enum. Order mirrors
+            // PopulateTypingSoundCombo exactly:
+            //   0-2: Musical notes, Single tone, Random tones
+            //   3+:  Mechanical (if unlocked), then DTMF (if unlocked)
+            //   last: Off (always pinned to the end)
+            bool mechUnlocked = FreqOutHandlers.IsCalibrationUnlocked(CalibrationEngine.Ref2, _audioConfig.TuningHash);
+            bool dtmfUnlocked = FreqOutHandlers.IsCalibrationUnlocked(CalibrationEngine.Ref1, _audioConfig.TuningHash);
+            int tsIdx = TypingSoundCombo.SelectedIndex;
+            int mechIdx = mechUnlocked ? 3 : -1;
+            int dtmfIdx = dtmfUnlocked ? (mechUnlocked ? 4 : 3) : -1;
+            int offIdx = 3 + (mechUnlocked ? 1 : 0) + (dtmfUnlocked ? 1 : 0);
+            _audioConfig.TypingSound = tsIdx switch
+            {
+                0 => TypingSoundMode.Beep,
+                1 => TypingSoundMode.SingleTone,
+                2 => TypingSoundMode.RandomTones,
+                _ when tsIdx == offIdx => TypingSoundMode.Off,
+                _ when tsIdx == mechIdx => TypingSoundMode.Mechanical,
+                _ when tsIdx == dtmfIdx => TypingSoundMode.TouchTone,
+                _ => TypingSoundMode.Beep
+            };
+
+            // Braille section
+            _audioConfig.BrailleEnabled = BrailleEnabledCheck.IsChecked == true;
+            int[] cellOpts = { 20, 32, 40, 80 };
+            int bcIdx = BrailleCellsCombo.SelectedIndex;
+            _audioConfig.BrailleCellCount = bcIdx >= 0 && bcIdx < cellOpts.Length ? cellOpts[bcIdx] : 40;
+
+            // Verbosity & Notifications tab
+            _audioConfig.SpeechVerbosity = SpeechVerbosityCombo.SelectedIndex;
+            _audioConfig.EarconsEnabled = EarconsEnabledCheck.IsChecked == true;
+            _audioConfig.CwNotificationsEnabled = CwNotificationsCheck.IsChecked == true;
+            if (int.TryParse(CwSidetoneBox.Text, out int sidetone) && sidetone >= 400 && sidetone <= 1200)
+                _audioConfig.CwSidetoneHz = sidetone;
+            if (int.TryParse(CwSpeedBox.Text, out int cwSpeed) && cwSpeed >= 10 && cwSpeed <= 30)
+                _audioConfig.CwSpeedWpm = cwSpeed;
+            _audioConfig.CwModeAnnounce = CwModeAnnounceCheck.IsChecked == true;
+
+            // Sync the meter tones checkbox on Notifications tab with Audio tab
+            _audioConfig.MeterTonesEnabled = MeterTonesNotifCheck.IsChecked == true;
+
+            _audioConfig.ShowPanadapter = ShowPanadapterCheck.IsChecked == true;
+            _audioConfig.AnnounceSwrAfterTune = AnnounceSwrAfterTuneCheck.IsChecked == true;
 
             // Apply audio settings immediately
             _audioConfig.Apply();
@@ -343,6 +595,50 @@ namespace JJFlexWpf.Dialogs
             var workshop = new AudioWorkshopDialog();
             workshop.Owner = this;
             workshop.ShowDialog();
+        }
+
+        /// <summary>Optional reference to FreqOutHandlers for tuning step editing.</summary>
+        public FreqOutHandlers? FreqHandlers { get; set; }
+
+        private void EditTuningStepsButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (FreqHandlers == null)
+            {
+                MessageBox.Show("Tuning steps require an active radio connection.",
+                    "Not Available", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            var editor = new TuningStepEditorDialog(
+                FreqHandlers.GetCoarseSteps(),
+                FreqHandlers.GetFineSteps());
+            editor.Owner = this;
+            if (editor.ShowDialog() == true && editor.Changed)
+            {
+                FreqHandlers.SetCoarseSteps(editor.CoarseSteps);
+                FreqHandlers.SetFineSteps(editor.FineSteps);
+                FreqHandlers.SaveStepSizes?.Invoke(FreqHandlers.CoarseTuneStep, FreqHandlers.FineTuneStep);
+                Radios.ScreenReaderOutput.Speak("Tuning steps saved", true);
+            }
+        }
+
+        private void EditFilterPresetsButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (string.IsNullOrEmpty(ConfigDirectory) || string.IsNullOrEmpty(OperatorName))
+            {
+                MessageBox.Show("Filter presets require an active operator profile.",
+                    "Not Available", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            var presets = Radios.FilterPresets.Load(ConfigDirectory, OperatorName);
+            var editor = new FilterPresetEditorDialog(presets);
+            editor.Owner = this;
+            if (editor.ShowDialog() == true && editor.Changed)
+            {
+                presets.Save(ConfigDirectory, OperatorName);
+                Radios.ScreenReaderOutput.Speak("Filter presets saved", true);
+            }
         }
     }
 }

@@ -63,6 +63,20 @@ public partial class MainWindow : UserControl
 
         Loaded += MainWindow_Loaded;
 
+        // Focus-return context: when any JJFlexDialog closes, speak compact status
+        JJFlexDialog.FocusReturnCallback = () =>
+        {
+            if (RigControl != null)
+            {
+                string status = Radios.RadioStatusBuilder.BuildSpokenStatus(RigControl);
+                Radios.ScreenReaderOutput.Speak(status, Radios.VerbosityLevel.Chatty);
+            }
+        };
+
+        // Wire braille display focus events
+        FreqOut.GotKeyboardFocus += (s, e) => _brailleEngine.OnHomePositionFocused();
+        FreqOut.LostKeyboardFocus += (s, e) => _brailleEngine.OnHomePositionBlurred();
+
         // Wire ScreenFieldsPanel Escape handler (Sprint 14) — once, not per-connect
         FieldsPanel.EscapePressed += (s, e) => FreqOut.FocusDisplay();
         FieldsPanel.ReturnFocusToFreqOut = () => FreqOut.FocusDisplay();
@@ -70,6 +84,48 @@ public partial class MainWindow : UserControl
         // Wire MetersPanel Escape handler (Sprint 22 Phase 9)
         MetersPanel.EscapePressed += (s, e) => FreqOut.FocusDisplay();
         MetersPanel.ReturnFocusToFreqOut = () => FreqOut.FocusDisplay();
+
+        // Wire CW notification delegates once at construction so they're available
+        // during connect (AS fires on "Connecting to X", which happens BEFORE PowerOn).
+        // Previously these were wired inside PowerOn, which raced with the connect path --
+        // AS and BT delegates were null on first-connect and silently skipped.
+        // The delegates only need _morseNotifier, which is field-initialized.
+        Radios.ScreenReaderOutput.PlayCwAS = () => _morseNotifier.PlayAS();
+        Radios.ScreenReaderOutput.PlayCwBT = () => _morseNotifier.PlayBT();
+        // PlayCwSK signs off with proper ham etiquette at any speed: "73" + prosign SK
+        // always; at speed >= 25 WPM, extend with "de JJF" app-callsign signature. Bare SK
+        // is never sent -- feels abrupt, not how real operators sign off.
+        Radios.ScreenReaderOutput.PlayCwSK = async () =>
+        {
+            string prefix = _morseNotifier.SpeedWpm >= 25 ? "73 de JJF" : "73";
+            await _morseNotifier.PlayString(prefix);
+            await _morseNotifier.PlaySK();
+        };
+        Radios.ScreenReaderOutput.PlayCwMode = (mode) => _morseNotifier.PlayString(mode);
+
+        // Load user-scope CW settings from BaseConfigDir (root of %AppData%\JJFlexRadio\)
+        // so CwNotificationsEnabled + speed + sidetone are set before any connect
+        // triggers AS. Per-radio PowerOn and Settings OK also re-apply these, but this
+        // is the earliest point where they must be correct for the first-connect AS
+        // prosign to actually fire.
+        try
+        {
+            string baseConfigDir = System.IO.Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "JJFlexRadio");
+            if (System.IO.Directory.Exists(baseConfigDir))
+            {
+                var userConfig = AudioOutputConfig.Load(baseConfigDir);
+                _morseNotifier.SidetoneHz = Math.Clamp(userConfig.CwSidetoneHz, 400, 1200);
+                _morseNotifier.SpeedWpm = Math.Clamp(userConfig.CwSpeedWpm, 10, 30);
+                Radios.ScreenReaderOutput.CwNotificationsEnabled = userConfig.CwNotificationsEnabled;
+                Radios.ScreenReaderOutput.CwModeAnnounceEnabled = userConfig.CwModeAnnounce;
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"MainWindow ctor: user-scope CW config load failed: {ex.Message}");
+        }
     }
 
     /// <summary>
@@ -240,7 +296,7 @@ public partial class MainWindow : UserControl
     /// <summary>
     /// Audio output configuration (earcon device, meter tones). Loaded at radio connect.
     /// </summary>
-    public AudioOutputConfig? CurrentAudioConfig { get; private set; }
+    public AudioOutputConfig? CurrentAudioConfig { get; set; }
 
     /// <summary>
     /// Returns PTT status text for the Speak Status hotkey, or null if PTT is idle.
@@ -318,6 +374,44 @@ public partial class MainWindow : UserControl
             CurrentAudioConfig.CaptureFromEngine();
             CurrentAudioConfig.Save(OpenParms.ConfigDirectory);
         }
+
+        // Re-apply braille config to the engine so Settings changes take effect
+        // without requiring a reconnect. PowerOn also applies these at connect
+        // time; this covers the Settings-while-running case.
+        if (CurrentAudioConfig != null)
+        {
+            _brailleEngine.Enabled = CurrentAudioConfig.BrailleEnabled;
+            _brailleEngine.CellCount = CurrentAudioConfig.BrailleCellCount;
+            _brailleEngine.EnabledFields = (BrailleFields)CurrentAudioConfig.BrailleFields;
+            _brailleEngine.UpdateTimerState();
+        }
+
+        // Re-apply CW notification config so Settings changes (speed WPM,
+        // sidetone frequency, enable toggle, mode-announce toggle) take effect
+        // at runtime. PowerOn applies these at connect; this covers the
+        // Settings-while-running case, same as the braille pattern above.
+        if (CurrentAudioConfig != null)
+        {
+            _morseNotifier.SidetoneHz = Math.Clamp(CurrentAudioConfig.CwSidetoneHz, 400, 1200);
+            _morseNotifier.SpeedWpm = Math.Clamp(CurrentAudioConfig.CwSpeedWpm, 10, 30);
+            Radios.ScreenReaderOutput.CwNotificationsEnabled = CurrentAudioConfig.CwNotificationsEnabled;
+            Radios.ScreenReaderOutput.CwModeAnnounceEnabled = CurrentAudioConfig.CwModeAnnounce;
+        }
+
+        // Reflect any "Show panadapter" change immediately (toggle acts live)
+        ApplyPanadapterVisibility();
+    }
+
+    /// <summary>
+    /// Sync PanadapterPanel.Visibility to CurrentAudioConfig.ShowPanadapter.
+    /// Collapsed removes the panel from layout AND the tab order so users
+    /// who don't use the waterfall aren't forced to Tab through it. Called
+    /// at startup and after Settings OK.
+    /// </summary>
+    private void ApplyPanadapterVisibility()
+    {
+        bool show = CurrentAudioConfig?.ShowPanadapter ?? true;
+        PanadapterPanel.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
     }
 
     /// <summary>
@@ -692,8 +786,15 @@ public partial class MainWindow : UserControl
     /// </summary>
     private void MainWindow_PreviewKeyDown(object sender, KeyEventArgs e)
     {
-        // 0. Let Tab pass through to WPF default handling.
+        // 0. Ctrl+Tab opens action toolbar
         var rawKey = e.Key == Key.System ? e.SystemKey : e.Key;
+        if (rawKey == Key.Tab && Keyboard.Modifiers == ModifierKeys.Control)
+        {
+            ShowActionToolbar();
+            e.Handled = true;
+            return;
+        }
+        // Let regular Tab pass through to WPF default handling
         if (rawKey == Key.Tab)
             return;
 
@@ -851,6 +952,24 @@ public partial class MainWindow : UserControl
     /// Set by globals module since it involves VB module state.
     /// </summary>
     public Action? CloseRadioCallback { get; set; }
+
+    /// <summary>
+    /// Save a SmartLink account email as the default for Remote connections.
+    /// Wired by globals.vb since it needs BaseConfigDir + operator name.
+    /// </summary>
+    public Action<string>? SaveDefaultSmartLinkAccount { get; set; }
+
+    /// <summary>
+    /// Get the current default SmartLink account email.
+    /// Wired by globals.vb since it needs BaseConfigDir + operator name.
+    /// </summary>
+    public Func<string>? GetDefaultSmartLinkEmail { get; set; }
+
+    /// <summary>
+    /// Update the shell form title bar with radio status.
+    /// Wired by globals.vb to AppShellForm.Text.
+    /// </summary>
+    public Action<string>? UpdateTitleBar { get; set; }
 
     /// <summary>
     /// Callback for VB-side exit sequence. Returns true to proceed, false to cancel.
@@ -1048,10 +1167,16 @@ public partial class MainWindow : UserControl
     /// </summary>
     private FreqOutHandlers? _freqOutHandlers;
 
+    /// <summary>Braille display status line engine.</summary>
+    private readonly BrailleStatusEngine _brailleEngine = new();
+
+    /// <summary>CW Morse code notification engine for connection/status events.</summary>
+    private readonly MorseNotifier _morseNotifier = new(new EarconCwOutput());
+
     /// <summary>
     /// Expose FreqOutHandlers for Settings dialog tuning step access.
     /// </summary>
-    internal FreqOutHandlers? FreqHandlers => _freqOutHandlers;
+    public FreqOutHandlers? FreqHandlers => _freqOutHandlers;
 
     /// <summary>
     /// Set up the frequency display fields with interactive handlers.
@@ -1111,6 +1236,7 @@ public partial class MainWindow : UserControl
 
         // Classic mode uses position-based step names (no override)
         FreqOut.StepNameOverride = null;
+        FreqOut.IsModernMode = false;
         FreqOut.Populate(fields.ToArray());
         _firstFreqDisplay = true;
     }
@@ -1145,6 +1271,8 @@ public partial class MainWindow : UserControl
         // ShowFrequency checks if the field exists before writing, so only
         // the three above get updated.
 
+        // Modern mode: Freq field uses modifier keys, not cursor position
+        FreqOut.IsModernMode = true;
         // Modern mode: override step name with actual preset-based step
         FreqOut.StepNameOverride = (field) =>
         {
@@ -1171,6 +1299,8 @@ public partial class MainWindow : UserControl
             FreqOutHandlersWireCallback?.Invoke(_freqOutHandlers);
             // Wire FieldKeyDown event to route keys to the handler for the field under cursor
             FreqOut.FieldKeyDown += FreqOut_FieldKeyDown;
+            // Typing sound and keyboard sounds applied later in PowerOn
+            // after CurrentAudioConfig is loaded from disk.
         }
     }
 
@@ -1293,6 +1423,9 @@ public partial class MainWindow : UserControl
             // Slice indicator — shows current active slice number
             FreqOut.Write("Slice", RigControl.ActiveSliceLetter);
 
+            // Dynamic label for SliceOps — "Slice A Operations: Volume" etc.
+            FreqOut.SetFieldLabel("SliceOps", $"Slice {RigControl.ActiveSliceLetter} Operations: Volume");
+
             // Mute — current active slice mute state (GetVFOAudio true = audio on = not muted)
             FreqOut.Write("Mute", RigControl.GetVFOAudio(RigControl.RXVFO) ? " " : "M");
 
@@ -1345,6 +1478,15 @@ public partial class MainWindow : UserControl
             if (FreqOut.Changed)
             {
                 FreqOut.Display();
+            }
+
+            // Update title bar with compact status for Insert+T (screen reader reads window title)
+            if (UpdateTitleBar != null)
+            {
+                string sliceLetter = RigControl.ActiveSliceLetter;
+                string mode = RigControl.Mode ?? "";
+                double freqMhz = (RigControl.Transmit ? RigControl.TXFrequency : RigControl.VirtualRXFrequency) / 1_000_000.0;
+                UpdateTitleBar($"JJ Flexible Radio Access — Slice {sliceLetter}, {freqMhz:F3}, {mode}");
             }
         }
         catch (Exception ex)
@@ -1488,8 +1630,7 @@ public partial class MainWindow : UserControl
                 EarconPlayer.StopATUProgressEarcon();
                 if (isAutoATU)
                     EarconPlayer.ATUSuccessTone();
-                // SWR readback is useful for both auto and manual tune
-                Radios.ScreenReaderOutput.Speak($"SWR {e.SWR}", VerbosityLevel.Terse);
+                AnnounceSettledSwrAfterTune(isFailure: false);
                 break;
             case "Fail":
             case "FailBypass":
@@ -1498,7 +1639,7 @@ public partial class MainWindow : UserControl
                 if (isAutoATU)
                 {
                     EarconPlayer.ATUFailTone();
-                    Radios.ScreenReaderOutput.Speak($"Tune failed, SWR {e.SWR}", VerbosityLevel.Critical);
+                    AnnounceSettledSwrAfterTune(isFailure: true);
                 }
                 break;
             case "Bypass":
@@ -1514,6 +1655,57 @@ public partial class MainWindow : UserControl
                 EarconPlayer.StopATUProgressEarcon();
                 break;
         }
+    }
+
+    /// <summary>
+    /// Speak the settled SWR after an auto-ATU tune cycle. 200 ms delay
+    /// lets mid-sweep transients drop off before the value is read. This
+    /// overload is for the auto-ATU path where TX is still active briefly
+    /// after the OK/Fail status hits. For manual carrier (Ctrl+Shift+T),
+    /// TX stops the instant the operator releases — use the float overload
+    /// with the pre-captured value, because reading SWR post-TX gives the
+    /// meter's idle rest value (~1.0), not the final match.
+    /// Gated by <see cref="AudioOutputConfig.AnnounceSwrAfterTune"/>.
+    /// </summary>
+    private async void AnnounceSettledSwrAfterTune(bool isFailure)
+    {
+        if (CurrentAudioConfig?.AnnounceSwrAfterTune == false) return;
+        if (RigControl == null) return;
+
+        try
+        {
+            await Task.Delay(200).ConfigureAwait(true);
+            if (RigControl == null) return;
+            SpeakSwrAfterTune(isFailure, RigControl.SWRValue);
+        }
+        catch (Exception ex)
+        {
+            Tracing.TraceLine($"AnnounceSettledSwrAfterTune: {ex.Message}", TraceLevel.Warning);
+        }
+    }
+
+    /// <summary>
+    /// Manual-carrier variant: caller has already captured the SWR while
+    /// TX was active (before setting TxTune = false). No delay, no re-read —
+    /// reading post-TX would give ~1.0 because the meter snaps to its idle
+    /// rest value when forward power drops to zero.
+    /// Gated by <see cref="AudioOutputConfig.AnnounceSwrAfterTune"/>.
+    /// </summary>
+    private void AnnounceCapturedSwrAfterTune(bool isFailure, float capturedSwr)
+    {
+        if (CurrentAudioConfig?.AnnounceSwrAfterTune == false) return;
+        SpeakSwrAfterTune(isFailure, capturedSwr);
+    }
+
+    private static void SpeakSwrAfterTune(bool isFailure, float swr)
+    {
+        // "SWR is X to 1" is technically accurate but verbose for a status
+        // readout. Hams say the leading number and the ratio is implicit.
+        string text = isFailure
+            ? $"Tune failed, SWR {swr:F1}"
+            : $"SWR {swr:F1}";
+        VerbosityLevel level = isFailure ? VerbosityLevel.Critical : VerbosityLevel.Terse;
+        Radios.ScreenReaderOutput.Speak(text, level);
     }
 
     private void ConnectedEventHandler(object sender, FlexBase.ConnectedArg e)
@@ -1575,6 +1767,7 @@ public partial class MainWindow : UserControl
         if (RigControl != null)
         {
             FieldsPanel.Initialize(RigControl);
+            _brailleEngine.SetRig(RigControl);
         }
 
         _radioPowerOn = true;
@@ -1612,6 +1805,96 @@ public partial class MainWindow : UserControl
             CurrentAudioConfig.Apply();
             if (RigControl != null)
                 MeterToneEngine.AttachToRadio(RigControl);
+
+            // Apply braille config
+            _brailleEngine.Enabled = CurrentAudioConfig.BrailleEnabled;
+            _brailleEngine.CellCount = CurrentAudioConfig.BrailleCellCount;
+            _brailleEngine.EnabledFields = (BrailleFields)CurrentAudioConfig.BrailleFields;
+            _brailleEngine.UpdateTimerState();
+
+            // Apply panadapter visibility — Collapsed removes the control from layout
+            // AND the tab order, so users who don't use the waterfall aren't forced to
+            // Tab through it. Pan callback suppresses Tolk.Braille when hidden too.
+            ApplyPanadapterVisibility();
+
+            // Apply CW notification config
+            _morseNotifier.SidetoneHz = Math.Clamp(CurrentAudioConfig.CwSidetoneHz, 400, 1200);
+            _morseNotifier.SpeedWpm = Math.Clamp(CurrentAudioConfig.CwSpeedWpm, 10, 30);
+            Radios.ScreenReaderOutput.CwNotificationsEnabled = CurrentAudioConfig.CwNotificationsEnabled;
+            Radios.ScreenReaderOutput.CwModeAnnounceEnabled = CurrentAudioConfig.CwModeAnnounce;
+
+            // Migrate CW settings to root on every connect. CW is user-scope (not per-radio)
+            // but historically lived only in per-radio config. The MainWindow constructor
+            // loads root at app startup to set CwNotificationsEnabled BEFORE any connect
+            // fires AS. Without this migration, users with CW enabled in per-radio config
+            // would still have false in root after app restart and AS would silently skip.
+            // Defense-in-depth vs the NativeMenuBar save-to-root which only fires if the
+            // user explicitly opens Settings → OK.
+            try
+            {
+                string baseConfigDir = System.IO.Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                    "JJFlexRadio");
+                if (System.IO.Directory.Exists(baseConfigDir))
+                {
+                    var rootConfig = AudioOutputConfig.Load(baseConfigDir);
+                    rootConfig.CwNotificationsEnabled = CurrentAudioConfig.CwNotificationsEnabled;
+                    rootConfig.CwModeAnnounce = CurrentAudioConfig.CwModeAnnounce;
+                    rootConfig.CwSidetoneHz = CurrentAudioConfig.CwSidetoneHz;
+                    rootConfig.CwSpeedWpm = CurrentAudioConfig.CwSpeedWpm;
+                    rootConfig.Save(baseConfigDir);
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"PowerOn: CW migrate-to-root failed: {ex.Message}");
+            }
+
+            Radios.ScreenReaderOutput.PlayCwAS = () => _morseNotifier.PlayAS();
+            Radios.ScreenReaderOutput.PlayCwBT = () => _morseNotifier.PlayBT();
+            // PlayCwSK signs off with proper ham etiquette at any speed. Always prefix with
+            // "73" (best regards -- the universal ham farewell) followed by the prosign SK.
+            // At speed >= 25 WPM, extend with "de JJF" callsign signature, which a trained
+            // operator can read comfortably at that rate. Raw bare SK is never sent -- feels
+            // abrupt, not how real operators sign off. "JJF" is our app-callsign signature.
+            Radios.ScreenReaderOutput.PlayCwSK = async () =>
+            {
+                string prefix = _morseNotifier.SpeedWpm >= 25 ? "73 de JJF" : "73";
+                await _morseNotifier.PlayString(prefix);
+                await _morseNotifier.PlaySK();
+            };
+            Radios.ScreenReaderOutput.PlayCwMode = (mode) => _morseNotifier.PlayString(mode);
+
+            // Fire BT (connected) prosign now that delegates are wired and CwNotificationsEnabled
+            // is loaded. This used to fire in FlexBase at connect success, but that location
+            // raced with MainWindow init -- PlayCwBT was null on first connect. PowerOn is the
+            // semantically correct moment: radio is up, delegates are live, CW config is applied.
+            if (Radios.ScreenReaderOutput.CwNotificationsEnabled)
+                _ = Radios.ScreenReaderOutput.PlayCwBT?.Invoke();
+
+            // MultiFlex client connect/disconnect earcons
+            Radios.ScreenReaderOutput.PlayClientConnectedEarcon = () => EarconPlayer.PlayChirp(600, 900, 120, 0.2f);
+            Radios.ScreenReaderOutput.PlayClientDisconnectedEarcon = () => EarconPlayer.PlayChirp(900, 600, 120, 0.2f);
+
+            // Apply typing sound to FreqOutHandlers
+            if (_freqOutHandlers != null)
+            {
+                _freqOutHandlers.TypingSound = CurrentAudioConfig.TypingSound;
+                // Pre-load keyboard sounds if mechanical mode is unlocked
+                if (!EarconPlayer.HasKeyboardSounds &&
+                    FreqOutHandlers.IsCalibrationUnlocked(CalibrationEngine.Ref2, CurrentAudioConfig.TuningHash))
+                {
+                    CalibrationEngine.LoadKeyboardSounds();
+                }
+            }
+        }
+
+        // Initialize band tracking from current frequency so first tune doesn't
+        // trigger a false "Entering extra phone" boundary notification
+        if (_freqOutHandlers != null && RigControl != null)
+        {
+            ulong freq = RigControl.VirtualRXFrequency;
+            if (freq > 0) _freqOutHandlers.InitializeBandTracking(freq);
         }
 
         // VB-side tasks (knob setup, tracing)
@@ -1671,15 +1954,25 @@ public partial class MainWindow : UserControl
             {
                 if (_isClosing) return;
                 PanDisplayBox.Text = line;
-                if (pos >= 0 && pos < line.Length)
+                // Only snap the caret to current-freq position when the user
+                // is NOT focused here — while focused, the user owns the caret
+                // and pan refreshes must not move it out from under them.
+                // Combined with the focus-transition guard in PanNavTimer_Tick,
+                // this keeps the radio from drifting on passive pan updates.
+                if (!PanDisplayBox.IsKeyboardFocused && pos >= 0 && pos < line.Length)
                     PanDisplayBox.SelectionStart = pos;
 
-                // Show panel if hidden
-                if (PanadapterPanel.Visibility != Visibility.Visible)
+                // Respect user's Show-panadapter preference. When hidden, the callback
+                // still refreshes the backing Text (harmless on a Collapsed control) so
+                // re-enabling is instant — but we skip auto-showing the panel and
+                // suppress the braille push so we don't spam a braille display the user
+                // isn't looking at.
+                bool showPan = CurrentAudioConfig?.ShowPanadapter ?? true;
+                if (showPan && PanadapterPanel.Visibility != Visibility.Visible)
                     PanadapterPanel.Visibility = Visibility.Visible;
 
-                // Send to braille display if available
-                if (Radios.ScreenReaderOutput.HasBraille)
+                // Send to braille display if available and panadapter is shown
+                if (showPan && Radios.ScreenReaderOutput.HasBraille)
                     Radios.Tolk.Braille(line);
             });
         };
@@ -1702,9 +1995,15 @@ public partial class MainWindow : UserControl
     }
 
     /// <summary>
-    /// Timer for pan navigation — cursor position tunes radio to frequency under cursor.
+    /// Timer for pan navigation — tunes the radio to the frequency under the
+    /// cursor when the user moves the caret with Left/Right. Only fires a
+    /// tune when the cursor has actually moved since focus entered — prevents
+    /// Tab/Shift+Tab focus transitions from mutating radio state (the caret
+    /// is sticky across focus changes and without this guard a focus event
+    /// alone would make the radio jump to wherever the caret happened to be).
     /// </summary>
     private System.Windows.Threading.DispatcherTimer? _panNavTimer;
+    private int _panNavLastCursorPos = -1;
 
     private void PanDisplayBox_PreviewKeyDown(object sender, KeyEventArgs e)
     {
@@ -1732,6 +2031,13 @@ public partial class MainWindow : UserControl
 
     private void PanDisplayBox_GotFocus(object sender, RoutedEventArgs e)
     {
+        // Seed the move-detection baseline with the current caret position so
+        // the first timer tick doesn't interpret "focus entered" as "user
+        // moved cursor" — without this, Tab-in would fire gotoFreq on the
+        // stale SelectionStart and jerk the radio to wherever the caret was
+        // last left (sometimes hundreds of kHz from the actual slice freq).
+        _panNavLastCursorPos = PanDisplayBox.SelectionStart;
+
         if (_panNavTimer == null)
         {
             _panNavTimer = new System.Windows.Threading.DispatcherTimer();
@@ -1744,6 +2050,7 @@ public partial class MainWindow : UserControl
     private void PanDisplayBox_LostFocus(object sender, RoutedEventArgs e)
     {
         _panNavTimer?.Stop();
+        _panNavLastCursorPos = -1;
     }
 
     private void PanNavTimer_Tick(object? sender, EventArgs e)
@@ -1752,6 +2059,11 @@ public partial class MainWindow : UserControl
         if (adapter.PanManager?.CurrentPanData == null) return;
 
         int cursorPos = PanDisplayBox.SelectionStart;
+        // Only tune when the cursor has actually moved. Focus alone should
+        // never cause a frequency change — see field doc comment above.
+        if (cursorPos == _panNavLastCursorPos) return;
+        _panNavLastCursorPos = cursorPos;
+
         var panData = adapter.PanManager.CurrentPanData;
         if (cursorPos >= 0 && cursorPos < panData.frequencies.Length)
         {
@@ -1942,6 +2254,11 @@ public partial class MainWindow : UserControl
         _lastTuneToggleTicks = now;
 
         bool newState = !RigControl.TxTune;
+        // Capture SWR while TX is still active. Must happen BEFORE TxTune = false,
+        // because the meter snaps to ~1.0 the instant forward power drops to zero —
+        // reading any time after this line gives the idle rest value, not the
+        // final measured SWR (Don's "SWR 1.0 to 1 every time" bug).
+        float capturedSwr = newState ? 0f : RigControl.SWRValue;
         RigControl.TxTune = newState;
         TuneToggleButton.IsChecked = newState;
         if (newState)
@@ -1958,6 +2275,11 @@ public partial class MainWindow : UserControl
             EarconPlayer.TuneOffTone();
             MeterToneEngine.OnTuneStopped();
             Radios.ScreenReaderOutput.Speak("Tune off", VerbosityLevel.Terse, true);
+            // TXTune falling edge raises no FlexAntTuneStartStop event, so the
+            // ATU-status-driven announce path never fires for manual carrier.
+            // Call directly here with the captured SWR so external/manual tuners
+            // (Don's rooftop unit) get the real final match, not the idle 1.0.
+            AnnounceCapturedSwrAfterTune(isFailure: false, capturedSwr);
         }
     }
 
@@ -2029,6 +2351,89 @@ public partial class MainWindow : UserControl
     private void TransmitButton_Click(object sender, RoutedEventArgs e)
     {
         ToggleTransmit();
+    }
+
+    /// <summary>
+    /// Show the action toolbar popup (Ctrl+Tab). Lightweight ListBox with common TX actions.
+    /// Arrow keys navigate, Enter activates, Escape closes.
+    /// </summary>
+    private void ShowActionToolbar()
+    {
+        if (RigControl == null || !_radioPowerOn)
+        {
+            Radios.ScreenReaderOutput.Speak("No radio connected", VerbosityLevel.Critical, true);
+            return;
+        }
+
+        var dlg = new JJFlexDialog
+        {
+            Title = "Actions",
+            Width = 250,
+            Height = 200,
+            ShowInTaskbar = false,
+            ResizeMode = System.Windows.ResizeMode.NoResize
+        };
+
+        var list = new System.Windows.Controls.ListBox
+        {
+            Margin = new System.Windows.Thickness(8),
+        };
+        System.Windows.Automation.AutomationProperties.SetName(list, "Actions");
+
+        // Build action items based on radio state
+        bool hasATU = RigControl.HasATU;
+        bool canTx = RigControl.CanTransmit;
+        bool isTx = RigControl.Transmit;
+
+        if (hasATU)
+            list.Items.Add("ATU Tune");
+        if (canTx)
+        {
+            bool tuning = RigControl.TxTune;
+            list.Items.Add(tuning ? "Stop Tune Carrier" : "Start Tune Carrier");
+            list.Items.Add(isTx ? "Stop Transmit" : "Start Transmit");
+        }
+        list.Items.Add("Speak Status");
+        list.Items.Add("Cancel");
+
+        list.SelectedIndex = 0;
+        dlg.Content = list;
+
+        list.PreviewKeyDown += (s, e) =>
+        {
+            if (e.Key == Key.Enter && list.SelectedItem is string item)
+            {
+                dlg.Close();
+                ExecuteActionToolbarItem(item);
+                e.Handled = true;
+            }
+        };
+
+        dlg.Loaded += (s, e) => list.Focus();
+        dlg.ShowDialog();
+    }
+
+    private void ExecuteActionToolbarItem(string item)
+    {
+        if (RigControl == null) return;
+
+        switch (item)
+        {
+            case "ATU Tune":
+                RigControl.FlexTunerOn = !RigControl.FlexTunerOn;
+                break;
+            case "Start Tune Carrier":
+            case "Stop Tune Carrier":
+                ToggleTuneCarrier();
+                break;
+            case "Start Transmit":
+            case "Stop Transmit":
+                ToggleTransmit();
+                break;
+            case "Speak Status":
+                SpeakStatusCallback?.Invoke();
+                break;
+        }
     }
 
     #endregion
@@ -2369,6 +2774,7 @@ public partial class MainWindow : UserControl
 
         while (true)
         {
+            var defaultEmail = GetDefaultSmartLinkEmail?.Invoke() ?? "";
             var callbacks = new Dialogs.SmartLinkAccountCallbacks
             {
                 GetAccounts = () => mgr.Accounts.OrderByDescending(a => a.LastUsed)
@@ -2377,7 +2783,8 @@ public partial class MainWindow : UserControl
                         FriendlyName = a.FriendlyName,
                         Email = a.Email,
                         LastUsed = a.LastUsed,
-                        AccountData = a
+                        AccountData = a,
+                        IsDefault = a.Email.Equals(defaultEmail, StringComparison.OrdinalIgnoreCase)
                     }).ToList(),
                 RenameAccount = (oldName, newName) => mgr.RenameAccount(oldName, newName),
                 DeleteAccount = (name) => { mgr.DeleteAccount(name); },
@@ -2430,9 +2837,53 @@ public partial class MainWindow : UserControl
                 }
             }
 
-            // User selected an existing account — done
+            // User selected an existing account — save as default
+            Tracing.TraceLine($"ShowSmartLinkAccountManager: result={result}, SelectedAccountData={dialog.SelectedAccountData?.GetType()?.Name ?? "null"}, NewLogin={dialog.NewLoginRequested}", TraceLevel.Info);
+            if (dialog.SelectedAccountData is Radios.SmartLinkAccount selectedAcct)
+            {
+                SaveDefaultSmartLinkAccount?.Invoke(selectedAcct.Email);
+                // Speech gets swallowed by focus changes — use Tolk directly with a delay
+                System.Threading.Tasks.Task.Delay(200).ContinueWith(_ =>
+                {
+                    Dispatcher.BeginInvoke(() =>
+                    {
+                        Radios.ScreenReaderOutput.Speak($"Default account set to {selectedAcct.FriendlyName}", VerbosityLevel.Critical, true);
+                    });
+                });
+            }
             break;
         }
+    }
+
+    /// <summary>Show the MultiFlex client management dialog.</summary>
+    public void ShowMultiFlexDialog()
+    {
+        if (RigControl == null || !_radioPowerOn)
+        {
+            Radios.ScreenReaderOutput.Speak("MultiFlex requires an active radio connection", VerbosityLevel.Critical, true);
+            return;
+        }
+
+        var rig = RigControl;
+
+        var callbacks = new Dialogs.MultiFlexCallbacks
+        {
+            GetClients = () =>
+            {
+                return rig.GetGuiClients().Select(gc => new Dialogs.MultiFlexClientInfo
+                {
+                    Program = gc.program,
+                    Station = gc.station,
+                    Handle = gc.handle,
+                    IsThisClient = gc.isThisClient,
+                    OwnedSlices = gc.slices
+                }).ToList();
+            },
+            DisconnectClient = (handle) => rig.DisconnectGuiClient(handle)
+        };
+
+        var dialog = new Dialogs.MultiFlexDialog(callbacks);
+        dialog.ShowDialog();
     }
 
     // --- Auto-Connect callbacks (wired from ApplicationEvents.vb) ---
@@ -2546,6 +2997,25 @@ public partial class MainWindow : UserControl
     /// Show the earcon scratchpad — easter egg triggered by typing "cqtest" in Ctrl+F.
     /// Mutes the radio while open so you can hear the sounds you're designing.
     /// </summary>
+    /// <summary>
+    /// Handle calibration reference entered via JJ Ctrl+F frequency input.
+    /// Delegates to FreqOutHandlers if available, otherwise handles directly.
+    /// </summary>
+    public void HandleCalibrationFromFreqInput(string calibRef)
+    {
+        if (_freqOutHandlers != null)
+        {
+            // Use the existing handler which manages config, sounds, and speech
+            _freqOutHandlers.HandleCalibrationPublic(calibRef);
+        }
+        else
+        {
+            // No handler — just play confirmation and speak
+            CalibrationEngine.PlayVerificationTone(calibRef);
+            Radios.ScreenReaderOutput.Speak("Calibration reference accepted", Radios.VerbosityLevel.Critical, true);
+        }
+    }
+
     public void ShowEarconScratchpad()
     {
         // Save and mute radio so earcon sounds are audible

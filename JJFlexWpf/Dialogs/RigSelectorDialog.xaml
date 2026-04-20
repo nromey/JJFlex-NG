@@ -50,24 +50,33 @@
 
         <!-- Action buttons -->
         <StackPanel Grid.Row="1" Grid.Column="1" VerticalAlignment="Top">
-            <Button x:Name="ConnectButton" Content="Connect" MinWidth="100" Height="28" Margin="0,0,0,8"
-                    AutomationProperties.Name="Connect to selected radio"
+            <Button x:Name="ConnectButton" Content="Co_nnect" MinWidth="100" Height="28" Margin="0,0,0,8"
+                    AutomationProperties.Name="Connect"
+                    AutomationProperties.AcceleratorKey="Alt+N"
                     Click="ConnectButton_Click"/>
-            <Button Content="Low BW" MinWidth="100" Height="28" Margin="0,0,0,8"
-                    AutomationProperties.Name="Toggle low bandwidth mode"
+            <Button Content="_Low BW" MinWidth="100" Height="28" Margin="0,0,0,8"
+                    AutomationProperties.Name="Low BW"
+                    AutomationProperties.AcceleratorKey="Alt+L"
                     Click="LowBWButton_Click"/>
-            <Button Content="Connect to a remote radio" MinWidth="100" Height="28" Margin="0,0,0,8"
-                    AutomationProperties.Name="Connect to a remote radio"
+            <Button Content="_Remote" MinWidth="100" Height="28" Margin="0,0,0,8"
+                    AutomationProperties.Name="Remote"
+                    AutomationProperties.AcceleratorKey="Alt+R"
                     Click="RemoteButton_Click"/>
-            <Button x:Name="TestButton" Content="Test" MinWidth="100" Height="28" Margin="0,0,0,8"
-                    AutomationProperties.Name="Test connection to selected radio"
+            <Button Content="_Switch Account" MinWidth="100" Height="28" Margin="0,0,0,8"
+                    AutomationProperties.Name="Switch Account"
+                    AutomationProperties.AcceleratorKey="Alt+S"
+                    Click="SwitchAccountButton_Click"/>
+            <Button x:Name="TestButton" Content="_Test" MinWidth="100" Height="28" Margin="0,0,0,8"
+                    AutomationProperties.Name="Test"
+                    AutomationProperties.AcceleratorKey="Alt+T"
                     Click="TestButton_Click"/>
-            <Button x:Name="AutoConnectButton" Content="Auto-Connect" MinWidth="100" Height="28" Margin="0,0,0,8"
-                    AutomationProperties.Name="Setup auto-connect for selected radio"
+            <Button x:Name="AutoConnectButton" Content="_Auto-Connect" MinWidth="100" Height="28" Margin="0,0,0,8"
+                    AutomationProperties.Name="Auto-Connect"
+                    AutomationProperties.AcceleratorKey="Alt+A"
                     IsEnabled="False"
                     Click="AutoConnectButton_Click"/>
             <Button Content="_Cancel" AutomationProperties.AcceleratorKey="Alt+C" MinWidth="100" Height="28" IsCancel="True"
-                    AutomationProperties.Name="Cancel radio selection"
+                    AutomationProperties.Name="Cancel"
                     Click="CancelButton_Click"/>
         </StackPanel>
 

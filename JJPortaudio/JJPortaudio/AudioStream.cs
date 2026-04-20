@@ -28,6 +28,15 @@ namespace JJPortaudio
         public float OutputGain { get; set; } = 1.0f;
 
         /// <summary>
+        /// Optional audio processing delegate invoked on decoded PCM samples
+        /// after gain scaling, before PortAudio enqueue. Used by the PC-side
+        /// noise reduction pipeline (RNNoise, spectral subtraction).
+        /// The delegate receives the float[] buffer to process in-place.
+        /// Called from the remoteAudioProc thread.
+        /// </summary>
+        public Action<float[]>? PostDecodeProcessor { get; set; }
+
+        /// <summary>
         /// buffer size used for this stream.
         /// </summary>
         public uint BufferSize { get { return aud.BufferSize; } }
@@ -163,6 +172,9 @@ namespace JJPortaudio
                 _peakLogCounter = 0;
                 _peakSinceLastLog = 0f;
             }
+
+            // PC-side audio processing (NR, spectral subtraction, etc.)
+            PostDecodeProcessor?.Invoke(buf);
 
             aud.TheQ.Enqueue(buf);
         }

@@ -115,6 +115,12 @@ public partial class FrequencyDisplay : UserControl
     /// </summary>
     public System.Func<DisplayField, string?>? StepNameOverride { get; set; }
 
+    /// <summary>
+    /// When true, indicates Modern tuning mode is active. In Modern mode, the Freq
+    /// field is NOT position-sensitive (tuning uses modifier keys, not cursor position).
+    /// </summary>
+    public bool IsModernMode { get; set; }
+
     #region Events
 
     /// <summary>
@@ -151,6 +157,16 @@ public partial class FrequencyDisplay : UserControl
         }
 
         Display();
+    }
+
+    /// <summary>
+    /// Update a field's screen reader label. Used to make labels dynamic
+    /// (e.g., "Slice B Operations" instead of static "Slice Audio").
+    /// </summary>
+    public void SetFieldLabel(string key, string label)
+    {
+        if (_fieldDict.TryGetValue(key, out var field))
+            field.Label = label;
     }
 
     /// <summary>
@@ -369,9 +385,15 @@ public partial class FrequencyDisplay : UserControl
     /// <summary>
     /// Position-sensitive fields where Left/Right navigates character-by-character
     /// with per-position step size announcements.
+    /// In Modern mode, Freq is NOT position-sensitive (tuning uses modifier keys).
     /// </summary>
-    private static bool IsPositionSensitive(string key)
-        => key == "Freq" || key == "RIT" || key == "XIT";
+    private bool IsPositionSensitive(string key)
+        => key switch
+        {
+            "Freq" => !IsModernMode,
+            "RIT" or "XIT" => true,
+            _ => false
+        };
 
     /// <summary>
     /// Move cursor in the given direction (+1 = right, -1 = left).
@@ -695,6 +717,19 @@ public partial class FrequencyDisplay : UserControl
     {
         DisplayBox.Focus();
         System.Windows.Input.Keyboard.Focus(DisplayBox);
+    }
+
+    /// <summary>
+    /// Focus the display and navigate to the Frequency field specifically.
+    /// Positions cursor at the default offset (kHz in Classic, full field in Modern)
+    /// and speaks the field label, value, and step size.
+    /// </summary>
+    public void FocusFrequencyField()
+    {
+        DisplayBox.Focus();
+        System.Windows.Input.Keyboard.Focus(DisplayBox);
+        if (_fieldDict.TryGetValue("Freq", out var freqField))
+            NavigateToField(freqField);
     }
 
     #endregion
