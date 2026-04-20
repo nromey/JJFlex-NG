@@ -251,6 +251,22 @@ Will expand into `docs/planning/agile/sprint27-test-matrix.md` during Phase 4. O
 
 ---
 
+## Phase A.0 findings (2026-04-20, pre-coding audit)
+
+Before starting Track A coding, a pre-design audit was run against the current codebase. Key findings shifted the scope of A.2 and A.3 from the original plan text:
+
+**1. The Network tab already exists.** `JJFlexWpf/Dialogs/SettingsDialog.xaml` lines 310-367 already contain a Network tab with `PortForwardEnabledCheck`, `PortForwardTcpBox`/`PortForwardUdpBox` fields (default 4992), a separate-ports advanced toggle, and an "Apply to connected radio" button. The code-behind already validates 1024–65535, reads current state via `RefreshNetworkTabFromRig()`, and applies via `FlexBase.SetSmartLinkPortForwarding()`. The live-region status element (`NetworkCurrentStateText`) is also present. Track A's UI work is therefore *wiring and extending*, not scaffolding.
+
+**2. FlexLib exposes port config post-connect only — there is no pre-connect port-injection API.** The port is radio-side firmware state applied via `Radio.WanSetForwardedPorts(bool enabled, int tcpPort, int udpPort)` (FlexLib) wrapped by `FlexBase.SetSmartLinkPortForwarding(...)` (Radios/FlexBase.cs:249). `WanServer`'s session-construction path and `WanServer.SendConnectMessageToRadio` do not accept a listen-port argument. This is an architectural correction to the plan's original Track A scope line "when session constructs its underlying connection, it uses the configured port..." which assumed a ctor-injection path that doesn't exist. **Revised Track A binding:** a post-connect hook in FlexBase (near the `WANConnectionHandle` assignment around line 1669, or inside `openTheRadio`) reads the active account's saved port preference and calls `SetSmartLinkPortForwarding(true, port, port)` once the radio is connected, logging to trace and announcing via the existing live region. No changes to `IWanSessionOwner` or `IWanServer` interfaces are required for Track A.
+
+**3. SmartLink account persistence lives in `SmartLinkAccountManager.cs`.** Accounts serialize to `%AppData%\JJFlexRadio\SmartLinkAccounts.json` (DPAPI-encrypted tokens, plain metadata). The `SmartLinkAccount` class at the bottom of the file holds `Email` + `FriendlyName` + token fields. **Track A adds a nullable `int? ConfiguredListenPort` field** to `SmartLinkAccount` plus helper methods on `SmartLinkAccountManager` (`GetConfiguredPort(email)` / `SetConfiguredPort(email, port)`). Null = fall back to FlexLib's default behavior, satisfying NG-8 (existing accounts don't retroactively change behavior).
+
+**4. The `SmartLinkSessionCoordinator.EnsureSessionForAccount(accountId)` path already keys by email and is ready for per-account lookups.** The `accountId` plumbed into `WanSessionOwner.AccountId` is the Auth0 profile email, matching `SmartLinkAccount.Email`. No new identity scheme is needed.
+
+**5. Test button scope clarification.** The plan's original phrasing "a 'test' button that attempts to bind the port" assumed a client-side listen port. Because the port Track A configures is actually the *radio's* firmware listen port, there is nothing local for a Test button to bind. Track A's Test button does *local numeric validation only* — range check (1024–65535) plus a small blocklist of commonly-conflicting well-known ports (3389 RDP, 5900 VNC, 8080 HTTP-alt) — and announces the result to the existing live region without persisting. *Actual reachability testing from the user's public IP to the radio's forwarded port* is Track C's NetworkTest responsibility, not Track A's. Updating plan: Test button is local-validate-only in Sprint 27 Track A.
+
+---
+
 ## Next session action
 
 Sprint 27 commences after Sprint 26 ships. Track A starts solo; Tracks B, C, E fan out after Track A lands; Track D integrates at the end. Sprint 28 (tabbed multi-radio) can begin planning in parallel with Sprint 27 execution since it depends on Sprint 26 foundations, not Sprint 27.
