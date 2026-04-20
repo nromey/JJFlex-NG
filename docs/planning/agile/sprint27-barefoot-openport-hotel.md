@@ -296,6 +296,38 @@ Track A landed on `sprint27/networking-config` in four commits:
 
 ---
 
+## Phase C.0 findings (2026-04-20, pre-coding audit of FlexLib NetworkTest)
+
+Audit of `FlexLib_API/FlexLib/WanServer.cs` + `WanTestConnectionResults.cs` + `SslClient.cs`:
+
+**1. API surface.** `WanServer.SendTestConnection(string serial)` (WanServer.cs:591–604) is the invocation. Returns void. Results arrive via the `WanServer.TestConnectionResultsReceived` event (WanServer.cs:584) with a `WanTestConnectionResults` payload. No dedicated NetworkTest class; the functionality is inlined on `WanServer`.
+
+**2. Invocation shape.** Fire-and-forget event-driven. `SendTestConnection` writes the command string to SmartLink and returns immediately. Not `Task`-returning, not async/await-shaped, no result parameter on the call. Caller must subscribe to the event before invoking to avoid losing the result.
+
+**3. Result fields — only 5 booleans.** `WanTestConnectionResults` (WanTestConnectionResults.cs:20–24) exposes: `upnp_tcp_port_working`, `upnp_udp_port_working`, `forward_tcp_port_working`, `forward_udp_port_working`, `nat_supports_hole_punch` — plus `radio_serial` for identification. **No NAT-type classification, no UPnP failure modes, no SmartLink-backend reachability as a distinct signal, no auth-validity signal, no public-IP discovery.** Public IP is a separate property (`WanServer.SslClientPublicIp`) populated from the `"application info"` message path, not from NetworkTest.
+
+**4. Threading.** `TestConnectionResultsReceived` fires on `SslClient`'s background listener thread (SslClient.cs:54–133). No dispatcher marshalling. Consumers must marshal to the UI thread themselves before touching WPF controls.
+
+**5. Error surface.** Implicit and sparse. If SmartLink is unreachable when `SendTestConnection` is called, `WanServer` silently returns (logs Debug only, no event fires, no exception). No timeout in the SDK itself — if SmartLink never responds, the event never fires. Missing/malformed response fields default to false via `TryParse` in the parser. Callers must enforce their own timeout policy.
+
+**6. Precondition.** Must be authenticated + connected to SmartLink (`IsConnected == true`), but the radio session need not be active. That means post-disconnect diagnosis (plan scenario c) is feasible as long as SmartLink itself is still reachable.
+
+---
+
+## Plan scope correction (Track C + Track D ToMarkdown format)
+
+The plan's original Track D `ToMarkdown()` spec lists five H2 sections: "UPnP, Manual port forward, NAT, SmartLink backend, Auth". **Three are fillable** from FlexLib's NetworkTest surface; **two are not**:
+
+- **UPnP section** — `upnp_tcp_port_working` + `upnp_udp_port_working`. Fillable.
+- **Manual port forward section** — `forward_tcp_port_working` + `forward_udp_port_working`. Fillable.
+- **NAT section** — only `nat_supports_hole_punch` (binary). No NAT-type classification. Fillable as a single bullet.
+- **SmartLink backend section** — *not available* from NetworkTest. SmartLink reachability is implicit: if NetworkTest completes, the backend is reachable; if it times out, it isn't. Track C will represent this via a single "Overall" header-bullet showing the timestamp + whether the probe got a response at all, rather than a separate H2 section.
+- **Auth section** — *not available* from NetworkTest. Auth validity is signaled elsewhere (`WanApplicationRegistrationInvalid` event). Track C will *not* include an Auth section in `ToMarkdown` — auth health is orthogonal to network health and belongs to a different signal path.
+
+Track D's message dictionary ("Network appears healthy but authentication failed — please sign in again") will use the existing `WanApplicationRegistrationInvalid` event for the auth branch, not NetworkTest. This is a scope clarification, not a scope reduction — the user-facing diagnostic richness is preserved by routing different signals to the right places.
+
+---
+
 ## Next session action
 
 Sprint 27 Phase 1 (Track A) complete. Next track in the serial order is **Track C** (NetworkTest integration + `NetworkDiagnosticReport` with `ToMarkdown()`). Smoke-test Track A against a live SmartLink radio when convenient; any defects feed back into A as fix-forward, not back into a phase gate.
