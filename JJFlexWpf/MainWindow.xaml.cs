@@ -126,7 +126,46 @@ public partial class MainWindow : UserControl
         {
             Debug.WriteLine($"MainWindow ctor: user-scope CW config load failed: {ex.Message}");
         }
+
+        // Sprint 26 Phase 3: announce SmartLink session status transitions via screen
+        // reader. The coordinator lives behind SmartLinkServices; we subscribe to its
+        // ActiveSessionChanged event so that as sessions come and go (N=1 today, N>1
+        // with tabs in Sprint 28+) we rebind the per-session StatusChanged handler.
+        // All speech is marshalled to the UI thread because StatusChanged fires on
+        // the session owner's monitor thread.
+        _sessionStatusHandler = (s, status) =>
+        {
+            var session = Radios.SmartLink.SmartLinkServices.Coordinator.ActiveSession;
+            int attempts = session?.ReconnectAttemptCount ?? 0;
+            var lastErr = session?.LastError;
+            string message = Radios.SmartLink.SessionStatusMessages.ForStatus(status, attempts, lastErr);
+            // StatusChanged runs on the session monitor thread; marshal to UI.
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                Radios.ScreenReaderOutput.Speak(message, Radios.VerbosityLevel.Terse);
+            }));
+        };
+        Radios.SmartLink.SmartLinkServices.Coordinator.ActiveSessionChanged += (s, newSession) =>
+        {
+            if (_subscribedSession != null)
+            {
+                _subscribedSession.StatusChanged -= _sessionStatusHandler;
+                _subscribedSession = null;
+            }
+            if (newSession != null)
+            {
+                _subscribedSession = newSession;
+                newSession.StatusChanged += _sessionStatusHandler;
+            }
+        };
     }
+
+    // Sprint 26 Phase 3: tracks the session we're currently subscribed to so we can
+    // unsubscribe cleanly when ActiveSession changes. Only one subscription at a time
+    // (matches the N=1 coordinator reality for Sprint 26; Sprint 28+ tabbed UI will
+    // need per-session subscriptions for each tab).
+    private Radios.SmartLink.IWanSessionOwner? _subscribedSession;
+    private readonly EventHandler<Radios.SmartLink.SessionStatus> _sessionStatusHandler;
 
     /// <summary>
     /// Main initialization sequence — replaces Form1_Load.
