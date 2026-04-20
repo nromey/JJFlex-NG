@@ -4,6 +4,174 @@ Last updated: 2026-04-19
 
 ## Open Bugs
 
+### FEATURE: Ctrl+F commit speaks band-segment context (2026-04-19 design, Noel — Sprint 27 target)
+
+**Gap:** when the Ctrl+F frequency entry dialog commits, the app announces the new frequency but does not speak which portion of the band the operator just landed in (e.g., "20-meter CW segment," "40-meter phone," "80-meter DX window"). A sighted operator can glance at the band plan; a screen-reader or braille operator has no cue.
+
+**Fix:** after Ctrl+F commits the frequency, the tuning assistant (or equivalent speech path) announces the band-segment context the same way it does for band-edge warnings. Existing band-segment lookup infrastructure used for the band-edge-warning path is the source of truth — no new band-plan data needed.
+
+**Scope:** small. One announce call inserted into the Ctrl+F commit path. Segment text format should match whatever the app already uses for band-edge announcements to keep voice consistent across features.
+
+**Related:** the "Smarter Band Edge Speech" work already landed in 4.1.16 establishes the lookup pathway; this feature extends it to a second entry point.
+
+**Priority:** Medium. User-facing accessibility gap, small fix.
+
+**Target:** Sprint 27 (polish bucket alongside PC NR fleshout, slice-UI completeness, MultiFlex Channels 2/3).
+
+**Status:** Logged 2026-04-19.
+
+### FEATURE: PC-side noise reduction fleshout (2026-04-19 design, Noel — Sprint 27 target)
+
+**Context:** Sprint 25 Phase 20 wired the PC-side NR engines (RNNoise + spectral subtraction) into the live RX audio pipeline on 2026-04-13. That landed the *capability* but not the *control surface* — engines turn on and off, but users can't tune them, compare them, or capture reference noise profiles. Sprint 27 flesh-out makes them genuinely useful to operators, not just technologically present.
+
+**Scope for Sprint 27:**
+
+1. **RNN modes.** RNNoise has configurable aggressiveness and can target speech vs. broadband noise differently. Expose selectable modes via DSP menu or Settings:
+   - Voice (default — tuned for SSB speech)
+   - CW/Narrow (tuned for narrow-band signals, preserves weak-signal fidelity)
+   - Broadband (more aggressive, general noise floor reduction)
+   - Off (disables RNN while keeping the feature discoverable)
+   Selection persists per operator; default is Voice.
+
+2. **NR strength (wet/dry blend).** Value control — how much NR is mixed into the output. 0% = bypassed, 100% = full NR. Lets operators dial in the right balance between noise reduction and audio naturalness. Default: 70-80%. Applies independently to RNN and spectral subtraction. Adjustable via Ctrl+J leader + up/down, with spoken percentage announcement.
+
+3. **Spectral subtraction options + presets.** Spectral subtraction has many parameters (window size, over-subtraction alpha, noise floor beta, smoothing constant). Rather than expose all of them, ship named presets tuned to common conditions:
+   - **Voice (SSB/AM/FM)** — default for phone modes, preserves speech articulation
+   - **CW/Narrow** — tighter filtering, preserves weak-signal transients
+   - **Atmospheric** — for 160/80/40 m noise floors dominated by static crashes
+   - **Urban** — for mains hum, switching-power-supply buzz, other periodic urban noise
+   - **OTH Radar** — aggressive sweep-rejection for over-the-horizon radar bursts common on HF
+   - **Custom** — power-user access to raw parameters via an expandable dialog
+   Preset selection persists per operator per band (if feasible) or per mode.
+
+4. **Noise capture UI.** Button in DSP panel / ScreenFields: "Capture noise profile from current band." Captures ~2 seconds of receive audio when the band is quiet (or when operator judges it to be), stores as a named noise profile. Spectral subtraction uses the profile as the reference to subtract. Profiles are named, saveable, loadable. Per operator, per band.
+
+5. **Bundled noise profiles.** Ship 3-5 canned profiles covering common scenarios so operators can evaluate Spectral NR without waiting for capture-UI work to be their first introduction:
+   - "Typical 40m evening" — atmospheric noise profile
+   - "Urban mains" — 60 Hz hum and harmonics
+   - "Switching supplies" — broadband buzz common in apartment/condo setups
+   - "OTH sweep" — captured OTH radar burst reference
+   - "Quiet rural" — minimal reference for generally clean bands
+   Operators can load bundled profiles, modify, save as their own.
+
+6. **A/B comparison.** Quick hotkey (candidate: Ctrl+J, Shift+B) toggles NR off momentarily so operator can hear the before/after difference. State is temporary — releases in ~5 seconds or on next NR setting change. Speech announces "bypassed" and "enabled" so it's clear which state is active.
+
+7. **Profile export / import (future hook, not this sprint).** Per `project_noise_profile_sharing.md` memory, eventually profiles should be shareable with antenna metadata, band, location, etc. Sprint 27 scope is local capture/save/load only; sharing plumbing defers to later work.
+
+8. **Per-slice vs. per-session scope.** NR settings should bind per-slice, not globally — operator may want aggressive NR on slice A (noisy DX listening) and light NR on slice B (local ragchew). Each slice remembers its own NR state. Ties into the new session/slice model from Sprint 26.
+
+**Related Sprint 27 track:** this becomes Track F (PC NR fleshout) in the Sprint 27 plan. Runs parallel with Tracks B/C/E (the other post-A parallels). No dependency on networking tracks; only dependency is Sprint 26 slice/session architecture being stable.
+
+**Dependencies:**
+- Sprint 26 Phase 2.5 (MultiFlex/session refactor) — for per-slice binding.
+- Nothing else.
+
+**Priority:** High. Completes the PC NR story that Phase 20 opened. Without the control surface, the engines are hidden value — "yes we have NR" is technically true but operators can't actually use it.
+
+**Status:** Logged 2026-04-19. Targets Sprint 27 as new Track F. Update `sprint27-barefoot-openport-hotel.md` with Track F definition when Sprint 27 planning is finalized.
+
+### FEATURE: Screen reader auto-detect + sighted-user support (2026-04-19 design, Noel)
+
+**Context:** JJ Flex was built accessibility-first, but the UI itself (menus, dialogs, field labels, visual layout) is a reasonably complete radio control surface that probably works for sighted operators too. The current gap: JJ Flex auto-speaks many events via its self-voiced output path (SAPI, earcon engine, mode announcements, status chatter). For a sighted user who isn't running a screen reader, this would be annoying-to-unusable. For a blind user who doesn't realize a screen reader is needed, they'd get worse output than NVDA would give them.
+
+**Design:**
+
+1. **Screen reader detection at startup.** Call Windows `SystemParametersInfo(SPI_GETSCREENREADER)` and/or UIA `IsScreenReaderPresent` to determine whether a screen reader is running. Re-check when focus returns from Settings (user may have started one mid-session).
+2. **Three operating modes:**
+   - **Mode A — Screen reader detected (default when SR present):** current behavior. JJ Flex fires its auto-speech events; screen reader handles UI navigation announcements. Combined output is the intended experience.
+   - **Mode B — No screen reader detected, self-voiced OFF (default when no SR):** auto-speech muted by default. Visual UI still works normally. Earcons still fire (they're non-speech audio cues and help all users). A hotkey (candidate: **Ctrl+Shift+Space** or a Settings toggle) enables self-voicing for sighted users who want spoken feedback without installing a screen reader.
+   - **Mode C — No screen reader detected, self-voiced ON (user opt-in):** sighted user has enabled self-voicing. Auto-speech fires via SAPI. Acts like a self-voicing radio software experience (similar to how Accessible Morse or some ham logging software work).
+3. **First-launch welcome prompt** (when no SR detected on first run):
+   - Accessible dialog that presents **peer options**, not a recommended-plus-fallback hierarchy. Both paths are legitimate; the user picks based on their comfort level and situation.
+   - Suggested copy: "No screen reader detected. JJ Flex works with a few different accessibility setups — pick what fits you:
+     - **Turn on Windows Narrator now** — built into Windows, no download needed. Good if you want speech right away or prefer to stick with tools already on your computer.
+     - **Install NVDA** — free screen reader from nvaccess.org. More customizable and widely used in the ham community, but requires a download and a few minutes to set up.
+     - **Continue without speech** — JJ Flex's visual UI works fine on its own. You can turn on built-in self-voicing anytime with [hotkey]."
+   - Dismissible with "don't show again." Each option is a button that actually does the thing (not just a link): Narrator button launches `Narrator.exe` via `Process.Start` (no elevation needed); NVDA button opens the download page in the default browser; "continue" dismisses.
+   - **Target persona that makes this worth doing:** long-time Flex owner who's transitioning to low/no vision (age-related macular degeneration, retinitis pigmentosa, diabetic retinopathy, etc.). They've loved their radio for years and know it inside-out; they're now learning accessibility tools for the first time. For this user, "install a screen reader" is intimidating, but "turn on the one already on your computer" is immediately doable. JJ Flex becomes the bridge that keeps their beloved radio usable during the transition, without forcing a steep learning curve at the worst moment.
+   - **NEVER auto-fires** any of these actions. All three are user-initiated buttons in the dialog. Auto-enabling a screen reader without consent violates the flexibility principle (see `project_flexibility_principle.md`).
+   - Narrator launch caveats communicated clearly: "Narrator stays running system-wide after JJ Flex closes. Toggle it off with Win+Ctrl+Enter." No gotchas, no surprises.
+4. **Settings UI:**
+   - Settings → Notifications → "Self-voiced speech (when no screen reader is running)" toggle.
+   - Shows current detected state: "Screen reader detected: NVDA" or "No screen reader detected."
+   - User can force Mode B or Mode C regardless of detection (in case detection is wrong or user wants to override).
+5. **Critical-safety speech exception:** some speech MUST fire regardless of mode — out-of-band TX attempts, TX safety timeout warnings, dummy-load-mode reminders, serious errors. These are safety-critical announcements that speak even if auto-speech is globally off (they also have visual/earcon companions).
+
+**Phases:**
+
+1. **Test current sighted experience.** Walk through the UI without a screen reader (or with one minimized/suspended). Inventory every place auto-speech fires. Identify which speech is self-voiced (via `ScreenReaderOutput.Speak` or SAPI paths) vs. which is driven by the screen reader reading the UIA tree.
+2. **Implement detection + gate.** Add the detection API call + a central `SpeechRouter` (or similar) that all self-voiced speech flows through. Route by mode.
+3. **First-launch prompt.** Dialog + "don't show again" persistence + NVDA link.
+4. **Settings UI.** Toggle + detection display.
+5. **Critical-safety review.** Identify which speech sites are safety-critical and bypass the gate.
+
+**Market angle:**
+
+This is a significant positioning win. JJ Flex becomes credibly "the radio app for everyone — works without a screen reader, works great with one." Universal design stops being a marketing word and becomes literally demonstrable. Sighted hams who would never have tried "accessibility software" can just use JJ Flex as a radio app; accessibility features are there but not required. Expands addressable market significantly.
+
+**Connects to memories:** `project_flexibility_principle.md` (user choice over developer assumption — sighted user gets to decide whether to self-voice), `project_strategic_identity.md` (universal design is literal, not marketing).
+
+**Priority:** Medium-High. Not Sprint 26 or 27 (foundation phase scope lock). Post-foundation candidate. Detection + gate is low effort; polish (first-launch prompt, Settings UI) is moderate.
+
+**Status:** Logged 2026-04-19. Pending sighted-user experience test before design finalization.
+
+### FEATURE: Per-slice toggles in the VFO row (Jim feature parity, 2026-04-19 design, Noel)
+
+**Context:** Jim's original UI exposed per-slice toggles (VOX, squelch, etc.) as a long single-line cell display in the main VFO row. To activate one, you had to count cells visually then press a letter key (V for VOX, S for squelch, etc.). That model worked on a screen but was hard for screen-reader and braille operators — no announcement on focus, no spoken state, no clear navigation. The WPF rebuild dropped the cell display rather than carry forward an inaccessible pattern. This feature restores the toggle set with a proper accessible model.
+
+**Design:**
+
+1. **Location:** main VFO row, immediately to the left of the frequency field. Order: `[slice letter] [toggles] [frequency] [other fields]`.
+2. **Navigation:** Right/Left arrow continues the existing VFO-row navigation pattern. Tab into the row, arrow across to the toggle of interest.
+3. **Activation:** Spacebar toggles the focused control. Enter does the same (alias for muscle memory consistency).
+4. **Speech:** on focus, screen reader announces "[Toggle name]: On" or "[Toggle name]: Off" (e.g. "VOX: On"). On state change after activation, brief speech confirms the new state ("VOX off"). Works on both NVDA and JAWS via the same accessibility tree the rest of the row uses.
+5. **Visual indication:** each toggle is its own labeled control with clear on/off visual state. Not just "V" — the label should be readable for sighted helpers. Paired icon optional.
+6. **Braille indication:** integrates with the Sprint 25 braille status line. Compact representation needed since cells are scarce: candidate notation is one letter per toggle, uppercase = on, lowercase = off (e.g. `V s m T` = VOX on, squelch off, mute off, TX-enable on). Settings option for which toggles to render in the braille status line (full set may not fit on a 14-cell display).
+7. **Hotkey alternative preserved:** the underlying letter-key shortcuts (V for VOX, S for squelch, etc.) stay wired up as global hotkeys in Radio scope so muscle-memory operators can still hit them without arrowing. Difference vs Jim: hotkeys speak the new state rather than relying on visual cell update.
+
+**Candidate toggle set (final list to confirm during implementation):**
+
+- **TX** — which slice transmits (high value, frequently changed in MultiFlex contexts)
+- **Mute** — per-slice audio mute (high value, common during multi-slice listening)
+- **Squelch** — per-slice squelch on/off (medium-high value)
+- **VOX** — voice-activated transmit on/off (medium value, mainly when transmitting)
+- **Lock** — slice lock (medium value, prevents accidental tuning)
+
+DSP-level toggles (NB, NR, ANF, etc.) are NOT proposed here — those already live in the DSP menu and ScreenFields panel and don't need duplication in the VFO row.
+
+**Why this design over Jim's:**
+
+- Speech-first: state is announced on focus, not inferred from visual cell position.
+- Braille-first: encoded into the existing status line rather than requiring a separate display read.
+- Discoverable: tab to row, arrow across → operator finds the toggles without prior knowledge. Jim's model required knowing the letter shortcuts up front.
+- Hotkeys preserved: muscle-memory operators don't lose anything; new operators get an accessible discovery path.
+
+**Sprint landing target:** **Sprint 27.** Pure UI work, no session-layer dependency. Coherent with the MultiFlex Channels 2/3 also deferred to Sprint 27 (both are slice-UI completeness work). Sprint 27 theme becomes "networking depth + slice/MultiFlex UI completeness."
+
+**Priority:** Medium-High. Noel-flagged as needing to land in 26 or 27 (Sprint 27 chosen for scope discipline and theme coherence). User-visible accessibility gap relative to Jim's UI; restoring closes a feature-parity hole.
+
+**Status:** Logged 2026-04-19. Awaiting Sprint 27 plan finalization.
+
+### FEATURE: MultiFlex three-channel awareness (2026-04-19 design, Noel)
+
+**Context:** The 4.1.16 changelog entry "slice selector now shows you only the slices you actually own" is locally correct (clean slice list) but globally creates a "where is that audio coming from?" mystery — when another client (e.g. Don) has an unmuted slice, the audio reaches your speakers but no UI tells you the source. Noel hit this himself during 2026-04-19 BUG-062 testing.
+
+**Design (mix of all three options for full awareness):**
+
+1. **Status Dialog enhancement = discovery channel.** Add a "Other clients on this radio" section to the existing Status Dialog (Ctrl+Alt+S). Lists each connected client with: callsign / station name, program name, owned slices (letter + frequency + mode + mute state). Updates live. Always on, no config needed. The "look here when curious" answer. Fits the established Status-Dialog-as-one-stop-shop pattern.
+2. **Slice selector visibility toggle = persistent ambient awareness channel.** New Settings option: "Show other clients' slices in slice selector." Default OFF (preserves current cleanup). When ON, slice selector shows ALL slices on the radio, with non-owned ones clearly screen-reader-labeled (e.g. "Slice C, owned by WA2IWC"). Sub-setting: "Skip non-owned slices when cycling" (default ON; Up/Down arrow stops on owned slices only, but you can navigate to non-owned ones with shifted arrows or another mechanism).
+3. **Audio source announcement = just-in-time alert channel.** New Settings option: "Announce audio from other clients' slices." Default OFF (could be annoying for high-traffic radios). When ON, brief speech triggers when audio from a non-owned slice is detected: "Receiving WA2IWC slice on 7.225 USB." Throttled with a configurable cooldown (e.g. once per slice per 60 seconds) to avoid spam.
+
+**Why all three vs picking one:** each serves a different cognitive moment. Status Dialog = "I want to know" (intentional query). Slice selector visibility = "I want to be reminded" (ambient). Audio announcement = "I want to be told" (event-driven). Operators choose their preferred awareness mode by toggling the settings; the always-on Status Dialog is the safety net.
+
+**Critical dependency: BUG-062 must land first.** All three channels require trustworthy MultiFlex client-list data. Sprint 26 Phase 2.5 fixes BUG-062 — this feature work is post-Sprint 26.
+
+**Implementation order:** Status Dialog enhancement first (no Settings UI, no slice selector behavior changes). Then slice selector visibility toggle. Then audio source announcement.
+
+**Priority:** Medium-High. User-visible quality-of-life for any MultiFlex operator. Lands cleanly post-Sprint 26.
+
+**Status:** Logged 2026-04-19. Awaiting Sprint 26 Phase 2.5 (BUG-062) completion.
+
 ### BUG-062: MultiFlex stack has multiple sync/event issues (2026-04-19 testing with Don)
 Testing MultiFlex with Don (station WA2IWC) on his FLEX-6300 via SmartLink surfaced a cluster of related bugs in the multi-client synchronization and event pipeline. Captured as one bug because they all point to the same underlying subsystem (session / client-sync / event routing).
 
