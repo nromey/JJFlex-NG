@@ -209,7 +209,7 @@ Five mandatory tracks (A, B, C, D, F) and one optional track (E). Track A is the
 
 ## Open questions for Sprint 27
 
-**Q27.1 — UPnP library choice.** `Open.NAT` vs `Mono.Nat` vs native `UPnPNAT` COM. Quick evaluation spike at start of Track B. Criteria: active maintenance, NuGet availability, dependency footprint, screen-reader-irrelevant (no UI).
+**Q27.1 — UPnP library choice.** ~~`Open.NAT` vs `Mono.Nat` vs native `UPnPNAT` COM.~~ **Resolved 2026-04-20: native Windows UPnPNAT COM (`HNetCfg.NATUPnP` ProgID, `IUPnPNAT` / `IStaticPortMappingCollection` interfaces).** Rationale: (a) zero NuGet dependency avoids installer-footprint cost and licence-vetting overhead; (b) aligns with JJFlex's Windows-only posture (no value to a cross-platform library we can't deploy); (c) `UPnPNAT` COM API is effectively frozen-stable since Windows XP, lower maintenance risk than `Open.NAT` (stagnant since ~2017) or `Mono.Nat` (intermittently maintained); (d) JJFlex already uses COM interop elsewhere (WebView2, Win32 HMENU) so the pattern is not foreign. Implementation via `Type.GetTypeFromProgID` + `dynamic` dispatch so no Primary Interop Assembly is required.
 
 **Q27.2 — Port range validation for well-known services.** 1024–65535 is the technical range. Do we also warn users if they pick common ports (3389 RDP, 5900 VNC, 8080 HTTP, 22 SSH — wait, 22 < 1024) that could conflict with other services they run? Small UX consideration. Recommendation: warn on a small blocklist of very-common ports, don't prevent selection.
 
