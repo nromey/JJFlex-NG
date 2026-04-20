@@ -310,10 +310,14 @@
             <!-- Network Tab (SmartLink port forwarding) -->
             <TabItem Header="Network" AutomationProperties.Name="Network and SmartLink settings">
                 <StackPanel Margin="8">
-                    <TextBlock Text="SmartLink Port Forwarding" FontWeight="SemiBold"
+                    <TextBlock Text="SmartLink Port Forwarding (Tier 1)" FontWeight="SemiBold"
                                Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
                     <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
                                Text="Configure the radio's firmware to listen on a specific port for SmartLink. Your router must also forward the same TCP and UDP port to the radio's LAN IP address. Requires an active radio connection."/>
+
+                    <!-- Sprint 27 Track A: Tier 1 framing prose. Explains what this mode means and why it's the recommended default. -->
+                    <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
+                               Text="Tier 1 (Manual Port Forwarding) is the recommended default. You choose a port, forward it on your router to the radio's LAN IP, and JJ Flex tells the radio to listen on that port. Tier 1 is sovereign — there is no third-party coordination, no UPnP, and no hole-punch. It is the only tier compatible with organizational security policies that require UPnP disabled (DISA STIGs, PCI-DSS, HIPAA), and it is the most reliable path through strict NAT configurations. Your chosen port is saved with your SmartLink account; on future connections, JJ Flex applies it automatically."/>
 
                     <TextBlock x:Name="NetworkCurrentStateText"
                                Style="{StaticResource DialogLabel}" Margin="0,0,0,8"
@@ -358,11 +362,19 @@
                               Checked="PortForwardSeparatePortsCheck_Changed"
                               Unchecked="PortForwardSeparatePortsCheck_Changed"/>
 
-                    <Button Content="_Apply to connected radio"
-                            Width="220" HorizontalAlignment="Left" Margin="0,4,0,0"
-                            AutomationProperties.Name="Apply port forwarding to connected radio"
-                            AutomationProperties.AcceleratorKey="Alt+A"
-                            Click="ApplyPortForwardButton_Click"/>
+                    <!-- Sprint 27 Track A: Apply + Test side-by-side. Test performs local validation only (range + common-conflict blocklist) without touching the radio or persisting. -->
+                    <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                        <Button Content="_Apply to connected radio"
+                                Width="220" Margin="0,0,8,0"
+                                AutomationProperties.Name="Apply port forwarding to connected radio and save as account preference"
+                                AutomationProperties.AcceleratorKey="Alt+A"
+                                Click="ApplyPortForwardButton_Click"/>
+                        <Button Content="Te_st port"
+                                Width="120"
+                                AutomationProperties.Name="Test the port number locally for validity and common conflicts"
+                                AutomationProperties.AcceleratorKey="Alt+S"
+                                Click="TestPortButton_Click"/>
+                    </StackPanel>
                 </StackPanel>
             </TabItem>
 

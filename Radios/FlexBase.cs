@@ -270,6 +270,50 @@ namespace Radios
         }
 
         /// <summary>
+        /// Sprint 27 Track A / Phase A.3 — true when a SmartLink account is
+        /// currently bound to this connection. UI code that persists per-
+        /// account preferences must gate on this.
+        /// </summary>
+        public bool HasCurrentSmartLinkAccount => _currentAccount != null;
+
+        /// <summary>
+        /// Email of the SmartLink account currently bound to this connection,
+        /// or empty string if none. Distinct from <see cref="CurrentSmartLinkEmail"/>
+        /// only in that this exists on the same surface as
+        /// <see cref="SaveCurrentAccountListenPort"/> for UI discoverability.
+        /// </summary>
+        public string CurrentSmartLinkAccountEmail => _currentAccount?.Email ?? string.Empty;
+
+        /// <summary>
+        /// Sprint 27 Track A / Phase A.3 — persists a SmartLink listen-port
+        /// preference on the account currently bound to this connection, and
+        /// refreshes the in-memory account reference so the next auto-apply
+        /// on connect (see <see cref="ApplyAccountPortPreferenceIfAny"/>) uses
+        /// the new value. Pass null to clear the preference (revert to FlexLib
+        /// default behavior). Returns false if no account is bound or the port
+        /// is invalid. Validation is delegated to
+        /// <see cref="SmartLinkAccountManager.IsValidPort"/> so the UI can
+        /// check the same rule before calling.
+        /// </summary>
+        public bool SaveCurrentAccountListenPort(int? port)
+        {
+            if (_currentAccount == null)
+            {
+                Tracing.TraceLine("SaveCurrentAccountListenPort: no current account; skipping", TraceLevel.Warning);
+                return false;
+            }
+            if (!SmartLinkAccountManager.IsValidPort(port))
+            {
+                Tracing.TraceLine($"SaveCurrentAccountListenPort: invalid port {port}", TraceLevel.Warning);
+                return false;
+            }
+            _currentAccount.ConfiguredListenPort = port;
+            AccountManager.SaveAccounts();
+            Tracing.TraceLine($"SaveCurrentAccountListenPort: saved port={port} for account={_currentAccount.Email}", TraceLevel.Info);
+            return true;
+        }
+
+        /// <summary>
         /// Sprint 27 Track A / Phase A.2 — auto-apply the active SmartLink
         /// account's saved listen-port preference (Tier 1) to the connected
         /// radio. Called from the post-connect success branch of

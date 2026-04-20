@@ -355,9 +355,28 @@ namespace JJFlexWpf.Dialogs
             bool ok = _rig.SetSmartLinkPortForwarding(enabled, tcp, udp);
             if (ok)
             {
-                NetworkCurrentStateText.Text = enabled
+                // Sprint 27 Track A / Phase A.3 — also persist as account preference
+                // so future connections (see FlexBase.ApplyAccountPortPreferenceIfAny)
+                // auto-apply without user action. Only meaningful when a SmartLink
+                // account is bound (gated by HasCurrentSmartLinkAccount). If the user
+                // used advanced mode with separate TCP/UDP, we save the TCP value —
+                // per-account model is single-port; advanced mode is per-session only.
+                bool savedPreference = false;
+                if (_rig.HasCurrentSmartLinkAccount)
+                {
+                    int? preference = enabled ? (int?)tcp : null;
+                    savedPreference = _rig.SaveCurrentAccountListenPort(preference);
+                }
+
+                string baseMessage = enabled
                     ? $"Applied. Radio now listens on TCP {tcp}, UDP {udp}. Configure your router to forward these ports to the radio's LAN IP."
                     : "Applied. Port forwarding disabled on the radio.";
+                string prefSuffix = savedPreference
+                    ? (enabled
+                        ? $" Saved as the preference for SmartLink account {_rig.CurrentSmartLinkAccountEmail}."
+                        : $" Preference cleared for SmartLink account {_rig.CurrentSmartLinkAccountEmail}.")
+                    : string.Empty;
+                NetworkCurrentStateText.Text = baseMessage + prefSuffix;
                 ScreenReaderOutput.Speak(enabled
                     ? $"Port forwarding set to {tcp}."
                     : "Port forwarding disabled.", VerbosityLevel.Terse, interrupt: true);
@@ -367,6 +386,52 @@ namespace JJFlexWpf.Dialogs
                 NetworkCurrentStateText.Text = "Command failed. See trace file for details.";
                 ScreenReaderOutput.Speak("Command failed.", VerbosityLevel.Terse, interrupt: true);
             }
+        }
+
+        /// <summary>
+        /// Sprint 27 Track A / Phase A.3 — local validation of the TCP port
+        /// field. Does NOT touch the radio, does NOT persist, does NOT test
+        /// remote reachability. Verifies the value parses as an integer, is
+        /// in the manual range (1024–65535), and warns on a small blocklist
+        /// of ports likely to be in use by other common services. Announces
+        /// the verdict to the Network tab's live region and speaks it.
+        /// Actual reachability testing from the user's public IP to the
+        /// radio is Track C's NetworkTest job, not this button's.
+        /// </summary>
+        private void TestPortButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (!int.TryParse(PortForwardTcpBox.Text, out int port))
+            {
+                NetworkCurrentStateText.Text = "Port is not a number. Enter a value between 1024 and 65535.";
+                ScreenReaderOutput.Speak("Port is not a number.", VerbosityLevel.Terse, interrupt: true);
+                PortForwardTcpBox.Focus();
+                return;
+            }
+            if (!SmartLinkAccountManager.IsValidPort(port))
+            {
+                NetworkCurrentStateText.Text = $"Port {port} is out of the manual range. Use 1024 to 65535.";
+                ScreenReaderOutput.Speak($"Port {port} out of range.", VerbosityLevel.Terse, interrupt: true);
+                PortForwardTcpBox.Focus();
+                return;
+            }
+            // Common-conflict blocklist — ports above 1024 where users are likely
+            // to already run unrelated services. Warn, don't block; the port is
+            // still technically valid.
+            string? conflictHint = port switch
+            {
+                3389 => "Windows Remote Desktop",
+                5900 => "VNC screen sharing",
+                8080 => "web servers and HTTP proxies",
+                _ => null,
+            };
+            if (conflictHint != null)
+            {
+                NetworkCurrentStateText.Text = $"Port {port} is valid, but it is commonly used by {conflictHint}. If you have that running on this network you should pick a different port; otherwise you can keep this one.";
+                ScreenReaderOutput.Speak($"Port {port} valid but often used by {conflictHint}.", VerbosityLevel.Terse, interrupt: true);
+                return;
+            }
+            NetworkCurrentStateText.Text = $"Port {port} is valid. Remember to forward it on your router to the radio's LAN IP address, TCP and UDP.";
+            ScreenReaderOutput.Speak($"Port {port} is valid.", VerbosityLevel.Terse, interrupt: true);
         }
 
         // Typing sound combo order: always-available audio modes first, then any
