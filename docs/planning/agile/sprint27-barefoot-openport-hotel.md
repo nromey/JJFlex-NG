@@ -397,16 +397,42 @@ Track E landed in two commits on `sprint27/networking-config`:
 
 ---
 
+## Track D complete (2026-04-20)
+
+Track D landed in four commits on `sprint27/networking-config` — the integrator consuming outputs from B/C/F plus Sprint 26 Phase 3's status-message path:
+
+- **D.0 + D.1 (`2a71b76a`)** — `SessionStatusMessages.ForStatusRich(status, attempts, err, report, mode, verbose)` folds NetworkTest context into failure-class overlays (symmetric NAT / UPnP fallback / LAN-fine / Flex-side issue / network unreachable / auth only). `HelpDocFor(status, report, mode)` maps state to one of the three Track E filenames. `IWanSessionOwner.MostRecentNetworkReport` + `NetworkTestRunner.MostRecent` expose the latest cached report by timestamp. MainWindow's `_sessionStatusHandler` switched from `ForStatus` to `ForStatusRich`, pulling report via session + mode via `RigControl`. `DiagnosticVerbosityPreference` = volatile process-wide toggle. 17 new tests covering every overlay path + help-doc mapping.
+- **D.2 (`50e2117a`)** — scenario (c) post-disconnect NetworkTest auto-run. `WanSessionOwner.TransitionStatus` fires `MaybeKickDiagnosticProbe` when newStatus is Reconnecting; probe runs off the monitor thread via `Task.Run`. Runner's 5 min pass / 30 sec fail TTL prevents hammering during long outages.
+- **D.3 (`3f8b90b7`)** — Settings > Network diagnostic row gains Copy report / Save report / Help buttons + a Verbose-diagnostics checkbox. Copy uses `Clipboard.SetText(report.ToMarkdown())`. Save uses `SaveFileDialog` with default filename `JJFlex-NetworkDiagnostic-YYYY-MM-DD-HHmm.md`. Help opens the relevant `docs/help/networking/*.md` via `ProcessStartInfo(UseShellExecute=true)` so the user's default markdown viewer handles rendering. Verbose flips `DiagnosticVerbosityPreference.Verbose` immediately on click (no Apply round-trip). Announcements everywhere via the existing live region + `ScreenReaderOutput.Speak`.
+
+**D.4 verification rollup:**
+
+- Full solution Debug x64 build clean.
+- `Radios.Tests` full suite: 88/88 passed (17 new from D.1; D.2/D.3 not unit-tested — async-timing and UI-shell paths respectively; covered by smoke test).
+- `build-debug.bat` produced `4.1.16.101` → NAS `historical\4.1.16.101\x64-debug\`. Dropbox still untouched pending smoke test.
+
+**Exit criterion (Track D):** met on the code side. Induced failure modes each produce a distinct user-facing message (verifiable per the D.1 test matrix). Screen-reader announces each via `ScreenReaderOutput.Speak`. Help links open the local markdown doc. Copy-to-clipboard and save-to-file produce the full ToMarkdown payload. Verbose toggle works.
+
+---
+
+## Sprint 27 status
+
+All six tracks (A, B, C, F, E, D) complete on `sprint27/networking-config`. Sprint 27 exit criteria (see top of doc):
+
+1. ✓ Track A: manual port config works end-to-end, per-account, persisted.
+2. ✓ Track B: UPnP opt-in works; falls back gracefully; security warning visible.
+3. ✓ Track C: NetworkTest integrated; `ToMarkdown()` produces plain-readable output; caching works.
+4. ✓ Track D: richer diagnostic messages; copy/save buttons produce usable markdown.
+5. ✓ Track E: three help docs in `docs/help/networking/` linked from Settings and diagnostic messages.
+6. ✓ Track F: Tier 3 toggle in Settings; hole-punch port threaded through `SendConnectMessageToRadio`; graceful fallback via Flex's server-side.
+7. — Test matrix `sprint27-test-matrix.md` not yet written (post-audit task).
+8. — Overnight soak not yet run (requires live radio + router; smoke test pending).
+9. — User-observable understanding of network state: achievable based on UI evidence.
+
+**Next:** broader cross-sprint help-docs audit (task #22 — Sprint 25 + Sprint 26 Phase 8 + pre-existing gaps), then sprint close-out (test matrix, smoke test, final release candidate).
+
+---
+
 ## Next session action
 
-Sprint 27 Track E complete. Next (and final) track in the serial order is **Track D** — the integrator. Scope per the plan:
-
-- Extend Sprint 26 Phase 3's message dictionary with NetworkTest-informed messages (SmartLink unreachable / NAT symmetric / auth failed / UPnP failed / internet down).
-- Help-link affordances — clicking a failure message opens the relevant `docs/help/networking/*.md` via `Process.Start("explorer.exe", <path>)` so the user's default markdown viewer handles it.
-- Live-region announcement on diagnostic-state change.
-- Configurable verbosity toggle (short user-facing vs. long debug).
-- Copy-to-clipboard button (uses `NetworkDiagnosticReport.ToMarkdown()` from Track C).
-- Save-to-file button (same payload, user-chosen path, default filename `JJFlex-NetworkDiagnostic-YYYY-MM-DD-HHmm.md`).
-- Post-disconnect NetworkTest auto-run (scenario c deferred from Phase C.3) — runs when reconnect heuristic suspects network trouble; populates the diagnostic display with the latest probe.
-
-After D: **broader cross-sprint help-docs audit** (tracked task), then sprint close-out.
+**Broader cross-sprint help-docs audit** per Noel's 2026-04-20 ask (task #22). Survey Sprint 25 + Sprint 26 Phase 8 + any pre-existing undocumented features for `docs/help/` gaps, propose a prioritized list, then either draft the missing docs or flag which ones need Noel's voice. Working-practice memory `feedback_docs_ship_with_features.md` captures the durable preference: features henceforth ship with docs or an explicit "needs doc" flag.
