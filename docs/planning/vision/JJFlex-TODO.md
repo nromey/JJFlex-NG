@@ -4,6 +4,23 @@ Last updated: 2026-04-19
 
 ## Open Bugs
 
+### BUG: build-installers.bat release mode silently skips NAS installer publish (2026-04-19 discovered during 4.1.16 release)
+
+**Symptom:** `build-installers.bat both release` reports "Publish complete (RELEASE)" but NAS `historical\<ver>\installers\` and `stable\` do not receive the release installer .exe files. A subtle warning "`Installer not found at C:\dev\JJFlex-NG\.\Setup JJFlex_<ver>_x64,x86.exe -- skipping.`" is printed but easy to miss in the hundreds of compile warnings.
+
+**Root cause:** the .bat passes architecture as `"x64,x86"` (comma-joined string) to `publish-to-nas.ps1 -Archs`. PowerShell's parameter binder interprets that as a single-element `[string[]]` containing the literal string "x64,x86" rather than a two-element array `@('x64','x86')`. Filename interpolation then produces non-existent names like `Setup JJFlex_4.1.16.44_x64,x86.exe`, which don't match on disk, and the script skips without erroring.
+
+**Workaround until fixed:** after `build-installers.bat both release` completes, manually run:
+```powershell
+.\publish-to-nas.ps1 -ProjectRoot 'C:\dev\JJFlex-NG' -Version '<FULL.4.PART.VERSION>' -Archs @('x64','x86') -Release
+```
+
+**Fix:** change the .bat's `publish-to-nas.ps1` invocation to either (a) call twice with one arch each, (b) pass each arch as a separate positional arg, or (c) pass `-Archs x64,x86` without quoting so PowerShell parses them as array elements. Needs local test with both `x64`, `x86`, and `both` modes to confirm all still work.
+
+**Priority:** Medium. Release publishes succeed locally and can be cleaned up manually post-hoc, but every release currently requires remembering to run the publish step by hand. Good Sprint 27 slip-in.
+
+**Status:** Logged 2026-04-19 after 4.1.16.44 release surfaced it.
+
 ### FEATURE: Ctrl+F commit speaks band-segment context (2026-04-19 design, Noel — Sprint 27 target)
 
 **Gap:** when the Ctrl+F frequency entry dialog commits, the app announces the new frequency but does not speak which portion of the band the operator just landed in (e.g., "20-meter CW segment," "40-meter phone," "80-meter DX window"). A sighted operator can glance at the band plan; a screen-reader or braille operator has no cue.
