@@ -2554,9 +2554,27 @@ namespace Radios
         /// </summary>
         public event Action? GuiClientChanged;
 
+        /// <summary>
+        /// Snapshot of each remote client's identity at the moment we first
+        /// observed it (via <see cref="guiClientAdded"/>) or when its name
+        /// changed (via <see cref="guiClientUpdated"/>). Used to resolve
+        /// BUG-062 Symptom 6 (R2 decision 2026-04-20): FlexLib's
+        /// <c>parseGuiClientStatus</c> mutates <c>GUIClient.Station</c> and
+        /// <c>GUIClient.Program</c> before firing <c>OnGUIClientRemoved</c>,
+        /// so the payload our remove handler sees can be blanked. We read
+        /// from this snapshot for announcements so the correct callsign is
+        /// spoken regardless of what FlexLib blanked upstream.
+        /// </summary>
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<uint, (string Station, string Program)> _clientIdentitySnapshots = new();
+
         private void guiClientAdded(GUIClient client)
         {
             if (client == null) return;
+
+            // Snapshot identity early — before any FlexLib-side mutations can blank it.
+            // Also covers the case where another client's Station is empty at add time;
+            // guiClientUpdated will refresh the snapshot when the Station populates.
+            _clientIdentitySnapshots[client.ClientHandle] = (client.Station ?? "", client.Program ?? "");
 
             if (client.IsThisClient)
             {
@@ -2695,6 +2713,14 @@ namespace Radios
         {
             if (client == null) return;
 
+            // Refresh the identity snapshot — Station/Program may have populated
+            // or changed since the initial add. Used by the remove-path announcement
+            // per BUG-062 Symptom 6 (R2 snapshot-at-subscribe).
+            if (!string.IsNullOrEmpty(client.Station) || !string.IsNullOrEmpty(client.Program))
+            {
+                _clientIdentitySnapshots[client.ClientHandle] = (client.Station ?? "", client.Program ?? "");
+            }
+
             Tracing.TraceLine("guiClientUpdated:" +
                 "id:" + client.ClientID +
                 " my client:" + client.IsThisClient.ToString() +
@@ -2727,15 +2753,32 @@ namespace Radios
                 Tracing.TraceLine("guiClientRemoved:my client", TraceLevel.Info);
             }
 
-            // Notify when another client disconnects
+            // Notify when another client disconnects.
+            //
+            // BUG-062 Symptom 6 fix (R2 snapshot-at-subscribe, 2026-04-20): the
+            // `client` payload FlexLib hands us here may have been blanked by
+            // parseGuiClientStatus before OnGUIClientRemoved fired, so we prefer
+            // the snapshot captured at add/update time. We still fall back to
+            // the event payload as a last resort (in case the snapshot was
+            // never populated — e.g., a client that added and removed within
+            // the same message).
             if (!myClient(client.ClientHandle))
             {
-                string who = !string.IsNullOrEmpty(client.Station) ? client.Station
+                _clientIdentitySnapshots.TryGetValue(client.ClientHandle, out var snapshot);
+                string snapStation = snapshot.Station ?? "";
+                string snapProgram = snapshot.Program ?? "";
+
+                string who = !string.IsNullOrEmpty(snapStation) ? snapStation
+                    : !string.IsNullOrEmpty(snapProgram) ? snapProgram
+                    : !string.IsNullOrEmpty(client.Station) ? client.Station
                     : !string.IsNullOrEmpty(client.Program) ? client.Program
                     : "A client";
                 ScreenReaderOutput.Speak($"{who} disconnected", VerbosityLevel.Terse);
                 ScreenReaderOutput.PlayClientDisconnectedEarcon?.Invoke();
             }
+
+            // Remove the snapshot — the client is gone.
+            _clientIdentitySnapshots.TryRemove(client.ClientHandle, out _);
 
             Tracing.TraceLine("guiClientRemoved:" +
                 "id:" + client.ClientID +
