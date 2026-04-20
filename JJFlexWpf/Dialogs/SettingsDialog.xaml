@@ -375,6 +375,24 @@
                                 AutomationProperties.AcceleratorKey="Alt+S"
                                 Click="TestPortButton_Click"/>
                     </StackPanel>
+
+                    <!-- Sprint 27 Track C: full NetworkTest probe via SmartLink backend. Distinct from Te_st port above, which is local-only validation. -->
+                    <Separator Margin="0,16,0,8"/>
+                    <TextBlock Text="Network Diagnostic" FontWeight="SemiBold"
+                               Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
+                    <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
+                               Text="Asks Flex's SmartLink backend to probe your network from outside, then reports whether UPnP and manual port forwarding are reachable from the internet, and whether your NAT preserves source ports (the signal that decides whether hole-punch / Tier 3 can work). Requires an active radio connection and an authenticated SmartLink session. Results are cached for 5 minutes."/>
+
+                    <TextBlock x:Name="NetworkDiagnosticResultText"
+                               Style="{StaticResource DialogLabel}" Margin="0,0,0,8"
+                               AutomationProperties.LiveSetting="Polite"
+                               TextWrapping="Wrap"/>
+
+                    <Button Content="Test _network"
+                            Width="180" HorizontalAlignment="Left"
+                            AutomationProperties.Name="Run a fresh SmartLink network diagnostic probe against the connected radio"
+                            AutomationProperties.AcceleratorKey="Alt+N"
+                            Click="TestNetworkButton_Click"/>
                 </StackPanel>
             </TabItem>
 

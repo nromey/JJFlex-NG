@@ -330,6 +330,60 @@ namespace Radios
         /// change is actually needed, to avoid spurious radio commands on every
         /// reconnect.</para>
         /// </summary>
+        /// <summary>
+        /// Sprint 27 Track C / Phase C.3 — user-facing entry point for the
+        /// "Test network" button in Settings. Runs a NetworkTest probe
+        /// against the currently-connected radio via the active session's
+        /// runner. Returns null if no session is active or no radio is
+        /// connected (UI should display "no radio connected" in that case,
+        /// same pattern as Apply/TestPort buttons). <paramref name="forceRefresh"/>
+        /// true bypasses the runner's cache so the user always gets fresh data
+        /// when they click the button.
+        /// </summary>
+        public async System.Threading.Tasks.Task<Radios.SmartLink.NetworkDiagnosticReport?> RunNetworkDiagnosticAsync(bool forceRefresh = true)
+        {
+            var session = Radios.SmartLink.SmartLinkServices.Coordinator.ActiveSession;
+            if (session == null || theRadio == null)
+            {
+                Tracing.TraceLine("RunNetworkDiagnosticAsync: no session or no radio; skipping", TraceLevel.Warning);
+                return null;
+            }
+            return await session.RunNetworkDiagnosticAsync(theRadio.Serial, forceRefresh).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Sprint 27 Track C / Phase C.3 — fire-and-forget post-connect
+        /// NetworkTest invocation. The session's NetworkTestRunner caches
+        /// the result so a subsequent Settings "Test network" click or a
+        /// post-disconnect heuristic sees the warm report instead of
+        /// probing again. Any probe failure is swallowed here (logged only);
+        /// UI consumers get the report via the runner's cache + event.
+        /// </summary>
+        private static void KickPostConnectNetworkTest(string serial)
+        {
+            var session = Radios.SmartLink.SmartLinkServices.Coordinator.ActiveSession;
+            if (session == null)
+            {
+                Tracing.TraceLine("KickPostConnectNetworkTest: no active session; skipping", TraceLevel.Info);
+                return;
+            }
+
+            _ = System.Threading.Tasks.Task.Run(async () =>
+            {
+                try
+                {
+                    var report = await session.RunNetworkDiagnosticAsync(serial).ConfigureAwait(false);
+                    Tracing.TraceLine(
+                        $"KickPostConnectNetworkTest: serial={serial} completed={report.ProbeCompleted} upnpTcp={report.UpnpTcpReachable} upnpUdp={report.UpnpUdpReachable} fwdTcp={report.ManualForwardTcpReachable} fwdUdp={report.ManualForwardUdpReachable} holePunch={report.NatSupportsHolePunch}",
+                        TraceLevel.Info);
+                }
+                catch (Exception ex)
+                {
+                    Tracing.TraceLine($"KickPostConnectNetworkTest: threw {ex.Message}", TraceLevel.Warning);
+                }
+            });
+        }
+
         private void ApplyAccountPortPreferenceIfAny()
         {
             if (_currentAccount == null)
@@ -488,6 +542,12 @@ namespace Radios
                     // account has no preference, the radio's firmware already
                     // matches, or no account is bound to the session.
                     ApplyAccountPortPreferenceIfAny();
+
+                    // Sprint 27 Track C / Phase C.3 — kick a NetworkTest in
+                    // the background so the diagnostic report is warm by the
+                    // time the user opens Settings or hits a problem. Fire-
+                    // and-forget; the session's runner caches the result.
+                    KickPostConnectNetworkTest(theRadio.Serial);
                 }
                 else
                 {

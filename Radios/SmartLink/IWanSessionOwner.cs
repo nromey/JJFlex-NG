@@ -125,6 +125,34 @@ namespace Radios.SmartLink
         /// re-enter Connecting. Used by UI "Reconnect" button.
         /// </summary>
         void Reset();
+
+        /// <summary>
+        /// Sprint 27 Track C — run (or retrieve a cached) SmartLink
+        /// NetworkTest probe for <paramref name="radioSerial"/>. Non-blocking;
+        /// Task completes with the <see cref="NetworkDiagnosticReport"/> when
+        /// SmartLink responds or the timeout fires (whichever is first).
+        /// See <see cref="NetworkTestRunner"/> for caching/dedup semantics.
+        /// </summary>
+        System.Threading.Tasks.Task<NetworkDiagnosticReport> RunNetworkDiagnosticAsync(
+            string radioSerial,
+            bool forceRefresh = false,
+            TimeSpan? timeout = null,
+            System.Threading.CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Sprint 27 Track C — most recently cached NetworkTest report for
+        /// the serial, or null if none. Bypasses TTL so UIs can display
+        /// "last tested N minutes ago" without forcing a fresh probe.
+        /// </summary>
+        NetworkDiagnosticReport? GetLastNetworkReport(string radioSerial);
+
+        /// <summary>
+        /// Sprint 27 Track C — fires on the SmartLink listener thread
+        /// whenever a NetworkTest probe completes (fresh or late). UI
+        /// consumers must marshal to the dispatcher thread before touching
+        /// controls.
+        /// </summary>
+        event EventHandler<NetworkDiagnosticReport>? NetworkReportReady;
     }
 
     /// <summary>Event payload for signal-strength threshold crossings.</summary>

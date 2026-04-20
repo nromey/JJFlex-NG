@@ -434,6 +434,67 @@ namespace JJFlexWpf.Dialogs
             ScreenReaderOutput.Speak($"Port {port} is valid.", VerbosityLevel.Terse, interrupt: true);
         }
 
+        /// <summary>
+        /// Sprint 27 Track C / Phase C.3 — run a SmartLink NetworkTest probe
+        /// against the connected radio via the active session's runner. Full
+        /// probe, not local validation (that's Te_st port above). Announces a
+        /// one-line summary to the diagnostic live region and speaks it.
+        /// Full report (with ToMarkdown + copy/save) lands in Track D.
+        /// </summary>
+        private async void TestNetworkButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (_rig == null || !_rig.IsConnected)
+            {
+                NetworkDiagnosticResultText.Text = "No radio connected. Connect to a radio first.";
+                ScreenReaderOutput.Speak("No radio connected.", VerbosityLevel.Terse, interrupt: true);
+                return;
+            }
+
+            NetworkDiagnosticResultText.Text = "Probing SmartLink. Waiting for results — this usually takes a few seconds.";
+            ScreenReaderOutput.Speak("Probing network.", VerbosityLevel.Terse, interrupt: true);
+
+            Radios.SmartLink.NetworkDiagnosticReport? report;
+            try
+            {
+                report = await _rig.RunNetworkDiagnosticAsync(forceRefresh: true);
+            }
+            catch (Exception ex)
+            {
+                NetworkDiagnosticResultText.Text = $"Probe failed: {ex.Message}";
+                ScreenReaderOutput.Speak("Probe failed.", VerbosityLevel.Terse, interrupt: true);
+                return;
+            }
+
+            if (report == null)
+            {
+                NetworkDiagnosticResultText.Text = "No active SmartLink session. Connect via SmartLink first.";
+                ScreenReaderOutput.Speak("No SmartLink session.", VerbosityLevel.Terse, interrupt: true);
+                return;
+            }
+
+            if (!report.ProbeCompleted)
+            {
+                NetworkDiagnosticResultText.Text = $"Probe did not complete: {report.ErrorDetail}";
+                ScreenReaderOutput.Speak("Probe did not complete.", VerbosityLevel.Terse, interrupt: true);
+                return;
+            }
+
+            // One-line summary for the dialog; Track D surfaces the full
+            // markdown report with copy-to-clipboard + save-to-file.
+            string summary = BuildNetworkDiagnosticSummary(report);
+            NetworkDiagnosticResultText.Text = summary;
+            ScreenReaderOutput.Speak(summary, VerbosityLevel.Terse, interrupt: true);
+        }
+
+        private static string BuildNetworkDiagnosticSummary(Radios.SmartLink.NetworkDiagnosticReport r)
+        {
+            string Yn(bool? v) => v switch { true => "yes", false => "no", null => "unknown" };
+            return
+                $"UPnP TCP {Yn(r.UpnpTcpReachable)}, UPnP UDP {Yn(r.UpnpUdpReachable)}, " +
+                $"manual TCP {Yn(r.ManualForwardTcpReachable)}, manual UDP {Yn(r.ManualForwardUdpReachable)}, " +
+                $"hole-punch support {Yn(r.NatSupportsHolePunch)}.";
+        }
+
         // Typing sound combo order: always-available audio modes first, then any
         // unlocked easter-egg modes, then "Off" pinned at the end. "Off" lives at
         // the bottom of the list independent of how many easter eggs are unlocked

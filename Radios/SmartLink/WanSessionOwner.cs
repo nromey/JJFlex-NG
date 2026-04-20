@@ -39,6 +39,7 @@ namespace Radios.SmartLink
 
         private readonly IWanServer _wan;
         private readonly ISessionAudioSink _audioSink;
+        private readonly NetworkTestRunner _networkTestRunner;
         private readonly string _tracePrefix;
         private readonly Thread _monitorThread;
         private readonly AutoResetEvent _wakeEvent = new(initialState: false);
@@ -68,6 +69,7 @@ namespace Radios.SmartLink
 
         public event EventHandler<SessionStatus>? StatusChanged;
         public event EventHandler<SignalThresholdEventArgs>? SignalThresholdCrossed;
+        public event EventHandler<NetworkDiagnosticReport>? NetworkReportReady;
 
         public WanSessionOwner(
             string sessionId,
@@ -90,6 +92,12 @@ namespace Radios.SmartLink
             _wan.WanRadioRadioListReceived += OnWanRadioListReceived;
             _wan.WanRadioConnectReady += OnWanRadioConnectReady;
             _wan.WanApplicationRegistrationInvalid += OnWanApplicationRegistrationInvalid;
+
+            // Sprint 27 Track C — session owns its NetworkTest runner so the
+            // cache is shared across all invocation points (post-connect,
+            // on-demand Settings button, future post-disconnect heuristic).
+            _networkTestRunner = new NetworkTestRunner(_wan);
+            _networkTestRunner.ReportReady += OnNetworkReportReady;
 
             _monitorThread = new Thread(MonitorLoop)
             {
@@ -175,6 +183,25 @@ namespace Radios.SmartLink
             }
             Tracing.TraceLine($"{_tracePrefix} ReRegister program={programName}", TraceLevel.Info);
             _wan.SendRegisterApplicationMessageToServer(programName, platform, jwt);
+        }
+
+        public Task<NetworkDiagnosticReport> RunNetworkDiagnosticAsync(
+            string radioSerial,
+            bool forceRefresh = false,
+            TimeSpan? timeout = null,
+            CancellationToken cancellationToken = default)
+        {
+            return _networkTestRunner.RunAsync(radioSerial, forceRefresh, timeout, cancellationToken);
+        }
+
+        public NetworkDiagnosticReport? GetLastNetworkReport(string radioSerial)
+        {
+            return _networkTestRunner.GetLastReport(radioSerial);
+        }
+
+        private void OnNetworkReportReady(object? sender, NetworkDiagnosticReport report)
+        {
+            NetworkReportReady?.Invoke(this, report);
         }
 
         public async Task<string?> ConnectToRadio(string serial, CancellationToken cancellationToken = default)
@@ -455,6 +482,8 @@ namespace Radios.SmartLink
             _wan.WanRadioRadioListReceived -= OnWanRadioListReceived;
             _wan.WanRadioConnectReady -= OnWanRadioConnectReady;
             _wan.WanApplicationRegistrationInvalid -= OnWanApplicationRegistrationInvalid;
+            _networkTestRunner.ReportReady -= OnNetworkReportReady;
+            _networkTestRunner.Dispose();
 
             if (_wan is IDisposable wanDisposable) wanDisposable.Dispose();
             _audioSink.Dispose();
