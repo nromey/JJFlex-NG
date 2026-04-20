@@ -91,14 +91,14 @@ namespace Radios.SmartLink
             }
         }
 
-        public void SendConnectMessageToRadio(string serial, int flags)
+        public void SendConnectMessageToRadio(string serial, int holePunchPort)
         {
             Tracing.TraceLine(
-                $"{_tracePrefix}WanServerAdapter.SendConnectMessageToRadio serial={serial} flags={flags}",
+                $"{_tracePrefix}WanServerAdapter.SendConnectMessageToRadio serial={serial} holePunchPort={holePunchPort}",
                 TraceLevel.Info);
             lock (_gate)
             {
-                _wan.SendConnectMessageToRadio(serial, flags);
+                _wan.SendConnectMessageToRadio(serial, holePunchPort);
             }
         }
 

@@ -101,10 +101,13 @@ namespace Radios.Tests
             SendRegisterCallCount++;
         }
 
-        public void SendConnectMessageToRadio(string serial, int flags)
+        public int LastSendConnectHolePunchPort { get; private set; }
+
+        public void SendConnectMessageToRadio(string serial, int holePunchPort)
         {
             SendConnectMessageCallCount++;
             LastSendConnectSerial = serial;
+            LastSendConnectHolePunchPort = holePunchPort;
         }
 
         public int SendTestConnectionCallCount { get; private set; }

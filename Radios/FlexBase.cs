@@ -1946,10 +1946,24 @@ namespace Radios
                 return false;
             }
 
+            // Sprint 27 Track F — compute the hole-punch port from the active
+            // account's ConnectionMode. Tier 3 (AutomaticHolePunch) passes the
+            // configured listen port so SmartLink coordinates a UDP hole-punch
+            // between radio and client. Tier 1 / Tier 2 pass 0 (no hole-punch
+            // requested; the route is via manual forward or UPnP mapping).
+            int holePunchPort = 0;
+            if (_currentAccount != null
+                && _currentAccount.ConnectionMode == SmartLinkConnectionMode.AutomaticHolePunch
+                && _currentAccount.ConfiguredListenPort.HasValue)
+            {
+                holePunchPort = _currentAccount.ConfiguredListenPort.Value;
+                Tracing.TraceLine($"sendRemoteConnect: Tier 3 mode — advertising holePunchPort={holePunchPort}", TraceLevel.Info);
+            }
+
             // session.ConnectToRadio returns Task<string?>: handle on success, null on timeout/failure.
             // We block synchronously to preserve the existing caller contract; the session owner's
             // internal TCS does the actual awaiting off-thread.
-            var task = session.ConnectToRadio(r.Serial);
+            var task = session.ConnectToRadio(r.Serial, holePunchPort);
             if (!task.Wait(5000))
             {
                 Tracing.TraceLine("sendRemoteConnect:Radio not ready for connect (timeout).", TraceLevel.Error);

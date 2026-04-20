@@ -55,11 +55,17 @@ namespace Radios.SmartLink
         /// Response arrives via <see cref="WanRadioConnectReady"/>.
         /// </summary>
         /// <param name="serial">Radio serial number.</param>
-        /// <param name="flags">
-        /// Connection flags passed through to the SmartLink protocol. Historical
-        /// call sites have always passed 0; kept on the interface for future use.
+        /// <param name="holePunchPort">
+        /// Sprint 27 Track F — the port number the client advertises to
+        /// SmartLink for UDP hole-punch coordination. Pass 0 for Tier 1
+        /// (manual forwarding) and Tier 2 (UPnP) — both paths don't need
+        /// hole-punch. Pass the account's configured listen port for Tier 3
+        /// (AutomaticHolePunch) so Flex's SmartLink server can coordinate a
+        /// UDP hole-punch between radio and client. (Parameter was historically
+        /// called <c>flags</c> with a 0-only call convention; Track F
+        /// discovered it was always the hole-punch port.)
         /// </param>
-        void SendConnectMessageToRadio(string serial, int flags);
+        void SendConnectMessageToRadio(string serial, int holePunchPort);
 
         /// <summary>
         /// Fires when SmartLink has brokered a radio connection and returned

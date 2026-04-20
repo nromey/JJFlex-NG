@@ -204,7 +204,7 @@ namespace Radios.SmartLink
             NetworkReportReady?.Invoke(this, report);
         }
 
-        public async Task<string?> ConnectToRadio(string serial, CancellationToken cancellationToken = default)
+        public async Task<string?> ConnectToRadio(string serial, int holePunchPort = 0, CancellationToken cancellationToken = default)
         {
             if (!IsConnected)
             {
@@ -227,7 +227,7 @@ namespace Radios.SmartLink
                 _pendingRadioSerial = serial;
             }
 
-            Tracing.TraceLine($"{_tracePrefix} ConnectToRadio serial={serial}", TraceLevel.Info);
+            Tracing.TraceLine($"{_tracePrefix} ConnectToRadio serial={serial} holePunchPort={holePunchPort}", TraceLevel.Info);
 
             using var ctr = cancellationToken.Register(() =>
             {
@@ -239,7 +239,7 @@ namespace Radios.SmartLink
 
             try
             {
-                _wan.SendConnectMessageToRadio(serial, 0);
+                _wan.SendConnectMessageToRadio(serial, holePunchPort);
             }
             catch (Exception ex)
             {

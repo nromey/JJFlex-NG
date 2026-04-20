@@ -113,12 +113,21 @@ namespace Radios.SmartLink
         /// Broker a connection to a specific radio via SmartLink. Awaits the
         /// <see cref="IWanServer.WanRadioConnectReady"/> response.
         /// </summary>
+        /// <param name="serial">Radio serial to connect to.</param>
+        /// <param name="holePunchPort">
+        /// Sprint 27 Track F — port to advertise for hole-punch coordination.
+        /// 0 = don't request hole-punch (Tier 1 / Tier 2 paths). Non-zero =
+        /// request Tier 3 UDP hole-punch on this port. See
+        /// <see cref="IWanServer.SendConnectMessageToRadio"/> for the mapping
+        /// from account <c>ConnectionMode</c> to this value.
+        /// </param>
+        /// <param name="cancellationToken">Cancellation for the await.</param>
         /// <returns>
         /// The WAN connection handle on success (the <c>handle</c> value from the
         /// broker's response, which the caller assigns to <c>Radio.WANConnectionHandle</c>),
         /// or null on timeout/cancellation/failure.
         /// </returns>
-        System.Threading.Tasks.Task<string?> ConnectToRadio(string serial, System.Threading.CancellationToken cancellationToken = default);
+        System.Threading.Tasks.Task<string?> ConnectToRadio(string serial, int holePunchPort = 0, System.Threading.CancellationToken cancellationToken = default);
 
         /// <summary>
         /// Force a full reset: clear state, tear down the IWanServer, and
