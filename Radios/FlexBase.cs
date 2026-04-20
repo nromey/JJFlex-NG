@@ -286,28 +286,31 @@ namespace Radios
         public string CurrentSmartLinkAccountEmail => _currentAccount?.Email ?? string.Empty;
 
         /// <summary>
-        /// Sprint 27 Track B. Current account's UPnP opt-in state, or null if
-        /// no SmartLink account is bound. UI gates its Tier 2 checkbox on this.
+        /// Sprint 27 Track F. Current account's SmartLink connection mode, or
+        /// null if no SmartLink account is bound. UI gates its mode selector
+        /// on this being non-null; individual tier options enable/disable
+        /// based on the enum value.
         /// </summary>
-        public bool? CurrentAccountUPnPEnabled => _currentAccount?.UPnPEnabled;
+        public SmartLinkConnectionMode? CurrentAccountConnectionMode => _currentAccount?.ConnectionMode;
 
         /// <summary>
-        /// Sprint 27 Track B / Phase B.2 — persists the Tier 2 UPnP opt-in
-        /// state on the account currently bound to this connection. Saves to
-        /// disk. Returns false when no account is bound. Note: this sets only
-        /// the preference; actual UPnP mapping happens on next session
-        /// connect (see the Track B.3 hook in FlexBase.Connect).
+        /// Sprint 27 Track F — persists the SmartLink connection mode on the
+        /// account currently bound to this connection. Saves to disk. Returns
+        /// false when no account is bound. Note: this sets only the preference;
+        /// actual UPnP / hole-punch behavior is applied on the next session
+        /// connect (see the Track B.3 and F.2 hooks in FlexBase.Connect /
+        /// sendRemoteConnect).
         /// </summary>
-        public bool SaveCurrentAccountUPnPEnabled(bool enabled)
+        public bool SaveCurrentAccountConnectionMode(SmartLinkConnectionMode mode)
         {
             if (_currentAccount == null)
             {
-                Tracing.TraceLine("SaveCurrentAccountUPnPEnabled: no current account; skipping", TraceLevel.Warning);
+                Tracing.TraceLine("SaveCurrentAccountConnectionMode: no current account; skipping", TraceLevel.Warning);
                 return false;
             }
-            _currentAccount.UPnPEnabled = enabled;
+            _currentAccount.ConnectionMode = mode;
             AccountManager.SaveAccounts();
-            Tracing.TraceLine($"SaveCurrentAccountUPnPEnabled: saved enabled={enabled} for account={_currentAccount.Email}", TraceLevel.Info);
+            Tracing.TraceLine($"SaveCurrentAccountConnectionMode: saved mode={mode} for account={_currentAccount.Email}", TraceLevel.Info);
             return true;
         }
 
@@ -432,9 +435,9 @@ namespace Radios
         /// </summary>
         private void ApplyAccountUPnPPreferenceIfAny()
         {
-            if (_currentAccount == null || !_currentAccount.UPnPEnabled)
+            if (_currentAccount == null || _currentAccount.ConnectionMode < SmartLinkConnectionMode.ManualPlusUpnp)
             {
-                Tracing.TraceLine("ApplyAccountUPnPPreferenceIfAny: UPnP not enabled for this account", TraceLevel.Info);
+                Tracing.TraceLine("ApplyAccountUPnPPreferenceIfAny: UPnP tier not selected for this account", TraceLevel.Info);
                 return;
             }
             if (_currentAccount.ConfiguredListenPort == null)

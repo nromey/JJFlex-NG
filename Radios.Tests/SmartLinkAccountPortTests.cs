@@ -144,37 +144,56 @@ namespace Radios.Tests
             Assert.Null(mgr.GetConfiguredPort("unknown@example.com"));
         }
 
-        // --- Sprint 27 Track B Phase B.2 — UPnP opt-in persistence ---
+        // --- Sprint 27 Track F Phase F.0 — ConnectionMode enum persistence
+        //     (replaces Track B.2's UPnPEnabled bool — same coverage shape) ---
 
         [Fact]
-        public void SmartLinkAccount_DefaultsToUPnPDisabled()
+        public void SmartLinkAccount_DefaultsToManualPortForwardOnly()
         {
             var a = new SmartLinkAccount();
-            Assert.False(a.UPnPEnabled);
+            Assert.Equal(SmartLinkConnectionMode.ManualPortForwardOnly, a.ConnectionMode);
         }
 
         [Fact]
-        public void StoredAccount_Serialization_PreservesUPnPEnabled()
+        public void StoredAccount_Serialization_PreservesConnectionMode()
         {
             var src = new SmartLinkAccount
             {
                 FriendlyName = "Home",
                 Email = "test@example.com",
-                UPnPEnabled = true
+                ConnectionMode = SmartLinkConnectionMode.AutomaticHolePunch
             };
             var stored = SmartLinkAccountManager.StoredAccount.FromSmartLinkAccount(src);
             var json = JsonSerializer.Serialize(stored);
             var restored = JsonSerializer.Deserialize<SmartLinkAccountManager.StoredAccount>(json)!;
             var final = restored.ToSmartLinkAccount();
-            Assert.True(final.UPnPEnabled);
+            Assert.Equal(SmartLinkConnectionMode.AutomaticHolePunch, final.ConnectionMode);
         }
 
         [Fact]
-        public void StoredAccount_Deserialization_OldFormatDefaultsUPnPToFalse()
+        public void StoredAccount_Serialization_UsesStringNameForReadability()
         {
-            // Pre-Sprint-27-Track-B JSON has no upnpEnabled field. Load must
-            // default to false — Tier 2 is opt-in, so legacy accounts get zero
-            // behavior change until the user explicitly enables.
+            var src = new SmartLinkAccount
+            {
+                FriendlyName = "Home",
+                Email = "test@example.com",
+                ConnectionMode = SmartLinkConnectionMode.ManualPlusUpnp
+            };
+            var stored = SmartLinkAccountManager.StoredAccount.FromSmartLinkAccount(src);
+            var json = JsonSerializer.Serialize(stored);
+            // JSON must carry the readable name, not the numeric ordinal. Makes
+            // SmartLinkAccounts.json human-inspectable and diff-friendly when
+            // users report issues.
+            Assert.Contains("\"ManualPlusUpnp\"", json);
+            Assert.DoesNotContain("\"connectionMode\":1", json);
+        }
+
+        [Fact]
+        public void StoredAccount_Deserialization_OldFormatDefaultsToManual()
+        {
+            // Pre-Sprint-27-Track-F JSON has no connectionMode field. Load must
+            // default to ManualPortForwardOnly — Tiers 2 and 3 are opt-in; legacy
+            // accounts get zero behavior change until the user explicitly picks.
             const string oldJson = @"{
                 ""friendlyName"": ""Legacy"",
                 ""email"": ""old@example.com"",
@@ -185,21 +204,34 @@ namespace Radios.Tests
             }";
             var restored = JsonSerializer.Deserialize<SmartLinkAccountManager.StoredAccount>(oldJson)!;
             var final = restored.ToSmartLinkAccount();
-            Assert.False(final.UPnPEnabled);
+            Assert.Equal(SmartLinkConnectionMode.ManualPortForwardOnly, final.ConnectionMode);
         }
 
         [Fact]
-        public void GetUPnPEnabled_ReturnsFalseForUnknownAccount()
+        public void GetConnectionMode_ReturnsManualForUnknownAccount()
         {
             var mgr = new SmartLinkAccountManager();
-            Assert.False(mgr.GetUPnPEnabled("unknown@example.com"));
+            Assert.Equal(SmartLinkConnectionMode.ManualPortForwardOnly,
+                mgr.GetConnectionMode("unknown@example.com"));
         }
 
         [Fact]
-        public void SetUPnPEnabled_ReturnsFalseForUnknownAccount()
+        public void SetConnectionMode_ReturnsFalseForUnknownAccount()
         {
             var mgr = new SmartLinkAccountManager();
-            Assert.False(mgr.SetUPnPEnabled("unknown@example.com", true));
+            Assert.False(mgr.SetConnectionMode("unknown@example.com", SmartLinkConnectionMode.AutomaticHolePunch));
+        }
+
+        [Fact]
+        public void ConnectionMode_EnumOrdinalsSupportTierComparison()
+        {
+            // FlexBase gates UPnP on ConnectionMode >= ManualPlusUpnp and Tier 3
+            // on ConnectionMode >= AutomaticHolePunch. Those comparisons rely on
+            // the enum ordinals being monotonic — this test pins them so a
+            // future reordering of enum members doesn't silently break the tier
+            // cascade.
+            Assert.True(SmartLinkConnectionMode.ManualPortForwardOnly < SmartLinkConnectionMode.ManualPlusUpnp);
+            Assert.True(SmartLinkConnectionMode.ManualPlusUpnp < SmartLinkConnectionMode.AutomaticHolePunch);
         }
     }
 }

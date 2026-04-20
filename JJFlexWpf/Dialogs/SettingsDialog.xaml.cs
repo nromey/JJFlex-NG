@@ -299,11 +299,15 @@ namespace JJFlexWpf.Dialogs
                     : $"Radio currently listens on port {tcp} (TCP and UDP).")
                 : "Radio currently uses UPnP or hole-punch (no manual forwarding).";
 
-            // Sprint 27 Track B — UPnP checkbox reflects the account preference,
-            // not the radio's firmware state. Null / no-account → unchecked + disabled.
+            // Sprint 27 Track F — UPnP checkbox reflects whether account's
+            // ConnectionMode includes UPnP (ManualPlusUpnp or AutomaticHolePunch).
+            // F.1 will replace this checkbox with a 3-option radio group; for
+            // F.0 we keep the checkbox and map it to a boolean slice of the
+            // enum. ConnectionMode = null (no account) -> unchecked + disabled.
             if (UPnPEnabledCheck != null)
             {
-                UPnPEnabledCheck.IsChecked = _rig.CurrentAccountUPnPEnabled ?? false;
+                var mode = _rig.CurrentAccountConnectionMode ?? SmartLinkConnectionMode.ManualPortForwardOnly;
+                UPnPEnabledCheck.IsChecked = mode >= SmartLinkConnectionMode.ManualPlusUpnp;
             }
             RecomputeUPnPCheckboxEnablement();
         }
@@ -414,11 +418,16 @@ namespace JJFlexWpf.Dialogs
                     int? preference = enabled ? (int?)tcp : null;
                     savedPreference = _rig.SaveCurrentAccountListenPort(preference);
 
-                    // Sprint 27 Track B / Phase B.2 — also persist Tier 2 UPnP opt-in.
-                    // When Tier 1 is disabled (enabled=false), UPnP is meaningless;
-                    // force the saved preference to false regardless of checkbox state.
-                    bool upnpPref = enabled && UPnPEnabledCheck?.IsChecked == true;
-                    _rig.SaveCurrentAccountUPnPEnabled(upnpPref);
+                    // Sprint 27 Track F / Phase F.0 — also persist ConnectionMode.
+                    // F.0 keeps the B.2 checkbox UI; mode is computed from it:
+                    // Tier 1 off -> ManualPortForwardOnly (UPnP meaningless without port)
+                    // Tier 1 on + UPnP off -> ManualPortForwardOnly
+                    // Tier 1 on + UPnP on -> ManualPlusUpnp
+                    // (AutomaticHolePunch / Tier 3 is only reachable via F.1's radio group.)
+                    var desiredMode = (enabled && UPnPEnabledCheck?.IsChecked == true)
+                        ? SmartLinkConnectionMode.ManualPlusUpnp
+                        : SmartLinkConnectionMode.ManualPortForwardOnly;
+                    _rig.SaveCurrentAccountConnectionMode(desiredMode);
                 }
 
                 string baseMessage = enabled

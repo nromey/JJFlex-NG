@@ -14,6 +14,26 @@ using JJTrace;
 namespace Radios
 {
     /// <summary>
+    /// Sprint 27 Track F — SmartLink connection mode per account. Three
+    /// cumulative tiers: Tier 1 alone (sovereign, recommended default),
+    /// Tier 1 + 2 (UPnP convenience), Tier 1 + 2 + 3 (Flex-coordinated UDP
+    /// hole-punch for restrictive NATs). Each higher tier includes the
+    /// lower tiers' behaviors. Cast to <c>int</c> produces an ordinal usable
+    /// for 'mode ≥ ManualPlusUpnp' checks.
+    /// </summary>
+    public enum SmartLinkConnectionMode
+    {
+        /// <summary>Tier 1. Manual router port-forwarding only. No UPnP, no hole-punch. Default.</summary>
+        ManualPortForwardOnly = 0,
+
+        /// <summary>Tier 1 + 2. UPnP attempts to open the configured port automatically. No hole-punch.</summary>
+        ManualPlusUpnp = 1,
+
+        /// <summary>Tier 1 + 2 + 3. Flex's SmartLink coordinates UDP hole-punch for restrictive NATs. Fallback to Tier 2 then Tier 1 on failure.</summary>
+        AutomaticHolePunch = 2,
+    }
+
+    /// <summary>
     /// Manages saved SmartLink accounts with secure token storage using Windows DPAPI.
     /// Tokens are encrypted per-user and cannot be decrypted on other machines.
     /// </summary>
@@ -373,25 +393,25 @@ namespace Radios
         }
 
         /// <summary>
-        /// Sprint 27 Track B / Tier 2. Returns whether UPnP automatic port
-        /// mapping is enabled for the given account, or false when the email
-        /// is unknown. In-memory read; does not touch disk.
+        /// Sprint 27 Track F. Returns the SmartLink connection mode for the
+        /// given account, or <see cref="SmartLinkConnectionMode.ManualPortForwardOnly"/>
+        /// when the email is unknown. In-memory read; does not touch disk.
         /// </summary>
-        public bool GetUPnPEnabled(string email)
+        public SmartLinkConnectionMode GetConnectionMode(string email)
         {
-            return GetAccountByEmail(email)?.UPnPEnabled ?? false;
+            return GetAccountByEmail(email)?.ConnectionMode ?? SmartLinkConnectionMode.ManualPortForwardOnly;
         }
 
         /// <summary>
-        /// Sprint 27 Track B / Tier 2. Persists the UPnP opt-in state for the
+        /// Sprint 27 Track F. Persists the SmartLink connection mode for the
         /// given account. Returns false if the email is unknown. Saves to
         /// disk on success.
         /// </summary>
-        public bool SetUPnPEnabled(string email, bool enabled)
+        public bool SetConnectionMode(string email, SmartLinkConnectionMode mode)
         {
             var account = GetAccountByEmail(email);
             if (account == null) return false;
-            account.UPnPEnabled = enabled;
+            account.ConnectionMode = mode;
             SaveAccounts();
             return true;
         }
@@ -459,10 +479,13 @@ namespace Radios
             [JsonPropertyName("configuredListenPort")]
             public int? ConfiguredListenPort { get; set; }
 
-            // Sprint 27 Track B. Plain bool defaults to false when absent from
-            // JSON, which is the correct Tier 2 default (off) for legacy files.
-            [JsonPropertyName("upnpEnabled")]
-            public bool UPnPEnabled { get; set; }
+            // Sprint 27 Track F. Serialized as the enum's string name (e.g.
+            // "ManualPortForwardOnly") for readability in the on-disk JSON.
+            // Absent field = enum default (ManualPortForwardOnly). Satisfies
+            // the same NG-8 backward-compat guarantee as ConfiguredListenPort.
+            [JsonPropertyName("connectionMode")]
+            [JsonConverter(typeof(JsonStringEnumConverter))]
+            public SmartLinkConnectionMode ConnectionMode { get; set; }
 
             public static StoredAccount FromSmartLinkAccount(SmartLinkAccount account)
             {
@@ -475,7 +498,7 @@ namespace Radios
                     ExpiresAt = account.ExpiresAt,
                     LastUsed = account.LastUsed,
                     ConfiguredListenPort = account.ConfiguredListenPort,
-                    UPnPEnabled = account.UPnPEnabled
+                    ConnectionMode = account.ConnectionMode
                 };
             }
 
@@ -490,7 +513,7 @@ namespace Radios
                     ExpiresAt = ExpiresAt,
                     LastUsed = LastUsed,
                     ConfiguredListenPort = ConfiguredListenPort,
-                    UPnPEnabled = UPnPEnabled
+                    ConnectionMode = ConnectionMode
                 };
             }
         }
@@ -561,13 +584,14 @@ namespace Radios
         public int? ConfiguredListenPort { get; set; }
 
         /// <summary>
-        /// Sprint 27 Track B / Tier 2 — whether JJ Flex should ask the router
-        /// (via UPnP) to open <see cref="ConfiguredListenPort"/> automatically
-        /// on session connect. Default false (Tier 2 is opt-in; Tier 1 is the
-        /// recommended sovereign default). Ignored when
-        /// <see cref="ConfiguredListenPort"/> is null — UPnP needs a port.
+        /// Sprint 27 Track F — the SmartLink connection mode for this account
+        /// (cumulative tier model). Default <see cref="SmartLinkConnectionMode.ManualPortForwardOnly"/>.
+        /// Tier 2 + Tier 3 behaviors are both gated on
+        /// <see cref="ConfiguredListenPort"/> being set (UPnP and hole-punch
+        /// both need a port). Replaces Sprint 27 Phase B.2's UPnPEnabled bool
+        /// with a three-state enum so Tier 3 can be represented.
         /// </summary>
-        public bool UPnPEnabled { get; set; }
+        public SmartLinkConnectionMode ConnectionMode { get; set; }
 
         /// <summary>
         /// Display string for UI.
