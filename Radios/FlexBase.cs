@@ -521,7 +521,7 @@ namespace Radios
                 // Skip auth if WAN is already connected from discovery phase.
                 // GUIClient lifecycle issues are handled by RetryConnect if Start() fails.
                 apiInit();
-                bool wanAlreadyConnected = wan != null && wan.IsConnected;
+                bool wanAlreadyConnected = Radios.SmartLink.SmartLinkServices.Coordinator.ActiveSession?.IsConnected == true;
                 if (wanAlreadyConnected)
                 {
                     Tracing.TraceLine($"ReconnectRemote: WAN already connected, skipping auth ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
@@ -1422,7 +1422,7 @@ namespace Radios
             // If we already have an active WAN connection, the previous JWT may have been
             // consumed by the server. Always refresh to get a fresh token for re-registration.
             bool needsRefresh = AccountManager.IsTokenExpired(account);
-            bool wanActive = wan != null && wan.IsConnected;
+            bool wanActive = Radios.SmartLink.SmartLinkServices.Coordinator.ActiveSession?.IsConnected == true;
             Tracing.TraceLine($"GetJwtFromSavedAccount: IsTokenExpired={needsRefresh}, wanActive={wanActive}", TraceLevel.Info);
             if (!needsRefresh && wanActive)
             {
@@ -1546,6 +1546,27 @@ namespace Radios
 
         /// <summary>
         /// Connects to SmartLink server with the given JWT.
+        ///
+        /// <para>
+        /// Sprint 26 Phase 2: this method no longer owns the WanServer directly.
+        /// It asks <see cref="Radios.SmartLink.SmartLinkServices.Coordinator"/>
+        /// for the session associated with the current account, drives
+        /// <see cref="Radios.SmartLink.IWanSessionOwner.Connect"/>, waits for the
+        /// session to report IsConnected, then calls ReRegister with the JWT.
+        /// The monitor thread inside the session owner handles backoff, reconnect,
+        /// and lifecycle — FlexBase never touches a WanServer directly after this
+        /// change.
+        /// </para>
+        ///
+        /// <para>
+        /// Radio-list discovery still runs through the static
+        /// <c>WanServer.WanRadioRadioListRecieved</c> event, which the
+        /// <see cref="Radios.SmartLink.WanServerAdapter"/> also listens for —
+        /// both subscribers (our handler here + the adapter inside the session)
+        /// receive the list. Our handler populates <c>radios</c> +
+        /// <c>wanListReceived</c> as before; the adapter populates
+        /// <c>session.AvailableRadios</c>.
+        /// </para>
         /// </summary>
         private bool ConnectToSmartLink(string jwt)
         {
@@ -1557,35 +1578,48 @@ namespace Radios
             });
             try
             {
-                if (wan != null)
-                {
-                    Tracing.TraceLine($"ConnectToSmartLink: existing WAN found (IsConnected={wan.IsConnected}), disconnecting ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
-                    wan.Disconnect();
-                    Thread.Sleep(1000);
-                    Tracing.TraceLine($"ConnectToSmartLink: old WAN disconnected ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
-                }
+                var accountEmail = _currentAccount?.Email ?? "default-account";
+                var session = Radios.SmartLink.SmartLinkServices.Coordinator.EnsureSessionForAccount(accountEmail);
 
-                wan = new WanServer();
-                wan.WanRadioConnectReady += new WanServer.WanRadioConnectReadyEventHandler(WanRadioConnectReadyHandler);
-                wan.WanApplicationRegistrationInvalid += WanApplicationRegistrationInvalidHandler;
+                // Ensure the static radio-list subscription is active so `radios` and
+                // `wanListReceived` fields get populated alongside session.AvailableRadios.
+                // Defensive unsubscribe-first to avoid duplicate registrations across
+                // sign-in / sign-out cycles.
+                WanServer.WanRadioRadioListRecieved -= wanRadioListReceivedHandler;
+                WanServer.WanRadioRadioListRecieved += wanRadioListReceivedHandler;
 
-                Tracing.TraceLine($"ConnectToSmartLink: calling wan.Connect() ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
-                wan.Connect();
-                Tracing.TraceLine($"ConnectToSmartLink: wan.Connect() returned, IsConnected={wan.IsConnected} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
-                if (!wan.IsConnected)
+                // Kick the monitor thread. If the session is already connected (e.g. we're
+                // re-entering ConnectToSmartLink after a successful previous call), Connect
+                // is a cheap no-op because _wan.IsConnected is already true.
+                wanListReceived = false;
+                session.Connect();
+
+                Tracing.TraceLine($"ConnectToSmartLink: waiting up to 10s for session IsConnected ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+                if (!await(() => session.IsConnected || session.Status == Radios.SmartLink.SessionStatus.AuthorizationExpired, 10000))
                 {
-                    Tracing.TraceLine($"ConnectToSmartLink: WAN not connected, aborting ({sw.ElapsedMilliseconds}ms)", TraceLevel.Error);
+                    Tracing.TraceLine($"ConnectToSmartLink: session did not reach Connected within 10s (status={session.Status}) ({sw.ElapsedMilliseconds}ms)", TraceLevel.Error);
                     return false;
                 }
 
-                Tracing.TraceLine($"ConnectToSmartLink: SendRegisterApplicationMessageToServer: {API.ProgramName} Win10 jwt={jwt.Substring(0, Math.Min(20, jwt.Length))}... ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
-                WanServer.WanRadioRadioListRecieved += new WanServer.WanRadioRadioListRecievedEventHandler(wanRadioListReceivedHandler);
-                wanListReceived = false;
-                wan.SendRegisterApplicationMessageToServer(API.ProgramName, "Win10", jwt);
+                if (session.Status == Radios.SmartLink.SessionStatus.AuthorizationExpired)
+                {
+                    Tracing.TraceLine($"ConnectToSmartLink: session reports AuthorizationExpired; setupRemote handles re-auth ({sw.ElapsedMilliseconds}ms)", TraceLevel.Warning);
+                    return false;
+                }
+
+                Tracing.TraceLine($"ConnectToSmartLink: session connected; ReRegister {API.ProgramName} Win10 jwt={jwt.Substring(0, Math.Min(20, jwt.Length))}... ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+                session.ReRegister(API.ProgramName, "Win10", jwt);
+
                 Tracing.TraceLine($"ConnectToSmartLink: registration sent, waiting up to 10s for radio list ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
-                if (!await(() => { return wanListReceived; }, 10000))
+                if (!await(() => wanListReceived || session.Status == Radios.SmartLink.SessionStatus.AuthorizationExpired, 10000))
                 {
                     Tracing.TraceLine($"ConnectToSmartLink: TIMED OUT waiting for radio list after 10s ({sw.ElapsedMilliseconds}ms)", TraceLevel.Error);
+                    return false;
+                }
+
+                if (session.Status == Radios.SmartLink.SessionStatus.AuthorizationExpired)
+                {
+                    Tracing.TraceLine($"ConnectToSmartLink: server rejected JWT during registration ({sw.ElapsedMilliseconds}ms)", TraceLevel.Warning);
                     return false;
                 }
 
@@ -1670,19 +1704,36 @@ namespace Radios
             {
                 { "serial", r.Serial }
             });
-            WanRadioConnectReadyReceived = false;
-            // WanRadioConnectReadyHandler already added.
-            wan.SendConnectMessageToRadio(r.Serial, 0);
-            if (!await(() => { return WanRadioConnectReadyReceived; }, 5000))
+
+            var session = Radios.SmartLink.SmartLinkServices.Coordinator.ActiveSession;
+            if (session == null)
             {
-                Tracing.TraceLine("sendRemoteConnect:Radio not ready for connect.", TraceLevel.Error);
+                Tracing.TraceLine("sendRemoteConnect: no active session", TraceLevel.Error);
+                return false;
+            }
+
+            // session.ConnectToRadio returns Task<string?>: handle on success, null on timeout/failure.
+            // We block synchronously to preserve the existing caller contract; the session owner's
+            // internal TCS does the actual awaiting off-thread.
+            var task = session.ConnectToRadio(r.Serial);
+            if (!task.Wait(5000))
+            {
+                Tracing.TraceLine("sendRemoteConnect:Radio not ready for connect (timeout).", TraceLevel.Error);
                 ConnectionProfiler.Current?.RecordEvent("send_remote_connect_timeout", new Dictionary<string, object>
                 {
                     { "serial", r.Serial }
                 });
                 return false;
             }
-            r.WANConnectionHandle = wanConnectionHandle;
+
+            var handle = task.Result;
+            if (string.IsNullOrEmpty(handle))
+            {
+                Tracing.TraceLine("sendRemoteConnect:Radio connect returned null handle.", TraceLevel.Error);
+                return false;
+            }
+
+            r.WANConnectionHandle = handle;
             ConnectionProfiler.Current?.RecordEvent("wan_connect_ready", new Dictionary<string, object>
             {
                 { "serial", r.Serial }
