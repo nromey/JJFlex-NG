@@ -3,15 +3,37 @@
 This document captures the current state of JJ-Flex repository and active work.
 
 **Repository root:** `C:\dev\JJFlex-NG`
-**Branch:** `main`
+**Branch:** `sprint26/connection-fix` (23 commits ahead of main; Sprint 26 complete through Phase 8)
 
-## 1) Overview
-- JJFlexRadio: Windows desktop app for FlexRadio 6000/8000 series transceivers
-- **Display name:** JJ Flexible Radio Access (internals stay JJFlexRadio)
-- **Migration complete:** .NET 10 LTS (migrated 2026-04-13), dual x64/x86 architecture, WebView2 for Auth0
-- **Current version:** 4.1.16.44 (4-part version; released 2026-04-19)
+## Current State — Sprint 26 COMPLETE, awaiting Sprint 27 kickoff
 
-## Current State — 4.1.16 SHIPPED
+**Sprint 26 status (2026-04-20):** all 8 phases landed on `sprint26/connection-fix`. Full solution builds clean, 14 unit tests green, no runtime smoke test yet (deferred to Sprint 27 final phase's help audit + pre-release testing).
+
+**Sprint 26 commit arc (23 commits ahead of main):**
+- Phase 0: 3 commits (audit findings, R1/R2/R3 decisions, R3-revised)
+- Phase 1: 6 commits (interfaces, adapter, session owner, coordinator, sink+tests, harness)
+- Phase 2: 3 commits (scaffolding, migration, cleanup)
+- Phase 2.5: 2 commits (Symptom 3 fix landed as pre-work; Symptom 6 snapshot-at-subscribe; Symptoms 1/2/4/5 deferred to smoke-test investigation)
+- Phase 3: 1 commit (SessionStatusMessages + MainWindow status-change announcements)
+- Phase 4: 1 commit (dead wan field + unused Preserve/Restore methods deleted; GUIClient-race band-aids kept per R4)
+- Phase 5: 1 commit (test matrix document — TM-1..TM-9 + TM-M1..TM-M5 + TM-R1..TM-R6)
+- Phase 6: 1 commit (CW prosign bracket syntax, PlaySignoff, WPM soft cap 60)
+- Phase 7: 1 commit (CW dialog investigation — unreachable surface, no-op exit)
+- Phase 8: 4 commits (8a SliceOps letters + modern checkbox field parity, 8b Tuning submenu expansion, 8c mode-change announcement, docs + TODO follow-ups)
+
+**Branch discipline:** vbproj holds at 4.1.16 (4.1.17 reserved for post-Sprint-27 release per R3 revised). No external publish, no tag, no Dropbox touch — all internal branch work.
+
+**Next session target:** Sprint 27 kickoff — networking overhaul Tiers 1+2 (port-forward UI, NetworkTest integration, UPnP configuration). Plan doc at `docs/planning/agile/sprint27-barefoot-openport-hotel.md`. Sprint 27's final phase will be the comprehensive help audit covering Sprint 25 legacy + Sprint 26 Phase 8 Jim-parity + Sprint 27 networking features in one pass (per 2026-04-20 scope decision relocating the audit out of Sprint 26).
+
+**Follow-ups captured in JJFlex-TODO.md during Sprint 26 (2026-04-20):**
+- BUG-063: `build-installers.bat release` silently skips NAS installer publish (Sprint 27 slip-in)
+- FEATURE: Auto-updater with multi-channel + silent download + optional relaunch (ungated, GitHub-only path works)
+- FEATURE: On-demand tuning-key announcement hotkey (Phase 8 follow-up)
+- FEATURE: First-focus frequency-home orientation announcement (Phase 8 follow-up)
+
+---
+
+## Prior state (pre-Sprint-26) — 4.1.16 SHIPPED
 
 **Status:** Sprint 25 complete, merged to main, 4.1.16.44 released end-to-end on 2026-04-19.
 
