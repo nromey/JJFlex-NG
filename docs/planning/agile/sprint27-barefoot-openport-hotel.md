@@ -1,17 +1,23 @@
-# Sprint 27 — User-Configurable Networking (Tiers 1 + 2 + Diagnostics)
+# Sprint 27 — User-Configurable Networking (Tiers 1 + 2 + 3 + Diagnostics)
 
 **Status:** Planning complete — blocked on Sprint 26 completion
 **Created:** 2026-04-15 (under max-effort reasoning)
-**Authors:** Noel (product direction, accessibility framing, security/compliance framing), Claude (track decomposition)
+**Major revisions:**
+- 2026-04-20 — Tier 3 scope reframed. Original plan deferred Tier 3 to Sprint 29+ because we assumed we'd have to build our own rendezvous server. Noel asked whether Flex already runs the hole-punch infrastructure; confirmed via FlexLib evidence (`WanServer.SendConnectMessageToRadio(serial, HolePunchPort)` + `SendTestConnection` returning `NATHolePunchSupport` boolean) that Flex's SmartLink already coordinates hole-punching end-to-end. Sprint 27 Tier 3 scope narrows from "build rendezvous + STUN + TURN" (infrastructure-heavy) to "accessibly expose Flex's existing hole-punch to users" (client-side UI layer only, zero new server infra). Added as Track F.
+- 2026-04-20 — Copy-to-clipboard + save-to-file for `NetworkDiagnosticReport` added to Track D. `ToMarkdown()` method on the type in Track C.
+
+**Authors:** Noel (product direction, accessibility framing, security/compliance framing, Tier 3 scope correction), Claude (track decomposition)
 **Parent vision doc:** `docs/planning/hole-punch-lifeline-ragchew.md`
 **Parent architecture prerequisite:** `docs/planning/agile/sprint26-ragchew-keepalive-kerchunk.md` (this sprint depends on its WanSessionOwner + SmartLinkSessionCoordinator landing first)
-**Branch target:** `sprint27/network-config` (multi-track; Track A solo, then B/C/E parallel, then D integrates)
+**Branch target:** `sprint27/networking-config` (multi-track; Track A solo, then B/C/E/F parallel, then D integrates)
 
 ---
 
 ## Sprint goal
 
-Give users control over how JJ Flex reaches their radio behind NAT, via two of the three networking tiers: manual port specification (Tier 1, user-sovereign) and UPnP opt-in (Tier 2, convenience). Surface meaningful network diagnostics so users understand what's going wrong when things break. Tier 3 hole-punching and rendezvous infrastructure are deferred to a later sprint (Sprint 29+) as a focused effort.
+Give users accessible control over how JJ Flex reaches their radio behind NAT, across all three networking tiers: manual port specification (Tier 1, user-sovereign), UPnP opt-in (Tier 2, convenience), and UDP hole-punching (Tier 3, restrictive-network). Surface meaningful network diagnostics so users understand what's going wrong when things break. Ship a diagnostic snapshot format (copy-to-clipboard + save-to-markdown) that screen-reader operators can actually use to report issues.
+
+**On Tier 3:** FlexLib + Flex's SmartLink backend already implement end-to-end hole-punching. Flex radios hold a persistent connection to `smartlink.flexradio.com`; FlexLib exposes hole-punch-port coordination on `WanServer.SendConnectMessageToRadio(serial, HolePunchPort)`. The infrastructure works today — it's just not accessibly exposed in SmartSDR's UI. Sprint 27's Tier 3 work is therefore a thin accessibility layer over Flex's existing mechanics, not a parallel infrastructure build. Zero new server-side code on our end.
 
 This sprint is what **unblocks blind users from the SmartSDR dependency** for SmartLink networking. Today a blind user literally cannot configure SmartLink networking — SmartSDR's UI isn't screen-reader friendly, and SmartSDR's port config doesn't even apply to JJ Flex's process anyway (architecturally separate network identity). With Sprint 27, JJ Flex has its own accessible network config.
 
@@ -24,29 +30,34 @@ It also removes a **security / compliance blocker** for organizational users —
 See parent vision doc `docs/planning/hole-punch-lifeline-ragchew.md` for the three-tier networking model, accessibility / security / compliance framing, and why the refactor in Sprint 26 is a prerequisite. In brief:
 
 - Sprint 26 establishes `WanSessionOwner` as a long-lived session owner, stable across radio connections. That stability is what makes "bind network settings to a session" sensible — before Sprint 26, settings would bind to an object that gets recreated on every radio change.
-- Three networking tiers: Tier 1 manual port (sovereign, no UPnP), Tier 2 UPnP opt-in (convenience, off by default), Tier 3 hole-punching / NAT traversal (restrictive-network users).
-- Default posture: Tier 1 (sovereign), not Tier 2 (auto-magic). This is a product-values choice, not a technical one.
+- Three networking tiers: Tier 1 manual port (sovereign, no UPnP), Tier 2 UPnP opt-in (convenience, off by default), Tier 3 UDP hole-punching coordinated by Flex's SmartLink backend (restrictive-network users).
+- Default posture: Tier 1 (sovereign), not Tier 2 (auto-magic). This is a product-values choice, not a technical one. Tier 3 is opt-in for users who need it.
+- Tier 3's server-side is Flex's responsibility; our role is to expose the client-side controls accessibly and surface NetworkTest's hole-punch probe results in the diagnostic UI.
 
 ---
 
-## Scope decision (ratified 2026-04-15)
+## Scope decision (ratified 2026-04-15, revised 2026-04-20)
 
-**Sprint 27 = Tiers 1 + 2 + NetworkTest + richer diagnostics.**
+**Sprint 27 = Tiers 1 + 2 + 3 + NetworkTest + richer diagnostics + diagnostic snapshot export.**
 **Sprint 28 = Tabbed multi-radio + SessionMixer + audio UX (separate concern, prioritized because higher user-visibility and strategic value).**
-**Sprint 29 or later = Tier 3 hole-punching as its own focused sprint with rendezvous server infrastructure.**
 
-Rationale for splitting Tier 3 out:
-- Tier 3 is 2–4 weeks of focused effort including infrastructure (rendezvous server hosting, STUN/TURN decisions, symmetric-NAT failure handling). Bundling with Tiers 1 + 2 means either a giant sprint or a sprint whose Tier 3 track ships half-finished.
-- Tier 1 alone serves the sovereign-ham demographic completely (most users).
-- Tier 2 alone serves the casual-user demographic completely.
-- Tier 3 serves a smaller segment (restrictive-network users) that's legitimately valuable but not blocking for most.
-- Splitting lets Tier 3 be its own thing done right, not squeezed.
+**Original plan (2026-04-15) deferred Tier 3 to Sprint 29+** because we assumed we'd need to build rendezvous + STUN + TURN infrastructure ourselves.
+
+**Revised understanding (2026-04-20):** Flex already operates the hole-punch infrastructure end-to-end via SmartLink. FlexLib's `WanServer.SendConnectMessageToRadio(serial, HolePunchPort)` + `SendTestConnection`'s `NATHolePunchSupport` boolean are evidence the stack exists and is queryable. What's missing isn't the network mechanics — it's accessible user-facing controls to opt in/out and visibility into the probe results.
+
+Given that reframe:
+- Tier 3 client-side work is roughly the size of a single track (opt-in toggle + fallback wiring + NetworkTest result surface), not a dedicated sprint.
+- No server infrastructure ownership required on our side for Tier 3 specifically. A rendezvous server of our own would be redundant with Flex's — we don't own the radio firmware that would talk to such a server.
+- All three tiers ship together, giving the 4.1.17 release a coherent networking story rather than an "almost done, but hole-punch comes in Sprint 29" gap.
+- Users who today can only configure networking via the SmartSDR GUI gain accessible JJ Flex-native equivalents for all three tiers in a single release.
+
+**VPS hosting (jjflexible.radio, firmware, auto-updater manifest, crash report receiver, blindhams.network relocation, blindhams solar compute) is a separate infrastructure track Noel is provisioning in parallel (Hetzner CCX13 or equivalent). Explicitly NOT gated on Tier 3 — the VPS serves other workloads; Tier 3 runs on Flex's infrastructure.**
 
 ---
 
 ## Track decomposition
 
-Four mandatory tracks (A, B, C, D) and one optional track (E). Track A is the serial foundation; B, C, E run in parallel after A lands; D integrates C's shape. See CLAUDE.md Sprint Lifecycle for worktree + CLI session conventions.
+Five mandatory tracks (A, B, C, D, F) and one optional track (E). Track A is the serial foundation; B, C, E, F run in parallel after A lands; D integrates C's shape. See CLAUDE.md Sprint Lifecycle for worktree + CLI session conventions.
 
 ### Track A — Tier 1: Manual port configuration (FOUNDATION, serial, goes first)
 
@@ -107,7 +118,7 @@ Four mandatory tracks (A, B, C, D) and one optional track (E). Track A is the se
 
 - Extend the message dictionary / switch from Sprint 26 Phase 3 with NetworkTest-informed messages:
   - "SmartLink backend unreachable but your LAN is fine — this is usually a Flex-side issue; retrying automatically."
-  - "NAT type appears to be symmetric — Tier 3 (when available) or port forwarding may be required."
+  - "NAT type appears to be symmetric — hole-punch (Tier 3) may fail; manual port forwarding is the reliable path."
   - "Network appears healthy but authentication failed — please sign in again."
   - "UPnP mapping failed; using manual port instead."
   - "Connection dropped and network is unreachable — check your internet."
@@ -136,27 +147,49 @@ Four mandatory tracks (A, B, C, D) and one optional track (E). Track A is the se
 
 **Exit criterion:** three help docs exist, linked from Settings and from Track D's diagnostic messages. Screen-reader-friendly (plain markdown, no tables, no images).
 
+### Track F — Tier 3: Accessible hole-punch exposure (parallel after A)
+
+**Why parallel-after-A:** depends on Track A's port-config data model (hole-punch still uses a port) but doesn't conflict with B/C/D/E deliverables. Can run concurrently with B/C/E.
+
+**Background:** FlexLib + Flex's SmartLink backend already implement UDP hole-punching end-to-end. Flex radios maintain a persistent connection to `smartlink.flexradio.com`; `WanServer.SendConnectMessageToRadio(serial, HolePunchPort)` passes a hole-punch port that Flex's server uses to coordinate the punch between radio and client. `SendTestConnection` returns an explicit `NATHolePunchSupport` boolean confirming probe-time support. Tier 3 already works on the network; the gap is accessibility. SmartSDR exposes Tier 3 selection; it's not accessible to screen-reader users.
+
+**Scope:**
+
+- **Settings UI:** "Connection mode" accessible radio group (or equivalent) in the Network tab with three options. Each with a one-sentence explanation.
+  - *Manual port forward only (Tier 1)* — you configure your router; JJ Flex uses the port you set. Sovereign default.
+  - *Manual + UPnP (Tier 1 + 2)* — JJ Flex asks your router to open the port automatically via UPnP. Security warning attached.
+  - *Allow automatic hole-punch (Tier 1 + 2 + 3)* — if direct port routing isn't working, let Flex's SmartLink coordinate a UDP hole-punch. Works through most home NAT; may fail on symmetric-NAT networks (some corporate / mobile-carrier configurations). Opt-in with explanation.
+- **Binding to `WanSessionOwner`:** the selected mode maps to the `HolePunchPort` argument on `WanServer.SendConnectMessageToRadio`. Mode 1: pass 0 (no hole-punch). Mode 2: pass 0 (UPnP-mapped port does the work). Mode 3: pass the configured port; SmartLink coordinates the punch.
+- **Fallback logic:** when hole-punch fails (symmetric NAT on either side, UDP blocked, SmartLink timeout), Track D's diagnostic UI reports the failure mode AND the app falls back silently to the next tier down (Tier 3 → Tier 2 if UPnP enabled → Tier 1). No user action required; status-line announcement reports which tier actually succeeded.
+- **NetworkTest surface:** `NATHolePunchSupport` boolean from NetworkTest gets a visible home — the diagnostic panel (Track D) shows "Hole-punch support: yes / no" alongside UPnP-TCP / UPnP-UDP / manual-forwarded-TCP / manual-forwarded-UDP. Markdown export (via `NetworkDiagnosticReport.ToMarkdown()`) includes it.
+- **Accessibility:** mode selection is a true accessible radio group (not a dropdown) so screen readers announce all three options on focus; Left/Right arrow navigation; mode change announces via live-region ("Hole-punch enabled" / etc.).
+- **Security framing:** the "Allow automatic hole-punch" mode includes a one-paragraph explanation that enabling this means JJ Flex cooperates with Flex's SmartLink to open a temporary UDP flow through your router to the radio. Less persistent than a manual port forward; still requires trust in Flex's SmartLink coordination. Organizational users who have manual-forwarding-only policies can stay on Tier 1.
+
+**Deliverable:** users can opt into Flex's hole-punch end-to-end from JJ Flex without ever touching SmartSDR. NetworkTest's hole-punch probe result is exposed in both the diagnostic panel and the markdown export. Fallback logic handles symmetric-NAT failures gracefully.
+
+**Exit criterion:** the Settings mode selector works across Tier 1/2/3; hole-punch succeeds on the same networks where SmartSDR's equivalent option succeeds; induced failure (symmetric-NAT simulation or UDP block) falls back cleanly to Tier 2 or Tier 1 and announces which tier succeeded; NetworkTest's hole-punch probe result is accurately surfaced in Track D's diagnostic UI.
+
 ---
 
 ## Phase ordering within Sprint 27
 
-**Phase 1 (serial, ~2–3 days):** Track A alone. Foundation settles. End-of-phase: manual port config works, saved per-account, bound to session.
+**Phase 1 (serial, foundation):** Track A alone. Foundation settles. End-of-phase: manual port config works, saved per-account, bound to session. Small scope — settings UI + persistence + `IWanSessionOwner` binding.
 
-**Phase 2 (parallel, ~1–2 weeks):** Tracks B + C + E in three worktrees, three CLI sessions (see CLAUDE.md Sprint Lifecycle). Tracks B and C are independent; Track E is independent of everything.
+**Phase 2 (parallel, fan-out):** Tracks B + C + E + F in four worktrees, four CLI sessions (see CLAUDE.md Sprint Lifecycle). Tracks B and C are independent; Track E is independent of everything; Track F depends on Track A's port model but doesn't conflict with B/C/E. Four parallel workstreams. Moderate scope per track (UPnP client, NetworkTest wrapper + report, help docs, Tier 3 accessibility layer).
 
-**Phase 3 (serial, ~3–5 days):** Track D integrates the output of Phase 2 (consumes Track C's `NetworkDiagnosticReport`, extends Phase 3 status UI from Sprint 26, pulls help-link targets from Track E). Merge-week equivalent.
+**Phase 3 (serial, integration):** Track D integrates Phase 2 output (consumes Track C's `NetworkDiagnosticReport`, extends Phase 3 status UI from Sprint 26, surfaces Track F's tier-selection state, pulls help-link targets from Track E, adds copy-to-clipboard + save-to-file buttons). The richest UI phase of the sprint.
 
-**Phase 4 (serial, ~2–3 days):** Test matrix, manual test pass, soak test (overnight with Tier 1 + Tier 2 both exercised), release readiness.
+**Phase 4 (serial, verification):** Test matrix, manual test pass, soak test (overnight with all three tiers exercised), release readiness.
 
-Total: ~3 weeks of calendar time, peaking at three parallel tracks in Phase 2.
+**Sizing note:** time estimates deliberately omitted. Sprint scope is measured in architectural newness (one new settings UI, one UPnP client, one NetworkTest wrapper, one diagnostic format, one Tier 3 binding, help docs) + decision checkpoints (UPnP library choice, hole-punch failure UX, diagnostic-verbosity default) + external dependencies (one UPnP library, FlexLib's hole-punch API surface). Total scope is bigger than Sprint 26 but mostly additive, with clear per-track boundaries that prevent cross-contamination during parallel execution.
 
 ---
 
 ## Non-goals for Sprint 27
 
-**NG-1:** No Tier 3 hole-punching. (Sprint 29+.)
+**NG-1:** No JJFlex-operated rendezvous server. Tier 3 uses Flex's SmartLink backend exclusively; our work is the accessibility client layer only. (If we ever want to build a fallback rendezvous — e.g., for SmartLink-outage disaster recovery — that's a separate later sprint with infrastructure ownership implications.)
 
-**NG-2:** No rendezvous server infrastructure, no STUN/TURN implementation. (Sprint 29+ infrastructure work.)
+**NG-2:** No STUN or TURN implementation on our side. Flex's SmartLink handles NAT traversal coordination; we pass through the `HolePunchPort` and consume the probe results.
 
 **NG-3:** No tab UI. (Sprint 28.)
 
@@ -164,11 +197,13 @@ Total: ~3 weeks of calendar time, peaking at three parallel tracks in Phase 2.
 
 **NG-5:** No string localization of diagnostic messages. Strings live in a resource file so localization is possible later without refactoring, but only English ships in Sprint 27.
 
-**NG-6:** No external help-page hosting (jjflexible.radio). Sprint 27 ships in-app markdown in `docs\help\networking\` with local file links only. External hosting is a separate effort if/when jjflexible.radio materializes.
+**NG-6:** No external help-page hosting (jjflexible.radio) in-sprint. Sprint 27 ships in-app markdown in `docs\help\networking\` with local file links only. jjflexible.radio hosting is a parallel infrastructure track (Noel's VPS provisioning work) that may catch up with the release or land shortly after.
 
 **NG-7:** No changes to existing non-SmartLink connection paths (direct-IP, local-network radio connections). Out of scope.
 
 **NG-8:** No retroactive port config for previously-configured SmartLink accounts beyond a sensible default fallback. Existing accounts get the FlexLib-default port until the user explicitly configures one.
+
+**NG-9:** No changes to Flex's hole-punch protocol, NAT detection algorithms, or backend coordination. We surface what Flex exposes; we don't reimplement or optimize.
 
 ---
 
@@ -206,12 +241,13 @@ Will expand into `docs/planning/agile/sprint27-test-matrix.md` during Phase 4. O
 
 1. Track A: manual port config works end-to-end, per-account, persisted across restarts.
 2. Track B: UPnP opt-in works on supporting routers; falls back gracefully on non-supporting; security warning is visible and accurate.
-3. Track C: NetworkTest integrated; results consumed by Track D; caching policy working.
-4. Track D: richer diagnostic messages ship; each failure mode produces a distinct, accurate, screen-reader-announced message.
+3. Track C: NetworkTest integrated; results consumed by Track D; `NetworkDiagnosticReport.ToMarkdown()` produces plain-readable output; caching policy working.
+4. Track D: richer diagnostic messages ship; each failure mode produces a distinct, accurate, screen-reader-announced message; copy-to-clipboard and save-to-file buttons produce usable markdown.
 5. Track E (if done): three help docs in `docs\help\networking\`, linked from Settings and diagnostic messages.
-6. Test matrix `sprint27-test-matrix.md` green.
-7. Overnight soak test passes with both Tier 1 and Tier 2 exercised.
-8. Users report (or at minimum, could report based on UI evidence) that they understand their network state after using JJ Flex.
+6. Track F: Tier 3 hole-punch toggle in Settings works; hole-punch succeeds on the same networks SmartSDR's equivalent succeeds on; graceful fallback to Tier 2/1 on hole-punch failure; NetworkTest's `NATHolePunchSupport` result visible in the diagnostic panel and markdown export.
+7. Test matrix `sprint27-test-matrix.md` green.
+8. Overnight soak test passes with Tier 1, Tier 2, and Tier 3 all exercised.
+9. Users report (or at minimum, could report based on UI evidence) that they understand their network state after using JJ Flex — including which tier is active and why.
 
 ---
 
