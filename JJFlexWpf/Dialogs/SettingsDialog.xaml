@@ -377,18 +377,49 @@
                                 Click="TestPortButton_Click"/>
                     </StackPanel>
 
-                    <!-- Sprint 27 Track B: Tier 2 UPnP opt-in section. Off by default. Checkbox is gated on a valid Tier 1 port being entered. -->
+                    <!-- Sprint 27 Track F: Connection mode three-option radio group. Replaces B.2's single UPnP checkbox. Three cumulative tiers: manual-only (Tier 1), manual + UPnP (Tier 1+2), manual + UPnP + hole-punch (Tier 1+2+3). Tier 2 and Tier 3 options are gated on a valid Tier 1 port being configured. -->
                     <Separator Margin="0,16,0,8"/>
-                    <TextBlock Text="Tier 2 — UPnP (optional, off by default)" FontWeight="SemiBold"
-                               Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
-                    <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
-                               Text="Automatic port forwarding via UPnP. JJ Flex asks your router to open the port configured above; the router obliges without requiring you to log into its admin page. Convenient, but trades sovereignty for convenience. Off by default."/>
-                    <CheckBox x:Name="UPnPEnabledCheck"
-                              Content="Allow JJ Flex to open the port on my router automatically via UPnP"
-                              Margin="0,0,0,8"
-                              AutomationProperties.Name="Enable UPnP automatic port mapping"/>
-                    <TextBlock TextWrapping="Wrap" Margin="0,0,0,8" FontStyle="Italic"
-                               Text="Security note: UPnP lets any program running on your LAN punch holes through your router without asking. It is disabled by enterprise security policies (DISA STIGs, PCI-DSS, HIPAA) and by some home routers by default. If you can comfortably forward the port manually on the router, prefer Tier 1 above. If UPnP fails — no supporting router, disabled at the router, or the router refuses the mapping — JJ Flex falls back to Tier 1 silently; check the trace log for details."/>
+                    <GroupBox Header="Connection mode" Margin="0,0,0,8"
+                              AutomationProperties.Name="SmartLink connection mode">
+                        <StackPanel Margin="4">
+                            <RadioButton x:Name="Tier1Radio"
+                                         GroupName="ConnectionMode"
+                                         Margin="0,4,0,4"
+                                         AutomationProperties.Name="Tier 1, manual port forwarding only. Sovereign default."
+                                         Checked="ConnectionModeRadio_Checked">
+                                <StackPanel>
+                                    <TextBlock Text="Tier 1 — Manual port forwarding only (recommended default)" FontWeight="SemiBold"/>
+                                    <TextBlock TextWrapping="Wrap" Margin="0,2,0,0"
+                                               Text="You forward the port configured above on your router. No UPnP, no hole-punch. The only mode compatible with strict security policies (DISA STIGs, PCI-DSS, HIPAA) and the most reliable path through picky NATs."/>
+                                </StackPanel>
+                            </RadioButton>
+                            <RadioButton x:Name="Tier2Radio"
+                                         GroupName="ConnectionMode"
+                                         Margin="0,4,0,4"
+                                         AutomationProperties.Name="Tier 1 plus 2, manual plus UPnP automatic port mapping"
+                                         Checked="ConnectionModeRadio_Checked">
+                                <StackPanel>
+                                    <TextBlock Text="Tier 1 + 2 — Manual + UPnP" FontWeight="SemiBold"/>
+                                    <TextBlock TextWrapping="Wrap" Margin="0,2,0,0"
+                                               Text="JJ Flex asks your router via UPnP to open the port automatically. Convenient, but UPnP lets any program on your LAN punch holes through the router without asking — it is disabled by many enterprise security policies and by some home routers. If UPnP fails, JJ Flex silently falls back to Tier 1."/>
+                                </StackPanel>
+                            </RadioButton>
+                            <RadioButton x:Name="Tier3Radio"
+                                         GroupName="ConnectionMode"
+                                         Margin="0,4,0,4"
+                                         AutomationProperties.Name="Tier 1 plus 2 plus 3, allow automatic hole punch for restrictive networks"
+                                         Checked="ConnectionModeRadio_Checked">
+                                <StackPanel>
+                                    <TextBlock Text="Tier 1 + 2 + 3 — Allow automatic hole-punch" FontWeight="SemiBold"/>
+                                    <TextBlock TextWrapping="Wrap" Margin="0,2,0,0"
+                                               Text="If direct port forwarding or UPnP is not working, let Flex's SmartLink coordinate a UDP hole-punch between the radio and JJ Flex. Works through most home NATs. May fail on symmetric-NAT networks (some corporate environments and mobile-carrier networks). Fallback to Tier 2 then Tier 1 on failure is automatic."/>
+                                </StackPanel>
+                            </RadioButton>
+                        </StackPanel>
+                    </GroupBox>
+
+                    <!-- Legacy checkbox kept hidden for backward binding during the F.0/F.1 transition. The radio group above is the canonical UI. Will be removed in F.3 rollup cleanup if still present. -->
+                    <CheckBox x:Name="UPnPEnabledCheck" Visibility="Collapsed" IsEnabled="False"/>
 
                     <!-- Sprint 27 Track C: full NetworkTest probe via SmartLink backend. Distinct from Te_st port above, which is local-only validation. -->
                     <Separator Margin="0,16,0,8"/>

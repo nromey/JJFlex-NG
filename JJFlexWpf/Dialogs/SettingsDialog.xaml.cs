@@ -273,12 +273,13 @@ namespace JJFlexWpf.Dialogs
                 PortForwardSeparatePortsCheck.IsChecked = false;
                 PortForwardUdpBox.IsEnabled = false;
                 PortForwardTcpLabel.Text = "Port (TCP and UDP):";
-                // Sprint 27 Track B — Tier 2 UPnP is meaningless without a connected radio.
-                if (UPnPEnabledCheck != null)
-                {
-                    UPnPEnabledCheck.IsChecked = false;
-                    UPnPEnabledCheck.IsEnabled = false;
-                }
+                // Sprint 27 Track F — without a connected radio, force Tier 1
+                // selection and disable Tier 2 / Tier 3. The radio group stays
+                // visible + focusable so screen-reader users can explore the
+                // choices; they just can't commit to 2/3 yet.
+                SetCurrentConnectionMode(SmartLinkConnectionMode.ManualPortForwardOnly);
+                if (Tier2Radio != null) Tier2Radio.IsEnabled = false;
+                if (Tier3Radio != null) Tier3Radio.IsEnabled = false;
                 return;
             }
 
@@ -299,48 +300,111 @@ namespace JJFlexWpf.Dialogs
                     : $"Radio currently listens on port {tcp} (TCP and UDP).")
                 : "Radio currently uses UPnP or hole-punch (no manual forwarding).";
 
-            // Sprint 27 Track F — UPnP checkbox reflects whether account's
-            // ConnectionMode includes UPnP (ManualPlusUpnp or AutomaticHolePunch).
-            // F.1 will replace this checkbox with a 3-option radio group; for
-            // F.0 we keep the checkbox and map it to a boolean slice of the
-            // enum. ConnectionMode = null (no account) -> unchecked + disabled.
-            if (UPnPEnabledCheck != null)
+            // Sprint 27 Track F — load the account's saved ConnectionMode into
+            // the 3-option radio group. Null → Tier 1 (safe default for accounts
+            // not yet bound to this session).
+            var mode = _rig.CurrentAccountConnectionMode ?? SmartLinkConnectionMode.ManualPortForwardOnly;
+            SetCurrentConnectionMode(mode);
+            RecomputeConnectionModeAvailability();
+        }
+
+        private bool _suppressConnectionModeAnnouncements;
+
+        /// <summary>
+        /// Sprint 27 Track F — programmatic setter for the radio group that
+        /// suppresses the ConnectionModeRadio_Checked announcement. Used by
+        /// RefreshNetworkTabFromRig (load-from-account) and by the fallback
+        /// path in RecomputeConnectionModeAvailability.
+        /// </summary>
+        private void SetCurrentConnectionMode(SmartLinkConnectionMode mode)
+        {
+            if (Tier1Radio == null) return;
+            _suppressConnectionModeAnnouncements = true;
+            try
             {
-                var mode = _rig.CurrentAccountConnectionMode ?? SmartLinkConnectionMode.ManualPortForwardOnly;
-                UPnPEnabledCheck.IsChecked = mode >= SmartLinkConnectionMode.ManualPlusUpnp;
+                switch (mode)
+                {
+                    case SmartLinkConnectionMode.AutomaticHolePunch:
+                        Tier3Radio.IsChecked = true;
+                        break;
+                    case SmartLinkConnectionMode.ManualPlusUpnp:
+                        Tier2Radio.IsChecked = true;
+                        break;
+                    default:
+                        Tier1Radio.IsChecked = true;
+                        break;
+                }
             }
-            RecomputeUPnPCheckboxEnablement();
+            finally
+            {
+                _suppressConnectionModeAnnouncements = false;
+            }
         }
 
         /// <summary>
-        /// Sprint 27 Track B — Tier 2 requires a valid Tier 1 port first.
-        /// Disable the UPnP checkbox until port-forward is enabled and the
-        /// TCP port parses to a valid value. When disabling, also uncheck
-        /// so the user can't leave the checkbox showing "checked but inert".
+        /// Sprint 27 Track F — reads the radio group's current selection.
+        /// Falls through to Tier 1 when no button is checked (which
+        /// shouldn't happen in a properly-initialized group, but the
+        /// dialog can be interrogated before RefreshNetworkTabFromRig runs).
         /// </summary>
-        private void RecomputeUPnPCheckboxEnablement()
+        private SmartLinkConnectionMode GetCurrentConnectionMode()
         {
-            if (UPnPEnabledCheck == null) return;
+            if (Tier3Radio?.IsChecked == true) return SmartLinkConnectionMode.AutomaticHolePunch;
+            if (Tier2Radio?.IsChecked == true) return SmartLinkConnectionMode.ManualPlusUpnp;
+            return SmartLinkConnectionMode.ManualPortForwardOnly;
+        }
+
+        /// <summary>
+        /// Sprint 27 Track F — Tier 2 / Tier 3 are gated on a valid Tier 1
+        /// port being entered. When gating kicks in, force the selection
+        /// back to Tier 1 so the UI is never showing a selected-but-inert
+        /// option.
+        /// </summary>
+        private void RecomputeConnectionModeAvailability()
+        {
+            if (Tier1Radio == null || Tier2Radio == null || Tier3Radio == null) return;
 
             bool tier1On = PortForwardEnabledCheck?.IsChecked == true;
             bool portValid = int.TryParse(PortForwardTcpBox?.Text, out int tcp)
                              && SmartLinkAccountManager.IsValidPort(tcp);
-            bool shouldEnable = tier1On && portValid;
+            bool higherTiersValid = tier1On && portValid;
 
-            UPnPEnabledCheck.IsEnabled = shouldEnable;
-            if (!shouldEnable && UPnPEnabledCheck.IsChecked == true)
+            // Tier 1 is always available (the mode's whole point is "always works").
+            Tier1Radio.IsEnabled = true;
+            Tier2Radio.IsEnabled = higherTiersValid;
+            Tier3Radio.IsEnabled = higherTiersValid;
+
+            if (!higherTiersValid && GetCurrentConnectionMode() != SmartLinkConnectionMode.ManualPortForwardOnly)
             {
-                UPnPEnabledCheck.IsChecked = false;
+                SetCurrentConnectionMode(SmartLinkConnectionMode.ManualPortForwardOnly);
             }
         }
 
         /// <summary>
-        /// Sprint 27 Track B — re-evaluate UPnP checkbox enablement when the
+        /// Sprint 27 Track F — re-evaluate radio-button enablement when the
         /// user toggles Tier 1 port-forward on/off.
         /// </summary>
         private void PortForwardEnabledCheck_Click(object sender, RoutedEventArgs e)
         {
-            RecomputeUPnPCheckboxEnablement();
+            RecomputeConnectionModeAvailability();
+        }
+
+        /// <summary>
+        /// Sprint 27 Track F — shared handler for Tier1Radio / Tier2Radio /
+        /// Tier3Radio Checked events. Announces the selected mode via the
+        /// existing ScreenReaderOutput.Speak path. Suppressed during
+        /// programmatic loads (see <see cref="_suppressConnectionModeAnnouncements"/>).
+        /// </summary>
+        private void ConnectionModeRadio_Checked(object sender, RoutedEventArgs e)
+        {
+            if (_suppressConnectionModeAnnouncements) return;
+            string announcement = GetCurrentConnectionMode() switch
+            {
+                SmartLinkConnectionMode.AutomaticHolePunch => "Tier 1 plus 2 plus 3, automatic hole-punch enabled.",
+                SmartLinkConnectionMode.ManualPlusUpnp => "Tier 1 plus 2, UPnP enabled.",
+                _ => "Tier 1, manual port forwarding only.",
+            };
+            ScreenReaderOutput.Speak(announcement, VerbosityLevel.Terse, interrupt: true);
         }
 
         /// <summary>
@@ -366,8 +430,8 @@ namespace JJFlexWpf.Dialogs
             if (PortForwardUdpBox == null || PortForwardSeparatePortsCheck == null) return;
             if (PortForwardSeparatePortsCheck.IsChecked != true)
                 PortForwardUdpBox.Text = PortForwardTcpBox.Text;
-            // Sprint 27 Track B — port validity feeds into UPnP gate.
-            RecomputeUPnPCheckboxEnablement();
+            // Sprint 27 Track F — port validity feeds into the Tier 2 / Tier 3 gate.
+            RecomputeConnectionModeAvailability();
         }
 
         /// <summary>
@@ -418,14 +482,13 @@ namespace JJFlexWpf.Dialogs
                     int? preference = enabled ? (int?)tcp : null;
                     savedPreference = _rig.SaveCurrentAccountListenPort(preference);
 
-                    // Sprint 27 Track F / Phase F.0 — also persist ConnectionMode.
-                    // F.0 keeps the B.2 checkbox UI; mode is computed from it:
-                    // Tier 1 off -> ManualPortForwardOnly (UPnP meaningless without port)
-                    // Tier 1 on + UPnP off -> ManualPortForwardOnly
-                    // Tier 1 on + UPnP on -> ManualPlusUpnp
-                    // (AutomaticHolePunch / Tier 3 is only reachable via F.1's radio group.)
-                    var desiredMode = (enabled && UPnPEnabledCheck?.IsChecked == true)
-                        ? SmartLinkConnectionMode.ManualPlusUpnp
+                    // Sprint 27 Track F / Phase F.1 — persist ConnectionMode as
+                    // selected in the 3-option radio group. If Tier 1 is being
+                    // disabled in this Apply (port forwarding off), force mode
+                    // to ManualPortForwardOnly regardless of radio selection
+                    // because higher tiers are meaningless without a port.
+                    var desiredMode = enabled
+                        ? GetCurrentConnectionMode()
                         : SmartLinkConnectionMode.ManualPortForwardOnly;
                     _rig.SaveCurrentAccountConnectionMode(desiredMode);
                 }
