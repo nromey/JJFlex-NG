@@ -332,6 +332,46 @@ namespace Radios
             SaveAccounts();
         }
 
+        /// <summary>
+        /// Sprint 27 Track A / Tier 1. Returns the saved SmartLink listen-port
+        /// preference for the account with the given <paramref name="email"/>,
+        /// or null if the account has no preference set or the email is unknown.
+        /// Reads the in-memory cache; does not touch disk.
+        /// </summary>
+        public int? GetConfiguredPort(string email)
+        {
+            return GetAccountByEmail(email)?.ConfiguredListenPort;
+        }
+
+        /// <summary>
+        /// Sprint 27 Track A / Tier 1. Persists the listen-port preference for
+        /// the account with the given <paramref name="email"/>. Pass null to
+        /// clear the preference (revert to FlexLib default). Returns false if
+        /// the port is out of the manual range (1024–65535) or the email is
+        /// unknown. Saves to disk on success.
+        /// </summary>
+        public bool SetConfiguredPort(string email, int? port)
+        {
+            if (!IsValidPort(port)) return false;
+            var account = GetAccountByEmail(email);
+            if (account == null) return false;
+            account.ConfiguredListenPort = port;
+            SaveAccounts();
+            return true;
+        }
+
+        /// <summary>
+        /// Sprint 27 Track A. Shared validator for listen-port preferences.
+        /// Null is always valid (= "no preference"). Non-null must be in
+        /// 1024–65535. Exposed so UI code can validate before calling
+        /// <see cref="SetConfiguredPort"/> and present a clear announcement.
+        /// </summary>
+        public static bool IsValidPort(int? port)
+        {
+            if (!port.HasValue) return true;
+            return port.Value >= 1024 && port.Value <= 65535;
+        }
+
         #region DPAPI Encryption Helpers
 
         private static string EncryptWithDpapi(string plainText)
@@ -367,9 +407,10 @@ namespace Radios
         #region Internal Storage Classes
 
         /// <summary>
-        /// Internal class for JSON serialization with encrypted tokens.
+        /// JSON serialization DTO with encrypted tokens. Internal (not private)
+        /// so Radios.Tests can exercise the round-trip + old-file backward-compat.
         /// </summary>
-        private class StoredAccount
+        internal class StoredAccount
         {
             [JsonPropertyName("friendlyName")]
             public string FriendlyName { get; set; } = string.Empty;
@@ -389,6 +430,11 @@ namespace Radios
             [JsonPropertyName("lastUsed")]
             public DateTime LastUsed { get; set; }
 
+            // Nullable so pre-Sprint-27 JSON (which omits this field) deserializes
+            // to null = "use FlexLib default". Satisfies NG-8.
+            [JsonPropertyName("configuredListenPort")]
+            public int? ConfiguredListenPort { get; set; }
+
             public static StoredAccount FromSmartLinkAccount(SmartLinkAccount account)
             {
                 return new StoredAccount
@@ -398,7 +444,8 @@ namespace Radios
                     IdTokenEncrypted = EncryptWithDpapi(account.IdToken),
                     RefreshTokenEncrypted = EncryptWithDpapi(account.RefreshToken),
                     ExpiresAt = account.ExpiresAt,
-                    LastUsed = account.LastUsed
+                    LastUsed = account.LastUsed,
+                    ConfiguredListenPort = account.ConfiguredListenPort
                 };
             }
 
@@ -411,7 +458,8 @@ namespace Radios
                     IdToken = DecryptWithDpapi(IdTokenEncrypted),
                     RefreshToken = DecryptWithDpapi(RefreshTokenEncrypted),
                     ExpiresAt = ExpiresAt,
-                    LastUsed = LastUsed
+                    LastUsed = LastUsed,
+                    ConfiguredListenPort = ConfiguredListenPort
                 };
             }
         }
@@ -471,6 +519,15 @@ namespace Radios
         /// When this account was last used.
         /// </summary>
         public DateTime LastUsed { get; set; }
+
+        /// <summary>
+        /// Sprint 27 Track A / Tier 1 — user-chosen SmartLink listen port.
+        /// Null means "no preference set; use the FlexLib/radio default (4992)".
+        /// A non-null value is applied to the radio post-connect via
+        /// <c>FlexBase.SetSmartLinkPortForwarding</c> so the router's manually
+        /// forwarded port matches what the radio listens on.
+        /// </summary>
+        public int? ConfiguredListenPort { get; set; }
 
         /// <summary>
         /// Display string for UI.
