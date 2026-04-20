@@ -1258,7 +1258,9 @@ public partial class MainWindow : UserControl
             HelpItems = new() { ("Up Down", "cycle slices"), ("Space", "next slice"), ("A-H or 0-7", "jump to slice"),
                 ("T", "set transmit"), ("Period", "create slice"), ("Comma", "release slice") } });
         fields.Add(new FrequencyDisplay.DisplayField("SliceOps", 3, "", "") { Label = "Slice Audio",
-            HelpItems = new() { ("Up Down", "volume"), ("Page Up Down", "pan"), ("M or Space", "mute toggle") } });
+            HelpItems = new() { ("Up Down", "volume"), ("Page Up Down", "pan"),
+                ("Space", "toggle mute"), ("M", "mute"), ("S", "sound"),
+                ("A", "make active"), ("T", "make transmit"), ("X", "transceive") } });
         fields.Add(new FrequencyDisplay.DisplayField("Freq", 12, "", "") { Label = "Frequency", DefaultCursorOffset = 8,
             HelpItems = new() { ("Up Down", "tune by cursor position"), ("Digits", "type frequency then Enter"),
                 ("K", "round to nearest kilohertz"), ("C", "toggle coarse and fine"),
@@ -1303,21 +1305,41 @@ public partial class MainWindow : UserControl
 
         var fields = new List<FrequencyDisplay.DisplayField>();
 
-        // Simplified: Slice → SliceOps → Freq → SMeter
+        // Sprint 26 Phase 8: modern mode now mirrors classic's checkbox fields
+        // (Split, VOX, Offset, RIT, XIT) to the right of SMeter so operators
+        // can arrow-right to toggle them without leaving modern tuning mode.
+        // Don's workflow: modern for frequency tuning, arrow-right to RIT, use
+        // classic digit-position editing inside the RIT field to "tune in
+        // teensies." Modern's Freq-field handler owns its own tuning model;
+        // these fields reuse the classic-mode handlers unchanged.
+        //
+        // Field order: Slice → SliceOps → Freq → SMeter → Split → VOX → Offset → RIT → XIT
         fields.Add(new FrequencyDisplay.DisplayField("Slice", 1, "", "") { Label = "Slice",
             HelpItems = new() { ("Up Down", "cycle slices"), ("Space", "next slice"), ("A-H or 0-7", "jump to slice"),
                 ("T", "set transmit"), ("Period", "create slice"), ("Comma", "release slice") } });
         fields.Add(new FrequencyDisplay.DisplayField("SliceOps", 3, "", "") { Label = "Slice Audio",
-            HelpItems = new() { ("Up Down", "volume"), ("Page Up Down", "pan"), ("M or Space", "mute toggle") } });
+            HelpItems = new() { ("Up Down", "volume"), ("Page Up Down", "pan"),
+                ("Space", "toggle mute"), ("M", "mute"), ("S", "sound"),
+                ("A", "make active"), ("T", "make transmit"), ("X", "transceive") } });
         fields.Add(new FrequencyDisplay.DisplayField("Freq", 12, "", "") { Label = "Frequency", DefaultCursorOffset = 8,
-            HelpItems = new() { ("Digits", "type frequency then Enter"), ("F", "speak frequency"),
-                ("C", "toggle coarse and fine"), ("Page Up Down", "cycle step size") } });
+            HelpItems = new() { ("Up Down", "tune"), ("Digits", "type frequency then Enter"), ("F", "speak frequency"),
+                ("C", "toggle coarse and fine"), ("Page Up Down", "cycle step size"),
+                ("Shift S", "speak current step"), ("M", "mute"), ("V", "cycle slice"),
+                ("R", "toggle RIT"), ("X", "toggle XIT") } });
         fields.Add(new FrequencyDisplay.DisplayField("SMeter", 4, " ", "") { Label = "S Meter",
             HelpItems = new() { ("This field is read-only", "shows signal strength") } });
-
-        // Hidden fields still written by ShowFrequency but not displayed.
-        // ShowFrequency checks if the field exists before writing, so only
-        // the three above get updated.
+        fields.Add(new FrequencyDisplay.DisplayField("Split", 1, "", "") { Label = "Split",
+            HelpItems = new() { ("Space", "toggle split mode") } });
+        fields.Add(new FrequencyDisplay.DisplayField("VOX", 1, "", "") { Label = "VOX",
+            HelpItems = new() { ("Space", "toggle VOX") } });
+        fields.Add(new FrequencyDisplay.DisplayField("Offset", 1, "", "") { Label = "Offset",
+            HelpItems = new() { ("Space", "cycle RIT XIT offset") } });
+        fields.Add(new FrequencyDisplay.DisplayField("RIT", 5, "", "") { Label = "RIT", DefaultCursorOffset = 2,
+            HelpItems = new() { ("Up Down", "adjust by cursor position"), ("Space", "toggle RIT on off"),
+                ("Digits", "enter value"), ("Equals", "copy to XIT and clear RIT") } });
+        fields.Add(new FrequencyDisplay.DisplayField("XIT", 5, " ", "") { Label = "XIT", DefaultCursorOffset = 2,
+            HelpItems = new() { ("Up Down", "adjust by cursor position"), ("Space", "toggle XIT on off"),
+                ("Digits", "enter value") } });
 
         // Modern mode: Freq field uses modifier keys, not cursor position
         FreqOut.IsModernMode = true;
@@ -1377,6 +1399,24 @@ public partial class MainWindow : UserControl
                     break;
                 case "SMeter":
                     _freqOutHandlers.AdjustSMeter(field, e);
+                    break;
+                // Sprint 26 Phase 8: modern-mode checkbox fields share the
+                // classic handlers — same behavior, Don can arrow-right to
+                // them without dropping into classic mode.
+                case "Split":
+                    _freqOutHandlers.AdjustSplit(field, e);
+                    break;
+                case "VOX":
+                    _freqOutHandlers.AdjustVox(field, e);
+                    break;
+                case "Offset":
+                    _freqOutHandlers.AdjustOffset(field, e);
+                    break;
+                case "RIT":
+                    _freqOutHandlers.AdjustRit(field, e);
+                    break;
+                case "XIT":
+                    _freqOutHandlers.AdjustXit(field, e);
                     break;
             }
             return;
