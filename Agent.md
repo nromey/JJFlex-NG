@@ -7,9 +7,9 @@ This document captures the current state of JJ-Flex repository and active work.
 
 ## Current State — 2026-04-20 sealed: Sprint 27 code-complete + cross-sprint docs audit landed; daily 4.1.16.105 on Dropbox
 
-**Day closed 2026-04-20 ~20:17.**
+**Day closed 2026-04-20 ~20:21** (re-sealed after a NOTES-encoding fix bump from 105 → 108).
 
-Dropbox top level holds `JJFlex_4.1.16.105_x64_daily.zip` + `NOTES-daily.txt` covering:
+Dropbox top level holds `JJFlex_4.1.16.108_x64_daily.zip` + `NOTES-daily.txt` (UTF-8 with BOM — em-dashes render correctly in Notepad now). Covers:
 - Sprint 27 networking (A/B/C/D/E/F) — code-complete, NOT live-tested. Tester warning included in the notes.
 - Cross-sprint help-docs audit — 12 new + 2 updated help topics, CHM grew 77 KB → 101 KB.
 - 88 unit tests (up from 14 at Sprint 26 start — 6.3x growth).
