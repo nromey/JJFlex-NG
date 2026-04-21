@@ -3,9 +3,42 @@
 This document captures the current state of JJ-Flex repository and active work.
 
 **Repository root:** `C:\dev\JJFlex-NG`
-**Branch:** `sprint27/networking-config` (Track A Phase 1 complete; Phase 2 fan-out next)
+**Branch:** `sprint28/home-key-qsk` (Phase 7 complete; Phase 8 next)
 
-## Current State — 2026-04-20 sealed: Sprint 27 code-complete + cross-sprint docs audit landed; daily 4.1.16.105 on Dropbox
+## Current State — 2026-04-21: Sprint 28 Phases 1-7 committed, Phases 8-11 remaining
+
+**Branch:** `sprint28/home-key-qsk` (branched off `sprint27/networking-config` which is code-complete but not yet merged to main). When Sprint 27 testing completes, Sprint 28 either rebases onto new main or merges through.
+
+**Sprint plan:** `docs/planning/agile/sprint28-home-key-qsk.md` — 11 phases, serial execution, no worktrees.
+
+**Phases committed on sprint28/home-key-qsk so far:**
+
+- **Phase 1 (`973afda5`)** — DoubleTapTolerance setting primitive. New `Radios/AccessibilityConfig.cs` (enum + per-operator XML config following PttConfig pattern). Static `Current` accessor for UI-layer consumers. New Accessibility tab in Settings with 4-option radio group (Quick/Normal/Relaxed/Leisurely = 250/500/750/1000 ms), default Normal. Load wired in ApplicationEvents.vb at app startup.
+- **Phase 2 (`a271dc78`)** — Filter-edge migration. One-line change at FreqOutHandlers.cs:1768 swaps hardcoded 300 ms for `Radios.AccessibilityConfig.Current.DoubleTapToleranceMs`.
+- **Phase 3 (`d5662983`)** — Escape-collapse + 3 new earcons. Single Escape collapses focused group (focus to header); double Escape collapses all + returns to Home (FreqOut). Three new synthesized earcons: PlayExpand (400->1200 Hz chirp + band-pass noise sweep, 350 ms), PlayCollapse (mirror), PlayCollapseAll (140 Hz gavel with harmonic + noise attack transient + exp decay, 450 ms). Two new sample providers: BandPassNoiseSweepSampleProvider (biquad band-pass with sweep), DecayingGavelSynthesizer. Expanded/Collapsed events hooked on all 5 expanders — single source of truth for announcements and earcons.
+- **Phase 4 (`e4c3d2c5`)** — Home rename. FrequencyDisplay accessibility names: "JJ Flexible Home" (outer) / "Home, frequency and VFO" (inner). KeyCommands F2 description: "Focus frequency display" -> "Go to Home". Internal class names (FreqOut/FreqOutHandlers) unchanged. Home-key-as-F2-equivalent deferred to Phase 8 or later (needs KeyDefs.xml investigation).
+- **Phase 5 (`d468ac7c`)** — Keystroke deconflict. Pan triad moved from L/C/R letters to PgDn/Home/PgUp nav keys on Slice field. R is RIT toggle everywhere (all three home fields). X is XIT toggle everywhere. `=` is transceive on Slice and SliceOps (mnemonic: RX = TX). Home field unchanged (R/X were already correct). Loose unification honored — no gap-fill S/A/T on Home.
+- **Phase 6+7 (`d4c079f1`)** — RequireOperatorPresence primitive + port-forward Apply guarded. Primitive in FlexBase.cs: `PresenceLevel.Passive` (checks GUIClient.IsLocalPtt) implemented; `PresenceLevel.ActiveChallenge` declared-but-NotImplementedException-stubbed for future firmware-upload work. `ApplyPortForwardButton_Click` wraps its commit path in `RequireOperatorPresence(Passive, ...)` plus a new `ConfirmPortForwardApplyDialog` (default focus on No) for defense in depth. Extracted commit body into `PerformPortForwardApply` helper.
+
+**Phases remaining (not yet started):**
+
+- **Phase 8** — Help docs for Home / Escape / double-tap tolerance / ownership gate; 4.1.17 changelog covering Sprints 26+27+28; What's New CHM integration; Help menu + About dialog wiring to changelog anchor; end-of-sprint help audit.
+- **Phase 9** — Combined 4.1.17 release test matrix (user-flow organized, covers Sprints 26+27+28).
+- **Phase 10** — Network tab progressive disclosure with auto-select + off-switch. LARGEST remaining phase. Auto-select rules (pick lowest tier that passes test). User-toggleable "Automatic network discovery" setting. Test / Copy report / Save report always visible in basic view.
+- **Phase 11** — Sprint archive cleanup: move sprints 24-28 plans and test matrices to `docs/planning/agile/archive/`.
+
+**No runtime testing yet.** All 7 commits built cleanly (0 errors; warning count stable around 1424). Earcon synthesis code is theoretically sound but hasn't been ear-tested. Port-forward Apply gate's IsLocalPtt behavior needs a Don's-radio test (local operator path + remote SmartLink path). AccessibilityConfig persistence needs a round-trip test.
+
+**Smoke-test punch list for when Noel is at the radio:**
+
+1. Open Settings > Accessibility. Verify new tab exists; four tolerance options announce correctly; change to Relaxed, OK the dialog, reopen Settings — Relaxed should still be selected.
+2. Open a ScreenFields group (e.g., DSP via Ctrl+Shift+N). Press Escape — group should collapse, expand earcon plays during expand, collapse earcon plays during Escape, focus should land on DSP header. Press Escape twice quickly (within tolerance) — gavel earcon plays, all groups collapse, focus returns to Home, "All panels collapsed, home" speaks.
+3. On Home (F2), press R — RIT should toggle. Press X — XIT should toggle. On Slice field, press R — RIT toggles (not pan right). Press X — XIT toggles (not transceive). Press `=` — transceive. Press PgUp/PgDn/Home — pan right/left/center.
+4. On Don's radio via SmartLink (remote): open Settings > Network > Apply. Denial speech expected: "Cannot change SmartLink port settings. You must be the primary operator at the radio." No dialog, no action. On local-at-radio operation: confirmation dialog shown, No is default focus, must Tab to Yes to commit.
+
+If earcons sound wrong (too loud, phase issues, biquad artifacts), flag for fixes before proceeding to Phase 10.
+
+## Prior state — 2026-04-20 sealed: Sprint 27 code-complete + cross-sprint docs audit landed; daily 4.1.16.105 on Dropbox
 
 **Day closed 2026-04-20 ~20:21** (re-sealed after a NOTES-encoding fix bump from 105 → 108).
 
@@ -121,7 +154,7 @@ Design captures logged during the session:
 - Screen reader auto-detect + Narrow/NVDA/Narrator peer options for AMD/RP-transitioning operators
 - PC NR fleshout scope (RNN modes + strength + spectral presets + noise capture + A/B)
 - Ctrl+F commit band-segment speech
-- Flexibility principle memory captured (`project_flexibility_principle.md`) — BlindCat590-anti-pattern named explicitly as the guiding example.
+- Flexibility principle memory captured (`project_flexibility_principle.md`) — a specific anti-pattern from another blind-operator radio app named as the guiding example (details in the memory file, kept local/non-public).
 
 ## Session 2026-04-17 (evening) — Phases 8-10 pass + CW session bookending + end-of-day seal
 
