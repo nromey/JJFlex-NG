@@ -1419,6 +1419,90 @@ public class FreqOutHandlers
 
     #endregion
 
+    #region AdjustSquelch / AdjustSquelchLevel (Sprint 28 Phase 3.9)
+
+    /// <summary>
+    /// Squelch field handler — Space or Q toggles squelch on/off. Pattern
+    /// matches AdjustVox (toggle field, single-key space-or-Q toggle). Q
+    /// works here and also from AdjustFreq for quick-toggle from the Home
+    /// frequency context, mirroring how M, V, R, X work universally.
+    /// </summary>
+    public void AdjustSquelch(FrequencyDisplay.DisplayField field, KeyEventArgs e)
+    {
+        if (Rig == null) return;
+        var key = RawKey(e);
+        char ch = KeyToChar(e);
+
+        if (key == Key.Space || key == Key.Up || key == Key.Down || ch == 'Q')
+        {
+            ToggleSquelch();
+            e.Handled = true;
+        }
+    }
+
+    /// <summary>
+    /// Squelch Level field handler — Up/Down adjusts the level by the rig's
+    /// configured increment. Q toggles squelch on/off (so you can flip it
+    /// without moving to the adjacent Squelch field). Level changes are
+    /// pre-loaded when squelch is off — they take effect when squelch is
+    /// turned on.
+    /// </summary>
+    public void AdjustSquelchLevel(FrequencyDisplay.DisplayField field, KeyEventArgs e)
+    {
+        if (Rig == null) return;
+        var key = RawKey(e);
+        char ch = KeyToChar(e);
+
+        if (key == Key.Up)
+        {
+            AdjustSquelchLevelBy(FlexBase.SquelchLevelIncrement);
+            e.Handled = true;
+        }
+        else if (key == Key.Down)
+        {
+            AdjustSquelchLevelBy(-FlexBase.SquelchLevelIncrement);
+            e.Handled = true;
+        }
+        else if (ch == 'Q')
+        {
+            ToggleSquelch();
+            e.Handled = true;
+        }
+    }
+
+    /// <summary>
+    /// Shared squelch toggle — used by AdjustSquelch, AdjustSquelchLevel, and
+    /// by AdjustFreq's Q-universal shortcut. Centralizes the announcement
+    /// wording + earcon.
+    /// </summary>
+    private void ToggleSquelch()
+    {
+        if (Rig == null) return;
+        var newState = Rig.ToggleOffOn(Rig.Squelch);
+        Rig.Squelch = newState;
+        if (newState == FlexBase.OffOnValues.on)
+            EarconPlayer.FeatureOnTone();
+        else
+            EarconPlayer.FeatureOffTone();
+        Radios.ScreenReaderOutput.Speak(
+            newState == FlexBase.OffOnValues.on ? "Squelch on" : "Squelch off",
+            VerbosityLevel.Terse, interrupt: true);
+    }
+
+    private void AdjustSquelchLevelBy(int delta)
+    {
+        if (Rig == null) return;
+        int newLevel = Math.Clamp(
+            Rig.SquelchLevel + delta,
+            FlexBase.SquelchLevelMin,
+            FlexBase.SquelchLevelMax);
+        Rig.SquelchLevel = newLevel;
+        Radios.ScreenReaderOutput.Speak(
+            $"Squelch level {newLevel}", VerbosityLevel.Terse, interrupt: true);
+    }
+
+    #endregion
+
     #region AdjustSMeter
 
     /// <summary>
@@ -1668,6 +1752,15 @@ public class FreqOutHandlers
                         Radios.ScreenReaderOutput.Speak(
                             xit.Active ? "XIT on" : "XIT off", VerbosityLevel.Terse, true);
                     }
+                    e.Handled = true;
+                }
+                else if (ch == 'Q')
+                {
+                    // Sprint 28 Phase 3.9 — Q toggles squelch from Home frequency
+                    // field. Universal pattern: M mutes, V cycles VFO, R toggles
+                    // RIT, X toggles XIT, Q toggles squelch. All reachable from
+                    // any home field without navigating to the specific toggle field.
+                    ToggleSquelch();
                     e.Handled = true;
                 }
                 break;

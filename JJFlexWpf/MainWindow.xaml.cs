@@ -1332,6 +1332,15 @@ public partial class MainWindow : UserControl
             HelpItems = new() { ("Up Down", "adjust volume") } });
         fields.Add(new FrequencyDisplay.DisplayField("SMeter", 4, "", "") { Label = "S Meter",
             HelpItems = new() { ("This field is read-only", "shows signal strength") } });
+        // Sprint 28 Phase 3.9 — Squelch + Squelch Level fields. Squelch state
+        // always visible (toggle with Space or Q); level field always present
+        // and adjustable (pre-loads threshold when squelch is off, takes effect
+        // when squelch is on). Positioned after S Meter since they're the
+        // "signal threshold" response to what S Meter shows.
+        fields.Add(new FrequencyDisplay.DisplayField("Squelch", 1, "", "") { Label = "Squelch",
+            HelpItems = new() { ("Space or Q", "toggle squelch") } });
+        fields.Add(new FrequencyDisplay.DisplayField("SquelchLevel", 3, "", "") { Label = "Squelch Level",
+            HelpItems = new() { ("Up Down", "adjust squelch level"), ("Q", "toggle squelch on off") } });
         fields.Add(new FrequencyDisplay.DisplayField("Split", 1, "", "") { Label = "Split",
             HelpItems = new() { ("Space", "toggle split mode") } });
         fields.Add(new FrequencyDisplay.DisplayField("VOX", 1, "", "") { Label = "VOX",
@@ -1389,6 +1398,11 @@ public partial class MainWindow : UserControl
                 ("R", "toggle RIT"), ("X", "toggle XIT") } });
         fields.Add(new FrequencyDisplay.DisplayField("SMeter", 4, " ", "") { Label = "S Meter",
             HelpItems = new() { ("This field is read-only", "shows signal strength") } });
+        // Sprint 28 Phase 3.9 — Squelch + Squelch Level fields (see Classic setup for rationale)
+        fields.Add(new FrequencyDisplay.DisplayField("Squelch", 1, "", "") { Label = "Squelch",
+            HelpItems = new() { ("Space or Q", "toggle squelch") } });
+        fields.Add(new FrequencyDisplay.DisplayField("SquelchLevel", 3, "", "") { Label = "Squelch Level",
+            HelpItems = new() { ("Up Down", "adjust squelch level"), ("Q", "toggle squelch on off") } });
         fields.Add(new FrequencyDisplay.DisplayField("Split", 1, "", "") { Label = "Split",
             HelpItems = new() { ("Space", "toggle split mode") } });
         fields.Add(new FrequencyDisplay.DisplayField("VOX", 1, "", "") { Label = "VOX",
@@ -1479,6 +1493,12 @@ public partial class MainWindow : UserControl
                 case "XIT":
                     _freqOutHandlers.AdjustXit(field, e);
                     break;
+                case "Squelch":
+                    _freqOutHandlers.AdjustSquelch(field, e);
+                    break;
+                case "SquelchLevel":
+                    _freqOutHandlers.AdjustSquelchLevel(field, e);
+                    break;
             }
             return;
         }
@@ -1518,6 +1538,12 @@ public partial class MainWindow : UserControl
                 break;
             case "Volume":
                 _freqOutHandlers.AdjustVolume(field, e);
+                break;
+            case "Squelch":
+                _freqOutHandlers.AdjustSquelch(field, e);
+                break;
+            case "SquelchLevel":
+                _freqOutHandlers.AdjustSquelchLevel(field, e);
                 break;
         }
     }
@@ -1591,6 +1617,13 @@ public partial class MainWindow : UserControl
 
             // VOX
             FreqOut.Write("VOX", RigControl.Vox == FlexBase.OffOnValues.on ? "V" : " ");
+
+            // Sprint 28 Phase 3.9 — Squelch state + level.
+            // Squelch field: "Q" when on, " " (space) when off.
+            // SquelchLevel field: always shows current level (pre-loaded threshold,
+            // takes effect when squelch is turned on).
+            FreqOut.Write("Squelch", RigControl.Squelch == FlexBase.OffOnValues.on ? "Q" : " ");
+            FreqOut.Write("SquelchLevel", RigControl.SquelchLevel.ToString());
 
             // Offset
             FreqOut.Write("Offset", RigControl.OffsetDirection switch
