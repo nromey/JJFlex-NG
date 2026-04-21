@@ -5,7 +5,19 @@ This document captures the current state of JJ-Flex repository and active work.
 **Repository root:** `C:\dev\JJFlex-NG`
 **Branch:** `sprint27/networking-config` (Track A Phase 1 complete; Phase 2 fan-out next)
 
-## Current State — Sprint 27 ALL TRACKS COMPLETE (A + B + C + D + E + F); cross-sprint docs audit next
+## Current State — 2026-04-20 sealed: Sprint 27 code-complete + cross-sprint docs audit landed; daily 4.1.16.105 on Dropbox
+
+**Day closed 2026-04-20 ~20:17.**
+
+Dropbox top level holds `JJFlex_4.1.16.105_x64_daily.zip` + `NOTES-daily.txt` covering:
+- Sprint 27 networking (A/B/C/D/E/F) — code-complete, NOT live-tested. Tester warning included in the notes.
+- Cross-sprint help-docs audit — 12 new + 2 updated help topics, CHM grew 77 KB → 101 KB.
+- 88 unit tests (up from 14 at Sprint 26 start — 6.3x growth).
+- Build-pipeline improvements: Debug builds now refresh CHM via `build-debug.bat` hook; `build-help.bat` delayed-expansion fix.
+
+Backups snapshotted: memory + private docs to NAS `historical\memory\memory-20260420-201720.zip` + `historical\private\private-20260420-201721.zip`.
+
+
 
 **Sprint 27 Track A landed 2026-04-20** in four commits on `sprint27/networking-config` (branched off `main` which now includes Sprint 26):
 
