@@ -931,6 +931,12 @@ public class FreqOutHandlers
                 }
                 e.Handled = true;
                 break;
+            case 'Q':
+                // Sprint 28 Phase 3.9 — Q is squelch toggle on all three home fields.
+                // Matches the M/V/R/X universal-hotkey pattern.
+                ToggleSquelch();
+                e.Handled = true;
+                break;
             case '.':
                 // Create/activate a new slice
                 {
@@ -1207,6 +1213,13 @@ public class FreqOutHandlers
                     if (rit.Active) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
                     Radios.ScreenReaderOutput.Speak(
                         rit.Active ? "RIT on" : "RIT off", VerbosityLevel.Terse, true);
+                    e.Handled = true;
+                }
+                else if (ch == 'Q')
+                {
+                    // Sprint 28 Phase 3.9 — Q is squelch toggle on all three home fields
+                    // (SliceOps). Matches the M/V/R/X universal-hotkey pattern.
+                    ToggleSquelch();
                     e.Handled = true;
                 }
                 break;
