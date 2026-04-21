@@ -84,12 +84,67 @@ These keys work when you're in either Classic or Modern mode, controlling the ra
 
 | Key | Action |
 |-----|--------|
-| F2 | Speak current frequency |
+| F2 | Go to Home (the main interactive region — see Home Region below) |
 | Ctrl+F | Set frequency (direct entry) |
 | Ctrl+Shift+M | Start memory scan |
 | Ctrl+Shift+C | Clear RIT offset |
 | Alt+Z | CW zero beat |
 | Ctrl+P | Adjust panning |
+| Escape | Collapse the field group you're in, or return to Home |
+| Escape Escape (quickly) | Collapse all open field groups and return to Home |
+
+## Home Region — Universal Keys
+
+These keys work from ANY field within Home (Slice, Slice Operations, Frequency, Mute, Volume, S-Meter, Squelch, Squelch Level, Split, VOX, Offset, RIT, XIT). Press the key and you get the action regardless of which specific field you're currently on.
+
+| Key | Action |
+|-----|--------|
+| M | Toggle mute on active slice |
+| V | Cycle to next slice |
+| R | Toggle RIT on/off |
+| X | Toggle XIT on/off |
+| Q | Toggle squelch on/off |
+| = | Transceive current slice (set both RX and TX to this slice) |
+
+## Home Region — Slice Field Keys
+
+When focused on the Slice field specifically:
+
+| Key | Action |
+|-----|--------|
+| Space or Up | Cycle to next slice |
+| Down | Cycle to previous slice |
+| 0-9, A-H | Jump directly to slice by number or letter |
+| T | Make this slice the TX slice |
+| . (period) | Create a new slice |
+| , (comma) | Release the current slice |
+| Page Up | Pan right |
+| Home | Pan center |
+| Page Down | Pan left |
+
+## Home Region — Slice Operations Field Keys
+
+When focused on the Slice Operations field (per-slice audio controls):
+
+| Key | Action |
+|-----|--------|
+| Up / Down | Adjust volume up/down |
+| Page Up / Page Down | Pan right / left |
+| Space | Toggle mute |
+| M | Explicit mute (idempotent) |
+| S | Explicit sound (unmute, idempotent) |
+| A | Make this slice active (RX) |
+| T | Make this slice TX |
+
+## Home Region — Squelch Level Field Keys
+
+When focused on the Squelch Level field:
+
+| Key | Action |
+|-----|--------|
+| Up | Raise squelch level by 5 |
+| Down | Lower squelch level by 5 |
+| Q | Toggle squelch on/off |
 
 ## Mode Switching
 

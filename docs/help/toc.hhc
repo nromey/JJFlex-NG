@@ -52,6 +52,14 @@
   </OBJECT>
   <UL>
     <LI><OBJECT type="text/sitemap">
+      <param name="Name" value="Home (main interactive region)">
+      <param name="Local" value="pages\home-region.htm">
+    </OBJECT>
+    <LI><OBJECT type="text/sitemap">
+      <param name="Name" value="Escape & Collapse">
+      <param name="Local" value="pages\escape-collapse.htm">
+    </OBJECT>
+    <LI><OBJECT type="text/sitemap">
       <param name="Name" value="Tuning & Frequency">
       <param name="Local" value="pages\tuning-frequency.htm">
     </OBJECT>
@@ -82,6 +90,10 @@
     <LI><OBJECT type="text/sitemap">
       <param name="Name" value="Slice Management">
       <param name="Local" value="pages\slice-management.htm">
+    </OBJECT>
+    <LI><OBJECT type="text/sitemap">
+      <param name="Name" value="Squelch from Home">
+      <param name="Local" value="pages\squelch-home.htm">
     </OBJECT>
     <LI><OBJECT type="text/sitemap">
       <param name="Name" value="MultiFlex Clients">
@@ -124,6 +136,10 @@
     <LI><OBJECT type="text/sitemap">
       <param name="Name" value="CW Notifications">
       <param name="Local" value="pages\audio-cw-notifications.htm">
+    </OBJECT>
+    <LI><OBJECT type="text/sitemap">
+      <param name="Name" value="CW Send & Receive Text Boxes">
+      <param name="Local" value="pages\cw-text-boxes.htm">
     </OBJECT>
     <LI><OBJECT type="text/sitemap">
       <param name="Name" value="Frequency Entry Sounds">
@@ -169,6 +185,10 @@
       <param name="Name" value="Tuning Steps">
       <param name="Local" value="pages\settings-tuning-steps.htm">
     </OBJECT>
+    <LI><OBJECT type="text/sitemap">
+      <param name="Name" value="Double-Tap Tolerance (Accessibility)">
+      <param name="Local" value="pages\settings-double-tap-tolerance.htm">
+    </OBJECT>
   </UL>
 
   <LI><OBJECT type="text/sitemap">
@@ -204,6 +224,10 @@
     <LI><OBJECT type="text/sitemap">
       <param name="Name" value="SmartLink Account Management">
       <param name="Local" value="pages\networking-smartlink-accounts.htm">
+    </OBJECT>
+    <LI><OBJECT type="text/sitemap">
+      <param name="Name" value="Port Forwarding Safety (Ownership Gate)">
+      <param name="Local" value="pages\port-forward-ownership.htm">
     </OBJECT>
   </UL>
 
