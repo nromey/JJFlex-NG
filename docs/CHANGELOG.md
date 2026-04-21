@@ -2,6 +2,115 @@
 
 All notable changes to this project will be documented in this file. The opinions and coolness of developers, radio amateurs, and operatives is long, but you might like it. Read at your leisure for all changes for each release.
 
+## 4.1.17: The Making Yourself at Home Edition
+
+This release is about the space where you actually spend your time in the app — the frequency-and-slice area I've started calling "Home." It's got a real name now, speaks for itself when you land on it, and does more work per keystroke than it used to. Plus some quiet networking plumbing that's been cooking since the last release, and a safety check that makes sure you don't accidentally change settings on somebody else's radio.
+
+### Headlines (skim here, details below)
+
+- **The main screen is now called Home, and it announces itself.** Press F2 and your screen reader says "Home" plus whichever field you're on — slice, frequency, S-meter, wherever. No more navigating a "Frequency Display" region whose name never quite told you where you were.
+- **Squelch lives in Home now.** Arrow right past the S-meter and you'll find it. Press Q from anywhere in Home to toggle it — same muscle memory as M for mute, R for RIT, X for XIT.
+- **Escape actually collapses things.** Single Escape inside an open field group collapses it. Double Escape within about half a second collapses everything and takes you back to Home, with a two-tone "done" sound confirming you're back at the top.
+- **The key map across Home makes sense now.** R toggles RIT from anywhere you press it. X toggles XIT. The `=` key does the old transceive thing (which freed X to do what most hams expect). Pan moves to Page Up / Home / Page Down instead of letter keys, so if your finger slips you don't pan to Patagonia.
+- **Networking tiers you can actually configure.** All three SmartLink reachability strategies — manual port forwarding, UPnP, and hole-punch — are controllable from the Network tab without ever opening SmartSDR. Diagnostic probe included, with a report you can copy and paste to me when something isn't working.
+- **Safety check on port forwarding.** If you're connected to somebody else's radio via SmartLink and try to change the port settings, JJ Flex politely stops you instead of changing their radio's config.
+- **CW send and receive boxes step out of the way.** Unless you're in CW mode, the receive and send text boxes aren't visible and they're not in the tab order. Switch to CW with Alt+C and they come right back.
+- **Ctrl+Tab works for panel navigation again.** If you've got multiple field groups open, Ctrl+Tab moves between them. Ctrl+Shift+Tab goes the other way. The popup menu that used to live on Ctrl+Tab is disabled pending a proper redesign — it's going to come back as an actual accessible toolbar in a future release, not a menu that springs up every time you reach for tab nav.
+
+### Home is a Region with a Name
+
+For a long time, the place you land on when you press F2 was called "Frequency Display" or "Frequency and VFO Display" in accessibility announcements. Neither name really told you what you were looking at, and neither was easy to say. It's now "Home" — one word, speaks clean, means "the place your hand goes when you want to operate the rig."
+
+When focus lands there, you hear "Home" plus whichever sub-field you landed on. The exact wording scales with your speech verbosity setting. On Terse, it's "Home, slice" (or whichever field). On Chatty, it's "JJ Flexible Home, slice, 14.225.000" — the full story including the current frequency for context.
+
+### Universal Keys from Home
+
+Certain letter keys now work the same way from any field in Home, so you don't have to navigate to a specific field to use them:
+
+- **M** — toggle mute on the active slice
+- **V** — cycle to the next slice
+- **R** — toggle RIT
+- **X** — toggle XIT
+- **Q** — toggle squelch
+- **=** — make the current slice transceive (both RX and TX on this slice)
+
+Previously R and X did different things depending on which field you were on — R was pan-right on the Slice field but RIT on the Frequency field, and X was transceive on Slice/Slice-Operations but XIT on Frequency. Now they mean the same thing everywhere. One set of muscle memory, not three.
+
+### Escape Does Its Job
+
+Pressing Escape inside an open field group (DSP, Audio, Receiver, Transmission, Antenna) now actually closes that group and puts focus on its header. You can re-open it with Space. This was supposed to be the behavior all along; it finally works the way it reads.
+
+Press Escape twice quickly and everything collapses at once — all open groups close, focus returns to Home, and you hear a distinctive two-tone descending sound confirming "you backed out of everything." If you've ever had a Windows Explorer moment where you wanted to just get away from the thing you were in, this is that key, applied to JJ Flex's structure.
+
+### Three New Sound Cues
+
+JJ Flex now has three sound cues around opening and closing field groups:
+
+- **Expand** — when a group opens, you hear an ascending chirp (400 Hz rising to 1200 Hz) with a gritty noise texture layered on top. The rising pitch means "this opened up."
+- **Collapse** — mirror of expand when a group closes: 1200 Hz dropping to 400 Hz, same noise texture. Falling pitch means "this closed down."
+- **Collapse all (the "gavel")** — when you double-Escape to close everything and go home, you hear two distinct tones — a higher tone followed by a lower one — over about half a second. It's meant to feel like finality, like the thing you pressed actually did something significant.
+
+The noise texture on the chirps is designed to cut through radio static better than a pure tone would. Your ear picks out the distinctive "shhhwee" shape even when 40 or 80 meters is crashing with thunderstorm QRN.
+
+### You Can Tune How Fast "Quick" Is
+
+New setting in **Settings > Accessibility**: Double-Tap Tolerance. Four choices — Quick (250 ms), Normal (500 ms), Relaxed (750 ms), and Leisurely (1000 ms). This controls how fast you have to press a key twice for JJ Flex to count it as a double-tap.
+
+It affects two behaviors today: bracket double-tap (press `[` or `]` twice to enter filter-edge adjust mode), and the new double-Escape-to-collapse-all. Any future double-tap features will respect the same setting, so you configure it once and forget about it. If you're a fast typist, Quick matches the old snappy feel. If you verify speech before pressing the next key, Leisurely gives you breathing room.
+
+### Squelch in Home
+
+Squelch used to live only in the Receiver field group — you had to expand it to toggle squelch or adjust the level. Now both the squelch on/off indicator and its level value live in Home as two adjacent fields, right after the S-meter. Arrow to them and use Space / Q to toggle or Up / Down to adjust the level.
+
+Press Q from any Home field to toggle squelch without arrowing — same universal pattern as M, V, R, X. When squelch is off, the level field shows "---" instead of a number (because the threshold isn't active, so showing a value would be misleading). Your last-set level is remembered and comes back when you turn squelch on.
+
+### The Port Forwarding Safety Check
+
+When you press Apply port forwarding in **Settings > Network**, JJ Flex now checks whether you're the primary operator at the radio before letting the change go through. If you're connected locally to your own radio (the radio considers you the primary, because that's the client the mic PTT routes to), you'll see a confirmation dialog asking "are you sure?" — default focus on No, so accidental Enter doesn't commit. If you're connected remotely via SmartLink to someone else's radio, JJ Flex politely refuses: "Cannot change SmartLink port settings. You must be the primary operator at the radio."
+
+This catches two different kinds of accidents: changing someone else's radio config by mistake (the ownership check), and fat-fingering Apply when you meant something else on your own radio (the confirmation dialog). Two layers of protection for a setting that persists on the radio and affects every future connection.
+
+When firmware upload lands in a future release, a stricter version of this same check will gate that feature — probably requiring you to PTT as a presence confirmation before firmware flash starts.
+
+### The CW Text Boxes Know When They're Wanted
+
+If you're in a CW mode (CW, CWL, or CWU), you get the usual two text boxes — one showing decoded CW coming in, one where you type to send. If you switch to USB, LSB, AM, FM, or any digital mode, those two boxes vanish. They're not just hidden — they leave the tab order entirely, so you don't spend your navigation going through them when they aren't doing anything.
+
+Switch back to CW and they come back. Same behavior SmartSDR has always had, finally landed here.
+
+### More Stable Remote Sessions (Under the Hood)
+
+Quite a bit of plumbing work went into making SmartLink sessions more stable — handling network hiccups, keeping sessions alive across transient disconnects, cleaner reconnect behavior. Most of this is invisible until you notice your session didn't drop when it used to. If you've had SmartLink sessions fall over mid-QSO before, you should see fewer of those.
+
+### Network Tab Configurability (SmartLink Tiers)
+
+JJ Flex now has full configurability for the three SmartLink networking tiers — the underlying mechanics Flex has supported for a while but were only accessible through SmartSDR's GUI before. Network tab in Settings has:
+
+- **Manual port forwarding** (the sovereign option — you set the port, you know what's happening).
+- **UPnP** (the convenience option — JJ Flex asks your router to set up port mapping automatically).
+- **Hole-punch / extended reach** (for hard-to-reach networks where neither manual nor UPnP works).
+- **Network diagnostic probe** — asks Flex's servers to test your radio's reachability from outside and tells you in plain English what's working.
+- **Copy report** and **Save report** — so when something isn't working, you can paste the diagnostic output into an email to me and I'll have actual data to help with, not just a verbal description.
+
+Each strategy is opt-in, with manual port forwarding (Tier 1) recommended as the default because it's the only one compatible with strict security policies (corporate networks, DISA STIGs, PCI-DSS environments).
+
+### Ctrl+Tab Reclaimed for Panel Navigation
+
+Ctrl+Tab used to pop up an "action toolbar" menu. It's disabled now, and Ctrl+Tab / Ctrl+Shift+Tab are back to doing what they're supposed to in a tabbed interface: moving between open field groups. The action toolbar is coming back in a future release as an actual toolbar, not a menu — a persistent accessible UI surface you can navigate, not a popup that interrupted your tab nav every time you reached for it.
+
+### What's Under the Hood You Probably Don't Care About
+
+- Background audio work to make sure the new sound cues cut through ambient radio noise instead of getting masked by it.
+- A shared safety check that future destructive operations like firmware upload will use for the same kind of protection the port-forward apply now has. One place to update if we ever need to tighten it, not twelve.
+- Per-operator accessibility preferences that persist across app restarts.
+- Cleaner internal separation between Home (the operating region) and the Screen Fields panel (the full settings-and-controls tree) — most of the time you operate from Home, the panel is for deeper adjustments.
+
+### Thanks, Don and Justin
+
+Don (WA2IWC) and Justin (AI5OS) have been pounding on the nightly builds and finding things that only show up when real users try real things. A lot of what shipped in this release came from their testing — the earcon tuning especially, which went through multiple rounds until the sounds were actually audible against radio audio rather than just theoretically correct in a quiet room. Thank you both.
+
+---
+
 ## 4.1.16: The Name Change Edition
 
 I've renamed the app to JJ Flexible Radio Access. The name reflects where we're headed — flexible radio control that puts accessibility first. Your settings, profiles, and everything else are exactly where you left them. No migration needed.
