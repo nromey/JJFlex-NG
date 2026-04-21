@@ -1620,10 +1620,15 @@ public partial class MainWindow : UserControl
 
             // Sprint 28 Phase 3.9 — Squelch state + level.
             // Squelch field: "Q" when on, " " (space) when off.
-            // SquelchLevel field: always shows current level (pre-loaded threshold,
-            // takes effect when squelch is turned on).
-            FreqOut.Write("Squelch", RigControl.Squelch == FlexBase.OffOnValues.on ? "Q" : " ");
-            FreqOut.Write("SquelchLevel", RigControl.SquelchLevel.ToString());
+            // SquelchLevel field: shows numeric level when squelch is ON, "---"
+            // placeholder when OFF. Matches the A-level-conditional design Noel
+            // picked and the RIT/XIT pattern (placeholder when inactive). Field
+            // stays focusable and adjustable either way — the visual just signals
+            // "this level is meaningful right now" vs "not currently in effect."
+            // Phase 3.9.2 fix (2026-04-21).
+            bool squelchOn = RigControl.Squelch == FlexBase.OffOnValues.on;
+            FreqOut.Write("Squelch", squelchOn ? "Q" : " ");
+            FreqOut.Write("SquelchLevel", squelchOn ? RigControl.SquelchLevel.ToString() : "---");
 
             // Offset
             FreqOut.Write("Offset", RigControl.OffsetDirection switch
