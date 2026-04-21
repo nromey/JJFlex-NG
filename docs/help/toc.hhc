@@ -14,6 +14,11 @@
   </OBJECT>
 
   <LI><OBJECT type="text/sitemap">
+    <param name="Name" value="What's New">
+    <param name="Local" value="pages\whats-new.htm">
+  </OBJECT>
+
+  <LI><OBJECT type="text/sitemap">
     <param name="Name" value="Getting Started">
   </OBJECT>
   <UL>

@@ -24,6 +24,17 @@ if not exist "!HHC!" (
 REM Create pages directory
 if not exist "%PAGESDIR%" mkdir "%PAGESDIR%"
 
+REM Sprint 28 Phase 8c — import the project changelog as a "What's New" help
+REM topic. Single source of truth: docs\CHANGELOG.md is the canonical changelog,
+REM which gets copied to the help md/ folder at build time. The copy gets
+REM converted like any other md file. No separate changelog maintenance.
+set "CHANGELOG_SRC=%HELPDIR%..\CHANGELOG.md"
+set "CHANGELOG_DST=%MDDIR%\whats-new.md"
+if exist "%CHANGELOG_SRC%" (
+    echo Importing CHANGELOG.md as whats-new.md for CHM inclusion...
+    copy /Y "%CHANGELOG_SRC%" "%CHANGELOG_DST%" >nul
+)
+
 REM Convert Markdown to HTML
 REM Option 1: Use pandoc if available
 where pandoc >nul 2>&1
