@@ -656,17 +656,20 @@ namespace JJFlexWpf
         /// </summary>
         public static void PlayCollapseAll()
         {
-            if (AlertMixer == null) { FallbackBeep(150, 300); return; }
-            try
-            {
-                var gavel = new DecayingGavelSynthesizer(SampleRate, 0.45f);
-                AddToMixer(gavel);
-            }
-            catch (Exception ex)
-            {
-                Trace.WriteLine($"EarconPlayer.PlayCollapseAll failed: {ex.Message}");
-                FallbackBeep(150, 300);
-            }
+            // Sprint 28 Phase 3.8 (2026-04-21) — replaced the synthesized gavel
+            // (DecayingGavelSynthesizer + attack transient) after user reported it
+            // still inaudible even with earcon-defer tuning. The new design uses the
+            // battle-tested PlayToneSequence pattern (same primitive as FeatureOn/Off
+            // tones which are reliably audible): two descending tones at the top and
+            // bottom of the collapse chirp's sweep range (1200 Hz then 400 Hz) for
+            // ~500 ms total. Thematically matches the collapse chirp — same endpoints,
+            // stamped as two fixed tones instead of a continuous slide. 0.5 volume
+            // picks a level comparable to existing loud earcons.
+            //
+            // The older DecayingGavelSynthesizer class is retained in the Internal
+            // Types region as a reference for any future percussive-earcon work but
+            // is no longer wired to a public method.
+            PlayToneSequence(new[] { (1200, 220), (0, 30), (400, 250) }, 0.5f);
         }
 
         #endregion
