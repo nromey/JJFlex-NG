@@ -64,8 +64,8 @@ public class KeyCommands
 
             // ── Routing / Scan ──
             new(CommandValues.ShowFreq, DisplayFreqHandler,
-                "Focus frequency display", null, FunctionGroups.RoutingScan, KeyScope.Radio)
-                { Keywords = new[] { "frequency", "focus", "display", "tune", "tuning" } },
+                "Go to Home", null, FunctionGroups.RoutingScan, KeyScope.Radio)
+                { Keywords = new[] { "home", "frequency", "focus", "display", "tune", "tuning" } },
             new(CommandValues.ResumeTheScan, ResumeScanHandler,
                 "Resume the scan.", "resume scan", FunctionGroups.Scan, KeyScope.Radio)
                 { Keywords = new[] { "scan", "resume", "continue", "scanning" } },

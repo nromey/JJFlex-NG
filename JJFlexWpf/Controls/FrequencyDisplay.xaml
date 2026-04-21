@@ -6,7 +6,7 @@
              xmlns:controls="clr-namespace:JJFlexWpf.Controls"
              mc:Ignorable="d"
              d:DesignWidth="600" d:DesignHeight="24"
-             AutomationProperties.Name="Frequency Display"
+             AutomationProperties.Name="JJ Flexible Home"
              Focusable="False"
              IsTabStop="False">
 
@@ -21,7 +21,7 @@
              BorderThickness="1"
              VerticalContentAlignment="Center"
              TabIndex="0"
-             AutomationProperties.Name="Frequency and VFO Display"
+             AutomationProperties.Name="Home, frequency and VFO"
              PreviewKeyDown="DisplayBox_PreviewKeyDown"
              PreviewTextInput="DisplayBox_PreviewTextInput" />
 </UserControl>
