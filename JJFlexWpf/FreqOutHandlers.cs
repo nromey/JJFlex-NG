@@ -1762,10 +1762,14 @@ public class FreqOutHandlers
         }
         else if (!ctrl && !shift && !alt) // Unmodified = independent edges or edge mode
         {
-            // Check for double-tap to enter/exit edge selection mode
+            // Check for double-tap to enter/exit edge selection mode.
+            // Sprint 28 Phase 2 — tolerance window is now user-configurable via
+            // Settings > Accessibility > Double-tap tolerance (default 500 ms,
+            // up from the previous hardcoded 300 ms). Users who preferred the
+            // snappier feel can pick "Quick (250 ms)".
             var now = DateTime.UtcNow;
             bool isDoubleTap = (key == _lastBracketKey) &&
-                               (now - _lastBracketTime).TotalMilliseconds < 300 &&
+                               (now - _lastBracketTime).TotalMilliseconds < Radios.AccessibilityConfig.Current.DoubleTapToleranceMs &&
                                _filterEdgeMode == FilterEdgeMode.None;
             _lastBracketKey = key;
             _lastBracketTime = now;
