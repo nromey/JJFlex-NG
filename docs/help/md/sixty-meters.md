@@ -29,6 +29,15 @@ Go to Settings > License tab to find:
 - **Country selection** — defaults to US. This determines which 60 meter allocations apply.
 - **Enforce transmit rules** — when enabled, the app forces USB mode on channelized frequencies and caps power at 100 watts. This helps you stay legal without having to remember the rules yourself.
 
+## Automatic Mode Switching
+
+When you step to a 60-meter channel using the channel navigation keys, JJ Flex switches the radio's mode for you:
+
+- Landing on one of the five voice channels forces USB mode. This matches the FCC allocation — the voice channels are USB-only.
+- Landing on the digital segment switches to CW mode as a sensible default. If you actually want RTTY, FT8, or another digital mode on that segment, switch modes manually after landing — JJ Flex only sets CW as a "not USB" default.
+
+The mode switch is announced alongside the frequency so you hear "Channel 1, 5.332 megahertz, USB" even if you were in LSB before stepping onto the channel. No accidental LSB-on-60m misadventures.
+
 ## Tips
 
 - The 60 meter channels are popular for NVIS (near vertical incidence skywave) propagation — great for regional contacts during the day.

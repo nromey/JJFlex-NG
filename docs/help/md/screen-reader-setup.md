@@ -45,6 +45,14 @@ Collapsed panels are skipped in the tab order, so if you don't have ScreenFields
 - **Status announcements:** Press `Ctrl+Shift+S` to hear the current radio status spoken at any time. This is multi-slice aware — it tells you about all active slices.
 - **Earcons:** JJ Flexible Radio Access uses short audio tones (earcons) to confirm actions like toggling DSP features. These play through your default audio device alongside screen reader speech.
 
+## Announcements You Should Know About
+
+A few recent accessibility additions are worth knowing about specifically — they happen automatically and you may not notice them at first:
+
+- **Menu toggle states are spoken.** When you flip a DSP toggle (NR, NB, APF, etc.) through a menu, you hear "NR: On" or "NR: Off" directly — you don't have to rely on the checkmark glyph, which doesn't always read the way you'd hope on every combination of screen reader and menu style.
+- **Dialog close announcements** tell you where you are when a dialog closes. When you leave Settings or the Status dialog, the app announces the current listening state ("Listening on 14.225, USB, 20 meter band, slice A") so you don't have to press Ctrl+Shift+S to re-orient after closing.
+- **Button access keys speak themselves.** When focus lands on a button that has a keyboard accelerator (most do), the screen reader announces the accelerator along with the name: "OK, Alt+O" or "Apply to connected radio, Alt+A." This is automatic — you don't have to explore the dialog to find the Alt-key shortcuts.
+
 ## Troubleshooting
 
 If your screen reader isn't reading controls:

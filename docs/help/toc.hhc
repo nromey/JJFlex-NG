@@ -33,6 +33,16 @@
   </OBJECT>
 
   <LI><OBJECT type="text/sitemap">
+    <param name="Name" value="Quick Actions (Ctrl+Tab)">
+    <param name="Local" value="pages\quick-actions.htm">
+  </OBJECT>
+
+  <LI><OBJECT type="text/sitemap">
+    <param name="Name" value="Status Dialog (Ctrl+Alt+S)">
+    <param name="Local" value="pages\status-dialog.htm">
+  </OBJECT>
+
+  <LI><OBJECT type="text/sitemap">
     <param name="Name" value="Operating Modes">
     <param name="Local" value="pages\operating-modes.htm">
   </OBJECT>
@@ -62,12 +72,24 @@
       <param name="Local" value="pages\filters-dsp.htm">
     </OBJECT>
     <LI><OBJECT type="text/sitemap">
+      <param name="Name" value="PC-Side Noise Reduction">
+      <param name="Local" value="pages\dsp-pc-noise-reduction.htm">
+    </OBJECT>
+    <LI><OBJECT type="text/sitemap">
       <param name="Name" value="Antenna Switching">
       <param name="Local" value="pages\antenna-switching.htm">
     </OBJECT>
     <LI><OBJECT type="text/sitemap">
       <param name="Name" value="Slice Management">
       <param name="Local" value="pages\slice-management.htm">
+    </OBJECT>
+    <LI><OBJECT type="text/sitemap">
+      <param name="Name" value="MultiFlex Clients">
+      <param name="Local" value="pages\radio-multiflex-clients.htm">
+    </OBJECT>
+    <LI><OBJECT type="text/sitemap">
+      <param name="Name" value="Panadapter Visibility">
+      <param name="Local" value="pages\panadapter-visibility.htm">
     </OBJECT>
   </UL>
 
@@ -100,6 +122,18 @@
       <param name="Local" value="pages\tx-sculpting.htm">
     </OBJECT>
     <LI><OBJECT type="text/sitemap">
+      <param name="Name" value="CW Notifications">
+      <param name="Local" value="pages\audio-cw-notifications.htm">
+    </OBJECT>
+    <LI><OBJECT type="text/sitemap">
+      <param name="Name" value="Frequency Entry Sounds">
+      <param name="Local" value="pages\audio-frequency-entry-sounds.htm">
+    </OBJECT>
+    <LI><OBJECT type="text/sitemap">
+      <param name="Name" value="Earcon Control (Shift+T)">
+      <param name="Local" value="pages\audio-earcon-control.htm">
+    </OBJECT>
+    <LI><OBJECT type="text/sitemap">
       <param name="Name" value="Leader Key Commands">
       <param name="Local" value="pages\leader-key.htm">
     </OBJECT>
@@ -121,8 +155,21 @@
 
   <LI><OBJECT type="text/sitemap">
     <param name="Name" value="Settings & Profiles">
-    <param name="Local" value="pages\settings-profiles.htm">
   </OBJECT>
+  <UL>
+    <LI><OBJECT type="text/sitemap">
+      <param name="Name" value="Profiles Overview">
+      <param name="Local" value="pages\settings-profiles.htm">
+    </OBJECT>
+    <LI><OBJECT type="text/sitemap">
+      <param name="Name" value="Filter Presets">
+      <param name="Local" value="pages\settings-filter-presets.htm">
+    </OBJECT>
+    <LI><OBJECT type="text/sitemap">
+      <param name="Name" value="Tuning Steps">
+      <param name="Local" value="pages\settings-tuning-steps.htm">
+    </OBJECT>
+  </UL>
 
   <LI><OBJECT type="text/sitemap">
     <param name="Name" value="Command Finder">
@@ -139,6 +186,10 @@
   </OBJECT>
   <UL>
     <LI><OBJECT type="text/sitemap">
+      <param name="Name" value="Overview — the Three Tiers">
+      <param name="Local" value="pages\networking-tiers-overview.htm">
+    </OBJECT>
+    <LI><OBJECT type="text/sitemap">
       <param name="Name" value="Tier 1 — Manual Port Forwarding">
       <param name="Local" value="pages\networking-tier1-manual-port.htm">
     </OBJECT>
@@ -149,6 +200,10 @@
     <LI><OBJECT type="text/sitemap">
       <param name="Name" value="Network Diagnostics">
       <param name="Local" value="pages\networking-diagnostics.htm">
+    </OBJECT>
+    <LI><OBJECT type="text/sitemap">
+      <param name="Name" value="SmartLink Account Management">
+      <param name="Local" value="pages\networking-smartlink-accounts.htm">
     </OBJECT>
   </UL>
 
