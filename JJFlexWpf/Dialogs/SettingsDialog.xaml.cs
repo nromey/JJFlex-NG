@@ -542,6 +542,34 @@ namespace JJFlexWpf.Dialogs
                 }
             }
 
+            // Sprint 28 Phase 7 — authorization gate. SmartLink port changes modify
+            // radio-persistent state that affects future connections by any client.
+            // Guard with both ownership check (IsLocalPtt = primary operator at rig)
+            // AND a confirmation dialog (defense in depth: ownership catches "not
+            // authorized to do this"; dialog catches "accidental button press").
+            _rig.RequireOperatorPresence(
+                FlexBase.PresenceLevel.Passive,
+                reason: "change SmartLink port settings",
+                onConfirmed: () =>
+                {
+                    // Confirmation dialog with default focus on No for conservative safety.
+                    var confirm = new ConfirmPortForwardApplyDialog(enabled, tcp, udp);
+                    confirm.Owner = this;
+                    if (confirm.ShowDialog() != true)
+                    {
+                        ScreenReaderOutput.Speak("Apply cancelled.", VerbosityLevel.Terse, interrupt: true);
+                        return;
+                    }
+                    PerformPortForwardApply(enabled, tcp, udp);
+                });
+        }
+
+        /// <summary>
+        /// Sprint 28 Phase 7 — extracted Apply body so both the guarded entrypoint
+        /// and any future Apply callers reuse the same commit logic.
+        /// </summary>
+        private void PerformPortForwardApply(bool enabled, int tcp, int udp)
+        {
             bool ok = _rig.SetSmartLinkPortForwarding(enabled, tcp, udp);
             if (ok)
             {

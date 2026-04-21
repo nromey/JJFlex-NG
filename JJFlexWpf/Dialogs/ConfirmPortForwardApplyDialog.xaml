@@ -1,0 +1,37 @@
+<local:JJFlexDialog x:Class="JJFlexWpf.Dialogs.ConfirmPortForwardApplyDialog"
+                    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:local="clr-namespace:JJFlexWpf"
+                    Title="Confirm Port Forward Apply"
+                    Width="460"
+                    SizeToContent="Height"
+                    WindowStartupLocation="CenterOwner"
+                    ShowInTaskbar="False"
+                    ResizeMode="NoResize"
+                    AutomationProperties.Name="Confirm port forward apply">
+    <StackPanel Margin="16">
+        <TextBlock x:Name="MessageBlock"
+                   TextWrapping="Wrap"
+                   Margin="0,0,0,12"
+                   AutomationProperties.Name="Port forwarding change confirmation"/>
+        <TextBlock TextWrapping="Wrap"
+                   Margin="0,0,0,12"
+                   Text="These settings persist on the radio across future connections by any client. Continue?"/>
+        <StackPanel Orientation="Horizontal"
+                    HorizontalAlignment="Right"
+                    Margin="0,8,0,0">
+            <Button x:Name="NoButton"
+                    Content="_No"
+                    Width="80" Margin="0,0,8,0"
+                    IsCancel="True"
+                    AutomationProperties.Name="No, cancel the port forward change"
+                    Click="NoButton_Click"/>
+            <Button x:Name="YesButton"
+                    Content="_Yes"
+                    Width="80"
+                    IsDefault="False"
+                    AutomationProperties.Name="Yes, apply the port forward change"
+                    Click="YesButton_Click"/>
+        </StackPanel>
+    </StackPanel>
+</local:JJFlexDialog>
