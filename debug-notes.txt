@@ -1,0 +1,83 @@
+Headline: Sprint 27 networking code-complete + a cross-sprint help-docs audit.
+
+IMPORTANT — NETWORKING NOT YET LIVE-TESTED
+
+Sprint 27 shipped a lot of networking code but none of it has been smoke-
+tested against a real radio plus router yet. If you rely on SmartLink for
+remote access and can't easily roll back, consider waiting a day or two
+before running this as your primary. Your prior stable install is still
+your safety net. The new code is additive and should fall back gracefully,
+but "should" is not "has been proven to."
+
+Specifically untested on live hardware:
+- Tier 1 auto-apply of the per-account listen port on SmartLink connect.
+- Tier 2 UPnP mapping add/remove against a real router.
+- Tier 3 hole-punch advertisement on SendConnectMessageToRadio.
+- Post-disconnect NetworkTest auto-probe firing on reconnect.
+- Apply/Test/Save/Help buttons in Settings > Network.
+
+If you do run it and something networking-related misbehaves, a trace file
+(%APPDATA%\JJFlexRadio\JJFlexRadioTrace.txt) captures enough to diagnose.
+Send it along.
+
+WHAT'S NEW IF YOU TAKE THE PLUNGE
+
+Settings > Network is substantially rebuilt. A three-option Connection
+Mode radio group replaces the old single checkbox: Tier 1 (manual port
+forwarding, recommended default), Tier 1 + 2 (UPnP opt-in), Tier 1 + 2 + 3
+(automatic hole-punch coordinated by Flex's SmartLink). Per-account save,
+auto-apply on connect, Test port for local validation, Test network for a
+real probe against SmartLink, Copy and Save report buttons for the
+diagnostic output as markdown, and a Verbose diagnostics toggle. Richer
+disconnect messages tell you whether the LAN is fine and Flex's backend is
+the problem, whether your NAT is symmetric, whether UPnP didn't take — the
+specific failure class instead of generic "Reconnecting."
+
+THE HELP-DOCS AUDIT (THE NEW THING THAT'S NOT NETWORKING)
+
+Independent of Sprint 27, we did a broader audit of help-docs gaps across
+Sprints 25-27. Twelve new user-facing topics landed in the CHM, and two
+existing docs picked up missing sections. The CHM grew from 77 KB to 101 KB.
+
+New topics covered:
+
+- Quick Actions (Ctrl+Tab) — ATU Tune, Tune Carrier, Transmit, Speak Status.
+- CW Notifications — what prosigns fire when, speed and tone controls.
+- PC-Side Noise Reduction — RNNoise vs spectral subtraction, when to reach
+  for each.
+- SmartLink Account Management — save, name, switch, delete accounts.
+- Frequency Entry Sounds — the typing-sound modes.
+- Filter Presets — per-operator customizable filter width lists.
+- Tuning Steps — per-operator coarse and fine tuning step lists.
+- Status Dialog (Ctrl+Alt+S) — the live status window, navigation, vs
+  Speak Status (Ctrl+Shift+S).
+- MultiFlex Clients — seeing other operators, kick semantics.
+- Earcon Control (Shift+T quick mute).
+- Panadapter Visibility — toggling the spectrum display.
+- Networking Tiers Overview — "help me pick" entry point for the three
+  tiers.
+
+Updated: 60 Meter Operation (auto-mode switching on channel step), Screen
+Reader Setup (menu toggle state speech, dialog close announcements,
+access-key speech — all Sprint 26 accessibility additions that had shipped
+without docs).
+
+Two docs still flagged for Noel's voice, not included in this daily:
+accessibility-braille-display.md and accessibility-verbosity.md — both
+warrant design-philosophy framing that the audit flagged for hand-written
+rather than auto-drafted prose.
+
+UNDER THE HOOD
+
+Unit test count up to 88 (from 14 when Sprint 26 started — ~6.3x over the
+two sprints). New SmartLink abstraction layer (WanSessionOwner, NetworkTest
+Runner, UPnPPortMapper, SessionStatusMessages) gives Sprint 28+ multi-radio
+tabs clean seams to build on. Build pipeline got a small but meaningful
+upgrade: Debug builds now refresh the CHM automatically as part of
+build-debug.bat rather than requiring a manual build-help.bat run first.
+
+ENDING NOTES
+
+Do not treat this daily as a release candidate. It is a snapshot of an
+unusually productive day that lands big networking changes without live
+hardware verification. Smoke-test, report, then we cut the actual release.
