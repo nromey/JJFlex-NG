@@ -703,8 +703,8 @@ namespace JJFlexWpf.Dialogs
         /// </summary>
         private void NetworkHelpButton_Click(object sender, RoutedEventArgs e)
         {
-            string fileName = _rig?.CurrentHelpDocFileName ?? "diagnostics.md";
-            string path = System.IO.Path.Combine(AppContext.BaseDirectory, "help", "networking", fileName);
+            string fileName = _rig?.CurrentHelpDocFileName ?? "networking-diagnostics.md";
+            string path = System.IO.Path.Combine(AppContext.BaseDirectory, "help", fileName);
             if (!System.IO.File.Exists(path))
             {
                 NetworkDiagnosticResultText.Text = $"Help file not found at {path}.";

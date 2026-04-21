@@ -162,7 +162,7 @@ namespace Radios.Tests
         [Fact]
         public void HelpDocFor_ProbeIncomplete_ReturnsDiagnostics()
         {
-            Assert.Equal("diagnostics.md", SessionStatusMessages.HelpDocFor(
+            Assert.Equal("networking-diagnostics.md", SessionStatusMessages.HelpDocFor(
                 SessionStatus.Disconnected,
                 ReportWith(errorDetail: "timeout"),
                 SmartLinkConnectionMode.ManualPortForwardOnly));
@@ -171,7 +171,7 @@ namespace Radios.Tests
         [Fact]
         public void HelpDocFor_SymmetricNatWithTier3_ReturnsTier1Help()
         {
-            Assert.Equal("tier1-manual-port.md", SessionStatusMessages.HelpDocFor(
+            Assert.Equal("networking-tier1-manual-port.md", SessionStatusMessages.HelpDocFor(
                 SessionStatus.Reconnecting,
                 ReportWith(holePunch: false),
                 SmartLinkConnectionMode.AutomaticHolePunch));
@@ -180,7 +180,7 @@ namespace Radios.Tests
         [Fact]
         public void HelpDocFor_UpnpFailWithTier2_ReturnsTier2Help()
         {
-            Assert.Equal("tier2-upnp.md", SessionStatusMessages.HelpDocFor(
+            Assert.Equal("networking-tier2-upnp.md", SessionStatusMessages.HelpDocFor(
                 SessionStatus.Reconnecting,
                 ReportWith(upnpTcp: false),
                 SmartLinkConnectionMode.ManualPlusUpnp));
@@ -189,7 +189,7 @@ namespace Radios.Tests
         [Fact]
         public void HelpDocFor_ManualForwardDown_ReturnsTier1Help()
         {
-            Assert.Equal("tier1-manual-port.md", SessionStatusMessages.HelpDocFor(
+            Assert.Equal("networking-tier1-manual-port.md", SessionStatusMessages.HelpDocFor(
                 SessionStatus.Reconnecting,
                 ReportWith(manualTcp: false, upnpTcp: true, upnpUdp: true),
                 SmartLinkConnectionMode.ManualPortForwardOnly));
@@ -198,7 +198,7 @@ namespace Radios.Tests
         [Fact]
         public void HelpDocFor_GenericFailure_ReturnsDiagnostics()
         {
-            Assert.Equal("diagnostics.md", SessionStatusMessages.HelpDocFor(
+            Assert.Equal("networking-diagnostics.md", SessionStatusMessages.HelpDocFor(
                 SessionStatus.Disconnected,
                 report: null,
                 mode: SmartLinkConnectionMode.ManualPortForwardOnly));

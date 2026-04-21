@@ -2,16 +2,21 @@
 REM Build JJFlex help file
 REM Converts Markdown to HTML, then compiles CHM
 
-setlocal
+setlocal enabledelayedexpansion
 
 set "HELPDIR=%~dp0"
 set "MDDIR=%HELPDIR%md"
 set "PAGESDIR=%HELPDIR%pages"
-set "HHC=%ProgramFiles(x86)%\HTML Help Workshop\hhc.exe"
+REM Capture ProgramFiles(x86) via its alternate name first — raw expansion
+REM of %ProgramFiles(x86)% inside an if-block body causes the ')' in the
+REM expanded path 'C:\Program Files (x86)\...' to close the if-block
+REM prematurely. Delayed expansion via !HHC! sidesteps the parse-time issue.
+set "PFX86_DIR=%ProgramFiles(x86)%"
+set "HHC=%PFX86_DIR%\HTML Help Workshop\hhc.exe"
 
 REM Check for hhc.exe
-if not exist "%HHC%" (
-    echo ERROR: HTML Help Workshop not found at %HHC%
+if not exist "!HHC!" (
+    echo ERROR: HTML Help Workshop not found at !HHC!
     echo Install from: https://web.archive.org/web/2024/https://www.microsoft.com/en-us/download/details.aspx?id=21138
     exit /b 1
 )
@@ -36,7 +41,7 @@ if %ERRORLEVEL% equ 0 (
 REM Compile CHM
 echo.
 echo Compiling CHM...
-"%HHC%" "%HELPDIR%jjflex-help.hhp"
+"!HHC!" "%HELPDIR%jjflex-help.hhp"
 
 REM hhc.exe returns 1 on success, 0 on failure (yes, really)
 if exist "%HELPDIR%JJFlexRadio.chm" (

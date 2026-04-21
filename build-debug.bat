@@ -122,6 +122,23 @@ echo Git SHA (short)   : %GITSHA%
 echo.
 
 REM ---------------------------------------------------------------------------
+REM Help CHM refresh (Sprint 27 Track E audit follow-up).
+REM The exe bundles docs\help\JJFlexRadio.chm via <None Include="..."> in
+REM JJFlexRadio.vbproj. If the CHM is stale, testers see outdated help. Run
+REM build-help.bat before dotnet build so the CHM reflects the current
+REM docs\help\md\*.md sources. Non-fatal on failure — if HTML Help Workshop
+REM isn't installed, log and continue with the prior CHM (or none).
+REM ---------------------------------------------------------------------------
+echo.
+echo [Help] Refreshing CHM from docs\help\md\*.md ...
+call "%~dp0docs\help\build-help.bat"
+if errorlevel 1 (
+    echo WARNING: CHM build failed or HTML Help Workshop missing — proceeding with stale/no CHM.
+    echo          Testers will see whatever JJFlexRadio.chm currently exists in docs\help\.
+)
+echo.
+
+REM ---------------------------------------------------------------------------
 REM Build
 REM ---------------------------------------------------------------------------
 echo [x64 Debug] Building as %APPVER%...

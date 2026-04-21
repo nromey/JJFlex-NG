@@ -109,9 +109,10 @@ namespace Radios.SmartLink
         /// <summary>
         /// Sprint 27 Track D — map a (status, report, mode) triple to the
         /// filename of the help doc that best explains the current state.
-        /// Filenames are bare ("tier1-manual-port.md" etc.); callers prepend
-        /// <c>help\networking\</c> and the app directory. Returns null when
-        /// no help doc is applicable (e.g. status is Connected).
+        /// Filenames carry the flat-convention prefix the help tree uses
+        /// ("networking-tier1-manual-port.md" etc.); callers prepend
+        /// <c>help\</c> and the app base directory. Returns null when no
+        /// help doc is applicable (e.g. status is Connected).
         /// </summary>
         public static string? HelpDocFor(
             SessionStatus status,
@@ -120,17 +121,17 @@ namespace Radios.SmartLink
         {
             if (status == SessionStatus.Connected || status == SessionStatus.Connecting) return null;
 
-            if (report != null && !report.ProbeCompleted) return "diagnostics.md";
+            if (report != null && !report.ProbeCompleted) return "networking-diagnostics.md";
 
             if (mode == SmartLinkConnectionMode.AutomaticHolePunch && report?.NatSupportsHolePunch == false)
-                return "tier1-manual-port.md";
+                return "networking-tier1-manual-port.md";
 
             if (mode >= SmartLinkConnectionMode.ManualPlusUpnp && report?.UpnpTcpReachable == false)
-                return "tier2-upnp.md";
+                return "networking-tier2-upnp.md";
 
-            if (report?.ManualForwardTcpReachable == false) return "tier1-manual-port.md";
+            if (report?.ManualForwardTcpReachable == false) return "networking-tier1-manual-port.md";
 
-            return "diagnostics.md";
+            return "networking-diagnostics.md";
         }
 
         private static string ResolveDisconnectOverlay(

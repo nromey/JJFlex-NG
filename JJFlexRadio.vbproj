@@ -48,21 +48,23 @@
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="9.0.0" />
   </ItemGroup>
 
-  <!-- Sprint 27 Track E — bundle networking help docs alongside the exe so
-       Settings > Network help links can resolve them via local file paths.
-       Target path places them in a 'help\networking\' subfolder of the output
-       directory, matching the shape Track D's help-open-link code expects. -->
+  <!-- Sprint 27 Track E + post-audit cleanup: networking help docs live in
+       docs\help\md\ alongside the rest of the flat help source tree (so the
+       CHM pipeline picks them up — convert-md.ps1 only scans that directory
+       flat). They're also bundled as standalone markdown at help\<name>.md
+       in the exe output directory so the Settings > Network Help button
+       can open them directly without needing the CHM viewer. -->
   <ItemGroup>
-    <ContentWithTargetPath Include="docs\help\networking\tier1-manual-port.md">
-      <TargetPath>help\networking\tier1-manual-port.md</TargetPath>
+    <ContentWithTargetPath Include="docs\help\md\networking-tier1-manual-port.md">
+      <TargetPath>help\networking-tier1-manual-port.md</TargetPath>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </ContentWithTargetPath>
-    <ContentWithTargetPath Include="docs\help\networking\tier2-upnp.md">
-      <TargetPath>help\networking\tier2-upnp.md</TargetPath>
+    <ContentWithTargetPath Include="docs\help\md\networking-tier2-upnp.md">
+      <TargetPath>help\networking-tier2-upnp.md</TargetPath>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </ContentWithTargetPath>
-    <ContentWithTargetPath Include="docs\help\networking\diagnostics.md">
-      <TargetPath>help\networking\diagnostics.md</TargetPath>
+    <ContentWithTargetPath Include="docs\help\md\networking-diagnostics.md">
+      <TargetPath>help\networking-diagnostics.md</TargetPath>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </ContentWithTargetPath>
   </ItemGroup>

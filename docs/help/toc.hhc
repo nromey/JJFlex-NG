@@ -135,6 +135,24 @@
   </OBJECT>
 
   <LI><OBJECT type="text/sitemap">
+    <param name="Name" value="Networking">
+  </OBJECT>
+  <UL>
+    <LI><OBJECT type="text/sitemap">
+      <param name="Name" value="Tier 1 — Manual Port Forwarding">
+      <param name="Local" value="pages\networking-tier1-manual-port.htm">
+    </OBJECT>
+    <LI><OBJECT type="text/sitemap">
+      <param name="Name" value="Tier 2 — UPnP (optional)">
+      <param name="Local" value="pages\networking-tier2-upnp.htm">
+    </OBJECT>
+    <LI><OBJECT type="text/sitemap">
+      <param name="Name" value="Network Diagnostics">
+      <param name="Local" value="pages\networking-diagnostics.htm">
+    </OBJECT>
+  </UL>
+
+  <LI><OBJECT type="text/sitemap">
     <param name="Name" value="Troubleshooting">
   </OBJECT>
   <UL>
