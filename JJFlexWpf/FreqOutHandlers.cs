@@ -889,8 +889,10 @@ public class FreqOutHandlers
                 }
                 e.Handled = true;
                 break;
-            case 'X':
-                // Transceive: set both RX and TX to current slice
+            // Sprint 28 Phase 5 — X rebound from transceive to XIT toggle for
+            // cross-field consistency. Transceive moved to '=' (mnemonic: RX = TX).
+            case '=':
+                // Transceive: set both RX and TX to current slice (formerly X)
                 if (Rig.ValidVFO(vfo))
                 {
                     Rig.RXVFO = vfo;
@@ -900,27 +902,32 @@ public class FreqOutHandlers
                 }
                 e.Handled = true;
                 break;
-            case 'L':
-                if (Rig.ValidVFO(vfo))
+            case 'X':
+                // Sprint 28 Phase 5 — X is now XIT toggle on all three home
+                // fields (Slice, SliceOps, Home). Matches the frequency field's
+                // existing X=XIT semantic.
                 {
-                    Rig.SetVFOPan(vfo, FlexBase.MinPan);
-                    Radios.ScreenReaderOutput.Speak("Pan left", VerbosityLevel.Terse);
-                }
-                e.Handled = true;
-                break;
-            case 'C':
-                if (Rig.ValidVFO(vfo))
-                {
-                    Rig.SetVFOPan(vfo, (FlexBase.MaxPan - FlexBase.MinPan) / 2);
-                    Radios.ScreenReaderOutput.Speak("Pan center", VerbosityLevel.Terse);
+                    var xit = new FlexBase.RITData(Rig.XIT);
+                    xit.Active = !xit.Active;
+                    Rig.XIT = xit;
+                    if (xit.Active) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
+                    Radios.ScreenReaderOutput.Speak(
+                        xit.Active ? "XIT on" : "XIT off", VerbosityLevel.Terse, true);
                 }
                 e.Handled = true;
                 break;
             case 'R':
-                if (Rig.ValidVFO(vfo))
+                // Sprint 28 Phase 5 — R is now RIT toggle on all three home
+                // fields. Was pan-right on the Slice field; pan moved to
+                // PageUp/Home/PageDown (see key.PageUp/Home/PageDown handlers
+                // below).
                 {
-                    Rig.SetVFOPan(vfo, FlexBase.MaxPan);
-                    Radios.ScreenReaderOutput.Speak("Pan right", VerbosityLevel.Terse);
+                    var rit = new FlexBase.RITData(Rig.RIT);
+                    rit.Active = !rit.Active;
+                    Rig.RIT = rit;
+                    if (rit.Active) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
+                    Radios.ScreenReaderOutput.Speak(
+                        rit.Active ? "RIT on" : "RIT off", VerbosityLevel.Terse, true);
                 }
                 e.Handled = true;
                 break;
@@ -989,6 +996,35 @@ public class FreqOutHandlers
                         break;
                     case Key.Down:
                         CycleVFO(-1);
+                        e.Handled = true;
+                        break;
+                    // Sprint 28 Phase 5 — pan triad moved from L/C/R letter keys
+                    // to navigation keys to match Slice Operations field's existing
+                    // pattern and free R for RIT toggle. Nav keys carry inherent
+                    // spatial semantics (PageUp/PageDown = directional) reducing
+                    // cognitive load for screen-reader users.
+                    case Key.PageDown:
+                        if (Rig.ValidVFO(vfo))
+                        {
+                            Rig.SetVFOPan(vfo, FlexBase.MinPan);
+                            Radios.ScreenReaderOutput.Speak("Pan left", VerbosityLevel.Terse);
+                        }
+                        e.Handled = true;
+                        break;
+                    case Key.Home:
+                        if (Rig.ValidVFO(vfo))
+                        {
+                            Rig.SetVFOPan(vfo, (FlexBase.MaxPan - FlexBase.MinPan) / 2);
+                            Radios.ScreenReaderOutput.Speak("Pan center", VerbosityLevel.Terse);
+                        }
+                        e.Handled = true;
+                        break;
+                    case Key.PageUp:
+                        if (Rig.ValidVFO(vfo))
+                        {
+                            Rig.SetVFOPan(vfo, FlexBase.MaxPan);
+                            Radios.ScreenReaderOutput.Speak("Pan right", VerbosityLevel.Terse);
+                        }
                         e.Handled = true;
                         break;
                 }
@@ -1136,9 +1172,12 @@ public class FreqOutHandlers
                     }
                     e.Handled = true;
                 }
-                else if (ch == 'X')
+                else if (ch == '=')
                 {
-                    // Jim parity: transceive — set both RX and TX to this slice.
+                    // Sprint 28 Phase 5 — transceive rebound from X to '=' (RX = TX)
+                    // so X can carry XIT toggle on all three home fields consistently.
+                    // Preserves Jim-parity (a dedicated transceive hotkey still exists);
+                    // just a different key, same semantic.
                     if (Rig.ValidVFO(vfo))
                     {
                         Rig.RXVFO = vfo;
@@ -1146,6 +1185,28 @@ public class FreqOutHandlers
                         string letter = Rig.VFOToLetter(vfo);
                         Radios.ScreenReaderOutput.Speak($"Slice {letter} transceive", VerbosityLevel.Terse, true);
                     }
+                    e.Handled = true;
+                }
+                else if (ch == 'X')
+                {
+                    // Sprint 28 Phase 5 — X is XIT toggle on all three home fields.
+                    var xit = new FlexBase.RITData(Rig.XIT);
+                    xit.Active = !xit.Active;
+                    Rig.XIT = xit;
+                    if (xit.Active) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
+                    Radios.ScreenReaderOutput.Speak(
+                        xit.Active ? "XIT on" : "XIT off", VerbosityLevel.Terse, true);
+                    e.Handled = true;
+                }
+                else if (ch == 'R')
+                {
+                    // Sprint 28 Phase 5 — R is RIT toggle on all three home fields.
+                    var rit = new FlexBase.RITData(Rig.RIT);
+                    rit.Active = !rit.Active;
+                    Rig.RIT = rit;
+                    if (rit.Active) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
+                    Radios.ScreenReaderOutput.Speak(
+                        rit.Active ? "RIT on" : "RIT off", VerbosityLevel.Terse, true);
                     e.Handled = true;
                 }
                 break;
