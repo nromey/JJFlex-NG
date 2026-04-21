@@ -116,6 +116,12 @@ public partial class ScreenFieldsPanel : UserControl
 
     #endregion
 
+    // Sprint 28 Phase 3 — double-Escape detection state.
+    private DateTime _lastEscapeTime = DateTime.MinValue;
+    // Suppress per-group collapse earcons and announcements during bulk collapse-all
+    // so the user hears just the gavel + "all panels collapsed" announcement.
+    private bool _suppressCollapseEarcons;
+
     public ScreenFieldsPanel()
     {
         InitializeComponent();
@@ -126,6 +132,55 @@ public partial class ScreenFieldsPanel : UserControl
         _expanders.Add(ReceiverExpander);
         _expanders.Add(TxExpander);
         _expanders.Add(AntennaExpander);
+
+        // Sprint 28 Phase 3 — hook Expanded/Collapsed events on every group so that
+        // any expansion path (user hotkey, menu, Space-on-header, Escape collapse,
+        // programmatic) plays the consistent expand/collapse earcon and speaks the
+        // category name. Consolidating the announcement here (rather than at each
+        // caller) is single-source-of-truth: one place decides how group state
+        // changes are announced.
+        foreach (var exp in _expanders)
+        {
+            exp.Expanded += OnGroupExpanded;
+            exp.Collapsed += OnGroupCollapsed;
+        }
+    }
+
+    /// <summary>Sprint 28 Phase 3 — fires when any group expands. Plays expand
+    /// earcon and announces which category expanded.</summary>
+    private void OnGroupExpanded(object? sender, RoutedEventArgs e)
+    {
+        EarconPlayer.PlayExpand();
+
+        if (sender is Expander exp)
+        {
+            int idx = _expanders.IndexOf(exp);
+            if (idx >= 0 && idx < CategoryNames.Length)
+            {
+                ScreenReaderOutput.Speak(
+                    $"{CategoryNames[idx]} expanded", VerbosityLevel.Terse, interrupt: true);
+            }
+        }
+    }
+
+    /// <summary>Sprint 28 Phase 3 — fires when any group collapses. Plays collapse
+    /// earcon and announces which category collapsed. Suppressed during bulk
+    /// collapse-all (gavel earcon covers that case).</summary>
+    private void OnGroupCollapsed(object? sender, RoutedEventArgs e)
+    {
+        if (_suppressCollapseEarcons) return;
+
+        EarconPlayer.PlayCollapse();
+
+        if (sender is Expander exp)
+        {
+            int idx = _expanders.IndexOf(exp);
+            if (idx >= 0 && idx < CategoryNames.Length)
+            {
+                ScreenReaderOutput.Speak(
+                    $"{CategoryNames[idx]} collapsed", VerbosityLevel.Terse, interrupt: true);
+            }
+        }
     }
 
     /// <summary>
@@ -910,14 +965,12 @@ public partial class ScreenFieldsPanel : UserControl
 
         if (expander.IsExpanded)
         {
-            expander.IsExpanded = false;
-            ScreenReaderOutput.Speak($"{CategoryNames[index]} collapsed", VerbosityLevel.Terse);
+            expander.IsExpanded = false; // Sprint 28 Phase 3 — Collapsed event now handles announcement + earcon
             ReturnFocusToFreqOut?.Invoke();
         }
         else
         {
-            expander.IsExpanded = true;
-            ScreenReaderOutput.Speak($"{CategoryNames[index]} expanded", VerbosityLevel.Terse);
+            expander.IsExpanded = true; // Sprint 28 Phase 3 — Expanded event now handles announcement + earcon
 
             // Focus the first focusable control in the expanded content.
             // Delay slightly so the "expanded" speech finishes before the
@@ -1001,9 +1054,43 @@ public partial class ScreenFieldsPanel : UserControl
 
     private void Panel_PreviewKeyDown(object sender, KeyEventArgs e)
     {
-        // Escape → return to FreqOut
+        // Sprint 28 Phase 3 — Escape semantics:
+        //   Single Escape with focus inside an expanded group → collapse that
+        //   group, focus lands on its header (OnGroupCollapsed plays the collapse
+        //   earcon and announces).
+        //   Double Escape within DoubleTapTolerance → collapse ALL expanded groups
+        //   and return focus to Home (FreqOut), with a single gavel earcon and a
+        //   single "all panels collapsed, home" announcement.
+        //   Single Escape with no expanded group in focus → legacy behavior,
+        //   return to FreqOut (this preserves "Escape = back out" for users who
+        //   aren't actively working inside a group).
         if (e.Key == Key.Escape)
         {
+            var now = DateTime.UtcNow;
+            bool isDoubleEscape = (now - _lastEscapeTime).TotalMilliseconds
+                                  < Radios.AccessibilityConfig.Current.DoubleTapToleranceMs;
+            _lastEscapeTime = now;
+
+            if (isDoubleEscape)
+            {
+                // Reset so a third Escape doesn't re-trigger collapse-all.
+                _lastEscapeTime = DateTime.MinValue;
+                CollapseAllGroupsAndGoHome();
+                e.Handled = true;
+                return;
+            }
+
+            // Single Escape — if focus is inside an expanded group, collapse it.
+            var targetExpander = FindFocusedExpandedGroup();
+            if (targetExpander != null)
+            {
+                targetExpander.IsExpanded = false; // fires Collapsed event (earcon + announce)
+                targetExpander.Focus(); // focus lands on the header
+                e.Handled = true;
+                return;
+            }
+
+            // Fallback — no expanded group in focus: legacy "return to FreqOut".
             EscapePressed?.Invoke(this, EventArgs.Empty);
             e.Handled = true;
             return;
@@ -1024,6 +1111,57 @@ public partial class ScreenFieldsPanel : UserControl
             e.Handled = true;
             return;
         }
+    }
+
+    /// <summary>
+    /// Sprint 28 Phase 3 — find the expanded group containing the currently focused
+    /// element. Returns null if focus is outside any group, or if the enclosing
+    /// group is already collapsed.
+    /// </summary>
+    private Expander? FindFocusedExpandedGroup()
+    {
+        var focused = Keyboard.FocusedElement as DependencyObject;
+        if (focused == null) return null;
+        foreach (var exp in _expanders)
+        {
+            if (exp.IsExpanded && IsDescendantOf(focused, exp))
+                return exp;
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Sprint 28 Phase 3 — collapse every expanded group without individual
+    /// earcons or announcements, then play the gavel earcon, announce once
+    /// (&quot;All panels collapsed, home&quot;), and return focus to FreqOut.
+    /// </summary>
+    private void CollapseAllGroupsAndGoHome()
+    {
+        // Play the gavel first so it leads audibly — bulk collapse is essentially
+        // instantaneous; playing the gavel afterward would desync audio from the
+        // visual/focus state change.
+        EarconPlayer.PlayCollapseAll();
+
+        _suppressCollapseEarcons = true;
+        try
+        {
+            foreach (var exp in _expanders)
+            {
+                if (exp.IsExpanded)
+                    exp.IsExpanded = false;
+            }
+        }
+        finally
+        {
+            _suppressCollapseEarcons = false;
+        }
+
+        ScreenReaderOutput.Speak(
+            "All panels collapsed, home", VerbosityLevel.Terse, interrupt: true);
+
+        // Return focus to Home (FreqOut) — MainWindow wires this event to
+        // FreqOut.FocusDisplay() per the pattern established pre-Sprint-28.
+        EscapePressed?.Invoke(this, EventArgs.Empty);
     }
 
     private void FocusNextExpander(bool forward)

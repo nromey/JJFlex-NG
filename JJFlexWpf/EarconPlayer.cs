@@ -590,6 +590,80 @@ namespace JJFlexWpf
             PlayToneSequence(new[] { (800, 80), (0, 40), (1000, 80) }, 0.25f);
         }
 
+        #region Sprint 28 Phase 3 — Expand / Collapse / Collapse-All earcons
+
+        /// <summary>
+        /// Sprint 28 Phase 3 — ascending chirp with tracking band-pass noise sweep.
+        /// Fires when a ScreenFields group re-expands. 400 → 1200 Hz over 350 ms.
+        /// The band-pass noise sweep (tracking center freq, ~1/3 octave bandwidth)
+        /// gives cut-through against ambient RF noise that pure tones would get
+        /// masked by — the noise texture's envelope doesn't match broadband hiss.
+        /// </summary>
+        public static void PlayExpand()
+        {
+            if (AlertMixer == null) { FallbackBeep(800, 100); return; }
+            try
+            {
+                var chirp = new ChirpSampleProvider(SampleRate, 400, 1200, 350, 0.25f);
+                AddToMixer(chirp);
+                var noise = new BandPassNoiseSweepSampleProvider(SampleRate, 400, 1200, 350, 0.12f);
+                AddToMixer(noise);
+            }
+            catch (Exception ex)
+            {
+                Trace.WriteLine($"EarconPlayer.PlayExpand failed: {ex.Message}");
+                FallbackBeep(800, 100);
+            }
+        }
+
+        /// <summary>
+        /// Sprint 28 Phase 3 — descending chirp with tracking band-pass noise sweep.
+        /// Fires on single-Escape group collapse. 1200 → 400 Hz over 350 ms.
+        /// Mirror of PlayExpand; the symmetry lets users learn "up = grow, down =
+        /// shrink" from one pairing and have the pattern hold.
+        /// </summary>
+        public static void PlayCollapse()
+        {
+            if (AlertMixer == null) { FallbackBeep(500, 100); return; }
+            try
+            {
+                var chirp = new ChirpSampleProvider(SampleRate, 1200, 400, 350, 0.25f);
+                AddToMixer(chirp);
+                var noise = new BandPassNoiseSweepSampleProvider(SampleRate, 1200, 400, 350, 0.12f);
+                AddToMixer(noise);
+            }
+            catch (Exception ex)
+            {
+                Trace.WriteLine($"EarconPlayer.PlayCollapse failed: {ex.Message}");
+                FallbackBeep(500, 100);
+            }
+        }
+
+        /// <summary>
+        /// Sprint 28 Phase 3 — low-frequency "gavel" thud with decay. Fires on
+        /// double-Escape collapse-all. 140 Hz fundamental + 280 Hz harmonic + brief
+        /// filtered-noise attack transient, exponential decay over ~450 ms. Semantic:
+        /// "case closed, collapsed everything." Low fundamental cuts through
+        /// ambient RF noise (residual hiss concentrates in the voice band 300-3000 Hz;
+        /// 140 Hz sits below that, in less-congested spectral territory).
+        /// </summary>
+        public static void PlayCollapseAll()
+        {
+            if (AlertMixer == null) { FallbackBeep(150, 300); return; }
+            try
+            {
+                var gavel = new DecayingGavelSynthesizer(SampleRate, 0.45f);
+                AddToMixer(gavel);
+            }
+            catch (Exception ex)
+            {
+                Trace.WriteLine($"EarconPlayer.PlayCollapseAll failed: {ex.Message}");
+                FallbackBeep(150, 300);
+            }
+        }
+
+        #endregion
+
         #region ATU Tune Earcons
 
         // Dedicated provider for ATU progress — short-lived, added/removed per tune cycle
@@ -1483,6 +1557,180 @@ namespace JJFlexWpf
                         envelope = 0;
 
                     buffer[offset + i] = (float)(sample * envelope * _volume);
+                    _position++;
+                }
+                return toCopy;
+            }
+        }
+
+        /// <summary>
+        /// Sprint 28 Phase 3 — white noise filtered through a time-varying band-pass
+        /// biquad filter whose center frequency sweeps from startHz to endHz across
+        /// the duration. Used to give expand/collapse chirps a distinctive noise
+        /// texture that cuts through ambient RF hash where pure tones alone would
+        /// get masked.
+        ///
+        /// Biquad band-pass coefficients recomputed per sample (cheap — a few math
+        /// ops in a 350 ms window at 48 kHz = ~16.8k recomputations, trivial on
+        /// modern hardware). Q fixed at ~4.3 (~1/3 octave bandwidth).
+        /// </summary>
+        private class BandPassNoiseSweepSampleProvider : ISampleProvider
+        {
+            private readonly int _totalSamples;
+            private readonly int _startHz;
+            private readonly int _endHz;
+            private readonly float _volume;
+            private readonly int _fadeLength;
+            private readonly Random _rand = new();
+            private int _position;
+            // Biquad state
+            private double _x1, _x2, _y1, _y2;
+            private const double Q = 4.3; // ~1/3 octave
+
+            public WaveFormat WaveFormat { get; }
+
+            public BandPassNoiseSweepSampleProvider(int sampleRate, int startHz, int endHz, int durationMs, float volume)
+            {
+                WaveFormat = WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 1);
+                _totalSamples = sampleRate * durationMs / 1000;
+                _startHz = startHz;
+                _endHz = endHz;
+                _volume = volume;
+                _fadeLength = Math.Min(_totalSamples / 10, sampleRate / 100);
+            }
+
+            public int Read(float[] buffer, int offset, int count)
+            {
+                int available = _totalSamples - _position;
+                int toCopy = Math.Min(available, count);
+                if (toCopy <= 0) return 0;
+
+                int sampleRate = WaveFormat.SampleRate;
+
+                for (int i = 0; i < toCopy; i++)
+                {
+                    // Generate white noise sample in [-1, 1]
+                    double x0 = (_rand.NextDouble() * 2.0) - 1.0;
+
+                    // Sweep center frequency linearly across duration
+                    double t = (double)_position / _totalSamples;
+                    double fc = _startHz + (_endHz - _startHz) * t;
+
+                    // Compute biquad band-pass coefficients for this sample's fc
+                    double w0 = 2.0 * Math.PI * fc / sampleRate;
+                    double cosw0 = Math.Cos(w0);
+                    double sinw0 = Math.Sin(w0);
+                    double alpha = sinw0 / (2.0 * Q);
+                    double a0 = 1.0 + alpha;
+                    double b0 = alpha / a0;
+                    double b2 = -alpha / a0;
+                    double a1 = -2.0 * cosw0 / a0;
+                    double a2 = (1.0 - alpha) / a0;
+
+                    // Direct Form I
+                    double y0 = b0 * x0 + b2 * _x2 - a1 * _y1 - a2 * _y2;
+                    _x2 = _x1; _x1 = x0;
+                    _y2 = _y1; _y1 = y0;
+
+                    // Envelope — match chirp's fade shape for cohesion
+                    double envelope = 1.0;
+                    if (_position < _fadeLength)
+                        envelope = (double)_position / _fadeLength;
+                    else if (_position > _totalSamples - _fadeLength)
+                        envelope = (double)(_totalSamples - _position) / _fadeLength;
+
+                    buffer[offset + i] = (float)(y0 * envelope * _volume);
+                    _position++;
+                }
+                return toCopy;
+            }
+        }
+
+        /// <summary>
+        /// Sprint 28 Phase 3 — synthesized "gavel" thud: 140 Hz fundamental plus
+        /// quieter 280 Hz harmonic, preceded by a brief filtered-noise attack
+        /// transient (~5 ms), shaped by an exponential decay envelope. Semantic:
+        /// authoritative finality ("case closed"). Fires on double-Escape
+        /// collapse-all.
+        ///
+        /// Low fundamental chosen for cut-through — residual RF noise concentrates
+        /// in the voice band (300-3000 Hz), so 140 Hz sits below the hissiest
+        /// spectral territory and remains audible when voice-band earcons would
+        /// get masked.
+        /// </summary>
+        private class DecayingGavelSynthesizer : ISampleProvider
+        {
+            private const double FundamentalHz = 140.0;
+            private const double HarmonicHz = 280.0;
+            private const double HarmonicGain = 0.3;
+            private const double DecayTauSeconds = 0.12;
+            private const double AttackTransientSeconds = 0.005;
+
+            private readonly int _totalSamples;
+            private readonly float _volume;
+            private readonly int _attackTransientSamples;
+            private readonly Random _rand = new();
+            private double _fundamentalPhase;
+            private double _harmonicPhase;
+            // Low-pass state for the attack-transient filtered noise (one-pole)
+            private double _noiseLp;
+            private int _position;
+
+            public WaveFormat WaveFormat { get; }
+
+            public DecayingGavelSynthesizer(int sampleRate, float totalDurationSeconds)
+            {
+                WaveFormat = WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 1);
+                _totalSamples = (int)(sampleRate * totalDurationSeconds);
+                _volume = 0.5f;
+                _attackTransientSamples = (int)(sampleRate * AttackTransientSeconds);
+            }
+
+            public int Read(float[] buffer, int offset, int count)
+            {
+                int available = _totalSamples - _position;
+                int toCopy = Math.Min(available, count);
+                if (toCopy <= 0) return 0;
+
+                int sampleRate = WaveFormat.SampleRate;
+                double dt = 1.0 / sampleRate;
+                // One-pole low-pass coefficient — time-constant ~2 ms (muffled wood-thud character)
+                double lpAlpha = Math.Exp(-2.0 * Math.PI * 400.0 / sampleRate);
+
+                for (int i = 0; i < toCopy; i++)
+                {
+                    double tSeconds = (double)_position / sampleRate;
+
+                    // Tonal content: fundamental + quieter harmonic, exponential decay
+                    _fundamentalPhase += 2.0 * Math.PI * FundamentalHz / sampleRate;
+                    _harmonicPhase += 2.0 * Math.PI * HarmonicHz / sampleRate;
+                    double tonal = Math.Sin(_fundamentalPhase) + HarmonicGain * Math.Sin(_harmonicPhase);
+
+                    // Exponential decay — fast initial drop, long tail
+                    double decay = Math.Exp(-tSeconds / DecayTauSeconds);
+
+                    // Attack transient — brief filtered-noise burst at the very start
+                    double attack = 0.0;
+                    if (_position < _attackTransientSamples)
+                    {
+                        double rawNoise = (_rand.NextDouble() * 2.0) - 1.0;
+                        _noiseLp = lpAlpha * _noiseLp + (1.0 - lpAlpha) * rawNoise;
+                        // Attack envelope: ramps up the first half, ramps down the second half
+                        double attackPosition = (double)_position / _attackTransientSamples;
+                        double attackEnv = attackPosition < 0.5
+                            ? attackPosition * 2.0
+                            : (1.0 - attackPosition) * 2.0;
+                        attack = _noiseLp * attackEnv * 0.8;
+                    }
+
+                    // 5 ms fade-in on the whole signal to avoid DC click
+                    double globalFadeIn = 1.0;
+                    int fadeInSamples = sampleRate / 1000 * 2; // 2 ms
+                    if (_position < fadeInSamples)
+                        globalFadeIn = (double)_position / fadeInSamples;
+
+                    double sample = (tonal * decay + attack) * globalFadeIn * _volume;
+                    buffer[offset + i] = (float)sample;
                     _position++;
                 }
                 return toCopy;
