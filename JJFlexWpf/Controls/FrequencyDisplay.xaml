@@ -23,5 +23,6 @@
              TabIndex="0"
              AutomationProperties.Name="Home, frequency and VFO"
              PreviewKeyDown="DisplayBox_PreviewKeyDown"
-             PreviewTextInput="DisplayBox_PreviewTextInput" />
+             PreviewTextInput="DisplayBox_PreviewTextInput"
+             GotKeyboardFocus="DisplayBox_GotKeyboardFocus" />
 </UserControl>

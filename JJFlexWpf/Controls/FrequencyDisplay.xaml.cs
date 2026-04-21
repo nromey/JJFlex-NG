@@ -720,6 +720,75 @@ public partial class FrequencyDisplay : UserControl
     }
 
     /// <summary>
+    /// Sprint 28 Phase 3.7 — on focus landing, announce the Home region plus the
+    /// current sub-field so users know WHERE in Home they are (not just "Home").
+    /// Respects speech verbosity: Terse = "home, &lt;field&gt;", Moderate = same,
+    /// Chatty = "JJ Flexible Home, &lt;field&gt;, &lt;frequency&gt;".
+    ///
+    /// Fires only on focus landing (entry from outside the control). Subsequent
+    /// arrow-key navigation within the control announces via existing per-field
+    /// handlers — so this doesn't double up with arrow-nav announcements.
+    /// </summary>
+    private void DisplayBox_GotKeyboardFocus(object sender, System.Windows.Input.KeyboardFocusChangedEventArgs e)
+    {
+        try
+        {
+            var field = GetFocusedField();
+            if (field == null) return;
+
+            string fieldLabel = FieldKeyToLabel(field.Key);
+            var verbosity = Radios.ScreenReaderOutput.CurrentVerbosity;
+
+            string announcement;
+            if (verbosity == Radios.VerbosityLevel.Chatty)
+            {
+                // Chatty adds the region's full name AND the current frequency.
+                string freq = "";
+                if (_fieldDict.TryGetValue("Freq", out var freqField))
+                    freq = freqField.Text.Trim();
+                announcement = string.IsNullOrEmpty(freq)
+                    ? $"JJ Flexible Home, {fieldLabel}"
+                    : $"JJ Flexible Home, {fieldLabel}, {freq}";
+            }
+            else
+            {
+                // Terse/Moderate: just "home, <field>"
+                announcement = $"Home, {fieldLabel}";
+            }
+
+            Radios.ScreenReaderOutput.Speak(
+                announcement, Radios.VerbosityLevel.Terse, interrupt: true);
+        }
+        catch (System.Exception ex)
+        {
+            System.Diagnostics.Trace.WriteLine($"DisplayBox_GotKeyboardFocus failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Sprint 28 Phase 3.7 — translate DisplayField internal Keys to speech-
+    /// friendly labels. Most Keys are already fine; this just smooths a few
+    /// (e.g., "Freq" → "frequency") for natural reading.
+    /// </summary>
+    private static string FieldKeyToLabel(string key)
+    {
+        return key switch
+        {
+            "Freq" => "frequency",
+            "SMeter" => "S meter",
+            "Slice" => "slice",
+            "Mute" => "mute",
+            "Volume" => "volume",
+            "Split" => "split",
+            "VOX" => "VOX",
+            "Offset" => "offset",
+            "RIT" => "RIT",
+            "XIT" => "XIT",
+            _ => key.ToLower()
+        };
+    }
+
+    /// <summary>
     /// Focus the display and navigate to the Frequency field specifically.
     /// Positions cursor at the default offset (kHz in Classic, full field in Modern)
     /// and speaks the field label, value, and step size.
