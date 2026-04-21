@@ -146,41 +146,23 @@ public partial class ScreenFieldsPanel : UserControl
         }
     }
 
-    /// <summary>Sprint 28 Phase 3 — fires when any group expands. Plays expand
-    /// earcon and announces which category expanded.</summary>
+    /// <summary>Sprint 28 Phase 3 — fires when any group expands. Plays expand earcon.
+    /// Explicit Speak removed 2026-04-21 after user feedback: NVDA's natural focus-
+    /// change announcement covers the identity of the expanded group; adding an
+    /// explicit Speak causes a double-announce. Earcon conveys the state change
+    /// semantically; screen reader handles identity.</summary>
     private void OnGroupExpanded(object? sender, RoutedEventArgs e)
     {
         EarconPlayer.PlayExpand();
-
-        if (sender is Expander exp)
-        {
-            int idx = _expanders.IndexOf(exp);
-            if (idx >= 0 && idx < CategoryNames.Length)
-            {
-                ScreenReaderOutput.Speak(
-                    $"{CategoryNames[idx]} expanded", VerbosityLevel.Terse, interrupt: true);
-            }
-        }
     }
 
     /// <summary>Sprint 28 Phase 3 — fires when any group collapses. Plays collapse
-    /// earcon and announces which category collapsed. Suppressed during bulk
-    /// collapse-all (gavel earcon covers that case).</summary>
+    /// earcon. Suppressed during bulk collapse-all (gavel earcon covers that case).
+    /// Explicit Speak removed 2026-04-21 after user feedback (see OnGroupExpanded).</summary>
     private void OnGroupCollapsed(object? sender, RoutedEventArgs e)
     {
         if (_suppressCollapseEarcons) return;
-
         EarconPlayer.PlayCollapse();
-
-        if (sender is Expander exp)
-        {
-            int idx = _expanders.IndexOf(exp);
-            if (idx >= 0 && idx < CategoryNames.Length)
-            {
-                ScreenReaderOutput.Speak(
-                    $"{CategoryNames[idx]} collapsed", VerbosityLevel.Terse, interrupt: true);
-            }
-        }
     }
 
     /// <summary>
@@ -1081,11 +1063,20 @@ public partial class ScreenFieldsPanel : UserControl
             }
 
             // Single Escape — if focus is inside an expanded group, collapse it.
+            // Order matters: Focus() BEFORE IsExpanded=false. If we collapse first,
+            // the currently-focused control (inside the now-collapsed content) gets
+            // hidden, and WPF reassigns focus to some ambiguous fallback (often the
+            // root window) — which means subsequent keys like Space-to-reexpand or
+            // a second Escape for collapse-all don't get routed to this handler.
+            // Moving Focus() first lands focus on the expander header while it's
+            // still a stable visible target; the collapse then doesn't disturb
+            // focus. Tuned 2026-04-21 after user feedback (couldn't re-expand via
+            // Space, double-Escape didn't fire).
             var targetExpander = FindFocusedExpandedGroup();
             if (targetExpander != null)
             {
-                targetExpander.IsExpanded = false; // fires Collapsed event (earcon + announce)
-                targetExpander.Focus(); // focus lands on the header
+                targetExpander.Focus();
+                targetExpander.IsExpanded = false; // fires Collapsed event (earcon)
                 e.Handled = true;
                 return;
             }
