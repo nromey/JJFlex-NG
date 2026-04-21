@@ -252,6 +252,74 @@ namespace JJFlexWpf.Dialogs
             PortForwardUdpBox.IsEnabled = false;
             PortForwardTcpLabel.Text = "Port (TCP and UDP):";
             NetworkCurrentStateText.Text = "No radio connected.";
+
+            // Sprint 28 Phase 1 — Accessibility tab: set the double-tap tolerance radio
+            // from the active config. Announcements on Checked are suppressed during this
+            // initial load; the flag clears after this method returns.
+            _suppressDoubleTapToleranceAnnouncements = true;
+            try
+            {
+                switch (AccessibilityConfig.Current.DoubleTapTolerance)
+                {
+                    case DoubleTapTolerance.Quick:
+                        DoubleTapQuickRadio.IsChecked = true;
+                        break;
+                    case DoubleTapTolerance.Relaxed:
+                        DoubleTapRelaxedRadio.IsChecked = true;
+                        break;
+                    case DoubleTapTolerance.Leisurely:
+                        DoubleTapLeisurelyRadio.IsChecked = true;
+                        break;
+                    default:
+                        DoubleTapNormalRadio.IsChecked = true;
+                        break;
+                }
+            }
+            finally
+            {
+                _suppressDoubleTapToleranceAnnouncements = false;
+            }
+        }
+
+        private bool _suppressDoubleTapToleranceAnnouncements;
+
+        /// <summary>
+        /// Sprint 28 Phase 1 — shared handler for the four DoubleTapTolerance radio
+        /// buttons' Checked events. Announces the selected tolerance via the screen
+        /// reader for user-facing feedback; does not commit until the dialog's Save
+        /// path runs (see SaveSettings).
+        /// </summary>
+        private void DoubleTapToleranceRadio_Checked(object sender, RoutedEventArgs e)
+        {
+            if (_suppressDoubleTapToleranceAnnouncements) return;
+
+            DoubleTapTolerance tolerance = GetSelectedDoubleTapTolerance();
+            string name = tolerance switch
+            {
+                DoubleTapTolerance.Quick => "Quick",
+                DoubleTapTolerance.Normal => "Normal",
+                DoubleTapTolerance.Relaxed => "Relaxed",
+                DoubleTapTolerance.Leisurely => "Leisurely",
+                _ => tolerance.ToString()
+            };
+            int ms = (int)tolerance;
+            ScreenReaderOutput.Speak(
+                $"Double-tap tolerance, {name}, {ms} milliseconds",
+                VerbosityLevel.Terse,
+                interrupt: true);
+        }
+
+        /// <summary>
+        /// Sprint 28 Phase 1 — read the DoubleTapTolerance radio group's current
+        /// selection. Falls through to Normal if no button is checked (defensive
+        /// default; shouldn't happen in a properly-initialized group).
+        /// </summary>
+        private DoubleTapTolerance GetSelectedDoubleTapTolerance()
+        {
+            if (DoubleTapQuickRadio?.IsChecked == true) return DoubleTapTolerance.Quick;
+            if (DoubleTapRelaxedRadio?.IsChecked == true) return DoubleTapTolerance.Relaxed;
+            if (DoubleTapLeisurelyRadio?.IsChecked == true) return DoubleTapTolerance.Leisurely;
+            return DoubleTapTolerance.Normal;
         }
 
         /// <summary>
@@ -936,6 +1004,15 @@ namespace JJFlexWpf.Dialogs
 
             // Apply audio settings immediately
             _audioConfig.Apply();
+
+            // Sprint 28 Phase 1 — Accessibility tab: commit DoubleTapTolerance selection.
+            // Save updates AccessibilityConfig.Current as a side effect, so any consumer
+            // reading the static Current accessor sees the new value after this returns.
+            AccessibilityConfig.Current.DoubleTapTolerance = GetSelectedDoubleTapTolerance();
+            if (!string.IsNullOrEmpty(ConfigDirectory) && !string.IsNullOrEmpty(OperatorName))
+            {
+                AccessibilityConfig.Current.Save(ConfigDirectory, OperatorName);
+            }
 
             return true;
         }

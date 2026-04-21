@@ -558,6 +558,55 @@
                 </StackPanel>
                 </ScrollViewer>
             </TabItem>
+
+            <!-- Sprint 28 Phase 1 — Accessibility Tab. Home for input-timing and
+                 other accessibility-tuning preferences. Starts with DoubleTapTolerance;
+                 future phases may add hold-to-repeat delay, announcement timing, etc. -->
+            <TabItem Header="Accessibility" AutomationProperties.Name="Accessibility timing and input preferences">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <StackPanel Margin="8">
+                    <!-- Input Timing section -->
+                    <TextBlock Text="Input Timing" FontWeight="SemiBold"
+                               Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
+                    <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
+                               Text="Double-tap tolerance controls how quickly you need to press a key twice for JJ Flex to recognize the second press as part of a double-tap. This affects filter-edge bracket double-tap (entering single-edge adjust mode) and Escape-Escape to collapse all field groups. Pick a setting that matches your typing cadence — faster if you tap quickly, slower if you verify speech between presses."/>
+
+                    <GroupBox Header="Double-tap tolerance" Margin="0,0,0,8"
+                              AutomationProperties.Name="Double-tap tolerance">
+                        <StackPanel Margin="4">
+                            <RadioButton x:Name="DoubleTapQuickRadio"
+                                         GroupName="DoubleTapTolerance"
+                                         Margin="0,4,0,4"
+                                         AutomationProperties.Name="Quick, 250 milliseconds, for fast typists"
+                                         Checked="DoubleTapToleranceRadio_Checked">
+                                <TextBlock Text="Quick (250 ms)"/>
+                            </RadioButton>
+                            <RadioButton x:Name="DoubleTapNormalRadio"
+                                         GroupName="DoubleTapTolerance"
+                                         Margin="0,4,0,4"
+                                         AutomationProperties.Name="Normal, 500 milliseconds, recommended default"
+                                         Checked="DoubleTapToleranceRadio_Checked">
+                                <TextBlock Text="Normal (500 ms, recommended)"/>
+                            </RadioButton>
+                            <RadioButton x:Name="DoubleTapRelaxedRadio"
+                                         GroupName="DoubleTapTolerance"
+                                         Margin="0,4,0,4"
+                                         AutomationProperties.Name="Relaxed, 750 milliseconds, for deliberate input"
+                                         Checked="DoubleTapToleranceRadio_Checked">
+                                <TextBlock Text="Relaxed (750 ms)"/>
+                            </RadioButton>
+                            <RadioButton x:Name="DoubleTapLeisurelyRadio"
+                                         GroupName="DoubleTapTolerance"
+                                         Margin="0,4,0,4"
+                                         AutomationProperties.Name="Leisurely, 1000 milliseconds, for verifying speech between presses"
+                                         Checked="DoubleTapToleranceRadio_Checked">
+                                <TextBlock Text="Leisurely (1000 ms)"/>
+                            </RadioButton>
+                        </StackPanel>
+                    </GroupBox>
+                </StackPanel>
+                </ScrollViewer>
+            </TabItem>
         </TabControl>
     </DockPanel>
 </local:JJFlexDialog>

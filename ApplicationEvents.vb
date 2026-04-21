@@ -341,6 +341,13 @@ Namespace My
                             "Welcome to JJ Flexible Radio Access. Your license class defaults to Extra. " &
                             "Open Settings from the Tools menu to change your license class.")
                     End If
+
+                    ' Sprint 28 Phase 1 — load per-operator accessibility preferences
+                    ' (double-tap tolerance today; future sprints may add more).
+                    ' Load sets AccessibilityConfig.Current as a side effect; UI-layer
+                    ' consumers read the static Current property directly rather than
+                    ' threading the config through their call chains.
+                    Radios.AccessibilityConfig.Load(BaseConfigDir, opName)
                 End If
             End Sub
         End Sub
