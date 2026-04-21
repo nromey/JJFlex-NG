@@ -606,7 +606,14 @@ namespace JJFlexWpf
             {
                 var chirp = new ChirpSampleProvider(SampleRate, 400, 1200, 350, 0.25f);
                 AddToMixer(chirp);
-                var noise = new BandPassNoiseSweepSampleProvider(SampleRate, 400, 1200, 350, 0.12f);
+                // Noise volume 0.7 (was 0.12) compensates for biquad band-pass
+                // inherent attenuation — narrow band-pass filtering of white noise
+                // produces an RMS output of roughly sqrt(bandwidth/nyquist) * input RMS.
+                // At Q=2.0 bandwidth is ~fc/2 across the sweep, so output RMS ≈
+                // 0.1 * input RMS. Input volume 0.7 yields ~0.07 RMS, audibly present
+                // but quieter than the 0.25-volume tone. Tuned 2026-04-21 after user
+                // feedback ("sounds just like a tone sweep, no noise").
+                var noise = new BandPassNoiseSweepSampleProvider(SampleRate, 400, 1200, 350, 0.7f);
                 AddToMixer(noise);
             }
             catch (Exception ex)
@@ -629,7 +636,7 @@ namespace JJFlexWpf
             {
                 var chirp = new ChirpSampleProvider(SampleRate, 1200, 400, 350, 0.25f);
                 AddToMixer(chirp);
-                var noise = new BandPassNoiseSweepSampleProvider(SampleRate, 1200, 400, 350, 0.12f);
+                var noise = new BandPassNoiseSweepSampleProvider(SampleRate, 1200, 400, 350, 0.7f);
                 AddToMixer(noise);
             }
             catch (Exception ex)
@@ -1585,7 +1592,11 @@ namespace JJFlexWpf
             private int _position;
             // Biquad state
             private double _x1, _x2, _y1, _y2;
-            private const double Q = 4.3; // ~1/3 octave
+            // Q=2.0 gives ~1/2 octave bandwidth — wide enough that sufficient noise
+            // energy passes through to be audibly present alongside the tone chirp.
+            // Tuned down from 4.3 (~1/3 octave) on 2026-04-21 after the narrower
+            // filter was inaudible even at 5x the nominal volume.
+            private const double Q = 2.0;
 
             public WaveFormat WaveFormat { get; }
 
@@ -1660,11 +1671,24 @@ namespace JJFlexWpf
         /// </summary>
         private class DecayingGavelSynthesizer : ISampleProvider
         {
-            private const double FundamentalHz = 140.0;
-            private const double HarmonicHz = 280.0;
-            private const double HarmonicGain = 0.3;
-            private const double DecayTauSeconds = 0.12;
-            private const double AttackTransientSeconds = 0.005;
+            // Tuned 2026-04-21 after user feedback ("could hardly hear the bong").
+            // Fundamental raised from 140 Hz to 200 Hz for reliable playback on
+            // typical laptop/desktop speakers (140 Hz often rolls off hard).
+            // 200 Hz is still below the voice band (300-3000 Hz), preserving the
+            // cut-through-RF-noise design principle. Volume raised from 0.5 to
+            // 0.85 to compensate for the ear's reduced sensitivity at low
+            // frequencies (equal-loudness contours — ~15 dB more amplitude needed
+            // at low freq for equivalent loudness vs mid-freq). Attack transient
+            // expanded from 5 ms to 18 ms and amplitude boosted — the "strike"
+            // of a real gavel has broadband impact energy, not a brief whisper.
+            private const double FundamentalHz = 200.0;
+            private const double HarmonicHz = 400.0;
+            private const double SecondHarmonicHz = 600.0;
+            private const double HarmonicGain = 0.4;
+            private const double SecondHarmonicGain = 0.2;
+            private const double DecayTauSeconds = 0.15;
+            private const double AttackTransientSeconds = 0.018;
+            private const double AttackStrikeGain = 2.5;
 
             private readonly int _totalSamples;
             private readonly float _volume;
@@ -1672,8 +1696,12 @@ namespace JJFlexWpf
             private readonly Random _rand = new();
             private double _fundamentalPhase;
             private double _harmonicPhase;
-            // Low-pass state for the attack-transient filtered noise (one-pole)
-            private double _noiseLp;
+            private double _secondHarmonicPhase;
+            // Band-pass state for the attack strike — noise shaped to centered
+            // around 500 Hz, two-pole low-pass chain gives a "wood thud" character
+            // rather than white-noise hiss.
+            private double _noiseLp1;
+            private double _noiseLp2;
             private int _position;
 
             public WaveFormat WaveFormat { get; }
@@ -1682,7 +1710,7 @@ namespace JJFlexWpf
             {
                 WaveFormat = WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 1);
                 _totalSamples = (int)(sampleRate * totalDurationSeconds);
-                _volume = 0.5f;
+                _volume = 0.85f;
                 _attackTransientSamples = (int)(sampleRate * AttackTransientSeconds);
             }
 
@@ -1693,43 +1721,66 @@ namespace JJFlexWpf
                 if (toCopy <= 0) return 0;
 
                 int sampleRate = WaveFormat.SampleRate;
-                double dt = 1.0 / sampleRate;
-                // One-pole low-pass coefficient — time-constant ~2 ms (muffled wood-thud character)
-                double lpAlpha = Math.Exp(-2.0 * Math.PI * 400.0 / sampleRate);
+                // Two cascaded one-pole low-pass filters at 700 Hz — shapes noise
+                // into the "wood thud" character (broadband mid-low energy).
+                double lpAlpha = Math.Exp(-2.0 * Math.PI * 700.0 / sampleRate);
 
                 for (int i = 0; i < toCopy; i++)
                 {
                     double tSeconds = (double)_position / sampleRate;
 
-                    // Tonal content: fundamental + quieter harmonic, exponential decay
+                    // Tonal content: fundamental + harmonic + second harmonic.
+                    // Each subsequent harmonic quieter for natural "bell-like"
+                    // overtone decay. All three share the same exponential decay.
                     _fundamentalPhase += 2.0 * Math.PI * FundamentalHz / sampleRate;
                     _harmonicPhase += 2.0 * Math.PI * HarmonicHz / sampleRate;
-                    double tonal = Math.Sin(_fundamentalPhase) + HarmonicGain * Math.Sin(_harmonicPhase);
+                    _secondHarmonicPhase += 2.0 * Math.PI * SecondHarmonicHz / sampleRate;
+                    double tonal = Math.Sin(_fundamentalPhase)
+                                 + HarmonicGain * Math.Sin(_harmonicPhase)
+                                 + SecondHarmonicGain * Math.Sin(_secondHarmonicPhase);
+                    // Normalize so peak tonal amplitude stays around unity
+                    tonal *= 0.6;
 
                     // Exponential decay — fast initial drop, long tail
                     double decay = Math.Exp(-tSeconds / DecayTauSeconds);
 
-                    // Attack transient — brief filtered-noise burst at the very start
+                    // Attack strike — 18 ms burst of double-low-passed noise with
+                    // sharp envelope. This is the "crack" of the gavel. Amplitude
+                    // significantly exceeds the tonal content during the strike
+                    // window so the attack registers as impact before the resonant
+                    // ring-out takes over.
                     double attack = 0.0;
                     if (_position < _attackTransientSamples)
                     {
                         double rawNoise = (_rand.NextDouble() * 2.0) - 1.0;
-                        _noiseLp = lpAlpha * _noiseLp + (1.0 - lpAlpha) * rawNoise;
-                        // Attack envelope: ramps up the first half, ramps down the second half
+                        _noiseLp1 = lpAlpha * _noiseLp1 + (1.0 - lpAlpha) * rawNoise;
+                        _noiseLp2 = lpAlpha * _noiseLp2 + (1.0 - lpAlpha) * _noiseLp1;
+                        // Attack envelope: ramps up the first 1/4, holds, ramps down
+                        // over last 3/4. Gives a percussive "thud" rather than a
+                        // symmetrical bump.
                         double attackPosition = (double)_position / _attackTransientSamples;
-                        double attackEnv = attackPosition < 0.5
-                            ? attackPosition * 2.0
-                            : (1.0 - attackPosition) * 2.0;
-                        attack = _noiseLp * attackEnv * 0.8;
+                        double attackEnv;
+                        if (attackPosition < 0.25)
+                            attackEnv = attackPosition * 4.0;
+                        else
+                            attackEnv = (1.0 - attackPosition) / 0.75;
+                        attack = _noiseLp2 * attackEnv * AttackStrikeGain;
                     }
 
-                    // 5 ms fade-in on the whole signal to avoid DC click
+                    // 2 ms global fade-in to avoid DC click at the very start
                     double globalFadeIn = 1.0;
-                    int fadeInSamples = sampleRate / 1000 * 2; // 2 ms
+                    int fadeInSamples = sampleRate / 1000 * 2;
                     if (_position < fadeInSamples)
                         globalFadeIn = (double)_position / fadeInSamples;
 
                     double sample = (tonal * decay + attack) * globalFadeIn * _volume;
+
+                    // Soft clip to keep peaks in [-1, 1] range — unlikely to fire
+                    // with tuned volumes but defensive against clipping if summed
+                    // against other playing earcons.
+                    if (sample > 0.95) sample = 0.95 + 0.05 * Math.Tanh((sample - 0.95) * 20);
+                    else if (sample < -0.95) sample = -0.95 + 0.05 * Math.Tanh((sample + 0.95) * 20);
+
                     buffer[offset + i] = (float)sample;
                     _position++;
                 }
