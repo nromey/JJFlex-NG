@@ -5,6 +5,7 @@ using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Threading;
 using Radios;
 
 namespace JJFlexWpf.Controls;
@@ -119,8 +120,16 @@ public partial class ScreenFieldsPanel : UserControl
     // Sprint 28 Phase 3 — double-Escape detection state.
     private DateTime _lastEscapeTime = DateTime.MinValue;
     // Suppress per-group collapse earcons and announcements during bulk collapse-all
-    // so the user hears just the gavel + "all panels collapsed" announcement.
+    // so the user hears just the gavel + "all panels collapsed" announcement. Also
+    // used during Escape-collapse to defer the collapse earcon — see Bug 3 fix
+    // (Phase 3.3, 2026-04-21).
     private bool _suppressCollapseEarcons;
+    // Sprint 28 Phase 3.3 — pending deferred collapse earcon. Set when Escape-
+    // collapses a group; fired on timer tick (tolerance + 50 ms) if no second
+    // Escape arrived. Cancelled by a second Escape arriving within tolerance
+    // (which plays the gavel instead). This prevents the overlap where the
+    // collapse earcon and the gavel would both play for a double-Escape gesture.
+    private DispatcherTimer? _pendingCollapseEarconTimer;
 
     public ScreenFieldsPanel()
     {
@@ -1057,26 +1066,56 @@ public partial class ScreenFieldsPanel : UserControl
             {
                 // Reset so a third Escape doesn't re-trigger collapse-all.
                 _lastEscapeTime = DateTime.MinValue;
+                // Cancel any pending collapse earcon from the first Escape — the
+                // gavel is about to play and we don't want the collapse earcon
+                // arriving on top of it. Bug 3 fix (Phase 3.3).
+                _pendingCollapseEarconTimer?.Stop();
+                _pendingCollapseEarconTimer = null;
                 CollapseAllGroupsAndGoHome();
                 e.Handled = true;
                 return;
             }
 
             // Single Escape — if focus is inside an expanded group, collapse it.
-            // Order matters: Focus() BEFORE IsExpanded=false. If we collapse first,
-            // the currently-focused control (inside the now-collapsed content) gets
-            // hidden, and WPF reassigns focus to some ambiguous fallback (often the
-            // root window) — which means subsequent keys like Space-to-reexpand or
-            // a second Escape for collapse-all don't get routed to this handler.
-            // Moving Focus() first lands focus on the expander header while it's
-            // still a stable visible target; the collapse then doesn't disturb
-            // focus. Tuned 2026-04-21 after user feedback (couldn't re-expand via
-            // Space, double-Escape didn't fire).
+            // Order matters: Focus() BEFORE IsExpanded=false. See Phase 3.2 fix.
             var targetExpander = FindFocusedExpandedGroup();
             if (targetExpander != null)
             {
                 targetExpander.Focus();
-                targetExpander.IsExpanded = false; // fires Collapsed event (earcon)
+
+                // Collapse the group with the per-group earcon suppressed — we'll
+                // play the collapse earcon deferred via timer so a potential second
+                // Escape can cancel it before it fires. The collapse action itself
+                // happens immediately (user gets instant NVDA focus-change feedback
+                // from the header state transition). Only the earcon is deferred.
+                // Bug 3 fix (Phase 3.3, 2026-04-21 — "collapse tone and gavel layer").
+                _suppressCollapseEarcons = true;
+                try
+                {
+                    targetExpander.IsExpanded = false;
+                }
+                finally
+                {
+                    _suppressCollapseEarcons = false;
+                }
+
+                // Schedule the collapse earcon for tolerance + 50 ms. If a second
+                // Escape arrives within tolerance, the double-Escape branch above
+                // will stop and null this timer before it fires.
+                _pendingCollapseEarconTimer?.Stop();
+                _pendingCollapseEarconTimer = new DispatcherTimer
+                {
+                    Interval = TimeSpan.FromMilliseconds(
+                        Radios.AccessibilityConfig.Current.DoubleTapToleranceMs + 50)
+                };
+                _pendingCollapseEarconTimer.Tick += (s, args) =>
+                {
+                    _pendingCollapseEarconTimer?.Stop();
+                    _pendingCollapseEarconTimer = null;
+                    EarconPlayer.PlayCollapse();
+                };
+                _pendingCollapseEarconTimer.Start();
+
                 e.Handled = true;
                 return;
             }
