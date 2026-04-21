@@ -893,15 +893,17 @@ public partial class MainWindow : UserControl
     /// </summary>
     private void MainWindow_PreviewKeyDown(object sender, KeyEventArgs e)
     {
-        // 0. Ctrl+Tab opens action toolbar
+        // Sprint 28 Phase 3.5 (2026-04-21) — the Ctrl+Tab short-circuit that
+        // opened the action toolbar has been removed. Ctrl+Tab / Ctrl+Shift+Tab
+        // now flow through to ScreenFieldsPanel.FocusNextExpander, restoring
+        // the industry-standard pane-navigation pattern. The action toolbar's
+        // popup-menu form is disabled pending redesign (see memory
+        // project_action_toolbar_redesign.md). ShowActionToolbar /
+        // ExecuteActionToolbarItem code retained in this file for the future
+        // redesign to build on.
         var rawKey = e.Key == Key.System ? e.SystemKey : e.Key;
-        if (rawKey == Key.Tab && Keyboard.Modifiers == ModifierKeys.Control)
-        {
-            ShowActionToolbar();
-            e.Handled = true;
-            return;
-        }
-        // Let regular Tab pass through to WPF default handling
+        // Let regular Tab (and Ctrl+Tab / Ctrl+Shift+Tab) pass through to
+        // WPF default handling / child-panel PreviewKeyDown handlers.
         if (rawKey == Key.Tab)
             return;
 
@@ -1915,6 +1917,12 @@ public partial class MainWindow : UserControl
         {
             FieldsPanel.Initialize(RigControl);
             _brailleEngine.SetRig(RigControl);
+
+            // Sprint 28 Phase 3.6 — subscribe to mode changes so CW-only text
+            // areas hide/show appropriately. Initial evaluation below covers the
+            // case where the radio comes up in a non-CW mode.
+            RigControl.ModeChanged += OnRadioModeChanged;
+            UpdateTextAreasVisibility();
         }
 
         _radioPowerOn = true;
@@ -2073,6 +2081,13 @@ public partial class MainWindow : UserControl
 
         // Detach screen fields panel (Sprint 14)
         FieldsPanel.Detach();
+
+        // Sprint 28 Phase 3.6 — unsubscribe from mode changes to avoid leaking
+        // handler references across radio reconnects.
+        if (RigControl != null)
+        {
+            RigControl.ModeChanged -= OnRadioModeChanged;
+        }
 
         if (!_isClosing)
         {
@@ -2696,21 +2711,62 @@ public partial class MainWindow : UserControl
             Math.Min(tb.SelectionStart, Math.Max(0, tb.Text.Length - 1))));
     }
 
+    // Sprint 28 Phase 3.6 (2026-04-21) — text-area visibility combines two
+    // independent constraints: (1) the UI mode (hidden in Logging mode, visible
+    // in Classic/Modern), and (2) the radio mode (only useful in CW). The CW
+    // boxes aren't used for anything else currently — no CAT commands, no
+    // digital-mode text, just CW send/receive. Showing them outside CW adds
+    // tab-order clutter without user benefit. Sprint 27 intended this fix but
+    // the implementation was missed; Sprint 28 adds it.
+    private bool _uiModeWantsTextAreas = true;
+
     /// <summary>
-    /// Set visibility of the text areas (hidden in Logging Mode).
-    /// Matches Form1 show/hide pattern for ReceivedTextBox + SentTextBox.
+    /// Set the UI-mode intent for text-area visibility. Classic/Modern set true,
+    /// Logging sets false. Actual visibility is the AND of this intent AND the
+    /// current radio mode being CW.
     /// </summary>
     public void SetTextAreasVisible(bool visible)
     {
-        var vis = visible ? Visibility.Visible : Visibility.Collapsed;
+        _uiModeWantsTextAreas = visible;
+        UpdateTextAreasVisibility();
+    }
+
+    /// <summary>
+    /// Sprint 28 Phase 3.6 — apply combined visibility: UI-mode intent AND
+    /// radio-mode-is-CW. Called on SetTextAreasVisible (UI mode change) and on
+    /// the rig's ModeChanged event (radio mode change).
+    /// </summary>
+    private void UpdateTextAreasVisibility()
+    {
+        bool isCwMode = IsCurrentModeCw();
+        bool actuallyVisible = _uiModeWantsTextAreas && isCwMode;
+
+        var vis = actuallyVisible ? Visibility.Visible : Visibility.Collapsed;
         ReceiveLabel.Visibility = vis;
         ReceivedTextBox.Visibility = vis;
         SendLabel.Visibility = vis;
         SentTextBox.Visibility = vis;
+        // Tab stop matches visibility so hidden boxes are excluded from tab order.
+        ReceivedTextBox.IsTabStop = actuallyVisible;
+        SentTextBox.IsTabStop = actuallyVisible;
+    }
 
-        // Tab stop matches visibility
-        ReceivedTextBox.IsTabStop = visible;
-        SentTextBox.IsTabStop = visible;
+    /// <summary>Sprint 28 Phase 3.6 — true if the current radio mode is any CW
+    /// variant. Matches ScreenFieldsPanel's existing isCW check for APF
+    /// visibility (line 809) for consistency.</summary>
+    private bool IsCurrentModeCw()
+    {
+        var mode = RigControl?.Mode?.ToUpperInvariant() ?? "";
+        return mode == "CW" || mode == "CWL" || mode == "CWU";
+    }
+
+    /// <summary>Sprint 28 Phase 3.6 — handler for rig mode changes. Re-evaluates
+    /// text-area visibility so the CW boxes show only when the radio is actually
+    /// in CW. Marshals to the UI thread since ModeChanged may fire from any
+    /// thread.</summary>
+    private void OnRadioModeChanged(string newMode)
+    {
+        Dispatcher.BeginInvoke(new Action(UpdateTextAreasVisibility));
     }
 
     #endregion
