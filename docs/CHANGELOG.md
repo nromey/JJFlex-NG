@@ -76,7 +76,7 @@ When firmware upload lands in a future release, a stricter version of this same 
 
 If you're in a CW mode (CW, CWL, or CWU), you get the usual two text boxes — one showing decoded CW coming in, one where you type to send. If you switch to USB, LSB, AM, FM, or any digital mode, those two boxes vanish. They're not just hidden — they leave the tab order entirely, so you don't spend your navigation going through them when they aren't doing anything.
 
-Switch back to CW and they come back. Same behavior SmartSDR has always had, finally landed here.
+Switch back to CW and they come back. A small quality-of-life fix, but if you've been wondering why those boxes lived in your tab order during a phone QSO, the answer is: they don't have to.
 
 ### More Stable Remote Sessions (Under the Hood)
 
