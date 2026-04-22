@@ -155,90 +155,6 @@ public partial class FrequencyDisplay : UserControl
     public FrequencyDisplay()
     {
         InitializeComponent();
-
-        // Sprint 28 Phase 3.10 — diagnostic hook for cursor routing investigation
-        // (2026-04-21). Subscribe to SelectionChanged on DisplayBox so we can
-        // detect caret moves coming from sources OTHER than our arrow-key
-        // handler (e.g., braille cursor routing translated through the screen
-        // reader). Guard flag `_internalCaretMove` is set by our own code paths
-        // when we move the caret programmatically; external moves pass through
-        // without the flag set and trigger the diagnostic.
-        DisplayBox.SelectionChanged += DisplayBox_SelectionChanged_Diagnostic;
-    }
-
-    // Sprint 28 Phase 3.10 — expected caret position after our internal moves.
-    // Position comparison is more reliable than a bool flag because
-    // DisplayBox.SelectionChanged may fire asynchronously (deferred through the
-    // WPF dispatcher), after a finally { _flag = false } would have cleared.
-    // Using position-matching: if SelectionChanged fires with SelectionStart
-    // equal to our last-recorded internal target, treat as internal; otherwise
-    // external (cursor routing, mouse click, screen-reader API call).
-    // -1 means "no internal move pending" (external events match nothing).
-    private int _lastInternalTargetPos = -1;
-
-    /// <summary>
-    /// Sprint 28 Phase 3.10 — set DisplayBox caret position while recording our
-    /// target so the SelectionChanged diagnostic handler can tell whether the
-    /// resulting event came from us (matches target) or from an external source
-    /// (doesn't match).
-    /// </summary>
-    private void SetCaretInternal(int pos)
-    {
-        _lastInternalTargetPos = pos;
-        DisplayBox.SelectionStart = pos;
-    }
-
-    /// <summary>
-    /// Sprint 28 Phase 3.10 — diagnostic handler to confirm cursor routing from
-    /// the braille display translates to SelectionChanged events here. Speaks
-    /// the external caret landing so we can hear whether it's firing, and with
-    /// which field and position. Pending verification that this path works, we
-    /// will either replace this with full NavigateToField-style field landing
-    /// or investigate why routing doesn't reach us.
-    /// </summary>
-    // Sprint 28 Phase 3.12 — gate for the external-caret-move diagnostic speech.
-    // After the Phase 3.12 experiments confirmed vanilla WPF + NVDA can't reliably
-    // route braille cursor events to our SelectionChanged handler, the diagnostic
-    // Speak is silenced by default. The hook itself remains in place so that
-    // Sprint 29's NVDA add-on work can wire its IPC-forwarded routing events
-    // into the existing field-landing logic with minimal additional code.
-    // Flip to true if future diagnostic needs arise.
-    private static bool _verboseCaretDiagnostic = false;
-
-    private void DisplayBox_SelectionChanged_Diagnostic(object sender, System.Windows.RoutedEventArgs e)
-    {
-        try
-        {
-            int pos = DisplayBox.SelectionStart;
-
-            // Position matches our last internal target — this is our own move,
-            // consume the match and return. Consume pattern prevents a second
-            // external move that happens to land on the same position from being
-            // silently treated as internal.
-            if (pos == _lastInternalTargetPos)
-            {
-                _lastInternalTargetPos = -1;
-                return;
-            }
-
-            // External caret move — no-op by default. When the Sprint 29 add-on
-            // path lands, this is the natural hook point for "NVDA add-on says
-            // routing landed at position N" to trigger full NavigateToField
-            // behavior including field landing announcement.
-            if (_verboseCaretDiagnostic)
-            {
-                var field = PositionToField(pos);
-                string fieldKey = field?.Key ?? "none";
-                Radios.ScreenReaderOutput.Speak(
-                    $"External caret move, position {pos}, field {fieldKey}",
-                    Radios.VerbosityLevel.Terse,
-                    interrupt: true);
-            }
-        }
-        catch (System.Exception ex)
-        {
-            System.Diagnostics.Trace.WriteLine($"DisplayBox_SelectionChanged_Diagnostic: {ex.Message}");
-        }
     }
 
     #region Public API (matches RadioBoxes.MainBox)
@@ -378,10 +294,10 @@ public partial class FrequencyDisplay : UserControl
 
         DisplayBox.Text = sb.ToString();
 
-        // Restore cursor (internal — guard against SelectionChanged diagnostic).
+        // Restore cursor
         if (savedPos <= DisplayBox.Text.Length)
         {
-            SetCaretInternal(savedPos);
+            DisplayBox.SelectionStart = savedPos;
             DisplayBox.SelectionLength = savedLen;
         }
     }
@@ -607,7 +523,7 @@ public partial class FrequencyDisplay : UserControl
         var newField = PositionToField(newPos);
         if (newField == null) return;
 
-        SetCaretInternal(newPos);
+        DisplayBox.SelectionStart = newPos;
 
         if (newField != currentField)
         {
@@ -660,7 +576,7 @@ public partial class FrequencyDisplay : UserControl
     {
         int fieldStart = field.Position + field.LeftDelim.Length;
         int offset = System.Math.Min(field.DefaultCursorOffset, field.Length - 1);
-        SetCaretInternal(fieldStart + offset);
+        DisplayBox.SelectionStart = fieldStart + offset;
 
         string label = field.Label ?? field.Key;
         string value = GetSpeechText(field);
@@ -826,7 +742,7 @@ public partial class FrequencyDisplay : UserControl
     public int SelectionStart
     {
         get => DisplayBox.SelectionStart;
-        set => SetCaretInternal(value);
+        set => DisplayBox.SelectionStart = value;
     }
 
     public int SelectionLength
