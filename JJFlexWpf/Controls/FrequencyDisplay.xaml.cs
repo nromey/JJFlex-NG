@@ -687,6 +687,16 @@ public partial class FrequencyDisplay : UserControl
             return "off";
         }
 
+        // Sprint 28 Phase 3.9.3 — Squelch + Squelch Level speech translation.
+        // Squelch field shows "Q" when on, blank when off. Speak as "on" / "off".
+        // Squelch Level shows the value when on, "---" placeholder when off.
+        // Speak as "off" when inactive, the numeric value otherwise.
+        if (key == "Squelch")
+            return raw == "Q" ? "on" : "off";
+
+        if (key == "SquelchLevel")
+            return raw == "---" || string.IsNullOrWhiteSpace(raw) ? "off" : raw;
+
         return raw;
     }
 
