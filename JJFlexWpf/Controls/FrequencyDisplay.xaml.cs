@@ -16,11 +16,31 @@ namespace JJFlexWpf.Controls;
 /// </summary>
 public class SilentTextBox : TextBox
 {
+    // Sprint 28 Phase 3.12 EXPERIMENT (2026-04-21): temporarily returning the
+    // default WPF TextBoxAutomationPeer (via base.OnCreateAutomationPeer) instead
+    // of the custom SilentTextBoxPeer. Hypothesis: NVDA is identifying DisplayBox
+    // as a generic "pane" because SilentTextBoxPeer hid TextPattern/ValuePattern;
+    // that same hiding is what blocks braille cursor routing. By temporarily
+    // exposing it as a full TextBox, we can test whether cursor routing on the
+    // braille display fires SelectionChanged (and reaches our diagnostic handler
+    // with real position/field data).
+    //
+    // EXPECTED TRADE-OFF DURING THIS EXPERIMENT: NVDA will chatter more — reading
+    // text content on focus and possibly on text-change events. That's accepted
+    // cost for the experiment. If cursor routing works with the default peer,
+    // the real fix (Phase 3.13) will be a custom peer that extends
+    // TextBoxAutomationPeer and suppresses ONLY the change events while keeping
+    // TextPattern exposed — best of both worlds.
+    //
+    // If the experiment fails (routing STILL doesn't work), something else is
+    // blocking the path and we need to investigate further.
     protected override AutomationPeer OnCreateAutomationPeer()
     {
-        return new SilentTextBoxPeer(this);
+        return base.OnCreateAutomationPeer();
     }
 
+    // Kept around but not used during the experiment. Will be repurposed or
+    // replaced during Phase 3.13 based on experiment outcome.
     private class SilentTextBoxPeer : FrameworkElementAutomationPeer
     {
         public SilentTextBoxPeer(FrameworkElement owner) : base(owner) { }
