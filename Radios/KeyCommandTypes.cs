@@ -128,6 +128,7 @@ public enum CommandValues
     CycleVerbosity,
     ToggleMeterTonesGlobal,
     MuteSlice,
+    ToggleBrailleStatus,
 }
 
 /// <summary>

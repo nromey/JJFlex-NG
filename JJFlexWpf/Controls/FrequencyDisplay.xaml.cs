@@ -145,22 +145,26 @@ public partial class FrequencyDisplay : UserControl
         DisplayBox.SelectionChanged += DisplayBox_SelectionChanged_Diagnostic;
     }
 
-    // Sprint 28 Phase 3.10 — guard set by internal caret-moving code paths
-    // (NavigateCharacter, NavigateToField, FocusFrequencyField, Populate reset).
-    // When clear, SelectionChanged is presumed to be external (cursor routing,
-    // mouse click, screen reader API call).
-    private bool _internalCaretMove;
+    // Sprint 28 Phase 3.10 — expected caret position after our internal moves.
+    // Position comparison is more reliable than a bool flag because
+    // DisplayBox.SelectionChanged may fire asynchronously (deferred through the
+    // WPF dispatcher), after a finally { _flag = false } would have cleared.
+    // Using position-matching: if SelectionChanged fires with SelectionStart
+    // equal to our last-recorded internal target, treat as internal; otherwise
+    // external (cursor routing, mouse click, screen-reader API call).
+    // -1 means "no internal move pending" (external events match nothing).
+    private int _lastInternalTargetPos = -1;
 
     /// <summary>
-    /// Sprint 28 Phase 3.10 — set DisplayBox caret position while marking the
-    /// move as internal, so the SelectionChanged diagnostic handler doesn't
-    /// treat it as an external (cursor routing) event.
+    /// Sprint 28 Phase 3.10 — set DisplayBox caret position while recording our
+    /// target so the SelectionChanged diagnostic handler can tell whether the
+    /// resulting event came from us (matches target) or from an external source
+    /// (doesn't match).
     /// </summary>
     private void SetCaretInternal(int pos)
     {
-        _internalCaretMove = true;
-        try { DisplayBox.SelectionStart = pos; }
-        finally { _internalCaretMove = false; }
+        _lastInternalTargetPos = pos;
+        DisplayBox.SelectionStart = pos;
     }
 
     /// <summary>
@@ -173,10 +177,20 @@ public partial class FrequencyDisplay : UserControl
     /// </summary>
     private void DisplayBox_SelectionChanged_Diagnostic(object sender, System.Windows.RoutedEventArgs e)
     {
-        if (_internalCaretMove) return;
         try
         {
             int pos = DisplayBox.SelectionStart;
+
+            // Position matches our last internal target — this is our own move,
+            // consume the match and return. Consume pattern prevents a second
+            // external move that happens to land on the same position from being
+            // silently treated as internal.
+            if (pos == _lastInternalTargetPos)
+            {
+                _lastInternalTargetPos = -1;
+                return;
+            }
+
             var field = PositionToField(pos);
             string fieldKey = field?.Key ?? "none";
             Radios.ScreenReaderOutput.Speak(

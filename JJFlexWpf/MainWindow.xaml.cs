@@ -1279,6 +1279,25 @@ public partial class MainWindow : UserControl
     /// <summary>Braille display status line engine.</summary>
     private readonly BrailleStatusEngine _brailleEngine = new();
 
+    /// <summary>
+    /// Sprint 28 Phase 3.10 — diagnostic toggle (Ctrl+Shift+B) for the braille
+    /// status line. When off, BrailleStatusEngine stops pushing status to the
+    /// braille display, letting the screen reader's default (show focused
+    /// control content = FreqOut) take over. Used to test whether cursor routing
+    /// on the braille display reaches our FreqOut TextBox's SelectionChanged
+    /// event. Pending verification that routing works, this may evolve into the
+    /// permanent three-mode braille display model (idle/navigating/tuning).
+    /// </summary>
+    public void ToggleBrailleStatus()
+    {
+        _brailleEngine.Enabled = !_brailleEngine.Enabled;
+        _brailleEngine.UpdateTimerState();
+        Radios.ScreenReaderOutput.Speak(
+            _brailleEngine.Enabled ? "Braille status on" : "Braille status off",
+            Radios.VerbosityLevel.Terse,
+            interrupt: true);
+    }
+
     /// <summary>CW Morse code notification engine for connection/status events.</summary>
     private readonly MorseNotifier _morseNotifier = new(new EarconCwOutput());
 

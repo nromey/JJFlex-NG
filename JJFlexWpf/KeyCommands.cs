@@ -405,6 +405,14 @@ public class KeyCommands
                 "Toggle Antenna expander in ScreenFields panel", "Antenna Expander", false, FunctionGroups.General, KeyScope.Radio)
                 { Keywords = new[] { "antenna", "ant", "expander", "screenfields", "panel" } },
 
+            // Sprint 28 Phase 3.10 diagnostic — toggle BrailleStatusEngine on/off
+            // for cursor routing investigation. When off, braille display naturally
+            // reflects the focused control (FreqOut), allowing cursor routing to
+            // reach DisplayBox's SelectionStart and fire SelectionChanged.
+            new(CommandValues.ToggleBrailleStatus, KeyTypes.Command, () => _context.GetMainWindow()?.ToggleBrailleStatus(),
+                "Toggle braille status line (diagnostic for cursor routing)", "Braille Status Toggle", false, FunctionGroups.General, KeyScope.Global)
+                { Keywords = new[] { "braille", "status", "toggle", "cursor", "routing", "diagnostic" } },
+
             // ── Speak / Repeat ──
             new(CommandValues.SpeakFrequency, KeyTypes.Command, () => _context.GetMainWindow()?.SpeakFrequency(),
                 "Speak current frequency and mode", "Speak Frequency", false, FunctionGroups.General, KeyScope.Radio)
@@ -995,6 +1003,7 @@ public class KeyCommands
         new(Keys.R | Keys.Control | Keys.Shift, CommandValues.ToggleReceiverExpander, KeyScope.Radio),
         new(Keys.X | Keys.Control | Keys.Shift, CommandValues.ToggleTransmissionExpander, KeyScope.Radio),
         new(Keys.A | Keys.Control | Keys.Shift, CommandValues.ToggleAntennaExpander, KeyScope.Radio),
+        new(Keys.B | Keys.Control | Keys.Shift, CommandValues.ToggleBrailleStatus, KeyScope.Global),
 
         // Speak frequency, Repeat last message
         new(Keys.F | Keys.Control, CommandValues.SpeakFrequency, KeyScope.Radio),
