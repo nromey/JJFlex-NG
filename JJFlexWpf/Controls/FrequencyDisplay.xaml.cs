@@ -16,31 +16,32 @@ namespace JJFlexWpf.Controls;
 /// </summary>
 public class SilentTextBox : TextBox
 {
-    // Sprint 28 Phase 3.12 EXPERIMENT (2026-04-21): temporarily returning the
-    // default WPF TextBoxAutomationPeer (via base.OnCreateAutomationPeer) instead
-    // of the custom SilentTextBoxPeer. Hypothesis: NVDA is identifying DisplayBox
-    // as a generic "pane" because SilentTextBoxPeer hid TextPattern/ValuePattern;
-    // that same hiding is what blocks braille cursor routing. By temporarily
-    // exposing it as a full TextBox, we can test whether cursor routing on the
-    // braille display fires SelectionChanged (and reaches our diagnostic handler
-    // with real position/field data).
+    // Sprint 28 Phase 3.12 experiments (2026-04-21) attempted to enable braille
+    // cursor routing by exposing DisplayBox as a standard editable TextBox to
+    // NVDA. Two experiments were run and reverted: swapping to the default
+    // TextBoxAutomationPeer, and setting IsReadOnly=False. Neither was
+    // sufficient — NVDA saw the control as an edit but still didn't route
+    // cursor events to our SelectionChanged handler.
     //
-    // EXPECTED TRADE-OFF DURING THIS EXPERIMENT: NVDA will chatter more — reading
-    // text content on focus and possibly on text-change events. That's accepted
-    // cost for the experiment. If cursor routing works with the default peer,
-    // the real fix (Phase 3.13) will be a custom peer that extends
-    // TextBoxAutomationPeer and suppresses ONLY the change events while keeping
-    // TextPattern exposed — best of both worlds.
+    // Decision after exhausting the vanilla-WPF-and-NVDA path: braille cursor
+    // routing will be implemented in Sprint 29 via a dedicated NVDA add-on
+    // (Python) + JAWS script, bundled with the JJFlex installer, which hook
+    // the screen reader's own braille routing events and forward them to
+    // JJFlex via IPC. That path is known to work and supports capabilities
+    // beyond just cursor routing (other braille inputs, chord commands, etc.).
+    // Users on other screen readers will not get cursor routing; they'll get
+    // a "not available on your screen reader" note explaining what they'd
+    // have with NVDA or JAWS.
     //
-    // If the experiment fails (routing STILL doesn't work), something else is
-    // blocking the path and we need to investigate further.
+    // SilentTextBoxPeer restored to its original behavior: hide TextPattern/
+    // ValuePattern change events so NVDA doesn't chatter on every rig-state
+    // update. All speech for Home navigation is handled by our own Speak()
+    // calls, not by NVDA's default text-control reading.
     protected override AutomationPeer OnCreateAutomationPeer()
     {
-        return base.OnCreateAutomationPeer();
+        return new SilentTextBoxPeer(this);
     }
 
-    // Kept around but not used during the experiment. Will be repurposed or
-    // replaced during Phase 3.13 based on experiment outcome.
     private class SilentTextBoxPeer : FrameworkElementAutomationPeer
     {
         public SilentTextBoxPeer(FrameworkElement owner) : base(owner) { }
@@ -195,6 +196,15 @@ public partial class FrequencyDisplay : UserControl
     /// will either replace this with full NavigateToField-style field landing
     /// or investigate why routing doesn't reach us.
     /// </summary>
+    // Sprint 28 Phase 3.12 — gate for the external-caret-move diagnostic speech.
+    // After the Phase 3.12 experiments confirmed vanilla WPF + NVDA can't reliably
+    // route braille cursor events to our SelectionChanged handler, the diagnostic
+    // Speak is silenced by default. The hook itself remains in place so that
+    // Sprint 29's NVDA add-on work can wire its IPC-forwarded routing events
+    // into the existing field-landing logic with minimal additional code.
+    // Flip to true if future diagnostic needs arise.
+    private static bool _verboseCaretDiagnostic = false;
+
     private void DisplayBox_SelectionChanged_Diagnostic(object sender, System.Windows.RoutedEventArgs e)
     {
         try
@@ -211,12 +221,19 @@ public partial class FrequencyDisplay : UserControl
                 return;
             }
 
-            var field = PositionToField(pos);
-            string fieldKey = field?.Key ?? "none";
-            Radios.ScreenReaderOutput.Speak(
-                $"External caret move, position {pos}, field {fieldKey}",
-                Radios.VerbosityLevel.Terse,
-                interrupt: true);
+            // External caret move — no-op by default. When the Sprint 29 add-on
+            // path lands, this is the natural hook point for "NVDA add-on says
+            // routing landed at position N" to trigger full NavigateToField
+            // behavior including field landing announcement.
+            if (_verboseCaretDiagnostic)
+            {
+                var field = PositionToField(pos);
+                string fieldKey = field?.Key ?? "none";
+                Radios.ScreenReaderOutput.Speak(
+                    $"External caret move, position {pos}, field {fieldKey}",
+                    Radios.VerbosityLevel.Terse,
+                    interrupt: true);
+            }
         }
         catch (System.Exception ex)
         {
@@ -405,24 +422,6 @@ public partial class FrequencyDisplay : UserControl
     /// </summary>
     private void DisplayBox_PreviewKeyDown(object sender, KeyEventArgs e)
     {
-        // Sprint 28 Phase 3.12 experiment — DisplayBox is now IsReadOnly=False
-        // (to enable braille cursor routing via NVDA's system-caret path). Block
-        // any key that would mutate the text buffer so our field-based display
-        // model stays intact. Text INPUT (typed characters) is already blocked
-        // by DisplayBox_PreviewTextInput; this handles the delete/editing keys.
-        if (e.Key == Key.Back || e.Key == Key.Delete)
-        {
-            e.Handled = true;
-            return;
-        }
-        // Ctrl+X / Ctrl+V would cut or paste into the text buffer. Block them.
-        if ((e.Key == Key.X || e.Key == Key.V) &&
-            (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control)
-        {
-            e.Handled = true;
-            return;
-        }
-
         // Left/Right: character-by-character cursor movement
         if (e.Key == Key.Left || e.Key == Key.Right)
         {
