@@ -524,7 +524,18 @@ public partial class FrequencyDisplay : UserControl
         }
         else
         {
-            // Same field — announce digit + step for position-sensitive fields
+            // Same field — announce digit + step for position-sensitive fields.
+            // Sprint 28 Phase 3.9.4 (2026-04-21) — skip the step-name announcement
+            // when the field's value is "off" (RIT/XIT inactive). Without this gate,
+            // arrowing within an inactive RIT/XIT announced "r, 10 hertz" and the
+            // rest of the step sizes, which is meaningless and confusing when
+            // there's no offset to adjust. Matches the gate on the cross-field
+            // branch above (line 514). Cursor still moves silently within the
+            // inactive field; user can continue arrowing to the next field or
+            // press R/X to activate.
+            string valueForGate = GetSpeechText(newField);
+            if (valueForGate == "off") return;
+
             int fieldStart = newField.Position + newField.LeftDelim.Length;
             int posInField = newPos - fieldStart;
             string? stepName = GetStepName(newField.Key, posInField, newField.Length, newField.Text);
