@@ -3,9 +3,53 @@
 This document captures the current state of JJ-Flex repository and active work.
 
 **Repository root:** `C:\dev\JJFlex-NG`
-**Branch:** `sprint28/home-key-qsk` (Phase 7 complete; Phase 8 next)
+**Branch:** `sprint28/home-key-qsk` (Phases 1-8a through 8c-i committed + multiple sub-phase tunings; Phases 8c-ii, 8d, 9, 10, 11 remaining)
 
-## Current State — 2026-04-21: Sprint 28 Phases 1-7 committed, Phases 8-11 remaining
+## 2026-04-21 end-of-day seal: Sprint 28 large chunk landed, 4.1.17 changelog drafted, cursor routing investigation concluded
+
+**Daily debug build 4.1.16.139** zipped to NAS `historical\4.1.16.139\x64-debug\` and promoted to Dropbox top-level as `JJFlex_4.1.16.139_x64_daily.zip`. Memory + private docs backed up to NAS. Not broadcast to testers (no `--publish` used; this is the end-of-day seal, not a tester distribution).
+
+**Today's total commits on `sprint28/home-key-qsk`:** ~22 commits covering Phase 1 through Phase 8c-i plus extensive sub-phase tuning from runtime testing. Key landed work:
+
+- **Phases 1-7 (DoubleTapTolerance primitive, filter-edge migration, Escape-collapse + 3 earcons, Home rename, keystroke deconflict, RequireOperatorPresence + port-forward Apply gate)** — core Sprint 28 feature work.
+- **Phase 3.1-3.4** — earcon audibility tuning (synthesized gavel → two-tone replacement after Noel reported inaudible), focus-order fix for Escape-collapse, Space-re-expand via inner ToggleButton focus.
+- **Phase 3.5-3.6** — Ctrl+Tab reclaimed for expander navigation (action toolbar disabled, redesign deferred to post-28 per memory `project_action_toolbar_redesign.md`); CW send/receive text boxes now hidden in non-CW modes.
+- **Phase 3.7** — Home sub-field announcement on focus landing, verbosity-scaled per Noel's spec.
+- **Phase 3.8** — Gavel redesigned to two-tone PlayToneSequence (1200 Hz → 400 Hz over 500ms) after the synthesized version was still inaudible.
+- **Phase 3.9 / 3.9.1-3.9.4** — Squelch and Squelch Level added as Home fields with Q universal hotkey; placeholder "---" when squelch off; speech/braille channel-split extended to new fields; step-name announcement gated when RIT/XIT is off.
+- **Phase 3.10-3.12** — cursor routing investigation (diagnostic hook, Ctrl+Shift+B BrailleStatusEngine toggle, peer swap experiment, IsReadOnly=False experiment). Conclusion: vanilla WPF + NVDA doesn't support cursor routing to our custom SilentTextBox-based FreqOut. Experiments reverted; Sprint 29 will build a proper NVDA Python add-on + JAWS script (FSDN) with IPC to JJFlex. Retained: Ctrl+Shift+B toggle (user preference, useful regardless of cursor routing).
+- **Phase 8a** — six new help docs (home-region, escape-collapse, settings-double-tap-tolerance, squelch-home, cw-text-boxes, port-forward-ownership) + keyboard-reference.md updates + TOC + hhp updates. CHM grew from 43 to 49 topics.
+- **Phase 8b** — 4.1.17 user-facing changelog "The Making Yourself at Home Edition" drafted covering Sprints 26+27+28. Noel will do voice/accuracy pass tomorrow.
+- **Phase 8c-i** — CHANGELOG.md imported into CHM as "What's New" topic via build script. Top-level TOC entry right after Welcome. Single source of truth: edit CHANGELOG once, CHM regenerates.
+
+**Phases remaining for Sprint 28 completion (tomorrow and after):**
+
+- **Phase 8c-ii** — Help menu "What's New" item + About dialog version-link + "View What's New" button.
+- **Phase 8d** — end-of-sprint help audit: cross-check existing docs for drift against Sprint 28 changes.
+- **Phase 9** — combined 4.1.17 test matrix (organized by user-flow, covers Sprints 26+27+28) + execution against Don's radio / Noel's own rig.
+- **Phase 10** — Network tab progressive disclosure with auto-select + off-switch. **LARGEST REMAINING PHASE** — substantive UX rework. Noel to decide tomorrow whether this lands in 4.1.17 or slips to 4.1.18.
+- **Phase 11** — Sprint archive cleanup (move sprint 24 matrix, 25 matrix, 26 plan+matrix, 27 plan, 28 plan+matrix to `docs/planning/agile/archive/`).
+
+**Plan for tomorrow:** Noel finishes changelog voice/accuracy pass; we land remaining phases with test-matrix execution at radio.
+
+**Memory state additions today** (all captured to `~/.claude/projects/c--dev-JJFlex-NG/memory/`):
+- `project_friction_tax_principle.md` — disabled users pay friction tax; minimize for core workflows
+- `project_no_silent_phone_home.md` — JJFlex never sends data without explicit user action
+- `project_sprint29_updater_vision.md` — updater + channels + firmware + support-package + deaf-blind accessibility + visible status + cursor routing via add-on. Substantial Sprint 29 scope captured with phase-by-phase detail
+- `project_kenwood_590g_commitment.md` — Mark's commitment for TS-590G support; neuropathy as design axis
+- `project_anti_patterns_from_blindcat.md` — 9-item anti-pattern checklist from competitor product, by behavior not name
+- `project_code_signing_cert_milestone.md` — funding-gated, OV tier recommended
+- `project_earcon_audibility_rf_environment.md` — design principle for earcons in ham noise context
+- `project_action_toolbar_redesign.md` — Ctrl+Tab toolbar deferred to post-28 with design direction sketch
+- `feedback_human_review_user_facing_prose.md` — AI-drafted prose gets human review; flag cross-product claims and voice passages
+- `feedback_dont_name_competitor_in_repo.md` — BlindCat / Rus never appear in repo-tracked content; memory files can reference
+- Plus updates to existing `user_learning_pm_through_project.md` (now covers architecture thinking emerging), `project_sprint29_updater_vision.md` (all Sprint 29 phases A-H detailed including cursor-routing investigation outcome), etc.
+
+**JAWS dev guides staged for Sprint 29:** extracted Basic Scripting Guide (90 HTML chapters + CSS) + FSDN CHM organized under `C:\Users\nrome\JJFlex-private\jaws-dev-guides\` in `basic-scripting\` and `fsdn\` subfolders. Backed up to NAS as part of today's seal.
+
+**CLAUDE.md drift check:** no stale guidance exposed today. The sprint plan + build scripts + release process references all still accurate. Action toolbar redesign memory captures the one deviation (Ctrl+Tab was reclaimed) but that's memory-tracked, not CLAUDE.md-tracked.
+
+## Prior state — 2026-04-21: Sprint 28 Phases 1-7 committed, Phases 8-11 remaining
 
 **Branch:** `sprint28/home-key-qsk` (branched off `sprint27/networking-config` which is code-complete but not yet merged to main). When Sprint 27 testing completes, Sprint 28 either rebases onto new main or merges through.
 
