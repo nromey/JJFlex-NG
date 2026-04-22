@@ -405,6 +405,24 @@ public partial class FrequencyDisplay : UserControl
     /// </summary>
     private void DisplayBox_PreviewKeyDown(object sender, KeyEventArgs e)
     {
+        // Sprint 28 Phase 3.12 experiment — DisplayBox is now IsReadOnly=False
+        // (to enable braille cursor routing via NVDA's system-caret path). Block
+        // any key that would mutate the text buffer so our field-based display
+        // model stays intact. Text INPUT (typed characters) is already blocked
+        // by DisplayBox_PreviewTextInput; this handles the delete/editing keys.
+        if (e.Key == Key.Back || e.Key == Key.Delete)
+        {
+            e.Handled = true;
+            return;
+        }
+        // Ctrl+X / Ctrl+V would cut or paste into the text buffer. Block them.
+        if ((e.Key == Key.X || e.Key == Key.V) &&
+            (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control)
+        {
+            e.Handled = true;
+            return;
+        }
+
         // Left/Right: character-by-character cursor movement
         if (e.Key == Key.Left || e.Key == Key.Right)
         {

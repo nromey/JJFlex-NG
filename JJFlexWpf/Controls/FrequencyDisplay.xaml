@@ -15,7 +15,7 @@
          SilentTextBox suppresses NVDA text change events — all speech managed by our Speak() calls.
          Keyboard handlers route to field-specific delegates. -->
     <controls:SilentTextBox x:Name="DisplayBox"
-             IsReadOnly="True"
+             IsReadOnly="False"
              FontFamily="Consolas"
              FontSize="14"
              BorderThickness="1"
