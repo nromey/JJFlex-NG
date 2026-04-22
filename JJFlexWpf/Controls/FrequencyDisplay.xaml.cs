@@ -134,6 +134,60 @@ public partial class FrequencyDisplay : UserControl
     public FrequencyDisplay()
     {
         InitializeComponent();
+
+        // Sprint 28 Phase 3.10 — diagnostic hook for cursor routing investigation
+        // (2026-04-21). Subscribe to SelectionChanged on DisplayBox so we can
+        // detect caret moves coming from sources OTHER than our arrow-key
+        // handler (e.g., braille cursor routing translated through the screen
+        // reader). Guard flag `_internalCaretMove` is set by our own code paths
+        // when we move the caret programmatically; external moves pass through
+        // without the flag set and trigger the diagnostic.
+        DisplayBox.SelectionChanged += DisplayBox_SelectionChanged_Diagnostic;
+    }
+
+    // Sprint 28 Phase 3.10 — guard set by internal caret-moving code paths
+    // (NavigateCharacter, NavigateToField, FocusFrequencyField, Populate reset).
+    // When clear, SelectionChanged is presumed to be external (cursor routing,
+    // mouse click, screen reader API call).
+    private bool _internalCaretMove;
+
+    /// <summary>
+    /// Sprint 28 Phase 3.10 — set DisplayBox caret position while marking the
+    /// move as internal, so the SelectionChanged diagnostic handler doesn't
+    /// treat it as an external (cursor routing) event.
+    /// </summary>
+    private void SetCaretInternal(int pos)
+    {
+        _internalCaretMove = true;
+        try { DisplayBox.SelectionStart = pos; }
+        finally { _internalCaretMove = false; }
+    }
+
+    /// <summary>
+    /// Sprint 28 Phase 3.10 — diagnostic handler to confirm cursor routing from
+    /// the braille display translates to SelectionChanged events here. Speaks
+    /// the external caret landing so we can hear whether it's firing, and with
+    /// which field and position. Pending verification that this path works, we
+    /// will either replace this with full NavigateToField-style field landing
+    /// or investigate why routing doesn't reach us.
+    /// </summary>
+    private void DisplayBox_SelectionChanged_Diagnostic(object sender, System.Windows.RoutedEventArgs e)
+    {
+        if (_internalCaretMove) return;
+        try
+        {
+            int pos = DisplayBox.SelectionStart;
+            var field = PositionToField(pos);
+            string fieldKey = field?.Key ?? "none";
+            Radios.ScreenReaderOutput.Speak(
+                $"External caret move, position {pos}, field {fieldKey}",
+                Radios.VerbosityLevel.Terse,
+                interrupt: true);
+        }
+        catch (System.Exception ex)
+        {
+            System.Diagnostics.Trace.WriteLine($"DisplayBox_SelectionChanged_Diagnostic: {ex.Message}");
+        }
     }
 
     #region Public API (matches RadioBoxes.MainBox)
@@ -273,10 +327,10 @@ public partial class FrequencyDisplay : UserControl
 
         DisplayBox.Text = sb.ToString();
 
-        // Restore cursor
+        // Restore cursor (internal — guard against SelectionChanged diagnostic).
         if (savedPos <= DisplayBox.Text.Length)
         {
-            DisplayBox.SelectionStart = savedPos;
+            SetCaretInternal(savedPos);
             DisplayBox.SelectionLength = savedLen;
         }
     }
@@ -502,7 +556,7 @@ public partial class FrequencyDisplay : UserControl
         var newField = PositionToField(newPos);
         if (newField == null) return;
 
-        DisplayBox.SelectionStart = newPos;
+        SetCaretInternal(newPos);
 
         if (newField != currentField)
         {
@@ -555,7 +609,7 @@ public partial class FrequencyDisplay : UserControl
     {
         int fieldStart = field.Position + field.LeftDelim.Length;
         int offset = System.Math.Min(field.DefaultCursorOffset, field.Length - 1);
-        DisplayBox.SelectionStart = fieldStart + offset;
+        SetCaretInternal(fieldStart + offset);
 
         string label = field.Label ?? field.Key;
         string value = GetSpeechText(field);
@@ -721,7 +775,7 @@ public partial class FrequencyDisplay : UserControl
     public int SelectionStart
     {
         get => DisplayBox.SelectionStart;
-        set => DisplayBox.SelectionStart = value;
+        set => SetCaretInternal(value);
     }
 
     public int SelectionLength
