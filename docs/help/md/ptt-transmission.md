@@ -1,46 +1,46 @@
 # PTT and Transmission
 
-JJ Flexible Radio Access includes safety features to help you stay in control of your transmitter.
+JJ Flexible Radio Access includes safety features designed to help you stay in control of your transmitter.
 
 ## PTT (Push to Talk)
 
-PTT works through your radio's standard PTT input — footswitch, hand mic, or VOX. The app monitors PTT state and announces when you key up and unkey.
+PTT works through your radio's standard PTT input — a footswitch, a hand microphone's PTT button, or VOX (voice-operated transmit). The application monitors the PTT state and announces when you key up and when you unkey.
 
 ## TX Status
 
-Press `Alt+Shift+S` to hear the current TX status. This tells you whether you're transmitting, your power level, and other TX-related information.
+Press `Alt+Shift+S` to hear the current TX status spoken. This tells you whether you are transmitting, what your power level is, and other TX-related information in a single short announcement.
 
 ## CW Transmission
 
 For CW operation:
 
 - Use `Ctrl+1` through `Ctrl+7` to send pre-configured CW messages.
-- Press `F12` to immediately stop CW transmission (panic button).
-- Press `Alt+Z` to zero-beat the current signal.
+- Press `F12` to immediately stop CW transmission — the "panic button" for CW.
+- Press `Alt+Z` to zero-beat the signal you are currently listening to.
 
 ## Tune Carrier
 
-Press `Ctrl+Shift+T` to toggle a tune carrier on or off. When you activate the tune carrier, you'll hear a chirp earcon and a speech announcement: "Tune on." When you turn it off: "Tune off." The tune carrier puts out a steady signal at reduced power, which is useful for adjusting your antenna tuner or checking SWR.
+Press `Ctrl+Shift+T` to toggle a tune carrier on or off. When you activate the tune carrier, you will hear a chirp earcon followed by a speech announcement: "Tune on." When you turn the carrier off, you will hear "Tune off." The tune carrier puts out a steady signal at reduced power, which is useful for adjusting an antenna tuner or for checking SWR.
 
-Meter tones automatically activate while the tune carrier is on, so you can hear your SWR and power levels in real time.
+Meter tones automatically activate while the tune carrier is running, so you can hear your SWR and power levels in real time.
 
-You can also find this in the menu at **Classic > Operations > Transmission > Tune Carrier**.
+You can also find the Tune Carrier command in the menu, under **Classic > Operations > Transmission > Tune Carrier**.
 
 ## ATU Tune (Antenna Tuner)
 
-If your radio has a built-in antenna tuner (ATU), press `Ctrl+T` to start an ATU tune cycle. While the tuner is working, you'll hear a pulsing tone. When it finishes, you'll hear either a rising arpeggio (success) or a falling arpeggio (failed to find a match), followed by a speech announcement of the SWR value.
+If your radio has a built-in Antenna Tuning Unit (ATU), press `Ctrl+T` to start an ATU tune cycle. While the tuner is working, you will hear a pulsing tone. When the tune cycle finishes, you will hear either a rising arpeggio (the tuner found a good match) or a falling arpeggio (the tuner failed to find a match), followed by a speech announcement of the resulting SWR value.
 
-You can also start an ATU tune from the menu at **Classic > Antenna > ATU Tune**.
+You can also start an ATU tune from the menu, under **Classic > Antenna > ATU Tune**.
 
-**Tip:** If the ATU can't find a match, your antenna may be too far off resonance for that band. Try a manual tuner or check your antenna.
+**Tip:** If the ATU cannot find a match, your antenna may be too far off resonance for that band. Try a manual tuner, or check your antenna system for other problems.
 
-## TX Safety
+## Transmit Safety Features
 
-JJ Flexible Radio Access has built-in transmission safety features:
+JJ Flexible Radio Access includes several built-in transmit-safety features, each with clear audio feedback so you always know what state the radio is in:
 
-- PTT state is always announced so you know when you're on the air.
-- The `F12` key is a global emergency stop for CW transmission.
-- TX status is always available via `Alt+Shift+S`.
-- Tune carrier toggle (`Ctrl+Shift+T`) has clear audio feedback so you always know when you're radiating.
+- The PTT state is always announced, so you know the moment you go on the air.
+- The `F12` key is a global emergency stop for CW transmission — it works from anywhere in the application.
+- The TX status is always a single keystroke away, via `Alt+Shift+S`.
+- The Tune Carrier toggle (`Ctrl+Shift+T`) has clear audio feedback — an earcon plus speech — so you always know whether the radio is radiating a carrier.
 
-**Warning:** Always verify you're on the correct frequency and mode before transmitting. Press `F2` to hear the current frequency.
+**Warning:** Always verify that you are on the correct frequency and in the correct mode before you transmit. Press `F2` at any time to hear the current frequency spoken.
