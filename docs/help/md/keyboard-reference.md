@@ -1,12 +1,12 @@
 # Keyboard Reference
 
-This is your one-stop reference for every keyboard shortcut in JJ Flexible Radio Access. You can also press `Ctrl+Shift+H` (or `Ctrl+/`) at any time to open the Command Finder, which lets you search for commands by name.
+Welcome to your one-stop reference for every keyboard shortcut in JJ Flexible Radio Access. You can also press `Ctrl+Shift+H` (or `Ctrl+/`) at any time to open the Command Finder, which lets you search for commands by name.
 
-JJ Flexible Radio Access has three operating scopes: some keys work everywhere (Global), some only work when you're controlling the radio (Radio scope, which includes both Classic and Modern modes), and some only work when you're in the logging pane (Logging scope).
+JJ Flexible Radio Access has three operating scopes: some keys work everywhere (Global), some only work when you're controlling the radio (Radio scope, which includes both Classic and Modern tuning modes), and some only work when you're in the logging pane (Logging scope).
 
 ## Global Hotkeys
 
-These work no matter where you are in the application.
+These keys work no matter where you are in the application.
 
 | Key | Action |
 |-----|--------|
@@ -20,19 +20,19 @@ These work no matter where you are in the application.
 | Ctrl+Shift+4 | Jump to ScreenFields: Transmission category |
 | Ctrl+Shift+5 | Jump to ScreenFields: Antenna category |
 | Ctrl+M | Toggle meters panel on/off |
-| Ctrl+Shift+W | Open Audio Workshop |
+| Ctrl+Shift+W | Open the Audio Workshop |
 | Ctrl+Shift+S | Speak full status (multi-slice aware) |
-| Ctrl+Shift+T | Toggle tune carrier on/off |
-| Ctrl+T | Start ATU tune cycle |
-| Ctrl+Shift+F | Speak TX filter width |
-| Ctrl+Shift+[ | TX filter low edge down |
-| Ctrl+Shift+] | TX filter low edge up |
-| Ctrl+Alt+[ | TX filter high edge down |
-| Ctrl+Alt+] | TX filter high edge up |
+| Ctrl+Shift+T | Toggle the tune carrier on/off |
+| Ctrl+T | Start an automatic Tuning Unit (ATU) tune cycle |
+| Ctrl+Shift+F | Speak the current TX filter width |
+| Ctrl+Shift+[ | move the TX filter low edge down |
+| Ctrl+Shift+] | move the TX filter low edge up |
+| Ctrl+Alt+[ | adjust the TX filter high edge down |
+| Ctrl+Alt+] | adjust the TX filter high edge up |
 | F12 | Stop CW transmission immediately |
-| Ctrl+L | Callbook / station lookup |
-| Ctrl+Alt+S | Open status dialog |
-| Alt+Shift+S | Speak TX status |
+| Ctrl+L | open the Callbook / station lookup utility |
+| Ctrl+Alt+S | Open the status dialog |
+| Alt+Shift+S | Speak your current transmit (TX) status |
 
 ## The JJ "Leader" Key Commands
 
@@ -63,10 +63,9 @@ Press `Ctrl+J` and then release it to enter layered command mode. You'll hear a 
 
 Don't worry if you press the JJ key by accident or if you simply don't want to access the command layer. Press Escape to exit JJ command mode, or wait two seconds for the application to exit the mode automatically. When you drop out of the JJ layer without entering a command, you'll hear a cute little descending tone, and you can go back to whatever you were doing previously in the JJ Flexible Radio app.
 
-
 ## Band Jumping
 
-These keys switch bands instantly. They work in both Classic and Modern modes (Radio scope).
+These keys let you switch bands on your radio instantly. They work in both Classic and Modern tuning. Something that may help you remember which keys do what when it comes to band switches is that you can switch to standard amateur radio bands by pressing f-keys without any modifiers. Wark bands like thirty,  17, 12 and sixty meters are accessed by pressing f-keys with teh shift modifier
 
 | Key | Band |
 |-----|------|
@@ -86,28 +85,28 @@ These keys switch bands instantly. They work in both Classic and Modern modes (R
 | Alt+Shift+Up | 60m channel up (when on 60 meters) |
 | Alt+Shift+Down | 60m channel down (when on 60 meters) |
 
-## Radio Control (Classic and Modern Modes)
+## Radio Control (Classic and Modern Tuning Modes)
 
-These keys work when you're in either Classic or Modern mode, controlling the radio.
+These keys work when you're in either Classic or Modern tuning mode:
 
 | Key | Action |
 |-----|--------|
-| F2 | Go to Home (the main interactive region — see Home Region below) |
+| F2 | Go to Home (this is where you adjust frequencies or other radio options— see more information about the JJ Flexible home  below) |
 | Ctrl+F | Set frequency (direct entry) |
-| Ctrl+Shift+M | Start memory scan |
+| Ctrl+Shift+M | Start a memory scan |
 | Ctrl+Shift+C | Clear RIT offset |
-| Alt+Z | CW zero beat |
-| Ctrl+P | Adjust panning |
+| Alt+Z | activate the CW zero beat option (Requires an SDR-Plus subscription to enable |
+| Ctrl+P | Adjust audio panning |
 | Escape | Collapse the field group you're in, or return to Home |
-| Escape Escape (quickly) | Collapse all open field groups and return to Home |
+| Double tap escape (quickly) | Collapse all open field groups and return to Home |
 
-## Home Region — Universal Keys
+## Notes on the JJ Flexible Home
 
-These keys work from ANY field within Home (Slice, Slice Operations, Frequency, Mute, Volume, S-Meter, Squelch, Squelch Level, Split, VOX, Offset, RIT, XIT). Press the key and you get the action regardless of which specific field you're currently on.
+These keys work from ANY field within your  JJ Flexible Home. First, remember to press f2 to access your radio interface home. Press the key and you will activate the following actions:
 
 | Key | Action |
 |-----|--------|
-| M | Toggle mute on active slice |
+| M | Toggle mute on the active slice |
 | V | Cycle to next slice |
 | R | Toggle RIT on/off |
 | X | Toggle XIT on/off |
@@ -122,7 +121,7 @@ When focused on the Slice field specifically:
 |-----|--------|
 | Space or Up | Cycle to next slice |
 | Down | Cycle to previous slice |
-| 0-9, A-H | Jump directly to slice by number or letter |
+| 0-9, A-H | Jump directly to the desired slice by number or letter |
 | T | Make this slice the TX slice |
 | . (period) | Create a new slice |
 | , (comma) | Release the current slice |
@@ -138,11 +137,11 @@ When focused on the Slice Operations field (per-slice audio controls):
 |-----|--------|
 | Up / Down | Adjust volume up/down |
 | Page Up / Page Down | Pan right / left |
-| Space | Toggle mute |
-| M | Explicit mute (idempotent) |
-| S | Explicit sound (unmute, idempotent) |
-| A | Make this slice active (RX) |
-| T | Make this slice TX |
+| Space | Turn mute on or off |
+| m | Mute |
+| S | Unmute |
+| A | Set the currently selected slice to active (RX) |
+| T | set the currently selected  slice to transmit (TX)|
 
 ## Home Region — Squelch Level Field Keys
 
@@ -160,9 +159,9 @@ When focused on the Squelch Level field:
 |-----|--------|
 | Alt+M | Next mode (cycles through available modes) |
 | Alt+Shift+M | Previous mode |
-| Alt+U | Switch to USB |
-| Alt+L | Switch to LSB |
-| Alt+C | Switch to CW |
+| Alt+U | Switch to Upper Side Band (USB) |
+| Alt+L | Switch to Lower Side Band (LSB) |
+| Alt+C | Switch to the CW mode |
 
 ## Audio Controls
 
@@ -230,12 +229,12 @@ The ScreenFields panel has five expandable categories you can jump to instantly:
 | Ctrl+Shift+4 | Transmission |
 | Ctrl+Shift+5 | Antenna |
 
-**Tip:** Each category expands to show its controls. Press the hotkey again to collapse it.
+**Tip:** Each category expands to show its controls. Press the hotkey again to collapse it. Remember that you can also collapse any field by pressing escape. Press escape twice quickly to close all field categories.
 
 ## View Controls
 
 | Key | Action |
 |-----|--------|
-| Ctrl+Shift+F3 | Show received text window |
-| Ctrl+Shift+F4 | Show send text window |
-| Ctrl+Shift+F5 | Show direct send window |
+| Ctrl+Shift+F3 | Move focus to the received text box |
+| Ctrl+Shift+F4 | Move focus to the CW send text box |
+| Ctrl+Shift+F5 | Move focus to the CW send text box (currently the same as Ctrl+Shift+F4 — a distinct direct-keying mode is planned for a future release) |
