@@ -55,13 +55,19 @@ namespace JJFlexWpf.Dialogs
                 ContentWebView.CoreWebView2.Settings.AreDevToolsEnabled = false;
                 ContentWebView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
 
-                // Intercept external navigation — open in browser instead
+                // Intercept external navigation — open in browser instead,
+                // except for jjflex:// scheme which routes to in-app destinations.
                 ContentWebView.CoreWebView2.NavigationStarting += (s, args) =>
                 {
                     if (args.Uri != null && !args.Uri.StartsWith("data:", StringComparison.OrdinalIgnoreCase)
                         && !args.Uri.Equals("about:blank", StringComparison.OrdinalIgnoreCase))
                     {
                         args.Cancel = true;
+                        if (args.Uri.StartsWith("jjflex://", StringComparison.OrdinalIgnoreCase))
+                        {
+                            HandleJJFlexUri(args.Uri);
+                            return;
+                        }
                         try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(args.Uri) { UseShellExecute = true }); }
                         catch { }
                     }
@@ -510,6 +516,21 @@ namespace JJFlexWpf.Dialogs
         private void CloseButton_Click(object sender, RoutedEventArgs e)
         {
             Close();
+        }
+
+        private void WhatsNewButton_Click(object sender, RoutedEventArgs e)
+        {
+            HelpLauncher.ShowHelp("WhatsNew");
+        }
+
+        private void HandleJJFlexUri(string uri)
+        {
+            // jjflex://whats-new  -> open the What's New help topic
+            if (uri.Equals("jjflex://whats-new", StringComparison.OrdinalIgnoreCase)
+                || uri.Equals("jjflex://whats-new/", StringComparison.OrdinalIgnoreCase))
+            {
+                HelpLauncher.ShowHelp("WhatsNew");
+            }
         }
 
         #endregion

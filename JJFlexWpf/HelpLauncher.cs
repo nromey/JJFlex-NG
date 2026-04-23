@@ -26,6 +26,7 @@ namespace JJFlexWpf
             { "LeaderKey", "pages/leader-key.htm" },
             { "WelcomeDialog", "pages/getting-started.htm" },
             { "ConnectDialog", "pages/connection-troubleshooting.htm" },
+            { "WhatsNew", "pages/whats-new.htm" },
         };
 
         public static void Initialize()

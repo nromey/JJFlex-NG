@@ -1236,6 +1236,7 @@ public class NativeMenuBar : IDisposable
         var help = AddPopup(bar, "&Help");
         AddWired(help, "Help Topics\tF1", () => HelpLauncher.ShowHelp());
         AddWired(help, "Keyboard Reference", () => HelpLauncher.ShowHelp("CommandFinder"));
+        AddWired(help, "What's &New", () => HelpLauncher.ShowHelp("WhatsNew"));
         AddSep(help);
         AddWired(help, "Key Assignments", () => ShowKeysDialog());
         AddWired(help, "Key Assignments (Alphabetical)", () => ShowKeysDialog());
