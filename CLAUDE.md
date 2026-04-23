@@ -331,11 +331,12 @@ Content flows forward: nightly → stable → public. Nothing skips tiers. See `
 
 When Noel says "done developing" or equivalent, that's the seal-the-day trigger. This is separate from the tester-broadcast nightly publish (`build-debug.bat --publish` to the `debug\` subfolder). End-of-day publishes a "daily" debug snapshot to the Dropbox TOP LEVEL — a single artifact that represents today's state, replacing any prior day's daily.
 
-1. **Promote latest debug zip to Dropbox top level as daily:** Run `publish-daily-to-dropbox.ps1`. Copies the newest debug zip from NAS `nightly\` to Dropbox top level, replacing any existing `JJFlex_*_debug*.zip` and `NOTES-*-debug*.txt` there. This is the easy-to-find "what's today's build?" artifact, distinct from the `debug\` subfolder tester distribution.
+1. **Promote latest debug zip to Dropbox top level as daily:** Run `publish-daily-to-dropbox.ps1`. Copies the newest debug zip from NAS `nightly\` to Dropbox top level, replacing any existing `JJFlex_*_debug*.zip` and `NOTES-*-debug*.txt` there. This is the easy-to-find "what's today's build?" artifact, distinct from the `debug\` subfolder tester distribution. **Skip this step on docs/memory/planning-only days** where no new debug build was produced — the prior day's daily still represents current code state.
 2. **Memory backup:** `backup-memory-to-nas.ps1` snapshots `C:\Users\nrome\.claude\projects\c--dev-JJFlex-NG\memory\` to NAS `historical\memory\<date>\`. Ensures memory is durable across machine loss.
 3. **Private docs backup:** `backup-private-to-nas.ps1` snapshots `C:\Users\nrome\JJFlex-private\` to NAS `historical\private\<date>\`. Captures easter eggs, unlock codes, and other private-docs state.
 4. **Agent.md update:** Record what happened today and what's next, so the resume path for the next session is clear.
-5. **CLAUDE.md drift check:** If the day's work exposed stale guidance in CLAUDE.md (e.g. referenced a retired script, missed a new workflow), flag for update.
+5. **Commit the day's changes and push the feature branch to origin.** Stage specific files (never `-A` / `.`), commit with the end-of-day seal message format (`End-of-day seal YYYY-MM-DD: <summary>`), then `git push origin <current-branch>`. Pushing is durability insurance — without it, an unbacked-up local repo loses every un-pushed commit if the machine fails. Push to `origin` (nromey's fork), NEVER `upstream` (KevinSShaffer). Feature-branch pushes are backup moves, not release moves — no merge to main implied.
+6. **CLAUDE.md drift check:** If the day's work exposed stale guidance in CLAUDE.md (e.g. referenced a retired script, missed a new workflow), flag for update.
 
 **Key distinction — two layers of debug distribution:**
 - `build-debug.bat --publish` writes to Dropbox `debug\` subfolder. This is tester distribution — Don, Justin, etc. read from here. Can run multiple times a day if you have testers actively hammering a specific fix.
