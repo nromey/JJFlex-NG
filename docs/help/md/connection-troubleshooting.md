@@ -1,28 +1,28 @@
 # Connection Troubleshooting
 
-If JJFlexRadio can't find or connect to your radio, here are some things to check.
+If JJ Flexible Radio Access cannot find or connect to your radio, here are some things to check.
 
-## Radio Not Found on Local Network
+## Radio Not Found on the Local Network
 
-1. **Is the radio on?** It takes a minute or so to boot up.
-2. **Same network?** Your computer and radio must be on the same local network (same subnet). If you're on WiFi and the radio is wired, make sure they're on the same network segment.
-3. **Firewall?** Windows Firewall may be blocking JJFlexRadio's discovery traffic. The first time you run JJFlexRadio, Windows should ask you to allow it. If you accidentally blocked it, go to Windows Firewall settings and add an exception.
-4. **Multiple network adapters?** If your computer has multiple network connections (WiFi + Ethernet, VPN, etc.), discovery traffic may go out the wrong interface. Try disabling other network adapters temporarily.
+1. **Is the radio powered on?** The radio takes a minute or so to boot up after it is powered on. Give it time to finish before you expect it to appear.
+2. **Are you on the same network?** Your computer and your radio must be on the same local network (the same subnet). If you are on Wi-Fi and the radio is plugged into Ethernet, make sure both devices are on the same network segment — not just the same physical room.
+3. **Is Windows Firewall blocking the discovery?** Windows Firewall can block JJ Flexible Radio Access's discovery traffic. The first time you run the application, Windows should prompt you to allow it. If you accidentally blocked it, go into Windows Firewall settings and add an exception for JJ Flexible Radio Access.
+4. **Do you have multiple network adapters?** If your computer has multiple network connections active at the same time (Wi-Fi and Ethernet, or a VPN plus your normal adapter), the discovery traffic may go out the wrong interface. Try disabling the other network adapters temporarily to see if that helps.
 
-## Connection Drops
+## The Connection Drops After You Connect
 
-If you connect but then lose the connection:
+If you connect successfully but then lose the connection partway through a session:
 
-1. **Network stability** — Check your network connection. WiFi can be unreliable for sustained radio control.
-2. **Radio firmware** — Make sure your radio is running the latest firmware.
-3. **Other clients** — If another instance of SmartSDR or JJFlexRadio is connected, the radio may be at its client limit (MultiFlex).
+1. **Check your network stability.** Wi-Fi can be unreliable for sustained radio control — it introduces jitter and occasional dropouts. A wired Ethernet connection is almost always more reliable.
+2. **Check the radio's firmware.** Make sure your radio is running the latest firmware release from FlexRadio.
+3. **Check for other clients.** If another instance of SmartSDR or JJ Flexible Radio Access is already connected to the same radio, you may be hitting the radio's MultiFlex client limit.
 
 ## SmartLink Issues
 
-For SmartLink (remote) connection problems, see the SmartLink & Remote page.
+For SmartLink (remote) connection problems specifically, see the SmartLink and Remote Operation help page for targeted troubleshooting steps.
 
 ## General Tips
 
-- JJFlexRadio doesn't require a SmartLink account for local connections. If you're on the same network, it should just work.
-- Press `Ctrl+Shift+S` to hear the current connection status.
-- Check the Tracing option in the Help menu to capture detailed logs for debugging.
+- JJ Flexible Radio Access does not require a SmartLink account for local network connections. If you are on the same network as the radio, it should just work — no account needed.
+- Press `Ctrl+Shift+S` at any time to hear the current connection status spoken.
+- The Tracing option under the **Help** menu lets you capture detailed logs for debugging, which is useful when you are reporting a connection issue.
