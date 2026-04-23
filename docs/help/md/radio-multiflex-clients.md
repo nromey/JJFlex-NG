@@ -1,34 +1,34 @@
-# MultiFlex clients
+# MultiFlex Clients
 
-On Flex radios that support MultiFlex, more than one operator can be connected to the same radio at the same time. This is brilliant for clubs, shared shacks, and coaching situations — and it's useful to know who's connected and what they're doing.
+On Flex radios that support MultiFlex, more than one operator can be connected to the same radio at the same time. This is excellent for clubs, shared shacks, and coaching situations — and it is useful to know exactly who is connected, and what they are doing.
 
-## What the MultiFlex dialog shows
+## What the MultiFlex Clients Dialog Shows
 
-Radio menu > MultiFlex Clients opens the dialog. You see each connected client (including yourself) with:
+Open the **Radio** menu and choose **MultiFlex Clients** to open the dialog. You will see each connected client (including yourself) along with:
 
-- Station name — the callsign or client name the remote operator registered under.
-- Program — what software they're running (SmartSDR, JJ Flex, etc., and version).
-- Slices they have open — which slice letters (A, B, C, D depending on radio) are theirs.
-- Their connection handle — mostly useful for kick operations.
+- **Station name** — the callsign or client name the remote operator registered under.
+- **Program** — the software the remote operator is running (SmartSDR, JJ Flexible Radio Access, and so on), along with its version number.
+- **Slices they have open** — which slice letters (A, B, C, D, depending on your radio model) are owned by that client.
+- **Connection handle** — mostly useful for kick operations (see below).
 
-Your own client is marked so you can tell yourself apart from everyone else.
+Your own client is marked in the list so you can tell yourself apart from everyone else who is connected.
 
-## Who can be connected
+## Who Can Be Connected at Once
 
-MultiFlex client count is radio-dependent. The FLEX-6600, 6700, 8600, and Aurora AU-520 support multiple GUI clients. Entry-level models may be single-GUI only. The dialog shows whatever clients the radio reports, bounded by the hardware.
+The MultiFlex client count is radio-dependent. The FLEX-6600, FLEX-6700, FLEX-8600, and Aurora AU-520 all support multiple GUI clients simultaneously. Entry-level models may be single-GUI only. The MultiFlex Clients dialog always shows whatever clients your radio reports, bounded by the hardware limit.
 
-## Disconnecting someone else (kick)
+## Disconnecting Someone Else (Kicking)
 
-If you're the primary operator on a radio and you need to end another client's session — they forgot to disconnect, you need their slice back, whatever — select their entry in the dialog and choose Disconnect. The radio sends a disconnect command; they see their session end cleanly. Be polite; kicks are visible to the kicked.
+If you are the primary operator on the radio and you need to end another client's session — maybe they forgot to disconnect, or you need their slice back — select that client's entry in the MultiFlex Clients dialog and choose Disconnect. The radio sends a disconnect command to that client, and their session ends cleanly. Be polite about this; kicks are visible to the kicked.
 
-## Slice ownership
+## Slice Ownership
 
-MultiFlex doesn't mean everyone shares every slice. Each client owns the slices they created. If Client A has slice B open, Client C can't tune slice B — it's not theirs. This is usually fine (everyone operates in their own lane) and occasionally inconvenient (you want to hand a slice off). The solution for handoffs is typically to close the slice on the old client and reopen it on the new one.
+MultiFlex does not mean that everyone shares every slice. Each client owns the slices they created. If Client A has Slice B open, Client C cannot tune Slice B — it is not theirs to tune. This is usually fine (everyone operates in their own lane) and occasionally inconvenient (you want to hand a slice off to another operator). The standard handoff workflow is for the old client to close the slice, and then for the new client to reopen it on their own side.
 
-## What happens when clients join and leave
+## What Happens When Clients Join and Leave
 
-You'll hear a short announcement when another client connects or disconnects, including their callsign if they've registered one. The announcement is intentionally brief; the full details live in the MultiFlex Clients dialog.
+You will hear a short announcement whenever another client connects or disconnects — including their callsign if they registered one. The announcement is deliberately brief; the full details live in the MultiFlex Clients dialog.
 
-## Heads-up for contests and shared use
+## Heads-Up for Contests and Shared Use
 
-Before a contest, it's worth opening the MultiFlex dialog and confirming who's on the radio. Shared shacks sometimes surprise you — a family member or another club member might still be logged in from earlier. Better to notice before you start running the bands.
+Before a contest, it is worth opening the MultiFlex Clients dialog and confirming exactly who is on the radio. Shared shacks sometimes surprise you — a family member or another club member might still be logged in from an earlier session. Better to notice that before you start running the bands.
