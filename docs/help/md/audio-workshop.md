@@ -1,33 +1,30 @@
 # Audio Workshop
 
-The Audio Workshop gives you control over your radio's audio routing and levels.
+The Audio Workshop gives you control over your radio's audio routing and levels, all in one place. It is where you pick which output device your radio audio flows to, adjust the volume of each output independently, and save your setup as a preset for later.
 
-## Opening Audio Workshop
+## Opening the Audio Workshop
 
-You can open the Audio Workshop in two ways:
-
-- Press `Ctrl+Shift+W` to open it directly.
-- Or use the leader key: press `Ctrl+J` then `W`.
+Press `Ctrl+Shift+W` from anywhere in the application to open the Audio Workshop.
 
 ## Audio Level Controls
 
-Quick keyboard shortcuts for audio levels:
+You do not have to open the Audio Workshop to adjust basic levels — several keyboard shortcuts work from anywhere in the application:
 
 | Key | Action |
 |-----|--------|
-| Alt+Page Up | Audio gain up |
-| Alt+Page Down | Audio gain down |
-| Alt+Shift+Page Up | Headphones volume up |
-| Alt+Shift+Page Down | Headphones volume down |
-| Shift+Page Up | Line out volume up |
-| Shift+Page Down | Line out volume down |
+| Alt+Page Up | Increase audio gain |
+| Alt+Page Down | Decrease audio gain |
+| Alt+Shift+Page Up | Increase headphone volume |
+| Alt+Shift+Page Down | Decrease headphone volume |
+| Shift+Page Up | Increase line-out volume |
+| Shift+Page Down | Decrease line-out volume |
 
 ## Audio Routing
 
-The Audio Workshop lets you configure where audio goes — speakers, headphones, line out — and adjust levels for each output independently.
+Inside the Audio Workshop you can configure where the audio goes — to your speakers, your headphones, a line-out device, or some combination — and then adjust the level for each output independently. This is useful when you want, for example, a quieter line-out signal going to a recorder while the headphone feed stays at a comfortable listening level.
 
 ## Audio Presets
 
-You can save and recall audio configurations as presets. See the Audio Presets page for details.
+You can save your current audio configuration as a named preset and recall it later with a single action. See the Audio Presets help page for details on saving, loading, and deleting presets.
 
-**Tip:** If you're having audio issues (no sound, distorted audio, wrong levels), check the Audio Troubleshooting page.
+**Tip:** If you are running into audio issues — no sound, distorted audio, wrong levels, or audio coming out of the wrong device — see the Audio Troubleshooting help page for a step-by-step checklist.

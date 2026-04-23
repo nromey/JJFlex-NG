@@ -1,32 +1,32 @@
-# Earcon control
+# Earcon Control
 
-"Earcons" are the short alert sounds JJ Flex plays for things like dialog open, error, confirmation, CW notifications, and other background event cues. They're useful but they're also audio — sometimes you want them quiet without digging into Settings.
+"Earcons" are the short alert sounds that JJ Flexible Radio Access plays for events such as dialog open, error, confirmation, CW notifications, and other background event cues. They are useful, but they are also audio — and sometimes you just want them quiet without digging into the Settings dialog.
 
-## Quick mute: Shift+T
+## Quick Mute via the Leader Key
 
-The leader-key sequence Ctrl+J Shift+T is the fast mute. It toggles all earcons off (or back on). Doesn't touch your meter tones, doesn't touch the radio audio, doesn't touch speech output — just the alert-sound layer.
+The fast way to mute every earcon at once is through the leader key. Press `Ctrl+J` to enter leader-key mode, then press `Shift+T`. Every earcon mutes (or unmutes again if you press the same sequence a second time).
 
-- Press Ctrl+J to enter the leader-key mode, then Shift+T to mute/unmute.
-- You'll hear a short confirmation earcon indicating the new state (on or off).
-- The setting persists per session — if you mute, then close and reopen JJ Flex, earcons come back enabled by default. Long-term mute happens in Settings.
+- The quick mute only affects the earcon layer. It does not touch your meter tones, the radio audio, or the speech output — just the alert-sound layer.
+- You will hear a short confirmation earcon as the quick mute toggles, indicating whether earcons are now on or off.
+- The setting lasts for your current session. If you quick-mute, then close and reopen the application, earcons come back on by default. For a longer-term mute, use the Settings dialog (see below).
 
-## When to use the quick mute
+## When to Use the Quick Mute
 
-- Contesting with headphones where any extra sound competes for attention.
-- Recording a session or demo where you want a clean audio track.
-- Sharing your audio on a Zoom/Teams call where the earcons would leak to other participants.
-- Any situation where you want to hear the radio without app chrome.
+- While contesting with headphones, where every extra sound competes for your attention.
+- While recording a session or a demo, when you want a clean audio track.
+- During a Zoom or Teams call, when you are sharing your audio and the earcons would leak out to the other participants.
+- Any situation where you want to hear the radio without application chrome.
 
-## Long-term disable
+## Long-Term Disable
 
-Settings > Audio > Earcons has a master enable/disable plus finer controls per earcon category (dialog, error, status, etc.). Use this if you want earcons off permanently for a specific workflow. The Shift+T toggle doesn't override these; it's an on-top layer.
+Under **Settings > Audio > Earcons** you will find a master enable/disable switch, plus finer controls for each earcon category (dialog, error, status, and so on). Use those controls if you want earcons off permanently, or off only for a specific category. The quick-mute leader-key sequence does not override these settings — the quick mute is a temporary layer on top.
 
-## What earcons are NOT
+## What Earcons Are Not
 
-- Not meter tones. Meter tones are the continuous audio that represents SWR / ALC / forward power. They have their own on/off controls.
-- Not CW notifications. Those are on a separate channel too (see CW Notifications) and have their own enable/disable.
-- Not the radio audio. You can't mute earcons to silence the radio; you'd be muting a tiny fraction of your audio while the big signal still plays.
+- **Not meter tones.** Meter tones are the continuous audio that represents SWR, ALC, and forward power during transmit. They have their own on/off controls — see the Meter Tones help page.
+- **Not CW notifications.** Those live on a separate channel (see the CW Notifications help page) and have their own enable/disable in settings.
+- **Not the radio audio.** You cannot mute earcons to silence the radio — you would be muting a tiny fraction of your audio while the big signal still plays through.
 
-## If you forgot what the hotkey was
+## Finding the Hotkey Again
 
-The Command Finder (the searchable hotkey reference) indexes every leader-key combination. Search for "earcon" or "mute" and you'll find this one.
+If you forget the exact key sequence, open the Command Finder (press `Ctrl+/`) and search for "earcon" or "mute." The Command Finder lists every leader-key combination along with the regular hotkeys, and it will bring you straight to this one.
