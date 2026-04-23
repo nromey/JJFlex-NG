@@ -1,6 +1,6 @@
 # Keyboard Reference
 
-Welcome to your one-stop reference for every keyboard shortcut in JJ Flexible Radio Access. You can also press `Ctrl+Shift+H` (or `Ctrl+/`) at any time to open the Command Finder, which lets you search for commands by name.
+Welcome to your one-stop reference for every keyboard shortcut in JJ Flexible Radio Access. You can also press `Ctrl+/` at any time to open the Command Finder, which lets you search for commands by name.
 
 JJ Flexible Radio Access has three operating scopes: some keys work everywhere (Global), some only work when you're controlling the radio (Radio scope, which includes both Classic and Modern tuning modes), and some only work when you're in the logging pane (Logging scope).
 
@@ -12,7 +12,6 @@ These keys work no matter where you are in the application.
 |-----|--------|
 | F1 | Open this help file |
 | Ctrl+/ | Open Command Finder (search all commands) |
-| Ctrl+Shift+H | Open Command Finder (alternate shortcut) |
 | Ctrl+J | Leader key (press, release, then press a second key) |
 | Ctrl+Shift+1 | Jump to ScreenFields: Receiver category |
 | Ctrl+Shift+2 | Jump to ScreenFields: DSP category |
