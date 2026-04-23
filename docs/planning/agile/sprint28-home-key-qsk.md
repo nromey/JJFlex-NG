@@ -229,6 +229,12 @@ This audit is a completeness check, not a writing task — the goal is to catch 
 
 ### Phase 10 — Network tab progressive disclosure (added 2026-04-21)
 
+> **DEFERRED 2026-04-23 — Phase 10 slips from 4.1.17 to 4.1.18.**
+>
+> Rationale: Sprint 29 is already dense (updater + channels + firmware-update + auto-check + tuning unity + RIT/XIT scale-adjust + audio hotkey prune) and the Network tab polish thematically fits 4.1.18's "Customize Home / cleaner settings UX" voice better than 4.1.17's "Make Yourself at Home" foundation bundle. 4.1.18 headline stays Customize Home; Phase 10 rides as secondary polish in the same release. See `memory/project_customize_home_vision.md` for the companion-scope entry.
+>
+> The scope notes below remain unchanged — they become the starting point for the 4.1.18 work. Nothing below this banner is cancelled, only re-targeted.
+
 **Scope.** Reshape the Network tab so basic users see a test-first entry point with plain-language controls, and the current Sprint 27 UI moves behind an "Advanced network settings" expander. No changes to the underlying `SmartLinkConnectionMode` enum or the Sprint 27 networking logic — this is a UI simplification, not a behavior change.
 
 **Why this phase exists.** Sprint 27's UI uses "Tier 1 / Tier 2 / Tier 3" vocabulary that is accurate but jargon-heavy. A typical ham opens the Network tab with questions like "how do I reach my radio from outside?" and "is my connection working?" — not "which tier do I need?" Progressive disclosure (simple default, advanced on request) is the accessibility pattern that serves both audiences. Ship this in Sprint 28 (not Sprint 29+) so 4.1.17 users' first impression of the Network tab is the clean one, not the jargon-first one.

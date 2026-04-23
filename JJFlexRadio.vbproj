@@ -432,7 +432,6 @@
       <Link>changelog.md</Link>
     </Content>
     <Content Include="changes.txt" />
-    <Content Include="JJFlexRadioReadme.htm" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Opus Copying.txt" CopyToOutputDirectory="Always" />
     <Content Include="PortAudio LICENSE.txt" CopyToOutputDirectory="Always" />
     <Content Include="PortAudioSharp License.txt" CopyToOutputDirectory="Always" />
