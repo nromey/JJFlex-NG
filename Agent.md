@@ -5,6 +5,63 @@ This document captures the current state of JJ-Flex repository and active work.
 **Repository root:** `C:\dev\JJFlex-NG`
 **Branch:** `sprint28/home-key-qsk` (Phases 1-8a through 8c-i committed + multiple sub-phase tunings; Phases 8c-ii, 8d, 9, 10, 11 remaining)
 
+## 2026-04-22 end-of-day seal: changelog editorial pass + Sprint 29 scope captured + Customize Home vision + code-signing locked
+
+**No code commits today.** Today was all documentation, memory capture, and planning. Branch `sprint28/home-key-qsk` has the same commit head as 2026-04-21; Sprint 28 phases 8c-ii through 11 remain for tomorrow. Memory + private docs backed up to NAS (`memory-20260422-223433.zip`, `private-20260422-223438.zip`). No Dropbox daily promotion today since no new debug build was made — the 4.1.16.139 daily from 2026-04-21 is still current.
+
+**Changelog editorial (5 passes on `docs/CHANGELOG.md`)**:
+
+- Pass 1 — structural: H1 `{#top}` anchor, version TOC at top with all 21 versions linked, kebab-case `{#foo}` anchors on all section headers in 4.1.17, per-section "Return to version headlines" links, end-of-version "Return to top · Jump to versions" links. Fixed broken `(#CWTextBoxes  go away` paren and `#panel` / `PanelNav` mismatch.
+- Pass 2 — prose editorial on 4.1.17: stripped all 7 `****Claude:` meta-notes, fixed ~30 typos, rewrote broken grammar in intro / Escape headline / Network bullets / Port Safety paragraph / Thanks attribution, restructured kitchen-sink bullets to noun+state phrasing per CLAUDE.md rule.
+- Pass 3 — `JJ Flex` → `JJ Flexible` normalization (13 substitutions across doc). Line 100 reverted to "older JJ Flex patterns Jim Shaffer set up" for historical accuracy per Noel's call. `JJFlexRadio` internal binary name preserved everywhere.
+- Pass 4 — Jim's legacy changelog moved to its own file `docs/CHANGELOG-legacy.md` (versions 1.2.1 through 3.1.12.25, converted from HTML to markdown, preserved as authored). Main CHANGELOG's version TOC links to it.
+- Pass 5 — CLAUDE.md updated with a "Keyboard Audit — Definition of Done for key-map changes" section, formalizing the audit discipline as Phase 5 step 9 of the sprint lifecycle.
+
+**Sprint 29 scope captured (three Don feedback items, all target 4.1.17 via Plan B bundle)**:
+
+- `project_sprint29_tune_redesign.md` — "tuning unity" (Noel's canonical name): kill `C` modal toggle, `Up/Down` = coarse, `Shift+Up/Down` = fine, step presets split into two named values. Audio gain / headphones / line-out hotkeys all removed, their values now live as fields in the Audio expander. Net: 1 hotkey pair added, 5 removed, 1 mode deleted.
+- `project_sprint29_rit_xit_adjust_mode.md` — RIT/XIT scale-adjust mode. `R` / `X` still toggle, but while focused on the RIT or XIT toggle field, digits `1`-`4` enter scale-adjust at 1 Hz / 10 Hz / 100 Hz / 1 kHz. Exit is focus-bound (leave the field) or `Escape` / `0` / toggle off. Announced enter + descending-chirp exit. Third application of the sticky-but-announced modal pattern (after filter edge grab).
+- Memory index updated in MEMORY.md.
+
+**Customize Home captured as second signature flagship (Sprint 30+)**: `project_customize_home_vision.md` — user-configurable Home field layout, reorderable list with show/hide checkboxes, locked Frequency+Slice as anchors, per-operator storage (Flex-only for v1; per-radio-family extension deferred until non-Flex support lands). Targets 4.1.18 with its own release headline.
+
+**Code signing + domain milestones locked**:
+
+- Azure Trusted Signing decided as the signing path ($9.95/mo for 50k signatures; EV-class reputation treatment without hardware token). Build-installers.bat will gain an AzureSignTool step. Code-signing memory updated with concrete plan + driver-signing research flagged for future non-Flex virtual audio.
+- `jjflexible.radio` domain acquired 2026-04-22 (DNS/VPS setup deferred). Updater-vision memory updated to reflect domain no longer a blocker.
+
+**Accessibility-end-to-end correction (feedback memory)**: `feedback_accessibility_is_end_to_end.md`. I proposed "Flex users lean on SmartSDR's CAT/DAX as interim" for the virtual-driver question; Noel course-corrected. Interim proposals must pass the end-to-end accessibility test — "functional but inaccessible to set up" is a broken feature, not a fallback. Driver work is a first-class commitment, not deferred-maybe.
+
+**Updater-driven release cadence strategy** (one-liner added to MEMORY.md under updater-vision pointer): once the updater ships in Sprint 29, release friction drops, which enables faster release cadence for small bundles. No standalone memory; the updater entry captures it.
+
+**Keyboard reference proofread**: Noel wrote a new "JJ Leader Key" explanation in `docs/help/md/keyboard-reference.md`; I did a typo/grammar pass preserving voice (contortionist metaphor, "cute little descending tone," "secret cheat code" all intact). Terminology normalized: the *key* is `Ctrl+J` (a.k.a. "the JJ key"); the *mode* is "the JJ layer" or "layered command mode."
+
+**Plan for tomorrow**:
+
+1. **Sprint 28 testing** (main task). Phases 8c-ii, 8d, 9, 10, 11 remaining; Phase 9 is the combined 4.1.17 test matrix execution against Don's radio / Noel's own rig.
+2. **A couple more Sprint 28 coding-phase items** (Noel mentioned, didn't specify — will pull up tomorrow).
+3. **Keyboard shortcut audit (backfill)**: grep `KeyCommands.vb` + menu builders against `docs/help/md/keyboard-reference.md` to find missing/stale/mismatched bindings. One-time backfill; going forward, the new DoD in CLAUDE.md keeps it in sync. Noel wants this file to stay **user-facing** (skip dev/debug bindings).
+4. **SmartCAT / DAX accessibility self-test** (Noel, 30 min at his leisure): install SmartCAT+DAX via Flex's installer with NVDA on, document what's accessible vs. what isn't. Output drives whether the non-Flex driver arc is urgent or can stay loosely scheduled.
+5. **VB-Audio commercial licensing email** (Noel, at his leisure): ask about private-label redistribution, accessibility-nonprofit framing, small-scale pricing tiers. Prep for the eventual wrap-a-virtual-audio-driver path when non-Flex support arrives.
+6. **Changelog final review** (Noel): read-through of 4.1.17 section end-to-end to spot anything the editorial passes missed before 4.1.17 cuts.
+
+**Sprint plan targets / bundle shape (Plan B)**:
+
+- Sprint 28 + Sprint 29 → ship together as `v4.1.17` ("The Make Yourself at Home Edition")
+- Customize Home (Sprint 30+) → ships as `v4.1.18` with its own release headline
+
+**CLAUDE.md drift check:** I added the keyboard-audit DoD section today — CLAUDE.md is fresh, no drift to flag.
+
+**Memory state additions/updates today**:
+
+- NEW: `project_sprint29_tune_redesign.md` (tuning unity)
+- NEW: `project_sprint29_rit_xit_adjust_mode.md`
+- NEW: `project_customize_home_vision.md`
+- NEW: `feedback_accessibility_is_end_to_end.md`
+- UPDATED: `project_code_signing_cert_milestone.md` (Azure Trusted Signing concrete plan + driver-signing future)
+- UPDATED: `project_sprint29_updater_vision.md` (domain acquired, code-signing cross-link)
+- UPDATED: `MEMORY.md` (three new pointers + one cadence note)
+
 ## 2026-04-21 end-of-day seal: Sprint 28 large chunk landed, 4.1.17 changelog drafted, cursor routing investigation concluded
 
 **Daily debug build 4.1.16.139** zipped to NAS `historical\4.1.16.139\x64-debug\` and promoted to Dropbox top-level as `JJFlex_4.1.16.139_x64_daily.zip`. Memory + private docs backed up to NAS. Not broadcast to testers (no `--publish` used; this is the end-of-day seal, not a tester distribution).

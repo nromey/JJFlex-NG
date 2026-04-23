@@ -473,6 +473,29 @@ As tracks complete, Claude Desktop handles merges and keeps the user informed:
 6. **Update Agent.md** with sprint completion status
 7. **Archive sprint plan** to `docs/planning/agile/archive/`
 8. **Create test matrix** at `docs/planning/agile/sprintN-test-matrix.md`
+9. **Keyboard audit** (required if the sprint touched any key bindings — see below)
+
+#### Keyboard Audit — Definition of Done for key-map changes
+
+Any sprint that adds, removes, or remaps a keyboard binding MUST pass this audit before merging to main. The cost of a missed audit is a shipped hotkey nobody can discover through help — which violates the BlindCat anti-pattern #1 ("no in-app key reference") we specifically exist to avoid.
+
+Audit checklist:
+
+1. **Grep the sprint's diff for key-binding changes.** Search for new or modified entries in `KeyCommands.vb`, `RegisterScope`, `KeyBinding` attributes, and any Modern/Classic menu builders. Produce a list of affected keys + their new meanings.
+
+2. **Update `docs/help/md/keyboard-reference.md`.** Every new binding gets a line in the appropriate scope section (Global / Radio / Logging / Home / Home Region sub-sections). Every removed binding gets its line deleted. Every remapped binding has its meaning updated.
+
+3. **Update Command Finder search keywords.** The Command Finder (`Ctrl+/`) must return the new command when searched by name, synonym, or action verb. Check the registration metadata for the affected commands.
+
+4. **Update context-sensitive help (F1).** If the new binding operates on a specific control or field, the F1 help for that control should mention the new hotkey.
+
+5. **Update the changelog.** User-visible key changes get a line in `docs/CHANGELOG.md` under the current in-progress version. Key *removals* need heads-up language since someone somewhere may rely on them.
+
+6. **Verify the CHM build rebuilds the keyboard reference page** so users who installed the previous release see updated help after updating.
+
+When to skip the audit: sprints that don't touch key bindings (pure UI tweaks, under-the-hood refactors, build-system changes). If in doubt, grep the diff — "did any file named `KeyCommands` or `KeyBinding*` change?" is a fast answer.
+
+Future automation (not blocking — deferred): a build-time pass that introspects the KeyCommands registry, emits a canonical manifest, and fails the build if `keyboard-reference.md` is out of sync. Sprint 29+ candidate if the manual audit proves reliable.
 
 ---
 

@@ -34,9 +34,14 @@ These work no matter where you are in the application.
 | Ctrl+Alt+S | Open status dialog |
 | Alt+Shift+S | Speak TX status |
 
-## Leader Key Commands
+## The JJ "Leader" Key Commands
 
-Press `Ctrl+J`, then release it, then press one of these keys. You'll hear a rising tone when leader mode activates. If you wait too long (about 2 seconds) or press Escape, leader mode cancels with a soft falling tone.
+This application's got a problem. We own it, it's true. There's a ton of keyboard shortcuts that you can use in this application. Problem is, we have too many keyboard shortcuts for the number of keys on your keyboard. Enter the JJ key.
+
+The JJ Key, `Ctrl+J` in JJ Flexible Radio Access, can be used to activate various toggles, options, and other commands throughout the JJ Flexible Radio Access application. Similar to pressing layered commands in JAWS (JAWS Key+J then another key), the JJ key is our flavor of command-key layering you can use to access functions we couldn't fit onto single-keypress hotkeys. The JJ layer is our secret cheat code — it lets you reach commands we couldn't squeeze into a single keypress. We hope the JJ layer keeps you from needing to use three fingers on one hand, your right pinky finger, and your left big toe to activate neural noise mitigation or turn on the audio peak meter. Who wants to be a contortionist — both physically and mentally — when you're trying to rack up points in a busy contest or chase DX? I know I sure don't.
+
+
+Press `Ctrl+J` and then release it to enter layered command mode. You'll hear a rising tone to let you know that you've activated the JJ key layer and it's ready for you to press one of these keys to perform an action in the app.
 
 | Key | Action |
 |-----|--------|
@@ -55,6 +60,9 @@ Press `Ctrl+J`, then release it, then press one of these keys. You'll hear a ris
 | L | Speak log statistics |
 | ? or H | List all leader key commands |
 | Escape | Cancel leader mode |
+
+Don't worry if you press the JJ key by accident or if you simply don't want to access the command layer. Press Escape to exit JJ command mode, or wait two seconds for the application to exit the mode automatically. When you drop out of the JJ layer without entering a command, you'll hear a cute little descending tone, and you can go back to whatever you were doing previously in the JJ Flexible Radio app.
+
 
 ## Band Jumping
 

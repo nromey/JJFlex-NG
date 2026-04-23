@@ -1,31 +1,62 @@
-# JJ Flexible Radio Access Changelog
+# JJ Flexible Radio Access Changelog {#top}
+Authored by Noel Romey with the assistance of ... my man ... Clauidd. Thanks buddy, you're a machine but we work well together, keep it up as you destroy the planet.
 
-All notable changes to this project will be documented in this file. The opinions and coolness of developers, radio amateurs, and operatives is long, but you might like it. Read at your leisure for all changes for each release.
+All notable changes to this project are  documented in this file. The opinions and cool factor  of developers, radio amateurs,  operatives,  and pets  should be taken with a huge grain of salt, a slab really. Other assistance for portions of JJ Flexible Radio courtesy of Peanut Butter, my Abysinian buddy. This change log is long, but you might like it, because this is definitely not you're Grandpa's typoical change log. Read at your own risk.  
 
-## 4.1.17: The Making Yourself at Home Edition
+## Jump to a Version {#versions}
 
-This release is about the space where you actually spend your time in the app — the frequency-and-slice area I've started calling "Home." It's got a real name now, speaks for itself when you land on it, and does more work per keystroke than it used to. Plus some quiet networking plumbing that's been cooking since the last release, and a safety check that makes sure you don't accidentally change settings on somebody else's radio.
+- [4.1.17 — The Make Yourself at Home Edition](#v4-1-17)
+- [4.1.16 — The Name Change Edition](#v4-1-16)
+- [4.1.15.1 — Stop the Presses (local-radio hotfix)](#v4-1-15-1)
+- [4.1.15.0 — More Than Just Rearranging Deck Chairs on the Titanic](#v4-1-15-0)
+- [4.1.14.0 — Don (WA2IWC)'s Birthday Release](#v4-1-14-0)
+- [4.1.13.0 — Callbook Fallback, QRZ Logbook, Hotkeys v2](#v4-1-13-0)
+- [4.1.12.0 — Logging Mode](#v4-1-12-0)
+- [4.1.11.0 — Classic/Modern Mode, Auto-Connect & Audio Fix](#v4-1-11-0)
+- [4.1.10.0 — SmartLink Saved Accounts](#v4-1-10-0)
+- [4.1.9.1 — WebView2 & Screen Reader Fixes](#v4-1-9-1)
+- [4.1.9.0 — The .NET 8 Migration Release](#v4-1-9-0)
+- [4.1.8.0 — Feature Availability & Accessibility](#v4-1-8-0)
+- [4.1.7.0 — Cleanup pass (never shipped)](#v4-1-7-0)
+- [4.1.6.0 — Error Reporting](#v4-1-6-0)
+- [4.1.5.0 — Subscription Awareness](#v4-1-5-0)
+- [4.1.0.0 — FlexLib 4.1.3 adoption](#v4-1-0-0)
+- [4.0.5.0 — Advanced NR/ANF controls](#v4-0-5-0)
+- [4.0.4.0 — FlexLib 4.0 migration, continued](#v4-0-4-0)
+- [4.0.3.0 — Initial FlexLib 4.0 adoption](#v4-0-3-0)
+- [4.0.2.0 — SmartLink reliability](#v4-0-2-0)
+- [4.0.1.0 — Start of the 4.x line](#v4-0-1-0)
 
-### Headlines (skim here, details below)
+Jim Shaffer's changelog for the 1.x, 2.x, and 3.x versions lives in a separate archival file — see [CHANGELOG-legacy.md](CHANGELOG-legacy.md) for that history.
 
-- **The main screen is now called Home, and it announces itself.** Press F2 and your screen reader says "Home" plus whichever field you're on — slice, frequency, S-meter, wherever. No more navigating a "Frequency Display" region whose name never quite told you where you were.
-- **Squelch lives in Home now.** Arrow right past the S-meter and you'll find it. Press Q from anywhere in Home to toggle it — same muscle memory as M for mute, R for RIT, X for XIT.
-- **Escape actually collapses things.** Single Escape inside an open field group collapses it. Double Escape within about half a second collapses everything and takes you back to Home, with a two-tone "done" sound confirming you're back at the top.
-- **The key map across Home makes sense now.** R toggles RIT from anywhere you press it. X toggles XIT. The `=` key does the old transceive thing (which freed X to do what most hams expect). Pan moves to Page Up / Home / Page Down instead of letter keys, so if your finger slips you don't pan to Patagonia.
-- **Networking tiers you can actually configure.** All three SmartLink reachability strategies — manual port forwarding, UPnP, and hole-punch — are controllable from the Network tab without ever opening SmartSDR. Diagnostic probe included, with a report you can copy and paste to me when something isn't working.
-- **Safety check on port forwarding.** If you're connected to somebody else's radio via SmartLink and try to change the port settings, JJ Flex politely stops you instead of changing their radio's config.
-- **CW send and receive boxes step out of the way.** Unless you're in CW mode, the receive and send text boxes aren't visible and they're not in the tab order. Switch to CW with Alt+C and they come right back.
-- **Ctrl+Tab works for panel navigation again.** If you've got multiple field groups open, Ctrl+Tab moves between them. Ctrl+Shift+Tab goes the other way. The popup menu that used to live on Ctrl+Tab is disabled pending a proper redesign — it's going to come back as an actual accessible toolbar in a future release, not a menu that springs up every time you reach for tab nav.
+## 4.1.17: The Make Yourself at Home Edition {#v4-1-17}
 
-### Home is a Region with a Name
+Moving sucks. Full stop. But isn't it awesome when you realize you've stopped using plastic silverware and paper plates, you've mastered your stove and oven, your pictures are up, your favorite chair is in a favorite place, and — well, this new scary house you just moved into, the one you probably own and still get lost in, starts feeling like home. That's what this release is all about. So make yourself at home and enjoy this slug of mighty fine updates that'll have you thinking "this feels right, it feels like home." Cheesy, yes, but it's helped to define JJ Flexible Radio's newly named "Home."
 
-For a long time, the place you land on when you press F2 was called "Frequency Display" or "Frequency and VFO Display" in accessibility announcements. Neither name really told you what you were looking at, and neither was easy to say. It's now "Home" — one word, speaks clean, means "the place your hand goes when you want to operate the rig."
+This release is about the space where you actually spend your time in the app — formerly announced as "the VFO frequency-and-slice area," which was a mouthful I know. It's got a real name now and it speaks for itself when you land on it. It also does more work per keystroke than it ever had a right to. We also fixed some flaky wiring and janky plumbing around connecting your Flex to the network and allowing inbound connections to your radio. This work has been cooking since the last release, and if you've ever had problems establishing a remote connection to your radio from outside your network, these changes will affect you. We also added a safety check that makes sure you don't accidentally change settings on somebody else's radio when you're not the owner. In short, if you're not at your radio, you won't be able to make serious network-related changes that affect the Flex and SmartLink. These and more as you follow this loopy coax down the line.
 
-When focus lands there, you hear "Home" plus whichever sub-field you landed on. The exact wording scales with your speech verbosity setting. On Terse, it's "Home, slice" (or whichever field). On Chatty, it's "JJ Flexible Home, slice, 14.225.000" — the full story including the current frequency for context.
+### Version 4.1.17 Headlines {#v4-1-17-headlines}
 
-### Universal Keys from Home
+- [The main screen is now called Home](#home-intro), and it tells you so. From anywhere in the application, press F2 to "go home." Your screen reader will say "Home" plus whichever field you're on — slice, frequency, S-meter, wherever. You may hear more or less speech depending on your speech verbosity setting. No more navigating a "Frequency Display" region whose name never quite told you where you were.
+- [Squelch lives in Home now](#squelch-in-home). Arrow right past the S-meter and you'll find it. Press Q from anywhere in Home to toggle it — same muscle memory as M for mute, R for RIT, X for XIT.
+- [Escape](#escape-does-its-job) now closes screen field categories. Press Escape once inside an open field group to close it. Press Escape twice quickly (about half a second between presses) to collapse all open field categories at once. Once the categories are collapsed, you'll be back at Home — because there's no place like home ... there's no place like home ... what? Sorry, fell asleep there for a second, no idea why. This suggestion came from Don, who got really tired of tabbing through large fields just to close them. You've done it right if you hear two tones — can't miss 'em.
+- **The [key map across Home](#universal-keys-from-home) makes sense now.** R toggles RIT from anywhere you press it. X toggles XIT. The `=` key does the old transceive thing (which freed X to do what most hams expect). Pan moves to Page Up / Home / Page Down instead of letter keys, so if your finger slips you don't pan to Patagonia.
+- **[Networking settings](#network-tab-configurability) you can actually configure on your own.** Manual port forwarding, UPnP, and hole-punch all live in the Network tab now. Bye-bye, SmartSDR, for that task at least. We also included a diagnostic probe with a copy-and-pasteable report you can send me when something breaks.
+- **[Safety check on port forwarding](#port-forwarding-safety-check).** If you're connected to somebody else's radio via SmartLink and try to change the port settings, JJ Flexible politely stops you instead of overwriting their radio's config.
+- [CW send and receive boxes](#cw-text-boxes) go away if you can't use them. Unless you're in CW mode, the receive and send text boxes aren't visible and they're not in the tab order. Switch to CW with Alt+C and they come right back.
+- **Ctrl+Tab works for [panel navigation](#panel-navigation) again.** Sorry about that. Ctrl+Tab moves you through the major category fields, and Ctrl+Shift+Tab reverses direction. The popup menu that used to live on Ctrl+Tab is disabled pending a proper redesign — it's going to come back as an actual accessible toolbar that also looks spiffy. Stay tuned on that one.
 
-Certain letter keys now work the same way from any field in Home, so you don't have to navigate to a specific field to use them:
+### Home's got a real name now {#home-intro}
+
+In the past, the place you landed on when you pressed F2 in JJ Flexible Radio was called "Frequency Display" or "Frequency and VFO Display" in accessibility announcements. Neither name really told you what you were looking at, and neither was easy to say. This familiar place is now called "JJ Flexible Radio Home." If you hear "home" while you're using the application, you're in the place your hand goes when you want to operate the rig. Home on a knobs-and-buttons radio is where your main control cluster lives — the dials and switches you touch every time you sit down at the shack. JJ Flexible's Home is the same idea, expressed as a row of accessible fields.
+
+When focus lands there, you hear "Home" plus whichever sub-field you landed on. The exact wording scales with your [speech verbosity setting](#speech-verbosity). On Terse, it's "Home, slice" (or whichever field). On Chatty, it's "JJ Flexible Home, slice, 14.225.000" — the full story including the current frequency for context.
+
+[Return to version headlines](#v4-1-17-headlines)
+
+### Universal Keys from Home {#universal-keys-from-home}
+
+Single-letter keys that toggle radio features on and off now operate the same way throughout your JJ Flexible Home. You don't have to navigate to a specific field to perform a specific function. In the old days, if you pressed M while focus was on the frequency tuning group, nothing would happen. Now, you can mute the active slice from anywhere in Home. We hope these changes remove some confusion from your life and add some efficiency to your operating workflow. Affected keys are as follows:
 
 - **M** — toggle mute on the active slice
 - **V** — cycle to the next slice
@@ -34,84 +65,106 @@ Certain letter keys now work the same way from any field in Home, so you don't h
 - **Q** — toggle squelch
 - **=** — make the current slice transceive (both RX and TX on this slice)
 
-Previously R and X did different things depending on which field you were on — R was pan-right on the Slice field but RIT on the Frequency field, and X was transceive on Slice/Slice-Operations but XIT on Frequency. Now they mean the same thing everywhere. One set of muscle memory, not three.
+[Return to version headlines](#v4-1-17-headlines)
 
-### Escape Does Its Job
+### Escape Does Its Job {#escape-does-its-job}
 
 Pressing Escape inside an open field group (DSP, Audio, Receiver, Transmission, Antenna) now actually closes that group and puts focus on its header. You can re-open it with Space. This was supposed to be the behavior all along; it finally works the way it reads.
 
-Press Escape twice quickly and everything collapses at once — all open groups close, focus returns to Home, and you hear a distinctive two-tone descending sound confirming "you backed out of everything." If you've ever had a Windows Explorer moment where you wanted to just get away from the thing you were in, this is that key, applied to JJ Flex's structure.
+Press Escape twice quickly and everything collapses at once — all open groups close, focus returns to Home, and you hear a distinctive two-tone descending sound confirming "you backed out of everything." If you've ever had a Windows Explorer moment where you wanted to just get away from the thing you were in, this is that key, applied to JJ Flexible's structure.
 
-### Three New Sound Cues
+[Return to version headlines](#v4-1-17-headlines)
 
-JJ Flex now has three sound cues around opening and closing field groups:
+### Three New Sound Cues {#three-new-sound-cues}
 
-- **Expand** — when a group opens, you hear an ascending chirp (400 Hz rising to 1200 Hz) with a gritty noise texture layered on top. The rising pitch means "this opened up."
-- **Collapse** — mirror of expand when a group closes: 1200 Hz dropping to 400 Hz, same noise texture. Falling pitch means "this closed down."
-- **Collapse all (the "gavel")** — when you double-Escape to close everything and go home, you hear two distinct tones — a higher tone followed by a lower one — over about half a second. It's meant to feel like finality, like the thing you pressed actually did something significant.
+JJ Flexible now has three distinct sound cues that fire when opening and closing field groups:
+
+- **Expand** — when a group opens, you'll hear an ascending chirp with some sandy texture mixed in. The rising pitch means you've successfully opened a major field category. As before, you can tab into it and adjust settings. If you press a hotkey to open a category directly, you'll hear this same sound. We designed the chirp to be heard over actual radio noise, and we'll continue to tune the sounds and how they're played as more people use the software.
+- **Collapse** — this tone sounds the same as the expand sound, but it drops in pitch instead of rising. The falling pitch means you've closed the category.
+- **Collapse all open fields (the "gavel")** — when you double-tap the Escape key, all open category fields close and you return to Home. Listen for two distinct tones descending in pitch, confirming that everything closed. These tones are meant to feel like finality, like the thing you pressed actually did something significant. If you're having trouble activating this feature, read about [how quick is quick](#quick).
 
 The noise texture on the chirps is designed to cut through radio static better than a pure tone would. Your ear picks out the distinctive "shhhwee" shape even when 40 or 80 meters is crashing with thunderstorm QRN.
 
-### You Can Tune How Fast "Quick" Is
+[Return to version headlines](#v4-1-17-headlines)
 
-New setting in **Settings > Accessibility**: Double-Tap Tolerance. Four choices — Quick (250 ms), Normal (500 ms), Relaxed (750 ms), and Leisurely (1000 ms). This controls how fast you have to press a key twice for JJ Flex to count it as a double-tap.
+### You get to decide how quick quick really is {#quick}
 
-It affects two behaviors today: bracket double-tap (press `[` or `]` twice to enter filter-edge adjust mode), and the new double-Escape-to-collapse-all. Any future double-tap features will respect the same setting, so you configure it once and forget about it. If you're a fast typist, Quick matches the old snappy feel. If you verify speech before pressing the next key, Leisurely gives you breathing room.
+There's a new setting in **Settings > Accessibility** called Double-Tap Tolerance. It has four choices — Quick (250 ms), Normal (500 ms), Relaxed (750 ms), and Leisurely (1000 ms) — and it controls how sensitive JJ Flexible is when detecting a double tap. If Quick is selected, you have 250 milliseconds between presses to register a double tap. Select Leisurely and you have a full second. A longer tolerance may help folks with dexterity or fine motor control challenges to successfully double-tap when that was impossible before. On the other hand, if you're quick on the draw, by all means set it fast. The power is in your hands now.
 
-### Squelch in Home
+This setting affects two behaviors in JJ Flexible Radio today. First, double-tapping your left or right bracket enters filter-edge adjust mode. Second, double-tapping [Escape](#escape-does-its-job) closes all open category fields in the field list. Any future double-tap features will respect the same setting, so set it once and forget about it — we've got you.
 
-Squelch used to live only in the Receiver field group — you had to expand it to toggle squelch or adjust the level. Now both the squelch on/off indicator and its level value live in Home as two adjacent fields, right after the S-meter. Arrow to them and use Space / Q to toggle or Up / Down to adjust the level.
+[Return to version headlines](#v4-1-17-headlines)
 
-Press Q from any Home field to toggle squelch without arrowing — same universal pattern as M, V, R, X. When squelch is off, the level field shows "---" instead of a number (because the threshold isn't active, so showing a value would be misleading). Your last-set level is remembered and comes back when you turn squelch on.
+### Squelch in Home {#squelch-in-home}
 
-### The Port Forwarding Safety Check
+We've tried to keep JJ Flexible Radio's behavior mirroring the older JJ Flex patterns Jim Shaffer set up. Squelch used to live only in the Receiver field group within Screen Fields — you had to expand it to toggle squelch or adjust the squelch level. Now both the squelch toggle and its level value live in Home as two adjacent fields, right after the S-meter. To reach squelch from Home, right-arrow until you hear the S-meter — squelch will be the next option. Use Spacebar or the letter Q to toggle squelch, and press up or down arrow to increase or decrease the level. When squelch is off, the squelch level field disappears from Home to keep navigation tight.
 
-When you press Apply port forwarding in **Settings > Network**, JJ Flex now checks whether you're the primary operator at the radio before letting the change go through. If you're connected locally to your own radio (the radio considers you the primary, because that's the client the mic PTT routes to), you'll see a confirmation dialog asking "are you sure?" — default focus on No, so accidental Enter doesn't commit. If you're connected remotely via SmartLink to someone else's radio, JJ Flex politely refuses: "Cannot change SmartLink port settings. You must be the primary operator at the radio."
+Remember, you don't need to be on the field that says "squelch" in Home to toggle it. Press Q from any Home field to toggle squelch without arrowing — it's the same universal pattern as the other single-letter toggles. JJ Flexible stores your last squelch level, so when you toggle squelch back on, it returns to whatever you set previously.
 
-This catches two different kinds of accidents: changing someone else's radio config by mistake (the ownership check), and fat-fingering Apply when you meant something else on your own radio (the confirmation dialog). Two layers of protection for a setting that persists on the radio and affects every future connection.
+[Return to version headlines](#v4-1-17-headlines)
 
-When firmware upload lands in a future release, a stricter version of this same check will gate that feature — probably requiring you to PTT as a presence confirmation before firmware flash starts.
+### Network Tab Configurability {#network-tab-configurability}
 
-### The CW Text Boxes Know When They're Wanted
+JJ Flexible now gives you full control over the three SmartLink networking tiers needed to conquer difficult network topologies. If you're behind network address translation — most of us are — SmartLink can bust through. That's awesome, but until now screen reader users had to wrestle with SmartSDR's inaccessible GUI to make the radio-side changes SmartLink needs. The Network tab in Settings now does the following:
 
-If you're in a CW mode (CW, CWL, or CWU), you get the usual two text boxes — one showing decoded CW coming in, one where you type to send. If you switch to USB, LSB, AM, FM, or any digital mode, those two boxes vanish. They're not just hidden — they leave the tab order entirely, so you don't spend your navigation going through them when they aren't doing anything.
+- **Manual port forwarding** is the sovereign option — you set the port, you know what's happening. Use this if you want to configure your router to open specific ports yourself. The port-forward setting you change from JJ Flexible tells your radio which external port to advertise for UDP and TCP connections. You also have to use your router's admin pages to forward the matching ports. You **can** pick any external port you like — that lets you put multiple radios on the same network and still use SmartLink. Set up two port-forward rules on your router: rule 1 forwards your chosen external port over TCP to port 4994 on the radio. Rule 2 forwards your chosen external port over UDP to port 4993 on the radio. Sound complicated? It can be. If you're not comfortable with this process, you now have two more options, and JJ Flexible will try them both.
+- **UPnP** is the convenience option. Turn UPnP on and JJ Flexible asks your router to set up port mapping automatically. Some operators are uncomfortable with UPnP because it can be an issue for security-conscious network setups — your choice, your network.
+- **Hole-punch / extended reach** is the last-resort option for hard-to-reach or hard-to-configure networks. If UPnP and manual port forwards both fail, JJ Flexible will try to bust a hole (legally, I promise) through your NAT so that SmartLink can reach your radio.
+- **Network diagnostic probe** is an option that asks Flex's SmartLink servers to test your network and its ability to reach your radio from the great beyond. This is a very useful tool because it can give you a concrete sense of how to configure SmartLink properly. The probe tells you in plain English what's working and what isn't. If the two automatic options fail, you now have the information you need to set up manual port forwarding so the Flex Systems servers can reach your configured external port.
+- **Copy and save the network diagnostic report.** If something's broken, you can copy the data directly to an email, or save the report to a file and attach it to a support request to me. The report includes your radio firmware, the network test results, and other radio settings and statistics that may help me diagnose your issue — or encourage you to contact Flex directly.
 
-Switch back to CW and they come back. A small quality-of-life fix, but if you've been wondering why those boxes lived in your tab order during a phone QSO, the answer is: they don't have to.
+JJ Flexible tries port forwarding first (if it's set on the radio), so SmartLink can operate through secure networks and networks with restrictive policies. Select UPnP or hole-punch if the tests show those are viable options for you. Either way, this is a huge step forward for screen reader users who want to independently configure their radio and its network settings.
 
-### More Stable Remote Sessions (Under the Hood)
+[Return to version headlines](#v4-1-17-headlines)
 
-Quite a bit of plumbing work went into making SmartLink sessions more stable — handling network hiccups, keeping sessions alive across transient disconnects, cleaner reconnect behavior. Most of this is invisible until you notice your session didn't drop when it used to. If you've had SmartLink sessions fall over mid-QSO before, you should see fewer of those.
+### The Port Forwarding Safety Check {#port-forwarding-safety-check}
 
-### Network Tab Configurability (SmartLink Tiers)
+When you press Apply in **Settings > Network**, JJ Flexible now checks whether you're the primary operator of the radio before letting you make the change. If you're connected locally to your own radio, the radio considers you the primary because JJ Flexible can detect that a microphone is connected and that you're authorized to make the change. During the change process, you'll see a confirmation dialog asking "are you sure?" The default answer is No, so that you don't accidentally store a wrong setting. Select Yes and the setting is applied. If you're connected remotely via SmartLink to someone else's radio, JJ Flexible politely refuses: "Cannot change SmartLink port settings. You must be the primary operator of the radio."
 
-JJ Flex now has full configurability for the three SmartLink networking tiers — the underlying mechanics Flex has supported for a while but were only accessible through SmartSDR's GUI before. Network tab in Settings has:
+This behavior catches two different kinds of accidental changes that could otherwise occur. The first is changing a setting when you're not the radio's owner. The second is the inevitable fat-finger moment where you didn't mean to save to firmware at all — the confirmation dialog catches that too. In other words, if I'm connected to my dog Hawke's Flex Radio via SmartLink, but I forget that I'm on his radio, JJ Flexible won't let me apply a network change to his firmware. This two-layered approach is necessary, especially for a setting that persists on the radio and affects every future connection. If I could set someone else's port forwarding without knowing how their router is configured, I'd inadvertently break their ability to accept remote connections — whether for a friend or for my dog.
 
-- **Manual port forwarding** (the sovereign option — you set the port, you know what's happening).
-- **UPnP** (the convenience option — JJ Flex asks your router to set up port mapping automatically).
-- **Hole-punch / extended reach** (for hard-to-reach networks where neither manual nor UPnP works).
-- **Network diagnostic probe** — asks Flex's servers to test your radio's reachability from outside and tells you in plain English what's working.
-- **Copy report** and **Save report** — so when something isn't working, you can paste the diagnostic output into an email to me and I'll have actual data to help with, not just a verbal description.
+There is one more tie that binds us to Flex Systems' SmartSDR. For now, you must connect your Flex using SmartSDR to upgrade radio firmware. JJ Flexible will soon support direct firmware upload, and we'll use an even stricter version of this same check to ensure that you're physically at your radio before uploading firmware. SmartSDR requires a quick press of PTT or your code key to confirm you're at the radio, and that's likely how we'll support the feature too. Then ... freedom! Accessibility freedom!!
 
-Each strategy is opt-in, with manual port forwarding (Tier 1) recommended as the default because it's the only one compatible with strict security policies (corporate networks, DISA STIGs, PCI-DSS environments).
+[Return to version headlines](#v4-1-17-headlines)
 
-### Ctrl+Tab Reclaimed for Panel Navigation
+### The CW Text Boxes Know When They're Wanted {#cw-text-boxes}
 
-Ctrl+Tab used to pop up an "action toolbar" menu. It's disabled now, and Ctrl+Tab / Ctrl+Shift+Tab are back to doing what they're supposed to in a tabbed interface: moving between open field groups. The action toolbar is coming back in a future release as an actual toolbar, not a menu — a persistent accessible UI surface you can navigate, not a popup that interrupted your tab nav every time you reached for it.
+If your radio's mode is set to any CW variant (CW, CWL, or CWU), JJ Flexible shows you a received text box — which, in a future JJ Flexible version, will display decoded CW — and a send box that lets you send CW by typing. Make sure VOX or full break-in is selected if you want to send CW remotely. Right now, that's the only way to send CW remotely with your Flex. Switching your Flex to voice modes like USB or LSB, or any digital mode, hides both of these boxes. They're not just hidden visually — they're also removed from the tab order. In short, they're ... gone, like really gone.
 
-### What's Under the Hood You Probably Don't Care About
+If you switch back to CW, those boxes return. This may seem like a small quality-of-life fix, but if you've been wondering why those boxes lived in your tab order during a phone QSO, the answer is: they didn't have to. Claude and I are absent-minded. I can speak for myself, and I simply forgot to disable them for modes that don't use them.
 
-- Background audio work to make sure the new sound cues cut through ambient radio noise instead of getting masked by it.
-- A shared safety check that future destructive operations like firmware upload will use for the same kind of protection the port-forward apply now has. One place to update if we ever need to tighten it, not twelve.
-- Per-operator accessibility preferences that persist across app restarts.
-- Cleaner internal separation between Home (the operating region) and the Screen Fields panel (the full settings-and-controls tree) — most of the time you operate from Home, the panel is for deeper adjustments.
+[Return to version headlines](#v4-1-17-headlines)
 
-### Thanks, Don and Justin
+### More Stable Remote Sessions {#remote-stability}
 
-Don (WA2IWC) and Justin (AI5OS) have been pounding on the nightly builds and finding things that only show up when real users try real things. A lot of what shipped in this release came from their testing — the earcon tuning especially, which went through multiple rounds until the sounds were actually audible against radio audio rather than just theoretically correct in a quiet room. Thank you both.
+We worked on network connectivity and stability. Hopefully, you'll never know we did, but the work was necessary to make sure you stay connected to your local or remote radio. If you've had SmartLink sessions fall over mid-QSO before, you should see fewer of those dropouts, and the system should stop telling you "connection is slow" as often. We'll keep tuning network behavior, so if you have issues, let us know.
+
+[Return to version headlines](#v4-1-17-headlines)
+
+### Ctrl+Tab Reclaimed for Panel Navigation {#panel-navigation}
+
+Ctrl+Tab used to pop up an "action toolbar" menu. It's disabled now, and Ctrl+Tab / Ctrl+Shift+Tab are back to doing what they do best in a tabbed interface: moving between open field groups. The action toolbar is coming back in a future release as an actual toolbar, not a menu — a persistent accessible UI surface you can navigate, not a popup that interrupted your tab nav every time you reached for it. I'm hoping the toolbar looks good too.
+
+[Return to version headlines](#v4-1-17-headlines)
+
+### Under the kitchen sink: stuff that might interest you but probably not {#under-the-kitchen-sink}
+
+- The new sound cues are tuned to cut through real radio noise. Background audio processing favors the earcon frequencies during a chirp, so you can still hear the cue when the band is crashing.
+- A shared safety check now protects destructive operations. Today's port-forward apply uses it, and future features like firmware upload will share the same guard. One place to tighten if we ever need to, not twelve.
+- Your per-operator accessibility preferences now persist across app restarts, so whatever you set on one session is waiting for you on the next.
+- Home and the Screen Fields panel are cleaner siblings now. Home is where you operate minute-to-minute; the panel is where you reach for deeper settings. Less stepping on each other's toes.
+
+[Return to version headlines](#v4-1-17-headlines)
+
+### Thanks, Don and Justin {#thanks-don-and-justin}
+
+Don (WA2IWC) — on infrastructure — and Justin (AI5OS) — on 8000-series checking — have been pounding on the daily builds and finding things that only show up when real users try real things. A lot of what shipped in this release came from their testing, suggestions, and questions. The earcon tuning especially went through multiple rounds until the sounds were actually audible against radio audio, rather than just theoretically correct in a quiet room. Thanks to all the testers.
+
+[Return to top](#top) · [Jump to versions](#versions)
 
 ---
 
-## 4.1.16: The Name Change Edition
+## 4.1.16: The Name Change Edition {#v4-1-16}
 
 I've renamed the app to JJ Flexible Radio Access. The name reflects where we're headed — flexible radio control that puts accessibility first. Your settings, profiles, and everything else are exactly where you left them. No migration needed.
 
@@ -123,7 +176,7 @@ I've renamed the app to JJ Flexible Radio Access. The name reflects where we're 
 - **SmartLink multi-account + port forwarding controls.** Save multiple SmartLink accounts and switch without re-login, plus a new Network tab for tough-NAT manual port forwarding. Things most SmartLink software doesn't let you do.
 - **Running on .NET 10 LTS.** Fresh platform, four years of runway, performance and accessibility-API improvements under the hood.
 
-### You Decide How Much I Talk
+### You Decide How Much I Talk {#speech-verbosity}
 
 New verbosity system! Press Ctrl+Shift+V to cycle between three levels: Terse (just the essentials), Normal (what you're used to), and Verbose (everything, all the time). Your choice is saved per operator, so it's waiting for you next session. If you've ever wished the app would just shut up and let you operate, Terse mode is your new best friend. If you want every last detail, Verbose has you covered.
 
@@ -263,7 +316,7 @@ While we're talking presets, we had the same idea for tuning steps, no deja vou 
 
 ### Panadapter Visibility Toggle
 
-We added a new toggle in Settings → Notifications: "Show panadapter." Hide the visual panadapter if you don't use it and want JJ Flex's window and tab chain to be more clean. Show it if a sighted helper is looking over your shoulder. Your choice is saved.
+We added a new toggle in Settings → Notifications: "Show panadapter." Hide the visual panadapter if you don't use it and want JJ Flexible's window and tab chain to be more clean. Show it if a sighted helper is looking over your shoulder. Your choice is saved.
 
 ### Settings Improvements
 
@@ -296,11 +349,15 @@ We added a new toggle in Settings → Notifications: "Show panadapter." Hide the
 - **New build-number versioning** — our installer filenames now include a 4-part version (e.g. `Setup JJFlex_4.1.16.42_x64.exe`). The fourth component auto-increments per commit, so every build you see is uniquely identified. This will make bug reports way easier to triangulate to a specific build and configuration, and it'll make our upcoming automatic crash reporter that much more robust.
 - RX antenna list wait bumped from 5s to 20s to handle slow SmartLink handshakes without falsely reporting "no antennas" upon connection to the radio.
 
-## 4.1.15.1: stop the presses, we got us a breaker breaker emergency
+[Return to top](#top) · [Jump to versions](#versions)
+
+## 4.1.15.1: stop the presses, we got us a breaker breaker emergency {#v4-1-15-1}
 
 The last version forgot how to connect to locally connected radios. In other words, we concentrated on connecting to remote radios so much that we forgot how to access radios you have sitting right next to you. Never fear, it was an easy fix. In short, we kicked it in the pants, and made sure that the application was OK with not displaying SmartLink Logon when it isn't necessary. Sorry about all that.
 
-## 4.1.15.0: The More than just rearranging deck chairs on the Titanic version
+[Return to top](#top) · [Jump to versions](#versions)
+
+## 4.1.15.0: The More than just rearranging deck chairs on the Titanic version {#v4-1-15-0}
 
 This one's big. Twelve sprints of work since the Birthday Release — that means we slammed a ton of features into twelve marathon coding sessions for the fun and enjoyment of amateur radio operators worldwide. This version has not been published as a beta version. Soon friends, soon!
 
@@ -312,9 +369,9 @@ We rebuilt the entire Ke5AL, Jim-created JJFlexRadio interface from scratch. The
 Here's what all this rigmarole means for you:
 
 - **Menus that actually work with screen readers**: We tried three different menu systems before we found one that doesn't confuse JAWS and NVDA. The menus now behave like proper Windows menus — your screen reader says "Radio menu" not "Radio collapsed expanded collapsed." Arrow through items, hear their names and hotkeys, press Enter to activate. Classic, Modern, and Logging modes each get their own menu set tailored to what you're doing.
-- **Everything speaks**: Connection states, mode changes, frequency updates, error messages — nothing happens silently anymore. If JJFlexRadio does something, your screen reader knows about it. Error dialogs that used to appear behind other windows now show up front and center, and your screen reader announces them before the dialog even opens. If you use a braille display, you'll get those messages as well. We plan to implement a verbosity system so that Jj Flex won't spam you if you don't need spamming/screen reader speech.
-- **Radio Selector rebuilt**: The dialog where you pick your radio has been completely rebuilt. It's faster, more accessible, and runs on the main thread so your screen reader doesn't lag. The first radio in the list is auto-selected so you can just hit Enter if you only have one rig. We also call it the "radio selector", we know you have a rig but ... the plan is to implement support for other transceivers and receivers. We therefore thought that radio would fit our upcoming plans for JJ Flex.
-- **SmartLink authentication improved**: If you're using JJ Flex to connect to your radio or a friend's radio remotely, Flex Systems use Smartlink to make it happen. When you log into your account, the system sends you tokens which become keys to your radio and remote connections.  These tokens expire, and that created all kinds of havoc when we changed the way that we securely connect to your radio.  Expired login tokens are detected before they cause errors. The old phantom authentication windows that would pop up randomly are gone, replaced by useful screen reader speech that gives you details on what is happening. The station name timeout was bumped to 45 seconds so slower internet connections don't get cut off mid-handshake--this radio operator lost lots of days of sleep agonizing over that but Claude just kept trying new things and wondering why I was insanely tracking why connecting to a radio either halfway around the world or across the country just doesn't happen. The long and short of it is that it just works now, every time, and if problems crop up later, we've got lots of tools that are silently implemented so that we can track down the ghost in the wires.
+- **Everything speaks**: Connection states, mode changes, frequency updates, error messages — nothing happens silently anymore. If JJFlexRadio does something, your screen reader knows about it. Error dialogs that used to appear behind other windows now show up front and center, and your screen reader announces them before the dialog even opens. If you use a braille display, you'll get those messages as well. We plan to implement a verbosity system so that JJ Flexible won't spam you if you don't need spamming/screen reader speech.
+- **Radio Selector rebuilt**: The dialog where you pick your radio has been completely rebuilt. It's faster, more accessible, and runs on the main thread so your screen reader doesn't lag. The first radio in the list is auto-selected so you can just hit Enter if you only have one rig. We also call it the "radio selector", we know you have a rig but ... the plan is to implement support for other transceivers and receivers. We therefore thought that radio would fit our upcoming plans for JJ Flexible.
+- **SmartLink authentication improved**: If you're using JJ Flexible to connect to your radio or a friend's radio remotely, Flex Systems use Smartlink to make it happen. When you log into your account, the system sends you tokens which become keys to your radio and remote connections.  These tokens expire, and that created all kinds of havoc when we changed the way that we securely connect to your radio.  Expired login tokens are detected before they cause errors. The old phantom authentication windows that would pop up randomly are gone, replaced by useful screen reader speech that gives you details on what is happening. The station name timeout was bumped to 45 seconds so slower internet connections don't get cut off mid-handshake--this radio operator lost lots of days of sleep agonizing over that but Claude just kept trying new things and wondering why I was insanely tracking why connecting to a radio either halfway around the world or across the country just doesn't happen. The long and short of it is that it just works now, every time, and if problems crop up later, we've got lots of tools that are silently implemented so that we can track down the ghost in the wires.
 - The screen reader smoothly moves to logging mode when you need it. We had all kinds of craziness which happened that we had to fix, mainly your screen reader said "unknown" over and over again. Trust me, be glad you didn't get to experience that.
 - **NVDA and JAWS double-reads in QSO grid fixed**: Arrowing left/right through QSO grid cells in logging mode no longer double speak. It was super annoying and we crushed the stupidity. 
 
@@ -336,8 +393,8 @@ If you use a refreshable braille display, you can now "see" the band activity. T
 ### PTT Safety System
 
 - **Spacebar won't accidentally transmit anymore**: PTT now requires Ctrl+Space to hold-to-talk and Shift+Space to lock. Plain spacebar in the frequency field does nothing — no more accidental transmissions. You'll hear a chirp when you key up and a lower tone when you go back to receive, so you always know your TX state even without headphones. Since our last public release which required you to tab to transmit via the boring transmit button. Now, you can transmit from anywhere you are in the application.
-- **"Am I transmitting?" hotkey**: Hit Alt+Shift+S anytime and your screen reader tells you whether you're transmitting, what mode (hold or locked), and how much time you have left before the safety timeout kicks in. See notes further down detailing the safety features built into our humble JJ Flex PTT button. On a braille display, the status bar shows "Transmitting" or "TX Locked" so you can glance down anytime.
-- **TX health monitor**: If you lock TX and your mic is silent for more than 5 seconds, you'll hear "Check microphone." If your ALC is pegging, you'll hear "Microphone level too high." Think of it like Zoom telling you you're muted — but for ham radio. If you've got zero ALC and JJ Flex is set, the system will unkey if no signal is detected.
+- **"Am I transmitting?" hotkey**: Hit Alt+Shift+S anytime and your screen reader tells you whether you're transmitting, what mode (hold or locked), and how much time you have left before the safety timeout kicks in. See notes further down detailing the safety features built into our humble JJ Flexible PTT button. On a braille display, the status bar shows "Transmitting" or "TX Locked" so you can glance down anytime.
+- **TX health monitor**: If you lock TX and your mic is silent for more than 5 seconds, you'll hear "Check microphone." If your ALC is pegging, you'll hear "Microphone level too high." Think of it like Zoom telling you you're muted — but for ham radio. If you've got zero ALC and JJ Flexible is set, the system will unkey if no signal is detected.
 - **PTT speech can be muted**: In Settings → PTT, uncheck "Announce transmit/receive" and you'll only hear the chirp tones, not the spoken "Transmitting" / "Receiving." Great when you're on a hot mic and don't want your screen reader going out over the air.
 - **Dummy Load Mode**: Toggle under Transmission — sets RF Power and Tune Power to zero so you can safely key up into a virtual dummy load. The timeout safety now works correctly in Dummy Load Mode as well (it used to cut you off after 60 seconds because it thought nobody was talking).
 - **Speak Status now includes TX detail**: Ctrl+Shift+S tells you your PTT mode and time remaining when you're transmitting.
@@ -357,18 +414,18 @@ If you use a refreshable braille display, you can now "see" the band activity. T
 ### Filters
 
 - **Filter edge adjustment mode**: Previously, you could only shift filters up and down the band, "Squeeze" and "stretch" filter edges. Now, you can adjust edges individually, something that most boring ol transceivers can do. Here's how it works. Double-tap the bracket keys to enter edge-adjust mode, a left bracket double click selects the right edge and a double click of the right bracket grabs your right filter boundary. Use `[` and `]` to nudge just the low or high filter edge depending on which edge you grabbed when you grabbed it. You'll hear a tone on each adjustment and your screen reader will tell you the new width. If you forgot that you grabbed a filter you greedy person you, never fear. Escape will exit your grabby filter attempt. If you stop making adjustments to your filter, it will drop it like it's hot. Great for carving out interference on a crowded band, or being a grabby person should you like doing that.
-- **Wide-open filter presets**: JJ Flex's filter preset now gives you a "wide open" mode which can give you some pretty incredible sounding receive audio on your end. Wide open equates to 4 kHz on SSB, 2 kHz for CW, 12 kHz for AM, and 16 kHz for FM. Sometimes you just want to hear everything your receiver can hear and that's OK. Have everything then!
+- **Wide-open filter presets**: JJ Flexible's filter preset now gives you a "wide open" mode which can give you some pretty incredible sounding receive audio on your end. Wide open equates to 4 kHz on SSB, 2 kHz for CW, 12 kHz for AM, and 16 kHz for FM. Sometimes you just want to hear everything your receiver can hear and that's OK. Have everything then!
 - **Filter presets fixed for all modes**: Alt+[ and Alt+] presets now work correctly on LSB and digital lower sideband modes. Before, they were applying wrong filter values that could mute your audio. Sorry about that one.
 
 ### Settings & Tools
 
 - **Settings dialog**: Finally! A proper tabbed settings dialog (under Tools → Settings) with tabs for PTT configuration, tuning preferences, license class, and audio. No more hunting through menus to change your timeout or step sizes. Check the other menu settings and let us know if you think we're missing any settings that should belong here.
 - **Command Finder**: Press Ctrl+/ and you can search every command in the app — try "band", "transmit", "filter", "power", whatever you're looking for. It shows the hotkey next to each match, and you can press Enter to execute a command right from the search results. It defaults to showing commands for your current mode, with a "Show All" checkbox if you want to see everything.
-- **F1 context help**: Press F1 in the frequency field, slice field, or other controls and you'll hear a quick tip about what that field does and how to use it. F1 anywhere else opens Command Finder. We here at JJ Flex HQ know that we have a penchant for adding lots of hotkeys, now you'll be able to peruse the list of keys you can use to change things on your transceiver wherever you're focussed.
+- **F1 context help**: Press F1 in the frequency field, slice field, or other controls and you'll hear a quick tip about what that field does and how to use it. F1 anywhere else opens Command Finder. We here at JJ Flexible HQ know that we have a penchant for adding lots of hotkeys, now you'll be able to peruse the list of keys you can use to change things on your transceiver wherever you're focussed.
 - **Menu checkmarks**: Toggle items like Mute, ATU, VOX, and Squelch now show checkmarks when they're on. Your screen reader will say "checked" or "not checked" so you always know the current state of things. This is a normal, or should be a normal feature we shouldn't be amazed at, but give us a break, we totally changed the architecture of the application so let us be excited for things that you might find mundane. To get this to work right, we had to change a bunch of crap, enjoy mundane.
 - **Profile Report**: Ever wonder what's actually different between your "Contest" and "Ragchew" profiles? Now you can find out. Tools → Profile Report loads each of your profiles one at a time, captures every setting, and shows you a side-by-side comparison. It also lists every meter the radio makes available, which is handy for troubleshooting. Don't worry — your original profile is restored when it's done.
-- **Connection Tester**: Having trouble connecting to your radio? The radio selector dialog now has a built-in connection tester — pick a radio, hit Test, and it runs diagnostic cycles that measure connection timing, identify failures, and report the actual reason something went wrong. These test results can help us here at Jj Flex HQ (I'm an HQ of one intrepid ham, don't judge me). This is a great feature which can help us to help you with your SmartLink connection issues or verifying your setup before you get on the air.
-- **Export and Import in the Modern menu**: Export Profiles and Import Profiles are now in the Tools menu if you're using the Modern layout. Before, you had to switch to Classic to find them. Please note: you can only import and export radios that exist on your local network. If you're using a friend's remote, or if you sent your radio to a friend's place so it can use their 25 acre antenna farm, you best ask either friend to log in and send you your profile file. Once JJ Flex HQ has a local network accessible radio, we hope to analyze how profiles are stored so that we can read them properly.
+- **Connection Tester**: Having trouble connecting to your radio? The radio selector dialog now has a built-in connection tester — pick a radio, hit Test, and it runs diagnostic cycles that measure connection timing, identify failures, and report the actual reason something went wrong. These test results can help us here at JJ Flexible HQ (I'm an HQ of one intrepid ham, don't judge me). This is a great feature which can help us to help you with your SmartLink connection issues or verifying your setup before you get on the air.
+- **Export and Import in the Modern menu**: Export Profiles and Import Profiles are now in the Tools menu if you're using the Modern layout. Before, you had to switch to Classic to find them. Please note: you can only import and export radios that exist on your local network. If you're using a friend's remote, or if you sent your radio to a friend's place so it can use their 25 acre antenna farm, you best ask either friend to log in and send you your profile file. Once JJ Flexible HQ has a local network accessible radio, we hope to analyze how profiles are stored so that we can read them properly.
 
 ### Fixes
 
@@ -388,7 +445,9 @@ If you use a refreshable braille display, you can now "see" the band activity. T
 - Profile Reporter can now load-snapshot-restore profiles and enumerate all radio meters.
 - Codebase continues to shrink — down from Jim's original 303,689 lines to our current size which is less than half of the original codebase.
 
-## 4.1.14.0 — Don (WA2IWC)'s Birthday Release
+[Return to top](#top) · [Jump to versions](#versions)
+
+## 4.1.14.0 — Don (WA2IWC)'s Birthday Release {#v4-1-14-0}
 
 Released on 2/14 — Valentine's Day and Don's birthday. Happy birthday Don!
 
@@ -418,7 +477,9 @@ This release wraps up the Modern menu build-out, polishes Logging Mode, and adds
 - **NVDA double-reads in QSO grid**: If you arrow left/right through QSO grid cells in NVDA, it reads cell values twice (e.g., "SSB SSB mode"). JAWS handles it fine, so if you wanna see where we're going soon, run JAWS and you'll hear a spreadsheet-like experience where you'll hear rows and columns read, an informational nirvana, and a sneak peek into future grids we've got planned for ya. Will fix this properly in the next release.
 - **App doesn't grab focus on launch**: If you double-click the exe in Explorer, the app starts but focus stays on the Explorer window. Annoying — on my list to fix.
 
-## 4.1.13.0 — Callbook Fallback, QRZ Logbook, Hotkeys v2
+[Return to top](#top) · [Jump to versions](#versions)
+
+## 4.1.13.0 — Callbook Fallback, QRZ Logbook, Hotkeys v2 {#v4-1-13-0}
 
 This release packs two full feature sets plus a major hotkey overhaul. The callbook system got a safety net (QRZ goes down? HamQTH picks up automatically), QRZ Logbook uploads your QSOs in real time, and every hotkey in the app now works reliably in every mode. That last part sounds like it should have always been true — turns out the menu system was quietly eating our Alt-key shortcuts. Not anymore.
 
@@ -458,7 +519,9 @@ This release packs two full feature sets plus a major hotkey overhaul. The callb
 - **Modern menu accessibility**: All Modern mode menus and submenus now have proper screen reader labels.
 - **Ctrl+Shift+M in Logging Mode**: Previously ignored the toggle. Now exits Logging Mode first, then switches Classic/Modern as expected.
 
-## 4.1.12.0 — Logging Mode
+[Return to top](#top) · [Jump to versions](#versions)
+
+## 4.1.12.0 — Logging Mode {#v4-1-12-0}
 
 This is the one I've been building toward. JJFlexRadio now has a dedicated Logging Mode — press Ctrl+Shift+L from anywhere in the app and you're in a clean, focused QSO entry screen. No menus full of radio controls you don't need mid-QSO, no hunting for the right form. Just you, your log, and the radio.
 
@@ -478,7 +541,9 @@ This is the one I've been building toward. JJFlexRadio now has a dedicated Loggi
 
 If you've been opening JJFlexRadio just to log a few CW QSOs and wished the UI would get out of the way, this is that update.
 
-## 4.1.11.0 — Classic/Modern Mode, Auto-Connect & Audio Fix
+[Return to top](#top) · [Jump to versions](#versions)
+
+## 4.1.11.0 — Classic/Modern Mode, Auto-Connect & Audio Fix {#v4-1-11-0}
 
 This one's about giving you choices. JJFlexRadio now has two UI modes — Classic for the "if it ain't broke" crowd, and Modern for those of us who want a cleaner, more accessible interface that's built for screen readers from the ground up. Plus, auto-connect means the app just connects to your radio when it starts, and we finally fixed the "why is this so quiet?" WAN audio problem.
 
@@ -506,7 +571,9 @@ Think of it like this: Classic is the cozy old shack with the tubes glowing in t
 
 If you've been frustrated by clicking through the radio selector every single launch, or by turning your laptop volume to 100% just to hear the radio, this is your update.
 
-## 4.1.10.0 — SmartLink Saved Accounts
+[Return to top](#top) · [Jump to versions](#versions)
+
+## 4.1.10.0 — SmartLink Saved Accounts {#v4-1-10-0}
 
 Finally! This one's been on my list forever. You can now save your SmartLink login and stop typing credentials every ... single ... time you want to connect to a remote radio. I know, I know — it should have been there from day one.
 
@@ -518,7 +585,9 @@ Finally! This one's been on my list forever. You can now save your SmartLink log
 
 When you click Remote and have saved accounts, you'll see the account picker. Want to log in fresh? Just hit "New Login."
 
-## 4.1.9.1 — WebView2 & Screen Reader Fixes
+[Return to top](#top) · [Jump to versions](#versions)
+
+## 4.1.9.1 — WebView2 & Screen Reader Fixes {#v4-1-9-1}
 
 This patch squashes some bugs that made SmartLink login a real pain, especially if you use a screen reader.
 
@@ -529,7 +598,9 @@ This patch squashes some bugs that made SmartLink login a real pain, especially 
 
 If SmartLink was hanging or your screen reader went mysteriously silent during login, give this version a try.
 
-## 4.1.9.0 — The .NET 8 Migration Release
+[Return to top](#top) · [Jump to versions](#versions)
+
+## 4.1.9.0 — The .NET 8 Migration Release {#v4-1-9-0}
 
 This is a big one. I finally ripped the band-aid off and migrated the entire codebase from the old .NET Framework to the modern .NET 8. Here's what changed:
 
@@ -539,7 +610,9 @@ This is a big one. I finally ripped the band-aid off and migrated the entire cod
 - **Smart native DLL loading**: Automatically loads the correct 64-bit or 32-bit audio libraries at startup. No more manual file shuffling.
 - **Housekeeping**: Removed legacy radio support (Icom, Kenwood, Generic) since this is JJ*Flex*Radio after all. Also added FLEX-8400 and Aurora AU-510 to the rig table.
 
-## 4.1.8.0 — Feature Availability & Accessibility
+[Return to top](#top) · [Jump to versions](#versions)
+
+## 4.1.8.0 — Feature Availability & Accessibility {#v4-1-8-0}
 
 - **Feature Availability tab**: The Radio Info dialog now has a second tab that shows exactly which features your radio and license support — Diversity, ESC, CW Autotune, NR/ANF variants. If Flex releases a new feature and you aren't a subscriber, you'll see which features are available and which aren't. No guessing.
 - **Quick access from Actions menu**: One click opens Radio Info straight to the Feature Availability tab.
@@ -548,15 +621,21 @@ This is a big one. I finally ripped the band-aid off and migrated the entire cod
 - **Single-SCU radio awareness**: If your radio has one SCU, you won't see Diversity Reception or ESC controls cluttering up the interface.
 - **Audio device setup**: Actions menu now has "Audio Device Setup..." for changing your sound device. Also fixes errors that occurred when no audio device was selected.
 
-## 4.1.7.0
+[Return to top](#top) · [Jump to versions](#versions)
+
+## 4.1.7.0 {#v4-1-7-0}
 
 I did a cleanup pass here but never shipped it. Think of this as a scratchpad release that I used to squash bugs and keep momentum.
 
-## 4.1.6.0 — Error Reporting
+[Return to top](#top) · [Jump to versions](#versions)
+
+## 4.1.6.0 — Error Reporting {#v4-1-6-0}
 
 - Wired up crash reporting so you no longer need a debug build to send useful crash info. A crash now generates a dump and stack trace that I can actually use to fix things.
 
-## 4.1.5.0 — Subscription Awareness
+[Return to top](#top) · [Jump to versions](#versions)
+
+## 4.1.5.0 — Subscription Awareness {#v4-1-5-0}
 
 - Hidden controls your radio isn't licensed for so we don't tease features you can't use.
 - Tightened up the codebase by removing more legacy leftovers to make things less confusing to maintain.
@@ -566,32 +645,46 @@ I did a cleanup pass here but never shipped it. Think of this as a scratchpad re
 - CW Autotune landed in Actions for CW mode — it finds the strongest CW signal using your configured sidetone.
 - Added "Daily log trace" because it's nerdy and useful: it auto-creates daily traces and archives the previous day.
 
-## 4.1.0.0
+[Return to top](#top) · [Jump to versions](#versions)
+
+## 4.1.0.0 {#v4-1-0-0}
 
 - Pulled in FlexLib 4.1.3 so we stay current with upstream bug fixes and API changes.
 - Continued wiring up noise/mitigation features.
 - Added an ESC dialog (Enhanced Signal Clarity) for radios with enough SCUs.
 - Started building subscription-aware UI to align with SmartSDR+ feature gating.
 
-## 4.0.5.0
+[Return to top](#top) · [Jump to versions](#versions)
+
+## 4.0.5.0 {#v4-0-5-0}
 
 - Added the advanced NR/ANF controls (RNN, NRF/NRS/NRL, ANFT/ANFL) and made their availability license-aware with clear tooltips.
 - Added a helper to wrap all the "can we do diversity?" checks in one place (license, antennas, slices, etc.).
 - Replaced DotNetZip with built-in compression to close a known security issue.
 - Expanded the radio registry so each Flex model uses capability checks instead of hardcoded behavior.
 
-## 4.0.4.0
+[Return to top](#top) · [Jump to versions](#versions)
+
+## 4.0.4.0 {#v4-0-4-0}
 - Continued migration to FlexLib 4.0 APIs.
 - Auth/SmartLink page improvements.
 
-## 4.0.3.0
+[Return to top](#top) · [Jump to versions](#versions)
+
+## 4.0.3.0 {#v4-0-3-0}
 - Initial FlexLib 4.0 adoption across core radio paths.
 - Stability fixes in Filters and Pan controls.
 
-## 4.0.2.0
+[Return to top](#top) · [Jump to versions](#versions)
+
+## 4.0.2.0 {#v4-0-2-0}
 - SmartLink connection reliability improvements.
 - Solution cleanup.
 
-## 4.0.1.0
+[Return to top](#top) · [Jump to versions](#versions)
+
+## 4.0.1.0 {#v4-0-1-0}
 - Start of the 4.x line, compatibility with SmartSDR 4.0.
+
+[Return to top](#top) · [Jump to versions](#versions)
 - Initial docs for missing features.
