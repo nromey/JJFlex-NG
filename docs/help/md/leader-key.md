@@ -1,69 +1,71 @@
 # Leader Key Commands
 
-The leader key gives you quick access to DSP toggles, meter controls, status readouts, and other frequently used features without memorizing dozens of hotkeys. Just press `Ctrl+J` and then a single letter.
+The leader key gives you quick access to DSP toggles, meter controls, status readouts, and other frequently used features without having to memorise dozens of hotkeys. You press `Ctrl+J` and then a single letter (sometimes with Shift).
 
 ## How It Works
 
-1. Press `Ctrl+J`. You'll hear a rising "bink" tone — leader mode is active.
-2. Within about 2 seconds, press one of the command keys listed below.
-3. The action executes and leader mode ends automatically.
+1. Press `Ctrl+J`. You will hear a rising "bink" tone — leader mode is now active.
+2. Within about two seconds, press one of the command keys listed below.
+3. The action executes, and leader mode ends automatically.
 
-If you change your mind, press `Escape` or just wait for the timeout. You'll hear a soft falling tone letting you know leader mode has cancelled.
+If you change your mind, press `Escape` or just wait for the timeout. You will hear a soft falling tone letting you know that leader mode has cancelled.
 
-## Available Commands
-
-### DSP Toggles
+## DSP Toggles
 
 | Key | Action |
 |-----|--------|
-| N | Toggle Neural Noise Reduction (RNN) on/off |
-| B | Toggle Noise Blanker on/off |
-| A | Toggle Audio Peak Filter (APF) on/off — CW mode only |
+| N | Toggle Legacy Noise Reduction on or off |
+| Shift+N | Toggle NR Filter on or off (model-specific) |
+| B | Toggle Noise Blanker on or off |
+| W | Toggle Wideband Noise Blanker on or off |
+| R | Toggle Neural Noise Reduction (RNN) on or off |
+| Shift+R | Toggle PC-side Neural Noise Reduction on or off |
+| S | Toggle Spectral Noise Reduction on or off |
+| A | Toggle Auto Notch Filter on or off |
+| P | Toggle Audio Peak Filter on or off (CW mode only) |
 
-### Meter Controls
-
-| Key | Action |
-|-----|--------|
-| M | Toggle meter tones on/off |
-| E | Toggle meter tones on/off (alias for M) |
-| P | Cycle meter preset (RX Monitor, TX Monitor, Full Monitor) |
-| R | Speak current meter readings |
-
-### Status and Information
+## Filter Information
 
 | Key | Action |
 |-----|--------|
-| S | Speak full status (frequency, mode, band, slice — multi-slice aware) |
-| F | Speak current TX filter width |
+| F | Speak the current TX filter width |
+| Shift+F | Speak the current RX filter width |
+| Ctrl+F | Open the direct frequency-entry box |
+
+## Meter and Tuning
+
+| Key | Action |
+|-----|--------|
+| T | Toggle meter tones on or off |
+| Shift+T | Toggle earcon mute on or off |
+| D | Toggle tuning speech debounce on or off |
+
+## Status and Information
+
+| Key | Action |
+|-----|--------|
 | L | Speak log statistics |
+| M | Display Flex memory list |
 
-### Tuning and Audio
-
-| Key | Action |
-|-----|--------|
-| W | Open Audio Workshop |
-| T | Cycle tuning step size |
-| D | Toggle tuning speech debounce on/off |
-
-### Help
+## Help
 
 | Key | Action |
 |-----|--------|
-| ? or H | List all leader key commands |
+| ? or H | List all leader-key commands aloud |
 | Escape | Cancel leader mode |
 
 ## Audio Feedback
 
-Every leader key action has audio feedback:
+Every leader-key action has its own audio feedback:
 
-- **Feature toggled on:** A two-step rising tone (bonk-bink), then speech: "Neural NR on"
-- **Feature toggled off:** A two-step falling tone (bink-bonk), then speech: "Neural NR off"
-- **Status spoken:** No earcon, just speech with the requested information
-- **Invalid key:** A dull buzz, then speech: "Unknown command"
-- **Cancelled/timeout:** A soft descending tone, no speech
+- **Feature toggled on** — a two-step rising tone (bonk-bink), then speech confirming the new state: for example, "Neural NR on."
+- **Feature toggled off** — a two-step falling tone (bink-bonk), then speech: "Neural NR off."
+- **Information spoken** — no earcon, just speech with the requested information.
+- **Invalid or unavailable key** — a dull buzz, then speech: for example, "Audio Peak Filter is CW only" or "Neural NR not available on this radio."
+- **Cancelled or timed out** — a soft descending tone, no speech.
 
 ## Why a Leader Key?
 
-The leader key pattern is borrowed from Vim and other keyboard-driven tools. Instead of needing a unique modifier combination for every feature (which would quickly exhaust the available Ctrl+Alt+Shift combinations), you press one "leader" combo and then a memorable letter. N for Neural NR, B for Blanker, M for Meters, S for Status — easy to remember.
+The leader-key pattern is borrowed from Vim and other keyboard-driven tools. Instead of needing a unique modifier combination for every feature (which would quickly exhaust the available Ctrl, Alt, and Shift combinations), you press one "leader" chord and then a memorable letter. B for Blanker, R for RNN, S for Spectral, M for Memory — easy to remember once you have used them a few times.
 
-**Tip:** Press `Ctrl+J` then `?` (or `H`) to hear the full list of leader commands at any time. You don't need to memorize this page.
+**Tip:** Press `Ctrl+J`, then `?` (or `H`) to hear the full list of leader-key commands read aloud at any time. You do not need to memorise this page.

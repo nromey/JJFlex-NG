@@ -1,27 +1,28 @@
-# Quick Actions (Ctrl+Tab)
+# Quick Actions (Redesign in Progress)
 
-Ctrl+Tab opens the Quick Actions palette — a small, keyboard-driven list of the things you reach for most often during a QSO. The palette is always there, regardless of which dialog or panel you happen to be in. Think of it as a cockpit-style shortcut to the handful of actions that don't belong buried in a menu.
+The Ctrl+Tab "Quick Actions" popup menu has been temporarily disabled and is being redesigned. This help page is kept so that users who remember the old popup know where it went.
 
-## What's in the palette
+## What Changed
 
-The current palette exposes:
+In earlier releases, pressing `Ctrl+Tab` opened a small popup menu containing ATU Tune, Tune Carrier, Transmit, and Speak Status. That popup menu has been disabled.
 
-- ATU Tune — kicks off the automatic antenna tuner cycle on radios that have one.
-- Tune Carrier — toggles the manual tune carrier on and off. Useful for setting mic levels, checking SWR with a steady signal, or warming up a linear.
-- Transmit — toggles PTT. Same as hitting the PTT key, but hands-free-friendly if your hands are already on the keyboard.
-- Speak Status — announces the current listening state (frequency, mode, band, slice) without opening a dialog.
+`Ctrl+Tab` now does what a keyboard-driven user expects Ctrl+Tab to do in a tabbed interface — it cycles through the major field groups on the main window (DSP, Audio, Receiver, Transmission, Antenna). `Ctrl+Shift+Tab` reverses the direction of that cycling. See the Keyboard Reference page for full details.
 
-## How to use it
+## Why the Change
 
-- Press Ctrl+Tab from anywhere in the app.
-- The palette opens with the first item focused. Up/Down arrows move between items.
-- Enter activates the selected item and closes the palette.
-- Escape closes the palette without doing anything.
+The old popup menu did not behave like an accessible toolbar the way it was intended to — it was more of a one-off command palette, and stealing `Ctrl+Tab` for it conflicted with the universal "cycle between panes or tabs" convention. A future release will introduce a proper accessible toolbar, with a persistent presence and standard navigation behaviour, that restores access to those actions in a form that does not collide with panel navigation.
 
-## Why it exists
+## What to Use Instead for Now
 
-Most radio apps bury these actions three menus deep. ATU Tune in particular is a button you press several times a session when working different bands. Ctrl+Tab puts it one chord away, every time, regardless of where focus is. Works the same way for the other actions — they share one shortcut by virtue of being the actions you'd otherwise hunt for.
+Until the redesigned toolbar ships, the individual actions that used to be in the popup are still available through their regular hotkeys:
 
-## What's not in the palette yet
+- **ATU Tune** — press `Ctrl+T`.
+- **Tune Carrier** — press `Ctrl+Shift+T` to toggle the carrier on or off.
+- **Transmit** — use your PTT input (footswitch, hand microphone, or VOX).
+- **Speak Status** — press `Ctrl+Shift+S` for a short status summary, or `Ctrl+Alt+S` for the full live Status dialog.
 
-Intentionally small. Adding everything under the sun would defeat the point. If you have a feature that you reach for constantly and think belongs here, mention it — the palette's contents are curated, not automatic.
+## Related Topics
+
+- PTT and Transmission
+- Status Dialog
+- Keyboard Reference
