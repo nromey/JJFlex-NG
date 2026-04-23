@@ -1,44 +1,44 @@
 # Escape and Collapse
 
-Escape is your "back out" key in JJ Flex. It works differently depending on what you're doing and whether you press it once or twice.
+The Escape key is your "back out" key in JJ Flexible Radio Access. It behaves differently depending on what you are doing and on whether you press it once or twice.
 
 ## Single Escape
 
-Press `Escape` once when focused inside an expanded field group (DSP, Audio, Receiver, Transmission, or Antenna). The group collapses, focus lands on the group header, and you hear a short descending chirp confirming the collapse.
+Press `Escape` once while focus is inside an expanded field group (DSP, Audio, Receiver, Transmission, or Antenna). The group collapses, focus moves to the group's header, and you will hear a short descending chirp confirming the collapse.
 
-If you're not inside an expanded group — for example, you're on Home already — single Escape returns focus to Home, same as pressing `F2`.
+If you are not inside an expanded group — for example, you are already in the JJ Flexible Home — a single Escape simply returns focus to the JJ Flexible Home, the same destination that `F2` takes you to.
 
 ## Double Escape (Collapse All)
 
-Press `Escape` twice quickly. All open field groups collapse at once, focus returns to Home, and you hear the "two-tone descent" earcon — a higher tone followed by a lower tone — signaling "everything closed, you're home."
+Press `Escape` twice in quick succession. All open field groups collapse at once, focus returns to the JJ Flexible Home, and you will hear the "two-tone descent" earcon — a higher tone followed by a lower one — signalling "everything is closed, you are back at Home."
 
-"Quickly" here is controlled by your double-tap tolerance setting (see the Double-Tap Tolerance help topic). The default is 500 milliseconds between presses.
+"Quickly" in this context is controlled by your Double-Tap Tolerance setting (see the Double-Tap Tolerance help topic). The default tolerance is 500 milliseconds between presses.
 
-## Why It Works This Way
+## Why Escape Works This Way
 
-Escape as "back out" works at two scales:
+Escape as a "back out" key works at two scales inside JJ Flexible Radio Access:
 
-- One Escape = back out of the current group (local)
-- Two Escapes = back out of everything (global)
+- A single Escape backs you out of the current group — a local scope.
+- Two Escapes in quick succession back you out of everything — a global scope.
 
-Same key, same semantic, two levels of scope. You learn the rule once and it applies everywhere.
+The same key carries the same underlying meaning, applied at two different levels of reach. You learn the rule once, and it applies everywhere in the application.
 
-## Re-Expanding a Collapsed Group
+## Re-expanding a Collapsed Group
 
-After Escape-collapse, focus is on the group's header. Press `Space` to re-expand the group. You'll hear the ascending "expand" earcon (mirror of the collapse chirp, going up instead of down).
+After an Escape-collapse, focus sits on the group's header. Press `Space` to re-expand the group. You will hear the ascending "expand" earcon, which mirrors the collapse chirp — the tone sweeps up instead of down.
 
-## What You'll Hear
+## What You Will Hear
 
-- **Collapse one group:** descending chirp from 1200 Hz down to 400 Hz over 350 ms, with a gritty noise sweep that cuts through radio ambient noise.
-- **Expand one group:** ascending chirp, 400 Hz up to 1200 Hz, same texture.
-- **Collapse all (double Escape):** two-tone descent — 1200 Hz then 400 Hz, about half a second total. Distinct from the single-group chirps so you know "I collapsed everything," not just one group.
+- **Collapsing one group** — a descending chirp from 1200 Hz down to 400 Hz over 350 milliseconds, with a gritty noise sweep that cuts through radio ambient noise.
+- **Expanding one group** — an ascending chirp, 400 Hz up to 1200 Hz, using the same texture.
+- **Collapsing all groups (double Escape)** — a two-tone descent: 1200 Hz, then 400 Hz, about half a second in total. The sound is deliberately different from the single-group chirps, so you always know whether you have collapsed one group or all of them.
 
 ## Adjusting the Timing
 
-If double Escape feels too fast or too slow for you, adjust the **double-tap tolerance** in **Settings > Accessibility**. The same setting controls filter-edge bracket double-tap timing (pressing `[` or `]` twice quickly to enter filter-edge adjustment mode).
+If double Escape feels too fast or too slow for you, adjust the **Double-Tap Tolerance** setting under **Settings > Accessibility**. The same tolerance value also controls filter-edge bracket timing — the double-tap you use when you press `[` or `]` twice quickly to enter filter-edge adjustment mode.
 
 ## Related Topics
 
-- Home
+- JJ Flexible Home
 - Double-Tap Tolerance
 - Keyboard Reference

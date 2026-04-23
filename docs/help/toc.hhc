@@ -57,8 +57,8 @@
   </OBJECT>
   <UL>
     <LI><OBJECT type="text/sitemap">
-      <param name="Name" value="Home (main interactive region)">
-      <param name="Local" value="pages\home-region.htm">
+      <param name="Name" value="JJ Flexible Home">
+      <param name="Local" value="pages\jj-flexible-home.htm">
     </OBJECT>
     <LI><OBJECT type="text/sitemap">
       <param name="Name" value="Escape & Collapse">

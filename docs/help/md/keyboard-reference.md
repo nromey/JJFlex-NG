@@ -113,7 +113,7 @@ These keys work from ANY field within your  JJ Flexible Home. First, remember to
 | Q | Toggle squelch on/off |
 | = | Transceive current slice (set both RX and TX to this slice) |
 
-## Home Region — Slice Field Keys
+## JJ Flexible Home — Slice Field Keys
 
 When focused on the Slice field specifically:
 
@@ -129,7 +129,7 @@ When focused on the Slice field specifically:
 | Home | Pan center |
 | Page Down | Pan left |
 
-## Home Region — Slice Operations Field Keys
+## JJ Flexible Home — Slice Operations Field Keys
 
 When focused on the Slice Operations field (per-slice audio controls):
 
@@ -143,7 +143,7 @@ When focused on the Slice Operations field (per-slice audio controls):
 | A | Set the currently selected slice to active (RX) |
 | T | set the currently selected  slice to transmit (TX)|
 
-## Home Region — Squelch Level Field Keys
+## JJ Flexible Home — Squelch Level Field Keys
 
 When focused on the Squelch Level field:
 
