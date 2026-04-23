@@ -1,43 +1,44 @@
 # Settings and Profiles
 
-JJ Flexible Radio Access has settings to customize the application to fit your operating style.
+JJ Flexible Radio Access has a Settings dialog that lets you customise the application to fit your operating style.
 
-## Opening Settings
+## Opening the Settings Dialog
 
-Access settings from the Settings menu or the appropriate menu item.
+Open the **Tools** menu and choose **Settings**. The Settings dialog opens as a tabbed window, and you can tab through the tabs to find the section you want.
 
-## Key Settings
+## Key Settings Tabs
 
-- **Operating Mode** — Switch between Modern and Classic layout
-- **Audio Routing** — Configure speaker, headphone, and line out settings
-- **CW Messages** — Set up your `Ctrl+1` through `Ctrl+7` CW message macros
-- **Callbook Service** — Choose QRZ.com, HamQTH, or other lookup services
-- **Earcon Volume** — Adjust the volume of UI sound effects
-- **Tuning** — Configure tuning speech debounce (see below)
-- **License** — Country selection and transmit rule enforcement (see below)
+- **Operating Mode** — switch between the Modern and Classic layouts.
+- **Audio Routing** — configure your speaker, headphone, and line-out settings.
+- **CW Messages** — set up the CW message macros that fire on `Ctrl+1` through `Ctrl+7`.
+- **Callbook Service** — choose QRZ.com, HamQTH, or another callbook lookup service.
+- **Earcon Volume** — adjust the volume of the application's alert sounds.
+- **Tuning** — configure tuning speech debounce (see below).
+- **License** — country selection and transmit rule enforcement (see below).
+- **Accessibility** — the Double-Tap Tolerance setting and other accessibility controls live here.
 
 ## Profiles
 
-Settings profiles let you save and switch between different configurations. This is useful if you operate from different locations or switch between different operating styles (contesting vs. ragchewing, for example).
+Settings profiles let you save and switch between different configurations. Profiles are useful if you operate from different locations, or if you switch between different operating styles — for example, a contest profile with tighter filters and a ragchew profile with more comfortable bandwidth.
 
-## Tuning Tab
+## The Tuning Tab
 
-The **Tuning** tab controls how frequency announcements work while you're tuning:
+The **Tuning** tab controls how frequency announcements work while you are tuning:
 
-- **Enable tuning debounce** — When checked, the app waits until you stop pressing arrow keys before speaking the frequency. This avoids hearing every intermediate step when you're tuning rapidly.
-- **Debounce delay (ms)** — How long the app waits after your last keystroke before speaking the final frequency. A shorter delay means faster feedback; a longer delay means more silence while tuning. The default works well for most operators.
+- **Enable tuning debounce** — when this is checked, the application waits until you stop pressing arrow keys before speaking the frequency. Tuning debounce prevents you from hearing every intermediate step when you are tuning rapidly across a band.
+- **Debounce delay (ms)** — how long the application waits after your last keystroke before speaking the final frequency. A shorter delay gives you faster feedback; a longer delay means more silence while you are still tuning. The default works well for most operators.
 
-You can also toggle debounce on the fly with the leader key: press `Ctrl+J` then `D`.
+You can also toggle tuning debounce on the fly with the leader key — press `Ctrl+J`, then `D`.
 
-## License Tab
+## The License Tab
 
 The **License** tab controls country-specific transmit rules:
 
-- **Country** — Select your country (defaults to US). This determines which band plans and channelization rules apply.
-- **Enforce transmit rules** — When checked, the app restricts tuning and transmission to legal frequencies and channels for your country. For example, on 60 meters in the US, this limits you to the 5 authorized channels plus the digital segment.
+- **Country** — select your country (the default is US). Your choice determines which band plans and channelisation rules apply.
+- **Enforce transmit rules** — when this is checked, the application restricts tuning and transmission to legal frequencies and channels for your country. For example, on 60 meters in the US this setting limits you to the 5 authorised channels plus the digital segment.
 
 ## Configuration Files
 
-JJ Flexible Radio Access stores its configuration in your user profile folder at `%AppData%\JJFlexRadio\`. If you ever need to start fresh, you can rename or delete this folder (with the application closed) and the app will create new default settings on next launch.
+JJ Flexible Radio Access stores its configuration in your user profile folder at `%AppData%\JJFlexRadio\`. (The folder name uses the internal binary name, not the product name.) If you ever need to start from scratch, you can rename or delete that folder while the application is closed, and JJ Flexible Radio Access will create fresh default settings the next time it launches.
 
-**Warning:** Back up your configuration folder before making changes to it. Deleting it means losing your saved settings, CW messages, and profiles.
+**Warning:** Back up your configuration folder before making any destructive changes to it. Deleting the folder means losing your saved settings, your CW messages, and your profiles.

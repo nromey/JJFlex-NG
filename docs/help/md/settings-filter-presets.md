@@ -1,28 +1,28 @@
 # Filter Presets
 
-Filter widths on every mode are preset to reasonable defaults out of the box — but "reasonable" depends on what you do. A DXer chasing weak CW wants a narrower set of CW presets than a ragchewer who lives in 600 Hz of passband. You can edit the presets per operator, and the changes survive restart.
+Filter widths on every mode are preset to reasonable defaults out of the box — but "reasonable" depends on what you do on the air. A DXer chasing weak CW signals wants a narrower set of CW presets than a ragchewer who lives in 600 Hz of passband. You can edit the filter presets per operator, and your changes survive across application restarts.
 
-## Where to edit them
+## Where to Edit Them
 
-Settings > Tuning > Edit Filter Presets opens a dialog listing each mode (CW, USB, LSB, AM, FM, DIG, etc.) with its current preset widths. Each mode has a list of preset widths you can cycle through with the filter hotkeys during operation.
+Open **Tools > Settings > Tuning > Edit Filter Presets**. A dialog appears, listing each mode (CW, USB, LSB, AM, FM, DIG, and others) along with its current preset widths. Each mode has its own list of preset widths, which you can cycle through using the filter hotkeys during operation.
 
-You can:
+From the Edit Filter Presets dialog, you can:
 
 - Change the width of an existing preset.
 - Add a new preset to a mode's list.
-- Remove a preset you don't use.
-- Reorder presets so the one you reach for most is first.
+- Remove a preset you do not use.
+- Reorder the presets, so the one you reach for most often is first.
 
-## What "per operator" means
+## What "Per Operator" Means
 
-Filter presets live with the rest of your per-operator config (callsign, audio routing, typing sounds, etc.). If two hams share the same computer with different operator names configured, each one gets their own preset lists. Switching operators switches the presets.
+Filter presets live with the rest of your per-operator configuration (callsign, audio routing, typing sounds, and so on). If two hams share the same computer under different operator names, each one gets their own preset lists. Switching operators switches the presets along with everything else.
 
-## Defaults if you reset
+## Defaults If You Reset
 
-Settings > Reset to defaults restores the baseline preset lists. Useful if you've edited yourself into a corner and want to start fresh. The reset is per-operator — your defaults get restored, but another operator's custom lists don't.
+**Tools > Settings > Reset to defaults** restores the baseline preset lists for the current operator. This is useful if you have edited yourself into a corner and you want to start over from the standard configuration. The reset is scoped per operator — your defaults come back, but another operator's custom lists on the same computer are not disturbed.
 
-## How the filter hotkeys use them
+## How the Filter Hotkeys Use the Presets
 
-During operation, the filter narrower / wider hotkeys step through the current mode's preset list. Narrowing from the widest preset goes one step tighter each press; wider does the opposite. When you wrap past the narrowest or widest, the hotkey announces the current setting without wrapping to the other end — so you know you've hit the edge of what you have configured.
+During operation, the "filter narrower" and "filter wider" hotkeys step through the current mode's preset list. Narrowing from the widest preset goes one step tighter with each press; widening does the opposite. When you reach the narrowest or widest preset in the list, the hotkey announces the current setting and then stays there instead of wrapping around — so you always know when you have hit the edge of what you have configured.
 
-If you find yourself wishing for a width you don't have in the list, add it in Settings. That's the whole point of customizable presets.
+If you find yourself wishing for a width that is not in the list, just add it in Settings. That is the whole point of customisable presets.
