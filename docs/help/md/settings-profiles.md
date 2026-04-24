@@ -8,7 +8,7 @@ Open the **Tools** menu and choose **Settings**. The Settings dialog opens as a 
 
 ## Key Settings Tabs
 
-- **Operating Mode** — switch between the Modern and Classic layouts.
+- **Operating Mode** — switch between Modern tuning mode and Classic tuning mode.
 - **Audio Routing** — configure your speaker, headphone, and line-out settings.
 - **CW Messages** — set up the CW message macros that fire on `Ctrl+1` through `Ctrl+7`.
 - **Callbook Service** — choose QRZ.com, HamQTH, or another callbook lookup service.

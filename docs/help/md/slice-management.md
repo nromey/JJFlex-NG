@@ -8,7 +8,7 @@ FlexRadio slices are like independent receivers — each one has its own frequen
 - **Release Slice** — removes the most recently added slice. You will hear a confirmation such as "Slice released, 2 slices active" depending on how many slices remain.
 - You cannot release the only slice. If you try, you will hear: "Cannot release the only slice."
 
-These commands are available in the Classic and Modern menus, and also through the ScreenFields panel under the Audio and Slice category (`Ctrl+Shift+2`).
+These commands are available through the Radio menu, and also through the ScreenFields panel under the Audio and Slice category (`Ctrl+Shift+2`). The menu structure is the same whether you are in Classic tuning mode or Modern tuning mode.
 
 ## How Many Slices Can You Have?
 

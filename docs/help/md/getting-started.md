@@ -56,4 +56,4 @@ Here are the first things you might want to try:
 
 - **Screen Reader Setup** — Fine-tune NVDA or JAWS for JJ Flexible Radio Access.
 - **Keyboard Reference** — Learn all the hotkeys.
-- **Operating Modes** — Understand Classic and Modern modes.
+- **Operating Modes** — Understand Classic tuning mode and Modern tuning mode.
