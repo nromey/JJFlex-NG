@@ -1511,7 +1511,35 @@ public class KeyCommands
         foreach (var saved in savedItems)
         {
             var currentDefault = GetDefaultKey(saved.Id);
-            if (currentDefault == null) continue;
+
+            // Default-was-removed case: a command that used to have a default
+            // key binding no longer does (the binding was moved to another
+            // command in a newer version). If the user never customized the
+            // old default, clear their saved binding so the key slot is free
+            // for the new owner to take over via MergeNewDefaults. If the user
+            // customized, keep their binding — they clearly wanted that key
+            // on that command.
+            //
+            // Concrete case driving this: Sprint 28 moved Shift+M from
+            // MuteSlice (single-slice mute) to MuteAllSlices (multi-slice
+            // mute). Users who had never customised Shift+M should get the
+            // new behaviour automatically on first launch after the upgrade.
+            if (currentDefault == null)
+            {
+                if (saved.Key != Keys.None && saved.Key == saved.SavedDefaultKey)
+                {
+                    _context.Trace($"KeyCommands:SmartMerge: {saved.Id} default removed, clearing user's binding (was {saved.Key})");
+                    if (KeyDictionary.TryGetValue(saved.Key, out var staleEntries))
+                    {
+                        staleEntries.RemoveAll(e => e.KeyDef.Id == saved.Id);
+                        if (staleEntries.Count == 0) KeyDictionary.Remove(saved.Key);
+                    }
+                    var staleKt = Lookup(saved.Id);
+                    if (staleKt != null) staleKt.KeyDef.Key = Keys.None;
+                    needWrite = true;
+                }
+                continue;
+            }
 
             // If saved default matches current default, nothing changed.
             if (saved.SavedDefaultKey == currentDefault.Key) continue;
