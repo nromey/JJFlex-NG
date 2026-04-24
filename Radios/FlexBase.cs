@@ -4653,6 +4653,79 @@ namespace Radios
             }
         }
 
+        /// <summary>
+        /// True when every slice owned by this client is currently muted.
+        /// False if any of my slices is unmuted, or if I have no slices at all.
+        /// Used by the Shift+M universal Home key to decide whether the toggle
+        /// action is mute-all or unmute-all.
+        /// </summary>
+        public bool AllMySlicesMuted
+        {
+            get
+            {
+                if (theRadio == null) return false;
+                bool anyMine = false;
+                foreach (var s in theRadio.SliceList)
+                {
+                    if (myClient(s.ClientHandle))
+                    {
+                        anyMine = true;
+                        if (!s.Mute) return false;
+                    }
+                }
+                return anyMine;
+            }
+        }
+
+        /// <summary>
+        /// Mute or unmute every slice owned by this client at once. Per-slice
+        /// mute commands are queued through the same radio command queue as
+        /// SliceMute so the radio processes the changes in order without
+        /// blocking the UI thread.
+        /// </summary>
+        public void SetAllMySlicesMute(bool mute)
+        {
+            if (theRadio == null) return;
+            foreach (var s in theRadio.SliceList)
+            {
+                if (myClient(s.ClientHandle))
+                {
+                    var slice = s; // capture for closure
+                    q.Enqueue((FunctionDel)(() => { slice.Mute = mute; }), "SetAllMySlicesMute");
+                }
+            }
+        }
+
+        /// <summary>
+        /// Release every slice owned by this client except the first one, so
+        /// the operator ends up cleanly on just Slice A. The radio requires
+        /// at least one slice at all times — "release all" strictly means
+        /// "release all the extras." If only one slice is active, this is a
+        /// no-op and returns false.
+        ///
+        /// Moves RXVFO (and TXVFO, when the radio can transmit) to slice 0
+        /// first, because RemoveSlice refuses to remove the currently active
+        /// receive or transmit slice.
+        /// </summary>
+        /// <returns>true if any slice was released, false if nothing to do.</returns>
+        public bool ReleaseAllExtraSlices()
+        {
+            if (theRadio == null) return false;
+            if (MyNumSlices <= 1) return false;
+
+            // Make sure slice 0 is the active receive/transmit slice so the
+            // subsequent RemoveSlice calls are all for non-active slices.
+            RXVFO = 0;
+            if (CanTransmit) TXVFO = 0;
+
+            // Remove slices from highest index down to 1 — leave slice 0 intact.
+            for (int id = MyNumSlices - 1; id >= 1; id--)
+            {
+                RemoveSlice(id);
+            }
+            return true;
+        }
+
         internal const int AudioGainMinValue = 0;
         internal const int AudioGainMaxValue = 100;
         public int AudioGain

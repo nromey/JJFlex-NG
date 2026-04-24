@@ -469,6 +469,57 @@ public partial class ScreenFieldsPanel : UserControl
                 ScreenReaderOutput.Speak("Could not release slice", VerbosityLevel.Terse);
         };
         AudioContent.Children.Add(_releaseSliceButton);
+
+        // Multi-slice buttons — mirror the Home-field Shift+M and Shift+Comma hotkeys.
+        var muteAllButton = new Button
+        {
+            Content = "Mute / Unmute All Slices",
+            Margin = new Thickness(0, 2, 0, 2),
+            Padding = new Thickness(8, 4, 8, 4),
+            HorizontalAlignment = System.Windows.HorizontalAlignment.Left
+        };
+        System.Windows.Automation.AutomationProperties.SetName(
+            muteAllButton, "Mute or unmute all slices at once");
+        muteAllButton.Click += (s, e) =>
+        {
+            if (_rig == null) return;
+            bool target = !_rig.AllMySlicesMuted;
+            _rig.SetAllMySlicesMute(target);
+            if (target) EarconPlayer.MuteAllOnTone();
+            else EarconPlayer.MuteAllOffTone();
+            ScreenReaderOutput.Speak(
+                target ? "All slices muted" : "All slices unmuted", VerbosityLevel.Terse);
+        };
+        AudioContent.Children.Add(muteAllButton);
+
+        var releaseAllButton = new Button
+        {
+            Content = "Release All Extra Slices",
+            Margin = new Thickness(0, 2, 0, 2),
+            Padding = new Thickness(8, 4, 8, 4),
+            HorizontalAlignment = System.Windows.HorizontalAlignment.Left
+        };
+        System.Windows.Automation.AutomationProperties.SetName(
+            releaseAllButton, "Release every slice except the first, back to one slice");
+        releaseAllButton.Click += (s, e) =>
+        {
+            if (_rig == null) return;
+            int before = _rig.MyNumSlices;
+            if (before <= 1)
+            {
+                ScreenReaderOutput.Speak("Only one slice active", VerbosityLevel.Terse);
+                return;
+            }
+            if (_rig.ReleaseAllExtraSlices())
+            {
+                EarconPlayer.MuteAllOnTone();
+                int removed = before - 1;
+                ScreenReaderOutput.Speak(
+                    $"Released {removed} extra {(removed == 1 ? "slice" : "slices")}, 1 slice active",
+                    VerbosityLevel.Terse);
+            }
+        };
+        AudioContent.Children.Add(releaseAllButton);
     }
 
     private void BuildReceiverControls()

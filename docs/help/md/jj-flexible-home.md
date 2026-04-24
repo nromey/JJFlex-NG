@@ -40,12 +40,14 @@ You can set your verbosity under **Settings > Notifications > Speech verbosity**
 
 A small set of letter keys works the same way from any field inside the JJ Flexible Home, so you do not need to navigate to a specific field to use them:
 
-- `M` — toggle mute on or off
+- `M` — toggle mute on or off for the currently active slice
+- `Shift+M` — toggle mute on or off across every slice at once (multi-slice earcon: a rising or falling tri-tone, distinct from the single-slice mute sound so you can tell the two actions apart by ear)
 - `V` — cycle to the next slice
 - `R` — toggle Receiver Incremental Tuning (RIT) on or off
 - `X` — toggle Transmitter Incremental Tuning (XIT) on or off
 - `Q` — toggle squelch on or off
 - `=` — make the current slice transceive (receive and transmit on the same slice)
+- `Shift+Comma` (the `<` key on US keyboards) — release every slice except the first, so you end up cleanly on just Slice A. Handy when you want to reset back to a single-slice setup in one keystroke.
 
 These universal keys let you make quick adjustments without having to arrow to the exact field.
 

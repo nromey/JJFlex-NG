@@ -215,6 +215,21 @@ public class FreqOutHandlers
         var key = RawKey(e);
         char ch = KeyToChar(e);
 
+        // Multi-slice universal Home keys — handled before the main switch so
+        // Shift-modified characters don't collide with unshifted handlers.
+        if (ch == 'M' && Keyboard.Modifiers == ModifierKeys.Shift)
+        {
+            ToggleMuteAllSlices();
+            e.Handled = true;
+            return;
+        }
+        if (key == Key.OemComma && Keyboard.Modifiers == ModifierKeys.Shift)
+        {
+            ReleaseAllExtraSlicesAndAnnounce();
+            e.Handled = true;
+            return;
+        }
+
         // Position within frequency field (0 = leftmost digit = highest significance)
         int fieldStart = _window.FreqOut.GetFieldPosition("Freq");
         int posInField = _window.FreqOut.SelectionStart - fieldStart;
@@ -924,6 +939,21 @@ public class FreqOutHandlers
         char ch = KeyToChar(e);
         int vfo = Rig.RXVFO;
 
+        // Multi-slice universal Home keys — handled before the main switch so
+        // Shift-modified characters don't collide with unshifted handlers.
+        if (ch == 'M' && Keyboard.Modifiers == ModifierKeys.Shift)
+        {
+            ToggleMuteAllSlices();
+            e.Handled = true;
+            return;
+        }
+        if (key == Key.OemComma && Keyboard.Modifiers == ModifierKeys.Shift)
+        {
+            ReleaseAllExtraSlicesAndAnnounce();
+            e.Handled = true;
+            return;
+        }
+
         switch (ch)
         {
             case ' ':
@@ -1160,6 +1190,21 @@ public class FreqOutHandlers
         var key = RawKey(e);
         char ch = KeyToChar(e);
         int vfo = Rig.RXVFO;
+
+        // Multi-slice universal Home keys — handled before the main switch so
+        // Shift-modified characters don't collide with unshifted handlers.
+        if (ch == 'M' && Keyboard.Modifiers == ModifierKeys.Shift)
+        {
+            ToggleMuteAllSlices();
+            e.Handled = true;
+            return;
+        }
+        if (key == Key.OemComma && Keyboard.Modifiers == ModifierKeys.Shift)
+        {
+            ReleaseAllExtraSlicesAndAnnounce();
+            e.Handled = true;
+            return;
+        }
 
         switch (key)
         {
@@ -1562,6 +1607,52 @@ public class FreqOutHandlers
             VerbosityLevel.Terse, interrupt: true);
     }
 
+    /// <summary>
+    /// Shared Shift+M handler — toggle mute across every slice this client
+    /// owns. If any of my slices is currently unmuted, the action is
+    /// mute-all; if all my slices are already muted, the action is
+    /// unmute-all. Plays the tri-tone multi-slice earcon so the user can
+    /// distinguish a fleet-wide action from a single-slice toggle.
+    /// </summary>
+    private void ToggleMuteAllSlices()
+    {
+        if (Rig == null) return;
+        bool target = !Rig.AllMySlicesMuted;
+        Rig.SetAllMySlicesMute(target);
+        if (target) EarconPlayer.MuteAllOnTone();
+        else EarconPlayer.MuteAllOffTone();
+        Radios.ScreenReaderOutput.Speak(
+            target ? "All slices muted" : "All slices unmuted",
+            VerbosityLevel.Terse, interrupt: true);
+    }
+
+    /// <summary>
+    /// Shared Shift+Comma handler — release every slice except the first, so
+    /// the operator ends up cleanly on just Slice A. The radio requires at
+    /// least one slice, so "release all" strictly means "release all the
+    /// extras." Speaks a no-op announcement when only one slice is active.
+    /// Reuses the multi-slice tri-tone earcon per user request.
+    /// </summary>
+    private void ReleaseAllExtraSlicesAndAnnounce()
+    {
+        if (Rig == null) return;
+        int before = Rig.MyNumSlices;
+        if (before <= 1)
+        {
+            Radios.ScreenReaderOutput.Speak(
+                "Only one slice active", VerbosityLevel.Terse, interrupt: true);
+            return;
+        }
+        if (Rig.ReleaseAllExtraSlices())
+        {
+            EarconPlayer.MuteAllOnTone();
+            int removed = before - 1;
+            Radios.ScreenReaderOutput.Speak(
+                $"Released {removed} extra {(removed == 1 ? "slice" : "slices")}, 1 slice active",
+                VerbosityLevel.Terse, interrupt: true);
+        }
+    }
+
     private void AdjustSquelchLevelBy(int delta)
     {
         if (Rig == null) return;
@@ -1730,6 +1821,21 @@ public class FreqOutHandlers
         if (Rig == null) return;
         var key = RawKey(e);
         char ch = KeyToChar(e);
+
+        // Multi-slice universal Home keys — handled before the main switch so
+        // Shift-modified characters don't collide with unshifted handlers.
+        if (ch == 'M' && Keyboard.Modifiers == ModifierKeys.Shift)
+        {
+            ToggleMuteAllSlices();
+            e.Handled = true;
+            return;
+        }
+        if (key == Key.OemComma && Keyboard.Modifiers == ModifierKeys.Shift)
+        {
+            ReleaseAllExtraSlicesAndAnnounce();
+            e.Handled = true;
+            return;
+        }
 
         // Quick-type frequency entry: digits, dot, Enter, Escape
         if (HandleQuickTypeKey(key, ch, e)) return;

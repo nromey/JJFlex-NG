@@ -565,6 +565,30 @@ public class NativeMenuBar : IDisposable
                 SpeakAfterMenuClose(newMute ? "Muted" : "Unmuted");
             }, () => Rig?.SliceMute == true);
 
+            AddWired(parent, "Mute/Unmute All Slices", () =>
+            {
+                if (Rig == null) { SpeakNoRadio(); return; }
+                bool target = !Rig.AllMySlicesMuted;
+                Rig.SetAllMySlicesMute(target);
+                if (target) EarconPlayer.MuteAllOnTone();
+                else EarconPlayer.MuteAllOffTone();
+                SpeakAfterMenuClose(target ? "All slices muted" : "All slices unmuted");
+            });
+
+            AddWired(parent, "Release All Extra Slices", () =>
+            {
+                if (Rig == null) { SpeakNoRadio(); return; }
+                int before = Rig.MyNumSlices;
+                if (before <= 1) { SpeakAfterMenuClose("Only one slice active"); return; }
+                if (Rig.ReleaseAllExtraSlices())
+                {
+                    EarconPlayer.MuteAllOnTone();
+                    int removed = before - 1;
+                    SpeakAfterMenuClose(
+                        $"Released {removed} extra {(removed == 1 ? "slice" : "slices")}, 1 slice active");
+                }
+            });
+
             AddChecked(parent, "PC Audio On/Off", () =>
             {
                 if (Rig == null) { SpeakNoRadio(); return; }

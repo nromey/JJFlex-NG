@@ -1,4 +1,5 @@
-Headline: Fix for the F2 + M bug Don found — plus two other Sprint 28 polish items
+Headline: Fix for the F2 + M bug Don found — plus two new multi-slice universal
+Home keys that came out of testing the fix, plus two other Sprint 28 polish items
 that Noel surfaced this morning.
 
 WHAT CHANGED SINCE THE LAST DEBUG BUILD YOU RECEIVED
@@ -32,14 +33,50 @@ WHAT CHANGED SINCE THE LAST DEBUG BUILD YOU RECEIVED
    - V cycles between slices when you have more than one active.
    - = sets both RX and TX to the current slice.
 
-2. Plural-slice speech bug is fixed.
+2. Two new multi-slice universal Home keys.
+
+   While verifying the F2 + M fix, Don noticed that M correctly mutes the
+   active slice, but with two slices open you can only hear the effect on
+   one of them. Added two new universal Home keys to address that:
+
+   - Shift + M — toggle mute on or off across every slice you own at once.
+     If any of your slices is unmuted, pressing Shift + M mutes them all.
+     If all your slices are already muted, pressing Shift + M unmutes them
+     all.
+   - Shift + Comma (the < key on US keyboards) — release every slice except
+     the first, so you end up cleanly on just Slice A. Think of it as a
+     one-keystroke "reset back to single slice."
+
+   Both actions use a tri-tone earcon (three notes instead of the usual
+   two-tone toggle) pitched about a musical third above the normal feature
+   toggle earcon, so by ear you can tell "this affects all my slices" from
+   "this affects just the active slice."
+
+   The same actions are also wired up in the slice menu and in the
+   ScreenFields Audio category for mouse-driven operation.
+
+   WHAT WE NEED YOU TO VERIFY
+   - With two or more slices open: press Shift + M. Every slice mutes,
+     tri-tone rises, speech says "All slices muted."
+   - Press Shift + M again. Every slice unmutes, tri-tone falls, speech
+     says "All slices unmuted."
+   - With two or more slices open: press Shift + Comma (or press <).
+     Slice count drops to 1, speech says "Released N extra slices,
+     1 slice active."
+   - With only one slice active: press Shift + Comma. Speech says
+     "Only one slice active," no action.
+   - Find "Mute/Unmute All Slices" and "Release All Extra Slices" in the
+     menu and in ScreenFields. Confirm the buttons do the same thing as
+     the hotkeys.
+
+3. Plural-slice speech bug is fixed.
 
    Create a new slice, release it. The release announcement used to say
    "Slice released, 1 slices active" even when you had exactly one slice
    left. Now it says "Slice released, 1 slice active" (singular when
    appropriate).
 
-3. Squelch Level field now always shows the numeric value.
+4. Squelch Level field now always shows the numeric value.
 
    In earlier builds, the Squelch Level field on the JJ Flexible Home
    showed "---" when squelch was off and only displayed the numeric

@@ -560,6 +560,25 @@ namespace JJFlexWpf
             PlayToneSequence(new[] { (700, 60), (0, 40), (500, 60) }, 0.3f);
         }
 
+        /// <summary>
+        /// Tri-tone ascending — multi-slice mute-all or release-all (any
+        /// "affects all my slices at once" action). Pitched roughly a major
+        /// third above the single-slice FeatureOnTone so the user can tell
+        /// "affects all slices" from "affects one slice" by ear.
+        /// </summary>
+        public static void MuteAllOnTone()
+        {
+            PlayToneSequence(new[] { (625, 55), (0, 30), (785, 55), (0, 30), (940, 55) }, 0.3f);
+        }
+
+        /// <summary>
+        /// Tri-tone descending — multi-slice unmute-all. Mirror of MuteAllOnTone.
+        /// </summary>
+        public static void MuteAllOffTone()
+        {
+            PlayToneSequence(new[] { (940, 55), (0, 30), (785, 55), (0, 30), (625, 55) }, 0.3f);
+        }
+
         /// <summary>Double ascending ding — dialog/popup opened.</summary>
         public static void DialogOpenTone()
         {
