@@ -3,7 +3,64 @@
 This document captures the current state of JJ-Flex repository and active work.
 
 **Repository root:** `C:\dev\JJFlex-NG`
-**Branch:** `sprint28/home-key-qsk` (Phases 1-8a through 8c-i committed + multiple sub-phase tunings; Phases 8c-ii, 8d, 9, 10, 11 remaining)
+**Branch:** `sprint28/home-key-qsk` (Phases 1-8 + 11 complete; Phase 10 deferred to 4.1.18; Phase 9 test matrix is the only remaining work item)
+
+## 2026-04-23 end-of-day seal: Phase 8c-ii + Phase 11 + full 50-file help audit landed
+
+**Big day, lots of code + lots of docs.** Sprint 28 is now functionally complete except for Phase 9 (the 4.1.17 combined test matrix). Phase 10 was formally deferred to 4.1.18 to ride with Customize Home (decision captured in `memory/project_customize_home_vision.md`). End-of-day debug build is 4.1.16.156 (or whatever the rebuild lands at after the seal commit).
+
+**Today's commits on `sprint28/home-key-qsk`** (chronological):
+
+- `2c4ed40a` — Phase 8c-ii: Wire What's New into Help menu and About dialog. Three discovery paths: Help menu item, in-content version-link via custom `jjflex://` URI scheme, persistent "View What's New" button (Alt+N). About dialog widened 520→620 to fit the new fourth bottom-row button.
+- `c7489da1` — Defer Phase 10 to 4.1.18 (sprint plan banner) + remove stale `JJFlexRadioReadme.htm` `<Content Include>` from `JJFlexRadio.vbproj` that was blocking every build since yesterday's seal deleted the file but left the project reference dangling.
+- `a4852cad` through `3839098d` — **Sprint 28 help audit, batches 1-9.** Voice + drift pass on 49 of 50 user-facing help docs (whats-new.md skipped per Noel's 5-pass editorial 2026-04-22). One file rename (`home-region.md` → `jj-flexible-home.md`), CHM TOC + HHP file-listing updated. ~25 drift fixes surfaced; major ones below.
+- `9daa8c70` — Strip phantom Ctrl+Shift+H Command Finder claim from `keyboard-reference.md` (binding doesn't exist in code; the claim had propagated through 4 docs).
+- `073fe21e` — Phase 11: archive Sprint 24-28 plans/test matrices to `docs/planning/agile/archive/`. Six file renames.
+
+**Drift fixes worth remembering** (all surfaced by the help audit close-reading):
+
+- The SmartLink connect flow was wrong in 4 docs (claimed "Connect menu > SmartLink" — actually Radio menu > Connect to Radio > Remote button inside the Select Radio dialog). Fixed everywhere.
+- `leader-key.md` had 9 wrong leader-key claims out of ~12. Verified every leader case in `KeyCommands.cs:1776-1936` and rewrote against code.
+- `quick-actions.md` described the Ctrl+Tab popup palette as live, but it was disabled in Sprint 28 Phase 3.5-3.6. Rewritten as "Redesign in Progress" with pointer to alternate hotkeys.
+- `meter-tones.md` had 3 wrong leader-key shortcuts (M, P, R for meter ops — actually meter operations use Ctrl+Alt+M, Ctrl+Alt+P, Ctrl+Alt+V).
+- `about-dialog.md` undercounted tabs (3 vs 4) and missed the new Phase 8c-ii button.
+- `getting-started.md` claimed `.NET 8 runtime` — corrected to `.NET 10` (migration shipped 2026-04-13).
+- `antenna-switching.md` gave a vague "Menu > Antenna" path — actual is Slice > Antenna > RX Antenna / TX Antenna (3 levels).
+- `settings-profiles.md` said "appropriate menu item" for Settings — actually Tools > Settings.
+- "Home region" terminology scrubbed everywhere — file rename + 5 prose occurrences + 3 section headers. Memory `project_jjflexible_home_terminology.md` captures the rule (always "JJ Flexible Home" or "JJ Flexible Radio Access Home", never "home region").
+
+**Code-side findings flagged** (not fixed inline — appropriate for Sprint 29 scope):
+
+- `ScreenFieldsPanel.xaml.cs:435,461` — plural-slice speech bug ("1 slices active" instead of "1 slice active"). Two-line ternary fix.
+- `globals.vb:619-622` — `DirectCW` flag set by leader keys but never read; `MainWindow.xaml.cs:2851,2867` `SentTextBox_PreviewKeyDown`/`PreviewTextInput` are stubs with `Phase 8.4+`/`Phase 8.6` TODO markers. CW direct-keying mode is un-wired in the WPF port.
+- Squelch Level field announces new value when adjusted with squelch off, but visible field stays "---" (no live refresh of the placeholder while squelch is off).
+- `Ctrl+Shift+H` for Command Finder — claimed by docs (until today), not actually wired. Either add the binding (one line in KeyCommands.cs ~line 978) or accept that Ctrl+/ is the only path.
+- pandoc HTML conversion produces double H1 per page (filename-derived `<h1 class="title">` plus the markdown's own `# Title`). Cosmetic at worst.
+
+**End-of-day artifacts:**
+
+- Debug build `4.1.16.154` produced earlier today, archived to NAS at `\\nas.macaw-jazz.ts.net\jjflex\historical\4.1.16.154\x64-debug\`. A second build at the seal commit follows this Agent.md write.
+- Memory backup ran (NAS `historical\memory\`).
+- Private-docs backup ran (NAS `historical\private\`).
+- Daily Dropbox publish runs after the seal-commit rebuild.
+
+**Memory state additions today:**
+
+- NEW: `feedback_user_facing_prose_voice.md` — drafting voice rules for user-facing help (articles, complete phrases, abbreviation expansion, hear-not-land framing, "you will" tense, explain-why, specificity in headings). Updated mid-day with Noel's sample-edit lessons.
+- NEW: `project_jjflexible_home_terminology.md` — "JJ Flexible Home" is correct, "home region" is wrong.
+- UPDATED: `project_customize_home_vision.md` — Phase 10 (Network tab progressive disclosure) added as 4.1.18 companion scope.
+- UPDATED: `MEMORY.md` — two new pointers added.
+
+**CLAUDE.md drift to address tomorrow:**
+
+The end-of-day ceremony in CLAUDE.md should grow a "verify the build compiles cleanly" step (proposed earlier today). The `JJFlexRadioReadme.htm` orphan that broke this morning's first build was caused exactly by a docs-only seal commit shipping a project-file break un-noticed. The fix is a one-step addition to CLAUDE.md's seal procedure (run `dotnet build` before committing the seal). Not blocking; flagging for tomorrow's work.
+
+**Plan for tomorrow:**
+
+1. Phase 9: build the combined 4.1.17 test matrix (covers Sprints 26+27+28 organised by user flow). Drafting work first, then execute against Don's 6300 and Noel's own rig.
+2. Optional: pick off one or two of the small code-side findings (plural-slice fix, Ctrl+Shift+H binding) if there's budget.
+3. CLAUDE.md drift update (the build-verify seal step).
+4. Help-doc review by Noel — he deferred this to "in a while," so a re-read of the audited content is on his queue at his pace.
 
 ## 2026-04-22 end-of-day seal: changelog editorial pass + Sprint 29 scope captured + Customize Home vision + code-signing locked
 
