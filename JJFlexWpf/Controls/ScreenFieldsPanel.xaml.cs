@@ -514,8 +514,9 @@ public partial class ScreenFieldsPanel : UserControl
             {
                 EarconPlayer.MuteAllOnTone();
                 int removed = before - 1;
+                string keptLetter = _rig.VFOToLetter(_rig.RXVFO);
                 ScreenReaderOutput.Speak(
-                    $"Released {removed} extra {(removed == 1 ? "slice" : "slices")}, 1 slice active",
+                    $"Released {removed} extra {(removed == 1 ? "slice" : "slices")}, slice {keptLetter} active",
                     VerbosityLevel.Terse);
             }
         };

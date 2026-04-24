@@ -843,8 +843,9 @@ public class KeyCommands
         {
             EarconPlayer.MuteAllOnTone();
             int removed = before - 1;
+            string keptLetter = rig.VFOToLetter(rig.RXVFO);
             Radios.ScreenReaderOutput.Speak(
-                $"Released {removed} extra {(removed == 1 ? "slice" : "slices")}, 1 slice active",
+                $"Released {removed} extra {(removed == 1 ? "slice" : "slices")}, slice {keptLetter} active",
                 Radios.VerbosityLevel.Terse, true);
         }
     }

@@ -584,8 +584,9 @@ public class NativeMenuBar : IDisposable
                 {
                     EarconPlayer.MuteAllOnTone();
                     int removed = before - 1;
+                    string keptLetter = Rig.VFOToLetter(Rig.RXVFO);
                     SpeakAfterMenuClose(
-                        $"Released {removed} extra {(removed == 1 ? "slice" : "slices")}, 1 slice active");
+                        $"Released {removed} extra {(removed == 1 ? "slice" : "slices")}, slice {keptLetter} active");
                 }
             });
 
