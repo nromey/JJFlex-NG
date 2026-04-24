@@ -351,6 +351,7 @@ Covers NVDA and JAWS coverage, native Win32 menu navigation, speech verbosity at
 
 *(Items marked DEFER during the pass accumulate here, each with the condition that would unblock it.)*
 
+- **Release-all with 3+ slices — keep-current-slice verification.** `Shift+Comma` release-all preserves the currently active slice (the 2026-04-24 fix). Needs 3+ slices to exercise both the "skip the active slice during iteration" logic and the "indices shift as slices are removed" logic against a realistic slice count. Unblocks when Noel unboxes the FLEX-8600 (gated on new firmware per `memory/project_8600_unbox_firmware_trigger.md`). Test steps: create 3 slices, navigate away from Slice A (use `V` to cycle to Slice B or Slice C), press `Shift+Comma`, confirm the remaining single slice is whichever one was active, not Slice A.
 - ___
 
 ---
