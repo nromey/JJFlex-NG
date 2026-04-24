@@ -1,83 +1,76 @@
-Headline: Sprint 27 networking code-complete + a cross-sprint help-docs audit.
+Headline: Fix for the F2 + M bug Don found — plus two other Sprint 28 polish items
+that Noel surfaced this morning.
 
-IMPORTANT — NETWORKING NOT YET LIVE-TESTED
+WHAT CHANGED SINCE THE LAST DEBUG BUILD YOU RECEIVED
 
-Sprint 27 shipped a lot of networking code but none of it has been smoke-
-tested against a real radio plus router yet. If you rely on SmartLink for
-remote access and can't easily roll back, consider waiting a day or two
-before running this as your primary. Your prior stable install is still
-your safety net. The new code is additive and should fall back gracefully,
-but "should" is not "has been proven to."
+1. The F2 + M bug in Classic tuning mode is fixed.
 
-Specifically untested on live hardware:
-- Tier 1 auto-apply of the per-account listen port on SmartLink connect.
-- Tier 2 UPnP mapping add/remove against a real router.
-- Tier 3 hole-punch advertisement on SendConnectMessageToRadio.
-- Post-disconnect NetworkTest auto-probe firing on reconnect.
-- Apply/Test/Save/Help buttons in Settings > Network.
+   You found it, Don — thank you. In Classic tuning mode, pressing F2 to
+   land on the JJ Flexible Home and then M did not mute the active slice,
+   while the same sequence worked in Modern tuning mode.
 
-If you do run it and something networking-related misbehaves, a trace file
-(%APPDATA%\JJFlexRadio\JJFlexRadioTrace.txt) captures enough to diagnose.
-Send it along.
+   Root cause: the Frequency field had two separate handlers, one for each
+   tuning mode. The Modern one picked up the universal Home keys in
+   Sprint 28, the Classic one never did. Both handlers now match —
+   M (mute / unmute), V (cycle slice), R (RIT toggle), X (XIT toggle),
+   Q (squelch toggle), and = (transceive: RX = TX) all work from the
+   Frequency field regardless of whether you are in Classic tuning mode
+   or Modern tuning mode.
 
-WHAT'S NEW IF YOU TAKE THE PLUNGE
+   Incidental: V in Classic tuning mode used to open the Flex memory-channel
+   picker. That behaviour is now gone — V cycles slices to match Modern
+   tuning mode and the help docs. Memory-channel access is still available
+   via the leader-key chord Ctrl+J then M.
 
-Settings > Network is substantially rebuilt. A three-option Connection
-Mode radio group replaces the old single checkbox: Tier 1 (manual port
-forwarding, recommended default), Tier 1 + 2 (UPnP opt-in), Tier 1 + 2 + 3
-(automatic hole-punch coordinated by Flex's SmartLink). Per-account save,
-auto-apply on connect, Test port for local validation, Test network for a
-real probe against SmartLink, Copy and Save report buttons for the
-diagnostic output as markdown, and a Verbose diagnostics toggle. Richer
-disconnect messages tell you whether the LAN is fine and Flex's backend is
-the problem, whether your NAT is symmetric, whether UPnP didn't take — the
-specific failure class instead of generic "Reconnecting."
+   WHAT WE NEED YOU TO VERIFY
+   - Press F2 from anywhere. Press M. Slice should mute with a tone.
+     Press M again — unmute.
+   - Do the same in Modern tuning mode (should already work, as a regression
+     check).
+   - R and X toggle RIT and XIT respectively.
+   - Q toggles squelch.
+   - V cycles between slices when you have more than one active.
+   - = sets both RX and TX to the current slice.
 
-THE HELP-DOCS AUDIT (THE NEW THING THAT'S NOT NETWORKING)
+2. Plural-slice speech bug is fixed.
 
-Independent of Sprint 27, we did a broader audit of help-docs gaps across
-Sprints 25-27. Twelve new user-facing topics landed in the CHM, and two
-existing docs picked up missing sections. The CHM grew from 77 KB to 101 KB.
+   Create a new slice, release it. The release announcement used to say
+   "Slice released, 1 slices active" even when you had exactly one slice
+   left. Now it says "Slice released, 1 slice active" (singular when
+   appropriate).
 
-New topics covered:
+3. Squelch Level field now always shows the numeric value.
 
-- Quick Actions (Ctrl+Tab) — ATU Tune, Tune Carrier, Transmit, Speak Status.
-- CW Notifications — what prosigns fire when, speed and tone controls.
-- PC-Side Noise Reduction — RNNoise vs spectral subtraction, when to reach
-  for each.
-- SmartLink Account Management — save, name, switch, delete accounts.
-- Frequency Entry Sounds — the typing-sound modes.
-- Filter Presets — per-operator customizable filter width lists.
-- Tuning Steps — per-operator coarse and fine tuning step lists.
-- Status Dialog (Ctrl+Alt+S) — the live status window, navigation, vs
-  Speak Status (Ctrl+Shift+S).
-- MultiFlex Clients — seeing other operators, kick semantics.
-- Earcon Control (Shift+T quick mute).
-- Panadapter Visibility — toggling the spectrum display.
-- Networking Tiers Overview — "help me pick" entry point for the three
-  tiers.
+   In earlier builds, the Squelch Level field on the JJ Flexible Home
+   showed "---" when squelch was off and only displayed the numeric
+   threshold when squelch was on. That caused an announce-vs-display
+   mismatch for screen-reader users — adjusting the level while squelch
+   was off spoke the new number, but screen readers re-reading the field
+   heard "off."
 
-Updated: 60 Meter Operation (auto-mode switching on channel step), Screen
-Reader Setup (menu toggle state speech, dialog close announcements,
-access-key speech — all Sprint 26 accessibility additions that had shipped
-without docs).
+   Now the field always shows the stored numeric level. The adjacent
+   Squelch field ("Q" when on, blank when off) carries the active /
+   inactive signal on its own, so nothing is lost by dropping the
+   "---" placeholder.
 
-Two docs still flagged for Noel's voice, not included in this daily:
-accessibility-braille-display.md and accessibility-verbosity.md — both
-warrant design-philosophy framing that the audit flagged for hand-written
-rather than auto-drafted prose.
+TERMINOLOGY NOTE
 
-UNDER THE HOOD
+Noel is normalising the two tuning-mode names to "Classic tuning mode"
+and "Modern tuning mode" everywhere (rather than bare "Classic mode"
+and "Modern mode"). The word "tuning" stays in the name because tuning
+behaviour is the only thing that changes when you switch between them.
+If you notice places in the application or docs where they are still
+called just "Classic" or "Modern," flag them — we are still catching up
+on the scrub across the corpus.
 
-Unit test count up to 88 (from 14 when Sprint 26 started — ~6.3x over the
-two sprints). New SmartLink abstraction layer (WanSessionOwner, NetworkTest
-Runner, UPnPPortMapper, SessionStatusMessages) gives Sprint 28+ multi-radio
-tabs clean seams to build on. Build pipeline got a small but meaningful
-upgrade: Debug builds now refresh the CHM automatically as part of
-build-debug.bat rather than requiring a manual build-help.bat run first.
+OTHER KNOWN STATE FROM THE 4.1.17 RUN-UP
 
-ENDING NOTES
+Everything from the prior debug notes still applies (Sprint 27 networking
+code-complete, help audit landed, test matrix drafted). The matrix is at
+docs\planning\agile\sprint28-test-matrix.md if you want to preview what we
+are going to walk through.
 
-Do not treat this daily as a release candidate. It is a snapshot of an
-unusually productive day that lands big networking changes without live
-hardware verification. Smoke-test, report, then we cut the actual release.
+If you hit something networking-related, a trace file at
+%APPDATA%\JJFlexRadio\JJFlexRadioTrace.txt captures enough to diagnose.
+
+73 — Noel + Claude
