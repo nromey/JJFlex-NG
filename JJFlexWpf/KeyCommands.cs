@@ -1513,12 +1513,24 @@ public class KeyCommands
             var currentDefault = GetDefaultKey(saved.Id);
 
             // Default-was-removed case: a command that used to have a default
-            // key binding no longer does (the binding was moved to another
-            // command in a newer version). If the user never customized the
-            // old default, clear their saved binding so the key slot is free
-            // for the new owner to take over via MergeNewDefaults. If the user
-            // customized, keep their binding — they clearly wanted that key
-            // on that command.
+            // key binding no longer does. If another command now claims this
+            // key as its default — i.e., the key was reassigned in the
+            // defaults table — clear the stale user binding so the new owner
+            // can take over via MergeNewDefaults. Preserve the binding only
+            // if the user explicitly customised it to a non-default key
+            // (detected via SavedDefaultKey tracking when available).
+            //
+            // The "key is taken over" detection is the primary signal —
+            // SavedDefaultKey-match is only used as a secondary check to
+            // preserve verified customisations. XMLs written by older
+            // versions (or by intermediate builds that didn't track
+            // SavedDefaultKey cleanly) store SavedDefaultKey as Keys.None,
+            // which made the original `saved.Key == saved.SavedDefaultKey`
+            // strict check miss these cases. This revised logic treats an
+            // untracked SavedDefaultKey as "assume user was on old default"
+            // because a coincidental customisation that exactly matches a
+            // new command's default is much less likely than a stale-binding
+            // migration scenario.
             //
             // Concrete case driving this: Sprint 28 moved Shift+M from
             // MuteSlice (single-slice mute) to MuteAllSlices (multi-slice
@@ -1526,17 +1538,37 @@ public class KeyCommands
             // new behaviour automatically on first launch after the upgrade.
             if (currentDefault == null)
             {
-                if (saved.Key != Keys.None && saved.Key == saved.SavedDefaultKey)
+                if (saved.Key != Keys.None)
                 {
-                    _context.Trace($"KeyCommands:SmartMerge: {saved.Id} default removed, clearing user's binding (was {saved.Key})");
-                    if (KeyDictionary.TryGetValue(saved.Key, out var staleEntries))
+                    bool keyTakenByAnotherDefault = false;
+                    foreach (var otherDef in _defaultKeys)
                     {
-                        staleEntries.RemoveAll(e => e.KeyDef.Id == saved.Id);
-                        if (staleEntries.Count == 0) KeyDictionary.Remove(saved.Key);
+                        if (otherDef.Id != saved.Id && otherDef.Key == saved.Key)
+                        {
+                            keyTakenByAnotherDefault = true;
+                            break;
+                        }
                     }
-                    var staleKt = Lookup(saved.Id);
-                    if (staleKt != null) staleKt.KeyDef.Key = Keys.None;
-                    needWrite = true;
+
+                    // If SavedDefaultKey IS tracked (non-None) and doesn't
+                    // match the user's current key, the user explicitly
+                    // customised — preserve their binding. Otherwise we
+                    // treat them as being on the old default and migrate.
+                    bool userExplicitlyCustomised =
+                        saved.SavedDefaultKey != Keys.None && saved.Key != saved.SavedDefaultKey;
+
+                    if (keyTakenByAnotherDefault && !userExplicitlyCustomised)
+                    {
+                        _context.Trace($"KeyCommands:SmartMerge: {saved.Id} default removed and key {saved.Key} taken over by another command's default, clearing user's stale binding (SavedDefaultKey={saved.SavedDefaultKey})");
+                        if (KeyDictionary.TryGetValue(saved.Key, out var staleEntries))
+                        {
+                            staleEntries.RemoveAll(e => e.KeyDef.Id == saved.Id);
+                            if (staleEntries.Count == 0) KeyDictionary.Remove(saved.Key);
+                        }
+                        var staleKt = Lookup(saved.Id);
+                        if (staleKt != null) staleKt.KeyDef.Key = Keys.None;
+                        needWrite = true;
+                    }
                 }
                 continue;
             }
