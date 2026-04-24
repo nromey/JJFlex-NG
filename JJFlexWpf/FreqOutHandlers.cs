@@ -316,9 +316,13 @@ public class FreqOutHandlers
                 }
                 else if (ch == 'V')
                 {
-                    // Delegate to VFO handler
-                    var vfoField = GetField("VFO");
-                    if (vfoField != null) AdjustVFO(vfoField, e);
+                    // Cycle to next slice (VFO) — matches AdjustFreqModern and
+                    // the universal-Home-key promise. Memory-mode access remains
+                    // available via the leader key: Ctrl+J then M.
+                    // 2026-04-24: was delegating to AdjustVFO, which opened memory
+                    // mode — inconsistent with Modern tuning mode and the docs.
+                    CycleVFO(1);
+                    e.Handled = true;
                 }
                 else if (ch == 'U')
                 {
@@ -336,6 +340,62 @@ public class FreqOutHandlers
                 {
                     // F: One-shot read current frequency
                     _window.SpeakFrequency();
+                    e.Handled = true;
+                }
+                // 2026-04-24: universal Home keys — same set as AdjustFreqModern,
+                // so M/R/X/Q/= work from the Frequency field regardless of tuning
+                // mode. Originally shipped only in AdjustFreqModern (Sprint 28
+                // Phase 3.9 and Phase 5); Classic tuning mode was missing them
+                // until Don found that F2 + M didn't mute in Classic.
+                else if (ch == 'M')
+                {
+                    // Mute / unmute the active slice
+                    bool newMute = !Rig.SliceMute;
+                    Rig.SliceMute = newMute;
+                    if (newMute) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
+                    Radios.ScreenReaderOutput.Speak(
+                        newMute ? "Muted" : "Unmuted", VerbosityLevel.Terse, true);
+                    e.Handled = true;
+                }
+                else if (ch == 'R')
+                {
+                    // Toggle RIT
+                    var rit = new FlexBase.RITData(Rig.RIT);
+                    rit.Active = !rit.Active;
+                    Rig.RIT = rit;
+                    if (rit.Active) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
+                    Radios.ScreenReaderOutput.Speak(
+                        rit.Active ? "RIT on" : "RIT off", VerbosityLevel.Terse, true);
+                    e.Handled = true;
+                }
+                else if (ch == 'X')
+                {
+                    // Toggle XIT
+                    var xit = new FlexBase.RITData(Rig.XIT);
+                    xit.Active = !xit.Active;
+                    Rig.XIT = xit;
+                    if (xit.Active) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
+                    Radios.ScreenReaderOutput.Speak(
+                        xit.Active ? "XIT on" : "XIT off", VerbosityLevel.Terse, true);
+                    e.Handled = true;
+                }
+                else if (ch == 'Q')
+                {
+                    // Toggle squelch (universal Home key, Sprint 28 Phase 3.9)
+                    ToggleSquelch();
+                    e.Handled = true;
+                }
+                else if (ch == '=')
+                {
+                    // Transceive: set both RX and TX slices to the current slice
+                    // (Sprint 28 Phase 5 — mnemonic: RX = TX)
+                    int vfo = Rig.RXVFO;
+                    if (Rig.ValidVFO(vfo))
+                    {
+                        if (Rig.CanTransmit) Rig.TXVFO = vfo;
+                        Radios.ScreenReaderOutput.Speak(
+                            $"Slice {Rig.VFOToLetter(vfo)} transceive", VerbosityLevel.Terse, true);
+                    }
                     e.Handled = true;
                 }
                 break;
@@ -1774,6 +1834,21 @@ public class FreqOutHandlers
                     // RIT, X toggles XIT, Q toggles squelch. All reachable from
                     // any home field without navigating to the specific toggle field.
                     ToggleSquelch();
+                    e.Handled = true;
+                }
+                else if (ch == '=')
+                {
+                    // Transceive: set both RX and TX slices to the current slice
+                    // (Sprint 28 Phase 5 — mnemonic: RX = TX). 2026-04-24: added
+                    // here to match the universal-Home-key promise after Classic
+                    // parity work surfaced the gap.
+                    int vfo = Rig.RXVFO;
+                    if (Rig.ValidVFO(vfo))
+                    {
+                        if (Rig.CanTransmit) Rig.TXVFO = vfo;
+                        Radios.ScreenReaderOutput.Speak(
+                            $"Slice {Rig.VFOToLetter(vfo)} transceive", VerbosityLevel.Terse, true);
+                    }
                     e.Handled = true;
                 }
                 break;
