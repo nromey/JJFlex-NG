@@ -4697,15 +4697,15 @@ namespace Radios
         }
 
         /// <summary>
-        /// Release every slice owned by this client except the first one, so
-        /// the operator ends up cleanly on just Slice A. The radio requires
-        /// at least one slice at all times — "release all" strictly means
-        /// "release all the extras." If only one slice is active, this is a
-        /// no-op and returns false.
+        /// Release every slice owned by this client except the one the user is
+        /// currently on, so the operator ends up cleanly on just their active
+        /// slice. The radio requires at least one slice at all times — "release
+        /// all" strictly means "release all the extras." If only one slice is
+        /// active, this is a no-op and returns false.
         ///
-        /// Moves RXVFO (and TXVFO, when the radio can transmit) to slice 0
-        /// first, because RemoveSlice refuses to remove the currently active
-        /// receive or transmit slice.
+        /// If the transmit slice differs from the receive slice, TXVFO is moved
+        /// to the active RX slice first (so it survives the iteration) — the
+        /// user ends up on a single-slice transceive configuration.
         /// </summary>
         /// <returns>true if any slice was released, false if nothing to do.</returns>
         public bool ReleaseAllExtraSlices()
@@ -4713,14 +4713,20 @@ namespace Radios
             if (theRadio == null) return false;
             if (MyNumSlices <= 1) return false;
 
-            // Make sure slice 0 is the active receive/transmit slice so the
-            // subsequent RemoveSlice calls are all for non-active slices.
-            RXVFO = 0;
-            if (CanTransmit) TXVFO = 0;
+            int keepIdx = RXVFO;
 
-            // Remove slices from highest index down to 1 — leave slice 0 intact.
-            for (int id = MyNumSlices - 1; id >= 1; id--)
+            // If TX is on a different slice from RX, move TX to RX's slice so
+            // the TX slice can be released along with the other extras. The
+            // user ends up with a single-slice transceive configuration.
+            if (CanTransmit && TXVFO != keepIdx) TXVFO = keepIdx;
+
+            // Remove every slice except the active one. Iterate highest to
+            // lowest so queued RemoveSlice captures aren't affected by later
+            // list shifts (RemoveSlice captures the slice reference at call
+            // time, not at queue-execution time).
+            for (int id = MyNumSlices - 1; id >= 0; id--)
             {
+                if (id == keepIdx) continue;
                 RemoveSlice(id);
             }
             return true;
