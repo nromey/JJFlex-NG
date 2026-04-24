@@ -433,6 +433,12 @@ public class KeyCommands
             new(CommandValues.MuteSlice, KeyTypes.Command, MuteSliceHandler,
                 "Mute or unmute current slice", "Mute Slice", false, FunctionGroups.Audio, KeyScope.Radio)
                 { Keywords = new[] { "mute", "slice", "audio", "unmute", "silence" } },
+            new(CommandValues.MuteAllSlices, KeyTypes.Command, MuteAllSlicesHandler,
+                "Mute or unmute every slice at once", "Mute All Slices", false, FunctionGroups.Audio, KeyScope.Radio)
+                { Keywords = new[] { "mute", "all", "slices", "audio", "unmute", "silence", "fleet" } },
+            new(CommandValues.ReleaseAllExtraSlices, KeyTypes.Command, ReleaseAllExtraSlicesHandler,
+                "Release every slice except the first, back to one slice", "Release All Extra Slices", false, FunctionGroups.Audio, KeyScope.Radio)
+                { Keywords = new[] { "release", "all", "slices", "extra", "clean", "reset", "single" } },
         };
     }
 
@@ -802,6 +808,47 @@ public class KeyCommands
             Radios.VerbosityLevel.Terse, true);
     }
 
+    private void MuteAllSlicesHandler()
+    {
+        var rig = _context.GetRigControl();
+        if (rig == null)
+        {
+            Radios.ScreenReaderOutput.Speak("No radio connected", Radios.VerbosityLevel.Critical, true);
+            return;
+        }
+        bool target = !rig.AllMySlicesMuted;
+        rig.SetAllMySlicesMute(target);
+        if (target) EarconPlayer.MuteAllOnTone();
+        else EarconPlayer.MuteAllOffTone();
+        Radios.ScreenReaderOutput.Speak(
+            target ? "All slices muted" : "All slices unmuted",
+            Radios.VerbosityLevel.Terse, true);
+    }
+
+    private void ReleaseAllExtraSlicesHandler()
+    {
+        var rig = _context.GetRigControl();
+        if (rig == null)
+        {
+            Radios.ScreenReaderOutput.Speak("No radio connected", Radios.VerbosityLevel.Critical, true);
+            return;
+        }
+        int before = rig.MyNumSlices;
+        if (before <= 1)
+        {
+            Radios.ScreenReaderOutput.Speak("Only one slice active", Radios.VerbosityLevel.Terse, true);
+            return;
+        }
+        if (rig.ReleaseAllExtraSlices())
+        {
+            EarconPlayer.MuteAllOnTone();
+            int removed = before - 1;
+            Radios.ScreenReaderOutput.Speak(
+                $"Released {removed} extra {(removed == 1 ? "slice" : "slices")}, 1 slice active",
+                Radios.VerbosityLevel.Terse, true);
+        }
+    }
+
     private void ShowStatusDialogHandler()
     {
         var rig = _context.GetRigControl();
@@ -1014,7 +1061,13 @@ public class KeyCommands
         new(Keys.None, CommandValues.ToggleMeterTonesGlobal, KeyScope.Global), // leader key T
 
         // Slice (Sprint 24 Phase 8)
-        new(Keys.M | Keys.Shift, CommandValues.MuteSlice, KeyScope.Radio),
+        // Shift+M mute-all / Shift+Comma release-all — multi-slice universal
+        // Home actions added 2026-04-24 as test findings from Don's F2+M bug.
+        // The older Shift+M = MuteSlice (single-slice) binding was removed;
+        // plain M still mutes the active slice from any JJ Flexible Home field,
+        // and "Mute Slice" stays available in Command Finder.
+        new(Keys.M | Keys.Shift, CommandValues.MuteAllSlices, KeyScope.Radio),
+        new(Keys.Oemcomma | Keys.Shift, CommandValues.ReleaseAllExtraSlices, KeyScope.Radio),
     };
 
     // ────────────────────────────────────────────────────────────────
