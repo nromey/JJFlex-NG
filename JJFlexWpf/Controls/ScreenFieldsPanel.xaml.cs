@@ -432,7 +432,10 @@ public partial class ScreenFieldsPanel : UserControl
             if (_rig == null) return;
             bool ok = _rig.NewSlice();
             if (ok)
-                ScreenReaderOutput.Speak($"Slice created, {_rig.MyNumSlices} slices active", VerbosityLevel.Terse);
+            {
+                int n = _rig.MyNumSlices;
+                ScreenReaderOutput.Speak($"Slice created, {n} {(n == 1 ? "slice" : "slices")} active", VerbosityLevel.Terse);
+            }
             else
                 ScreenReaderOutput.Speak("Maximum slices reached", VerbosityLevel.Terse);
         };
@@ -458,7 +461,10 @@ public partial class ScreenFieldsPanel : UserControl
             // Release the last slice (highest index)
             bool ok = _rig.RemoveSlice(numSlices - 1);
             if (ok)
-                ScreenReaderOutput.Speak($"Slice released, {_rig.MyNumSlices} slices active", VerbosityLevel.Terse);
+            {
+                int n = _rig.MyNumSlices;
+                ScreenReaderOutput.Speak($"Slice released, {n} {(n == 1 ? "slice" : "slices")} active", VerbosityLevel.Terse);
+            }
             else
                 ScreenReaderOutput.Speak("Could not release slice", VerbosityLevel.Terse);
         };
