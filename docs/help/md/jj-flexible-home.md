@@ -17,7 +17,7 @@ The JJ Flexible Home presents a sequence of fields that you move between by pres
 - **Volume** — the audio volume of the active slice
 - **S-Meter** — the signal strength indicator
 - **Squelch** — whether squelch is currently on or off
-- **Squelch Level** — the squelch threshold value (shown when squelch is on, hidden as `"---"` when squelch is off)
+- **Squelch Level** — the squelch threshold value. The number stays visible whether squelch is on or off; when squelch is off, it is the level that will take effect as soon as you turn squelch back on.
 - **Split** — whether split operation is currently engaged
 - **VOX** — whether VOX is currently on or off
 - **Offset** — the repeater offset direction

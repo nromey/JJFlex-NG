@@ -6,8 +6,8 @@ Squelch mutes your receiver when the signal falls below a threshold you set, so 
 
 From the JJ Flexible Home, press the right arrow until you hear two adjacent fields:
 
-- **Squelch** — shows "Q" when squelch is on, and nothing when it's off.
-- **Squelch Level** — shows the current threshold level (0 to 100) when squelch is on, or "---" when squelch is off.
+- **Squelch** — shows "Q" when squelch is on, and nothing when it's off. This is the field that tells you at a glance whether squelch is currently active.
+- **Squelch Level** — shows the current threshold level (0 to 100). The number stays visible whether squelch is on or off; when squelch is off, the number is the level that will take effect as soon as you turn squelch back on.
 
 ## Toggling Squelch
 
@@ -17,15 +17,15 @@ You can also press `Space` on the Squelch field itself to toggle it.
 
 When you toggle squelch, you will hear a short two-tone earcon (ascending for on, descending for off) and your screen reader speaks "Squelch on" or "Squelch off."
 
-## Adjusting squelch Level
+## Adjusting the Squelch Level
 
 Use the arrow keys to move to the Squelch Level field. Press `Up` or `Down` to adjust the level in steps of 5. Each adjustment announces the new value — "Squelch level 45" and so on.
 
-Squelch Level adjustment works whether squelch is currently on or off. When squelch is off, the field displays "---" (meaning the level has no effect right now), but your adjustments are still remembered — they take effect as soon as you turn squelch back on.
+Squelch Level adjustment works whether squelch is currently on or off. When squelch is off, the adjustment still changes the stored level — your change takes effect as soon as you turn squelch back on. The field shows the new number either way, so the announcement and the field display always agree.
 
-## Why the Level Disappears When Squelch is Off
+## How Squelch and Squelch Level Work Together
 
-A visible number when squelch is off would be misleading, because the threshold isn't active and the number wouldn't match what the radio is actually doing. Showing "---" signals "this setting isn't currently in effect, but it's remembered for when you turn squelch back on." The same pattern is used for RIT and XIT: the offset value appears only when the feature is active. When sSquelch is off, you will not hear the squelch level field though toggling the field will instantly use the previously set value.
+The Squelch field is the active-state indicator: "Q" when on, nothing when off. The Squelch Level field is the threshold value, which stays visible whether squelch is currently active or not. This split lets you pre-configure a threshold even while squelch is off, then flip squelch on and have the stored level take effect immediately.
 
 ## When to Use Squelch
 
