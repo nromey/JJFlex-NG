@@ -3,7 +3,57 @@
 This document captures the current state of JJ-Flex repository and active work.
 
 **Repository root:** `C:\dev\JJFlex-NG`
-**Branch:** `sprint28/home-key-qsk` (Phases 1-8 + 11 complete; Phase 10 deferred to 4.1.18; Phase 9 test matrix is the only remaining work item)
+**Branch:** `sprint28/home-key-qsk` (Phases 1-8 + 11 complete; Phase 10 deferred to 4.1.18; Phase 9 test matrix drafted; today's bug-bundle landed; rigmeter v1 first-draft uncommitted-then-rolled-into-seal)
+
+## 2026-04-24 end-of-day seal: bug-bundle day — F2+M, mute-all/release-all, KeyDefs migration, About dialog focus, Command Finder, BT-on-connect delay, plus rigmeter first-draft
+
+**Long testing session with Noel at the radio (and on Don's 6300 via SmartLink before Don signed off mid-day).** Most of today's work emerged organically as test findings — a planned testing session against the 4.1.17 matrix turned into a chain of bug discoveries, fixes, and one feature (multi-slice mute / release universals) that came out of investigating the F2+M bug. End-of-day debug build is 4.1.16.<N> (next build after this seal commit).
+
+**Today's commits on `sprint28/home-key-qsk`** (chronological):
+
+- `0215a675` — Regenerate CHM with today's doc updates (squelch-home + jj-flexible-home).
+- `6e8c81d9` — Fix universal Home keys on Frequency field in Classic tuning mode. Don's bug: F2+M didn't mute in Classic. AdjustFreq was missing M, R, X, Q, = handlers; only AdjustFreqModern had them since Sprint 28 Phase 3.9 / Phase 5. Also changed V from delegating to AdjustVFO (memory-mode) to direct CycleVFO(1), matching Modern.
+- `2193a2fc` — "Classic tuning mode" / "Modern tuning mode" terminology scrub in operating-modes.md, getting-started.md, settings-profiles.md, slice-management.md. New memory `project_tuning_mode_terminology.md` captures the rule.
+- `510e5a64` — debug-notes.txt rewritten for today's bundle.
+- `51a0e3c4` / `2bfe41ba` / `80b02fb1` / `86cf2a6a` / `1f163f31` / `7b5550f2` / `f93eb2d1` / `f96e2e30` — interleaved CHM rebuilds (build-debug.bat regenerates CHM each time; tracked separately to keep the binary diff out of substantive commits).
+- `b0e067a6` — Plural-slice speech bug ("1 slice active" not "1 slices active") in ScreenFieldsPanel.xaml.cs Create / Release Slice handlers.
+- `bd832221` — Squelch Level field always shows the numeric value; "---" placeholder dropped. Adjacent Squelch field carries the active/inactive signal. Eliminates announce-vs-display mismatch for screen-reader users.
+- `6263fb13` — Shift+M mute-all and Shift+Comma release-all multi-slice universal Home keys, with new MuteAllOnTone / MuteAllOffTone tri-tone earcons (~major third above the single-slice toggle), wired into all four Home field handlers + Slice menu + ScreenFields buttons.
+- `b4761429` — Rewire global Shift+M binding from MuteSlice to MuteAllSlices, add Shift+Comma binding for ReleaseAllExtraSlices, register both as KeyCommands with Command Finder discoverability.
+- `a70deb13` — Release-all preserves the currently active slice instead of forcing back to Slice A. Iterates highest index down to 0, skipping the keep index.
+- `9c118d08` / `8d479736` — Release-all speech announces the surviving slice's letter; matrix updated with deferred multi-slice release-all test (gated on FLEX-8600 unbox).
+- `c2b3285b` — KeyCommands auto-migrate user bindings when a command's default is removed (first attempt; Noel's testing showed it didn't fire because the `saved.Key == saved.SavedDefaultKey` check failed when SavedDefaultKey was Keys.None in older XML writes).
+- `6f9e9a91` — KeyCommands robust migration detection: takeover check instead of strict SavedDefaultKey match. The new logic checks "is this key now claimed by another command's default in _defaultKeys?" — if yes, migrate, regardless of SavedDefaultKey state. Verified working on Noel's restored old KeyDefs.xml.
+- `f7bac701` — CW BT-on-connect 1-second delay before firing prosign. Audio pipeline initialisation was clipping BT mid-character into perceived "N U" (same elements, audible gap parsed as a character boundary).
+- `608689cc` — About dialog close restores focus to JJ Flexible Home (was leaving SR on "pane"); jj-flexible-home.md gets per-field overrides subsection (universal-keys caveat for Slice / Slice Operations).
+- `3893082b` — Command Finder Enter on SearchBox activates first/selected result (was inert, requiring Tab into ListView); execute deferred via Dispatcher.BeginInvoke past dialog close to eliminate the race that left the app unable to accept Enter or Escape afterward (kill-task required).
+
+**Today's seal commit** (this one) bundles:
+- `tools/rigmeter/rigmeter.py` — v1 first draft of the curiosity-driven source-statistics CLI (per `memory/project_rigmeter_stats_tool.md`). Single-file Python, stdlib only. Subcommands: all, today, week, month, year, start, releases, release, compare, fun. Per-project breakdown across the 10 known top-level dirs; categorisation into code / text-data / docs / build; fun-stats overlay (braille volumes, Moby Dicks, Bibles, read-aloud time, page-stack height). NOT YET tested or smoke-run; no README yet — first-draft only, polish pass scheduled for tomorrow morning.
+- This Agent.md update.
+- CHM regen.
+
+**Bugs / observations queued for separate later work (not blocking 4.1.17):**
+
+- WebView2 thread-affinity crash when Tab is pressed during SmartLink auth flow. AuthFormWebView2.Dispose runs on a background thread and tries to touch CoreWebView2 which is UI-thread-only. Fix is a marshaling guard (InvokeRequired pattern). Crash dump from today saved at `%APPDATA%\JJFlexRadio\Errors\JJFlexError-20260424-110554.zip`.
+- Audit other Home field handlers (Split, VOX, Offset, Mute, Volume, RIT, XIT) for full universal-key set. Doc claims M/V/R/X/Q/= work from any Home field; reality is only Frequency / Slice / Slice Operations have them universally.
+- Rigmeter v1 polish: smoke-test all subcommands, write README, decide whether `jj-codestat` rename is preferred over `rigmeter` per Noel's colloquial usage today.
+
+**Memory state additions/updates today:**
+
+- NEW: `project_tuning_mode_terminology.md` — "Classic tuning mode" / "Modern tuning mode", never just "Classic mode" / "Modern mode."
+- NEW: `project_utter_output_abstraction.md` — future `OutputProcessor.utter(chatty, terse, cwHaptic, utterSpeech, utterCW)` API for unified speech / CW / haptic output. Refined mid-day with Noel's two-bool addition for selective channel suppression.
+- UPDATED: `project_8600_unbox_firmware_trigger.md` — added the deferred multi-slice release-all test to the list of 8600-unbox-gated items.
+
+**Plan for tomorrow:**
+
+1. Smoke-test rigmeter against the repo. Verify all subcommands run cleanly and produce sensible output. Catch any reasonable bugs.
+2. Write a short `tools/rigmeter/README.md` with usage examples.
+3. Decide rigmeter vs jj-codestat naming. Trivial `git mv` either way.
+4. Continue or close out queued items: WebView2 crash fix, broader universal-keys field audit, Command Finder testing post-deferral fix.
+5. Resume Phase 9 test-matrix execution at the radio if Noel is in testing mode again.
+
+**CLAUDE.md drift:** none surfaced today. Yesterday's added "verify build compiles" step in the seal procedure is being honoured implicitly — every build today verified clean before subsequent work.
 
 ## 2026-04-23 end-of-day seal: Phase 8c-ii + Phase 11 + full 50-file help audit landed
 
