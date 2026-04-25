@@ -2082,8 +2082,24 @@ public partial class MainWindow : UserControl
             // is loaded. This used to fire in FlexBase at connect success, but that location
             // raced with MainWindow init -- PlayCwBT was null on first connect. PowerOn is the
             // semantically correct moment: radio is up, delegates are live, CW config is applied.
+            //
+            // 2026-04-24: 1-second delay added before the BT plays. Without
+            // the delay, the prosign fires while the radio audio pipeline is
+            // still initialising, and a brief device-contention stall can
+            // split BT (dah-di-di-di-dah) at a mid-character boundary so it
+            // perceptually parses as "N U" (dah-dit then dit-dit-dah —
+            // identical elements, audible gap). Letting the audio pipeline
+            // settle first eliminates the split. Fire-and-forget — no need
+            // to block PowerOn waiting for the prosign to finish.
             if (Radios.ScreenReaderOutput.CwNotificationsEnabled)
-                _ = Radios.ScreenReaderOutput.PlayCwBT?.Invoke();
+            {
+                _ = System.Threading.Tasks.Task.Run(async () =>
+                {
+                    await System.Threading.Tasks.Task.Delay(1000);
+                    var bt = Radios.ScreenReaderOutput.PlayCwBT;
+                    if (bt != null) await bt.Invoke();
+                });
+            }
 
             // MultiFlex client connect/disconnect earcons
             Radios.ScreenReaderOutput.PlayClientConnectedEarcon = () => EarconPlayer.PlayChirp(600, 900, 120, 0.2f);
