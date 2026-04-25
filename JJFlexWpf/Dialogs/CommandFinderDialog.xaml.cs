@@ -159,6 +159,24 @@ namespace JJFlexWpf.Dialogs
             }
         }
 
+        /// <summary>
+        /// Allow Enter from the SearchBox to activate the first / selected
+        /// result without making the user Tab into the ListView. Focus lands
+        /// on SearchBox by default at OnLoaded, so without this Enter on the
+        /// SearchBox does nothing — surprising and frustrating.
+        /// </summary>
+        private void SearchBox_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+        {
+            if (e.Key == Key.Enter)
+            {
+                // If no row is selected, pick the first row before activating.
+                if (ResultsListView.SelectedItem == null && ResultsListView.Items.Count > 0)
+                    ResultsListView.SelectedIndex = 0;
+                ExecuteSelectedCommand();
+                e.Handled = true;
+            }
+        }
+
         private void ResultsListView_DoubleClick(object sender, MouseButtonEventArgs e)
         {
             ExecuteSelectedCommand();
@@ -168,8 +186,25 @@ namespace JJFlexWpf.Dialogs
         {
             if (ResultsListView.SelectedItem is not CommandFinderItem item) return;
             if (item.Tag == null) return;
+            // Capture the tag and execute callback before Close — those refs
+            // need to survive past the dialog's destruction.
+            var tag = item.Tag;
+            var execute = ExecuteCommand;
             Close();
-            ExecuteCommand?.Invoke(item.Tag);
+            // Defer the actual command invocation until after the dialog has
+            // fully closed and focus has returned to the main window. Without
+            // this deferral, ExecuteCommand fires while the dialog is still
+            // mid-shutdown, which can race UI state and (per Noel's report
+            // 2026-04-24) leave the application in a state where subsequent
+            // Enter or Escape don't dismiss anything and the app must be
+            // killed via Task Manager. ApplicationIdle priority guarantees we
+            // run after every other queued WPF work, including the dialog's
+            // own teardown messages.
+            if (execute != null)
+            {
+                Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.ApplicationIdle,
+                    new Action(() => execute(tag)));
+            }
         }
     }
 }
