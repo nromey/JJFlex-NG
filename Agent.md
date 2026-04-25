@@ -55,6 +55,53 @@ This document captures the current state of JJ-Flex repository and active work.
 
 **CLAUDE.md drift:** none surfaced today. Yesterday's added "verify build compiles" step in the seal procedure is being honoured implicitly — every build today verified clean before subsequent work.
 
+### Rigmeter snapshot — end of 2026-04-24
+
+Snapshot baked into the seal trail per Noel's request 2026-04-24. Future seals should include this section as a standard end-of-day step (run `python tools/rigmeter/rigmeter.py all` and `today`, paste output, commit with seal). Accumulating these per-day in Agent.md gives a queryable time-series across the project's history.
+
+```
+=== Grand Total (full repo) ===
+  Files:     1,188
+  Lines:     380,541
+  Words:     1,126,992
+  Chars:     17,163,506
+
+=== Per-Project Breakdown ===
+  main_app      234,068 lines / 517,235 words / 578 files
+  FlexLib_API    47,881 / 128,342 / 120
+  JJFlexWpf      38,131 / 129,209 / 185
+  docs           26,863 / 239,706 / 173
+  Radios         23,202 /  78,787 /  70
+  JJLogLib        5,447 /  16,715 /  19
+  JJPortaudio     2,241 /   7,594 /  12
+  P-Opus-master   1,081 /   2,832 /  18
+  tools           1,084 /   5,057 /   5
+  JJTrace           543 /   1,515 /   8
+
+=== Per-Category Totals ===
+  code         182,209 lines /   580,704 words / 800 files
+  text_data    162,436 /   256,181 / 104
+  docs          29,658 /   269,846 / 197
+  build          6,238 /    20,261 /  87
+
+=== Fun Comparisons ===
+  Braille volumes (≈100K cells each):   171.6
+  Moby Dicks (~210K words):               5.4
+  King James Bibles (~783K words):       1.44
+  Read-aloud time at 150 wpm:           125.2 hours (7,513 minutes)
+  Printed pages (50 lines/page):        7,611
+  Stack-of-printed-pages height:         30.4 inches (77.3 cm)
+
+=== Today's Activity (since midnight local) ===
+  Commits:            26
+  Unique files:       22
+  Insertions:      1,693
+  Deletions:         127
+  Net line change: +1,566
+  Files in diff:      22
+  Authors:         JJ Flexbot (26)
+```
+
 ## 2026-04-23 end-of-day seal: Phase 8c-ii + Phase 11 + full 50-file help audit landed
 
 **Big day, lots of code + lots of docs.** Sprint 28 is now functionally complete except for Phase 9 (the 4.1.17 combined test matrix). Phase 10 was formally deferred to 4.1.18 to ride with Customize Home (decision captured in `memory/project_customize_home_vision.md`). End-of-day debug build is 4.1.16.156 (or whatever the rebuild lands at after the seal commit).

@@ -350,19 +350,26 @@ def cmd_all(args):
         print(f"  {label}: {val}")
 
 
-def cmd_window(args, label: str, days: int):
-    """Generic git-activity report for a time window N days back from today."""
+def cmd_window(args, label: str, since_spec: str, since_display: str = None):
+    """Generic git-activity report for a time window.
+
+    since_spec is passed to git --since= directly. Use natural-language
+    phrases ("midnight", "7 days ago", "1 year ago") so git applies its
+    own local-time interpretation. Computing UTC-midnight ISO dates here
+    introduced an off-by-timezone bug for narrow windows like "today" —
+    commits made earlier in local time before UTC rolled over were missed.
+    """
     repo = REPO_ROOT
-    since_dt = (datetime.now(timezone.utc) - timedelta(days=days)).date().isoformat()
-    print(f"Rigmeter — {label} activity (since {since_dt})")
+    display = since_display if since_display is not None else since_spec
+    print(f"Rigmeter — {label} activity (since {display})")
     print()
-    commits = git_commits_since(repo, since_dt)
-    files = git_files_changed_since(repo, since_dt)
+    commits = git_commits_since(repo, since_spec)
+    files = git_files_changed_since(repo, since_spec)
     print(f"  Commits:           {fmt_int(commits)}")
     print(f"  Unique files:      {fmt_int(files)}")
 
     # Insertions and deletions from the last commit before the window start to HEAD.
-    base = git_run(repo, "rev-list", "-1", "--before", since_dt, "HEAD").strip()
+    base = git_run(repo, "rev-list", "-1", f"--before={since_spec}", "HEAD").strip()
     if base:
         ins, dels, fch = git_diff_shortstat(repo, base, "HEAD")
         net = ins - dels
@@ -371,7 +378,7 @@ def cmd_window(args, label: str, days: int):
         print(f"  Net line change:   {net:+,}")
         print(f"  Files in diff:     {fmt_int(fch)}")
 
-    authors = git_authors_since(repo, since_dt)
+    authors = git_authors_since(repo, since_spec)
     if authors:
         print()
         print("  Authors:")
@@ -380,19 +387,20 @@ def cmd_window(args, label: str, days: int):
 
 
 def cmd_today(args):
-    return cmd_window(args, "today's", 1)
+    today_local = date.today().isoformat()
+    return cmd_window(args, "today's", "midnight", f"midnight local time ({today_local})")
 
 
 def cmd_week(args):
-    return cmd_window(args, "this week's", 7)
+    return cmd_window(args, "this week's", "7 days ago")
 
 
 def cmd_month(args):
-    return cmd_window(args, "this month's", 30)
+    return cmd_window(args, "this month's", "30 days ago")
 
 
 def cmd_year(args):
-    return cmd_window(args, "this year's", 365)
+    return cmd_window(args, "this year's", "1 year ago")
 
 
 def cmd_start(args):
@@ -511,6 +519,15 @@ def cmd_fun(args):
 # --- CLI entry -------------------------------------------------------------
 
 def main(argv=None):
+    # Force stdout to UTF-8 so the em-dashes, approx-symbols, and other
+    # Unicode glyphs in the labels and output don't crash on Windows
+    # consoles that default to cp1252. errors='replace' is a safety net
+    # for any glyph the terminal still can't render.
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
     parser = argparse.ArgumentParser(
         prog="rigmeter",
         description=(
