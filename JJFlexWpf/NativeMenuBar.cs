@@ -1300,6 +1300,15 @@ public class NativeMenuBar : IDisposable
                 SpeakCallback = (msg, interrupt) => Radios.ScreenReaderOutput.Speak(msg, interrupt)
             };
             dialog.ShowDialog();
+            // Restore focus to the JJ Flexible Home after the dialog closes.
+            // Without this, WPF returns focus to whatever unnamed parent
+            // container was last focused, and screen readers announce
+            // generic role text like "pane" — leaving the user unsure of
+            // where they are. Re-focusing FreqOut triggers the standard
+            // home-arrival announcement via DisplayBox_GotKeyboardFocus,
+            // restoring orientation cleanly. 2026-04-24 fix flagged by Noel
+            // after Phase 8c-ii About dialog rework.
+            _window.FreqOut.FocusDisplay();
         });
     }
 
