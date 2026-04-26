@@ -1372,6 +1372,9 @@ public class FreqOutHandlers
                 }
                 break;
         }
+
+        // Universal Home keys fall-through (M/V/R/X/Q/=, Shift+M, Shift+,)
+        if (!e.Handled) TryHandleUniversalHomeKey(e);
     }
 
     #endregion
@@ -1470,7 +1473,8 @@ public class FreqOutHandlers
                 }
                 else if (ch == '=' && isRIT)
                 {
-                    // Copy RIT to XIT
+                    // Copy RIT to XIT (domain-specific; preserved over universal '=' transceive
+                    // because field-specific handler runs first and sets e.Handled = true)
                     var copy = new FlexBase.RITData(Rig.RIT);
                     Rig.XIT = copy;
                     Radios.ScreenReaderOutput.Speak("Copied RIT to XIT", VerbosityLevel.Terse);
@@ -1478,6 +1482,13 @@ public class FreqOutHandlers
                 }
                 break;
         }
+
+        // Universal Home keys fall-through. The RIT '=' (RIT→XIT copy) above
+        // already set e.Handled, so universal '=' (transceive) won't fire here.
+        // R/X from RIT/XIT are mostly redundant with the field's own Space-toggle
+        // but safe — they always toggle Rig.RIT / Rig.XIT regardless of which
+        // field has focus, which is the universal-keys promise.
+        if (!e.Handled) TryHandleUniversalHomeKey(e);
     }
 
     private void AdjustRITXITValue(FlexBase.RITData data, bool isRIT, int delta)
@@ -1533,6 +1544,9 @@ public class FreqOutHandlers
             Radios.ScreenReaderOutput.Speak(newState == FlexBase.OffOnValues.on ? "VOX on" : "VOX off", VerbosityLevel.Terse);
             e.Handled = true;
         }
+
+        // Universal Home keys fall-through (M/V/R/X/Q/=, Shift+M, Shift+,)
+        if (!e.Handled) TryHandleUniversalHomeKey(e);
     }
 
     #endregion
@@ -1605,6 +1619,108 @@ public class FreqOutHandlers
         Radios.ScreenReaderOutput.Speak(
             newState == FlexBase.OffOnValues.on ? "Squelch on" : "Squelch off",
             VerbosityLevel.Terse, interrupt: true);
+    }
+
+    /// <summary>
+    /// Universal Home keys — M/V/R/X/Q/= and Shift+M / Shift+, work from ANY
+    /// Home field, regardless of which field has focus. Returns true if the
+    /// key matched a universal pattern and was handled. Caller convention:
+    /// invoke as a fall-through at the END of a field-specific handler with
+    /// `if (!e.Handled) TryHandleUniversalHomeKey(e);` so field-specific
+    /// behaviour wins for keys it claims (e.g. RIT field's '=' for RIT→XIT
+    /// copy is preserved because the field handler runs first).
+    ///
+    /// Originally these keys were inline-implemented in AdjustFreq and
+    /// AdjustFreqModern (Sprint 28 Phase 3.9 / Phase 5 / 2026-04-24 fix).
+    /// This helper extracts the same patterns for the universal-keys field
+    /// audit (Split, VOX, Offset, Mute, Volume, RIT, XIT) so the doc claim
+    /// "M/V/R/X/Q/= work from any Home field" matches reality.
+    /// </summary>
+    private bool TryHandleUniversalHomeKey(KeyEventArgs e)
+    {
+        if (e.Handled) return false;
+        if (Rig == null) return false;
+        var key = RawKey(e);
+        char ch = KeyToChar(e);
+
+        // Multi-slice keys — checked before single-key M because Shift+M also
+        // produces ch == 'M'.
+        if (ch == 'M' && Keyboard.Modifiers == ModifierKeys.Shift)
+        {
+            ToggleMuteAllSlices();
+            e.Handled = true;
+            return true;
+        }
+        if (key == Key.OemComma && Keyboard.Modifiers == ModifierKeys.Shift)
+        {
+            ReleaseAllExtraSlicesAndAnnounce();
+            e.Handled = true;
+            return true;
+        }
+
+        // Single-key universals require no modifier so Ctrl+M, Alt+R, etc.
+        // (used by other commands) don't accidentally trigger here.
+        if (Keyboard.Modifiers != ModifierKeys.None) return false;
+
+        if (ch == 'M')
+        {
+            bool newMute = !Rig.SliceMute;
+            Rig.SliceMute = newMute;
+            if (newMute) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
+            Radios.ScreenReaderOutput.Speak(
+                newMute ? "Muted" : "Unmuted", VerbosityLevel.Terse, true);
+            e.Handled = true;
+            return true;
+        }
+        if (ch == 'V')
+        {
+            CycleVFO(1);
+            e.Handled = true;
+            return true;
+        }
+        if (ch == 'R')
+        {
+            var rit = new FlexBase.RITData(Rig.RIT);
+            rit.Active = !rit.Active;
+            Rig.RIT = rit;
+            if (rit.Active) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
+            Radios.ScreenReaderOutput.Speak(
+                rit.Active ? "RIT on" : "RIT off", VerbosityLevel.Terse, true);
+            e.Handled = true;
+            return true;
+        }
+        if (ch == 'X')
+        {
+            var xit = new FlexBase.RITData(Rig.XIT);
+            xit.Active = !xit.Active;
+            Rig.XIT = xit;
+            if (xit.Active) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
+            Radios.ScreenReaderOutput.Speak(
+                xit.Active ? "XIT on" : "XIT off", VerbosityLevel.Terse, true);
+            e.Handled = true;
+            return true;
+        }
+        if (ch == 'Q')
+        {
+            ToggleSquelch();
+            e.Handled = true;
+            return true;
+        }
+        if (ch == '=')
+        {
+            int vfo = Rig.RXVFO;
+            if (Rig.ValidVFO(vfo))
+            {
+                if (Rig.CanTransmit) Rig.TXVFO = vfo;
+                Radios.ScreenReaderOutput.Speak(
+                    $"Slice {Rig.VFOToLetter(vfo)} transceive",
+                    VerbosityLevel.Terse, true);
+            }
+            e.Handled = true;
+            return true;
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -1698,7 +1814,9 @@ public class FreqOutHandlers
         var key = RawKey(e);
         char ch = KeyToChar(e);
 
-        if (key == Key.Space || ch == 'M')
+        // Note the modifier check on M: without it, Shift+M would be eaten here
+        // as a single-slice mute toggle, hiding the universal Shift+M = mute-all.
+        if (key == Key.Space || (ch == 'M' && Keyboard.Modifiers == ModifierKeys.None))
         {
             bool newMute = !Rig.SliceMute;
             Rig.SliceMute = newMute;
@@ -1706,6 +1824,12 @@ public class FreqOutHandlers
             Radios.ScreenReaderOutput.Speak(newMute ? "Muted" : "Unmuted", VerbosityLevel.Terse);
             e.Handled = true;
         }
+
+        // Universal Home keys fall-through (V/R/X/Q/=, Shift+M, Shift+,).
+        // Plain M is already handled above (same single-slice mute behaviour
+        // as the universal helper would do; the explicit handler is kept so
+        // the field's "primary action" is obvious in code review).
+        if (!e.Handled) TryHandleUniversalHomeKey(e);
     }
 
     #endregion
@@ -1735,6 +1859,9 @@ public class FreqOutHandlers
                 e.Handled = true;
                 break;
         }
+
+        // Universal Home keys fall-through (M/V/R/X/Q/=, Shift+M, Shift+,)
+        if (!e.Handled) TryHandleUniversalHomeKey(e);
     }
 
     #endregion
@@ -1776,6 +1903,9 @@ public class FreqOutHandlers
             Radios.ScreenReaderOutput.Speak($"Offset {dir}", VerbosityLevel.Terse);
             e.Handled = true;
         }
+
+        // Universal Home keys fall-through (M/V/R/X/Q/=, Shift+M, Shift+,)
+        if (!e.Handled) TryHandleUniversalHomeKey(e);
     }
 
     #endregion
