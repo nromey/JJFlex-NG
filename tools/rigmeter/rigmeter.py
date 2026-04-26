@@ -1063,26 +1063,53 @@ def fmt_pct(value: float, decimals: int = 1) -> str:
     return f"{sign}{value:.{decimals}f}%"
 
 
-def print_table(rows, headers):
-    """Plain-text table. Screen-reader friendly when used with row-bullet output."""
+def print_records(rows, headers):
+    """Print rows as bullet-listed records, one per line. Screen-reader friendly.
+
+    v1.0 used a pipe-separated 'table' which NVDA reads as 'authored vertical
+    bar 710 vertical bar 134 thousand 335 vertical bar...' — hostile to screen
+    readers and a violation of the project rule (MEMORY.md User Preferences:
+    "NO tables or diagrams"). v1.1.1 collapses every print site to natural-prose
+    bullets so each record reads as one parseable line.
+
+    Format per record:
+        - <label>: <value1> <header1>, <value2> <header2>, ...
+    where <label> is the first column and headers (lowercased) follow each value.
+    Empty values are skipped to avoid orphan headers. Separator-style rows
+    (label-only with empty rest) print as a plain indented line.
+    """
     if not rows:
-        print("(no rows)")
+        print("  (no records)")
         return
-    widths = [len(h) for h in headers]
     for row in rows:
-        for i, cell in enumerate(row):
-            widths[i] = max(widths[i], len(str(cell)))
-    sep = " | "
-    line = sep.join(h.ljust(widths[i]) for i, h in enumerate(headers))
-    print(line)
-    print("-" * len(line))
-    for row in rows:
-        print(sep.join(str(cell).ljust(widths[i]) for i, cell in enumerate(row)))
+        if not row:
+            continue
+        # Separator-row pattern: first column has text, all others are empty.
+        if len(row) > 1 and all(not str(c).strip() for c in row[1:]):
+            print(f"  {row[0]}")
+            continue
+        label = str(row[0])
+        parts = []
+        for i in range(1, len(row)):
+            value = str(row[i]).strip()
+            if not value:
+                continue
+            header_label = headers[i].lower() if i < len(headers) else ""
+            if header_label:
+                parts.append(f"{value} {header_label}")
+            else:
+                parts.append(value)
+        if parts:
+            print(f"  - {label}: {', '.join(parts)}")
+        else:
+            print(f"  - {label}")
 
 
 def print_section(title: str):
+    """Section header. Plain title with leading blank line and trailing colon —
+    no '===' wrapper that NVDA would read as 'equals equals equals'."""
     print()
-    print(f"=== {title} ===")
+    print(f"{title}:")
 
 
 def _bundle_row(name: str, bundle: CategoryBundle) -> Tuple[str, str, str, str, str]:
@@ -1100,13 +1127,13 @@ def print_snapshot_full(snap: Snapshot, title: str = "Rigmeter — full reposito
     print(f"SHA:       {snap.head_sha[:12]}")
 
     # --- Headline (authored vs vendor vs combined)
-    print_section("Headline rollups (files | lines | words | chars)")
+    print_section("Headline rollups")
     rows = [
         _bundle_row("authored",  snap.authored),
         _bundle_row("vendor",    snap.vendor),
         _bundle_row("combined",  snap.combined()),
     ]
-    print_table(rows, ["Rollup", "Files", "Lines", "Words", "Chars"])
+    print_records(rows, ["Rollup", "Files", "Lines", "Words", "Chars"])
 
     # --- Per-project (authored first, vendor below separator)
     print_section("Per-project breakdown (lines)")
@@ -1123,7 +1150,7 @@ def print_snapshot_full(snap: Snapshot, title: str = "Rigmeter — full reposito
     for p in vendor_projects:
         f, l, w, _ = p.counts.grand()
         rows.append((f"{p.name} (vendor)", fmt_int(l), fmt_int(w), fmt_int(f)))
-    print_table(rows, ["Project", "Lines", "Words", "Files"])
+    print_records(rows, ["Project", "Lines", "Words", "Files"])
 
     # --- Per-category (authored)
     print_section("Per-category totals — authored only")
@@ -1131,7 +1158,7 @@ def print_snapshot_full(snap: Snapshot, title: str = "Rigmeter — full reposito
     for cat in CATEGORY_ORDER:
         c = snap.authored.for_category(cat)
         rows.append((cat, fmt_int(c.lines), fmt_int(c.words), fmt_int(c.files)))
-    print_table(rows, ["Category", "Lines", "Words", "Files"])
+    print_records(rows, ["Category", "Lines", "Words", "Files"])
 
     # --- Per-language within code (authored vs all-files)
     print_section("Code language breakdown")
@@ -1153,7 +1180,7 @@ def print_snapshot_full(snap: Snapshot, title: str = "Rigmeter — full reposito
             fmt_int(c.lines),
             f"{c_pct:.1f}%",
         ))
-    print_table(rows, ["Lang", "Authored lines", "% authored", "All lines", "% all"])
+    print_records(rows, ["Lang", "authored lines", "of authored", "all lines", "of all"])
 
     # --- Per-category (vendor) only if non-zero
     v_grand = snap.vendor.grand()
@@ -1163,7 +1190,7 @@ def print_snapshot_full(snap: Snapshot, title: str = "Rigmeter — full reposito
         for cat in CATEGORY_ORDER:
             c = snap.vendor.for_category(cat)
             rows.append((cat, fmt_int(c.lines), fmt_int(c.words), fmt_int(c.files)))
-        print_table(rows, ["Category", "Lines", "Words", "Files"])
+        print_records(rows, ["Category", "Lines", "Words", "Files"])
 
     # --- Grand total (authored — the headline that means "what we wrote")
     print_section("Grand total — authored")
@@ -1269,7 +1296,7 @@ def print_growth(snap_a: Snapshot, snap_b: Snapshot, days_elapsed: Optional[floa
     for d in compute_growth_per_category(snap_a.authored, snap_b.authored):
         rows.append((d.label, fmt_int(d.before), fmt_int(d.after),
                      f"{d.delta:+,}", fmt_pct(d.pct)))
-    print_table(rows, ["Category", "Before", "After", "Delta", "Growth %"])
+    print_records(rows, ["Category", "before", "after", "delta", "growth"])
 
     # --- Per-language growth within code (authored only)
     print_section("Per-language growth within code — authored")
@@ -1277,7 +1304,7 @@ def print_growth(snap_a: Snapshot, snap_b: Snapshot, days_elapsed: Optional[floa
     for d in compute_growth_per_language(snap_a.authored, snap_b.authored):
         rows.append((d.label, fmt_int(d.before), fmt_int(d.after),
                      f"{d.delta:+,}", fmt_pct(d.pct)))
-    print_table(rows, ["Language", "Before", "After", "Delta", "Growth %"])
+    print_records(rows, ["Language", "before", "after", "delta", "growth"])
 
     # --- Vendor growth (only if non-zero on either side)
     v_a = snap_a.vendor.grand()
@@ -1288,7 +1315,7 @@ def print_growth(snap_a: Snapshot, snap_b: Snapshot, days_elapsed: Optional[floa
         for d in compute_growth_per_category(snap_a.vendor, snap_b.vendor):
             rows.append((d.label, fmt_int(d.before), fmt_int(d.after),
                          f"{d.delta:+,}", fmt_pct(d.pct)))
-        print_table(rows, ["Category", "Before", "After", "Delta", "Growth %"])
+        print_records(rows, ["Category", "before", "after", "delta", "growth"])
 
     # --- Hot files in span (Phase 10 bonus, reuses git log --numstat)
     if snap_a.head_sha and snap_b.head_sha and snap_a.head_sha != snap_b.head_sha:
@@ -1296,7 +1323,7 @@ def print_growth(snap_a: Snapshot, snap_b: Snapshot, days_elapsed: Optional[floa
         if hot:
             print_section("Hot files in span (top 10 by churn)")
             rows = [(path, fmt_int(churn)) for path, churn in hot]
-            print_table(rows, ["File", "Lines changed"])
+            print_records(rows, ["File", "Lines changed"])
 
 
 # --- Subcommand implementations -------------------------------------------
@@ -1400,10 +1427,10 @@ def cmd_releases(args):
         days = ""
         if prev_dt is not None:
             delta = d - prev_dt
-            days = f"{delta.days} days"
+            days = str(delta.days)
         rows.append((t, d.date().isoformat(), days))
         prev_dt = d
-    print_table(rows, ["Tag", "Date", "Days since prior"])
+    print_records(rows, ["Tag", "released", "days since prior"])
 
 
 def cmd_release(args):
@@ -1474,7 +1501,7 @@ def cmd_compare(args):
     ]:
         rows.append((label, fmt_int(here_b), fmt_int(there_b),
                      f"{here_b - there_b:+,}"))
-    print_table(rows, ["Metric", "This (authored)", "Other (authored)", "Delta"])
+    print_records(rows, ["Metric", "this authored", "other authored", "delta"])
 
     # Vendor row only if either side has any vendor — otherwise it looks broken.
     here_v = here.vendor.grand()
@@ -1490,7 +1517,7 @@ def cmd_compare(args):
         ]:
             rows.append((label, fmt_int(here_b), fmt_int(there_b),
                          f"{here_b - there_b:+,}"))
-        print_table(rows, ["Metric", "This (vendor)", "Other (vendor)", "Delta"])
+        print_records(rows, ["Metric", "this vendor", "other vendor", "delta"])
 
     print_section("Fun comparisons — this repo (authored)")
     _, l, w, ch = here.authored.grand()
@@ -1705,7 +1732,7 @@ def cmd_installers(args):
         print("(no installer files found in historical tree — only debug builds present)")
         print(f"Looked under: {nas_root}/<version>/installers/")
         return
-    print_table(rows, ["Version", "x64 size", "x86 size"])
+    print_records(rows, ["Version", "x64 size", "x86 size"])
     print()
     if len(rows) >= 2:
         # Trend: first vs last
