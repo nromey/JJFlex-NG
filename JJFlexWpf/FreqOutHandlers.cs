@@ -191,7 +191,16 @@ public class FreqOutHandlers
             >= Key.D0 and <= Key.D9 => (char)('0' + (key - Key.D0)),
             >= Key.NumPad0 and <= Key.NumPad9 => (char)('0' + (key - Key.NumPad0)),
             >= Key.A and <= Key.Z => (char)('A' + (key - Key.A)),
-            Key.OemPlus or Key.Add => '+',
+            // OemPlus is the physical '='/'+' key on US layouts: unshifted = '=',
+            // shifted = '+'. Pre-fix this mapped to '+' unconditionally, which made
+            // every `ch == '='` check unreachable — silently breaking Sprint 28
+            // Phase 5's '=' transceive in AdjustFreq, the long-standing `else if
+            // (ch == '=' && isRIT)` RIT→XIT copy in AdjustRITXIT, and the
+            // universal '=' transceive added 2026-04-26. Numpad '+' (Key.Add)
+            // is always '+' regardless of modifier — separate physical key, no
+            // shifted variant.
+            Key.OemPlus => (Keyboard.Modifiers & ModifierKeys.Shift) != 0 ? '+' : '=',
+            Key.Add => '+',
             Key.OemMinus or Key.Subtract => '-',
             Key.OemPeriod or Key.Decimal => '.',
             Key.OemComma => ',',
