@@ -52,6 +52,16 @@ Namespace My
             TheShellForm = New ShellForm()
             WpfMainWindow = TheShellForm.WpfContent
 
+            ' Wire WPF dispatcher exception capture. WPF runs inside ElementHost
+            ' so there is no System.Windows.Application.Current to subscribe to;
+            ' we attach to the WpfMainWindow's Dispatcher instead. Without this,
+            ' WPF dispatcher exceptions (event handlers, Dispatcher.BeginInvoke
+            ' callbacks, deferred work) would fall through to the AppDomain
+            ' handler and terminate the process. With it, we save the crash and
+            ' set e.Handled = True so the app stays alive — same soft-recover
+            ' behaviour as the WinForms ThreadException handler above.
+            AddHandler WpfMainWindow.Dispatcher.UnhandledException, AddressOf CrashReporter.OnDispatcherUnhandledException
+
             ' Wire scan timer tick to dispatch between linear and memory scan.
             AddHandler WpfMainWindow.ScanTimerTick,
                 Sub(s, args)

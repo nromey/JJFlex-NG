@@ -21,6 +21,25 @@ Module CrashReporter
         SaveCrash("Unhandled domain exception", ex, e.IsTerminating)
     End Sub
 
+    ' Catch WPF Dispatcher exceptions (event handlers, Dispatcher.BeginInvoke
+    ' callbacks, deferred work). Without this, WPF dispatcher exceptions fall
+    ' through to OnUnhandledException above which terminates the process; with
+    ' it, we save the report AND set e.Handled = True so the app stays alive
+    ' (matching the soft-recover behaviour of OnThreadException for WinForms).
+    ' The user gets the standard crash-report MessageBox and can choose whether
+    ' to keep using the app or restart.
+    '
+    ' This pattern explicitly does NOT silence the crash — the report is still
+    ' written, the screen reader still announces, the MessageBox still shows.
+    ' It just prevents the WPF exception from cascading into the AppDomain
+    ' handler (which would write a duplicate report) and from terminating
+    ' the process unconditionally.
+    Public Sub OnDispatcherUnhandledException(sender As Object,
+                                              e As System.Windows.Threading.DispatcherUnhandledExceptionEventArgs)
+        SaveCrash("WPF dispatcher exception", e.Exception, False)
+        e.Handled = True
+    End Sub
+
     Private Sub SaveCrash(context As String, ex As Exception, isTerminating As Boolean)
         Try
             Dim baseDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "JJFlexRadio", "Errors")
