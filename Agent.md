@@ -3,7 +3,108 @@
 This document captures the current state of JJ-Flex repository and active work.
 
 **Repository root:** `C:\dev\JJFlex-NG`
-**Branch:** `sprint28/home-key-qsk` (Phases 1-8 + 11 complete; Phase 10 deferred to 4.1.18; Phase 9 test matrix drafted; today's bug-bundle landed; rigmeter v1 first-draft uncommitted-then-rolled-into-seal)
+**Branch:** `sprint28/home-key-qsk` (Sprint 28 Phases 1-8 + 11 complete; Phase 10 deferred to 4.1.18; Phase 9 test matrix drafted; rigmeter v1.1 shipped overnight on 2026-04-26 — non-radio tooling work, no testers paged)
+
+## 2026-04-26 (overnight) tooling: rigmeter v1.1 — NOT a daily for testers
+
+**Late-night work, no radio code touched.** Noel was waiting out medication (~30-45 min) and chose to spend the time on rigmeter v1.1 rather than radio testing. Plan was to commit and push for durability, **skip the Dropbox tester daily** (yesterday's daily still represents radio code accurately — pushing testers a build that's identical-modulo-rigmeter would dilute the signal of "when there's a new daily, there's something to test"), and resume radio data work tomorrow.
+
+**Single commit** on `sprint28/home-key-qsk`:
+
+- `a57a2075` — **Rigmeter v1.1**: vendor split, binary deny-list, growth deltas, JSON snapshots. 1,585 insertions / 260 deletions across 3 files (`tools/rigmeter/rigmeter.py`, `tools/rigmeter/README.md`, `CLAUDE.md`). Headline shrunk from v1's 380K lines to v1.1's 135K authored-only lines (65% reduction). Full feature surface: see commit message + updated `tools/rigmeter/README.md`.
+
+**What ships in rigmeter v1.1** (all baked in tonight, smoke-tested):
+
+- Vendor split: `FlexLib_API/`, `P-Opus-master/`, **and the newly-discovered `PortAudioSharp-src-0.19.3/`** report as a separate "vendor" rollup; headline number means "what Noel and Jim wrote."
+- Explicit `BINARY_EXTENSIONS` deny-list (39 binary files now properly tagged, was silently dropped without audit in v1).
+- Switch from `os.walk` to `git ls-files` (excludes 237 untracked build-output files v1 was counting; live and ref-mode snapshots now directly comparable for the same SHA).
+- Per-language % within `code` (% VB / % C# / % XAML / % Python), authored AND across-all.
+- Auto-discover project buckets from top-level git paths (kills the hand-curated `PROJECT_DIRS` list which had drifted — picked up 17 new projects).
+- New `growth <ref-a> [<ref-b>] | --since <date> | --use-snapshots <date-a> <date-b>` subcommand: code-base growth % AND doc-base growth % shown separately as headline lines (per Noel's specific ask). Per-day normalized rate when span ≥ 1 day.
+- New `snapshot` subcommand: JSON to NAS at `\\nas.macaw-jazz.ts.net\jjflex\historical\stats\<commit-date>-<short-sha>.json` with `%LOCALAPPDATA%\rigmeter\snapshots\` fallback. `snapshot --sync` reconciles local-only files up to NAS later.
+- New `backfill --refs <pattern>` subcommand. Tonight: backfilled all 5 v* tags in 3.2 seconds.
+- New `installers` subcommand: parses NAS `historical/<version>/installers/Setup JJFlex_*.exe` for size trend (builds-bloat watchdog).
+- `release <tag> --growth` and `--explain` flags. `releases` gained "days since prior" column.
+- `--explain` flag on `all`/`growth` shows file accounting (which files included/excluded with example paths per skip reason).
+- CLAUDE.md step 4a updated: seal workflow now also calls `rigmeter snapshot` for the JSON write alongside the Agent.md text paste. The two-channel approach: Agent.md is human-readable history, NAS JSONs are machine-queryable.
+
+**NAS time-series seeded** (six baseline points written tonight):
+- `2026-01-29-76c5f870.json` (v4.1.9)
+- `2026-02-08-05856db7.json` (v4.1.12)
+- `2026-03-07-35948dea.json` (v4.1.15)
+- `2026-03-08-ad9bb1a8.json` (v4.1.15.1)
+- `2026-04-19-6d6a0084.json` (v4.1.16)
+- `2026-04-24-ebfe6413.json` (current HEAD pre-rigmeter-v1.1-commit)
+
+**Memory updates:**
+- UPDATED `project_rigmeter_stats_tool.md` — v1.1 shipped status, headline-shift numbers, design decisions captured, v1.2+ deferred items listed.
+
+**CLAUDE.md drift:** Step 4a updated in this commit to reflect the new JSON snapshot path. No other drift.
+
+**Plan for tomorrow (radio + radio data, hard):**
+
+1. **Resume Sprint 28 Phase 9** (4.1.17 combined test matrix execution at the radio). Last session was Don-on-6300 + Noel-at-radio for the bug-bundle; pick up wherever the matrix was last marked.
+2. **WebView2 thread-affinity crash fix** — queued from 2026-04-24 seal. AuthFormWebView2.Dispose runs on a background thread, touches CoreWebView2 which is UI-thread-only. Crash dump: `%APPDATA%\JJFlexRadio\Errors\JJFlexError-20260424-110554.zip`. Fix: marshaling guard (InvokeRequired pattern).
+3. **Universal-keys field audit** — Doc claims M/V/R/X/Q/= work from any Home field; reality is only Frequency / Slice / Slice Operations have them universally. Audit Split, VOX, Offset, Mute, Volume, RIT, XIT handlers.
+4. **Command Finder** post-deferral verification — yesterday's `3893082b` fix needs another testing pass to confirm the dispatcher.BeginInvoke past-dialog-close pattern actually eliminates the kill-task race.
+5. After radio work, run a fresh `rigmeter snapshot` from the post-radio-work state to capture day-N+1 of the time series.
+
+**Note for the morning rigmeter snapshot:** When a real seal happens tomorrow with radio code changes, the snapshot section format below changes — use authored-only headline (the new v1.1 default), include vendor as a separate line, include the per-language breakdown. Format example below.
+
+### Rigmeter snapshot — overnight 2026-04-26 (v1.1 first-write)
+
+Captured immediately after rigmeter v1.1 commit. The headline transition from v1 to v1.1 — same git state, different (more honest) counting:
+
+```
+Headline shift (same HEAD, different definition of "what we count"):
+
+  v1:    1,188 files / 380,589 lines / 1,127,323 words / 17.16 M chars
+  v1.1:    710 files / 135,025 lines /   583,756 words /  5.80 M chars  (authored only)
+                       +  53,240 vendor lines (FlexLib_API, P-Opus, PortAudioSharp)
+                       =  890 files / 188,265 lines combined
+
+The 65% line-count drop is real signal:
+  - 237 untracked build-output files no longer counted (git ls-files vs os.walk)
+  - 53,240 vendor lines moved out of headline into vendor rollup
+  - 39 binaries properly tagged (cty.dat, .dll, .pdb, .chm, .png, .ico, .wav, etc.)
+  - .dat files reclassified as binary (upstream country-data blobs, not authorship)
+
+Per-category (authored only):
+  code      100,123 lines / 330,836 words / 430 files
+  text_data   9,065 /  32,663 /  84
+  docs       19,985 / 200,736 / 130
+  build       5,852 /  19,521 /  66
+
+Per-language within code (authored / all):
+  cs    76,403 (76.3% authored, 84.3% all)
+  vb    16,915 (16.9% / 11.2%)
+  xaml   4,969 ( 5.0% /  3.3%)
+  py     1,836 ( 1.8% /  1.2%)
+
+Fun comparisons (authored only):
+  Braille volumes (~100K cells each):    58.0   (was 171.7 in v1)
+  Moby Dicks (~210K words):               2.8   (was   5.4)
+  King James Bibles (~783K words):        0.75  (was   1.44)
+  Read-aloud time at 150 wpm:            64.9 hours
+  Printed pages (50 lines/page):        2,701
+  Stack-of-printed-pages height:         10.8 inches (27.4 cm)
+
+Real growth measured (v4.1.15 → HEAD, 48 days):
+  Code base lines:    78,819 → 100,123  (+21,304 lines, +27.0%, +0.563%/day)
+  Doc base lines:      9,894 →  20,059  (+10,165 lines, +102.7%, +2.141%/day)
+  VB:                 18,448 → 16,915   ( -1,533 lines,  -8.3%) — WinForms→WPF rewrite shrinkage
+  C#:                 56,393 → 76,403   (+20,010 lines, +35.5%) — most of the work
+  XAML:                3,967 →  4,969   ( +1,002 lines, +25.3%) — UI work
+  Python:                 11 →  1,836   ( +1,825 lines, +16,591%) — rigmeter coming into existence
+
+Today's git activity:
+  Commits:           1 (a57a2075 — rigmeter v1.1)
+  Files in commit:   3
+  Insertions:    1,585
+  Deletions:       260
+  Net change:   +1,325
+  Authors:       JJ Flexbot (1)
+```
 
 ## 2026-04-24 end-of-day seal: bug-bundle day — F2+M, mute-all/release-all, KeyDefs migration, About dialog focus, Command Finder, BT-on-connect delay, plus rigmeter first-draft
 
