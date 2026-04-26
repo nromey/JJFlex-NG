@@ -21,6 +21,84 @@ Last updated: 2026-04-19
 
 **Status:** Logged 2026-04-19 after 4.1.16.44 release surfaced it.
 
+### BUG: Connection-event speech announces "no active slice" prematurely (2026-04-26 fartsnoodle, Noel)
+
+**Symptom:** When connecting to a Flex (Noel observed on 6300), screen reader announces "Connected to Flex 6300, no active slice." The "no active slice" portion is a transient truth — slice data hasn't propagated yet at the moment of the connection event. Once slices populate (a beat later), the active slice does exist. The announcement is misleading and confusing.
+
+**Root cause (suspected):** the connection-event handler (likely `MainWindow.ConnectedEventHandler` or similar; needs verification) speaks slice status synchronously on the connect event, before FlexLib has finished pushing slice creation events for the radio. Same shape as the Command Finder pre-deferral bug fixed in `3893082b` — "speak too early, the state isn't ready yet" pattern.
+
+**Fix:** defer the slice-portion of the connection announcement until first slice update arrives, OR check `theRadio.AvailableSlices > 0` (or equivalent) before speaking; OR speak only the radio identity in the connect event and let the slice arrival event own the slice announcement.
+
+**Priority:** Medium-low. Cosmetic confusion, not a functional break. Worth bundling with the next round of slice/connection event-ordering work.
+
+**Status:** Logged 2026-04-26 from Noel's runtime fartsnoodle while testing universal-keys field audit.
+
+### BUG: RIT/XIT toggle from sub-position orphans cursor (2026-04-26 fartsnoodle, Noel)
+
+**Symptom:** With RIT (or XIT) on, user arrows into one of the field's expanded sub-positions (e.g., the 10 Hz adjustment digit), then toggles RIT off via either Space (existing field-specific behaviour) or R (universal helper added 2026-04-26). The field collapses — sub-positions disappear because there's no value to display when RIT is off. Arrow-left and arrow-right then do not navigate (no speech, possibly no visual cursor movement either).
+
+**Root cause:** when RIT toggles off, the field's effective length shrinks. The cursor's `posInField` is now out of range relative to the new field structure. Arrow-key handlers in the underlying `FrequencyDisplay` control silently do nothing for out-of-range positions instead of clamping or wrapping.
+
+**Pre-existing, NOT a regression:** the universal R (added in commit `4cf73823`) takes the same toggle path as Space (which has been there for many sprints). Confirmed by Noel: Space exhibits identical behaviour. The universal R just makes the bug more discoverable because users who learned Space-from-field-start now have a second key (R) that they might press from deep inside the expanded field.
+
+**Fix options:**
+- (A) When RIT/XIT toggles off via any path (Space or R or universal), reset the cursor to position 0 of the field (i.e. land on the on/off indicator). Simple, predictable.
+- (B) When the field shrinks, clamp `SelectionStart` to the new max position. More general fix; covers any future field-shrink scenario.
+- (C) Always show RIT/XIT field with at least the on/off indicator and a placeholder value position (e.g., "OFF" + "+0000"), so the structure never shrinks. UX impact — would change the read-aloud verbosity.
+
+Option (A) is smallest-blast-radius and matches existing keep-cursor-sane patterns elsewhere in the codebase. Option (B) is the right architectural fix if FrequencyDisplay's selection model is shared across multiple variable-length fields.
+
+**Priority:** Medium. Workaround is "press Space/R from outside the expanded field," which most users already do. But the universal-keys promise means more users will hit this once they discover R works from deep positions.
+
+**Status:** Logged 2026-04-26 from Noel's runtime fartsnoodle while testing universal-keys field audit (Test 3 follow-up).
+
+**Related sub-symptom (same root cause, observed Test 4 setup 2026-04-26):** When RIT (or XIT) is OFF, arrowing RIGHT from RIT through the field's 5-char width announces 3-5 "nothing" sub-positions before reaching XIT. Arrowing LEFT from XIT skips those sub-positions and lands directly on RIT. Same fix as above (clamp navigable positions to populated ones in both directions, OR collapse the field width to 1 when RIT/XIT is off) resolves this asymmetry too.
+
+### BUG: SetupFreqoutModern doc comment is stale (2026-04-26 spotted during fartsnoodle)
+
+**Symptom:** The summary comment for `SetupFreqoutModern` at `JJFlexWpf/MainWindow.xaml.cs:1383-1387` claims:
+> Modern mode: simplified field set — Freq + Slice + SMeter only. ... Other controls (Mute, Volume, Split, VOX, RIT, XIT) accessible via Slice menu.
+
+Actual Modern field list (lines 1406-1436) is: Slice, SliceOps, Freq, SMeter, Squelch, SquelchLevel, Split, VOX, Offset, RIT, XIT. The comment was written before Sprint 26 Phase 8 added the checkbox-field mirroring; it never got updated.
+
+**Fix:** rewrite the doc comment to match current reality. Note that Mute and Volume are still legitimately omitted from Modern (universal `M` covers mute, Slice menu covers volume), but the rest of the comment is wrong.
+
+**Priority:** Low (cosmetic — incorrect comment misleads future contributors but doesn't affect runtime). Good drive-by cleanup next time anyone touches `SetupFreqoutModern`.
+
+**Status:** Logged 2026-04-26 from Noel's runtime fartsnoodle.
+
+### POLISH: Mode-change coach text — add chatty version + improve wording (2026-04-26 Noel)
+
+**Location:** `JJFlexWpf/MainWindow.xaml.cs:809-812`
+
+**Current (single Terse string each):**
+- Classic: `"Classic tuning mode. Cursor on a digit, up down to tune. Space on RIT or XIT to activate."`
+- Modern: `"Modern tuning mode. Up down tune, C toggle coarse and fine, page up down change step size."`
+
+**Noel's preferred chatty versions:**
+- Classic: `"Classic tuning mode, with your cursor pointed to frequency parts such as MHz or kHz, press the up or down arrows to tune. Press space to toggle fields such as mute or XIT."`
+- Modern: `"Modern tuning mode. Press up or down to tune in coarse steps. Press C to switch to fine tuning. Press space to toggle on/off items in JJ Flexible Home."`
+
+**Implementation pattern:** add a chatty/terse pair. Send the chatty version at `VerbosityLevel.Chatty`, send a properly-trimmed terse version at `VerbosityLevel.Terse`. Two `Speak` calls back-to-back works if `ScreenReaderOutput` filters by user verbosity (chatty user hears the chatty one, terse user hears the terse one — only one fires per user). If duplication is an issue, refactor `Speak` to take both forms and pick based on the user's setting (cleaner and reusable across the codebase).
+
+**Priority:** Low (Sprint 28/29 polish). Cosmetic improvement to discoverability hint.
+
+**Status:** Logged 2026-04-26 — Noel said he'd take this himself.
+
+### POLISH: Add "e e" (dit-dit) close to PlayCwSK (2026-04-26 Noel)
+
+**Location:** `JJFlexWpf/MainWindow.xaml.cs:2073-2078` (`Radios.ScreenReaderOutput.PlayCwSK = async () => { ... }`)
+
+**Current:** `73` (or `73 de JJF` at ≥25 WPM) followed by prosign SK. Feels abrupt.
+
+**Proposed:** append `e e` (two dits, a friendly hand-wave close) after the SK. Updated body would end with `await _morseNotifier.PlayString("ee");` after the existing `await _morseNotifier.PlaySK();`. Applies to both slower and faster CW speed messages.
+
+**Why "e e":** in CW prosign convention, two single dits = quick "bye" / "73 friend" feel. Removes the abruptness of a bare SK close.
+
+**Priority:** Low (Sprint 28/29 polish). User-experience nicety for the CW notification system.
+
+**Status:** Logged 2026-04-26 — Noel said he'd take this himself.
+
 ### FEATURE: On-demand tuning-key announcement hotkey (2026-04-20 design, Don via Noel)
 
 **Context:** Sprint 26 Phase 8c added a mode-change announcement that speaks the tuning-key summary on Ctrl+Shift+M mode toggle. Good for the moment of switching, but operators in a long session may forget the vocabulary halfway through and want a mid-session refresher without toggling modes just to hear it.
