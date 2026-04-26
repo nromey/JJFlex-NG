@@ -608,12 +608,43 @@ namespace Radios
         {
             if (disposing)
             {
-                _showTimer?.Stop();
-                _showTimer?.Dispose();
-                _showTimer = null;
-                webView?.Dispose();
+                // WebView2.Dispose() touches CoreWebView2 internals (Profile, Controller,
+                // etc.) which are COM objects bound to their creating thread. PerformNewLogin
+                // runs this form on the SmartLink background thread but marshals ShowDialog
+                // to the UI thread; the using-block disposal at the end of that scope then
+                // runs on the background thread again — wrong thread for WebView2 cleanup,
+                // which crashes with "CoreWebView2 members can only be accessed from the UI
+                // thread." Marshal back to the form's UI thread when needed so any caller
+                // path is safe regardless of which thread invokes Dispose.
+                try
+                {
+                    if (IsHandleCreated && InvokeRequired)
+                    {
+                        Invoke(new Action(DisposeOnUiThread));
+                    }
+                    else
+                    {
+                        DisposeOnUiThread();
+                    }
+                }
+                catch (ObjectDisposedException)
+                {
+                    // Form already torn down on its UI thread — nothing more to clean up.
+                }
+                catch (InvalidOperationException)
+                {
+                    // Handle destroyed mid-Invoke or message loop gone — bail safely.
+                }
             }
             base.Dispose(disposing);
+        }
+
+        private void DisposeOnUiThread()
+        {
+            _showTimer?.Stop();
+            _showTimer?.Dispose();
+            _showTimer = null;
+            webView?.Dispose();
         }
 
         private class TokenResponse
