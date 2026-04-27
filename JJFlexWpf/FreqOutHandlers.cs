@@ -53,6 +53,61 @@ public class FreqOutHandlers
     private DateTime _lastBracketTime = DateTime.MinValue;
     private CancellationTokenSource? _filterEdgeTimeout;
 
+    // Memory of the prior TX slice when transceive was last entered via the
+    // universal '=' key. Used to support the symmetric "exit transceive
+    // back to where I was" workflow: first '=' from split saves prior TX
+    // and sets transceive; second '=' restores the saved TX (split). null
+    // means "no prior split saved, just behave as one-way set transceive."
+    private int? _priorSplitTxVfo;
+
+    /// <summary>
+    /// Universal '=' handler with memory of prior split TX. Toggles between
+    /// transceive (TX = RX) and the previously-saved split TX.
+    ///
+    /// First press from split: save current TX into _priorSplitTxVfo, set
+    /// TX = RX, announce "Slice X transceive."
+    /// Second press from transceive (with valid prior): restore TX to the
+    /// saved slice, announce "Split, RX slice X, TX slice Y." Clear prior.
+    /// Press from transceive with no prior (or invalid prior): just
+    /// re-announce "Slice X transceive" (matches today's no-op-but-safe
+    /// behavior).
+    /// </summary>
+    private void ToggleTransceive()
+    {
+        if (Rig == null) return;
+        int rx = Rig.RXVFO;
+        if (!Rig.ValidVFO(rx)) return;
+        int tx = Rig.TXVFO;
+        bool currentlyTransceive = (tx == rx);
+
+        bool priorIsValid = _priorSplitTxVfo.HasValue
+            && Rig.ValidVFO(_priorSplitTxVfo.Value)
+            && _priorSplitTxVfo.Value != rx;
+
+        if (currentlyTransceive && priorIsValid)
+        {
+            int restored = _priorSplitTxVfo!.Value;
+            if (Rig.CanTransmit) Rig.TXVFO = restored;
+            string rxLetter = Rig.VFOToLetter(rx);
+            string txLetter = Rig.VFOToLetter(restored);
+            Radios.ScreenReaderOutput.Speak(
+                $"Split, RX slice {rxLetter}, TX slice {txLetter}",
+                VerbosityLevel.Terse, true);
+            _priorSplitTxVfo = null;
+        }
+        else
+        {
+            // Save current TX as the prior split iff we're actually in split.
+            // No-op if we're already transceive (nothing meaningful to save).
+            if (tx != rx && Rig.ValidVFO(tx))
+                _priorSplitTxVfo = tx;
+            if (Rig.CanTransmit) Rig.TXVFO = rx;
+            string letter = Rig.VFOToLetter(rx);
+            Radios.ScreenReaderOutput.Speak(
+                $"Slice {letter} transceive", VerbosityLevel.Terse, true);
+        }
+    }
+
     /// <summary>
     /// Toggle frequency readout on/off (Ctrl+Shift+F global hotkey).
     /// When off, Up/Down tuning doesn't auto-speak the new frequency.
@@ -415,15 +470,8 @@ public class FreqOutHandlers
                 }
                 else if (ch == '=')
                 {
-                    // Transceive: set both RX and TX slices to the current slice
-                    // (Sprint 28 Phase 5 — mnemonic: RX = TX)
-                    int vfo = Rig.RXVFO;
-                    if (Rig.ValidVFO(vfo))
-                    {
-                        if (Rig.CanTransmit) Rig.TXVFO = vfo;
-                        Radios.ScreenReaderOutput.Speak(
-                            $"Slice {Rig.VFOToLetter(vfo)} transceive", VerbosityLevel.Terse, true);
-                    }
+                    // Universal transceive toggle with memory of prior split TX.
+                    ToggleTransceive();
                     e.Handled = true;
                 }
                 break;
@@ -1742,14 +1790,7 @@ public class FreqOutHandlers
         }
         if (ch == '=')
         {
-            int vfo = Rig.RXVFO;
-            if (Rig.ValidVFO(vfo))
-            {
-                if (Rig.CanTransmit) Rig.TXVFO = vfo;
-                Radios.ScreenReaderOutput.Speak(
-                    $"Slice {Rig.VFOToLetter(vfo)} transceive",
-                    VerbosityLevel.Terse, true);
-            }
+            ToggleTransceive();
             e.Handled = true;
             return true;
         }
@@ -2109,17 +2150,8 @@ public class FreqOutHandlers
                 }
                 else if (ch == '=')
                 {
-                    // Transceive: set both RX and TX slices to the current slice
-                    // (Sprint 28 Phase 5 — mnemonic: RX = TX). 2026-04-24: added
-                    // here to match the universal-Home-key promise after Classic
-                    // parity work surfaced the gap.
-                    int vfo = Rig.RXVFO;
-                    if (Rig.ValidVFO(vfo))
-                    {
-                        if (Rig.CanTransmit) Rig.TXVFO = vfo;
-                        Radios.ScreenReaderOutput.Speak(
-                            $"Slice {Rig.VFOToLetter(vfo)} transceive", VerbosityLevel.Terse, true);
-                    }
+                    // Universal transceive toggle with memory of prior split TX.
+                    ToggleTransceive();
                     e.Handled = true;
                 }
                 break;
