@@ -1393,9 +1393,17 @@ public partial class MainWindow : UserControl
     }
 
     /// <summary>
-    /// Modern mode: simplified field set — Freq + Slice + SMeter only.
-    /// Tuning via modifier keys (Up/Down = coarse, Shift+Up/Down = fine).
-    /// Other controls (Mute, Volume, Split, VOX, RIT, XIT) accessible via Slice menu.
+    /// Modern tuning mode: full field set minus Mute and Volume. Sprint 26
+    /// Phase 8 added the checkbox-field mirroring (Split, VOX, Offset, RIT,
+    /// XIT) so operators can arrow-right to toggle them without leaving Modern
+    /// tuning. Mute is universal-key territory ('M' from any field). Volume
+    /// goes through the Slice menu / Audio expander.
+    ///
+    /// Field order: Slice → SliceOps → Freq → SMeter → Squelch → SquelchLevel
+    ///   → Split → VOX → Offset → RIT → XIT
+    ///
+    /// Tuning: simplified Freq handler with coarse/fine via Up/Down +
+    /// Shift+Up/Down.
     /// </summary>
     private void SetupFreqoutModern()
     {
