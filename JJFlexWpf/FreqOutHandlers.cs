@@ -1475,17 +1475,34 @@ public class FreqOutHandlers
                 else if (ch == '+')
                 {
                     var pos = new FlexBase.RITData(data);
+                    int oldValue = pos.Value;
                     pos.Value = Math.Abs(pos.Value);
                     if (isRIT) Rig.RIT = pos;
                     else Rig.XIT = pos;
+                    string label = isRIT ? "RIT" : "XIT";
+                    string sign = pos.Value >= 0 ? "+" : "";
+                    Radios.ScreenReaderOutput.Speak($"{label} made positive, {sign}{pos.Value}", VerbosityLevel.Terse);
+                    if (oldValue != pos.Value)
+                    {
+                        string oldSign = oldValue >= 0 ? "+" : "";
+                        Radios.ScreenReaderOutput.Speak($"was {oldSign}{oldValue}", VerbosityLevel.Chatty);
+                    }
                     e.Handled = true;
                 }
                 else if (ch == '-')
                 {
                     var neg = new FlexBase.RITData(data);
+                    int oldValue = neg.Value;
                     neg.Value = -Math.Abs(neg.Value);
                     if (isRIT) Rig.RIT = neg;
                     else Rig.XIT = neg;
+                    string label = isRIT ? "RIT" : "XIT";
+                    Radios.ScreenReaderOutput.Speak($"{label} made negative, {neg.Value}", VerbosityLevel.Terse);
+                    if (oldValue != neg.Value)
+                    {
+                        string oldSign = oldValue >= 0 ? "+" : "";
+                        Radios.ScreenReaderOutput.Speak($"was {oldSign}{oldValue}", VerbosityLevel.Chatty);
+                    }
                     e.Handled = true;
                 }
                 else if (ch == '=' && isRIT)
