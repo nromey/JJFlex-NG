@@ -1272,15 +1272,19 @@ public class FreqOutHandlers
                     Radios.ScreenReaderOutput.Speak($"Slice {letter} sounding", VerbosityLevel.Terse, true);
                     e.Handled = true;
                 }
-                else if (ch == 'A')
+                else if (ch >= 'A' && ch <= 'H')
                 {
-                    // Jim parity: make this slice the active (RX) slice. Redundant with
-                    // the Slice-selector field's cycling, but matches Jim's muscle-memory
-                    // vocabulary so operators used to JJ Flex 3 don't have to relearn.
-                    if (Rig.ValidVFO(vfo))
+                    // Direct slice select: A=slice 0, B=slice 1, etc. Mirrors
+                    // AdjustVFO's letter-jump so the Slice Operations field
+                    // behaves consistently with the Slice selector — pressing
+                    // 'a' jumps to slice A regardless of which slice is
+                    // currently active. (The previous 'A'-only handler set
+                    // RXVFO to itself, which was a no-op since vfo = RXVFO.)
+                    int target = ch - 'A';
+                    if (Rig.ValidVFO(target))
                     {
-                        Rig.RXVFO = vfo;
-                        string letter = Rig.VFOToLetter(vfo);
+                        Rig.RXVFO = target;
+                        string letter = Rig.VFOToLetter(target);
                         Radios.ScreenReaderOutput.Speak($"Slice {letter} active", VerbosityLevel.Terse, true);
                     }
                     e.Handled = true;
