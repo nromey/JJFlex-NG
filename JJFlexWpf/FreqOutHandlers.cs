@@ -349,7 +349,7 @@ public class FreqOutHandlers
                     // available via the leader key: Ctrl+J then M.
                     // 2026-04-24: was delegating to AdjustVFO, which opened memory
                     // mode — inconsistent with Modern tuning mode and the docs.
-                    CycleVFO(1);
+                    CycleVFO(1, wrap: true);
                     e.Handled = true;
                 }
                 else if (ch == 'U')
@@ -1687,7 +1687,7 @@ public class FreqOutHandlers
         }
         if (ch == 'V')
         {
-            CycleVFO(1);
+            CycleVFO(1, wrap: true);
             e.Handled = true;
             return true;
         }
@@ -2046,7 +2046,7 @@ public class FreqOutHandlers
                 else if (ch == 'V')
                 {
                     // Cycle to next slice (VFO)
-                    CycleVFO(1);
+                    CycleVFO(1, wrap: true);
                     e.Handled = true;
                 }
                 else if (ch == 'R')
