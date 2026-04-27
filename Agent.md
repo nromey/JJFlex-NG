@@ -48,37 +48,28 @@ This document captures the current state of JJ-Flex repository and active work.
 
 ## RESUME HERE for fresh context (tonight's loose-end coding):
 
-**Three tasks queued for the fresh Claude Code session:**
+**Single source of truth:** `docs/planning/2026-04-26-evening-batch.md`
 
-1. **Rigmeter v1.2 implementation** (biggest rock — ~2-3 hours focused)
-   - Source: `C:\Users\nrome\.claude\projects\c--dev-JJFlex-NG\memory\project_rigmeter_stats_tool.md` v1.2+ deferred section, "Code-vs-comment-vs-blank split" entry — has full design including tokei detection, auto-fetch from GitHub releases, `%LOCALAPPDATA%\rigmeter\tools\` cache, `--no-fetch` opt-out, output additions (`pure_code` / `comments` / `blank`), tonal-framing requirements (neutral-curious, not judgmental)
-   - File: `tools/rigmeter/rigmeter.py`
-   - Test against current snapshots once tokei integration works
+That file contains the comprehensive plan for tonight's three blocks of work:
+- **Block A** — 7 bug fixes (steps-entry `+`/`-` symmetry, connection-event race, stale doc comment, V wrap, letter slice-jump consistency, RIT/XIT silent `+`/`-` announcement, RIT/XIT cursor-orphaning)
+- **Block B** — comprehensive rigmeter v1.2 (tokei + auto-fetch, `--verbose`, `--interactive` BOTH menu and TUI, `--format=json|markdown|csv`, author attribution, sprint detection, TODO counter, docs-to-code ratio, sparkline trend, `forgotten` subcommand, full README + memory updates)
+- **Block C** — full end-of-day seal per CLAUDE.md procedure
 
-2. **Bug-fix tranche** (small, batch-rebuild for all)
-   - Step-entry `+`/`-` symmetry: `JJFlexWpf/FreqOutHandlers.cs:295`, Option A (remove `-` from the `if`, make it a no-op or error notice)
-   - Connection-event "no active slice" race: defer slice-portion of speech until first slice update arrives; same shape as Command Finder pre-deferral fix in `3893082b`
-   - SetupFreqoutModern stale doc comment: `JJFlexWpf/MainWindow.xaml.cs:1383-1387` — rewrite to match the actual 11-field reality
-   - Optionally: V wrap fix (2-line — `JJFlexWpf/FreqOutHandlers.cs` AdjustFreq line ~339 + the universal V handler in TryHandleUniversalHomeKey, both pass `wrap: true` to `CycleVFO`)
+The plan doc has every implementation detail the fresh context needs: file paths, line numbers, fix recipes, design decisions already made (e.g., RIT/XIT announcement Option A: "made positive/negative"), commit message subjects, verification steps, and explicit auto-mode authorization scope.
 
-3. **End-of-day seal** per CLAUDE.md procedure (full seal, NOT skip — radio code WAS touched today)
-   - Memory backup: `backup-memory-to-nas.ps1`
-   - Private docs backup: `backup-private-to-nas.ps1`
-   - Daily Dropbox publish: YES today (radio code touched via WebView2, universal-keys, KeyToChar, dispatcher commits — testers benefit)
-   - Run `build-debug.bat` to produce a fresh Debug build with proper 4-part version stamp before publishing
-   - Update Agent.md with end-of-day seal entry summarizing tonight's coding work
-   - Rigmeter snapshot in seal entry per CLAUDE.md step 4a (text into Agent.md + JSON to NAS via `rigmeter snapshot`)
-   - Commit + push final seal commit to `origin/sprint28/home-key-qsk`
+### Resume prompt for the fresh context (copy-paste verbatim):
 
-### Resume prompt for the fresh context:
+> Read `docs/planning/2026-04-26-evening-batch.md` and execute it end-to-end in auto mode. Commit + push as you go (origin sprint28/home-key-qsk, NEVER upstream). Run the full end-of-day seal at the end. The plan doc has all implementation details, fix recipes, file paths, and authorization scope.
 
-"Resume Sprint 28 wrap loose-end coding from `Agent.md` 2026-04-26 afternoon → evening entry. Three tasks: rigmeter v1.2 implementation per `memory/project_rigmeter_stats_tool.md`, bug-fix tranche from `JJFlex-TODO.md` afternoon items, end-of-day seal per CLAUDE.md procedure. Then context rotation will be sealed."
+### Why a single batch doc instead of scattered pointers:
+
+Earlier this session the fresh context couldn't find the rigmeter v1.2 details (scattered across memory + TODO + Agent.md) or understand what "fix the bugs we found tonight" referred to (no consolidated list). The batch doc fixes both: every detail in one read. See `feedback_dont_under_design_or_defer_aggressively.md` for the comprehensive-scope feedback that shaped the doc.
 
 ### Tomorrow (after fresh context's work seals tonight):
 
 - Resume Section C testing in the 4.1.17 matrix (next entry: C.2 verbosity Terse F2 announcement test, then C.3-C.6, then Section C non-universal-keys subsections)
 - Continue testing through remaining matrix sections (D logging, E remote SmartLink, F networking diagnostics, G settings, H help system, I MultiFlex, J accessibility cross-cutting)
-- Address bug-fixes that didn't land tonight (RIT/XIT cursor-orphaning is the biggest deferred item — needs deliberate FrequencyDisplay control work)
+- Address Sprint 29 design items if Noel wants to dive into them (universal slice-jump, transceive toggle, +/- cross-field rationalization)
 
 ## 2026-04-26 (overnight) tooling: rigmeter v1.1 — NOT a daily for testers
 
