@@ -3,7 +3,82 @@
 This document captures the current state of JJ-Flex repository and active work.
 
 **Repository root:** `C:\dev\JJFlex-NG`
-**Branch:** `sprint28/home-key-qsk` (Sprint 28 Phases 1-8 + 11 complete; Phase 10 deferred to 4.1.18; Phase 9 test matrix drafted; rigmeter v1.1 shipped overnight on 2026-04-26 — non-radio tooling work, no testers paged)
+**Branch:** `sprint28/home-key-qsk` (Sprint 28 substantively complete in code; Sprint 28 wrap items committed today; 4.1.17 release-verification matrix in active runtime testing)
+
+## 2026-04-26 (afternoon → evening) — Sprint 28 wrap commits + 4.1.17 matrix runtime testing + design discussion → CONTEXT ROTATION
+
+**Productive long-running session.** Started with the morning's WebView2 runtime confirmation, expanded into universal-keys field audit + KeyToChar fix + WPF dispatcher exception handler, then pivoted to building out the 4.1.17 verification matrix as we ran tests. Closed the session with a context rotation to a fresh Claude Code instance for tonight's loose-end coding (rigmeter v1.2 + bug-fix tranche + end-of-day seal).
+
+### Commits landed today on `sprint28/home-key-qsk`:
+
+- `261f5e2d` — WebView2 Dispose marshals to UI thread to fix SmartLink crash. **Runtime confirmed by Noel this morning.**
+- `4cf73823` — Universal Home keys now work from all 7 audited fields (Split, VOX, Offset, Mute, Volume, RIT, XIT). Runtime verified via Section C tests C.7a-C.7l (see matrix).
+- `4b94ce47` — Crash reporter: capture WPF Dispatcher exceptions (was falling through to AppDomain). Foundational pre-Sprint-29-crash-reporter work. Untested at runtime (hard to test without forcing a crash; logged as deferred).
+- `4bc11596` — Rigmeter v1.1.1: replace pipe-separated tables with screen-reader bullets. Verified end-to-end this morning.
+- `7f8f0d48` — KeyToChar: distinguish '=' from '+' on the OemPlus physical key. **Three previously-dead features unblocked** (RIT→XIT copy, AdjustFreq transceive, universal `=`). Runtime verified via test C.7c (RIT field's `=` now copies RIT→XIT correctly).
+- `69dac19f` — Backlog: log five fartsnoodle-discovered items from morning testing.
+- `5adf19c1` — Test matrix: rename to 4.1.17 + Section C runtime verification + TODO grows. Today's afternoon-session capture.
+
+### What ran at runtime today:
+
+5-of-5 universal-keys directed tests passed (Test 1: M from VOX; Test 2: R from Split; Test 3: `=` from RIT copies RIT→XIT after KeyToChar fix; Test 4: Shift+M from Mute = mute-all; Test 5: Shift+, = release-all-extras). Then continued into Section C of the matrix:
+
+- C.1 PASS — F2 focus landing returns to last Home field with full "JJ Flexible Home" prefix
+- C.7a-C.7e PASS — per-field universal-keys verification (M, R, =, Shift+M, Shift+,)
+- C.7f PASS — Q from Offset
+- C.7g PASS-WITH-CAVEAT — V cycles forward but doesn't wrap (logged TODO)
+- C.7h PASS-WITH-CAVEAT — `=` works as transceive but is set-only, not toggle (logged TODO)
+- C.7i PASS — `+` from Frequency triggers step-entry (KeyToChar regression check)
+- C.7j PASS — `+` from RIT at -30 flips to +30 (abs-value behavior preserved)
+- C.7k BUG-OPEN — RIT/XIT cursor-orphaning after toggle-off (logged, pre-existing latent bug exposed by universal R)
+- C.7l PASS — F2+M Don's-bug regression check (Classic + Modern both fire mute)
+
+### TODO additions (8 new items today, all logged in `docs/planning/vision/JJFlex-TODO.md`):
+
+1. Step-entry `+`/`-` symmetry bug — recommend Option A (remove `-` from the entry trigger)
+2. RIT/XIT `+`/`-` press is silent — captured both terse/chatty announcement options
+3. `+`/`-` cross-field inconsistency — pure UX observation, defer to Sprint 30+ review
+4. Universal V cycle does not wrap — recommend `wrap: true` (2-line fix)
+5. Universal `=` should be a toggle with memory of prior split TX — full design captured (Option A: memory-toggle for ham workflow)
+6. Letter slice-jump (a-h) inconsistent between Classic + Modern — Modern's behavior is right
+7. **Universal slice-jump from any field — full design discussion captured.** Adopted "Ctrl+J = jump to" as a NEW design principle. `Ctrl+J Shift+A` through `Ctrl+J Shift+H` for slice jump. Multi-channel feedback per `project_multi_braille_output_vision.md`. Layer-help affordances (`?` for list, F1 for full reference). Vim-style inactivity-triggered announcement. Auto-create-on-jump-to-uncreated-slice with distinct earcon.
+8. Plus the morning's 5 items (connection-event "no active slice" race, RIT/XIT cursor-orphaning, SetupFreqoutModern stale doc comment, mode-change coach text polish, PlayCwSK "e e" close)
+
+**None of the logged items block 4.1.17 release.** All have workarounds; fixes batch into the post-test polish window.
+
+## RESUME HERE for fresh context (tonight's loose-end coding):
+
+**Three tasks queued for the fresh Claude Code session:**
+
+1. **Rigmeter v1.2 implementation** (biggest rock — ~2-3 hours focused)
+   - Source: `C:\Users\nrome\.claude\projects\c--dev-JJFlex-NG\memory\project_rigmeter_stats_tool.md` v1.2+ deferred section, "Code-vs-comment-vs-blank split" entry — has full design including tokei detection, auto-fetch from GitHub releases, `%LOCALAPPDATA%\rigmeter\tools\` cache, `--no-fetch` opt-out, output additions (`pure_code` / `comments` / `blank`), tonal-framing requirements (neutral-curious, not judgmental)
+   - File: `tools/rigmeter/rigmeter.py`
+   - Test against current snapshots once tokei integration works
+
+2. **Bug-fix tranche** (small, batch-rebuild for all)
+   - Step-entry `+`/`-` symmetry: `JJFlexWpf/FreqOutHandlers.cs:295`, Option A (remove `-` from the `if`, make it a no-op or error notice)
+   - Connection-event "no active slice" race: defer slice-portion of speech until first slice update arrives; same shape as Command Finder pre-deferral fix in `3893082b`
+   - SetupFreqoutModern stale doc comment: `JJFlexWpf/MainWindow.xaml.cs:1383-1387` — rewrite to match the actual 11-field reality
+   - Optionally: V wrap fix (2-line — `JJFlexWpf/FreqOutHandlers.cs` AdjustFreq line ~339 + the universal V handler in TryHandleUniversalHomeKey, both pass `wrap: true` to `CycleVFO`)
+
+3. **End-of-day seal** per CLAUDE.md procedure (full seal, NOT skip — radio code WAS touched today)
+   - Memory backup: `backup-memory-to-nas.ps1`
+   - Private docs backup: `backup-private-to-nas.ps1`
+   - Daily Dropbox publish: YES today (radio code touched via WebView2, universal-keys, KeyToChar, dispatcher commits — testers benefit)
+   - Run `build-debug.bat` to produce a fresh Debug build with proper 4-part version stamp before publishing
+   - Update Agent.md with end-of-day seal entry summarizing tonight's coding work
+   - Rigmeter snapshot in seal entry per CLAUDE.md step 4a (text into Agent.md + JSON to NAS via `rigmeter snapshot`)
+   - Commit + push final seal commit to `origin/sprint28/home-key-qsk`
+
+### Resume prompt for the fresh context:
+
+"Resume Sprint 28 wrap loose-end coding from `Agent.md` 2026-04-26 afternoon → evening entry. Three tasks: rigmeter v1.2 implementation per `memory/project_rigmeter_stats_tool.md`, bug-fix tranche from `JJFlex-TODO.md` afternoon items, end-of-day seal per CLAUDE.md procedure. Then context rotation will be sealed."
+
+### Tomorrow (after fresh context's work seals tonight):
+
+- Resume Section C testing in the 4.1.17 matrix (next entry: C.2 verbosity Terse F2 announcement test, then C.3-C.6, then Section C non-universal-keys subsections)
+- Continue testing through remaining matrix sections (D logging, E remote SmartLink, F networking diagnostics, G settings, H help system, I MultiFlex, J accessibility cross-cutting)
+- Address bug-fixes that didn't land tonight (RIT/XIT cursor-orphaning is the biggest deferred item — needs deliberate FrequencyDisplay control work)
 
 ## 2026-04-26 (overnight) tooling: rigmeter v1.1 — NOT a daily for testers
 
