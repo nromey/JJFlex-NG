@@ -301,13 +301,17 @@ public class FreqOutHandlers
                 break;
 
             default:
-                if (ch == '+' || ch == '-')
+                if (ch == '+')
                 {
-                    // Enter step-entry mode
                     _inStepEntry = true;
                     _stepBuffer = "";
                     _stepMultiplier = 1;
                     Radios.ScreenReaderOutput.Speak("Step entry");
+                    e.Handled = true;
+                }
+                else if (ch == '-')
+                {
+                    Radios.ScreenReaderOutput.Speak("Step entry uses plus only", VerbosityLevel.Terse);
                     e.Handled = true;
                 }
                 else if (ch == 'K')
