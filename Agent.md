@@ -3,7 +3,98 @@
 This document captures the current state of JJ-Flex repository and active work.
 
 **Repository root:** `C:\dev\JJFlex-NG`
-**Branch:** `sprint28/home-key-qsk` (Sprint 28 substantively complete in code; Sprint 28 wrap items committed today; 4.1.17 release-verification matrix in active runtime testing)
+**Branch:** `sprint28/home-key-qsk` (Sprint 28 substantively complete in code; Sprint 28 wrap items committed; 4.1.17 release-verification matrix in active runtime testing)
+
+## 2026-04-26 end-of-day seal: Block A bug tranche + Rigmeter v1.2 + deferred-item pivot (universal `=` toggle, slice-jump, mode-change polish, CW close) + tester daily
+
+**Long autonomous batch session driven by `docs/planning/2026-04-26-evening-batch.md`.** Started against the plan's three-block structure (Block A bug fixes from Section C testing, Block B rigmeter v1.2, Block C end-of-day seal), then mid-session Noel directed scope expansion: pull deferred Sprint 29 candidates into tonight's batch since the deferral was meant to be "until done testing today, not multi-day." Implemented four additional features beyond the plan. End-of-day debug build is `4.1.16.208`, published to NAS history + Dropbox tester debug + Dropbox top-level daily.
+
+### Commits landed tonight on `sprint28/home-key-qsk` (13 total):
+
+**Block A — bug-fix tranche (7 commits):**
+
+- `a29aa127` — Step-entry: `+` triggers entry, `-` is now a no-op with terse "uses plus only" notice (was identical to `+`).
+- `c9da95de` — Connection-event speech omits "no active slice" when `MyNumSlices` is still zero post-1.5s delay (race window was real).
+- `fa150c67` — `SetupFreqoutModern` doc comment rewritten to reflect post-Sprint-26-Phase-8 reality (Modern carries 11 fields, not the old "Freq + Slice + SMeter only" claim).
+- `2dbfb1c5` — Universal `V` slice cycle wraps via `CycleVFO(1, wrap: true)` at three sites (AdjustFreq Classic, TryHandleUniversalHomeKey, AdjustFreqModern). Plan named two; Modern was a third with the same bug.
+- `053e8a96` — `AdjustSliceOps` letter-jump now matches Modern semantics (a-h jumps directly to slice 0-7 instead of the old `'A'`-only Jim-parity no-op).
+- `46bb2646` — RIT/XIT `+`/`-` now announces "made positive/negative" + chatty `was X` delta (was silent — discoverability bug).
+- `f6c00aa2` — `IsPositionSensitive` is RIT/XIT off-state-aware. Off-RIT/XIT now behaves as non-position-sensitive so arrow keys skip out instead of moving silently within the off-field. Investigation found the field width never actually collapses (the plan's diagnosis); the real bug was the unconditional position-sensitivity. Single-helper fix, much smaller than the plan's 1-2h estimate.
+
+**Block B — Rigmeter v1.2 (2 commits):**
+
+- `2a966f05` — Comprehensive v1.2 implementation. Tokei integration with auto-fetch (cache in `%LOCALAPPDATA%\rigmeter\tools\`, `--no-fetch` opt-out), `--verbose` flag with stdlib logging, `--format text|json|markdown|csv` (default text stays bullets, no-tables-rule preserved), four new subcommands (`authors` via git blame with Jim/Noel alias collapse, `sprint <N>` with branch auto-detection, `debt` for TODO/FIXME/HACK/XXX, `forgotten --days N`), docs-to-code ratio in `all` and `growth`, ASCII sparkline trend when ≥5 NAS snapshots exist, interactive menu wizard via `--interactive` (stdlib-only, opt-in; no-args still prints help so scripts stay safe). Schema bumped to v2 with `pure_code`/`comments`/`blanks` fields. ~1,200 net-line addition. Smoke tests passed (debt found 91 markers, forgotten reports 391 stale files >60d, JSON format parseable, verbose routes to stderr).
+- `2e86672e` — README rewritten for v1.2 — feature surface, schema-v2 shape, deferrals (TUI explorer, tokei-vs-arbitrary-refs, serve subcommand).
+
+**Pivoted to deferred items per Noel's mid-session direction (4 commits):**
+
+- `1f7a8e65` — Mode-change coach text branches on `CurrentVerbosity` (chatty users get fuller paragraph; terse users get the existing brief hint). Single-Speak branched pattern instead of dual-Speak (which would duplicate for chatty users since both Terse and Chatty pass the filter). Plus PlayCwSK now appends `ee` (two single dits) after the SK prosign for a friendly hand-wave close.
+- `a645e931` — Universal `=` transceive becomes a TOGGLE with memory of prior split TX. `ToggleTransceive()` helper centralizes the new behavior; three universal `=` sites now call it. First press from split saves prior TX, sets transceive. Second press restores. Clean idempotent re-announce on transceive-with-no-prior. Two slice-specific `=` sites (AdjustVFO, AdjustSliceOps) keep their existing "set this slice transceive" semantic — those are slice-jump-and-set, not universal toggles.
+- `0f902020` — Universal slice-jump from any Home field via `Ctrl+J Shift+A` through `Ctrl+J Shift+H` (skipping `Shift+F` due to the existing RX-filter binding; only affects FLEX-6700 owners which we don't have). `JumpToSlice(int)` validates against `Rig.ValidVFO()`, sets RXVFO without disturbing focus, announces "Slice X active" with confirmation earcon. Out-of-range targets get a polite "not yet created" or "max N slices on this radio" message. Auto-create on missing slice deferred (FlexBase.NewSlice() creates next-available, not a target index — wrapping that for "create up to slice N" is its own state-machine work).
+
+**Plus tonight's seal commit (this one) bundles:** Agent.md update, rigmeter snapshot text below, end-of-day procedure.
+
+### What was NOT addressed tonight, deliberately:
+
+- **`+`/`-` cross-field semantic rationalization** — the TODO entry explicitly frames this as "Decision needed: rationalize or accept. No correctness bug; pure UX-consistency question." With A.1 and A.6 landed, every `+`/`-` press now announces what it did (audible inconsistency replaces silent inconsistency), giving Noel concrete behavior to react to. Picking a rationalization unilaterally without Noel's call would be choosing a product direction. Surfaced for tomorrow's call.
+
+### Tester / public communication path tonight:
+
+- **NAS history:** `\\nas.macaw-jazz.ts.net\jjflex\historical\4.1.16.208\x64-debug\` — JJFlex_4.1.16.208_x64_debug_20260426-2316.zip + NOTES + exe + pdb.
+- **Dropbox tester debug folder** (Don, Justin etc. read from here): purged prior, fresh `JJFlex_4.1.16.208_x64_debug.zip` + `NOTES-4.1.16.208-debug.txt`.
+- **Dropbox top-level daily** (the easy "what's tonight's build?" pointer): `JJFlex_4.1.16.208_x64_daily.zip` + `NOTES-daily.txt`.
+- **Memory backup:** `\\nas.macaw-jazz.ts.net\jjflex\historical\memory\memory-20260426-231654.zip` (71 files).
+- **Private docs backup:** `\\nas.macaw-jazz.ts.net\jjflex\historical\private\private-20260426-231641.zip` (93 files).
+- **Rigmeter JSON snapshot:** `\\nas.macaw-jazz.ts.net\jjflex\historical\stats\2026-04-26-0f902020.json` (the v1.2 shape — schema_version=2 with optional pure_code/comments/blanks fields, but tokei wasn't run during this snapshot since `--no-fetch` was used to avoid network during the seal; numbers continue the time series via the v1.1 shape and v1.2 features land empty for now).
+
+### Plan for tomorrow:
+
+- Test the 13 commits in real radio operation. Resume Section C of the 4.1.17 matrix (next entry: C.2 verbosity Terse F2 announcement; then C.3-C.6, then non-universal-keys subsections).
+- Decision needed from Noel: `+`/`-` cross-field rationalization (rationalize how, or accept as-is).
+- Verify universal slice-jump (Ctrl+J Shift+A-H) against the slice-jump-on-uncreated-slice case (announce path); the auto-create path still requires the FlexBase wrapper work to make the slice creation target a specific index.
+- Verify universal `=` toggle round-trips correctly across split↔transceive flips.
+- If a 6700 user surfaces, resolve the Shift+F slice-F-vs-RX-filter conflict per the strategy noted in the slice-jump commit.
+- Continue 4.1.17 matrix through remaining sections (D logging, E remote SmartLink, F networking diagnostics, G settings, H help system, I MultiFlex, J accessibility cross-cutting).
+
+### Rigmeter snapshot — end of 2026-04-26
+
+Captured at `0f902020`, after tonight's 13 commits. v1.2 of rigmeter itself just landed; the totals here are still v1.1-shape since this seal-snapshot was run with `--no-fetch` (no network required during seal), so tokei dimensions are empty in the JSON. Authored-only headline:
+
+```
+Authored: 711 files / 137,704 lines / 603,253 words / 5.95M chars
+Vendor:   180 files /  53,240 lines / 147,931 words / 1.88M chars
+Combined: 891 files / 190,944 lines / 751,184 words / 7.83M chars
+
+Per-category authored:
+  code:      101,676 lines (430 files)
+  docs:       21,111 lines (131 files)  ← growing fast (TODO additions, plan doc, batch doc)
+  text_data:   9,065 lines  (84 files)
+  build:       5,852 lines  (66 files)
+
+Code language breakdown (authored):
+  cs:    76,736 lines (75.5%)
+  vb:    16,944 lines (16.7%)
+  xaml:   4,969 lines  (4.9%)
+  py:     3,027 lines  (3.0%)   ← rigmeter coming into existence
+
+Today's git activity (since midnight local):
+  Commits:        24 (rigmeter v1.1 last night + 13 tonight + a few mid-day)
+  Unique files:   14
+  Insertions:  4,280
+  Deletions:     350
+  Net change:  +3,930
+  Authors:    JJ Flexbot ×24
+
+Fun comparisons (authored only):
+  ≈ 59.5 braille volumes (was 58 yesterday — modest doc + code growth)
+  ≈ 2.87 Moby Dicks
+  ≈ 0.77 King James Bibles
+  ≈ 67 hours of read-aloud time at 150 wpm
+  ≈ 2,754 printed pages
+  ≈ 11.0 inches of stack height
+```
+
+NAS time-series JSON: `2026-04-26-0f902020.json` (continuing the six-baseline-points series from last night's rigmeter v1.1 backfill).
 
 ## 2026-04-26 (afternoon → evening) — Sprint 28 wrap commits + 4.1.17 matrix runtime testing + design discussion → CONTEXT ROTATION
 
