@@ -2049,6 +2049,21 @@ public class KeyCommands
                 LeaderKeyHelp();
                 break;
 
+            // Universal slice-jump: Ctrl+J Shift+<A-H> jumps to that slice
+            // from any focus position. Re-frames Ctrl+J as a "jump to" leader
+            // when paired with a Shift-modified letter — see TODO entry.
+            // Skipping Shift+F: collides with the existing Shift+F = RX filter
+            // width binding at line 2010. Slice F (index 5) is only available
+            // on FLEX-6700; current testers don't have one. Defer the F
+            // collision until a 6700 user appears.
+            case Keys.A | Keys.Shift: JumpToSlice(0); break;
+            case Keys.B | Keys.Shift: JumpToSlice(1); break;
+            case Keys.C | Keys.Shift: JumpToSlice(2); break;
+            case Keys.D | Keys.Shift: JumpToSlice(3); break;
+            case Keys.E | Keys.Shift: JumpToSlice(4); break;
+            case Keys.G | Keys.Shift: JumpToSlice(6); break;
+            case Keys.H | Keys.Shift: JumpToSlice(7); break;
+
             default:
                 EarconPlayer.LeaderInvalidTone();
                 Radios.ScreenReaderOutput.Speak("Unknown command. Press H for help.", true);
@@ -2056,6 +2071,56 @@ public class KeyCommands
         }
 
         return true; // Always consume the key in leader mode
+    }
+
+    /// <summary>
+    /// Universal slice-jump target. Validates the slice exists on the
+    /// radio, announces it via speech + earcon, and sets RXVFO without
+    /// disturbing the current keyboard focus (so a user on, say, VOX
+    /// field stays on VOX but is now operating on the new slice).
+    ///
+    /// Auto-create on jump-to-uncreated-slice is deferred until the
+    /// FlexLib NewSlice flow is wrapped to support targeting a specific
+    /// index — current NewSlice() always creates the next available, not
+    /// a particular target. For now, missing slices announce a polite
+    /// "not yet created" message and the user can create via the Slice
+    /// field's period key.
+    /// </summary>
+    private void JumpToSlice(int sliceIndex)
+    {
+        var rig = _context.GetRigControl();
+        if (rig == null) { LeaderNoRadio(); return; }
+
+        char letter = (char)('A' + sliceIndex);
+
+        if (rig.ValidVFO(sliceIndex))
+        {
+            rig.RXVFO = sliceIndex;
+            EarconPlayer.ConfirmTone();
+            Radios.ScreenReaderOutput.Speak(
+                $"Slice {letter} active",
+                Radios.VerbosityLevel.Terse, true);
+            return;
+        }
+
+        // Slice index is beyond what's currently created. Two cases:
+        //   - within radio capacity: not yet created
+        //   - exceeds capacity:      not supported on this radio
+        int totalCap = rig.TotalMaxSlices;
+        if (sliceIndex < totalCap)
+        {
+            EarconPlayer.LeaderInvalidTone();
+            Radios.ScreenReaderOutput.Speak(
+                $"Slice {letter} not yet created. From the Slice field, press period to create the next slice.",
+                Radios.VerbosityLevel.Critical, true);
+        }
+        else
+        {
+            EarconPlayer.LeaderInvalidTone();
+            Radios.ScreenReaderOutput.Speak(
+                $"Slice {letter} not available on this radio. Maximum {totalCap} slices.",
+                Radios.VerbosityLevel.Critical, true);
+        }
     }
 
     private void LeaderNoRadio()
