@@ -818,9 +818,24 @@ public partial class MainWindow : UserControl
         // this, operators toggling modes have no cue that the keys have changed.
         // Verbose on first-focus-after-load would annoy regular users; once-per-
         // mode-switch is the right cadence.
-        string hint = newMode == UIMode.Classic
-            ? "Classic tuning mode. Cursor on a digit, up down to tune. Space on RIT or XIT to activate."
-            : "Modern tuning mode. Up down tune, C toggle coarse and fine, page up down change step size.";
+        //
+        // Chatty users get a fuller coaching paragraph; Terse users get the brief
+        // hint. Branched on CurrentVerbosity so we never speak both back-to-back
+        // (both Terse and Chatty messages pass the filter for a Chatty user).
+        bool chatty = Radios.ScreenReaderOutput.CurrentVerbosity == VerbosityLevel.Chatty;
+        string hint;
+        if (newMode == UIMode.Classic)
+        {
+            hint = chatty
+                ? "Classic tuning mode, with your cursor pointed to frequency parts such as MHz or kHz, press the up or down arrows to tune. Press space to toggle fields such as mute or XIT."
+                : "Classic tuning mode. Cursor on a digit, up down to tune. Space on RIT or XIT to activate.";
+        }
+        else
+        {
+            hint = chatty
+                ? "Modern tuning mode. Press up or down to tune in coarse steps. Press C to switch to fine tuning. Press space to toggle on or off items in JJ Flexible Home."
+                : "Modern tuning mode. Up down tune, C toggle coarse and fine, page up down change step size.";
+        }
         Radios.ScreenReaderOutput.Speak(hint, VerbosityLevel.Terse);
     }
 
@@ -2095,6 +2110,9 @@ public partial class MainWindow : UserControl
                 string prefix = _morseNotifier.SpeedWpm >= 25 ? "73 de JJF" : "73";
                 await _morseNotifier.PlayString(prefix);
                 await _morseNotifier.PlaySK();
+                // Two single dits — friendly hand-wave close. Removes the abruptness
+                // of a bare SK; in CW prosign convention "e e" reads as a quick "bye".
+                await _morseNotifier.PlayString("ee");
             };
             Radios.ScreenReaderOutput.PlayCwMode = (mode) => _morseNotifier.PlayString(mode);
 
