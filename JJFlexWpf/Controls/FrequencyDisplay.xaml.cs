@@ -407,12 +407,15 @@ public partial class FrequencyDisplay : UserControl
     /// Position-sensitive fields where Left/Right navigates character-by-character
     /// with per-position step size announcements.
     /// In Modern mode, Freq is NOT position-sensitive (tuning uses modifier keys).
+    /// RIT and XIT lose position-sensitivity when inactive ("off") — there's no
+    /// value to step through, so arrow keys skip out to the adjacent field
+    /// instead of moving the cursor silently within the off-field.
     /// </summary>
-    private bool IsPositionSensitive(string key)
-        => key switch
+    private bool IsPositionSensitive(DisplayField field)
+        => field.Key switch
         {
             "Freq" => !IsModernMode,
-            "RIT" or "XIT" => true,
+            "RIT" or "XIT" => GetSpeechText(field) != "off",
             _ => false
         };
 
@@ -478,7 +481,7 @@ public partial class FrequencyDisplay : UserControl
             // Same field we started in
             if (currentField != null && fieldAtPos == currentField)
             {
-                if (IsPositionSensitive(fieldAtPos.Key))
+                if (IsPositionSensitive(fieldAtPos))
                 {
                     // Position-sensitive: stop at each digit position
                     break;
@@ -492,7 +495,7 @@ public partial class FrequencyDisplay : UserControl
             if (firstNewField == null)
                 firstNewField = fieldAtPos;
 
-            if (IsPositionSensitive(fieldAtPos.Key))
+            if (IsPositionSensitive(fieldAtPos))
             {
                 // Entering a position-sensitive field — stop at first valid digit
                 break;
