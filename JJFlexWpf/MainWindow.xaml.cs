@@ -242,11 +242,23 @@ public partial class MainWindow : UserControl
 
                 string model = RigControl.RadioModel;
                 string connType = RigControl.RemoteRig ? "SmartLink" : "local";
-                string status = Radios.RadioStatusBuilder.BuildFullSliceStatus(RigControl);
 
-                // The full status already includes frequency/mode/slice detail.
-                // Prepend with connection info that BuildFullSliceStatus doesn't cover.
-                string message = $"Connected to {model}, {connType}. {status}";
+                // Slices may not have populated yet even after the 1.5s delay;
+                // when that's true, BuildFullSliceStatus returns its
+                // "Connected to X, no active slice" fallback which is both
+                // duplicate-prefixed and untrue. Speak the connection portion
+                // alone in that case and trust subsequent operations to reveal
+                // slice state as the user navigates.
+                string message;
+                if (RigControl.MyNumSlices > 0)
+                {
+                    string status = Radios.RadioStatusBuilder.BuildFullSliceStatus(RigControl);
+                    message = $"Connected to {model}, {connType}. {status}";
+                }
+                else
+                {
+                    message = $"Connected to {model}, {connType}";
+                }
                 Radios.ScreenReaderOutput.Speak(message, VerbosityLevel.Critical);
             });
         });
