@@ -67,6 +67,215 @@ Actual Modern field list (lines 1406-1436) is: Slice, SliceOps, Freq, SMeter, Sq
 
 **Status:** Logged 2026-04-26 from Noel's runtime fartsnoodle.
 
+### BUG: Step-entry mode — `+` and `-` are identically-behaved (2026-04-26 Noel during C.7i regression test)
+
+**Symptom:** In Frequency-field step-entry mode (engaged via `+` = Shift+OemPlus), `-` (Shift+OemMinus or just OemMinus → '-' from KeyToChar) is treated identically to `+`. Both re-enter step-entry, reset `_stepMultiplier = 1` and clear `_stepBuffer`. Concrete example: press `+5` to set step to 5 kHz, then press `-1` — multiplier announces as "Step 1 kHz" instead of "Step 4 kHz" (Noel's expected decrement) or an error/notice.
+
+**Root cause:** `JJFlexWpf/FreqOutHandlers.cs:295` AdjustFreq default block:
+```csharp
+if (ch == '+' || ch == '-')
+{
+    _inStepEntry = true;
+    _stepBuffer = "";
+    _stepMultiplier = 1;
+    Radios.ScreenReaderOutput.Speak("Step entry");
+    e.Handled = true;
+}
+```
+The `||` was probably intended to give `-` a separate behavior that never got implemented, or the author conflated "user starting step entry" with both signs. There's no semantic concept of a negative step multiplier in tuning — Down arrow already tunes negatively. So `-` arguably shouldn't enter step-entry at all.
+
+**Fix options:**
+- (A) Remove `-` from the `if`, so only `+` enters step-entry. `-` becomes an error / notice ("Step entry uses + only" or similar). Cleanest.
+- (B) Make `-` decrement an existing multiplier (Noel's first guess: `+5` then `-1` → step 4). Adds state-machine complexity. Negative results (step ≤ 0) would need a clamp + announce ("step 0, exited step entry" or reset to 1).
+- (C) Make `-` a no-op when in step-entry (silent ignore). Less disruptive than error but loses discoverability.
+
+**Recommendation:** Option (A) — error/notice. Aligns with the principle that `-` has no tuning-step semantics and surfaces the correct affordance to the user.
+
+**Priority:** Low (cosmetic/UX — not a correctness bug, the radio still tunes correctly). Sprint 28 wrap polish or Sprint 29 candidate.
+
+**Status:** Logged 2026-04-26 — surfaced during 4.1.17 matrix test C.7i.
+
+### BUG: RIT/XIT `+`/`-` press is silent — no announcement of the abs-value sign change (2026-04-26 Noel during C.7j)
+
+**Symptom:** From the RIT (or XIT) field, pressing `+` calls `Math.Abs(value)` (force positive); pressing `-` calls `-Math.Abs(value)` (force negative). Both DO modify the value as appropriate but emit ZERO speech announcement, so the user has no audible feedback that anything happened. Discoverability is also broken — Noel didn't even know these keys did anything until C.7j directed him to test it.
+
+**Location:** `JJFlexWpf/FreqOutHandlers.cs:1467` (the `+` / `-` handlers in AdjustRITXIT default block).
+
+**Action terminology:** strictly, `+` is "make positive" (abs) and `-` is "make negative" (-abs). NOT "invert" — pressing `+` from already-positive is a no-op (still positive). Announcement text should reflect the actual action so screen-reader users build a correct mental model.
+
+**Two candidate announcement patterns** (Noel's preferences captured 2026-04-26 — pick one at fix time):
+
+**Option A — "made positive/negative" (action-verb explicit):**
+- Terse: `"RIT made positive, 30 hertz"` / `"RIT made negative, -30 hertz"`
+- Chatty: `"RIT offset made positive: 30 hertz, was -30"` (delta only when value changed)
+
+**Option B — "sign positive/negative" (closer to Noel's original phrasing):**
+- Terse: `"RIT sign positive, 30 hertz"` / `"RIT sign negative, -30 hertz"`
+- Chatty: `"RIT offset sign positive: 30 hertz, was -30"`
+
+Either pattern handles the no-change case gracefully — just announce the result, omit the "was X" delta when the value didn't change. Same pattern applies to XIT field (`isRIT = false` branch).
+
+**Priority:** Medium — discoverability bug for a feature already shipped in JJFlex. Users currently can't find this functionality without reading source. Cheap fix (~6 lines including chatty/terse split).
+
+**Status:** Logged 2026-04-26 — surfaced during 4.1.17 matrix test C.7j.
+
+### BUG: `+` and `-` keys have three different meanings across Home fields (2026-04-26 Noel observation, not yet a customer complaint)
+
+**Symptom:** Across the Home fields, `+` (and `-`) have inconsistent semantics:
+1. **Frequency field:** `+` enters step-entry mode (announces "Step entry"). `-` does the same (per the separate "Step-entry +/- symmetry" bug above).
+2. **RIT/XIT field:** `+` is `Math.Abs(value)` (force positive). `-` is `-Math.Abs(value)` (force negative). Currently silent (per the separate announcement bug above).
+3. **Offset field:** `+` sets offset direction to plus (FM repeater offset). `-` sets it to minus.
+
+None of them mean "add 1 kHz" or "increment by N." Up/Down arrow is the universal "increment" semantic. `+`/`-` is field-specific and the meanings don't share an axis.
+
+**Why it might be fine:** field-specific behavior is a JJ Radio heritage feature. Each field has its own affordance set. Users learn per-field. Help docs can document the semantics. The inconsistency is "honest" in that each field's `+` does something semantically appropriate to that field (step in Freq, sign in RIT/XIT, direction in Offset).
+
+**Why it might NOT be fine:** screen-reader users especially benefit from key-meaning being predictable across contexts. "What does `+` do here?" shouldn't be a per-field question. Could rationalize: e.g., reserve `+`/`-` for one universal meaning + use other keys for field-specific actions.
+
+**Decision needed:** rationalize or accept. No correctness bug; pure UX-consistency question. Noel surfaced this 2026-04-26 during C.7j testing as an observation, not as a customer complaint. Defer to a deliberate Sprint 30+ UX-review pass.
+
+**Priority:** Low (pure UX question, not a bug). Accumulate user feedback over time before deciding.
+
+**Status:** Logged 2026-04-26 — surfaced during 4.1.17 matrix test C.7j observation.
+
+### BUG: Universal `V` cycle key does not wrap from last slice back to first (2026-04-26 Noel during C.7g)
+
+**Symptom:** Pressing `V` cycles to the next slice but **stops at the last slice** instead of wrapping around to the first. Noel: *"Pressing V does go to the next slice, shouldn't a press of it again cycle you back to the first slice?"* Same behavior in both Classic and Modern tuning modes.
+
+**Root cause:** `JJFlexWpf/FreqOutHandlers.cs:859` — `CycleVFO(int direction, bool wrap = false)` defaults `wrap = false`. The universal `V` handler in TryHandleUniversalHomeKey calls `CycleVFO(1)` with the default no-wrap behavior. Same in AdjustFreq's V handler at line 339.
+
+**Why wrap is correct here:** the function is literally named `CycleVFO` — "cycle" implies round-trip. Industry convention: Tab cycles controls (wraps), Alt+Tab cycles windows (wraps), Ctrl+Tab cycles tabs (wraps). Cycle keys wrap; navigation arrows clamp. The current no-wrap behavior makes V behave like an arrow key, defeating the purpose of having a separate cycle affordance. With 3+ slices, clamping at the end forces the user to use a different key (or arrow back) to return to the first slice — needless detour.
+
+**Fix:** change V handlers to call `CycleVFO(1, wrap: true)`:
+- `JJFlexWpf/FreqOutHandlers.cs` line ~339 (AdjustFreq's V handler)
+- `JJFlexWpf/FreqOutHandlers.cs` line in `TryHandleUniversalHomeKey` (universal V handler added 2026-04-26 in commit `4cf73823`)
+- Verify any other V call sites use the same pattern
+
+**Future polish:** consider `Shift+V` for reverse cycle (B→A→last). Not blocking; defer to a UX-pass that decides the full cycle-key family.
+
+**Priority:** Medium-low. Functionally V works (forward direction); wrap is the polish that completes the cycle semantic. Cheap fix (~2 lines).
+
+**Status:** Logged 2026-04-26 — surfaced during 4.1.17 matrix test C.7g.
+
+### FEATURE: Universal `=` transceive should be a TOGGLE with memory of prior split TX (2026-04-26 Noel during C.7h)
+
+**Symptom:** Pressing `=` from any Home field sets `Rig.TXVFO = Rig.RXVFO` — RX and TX both point to the same slice (transceive mode, exiting split). Works correctly. **But there's no inverse:** pressing `=` again does nothing meaningful (TX is already equal to RX, so re-equalizing is a no-op). To "turn off transceive" the user must manually navigate to Slice Operations and set TX back to a different slice — high friction, especially mid-QSO.
+
+Noel: *"What if I wanted to set it to receive i.e. turn off transceive? Shouldn't that toggle?"*
+
+**Why this matters for ham operators:** split-mode operation (TX on different slice/freq from RX) is common during DX pileups, contests, and any contact where the other station is listening on a different frequency. Operators flip between split (TX on slice B) and transceive (TX on slice A = RX) frequently within a single contact. A symmetric toggle key would match the workflow exactly.
+
+**Three design options:**
+
+**(A) `=` becomes a true toggle WITH memory of prior split TX:**
+- First press: save current `TXVFO` → `_priorSplitTxVfo`. Set `TXVFO = RXVFO`. Announce "Slice A transceive" (current).
+- Second press: if `_priorSplitTxVfo` is valid + still exists, restore `TXVFO = _priorSplitTxVfo`. Announce "Split, RX slice A, TX slice B" (or similar). If prior TX is no longer valid (slice was released), fall back to "Cannot restore split, TX stays on slice A" or similar.
+- State: one int field on `FreqOutHandlers` or stored on `Rig`. ~10 lines of code.
+- **This is the right answer for ham workflow** — matches how operators actually use split.
+
+**(B) Separate `Shift+=` for "exit transceive":**
+- `=` still does set-transceive (no change).
+- `Shift+=` (which is `+`) — but `+` already means step-entry from Freq, abs-value from RIT. Conflict.
+- Could pick a different modifier: `Ctrl+=`. Less ergonomic than (A).
+
+**(C) Accept as-is:**
+- Document that `=` is one-way set, "exit transceive" requires manual TX navigation.
+- Lower work, worse UX. Not recommended for shipping ham product.
+
+**Recommendation:** Option (A). Memory-toggle is the natural ham workflow.
+
+**Edge cases for (A):**
+- First-ever press of `=` (no prior split TX saved): no special handling, just set transceive (matches today).
+- Prior split TX slice was released between two `=` presses: announce "Cannot restore split — slice X no longer exists" and stay on transceive.
+- Multiple slices in split: do we save the entire prior config or just the TX slice? Just TX slice is simpler and covers the 95% case.
+- The `_priorSplitTxVfo` should clear when user manually changes TX (so we don't restore a stale value after they've gone elsewhere).
+
+**Priority:** Medium — quality-of-life improvement for split-mode operators. Not blocking 4.1.17. Good Sprint 28 polish or Sprint 29 candidate.
+
+**Status:** Logged 2026-04-26 — surfaced during 4.1.17 matrix test C.7h.
+
+### BUG: Letter slice-jump (a-h) inconsistent between Classic and Modern from Slice Operations field (2026-04-26 Noel)
+
+**Symptom:** From the **Slice field**, letters a-h and digits 0-7 both jump to the named slice — works correctly in both Classic and Modern. From the **Slice Operations field**, behavior diverges by mode:
+- **Classic tuning mode:** pressing `a` does NOTHING (silent no-op)
+- **Modern tuning mode:** pressing `a` switches to slice A (jump works)
+
+**Inconsistency is the bug** — same field, same key, different behavior across modes. Either both should jump, or both should be silent.
+
+**Recommendation:** make BOTH modes jump (Modern's behavior is the more useful default — letter-jump is a discoverable affordance worth preserving). Investigation: find the Slice Operations key handler in `JJFlexWpf/FreqOutHandlers.cs` (search for `AdjustSliceOps`); compare Classic vs Modern code paths for the letter case.
+
+**Priority:** Medium — UX consistency bug. Cheap fix once located. Sprint 28 polish or Sprint 29.
+
+**Status:** Logged 2026-04-26 — surfaced during 4.1.17 matrix test C.7-series exploration.
+
+### FEATURE: Universal slice-jump from any Home field (a-h letter jump or modifier-letter combo) (2026-04-26 Noel design discussion)
+
+**Workflow Noel described:** "Go to slice operations, go to VOX, set VOX, press 'the key' or `a`, set VOX on in slice A, but since you're near it, set RIT on slice A to something cool, then you could switch to B." The pattern is **rapid per-slice multi-field configuration** — operator wants to set VOX, RIT, mute, etc. for slice A, then hop to slice B and do the same, without traversing back to the Slice field every time.
+
+**Today's slice-navigation tools:**
+- `V` cycles forward through slices (no wrap — see separate TODO entry)
+- Numbers 0-7 + letters a-h jump to slice from the **Slice field only** (not universal)
+- No keyboard equivalent of "jump to slice X while staying on current field"
+
+**Recommended design (refined 2026-04-26 with Noel):**
+
+**`Ctrl+J Shift+A` through `Ctrl+J Shift+H` for universal slice jump.** The leader-key prefix `Ctrl+J` should be reframed cognitively as **"jump to"** — the principle: Ctrl+J + an uppercase letter targets something; Ctrl+J + a lowercase letter is an action toggle. Two semantic spaces in the same leader, no new prefix needed.
+
+**Subsystems:**
+
+1. **Radio-aware filtering** (using `theRadio.MaxSlices`): help-list "what's available here?" dynamically filters to slice letters the radio supports. 6300 user sees A and B; 6700 user sees A-H. Pressing an unavailable slice (e.g., `Ctrl+J Shift+E` on a 4-slice 6500): announce **"Slice E not available on this radio — max 4 slices"** and don't fail silently.
+
+2. **Auto-create on jump-to-uncreated-slice** (default behavior, not prompt-to-confirm):
+    - Speech: **"Created slice C, now active"** (announces the create-side-effect)
+    - **Distinct earcon** for "created new slice" vs plain "switched to existing" (e.g., ascending three-tone vs. plain switch tone) — gives audible signal of what just happened
+    - Setting toggle: **"Confirm before creating slices on jump"** — default OFF (matches expert ham workflow); cautious users can opt in to a Y/N prompt
+    - Rationale: ham workflow is fast — interrupting with confirmation every jump = friction. Distinct earcon + speech is enough discoverability without prompts.
+
+3. **Other "jump to" candidates that fit the same Ctrl+J frame** (future expansions):
+    - `Ctrl+J Shift+F` → jump to Frequency field from anywhere
+    - `Ctrl+J Shift+M` → jump to Mute field
+    - `Ctrl+J Shift+L` → jump to log entry
+    - Specifically NOT `Ctrl+J Shift+A` etc. for those — those are reserved for slice jump. Field-jump targets pick distinct letters from slice letters.
+
+**Why this refinement supersedes the earlier (A)/(B)/(C) options:** the `Ctrl+J Shift+letter` design combines the namespace-clean property of (B) with the speed-of-direct-jump property of (A), while reframing the leader-key meaning to support future jump-target families. (C)'s quasi-modal pattern stays as a fallback if collision audits show the leader-key space can't be expanded.
+
+**Concerns to verify before implementing:**
+- `Ctrl+J Shift+S` might collide with `Ctrl+J S` (Spectral NR) if the keymap doesn't case-distinguish modifier states. Check `KeyCommands.vb` for whether leader-followup is case-sensitive.
+- All 8 of `Ctrl+J Shift+A` through `Ctrl+J Shift+H` must be unbound currently. Quick grep would confirm.
+- Existing `Ctrl+J Shift+R` may be PC-side NR (per memory `project_sprint29_updater_vision.md` references). If yes, that conflict shows the case-distinction works AND that slice R needs a different binding (or PC-side NR moves).
+
+**Multi-channel feedback for layer entry (refined 2026-04-26 with Noel):**
+
+Aligns with `project_multi_braille_output_vision.md` and `project_friction_tax_principle.md`: never assume a user has audio, speech, OR braille only — fan out to all configured channels.
+
+- **Speech (default + chatty):** terse `"JJ"`, moderate/chatty `"JJ Jump"` — speaks layer name on entry
+- **Earcon:** distinctive ascending tone (different from existing leader-key earcons — this is a *layer entry*, not just a key press)
+- **Braille:** comes for free via NVDA/JAWS pushing speech text to attached braille displays. Future enhancement (per `project_multi_braille_output_vision.md`): dedicated "status braille line" updates on layer entry too.
+- **Discoverability speech (after timeout or on `?`):** `"JJ Jump layer. Press a letter for jump target. Question mark to list options."` — radio-filtered list when user explicitly asks.
+
+**Layer-help affordances:**
+
+- **`?` (Shift+/) within JJ Jump layer = list available targets dynamically.** Speech: `"Slices A through [N]. F for Frequency. M for Mute."` Filtered by radio's MaxSlices.
+- **`F1` within JJ Jump layer = open CHM page about JJ Jump** for full reference reading.
+- Two distinct affordances by design: `?` for fast in-context reminder, `F1` for slower thorough reading.
+
+**Inactivity-triggered entry announcement (Vim leader-key idiom):**
+
+- Press `Ctrl+J Shift+A` as a single-thought chord (fast operators): announcement skipped, jump fires immediately with "Slice A active"
+- Press `Ctrl+J` then pause without followup (e.g., 500ms inactivity): "JJ Jump" announces, user can then explore
+- This pattern punishes nobody — fast users don't hear the layer-entry, exploring users do. Standard vim modal-editor convention.
+- Inactivity threshold should be configurable per the existing Double-Tap Tolerance settings family (Sprint 28 Phase 1 added the four-option group: Quick / Normal / Relaxed / Leisurely).
+
+**This design generalizes:** the "Ctrl+J = jump to" framing + multi-channel layer-entry feedback + `?`/F1 help affordances + inactivity announcement is a **reusable modal-layer pattern**. Future modal layers (RIT/XIT scale-adjust per Sprint 29, waterfall navigation, etc.) should use the same shape so users learn one pattern.
+
+**Numbers can't be universal slice-jump** because they're already used for tuning (Frequency field digit entry, RIT/XIT digit entry, Sprint 29's planned scale-adjust 1-4). Letters are the right axis.
+
+**Related:** would partially be unblocked by fixing V wrap (separate TODO) + adding `Shift+V` reverse cycle. Combined with V wrap, you can reach any slice in at most floor(N/2) presses. But for arbitrary "jump to slice E" without counting, direct letter-jump wins.
+
+**Priority:** Medium — quality-of-life feature for multi-slice operators. Not blocking 4.1.17. Good Sprint 29 candidate, especially since Sprint 29 already plans the RIT/XIT scale-adjust quasi-modal — could share infrastructure.
+
+**Status:** Logged 2026-04-26 — surfaced during 4.1.17 matrix testing as Noel explored slice navigation across fields.
+
 ### POLISH: Mode-change coach text — add chatty version + improve wording (2026-04-26 Noel)
 
 **Location:** `JJFlexWpf/MainWindow.xaml.cs:809-812`
