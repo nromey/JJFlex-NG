@@ -58,34 +58,101 @@ This document captures the current state of JJ-Flex repository and active work.
 
 ### Rigmeter snapshot — end of 2026-04-26
 
-Captured at `0f902020`, after tonight's 13 commits. v1.2 of rigmeter itself just landed; the totals here are still v1.1-shape since this seal-snapshot was run with `--no-fetch` (no network required during seal), so tokei dimensions are empty in the JSON. Authored-only headline:
+Captured at `a9731616` (HEAD after the seal commit) and `0f902020` (the snapshot file written to NAS during the seal). v1.2 of rigmeter itself just landed; the totals here are still v1.1-shape since the seal-snapshot was run with `--no-fetch` (no network required during seal), so tokei dimensions are empty in the JSON.
+
+**Authored vs vendor headline:**
 
 ```
 Authored: 711 files / 137,704 lines / 603,253 words / 5.95M chars
 Vendor:   180 files /  53,240 lines / 147,931 words / 1.88M chars
 Combined: 891 files / 190,944 lines / 751,184 words / 7.83M chars
+```
 
-Per-category authored:
+**Per-category authored:**
+
+```
   code:      101,676 lines (430 files)
   docs:       21,111 lines (131 files)  ← growing fast (TODO additions, plan doc, batch doc)
   text_data:   9,065 lines  (84 files)
   build:       5,852 lines  (66 files)
+```
 
-Code language breakdown (authored):
+**Code language breakdown (authored):**
+
+```
   cs:    76,736 lines (75.5%)
   vb:    16,944 lines (16.7%)
   xaml:   4,969 lines  (4.9%)
   py:     3,027 lines  (3.0%)   ← rigmeter coming into existence
+```
 
-Today's git activity (since midnight local):
-  Commits:        24 (rigmeter v1.1 last night + 13 tonight + a few mid-day)
-  Unique files:   14
-  Insertions:  4,280
-  Deletions:     350
-  Net change:  +3,930
-  Authors:    JJ Flexbot ×24
+**Today's git activity (since midnight local 2026-04-26):**
 
-Fun comparisons (authored only):
+```
+  Commits:           25
+  Unique files:      14
+  Insertions:        4,371
+  Deletions:           350
+  Net line change:  +4,021
+  Files in diff:        14
+  Authors:           JJ Flexbot ×25
+```
+
+**Per-file change breakdown for today:**
+
+```
+  tools/rigmeter/rigmeter.py:                       +2,736 / -294   ← v1.1 → v1.2 rewrite
+  docs/planning/2026-04-26-evening-batch.md:          +547 /   -0   ← the plan itself
+  docs/planning/vision/JJFlex-TODO.md:                +287 /   -0   ← bugs logged today
+  Agent.md:                                           +282 /  -24
+  JJFlexWpf/FreqOutHandlers.cs:                       +239 /  -43   ← five fixes converged
+  tools/rigmeter/README.md:                           +215 / -110
+  JJFlexWpf/KeyCommands.cs:                            +65 /   -0   ← slice-jump
+  JJFlexWpf/MainWindow.xaml.cs:                        +48 /  -10   ← connect speech, doc comment, mode-change coach, PlayCwSK ee
+  Radios/AuthFormWebView2.cs:                          +35 /   -4   ← morning's WebView2 dispose fix
+  CrashReporter.vb:                                    +19 /   -0
+  ApplicationEvents.vb:                                +10 /   -0
+  JJFlexWpf/Controls/FrequencyDisplay.xaml.cs:          +8 /   -5   ← cursor-orphan fix
+  CLAUDE.md:                                            +1 /   -1
+```
+
+**Growth vs yesterday's seal commit (`53729124`, 2-day span):**
+
+```
+  Code base lines:   98,855  →  101,676   (+2,821 lines, +2.9%, +1.41%/day)
+  Doc base lines:    19,833  →   21,202   (+1,369 lines, +6.9%, +3.41%/day)
+  Docs-to-code ratio:  0.20  →     0.21   (+0.01)
+```
+
+Docs growing 2× faster than code in this window — Sprint 28 wrap + plan-doc + TODO-log activity dominates the docs side; the code side was tonight's bug-fix tranche plus the deferred-item pivot.
+
+**Per-language growth (authored, 2-day span):**
+
+```
+  py:    568 →  3,027   (+2,459, +432.9%)   ← rigmeter v1 → v1.2 trajectory
+  cs:  76,403 → 76,736   (+333,    +0.4%)
+  vb:  16,915 → 16,944   (+29,     +0.2%)
+  xaml: 4,969 →  4,969   (+0,       0.0%)
+```
+
+**Hot files in the 2-day span (top 10 by churn):**
+
+```
+  tools/rigmeter/rigmeter.py:                            3,071
+  docs/planning/2026-04-26-evening-batch.md:               547
+  tools/rigmeter/README.md:                                429
+  Agent.md:                                                353
+  docs/planning/vision/JJFlex-TODO.md:                     287
+  JJFlexWpf/FreqOutHandlers.cs:                            282
+  JJFlexWpf/KeyCommands.cs:                                 65
+  JJFlexWpf/MainWindow.xaml.cs:                             58
+  Radios/AuthFormWebView2.cs:                               39
+  test-matrix rename (sprint28 → 4.1.17):                   22
+```
+
+**Fun comparisons (authored only):**
+
+```
   ≈ 59.5 braille volumes (was 58 yesterday — modest doc + code growth)
   ≈ 2.87 Moby Dicks
   ≈ 0.77 King James Bibles
@@ -94,7 +161,7 @@ Fun comparisons (authored only):
   ≈ 11.0 inches of stack height
 ```
 
-NAS time-series JSON: `2026-04-26-0f902020.json` (continuing the six-baseline-points series from last night's rigmeter v1.1 backfill).
+NAS time-series JSON: `2026-04-26-0f902020.json` (continues the seven-baseline-points series — v4.1.9, v4.1.12, v4.1.15, v4.1.15.1, v4.1.16, last-night's-pre-rigmeter-v1.1-commit, and tonight). Next backfill or seal pass will pick up the v1.2 schema with tokei dimensions populated once tokei is on disk.
 
 ## 2026-04-26 (afternoon → evening) — Sprint 28 wrap commits + 4.1.17 matrix runtime testing + design discussion → CONTEXT ROTATION
 
