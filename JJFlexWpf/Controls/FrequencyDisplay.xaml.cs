@@ -773,40 +773,61 @@ public partial class FrequencyDisplay : UserControl
     /// arrow-key navigation within the control announces via existing per-field
     /// handlers — so this doesn't double up with arrow-nav announcements.
     /// </summary>
+    // Set by FocusFrequencyField (F2) so the GotKeyboardFocus event below skips
+    // its prefix announcement on this transition — F2 speaks the prefix itself.
+    private bool _suppressNextFocusPrefix;
+
     private void DisplayBox_GotKeyboardFocus(object sender, System.Windows.Input.KeyboardFocusChangedEventArgs e)
     {
+        if (_suppressNextFocusPrefix)
+        {
+            _suppressNextFocusPrefix = false;
+            return;
+        }
         try
         {
-            var field = GetFocusedField();
-            if (field == null) return;
-
-            string fieldLabel = FieldKeyToLabel(field.Key);
-            var verbosity = Radios.ScreenReaderOutput.CurrentVerbosity;
-
-            string announcement;
-            if (verbosity == Radios.VerbosityLevel.Chatty)
-            {
-                // Chatty adds the region's full name AND the current frequency.
-                string freq = "";
-                if (_fieldDict.TryGetValue("Freq", out var freqField))
-                    freq = freqField.Text.Trim();
-                announcement = string.IsNullOrEmpty(freq)
-                    ? $"JJ Flexible Home, {fieldLabel}"
-                    : $"JJ Flexible Home, {fieldLabel}, {freq}";
-            }
-            else
-            {
-                // Terse/Moderate: just "home, <field>"
-                announcement = $"Home, {fieldLabel}";
-            }
-
-            Radios.ScreenReaderOutput.Speak(
-                announcement, Radios.VerbosityLevel.Terse, interrupt: true);
+            SpeakHomeDestinationPrefix();
         }
         catch (System.Exception ex)
         {
             System.Diagnostics.Trace.WriteLine($"DisplayBox_GotKeyboardFocus failed: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// Speak the "JJ Flexible Home, [field], [freq]" destination prefix announcement.
+    /// Called from `DisplayBox_GotKeyboardFocus` (when focus arrives from outside) AND
+    /// from `FocusFrequencyField` (F2) so the prefix fires reliably regardless of
+    /// whether keyboard focus was already on the DisplayBox before F2 was pressed.
+    /// 2026-04-28: extracted from inline event handler after C.4i regression check
+    /// found that focus-already-on-DisplayBox paths skipped the prefix because
+    /// `GotKeyboardFocus` only fires on focus arrival, not on "F2 was pressed."
+    /// </summary>
+    private void SpeakHomeDestinationPrefix()
+    {
+        var field = GetFocusedField();
+        if (field == null) return;
+
+        string fieldLabel = FieldKeyToLabel(field.Key);
+        var verbosity = Radios.ScreenReaderOutput.CurrentVerbosity;
+
+        string announcement;
+        if (verbosity == Radios.VerbosityLevel.Chatty)
+        {
+            string freq = "";
+            if (_fieldDict.TryGetValue("Freq", out var freqField))
+                freq = freqField.Text.Trim();
+            announcement = string.IsNullOrEmpty(freq)
+                ? $"JJ Flexible Home, {fieldLabel}"
+                : $"JJ Flexible Home, {fieldLabel}, {freq}";
+        }
+        else
+        {
+            announcement = $"Home, {fieldLabel}";
+        }
+
+        Radios.ScreenReaderOutput.Speak(
+            announcement, Radios.VerbosityLevel.Terse, interrupt: true);
     }
 
     /// <summary>
@@ -839,11 +860,25 @@ public partial class FrequencyDisplay : UserControl
     /// </summary>
     public void FocusFrequencyField()
     {
+        // Suppress the GotKeyboardFocus prefix announcement for this F2 transition —
+        // we'll speak the prefix explicitly below so it fires regardless of whether
+        // focus was already on DisplayBox (the C.4i regression case 2026-04-28).
+        _suppressNextFocusPrefix = true;
         DisplayBox.Focus();
         System.Windows.Input.Keyboard.Focus(DisplayBox);
         if (_fieldDict.TryGetValue("Freq", out var freqField))
         {
-            NavigateToField(freqField);
+            // Position cursor at the default offset within the Freq field (inlined
+            // from NavigateToField; we don't call NavigateToField here because its
+            // speech would duplicate the prefix announcement we're about to make).
+            int fieldStart = freqField.Position + freqField.LeftDelim.Length;
+            int offset = System.Math.Min(freqField.DefaultCursorOffset, freqField.Length - 1);
+            DisplayBox.SelectionStart = fieldStart + offset;
+
+            // Speak the destination prefix unconditionally — this is the F2
+            // announcement the user expects ("JJ Flexible Home, frequency, 3.961.000"
+            // at Chatty, "Home, frequency" at Terse).
+            SpeakHomeDestinationPrefix();
             return;
         }
 

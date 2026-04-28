@@ -1248,6 +1248,25 @@ namespace Radios
             if (theRadio == null) return;
             Disconnecting = true;
 
+            // 2026-04-28: announce disconnect via speech + CW (SK prosign) so the
+            // user knows the radio is going away. Fires before the actual
+            // disconnect work (which can take 3+ seconds) so feedback is
+            // immediate. This is the user-initiated / clean disconnect path;
+            // unexpected drops (radioPropertyChangedHandler when Connected
+            // flips to false from external causes) get a different signal —
+            // see project_stuck_modal_escape_design.md.
+            if (!SuppressSpeech)
+            {
+                string msg = ScreenReaderOutput.CurrentVerbosity switch
+                {
+                    VerbosityLevel.Chatty => "JJ Flexible disconnected from radio",
+                    VerbosityLevel.Terse  => "Disconnected from radio",
+                    _                     => "Disconnected"
+                };
+                ScreenReaderOutput.Speak(msg, VerbosityLevel.Critical, true);
+            }
+            if (ScreenReaderOutput.CwNotificationsEnabled) _ = ScreenReaderOutput.PlayCwSK?.Invoke();
+
             try
             {
                 if ((mainThread != null) && mainThread.IsAlive)

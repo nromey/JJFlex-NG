@@ -24,7 +24,11 @@ Last updated: 2026-04-27
 
 **Status:** Logged 2026-04-27 from Noel's runtime observation while testing 4.1.16.208 SK close. Updated 2026-04-27 with the "preserve the EE" regression note after Noel reminded mid-session.
 
-### BUG: PlayCwSK drops the `ee` close entirely when no radio is connected (2026-04-28 Noel observation)
+### NEEDS RE-VERIFY: Did PlayCwSK actually drop the `ee` close with no radio? (2026-04-28 Noel observation, partially retracted)
+
+**2026-04-28 morning update:** Noel confirmed during morning testing that the dit-dit close DOES fire on app close. Original observation may have been a misreading or a different scenario. Keeping the entry as DEFERRED-pending-re-verification rather than deleting it — when next investigating CW prosign assembly, also test the "exit JJ Flex with no radio connected" path explicitly to confirm the `ee` is or isn't there. If it always fires, this entry can be deleted; if it ever fails, keep open.
+
+### BUG (original, pending re-verify above): PlayCwSK drops the `ee` close entirely when no radio is connected (2026-04-28 Noel observation)
 
 **Symptom:** With NO radio connected, the CW close at app exit (or wherever PlayCwSK fires) sends `73 SK` only — the friendly `ee` (dit-dit) hand-wave from commit `1f7a8e65` is missing. With a radio connected, the EE is present (just runs together with SK — see the related pause-prosign bug above). So the bug is *connection-state-dependent EE delivery*, not just the pause-cadence issue.
 
@@ -281,6 +285,72 @@ Sprint 15 plan documents (`docs/planning/agile/archive/Sprint-15-pileup-dx-ragch
 **Priority:** Medium-high if confirmed as regression — would want to fix before any further releases. Verify first thing tomorrow.
 
 **Status:** Logged 2026-04-28 from Noel as a possible-regression-or-test-setup-issue. Top priority for tomorrow's first action: re-test with menu-bar-bounce technique to disambiguate.
+
+### DESIGN: No-radio guard should opt-out per-command — let SetFreq dialog open even with no radio (2026-04-28 Noel feedback)
+
+**Symptom / proposal:** With the 2026-04-28 no-radio guard, pressing `Ctrl+F` produces "JJ Flexible Home, no radio connected" and the freq-input dialog does NOT open. Noel's pushback: *"you should be able to enter in text into a frequency, the JJ Flexible home no radio connected should complain at you if you try to tune. If you enter an easter egg / cqtest, it should let that through."*
+
+**Design challenge:** The current guard is a uniform "all Radio-scope commands blocked when no radio is connected." But some commands have legitimate uses without a radio:
+- **SetFreq** — opens a text-input dialog. User might enter an easter egg string (`cqtest`, etc.) that should be processed independent of radio state. Or user might just want to type a frequency to remember it. Or test-typing.
+- **Memory dialog** — viewing saved memories doesn't require a connected radio.
+- **Log dialogs** — already Logging-scope, not Radio-scope. Not affected.
+- **Verbosity / help / status** — already Global-scope. Not affected.
+
+**Design fix (proposed):** Add a per-command opt-out flag on `KeyTableEntry` — `RunsWithoutRadio` boolean (default false for Radio-scope commands). For commands that opt-in (SetFreq, ShowMemory, etc.):
+- The dispatcher guard at `KeyCommands.DoCommand:1677` skips the no-radio block.
+- The handler runs.
+- The HANDLER itself decides what to do with no radio — open the dialog, accept input, decide what to do with that input. For SetFreq: dialog opens, user enters text, on OK/apply the dialog handler announces "no radio, can't tune" UNLESS the input matches an easter-egg / special command pattern.
+
+**Where to fix:**
+- `Radios/KeyCommandTypes.cs` — add `RunsWithoutRadio` field on `KeyTableEntry`
+- `JJFlexWpf/KeyCommands.cs:107` — mark `SetFreq` (and others to be decided with Noel) as `RunsWithoutRadio = true`
+- `JJFlexWpf/KeyCommands.cs:1677-` — extend the no-radio block to skip if `kt.RunsWithoutRadio`
+- `globals.vb WriteFreq` (the SetFreq handler) — handle the no-radio case at apply time: speak "no radio, can't tune" OR process easter eggs as appropriate
+
+**Priority:** Medium. The current guard is a defensible default but Noel's framing is correct — uniform blocking is too aggressive for input-accepting commands. Worth fixing during 4.1.17 polish since it's a UX regression I introduced.
+
+**Decision needed from Noel:** which other commands should opt-in to `RunsWithoutRadio = true`? Suggested candidates: ShowMemory (view memories without radio), CycleVerbosity (already Global, fine), Help (already Global), but the call belongs to Noel.
+
+**Status:** Logged 2026-04-28 morning from Noel's response to the C.4d-with-DoCommand-fix test.
+
+### DESIGN: No-radio announcement should be action-aware — say what couldn't happen (2026-04-28 Noel feedback)
+
+**Symptom / proposal:** The current no-radio announcement is generic: "JJ Flexible Home, no radio connected." Noel's feedback during band-key test: *"probably be best to be more verbose for verbosity and say 'unable to change band, JJ Flexible Home no radio connected.'"*
+
+**Design fix (proposed):** Replace the single `SpeakNoRadioConnected()` helper with a per-action variant that prepends what couldn't happen. Options:
+1. **Per-command label.** Each command has a "what would have happened" label ("change band", "set frequency", "tune", "toggle RIT"). The helper takes that label and produces "Unable to [label], JJ Flexible Home no radio connected."
+2. **Verbosity-scaled.** At Terse, just "[label], no radio." At Chatty, the full "Unable to [label], JJ Flexible Home no radio connected." At Off (Critical), "[label], no radio" or even just "no radio."
+3. **Reuse existing description fields.** `KeyTableEntry.Description` already exists ("Jump to 60 meter band", "Toggle tune carrier on or off", etc.). The no-radio helper can pull from there.
+
+**Where to fix:**
+- `Radios/ScreenReaderOutput.cs` — extend `SpeakNoRadioConnected` to take an optional action label
+- `JJFlexWpf/KeyCommands.cs:1677-` — pass `kt.Description` (or a derived "what this would have done" label) to the helper
+
+**Priority:** Medium-low. UX polish on top of the working guard. Improves discoverability ("oh, that key would have changed bands") but the basic no-radio feedback is already correct.
+
+**Status:** Logged 2026-04-28 morning from Noel's response after band-key test passed but felt under-informative.
+
+### FEATURE: Disconnect notification — speech + CW prosign when radio disconnects (2026-04-28 Noel proposal)
+
+**Proposal:** When the radio disconnects (user-initiated, network drop, or radio side disconnect), JJ Flex should announce it. Today there's no clear notification. Noel's framing: *"radio disconnect should probably give a CW disconnect / speech should give some kind of notification it has disconnected. Maybe 'jjf DC k' in CW, 'JJ Flexible disconnected from radio' in speech."*
+
+**Design proposal:**
+1. **Speech:** "JJ Flexible disconnected from radio" (Critical-level — connection state). Verbosity-aware variants:
+   - **Chatty:** "JJ Flexible disconnected from radio. Press Ctrl+R to reconnect." (or whatever the reconnect key becomes)
+   - **Terse:** "Disconnected from radio."
+   - **Off:** "Disconnected." (still spoken — Critical-level)
+2. **CW prosign:** A brief "DC" or "DC K" (or "BK" for "back to you") sequence. Noel suggested `JJF DC K`. Worth confirming the desired CW with Noel — there's a tradition of using `73 SK` for end-of-conversation; `BK` is "back to you"; `DC` isn't standard but could be a JJ-Flex-specific shorthand. Or use the AS prosign (already in the engine) since AS = "wait" / "standby" semantically aligns with disconnect. Or invent a JJ-specific pattern.
+3. **Earcon:** A descending tone (matches the "client disconnected" earcon already in MultiFlex code at `ScreenReaderOutput.cs:330`). Possibly reuse `PlayClientDisconnectedEarcon`.
+
+**Where to fix:**
+- `Radios/FlexBase.cs` `Disconnect()` method (around line 1245) — fire the speech + CW + earcon when disconnect is initiated
+- May need to distinguish user-initiated disconnect vs unexpected disconnect (different announcements). User-initiated = "disconnected from radio." Unexpected = "connection lost" + perhaps a more urgent earcon.
+
+**Priority:** Medium. Currently an audible feedback gap — disconnects happen silently in some paths. Pairs well with the connection-event-speech race fixes already in TODO (line 62).
+
+**Decision needed from Noel:** desired CW prosign for disconnect. Options listed above; Noel's call.
+
+**Status:** Logged 2026-04-28 morning from Noel's proposal during morning testing.
 
 ### BUG: build-installers.bat release mode silently skips NAS installer publish (2026-04-19 discovered during 4.1.16 release)
 

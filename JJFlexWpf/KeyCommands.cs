@@ -1053,8 +1053,12 @@ public class KeyCommands
         new(Keys.A | Keys.Control | Keys.Shift, CommandValues.ToggleAntennaExpander, KeyScope.Radio),
         new(Keys.B | Keys.Control | Keys.Shift, CommandValues.ToggleBrailleStatus, KeyScope.Global),
 
-        // Speak frequency, Repeat last message
-        new(Keys.F | Keys.Control, CommandValues.SpeakFrequency, KeyScope.Radio),
+        // Speak frequency (Ctrl+Shift+F per Sprint 15+21 design intent;
+        // typo as Ctrl+F prior to 2026-04-28 caused a startup KEY CONFLICT
+        // warning with SetFreq line 940). Co-binds with SearchLog at
+        // Ctrl+Shift+F (Logging scope) — Radio + Logging is non-conflicting
+        // per the validator at line 2252 (modes are mutually exclusive).
+        new(Keys.F | Keys.Control | Keys.Shift, CommandValues.SpeakFrequency, KeyScope.Radio),
         new(Keys.F4 | Keys.Control, CommandValues.RepeatLastMessage, KeyScope.Global),
 
         // Verbosity (Sprint 24 Phase 6)
