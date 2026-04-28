@@ -1677,6 +1677,23 @@ public class KeyCommands
         var kt = Lookup(k);
         if (kt != null)
         {
+            // Radio/Classic/Modern-scope commands need a connected radio.
+            // Without one, announce "no radio connected" instead of letting
+            // the handler go silent (or worse, open a dialog with no radio,
+            // which was the C.4d test failure 2026-04-28). Global scope works
+            // without a radio by definition; Logging scope has its own guard.
+            // Mirrors ApplicationEvents.vb ExecuteCommandCallback guard for
+            // the Command Finder / menu path. This DoCommand path covers
+            // direct keystrokes — the actual user-facing dispatch.
+            if (_context.GetRigControl() == null &&
+                (kt.Scope == Radios.KeyScope.Radio ||
+                 kt.Scope == Radios.KeyScope.Classic ||
+                 kt.Scope == Radios.KeyScope.Modern))
+            {
+                Radios.ScreenReaderOutput.SpeakNoRadioConnected();
+                return true; // consumed — don't leak to other handlers
+            }
+
             CommandId = kt.KeyDef.Id;
             _context.Trace("DoCommand:" + CommandId);
             // Mark handled BEFORE calling the routine — even if it throws,

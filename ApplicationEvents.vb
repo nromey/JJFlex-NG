@@ -262,6 +262,18 @@ Namespace My
                     Dim cmdId = DirectCast(tag, CommandValues)
                     Dim kt = Commands.Lookup(cmdId)
                     If kt IsNot Nothing AndAlso kt.Handler IsNot Nothing Then
+                        ' Radio/Classic/Modern-scope commands need a connected radio.
+                        ' Without one, announce "no radio connected" instead of letting
+                        ' the handler go silent. Global scope works without a radio by
+                        ' definition; Logging scope has its own upstream guard.
+                        If RigControl Is Nothing AndAlso
+                           (kt.Scope = Radios.KeyScope.Radio OrElse
+                            kt.Scope = Radios.KeyScope.Classic OrElse
+                            kt.Scope = Radios.KeyScope.Modern) Then
+                            Radios.ScreenReaderOutput.SpeakNoRadioConnected()
+                            Return
+                        End If
+
                         Commands.CommandId = cmdId
                         Try
                             kt.Handler()

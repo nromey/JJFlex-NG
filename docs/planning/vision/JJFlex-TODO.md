@@ -1,8 +1,286 @@
 # JJ Flex — TODO / Rolling Backlog
 
-Last updated: 2026-04-19
+Last updated: 2026-04-27
 
 ## Open Bugs
+
+### BUG: CW prosign concatenation has no pause primitive — `73 SK ee` runs together as `73 SKEE` (2026-04-27 Noel observation)
+
+**Symptom:** When PlayCwSK appends `ee` after the SK prosign (the 2026-04-26 friendly hand-wave close), the resulting CW reads as `73 SKEE` rather than `73 SK <pause> EE`. The desired cadence is the same as a sentence-end pause — a clear gap separating SK from the closing dits, the way a real op would key it. Same shape would affect any future prosign+character concatenation (BT, AS, KN, etc. followed by single-character status dits).
+
+**Root cause (suspected):** The CW notification engine concatenates characters without any pause primitive. Prosigns and following characters land back-to-back at the configured WPM, with only the inter-character gap defined by Morse timing — which is shorter than what a human op would key between an end-of-message prosign and a friendly tail.
+
+**Design fix (proposed):** Add a pause primitive to the CW assembly layer. Could be `--` (double-hyphen) at the prosign-source level, or a dedicated `CwPause(milliseconds)` API call inside `PlayCwSK` and friends. The pause should match the cadence of an end-of-sentence pause in the rest of the CW notification engine — likely 5-7 dot-lengths at the current WPM, matching standard `<BT>` cadence or natural human spacing.
+
+**Where to fix:**
+- `ScreenReaderOutput.PlayCwSK` and the underlying CW notification engine that owns prosign assembly. Likely `JJTrace` or `Radios` — needs to be located.
+- Wherever `ee` gets appended after `SK` (commit `1f7a8e65` 2026-04-26).
+
+**Priority:** Low. The current behavior is functional; it's a polish item. But Noel's a CW op and his ear catches this — worth fixing for credibility. Good Sprint 29 polish-pass slip-in or a one-off "audio polish" mini-sprint.
+
+**Also covers:** any future prosign+character chain like `<AS>` for "stand by, will call" with following content; `<KN>` for "go ahead, named station only"; `<BT>` already implemented as a separator, but its pause length deserves audit while the fix is in flight.
+
+**What MUST NOT regress when fixing this:** The `ee` (two single dits) at the close of `PlayCwSK` is a confirmed-working friendly-hand-wave touch that Noel verified by ear ("I hear a dit dit at close, that works"). The fix adds a pause BEFORE the `ee`, it does not remove or replace the `ee`. Test plan after the fix: send `73 SK ee` and confirm both (a) the pause between SK and EE is audible, AND (b) the EE itself is still there. Easy to accidentally drop the EE while restructuring the prosign assembly — the regression check matters.
+
+**Status:** Logged 2026-04-27 from Noel's runtime observation while testing 4.1.16.208 SK close. Updated 2026-04-27 with the "preserve the EE" regression note after Noel reminded mid-session.
+
+### BUG: PlayCwSK drops the `ee` close entirely when no radio is connected (2026-04-28 Noel observation)
+
+**Symptom:** With NO radio connected, the CW close at app exit (or wherever PlayCwSK fires) sends `73 SK` only — the friendly `ee` (dit-dit) hand-wave from commit `1f7a8e65` is missing. With a radio connected, the EE is present (just runs together with SK — see the related pause-prosign bug above). So the bug is *connection-state-dependent EE delivery*, not just the pause-cadence issue.
+
+**Root cause (suspected):** Either (a) the EE-append code in PlayCwSK is gated on a radio-connected check that has no business being there — CW notifications play through local PC audio, not through the radio, so they should fire regardless of connection state — OR (b) there are two paths through the close handler (with-radio / without-radio) and only the with-radio path got the EE addition in `1f7a8e65`. (b) is the more likely shape since the original commit message frames the EE as a "friendly close" added on top of an existing prosign chain that may not have been the only chain.
+
+**Design fix (proposed):** Locate the EE-append site, confirm whether it's behind a connection check OR whether there are two close paths. If gated: remove the gate (CW notifications are independent of radio state). If two paths: add the EE to the no-radio path so both close paths produce the same friendly tail.
+
+**Where to fix:**
+- `ScreenReaderOutput.PlayCwSK` and the close-path callers — find every place CW prosigns are emitted on app exit / SK announcement.
+- Diff against commit `1f7a8e65` to see exactly where the EE was added and whether the addition was complete across both paths.
+
+**Priority:** Low. Same priority class as the pause-prosign bug — a CW polish item. But it's a regression-from-intent (the EE was added to be heard always, not conditionally), so worth fixing in the same pass as the pause-prosign work.
+
+**What MUST NOT regress when fixing this:** Both connect/disconnect close paths must produce the EE. Test plan: (1) launch JJFlex with no radio, exit — confirm EE present. (2) launch JJFlex, connect to a radio, exit — confirm EE present. (3) launch JJFlex, connect-then-disconnect, exit — confirm EE present. Three states, same outcome.
+
+**Status:** Logged 2026-04-28 from Noel's runtime observation during 4.1.17 matrix C.4 testing.
+
+### BUG: Modal connecting state has no escape path; user can't quit app while "connecting" (2026-04-28 Noel discovered during stuck slice-acquisition)
+
+**Symptom:** When the app reaches a "stuck on connecting" state — actually a successful transport-level connection that's blocked on slice acquisition (slice in use by another op) — the connecting modal stays up indefinitely with no Escape, OK, Cancel, or window-close path that works. User had to force-kill via taskkill. Alt+F4 didn't work either.
+
+**Severity:** **Critical accessibility bug.** A blind user with no visual cue that a dialog is modal cannot easily distinguish "the app is busy" from "the app is hung." When there's also no Escape-out path, the only options are kill-via-Task-Manager (assumes user knows that path) or force shutdown — both are violations of the friction-tax principle. **The app must ALWAYS be closable, especially for screen reader users.**
+
+**Root cause (suspected):** The connecting modal probably absorbs Escape and Alt+F4 to prevent accidental dismissal during legitimate connection attempts, but doesn't transition to a "connected, waiting for slice" or "connecting timed out" state when the underlying connect succeeds but slice acquisition fails. The trace from tonight's session (`Trace-current-73sk-session.txt`) shows transport `Connected:True` at T+8.6s, but the UI remained in connecting state until force-kill at T+215s — 200+ seconds of unresponsive modal.
+
+**Design fix (proposed):**
+1. **Time-bounded modal:** the connecting dialog has a max wait (e.g., 60s); after that, transition to "Connecting timeout — Cancel / Wait / Quit" with explicit user choice.
+2. **State-aware messaging:** when transport connects but slice acquisition fails, transition the modal text from "Connecting..." to "Connected, waiting for slice (currently in use by [station])." Different state, different UX.
+3. **Always-honored Escape:** Escape on the connecting modal should ALWAYS cancel the in-flight connect attempt, return user to the radio selector. No silent ignore.
+4. **Always-honored Alt+F4 / window close:** if user wants to quit, let them. Cancel any in-flight operation, dispose, exit cleanly.
+
+**Where to fix:**
+- `globals.vb` `_connectingForm` and surrounding logic (~line 2170 in `openTheRadio`)
+- The connecting form itself — likely a WinForms `Form` with custom KeyDown handler
+- Coordination with `RigControl.Start()` to allow cancellation from the UI
+
+**Priority:** **HIGH.** Crosses the line from "annoying UX" to "user is trapped in a dialog they can't close." Promotes to a 4.1.17 candidate, not a Sprint 29 deferral.
+
+**What MUST NOT regress when fixing this:** Successful connections must still close the modal cleanly; the modal must remain robust against accidental dismiss during a legitimate fast connect (don't introduce a "hit Escape too early and lose your progress" regression).
+
+**Status:** Logged 2026-04-28 from Noel's runtime observation during stuck-slice-acquisition session at 1:32–1:36 AM. Trace preserved at `.investigation/2026-04-28-marks-radio-stuck/Trace-current-73sk-session.txt`. Promotes the design rule "every dialog must be Escape-closable, every state must be exit-able" to memory.
+
+### BUG: Slice-acquisition failure presented as "stuck on connecting" instead of distinct state (2026-04-28 Noel discovery)
+
+**Symptom:** When connecting to a remote radio whose slices are all in use (MultiFlex collision with another operator), the connect path *succeeds* at the transport layer but fails at slice acquisition. The UI remains in "connecting" state, the user has no idea a slice was the problem, and there's no path forward. Tonight's session: connected to Don's `6300inshack` at T+8.6s, slice acquisition failed at T+9.35s with `freeSlices=0, in use by k5ner1`, app sat for 204 seconds before user force-killed at T+215s. **k5ner1 disconnected at T+214s — Noel was 4 seconds away from the slice freeing up when he killed the app.** Sad timing.
+
+**Root cause:** The state machine conflates "transport connecting" with "claiming a usable slice." Both are part of `Start()`, but they're different failure modes that deserve different UX. The current model: any `Start()` failure → user sees "still connecting" → user has no guidance.
+
+**Design fix (proposed):**
+1. **Distinct state name:** "Connecting" → "Connected, waiting for slice (in use by [other station])."
+2. **Wait-or-give-up choice:** offer "Wait" (continue polling slice availability), "Try lower-power slice" (if available), or "Cancel" (disconnect and return to selector).
+3. **Slice-freed-up notification:** when slice becomes available, speak it: "Slice now available — connecting" so the user knows progress is happening.
+4. **Distinct earcon:** so the audio signal for "slice in use" is different from "still connecting." Same logic as distinct earcons for FeatureOn vs FeatureOff.
+
+**Where to fix:**
+- `Radios/FlexBase.cs` `Start()` method around lines 1099–1108 (where `couldn't get a slice` is logged)
+- `globals.vb` openTheRadio retry path
+- `JJFlexWpf` connecting form text + state transitions
+
+**Priority:** Medium-high. Coexists with the "modal escape" bug above — both fixes likely land together since they touch the same dialog and state machine. Sprint 29 networking-fix candidate.
+
+**What MUST NOT regress when fixing this:** The fast-success path (slice immediately available) must remain fast and not gain extra modal transitions for the common case.
+
+**Status:** Logged 2026-04-28 with full trace evidence. Tonight's "k5ner1" was likely Don himself using his own radio at the moment Noel tried to join — a legitimate MultiFlex collision, not a bug-driven ghost.
+
+### BUG: AS-retry-then-janky-reconnect pattern — secondary retry leaves the app in an unhealthy state (2026-04-28 Noel report, recurring)
+
+**Symptom:** During a remote connect, user hears the AS prosign (CW) and "Connection slow, retrying" speech (often three times in succession). After retries, the connection completes, but the app is in a "janky" state: sometimes announces "K5NER disconnected" mid-connect, sometimes lands in a state with confused slice / station name handling, sometimes ends up needing another full disconnect-reconnect to function. Noel's specific Q1 from tonight: "*why does the secondary retry connection's causing problems?*"
+
+**Root cause (preliminary investigation):**
+- The AS prosign + "Connection slow, retrying" speech fires from `Radios/FlexBase.cs:1216–1226` when `Start()` times out waiting for the GUIClient station name to be set.
+- Station-name wait timeout is 45 seconds (line 1135), with an early-abort path at 1 second if the client is removed during start without prior add (line 1137).
+- On timeout, `Start()` returns false. Caller `openTheRadio` (in `globals.vb:2109–2161`) catches the false and retries via `RigControl.RetryConnect()` — up to 3 attempts.
+- `RetryConnect` is the lightweight reconnect path (no Auth0 re-auth, reuses WAN session) introduced in Sprint 26 networking overhaul.
+- **Suspected jank source:** the radio side may not have fully cleaned up from the prior `Disconnect()` call (line 1227) before the retry begins. The new attempt sees stale state, leading to confused station name / GUIClient state machines on the second pass.
+
+**Investigation targets (Sprint 29 networking-fix sprint):**
+- Trace a fresh AS-retry session end-to-end (need persistent trace archive — see Sprint 29 trace polish item).
+- Compare time spent in each phase: pre-Sprint-26 vs post-Sprint-26 connect path. The "ragchew-keepalive-kerchunk" sprint added the station-name-wait, the early-abort heuristics, and the SmartLink re-add detection.
+- Verify that `Disconnect()` at line 1227 actually cleans up radio-side state before the retry's `Connect()` begins. If not, the retry rebuilds against stale state.
+- Specifically check: does the radio retain the prior GUIClient registration when the client is force-disconnected mid-station-name-wait? If yes, that's a leak that the retry then trips over.
+
+**Design fix (proposed, pending investigation):**
+1. **Wait for radio-side cleanup before retry.** After `Disconnect()` returns, wait for radio's GUIClient list to NOT contain our prior client ID before re-issuing Connect. Bounded by a sanity timeout.
+2. **Consider longer station-name wait over WAN.** 45s might not be enough for slow-network conditions. But **don't just bump the timeout** — that masks the bug. Investigate why station name takes >45s on some sessions and not others.
+3. **Make retry idempotent.** Each retry should fully reset state, not just re-issue commands against potentially-tainted shared state.
+
+**Priority:** **HIGH.** Recurring symptom that wasn't this bad pre-Sprint-26+27. Confirmed regression-from-overhaul per Noel's historical observation.
+
+**Status:** Logged 2026-04-28 from Noel's recurring observation + tonight's specific Q1. Pre-Sprint-26 historical context: "I'd only heard AS once (maybe). It was another type of unreliable. We had to do the network rewrite to support full UPNP, port forward, and hole punch." That's a clear regression marker.
+
+### BUG: Connect path takes longer post-Sprint-26+27 networking overhaul (2026-04-28 Noel Q2)
+
+**Symptom:** Connections take longer than they used to. Pre-overhaul, AS-retry was rare. Post-overhaul, AS-retry is frequent and connects routinely take >10 seconds end-to-end. Noel's specific Q2: "*why does it take so long to connect? What's it doing?*"
+
+**Root cause (preliminary breakdown of Sprint 26+27 connect path latency budget):**
+- TLS 1.2 handshake: ~200–500ms (was always there)
+- SmartLink WAN session connect: ~300ms (line 173 of trace = T+4.825s; from T+4.621s connect attempt = 204ms — fast)
+- Radio Connect message round-trip: ~480ms (T+6.062 to T+6.540, line 211–212)
+- **`Start()` station-name wait: up to 45 seconds** (the new defensive wait added in Sprint 26)
+- **`Start()` antenna list wait: up to 20 seconds** (line 1115 — also added in Sprint 26 era; comment says "5–15s typical over WAN")
+- **`Start()` slice acquisition: variable** depending on radio state
+- **NetworkTestRunner probe** issued at line 8783 of trace — runs in parallel, ~80ms — minor.
+
+**The dominant cost is the station-name-wait** when SmartLink is slow to re-add the GUIClient on the radio side. Over WAN, this can take 30+ seconds (per the comment at line 1135: "*SmartLink re-add can take 30s+ over WAN*"). Tonight's session didn't show this because slice acquisition failed first (~T+9.35s).
+
+**Investigation targets (Sprint 29 networking-fix sprint):**
+- Profile pre-Sprint-26 connect path. Compare timing breakdowns.
+- Verify whether the station-name-wait is necessary for ALL connections or only some. If it's a defensive wait only needed for SmartLink-re-add scenarios, can it be skipped for direct local connections?
+- Investigate WHY SmartLink takes 30s+ to re-add GUIClient sometimes. Is the SmartLink server slow? Is JJFlex's auth dance triggering excessive re-validation? Is the new UPnP / hole-punch path adding round-trips?
+- Quantify: median connect time pre-overhaul vs post-overhaul, with timing histograms.
+
+**Design improvement candidates:**
+1. **Adaptive timeout:** start with optimistic timeout (5–10s), extend on first failure rather than always defaulting to 45s. Fast networks pay only fast cost.
+2. **Parallelize phases:** can antenna-list-wait and station-name-wait run concurrently? Today they're sequential.
+3. **Skip phases that aren't needed for the use case:** SmartLink re-add detection only matters for a subset of connect scenarios.
+
+**Priority:** **HIGH.** Foundation phase concern — slow + unreliable connects are worse than slow + reliable connects, which are worse than fast + reliable. We're at 1 today; we need 3.
+
+**Status:** Logged 2026-04-28 from Noel's recurring observation. Tied to Sprint 26+27 networking overhaul ("ragchew-keepalive-kerchunk"). Pairs with the AS-retry-jank bug above — both will be investigated in the same Sprint 29 networking-fix work.
+
+### BUG: KEY CONFLICT — Ctrl+F bound to both SetFreq and SpeakFrequency (2026-04-28 trace inspection)
+
+**Symptom:** App startup trace logs `KEY CONFLICT: F, Control bound to SetFreq (Radio) AND SpeakFrequency (Radio)`. Two commands compete for the same key. Whichever wins lookup-order arbitration is the one that actually fires; the other is unreachable via that binding.
+
+**Root cause:** `JJFlexWpf/KeyCommands.cs` has two binding entries:
+- Line 940: `new(Keys.F | Keys.Control, CommandValues.SetFreq, KeyScope.Radio)` — entered Sprint 23 unified-dispatch era; opens freq-input dialog.
+- Line 1057: `new(Keys.F | Keys.Control, CommandValues.SpeakFrequency, KeyScope.Radio)` — added after Sprint 15 with the comment "Speak frequency, Repeat last message."
+
+Sprint 15 plan documents (`docs/planning/agile/archive/Sprint-15-pileup-dx-ragchew.md` line 116) document the original intent: `F` → speak frequency on freq fields (already implemented in `FreqOutHandlers.cs:425`/`2092`). The line-1057 binding was likely meant to be `Ctrl+Shift+F` (per `docs/planning/agile/archive/sprint21-22-test-findings.md:252`) but was typo'd as `Ctrl+F`, colliding with the existing Sprint 23 SetFreq binding.
+
+**Fix (small, cleanly evidenced):** Change line 1057 from `Keys.F | Keys.Control` to `Keys.F | Keys.Control | Keys.Shift` to match Sprint 15+21 design intent. After the fix:
+- `Ctrl+F` = Set Frequency (dialog) — restored unambiguous binding
+- `Ctrl+Shift+F` = Speak Frequency (one-shot announcement from anywhere) — as originally designed
+- `F` (on Home freq field) = Speak Frequency — unchanged (FreqOutHandlers handles it)
+
+**Verification before applying:** Confirm `Ctrl+Shift+F` is currently unbound in the KeyTable (no other consumer). Sprint 23+ heavily uses `Ctrl+Shift+<letter>` for expander toggles (`N` DSP, `U` Audio, `R` Receiver, `X` Transmission, `A` Antenna, `B` Braille). `F` for Frequency-Speak fits the same naming pattern.
+
+**Priority:** Low (cosmetic — startup warning) but **easy** (~1-line change). Good Sprint 29 slip-in candidate, or fix during Sprint 28's wrap. The startup-trace warning system is worth its weight in gold for surfacing this kind of thing — credit to Sprint 24 Phase 5 `ValidateKeyBindings()`.
+
+**Status:** Logged 2026-04-28 after trace investigation found `KEY CONFLICT` line at startup of every session. The conflict has been silently in the codebase since Sprint 15+ era; the validator has been logging it; nobody read the trace until tonight's diagnostic exercise.
+
+### BUG: Help dialog can't be exited with Escape; Alt+F4 is the only close path (2026-04-28 Noel during C.4h)
+
+**Symptom:** Pressed F1 to open Help dialog. Help opens correctly. But Escape doesn't close it — the Help dialog absorbs Escape (or doesn't bind it) and stays open. Alt+F4 successfully closes the dialog.
+
+**Severity:** Accessibility regression — every dialog should honor Escape per the design rule "every dialog must be Escape-closable, every state must be exit-able." Help is the most common dialog a user might want to dismiss quickly; making them remember Alt+F4 is friction-tax.
+
+**Root cause (suspected):** The Help dialog (likely opened via `HelpLauncher.cs` or similar) probably uses `ShowDialog()` without an Escape-key handler, OR the Escape key is being absorbed by a focused control inside Help (a TextBox?) before reaching the form-level handler.
+
+**Fix:** Add a window-level KeyDown handler on the Help dialog that catches Escape and calls `Close()`. If a child control absorbs Escape (e.g. text-search box), make it conditional — Escape clears the search first, then closes on second press.
+
+**Where to fix:**
+- `JJFlexWpf/HelpLauncher.cs` and the actual Help window XAML/code-behind.
+
+**Priority:** Medium. Easy fix, common case, accessibility regression.
+
+**Status:** Logged 2026-04-28 from Noel during C.4h. Surfaced during no-radio-state testing but is a general bug independent of radio state. Verified: F1 opens Help correctly even with no radio (Global scope, correctly bypasses no-radio guard).
+
+### BUG: Dialog Escape produces "pane" announcement instead of restoring named focus (2026-04-28 Noel during C.4d)
+
+**Symptom:** When pressing Escape to close a dialog (the freq-input dialog in C.4d), NVDA announced "pane" — meaning focus returned to a generic UI container rather than a specifically-named control.
+
+**Root cause:** Common WPF focus-restoration issue. When a modal dialog closes, focus returns to the prior FocusScope owner. If that owner doesn't have an `AccessibleName` / `AutomationProperties.Name`, the screen reader reads the control type ("pane") instead of an identifiable name.
+
+**Fix:** Identify which control receives focus after the freq-input dialog closes. Add `AutomationProperties.Name` to that control with a meaningful name (probably "Home" or the previously-focused field).
+
+**Where to fix:**
+- The freq-input dialog (`FreqInput`) close handler
+- The control that receives post-close focus (likely `MainWindow` or a panel within it)
+
+**Priority:** Low — cosmetic accessibility polish, doesn't block functionality. But it's the kind of small polish that cumulatively makes the app feel professional. Sprint 29 accessibility-polish sprint slot or a one-off tweak.
+
+**Status:** Logged 2026-04-28 from Noel during C.4d. Same fix pattern would apply anywhere else in the app where dialog close → "pane" / "frame" / "group" generic announcement. May warrant a global accessibility audit for unnamed focus targets.
+
+### BUG: Squelch Level should skip during arrow-nav when Squelch is off (matches RIT/XIT pattern) (2026-04-28 Noel during C.5/C.6)
+
+**Symptom:** Arrow-navigating through Home fields, when Squelch is OFF, the arrow keys still force the user through the Squelch Level field (which displays a numeric level even when squelch is off, per the 2026-04-24 fix). Noel's request: "*when rit and xit it doesn't make you arrow through tuning, squelch should do the same, when off move on to next field.*"
+
+**Design fix:** Mirror the RIT/XIT off-state behavior. When Squelch is off, arrow nav should skip Squelch Level (treat it as collapsed). When Squelch is on, the field is in the nav order normally.
+
+**Where to fix:**
+- `JJFlexWpf/Controls/FrequencyDisplay.xaml.cs` field navigation logic
+- The same `IsPositionSensitive` helper (or sibling) that gained RIT/XIT awareness in commit `f6c00aa2` 2026-04-26.
+
+**Priority:** Medium. UX consistency — pattern that's already established for RIT/XIT should extend to Squelch.
+
+**Status:** Logged 2026-04-28 from Noel during C.5/C.6 arrow-nav testing.
+
+### BUG: Slice and Slice Operations field announcements lack purpose-naming (2026-04-28 Noel during C.5/C.6/C.7/C.8)
+
+**Symptom:** When focus lands on the Slice or Slice Operations field, the announcement is just "slice A" or "slice A operations volume 90" — runs together oddly and doesn't tell the user what kind of field they're on. Noel's suggestion: "*Slice A 'slice selector'? I know we say what value we're moving across, but slice and slice ops have multiple functions you can change. If anything we could say 'slice selector: slice A active.'*"
+
+**Design proposal:**
+- **Slice field:** announce as "Slice selector: slice A active" — labels the field as a *selector* (implying "use V to cycle, or letters to jump"), then the current value.
+- **Slice Operations field:** announce as something that names its function. Slice Operations has multiple functions (mute toggle, pan, volume, A/T to set RX/TX, slice letter jump). Hard to summarize in one phrase. Possible: "Slice operations: slice A controls" — labels what the field controls. Then context help (F1) tells the user the available actions.
+
+**Why this matters:** The current announcements assume the user already knows what each field does. New users get a confusing string ("slice A operations volume 90") that doesn't decompose into "this is the slice operations field, currently showing slice A's volume at 90." Renaming the field announcements to lead with purpose, then state, makes discovery easier.
+
+**Where to fix:**
+- `JJFlexWpf/Controls/FrequencyDisplay.xaml.cs` `NavigateToField` and field-key resolution — the speech for Slice and Slice Operations specifically.
+
+**Priority:** Medium — UX clarity improvement, especially for new users. Pairs naturally with F1 context help refinement (also Sprint 29-ish).
+
+**Status:** Logged 2026-04-28 from Noel during C.5/C.6/C.7/C.8 arrow-nav testing.
+
+### BUG: Classic and Modern tuning modes have different field orders, no parity (2026-04-28 Noel observation)
+
+**Symptom:** Arrow-nav through Home in Classic vs Modern produces different sequences. Classic has per-digit frequency sub-positions (1 MHz, 100 kHz, 10 kHz, 100 Hz, 10 Hz, 1 Hz) embedded between Frequency and Mute. Modern has just Frequency and Volume at that position. Field SET differences are by design (Classic exposes per-digit; Modern doesn't), but the **field ORDER** of the shared fields should be consistent.
+
+**Noel's request:** "*Until we get 'customize home' we should mirror order on both classic and modern tuning modes.*"
+
+**Design fix:** Align the field sequence so the shared fields appear in the same relative order in both modes. The per-digit Classic fields live within the Frequency field (logical sub-positions); they shouldn't shift the overall field order, only expand within Frequency.
+
+**Where to fix:**
+- `JJFlexWpf/FreqOutHandlers.cs` — `SetupFreqOut` (Classic) vs `SetupFreqoutModern` (Modern) sequences.
+
+**Priority:** Medium — consistency is foundational; user shouldn't have to relearn the spatial model when switching modes. Sprint 29 Home-polish slip-in candidate, or hold for Customize Home (Sprint 30+).
+
+**Status:** Logged 2026-04-28 from Noel during C.5/C.6/C.7/C.8 testing. Customize Home (Sprint 30+) will eventually let user pick the order, but until then, parity by default reduces cognitive load.
+
+### BUG: Universal Home keys (R/M/X/Q/V/=) silent when pressed outside Home with no radio (2026-04-28 Noel during C.4f)
+
+**Symptom:** From outside the Home (no Home field has focus), with no radio connected, pressing `R`, `M`, `X`, `Q`, `V`, or `=` produces no audible feedback. These keys are field-handler-bound (in `FreqOutHandlers.cs`), so they only fire when focus is on a Home field. With no radio, focus can't be on a Home field (the FrequencyDisplay's `_fieldDict` is empty). So the keystrokes hit no handler and silently do nothing.
+
+**Design challenge:** A simple "add a global binding for R/M/X/Q/V/=" would conflict with field-handler routing when a radio IS connected and focus IS on a Home field. The field handler runs first because focus claims the keystroke before the global dispatcher sees it. So the no-radio-fallback binding wouldn't fire when on a field.
+
+**Design fix (proposed):**
+1. **Add a window-level `PreviewKeyDown` check** for these specific letter keys: if `RigControl == null` (no radio), speak no-radio guidance and consume the key.
+2. **Trigger order:** the check fires BEFORE the field-handler routing, so it wins by virtue of being at the WPF Window scope. With a radio connected, skip — let normal routing happen.
+3. **Helper:** reuse `ScreenReaderOutput.SpeakNoRadioConnected()` from the no-radio guard work.
+
+**Alternative fix:** Add these keys to the global KeyTable with `KeyScope.Radio` and let the no-radio dispatcher guard handle them. Drawback: when the radio IS connected, the global handler would fire instead of the field-specific handler unless the field-specific handler explicitly consumes the keystroke first. Need to verify ordering before choosing this path.
+
+**Where to fix:**
+- `JJFlexWpf/MainWindow.xaml.cs` `MainWindow_PreviewKeyDown` — add a no-radio + universal-Home-key check between the existing meta-commands and the registry dispatch.
+- OR: `JJFlexWpf/KeyCommands.cs` global table additions, depending on chosen approach.
+
+**Priority:** Medium. Per the "no silent keystrokes" rule (`memory/project_no_silent_keystrokes_rule.md`), every bound key must produce audible feedback in every reachable state. This fix completes the no-radio coverage that the dispatcher guard already provides for KeyTable-routed keys.
+
+**Status:** Logged 2026-04-28 from Noel during C.4f. The no-radio guard work this evening covered KeyTable-routed Radio-scope commands; this entry is the field-handler-routed sibling that the audit's Tier 3 declared "naturally protected" but isn't fully protected when the user presses these keys outside Home.
+
+### BUG: F2 announcement may have lost "Home" prefix in connected state (2026-04-28 Noel observation, NEEDS VERIFICATION)
+
+**Symptom:** Noel reports that with the radio connected, pressing F2 produces "frequency 3.961.000 coarse 1 kilohertz" or similar — without the "JJ Flexible Home" or "Home" destination prefix that C.1 confirmed working on 2026-04-26. This may be a regression from tonight's `FocusFrequencyField` patch, OR it may be a test-setup difference (focus was already on Home so no transition triggered the prefix).
+
+**Verification needed:** Re-test with the C.1 technique — focus a non-Home control (open menu bar, then Esc), then press F2. If the prefix returns, this is not a regression — the prefix is gated on focus transition, which is by design. If the prefix does NOT return, this IS a regression and the patch must be revisited.
+
+**Suspected cause if regression:** `FocusFrequencyField` patch added a `return` after `NavigateToField(freqField)` in the connected-radio path. If `NavigateToField` was previously falling through to additional speech logic that included the Home-destination prefix, the early return short-circuited it.
+
+**Where to investigate:**
+- `JJFlexWpf/Controls/FrequencyDisplay.xaml.cs` `FocusFrequencyField` (current, post-patch) and `NavigateToField` (the destination-prefix code path).
+
+**Priority:** Medium-high if confirmed as regression — would want to fix before any further releases. Verify first thing tomorrow.
+
+**Status:** Logged 2026-04-28 from Noel as a possible-regression-or-test-setup-issue. Top priority for tomorrow's first action: re-test with menu-bar-bounce technique to disambiguate.
 
 ### BUG: build-installers.bat release mode silently skips NAS installer publish (2026-04-19 discovered during 4.1.16 release)
 

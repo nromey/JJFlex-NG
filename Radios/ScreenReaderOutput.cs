@@ -170,6 +170,26 @@ namespace Radios
         }
 
         /// <summary>
+        /// Verbosity-aware "no radio connected" announcement, used when a Radio-scope
+        /// keystroke fires without a connected radio. Ensures every Radio-scope key
+        /// produces audible feedback in the disconnected state instead of going silent.
+        ///
+        /// Spoken at Critical level — connection status is the enum's stated example
+        /// of an always-spoken message, so even users at "Off" hear a brief form.
+        /// Interrupts any current speech so the answer lands immediately.
+        /// </summary>
+        public static void SpeakNoRadioConnected()
+        {
+            string msg = CurrentVerbosity switch
+            {
+                VerbosityLevel.Chatty => "JJ Flexible Home, no radio connected",
+                VerbosityLevel.Terse  => "Home, no radio",
+                _                     => "No radio connected",
+            };
+            Speak(msg, VerbosityLevel.Critical, true);
+        }
+
+        /// <summary>
         /// Output a message through both speech and braille (if available).
         /// </summary>
         /// <param name="message">The message to output</param>

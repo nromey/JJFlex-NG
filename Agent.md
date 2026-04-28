@@ -5,6 +5,86 @@ This document captures the current state of JJ-Flex repository and active work.
 **Repository root:** `C:\dev\JJFlex-NG`
 **Branch:** `sprint28/home-key-qsk` (Sprint 28 substantively complete in code; Sprint 28 wrap items committed; 4.1.17 release-verification matrix in active runtime testing)
 
+## 2026-04-28 end-of-day seal (~2 AM, ran into 4/28): No-radio guard fix + iterative-testing diagnostic chain + foundation findings + dispatcher-paths architectural correction
+
+**Long iterative-testing session, autonomous late-stage.** Started 9 PM on 4/27 as "verify C.2 verbosity ladder Terse setting" — produced **18 distinct findings** across three architectural layers by 2 AM on 4/28. Noel framed it: *"Sometimes testing can be iterative, it sure was today right?"* Each finding got its own TODO entry; the chain is captured in `docs/planning/2026-04-28-morning-briefing.md` as the synthesis.
+
+### Code shipped tonight (3 files, single commit):
+
+- **`Radios/ScreenReaderOutput.cs`** — added `SpeakNoRadioConnected()` helper. Verbosity-aware ("JJ Flexible Home, no radio connected" / "Home, no radio" / "No radio connected" at Off). Tagged Critical-level so it speaks at every verbosity setting.
+- **`ApplicationEvents.vb`** — `ExecuteCommandCallback` no-radio guard for Command Finder / menu invocations (initial fix earlier in session).
+- **`JJFlexWpf/Controls/FrequencyDisplay.xaml.cs`** — `FocusFrequencyField()` belt-and-suspenders patch for menu-invoked / direct-call paths.
+- **`JJFlexWpf/KeyCommands.cs`** — `DoCommand` no-radio guard. **The architectural correction**: earlier ApplicationEvents.vb guard only caught Command Finder / menu paths. Direct keystrokes flow through `DoCommand` at line 1643. Adding the guard there catches Ctrl+F, band keys, mode-switches, and the bulk of Radio-scope keystrokes.
+
+### Test results from the session:
+
+- **C.2 (Terse + radio):** PASS
+- **C.2 (Terse + no radio, original symptom):** silent → led to no-radio guard work
+- **C.4a (Chatty + no radio + F2):** PASS (after first fix)
+- **C.4b (Terse + no radio + F2):** PASS
+- **C.4c (Off + no radio + F2):** **DEFERRED-by-dependency** — Off-verbosity tests need mature CW nav or braille output to verify Critical-level routing. Code path exercised by C.4a/C.4b; alt-channel surfacing unverified.
+- **C.4d (Ctrl+F + no radio):** **FAILED** — dialog opened anyway. Surfaced the dispatcher-paths architectural finding (my first guard was in wrong layer).
+- **C.4e (band keys + no radio):** **FAILED** — silent. Same root cause.
+- **C.4f (R + no radio):** **FAILED** — silent. Different sub-case (field-handler-routed, not in dispatcher).
+- **C.4g (Ctrl+Shift+V + no radio):** PASS (Global scope, correctly bypasses guard)
+- **C.4h (F1 + no radio):** PASS-WITH-FINDING — Help opens, but Escape doesn't close it (only Alt+F4 does).
+- **C.4i (F2 + radio connected):** **POSSIBLE REGRESSION, NEEDS VERIFY** — Noel reported missing "Home" prefix at all verbosity levels. May be test-setup issue (focus didn't transition) or real regression from the FocusFrequencyField patch. Top item in morning briefing for first-thing-when-awake check.
+- **C.5 / C.6 / C.7 / C.8 (arrow nav with radio):** Multiple findings logged — Slice/Slice Operations naming clarity, Squelch Level should skip when off (matches RIT/XIT pattern), Classic vs Modern field order should mirror.
+
+### TODO entries logged tonight (12 new bugs in `docs/planning/vision/JJFlex-TODO.md`):
+
+1. **Modal connecting state has no escape path** (CRITICAL accessibility blocker — taskkill required)
+2. **Slice-acquisition failure presented as "stuck on connecting"** (state-machine bug, MultiFlex collision case)
+3. **AS-retry-then-janky-reconnect pathway** — Sprint 26+27 networking-overhaul regression
+4. **Connect path takes longer post-Sprint-26+27** — investigation queue with timing breakdown
+5. **KEY CONFLICT: Ctrl+F bound to SetFreq AND SpeakFrequency** — clean one-line fix proposed
+6. **Help dialog can't be exited with Escape** (only Alt+F4)
+7. **Dialog Escape produces "pane" announcement** (focus restoration to unnamed container)
+8. **Squelch Level should skip during arrow-nav when Squelch is off** (matches RIT/XIT)
+9. **Slice / Slice Operations field announcements lack purpose-naming**
+10. **Classic vs Modern field orders not mirrored** (until Customize Home ships)
+11. **Universal Home keys silent outside Home with no radio** (field-handler routing gap)
+12. **F2 connected case may have lost "Home" prefix** (regression vs test-setup, needs verify)
+
+### New memory entries (5 design-level findings):
+
+- **`project_dialog_escape_rule.md`** — sibling to no-silent-keystrokes; every dialog must respond to Escape AND Alt+F4
+- **`project_verbosity_architecture_proposal.md`** — Sprint 30+ design memo: split speech / CW / braille into independent channels with shared verbosity ladder, smart-warn against disabling all channels
+- **`project_trace_persistence_design.md`** — Sprint 29 deliverable: manifest-driven archive, LZMA2-compressed, JSON manifest, 30-day auto-prune, local-first with optional NAS mirror
+- **`project_as_retry_pathway_regression.md`** — confirmed Sprint 26+27 overhaul regression with code locations and Sprint 29 investigation queue
+- **`feedback_iterative_testing_pattern.md`** — pattern captured: 18 findings from one matrix entry; embrace and capture every thread
+- **`feedback_dispatch_paths_not_unified.md`** — architectural correction: 4 parallel dispatch paths exist (hard-wired / DoCommand / ExecuteCommandCallback / field-handler), audits must apply to all individually
+
+### Investigation artifacts preserved:
+
+- `.investigation/2026-04-28-marks-radio-stuck/Trace-current-73sk-session.txt` — the actual stuck-on-Don's-radio trace (preserved before relaunch overwrite). Diagnostic gold.
+- `.investigation/2026-04-28-marks-radio-stuck/Trace-old-likely-stuck-session.txt` — the brief 73-SK no-radio test (filename outdated; it's the no-radio test, not the stuck session).
+- `.investigation/2026-04-28-morning-briefing.md` — synthesis briefing (also copied to `docs/planning/2026-04-28-morning-briefing.md` for git history).
+- `.investigation/` is now in `.gitignore` — traces contain JWT fragments, email addresses, IP addresses, and callsigns; they stay local per the no-phone-home principle.
+
+### Plan for next session (when Noel wakes up):
+
+1. **C.4i regression check** (~5 min) — confirm whether F2-prefix loss is real or test-setup. Use C.1 menu-bar-bounce technique.
+2. **No-radio guard re-test** (~10 min) — Ctrl+F, band keys, etc. with the new DoCommand-layer guard. Should now produce no-radio announcement.
+3. **Continue C.5+ matrix work** if above passes.
+4. **Triage 4.1.17 vs Sprint 29 split** for the 12 new TODO entries — stuck-modal-escape and Help-Escape are 4.1.17 candidates; AS-retry investigation, trace persistence, verbosity architecture are Sprint 29+.
+
+### What was deliberately NOT done tonight:
+
+- **Code fixes for the 12 newly-logged bugs.** Each needs design review with Noel. The dispatcher-path fix (KeyCommands.cs DoCommand guard) was the only code shipped because it was the architectural correction with empirical evidence.
+- **The KEY CONFLICT one-liner fix.** Want Noel's confirmation of the Sprint 15 design intent before changing the binding.
+- **Stuck-modal escape-path fix.** Critical accessibility but multiple design options — needs ~5-min conversation before implementing.
+
+### Tester / public communication path tonight:
+
+- **NAS history:** debug build copied to `\\nas.macaw-jazz.ts.net\jjflex\historical\<version>\x64-debug\`
+- **Dropbox top-level daily:** updated with tonight's debug zip + NOTES (real code change shipped, daily promotion warranted)
+- **Memory backup:** snapshotted to NAS `historical\memory\`
+- **Private docs backup:** snapshotted to NAS `historical\private\`
+- **Push:** `sprint28/home-key-qsk` pushed to origin/nromey
+
+---
+
 ## 2026-04-26 end-of-day seal: Block A bug tranche + Rigmeter v1.2 + deferred-item pivot (universal `=` toggle, slice-jump, mode-change polish, CW close) + tester daily
 
 **Long autonomous batch session driven by `docs/planning/2026-04-26-evening-batch.md`.** Started against the plan's three-block structure (Block A bug fixes from Section C testing, Block B rigmeter v1.2, Block C end-of-day seal), then mid-session Noel directed scope expansion: pull deferred Sprint 29 candidates into tonight's batch since the deferral was meant to be "until done testing today, not multi-day." Implemented four additional features beyond the plan. End-of-day debug build is `4.1.16.208`, published to NAS history + Dropbox tester debug + Dropbox top-level daily.

@@ -842,7 +842,15 @@ public partial class FrequencyDisplay : UserControl
         DisplayBox.Focus();
         System.Windows.Input.Keyboard.Focus(DisplayBox);
         if (_fieldDict.TryGetValue("Freq", out var freqField))
+        {
             NavigateToField(freqField);
+            return;
+        }
+
+        // No radio connected — _fieldDict empty because Populate() hasn't been called.
+        // Don't go silent: the dispatcher announces for KeyTable-routed paths, but
+        // direct/menu invocations of "Go to Home" land here without going through it.
+        Radios.ScreenReaderOutput.SpeakNoRadioConnected();
     }
 
     #endregion

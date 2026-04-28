@@ -7,6 +7,13 @@
 docs/help/JJFlexRadio.chm
 docs/help/pages/
 
+# Investigation folder — traces and diagnostic artifacts that may contain
+# sensitive content (JWT fragments, email addresses, IP addresses, callsigns).
+# Local-only by design, per project_no_silent_phone_home.md and the trace
+# persistence design memo. Briefings and analysis docs go to docs/planning/
+# instead so they can be committed.
+.investigation/
+
 # Sprint 28 Phase 8c — whats-new.md is generated at help-build time by copying
 # docs/CHANGELOG.md. Source of truth is CHANGELOG.md; the copy is a derived
 # artifact that gets regenerated every build.
