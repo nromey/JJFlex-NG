@@ -1,6 +1,33 @@
 # JJ Flex — TODO / Rolling Backlog
 
-Last updated: 2026-04-27
+Last updated: 2026-04-28
+
+## Upcoming Major Work
+
+### FlexLib upgrade to 4.2.18 — version bump to JJFlexible 4.2.0.xxx (2026-04-28 announced by Flex)
+
+**Trigger:** Flex released SmartSDR 4.2.18 with new FlexLib. Per `project_versioning_scheme.md`, our versioning mirrors FlexLib's first three components, so our next version becomes **4.2.0.xxx** (counter resets to 0 on FlexLib minor bump).
+
+**Scope:**
+- Copy new FlexLib v4.2.18 into `FlexLib_API/`
+- **Reapply `SslClientTls12.cs` wrapper** per `MIGRATION.md` — FlexLib upgrades wipe our TLS 1.2+ enforcement, this is the single most important post-upgrade step
+- Update `TlsCommandCommunication.cs` to use the wrapper
+- Verify TLS negotiation in remote connect
+- Update version references throughout
+- **Test the API surface** for any breaking changes — FlexLib minor bumps occasionally change property/method signatures
+- Verify all existing features still work (smoke test against Don's 6300 + any other available radio)
+
+**Noel's commentary on the release:** *"I'm super disappointed with Flex, we've had features that they're calling new for ages. They have improved Dax and Cat, but radio features ... only cool thing is that they allow loading waves packages using the API now which to me says we can more easily implement things like FreeDV. This is a severely anemic release but we go with the times I guess."*
+
+**Silver lining identified:** The new "load Waves packages via API" capability **opens the door to in-app FreeDV implementation** without depending on Flex shipping native FreeDV. This is a real opportunity worth a separate Sprint 30+ exploration — JJ Flex could become the first SDR client to make FreeDV accessible to blind hams via Waves package loading.
+
+**Priority:** HIGH (must happen for 4.2.0.xxx version baseline) but **not 4.1.17-blocking**. 4.1.17 ships on FlexLib 4.1.5; 4.2.0 is the next major version after 4.1.17 closes.
+
+**Sequencing:** Probably Sprint 30 (post-4.1.17). The upgrade itself is mechanical (~half day) but the testing surface is large enough to warrant a dedicated sprint slot rather than slipping into another sprint.
+
+**What to grab from Flex:** Their changelog/release notes (Noel will provide or we can search). Plus the actual FlexLib DLL for `FlexLib_API/`.
+
+**Status:** Logged 2026-04-28 from Noel's announcement during morning session wrap. Pending FlexLib 4.2.18 download.
 
 ## Open Bugs
 
