@@ -66,17 +66,30 @@ namespace Flex.Smoothlake.FlexLib
 
         private static async void Receive()
         {
+            // JJFlex patch: FlexLib Discovery had a race where a second Discovery.Start()
+            // (e.g. via apiInit force=true path) could spawn a new Receive task while the
+            // previous one was still pending; on exit the old task would null the static
+            // `udp` out from under the new task, causing an NRE at the await below.
+            // Fix: capture a local reference, guard against null, and only null the static
+            // if we still own it. See flexlib-discovery-nre-report.txt and MIGRATION.md.
             //Stopwatch watch = new Stopwatch();
             var token = _loopCts.Token;
+            var localUdp = udp;
+            Debug.WriteLine($"Discovery.Receive: task started (udp={(localUdp == null ? "null" : "set")})");
+            if (localUdp == null)
+            {
+                Debug.WriteLine("Discovery.Receive: exiting immediately, udp was null at entry");
+                return;
+            }
 
             while (!token.IsCancellationRequested)
             {
                 try
                 {
 #if NET6_0_OR_GREATER
-                    var packet = await udp.ReceiveAsync(token);
+                    var packet = await localUdp.ReceiveAsync(token);
 #else
-                    var packet = await udp.ReceiveAsync();
+                    var packet = await localUdp.ReceiveAsync();
 #endif
                     //watch.Restart();
 
@@ -109,10 +122,18 @@ namespace Flex.Smoothlake.FlexLib
                 }
                 catch (ObjectDisposedException)
                 {
+                    Debug.WriteLine("Discovery.Receive: socket disposed under us, exiting");
+                    break;
                 }
                 catch (SocketException ex) when (
                     ex.SocketErrorCode is SocketError.OperationAborted)
                 {
+                    break;
+                }
+                catch (SocketException sex)
+                {
+                    Debug.WriteLine($"Discovery.Receive: socket exception {sex.SocketErrorCode}, exiting");
+                    break;
                 }
                 catch (Exception ex)
                 {
@@ -121,8 +142,9 @@ namespace Flex.Smoothlake.FlexLib
                 }
             }
 
-            udp?.Close();
-            udp = null;
+            try { localUdp.Close(); } catch { }
+            if (udp == localUdp) udp = null;    // only null the static if it's still ours
+            Debug.WriteLine("Discovery.Receive: task exited cleanly");
         }
 
         private static Radio ProcessVitaDiscoveryDataPacket(VitaDiscoveryPacket packet)

@@ -2037,7 +2037,10 @@ namespace Flex.Smoothlake.FlexLib
 
             IsWan = isWan;
 
-            if (IsWan)
+            // JJFlex patch: prefer TLS whenever the radio exposes a TLS port, even on LAN.
+            // Avoids plaintext command channel when modern radios advertise PublicTlsPort.
+            // See MIGRATION.md.
+            if (IsWan || PublicTlsPort > 0)
             {
                 _commandCommunication = new TlsCommandCommunication();
             }

@@ -7,7 +7,9 @@ namespace Flex.Smoothlake.FlexLib;
 
 public class TlsCommandCommunication : ICommandCommunication
 {
-    private SslClient? _tlsToRadio;
+    // JJFlex patch: SslClient -> SslClientTls12 to enforce TLS 1.2/1.3 floor.
+    // See MIGRATION.md.
+    private SslClientTls12? _tlsToRadio;
 
     private bool _isConnected;
     public bool IsConnected => _tlsToRadio != null && _isConnected;
@@ -21,7 +23,7 @@ public class TlsCommandCommunication : ICommandCommunication
 
     public bool Connect(IPAddress radioIp, int radioPort, int srcPort = 0)
     {
-        _tlsToRadio = new SslClient(radioIp.ToString(), radioPort.ToString(), srcPort, startPingThread: false, validateCert: false);
+        _tlsToRadio = new SslClientTls12(radioIp.ToString(), radioPort.ToString(), srcPort, startPingThread: false, validateCert: false);
         
         // set the event handlers prior to calling connect so we don't miss any events
         _tlsToRadio.Disconnected += _tlsToRadio_Disconnected;
