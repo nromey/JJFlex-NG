@@ -12,6 +12,7 @@ using Flex.UiWpfFramework.Mvvm;
 using System;
 using System.Collections;
 using System.Diagnostics;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net;
@@ -21,7 +22,16 @@ using AsyncAwaitBestPractices;
 
 namespace Flex.Smoothlake.FlexLib;
 
-public record EqualizerStatus(bool enable, string ant, double freq);
+public enum APDSamplerPorts
+{
+    INTERNAL,
+    RX_A,
+    XVTA,
+    RX_B,
+    XVTB
+}
+
+public record EqualizerStatus(bool enable, string ant, double freq, int rfpower);
 
 public class APD(Radio radio) : ObservableObject
 {
@@ -41,6 +51,7 @@ public class APD(Radio radio) : ObservableObject
     {
         bool? activeSet = null;
         double freq = double.NaN;
+        int rfpower = 0;
         string ant = null;
         string[] words = s.Split(' ');
         if (words.Length == 0) { return; }
@@ -53,6 +64,11 @@ public class APD(Radio radio) : ObservableObject
                 Debug.WriteLine("Clearing all APD equalizers!");
                 EqualizerActive = false;
                 continue;
+            }
+            else if (tokens[0] == "sampler") // The only subfield in an apd status message (as of 14/1/25)
+            {
+                ParseSamplerStatus(s.Substring("sampler ".Length));
+                return;
             }
             else if (tokens.Length != 2)
             {
@@ -115,6 +131,14 @@ public class APD(Radio radio) : ObservableObject
                         }
                         break;
                     }
+
+                case "rfpower":
+                    if (!int.TryParse(value, out rfpower))
+                    {
+                        Debug.WriteLine($"APD::ParseStatus - rfpower: value ({kv}) is invalid");
+                        continue;
+                    }
+                    break;
                 
                 case "sample_index":
                     if (!int.TryParse(value, out int index))
@@ -122,12 +146,10 @@ public class APD(Radio radio) : ObservableObject
                         Debug.WriteLine($"Invalid APD Index: {value}");
                         continue;
                     }
-                        
                     if (GatherApdLogs) 
                     {
                         DownloadApdLog(index).SafeFireAndForget();
                     }
-                        
                     break;
             }
         }
@@ -136,7 +158,7 @@ public class APD(Radio radio) : ObservableObject
         // Queue APD status messages and check them after an interval, so that rapid movements of the slice don't cause loss of sync.
         if (!(activeSet is null || double.IsNaN(freq) || String.IsNullOrEmpty(ant)))
         {
-            QueueEqualizerActiveStatus(activeSet.Value, ant, freq);
+            QueueEqualizerActiveStatus(activeSet.Value, ant, freq, rfpower);
         }
     }
 
@@ -213,11 +235,11 @@ public class APD(Radio radio) : ObservableObject
         {
             EqualizerStatus temp = (EqualizerStatus)_statusQueue.Dequeue();
             Debug.WriteLine($"Parsing queued eq status - enable={temp.enable}, ant={temp.ant}, freq={temp.freq}.");
-            ApplyEqualizerActiveStatus(temp.enable, temp.ant, temp.freq);
+            ApplyEqualizerActiveStatus(temp.enable, temp.ant, temp.freq, temp.rfpower);
         }
     }
 
-    private void ApplyEqualizerActiveStatus(bool enable, string ant, double freq)
+    private void ApplyEqualizerActiveStatus(bool enable, string ant, double freq, int rfpower)
     {
         if (ant == null || _radio == null || _radio.SliceList == null)
         {
@@ -237,24 +259,32 @@ public class APD(Radio radio) : ObservableObject
         // The max precision of the APD frequency given is in Hz, but the slice frequency may be sub-Hz.
         // Round the slice frequency for this comparison.
         double roundedFreq = Math.Round(temp.Freq, 6);
-        if (ant.Equals(temp.TXAnt, StringComparison.OrdinalIgnoreCase) && freq == roundedFreq)
+        if (ant.Equals(temp.TXAnt, StringComparison.OrdinalIgnoreCase) && freq == roundedFreq && rfpower == _radio.RFPower)
         {
-            Debug.WriteLine($"APD::ApplyEqualizerActiveStatus: Updating APD status for slice {temp.Index}, freq={freq}, ant={ant}.");
+            Debug.WriteLine($"APD::ApplyEqualizerActiveStatus: Updating APD status for slice {temp.Index}, freq={freq}, ant={ant}, rfpower={rfpower}.");
+            if (enable)
+            {
+                OnEqualizerActiveHeartbeat();
+            }
+            else
+            {
+                OnEqualizerCalibratingHeartbeat();
+            }
             EqualizerActive = enable;
         }
         else
         {
-            Debug.WriteLine($"APD::ApplyEqualizerActiveStatus: No matching slice with freq={freq}, ant={ant}. Current freq={temp.Freq}.");
+            Debug.WriteLine($"APD::ApplyEqualizerActiveStatus: No matching slice with freq={freq}, ant={ant}, rfpower={rfpower}. Current freq={temp.Freq}.");
         }
     }
 
-    private void QueueEqualizerActiveStatus(bool enable, string ant, double freq)
+    private void QueueEqualizerActiveStatus(bool enable, string ant, double freq, int rfpower)
     {
         if (null == _statusApplyTimer)
         {
             _statusApplyTimer = new System.Threading.Timer(EqualizerActiveStatusApplyTimerTaskFunction, null, 100, 150);
         }
-        EqualizerStatus temp = new(enable, ant, freq);
+        EqualizerStatus temp = new(enable, ant, freq, rfpower);
         _statusQueue.Enqueue(temp);
     }
 
@@ -309,4 +339,265 @@ public class APD(Radio radio) : ObservableObject
             RaisePropertyChanged(nameof(Available));
         }
     }
+
+    public void EqualizerReset()
+    {
+        _radio?.SendCommand("apd reset");
+    }
+
+    #region Sampling
+
+    public List<string> AvailableSamplerPortListANT1 { get; } = new List<string> { nameof(APDSamplerPorts.INTERNAL) };
+    public List<string> AvailableSamplerPortListANT2 { get; } = new List<string> { nameof(APDSamplerPorts.INTERNAL) };
+    public List<string> AvailableSamplerPortListXVTA { get; } = new List<string> { nameof(APDSamplerPorts.INTERNAL) };
+    public List<string> AvailableSamplerPortListXVTB { get; } = new List<string> { nameof(APDSamplerPorts.INTERNAL) };
+
+    private string _selectedSamplerPortANT1 = nameof(APDSamplerPorts.INTERNAL);
+    public string SelectedSamplerPortANT1
+    {
+        get => _selectedSamplerPortANT1;
+        set
+        {
+            if (value is null || _selectedSamplerPortANT1 == value) return;
+            _selectedSamplerPortANT1 = value;
+            _radio.SendCommand($"apd sampler tx_ant=ANT1 sample_port={_selectedSamplerPortANT1}");
+            RaisePropertyChanged(nameof(SelectedSamplerPortANT1));
+        }
+    }
+
+    private string _selectedSamplerPortANT2 = nameof(APDSamplerPorts.INTERNAL);
+    public string SelectedSamplerPortANT2
+    {
+        get => _selectedSamplerPortANT2;
+        set
+        {
+            if (value is null || _selectedSamplerPortANT2 == value) return;
+            _selectedSamplerPortANT2 = value;
+            _radio.SendCommand($"apd sampler tx_ant=ANT2 sample_port={_selectedSamplerPortANT2}");
+            RaisePropertyChanged(nameof(SelectedSamplerPortANT2));
+        }
+    }
+
+    private string _selectedSamplerPortXVTA = nameof(APDSamplerPorts.INTERNAL);
+    public string SelectedSamplerPortXVTA
+    {
+        get => _selectedSamplerPortXVTA;
+        set
+        {
+            if (value is null || _selectedSamplerPortXVTA == value) return;
+            _selectedSamplerPortXVTA = value;
+            _radio.SendCommand($"apd sampler tx_ant=XVTA sample_port={_selectedSamplerPortXVTA}");
+            RaisePropertyChanged(nameof(SelectedSamplerPortXVTA));
+        }
+    }
+
+    private string _selectedSamplerPortXVTB = nameof(APDSamplerPorts.INTERNAL);
+    public string SelectedSamplerPortXVTB
+    {
+        get => _selectedSamplerPortXVTB;
+        set
+        {
+            if (value is null || _selectedSamplerPortXVTB == value) return;
+            _selectedSamplerPortXVTB = value;
+            _radio.SendCommand($"apd sampler tx_ant=XVTB sample_port={_selectedSamplerPortXVTB}");
+            RaisePropertyChanged(nameof(SelectedSamplerPortXVTB));
+        }
+    }
+
+    void ParseSamplerStatus(string status)
+    {
+        string[] tokens = status.Split(' ');
+        string txAnt = null;
+        string currentSampler = null;
+        string[] availableSamplers = Array.Empty<string>();
+
+        if (tokens.Length == 0)
+        {
+            return;
+        }
+
+        foreach (var token in tokens)
+        {
+            string[] kv = token.Split('=');
+            if (kv.Length != 2)
+            {
+                if(!string.IsNullOrEmpty(token)) Trace.WriteLine($"Invalid key-value pair: {token}");
+                continue;
+            }
+
+            string key = kv[0];
+            string val = kv[1];
+
+            switch (key.ToLower())
+            {
+                case "tx_ant":
+                    if (!string.IsNullOrEmpty(val)) txAnt = val;
+                    else
+                    {
+                        Trace.WriteLine("Empty tx_ant value.");
+                        Trace.WriteLine("Expected: apd sampler tx_ant=<ANT1|ANT2|XVTA|XVTB> " +
+                            "selected_sampler=<INVALID|XVTA|RX_A|XVTB|RX_B>" +
+                            "[valid_samplers=<XVTA|RX_A/XVTB|RX_B>]");
+                        return;
+                    }
+                    break;
+
+                case "selected_sampler":
+                    if (!string.IsNullOrEmpty(val)) currentSampler = val;
+                    else
+                    {
+                        Trace.WriteLine("Empty selected_sampler value.");
+                        Trace.WriteLine("Expected: apd sampler tx_ant=<ANT1|ANT2|XVTA|XVTB> " +
+                            "selected_sampler=<INVALID|XVTA|RX_A|XVTB|RX_B>" +
+                            "[valid_samplers=<XVTA|RX_A/XVTB|RX_B>]");
+                        return;
+                    }
+                    break;
+
+                case "valid_samplers":
+                {
+                    string[] samplers = val.Split(',');
+                    if (samplers.Length > 0) availableSamplers = samplers;
+                    else
+                    {
+                        Trace.WriteLine("No valid_samplers list");
+                        continue;
+                    }
+                }
+                    break;
+            }
+        }
+
+        // Check for a change in available sampler ports (optional argument)
+        if (availableSamplers.Length > 0)
+        {
+            ChangeAvailableSamplerList(txAnt, availableSamplers);
+        }
+
+        // Try to change selected sampler port
+        switch (txAnt.ToLower())
+        {
+            case "ant1":
+                _selectedSamplerPortANT1 = AvailableSamplerPortListANT1.Contains(currentSampler)
+                    ? currentSampler : nameof(APDSamplerPorts.INTERNAL);
+
+                RaisePropertyChanged(nameof(SelectedSamplerPortANT1));
+                break;
+
+            case "ant2":
+                _selectedSamplerPortANT2 = AvailableSamplerPortListANT2.Contains(currentSampler)
+                    ? currentSampler : nameof(APDSamplerPorts.INTERNAL);
+
+                RaisePropertyChanged(nameof(SelectedSamplerPortANT2));
+                break;
+
+            case "xvta":
+                _selectedSamplerPortXVTA = AvailableSamplerPortListXVTA.Contains(currentSampler)
+                    ? currentSampler : nameof(APDSamplerPorts.INTERNAL);
+
+                RaisePropertyChanged(nameof(SelectedSamplerPortXVTA));
+                break;
+
+            case "xvtb":
+                _selectedSamplerPortXVTB = AvailableSamplerPortListXVTB.Contains(currentSampler)
+                    ? currentSampler : nameof(APDSamplerPorts.INTERNAL);
+
+                RaisePropertyChanged(nameof(SelectedSamplerPortXVTB));
+                break;
+
+            default:
+                Trace.WriteLine($"Unknown tx_ant value: {txAnt}");
+                break;
+        }
+    }
+
+    private void ChangeAvailableSamplerList(string tx_ant, string[] samplers)
+    {
+        if (string.IsNullOrEmpty(tx_ant))
+        {
+            Trace.WriteLine("No entry for transmit antenna");
+            return;
+        }
+
+        switch (tx_ant.ToLower())
+        {
+            case "ant1":
+                AvailableSamplerPortListANT1.Clear();
+                AvailableSamplerPortListANT1.Add(nameof(APDSamplerPorts.INTERNAL));
+                foreach (var port in samplers)
+                {
+                    AvailableSamplerPortListANT1.Add(port);
+                }
+
+                RaisePropertyChanged(nameof(AvailableSamplerPortListANT1));
+                break;
+
+            case "ant2":
+                AvailableSamplerPortListANT2.Clear();
+                AvailableSamplerPortListANT2.Add(nameof(APDSamplerPorts.INTERNAL));
+                foreach (var port in samplers)
+                {
+                    AvailableSamplerPortListANT2.Add(port);
+                }
+
+                RaisePropertyChanged(nameof(AvailableSamplerPortListANT2));
+                break;
+
+            case "xvta":
+                AvailableSamplerPortListXVTA.Clear();
+                AvailableSamplerPortListXVTA.Add(nameof(APDSamplerPorts.INTERNAL));
+                foreach (var port in samplers)
+                {
+                    AvailableSamplerPortListXVTA.Add(port);
+                }
+
+                RaisePropertyChanged(nameof(AvailableSamplerPortListXVTA));
+                break;
+
+            case "xvtb":
+                AvailableSamplerPortListXVTB.Clear();
+                AvailableSamplerPortListXVTB.Add(nameof(APDSamplerPorts.INTERNAL));
+                foreach (var port in samplers)
+                {
+                    AvailableSamplerPortListXVTB.Add(port);
+                }
+
+                RaisePropertyChanged(nameof(AvailableSamplerPortListXVTB));
+                break;
+        }
+    }
+
+    #endregion
+    #region Events
+
+    /// <summary>
+    /// Delegate event handler for the EqualizerHeartbeat event
+    /// </summary>
+    public delegate void EqualizerActiveHeartbeatEventHandler();
+    /// <summary>
+    /// This event is raised when an equalizer_active=1 status is received that matches the current transmit slice.
+    /// </summary>
+    public event EqualizerActiveHeartbeatEventHandler EqualizerActiveHeartbeat;
+
+    private void OnEqualizerActiveHeartbeat()
+    {
+        if (EqualizerActiveHeartbeat != null)
+            EqualizerActiveHeartbeat();
+    }
+
+    /// <summary>
+    /// Delegate event handler for the EqualizerCalibratingHeartbeat event
+    /// </summary>
+    public delegate void EqualizerCalibratingHeartbeatEventHandler();
+    /// <summary>
+    /// This event is raised when an equalizer_active=0 status is received that matches the current transmit slice.
+    /// </summary>
+    public event EqualizerCalibratingHeartbeatEventHandler EqualizerCalibratingHeartbeat;
+
+    private void OnEqualizerCalibratingHeartbeat()
+    {
+        if (EqualizerCalibratingHeartbeat != null)
+            EqualizerCalibratingHeartbeat();
+    }
+    #endregion
 }

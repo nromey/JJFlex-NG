@@ -12,149 +12,183 @@
 // ****************************************************************************
 
 using System;
+using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
-using System.Diagnostics;
-using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
+using Flex.Smoothlake.Vita;
 
-namespace Flex.Smoothlake.Vita
+namespace Vita;
+
+public class VitaSocket : IDisposable
 {
-    public class VitaSocket
+    private readonly VitaDataReceivedCallback _callback;
+    private readonly UdpClient _client = new ()
     {
-        private VitaDataReceivedCallback callback;
-        private Socket socket;
-        const int MIN_UDP_PORT = 1025;
-        const int MAX_UDP_PORT = 65535;
+        ExclusiveAddressUse = false
+    };
 
-        private int port;
-        public int Port
+    private readonly IPEndPoint _radioEndpoint;
+    private volatile bool _stopping;
+
+    private bool _disposed;
+        
+    private const int MIN_UDP_PORT = 1025;
+    private const int MAX_UDP_PORT = 65535;
+
+    public int Port { get; }
+
+    public IPAddress Ip => ((IPEndPoint)_client.Client.LocalEndPoint)?.Address;
+
+    public VitaSocket(int port, VitaDataReceivedCallback callback)
+    {
+        _callback = callback;
+        Port = port;
+        _client.Client.ReceiveBufferSize = 150000 * 5;
+        try
         {
-            get { return port; }
+            _client.Client.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.TypeOfService, 0xB8);
+        }
+        catch (SocketException ex)
+        {
+            Debug.WriteLine($"Failed to set DSCP EF marking (non-admin?): {ex.Message}");
         }
 
-        //private IPAddress ip;
-        public IPAddress IP
-        {
-            get
-            {
-                if (socket == null || socket.LocalEndPoint == null) return null;
-                return ((IPEndPoint)(socket.LocalEndPoint)).Address;
-            }
-        }
-
-        public VitaSocket(int _port, VitaDataReceivedCallback _callback)
-        {
-            bool done = false;
-            port = _port;
-            callback = _callback;
-
-            while (!done)
-            {
-                try
-                {
-                    socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
-                    socket.ExclusiveAddressUse = true;
-                    socket.ReceiveBufferSize = 150000 * 5;
-                    socket.Bind(new IPEndPoint(IPAddress.Any, port));
-                    done = true;
-                }
-                catch (Exception ex) // if we get here, it is likely because the port is already open
-                {
-                    port++; // lets increment the port and try again
-                    if (port > 6010)
-                        throw new Exception(ex.Message);
-                }
-            }
-
-            Debug.WriteLine("VitaSocket: Newly created on port " + _port);
-            
-            // beging looking for UDP packets immediately
-            StartReceive();
-        }
-
-        private IPEndPoint RadioEndpoint;
-
-        public void SendUDP(byte [] data)
+        var done = false;
+        while (!done)
         {
             try
             {
-                socket.SendTo(data, RadioEndpoint);
-            } 
-            catch (Exception ex)
-            {
-                HandleException(ex, "VitaSocket::SendUDP()");
-            }
-        }
-
-        public VitaSocket(int _port, VitaDataReceivedCallback _callback, IPAddress radioIp, int radioPort) : this (_port, _callback)
-        {
-            // In addition to creating the VitaSocket, for WAN we must also send the 
-            // 'client udp_register' command to the radio over the created UDP socket
-
-            //ensure port is within range before assigning endpoint
-            if (radioPort >= MIN_UDP_PORT && radioPort <= MAX_UDP_PORT)
-                RadioEndpoint = new IPEndPoint(radioIp, radioPort);
-        }
-
-        /// <summary>
-        /// Begin an asynchronous receive
-        /// </summary>
-        private void StartReceive()
-        {
-            //Console.WriteLine("VitaSocket::StartReceive()");
-            try
-            {
-                byte[] buf = new byte[VitaFlex.MAX_VITA_PACKET_SIZE];
-                EndPoint remoteEndPoint = new IPEndPoint(IPAddress.Any, 0);
-                socket.BeginReceiveFrom(buf, 0, VitaFlex.MAX_VITA_PACKET_SIZE, SocketFlags.None, ref remoteEndPoint,
-                    new AsyncCallback(DataReceived), buf);      
+                _client.Client.Bind(new IPEndPoint(IPAddress.Any, Port));   
+                done = true;
             }
             catch (Exception ex)
             {
-                HandleException(ex, "VitaSocket::StartReceive");
-            }           
+                ++Port;
+                if (Port > 6010)
+                    throw new Exception(ex.Message);
+            }
         }
+        
+        Debug.WriteLine($"Vita Socket has bound port {Port}");
 
-        private void DataReceived(IAsyncResult ar)
+        Task.Factory.StartNew(
+            ReceiveLoop,
+            CancellationToken.None,
+            TaskCreationOptions.LongRunning,
+            HighPriorityTaskScheduler.Instance);
+    }
+    
+    public VitaSocket(int port, VitaDataReceivedCallback callback, IPAddress radioIp, int radioPort) : this (port, callback)
+    {
+        // In addition to creating the VitaSocket, for WAN we must also send the 
+        // 'client udp_register' command to the radio over the created UDP socket
+
+        //ensure port is within range before assigning endpoint
+        if (radioPort is >= MIN_UDP_PORT and <= MAX_UDP_PORT)
+            _radioEndpoint = new IPEndPoint(radioIp, radioPort);
+    }
+    
+    public void SendUdp(byte [] data)
+    {
+        SendUdp(data, data.Length);
+    }
+
+    public void SendUdp(byte[] data, int length)
+    {
+        if (_disposed)
         {
-            //Console.WriteLine("VitaSocket::DataReceived()");
+            return;
+        }
+        
+        try
+        {
+            _client.Send(data, length, _radioEndpoint);
+        } 
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"Exception sending UDP packet: {ex}");
+            Dispose();
+        }
+    }
+
+    public async Task SendUdpAsync(byte[] data)
+    {
+        if (_disposed)
+        {
+            return;
+        }
+        
+        try
+        {
+            await _client.SendAsync(data, data.Length, _radioEndpoint);
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"Exception sending UDP packet: {ex}");
+            Dispose();
+        }
+    }
+    
+    /// <summary>
+    /// Synchronous receive loop.  Runs entirely on the MMCSS "Pro Audio" thread
+    /// created by HighPriorityTaskScheduler so that the callback (and everything
+    /// it triggers) executes at real-time priority.  Using synchronous Receive()
+    /// avoids the async-continuation problem where awaits resume on a normal-
+    /// priority ThreadPool thread.
+    /// </summary>
+    private void ReceiveLoop()
+    {
+        Debug.WriteLine("UDP Read Loop Begins");
+
+        IPEndPoint? remoteEP = null;
+
+        while (!_stopping)
+        {
             try
             {
-                EndPoint remoteEndPoint = new IPEndPoint(IPAddress.Any, 0);
-                int num_bytes = socket.EndReceiveFrom(ar, ref remoteEndPoint);
-                byte[] buf = (byte[])ar.AsyncState;                
-
-                if (callback != null)
-                    callback((IPEndPoint)remoteEndPoint, buf, num_bytes);
-
-                StartReceive();                
+                byte[] data = _client.Receive(ref remoteEP);
+                _callback?.Invoke(remoteEP!, data, data.Length);
+            }
+            catch (ObjectDisposedException)
+            {
+                break; // socket closed in Dispose
+            }
+            catch (SocketException ex) when (
+                ex.SocketErrorCode is SocketError.Interrupted or SocketError.OperationAborted)
+            {
+                break; // socket closed in Dispose
             }
             catch (Exception ex)
             {
-                HandleException(ex, "VitaSocket::DataReceived");
+                Debug.WriteLine($"Exception reading from UDP socket: {ex}");
+                Dispose();
             }
         }
 
-        private void HandleException(Exception ex, string function_path)
+        Debug.WriteLine("UDP Read Loop Ends");
+    }
+
+    public void Dispose()
+    {
+        Dispose(true);
+        GC.SuppressFinalize(this);
+    }
+
+    protected virtual void Dispose(bool disposing)
+    {
+        if (_disposed)
         {
-            string s = function_path+" Exception: " + ex.Message + "\n\n";
-            if (ex.InnerException != null)
-                s += ex.InnerException.Message + "\n\n" + ex.InnerException.StackTrace;
-            else s += ex.StackTrace;
-
-            Debug.WriteLine(s);
-
-            CloseSocket();
+            return;
         }
 
-        public void CloseSocket()
+        _disposed = true;
+
+        if (disposing)
         {
-            try
-            {
-                if (socket != null)
-                    socket.Close();
-            }
-            catch { }
+            _stopping = true;
+            _client.Dispose(); // unblocks synchronous Receive()
         }
     }
 }

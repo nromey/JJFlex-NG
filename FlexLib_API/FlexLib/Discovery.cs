@@ -53,7 +53,6 @@ namespace Flex.Smoothlake.FlexLib
                     else Thread.Sleep(1000);
                 }
             }
-
             _loopCts = new CancellationTokenSource();
 
             Task.Run(Receive);
@@ -62,66 +61,68 @@ namespace Flex.Smoothlake.FlexLib
         public static void Stop()
         {
             _loopCts.Cancel();
+            udp?.Close();
         }
 
         private static async void Receive()
         {
-            // JJFlex patch: FlexLib Discovery had a race where a second Discovery.Start()
-            // (e.g. via apiInit force=true path) could spawn a new Receive task while the
-            // previous one was still pending; on exit the old task would null the static
-            // `udp` out from under the new task, causing an NRE at the await below.
-            // Fix: capture a local reference, guard against null, catch ObjectDisposed /
-            // SocketException around the await, and only null the static if we still own it.
-            // See flexlib-discovery-nre-report.txt and MIGRATION.md.
+            //Stopwatch watch = new Stopwatch();
             var token = _loopCts.Token;
-            var localUdp = udp;
-            Debug.WriteLine($"Discovery.Receive: task started (udp={(localUdp == null ? "null" : "set")})");
-            if (localUdp == null)
-            {
-                Debug.WriteLine("Discovery.Receive: exiting immediately, udp was null at entry");
-                return;
-            }
 
             while (!token.IsCancellationRequested)
             {
-                UdpReceiveResult packet;
                 try
                 {
-                    packet = await localUdp.ReceiveAsync();
+#if NET6_0_OR_GREATER
+                    var packet = await udp.ReceiveAsync(token);
+#else
+                    var packet = await udp.ReceiveAsync();
+#endif
+                    //watch.Restart();
+
+                    // since the call above is blocking, we need to check active again here
+                    if (token.IsCancellationRequested)
+                        break;
+
+                    // ensure that the packet is at least long enough to inspect for VITA info
+                    if (packet.Buffer.Length < 16)
+                        continue;
+
+                    var vita = new VitaPacketPreamble(packet.Buffer);
+
+                    // Check for a valid discovery packet
+                    if (vita.class_id.OUI != VitaFlex.FLEX_OUI ||
+                        vita.header.pkt_type != VitaPacketType.ExtDataWithStream ||
+                        vita.class_id.PacketClassCode != VitaFlex.SL_VITA_DISCOVERY_CLASS)
+                        continue;
+
+                    Radio radio = ProcessVitaDiscoveryDataPacket(
+                        new VitaDiscoveryPacket(packet.Buffer, packet.Buffer.Length));
+                    OnRadioDiscoveredEventHandler(radio);
+
+                    //watch.Stop();
+                    //if(radio.Serial == "3424-1213-8601-4043")
+                    //    Debug.WriteLine(DateTime.Now.ToString("HH:mm:ss.fff")+": Discovery watch stop (" + watch.ElapsedMilliseconds + " ms)");
+                }
+                catch (OperationCanceledException)
+                {
                 }
                 catch (ObjectDisposedException)
                 {
-                    Debug.WriteLine("Discovery.Receive: socket disposed under us, exiting");
-                    break;
                 }
-                catch (SocketException sex)
+                catch (SocketException ex) when (
+                    ex.SocketErrorCode is SocketError.OperationAborted)
                 {
-                    Debug.WriteLine($"Discovery.Receive: socket exception {sex.SocketErrorCode}, exiting");
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"Discovery::Receive: Exception reading from UDP socket: {ex}");
                     break;
                 }
-
-                // since the call above is blocking, we need to check active again here
-                if (token.IsCancellationRequested)
-                    break;
-
-                // ensure that the packet is at least long enough to inspect for VITA info
-                if (packet.Buffer.Length < 16)
-                    continue;
-
-                var vita = new VitaPacketPreamble(packet.Buffer);
-
-                // Check for a valid discovery packet
-                if (vita.class_id.OUI != VitaFlex.FLEX_OUI || vita.header.pkt_type != VitaPacketType.ExtDataWithStream ||
-                    vita.class_id.PacketClassCode != VitaFlex.SL_VITA_DISCOVERY_CLASS)
-                    continue;
-
-                Radio radio = ProcessVitaDiscoveryDataPacket(new VitaDiscoveryPacket(packet.Buffer, packet.Buffer.Length));
-                OnRadioDiscoveredEventHandler(radio);
             }
 
-            try { localUdp.Close(); } catch { }
-            if (udp == localUdp) udp = null;    // only null the static if it's still ours
-            Debug.WriteLine("Discovery.Receive: task exited cleanly");
+            udp?.Close();
+            udp = null;
         }
 
         private static Radio ProcessVitaDiscoveryDataPacket(VitaDiscoveryPacket packet)
@@ -237,6 +238,17 @@ namespace Flex.Smoothlake.FlexLib
                             }
 
                             radio.IP = temp;
+                        }
+                        break;
+                    case "is_system_model":
+                        {
+                            if (!uint.TryParse(value, out uint temp) || temp > 1)
+                            {
+                                Trace.WriteLine($"FlexLib::Discovery::ProcessVitaDiscoveryDataPacket: Invalid key/value pair ({kv})");
+                                continue;
+                            }
+
+                            radio.IsSystemModel = Convert.ToBoolean(temp);
                         }
                         break;
                     case "license_is_unknown":
@@ -355,6 +367,9 @@ namespace Flex.Smoothlake.FlexLib
 
                         break;
                     }
+                    case "turf_region":
+                        radio.TurfRegion = value;
+                        break;
                 }
             }
 

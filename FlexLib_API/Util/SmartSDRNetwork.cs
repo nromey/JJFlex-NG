@@ -11,6 +11,10 @@ public class SmartSDRNetwork : ObservableObject, INetworkObserver
     public SmartSDRNetwork()
     {
         _networkStatusNotifier.AddObserver(this);
+    }
+
+    public void Initialize()
+    {
         IsInternetAvailable = _networkStatusNotifier.CheckNow() == ConnectivityStatus.Connected;
         _networkStatusNotifier.Start();
     }

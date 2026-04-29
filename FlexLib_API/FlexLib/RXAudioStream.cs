@@ -14,6 +14,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Numerics;
 using System.Threading;
 using System.Timers;
 using Flex.Smoothlake.Vita;
@@ -133,7 +134,7 @@ namespace Flex.Smoothlake.FlexLib
 
             Interlocked.Add(ref _byteSum, packet.Length);
 
-            int packet_count = packet.header.packet_count;
+            int packet_count = packet.Header.packet_count;
             OnRXDataReady(this, packet.payload);
 
             // normal case -- this is the next packet we are looking for, or it is the first one
@@ -161,13 +162,13 @@ namespace Flex.Smoothlake.FlexLib
 #endif
             //Debug.WriteLine("OpusTimestamp: " + packet.timestamp_int + "." + packet.timestamp_frac);
 
-            double timestamp_key = packet.timestamp_int + (packet.timestamp_frac / Math.Pow(2, 16));
+            double timestamp_key = packet.TimestampInt + (packet.TimestampFrac / Math.Pow(2, 16));
 
             //Debug.WriteLine("OpusTimestampKey: " + timestamp_key);
             
             Interlocked.Add(ref _byteSum, packet.Length);
 
-            int packet_count = packet.header.packet_count;
+            int packet_count = packet.Header.packet_count;
 
             // Only queue if the packet is more recent than the last one the 
             // Audio callback consumed
@@ -206,23 +207,36 @@ namespace Flex.Smoothlake.FlexLib
         protected bool _shouldApplyRxGainScalar = false;
         protected float _rxGainScalar = 1.0f;
 
-        public delegate void DataReadyEventHandler(RXAudioStream rxAudioStream, float[] rx_data);
+        public delegate void DataReadyEventHandler(RXAudioStream rxAudioStream, float[] rxData);
         public event DataReadyEventHandler DataReady;
-        private void OnRXDataReady(RXAudioStream rxAudioStream, float[] rx_data)
+        private void OnRXDataReady(RXAudioStream rxAudioStream, float[] rxData)
         {
-            if (DataReady != null)
+            if (DataReady == null) 
+                return;
+            
+            if (_shouldApplyRxGainScalar)
             {
-                if (_shouldApplyRxGainScalar)
+                // MICAudioStream can apply an RX Gain on the client side
+                // Use SIMD for bulk multiplication when available
+                var i = 0;
+                var vecSize = Vector<float>.Count;
+                if (Vector.IsHardwareAccelerated && rxData.Length >= vecSize)
                 {
-                    // MICAudioStream can apply an RX Gain on the client side
-                    for (int i = 0; i < rx_data.Length; i++)
+                    var gainVec = new Vector<float>(_rxGainScalar);
+                    var limit = rxData.Length - vecSize;
+                    for (; i <= limit; i += vecSize)
                     {
-                        rx_data[i] = rx_data[i] * _rxGainScalar;
+                        var v = new Vector<float>(rxData, i);
+                        (v * gainVec).CopyTo(rxData, i);
                     }
                 }
-                
-                DataReady(rxAudioStream, rx_data);
+                for (; i < rxData.Length; i++)
+                {
+                    rxData[i] *= _rxGainScalar;
+                }
             }
+                
+            DataReady(rxAudioStream, rxData);
         }
 
         public delegate void OpusPacketReceivedEventHandler();
@@ -230,6 +244,17 @@ namespace Flex.Smoothlake.FlexLib
         private void OnOpusPacketReceived()
         {
             OpusPacketReceived?.Invoke();
+        }
+
+        protected void StopStats()
+        {
+            if (_statsTimer == null)
+                return;
+
+            _statsTimer.Stop();
+            _statsTimer.Elapsed -= UpdateRXRate;
+            _statsTimer.Dispose();
+            _statsTimer = null;
         }
 
         protected void UpdateRXRate(Object source, ElapsedEventArgs e)

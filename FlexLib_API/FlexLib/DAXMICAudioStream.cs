@@ -88,6 +88,7 @@ namespace Flex.Smoothlake.FlexLib
         {
             Debug.WriteLine("DAXMICAudioStream::Close (0x" + _streamId.ToString("X") + ")");
             _closing = true;
+            StopStats();
             _radio.SendCommand("stream remove 0x" + _streamId.ToString("X"));
             _radio.RemoveDAXMICAudioStream(_streamId);
         }
@@ -139,7 +140,8 @@ namespace Flex.Smoothlake.FlexLib
                 RadioAck = true;
                 _radio.OnDAXMICAudioStreamAdded(this);
 
-                _statsTimer.Enabled = true;
+                if (_statsTimer is not null)
+                    _statsTimer.Enabled = true;
             }
         }
     }

@@ -444,3 +444,6 @@ read-trace*.ps1
 
 # Local scratch / ad-hoc debug copy folders
 /debug2/
+
+# FlexLib upgrade staging (Phase 2 backups, deleted at Phase 8)
+/.upgrade-staging/
