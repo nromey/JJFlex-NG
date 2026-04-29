@@ -1,7 +1,7 @@
 # Firmware Update Design Memo
 
-**Status:** Proposed for 4.2.0.x — required prerequisite for merging `track/flexlib-42` (FlexLib v4.2.18). Pulls firmware-update from the post-4.1.17 Sprint 29 updater scope (per `project_sprint29_updater_vision.md`) forward into 4.2.0.x.
-**Date:** 2026-04-29
+**Status:** Approved for 4.2.0.x — required prerequisite for merging `track/flexlib-42` (FlexLib v4.2.18). All design decisions locked 2026-04-29. Pulls firmware-update from the post-4.1.17 Sprint 29 updater scope (per `project_sprint29_updater_vision.md`) forward into 4.2.0.x.
+**Date:** 2026-04-29 (decisions locked same day)
 **Related:**
 - `project_jjflex_data_provider.md` — read-only file host architecture
 - `project_firmware_distribution_decision.md` — download-don't-bundle policy (decided 2026-04-29)
@@ -28,7 +28,7 @@ Three components:
 
 1. **Server side (data.jjflexible.radio):** Static file host serving firmware blobs and a manifest JSON. Read-only. No upload endpoint, no API. Firmware is extracted from official Flex SmartSDR installers (already on Noel's machine: `SmartSDR_v4.2.18_x64.msi` in `C:\Users\nrome\Downloads`) and uploaded to the server out-of-band by Noel.
 
-2. **Client side (JJFlexible):** Reads radio model + current firmware version on connect, fetches manifest, compares versions, optionally prompts the user. On user consent + physical presence proof, downloads matching firmware, verifies hash, calls `Radio.SendUpdateFile`, waits for radio reboot, reconnects.
+2. **Client side (JJFlexible):** Reads radio model + current firmware version on connect, fetches manifest, compares versions, optionally prompts the user. On user consent + physical presence proof, downloads matching firmware, verifies signature + hash, calls `Radio.SendUpdateFile`. The firmware push itself is local — the radio writes flash and reboots, then the existing connection flow handles reconnect (LAN auto-discovery or SmartLink reconnect, whichever path the user originally used). No bespoke post-reboot reconnect logic.
 
 3. **Physical presence proof:** Before any firmware push, require the user to take a physical action at the radio (mic PTT click or CW paddle press) within a short window. Prevents remote-attack scenarios where a malicious client triggers an unsolicited firmware push on someone else's radio.
 
@@ -123,8 +123,8 @@ UX flow (in the Updates settings tab):
 3. **Download progress:** "Downloading firmware… 12 MB of 47 MB."
 4. **Hash verification:** "Verifying firmware integrity…" — SHA256 against manifest. Any mismatch aborts with a clear error.
 5. **Upload to radio:** "Uploading firmware to radio… do not power off the radio." Calls `Radio.SendUpdateFile(localPath)`.
-6. **Radio reboot:** Radio drops connection. Client shows "Radio rebooting… reconnecting in 60s." Auto-reconnect attempts every 10s up to 5 minutes.
-7. **Verification:** On reconnect, read `radio.Version` again. Compare to expected new version. Announce success or report mismatch.
+6. **Radio reboot:** Radio drops connection. Client shows "Firmware uploaded. Radio is rebooting." No bespoke reconnect logic — the existing connect flow (LAN auto-discovery or SmartLink) handles the reconnect the same way it does after any radio reboot. User experience is whatever they already get post-reboot today.
+7. **Verification (after the user is reconnected):** read `radio.Version` again. Compare to expected new version. Announce success or report mismatch.
 
 All steps screen-reader announced. Cancellation possible at any pre-upload stage with one keypress; once `SendUpdateFile` is called, the upload is committed (radio writes flash; can't safely abort mid-write).
 
@@ -143,11 +143,12 @@ After this, the radio reboots. The client should expect `Connected` to flip to `
 For our use:
 ```csharp
 // pseudo
+await VerifyManifestSignatureAsync(manifest);              // Microsoft artifact-signing service signature
 string localPath = await DownloadFirmwareAsync(manifest.url);
 await VerifyHashAsync(localPath, manifest.sha256);
-await PresenceProofAsync(theRadio); // see below
+await PresenceProofAsync(theRadio);                        // see below
 await theRadio.SendUpdateFile(localPath);
-// then watchdog for reconnect
+// no bespoke reconnect — existing connect flow handles it
 ```
 
 ## Physical presence proof
@@ -160,11 +161,11 @@ A malicious client (or compromised SmartLink relay) could otherwise call `SendUp
 
 Detect any of the following events from FlexLib in a 30-second window after the user clicks "Continue":
 
-- **Mic PTT press** — `radio.MicInput == "PC"`/`"MIC"` toggle, or any PTT-active state change. Most universal: every radio has a mic input.
-- **CW paddle press** — `Slice.IsKey` event or a `cwx_text` byte on a NetCWStream. Every CW-capable user can produce this.
-- **Front panel button (8000 series)** — front panel API events if FlexLib exposes them. 6000-series radios don't have a front panel, so this is supplemental, not primary.
+- **Mic PTT press** — `radio.MicInput == "PC"`/`"MIC"` toggle, or any PTT-active state change. Most universal: every radio has a mic input. Confirmed primary path 2026-04-29 ("just click the microphone PTT switch").
+- **CW paddle press** — `Slice.IsKey` event or a `cwx_text` byte on a NetCWStream. Every CW-capable user can produce this. Confirmed second path.
+- **Front panel button (8000 series)** — added as a third option for 8000-series owners IF the SmartSDR upgrade docs document this as a usable presence-proof path. Phase E investigation confirms the FlexLib events on front-panel button presses; if they're reliable, expose this option; if not, drop it. 6000-series radios don't have a front panel, so this is supplemental, not primary.
 
-Any one suffices — the user picks whichever is most natural for them. Prompt: "Press your mic PTT or your CW key to confirm you are physically at the radio. (30 seconds)"
+Any one suffices — the user picks whichever is most natural for them. Prompt: "Press your microphone PTT or your CW key to confirm you are physically at the radio. (30 seconds)"
 
 Counting earcons mark the time window — the same 1, 1+1, 1+1+1 tone pattern from `project_stuck_modal_escape_design.md`. Escape cancels.
 
@@ -174,17 +175,16 @@ If two consecutive presses come from the same source (mic OR paddle) within ~200
 
 ### What this does NOT defend against
 
-- A user who is at the radio AND has been social-engineered into running malicious code voluntarily presses PTT when prompted. (Inherent to physical-presence checks; mitigated by the user-consented `manifest.json` URL — we host it, attacker can't substitute without DNS/HTTPS compromise.)
-- A roommate / housemate at the radio while a remote attacker triggers the prompt. (Edge case; signed manifest in a future revision adds a second factor.)
+- A user who is at the radio AND has been social-engineered into running malicious code voluntarily presses PTT when prompted. (Inherent to physical-presence checks; mitigated by the v1 signed manifest — even with DNS/HTTPS compromise, the attacker can't substitute a manifest the client will accept.)
+- A roommate / housemate at the radio while a remote attacker triggers the prompt. (Edge case; the v1 signed manifest is already the second factor here, since the malicious payload would need to come from a signed manifest the attacker can't produce.)
 
 ## Security model
 
 - **Transport:** HTTPS to `data.jjflexible.radio` only. TLS 1.2+ enforced app-wide (already done in `ApplicationEvents.vb`).
 - **Integrity:** SHA256 in manifest must match downloaded firmware byte-for-byte. Mismatch = abort.
-- **Authenticity (v1):** trust comes from owning the DNS + HTTPS cert for `data.jjflexible.radio`. Anyone tampering with the manifest needs to compromise both. Acceptable for v1.
-- **Authenticity (future):** sign the manifest with a JJFlexible release key. Client bundles the public key. Defends against DNS hijack + cert mis-issue.
+- **Authenticity:** the manifest is signed using **Microsoft's Trusted Signing service** (Azure-hosted artifact-signing). Client bundles the public key (or accepts the Microsoft trust chain), verifies the signature on every manifest fetch before honoring its contents. Defends against DNS hijack + cert mis-issue: even if an attacker stands up a fake `data.jjflexible.radio`, the manifest signature won't validate. Approved 2026-04-29 — included in v1, not deferred. Same signing infrastructure will sign the JJFlexible installer once the cert is funded (per `project_code_signing_cert_milestone.md`), so the cost is amortized.
 - **Local presence:** physical proof at the radio per the section above.
-- **Roll-forward only by default:** v1 will not auto-suggest downgrades. Manual downgrade path (advanced settings) ships separately. Prevents accidental downgrade-attacks where a bad manifest version-rolls users to a buggy old firmware.
+- **Roll-forward only by default:** v1 will not auto-suggest downgrades. Manual downgrade path (advanced settings) ships in a later phase. Prevents accidental downgrade-attacks where a bad manifest version-rolls users to a buggy old firmware.
 
 ## UX placement
 
@@ -196,18 +196,28 @@ Per `project_sprint29_diagnostics_settings_tab.md`, the Updates settings tab is 
   - Action button: "Update Radio Firmware" (only enabled when an update is available + a radio is connected)
   - Toggle: "Check for radio firmware updates on connect" (default ON)
   - Toggle: "Show firmware update notifications" (default ON)
-  - Advanced: link to manual rollback / channel selection (post-v1)
+  - Advanced: link to manual rollback / channel selection (later phase)
 
 Notification surface: when an update is detected on connect, announce and show a small banner. Don't pop a modal. Banner has a "Dismiss" and a "Update now" action. User-driven, not nag-driven.
 
-## Open questions for Noel
+### Interlock with the JJFlexible app updater
 
-1. **"Microsoft or code key click" interpretation.** I read this as "mic switch (PTT) or CW (code) key paddle press." Confirm or correct.
-2. **Manifest signing in v1?** Easy to defer (HTTPS is already two factors of trust); easy to scope in (~half day). Preference?
-3. **Beta channel in v1 schema?** The schema above includes `channels: { stable: ... }` so we can add `beta` later. Drop or keep for v1?
-4. **`minClientVersion` enforcement:** if a client is below the minimum, do we hide the update or show it greyed-out with "Update JJFlexible first"? I lean toward hiding (less confusing) but it removes signal.
-5. **Auto-reconnect after radio reboot.** Should we auto-reconnect the same SmartLink session, or surface a "Radio updated; click to reconnect" prompt? Auto reduces friction; manual gives the user a clear success moment. Lean auto for friction-tax reasons.
-6. **8000-series presence proof.** If the front panel button is the natural choice for 8000 owners, we should expose that explicitly. Need to verify which FlexLib events fire on front-panel button presses (not exhaustively documented in v4.2.18 vendor source).
+When the manifest's `minClientVersion` for the matching firmware is HIGHER than the running JJFlexible version, the firmware update is not directly offered. Instead the flow becomes a chained two-step:
+
+1. App updater detects "newer JJFlexible required for available firmware" and offers: "A new firmware is available for your radio, but it requires JJFlexible {minClientVersion}. Install JJFlexible {x.y.z} now, then update your radio firmware?"
+2. On user consent: silent JJFlexible install (per the broader app-updater scope), JJFlexible restart.
+3. After restart and reconnect, the firmware-update banner reappears with the firmware now applicable. User clicks "Update now," presence-proof, push.
+
+This is the natural state for alpha/beta firmware drops on Flex's program — firmware and matching client typically release together. Treat the two updaters as one workflow; share the "do you want to install both" prompt between them.
+
+## Decisions (locked 2026-04-29)
+
+1. **Presence proof primary path = mic PTT click.** "code key click" = CW paddle, second path. ("Microsoft" in the original was a typo, not a Windows-Hello reference.) Front-panel button (8000-series) added as a third supplemental option in Phase E if SmartSDR upgrade docs document it as a usable presence-proof path AND FlexLib reliably fires events on it.
+2. **Manifest signing IS in v1**, using Microsoft's Trusted Signing service (Azure-hosted artifact signing). Same infrastructure intended for the eventual JJFlexible installer signing per `project_code_signing_cert_milestone.md` — costs amortize. Phase A and Phase D both gain explicit signature-verify steps; Phase F's signing scope is now subsumed by Phase A.
+3. **Keep `channels: { stable: ... }` schema in v1.** Beta channel is wired but starts empty until alpha-tester firmware drops (per `project_flex_alpha_tester.md`).
+4. **`minClientVersion` enforcement is an interlock with the JJFlexible app updater, not a hide/grey-out.** When a firmware needs a newer client, the app updater chains: offer client update first, restart JJFlexible silently, then offer the firmware update on the next connect. Treat the two updaters as one workflow. Documented in the "Interlock with the JJFlexible app updater" section above.
+5. **No bespoke post-reboot reconnect logic.** Firmware push is local; on reboot the existing connect flow (LAN auto-discovery or SmartLink) handles reconnect the same way it does after any other radio reboot. Whatever the user normally experiences post-reboot today is what they get post-firmware-update. Don't add custom reconnection scaffolding that duplicates the normal path.
+6. **Front-panel button (8000) is a maybe, contingent on Phase E investigation.** If FlexLib documents and reliably fires button-press events, expose it as a third presence-proof source for 8000-series owners. If the events are unreliable or undocumented, drop it — mic PTT and CW paddle are sufficient coverage.
 
 ## Implementation roadmap
 
@@ -218,13 +228,14 @@ Sized for Sprint 29-or-30 inclusion (whichever sprint claims the 4.2.0.x release
 - Extract firmware from `SmartSDR_v4.2.18_x64.msi`.
 - Hash, version, structure under URL layout above.
 - Hand-author first `manifest.json`.
-- Smoke test: `curl https://data.jjflexible.radio/firmware/manifest.json` returns valid JSON.
+- **Sign `manifest.json` via Microsoft Trusted Signing service.** Bundle the public-key trust path into the JJFlexible client.
+- Smoke test: `curl https://data.jjflexible.radio/firmware/manifest.json` returns valid JSON; client-side signature verify passes against the bundled trust path.
 
 ### Phase B — client manifest fetch + version compare (read-only)
 - Add a `FirmwareUpdateService` class (probably in `Radios/`).
-- On connect, fetch manifest, compare versions, log result.
+- On connect, fetch manifest, **verify Microsoft Trusted Signing signature**, compare versions, log result.
 - No UI yet. Tracing only.
-- Verifies the network plumbing without committing to any user-facing surface.
+- Verifies the network plumbing AND the signing chain without committing to any user-facing surface.
 
 ### Phase C — UX surface in Updates settings tab
 - Status row, action button, toggles per UX placement section.
@@ -233,21 +244,23 @@ Sized for Sprint 29-or-30 inclusion (whichever sprint claims the 4.2.0.x release
 
 ### Phase D — download + verify + upload
 - Download firmware to `%LOCALAPPDATA%\JJFlexRadio\firmware-cache\<series>\<version>\firmware.bin`.
-- SHA256 verify.
+- SHA256 verify against (signed) manifest.
 - Call `Radio.SendUpdateFile`.
-- Auto-reconnect after reboot.
+- After upload, do nothing special — the existing connect flow handles the post-reboot reconnect on its own.
+- On the user's next reconnect (whether seconds or minutes later), read `radio.Version` and announce success or report mismatch.
 - Cache hit: skip re-download if the file already exists and hash matches.
 
 ### Phase E — physical presence proof
 - Wire up mic PTT / CW key event listeners.
 - 30-second challenge window UI with counting earcons.
 - Insert as the gate between "user clicks Update" and "Phase D download starts."
-- Test: mic PTT, CW paddle, escape-cancel, timeout-cancel.
+- **Investigate FlexLib events on 8000-series front-panel button presses.** If reliable + documented in SmartSDR upgrade docs, add front-panel button as a third presence-proof source. If not, ship without it.
+- Test: mic PTT, CW paddle (and front-panel button if added), escape-cancel, timeout-cancel.
 
-### Phase F (optional, post-v1) — manifest signing, beta channel, rollback UI
-- Add Ed25519 signature on manifest, ship public key in app.
-- Expose `channels.beta` toggle for alpha testers.
-- Manual version selection ("install older firmware…") in advanced settings.
+### Phase F (post-v1, optional) — beta-channel UX + rollback UI
+- Surface `channels.beta` toggle in advanced settings for alpha testers (the schema already supports it from Phase A; this just exposes the switch).
+- Manual version selection ("install older firmware…") in advanced settings — the rollback path. Versioned URLs already exist; this is UI only.
+- Manifest signing is NOT in this phase — it shipped in Phase A.
 
 ## Bundle target
 
