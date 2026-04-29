@@ -5,6 +5,64 @@ This document captures the current state of JJ-Flex repository and active work.
 **Repository root:** `C:\dev\JJFlex-NG`
 **Branch:** `sprint28/home-key-qsk` (Sprint 28 substantively complete in code; Sprint 28 wrap items committed; 4.1.17 release-verification matrix in active runtime testing)
 
+## 2026-04-28 evening seal: Morning sweep + FlexLib 4.2.18 backlog flag + Help-Escape Win32 hook + Track B hamlib research underway
+
+**Two-track day with a wrap pivot.** Morning was Noel-driven 4.1.17 cleanup (the morning sweep). Evening was a dual-CLI session: a Track B autonomous run starting the hamlib research, plus a foreground Track A session that picked up the Help-dialog Escape bug. JJ Radio user base folding into JJ Flexible became the strategic frame mid-session — multi-radio commitment is now inherited, not optional. Discussion of what that changes deferred to 4/29 morning; today wraps the in-flight code work.
+
+### Code shipped today (3 commits + this seal):
+
+- **`64eac28e` morning sweep (Noel-driven):** C.4i regression fix + KEY CONFLICT one-liner (Ctrl+F duplicate-binding cleanup, Sprint 15+ era) + Disconnect SK notification.
+- **`1419bd0b`:** TODO entry logging FlexLib 4.2.18 upgrade as upcoming major work. SmartSDR + FlexLib + ssdr unpack dirs left untracked at repo root for inspection during the upgrade work.
+- **`JJFlexWpf/HelpLauncher.cs` (this session, evening):** Low-level Win32 keyboard hook closes the CHM viewer (`hh.exe`) on Escape. Honors `project_dialog_escape_rule.md` for the F1 help path. Filter is foreground-window class name (`HH Parent`); fail-safe — if `SetWindowsHookEx` fails, behavior degrades to today's Alt+F4-only.
+
+### Architectural finding from the Help-Escape work:
+
+The TODO entry's suspected root cause ("dialog uses ShowDialog without Escape handler") was wrong. F1 → `HelpLauncher.ShowHelp()` → `System.Windows.Forms.Help.ShowHelp()` → `hh.exe`, a separate-process OS-owned window. No JJFlex XAML or code-behind exists to add a key handler to. Three options surfaced: (A) Win32 hook the CHM viewer, (B) replace CHM with a WPF/WebView2 help viewer (would require building our own search/TOC/index — non-trivial; CHM gives all of that for free), (C) document Alt+F4 and defer. Picked A as the right 4.1.17-scoped answer; B logged as Sprint 29+ candidate. Decision rationale: CHM's built-in search is a real feature the user values, and the WebView2 path means rebuilding it.
+
+### Strategic frame — JJ Radio folding into JJ Flexible (new memory, end-of-day):
+
+`project_jj_radio_folding.md` captures: JJ Radio's user base migrates into JJ Flexible. The commitment to support whatever rigs they operate is inherited, not optional. Hamlib graduates from "future plan" to "downstream commitment" — Track B's research is no longer speculative architecture. Worth noting: this also reframes the .NET/UIA accessibility-moat memo from "preserve" to "load-bearing for an even larger taxonomy of radios." A cross-platform UI rewrite would now break two user bases mid-transition. Heavier veto.
+
+### Track B status (parallel CLI session, separate context):
+
+Hamlib research started today, output will land at `docs/planning/track-b/`. Already there: `at-scripting-research.md` (NVDA/JAWS scripting survey, Sprint 30+ input). Track B owns its own commits and files; Track A (this session) didn't touch them. Coordination is "two sessions doing unrelated work in the same repo" — closer to Sprint 27 serial pattern than to a parallel sprint with merge ordering.
+
+### Plan for next session (4/29 morning):
+
+1. **Test the Help-Escape hook** — F1 + Escape (expect: CHM closes), Help menu items (each entry point), CHM Find dialog (should not be swallowed because its window class is different), negative cases (Escape outside CHM still does its normal job).
+2. **Multi-radio architecture discussion** — implications of JJ Radio folding for the Sprint 30+ radio-abstraction layer, IRadioBackend conformance via TS-2000 testbed, sequencing relative to Sprint 26+27 networking work.
+3. **4.1.17 release-cut decision** — substance check on what's in / what's queued for Sprint 29.
+4. **Continue 4.1.17 matrix testing** if time and radio access permit.
+
+### What was deliberately NOT done tonight:
+
+- **Stuck-modal escape-path fix** (`project_stuck_modal_escape_design.md`) — was the original Track A pick, pivoted to Help-Escape mid-session. Still a 4.1.17 candidate.
+- **Multi-radio architecture discussion** — Noel deferred to tomorrow.
+- **Track B file commits** — Track B owns its own commits; not Track A's to ship.
+
+### Memory updates today (1 net new):
+
+- `project_jj_radio_folding.md` — strategic frame for the JJ Radio merge.
+- (`project_stuck_modal_escape_design.md` was created earlier in the day — accounted for in the ~2 AM entry below.)
+
+### Rigmeter snapshot — end of 2026-04-28:
+
+**Grand totals (authored, code + docs + build + text_data combined):** 712 files, 138,728 lines, 615,205 words, 6,038,674 chars. Vendor adds 53,240 code lines (FlexLib 48,210; PortAudioSharp 3,949; P-Opus 1,081), bringing the on-disk total to ~191k lines.
+
+**Per-category authored:** code 101,896 / text_data 9,065 / docs 21,908 / build 5,859 lines.
+
+**Top authored projects by line count:** JJFlexWpf 38,602 (185 files); main_app 28,577 (166); Radios 23,733 (74); docs 20,106 (124); JJLogLib 5,807; JJPortaudio 2,361; JJTrace 543; tools 3,631; rest small.
+
+**Code language split (authored):** cs 75.5% (76,944), vb 16.6% (16,956), xaml 4.9% (4,969), py 3.0% (3,027). C# remains the dominant authoring language; the Sprint 22+ WPF rebuild is now a strong majority of the surface.
+
+**Fun comparisons (authored):** ≈60.4 braille volumes (100K cells each), 2.9 Moby Dicks, 0.79 King James Bibles, 68.4 hours read-aloud at 150 wpm, 2,775 printed pages (a stack 11.1 inches tall).
+
+**Docs-to-code ratio:** 0.22 (21,908 doc lines / 101,896 code lines) — keeps climbing as the planning corpus grows.
+
+**Today's git activity:** 3 commits (`19e6d4ef..1419bd0b`), 10 unique files touched, +791 insertions / −30 deletions, net +761 lines. Help-Escape commit will appear in tomorrow's `today` view (it lands as part of this seal's commit).
+
+**NAS snapshot:** `\\nas.macaw-jazz.ts.net\jjflex\historical\stats\2026-04-28-1419bd0b.json` (tokei warning was harmless — fall-back counter ran). 8 historical snapshots tracked now; trend across them is `code 230k → 101k → 78k → 78k → 90k → 100k → 101k` reflecting the early Phase-0 cleanup that pruned Icom/Kenwood/Generic legacy.
+
 ## 2026-04-28 end-of-day seal (~2 AM, ran into 4/28): No-radio guard fix + iterative-testing diagnostic chain + foundation findings + dispatcher-paths architectural correction
 
 **Long iterative-testing session, autonomous late-stage.** Started 9 PM on 4/27 as "verify C.2 verbosity ladder Terse setting" — produced **18 distinct findings** across three architectural layers by 2 AM on 4/28. Noel framed it: *"Sometimes testing can be iterative, it sure was today right?"* Each finding got its own TODO entry; the chain is captured in `docs/planning/2026-04-28-morning-briefing.md` as the synthesis.
