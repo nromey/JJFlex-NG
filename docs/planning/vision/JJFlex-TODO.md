@@ -4,30 +4,42 @@ Last updated: 2026-04-28
 
 ## Upcoming Major Work
 
-### FlexLib upgrade to 4.2.18 — version bump to JJFlexible 4.2.0.xxx (2026-04-28 announced by Flex)
+### FlexLib upgrade to 4.2.18 — branch ready, merge gated on 4.1.17 + firmware-update UI (2026-04-29 status)
 
-**Trigger:** Flex released SmartSDR 4.2.18 with new FlexLib. Per `project_versioning_scheme.md`, our versioning mirrors FlexLib's first three components, so our next version becomes **4.2.0.xxx** (counter resets to 0 on FlexLib minor bump).
+**Trigger:** Flex released SmartSDR 4.2.18 with new FlexLib. Per `project_versioning_scheme.md`, our versioning mirrors FlexLib's first three components, so our next version becomes **4.2.0.xxx** when this lands.
 
-**Scope:**
-- Copy new FlexLib v4.2.18 into `FlexLib_API/`
-- **Reapply `SslClientTls12.cs` wrapper** per `MIGRATION.md` — FlexLib upgrades wipe our TLS 1.2+ enforcement, this is the single most important post-upgrade step
-- Update `TlsCommandCommunication.cs` to use the wrapper
-- Verify TLS negotiation in remote connect
-- Update version references throughout
-- **Test the API surface** for any breaking changes — FlexLib minor bumps occasionally change property/method signatures
-- Verify all existing features still work (smoke test against Don's 6300 + any other available radio)
+**Status (2026-04-29):** Upgrade work complete on `track/flexlib-42` branch, all eight phases done, parked at commit `971d5425`. Live audio confirmed on Don's 6300 over SmartLink. Branch does NOT merge yet — see sequencing below.
+
+**What landed on the branch:**
+- v4.2.18 vendor source dropped in over the prior FlexLib, four MIGRATION.md patches reapplied (TLS wrapper refresh to mirror new vendor `SslClient` async API, Discovery race fix layered on vendor's partial absorption, Radio.cs `IsWan || PublicTlsPort > 0` selector, `TlsCommandCommunication` wrapper swap)
+- **Phase 5 audio fix:** four new sub commands (`display_marker`, `navtex`, `filt_preset`, `waveform`) gated behind `FlexVersion.Parse("4.2.18.0")`. Older firmware halts opus audio after ~2 packets when those subs are sent — gating them off restores audio. Modern firmware (4.2.18+) gets the full sub surface; older firmware loses those four notification streams but keeps audio + general radio function.
+- All four configurations (x64/x86 × Debug/Release) build clean
+- Updated `MIGRATION.md` with v4.2.18-specific notes (vendor partial Discovery fix already absorbed; SslClient API reshuffle, etc.)
 
 **Noel's commentary on the release:** *"I'm super disappointed with Flex, we've had features that they're calling new for ages. They have improved Dax and Cat, but radio features ... only cool thing is that they allow loading waves packages using the API now which to me says we can more easily implement things like FreeDV. This is a severely anemic release but we go with the times I guess."*
 
 **Silver lining identified:** The new "load Waves packages via API" capability **opens the door to in-app FreeDV implementation** without depending on Flex shipping native FreeDV. This is a real opportunity worth a separate Sprint 30+ exploration — JJ Flex could become the first SDR client to make FreeDV accessible to blind hams via Waves package loading.
 
-**Priority:** HIGH (must happen for 4.2.0.xxx version baseline) but **not 4.1.17-blocking**. 4.1.17 ships on FlexLib 4.1.5; 4.2.0 is the next major version after 4.1.17 closes.
+**Sequencing (decided 2026-04-29):** Merge gated on TWO prerequisites:
+1. **4.1.17 ships first.** Merging this branch forces the 4.2.0.x version cut — would conflict with the in-flight 4.1.17 release on FlexLib 4.1.5.
+2. **Firmware-update UI is implemented.** The Phase 5 gate means users on older firmware lose those four subscriptions until they update firmware. The 4.2.0.x release should bundle "FlexLib upgrade + firmware update mechanism" so users can self-unlock the gated features. Firmware-update UI is queued as part of Sprint 29's updater scope (per `project_sprint29_updater_vision.md`).
 
-**Sequencing:** Probably Sprint 30 (post-4.1.17). The upgrade itself is mechanical (~half day) but the testing surface is large enough to warrant a dedicated sprint slot rather than slipping into another sprint.
+**Merge plan when both prerequisites are met:**
+```
+git checkout main
+git merge track/flexlib-42 --no-ff -m "Sprint FlexLib-42: Upgrade FlexLib to v4.2.18"
+# verify clean build both archs
+# bump JJFlexRadio.vbproj <Version>4.2.0</Version>
+# release per standard process
+```
 
-**What to grab from Flex:** Their changelog/release notes (Noel will provide or we can search). Plus the actual FlexLib DLL for `FlexLib_API/`.
+**Optional follow-up (not blocking merge):** Bisect the four gated subs to identify which specific one(s) actually break older firmware. Right now all four gate together; some may be safe even on older firmware. Cheap re-test if Don's connection is stable.
 
-**Status:** Logged 2026-04-28 from Noel's announcement during morning session wrap. Pending FlexLib 4.2.18 download.
+**Branch contents:**
+- See `docs/planning/track-b/4.2.18-handoff.md` for the full Track B writeup
+- See `docs/planning/track-b/4.2.18-inventory.md` for the v4.x → v4.2.18 API drift map
+- See `docs/planning/track-b/4.2.18-build-errors-phase4.md` for the build evidence
+- See `docs/planning/track-b/SmartSDR-v4.2.18-Release-Notes.pdf` for vendor's release notes
 
 ## Open Bugs
 
