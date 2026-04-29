@@ -2287,7 +2287,27 @@ namespace Flex.Smoothlake.FlexLib
             SendCommand("sub usb_cable all");
             if (_isTNFSubscribed)
                 SendCommand("sub tnf all");
-            SendCommand("sub display_marker all");
+
+            // JJFlex audio fix (v4.2.18 upgrade): the four sub commands below
+            // (display_marker, navtex, filt_preset, waveform) are new in
+            // FlexLib v4.2.18. Older firmware that doesn't recognize them
+            // halts the opus audio stream after ~2 packets, leaving slices and
+            // command channel functional but no audio. Confirmed against Don's
+            // 6300 (older firmware): with all four enabled, only 2 opus packets
+            // ever arrived; with all four gated, ~600 opus packets flowed
+            // normally and audio worked.
+            //
+            // Gate them on the firmware floor that introduced them on the
+            // radio side (4.2.18.0). Older firmware loses NAVTEX, waveform,
+            // filter-preset, and display-marker subscriptions but keeps
+            // audio + general radio functions working. Recommend users update
+            // firmware to 4.2.18+ to regain those features.
+            ulong newSubsMinVersion = FlexVersion.Parse("4.2.18.0");
+            bool firmwareSupportsNewSubs = Version >= newSubsMinVersion;
+            Debug.WriteLine($"JJFlex: radio firmware version=0x{Version:X16} ({FlexVersion.ToString(Version)}); v4.2.18 subs enabled={firmwareSupportsNewSubs}");
+
+            if (firmwareSupportsNewSubs)
+                SendCommand("sub display_marker all");
             SendCommand("sub spot all");
             SendCommand("sub rapidm all");
             SendCommand("sub ale all");
@@ -2299,9 +2319,12 @@ namespace Flex.Smoothlake.FlexLib
             SendCommand("sub ha_api amplifier");
             SendCommand("sub ha_api fault");
             // TODO guard by model
-            SendCommand("sub navtex all");
-            SendCommand("sub filt_preset all");
-            SendCommand("sub waveform all");
+            if (firmwareSupportsNewSubs)
+            {
+                SendCommand("sub navtex all");
+                SendCommand("sub filt_preset all");
+                SendCommand("sub waveform all");
+            }
 
             // ensure that packets are manually fragmented to avoid network issues
             SendRadioMTUCommand(_mtu);
