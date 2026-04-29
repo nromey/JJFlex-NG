@@ -20,9 +20,9 @@ Last updated: 2026-04-28
 
 **Silver lining identified:** The new "load Waves packages via API" capability **opens the door to in-app FreeDV implementation** without depending on Flex shipping native FreeDV. This is a real opportunity worth a separate Sprint 30+ exploration — JJ Flex could become the first SDR client to make FreeDV accessible to blind hams via Waves package loading.
 
-**Sequencing (decided 2026-04-29):** Merge gated on TWO prerequisites:
-1. **4.1.17 ships first.** Merging this branch forces the 4.2.0.x version cut — would conflict with the in-flight 4.1.17 release on FlexLib 4.1.5.
-2. **Firmware-update UI is implemented.** The Phase 5 gate means users on older firmware lose those four subscriptions until they update firmware. The 4.2.0.x release should bundle "FlexLib upgrade + firmware update mechanism" so users can self-unlock the gated features. Firmware-update UI is queued as part of Sprint 29's updater scope (per `project_sprint29_updater_vision.md`).
+**Sequencing (decided 2026-04-29):** 4.1.17 is NOT going to ship as a separate release. **4.2.0.x replaces 4.1.17** as the next public release — the FlexLib upgrade is the version-name driver. Merge gated on TWO prerequisites:
+1. **All content originally planned for 4.1.17 has landed on main.** The Sprint 28 / 29 foundation-phase work — tuning unity, RIT/XIT scale-adjust, stuck-modal escape design, diagnostics + updates settings tabs, etc. The 4.2.0.x release inherits everything 4.1.17 was going to be plus the FlexLib upgrade.
+2. **Firmware-update UI is implemented.** The Phase 5 gate means users on older firmware lose those four subscriptions until they update firmware. The 4.2.0.x release must include an in-app firmware-update path so users can self-unlock those features. Pulled forward from the post-4.1.17 Sprint 29 scope (per `project_sprint29_updater_vision.md`).
 
 **Merge plan when both prerequisites are met:**
 ```
