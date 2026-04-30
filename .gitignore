@@ -444,3 +444,12 @@ read-trace*.ps1
 
 # Local scratch / ad-hoc debug copy folders
 /debug2/
+
+# Vendor-payload staging directories — extracted SmartSDR / FlexLib drops
+# used to compare against current vendor source during upgrades. Never get
+# committed: large binaries, vendor-licensed redistribution-restricted, and
+# they recur every time a new SmartSDR drops. Repo-relative paths only.
+/firmware/
+/flexlib4218/
+/ssdr4218/
+/docs/smartsdr4218/

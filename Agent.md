@@ -5,6 +5,67 @@ This document captures the current state of JJ-Flex repository and active work.
 **Repository root:** `C:\dev\JJFlex-NG`
 **Branch:** `sprint28/home-key-qsk` (Sprint 28 substantively complete in code; Sprint 28 wrap items committed; 4.1.17 release-verification matrix in active runtime testing)
 
+## 2026-04-29 evening seal: AAR convention + three handoffs landed (FlexLib 4.2.18 / multi-radio / braille) + rarbox + Netlify + Cloudflare R2 game plan locked + firmware extraction recipe verified
+
+**Strategic infrastructure day.** Three large research arcs reached handoff on parallel branches; the evening session sealed with the rarbox + Netlify game plan that converts the JJ Flexible Data Provider from "Andre's server interim" to a two-tier hosting story Noel controls end-to-end. No production code shipped on main today by design — the day's value lives in parked branches, locked-in decisions, and one infrastructure firm-up.
+
+### What landed across the four worktrees today
+
+- **`sprint28/home-key-qsk` (main repo)** — 1 commit (`5d746a2e` evening handoff doc by Track B Claude: rarbox + Netlify game plan + parallel-track posture). This session added CLAUDE.md AAR step + `.gitignore` vendor-staging guards (ride along on tonight's seal commit).
+- **`track/flexlib-42`** — 12 commits, all 8 phases complete. FlexLib v4.0.1 → v4.2.18 upgrade tested, audio-confirmed live on Don's 6300 over SmartLink (~600 opus packets in 30s post-fix vs 2 pre-fix). Phase 5 firmware-floor gate stays in permanently. Branch parked at `7aa93e47` pending merge prerequisites (foundation work + firmware-update UI on main first; 4.2.0.x replaces 4.1.17 as next public release). Memory: `project_flexlib_4218_merge_sequencing.md` (SHA refreshed tonight).
+- **`track/multi-radio`** — 11 commits, 10 research phase deliverables (~5,500 lines of docs, zero production code). IRadioBackend interface design, radio class taxonomy, Hamlib API survey, per-radio config strategy, audio routing for non-Flex, TS-2000 conformance scope, tester onboarding paths, architecture synthesis. Branch parked. Decision pending from Noel: greenlight Sprint Multi-1 (low-risk refactor introducing the abstraction layer with FlexLibBackend wrapping today's `theRadio`).
+- **`track/braille-research`** — 7 commits, 6 phase deliverables. NVDA + JAWS surveys, OSARA prior art, cross-AT primitive design (5-method API: open/update/patch/dismiss/pan), NVDA prototype skeleton, handoff with Noel's interleaved annotations. Noel's locked-in answers captured in `project_braille_primitive_v1_decisions.md`: name `brailleElement`, standalone repo from day one, NVDA add-on first then Jamie outreach, opt-in cursor indicator in v1.
+
+### Infrastructure decisions firmed up tonight
+
+- **Two-tier hosting decided.** Netlify Pro for static CDN (`jjflexible.radio` marketing site); **Cloudflare R2** for `data.jjflexible.radio` (firmware blobs + manifest); Hetzner US "rarbox" for dynamic services + bh-network `data.` migration target. R2 wins for binaries because of zero egress fees and built-in global CDN distribution; Netlify ToS explicitly discourages binary distribution. New memory: `project_data_provider_hosting.md`.
+- **Microsoft Trusted Signing adopted** as canonical signing infrastructure (firmware manifests, future installers, all signed JJF artifacts). Memory: `project_microsoft_trusted_signing.md`.
+- **App-updater + firmware-updater interlock pattern adopted.** When any update advertises `minClientVersion` higher than running client, chain through app updater first, single combined-consent prompt. Memory: `project_chained_updater_pattern.md`.
+- **`nromey/jjf-data` private GitHub repo created** (Noel, evening 2026-04-29) as source-of-truth for the data-provider. Note actual repo name is `jjf-data`, not the `jjflex-data-provider` placeholder some earlier handoff docs used. Memory: `project_jjf_data_repo.md`.
+- **DNS for `jjflexible.radio` moves to Cloudflare** (decided tonight) — registration stays at the original registrar (Cloudflare doesn't sell `.radio`), but DNS management consolidates with blindhams.network and Noel's other domain under one Cloudflare account. Steps captured in the data-provider hosting memo.
+- **JJ Flex Mac on the roadmap** as a future native SwiftUI port — preserves the .NET accessibility moat by going native-per-platform rather than UI-framework migration. Memory: `project_jjflex_mac_planned.md`.
+
+### Firmware extraction recipe verified (late evening)
+
+While exploring whether to install SmartSDR or extract firmware from the MSI offline, queried the MSI's File table directly via the WindowsInstaller COM object. Conclusion: firmware ships as plain `.ssdr` files in the MSI's File table at `[CommonAppDataFolder]\FlexRadio, Inc.\SmartSDR\Updates\` — NOT embedded in the .NET single-file exes (SmartSDR/DAX/CAT, ~600 MB combined of bundled .NET app code). Two firmware files per release: `FLEX-6x00_v<ver>.ssdr` (61 MB) covers all 6000-series radios; `FLEX-9600_v<ver>.ssdr` (368 MB) covers 9600/8000-series and Aurora. **Two-line extraction recipe** (`msiexec /a` + file copy, no third-party tools) now documented in `project_firmware_distribution_decision.md`. The JJ Flexible Data Provider extraction script is genuinely small.
+
+### AAR convention introduced
+
+End-of-day cross-surface synthesis convention added: write to `JJFlex-private\after-action-reports\YYYY\MM\YYYY-MM-DD.md` (private, not in public repo — names testers by personal context, references internal sequencing, would leak through `nromey/JJFlex-NG`). CLAUDE.md step 4b added; memory `project_after_action_reports.md` documents the rationale (rigmeter is branch-scoped, undercounts heavy-research days like today by ~100x). First instance: tonight's AAR.
+
+### Memory updates today (8 new + 2 updates)
+
+New: `project_after_action_reports.md`, `patrick_bh_network_tester.md`, `project_jjflex_mac_planned.md`, `project_jjf_data_repo.md`, `project_data_provider_hosting.md`, `project_microsoft_trusted_signing.md`, `project_chained_updater_pattern.md`, `project_firmware_distribution_decision.md`. Updates: `project_flexlib_4218_merge_sequencing.md` (SHA refresh from `023a41d4` to `7aa93e47`), `project_jjflex_data_provider.md` referenced from new hosting memo. MEMORY.md index updated.
+
+### Rigmeter snapshot — end of 2026-04-29
+
+**Skipping the full grand-totals dump per the docs-only-day rule.** Main-branch rigmeter today shows just 1 commit, 116 lines on `sprint28/home-key-qsk` (claude b's evening handoff doc). Tonight's seal commit will add a few more (CLAUDE.md AAR step, .gitignore vendor-staging guards, this Agent.md update).
+
+**Cross-branch reality** (the strongest argument for the AAR convention — rigmeter doesn't see this):
+- `track/flexlib-42`: 12 commits, several thousand lines of design + handoff docs.
+- `track/multi-radio`: 11 commits, ~5,500 lines of research docs.
+- `track/braille-research`: 7 commits, ~1,500 lines of design + ~250-line Python prototype.
+- main repo: 1 commit pre-seal + tonight's seal commit.
+
+**NAS snapshot:** `\\nas.macaw-jazz.ts.net\jjflex\historical\stats\2026-04-29-5d746a2e.json` (tokei warning harmless; fall-back counter ran). 9 historical snapshots tracked.
+
+### Plan for next session (4/30 morning)
+
+Track-shaped per claude b's handoff doc; the four can run in parallel in independent CLI sessions:
+
+1. **Track A — Radio testing** on whatever foundation-phase items are next on the 4.1.17 test matrix. Noel + main-repo Claude. No prerequisite blockers.
+2. **Track B — Data-provider site setup.** Prereqs: (a) transfer `jjflexible.radio` DNS to existing Cloudflare account (Noel may ask Claude to walk through nameserver flip); (b) enable R2 (one-time CC bump); (c) create `jjf-data` R2 bucket; (d) point `data.jjflexible.radio` at it; (e) generate R2 API creds + store as `nromey/jjf-data` repo secret. After that, a Claude session populates folder structure, manifest schema, GitHub Action for R2 sync, and the Windows extract+publish PowerShell script.
+3. **Track C — rarbox hardening + bh `data.` migration.** Prereqs: Noel provisions Hetzner CX22 in US region with SSH key, captures IP, confirms SSH alive. Then a Claude session does SSH config tightening, ufw, fail2ban, unattended-upgrades, Caddy, Claude Code on the box, then plans the bh migration.
+4. **Track D — bh-network reading + stale GitHub Action fix.** Read `nromey/bh-network` end-to-end, document conventions for Track B to mirror, fix the 2-month-old Action complaint, investigate the 502.
+
+### What was deliberately NOT done tonight
+
+- **R2 setup steps** — gated on Noel's CC-on-file action and bucket creation; tomorrow.
+- **DNS nameserver flip for `jjflexible.radio`** — Noel does this when ready; Claude ready to walk through if asked.
+- **The extract+publish PowerShell script** — gated on `jjf-data` repo layout decisions tomorrow.
+- **Greenlight on Sprint Multi-1** — research handed off, decision queued for Noel.
+- **Braille primitive implementation** — research-only this sprint cycle; production work post-foundation.
+
 ## 2026-04-28 evening seal: Morning sweep + FlexLib 4.2.18 backlog flag + Help-Escape Win32 hook + Track B hamlib research underway
 
 **Two-track day with a wrap pivot.** Morning was Noel-driven 4.1.17 cleanup (the morning sweep). Evening was a dual-CLI session: a Track B autonomous run starting the hamlib research, plus a foreground Track A session that picked up the Help-dialog Escape bug. JJ Radio user base folding into JJ Flexible became the strategic frame mid-session — multi-radio commitment is now inherited, not optional. Discussion of what that changes deferred to 4/29 morning; today wraps the in-flight code work.
