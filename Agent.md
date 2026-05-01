@@ -5,6 +5,151 @@ This document captures the current state of JJ-Flex repository and active work.
 **Repository root:** `C:\dev\JJFlex-NG`
 **Branch:** `sprint28/home-key-qsk` (Sprint 28 substantively complete in code; Sprint 28 wrap items committed; 4.1.17 release-verification matrix in active runtime testing)
 
+## 2026-04-30 evening seal: Don's 4.2.18 silent-discovery bug narrowed across four diagnostic rounds; FLEX-8600 unbox trigger fired; firmware-update work unblocked
+
+**Single-thread investigation day.** All session work centered on Don's report that JJFlex's `track/flexlib-42` build cannot discover his 6300 on the local LAN. Through four diagnostic build rounds (R1 → R4), each shipping to Don's Dropbox folder with screen-reader-friendly NOTES, the suspect list collapsed from "external environment / firewall / firmware" to a single specific code-level difference: the cancellation-token-aware `UdpClient.ReceiveAsync(token)` variant introduced in FlexLib 4.2.18's Discovery.cs. R4 is in Don's folder waiting for tomorrow morning's run; Noel is bringing up the FLEX-8600 with new firmware tonight as a parallel test surface on his own machine. No code committed today on main; all diagnostic instrumentation lives uncommitted in `track/flexlib-42`'s working tree, which is the deliberate posture for throwaway diagnostics.
+
+### What happened across the day, sequentially
+
+- **R1 (early morning):** First diagnostic build added one trace line before VITA filtering on Don's existing R2-base. Outcome: ambiguous — no `rx pkt` lines in trace could mean "right build, zero packets" OR "stale build, no instrumentation." Lesson surfaced and saved as feedback memory: *always include a non-conditional build-marker line in diagnostic instrumentation*.
+- **R2 (mid-morning):** Added unconditional build marker, NIC enumeration, and bind confirmation. Don's R2 trace was decisive on three points: build verified (marker present 3x), single Ethernet adapter at 192.168.1.21/24 (no virtual junk — confirms clean environment Noel had described), bind succeeds on UDP/4992. But still zero `rx pkt` lines.
+- **Firewall hypothesis (mid-day):** Proposed Windows Firewall path-scoped inbound block, since the test build runs from `C:\Users\Don\jjf-test\` (different exe path than installed JJFlex). NOTES round 3 sent Don an `Allow-an-app` PowerShell one-liner. Don ran it. Trace still showed zero packets. Hypothesis falsified — at least in the form proposed.
+- **R3 (afternoon):** Added a pre-loop SelfTest sending three probes (loopback, NIC-self, limited broadcast) to the bound socket. Don's R3 trace showed all three probes received successfully on every cycle. Socket is fully healthy. Failure has to be either upstream of the socket OR in how the main async receive loop reads from it.
+- **R4 (evening):** Added a 5-second synchronous receive drain after SelfTest, before the main async loop takes over. R4 deployed to Don's Dropbox folder; Don QSY'd to phone for the night, will run R4 tomorrow morning.
+
+### Memory updates today (2 new + 1 rewritten)
+
+- **New:** `feedback_tester_facing_language.md` — for tester-facing artifacts (NOTES files, in-app messages, error dialogs), use ham-operator vocabulary, NOT programmer vocabulary. Allow-list (socket, port, broadcast, firewall, PowerShell, OUI with brief context). Avoid-list (async, await, tokens, .NET version internals, exception type names, code-path-level abstractions). Use radio analogies where they help. Indexed in MEMORY.md under Development Practices.
+- **New (saved earlier this session):** none — the language memory was the primary feedback-rule memory of the day.
+- **Rewritten:** `project_8600_unbox_firmware_trigger.md` — TRIGGER MET. New firmware dropped on/around 2026-04-30. The 8600's reservation is over. Firmware-upload mechanics work is now unblocked sprint scope; Phase 10-11 positive NR provider tests on >6300-class hardware can run; Sprint 28's deferred 3+slice release-all-extras test can be run on the 8600. Original gating note flipped from "do NOT suggest unboxing" to "in active play."
+
+### FlexLib 4.2.18 diff sweep results (autonomous parallel work)
+
+While waiting for Don's R4 trace, ran a complete diff across FlexLib_API/*.cs between main and `track/flexlib-42`. Findings:
+
+- **UDP / discovery / broadcast / multicast usage in FlexLib 4.2.18 lives in EXACTLY ONE FILE: `FlexLib/Discovery.cs`.** No other source file binds to UDP, joins multicast, or touches broadcast. This dramatically narrows suspect surface.
+- **`FlexLib/API.cs` is byte-identical** between main and 4.2.18. `API.Init()` flow has no functional changes that could affect socket state.
+- **`Vita/VitaPacketPreamble.cs`** modernized (BinaryPrimitives.ReadUInt32BigEndian replaces BitConverter+ByteOrder.SwapBytes) but semantically identical — same fields parsed from same byte positions.
+- **`Vita/VitaDiscoveryPacket`** got refactored to inherit from new `Vita/VitaPacketBase.cs`, but parsing semantics preserved; AND this code runs *after* the OUI/class filter, so it's downstream of where Don's silent failure happens.
+- **`FLEX_OUI = 0x1C2D` and `SL_VITA_DISCOVERY_CLASS = 0xFFFF`** — byte-identical between versions. Filter constants unchanged.
+- **`Vita/VitaSocket.cs` is only used by `Radio.cs`** (post-discovery command/data connection). Discovery uses raw `UdpClient`, not VitaSocket.
+
+**Conclusion of the diff sweep:** the bug must be in one of *exactly three places* — the cancellation-token-aware `ReceiveAsync(token)` async machinery, some subtle .NET 10 / Windows runtime interaction with the bound socket, or our race-fix patch (already exonerated by R3's self-test success). R4 disambiguates the first two.
+
+### Fix shape, conditional on R4 outcome
+
+- **R4 outcome A (sync drain receives radio packets):** The fix is one line in our wrapper — replace the `#if NET6_0_OR_GREATER` token-aware `await udp.ReceiveAsync(token)` with the no-token `await udp.ReceiveAsync()` (which is the 4.0.1 pattern that already works). Plus a MIGRATION.md note so future FlexLib upgrades don't re-introduce the token variant. ~15-line patch total.
+- **R4 outcome B (sync drain also sees nothing):** Hypothesis space tightens to .NET 10 runtime / Windows kernel UDP delivery interaction. Next diagnostic is Wireshark from outside the JJFlex process to confirm whether radio broadcasts even reach the NIC. The 8600 bringup on Noel's machine becomes the highest-priority parallel test for this branch.
+
+Discussed but explicitly DEFERRED: firmware-version-gated discovery code paths. The chicken-and-egg problem (you don't know firmware until after discovery succeeds) means firmware-gating belongs in *post-discovery* code paths (where `radio.Version` is known), not in discovery itself. Discovery should always use whichever receive mechanism is most robust. Per `project_chained_updater_pattern.md`, post-discovery firmware-gating composes cleanly with the chained-updater pattern.
+
+### Side benefits opening from the 8600 trigger firing
+
+Listed in the rewritten `project_8600_unbox_firmware_trigger.md`. Highlights:
+- **Firmware-upload mechanics work in JJFlex** is now unblocked sprint scope. Per the original gating spec, it pairs with the unbox event. Sprint 29 firmware-updater scope (`project_sprint29_updater_vision.md`) and the chained-updater pattern (`project_chained_updater_pattern.md`) now have a real test surface end-to-end.
+- **Phase 10-11 positive NR provider tests** on >6300-class hardware are unblocked.
+- **Sprint 28 release-all-extras with 3+ slices** (deferred 2026-04-24) is now runnable on the 8600 (4 slices).
+- **The "older firmware vs. new firmware" axis** of the discovery investigation just gained a real test surface — worth flagging because if the 8600 with new firmware discovers fine while Don's 6300 (probably older firmware) doesn't, the firmware-version-mismatch hypothesis we'd written off may revive in a different form.
+
+### State of artifacts in Don's Dropbox folder (end of day)
+
+`C:\Users\nrome\Dropbox\JJFlexRadio\don\` contains exactly three files:
+- `JJFlex_v4.2.18-test_x64_debug.zip` — R4 build (active diagnostic; same filename as R3 was, R3 contents replaced)
+- `JJFlex_v4.2.18-test_NOTES.txt` — round-5 instructions in ham-operator language (no async/await jargon; uses "two ways to monitor a frequency" analogy)
+- `trace.zip` — Don's R3 trace + auto-connect XML (his last submission, archived to inbox/round4-r3-test/)
+
+Five obsolete files (two large 187+182 MB crash zips from 2026-04-16, one earlier R2 trace zip, one earlier R2 trace txt, one old NOTES copy) cleared with Noel's permission. Recovered ~370 MB.
+
+Investigation paper trail in `docs/planning/inbox/don-trace-418-discovery/`:
+- All four diagnostic build zips archived (R1 → R2 → R3 → R4)
+- All Don's traces archived per round (`round2/`, `round3-firewall-test/`, `round4-r3-test/`)
+- Two extracted XML configs for cross-reference
+- Original NOTES file from R1
+
+### Plan for next session (5/1 morning, or tonight if Noel does the 8600 bringup)
+
+1. **Read 8600 R4 trace from Noel's machine** if he ran the bringup test tonight. Outcome shapes whether we proceed with the receive-mechanism fix or pivot to firmware-version investigation.
+2. **Read Don's R4 trace** when he runs it tomorrow morning. Outcome A → ship the one-line fix as R5 with proper commit on `track/flexlib-42`. Outcome B → pivot to Wireshark capture or .NET runtime investigation.
+3. **If R4 confirms the fix, write the patch commit** with an updated MIGRATION.md note about the receive-mechanism choice. Patch goes on `track/flexlib-42` and unblocks the 4.2.0.x release path.
+4. **AAR for today** lives in `JJFlex-private\after-action-reports\2026\04\2026-04-30.md`, capturing the cross-surface activity that the main-repo's zero-commit day undercounts.
+
+### Rigmeter snapshot — end of 2026-04-30
+
+**Skipping the full grand-totals dump per the docs-only-day rule** — no commits today on main or any active worktree. All diagnostic build instrumentation lives uncommitted in `track/flexlib-42` working tree (intentional throwaway pattern). `rigmeter today` reports 0 commits, 0 lines.
+
+**NAS snapshot:** `\\nas.macaw-jazz.ts.net\jjflex\historical\stats\2026-04-29-425e0ef8.json` — note that the snapshot is anchored to yesterday's seal commit because no commit landed today. This is correct behavior; an AAR-style human-readable record (not rigmeter-visible) is the place where today's investigation work gets captured. 10 historical snapshots tracked.
+
+**Cross-surface activity rigmeter doesn't see:**
+- `track/flexlib-42` working tree: ~150 lines added in `Discovery.cs` (R1 → R2 → R3 → R4 instrumentation, four edit cycles, all uncommitted on purpose)
+- 4 debug builds produced and archived (R1, R2, R3, R4 zips, ~7 MB each in inbox)
+- 4 NOTES file rewrites in Don's Dropbox folder (final one in ham-operator-friendly language)
+- 2 memory file changes (`feedback_tester_facing_language.md` new, `project_8600_unbox_firmware_trigger.md` rewritten)
+- ~10 Don-trace archive operations to investigation paper trail
+- Complete diff sweep across 113 FlexLib source files (output saved to investigation context)
+
+This is exactly the kind of day the AAR convention exists to capture. The main-repo rigmeter's "0 commits, 0 lines" reading is technically correct and substantively misleading.
+
+## 2026-04-30 late-night seal: rarbox provisioned + hardened + Tailscale tailnet-only SSH lockdown (parallel session)
+
+**External-infrastructure stream of today's work.** Ran in parallel to the FlexLib 4.2.18 / Don / 8600 stream above. Stood up Noel's first JJFlex-orbit Hetzner box, hardened it to "production cloud baseline" status, joined it to the `macaw-jazz.ts.net` tailnet, and closed public port 22 entirely so SSH is reachable only over the tailnet. Zero JJFlex code touched; all activity was on rarbox + Tailscale + 1Password + memory files.
+
+### What got built on rarbox (Hetzner Cloud Debian 13 trixie)
+
+- **VPS at 178.156.204.128**, hostname `rarbox`, kernel 6.12.85, fully apt-upgraded.
+- **Account model**: `root` SSH disabled and password-locked from Hetzner image. `ner` (uid 1000, sudo group) created with NOPASSWD via `/etc/sudoers.d/ner`. Both root and ner now password-locked (`!` in /etc/shadow); SSH key auth is the only path in.
+- **Drop-in config files everywhere** (vendor configs untouched, survives `apt upgrade`):
+  - `/etc/ssh/sshd_config.d/50-hardening.conf` — PermitRootLogin no, PasswordAuthentication no, KbdInteractiveAuthentication no, X11Forwarding no, MaxAuthTries 3, ClientAlive timers
+  - `/etc/sudoers.d/ner` — NOPASSWD: ALL (mode 0440, `visudo -c` validated)
+  - `/etc/fail2ban/jail.local` — sshd jail, **`backend = systemd`** (Debian 13 logs to journald only — common gotcha)
+  - `/etc/apt/apt.conf.d/52unattended-upgrades-local` + `20auto-upgrades` — auto-apply security patches, no auto-reboot, daily timer at ~06:10 CDT
+- **UFW final state**: 80/tcp + 443/tcp public (for future nginx); 22/tcp **only on tailscale0 interface**; default-deny incoming. Public port 22 silently dropped. fail2ban already banned 2 IPs (Tanzania, Russia) within 3 minutes of the box going live — real attacks, not theory.
+- **Tailscale 1.96.4** installed via official apt repo, joined the tailnet, tailnet IP `100.68.207.12`, MagicDNS confirmed working at `rarbox.macaw-jazz.ts.net`.
+
+### Cross-machine secret hygiene cleanup
+
+Found seven SSH key files in `C:\Users\nrome\OneDrive\Documents\` (private + public halves of multiple keys, scattered there by SecureCRT's default-save behavior). Moved all to `C:\Users\nrome\.ssh\` with CRLF stripped (SecureCRT's OpenSSH-format export on Windows writes CRLF, breaking OpenSSL's parser — `error in libcrypto`). OneDrive Documents now has zero key files; canonical keystore is `~/.ssh/`. Saved as `feedback_securecrt_crlf_keys.md` so future sessions diagnose this 5-minute confusion in 30 seconds.
+
+### Tailscale DNS surprise diagnosed
+
+After Noel toggled MagicDNS in admin, laptop's NRPT entry for `*.macaw-jazz.ts.net` glitched — `nslookup nas.macaw-jazz.ts.net` failed, SMB to `\\nas.macaw-jazz.ts.net` failed, looked like the NAS had become unreachable. Diagnostic battery (ping by tailnet IP works → network healthy; `Resolve-DnsName` works but `nslookup` doesn't → NRPT-vs-nslookup mismatch; full NRPT dump → forward rule for `.macaw-jazz.ts.net` was actually present, my truncated view had hidden it). Real fix was `tailscale down && tailscale up` to force NRPT re-install; the underlying lesson is that **`nslookup` ignores NRPT on Windows, while every real application respects it** — `Resolve-DnsName` is the trustworthy diagnostic. Operational lore captured in `project_rarbox_hardening.md`.
+
+### 1Password architecture decisions
+
+- Noel chose **single-item layout** for rarbox secrets (consolidate everything into one Hetzner Server item; not three separate Login/Server/SSH-Key items as initially pitched). Memory updated to record this choice so future sessions don't re-pitch the three-item layout.
+- **rarbox SSH key item** also created in 1Password — agent-migration-ready. Private key pasted in, passphrase entered once during import (1Password decrypted and stored; passphrase is now operational-cleanup-only, never needed again for that key once 1Password agent is enabled).
+- **Migration path to 1Password SSH agent** scoped: enable Settings → Developer → Use the SSH agent + per-session config in SecureCRT; eventually delete on-disk private keys entirely. Not done tonight; queued for tomorrow.
+
+### Memory updates today (this session — 2 new + 1 updated)
+
+- **New:** `project_rarbox_hardening.md` — full rarbox config snapshot, account model, drop-in file pattern, NOPASSWD rationale, UFW final state, Tailscale config, 1Password layout choice, DNS troubleshooting toolchain (operational lore), open follow-ups list.
+- **New:** `feedback_securecrt_crlf_keys.md` — `error in libcrypto` symptom = CRLF line endings in OpenSSH-format key from SecureCRT on Windows. `tr -d '\r'` is the fix; `~/.ssh/` is the canonical keystore (not OneDrive).
+- **Updated:** `MEMORY.md` — index entries for both new memories under External Resources / Development Practices.
+
+### Scheduled follow-up agent
+
+`trig_01SCvctNhNV5Eb9EM6Ts19SL` — fires once on **2026-05-14T14:00:00Z (Thursday May 14, 9:00am Memphis CDT)** to surface the open todos. View at https://claude.ai/code/routines/trig_01SCvctNhNV5Eb9EM6Ts19SL. The most-important pending action it'll re-surface is **disabling Tailscale key expiry on rarbox in admin** — without it, rarbox auto-disconnects from the tailnet ~6 months after auth.
+
+### Plan for next session (5/1 morning)
+
+1. **FlexLib stream**: read Don's R4 trace when he runs it tomorrow morning. Outcome shapes whether the receive-mechanism fix is one-line or whether we pivot to .NET 10 / Wireshark investigation. (Per the parallel-session entry above.)
+2. **rarbox stream**: run `~/.ssh/rarbox-key-setup.txt` commands inside an SSH session to rarbox (generate `~/.ssh/rarbox` Ed25519 keypair with passphrase, ssh-agent auto-start in bashrc, ssh-copy-id to NAS, test).
+3. **Tailscale admin** (one-click action): tailscale.com/admin/machines → rarbox → ... menu → Disable key expiry. Most important small todo from today's setup.
+4. **SecureCRT + 1Password agent setup** (when ready): enable agent in 1Password Settings → Developer; per-session SSH2 → Authentication settings in SecureCRT to use external Pageant.
+5. **Save SSH key passphrase** (when generating tomorrow) to 1Password Hetzner Server item as a Concealed field.
+
+### Rigmeter snapshot — end of 2026-04-30 (this session)
+
+**Skipping per docs/infra-only-day rule** (consistent with the parallel FlexLib-investigation entry's reasoning). Zero JJFlex code lines authored this session. All my output landed in: rarbox config files (live on the server, not the repo), 2 new memory files, 1 MEMORY.md index update, this Agent.md entry, the upcoming AAR. Cross-surface activity that rigmeter doesn't see:
+- ~12 config files written/edited on rarbox (sshd_config.d, sudoers.d, jail.local, apt.conf.d, ufw rules)
+- Hetzner VPS provisioned + hardened end-to-end
+- Tailscale 1.96.4 installed + authenticated + tailnet route validated
+- 7 SSH key files migrated out of OneDrive to `~/.ssh/`
+- 1Password Hetzner Server item populated; rarbox SSH Key item created
+- 1 cloud-scheduled agent armed for 2026-05-14
+- 2 NAS backup snapshots fired (memory + private docs)
+
+The AAR captures cross-surface activity from BOTH today's sessions (FlexLib + rarbox).
+
 ## 2026-04-29 evening seal: AAR convention + three handoffs landed (FlexLib 4.2.18 / multi-radio / braille) + rarbox + Netlify + Cloudflare R2 game plan locked + firmware extraction recipe verified
 
 **Strategic infrastructure day.** Three large research arcs reached handoff on parallel branches; the evening session sealed with the rarbox + Netlify game plan that converts the JJ Flexible Data Provider from "Andre's server interim" to a two-tier hosting story Noel controls end-to-end. No production code shipped on main today by design — the day's value lives in parked branches, locked-in decisions, and one infrastructure firm-up.
