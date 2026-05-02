@@ -5,6 +5,51 @@ This document captures the current state of JJ-Flex repository and active work.
 **Repository root:** `C:\dev\JJFlex-NG`
 **Branch:** `sprint28/home-key-qsk` (Sprint 28 substantively complete in code; Sprint 28 wrap items committed; 4.1.17 release-verification matrix in active runtime testing)
 
+## 2026-05-01 evening seal: 1Password SSH agent stood up end-to-end across rarbox + andre + romeyserv; blind-hams-and-solar exploration brief drafted for next phase
+
+**No code on main today; infrastructure + planning day.** Migrated Noel's SSH from passphraseless on-disk `nertop` key to 1Password vault-served keys, with per-host `~/.ssh/config` stanzas constraining each connection to its specific key (avoids the MaxAuthTries-vs-multi-key-agent footgun that bit during bootstrap). Three servers now reachable by short alias from PowerShell ssh AND SecureCRT, both routing through 1Password with biometric/PIN approval per app per unlock window. Wrote five new memory files (two feedback, two project, one reference) capturing today's lessons, plus a separate planning doc that briefs the next phase: a structured exploration of blind-hams-network + solar tooling currently scattered across his WSL + Andre's `3.onj.me` server, with an eye toward migrating the dynamic pieces to rarbox.
+
+### What changed
+
+**SSH stack — laptop side:**
+- 1Password Developer setting "Use the SSH Agent" enabled (single toggle in current 1Password version, no separate system-wide-pipe toggle to flip).
+- Critical lesson surfaced: 1Password reports "running" badge but the `\\.\pipe\openssh-ssh-agent` named pipe doesn't actually bind until 1Password is fully QUIT from system tray and relaunched. Closing the window isn't enough — pipe binds at process startup of the long-lived tray process.
+- Windows OpenSSH `ssh-agent` service set to **Disabled** (so 1Password owns the standard pipe; otherwise they'd race).
+- `VANDYKE_SSH_AUTH_SOCK = \\.\pipe\openssh-ssh-agent` env var set User-scope so SecureCRT delegates agent ops to the 1Password pipe.
+- SecureCRT Global Options → SSH2: identity file field cleared (the hint text "(when blank, keys in the SSH Agent are tried)" is the agent fallback).
+- Two new ed25519 keys generated in 1Password vault: `nertop-1pw` (Noel's main client identity, used on rarbox + romeyserv) and `andre-1pw` (used only on 3.onj.me — the "exercise" key from when we walked through one-key-per-server compartmentalization before realizing it's enterprise overkill for personal infra).
+- Five orphan SSH keys (old 1Password experiments that never got working) deleted from vault. Agent now serves exactly one key per connection request.
+- `~/.ssh/config` populated with three host stanzas (andre, rarbox, romeyserv) each pinning `IdentityFile` + `IdentitiesOnly yes` to constrain offerings.
+- Two pubkey files on disk: `C:\Users\nrome\.ssh\nertop-1pw.pub` and `andre-1pw.pub`. These are the indirection layer ssh uses to identify which agent-served key to ask for; private halves never touch disk.
+
+**SSH stack — server side:**
+- rarbox (`rarbox.macaw-jazz.ts.net`): `nertop-1pw.pub` appended to `~ner/.ssh/authorized_keys`.
+- 3.onj.me as `ner` (Andre's server): `andre-1pw.pub` appended to `~ner/.ssh/authorized_keys`.
+- `nas.macaw-jazz.ts.net` as `ner` (romeyserv/NAS): `nertop-1pw.pub` appended to `~ner/.ssh/authorized_keys`.
+- Old `nrome@nertop` pubkey (the on-disk passphraseless key) is still authorized on all three. Soak-week plan: retire after confidence builds; scheduled remote agent set up to draft a retirement checklist 2026-05-08 (see below).
+
+**Repo work:**
+- New planning doc: `docs/planning/blind-hams-and-solar-exploration/README.md`. Captures the next phase brief — Noel's blind-hams-network site (Jekyll, repo `nromey/bh-network`, hosted at `data.blindhams.network` via Andre's `3.onj.me`), the solar tooling (Python wrapping IRI Fortran, generates reports an ElevenLabs voice reads on AllStar), the long-standing vision for a location-aware accessible propagation site (which doesn't currently exist anywhere — PSK-reporter's map is image-only and unreadable to screen readers), and a structured exploration plan with explicit deliverables (inventory.md, categorization.md, migration-plan.md, questions-for-noel.md, risks.md). Pre-decision: hybrid execution path — autonomous overnight subagent for mechanical inventory, interactive morning session for migration-plan judgment.
+
+### Memory updates today (5 new + index)
+
+- **feedback** `feedback_read_hardening_memory_first.md` — when a host has a `project_*_hardening.md` memory entry, READ it before issuing commands. Counters today's miss where I used the public IP for rarbox despite the Tailscale-only lockdown being in both the most recent commit message AND the rarbox hardening memory.
+- **feedback** `feedback_match_threat_model_not_textbook.md` — ask threat model before recommending compartmentalization; for personal infra, one key per laptop is usually enough. Counters today's over-architecting of the one-key-per-server pattern.
+- **project** `project_1password_ssh_setup.md` — full live state of the 1Password SSH setup as of 2026-05-01. Two keys, three host stanzas, env vars, gotchas, and the not-yet-done rarbox-as-server-outbound work referencing the existing `rarbox-key-setup.txt`.
+- **reference** `reference_1password_securecrt_setup_windows.md` — replicate-on-new-machine quick reference. Env var, SecureCRT settings, 1Password developer settings, the tray-quit-relaunch gotcha, the MaxAuthTries pattern, the bootstrap command shape with `IdentitiesOnly=yes` + `IdentityAgent=none` + `StrictHostKeyChecking=accept-new` flags.
+- **project** `project_blind_hams_solar_context.md` — strategic context for the blind hams + solar work. The "no other accessible propagation site exists" framing is load-bearing for prioritization decisions in the upcoming exploration phase.
+- MEMORY.md index updated with all five entries under appropriate sections (External Resources for the project + reference 1Password entries; Development Practices for the two feedback entries).
+
+### Scheduled remote agent
+
+- Created routine `trig_01PXBVXN45AzoScPg7qCdEk1` ("On-disk nertop SSH key — soak checkpoint") via `/schedule`. Fires once at 2026-05-08T13:00:00Z (Friday, 8am Central) on the standard env. Job: open a PR with `nertop-retirement-checklist.md` containing pre-flight verification commands, local file deletion commands, per-server pubkey cleanup steps, and rollback plan. Self-contained prompt (remote agent has no local access — can't ssh, can't read memory). Noel reviews PR + executes manually.
+
+### What's set up for tomorrow
+
+- Sleep on the blind-hams-and-solar brief at `docs/planning/blind-hams-and-solar-exploration/README.md`.
+- Re-read in the morning fresh; if it captures intent, kick off Path 3 hybrid (autonomous mechanical inventory subagent + interactive afternoon migration plan).
+- Decision pending: whether to install Claude Code in WSL or just shell into WSL via `wsl <command>` for the inventory phase. Brief recommends Option A for this exploration; defer the WSL install to a separate session.
+
 ## 2026-04-30 evening seal: Don's 4.2.18 silent-discovery bug narrowed across four diagnostic rounds; FLEX-8600 unbox trigger fired; firmware-update work unblocked
 
 **Single-thread investigation day.** All session work centered on Don's report that JJFlex's `track/flexlib-42` build cannot discover his 6300 on the local LAN. Through four diagnostic build rounds (R1 → R4), each shipping to Don's Dropbox folder with screen-reader-friendly NOTES, the suspect list collapsed from "external environment / firewall / firmware" to a single specific code-level difference: the cancellation-token-aware `UdpClient.ReceiveAsync(token)` variant introduced in FlexLib 4.2.18's Discovery.cs. R4 is in Don's folder waiting for tomorrow morning's run; Noel is bringing up the FLEX-8600 with new firmware tonight as a parallel test surface on his own machine. No code committed today on main; all diagnostic instrumentation lives uncommitted in `track/flexlib-42`'s working tree, which is the deliberate posture for throwaway diagnostics.
