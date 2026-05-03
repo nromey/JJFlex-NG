@@ -1,0 +1,60 @@
+JJFlex 4.2.18 Discovery Diagnostic Build
+Date: 2026-04-30
+For: Don's local-LAN-discovery investigation
+Built from: track/flexlib-42 worktree, app version 4.1.16.0, FlexLib 4.2.18
+
+What this build is
+==================
+This is the same FlexLib 4.2.18 test build Don already has, with one
+diagnostic patch added to Discovery.cs. The patch logs every UDP packet
+that arrives at the discovery socket BEFORE any filtering, so we can tell
+the difference between:
+
+  (a) "no packets reach the socket" (interface/network-stack issue)
+  (b) "packets arrive but get rejected" (VITA validation issue, possibly
+      tied to firmware-level packet shape changes)
+  (c) "packets accepted but radio not added to list" (downstream issue)
+
+Nothing else is changed. Same binding code, same filter constants, same
+VITA preamble parser, same race-fix patch. Pure non-invasive instrumentation.
+
+What Don should do
+==================
+1. Close any currently-running JJFlex test build.
+2. Replace JJFlexRadio.dll (and ideally the whole bin folder) with the
+   contents of JJFlex_4218-discovery-diagnostic_x64_debug.zip.
+3. Make sure BootTrace = True is set in his JJFlex config (it already is
+   based on the prior trace).
+4. Launch JJFlex as he normally would; let auto-connect attempt fail
+   (it will, same as before — that's expected).
+5. Exit JJFlex.
+6. Send back JJFlexRadioTrace.txt from %AppData%\JJFlexRadio\.
+
+What to look for in the new trace
+=================================
+Within the 10-second discovery window, every UDP packet that hits port 4992
+will produce a "Discovery: rx pkt len=... from=..." line. If any of those
+also produce a "Discovery: rx VITA OUI=... pktType=... classCode=..." line,
+the packet was Flex-shaped enough to reach the validation step. If the
+packet is then filtered, you'll see "Discovery: rx VITA filtered (...)".
+
+Three possible outcomes:
+
+  - Zero "rx pkt" lines     -> packets aren't reaching the socket at all.
+                               Suspect: API.Init / .NET stack interaction
+                               specific to 4.2.18, or interface routing.
+
+  - "rx pkt" lines but all  -> packets reach the socket but VITA filtering
+    "rx VITA filtered"          rejects them. Suspect: firmware-level
+                                packet-shape change between vendor releases.
+                                This is the case where Flex's "upgrade
+                                firmware" guidance has actual technical
+                                substance.
+
+  - "rx VITA accepted"      -> packets reach AND pass validation, so the
+    lines but myRadioList       silent failure is somewhere downstream
+    still 0                     in ProcessVitaDiscoveryDataPacket or
+                                myRadioList plumbing.
+
+After the answer comes back, the patch is removed (nothing here belongs
+in any release build).

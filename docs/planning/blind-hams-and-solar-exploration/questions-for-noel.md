@@ -1,0 +1,372 @@
+# Questions for Noel
+
+Drafted by the autonomous exploration agent (2026-05-02) after reading
+both surfaces. Each question has the question itself, why it's
+blocking the plan, and the **default assumption** the migration plan
+will encode if you don't answer. The plan as written today uses these
+defaults, so it's already actionable — but answers will sharpen it.
+
+Per drafting tip in `for-noel/README.md`: leave a blank line after each
+question so your `**** ` answers can't run together.
+
+---
+
+## Q1 — Source-of-truth flow for `_data/nets.json` after migration
+
+Today, the bhn-nets-helper writes `~/bhn/_data/nets.json` directly on
+Andre's box, and the publisher's `git pull --ff-only` step (which
+would *overwrite* the helper's local edits with whatever's in
+GitHub) is silently failing with "Host key verification failed" — so
+the helper's edits stay put and slowly diverge from GitHub. The WSL
+copy of `~/bhn/_data/nets.json` is therefore stale relative to
+Andre's.
+
+After migration, which flow do you want?
+
+  **** This would require some coding to fix but I think that it works best. Since netlify uses gihub to publish teh site, we probably should puiull from github, that's my though initially at least, probably should go with something. Also, I just want to be confident of the publisher working, I made a misttake in saying, don't puglish to the page until we set the web page up, in hindsight I should have just set it up to publish to the site and then fix it via the normal publishing route later if it's screwed up. I also talked with Claude earlier about using cloudflare's r3 service (object sotorage) or use netlify's but I'm more lookin at cloudflare. We need to use it to store firmware to distribute it so we don't have to use a huge installer, so use object storage connected to a cdn to distribute it worldwide. Claude said that we can tune some of the storage so for somee of the net json files and teh 12 week one, we use object storage with a 60 second ttl and it's copied, especially being a small file, so it gets delivered quickly. Then we're not relying on the data server to do it and we can serve the page's dynamic content from rarbox or roarbox depending on computational requirements.
+  (a) Publisher pulls from GitHub on every cron tick. Helper commits
+      and pushes to GitHub when an admin approves a net (the
+      `BHN_NETS_AUTO_PUSH=1` env flag in the helper unit, currently
+      `0`). GitHub remains source of truth. Requires SSH deploy key
+      on rarbox + git author identity for the helper user.
+  (b) Helper writes locally to rarbox; periodic sync to GitHub via a
+      separate cron (`*/15 git add _data/ && git commit -m "..." &&
+      git push`). Less coupled to per-edit flow but commits are
+      coalesced.
+  (c) Same broken arrangement as today (auto-push disabled, helper
+      writes locally, you manually push from your laptop). Simple
+      but invites WSL/rarbox divergence again.
+
+**Why blocking:** affects Phase 2 of migration plan.
+
+**Why I'm asking:** the current arrangement is broken (publisher's
+`git pull` has been failing for weeks). Picking a clean flow now
+prevents carrying that broken assumption forward.
+
+**Default assumption if you don't answer:** Option (a). It's the
+cleanest separation between "who can edit" and "what's authoritative."
+
+---
+
+## Q2 — Where's the `requirements.txt` for the publisher venv?
+
+**** Path is /home/ner/bhn/tools/nets-helper/requirements.txt in WSL,
+**** committed to nromey/bh-network on GitHub. Contents are:
+****   Flask==3.0.2
+****   PyYAML==6.0.1
+**** Provisioning rarbox venv from this file is the right call —
+**** no need to reverse-engineer from Andre's box.
+
+`/opt/bhn/bin/.env` is a Python 3.12 venv on Andre but I didn't find a
+`requirements.txt` documenting what's installed in it. The publisher
+scripts mostly stick to stdlib (urllib, json) but some import `yaml`.
+Migration is cleaner if I rebuild the venv on rarbox from a pinned
+list rather than copying a venv directory across boxes.
+
+**Why blocking:** affects Phase 2; without a known requirements list
+I have to either reverse-engineer it (`pip freeze` from the existing
+venv) or risk a mismatch.
+
+**Why I'm asking:** establishing a `requirements.txt` is a one-time
+reverse-engineering job from `/opt/bhn/bin/.env/lib/python3.12/site-packages/`,
+or `pip freeze` from inside the venv. Cheap; just need permission to
+do it.
+
+**Default assumption if you don't answer:** During Phase 2 execution,
+the agent runs `pip freeze` inside the existing venv on Andre (this
+is read-only — `pip freeze` does not modify), saves the output as
+`/opt/bhn/requirements.txt`, commits it to the repo (or to a
+provisioning-only repo if Noel prefers), and uses it to build the
+rarbox venv.
+
+---
+
+## Q3 — Where does the AllStar voice integration live?
+
+The brief mentions "an ElevenLabs-voiced solar report script that
+AllStar consumes." On Andre's box I found:
+
+**** This was generated by my friend Patrick manually from a different source. When we get it going, it'll probably get generated on roarbox's 40 cores. This is not blocking, because right now, all we generate is the text that the 11 labs voice would speak, the generation, we'll worry about later.
+- `/var/www/data/solar_voice.txt` — plain text, refreshed every 10 min
+- `/opt/bhn/scripts/build_solar_json.py` — generates the text
+- No ElevenLabs API key, no audio file, no TTS code, no AllStar
+  config
+
+So the audio path is on a third surface I don't have visibility into.
+Possibilities:
+
+  (a) An AllStar node that polls `solar_voice.txt`, runs its own TTS
+      locally, and plays the result. ElevenLabs runs there.
+  (b) A separate VPS / home server that polls `solar_voice.txt`,
+      calls the ElevenLabs API, generates an MP3, and serves it to
+      AllStar.
+  (c) Something else.
+
+**Why blocking:** at Phase 6 cutover, DNS flips and the
+`solar_voice.txt` URL briefly resolves through the new host. If the
+AllStar consumer caches HTTPS connections aggressively or has TLS
+pinning to Andre's cert, it could break for a few minutes during
+cutover. We need to know what's polling so we can warn it.
+
+**Why I'm asking:** to write a non-disruptive cutover plan, I need to
+know who reads `solar_voice.txt` and how.
+
+**Default assumption if you don't answer:** the consumer pulls
+`https://data.blindhams.network/solar_voice.txt` over public DNS
+without TLS pinning, retries on failure, and a brief unavailability
+during cutover is tolerable. (Plan accommodates a brief blip; an
+audible glitch at the next net is acceptable.)
+
+---
+
+## Q4 — The `andrel` SSH alias
+
+`~/bhn/scripts/pull_opt_bhn.sh` does `ssh ner@andrel`, but my WSL
+session has no `~/.ssh/config` defining that alias. Where does
+`andrel` resolve from? Possibilities:
+**** This is anre's main web server we were using at one point andrel.andreouis.com I have a login on there, I'm not sure what we have there now but I can log on with andrel if we need. I don't think that's necessarily important for this at this time. If it is, I can get at andrel.
+  (a) From a different machine (your other dev box) where the
+      `~/.ssh/config` does have it.
+  (b) From an older WSL session whose config got blown away.
+  (c) The script is currently broken and you've been pulling tarballs
+      a different way.
+
+**Why blocking:** not blocking the migration directly, but useful for
+understanding how Noel currently pulls publisher backups. After
+migration, the script becomes obsolete (rarbox is the new source of
+truth and is git-owned).
+
+**Why I'm asking:** if the script's been broken, we can just delete
+it during the migration cleanup. If it works elsewhere, it should be
+adjusted to use `rarbox` post-migration.
+
+**Default assumption if you don't answer:** the script is dormant /
+broken, and we delete it as part of the post-migration cleanup
+(documented in Phase 8 followups).
+
+---
+
+## Q5 — Which CORS origin do you want on the rarbox vhost?
+
+Today there's an inconsistency on Andre's box:
+**** II'm not sure where or how we set that up. Right now, we go to www.blindhams.network and it pulls from netlify, it uses stuff from data.blindhams.network on andre's box. Both www.blindhams.network, and blindhams.network are now netlify based. I think this cores is based on old data we used when it wasn't hooked into netlify. Does that make sense whatsoever?  I don't know what the right aanswer is for this, all I can tell you is how it's supposed to work and why it's set up now the way it is. Probably not how I want rarbox set, especially if we use somee stuff on cloudflare for r3 object storage. Either way we will have some data coming from rarbox or roarbox depending, and it should respond to data with a core of www.blindhams.network (I think that's what you are asking). I'm not 100% clear on how all that works, codex did not explain so we may nee3d to just set it up the way it makes sense as we set it up.
+- HTTP (port 80) listener uses `Access-Control-Allow-Origin: *`
+- HTTPS (port 443) listener uses
+  `Access-Control-Allow-Origin: https://www.blindhams.network`
+- And the version in `sites-available/` (which is NOT the
+  enabled one) has `Origin: https://www.blindhams.network` for both.
+
+Three options for rarbox:
+
+  (a) Match Andre's enabled config: HTTP=`*`, HTTPS=scoped.
+      Argument: HTTP shouldn't really be hit anyway (HTTPS-only via
+      Strict-Transport-Security), and `*` is a permissive default
+      for any test/dev caller.
+  (b) Scope both to `https://www.blindhams.network`. Cleanest. But
+      breaks any test/dev caller hitting HTTP, and breaks any other
+      site you might want to consume the data from.
+  (c) Open to `*` for both, since the data is public anyway. Simplest.
+
+**Why blocking:** affects Phase 1 nginx config.
+
+**Why I'm asking:** the current Andre config looks unintentional
+(the diverged `sites-available/` vs `sites-enabled/` files suggest
+someone made a change one place and not the other). Worth nailing
+down.
+
+**Default assumption if you don't answer:** Option (c) — `*` for
+both. The data is public; CORS scoping isn't a security boundary,
+just a courtesy. Simpler is better.
+
+---
+
+## Q6 — Should the bhn-nets-helper notification target stay on public ntfy.sh?
+
+*** We did not set up a ntfy local because there are problems wiuth ios notification if you do this. I think you can fix it, but at the time we couldn't. If you can figure out how to get ios notification pushes to happen locally, AI think you have to route it somewhere as a forward or something, the plan was to set something up locally on data.blindhams.network. We needed *sopmething* to work though so just used public ntfy.sh
+The systemd unit has `BHN_NTFY_ENDPOINT=https://ntfy.sh` and
+`BHN_NTFY_TOPIC=bh-nets-helper` with `BHN_NTFY_TOKEN` commented out.
+That means the notification topic `bh-nets-helper` is **public** —
+anyone subscribing to that topic name can read submission contents.
+
+Three options:
+
+  (a) Set a token on `ntfy.sh` (paid tier, private topic).
+  (b) Switch to a self-hosted ntfy instance.
+  (c) Switch to a different mechanism: email to Noel, Telegram bot
+      (the TODO mentions this as a future thing), Slack webhook,
+      etc.
+  (d) Leave it public. The submissions aren't sensitive — they're
+      net suggestions, name + frequency + mode + description. If a
+      stranger reads them, no harm done.
+
+**Why blocking:** sets the migration's privacy posture for
+notifications.
+
+**Why I'm asking:** the JJ Flex no-phone-home principle pushes toward
+not silently carrying forward a public-by-default external service.
+But for net suggestions specifically, "public" is not necessarily
+wrong.
+
+**Default assumption if you don't answer:** Option (d) — keep public
+ntfy.sh. The submission data is genuinely public-friendly. Document
+in the plan that this was an explicit choice, not an oversight.
+
+---
+
+## Q7 — IRI/GIRO research: stay on Andre, or move?
+
+The IRI Fortran binary, the GIRO comparison cron, and the daily MUF
+CSVs all live on Andre and don't have a public surface yet. The brief
+mentions a future location-aware solar website, and your 40-core
+build host coming online to support tighter grid resolution.
+
+Three options:
+**** B because we need to be able to run the iri stuff on rarbox and roarbox if, for example,  roarbox power is lost, then we can run a scheduled solar calculation that's not as resolved as we can get it on roarbox, maybe at the current resolution as we have it now. It tok like 30 minutes to run it as is on Andre, we'll have to test on roarbox manually when we get it over and same on rarbox. Also can test running a calc per user i.e. set up an API and have it give values based on location. Then we don't have to run a resolution calculation. The idea was that we set up this map because running it with static allows us to get results very very quickly vs. having to call an api and thus move more to a non static site. Some stuff will run on our local servers, but this was what we had. I know solar code is not at all advanced because I wanted to wait until I had real horsepower for calculations and maybe even interpretation and explanation. Lots and lots to do on blind hams solar still.
+  (a) Stay on Andre as research-state. Andre stays online for blind
+      hams-related research even after the data feeds move to
+      rarbox. (Coordinates with Andre — does he mind hosting
+      research that's not user-facing?)
+  (b) Move to rarbox now alongside the publishers. One-stop
+      consolidation. Andre's box can be fully decommissioned.
+  (c) Skip rarbox entirely for the research compute and target the
+      40-core box directly when it's online.
+
+**Why blocking:** affects Phase 4 of the migration plan.
+
+**Why I'm asking:** moving 148 MB of historical CSVs and a Fortran
+binary that's currently failing to fetch GIRO data (HTTP 503 from
+DIDBase) is non-zero work for compute that has no user-facing
+purpose yet. Rarbox is also probably the wrong target if the goal is
+40-core compute.
+
+**Default assumption if you don't answer:** Option (c). Phase 4 is
+"defer until the 40-core host is online." Andre keeps the GIRO cron
+running in the meantime; nothing needs to move during this
+migration.
+
+---
+
+## Q8 — Andre coordination — who initiates?
+
+The brief said "leave Andre's setup running for a soak window, then
+archive/remove. Coordinate with Andre." The exploration agent is
+read-only and didn't initiate that conversation — but the migration
+plan assumes Andre is told.
+
+**** No coordination is needed with Andre, I told him already, he said leave it on as long as you need, no big deal, I'd like to move it off though when we can, but no rush. We don't use hardly any resources on his box. As long as his jamulus server runs right, he doesn't care. I manage all his onj.me servers,. there are like 5.
+Specifically, the plan needs Andre to know:
+
+  - That a migration is being planned (give him a heads-up).
+  - That on date X, DNS will move (so he understands the traffic
+    drop in his logs).
+  - That after the soak window, you'll coordinate with him on
+    decommission steps (what gets removed, what stays).
+  - That his box's other services (his personal site at
+    `https://3.onj.me`, the unidentified ports 8000/9000/13884) are
+    untouched throughout — the agent has been read-only on his
+    server and the migration won't touch anything outside the bhn
+    paths.
+
+**Why blocking:** Phase 6 cutover and Phase 8 decommission both
+involve Andre's knowledge.
+
+**Why I'm asking:** the agent shouldn't initiate this conversation;
+it's a relationship thing. Just confirming you've got it on your
+list before Phase 6.
+
+**Default assumption if you don't answer:** the migration plan
+assumes Noel notifies Andre at the start of Phase 5 (one week before
+DNS cutover) and again at Phase 8 for decommission coordination.
+
+---
+
+## Q9 — `~/bhn/_ChatGPT/` directory — keep or delete?
+
+**** Delete, get the info you need from it i.e. memories, thing it might have that could help you. Also if it doesn't take up too much space, we could leave it, especially if it's in my folder. I have 80 gb space on rarbox, 1 tb or more on roarbox. This doesn't matter.
+WSL `~/bhn/_ChatGPT/` is a 32 KB directory with two subdirs.
+Looks like ChatGPT-generated scaffolding files (couldn't tell exactly
+without reading them, which is fine — read-only inventory).
+
+Probably noise but worth a one-line confirmation.
+
+**Why blocking:** not blocking — purely cleanup.
+
+**Default assumption if you don't answer:** keep it. Cleanup is a
+separate concern from migration, and unfamiliar dirs in your repo
+might be load-bearing in ways the agent can't see.
+
+---
+
+## Q10 — `/opt/bhn_untracked_backup/` and `/opt/scripts/` — keep, archive, or delete?
+
+****Probably archive, these were used to test and we could still do that, but the changes we make should all spur from github as truth. If we need to use flask, we can later and we can re-create. Not much space taken up here.
+Both look like older snapshots/scaffolding from publisher setup, not
+currently used:
+
+  - `/opt/bhn_untracked_backup/` — has `bhn_opt.tar.gz` (6.4 KB,
+    2025-10-09), a `build_next_nets.py` from 2025-10-09, and a file
+    literally named `ner@3.onj.me`.
+  - `/opt/scripts/` — older versions of `build_*.py` files,
+    superseded by `/opt/bhn/scripts/`.
+
+**Why blocking:** not blocking the migration. They DON'T need to come
+along. Question is just whether to leave Andre's copies alone or
+ask Andre to remove them at decommission.
+
+**Default assumption if you don't answer:** leave them alone on
+Andre. Andre's decommission step in Phase 8 includes "audit
+`/opt/bhn*`" which will surface them naturally.
+**** Andre could care l;ess about thise files. If we're moving them over to rarbox, then I'd delete them on onj and only keep my files on here that I was messing around with other stuff not related to this or any other project.
+
+---
+
+## Q11 — Tmpfile-leak fix: surgical or rewrite?
+**** rewrite. THis is messy
+
+The publisher leaves zero-byte tmpfiles in `/var/www/data/` whenever a
+cron tick fails (currently 2,045 of them). The migration plan
+proposes fixing this with a `trap 'rm -f' EXIT` in the shell wrappers.
+Alternatively, the wrappers could be replaced with the python scripts
+writing to a tempfile + `os.replace()` directly, eliminating the
+shell layer.
+
+  (a) Surgical fix: just add the `trap`. Minimal change, easy to
+      review.
+  (b) Rewrite: collapse `build_bhn_12w.sh` and `build_next_nets.sh`
+      into the Python scripts themselves. Cleaner long-term but
+      bigger diff.
+
+**Why blocking:** not blocking. Phase 2 just picks one.
+
+**Default assumption if you don't answer:** Option (a). Migration
+isn't the right time to refactor; just plug the leak.
+
+---
+
+## Q12 — Are there any data shapes the new infra MUST not change?
+
+**** There are no other downstream consumers that use this. It's all our stuff.
+I can promise the migration preserves the current JSON shapes
+exactly — same keys, same values, same casing, same ordering (the
+publisher uses `jq -S .` for stable key ordering, so byte-for-byte
+identity is achievable). I don't *plan* to change anything.
+
+But: are there downstream consumers I don't know about that would
+break if anything changed? E.g.:
+
+  - The AllStar voice consumer reading `solar_voice.txt`.
+  - Any other ham-radio integration polling `solar.json` for its own
+    purposes.
+  - PSK reporter or similar consuming the data feeds.
+  - Anything else.
+
+**Why blocking:** the plan promises non-breaking migration. Knowing
+about downstream consumers helps verify that promise.
+
+**Default assumption if you don't answer:** the only known consumers
+are (1) the Jekyll site's hydration JS and (2) the AllStar
+solar-voice piece. The migration preserves both.
+
+---
+
+End of questions.

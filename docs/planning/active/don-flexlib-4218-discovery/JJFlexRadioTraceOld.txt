@@ -1,0 +1,103 @@
+477 [T2] Boot Tracing on instance:1 C:\Users\Don\jjf-test\JJFlexRadio.dll 4.1.16.0 4/30/2026 8:49:56 AM level=Info
+477 [T2] GetConfigInfo:C:\Users\Don\AppData\Roaming\JJFlexRadio
+481 [T2] KeyCommands new()
+488 [T2] keyTableToDefault(False)
+488 [T2] SetValues:AllKeys False
+499 [T2] SetValues:AllKeys False
+501 [T2] KeyCommands:SmartMerge: SpeakFrequency default changed F, Control -> F, Shift, Control, updating
+501 [T2] KeyCommands write
+505 [T2] KeyCommands:merged new item:ShowHelp None
+505 [T2] KeyCommands:merged new item:SmeterDBM None
+505 [T2] KeyCommands:merged new item:ShowMemory None
+506 [T2] KeyCommands:merged new item:CycleContinuous None
+506 [T2] KeyCommands:merged new item:LogFileName None
+506 [T2] KeyCommands:merged new item:LogMode None
+506 [T2] KeyCommands:merged new item:LogRig None
+506 [T2] KeyCommands:merged new item:LogAnt None
+506 [T2] KeyCommands:merged new item:StartScan None
+506 [T2] KeyCommands:merged new item:SavedScan None
+506 [T2] KeyCommands:merged new item:ShowMenus None
+506 [T2] KeyCommands:merged new item:LogStats None
+506 [T2] KeyCommands:merged new item:RemoteAudio None
+506 [T2] KeyCommands:merged new item:AudioSetup None
+506 [T2] KeyCommands:merged new item:GatherDebug None
+506 [T2] KeyCommands:merged new item:ATUMemories None
+506 [T2] KeyCommands:merged new item:Reboot None
+506 [T2] KeyCommands:merged new item:TXControls None
+506 [T2] KeyCommands:merged new item:SpeakTXFilter None
+506 [T2] KeyCommands:merged new item:ToggleMeterTonesGlobal None
+506 [T2] KeyCommands:merged new item:MuteSlice None
+506 [T2] KeyCommands write
+512 [T2] ValidateKeyBindings: all bindings clean, no conflicts
+513 [T2] PersonalData new(C:\Users\Don\AppData\Roaming\JJFlexRadio)
+528 [T2] SetCurrentOp(Donald Breda,0)
+532 [T2] NewLog:JJRadio JJRadio
+532 [T2] Logs.Done
+533 [T2] newLoginInfo:JJRadio
+534 [T2] LogClass setup:
+536 [T2] MainWindow.SetupOperationsMenu: rebuilding menus
+537 [T2] ConfigW2:True
+537 [T2] W2:C:\Users\Don\AppData\Roaming\JJFlexRadio\w2.xml
+538 [T2] Serial
+538 [T2] Config.Read
+539 [T2] StationName:wa2iwc
+540 [T2] ApplyUIMode: Modern
+551 [T2] TryAutoConnectOnStartup: attempting 6300inshack
+553 [T2] AllRadios constructor
+554 [T2] Flex constructor
+554 [T2] setFlexTunerTypeNotAuto:manual
+558 [T2] TryAutoConnect: BEGIN 6300inshack (1315-4176-6300-7236), remote=False, timeout=10000ms
+559 [T2] TryAutoConnect: starting local discovery (0ms)
+559 [T2] LocalRadios
+559 [T2] apiInit:True
+566 [T2] TryAutoConnect: waiting for radio serial 1315-4176-6300-7236 in myRadioList (8ms)
+Discovery.Receive: task started (udp=set)
+10627 [T2] TryAutoConnect: radio serial 1315-4176-6300-7236 NOT FOUND within 10000ms. myRadioList has 0 radios (10068ms)
+10627 [T2] TryAutoConnectOnStartup: failed, showing dialog
+32168 [T2] FlexBase.Dispose:True
+32170 [T2] AllRadios constructor
+32170 [T2] Flex constructor
+32170 [T2] setFlexTunerTypeNotAuto:manual
+32170 [T2] TryAutoConnect: BEGIN 6300inshack (1315-4176-6300-7236), remote=False, timeout=10000ms
+Discovery.Receive: task exited cleanly
+32170 [T2] TryAutoConnect: starting local discovery (0ms)
+32170 [T2] LocalRadios
+32170 [T2] apiInit:True
+Discovery.Receive: task started (udp=set)
+32171 [T2] TryAutoConnect: waiting for radio serial 1315-4176-6300-7236 in myRadioList (1ms)
+42249 [T2] TryAutoConnect: radio serial 1315-4176-6300-7236 NOT FOUND within 10000ms. myRadioList has 0 radios (10079ms)
+42249 [T2] FlexBase.Dispose:True
+Discovery.Receive: task exited cleanly
+42252 [T2] AllRadios constructor
+42252 [T2] Flex constructor
+42252 [T2] setFlexTunerTypeNotAuto:manual
+42279 [T2] LocalRadios
+42279 [T2] apiInit:True
+Discovery.Receive: task started (udp=set)
+80390 [T2] FlexBase.Dispose:True
+Discovery.Receive: task exited cleanly
+80391 [T2] OpenTheRadio:rig's open failed
+80393 [T2] InitializeApplication: complete
+80397 [T2] NativeMenuBar.ApplyUIMode: Modern
+80406 [T2] NativeMenuBar.ApplyUIMode: Modern complete, 50 items
+80557 [T2] MainWindow_Loaded: starting init
+80557 [T2] MainWindow_Loaded: init complete
+91568 [T2] DoCommand:00010000
+91569 [T2] DoCommand:00010010
+93023 [T2] DoCommand:00000046
+93023 [T2] DoCommand:key not found:F
+93024 [T2] DoCommand:00000046
+93024 [T2] DoCommand:key not found:F
+94223 [T2] DoCommand:00040000
+94224 [T2] DoCommand:00040012
+94400 [T2] DoCommand:00040073
+94400 [T2] DoCommand:key not found:F4, Alt
+94400 [T2] DoCommand:00040073
+94400 [T2] DoCommand:key not found:F4, Alt
+94401 [T2] MainWindow.RequestShutdown: starting shutdown
+94405 [T2] Logs.Done
+94405 [T2] CloseTheRadio
+94410 [T2] W2 Dispose:True
+94410 [T2] Serial.close
+94411 [T2] exit:screen saver set:False
+94411 [T2] End.

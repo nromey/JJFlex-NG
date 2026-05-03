@@ -1542,3 +1542,51 @@ Wired RNNoise and spectral subtraction into the live RX audio path:
 
 ### Cleanup
 - Delete `FlexLib_API_v4.1.5.39794/` folder (already integrated into FlexLib_API, untracked)
+
+## End-of-day seal — 2026-05-02
+
+**Theme:** Foundation day. Heavy on planning, design review, and investigation; light on JJFlex-NG repo code change. Substantial activity across parallel surfaces (memory store, blind-hams worktree, Andre's server, GitHub Actions, multi-radio worktree).
+
+### Major outcomes
+
+1. **Inbox/outbox protocol refactored** to `for-noel/` and `for-claude/` (folder names answer "who acts next?"). Priority subfolder convention added. Saved as `feedback_batch_big_questions_to_for_noel.md`.
+
+2. **Blind hams + solar autonomous WSL agent run completed.** 5 deliverables produced (inventory, categorization, migration-plan, questions-for-noel, risks). Major reframe: Andre's box is JUST a data broker (5 files), Jekyll site is on Netlify. Drift investigation followed: Andre is AHEAD of WSL by 4 commits (WSL is the stale clone). Migration plan addendum captures revised three-tier architecture (R2 + rarbox + roarbox) with warm-spare DNS failover. Q11 rewrite ships as the structural fix for the 502 + tmpfile leak.
+
+3. **5 priority design pulls processed** in priority batch:
+   - Chained updater pattern (ACK + second-instance candidates: drivers/NVDA add-ons/brailleElement)
+   - JJ Radio folding (ACK + concrete user-need surfaced: read/change radio menus + save favorites — first-class feature inheriting from JJ Radio)
+   - Tuning unity (ACK + Don's external-speakers accessibility constraint captured)
+   - RIT/XIT scale-adjust (ACK + formalize-now decision: extract `StickyAnnouncedMode` helper)
+   - brailleElement v1 (ACK + license-inherit + implementation milestone: "sample line + cursor routing test")
+
+4. **R4 trace investigation pivoted.** SyncDrain confirmed Outcome B (zero packets externally). Source diff between FlexLib 4.0.1 and 4.2.18 Discovery.cs showed BYTE-IDENTICAL socket setup. **The bug is NOT in Discovery.cs.** Investigation pivots to API.cs / HAAPI.cs / new files in 4.2.18. New strategic concern memo added: `project_firmware_install_dependency_strategy.md` (rollback vs block vs force-firmware-update; conditional on R4 outcome).
+
+5. **502 root cause located.** Publisher's non-atomic file write leaves brief windows where `next_nets.json` is missing/partial; Apache returns 404, Netlify proxy returns 502 to dev-branch users. Q11 rewrite (Python with `os.replace()`) eliminates the window structurally. Currently NOT reproducing (publisher healthy as of investigation time).
+
+6. **Version cascade swept.** 4.1.17 → 4.2.0 across 10 memory files; foundation_phase.md restated; Customize Home repositioned to 4.2.1; Waterfall to 4.2.2+; release-process examples in MEMORY.md updated.
+
+7. **GitHub Actions re-enabled.** Both `CQ Blind Hams Auto-Post` and `Bump Able Player` were disabled-by-inactivity; re-enabled via gh CLI per Tier 2 standing auth.
+
+8. **Build-now-ship-later philosophy saved as memory.** When Noel says "not in [release]," treat as ship-deferral, NOT build-deferral. 5 engineering tracks (`track/multi-radio-foundation`, `track/tuning-unity`, `track/rit-xit-adjust`, `tools/brailleElement` v1, `track/stuck-modal-escape`) all ACK'd for parallel build, ready to spawn when Noel picks first.
+
+9. **Workflow guidance saved:**
+   - `feedback_no_human_time_estimates.md` — quote LOC, not human-coder time estimates
+   - `feedback_github_authorization_scope.md` — Tier 2 active for nromey/bh-network
+   - `feedback_batch_big_questions_to_for_noel.md` — protocol for queueing big questions vs chat-quick
+
+10. **Hamlib spike + multi-radio existing research surfaced.** ~12 design files in `C:\dev\jjflex-multi-radio\docs\research\` reframe tomorrow's multi-radio reading from "design from scratch" to "synthesize existing work."
+
+### Setup for tomorrow
+
+Priority/ folder in for-noel queues morning reading in this order:
+1. `2026-05-02-concert-night-autonomous-results.md` — context for everything
+2. `2026-05-02-multi-radio-existing-research-index.md` — reframes multi-radio reading
+3. `2026-05-02-multi-radio-braille-read-pack.md` — strategic read pack
+4. `2026-05-02-hamlib-integration-spike-FROM-WORKTREE.md` — Hamlib design
+
+After morning reading: pick first engineering track to spawn (5 are ACK'd waiting). Strong candidates for fast wins: API.cs/HAAPI.cs source diff (next R4 step), stuck-modal escape implementation, brailleElement v1 prototype.
+
+### Rigmeter note
+
+Skipped per docs-only-day rule. Today's rigmeter shows 0 commits in the JJFlex-NG repo (everything still uncommitted). The substantive change happened in `docs/planning/` and the memory store, plus reading + investigation work that doesn't surface as code metrics.
