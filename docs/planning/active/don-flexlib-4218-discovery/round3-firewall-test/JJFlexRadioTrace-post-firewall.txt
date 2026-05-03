@@ -1,0 +1,110 @@
+449 [T2] Boot Tracing on instance:1 C:\Users\Don\jjf-test\JJFlexRadio.dll 4.1.16.0 4/30/2026 4:38:54 PM level=Info
+449 [T2] GetConfigInfo:C:\Users\Don\AppData\Roaming\JJFlexRadio
+453 [T2] KeyCommands new()
+460 [T2] keyTableToDefault(False)
+460 [T2] SetValues:AllKeys False
+471 [T2] SetValues:AllKeys False
+473 [T2] KeyCommands:merged new item:ShowHelp None
+473 [T2] KeyCommands:merged new item:SmeterDBM None
+473 [T2] KeyCommands:merged new item:ShowMemory None
+473 [T2] KeyCommands:merged new item:CycleContinuous None
+473 [T2] KeyCommands:merged new item:LogFileName None
+473 [T2] KeyCommands:merged new item:LogMode None
+473 [T2] KeyCommands:merged new item:LogRig None
+473 [T2] KeyCommands:merged new item:LogAnt None
+473 [T2] KeyCommands:merged new item:StartScan None
+473 [T2] KeyCommands:merged new item:SavedScan None
+473 [T2] KeyCommands:merged new item:ShowMenus None
+473 [T2] KeyCommands:merged new item:LogStats None
+473 [T2] KeyCommands:merged new item:RemoteAudio None
+473 [T2] KeyCommands:merged new item:AudioSetup None
+473 [T2] KeyCommands:merged new item:GatherDebug None
+473 [T2] KeyCommands:merged new item:ATUMemories None
+473 [T2] KeyCommands:merged new item:Reboot None
+473 [T2] KeyCommands:merged new item:TXControls None
+473 [T2] KeyCommands:merged new item:SpeakTXFilter None
+473 [T2] KeyCommands:merged new item:ToggleMeterTonesGlobal None
+473 [T2] KeyCommands:merged new item:MuteSlice None
+474 [T2] KeyCommands write
+478 [T2] ValidateKeyBindings: all bindings clean, no conflicts
+479 [T2] PersonalData new(C:\Users\Don\AppData\Roaming\JJFlexRadio)
+494 [T2] SetCurrentOp(Donald Breda,0)
+498 [T2] NewLog:JJRadio JJRadio
+498 [T2] Logs.Done
+499 [T2] newLoginInfo:JJRadio
+500 [T2] LogClass setup:
+503 [T2] MainWindow.SetupOperationsMenu: rebuilding menus
+504 [T2] ConfigW2:True
+504 [T2] W2:C:\Users\Don\AppData\Roaming\JJFlexRadio\w2.xml
+504 [T2] Serial
+504 [T2] Config.Read
+505 [T2] StationName:wa2iwc
+507 [T2] ApplyUIMode: Modern
+517 [T2] TryAutoConnectOnStartup: attempting 6300inshack
+520 [T2] AllRadios constructor
+521 [T2] Flex constructor
+521 [T2] setFlexTunerTypeNotAuto:manual
+525 [T2] TryAutoConnect: BEGIN 6300inshack (1315-4176-6300-7236), remote=False, timeout=10000ms
+526 [T2] TryAutoConnect: starting local discovery (1ms)
+526 [T2] LocalRadios
+526 [T2] apiInit:True
+Discovery.Start: JJFlex 4218-discovery-diagnostic build R2 active
+Discovery.Start: nic 'Ethernet 3' type=Ethernet ipv4=192.168.1.21 mask=255.255.255.0
+Discovery.Start: nic 'Loopback Pseudo-Interface 1' type=Loopback ipv4=127.0.0.1 mask=255.0.0.0
+Discovery.Start: bound UdpClient to 0.0.0.0:4992
+580 [T2] TryAutoConnect: waiting for radio serial 1315-4176-6300-7236 in myRadioList (55ms)
+Discovery.Receive: task started (udp=set)
+10617 [T2] TryAutoConnect: radio serial 1315-4176-6300-7236 NOT FOUND within 10000ms. myRadioList has 0 radios (10092ms)
+10617 [T2] TryAutoConnectOnStartup: failed, showing dialog
+19992 [T2] FlexBase.Dispose:True
+19993 [T2] AllRadios constructor
+19993 [T2] Flex constructor
+19993 [T2] setFlexTunerTypeNotAuto:manual
+19993 [T2] TryAutoConnect: BEGIN 6300inshack (1315-4176-6300-7236), remote=False, timeout=10000ms
+Discovery.Receive: task exited cleanly
+19993 [T2] TryAutoConnect: starting local discovery (0ms)
+19994 [T2] LocalRadios
+19994 [T2] apiInit:True
+Discovery.Start: JJFlex 4218-discovery-diagnostic build R2 active
+Discovery.Start: nic 'Ethernet 3' type=Ethernet ipv4=192.168.1.21 mask=255.255.255.0
+Discovery.Start: nic 'Loopback Pseudo-Interface 1' type=Loopback ipv4=127.0.0.1 mask=255.0.0.0
+Discovery.Start: bound UdpClient to 0.0.0.0:4992
+Discovery.Receive: task started (udp=set)
+20045 [T2] TryAutoConnect: waiting for radio serial 1315-4176-6300-7236 in myRadioList (51ms)
+30083 [T2] TryAutoConnect: radio serial 1315-4176-6300-7236 NOT FOUND within 10000ms. myRadioList has 0 radios (10089ms)
+30084 [T2] FlexBase.Dispose:True
+Discovery.Receive: task exited cleanly
+30086 [T2] AllRadios constructor
+30086 [T2] Flex constructor
+30086 [T2] setFlexTunerTypeNotAuto:manual
+30107 [T2] LocalRadios
+30107 [T2] apiInit:True
+Discovery.Start: JJFlex 4218-discovery-diagnostic build R2 active
+Discovery.Start: nic 'Ethernet 3' type=Ethernet ipv4=192.168.1.21 mask=255.255.255.0
+Discovery.Start: nic 'Loopback Pseudo-Interface 1' type=Loopback ipv4=127.0.0.1 mask=255.0.0.0
+Discovery.Start: bound UdpClient to 0.0.0.0:4992
+Discovery.Receive: task started (udp=set)
+38107 [T2] FlexBase.Dispose:True
+Discovery.Receive: task exited cleanly
+38107 [T2] OpenTheRadio:rig's open failed
+38109 [T2] InitializeApplication: complete
+38113 [T2] NativeMenuBar.ApplyUIMode: Modern
+38123 [T2] NativeMenuBar.ApplyUIMode: Modern complete, 50 items
+38169 [T2] MainWindow_Loaded: starting init
+38169 [T2] MainWindow_Loaded: init complete
+40595 [T2] DoCommand:000000fc
+40595 [T2] DoCommand:key not found:NoName
+40680 [T2] DoCommand:00000073
+43079 [T2] DoCommand:00040000
+43080 [T2] DoCommand:00040012
+43214 [T2] DoCommand:00040073
+43214 [T2] DoCommand:key not found:F4, Alt
+43215 [T2] DoCommand:00040073
+43215 [T2] DoCommand:key not found:F4, Alt
+43215 [T2] MainWindow.RequestShutdown: starting shutdown
+43219 [T2] Logs.Done
+43219 [T2] CloseTheRadio
+43223 [T2] W2 Dispose:True
+43223 [T2] Serial.close
+43223 [T2] exit:screen saver set:False
+43223 [T2] End.

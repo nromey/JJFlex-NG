@@ -7,7 +7,7 @@
 
 ## Context — what "blind hams + solar" means
 
-The Blind Hams Network is a community of blind/visually impaired ham radio operators that Noel is closely involved with. It currently has two surfaces:
+The Blind Hams Digital Network is a community of blind/visually impaired ham radio operators that Noel is closely involved with. Noel manages all nets on the Blind Hams Digital Network through the week and uses blindhams.network for that purpose.  It currently has two surfaces:
 
 - **Blind Hams site** — Jekyll static site at `data.blindhams.network` (currently DNS-pointed at Andre's server `3.onj.me`). Lists ham radio nets, schedule data, net operators. Includes a community-contributed-net submission utility (users add, Noel approves). Backed by JSON data files; a cron job pulls 10-week schedule data for net operators and net schedules in general. Repo: `nromey/bh-network` on GitHub. Built with Netlify-style tooling + Jekyll.
 
@@ -19,7 +19,7 @@ Why this matters: blind ham operators need accessible solar/propagation data the
 
 ### On Noel's WSL Ubuntu (laptop)
 - A local clone of `nromey/bh-network` (GitHub). Contains the Jekyll site source, Netlify-style build config, and the utility code.
-- Probably: development scripts, cached IRI/solar code, possibly venv directories.
+- Probably: development scripts, cached IRI/solar code, possibly venv directories. Also has a good bit of javascript code that runs net display and management tasks.
 - Username on WSL: `ner`.
 
 ### On Andre's server (3.onj.me, accessed as `ner`, SSH set up 2026-05-01)
@@ -32,7 +32,7 @@ Why this matters: blind ham operators need accessible solar/propagation data the
 ### DNS
 - `data.blindhams.network` → currently resolves to 3.onj.me / Andre's server.
 - Migration target: same name, eventually pointing at rarbox once the dynamic pieces are running there.
-
+- `www.blindhams.network` resolves to netlify. That will not change. 
 ### Target server
 - **rarbox** (Hetzner VPS, hardened 2026-04-30, SSH set up 2026-05-01). Currently runs nothing user-facing. Will run nginx (Noel's preference over Apache).
 
@@ -45,7 +45,7 @@ Why this matters: blind ham operators need accessible solar/propagation data the
 5. **DNS cutover** — switch `data.blindhams.network` to rarbox.
 6. **Decommission gracefully** — leave Andre's setup running for a soak window, then archive/remove. Coordinate with Andre.
 
-The migration is not just "rsync and go" — Noel wants to take the opportunity to clean up ("things were a bit all over the place"), tighten the net submission utility, and lay the foundation for the solar-site vision.
+The migration is not just "rsync and go" — Noel wants to take the opportunity to clean up ("things were a bit all over the place"), tighten the net submission utility, and lay the foundation for the solar-site vision. Noel had solar data utilities residing outside of the normal bh-netwoprk tree because they were not part of the blindhams network. 
 
 ## Deliverables this exploration should produce
 

@@ -1,7 +1,6 @@
 # Braille Display Verbosity Design
 
-**Status:** Design phase, Sprint 25 implementation
-**Date:** 2026-03-16
+**Status:** Design phase. Original draft 2026-03-16 (Sprint 25 implementation start). **Reconciled 2026-05-02** with the verbosity-channel-split decision (`memory/project_verbosity_architecture_proposal.md`). The "verbosity" framing in the original doc is partially superseded — see "Verbosity Tie-in (UPDATED)" section below.
 
 ## Overview
 
@@ -115,12 +114,20 @@ Tap a braille cell position to interact with that field:
 
 This requires NVDA add-on or cursor routing callback — research needed.
 
-## Verbosity Tie-in
+## Verbosity Tie-in (UPDATED 2026-05-02 to reconcile with channel-split)
 
-Braille verbosity could be independent of speech verbosity:
-- Speech set to Terse, braille set to show all meters
-- Or braille follows speech verbosity (fewer fields at Terse)
-- User choice in Settings
+**Original framing (2026-03-16) is superseded.** The original suggested braille could have its own verbosity ladder ("Terse, Normal, Chatty for braille separately from speech"). The verbosity-channel-split decision (`memory/project_verbosity_architecture_proposal.md`) explicitly **rejected per-channel verbosity ladders** — keeping configuration surface small.
+
+**Updated model:**
+
+- **Braille is a CHANNEL** (on/off toggle), not a verbosity level. The toggle is `Ctrl+Shift+D` (per the channel-toggle key proposal) and persists in `audioConfig.xml`. Default off until braille support matures (per the locked default in the verbosity proposal).
+- **The braille STATUS LINE shows persistent state** regardless of speech verbosity setting. The amount of detail in the status line is controlled by the user's **field-selection in Customize Home** (per `memory/project_customize_home_vision.md`), not by a verbosity slider.
+- **Speech verbosity (renamed from just "Verbosity") applies only to the speech channel.** It does NOT affect braille rendering. A user at speech-Off-(critical-only) still gets full braille status if braille is on.
+- **Smart-warn safeguard applies:** if a screen reader is detected AND user attempts to disable speech AND CW (per current state) AND braille is also off, JJ Flex warns *"You need at least one accessibility output channel..."* See verbosity proposal for full safeguard logic.
+
+**Implication for the cell-count + field-selection UI:** the Settings UI for braille (originally proposed as "Display cell count + field checkboxes + priority reorder") fits naturally into the Customize Home framework. **Recommended consolidation:** the braille field-selection becomes a "Customize Braille" subsection of the Customize Home dialog (or a parallel dialog with the same patterns). Avoids inventing new UI patterns; reuses the Customize Home pattern that's already shipping in 4.2.1.
+
+The original "1-second push timer with focus-aware start/stop" behavior stays exactly as designed — it's about WHEN braille gets pushed, not about HOW MUCH detail.
 
 ## Meter Speech Configuration (related)
 

@@ -1,0 +1,137 @@
+706 [T2] Boot Tracing on instance:1 C:\Users\Don\jjf-test\JJFlexRadio.dll 4.1.16.0 5/1/2026 6:34:15 AM level=Info
+706 [T2] GetConfigInfo:C:\Users\Don\AppData\Roaming\JJFlexRadio
+711 [T2] KeyCommands new()
+724 [T2] keyTableToDefault(False)
+725 [T2] SetValues:AllKeys False
+737 [T2] SetValues:AllKeys False
+739 [T2] KeyCommands:merged new item:ShowHelp None
+739 [T2] KeyCommands:merged new item:SmeterDBM None
+739 [T2] KeyCommands:merged new item:ShowMemory None
+739 [T2] KeyCommands:merged new item:CycleContinuous None
+739 [T2] KeyCommands:merged new item:LogFileName None
+740 [T2] KeyCommands:merged new item:LogMode None
+740 [T2] KeyCommands:merged new item:LogRig None
+740 [T2] KeyCommands:merged new item:LogAnt None
+740 [T2] KeyCommands:merged new item:StartScan None
+740 [T2] KeyCommands:merged new item:SavedScan None
+740 [T2] KeyCommands:merged new item:ShowMenus None
+740 [T2] KeyCommands:merged new item:LogStats None
+740 [T2] KeyCommands:merged new item:RemoteAudio None
+740 [T2] KeyCommands:merged new item:AudioSetup None
+740 [T2] KeyCommands:merged new item:GatherDebug None
+740 [T2] KeyCommands:merged new item:ATUMemories None
+740 [T2] KeyCommands:merged new item:Reboot None
+740 [T2] KeyCommands:merged new item:TXControls None
+740 [T2] KeyCommands:merged new item:SpeakTXFilter None
+740 [T2] KeyCommands:merged new item:ToggleMeterTonesGlobal None
+740 [T2] KeyCommands:merged new item:MuteSlice None
+740 [T2] KeyCommands write
+746 [T2] ValidateKeyBindings: all bindings clean, no conflicts
+747 [T2] PersonalData new(C:\Users\Don\AppData\Roaming\JJFlexRadio)
+770 [T2] SetCurrentOp(Donald Breda,0)
+774 [T2] NewLog:JJRadio JJRadio
+774 [T2] Logs.Done
+776 [T2] newLoginInfo:JJRadio
+777 [T2] LogClass setup:
+779 [T2] MainWindow.SetupOperationsMenu: rebuilding menus
+780 [T2] ConfigW2:True
+781 [T2] W2:C:\Users\Don\AppData\Roaming\JJFlexRadio\w2.xml
+781 [T2] Serial
+781 [T2] Config.Read
+783 [T2] StationName:wa2iwc
+784 [T2] ApplyUIMode: Modern
+802 [T2] TryAutoConnectOnStartup: attempting 6300inshack
+805 [T2] AllRadios constructor
+806 [T2] Flex constructor
+806 [T2] setFlexTunerTypeNotAuto:manual
+814 [T2] TryAutoConnect: BEGIN 6300inshack (1315-4176-6300-7236), remote=False, timeout=10000ms
+815 [T2] TryAutoConnect: starting local discovery (0ms)
+815 [T2] LocalRadios
+816 [T2] apiInit:True
+Discovery.Start: JJFlex 4218-discovery-diagnostic build R4 active
+Discovery.Start: nic 'Ethernet 3' type=Ethernet ipv4=192.168.1.21 mask=255.255.255.0
+Discovery.Start: nic 'Loopback Pseudo-Interface 1' type=Loopback ipv4=127.0.0.1 mask=255.0.0.0
+Discovery.Start: bound UdpClient to 0.0.0.0:4992
+Discovery.SelfTest: starting socket-validation probes (R3)
+Discovery.SelfTest: SENT probe 'loopback' -> 127.0.0.1:4992
+Discovery.SelfTest: RECEIVED probe 'loopback' (len=16 from=127.0.0.1:59428)
+Discovery.SelfTest: SENT probe 'nic-self-Ethernet 3' -> 192.168.1.21:4992
+Discovery.SelfTest: RECEIVED probe 'nic-self-Ethernet 3' (len=16 from=192.168.1.21:59429)
+Discovery.SelfTest: SENT probe 'limited-broadcast' -> 255.255.255.255:4992
+Discovery.SelfTest: RECEIVED probe 'limited-broadcast' (len=16 from=192.168.1.21:59430)
+Discovery.SelfTest: complete
+Discovery.SyncDrain: starting 5000ms synchronous receive test on bound socket
+Discovery.SyncDrain: complete -- received 0 total (0 from non-local sources, 0 from local sources)
+6030 [T2] TryAutoConnect: waiting for radio serial 1315-4176-6300-7236 in myRadioList (5215ms)
+Discovery.Receive: task started (udp=set)
+16040 [T2] TryAutoConnect: radio serial 1315-4176-6300-7236 NOT FOUND within 10000ms. myRadioList has 0 radios (15225ms)
+16044 [T2] TryAutoConnectOnStartup: failed, showing dialog
+24709 [T2] FlexBase.Dispose:True
+24711 [T2] AllRadios constructor
+24711 [T2] Flex constructor
+24711 [T2] setFlexTunerTypeNotAuto:manual
+24711 [T2] TryAutoConnect: BEGIN 6300inshack (1315-4176-6300-7236), remote=False, timeout=10000ms
+Discovery.Receive: task exited cleanly
+24711 [T2] TryAutoConnect: starting local discovery (0ms)
+24711 [T2] LocalRadios
+24711 [T2] apiInit:True
+Discovery.Start: JJFlex 4218-discovery-diagnostic build R4 active
+Discovery.Start: nic 'Ethernet 3' type=Ethernet ipv4=192.168.1.21 mask=255.255.255.0
+Discovery.Start: nic 'Loopback Pseudo-Interface 1' type=Loopback ipv4=127.0.0.1 mask=255.0.0.0
+Discovery.Start: bound UdpClient to 0.0.0.0:4992
+Discovery.SelfTest: starting socket-validation probes (R3)
+Discovery.SelfTest: SENT probe 'loopback' -> 127.0.0.1:4992
+Discovery.SelfTest: RECEIVED probe 'loopback' (len=16 from=127.0.0.1:59431)
+Discovery.SelfTest: SENT probe 'nic-self-Ethernet 3' -> 192.168.1.21:4992
+Discovery.SelfTest: RECEIVED probe 'nic-self-Ethernet 3' (len=16 from=192.168.1.21:59432)
+Discovery.SelfTest: SENT probe 'limited-broadcast' -> 255.255.255.255:4992
+Discovery.SelfTest: RECEIVED probe 'limited-broadcast' (len=16 from=192.168.1.21:59433)
+Discovery.SelfTest: complete
+Discovery.SyncDrain: starting 5000ms synchronous receive test on bound socket
+Discovery.SyncDrain: complete -- received 0 total (0 from non-local sources, 0 from local sources)
+Discovery.Receive: task started (udp=set)
+29897 [T2] TryAutoConnect: waiting for radio serial 1315-4176-6300-7236 in myRadioList (5185ms)
+39936 [T2] TryAutoConnect: radio serial 1315-4176-6300-7236 NOT FOUND within 10000ms. myRadioList has 0 radios (15225ms)
+39937 [T2] FlexBase.Dispose:True
+Discovery.Receive: task exited cleanly
+39939 [T2] AllRadios constructor
+39939 [T2] Flex constructor
+39939 [T2] setFlexTunerTypeNotAuto:manual
+39962 [T2] LocalRadios
+39962 [T2] apiInit:True
+Discovery.Start: JJFlex 4218-discovery-diagnostic build R4 active
+Discovery.Start: nic 'Ethernet 3' type=Ethernet ipv4=192.168.1.21 mask=255.255.255.0
+Discovery.Start: nic 'Loopback Pseudo-Interface 1' type=Loopback ipv4=127.0.0.1 mask=255.0.0.0
+Discovery.Start: bound UdpClient to 0.0.0.0:4992
+Discovery.SelfTest: starting socket-validation probes (R3)
+Discovery.SelfTest: SENT probe 'loopback' -> 127.0.0.1:4992
+Discovery.SelfTest: RECEIVED probe 'loopback' (len=16 from=127.0.0.1:59434)
+Discovery.SelfTest: SENT probe 'nic-self-Ethernet 3' -> 192.168.1.21:4992
+Discovery.SelfTest: RECEIVED probe 'nic-self-Ethernet 3' (len=16 from=192.168.1.21:59435)
+Discovery.SelfTest: SENT probe 'limited-broadcast' -> 255.255.255.255:4992
+Discovery.SelfTest: RECEIVED probe 'limited-broadcast' (len=16 from=192.168.1.21:59436)
+Discovery.SelfTest: complete
+Discovery.SyncDrain: starting 5000ms synchronous receive test on bound socket
+Discovery.SyncDrain: complete -- received 0 total (0 from non-local sources, 0 from local sources)
+Discovery.Receive: task started (udp=set)
+64292 [T2] FlexBase.Dispose:True
+Discovery.Receive: task exited cleanly
+64292 [T2] OpenTheRadio:rig's open failed
+64293 [T2] InitializeApplication: complete
+64296 [T2] NativeMenuBar.ApplyUIMode: Modern
+64306 [T2] NativeMenuBar.ApplyUIMode: Modern complete, 50 items
+64456 [T2] MainWindow_Loaded: starting init
+64456 [T2] MainWindow_Loaded: init complete
+69457 [T2] DoCommand:00040000
+69462 [T2] DoCommand:00040012
+69552 [T2] DoCommand:00040073
+69553 [T2] DoCommand:key not found:F4, Alt
+69553 [T2] DoCommand:00040073
+69553 [T2] DoCommand:key not found:F4, Alt
+69556 [T2] MainWindow.RequestShutdown: starting shutdown
+69569 [T2] Logs.Done
+69570 [T2] CloseTheRadio
+69576 [T2] W2 Dispose:True
+69580 [T2] Serial.close
+69580 [T2] exit:screen saver set:False
+69580 [T2] End.
