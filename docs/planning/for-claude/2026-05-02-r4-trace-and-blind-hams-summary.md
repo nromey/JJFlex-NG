@@ -17,6 +17,9 @@ Two parallel tracks finished while you were getting set up. Neither blocks anyth
 **New direction:** source-level diff of `Discovery.cs` between FlexLib 4.1.5 and 4.2.18, focused on socket-options-affecting calls (UdpClient constructor overload, JoinMulticastGroup, MulticastLoopback, IP_MULTICAST_IF, IP_PKTINFO, ExclusiveAddressUse, EnableBroadcast). If a difference is found, R5 reverts that one option in our wrapper and Don confirms.
 
 **No blocking question for you.** I'll start the source diff autonomously after this — it's pure reading work, no Don round needed. Will surface findings here when I have them. If the diff turns up nothing relevant, the next step is Wireshark on Don's machine OR your 8600 parallel test (per `project_8600_unbox_firmware_trigger.md` — depends on whether you've unboxed yet).
+**** I do have something to add which may change the direction of how we do this, worth talking about it in chat./
+****  I just had a thought. Don's radio is not able to be seen for some reason. Smart SDR must be doing something to see older firmware radios because smart sdr ahs to be able to see the radio before it uploads the firmware.  It might be necessary for us to install smart sdr and then de-compiule it with ILSpy to see if we can determine what it's doing to see the radios/what we're doing wrong.  We know taht old flexlib and Don's raedio can see it. What's SmartSDR doing taht's different. We probably need to do a check. I don't have a problem doing this from a (we're stealing code) pooint of view bvecause what I need Claude to do is determine methosds by lookming at code to see what we're doing differently if anything. ZThis should be pasted in the r4 file when I get to it.
+ 
 
 The memory entry `project_flexlib_4218_discovery_investigation.md` is updated with the new direction (Outcome B confirmed, suspect ranking pivoted, source diff added as next step).
 
@@ -36,6 +39,7 @@ All five deliverables landed: `inventory.md` (28KB), `categorization.md` (13KB),
    - The publisher runs as `root` when it doesn't need to
    - A public ntfy.sh topic for submission notifications (no token / auth)
    - A stale `/www/data` directory from October 2025 that nothing serves but nothing cleaned up
+****I really think I'd like to set up a project re: the net helper either pre or post going to the new server.  I really think I need some Claude flavored workflow help re: the net helper.  Right now, the publisher and the whole process is super confusing.  I'd like to look at the helper when you re-do it and see if we can make it follower closer to teh friction tax principle.  Right now, it just simply doesn't make sense, honestly, it's so complicated in the way it is processed that I think it's worth a re-do.  I know that the editor can put thinks into a queue and then send to the publisher, me who can then send it to publishing on the site, I swear there's got to be a better way, even if it involves totally re-designing how it goes from point a to the end.  I'm wondering if working via a database would help or if you think, given a new infrastructure available and ability to build the stack better if we could do this better. Ideas wouild be great even if we have to run a track to do it.
 
 3. **Migration plan recommends Option A (everything on rarbox, single nginx)** over Option B (R2-static + rarbox-dynamic) because the data volumes are too small to benefit from CDN. Option B's plan is included as an appendix in case you prefer the JJ-Flexible-Data-Provider-symmetric model.
 
@@ -59,8 +63,10 @@ I'd suggest reading in this order:
 These are quick — chat answers fine:
 
 1. **R4 source diff — go ahead autonomously?** The work is pure source reading, no Don round needed. Default if you don't answer: I start it now in the foreground while you read for-noel. Reports back when I find a candidate (or rule out the diff entirely).
+**** Agreed but consider my first question / thought about decopmpiling smart sdr.  I don't have the new version installed but I can do it and we can run an ILSpy on the new version easily enough. I think doing that and a diff would be super helpful.
 
 2. **WSL agent's 12 questions — answer in their own file or pull each into for-noel?** Default: keep them in `blind-hams-and-solar-exploration/questions-for-noel.md` (where the agent put them). Move the file to `for-claude/` when answered. Don't proliferate copies into for-noel/.
+**** The questions have been answered and I believe you dealt with them.
 
 ## What's now in your for-noel queue (in priority order)
 

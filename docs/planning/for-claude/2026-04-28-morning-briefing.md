@@ -29,11 +29,15 @@ The most critical thing to verify is whether last night's `FocusFrequencyField` 
 2. Make sure focus is on a Home field (any field — Slice, Frequency, etc.).
 3. Press `Alt` to open the menu bar. Press `Esc` to close it without selecting anything.
 4. Press `F2`.
+**** This works great. Note below that when radio is not connected, you hear pane. When connected you don't hear taht anymore.
 5. Listen for the destination prefix ("Home" or "JJ Flexible Home").
-
-**Outcomes:**
+**** First time I tried, I got connection stuck, tried connecting to Don's radio that is. When it gets stuck, when you press tab while it's trying to connect (I try to anticipate it before it authenticates. I was able to cend the task, but when I did this, I had to log in again. Something to note, if you enter login incorrectly, there's no spoken text or a live region aria that tells screen reader user that you've enteresd stuff incorrectly.
+**Outcome
+s:**
 - If you hear the prefix: it's a test-setup difference (focus didn't transition in your earlier test). Mark C.4i as passing the regression check, no fix needed.
 - If you DON'T hear the prefix: this is a regression caused by my patch's early `return` after `NavigateToField`. I'll need to inspect `NavigateToField` for fall-through speech that the early return short-circuited. Plan a fix in the same session.
+**** pass
+**** When I exitted, I heard 73 twice, and sk once. YOu said that there was a reason you found for that.
 
 ### 2. No-radio guard — re-test the failures from last night
 
@@ -41,10 +45,13 @@ Yesterday's no-radio guard only fired for the F2 path (where it was patched expl
 
 **Re-test with NO radio connected:**
 1. Press `Ctrl+F` (Set Frequency). Expect: "JJ Flexible Home, no radio connected." Dialog should NOT open.
+**** This passes, but really, ctrl+f should allow you to enter text just in case you need to enter test related text (not published). If a frequency were to be entered with numbbers or an invalid text, the current text should be spoken.
 2. Press band keys (try `Ctrl+Up` for band-up, or numeric band hotkeys). Expect: same announcement.
+**** f3, f4, (band keys) say JJ Flexible Home, No radio connected. Ctrl+up and down do not speak anything. shift f keys say the expected result.
 3. Press `R` from somewhere outside Home. Expected outcome is **uncertain** — see Tier 4 of the dispatch-paths memo. R is field-handler-routed and may NOT hit DoCommand. If silent, that's the field-handler-not-protected bug logged separately.
-
+**** r currently says nothing when radio not connected and in home. I pressed alt to open menu and press escape to escape, we're then outside of home because JJ FLexible says "pane" r when radio not connecterd says nothing. So r says nothign with radio disconnected. squelkch is same, so maybve all single letter commands say nothing. Perhaps we do some kind of error earcon and say "radio not connected". This currently does not occur.
 If Ctrl+F and band keys both produce the no-radio announcement, the dispatcher fix is working as intended.
+**** This is true, my only concern ios with cctrl+f ability to en ter text for test.
 
 ---
 
@@ -91,6 +98,7 @@ Your proposal to **archive every connection's trace with a JSON manifest, LZMA2-
 - Sequencing recommendation: ship BEFORE further networking investigation since every Sprint 29 networking diagnostic gets faster with persistent archives
 
 **Estimated Sprint 29 priority: ship this first.** Then AS-retry investigation builds on the archive.
+**** agreed.
 
 ### MEDIUM: Verbosity architecture proposal (Sprint 30+)
 
@@ -132,6 +140,8 @@ Discovered in the trace: `KEY CONFLICT: F, Control bound to SetFreq (Radio) AND 
 - **Code fixes for the 12 newly-logged bugs.** Each needs design review with you before implementation, and most aren't 4.1.17-critical.
 - **The KEY CONFLICT one-liner fix.** Even though it's clean and tested, I want you to confirm the Sprint 15 design intent before changing the binding. Could be a 30-second confirmation tomorrow.
 - **The stuck-modal fix.** Critical bug, but the fix design has multiple options (time-bounded modal vs state-aware messaging vs both) that benefit from a 5-minute conversation with you.
+**** When are we planning on fixing those bugs? I'm not 100% sure if these things are part of the multiple tracks that are planned.
+(((( I didn't do any of the tests except for the two you  mentioned. For tomorrow, ask me if I can do any more tests / detail them in the morning briefing if you would.
 
 ## What I DID do unprompted overnight
 

@@ -20,7 +20,7 @@ Hamlib is the de facto open-source library for ham radio CAT control across vend
 3. **The .NET binding situation requires real work.** The repo has a `bindings/csharp/` directory but it's a near-empty stub (just a `multicast` subfolder). We'd need to either auto-generate via SWIG from the `rig.swg` definition or hand-write a P/Invoke layer. SWIG is the better long-term path; P/Invoke for a curated subset of operations is the faster short-term path.
 
 4. **Mark's TS-590 is fully supported.** Both `RIG_MODEL_TS590S` (original) and `RIG_MODEL_TS590SG` (newer "G" revision) are in `rigs/kenwood/ts590.c` with deep feature coverage including the EX-menu items that distinguish the SG from the S. The commitment to Mark is technically achievable.
-
+**** Mark has a 590SG, others have either a t90 or a 590s, but all should be supported by hamlib. We may need to add extra support for menus from teh 590 line. The ability to change menu items on each unit is important, also, according to users, add a "favorites" to allow users to save menu items as favorites so they can see menus that they would like to change, the "greatest hits" as it were.
 5. **The architecture lands cleanly:** define a `IRadioBackend` interface in JJF, implement `FlexLibBackend` (existing radio code refactored behind the interface), implement `HamlibBackend` for everything Hamlib can speak. The JJF UI layer doesn't see which backend is in play. Per-radio config (per `project_per_radio_config_serial_keyed.md`) chooses the backend at connection time.
 
 6. **Sequencing:** Cross-platform abstraction layer (Track B) lays the groundwork by separating radio comms from UI. Hamlib-specific work then layers on top. Realistic phasing: spike → abstraction layer → Hamlib backend → first non-Flex radio (TS-590) → broaden to other Hamlib radios incrementally as testers surface.
@@ -132,7 +132,7 @@ Operations supported via CAT:
 - Filter slope (SH, SL)
 - TX/RX state (TX, RX, ZZTX)
 - Slice transmit flag (ZZSW)
-
+**** Is CW keying supported? I know we've talked about how to key via ethernet and it's possible, see aether-sdr's efforts.
 Operations NOT supported (per the README's "Not supported" list):
 - RF power (PC) — yes, this *is* missing in the Kenwood emulation
 - Most level controls beyond keying speed and filter slope
@@ -155,7 +155,7 @@ The TS-590 is supported in two model variants:
 
 - `RIG_MODEL_TS590S` — original TS-590S (2010 release, sold for years)
 - `RIG_MODEL_TS590SG` — TS-590SG (2014 revision with USB audio, improved DSP, different EX-menu numbering)
-
+**** Mark's model
 Both are in `rigs/kenwood/ts590.c`. Driver depth visible from a quick scan:
 
 - Full mode + filter coverage
@@ -220,6 +220,7 @@ Cons:
 - Learning curve on SWIG itself
 - Generated wrappers may not match .NET idioms perfectly (require a thin idiomatic layer on top)
 - The empty `bindings/csharp/` situation suggests prior attempts hit obstacles — we'd need to understand why
+**** I prefer second path. I don't mind adding swing as a built toolchain bit, having all hamlib features is important.
 
 ### 5.3 Path C: Run rigctld as a subprocess and talk TCP
 
@@ -246,7 +247,7 @@ The reason for this sequencing:
 - Path A gets us a working backend in days, not weeks. We can prove the architecture (radio abstraction layer + Hamlib backend = TS-590 working in JJF) on a small surface.
 - Once architecture is proven, Path B becomes worth the SWIG investment because we want broad Hamlib coverage (Icom, Yaesu, Kenwood broadly) and hand-rolling 500+ P/Invokes is not the right use of time.
 - Contributing a complete C# binding upstream after our SWIG work pays a goodwill dividend in the Hamlib community and locks in long-term maintenance leverage (Hamlib maintains it; we consume).
-
+**** Using AI, this will not take days in my opinion and would be a more useful setup.
 ---
 
 ## 6. Architecture Proposal — The Radio Abstraction Layer
@@ -289,7 +290,7 @@ Today the UI is bound directly to FlexLib's `Radio` object via `theRadio` refere
 - Update bindings to flow through the interface
 - Hide UI sections whose underlying capability is `false` on the current backend
 - Some Flex-specific UI stays exactly as-is, just accessed through the interface (no behavior change)
-
+**** Another option could be to add menu items on a per radio basis. Either discover a radio, harder, or have the user select which radio they want to use (add a radio), select a port and baud, then use radio dialog to start communication with that radio to allow you to communicate with one or more radios ioncluding Flex (Flex + Kenwood ts-2000, Flex plus any hamlib library).
 This is the cross-platform abstraction layer Track B item. Hamlib integration is downstream of it.
 
 ### 6.5 Per-radio UI variation
@@ -316,6 +317,7 @@ For shared UI (frequency, mode, PTT, basic memory), the experience is identical 
 
 - Mark starts JJF for the first time on his system
 - He goes to Settings → Radios → Add Radio
+**** I'd probably want to have "add a radio" under radios
 - Picks "Kenwood TS-590SG" from the Hamlib radio list (~hundreds entries, alphabetical, searchable)
 - Configures serial port (COM3, 115200 baud, 8N1) — Hamlib backend takes serial
 - Names the radio ("TS-590 Shack")
@@ -346,6 +348,7 @@ What we *could* contribute back to Hamlib:
 
 - **Bug fixes for the SmartSDR driver** if we hit any during integration
 - **Completion of the C# bindings** (currently empty stub) — we'd need them anyway, contributing benefits the community
+**** Agreed, contribute teh C# bindings would be good, we'd need to see what the best way to contribute would be.
 - **Improvements to the Kenwood-emulation Flex driver** if specific interop issues surface
 
 These are upstream-friendly contributions that don't fork the architecture.
@@ -357,6 +360,7 @@ For non-Flex radios where Hamlib has gaps (e.g., a TS-590 feature we want that i
 ## 9. License Compatibility — Final Word
 
 Restating section 2 with operational precision:
+**** See above written comments re: license
 
 - **JJF dynamically links libhamlib** (the LGPL library). License-clean.
 - **JJF must ship libhamlib's source** if requested by an end user. This is satisfied by pointing at the upstream Hamlib repo (LGPL allows this).
@@ -364,6 +368,7 @@ Restating section 2 with operational precision:
 - **JJF's own code stays under whatever license JJF picks** (no LGPL contamination from dynamic linking).
 - **rigctld is GPL but irrelevant** if we use the library directly.
 - **If JJF ever spawns rigctld as a subprocess**, that's an operational dependency, not a license dependency. Same logic as JJF talking to SmartLink's server.
+**** Do we include hamlib in JJ Flex or does the user have to download it? I'd think we'd want to include it though we'll need to keep including new hamlibs as we update JJ Flex.
 
 A user shipping a JJF installer + libhamlib.dll satisfies LGPL by having the Hamlib source available upstream and the DLL replaceable in the install directory. Both are no-cost compliance for us.
 
@@ -384,6 +389,7 @@ Effort: medium. Touches a lot of files but mechanically. Verifiable by existing 
 Hand-rolled P/Invoke for the ~30 Hamlib functions JJF needs for basic radio operation. Implement `HamlibBackend` against this surface. Pick TS-590 (or similar) as the smoke-test radio.
 
 Effort: ~1-2 sprint-weeks. Hamlib is well-documented; binding effort is bounded.
+**** Bite the bullet, do swing. Can we do hand-0-rolled and then do swing? I think that the thing that users are looking for i.e. supporting menus etc. may need swing, so it may be best to just do swing and get it done. Doing parallel dev using Claude could get it done.
 
 ### Phase 3: First non-Flex radio integration (TS-590)
 
@@ -407,6 +413,7 @@ Effort: ongoing, low-priority background work.
 
 - 4.1.17 release: no Hamlib involvement. Foundation hardening for Flex.
 - 4.2.0 release (FlexLib upgrade): no Hamlib involvement. Flex-specific.
+**** 4.2 is next though we may need to release a 4.1.17 based on how we handle firmware updates.
 - Sprint 28-29 work: Flex-only.
 
 Hamlib enters as a Sprint 30+ track, parallel to the other Sprint 30 work (Customize Home, verbosity architecture, NVDA app module). It's not on the critical path for any single near-term release.
@@ -418,21 +425,25 @@ Hamlib enters as a Sprint 30+ track, parallel to the other Sprint 30 work (Custo
 Before Phase 2 implementation begins:
 
 1. **P/Invoke first, SWIG later** — confirm or override. Recommendation: yes, P/Invoke first (faster, smaller surface, prove architecture).
-
+**** Swing now unless we can support menus
 2. **Which TS-590 variant for Mark's smoke test?** TS-590S vs TS-590SG. He may have either. Confirm with Mark at appropriate moment.
-
+**** I have testers that have 590 and 590SG, Mark has a 590SG
 3. **Bundle libhamlib.dll in the JJF installer or require user-installed Hamlib?** Recommendation: bundle. Friction-tax principle says user shouldn't install dependencies. Distribution is fine under LGPL.
-
+**** Bundle, keep it up-to-date per github with JJF versions.
 4. **Which Hamlib version to target?** Recommendation: 4.7.x stable for first integration. Move to 5.0 when it releases stable.
+**** By the time we get swing going, might support 5.0. Evaluate when we get close to full planning.
 
 5. **rigctld fallback path — implement or skip?** Recommendation: skip initially. Add only if Phase 2 surfaces a concrete Windows linking issue.
+**** skip
 
 6. **C# binding upstream contribution timing?** Recommendation: only after Phase 4 (we have enough integration experience to contribute meaningful binding code, not minimal stubs).
+**** Agreed.
 
 7. **How to discover Hamlib radios in JJF?** No discovery beacon (those are vendor-specific). User picks from a list. Recommendation: JJF's "Add Radio" UI shows Hamlib's full radio list (auto-extracted from Hamlib at install or runtime), user picks vendor + model, configures connection parameters per radio type (serial COM + baud / network IP+port / USB).
+**** Agreed, use the radios, then add menu action to add a particular radio.
 
 8. **What happens if a user has BOTH a Flex AND a Hamlib radio?** Recommendation: per-radio config keyed by serial number (already the architectural direction per memory). Connection picker shows both. User picks one. JJF supports multiple radios but only one *active* at a time initially. Multi-active-radio support is its own architectural arc, deferred.
-
+**** Agreed, always try flex discover, config based on serial, allow users to add a hamlib based radio.
 ---
 
 ## 12. Risks and Constraints
@@ -440,6 +451,7 @@ Before Phase 2 implementation begins:
 ### 12.1 Hamlib's Windows DLL availability
 
 Hamlib publishes Windows binaries (the project's GitHub releases include `.zip` packages with prebuilt DLLs and headers). Risk: build flavor compatibility (mingw vs MSVC). Defense: test early, pick consistent toolchain, fall back to building Hamlib from source in our build pipeline if upstream binaries don't satisfy.
+**** Can we compile our own hbmlib dll?
 
 ### 12.2 P/Invoke struct layout drift
 
@@ -452,6 +464,7 @@ Hamlib is largely synchronous; JJF UI is async. We'd run Hamlib calls on a dedic
 ### 12.4 Error handling surface
 
 Hamlib uses `int` return codes (0 = success, negative = various errors). We'd need a clean translation from Hamlib's error codes to JJF's error model (which feeds the SsdrErrors-style enum we'd want for accessible error messaging).
+**** Should be possible
 
 ### 12.5 The empty bindings/csharp situation
 
