@@ -3,7 +3,43 @@
 This document captures the current state of JJ-Flex repository and active work.
 
 **Repository root:** `C:\dev\JJFlex-NG`
-**Branch:** `sprint28/home-key-qsk` (Sprint 28 substantively complete in code; Sprint 28 wrap items committed; 4.1.17 release-verification matrix in active runtime testing)
+**Branch:** `sprint28/home-key-qsk` (Sprint 28 substantively complete in code; Sprint 28 wrap items committed; 4.1.17 release-verification matrix in active runtime testing — note: 4.1.17 was retired 2026-05-02 in favor of direct 4.2.0 cascade)
+
+## 2026-05-03 evening seal: nine-doc for-claude ingestion → seven memory entries; API.cs / HAAPI.cs ruled out of R4 investigation; SmartSDR ILSpy decompile authorized as next pivot
+
+**No code on main today; ingestion + investigation day.** Spent the session processing the for-claude doc batch Noel promoted from for-noel during his evening review pass, plus an end-of-day FlexLib API.cs / HAAPI.cs source-diff that was the next-step in the R4 investigation per the existing memory. Seven memory entries landed (three new, four substantively updated); MEMORY.md index refreshed; nine for-claude source docs deleted per protocol; FlexLib 4.2.18 suspect surface narrowed by another pair of files. **Yesterday's seal is captured in commit `e3d877ed` and the 2026-05-02 AAR; that day was the design-backlog clearing day where five engineering tracks got build-now-ship-later authorization.**
+
+### What changed
+
+**Memory store — 3 new + 4 substantively updated:**
+
+NEW:
+- `project_smartsdr_decompile_authorization.md` — Noel's "stealing code" framing captured as a generalized authorization. Apply ILSpy/dnSpy on Flex vendor binaries when source diff is exhausted + a working reference implementation exists. Method comparison only, never code transplant. First application: the FlexLib 4.2.18 silent-discovery investigation + the Phase D firmware-update-flow research will inspect the same SmartSDR install for both surfaces.
+- `project_brailleelement_jamie_handoff_boundary.md` — JJF builds the brailleElement primitive + JJF's own NVDA add-on. Jamie integrates into OSARA on his own. JJF doesn't author OSARA patches as a default move. Clean cross-AT contribution model that prevents JJF from inheriting OSARA maintenance burden.
+- `project_blind_hams_net_helper_redesign.md` — Noel wants the bh-network helper flow (editor → queue → publisher → site) redesigned per friction-tax principle. "Super complicated, worth a re-do." Possibly DB-backed, possibly post-rarbox-migration. Treated as real initiative, not someday item.
+
+UPDATED:
+- `project_flexlib_4218_discovery_investigation.md` — added the SmartSDR ILSpy decompile pivot section (parallel investigation path, runs alongside the remaining internal-source-diff candidates). Then end-of-day appended the API.cs + HAAPI.cs diff result: both ruled out (API.cs byte-identical, HAAPI.cs delta is amplifier/metering only). Suspect ranking pivoted again — remaining internal candidates are `HighPriorityTaskScheduler.cs`, `MmcssPipelineScheduler.cs`, `VitaPacketBase.cs`, and the new Filter/NAVTEX/Waveform files.
+- `project_sprint29_crash_reporter_vision.md` — full design pass ACK'd with concrete additions: crash + feedback share infrastructure but differ in trigger (crash = automatic + diagnostic-pack-required; feedback = manual + diagnostic-pack-default-on-but-optional); modal-on-next-launch batch pattern (queue crashes mid-session, prompt at next start); "whoopsie" Ctrl+F test command; URL-as-config in code (not user-editable JSON); the three tools (crash + feedback + updater) elevated to load-bearing for any 4.2.x release.
+- `project_sprint29_updater_vision.md` — bundle-don't-slice (all 8 phases ship Sprint 29); channel naming "daily" not "nightly" (compile happens overnight, consumption next day); periodic launch-check OK if not within 2-hour window; silent install desired; Phase D blocked by R4 discovery problem until SmartSDR ILSpy resolves; CI/CD on roarbox → R2 architecture sketched; Phase H visible status bar at bottom-of-window (JAWS/NVDA can read); version cascade target = 4.2.0 (not 4.1.18).
+- `project_multi_radio_capability_discovery.md` — added "Add a Radio" UX pattern under the existing Radios menu for surfacing non-Flex backends. Wizard flow: pick vendor + model from Hamlib list, configure connection params, save to per-radio config.
+- `project_no_silent_keystrokes_rule.md` — empirical 2026-04-28 retest findings: Ctrl+Up/Down silent (different dispatch path than F3/F4 which work), single-letter R / Squelch silent in Home, Ctrl+F text-entry exception (dialog should still open with no radio so test/diagnostic input remains reachable). No code fixes have landed since 04-28, so the bugs are still open as of 05-03.
+
+**Repo work:**
+
+- LICENSE.txt copyright corrected from placeholder ("Othneil Drew") to Jim Shaffer + Noel Romey + contributors with vendored-third-party-retains-license note. Commit `c3ff88e1`.
+- Doc routing snapshot commit `91dc93e7`: 8 for-noel docs promoted to for-claude/ (Noel's review act), 1 new claude-authored pull doc (firmware-install-strategy) staged in for-claude, 3 new priority pulls queued in for-noel/priority/ for tomorrow (CW keying over ethernet, DSP controls, TS-590 menu favorites).
+- Memory ingest commit `c92cb145`: nine for-claude source docs deleted post-ingestion (substance now lives in memory entries). Keeps `91dc93e7..HEAD memory/` diffable as the audit trail of "what knowledge each doc contributed."
+- New investigation memo at `docs/planning/active/don-flexlib-4218-discovery/api-haapi-diff.md` documenting the API.cs / HAAPI.cs source-diff result + recommended next steps.
+
+### What's set up for tomorrow
+
+- **Three priority pulls await reading**: CW keying over ethernet, DSP controls, TS-590 menu favorites. They're intact in `for-noel/priority/`. CW-keying-over-ethernet is especially worth reading alongside the Hamlib spike notes since the spike review surfaced an open question about CW keying support that referenced AetherSDR.
+- **R4 next move:** 30-minute pass through `HighPriorityTaskScheduler.cs`, `MmcssPipelineScheduler.cs`, `VitaPacketBase.cs` in 4.2.18 worktree — these are the highest-suspicion remaining internal source-diff candidates. If clean, escalate to SmartSDR ILSpy decompile per the new authorization memory. Either path resolves the discovery question (success → Phase D firmware-update can proceed; failure → install-strategy concern in `project_firmware_install_dependency_strategy.md` becomes load-bearing).
+- **Five engineering tracks still authorized for build-now-ship-later** from 2026-05-02: `track/multi-radio-foundation`, `track/tuning-unity`, `track/rit-xit-adjust`, `tools/brailleElement` v1, `track/stuck-modal-escape`. Plus today added: `track/crash-reporter` ("very load bearing now" per Noel's ACK).
+- Memory + private docs snapshotted to NAS at `historical\memory\memory-20260503-201241.zip` and `historical\private\private-20260503-201242.zip`.
+- Daily-debug promotion to Dropbox top level: SKIPPED (docs/memory-only day, no fresh debug build produced; per CLAUDE.md rule, prior day's daily still represents current code state).
+- Rigmeter snapshot: SKIPPED (docs-only day, rigmeter values unchanged from yesterday per CLAUDE.md rule).
 
 ## 2026-05-01 evening seal: 1Password SSH agent stood up end-to-end across rarbox + andre + romeyserv; blind-hams-and-solar exploration brief drafted for next phase
 
