@@ -33,7 +33,7 @@ While reading, work toward a position on:
 - **What's the IRadioBackend interface look like?** Minimum viable surface that supports Flex 6000/8000 (today) + Kenwood TS-2000 (your testbed) + TS-590G (Mark) + TM-V71A (Doug). Hamlib-shaped or JJ-Flex-shaped?
 - **First non-Flex target.** TS-2000 (your testbed, broadest coverage) or TS-590G (Mark, urgent user)? Build-order decision.
 - **Capability-discovery model.** Today's `theRadio.MaxSlices` / `theRadio.DiversityIsAllowed` pattern works for Flex but doesn't generalize. What's the multi-radio version?
-- **Radio class taxonomy.** Per `project_jj_radio_folding.md`, "architecture must accommodate full radio class taxonomy from day one, not bolt-on per radio." What ARE the classes? HF transceiver / VHF-UHF mobile / handheld / SDR / scanner / receiver-only?
+**** Each new radio shows up as a slice. If they've got a 1 or two vfosd (a/b) we add them. If we're using radios as tabs, each radio could have it's own UI. I jsut said that each VFO could have a slice, but we may want to have different UI based on radio type.- **Radio class taxonomy.** Per `project_jj_radio_folding.md`, "architecture must accommodate full radio class taxonomy from day one, not bolt-on per radio." What ARE the classes? HF transceiver / VHF-UHF mobile / handheld / SDR / scanner / receiver-only?
 - **Hamlib integration depth.** Direct C-API binding via P/Invoke? rigctld TCP socket? Or a JJ-Flex-native abstraction with Hamlib only as one backend?
 
 ### Track A working session shape
@@ -58,11 +58,15 @@ Once you've read the above, reactions in for-claude. Then we have a working sess
 
 While reading, work toward a position on:
 
-- **API surface for `brailleElement` v1.** What's the minimum API any text-rendering app would call to send content to braille? `Set(string)` / `SetWithCursor(string, int)` / `Clear()` is the obvious starting point. What else?
+- **API surface for `brailleElement` v1.** What's the minimum API any text-rendering app would call to send content to braille? `Set(string)` / `SetWithCursor(string, int)` / `Clear()` is the obvious starting point. What else?**** I'm not quite sure how to read these exact memories. Perhaps the best way to do this iuf you want me to read teh full memory is to add the memory text into this doc.
+
 - **NVDA add-on shape.** Standalone NVDA add-on or extension to OSARA? Jamie Teh would have opinions; what's your initial position?
+**** Full NVDA and then give Jamie some kind of DLL or a way to have a primitive to tell what text has been clicked with cursor routing key.
 - **Hardware coverage.** Focus 40 / Brailliant / Dot Pad / others? What's the v1 supported list, what's deferred?
+**** I'm not sure if we need to support exact vendors. We have standard 1 line support and then we add dot pad later. Dot pads can be written directly with Flex, the linear braille displays will need an add-on to determine where user clickes a routing button.
 - **Repo + license.** Standalone repo per the v1 decisions memo — name it `brailleElement` under `nromey/` or under a new `jjflexible/` GitHub org? License deferred per memo, but is there a placeholder we ship while undecided?
 - **First sender app.** JJFlex sends to brailleElement? OSARA sends? Both? Who's the validator that proves the API works?
+**** Thesea re totally different projects. We give code to Jamie, he does the Osara thing and we do our thing unless we want to edit Osara / look at that part. Myt thin g probably would be to leave taht up to Jamie.
 
 ### Track B working session shape
 
