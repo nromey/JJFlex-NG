@@ -1,6 +1,11 @@
 MIT License
 
-Copyright (c) 2021 Othneil Drew
+Copyright (c) 2018-2026 Jim Shaffer, Noel Romey (K5NER), and contributors
+
+This license applies to JJ Flexible Radio Access source code authored by the
+project maintainers and contributors. Vendored third-party components in
+FlexLib_API/, P-Opus-master/, and JJPortaudio/ retain their original licenses;
+see those subdirectories for details.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
