@@ -30,7 +30,24 @@ namespace Vita;
 /// </summary>
 public sealed class MmcssPipelineScheduler : TaskScheduler
 {
-    public static readonly MmcssPipelineScheduler Instance = new();
+    // === R5 DIAGNOSTIC PATCH (2026-05-04, JJFlexRadio) ===
+    // Hypothesis: the eager singleton's constructor spawns 4 persistent MMCSS
+    // "Pro Audio" threads at startup via avrt.dll, and those idle real-time
+    // reservations starve the UDP receive callback for the discovery broadcast
+    // on Don's machine. By substituting TaskScheduler.Default for Instance,
+    // we keep the audio pipeline functional (regular ThreadPool scheduling)
+    // while eliminating the MMCSS thread reservations entirely.
+    //
+    // R5 outcome A (discovery succeeds): MMCSS is the culprit. Permanent fix
+    //   replaces this scheduler with Default in JJFlex's wrapper, possibly
+    //   upstreaming to Flex.
+    // R5 outcome B (discovery still silent-fails): MMCSS exonerated.
+    //   Investigation pivots to other FlexLib 4.2.18-internal candidates.
+    //
+    // Revert this patch once the diagnostic completes. Original:
+    //   public static readonly MmcssPipelineScheduler Instance = new();
+    public static readonly TaskScheduler Instance = TaskScheduler.Default;
+    // === end R5 patch ===
 
     [DllImport("avrt.dll", SetLastError = true, CharSet = CharSet.Unicode)]
     private static extern nint AvSetMmThreadCharacteristicsW(string taskName, ref uint taskIndex);
