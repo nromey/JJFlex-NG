@@ -1395,7 +1395,7 @@ public partial class MainWindow : UserControl
         fields.Add(new FrequencyDisplay.DisplayField("Slice", 1, "", "") { Label = "Slice",
             HelpItems = new() { ("Up Down", "cycle slices"), ("Space", "next slice"), ("A-H or 0-7", "jump to slice"),
                 ("T", "set transmit"), ("Period", "create slice"), ("Comma", "release slice") } });
-        fields.Add(new FrequencyDisplay.DisplayField("SliceOps", 3, "", "") { Label = "Slice Audio",
+        fields.Add(new FrequencyDisplay.DisplayField("SliceOps", 3, "", "") { Label = "Slice operations",
             HelpItems = new() { ("Up Down", "volume"), ("Page Up Down", "pan"),
                 ("Space", "toggle mute"), ("M", "mute"), ("S", "sound"),
                 ("A", "make active"), ("T", "make transmit"), ("X", "transceive") } });
@@ -1472,7 +1472,7 @@ public partial class MainWindow : UserControl
         fields.Add(new FrequencyDisplay.DisplayField("Slice", 1, "", "") { Label = "Slice",
             HelpItems = new() { ("Up Down", "cycle slices"), ("Space", "next slice"), ("A-H or 0-7", "jump to slice"),
                 ("T", "set transmit"), ("Period", "create slice"), ("Comma", "release slice") } });
-        fields.Add(new FrequencyDisplay.DisplayField("SliceOps", 3, "", "") { Label = "Slice Audio",
+        fields.Add(new FrequencyDisplay.DisplayField("SliceOps", 3, "", "") { Label = "Slice operations",
             HelpItems = new() { ("Up Down", "volume"), ("Page Up Down", "pan"),
                 ("Space", "toggle mute"), ("M", "mute"), ("S", "sound"),
                 ("A", "make active"), ("T", "make transmit"), ("X", "transceive") } });
@@ -1683,8 +1683,10 @@ public partial class MainWindow : UserControl
             // Slice indicator — shows current active slice number
             FreqOut.Write("Slice", RigControl.ActiveSliceLetter);
 
-            // Dynamic label for SliceOps — "Slice A Operations: Volume" etc.
-            FreqOut.SetFieldLabel("SliceOps", $"Slice {RigControl.ActiveSliceLetter} Operations: Volume");
+            // Dynamic label for SliceOps — purpose-named per Sprint 28 bug bundle
+            // (2026-04-28). Carries the active slice letter; the volume value is
+            // announced when arrow up/down adjusts it, not on focus landing.
+            FreqOut.SetFieldLabel("SliceOps", $"Slice operations: slice {RigControl.ActiveSliceLetter} controls");
 
             // Mute — current active slice mute state (GetVFOAudio true = audio on = not muted)
             FreqOut.Write("Mute", RigControl.GetVFOAudio(RigControl.RXVFO) ? " " : "M");
