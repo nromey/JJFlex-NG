@@ -63,6 +63,49 @@ Both tracks pushed to origin/nromey on `sprint28/home-key-qsk`.
 
 Surgery 2026-05-05 8:30 AM Central, ~1hr procedure per `project_surgery_2026_05_05.md`. Possible light afternoon/evening capacity. Tomorrow afternoon Noel may do Cloudflare R2 + Azure prep work (Q2 + Section B from the 4.2.0 execution plan); that's optional, no pressure. Test pull for today's foundation drop is the priority when energy permits.
 
+### Tomorrow's autonomous-pass: daily → nightly rename
+
+Per `project_sprint29_updater_vision.md` (channel renamed 2026-05-03) and Noel's reminder tonight: the rename of `publish-daily-to-dropbox.ps1` (and its many internal "daily" references) to `publish-nightly-to-dropbox.ps1` is a focused-pass tomorrow item. ACK'd autonomous tonight. Surface includes:
+
+- Script filename: `publish-daily-to-dropbox.ps1` → `publish-nightly-to-dropbox.ps1`
+- Internal references in the script (~30 mentions of "daily" in comments, variable names, output strings, file naming patterns: `JJFlex_*_x64_daily.zip`, `NOTES-daily.txt`)
+- Dropbox top-level filenames: change to `_nightly.zip` and `NOTES-nightly.txt`
+- Sweep patterns: extend to handle BOTH `*_daily.*` (transitional) AND `*_nightly.*` so first post-rename run cleans up the lingering daily artifact
+- CLAUDE.md references throughout the End-of-day workflow section
+- Tonight's seal artifacts on Dropbox top level still use `daily` naming — they'll be swept on the first nightly-renamed run
+
+### Rigmeter snapshot — end of 2026-05-04
+
+**Grand totals (authored, excluding vendored FlexLib + PortAudio + Opus):**
+- Files: 752 | Lines: 147,136 | Words: 689,903 | Chars: 6,587,608
+- Per-category authored: code 102,696 lines; text_data 17,322 lines; docs 22,092 lines; build 5,026 lines
+- Vendor totals: code 51,437 lines; text_data 1,211 lines; build 592 lines
+
+**Today's git activity (since midnight local 2026-05-04):**
+- Commits: 13 (JJ Flexbot)
+- Unique files: 35
+- Insertions: 4,014 | Deletions: 748 | Net: +3,266 lines
+
+**Top languages by authored lines:**
+- VB.NET: 17,343 (16.9% of authored code) — the primary app + globals
+- Python: 3,027 (3.0% authored) — rigmeter + tools
+- XAML: 4,985 (4.9% authored) — UI controls + dialogs
+- C#: rest (FlexLib wrappers, JJFlexWpf, JJTrace, JJLogLib, JJPortaudio, P-Opus)
+
+**Fun comparisons (authored only):**
+- Braille volumes (≈100K cells each): 65.9
+- Moby Dicks (~210K words): 3.3
+- King James Bibles (~783K words): 0.88
+- Read-aloud time at 150 wpm: 76.7 hours (4,599 minutes)
+- Printed pages (50 lines/page): 2,943
+- Stack-of-printed-pages height: 11.8 inches (29.9 cm)
+
+**Docs-to-code ratio:** 0.28 (authored docs / authored code, by lines). Trending up day-over-day as the planning doc surface accumulates.
+
+**Snapshot JSON:** `\\nas.macaw-jazz.ts.net\jjflex\historical\stats\2026-05-04-b055f84e.json`
+
+**Trend across 10 historical snapshots:** doc base lines grew from 22,092 to current — most of today's +3,266 net is the planning doc burst (research-queue, triage, three for-noel pulls, two test-format docs, AAR). Code change today was the bug-bundle merge (~187 LOC) — net code growth is small; the day was design-density, not code-density.
+
 ## 2026-05-03 evening seal: nine-doc for-claude ingestion → seven memory entries; API.cs / HAAPI.cs ruled out of R4 investigation; SmartSDR ILSpy decompile authorized as next pivot
 
 **No code on main today; ingestion + investigation day.** Spent the session processing the for-claude doc batch Noel promoted from for-noel during his evening review pass, plus an end-of-day FlexLib API.cs / HAAPI.cs source-diff that was the next-step in the R4 investigation per the existing memory. Seven memory entries landed (three new, four substantively updated); MEMORY.md index refreshed; nine for-claude source docs deleted per protocol; FlexLib 4.2.18 suspect surface narrowed by another pair of files. **Yesterday's seal is captured in commit `e3d877ed` and the 2026-05-02 AAR; that day was the design-backlog clearing day where five engineering tracks got build-now-ship-later authorization.**
