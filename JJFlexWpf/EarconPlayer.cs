@@ -368,6 +368,59 @@ namespace JJFlexWpf
             PlayToneSequence(new[] { (1000, 100), (0, 30), (600, 200) }, 0.6f);
         }
 
+        // Connect-phase counting tones for the state-aware connecting modal.
+        // Same pitch repeated 1 / 2 / 3 times so the user hears progress as a
+        // count, not as a melody. Pitch chosen mid-band (750 Hz) and softer
+        // (0.35) so it doesn't compete with concurrent speech announcements.
+        private const int ConnectPhaseTonePitchHz = 750;
+        private const int ConnectPhaseToneMs = 70;
+        private const int ConnectPhaseToneGapMs = 60;
+        private const float ConnectPhaseToneVolume = 0.35f;
+
+        /// <summary>Connect phase 1 — single 750 Hz tone (TLS / SmartLink connect).</summary>
+        public static void ConnectPhase1Tone()
+        {
+            PlayToneSequence(new[] { (ConnectPhaseTonePitchHz, ConnectPhaseToneMs) }, ConnectPhaseToneVolume);
+        }
+
+        /// <summary>Connect phase 2 — two 750 Hz tones (transport up, waiting for slice).</summary>
+        public static void ConnectPhase2Tone()
+        {
+            PlayToneSequence(new[]
+            {
+                (ConnectPhaseTonePitchHz, ConnectPhaseToneMs),
+                (0, ConnectPhaseToneGapMs),
+                (ConnectPhaseTonePitchHz, ConnectPhaseToneMs)
+            }, ConnectPhaseToneVolume);
+        }
+
+        /// <summary>Connect phase 3 — three 750 Hz tones (slice acquired, station name pending).</summary>
+        public static void ConnectPhase3Tone()
+        {
+            PlayToneSequence(new[]
+            {
+                (ConnectPhaseTonePitchHz, ConnectPhaseToneMs),
+                (0, ConnectPhaseToneGapMs),
+                (ConnectPhaseTonePitchHz, ConnectPhaseToneMs),
+                (0, ConnectPhaseToneGapMs),
+                (ConnectPhaseTonePitchHz, ConnectPhaseToneMs)
+            }, ConnectPhaseToneVolume);
+        }
+
+        /// <summary>Parameterized connect-phase counting tone (1..N identical tones).</summary>
+        public static void ConnectPhaseTone(int count)
+        {
+            if (count <= 0) return;
+            var seq = new (int, int)[Math.Max(1, count * 2 - 1)];
+            int idx = 0;
+            for (int i = 0; i < count; i++)
+            {
+                if (i > 0) seq[idx++] = (0, ConnectPhaseToneGapMs);
+                seq[idx++] = (ConnectPhaseTonePitchHz, ConnectPhaseToneMs);
+            }
+            PlayToneSequence(seq, ConnectPhaseToneVolume);
+        }
+
         /// <summary>Play a frequency sweep (chirp) from startHz to endHz.</summary>
         public static void Chirp(int startHz, int endHz, int durationMs)
         {

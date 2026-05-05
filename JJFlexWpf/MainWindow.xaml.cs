@@ -129,6 +129,7 @@ public partial class MainWindow : UserControl
                 _morseNotifier.SpeedWpm = Math.Clamp(userConfig.CwSpeedWpm, 10, 60);
                 Radios.ScreenReaderOutput.CwNotificationsEnabled = userConfig.CwNotificationsEnabled;
                 Radios.ScreenReaderOutput.CwModeAnnounceEnabled = userConfig.CwModeAnnounce;
+                Radios.ScreenReaderOutput.SpeakConnectionProgressEnabled = userConfig.SpeakConnectionProgress;
             }
         }
         catch (Exception ex)
@@ -506,6 +507,7 @@ public partial class MainWindow : UserControl
             _morseNotifier.SpeedWpm = Math.Clamp(CurrentAudioConfig.CwSpeedWpm, 10, 60);
             Radios.ScreenReaderOutput.CwNotificationsEnabled = CurrentAudioConfig.CwNotificationsEnabled;
             Radios.ScreenReaderOutput.CwModeAnnounceEnabled = CurrentAudioConfig.CwModeAnnounce;
+            Radios.ScreenReaderOutput.SpeakConnectionProgressEnabled = CurrentAudioConfig.SpeakConnectionProgress;
         }
 
         // Reflect any "Show panadapter" change immediately (toggle acts live)
