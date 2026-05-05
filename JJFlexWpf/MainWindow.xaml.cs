@@ -96,15 +96,21 @@ public partial class MainWindow : UserControl
         // always; at speed >= 25 WPM, extend with "de JJF" app-callsign signature. Bare SK
         // is never sent -- feels abrupt, not how real operators sign off.
         //
-        // Sprint 26 Phase 6 (BUG-061): use PlaySignoff so "73" + SK render as one
-        // continuous PARIS-spaced utterance. Previously two separate PlayString +
-        // PlaySK queue entries produced a small gap at the queue boundary that
-        // didn't match standard word spacing. PlaySignoff appends "<SK>" and
-        // emits the whole thing atomically.
+        // Sprint 26 Phase 6 (BUG-061): single-utterance via bracket syntax so
+        // "73 SK ee" renders as one continuous PARIS-spaced waveform. Previously
+        // separate PlayString + PlaySK queue entries produced a small gap at
+        // the queue boundary that didn't match standard word spacing.
+        //
+        // 2026-04-28 bug bundle: trailing " ee" (two dits) added so the no-radio
+        // exit path also fires the friendly hand-wave close. Pre-fix the EE was
+        // only on the PowerOn re-wiring below, so connect-to-radio close paths
+        // got it but no-radio close did not. Keep both wirings producing the
+        // same audio shape — the PowerOn duplicate is vestigial but kept until
+        // a future refactor removes it.
         Radios.ScreenReaderOutput.PlayCwSK = () =>
         {
             string prefix = _morseNotifier.SpeedWpm >= 25 ? "73 de JJF" : "73";
-            return _morseNotifier.PlaySignoff(prefix);
+            return _morseNotifier.PlayString($"{prefix} <SK> ee");
         };
         Radios.ScreenReaderOutput.PlayCwMode = (mode) => _morseNotifier.PlayString(mode);
 
