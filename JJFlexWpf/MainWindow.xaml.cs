@@ -2110,6 +2110,8 @@ public partial class MainWindow : UserControl
                 string prefix = _morseNotifier.SpeedWpm >= 25 ? "73 de JJF" : "73";
                 await _morseNotifier.PlayString(prefix);
                 await _morseNotifier.PlaySK();
+                // PARIS inter-word gap so SK and the trailing EE don't mash into "SKEE".
+                await _morseNotifier.PlayPause(7);
                 // Two single dits — friendly hand-wave close. Removes the abruptness
                 // of a bare SK; in CW prosign convention "e e" reads as a quick "bye".
                 await _morseNotifier.PlayString("ee");
