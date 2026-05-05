@@ -989,6 +989,33 @@ public partial class MainWindow : UserControl
             return;
         }
 
+        // 1c. Universal Home keys (M/V/R/X/Q/=) no-radio guard.
+        //
+        // These keys are field-handler-bound — they only fire when focus is on a
+        // Home field. With no radio, FrequencyDisplay's _fieldDict is empty so
+        // focus can't be on a Home field, and the keys silently do nothing —
+        // a violation of the no-silent-keystrokes rule. Speak no-radio guidance
+        // and consume so the user gets audible feedback at window scope.
+        //
+        // Gated on FreqOut.IsKeyboardFocusWithin so we only fire where a Home
+        // field WOULD have focus if a radio were connected; outside Home (menu
+        // bar, settings dialog, command finder) the keys pass through to be
+        // typed normally. With a radio connected, the guard skips and the
+        // normal field-handler routing wins.
+        //
+        // Shift+M and Shift+, (multi-slice variants) are intentionally NOT in
+        // this list — they're bound in KeyCommands (Radio scope) and the
+        // DoCommand-layer guard at f8c64d57 already covers them.
+        if (RigControl == null
+            && Keyboard.Modifiers == ModifierKeys.None
+            && FreqOut.IsKeyboardFocusWithin
+            && IsUniversalHomeKey(rawKey))
+        {
+            Radios.ScreenReaderOutput.SpeakNoRadioConnected();
+            e.Handled = true;
+            return;
+        }
+
         // 2. Filter hotkeys (bracket keys) — Modern and Classic modes (not Logging)
         if (ActiveUIMode != UIMode.Logging && _freqOutHandlers != null && _radioPowerOn)
         {
@@ -1050,6 +1077,10 @@ public partial class MainWindow : UserControl
 
         // 5. Fall through to focused control (default WPF behavior)
     }
+
+    private static bool IsUniversalHomeKey(Key key) =>
+        key == Key.M || key == Key.V || key == Key.R || key == Key.X
+        || key == Key.Q || key == Key.OemPlus;
 
     /// <summary>
     /// PreviewKeyUp — handles Ctrl+Space release for PTT hold mode.
