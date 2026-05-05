@@ -114,6 +114,17 @@ namespace JJFlexWpf
         /// </summary>
         public bool AnnounceSwrAfterTune { get; set; } = true;
 
+        /// <summary>
+        /// Speak connection progress while the connecting modal is up. Phase
+        /// announcements ("connected, waiting for slice") and counting earcons
+        /// (1 / 1+1 / 1+1+1 tones) only fire when this is true. Critical-level
+        /// events (errors, "connection failed", "cancelled") always speak.
+        /// Default true so new users hear progress and build confidence the app
+        /// is working; frequent connectors who don't need the play-by-play can
+        /// turn it off.
+        /// </summary>
+        public bool SpeakConnectionProgress { get; set; } = true;
+
         /// <summary>Whether braille status line is enabled.</summary>
         public bool BrailleEnabled { get; set; }
 

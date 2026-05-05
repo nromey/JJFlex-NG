@@ -1778,6 +1778,50 @@ Module globals
     ''' </summary>
     Private _wpfRadioFoundCallback As Action(Of JJFlexWpf.Dialogs.RadioListItem)
     Private _connectingForm As ConnectingForm
+    Private _connectingFormThread As Threading.Thread
+
+    ''' <summary>
+    ''' Spin up the connecting modal on its own STA message-pump thread so Escape /
+    ''' X / Alt+F4 respond even while RigControl.Start() blocks the main UI thread
+    ''' in its station-name-wait loop. The cancel callback flips a thread-safe flag
+    ''' (FlexBase.RequestCancel) that Start() polls and exits fast.
+    ''' Returns once the form's Shown event has fired so subsequent UpdateStatus
+    ''' / CloseForm calls have a valid window handle.
+    ''' </summary>
+    Private Sub ShowConnectingFormOnOwnThread(radioName As String, profiler As Radios.ConnectionProfiler)
+        Dim ready As New Threading.ManualResetEventSlim(False)
+        Dim cancelCallback As Action = Sub()
+                                           Try
+                                               Dim rc = RigControl
+                                               If rc IsNot Nothing Then rc.RequestCancel()
+                                           Catch ex As Exception
+                                               Tracing.TraceLine("ConnectingForm cancel callback: " & ex.Message, TraceLevel.Error)
+                                           End Try
+                                       End Sub
+
+        _connectingFormThread = New Threading.Thread(
+            Sub()
+                Try
+                    Dim form = New ConnectingForm(radioName, cancelCallback, profiler)
+                    AddHandler form.Shown, Sub(sender, e) ready.Set()
+                    _connectingForm = form
+                    Application.Run(form)
+                Catch ex As Exception
+                    Tracing.TraceLine("ConnectingForm thread: " & ex.Message, TraceLevel.Error)
+                Finally
+                    ready.Set()
+                    _connectingForm = Nothing
+                End Try
+            End Sub)
+        _connectingFormThread.SetApartmentState(Threading.ApartmentState.STA)
+        _connectingFormThread.IsBackground = True
+        _connectingFormThread.Name = "ConnectingForm"
+        _connectingFormThread.Start()
+        ' Wait briefly so the form is shown (handle created) before any
+        ' UpdateStatus / CloseForm BeginInvoke calls land. 2 s ceiling avoids
+        ' deadlock if something goes wrong constructing the form.
+        ready.Wait(2000)
+    End Sub
 
     Private Sub wpfRadioFoundHandler(sender As Object, e As FlexBase.RigData)
         Tracing.TraceLine("wpfRadioFoundHandler:" & e.Serial, TraceLevel.Info)
@@ -1966,9 +2010,11 @@ Module globals
             ' Show connecting window IMMEDIATELY — the RigSelectorDialog just closed
             ' and there's no JJFlex window visible. Without this, focus drops to Explorer
             ' during Connect() which can take several seconds for SmartLink.
+            ' Stuck-modal escape (2026-05-04): the modal runs on its own message-pump
+            ' thread so Escape and the X close button respond even while Start()
+            ' blocks the main UI thread in its station-name-wait loop.
             Dim radioName = If(CurrentRig?.Name, "radio")
-            _connectingForm = New ConnectingForm($"Connecting to {radioName}...")
-            _connectingForm.Show()
+            ShowConnectingFormOnOwnThread(radioName, Radios.ConnectionProfiler.Current)
             Radios.ConnectionProfiler.Current?.RecordEvent("connecting_form_shown")
 
             ' For remote radios: use ReconnectRemote which establishes a fresh SmartLink
@@ -2083,10 +2129,9 @@ RadioConnected:
                 End If
 
                 ' ConnectingForm is already up from wpfSelectorProc or TryAutoConnect.
-                ' Parent it to AppShellForm now that it's visible.
-                If _connectingForm IsNot Nothing AndAlso AppShellForm IsNot Nothing Then
-                    _connectingForm.Owner = AppShellForm
-                End If
+                ' Stuck-modal escape (2026-05-04): the modal runs on its own thread,
+                ' so we no longer set Owner = AppShellForm (cross-thread Owner is not
+                ' allowed). TopMost on the form keeps it visible without an owner.
 
                 ' Create connection profiler if one doesn't already exist
                 ' (wpfSelectorProc creates one for manual connect; auto-connect may not)
@@ -2106,8 +2151,11 @@ RadioConnected:
                 ' during the guiClient re-add cycle, retry with a fresh connection.
                 ' A fresh connection bypasses the slow re-add and usually succeeds quickly.
                 ' Sprint 15.5: Two retry paths — remote manual and auto-connect.
+                ' Stuck-modal escape: if the user pressed Escape / X, skip the retry path
+                ' entirely. The cancel was deliberate; retrying would defeat the purpose.
                 If Not rv AndAlso RigControl IsNot Nothing AndAlso
-                   Not RigControl.IsConnected Then
+                   Not RigControl.IsConnected AndAlso
+                   Not RigControl.CancelRequested Then
 
                     Dim retrySerial = RigControl.ConnectedSerial
                     Dim retryLowBW = RigControl.ConnectedLowBW

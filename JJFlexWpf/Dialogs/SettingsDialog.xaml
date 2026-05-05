@@ -555,6 +555,16 @@
                               Content="Read final SWR reading after manual or automatic tune"
                               Margin="0,0,0,8"
                               AutomationProperties.Name="Read final SWR reading after manual or automatic tune."/>
+
+                    <Separator Margin="0,4,0,8"/>
+
+                    <!-- Connection progress -->
+                    <TextBlock Text="Connection Progress" FontWeight="SemiBold"
+                               Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
+                    <CheckBox x:Name="SpeakConnectionProgressCheck"
+                              Content="Speak connection progress while connecting to a radio"
+                              Margin="0,0,0,8"
+                              AutomationProperties.Name="Speak connection progress. When checked, JJ Flex announces each connection phase and plays a counting tone (1, 2, then 3 tones) as the connect proceeds. Critical messages (errors, cancel, timeout) always speak regardless of this setting."/>
                 </StackPanel>
                 </ScrollViewer>
             </TabItem>

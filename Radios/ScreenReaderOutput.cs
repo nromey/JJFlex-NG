@@ -341,6 +341,25 @@ namespace Radios
         /// <summary>Whether CW mode announcements are enabled (when speech is off).</summary>
         public static bool CwModeAnnounceEnabled { get; set; }
 
+        /// <summary>
+        /// Whether connection progress speech and counting earcons fire while
+        /// the connecting modal is up. Default true. Critical-level events
+        /// (errors, "cancelled", "timed out") always speak regardless.
+        /// Mirrors CwNotificationsEnabled — loaded from AudioOutputConfig at
+        /// MainWindow construction so the connecting modal sees the flag the
+        /// first time it's shown (auto-connect on startup).
+        /// </summary>
+        public static bool SpeakConnectionProgressEnabled { get; set; } = true;
+
+        /// <summary>
+        /// Set true after PlayCwSK has been invoked once for the current session
+        /// (typically by FlexBase.Disconnect on user disconnect). The shutdown
+        /// handler in ApplicationEvents checks this and skips its own SK so the
+        /// 73 prosign doesn't fire twice on app exit while connected.
+        /// Cleared by app startup (default false).
+        /// </summary>
+        public static bool SkAlreadyPlayedThisSession { get; set; } = false;
+
         // ── MultiFlex client notifications (Sprint 25 Phase 19) ──
 
         /// <summary>Play ascending chirp for client connected.</summary>

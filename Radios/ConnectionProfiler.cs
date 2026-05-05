@@ -37,6 +37,14 @@ namespace Radios
         public string Outcome => _outcome;
         public long ElapsedMs => _sw.ElapsedMilliseconds;
 
+        /// <summary>
+        /// Fires when an event is recorded. Subscribers get the event name, elapsed ms,
+        /// and structured data dictionary. Fires synchronously on whatever thread called
+        /// RecordEvent — subscribers must marshal to UI thread themselves if needed.
+        /// Added 2026-05-04 for the state-aware connecting modal.
+        /// </summary>
+        public event Action<string, long, Dictionary<string, object>> EventRecorded;
+
         public ConnectionProfiler()
         {
             _profileId = _startTime.ToString("yyyyMMdd-HHmmss-fff");
@@ -96,6 +104,17 @@ namespace Radios
             // Also trace for real-time visibility
             var dataStr = data != null ? JsonSerializer.Serialize(data) : "";
             Tracing.TraceLine($"[PROFILE] {evt.ElapsedMs}ms {eventName} {dataStr}", TraceLevel.Info);
+
+            // Fire subscribers (state-aware modal, escalation dialog, future renderers).
+            // Catch-and-trace so a misbehaving subscriber can't break the connect path.
+            try
+            {
+                EventRecorded?.Invoke(eventName, evt.ElapsedMs, data);
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine($"[PROFILE] EventRecorded subscriber threw: {ex.Message}", TraceLevel.Error);
+            }
         }
 
         /// <summary>
