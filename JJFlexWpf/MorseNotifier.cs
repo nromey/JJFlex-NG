@@ -152,6 +152,22 @@ namespace JJFlexWpf
         public Task PlaySK(CancellationToken ct = default) =>
             PlayCharacter(ProsignSK, ct);
 
+        /// <summary>
+        /// Queue an inter-utterance gap of <paramref name="dits"/> dit-lengths at
+        /// the current WPM. Without this, back-to-back Play* calls run together
+        /// with zero audible gap, so a prosign followed by characters reads as a
+        /// single mashed token (e.g. SK + "ee" → "SKEE"). 7 dits matches the
+        /// PARIS inter-word standard and the BT end-of-sentence cadence; pass 5
+        /// for a tighter pause.
+        /// </summary>
+        public Task PlayPause(int dits, CancellationToken ct = default)
+        {
+            if (dits <= 0) return Task.CompletedTask;
+            var elements = new List<CwElement> { CwElement.Gap(DitMs * dits) };
+            return _output.PlayElementsAsync(
+                elements, SidetoneHz, Volume, RiseFallMs, ct);
+        }
+
         /// <summary>Play a string as Morse code (mode names, digits, etc.).</summary>
         /// <remarks>
         /// Enqueues the string's element sequence on the output's FIFO queue
