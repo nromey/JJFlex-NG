@@ -420,6 +420,26 @@ public partial class FrequencyDisplay : UserControl
         };
 
     /// <summary>
+    /// Fields that arrow-nav passes over entirely, as if collapsed. Stronger
+    /// than non-position-sensitive (which still lands on the field once) —
+    /// the field is treated as not present in the nav order at all.
+    ///
+    /// SquelchLevel collapses when Squelch is off: the level is irrelevant
+    /// then, and the adjacent Squelch field already carries the off state.
+    /// Per Noel 2026-04-28: "when off move on to next field." The shortcut
+    /// keys (Q toggle, menu adjust) still reach the value when needed.
+    /// </summary>
+    private bool ShouldSkipField(DisplayField field)
+    {
+        if (field.Key == "SquelchLevel"
+            && _fieldDict.TryGetValue("Squelch", out var squelch))
+        {
+            return GetSpeechText(squelch) == "off";
+        }
+        return false;
+    }
+
+    /// <summary>
     /// Move cursor in the given direction (+1 = right, -1 = left).
     /// For position-sensitive fields (Freq, RIT, XIT): moves one digit position.
     /// For non-position-sensitive fields: jumps to the next/previous field.
@@ -476,6 +496,15 @@ public partial class FrequencyDisplay : UserControl
                     newPos += direction;
                     continue;
                 }
+            }
+
+            // Collapsed fields (e.g. SquelchLevel when Squelch is off) drop out
+            // of the nav order entirely — pass through as if they weren't here.
+            // Different from non-position-sensitive, which still lands once.
+            if (fieldAtPos != currentField && ShouldSkipField(fieldAtPos))
+            {
+                newPos += direction;
+                continue;
             }
 
             // Same field we started in
