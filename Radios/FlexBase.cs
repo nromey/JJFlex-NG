@@ -1063,6 +1063,7 @@ namespace Radios
             // must not poison the station name wait loop.
             _clientRemovedDuringStart = false;
             _clientAddedDuringStart = false;
+            _cancelRequested = false;
 
             LastStartFailureReason = null;
             ConnectionProfiler.Current?.RecordEvent("start_begin", new Dictionary<string, object>
@@ -1074,8 +1075,15 @@ namespace Radios
 
             await(() =>
             {
-                return initialFreeSlices != -1;
+                return initialFreeSlices != -1 || _cancelRequested;
             }, 5000);
+
+            if (_cancelRequested)
+            {
+                Tracing.TraceLine("start: cancelled before slice check", TraceLevel.Info);
+                LastStartFailureReason = "Cancelled by user";
+                return false;
+            }
 
             ConnectionProfiler.Current?.RecordEvent("start_slices_available", new Dictionary<string, object>
             {
@@ -1114,12 +1122,24 @@ namespace Radios
             // as the station-name wait below). LAN connections settle in <200ms.
             if (!await(() =>
             {
-                return ((theRadio.RXAntList != null) && (theRadio.RXAntList.Length > 0));
+                return ((theRadio.RXAntList != null) && (theRadio.RXAntList.Length > 0)) || _cancelRequested;
             }, 20000))
             {
                 Tracing.TraceLine("start:no RX antenna", TraceLevel.Error);
                 LastStartFailureReason = "No RX antenna detected";
                 raiseNoSliceError(noRXAnt);
+                return false;
+            }
+
+            if (_cancelRequested)
+            {
+                Tracing.TraceLine("start: cancelled during antenna wait", TraceLevel.Info);
+                LastStartFailureReason = "Cancelled by user";
+                ConnectionProfiler.Current?.RecordAndSave("start_cancelled", new Dictionary<string, object>
+                {
+                    { "phase", "antenna_wait" }
+                });
+                try { theRadio?.Disconnect(); } catch { }
                 return false;
             }
 
@@ -1150,6 +1170,15 @@ namespace Radios
 
                 while (iterations-- > 0)
                 {
+                    if (_cancelRequested)
+                    {
+                        ConnectionProfiler.Current?.RecordEvent("start_cancelled_in_station_wait", new Dictionary<string, object>
+                        {
+                            { "msSinceStartBegin", Environment.TickCount64 - _startBeginTickCount }
+                        });
+                        Tracing.TraceLine("start: cancelled during station-name wait", TraceLevel.Info);
+                        break;
+                    }
                     if (!IsConnected)
                     {
                         Tracing.TraceLine("start:connection dropped while waiting for station name", TraceLevel.Error);
@@ -1190,6 +1219,21 @@ namespace Radios
                     }
                     Thread.Sleep(interval);
                 }
+            }
+            if (_cancelRequested)
+            {
+                // User cancelled during station-name wait. Clean up radio-side state
+                // (FlexLib Disconnect releases the GUIClient registration) so the next
+                // connect attempt doesn't trip the AS-retry path on stale state.
+                Tracing.TraceLine("start: cancelled, disconnecting radio for clean cleanup", TraceLevel.Info);
+                LastStartFailureReason = "Cancelled by user";
+                ConnectionProfiler.Current?.RecordAndSave("start_cancelled", new Dictionary<string, object>
+                {
+                    { "phase", "station_name_wait" },
+                    { "msSinceStartBegin", Environment.TickCount64 - _startBeginTickCount }
+                });
+                try { theRadio.Disconnect(); } catch { }
+                return false;
             }
             if (stationNameSet)
             {
@@ -1246,6 +1290,9 @@ namespace Radios
         {
             Tracing.TraceLine("Disconnect:" + (string)((theRadio == null) ? "null" : theRadio.Serial), TraceLevel.Info);
             if (theRadio == null) return;
+            // Signal the cancel flag too — if Start() is in-flight on another thread
+            // (UI thread blocked in the station-name wait), it sees this and exits fast.
+            _cancelRequested = true;
             Disconnecting = true;
 
             // 2026-04-28: announce disconnect via speech + CW (SK prosign) so the
@@ -1265,7 +1312,14 @@ namespace Radios
                 };
                 ScreenReaderOutput.Speak(msg, VerbosityLevel.Critical, true);
             }
-            if (ScreenReaderOutput.CwNotificationsEnabled) _ = ScreenReaderOutput.PlayCwSK?.Invoke();
+            if (ScreenReaderOutput.CwNotificationsEnabled)
+            {
+                _ = ScreenReaderOutput.PlayCwSK?.Invoke();
+                // Mark SK played for this session so the app-exit Shutdown handler
+                // skips its own SK call. Otherwise the user hears 73-SK twice when
+                // they disconnect via menu and then close the app.
+                ScreenReaderOutput.SkAlreadyPlayedThisSession = true;
+            }
 
             try
             {
@@ -2887,6 +2941,27 @@ namespace Radios
         private volatile bool _clientAddedDuringStart = false;
         private long _clientRemovedTickCount = 0;
         private long _startBeginTickCount = 0;
+
+        // Stuck-modal escape: thread-safe cancel signal raised from the connecting
+        // modal's Escape / X close handler (which runs on the modal's own message
+        // pump thread, not the UI thread that's blocked in Start()'s wait loops).
+        // Start() polls this in its await calls and the station-name-wait loop, then
+        // exits with LastStartFailureReason="Cancelled by user" so the caller's
+        // retry path does not re-attempt.
+        private volatile bool _cancelRequested = false;
+        public bool CancelRequested => _cancelRequested;
+        /// <summary>
+        /// Signal that the in-flight connect/start should abort at its next check
+        /// point. Thread-safe, fast, non-blocking. Caller still owns the cleanup
+        /// path (openTheRadio's Dispose-on-failure already runs when Start returns
+        /// false).
+        /// </summary>
+        public void RequestCancel()
+        {
+            _cancelRequested = true;
+            Tracing.TraceLine("RequestCancel: cancel flag set", TraceLevel.Info);
+            ConnectionProfiler.Current?.RecordEvent("cancel_requested");
+        }
 
         /// <summary>
         /// Fires when any MultiFlex GUI client is added, removed, or updated.

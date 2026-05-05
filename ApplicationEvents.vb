@@ -378,8 +378,12 @@ Namespace My
             ' Play SK prosign on app close. Timeout bumped to 5 seconds to cover the
             ' richer "73 de JJF SK" farewell at speed >= 25 WPM (the MainWindow-side
             ' PlayCwSK delegate picks short-or-long based on current WPM).
+            ' Skip if FlexBase.Disconnect already played SK during this session —
+            ' otherwise the user hears 73 twice when exiting from a connected state
+            ' (Disconnect path → SK once, then Shutdown → SK again).
             If Radios.ScreenReaderOutput.CwNotificationsEnabled AndAlso
-               Radios.ScreenReaderOutput.PlayCwSK IsNot Nothing Then
+               Radios.ScreenReaderOutput.PlayCwSK IsNot Nothing AndAlso
+               Not Radios.ScreenReaderOutput.SkAlreadyPlayedThisSession Then
                 Try
                     Radios.ScreenReaderOutput.PlayCwSK.Invoke().Wait(5000)
                 Catch
