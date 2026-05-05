@@ -5,6 +5,64 @@ This document captures the current state of JJ-Flex repository and active work.
 **Repository root:** `C:\dev\JJFlex-NG`
 **Branch:** `sprint28/home-key-qsk` (Sprint 28 substantively complete in code; Sprint 28 wrap items committed; 4.1.17 release-verification matrix in active runtime testing — note: 4.1.17 was retired 2026-05-02 in favor of direct 4.2.0 cascade)
 
+## RESUME HERE — post-recovery 2026-05-05 (or whenever Noel is up to it)
+
+**One file to grab:** `docs/planning/for-noel/2026-05-04-foundation-drop-test-pull.md`
+
+That's the test pull doc for everything that landed today (stuck-modal escape + 7 polish bug fixes, both merged into sprint28/home-key-qsk at commit `ee8faebb`). Nineteen tests in for-noel format with `**** ` slots. Read each test, do the action, write your result on the `**** ` line. Move to for-claude/ when done.
+
+Build to test against: `bin\x64\Debug\net10.0-windows\win-x64\JJFlexRadio.exe` — already built fresh today, version 4.1.16.0.
+
+Skip-friendly: any test you can't run, write `**** SKIP <reason>`. Sessions 1, 2, 5 are pure solo (15 + 15 + 5 min). Session 3 needs Don. Session 4 (forced stuck conditions) is fully optional.
+
+If the doc-driven format isn't working when you sit down with it, just say "let's walk through the tests in chat" — I can prompt one test at a time interactively.
+
+**Other pending items (lower priority, only if time + energy):**
+- `docs/planning/for-noel/2026-05-04-sprint28-bug-bundle-questions-pull.md` — Q2 still open (RunsWithoutRadio + action-aware no-radio). Q1 + Q3 auto-resolved.
+- `docs/planning/for-noel/2026-05-04-42-release-execution-plan-pull.md` — strategic plan for 4.2.0 release (firmware updater + crash reporter + updater). Five questions inside. Tomorrow afternoon's Cloudflare R2 + Azure prep work answers some implicitly.
+
+---
+
+## 2026-05-04 end-of-day seal: foundation drop merged to sprint28/home-key-qsk + 4.2.0 release plan + format-preference learnings
+
+**Big day.** Two parallel tracks landed and merged: stuck-modal escape (the 200-second-trap-on-Don's-radio fix) and the 7-bug polish bundle from the 2026-04-28 testing session. Both branched from sprint28/home-key-qsk per the new "main = 4.1 working branch" strategic posture (see new memory entries) — testable against current FlexLib 4.1.5 baseline without waiting on 4.2.18 silent-discovery resolution. Strategic execution plan written for the 4.2.0 release covering crash reporter + updater + firmware updater, with Phase 0 runbook for Cloudflare R2 + DNS + rarbox setup. Five new memory entries: two architectural (independent merge events, main = 4.1 posture), three workflow (open questions to for-noel, screen-reader textual markers, test matrix vs guided paper vs for-noel pull). Plus today's substantial format-preference learnings on testing deliverables.
+
+### Code that landed
+
+- **Stuck-modal track** (commit `de239328` merge): 11 files, ~600 LOC. State-aware connecting modal subscribed to `ConnectionProfiler` events, always-honored Escape with Critical-level cancel speech, 60-second escalation with diagnostic-rich text from profiler events, 5-minute hard auto-cancel ceiling, verbosity opt-out toggle in Settings → Notifications, counting earcons (1, 1+1, 1+1+1) for phase progression, gating of phase speech on phases-taking-longer-than-500ms (fast common case stays unobtrusive), 73-Morse-twice fix on the disconnect path. Builds clean.
+- **Bug bundle track** (commit `ee8faebb` merge): 4 files, ~187 LOC. CW prosign pause primitive in `MorseNotifier.cs` (so `73 SK <pause> EE` instead of `73 SKEE`); Squelch Level skip in arrow-nav when Squelch off (mirrors RIT/XIT pattern); window-level no-radio guard for universal Home keys (R/M/X/Q/V/=) in `MainWindow.xaml.cs` (so they speak no-radio guidance when no radio connected); Slice and Slice Operations purpose-naming ("Slice selector: slice A active" / "Slice operations: slice A controls"); Classic and Modern field-order parity; `MainContent` named to fix dialog-close "pane" announcement; `PlayCwSK` ee close fires on all three exit paths (re-verify revealed it WAS still broken — Noel's morning-of-04-28 partial retraction was based only on the with-radio path).
+
+Both tracks pushed to origin/nromey on `sprint28/home-key-qsk`.
+
+### Strategic + workflow memory captured today
+
+- `project_main_branch_41_posture.md` — main = 4.1 working branch until three 4.2 ship gates clear (firmware push safety + crash reporter + update plan). Self-prunes when 4.2.0 ships. Pairs with the existing FlexLib 4.2.18 cascade memory.
+- `project_independent_merge_events.md` — branch a fix from the version it's TESTABLE against, not the calendar-current major version. Diagnostic question: "what's the minimum baseline this fix can be tested against?"
+- `feedback_open_questions_route_to_for_noel.md` — questions for Noel MUST be in `for-noel/`, never buried in active/working dashboards.
+- `feedback_screen_reader_textual_markers.md` — NVDA/JAWS default to font-attribute-announcement OFF. Use `////text////` for strikethrough; textual prefixes (`**WARNING:**`, `**CRITICAL:**`) for emphasis; never visual-only formatting alone.
+- `feedback_test_matrix_vs_guided_paper.md` — matrices are storage; for-noel test pulls are Noel's preferred execution format; guided walkthroughs are an alternate format for other testers (Don, Justin). Captured after two iterations of wrong-format delivery on the same task.
+
+### Planning artifacts produced
+
+- `docs/planning/active/sprint28-bug-bundle-triage.md` — full status of all 14 entries from 2026-04-28 briefing.
+- `docs/planning/active/research-queue.md` — refreshed with completed tracks + new awaiting-Noel items.
+- `docs/planning/for-noel/2026-05-04-sprint28-bug-bundle-questions-pull.md` — bug-bundle DESIGN-entries Q2 (RunsWithoutRadio + action-aware no-radio) still open; Q1 + Q3 auto-resolved.
+- `docs/planning/for-noel/2026-05-04-42-release-execution-plan-pull.md` — five-phase execution sequence + Phase 0 runbook for Cloudflare R2 + DNS + rarbox. Five open questions; tomorrow afternoon's prep work (Azure signup + Cloudflare R2 enable) addresses some implicitly.
+- `docs/planning/for-noel/2026-05-04-foundation-drop-test-pull.md` — Noel's test pull for today's two tracks. **PRIORITY for first session post-recovery.**
+- `docs/planning/agile/pre-4.2-foundation-drop-test-matrix.md` — same tests in storage-matrix format for accumulation.
+- `docs/planning/agile/pre-4.2-foundation-drop-guided-walkthrough.md` — same tests in guided-walkthrough format (alternate for Don/Justin).
+
+### What's set up for tomorrow
+
+- **Foundation drop is on sprint28/home-key-qsk and pushed.** Awaiting Noel's test results to propose the merge to main as the actual foundation drop event.
+- **`track/flexlib-42`, `track/discovery-fallback-chain`, `track/braille-research`, `track/multi-radio` worktrees still parked** — they handle the 4.2.0 work and don't merge to main until firmware + crash reporter + updater are operational per `project_main_branch_41_posture.md`.
+- **Bug-bundle DESIGN follow-up queued** — two entries (RunsWithoutRadio + action-aware no-radio) waiting on Noel's Q2 ACK in for-noel pull. When ACK'd, restart CLI session in fresh worktree on a new branch from sprint28/home-key-qsk for ~30-100 LOC.
+- **Three days of priority pulls + execution plan await morning reading** when Noel's recovered. Test pull is the load-bearing one; execution plan is strategic context.
+
+### Surgery context
+
+Surgery 2026-05-05 8:30 AM Central, ~1hr procedure per `project_surgery_2026_05_05.md`. Possible light afternoon/evening capacity. Tomorrow afternoon Noel may do Cloudflare R2 + Azure prep work (Q2 + Section B from the 4.2.0 execution plan); that's optional, no pressure. Test pull for today's foundation drop is the priority when energy permits.
+
 ## 2026-05-03 evening seal: nine-doc for-claude ingestion → seven memory entries; API.cs / HAAPI.cs ruled out of R4 investigation; SmartSDR ILSpy decompile authorized as next pivot
 
 **No code on main today; ingestion + investigation day.** Spent the session processing the for-claude doc batch Noel promoted from for-noel during his evening review pass, plus an end-of-day FlexLib API.cs / HAAPI.cs source-diff that was the next-step in the R4 investigation per the existing memory. Seven memory entries landed (three new, four substantively updated); MEMORY.md index refreshed; nine for-claude source docs deleted per protocol; FlexLib 4.2.18 suspect surface narrowed by another pair of files. **Yesterday's seal is captured in commit `e3d877ed` and the 2026-05-02 AAR; that day was the design-backlog clearing day where five engineering tracks got build-now-ship-later authorization.**
