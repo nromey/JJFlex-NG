@@ -1393,7 +1393,16 @@ public partial class MainWindow : UserControl
 
         var fields = new List<FrequencyDisplay.DisplayField>();
 
-        // Field order: Slice → SliceOps → Freq → Mute → Volume → SMeter → Split → VOX → Offset → RIT → XIT
+        // Field order (Sprint 28 bug bundle 2026-04-28 — parity with Modern):
+        //   Slice → SliceOps → Freq → SMeter → Squelch → SquelchLevel
+        //   → Split → VOX → Offset → RIT → XIT → Mute → Volume
+        //
+        // Modern (post-Sprint-26-Phase-8) is the canonical sequence; Classic
+        // mirrors it for the shared fields so muscle memory transfers between
+        // modes. Mute and Volume are Classic-only (Modern handles them via the
+        // M universal key and the Audio expander) and now sit at the end of
+        // the order so they don't interrupt the high-traffic Freq → SMeter
+        // path. Customize Home (Sprint 30+) will let users override.
         fields.Add(new FrequencyDisplay.DisplayField("Slice", 1, "", "") { Label = "Slice",
             HelpItems = new() { ("Up Down", "cycle slices"), ("Space", "next slice"), ("A-H or 0-7", "jump to slice"),
                 ("T", "set transmit"), ("Period", "create slice"), ("Comma", "release slice") } });
@@ -1405,10 +1414,6 @@ public partial class MainWindow : UserControl
             HelpItems = new() { ("Up Down", "tune by cursor position"), ("Digits", "type frequency then Enter"),
                 ("K", "round to nearest kilohertz"), ("C", "toggle coarse and fine"),
                 ("Plus N", "set step multiplier"), ("F", "speak frequency") } });
-        fields.Add(new FrequencyDisplay.DisplayField("Mute", 1, "", "") { Label = "Mute",
-            HelpItems = new() { ("Space or M", "toggle mute") } });
-        fields.Add(new FrequencyDisplay.DisplayField("Volume", 3, "", "") { Label = "Volume",
-            HelpItems = new() { ("Up Down", "adjust volume") } });
         fields.Add(new FrequencyDisplay.DisplayField("SMeter", 4, "", "") { Label = "S Meter",
             HelpItems = new() { ("This field is read-only", "shows signal strength") } });
         // Sprint 28 Phase 3.9 — Squelch + Squelch Level fields. Squelch state
@@ -1432,6 +1437,10 @@ public partial class MainWindow : UserControl
         fields.Add(new FrequencyDisplay.DisplayField("XIT", 5, " ", "") { Label = "XIT", DefaultCursorOffset = 2,
             HelpItems = new() { ("Up Down", "adjust by cursor position"), ("Space", "toggle XIT on off"),
                 ("Digits", "enter value") } });
+        fields.Add(new FrequencyDisplay.DisplayField("Mute", 1, "", "") { Label = "Mute",
+            HelpItems = new() { ("Space or M", "toggle mute") } });
+        fields.Add(new FrequencyDisplay.DisplayField("Volume", 3, "", "") { Label = "Volume",
+            HelpItems = new() { ("Up Down", "adjust volume") } });
 
         // Classic mode uses position-based step names (no override)
         FreqOut.StepNameOverride = null;
@@ -1449,6 +1458,11 @@ public partial class MainWindow : UserControl
     ///
     /// Field order: Slice → SliceOps → Freq → SMeter → Squelch → SquelchLevel
     ///   → Split → VOX → Offset → RIT → XIT
+    ///
+    /// Classic mirrors this sequence for the shared fields (Sprint 28 bug
+    /// bundle 2026-04-28) and appends Mute → Volume at the end. Until
+    /// Customize Home (Sprint 30+) ships, this is the canonical order — keep
+    /// the two setup methods in sync when adding/removing fields.
     ///
     /// Tuning: simplified Freq handler with coarse/fine via Up/Down +
     /// Shift+Up/Down.
