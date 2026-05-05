@@ -96,15 +96,21 @@ public partial class MainWindow : UserControl
         // always; at speed >= 25 WPM, extend with "de JJF" app-callsign signature. Bare SK
         // is never sent -- feels abrupt, not how real operators sign off.
         //
-        // Sprint 26 Phase 6 (BUG-061): use PlaySignoff so "73" + SK render as one
-        // continuous PARIS-spaced utterance. Previously two separate PlayString +
-        // PlaySK queue entries produced a small gap at the queue boundary that
-        // didn't match standard word spacing. PlaySignoff appends "<SK>" and
-        // emits the whole thing atomically.
+        // Sprint 26 Phase 6 (BUG-061): single-utterance via bracket syntax so
+        // "73 SK ee" renders as one continuous PARIS-spaced waveform. Previously
+        // separate PlayString + PlaySK queue entries produced a small gap at
+        // the queue boundary that didn't match standard word spacing.
+        //
+        // 2026-04-28 bug bundle: trailing " ee" (two dits) added so the no-radio
+        // exit path also fires the friendly hand-wave close. Pre-fix the EE was
+        // only on the PowerOn re-wiring below, so connect-to-radio close paths
+        // got it but no-radio close did not. Keep both wirings producing the
+        // same audio shape — the PowerOn duplicate is vestigial but kept until
+        // a future refactor removes it.
         Radios.ScreenReaderOutput.PlayCwSK = () =>
         {
             string prefix = _morseNotifier.SpeedWpm >= 25 ? "73 de JJF" : "73";
-            return _morseNotifier.PlaySignoff(prefix);
+            return _morseNotifier.PlayString($"{prefix} <SK> ee");
         };
         Radios.ScreenReaderOutput.PlayCwMode = (mode) => _morseNotifier.PlayString(mode);
 
@@ -989,6 +995,33 @@ public partial class MainWindow : UserControl
             return;
         }
 
+        // 1c. Universal Home keys (M/V/R/X/Q/=) no-radio guard.
+        //
+        // These keys are field-handler-bound — they only fire when focus is on a
+        // Home field. With no radio, FrequencyDisplay's _fieldDict is empty so
+        // focus can't be on a Home field, and the keys silently do nothing —
+        // a violation of the no-silent-keystrokes rule. Speak no-radio guidance
+        // and consume so the user gets audible feedback at window scope.
+        //
+        // Gated on FreqOut.IsKeyboardFocusWithin so we only fire where a Home
+        // field WOULD have focus if a radio were connected; outside Home (menu
+        // bar, settings dialog, command finder) the keys pass through to be
+        // typed normally. With a radio connected, the guard skips and the
+        // normal field-handler routing wins.
+        //
+        // Shift+M and Shift+, (multi-slice variants) are intentionally NOT in
+        // this list — they're bound in KeyCommands (Radio scope) and the
+        // DoCommand-layer guard at f8c64d57 already covers them.
+        if (RigControl == null
+            && Keyboard.Modifiers == ModifierKeys.None
+            && FreqOut.IsKeyboardFocusWithin
+            && IsUniversalHomeKey(rawKey))
+        {
+            Radios.ScreenReaderOutput.SpeakNoRadioConnected();
+            e.Handled = true;
+            return;
+        }
+
         // 2. Filter hotkeys (bracket keys) — Modern and Classic modes (not Logging)
         if (ActiveUIMode != UIMode.Logging && _freqOutHandlers != null && _radioPowerOn)
         {
@@ -1050,6 +1083,10 @@ public partial class MainWindow : UserControl
 
         // 5. Fall through to focused control (default WPF behavior)
     }
+
+    private static bool IsUniversalHomeKey(Key key) =>
+        key == Key.M || key == Key.V || key == Key.R || key == Key.X
+        || key == Key.Q || key == Key.OemPlus;
 
     /// <summary>
     /// PreviewKeyUp — handles Ctrl+Space release for PTT hold mode.
@@ -1362,11 +1399,20 @@ public partial class MainWindow : UserControl
 
         var fields = new List<FrequencyDisplay.DisplayField>();
 
-        // Field order: Slice → SliceOps → Freq → Mute → Volume → SMeter → Split → VOX → Offset → RIT → XIT
+        // Field order (Sprint 28 bug bundle 2026-04-28 — parity with Modern):
+        //   Slice → SliceOps → Freq → SMeter → Squelch → SquelchLevel
+        //   → Split → VOX → Offset → RIT → XIT → Mute → Volume
+        //
+        // Modern (post-Sprint-26-Phase-8) is the canonical sequence; Classic
+        // mirrors it for the shared fields so muscle memory transfers between
+        // modes. Mute and Volume are Classic-only (Modern handles them via the
+        // M universal key and the Audio expander) and now sit at the end of
+        // the order so they don't interrupt the high-traffic Freq → SMeter
+        // path. Customize Home (Sprint 30+) will let users override.
         fields.Add(new FrequencyDisplay.DisplayField("Slice", 1, "", "") { Label = "Slice",
             HelpItems = new() { ("Up Down", "cycle slices"), ("Space", "next slice"), ("A-H or 0-7", "jump to slice"),
                 ("T", "set transmit"), ("Period", "create slice"), ("Comma", "release slice") } });
-        fields.Add(new FrequencyDisplay.DisplayField("SliceOps", 3, "", "") { Label = "Slice Audio",
+        fields.Add(new FrequencyDisplay.DisplayField("SliceOps", 3, "", "") { Label = "Slice operations",
             HelpItems = new() { ("Up Down", "volume"), ("Page Up Down", "pan"),
                 ("Space", "toggle mute"), ("M", "mute"), ("S", "sound"),
                 ("A", "make active"), ("T", "make transmit"), ("X", "transceive") } });
@@ -1374,10 +1420,6 @@ public partial class MainWindow : UserControl
             HelpItems = new() { ("Up Down", "tune by cursor position"), ("Digits", "type frequency then Enter"),
                 ("K", "round to nearest kilohertz"), ("C", "toggle coarse and fine"),
                 ("Plus N", "set step multiplier"), ("F", "speak frequency") } });
-        fields.Add(new FrequencyDisplay.DisplayField("Mute", 1, "", "") { Label = "Mute",
-            HelpItems = new() { ("Space or M", "toggle mute") } });
-        fields.Add(new FrequencyDisplay.DisplayField("Volume", 3, "", "") { Label = "Volume",
-            HelpItems = new() { ("Up Down", "adjust volume") } });
         fields.Add(new FrequencyDisplay.DisplayField("SMeter", 4, "", "") { Label = "S Meter",
             HelpItems = new() { ("This field is read-only", "shows signal strength") } });
         // Sprint 28 Phase 3.9 — Squelch + Squelch Level fields. Squelch state
@@ -1401,6 +1443,10 @@ public partial class MainWindow : UserControl
         fields.Add(new FrequencyDisplay.DisplayField("XIT", 5, " ", "") { Label = "XIT", DefaultCursorOffset = 2,
             HelpItems = new() { ("Up Down", "adjust by cursor position"), ("Space", "toggle XIT on off"),
                 ("Digits", "enter value") } });
+        fields.Add(new FrequencyDisplay.DisplayField("Mute", 1, "", "") { Label = "Mute",
+            HelpItems = new() { ("Space or M", "toggle mute") } });
+        fields.Add(new FrequencyDisplay.DisplayField("Volume", 3, "", "") { Label = "Volume",
+            HelpItems = new() { ("Up Down", "adjust volume") } });
 
         // Classic mode uses position-based step names (no override)
         FreqOut.StepNameOverride = null;
@@ -1418,6 +1464,11 @@ public partial class MainWindow : UserControl
     ///
     /// Field order: Slice → SliceOps → Freq → SMeter → Squelch → SquelchLevel
     ///   → Split → VOX → Offset → RIT → XIT
+    ///
+    /// Classic mirrors this sequence for the shared fields (Sprint 28 bug
+    /// bundle 2026-04-28) and appends Mute → Volume at the end. Until
+    /// Customize Home (Sprint 30+) ships, this is the canonical order — keep
+    /// the two setup methods in sync when adding/removing fields.
     ///
     /// Tuning: simplified Freq handler with coarse/fine via Up/Down +
     /// Shift+Up/Down.
@@ -1443,7 +1494,7 @@ public partial class MainWindow : UserControl
         fields.Add(new FrequencyDisplay.DisplayField("Slice", 1, "", "") { Label = "Slice",
             HelpItems = new() { ("Up Down", "cycle slices"), ("Space", "next slice"), ("A-H or 0-7", "jump to slice"),
                 ("T", "set transmit"), ("Period", "create slice"), ("Comma", "release slice") } });
-        fields.Add(new FrequencyDisplay.DisplayField("SliceOps", 3, "", "") { Label = "Slice Audio",
+        fields.Add(new FrequencyDisplay.DisplayField("SliceOps", 3, "", "") { Label = "Slice operations",
             HelpItems = new() { ("Up Down", "volume"), ("Page Up Down", "pan"),
                 ("Space", "toggle mute"), ("M", "mute"), ("S", "sound"),
                 ("A", "make active"), ("T", "make transmit"), ("X", "transceive") } });
@@ -1654,8 +1705,10 @@ public partial class MainWindow : UserControl
             // Slice indicator — shows current active slice number
             FreqOut.Write("Slice", RigControl.ActiveSliceLetter);
 
-            // Dynamic label for SliceOps — "Slice A Operations: Volume" etc.
-            FreqOut.SetFieldLabel("SliceOps", $"Slice {RigControl.ActiveSliceLetter} Operations: Volume");
+            // Dynamic label for SliceOps — purpose-named per Sprint 28 bug bundle
+            // (2026-04-28). Carries the active slice letter; the volume value is
+            // announced when arrow up/down adjusts it, not on focus landing.
+            FreqOut.SetFieldLabel("SliceOps", $"Slice operations: slice {RigControl.ActiveSliceLetter} controls");
 
             // Mute — current active slice mute state (GetVFOAudio true = audio on = not muted)
             FreqOut.Write("Mute", RigControl.GetVFOAudio(RigControl.RXVFO) ? " " : "M");
@@ -2112,6 +2165,8 @@ public partial class MainWindow : UserControl
                 string prefix = _morseNotifier.SpeedWpm >= 25 ? "73 de JJF" : "73";
                 await _morseNotifier.PlayString(prefix);
                 await _morseNotifier.PlaySK();
+                // PARIS inter-word gap so SK and the trailing EE don't mash into "SKEE".
+                await _morseNotifier.PlayPause(7);
                 // Two single dits — friendly hand-wave close. Removes the abruptness
                 // of a bare SK; in CW prosign convention "e e" reads as a quick "bye".
                 await _morseNotifier.PlayString("ee");

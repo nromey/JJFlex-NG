@@ -420,6 +420,26 @@ public partial class FrequencyDisplay : UserControl
         };
 
     /// <summary>
+    /// Fields that arrow-nav passes over entirely, as if collapsed. Stronger
+    /// than non-position-sensitive (which still lands on the field once) —
+    /// the field is treated as not present in the nav order at all.
+    ///
+    /// SquelchLevel collapses when Squelch is off: the level is irrelevant
+    /// then, and the adjacent Squelch field already carries the off state.
+    /// Per Noel 2026-04-28: "when off move on to next field." The shortcut
+    /// keys (Q toggle, menu adjust) still reach the value when needed.
+    /// </summary>
+    private bool ShouldSkipField(DisplayField field)
+    {
+        if (field.Key == "SquelchLevel"
+            && _fieldDict.TryGetValue("Squelch", out var squelch))
+        {
+            return GetSpeechText(squelch) == "off";
+        }
+        return false;
+    }
+
+    /// <summary>
     /// Move cursor in the given direction (+1 = right, -1 = left).
     /// For position-sensitive fields (Freq, RIT, XIT): moves one digit position.
     /// For non-position-sensitive fields: jumps to the next/previous field.
@@ -478,6 +498,15 @@ public partial class FrequencyDisplay : UserControl
                 }
             }
 
+            // Collapsed fields (e.g. SquelchLevel when Squelch is off) drop out
+            // of the nav order entirely — pass through as if they weren't here.
+            // Different from non-position-sensitive, which still lands once.
+            if (fieldAtPos != currentField && ShouldSkipField(fieldAtPos))
+            {
+                newPos += direction;
+                continue;
+            }
+
             // Same field we started in
             if (currentField != null && fieldAtPos == currentField)
             {
@@ -531,9 +560,8 @@ public partial class FrequencyDisplay : UserControl
         if (newField != currentField)
         {
             // Crossed into a new field — announce label + value (+ step for position-sensitive fields)
-            string label = newField.Label ?? newField.Key;
             string value = GetSpeechText(newField);
-            string speech = string.IsNullOrEmpty(value) ? label : $"{label} {value}";
+            string speech = FormatFieldAnnouncement(newField);
 
             if (value != "off")
             {
@@ -581,10 +609,8 @@ public partial class FrequencyDisplay : UserControl
         int offset = System.Math.Min(field.DefaultCursorOffset, field.Length - 1);
         DisplayBox.SelectionStart = fieldStart + offset;
 
-        string label = field.Label ?? field.Key;
         string value = GetSpeechText(field);
-
-        string speech = string.IsNullOrEmpty(value) ? label : $"{label} {value}";
+        string speech = FormatFieldAnnouncement(field);
 
         // Announce step size for position-sensitive fields, but not when RIT/XIT is "off"
         if (value != "off")
@@ -678,12 +704,42 @@ public partial class FrequencyDisplay : UserControl
     /// </summary>
     private static void AnnounceField(DisplayField field)
     {
-        string label = field.Label ?? field.Key;
+        Radios.ScreenReaderOutput.Speak(
+            FormatFieldAnnouncement(field), Radios.VerbosityLevel.Terse, true);
+    }
+
+    /// <summary>
+    /// Build the focus-landing announcement for a field. Default is
+    /// "&lt;label&gt; &lt;value&gt;" (or just label when value is empty), but
+    /// purpose-named fields (Sprint 28 bug bundle 2026-04-28) override the
+    /// format so the announcement leads with the field's role.
+    ///
+    /// Slice → "Slice selector: slice A active" (label + role-aware value).
+    /// SliceOps → "Slice operations: slice A controls" (label carries the
+    /// active slice letter; volume value is announced on adjustment, not
+    /// on focus landing).
+    /// </summary>
+    private static string FormatFieldAnnouncement(DisplayField field)
+    {
         string value = GetSpeechText(field);
-        if (string.IsNullOrEmpty(value))
-            Radios.ScreenReaderOutput.Speak(label, Radios.VerbosityLevel.Terse, true);
-        else
-            Radios.ScreenReaderOutput.Speak($"{label} {value}", Radios.VerbosityLevel.Terse, true);
+
+        if (field.Key == "Slice")
+        {
+            return string.IsNullOrEmpty(value)
+                ? "Slice selector"
+                : $"Slice selector: slice {value} active";
+        }
+
+        if (field.Key == "SliceOps")
+        {
+            // Label is set dynamically in MainWindow.ShowFrequency to include
+            // the active slice letter. Volume value intentionally omitted from
+            // focus-landing speech — it's announced when arrow up/down adjusts.
+            return field.Label ?? "Slice operations";
+        }
+
+        string label = field.Label ?? field.Key;
+        return string.IsNullOrEmpty(value) ? label : $"{label} {value}";
     }
 
     /// <summary>
