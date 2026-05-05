@@ -53,8 +53,14 @@
             </StatusBarItem>
         </StatusBar>
 
-        <!-- ═══ MAIN CONTENT GRID ═══ -->
-        <Grid x:Name="MainContent">
+        <!-- ═══ MAIN CONTENT GRID ═══
+             AutomationProperties.Name set so dialog-close focus restoration
+             (FocusManager.FocusedElement points here) doesn't make NVDA
+             announce a generic "pane" — the bug bundle 2026-04-28 fix from
+             Noel during C.4d, when Ctrl+F's freq-input dialog closed and
+             focus landed back on this Grid with no name. -->
+        <Grid x:Name="MainContent"
+              AutomationProperties.Name="JJ Flexible Home">
             <Grid.RowDefinitions>
                 <!-- Row 0: Radio controls (frequency, mode, tuner, buttons) — Phase 8.2 -->
                 <RowDefinition Height="Auto" />
