@@ -67,10 +67,17 @@ namespace Radios.DiscoveryChain
                     DiagnosticDetail = result.DiagnosticDetail
                 });
 
+                // Per-rung outcome at Info regardless of success/failure: when a
+                // diagnostic build is the whole point (R5/R6/R7…), the boot trace
+                // runs at Info and Verbose lines never make it to disk. Hiding
+                // failure tags behind Verbose left R6 unable to surface no_cache /
+                // bad_cache_ip / tcp_refused — exactly the data we needed from
+                // Don's 2026-05-06 trace. See
+                // memory/project_autoconnect_no_ip_dead_end.md.
                 Tracing.TraceLine(
                     $"DiscoveryChain: {rung.Name} -> {result.OutcomeTag} in {result.Elapsed.TotalMilliseconds:F0}ms" +
                     (string.IsNullOrEmpty(result.DiagnosticDetail) ? "" : $" ({result.DiagnosticDetail})"),
-                    result.Success ? TraceLevel.Info : TraceLevel.Verbose);
+                    TraceLevel.Info);
 
                 if (result.Success && result.Radio != null)
                 {
