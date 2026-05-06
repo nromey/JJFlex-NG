@@ -43,6 +43,18 @@ namespace Radios.DiscoveryChain
         }
 
         /// <summary>
+        /// Returns a snapshot of all cached entries. Used by the manual rig-selector
+        /// path to populate the dialog from cache before UDP discovery completes.
+        /// </summary>
+        public IReadOnlyList<RadioConnectionCacheEntry> GetAllEntries()
+        {
+            lock (_sync)
+            {
+                return _data.Entries.ToList();
+            }
+        }
+
+        /// <summary>
         /// Records the given radio's LAN/WAN connection state into the cache.
         /// Called after a successful FlexLib Connect() so future startups can
         /// short-circuit discovery.

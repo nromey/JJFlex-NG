@@ -89,6 +89,24 @@ namespace Radios
                 Tracing.TraceLine("radioAddedHandler: ignored radio with empty serial", TraceLevel.Warning);
                 return;
             }
+            // Dedupe by serial. Mirrors wanRadioListReceivedHandler so myRadioList stays
+            // serial-unique whether radios arrive via FlexLib's API.RadioAdded, the
+            // discovery chain (registerChainRadio), or repeated UDP rediscovery. The
+            // dialog's RadioFound subscriber already dedupes its own list, but keeping
+            // myRadioList unique avoids findRadioInAPI returning a stale handle when a
+            // chain-injected radio is later rediscovered with fresh fields.
+            Radio existing = findRadioInAPI(r.Serial);
+            if (existing != null)
+            {
+                UpdateRadioDiscoveryFields(r, existing);
+                RigData rdMerged = new RigData();
+                rdMerged.Name = string.IsNullOrWhiteSpace(existing.Nickname) ? "Unknown" : existing.Nickname;
+                rdMerged.ModelName = string.IsNullOrWhiteSpace(existing.Model) ? "Unknown" : existing.Model;
+                rdMerged.Serial = existing.Serial;
+                rdMerged.Remote = existing.IsWan;
+                RaiseRadioFound(null, rdMerged);
+                return;
+            }
             myRadioList.Add(r);
             RigData rd = new RigData();
             rd.Name = string.IsNullOrWhiteSpace(r.Nickname) ? "Unknown" : r.Nickname;
@@ -226,6 +244,69 @@ namespace Radios
         private static bool IsSmartLinkSessionActive()
         {
             return Radios.SmartLink.SmartLinkServices.Coordinator.ActiveSession?.IsConnected == true;
+        }
+
+        /// <summary>
+        /// Run Rung 1a (cached LAN IP) for every cached serial and inject any
+        /// successful hits into <c>myRadioList</c>. Used by the manual rig-selector
+        /// path so cached radios appear in the dialog even when UDP discovery is
+        /// broken (the production-impact case behind R6). UDP discovery still runs
+        /// as today; the dialog and <c>radioAddedHandler</c> dedupe by serial so
+        /// belt-and-suspenders is safe.
+        /// </summary>
+        /// <returns>Number of cache entries that produced a working radio handle.</returns>
+        public async Task<int> PopulateFromCachedRadios(CancellationToken ct)
+        {
+            var cache = GetRadioConnectionCache();
+            var entries = cache.GetAllEntries();
+            if (entries.Count == 0)
+            {
+                Tracing.TraceLine("PopulateFromCachedRadios: no cached entries", TraceLevel.Info);
+                return 0;
+            }
+
+            int hits = 0;
+            var configDir = Callouts?.ConfigDirectory ?? "";
+            var rung = new CachedLanIpRung();
+            foreach (var entry in entries)
+            {
+                if (ct.IsCancellationRequested) break;
+                if (string.IsNullOrEmpty(entry.Serial) || string.IsNullOrEmpty(entry.LanIp)) continue;
+
+                var ctx = new DiscoveryContext
+                {
+                    Serial = entry.Serial,
+                    ConfigDirectory = configDir,
+                    Cache = cache
+                };
+
+                DiscoveryRungResult result;
+                try
+                {
+                    result = await rung.TryAsync(ctx, ct).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    Tracing.TraceLine(
+                        $"PopulateFromCachedRadios: serial={entry.Serial} threw {ex.GetType().Name}: {ex.Message}",
+                        TraceLevel.Warning);
+                    continue;
+                }
+
+                Tracing.TraceLine(
+                    $"PopulateFromCachedRadios: serial={entry.Serial} -> {result.OutcomeTag} in {result.Elapsed.TotalMilliseconds:F0}ms",
+                    result.Success ? TraceLevel.Info : TraceLevel.Verbose);
+
+                if (result.Success && result.Radio != null)
+                {
+                    registerChainRadio(result.Radio);
+                    hits++;
+                }
+            }
+            Tracing.TraceLine(
+                $"PopulateFromCachedRadios: {hits} hit(s) across {entries.Count} cached entry(ies)",
+                TraceLevel.Info);
+            return hits;
         }
 
         /// <summary>
