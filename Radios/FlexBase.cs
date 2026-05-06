@@ -26,6 +26,7 @@ using Flex.Smoothlake.Vita;
 using HamBands;
 using JJPortaudio;
 using JJTrace;
+using Radios.DiscoveryChain;
 using Radios.SmartLink;
 
 namespace Radios
@@ -88,6 +89,24 @@ namespace Radios
                 Tracing.TraceLine("radioAddedHandler: ignored radio with empty serial", TraceLevel.Warning);
                 return;
             }
+            // Dedupe by serial. Mirrors wanRadioListReceivedHandler so myRadioList stays
+            // serial-unique whether radios arrive via FlexLib's API.RadioAdded, the
+            // discovery chain (registerChainRadio), or repeated UDP rediscovery. The
+            // dialog's RadioFound subscriber already dedupes its own list, but keeping
+            // myRadioList unique avoids findRadioInAPI returning a stale handle when a
+            // chain-injected radio is later rediscovered with fresh fields.
+            Radio existing = findRadioInAPI(r.Serial);
+            if (existing != null)
+            {
+                UpdateRadioDiscoveryFields(r, existing);
+                RigData rdMerged = new RigData();
+                rdMerged.Name = string.IsNullOrWhiteSpace(existing.Nickname) ? "Unknown" : existing.Nickname;
+                rdMerged.ModelName = string.IsNullOrWhiteSpace(existing.Model) ? "Unknown" : existing.Model;
+                rdMerged.Serial = existing.Serial;
+                rdMerged.Remote = existing.IsWan;
+                RaiseRadioFound(null, rdMerged);
+                return;
+            }
             myRadioList.Add(r);
             RigData rd = new RigData();
             rd.Name = string.IsNullOrWhiteSpace(r.Nickname) ? "Unknown" : r.Nickname;
@@ -134,6 +153,180 @@ namespace Radios
         /// for radio discovery in ManualSimulation mode.
         /// </summary>
         public Radio FindRadioBySerial(string serial) => findRadioInAPI(serial);
+
+        #region DiscoveryChain
+        // Discovery fallback chain (R6+). Lets JJ Flex skip UDP discovery /
+        // SmartLink radio-list refresh when we already know how to reach the
+        // target radio from a prior successful connect. Design memo:
+        // docs/planning/design/discovery-fallback-chain.md.
+
+        private RadioConnectionCache _radioConnectionCache;
+
+        private RadioConnectionCache GetRadioConnectionCache()
+        {
+            if (_radioConnectionCache == null)
+            {
+                var dir = Callouts?.ConfigDirectory ?? "";
+                _radioConnectionCache = new RadioConnectionCache(dir);
+            }
+            return _radioConnectionCache;
+        }
+
+        /// <summary>
+        /// Inject a Radio that the discovery chain produced into the
+        /// JJ Flex-side radio list, then raise RadioFound so any listening
+        /// UI (rig-selector dialog, auto-connect waiter) sees it. After this,
+        /// the existing <see cref="Connect(string, bool)"/> path can find the
+        /// radio via <c>findRadioInAPI</c> and run unchanged.
+        /// </summary>
+        private void registerChainRadio(Radio r)
+        {
+            if (r == null || string.IsNullOrEmpty(r.Serial)) return;
+            var existing = findRadioInAPI(r.Serial);
+            if (existing != null)
+            {
+                Tracing.TraceLine($"DiscoveryChain.registerChainRadio: serial {r.Serial} already in myRadioList, skipping inject", TraceLevel.Info);
+                return;
+            }
+            radioAddedHandler(r);
+        }
+
+        /// <summary>
+        /// Run the discovery chain for the target serial. On success the Radio
+        /// is registered in <c>myRadioList</c> and <c>Connect</c> is called.
+        /// Returns true only if both steps succeed.
+        ///
+        /// <para>The two boolean inputs decide which rungs run:</para>
+        /// <list type="bullet">
+        /// <item><c>tryLanRung</c>: Rung 1a (cached LAN IP). Cheap; safe to
+        /// try for both local and remote targets — even SmartLink-configured
+        /// users sometimes operate the radio on the same LAN.</item>
+        /// <item><c>tryWanRung</c>: Rung 1b (cached SmartLink target). Only
+        /// makes sense after a SmartLink session is up; caller is responsible
+        /// for sequencing.</item>
+        /// </list>
+        /// </summary>
+        public bool TryConnectViaDiscoveryChain(string serial, bool lowBW, bool isRemoteHint, bool tryLanRung, bool tryWanRung)
+        {
+            if (string.IsNullOrEmpty(serial)) return false;
+
+            var rungs = new List<IDiscoveryRung>();
+            if (tryLanRung) rungs.Add(new CachedLanIpRung());
+            if (tryWanRung) rungs.Add(new CachedWanIpRung(IsSmartLinkSessionActive));
+            if (rungs.Count == 0) return false;
+
+            var ctx = new DiscoveryContext
+            {
+                Serial = serial,
+                ConfigDirectory = Callouts?.ConfigDirectory ?? "",
+                OperatorName = Callouts?.GetOperatorName?.Invoke() ?? "",
+                IsRemoteHint = isRemoteHint,
+                Cache = GetRadioConnectionCache()
+            };
+
+            var runner = new DiscoveryChainRunner(rungs);
+            var task = runner.RunAsync(ctx, CancellationToken.None);
+            task.Wait();
+            var result = task.Result;
+            if (!result.Success || result.Radio == null) return false;
+
+            Tracing.TraceLine($"DiscoveryChain: handing winning radio (rung={result.WinningRung}) to Connect()", TraceLevel.Info);
+            ConnectionProfiler.Current?.RecordEvent("discovery_chain_win", new Dictionary<string, object>
+            {
+                { "rung", result.WinningRung },
+                { "serial", serial }
+            });
+
+            registerChainRadio(result.Radio);
+            return Connect(serial, lowBW);
+        }
+
+        private static bool IsSmartLinkSessionActive()
+        {
+            return Radios.SmartLink.SmartLinkServices.Coordinator.ActiveSession?.IsConnected == true;
+        }
+
+        /// <summary>
+        /// Run Rung 1a (cached LAN IP) for every cached serial and inject any
+        /// successful hits into <c>myRadioList</c>. Used by the manual rig-selector
+        /// path so cached radios appear in the dialog even when UDP discovery is
+        /// broken (the production-impact case behind R6). UDP discovery still runs
+        /// as today; the dialog and <c>radioAddedHandler</c> dedupe by serial so
+        /// belt-and-suspenders is safe.
+        /// </summary>
+        /// <returns>Number of cache entries that produced a working radio handle.</returns>
+        public async Task<int> PopulateFromCachedRadios(CancellationToken ct)
+        {
+            var cache = GetRadioConnectionCache();
+            var entries = cache.GetAllEntries();
+            if (entries.Count == 0)
+            {
+                Tracing.TraceLine("PopulateFromCachedRadios: no cached entries", TraceLevel.Info);
+                return 0;
+            }
+
+            int hits = 0;
+            var configDir = Callouts?.ConfigDirectory ?? "";
+            var rung = new CachedLanIpRung();
+            foreach (var entry in entries)
+            {
+                if (ct.IsCancellationRequested) break;
+                if (string.IsNullOrEmpty(entry.Serial) || string.IsNullOrEmpty(entry.LanIp)) continue;
+
+                var ctx = new DiscoveryContext
+                {
+                    Serial = entry.Serial,
+                    ConfigDirectory = configDir,
+                    Cache = cache
+                };
+
+                DiscoveryRungResult result;
+                try
+                {
+                    result = await rung.TryAsync(ctx, ct).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    Tracing.TraceLine(
+                        $"PopulateFromCachedRadios: serial={entry.Serial} threw {ex.GetType().Name}: {ex.Message}",
+                        TraceLevel.Warning);
+                    continue;
+                }
+
+                Tracing.TraceLine(
+                    $"PopulateFromCachedRadios: serial={entry.Serial} -> {result.OutcomeTag} in {result.Elapsed.TotalMilliseconds:F0}ms",
+                    result.Success ? TraceLevel.Info : TraceLevel.Verbose);
+
+                if (result.Success && result.Radio != null)
+                {
+                    registerChainRadio(result.Radio);
+                    hits++;
+                }
+            }
+            Tracing.TraceLine(
+                $"PopulateFromCachedRadios: {hits} hit(s) across {entries.Count} cached entry(ies)",
+                TraceLevel.Info);
+            return hits;
+        }
+
+        /// <summary>
+        /// Records the currently-connected radio's LAN/WAN reach state into
+        /// the cache so the next startup can skip discovery. Called from the
+        /// success branch of <see cref="Connect(string, bool)"/>.
+        /// </summary>
+        private void RecordConnectedRadioForChain()
+        {
+            try
+            {
+                if (theRadio == null) return;
+                GetRadioConnectionCache().RecordConnectedRadio(theRadio);
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine($"RecordConnectedRadioForChain: {ex.GetType().Name} {ex.Message}", TraceLevel.Warning);
+            }
+        }
+        #endregion
 
         /// <summary>
         /// Provide a list of local radios through the RadioFound event.
@@ -685,6 +878,11 @@ namespace Radios
             {
                 Tracing.TraceLine("Connect worked:" + theRadio.Serial, TraceLevel.Info);
 
+                // Cache LAN/WAN reach metadata so the discovery chain can
+                // short-circuit on next startup. See
+                // docs/planning/design/discovery-fallback-chain.md.
+                RecordConnectedRadioForChain();
+
                 if (RemoteRig)
                 {
                     //PCAudio = true;
@@ -754,6 +952,19 @@ namespace Radios
 
             try
             {
+                // Rung 1a — try cached LAN IP before any UDP discovery /
+                // SmartLink wait. Works for both local AND remote
+                // configurations because SmartLink-configured users often
+                // operate the radio on the same LAN. Fast TCP probe; falls
+                // through silently if no cache or IP unreachable.
+                Tracing.TraceLine($"TryAutoConnect: trying discovery chain Rung 1a ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+                if (TryConnectViaDiscoveryChain(config.RadioSerial, config.LowBandwidth, config.IsRemote, tryLanRung: true, tryWanRung: false))
+                {
+                    Tracing.TraceLine($"TryAutoConnect: END won via Rung 1a (total {sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+                    if (!SuppressSpeech) ScreenReaderOutput.Speak($"Connected to {config.RadioName}", VerbosityLevel.Critical, true);
+                    return true;
+                }
+
                 if (config.IsRemote)
                 {
                     // Remote radio - need to authenticate first
@@ -764,6 +975,20 @@ namespace Radios
                         return false;
                     }
                     Tracing.TraceLine($"TryAutoConnect: TryAutoConnectRemote succeeded ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+
+                    // Rung 1b — SmartLink session is now up. Try cached WAN
+                    // target before waiting for radio-list refresh. Per the
+                    // research memo this skips ~500ms of discovery wait and
+                    // any UI radio-chooser round-trip; the SmartLink server
+                    // round-trip for the per-attempt handle still happens via
+                    // sendRemoteConnect inside Connect().
+                    Tracing.TraceLine($"TryAutoConnect: trying discovery chain Rung 1b ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+                    if (TryConnectViaDiscoveryChain(config.RadioSerial, config.LowBandwidth, config.IsRemote, tryLanRung: false, tryWanRung: true))
+                    {
+                        Tracing.TraceLine($"TryAutoConnect: END won via Rung 1b (total {sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+                        if (!SuppressSpeech) ScreenReaderOutput.Speak($"Connected to {config.RadioName}", VerbosityLevel.Critical, true);
+                        return true;
+                    }
                 }
                 else
                 {

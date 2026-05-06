@@ -2133,6 +2133,59 @@ namespace Flex.Smoothlake.FlexLib
             t1.Start();
         }
 
+        // ====================================================================
+        // JJFlex vendor patch: public direct-IP factory.
+        //
+        // The Radio class is public but every constructor is internal, so
+        // outside callers can only obtain a Radio instance via Discovery /
+        // WanServer. JJ Flex's discovery-fallback chain (Rung 1a cached LAN IP,
+        // Rung 1b cached WAN IP, future Rungs 2/4/5) needs to construct a
+        // Radio from connection metadata it has cached locally, without
+        // re-walking UDP discovery or the SmartLink radio-list refresh.
+        //
+        // This wrapper exposes the existing internal constructor unchanged.
+        // No FlexLib behavior changes; the only effect is that JJ Flex code
+        // can now do `Radio.CreateFromIp(model, serial, name, ip, version)`
+        // and feed the result into the same Connect() path the discovery
+        // codepaths already use.
+        //
+        // Same vendor-patch pattern as SslClientTls12.cs. Reapply on FlexLib
+        // upgrades per MIGRATION.md.
+        // ====================================================================
+        public static Radio CreateFromIp(string model, string serial, string name, IPAddress ip, string version)
+        {
+            return new Radio(model, serial, name, ip, version);
+        }
+
+        // ====================================================================
+        // JJFlex vendor patch: WAN-flavored factory.
+        //
+        // Same as CreateFromIp, but pre-populates the WAN flag plus the
+        // PublicTlsPort / RequiresHolePunch / IsPortForwardOn fields so the
+        // Connect() path takes the WAN branch. Used by Rung 1b (cached WAN IP)
+        // to skip the radio-list refresh from SmartLink and go straight to
+        // SendConnectMessageToRadio with a Radio object reconstituted from
+        // local cache (per docs/planning/research/smartlink-auth-direct-
+        // connect-feasibility.md §4).
+        //
+        // IsWan has `internal set`, which is why this factory has to live
+        // inside the FlexLib assembly rather than in JJ Flex's DiscoveryChain
+        // code. No other behavior change.
+        // ====================================================================
+        public static Radio CreateFromIpWan(
+            string model, string serial, string name, IPAddress ip, string version,
+            int publicTlsPort, bool requiresHolePunch, bool isPortForwardOn)
+        {
+            var r = new Radio(model, serial, name, ip, version)
+            {
+                IsWan = true,
+                PublicTlsPort = publicTlsPort,
+                RequiresHolePunch = requiresHolePunch,
+                IsPortForwardOn = isPortForwardOn
+            };
+            return r;
+        }
+
         private void InitLists()
         {
             _replyTable = new Hashtable();
