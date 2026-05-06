@@ -1727,3 +1727,80 @@ After morning reading: pick first engineering track to spawn (5 are ACK'd waitin
 ### Rigmeter note
 
 Skipped per docs-only-day rule. Today's rigmeter shows 0 commits in the JJFlex-NG repo (everything still uncommitted). The substantive change happened in `docs/planning/` and the memory store, plus reading + investigation work that doesn't surface as code metrics.
+
+## End-of-day seal — 2026-05-05
+
+**Theme:** Surgery day yield exceeded expectations. R5 trace analyzed and falsified MMCSS, R6 discovery cascade implemented + assembled + shipped to Don, 4.2.0 release execution plan processed end-to-end, Phase 0 runbook extracted, two new memory entries captured. Despite morning surgery (8:30 AM Central, salivary duct procedure with extra-cautious anesthesia handling for osteopetrosis), the evening produced a full diagnostic-round-plus-architectural-pivot deliverable.
+
+### Major outcomes
+
+1. **R5 trace from Don analyzed; MMCSS exonerated.** R5 redirected `MmcssPipelineScheduler.Instance` to `TaskScheduler.Default` (eliminating the 4 MMCSS Pro Audio threads). Three full discovery retry cycles all silent — SelfTest probes received fine, SyncDrain captured 0 packets, async loop captured 0. The 85% suspect drops to 0%. Investigation memory updated to reflect Outcome B (every named source-level FlexLib 4.2.18 candidate falsified). Resume-path now points at packet-capture / SmartSDR-ILSpy as the only remaining external-evidence routes if root-cause investigation ever resumes. Build-marker hygiene gap noted (R5 binary printed "R4 active" because the Discovery.cs marker line wasn't bumped); fixed for R6 — marker now self-identifies as "R6 active (chain+MMCSS-bypass)".
+
+2. **Discovery-fallback-chain track completed.** Parallel CLI session ran the full TRACK-INSTRUCTIONS scope: FlexLib vendor patch (`Radio.CreateFromIp` + `Radio.CreateFromIpWan` factories, 53 LOC); Phase 1 + 1.5 (cached LAN/WAN rungs + `TryAutoConnect` integration, ~300 LOC); Phase 1.6 (wpfSelectorProc integration with belt-and-suspenders dedupe, 109 LOC). Three commits on `track/discovery-fallback-chain`. Build clean Debug x64 in worktree before merge. Steering directed via dated `ORCHESTRATOR-DIRECTION-2026-05-05.md` file in worktree root (new pattern — durable handoff vs ephemeral prompt-paste).
+
+3. **R6 build assembled and shipped to Don.** `track/discovery-fallback-chain` merged into `track/flexlib-42` (no conflicts, 850 lines, 8 files). Combined with R5 MMCSS patch already on flexlib-42. Discovery.cs marker bumped R4 → R6. Clean build Debug x64 from flexlib-42 worktree, exe timestamp 21:54:23, FileVersion 4.1.16.0, 0 errors / 1467 warnings (all known). Zip + NOTES at `C:\Users\nrome\Dropbox\JJFlexRadio\don\` (overwriting R5). Historical archive at `docs/planning/active/don-flexlib-4218-discovery/JJFlex_4218-discovery-diagnostic-R6_x64_debug.zip`. NOTES written in ham-operator language (no async/IOCP jargon), explains the chain as "remembers your radio's IP from the last time it connected" + asks for trace either way.
+
+4. **for-claude/2026-05-04-42-release-execution-plan-pull.md processed end-to-end.** All 5 questions answered: Q1 Phase 2 (crash reporter) before Phase 1 (updater); Q2 ship updater unsigned to testers, gate public release on Microsoft Trusted Signing cert; Q3 FastAPI receiver + bundle-flow design with future Claude-as-triage-agent built in; Q4 just-in-time drafts of nginx/workflow/receiver code, plus interest in "Claude operates rarbox directly" execution model; Q5 we have R5 info → discovery cascade dissolves the firmware-install-dependency concern. Phase 0 runbook extracted to `docs/planning/active/phase-0-runbook.md` as standalone executable doc.
+
+5. **Two new memory entries captured.** `project_crash_triage_bundle_flow.md` — bundle-flow design pattern from Q3 second note; `project_claude_as_rarbox_operator.md` — execution-model option from Q4 second note (Claude SSHes via Tailscale, executes runbook sections, Noel verifies). MEMORY.md index updated. `project_firmware_install_dependency_strategy.md` rewritten to reflect DECIDED state (chain dissolves dependency).
+
+6. **Track cleanup partial.** `track/discovery-fallback-chain` worktree could not be force-removed tonight because the parallel CLI session that built R6 still has the directory locked. Logged to research-queue.md as "awaiting Noel input — close that CLI session and ping Claude." Branch deletion deferred until worktree is removable.
+
+### Cross-surface activity
+
+- **Main repo (`C:\dev\JJFlex-NG`)** — research-queue.md updates, Agent.md seal, phase-0-runbook.md created, R6 zip archive, for-claude file deleted.
+- **flexlib-42 worktree (`C:\dev\jjflex-flexlib-42`)** — merge commit + R6 build artifacts. Discovery.cs marker bump uncommitted (matches established diagnostic-instrumentation-uncommitted pattern).
+- **discovery-chain worktree (`C:\dev\jjflex-discovery-chain`)** — three new commits (vendor patch + Phase 1 + 1.5 + 1.6), pending cleanup.
+- **Memory store (`C:\Users\nrome\.claude\projects\C--dev-JJFlex-NG\memory\`)** — 4 files modified/created (firmware-install-dependency rewritten, two new entries, MEMORY.md index updated, project_flexlib_4218_discovery_investigation updated).
+- **Don's Dropbox folder** — R6 zip + NOTES replace R5.
+- **Historical archive (`docs/planning/active/don-flexlib-4218-discovery/`)** — R6 zip added to paper trail.
+
+### Decisions and scope changes
+
+- **Q1 sequencing flip:** Phase 2 (crash reporter) ships before Phase 1 (updater). Means the rarbox receiver becomes the FIRST piece of new infrastructure 4.2.0 relies on. Section F (nginx + receiver) is now critical-path.
+- **Q5 firmware-install-dependency:** dissolved by the discovery cascade. Memory entry archived. No install-time gate, no rollback action, no force-firmware-update needed.
+- **Discovery cascade is the chosen path forward for 4.2.0** regardless of root-cause resolution. Don's case (and the broader older-firmware population) becomes "Rung 1a wins, UDP silent-fails as today, user never sees the failure" — invisible in production while root-cause investigation parks.
+- **"Claude as rarbox operator"** authorized as a model to trial on Phase 0 Section F. Not yet committed-to as a default; first concrete trial.
+
+### Setup for tomorrow
+
+When Noel resumes:
+
+1. **Wait for Don's R6 trace** — R6 is in Don's folder. Trace lands when he runs the build. Three possible outcomes per investigation memory's resume-path section.
+2. **Close the parallel CLI session** that locked the discovery-chain worktree, ping Claude — worktree cleanup is one-line then.
+3. **Phase 0 runbook is ready to step through** at `docs/planning/active/phase-0-runbook.md`. ~2-3 hours of Cloudflare + rarbox UI work, checkpointable per section. Per Q4 second answer, Section F is also a candidate to trial the "Claude operates rarbox directly" model.
+4. **Build-authorized work waiting:** Sprint 28 bug bundle merge to sprint28/home-key-qsk, stuck-modal-escape track, TS-590 metadata catalog Phase 1.
+5. **Bug-bundle DESIGN follow-up** still awaiting Noel's yes/no on Q2 (RunsWithoutRadio flag + action-aware no-radio announcement).
+
+### Rigmeter snapshot — end of 2026-05-05
+
+**Grand totals (all-time, pre-seal-commit):**
+- Authored: 751 files, 146,828 lines, 6.57M chars
+- Vendor: 180 files, 53,240 lines, 1.88M chars
+- Combined: 931 files, 200,068 lines, 8.45M chars
+
+**Per-project breakdown (top 5 by authored lines):**
+- JJFlexWpf: 38,813 lines (185 files)
+- main_app: 29,522 lines (166 files)
+- docs: 26,937 lines (163 files)
+- Radios: 23,846 lines (74 files)
+- JJLogLib: 5,807 lines (22 files)
+
+**Per-category totals (authored):**
+- code: 102,607 lines (430 files)
+- docs: 28,529 lines (162 files)
+- text_data: 9,824 lines (93 files)
+- build: 5,868 lines (66 files)
+
+**Code language breakdown:**
+- C#: 77,252 lines (75.3% of authored, all-files 83.5%)
+- VB: 17,343 lines (16.9%)
+- XAML: 4,985 lines (4.9%)
+- Python: 3,027 lines (3.0%)
+
+**Today's git activity (main repo, pre-seal-commit):** 0 commits / 0 lines (the substantive code work today landed on `track/flexlib-42` and `track/discovery-fallback-chain` worktrees, not on the main session's branch). Post-commit rigmeter `today` will show the seal-day delta.
+
+**Branch-scope caveat:** main session is on `sprint28/home-key-qsk`. R6 build content (~960 LOC across vendor patch + Phase 1 + 1.5 + 1.6) lives on `track/flexlib-42` after merge. Rigmeter measures the main repo HEAD only, so today's full cross-surface activity isn't captured by rigmeter alone — see the "Cross-surface activity" section above and the AAR for the complete picture.
+
+**NAS snapshot JSON:** `python tools/rigmeter/rigmeter.py snapshot` runs after this seal commits to capture the structured time-series at `\\nas.macaw-jazz.ts.net\jjflex\historical\stats\<commit-date>-<short-sha>.json`.
+
