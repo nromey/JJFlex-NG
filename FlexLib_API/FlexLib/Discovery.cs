@@ -34,6 +34,32 @@ namespace Flex.Smoothlake.FlexLib
 
         public static void Start()
         {
+            // JJFlex diagnostic round 2 (Don 4.2.18 silent-discovery, 2026-04-30):
+            // unconditional build-marker so we can confirm this binary is running
+            // even when zero packets arrive (round 1 left this ambiguous).
+            Trace.WriteLine("Discovery.Start: JJFlex 4218-discovery-diagnostic build R6 active (chain+MMCSS-bypass)");
+
+            // Enumerate network interfaces so we can see what JJFlex sees on the
+            // host. Suspect 2 is interface-binding / .NET-stack regression — this
+            // tells us which adapters are visible and which IPv4 addresses they hold.
+            try
+            {
+                foreach (var nic in System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces())
+                {
+                    if (nic.OperationalStatus != System.Net.NetworkInformation.OperationalStatus.Up) continue;
+                    var ipProps = nic.GetIPProperties();
+                    foreach (var addr in ipProps.UnicastAddresses)
+                    {
+                        if (addr.Address.AddressFamily != AddressFamily.InterNetwork) continue;
+                        Trace.WriteLine($"Discovery.Start: nic '{nic.Name}' type={nic.NetworkInterfaceType} ipv4={addr.Address} mask={addr.IPv4Mask}");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Trace.WriteLine($"Discovery.Start: nic enumeration threw {ex.GetType().Name}: {ex.Message}");
+            }
+
             bool done = false;
             int error_count = 0;
             while (!done)
@@ -43,10 +69,12 @@ namespace Flex.Smoothlake.FlexLib
                     udp = new UdpClient();
                     udp.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
                     udp.Client.Bind(new IPEndPoint(IPAddress.Any, DISCOVERY_PORT));
+                    Trace.WriteLine($"Discovery.Start: bound UdpClient to {udp.Client.LocalEndPoint}");
                     done = true;
                 }
                 catch (SocketException ex)
                 {
+                    Trace.WriteLine($"Discovery.Start: bind attempt failed ({ex.SocketErrorCode}), retry {error_count}");
                     // do this up to 60 times (60 sec)
                     if (error_count++ > 60) // after 60, give up and rethrow the exception
                         throw new SocketException(ex.ErrorCode);
@@ -55,7 +83,209 @@ namespace Flex.Smoothlake.FlexLib
             }
             _loopCts = new CancellationTokenSource();
 
+            // R3: Self-test the discovery socket BEFORE the main Receive loop starts.
+            // Sends three probes (loopback, NIC-self per active adapter, limited
+            // broadcast) and confirms each one arrives at the bound socket. The
+            // resulting trace lines disambiguate "socket is healthy / problem is
+            // upstream" from "socket itself can't receive certain traffic classes".
+            // See round-3 NOTES for the decisive matrix this produces.
+            SelfTest();
+
+            // R4: After SelfTest, run a 5-second synchronous receive drain on the
+            // SAME bound socket BEFORE handing off to the async Receive loop. This
+            // tests whether the radio's broadcast packets are arriving at the socket
+            // at all -- they would land in the kernel UDP buffer regardless of which
+            // read mechanism we use, and SYNC reads have a different code path than
+            // the NET6+ ReceiveAsync(token) machinery used by the main loop.
+            //
+            // If sync drain receives radio packets but async loop sees none -> bug
+            // is in token-aware ReceiveAsync (we revert to no-token variant or
+            // sync-thread pattern). If sync drain also sees nothing -> the issue
+            // is upstream of the socket and we need to look elsewhere in FlexLib.
+            SyncReceiveDrain(durationMs: 5000);
+
             Task.Run(Receive);
+        }
+
+        private static void SyncReceiveDrain(int durationMs)
+        {
+            try
+            {
+                Trace.WriteLine($"Discovery.SyncDrain: starting {durationMs}ms synchronous receive test on bound socket");
+
+                int savedTimeout = udp.Client.ReceiveTimeout;
+                udp.Client.ReceiveTimeout = 500;
+
+                var deadline = DateTime.UtcNow.AddMilliseconds(durationMs);
+                int packetCount = 0;
+                int otherSourceCount = 0;
+                int radioSourceCount = 0;
+
+                try
+                {
+                    while (DateTime.UtcNow < deadline)
+                    {
+                        try
+                        {
+                            EndPoint ep = new IPEndPoint(IPAddress.Any, 0);
+                            var buf = new byte[2048];
+                            int len = udp.Client.ReceiveFrom(buf, ref ep);
+                            packetCount++;
+
+                            string srcAddr = (ep as IPEndPoint)?.Address.ToString() ?? "?";
+                            bool isLocal = srcAddr == "127.0.0.1" ||
+                                           srcAddr.StartsWith("192.168.1.21") ||
+                                           srcAddr == (udp.Client.LocalEndPoint as IPEndPoint)?.Address.ToString();
+
+                            if (isLocal) otherSourceCount++; else radioSourceCount++;
+
+                            // Try to parse the VITA preamble for diagnostic detail
+                            string vitaInfo = "";
+                            if (len >= 16)
+                            {
+                                try
+                                {
+                                    var v = new VitaPacketPreamble(buf);
+                                    vitaInfo = $" OUI=0x{v.class_id.OUI:X} pktType={v.header.pkt_type} classCode=0x{v.class_id.PacketClassCode:X}";
+                                }
+                                catch (Exception px) { vitaInfo = $" (preamble parse threw {px.GetType().Name})"; }
+                            }
+
+                            Trace.WriteLine($"Discovery.SyncDrain: rx pkt #{packetCount} len={len} from={ep}{vitaInfo}");
+                        }
+                        catch (SocketException sex) when (sex.SocketErrorCode == SocketError.TimedOut)
+                        {
+                            // expected when no packets arrive within 500ms; loop back to deadline check
+                        }
+                    }
+                }
+                finally
+                {
+                    udp.Client.ReceiveTimeout = savedTimeout;
+                }
+
+                Trace.WriteLine($"Discovery.SyncDrain: complete -- received {packetCount} total ({radioSourceCount} from non-local sources, {otherSourceCount} from local sources)");
+            }
+            catch (Exception ex)
+            {
+                Trace.WriteLine($"Discovery.SyncDrain: outer threw {ex.GetType().Name}: {ex.Message}");
+            }
+        }
+
+        private static void SelfTest()
+        {
+            try
+            {
+                Trace.WriteLine("Discovery.SelfTest: starting socket-validation probes (R3)");
+
+                var marker = System.Text.Encoding.ASCII.GetBytes("JJFX-SELFTEST-R3");
+                var probeTargets = BuildSelfTestProbeTargets();
+
+                // Save and override the receive timeout so we can synchronously
+                // wait for each probe without blocking forever. Restored at end.
+                int savedTimeout = udp.Client.ReceiveTimeout;
+                udp.Client.ReceiveTimeout = 500;
+
+                try
+                {
+                    foreach (var probe in probeTargets)
+                    {
+                        SendOneSelfTestProbe(probe.label, probe.target, marker);
+                        TryReceiveOneSelfTestProbe(probe.label, marker);
+                    }
+                }
+                finally
+                {
+                    udp.Client.ReceiveTimeout = savedTimeout;
+                }
+
+                Trace.WriteLine("Discovery.SelfTest: complete");
+            }
+            catch (Exception ex)
+            {
+                Trace.WriteLine($"Discovery.SelfTest: outer threw {ex.GetType().Name}: {ex.Message}");
+            }
+        }
+
+        private static List<(string label, IPEndPoint target)> BuildSelfTestProbeTargets()
+        {
+            var list = new List<(string, IPEndPoint)>
+            {
+                ("loopback", new IPEndPoint(IPAddress.Loopback, DISCOVERY_PORT))
+            };
+
+            try
+            {
+                foreach (var nic in System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces())
+                {
+                    if (nic.OperationalStatus != System.Net.NetworkInformation.OperationalStatus.Up) continue;
+                    if (nic.NetworkInterfaceType == System.Net.NetworkInformation.NetworkInterfaceType.Loopback) continue;
+
+                    foreach (var addr in nic.GetIPProperties().UnicastAddresses)
+                    {
+                        if (addr.Address.AddressFamily != AddressFamily.InterNetwork) continue;
+                        list.Add(($"nic-self-{nic.Name}", new IPEndPoint(addr.Address, DISCOVERY_PORT)));
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Trace.WriteLine($"Discovery.SelfTest: NIC probe enumeration threw {ex.GetType().Name}: {ex.Message}");
+            }
+
+            list.Add(("limited-broadcast", new IPEndPoint(IPAddress.Broadcast, DISCOVERY_PORT)));
+            return list;
+        }
+
+        private static void SendOneSelfTestProbe(string label, IPEndPoint target, byte[] marker)
+        {
+            try
+            {
+                using var sender = new UdpClient();
+                sender.EnableBroadcast = true;
+                sender.Send(marker, marker.Length, target);
+                Trace.WriteLine($"Discovery.SelfTest: SENT probe '{label}' -> {target}");
+            }
+            catch (Exception ex)
+            {
+                Trace.WriteLine($"Discovery.SelfTest: probe '{label}' SEND failed: {ex.GetType().Name}: {ex.Message}");
+            }
+        }
+
+        private static void TryReceiveOneSelfTestProbe(string label, byte[] marker)
+        {
+            try
+            {
+                EndPoint ep = new IPEndPoint(IPAddress.Any, 0);
+                var buf = new byte[1024];
+                int len = udp.Client.ReceiveFrom(buf, ref ep);
+
+                bool isOurs = len >= marker.Length;
+                if (isOurs)
+                {
+                    for (int i = 0; i < marker.Length; i++)
+                    {
+                        if (buf[i] != marker[i]) { isOurs = false; break; }
+                    }
+                }
+
+                if (isOurs)
+                {
+                    Trace.WriteLine($"Discovery.SelfTest: RECEIVED probe '{label}' (len={len} from={ep})");
+                }
+                else
+                {
+                    Trace.WriteLine($"Discovery.SelfTest: probe '{label}' got OTHER packet (len={len} from={ep}) -- this is fine, not our marker");
+                }
+            }
+            catch (SocketException sex) when (sex.SocketErrorCode == SocketError.TimedOut)
+            {
+                Trace.WriteLine($"Discovery.SelfTest: probe '{label}' NOT RECEIVED within 500ms (TimedOut)");
+            }
+            catch (Exception ex)
+            {
+                Trace.WriteLine($"Discovery.SelfTest: probe '{label}' RECEIVE threw {ex.GetType().Name}: {ex.Message}");
+            }
         }
 
         public static void Stop()
@@ -97,17 +327,33 @@ namespace Flex.Smoothlake.FlexLib
                     if (token.IsCancellationRequested)
                         break;
 
+                    // JJFlex diagnostic (Don 4.2.18 silent-discovery investigation 2026-04-30):
+                    // log every UDP packet that arrives at the discovery socket BEFORE any
+                    // length/VITA filtering so we can disambiguate "no packets reach socket"
+                    // from "packets arrive but are filtered out". Remove once the bug is
+                    // identified — this is debug-build instrumentation only.
+                    Trace.WriteLine($"Discovery: rx pkt len={packet.Buffer.Length} from={packet.RemoteEndPoint}");
+
                     // ensure that the packet is at least long enough to inspect for VITA info
                     if (packet.Buffer.Length < 16)
+                    {
+                        Trace.WriteLine("Discovery: rx pkt rejected (length < 16)");
                         continue;
+                    }
 
                     var vita = new VitaPacketPreamble(packet.Buffer);
+                    Trace.WriteLine($"Discovery: rx VITA OUI=0x{vita.class_id.OUI:X} pktType={vita.header.pkt_type} classCode=0x{vita.class_id.PacketClassCode:X}");
 
                     // Check for a valid discovery packet
                     if (vita.class_id.OUI != VitaFlex.FLEX_OUI ||
                         vita.header.pkt_type != VitaPacketType.ExtDataWithStream ||
                         vita.class_id.PacketClassCode != VitaFlex.SL_VITA_DISCOVERY_CLASS)
+                    {
+                        Trace.WriteLine($"Discovery: rx VITA filtered (expected OUI=0x{VitaFlex.FLEX_OUI:X} ExtDataWithStream classCode=0x{VitaFlex.SL_VITA_DISCOVERY_CLASS:X})");
                         continue;
+                    }
+
+                    Trace.WriteLine($"Discovery: rx VITA accepted, processing discovery payload");
 
                     Radio radio = ProcessVitaDiscoveryDataPacket(
                         new VitaDiscoveryPacket(packet.Buffer, packet.Buffer.Length));
