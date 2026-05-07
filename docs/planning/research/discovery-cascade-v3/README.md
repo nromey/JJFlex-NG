@@ -25,14 +25,21 @@ Per Noel's direction: *"Don't spare anything, research new options of discovery.
 | 6 | Manual fallback UX | **complete** | `stream-6-manual-fallback-ux.md` | Single dialog beats wizard. "Show last-known IPs" is load-bearing; IP entry is fallback. Greenfield UX in Flex ecosystem. 10 open Qs for round-2. |
 | 7 | Novel discovery methods | **complete** | `stream-7-novel-methods.md` | 9 novel methods + ruled-out list with rationale. Surprises: hosts file, reverse-DNS sweep, NetworkAddressChanged background watchdog. 10 empirical tests for Stream 2. |
 
-## After research lands
+## Synthesis status
 
-Once all 7 streams have outputs:
+Round-3 design memo synthesized 2026-05-06 from 6 of 7 streams (Stream 2 deferred to round-4 update once hardware-time happens). Canonical doc:
 
-1. Synthesize into `docs/planning/design/discovery-fallback-chain-v3.md` (round-3 design memo, supersedes round-2).
-2. Noel ACKs round-3 (or revises in a round-4 pass).
-3. Spawn `track/discovery-chain-full-buildout` to implement the locked v3 design.
-4. v3 is a 4.2.0 release-blocking spec.
+`docs/planning/design/discovery-fallback-chain-v3.md` — supersedes round-2.
+
+Headline: cascade expands from 6 rungs to ~10 active rungs plus a `NetworkAddressChanged` background watchdog. Sequential rung-walking replaced by two-batch concurrent execution. SmartLink-as-fallback-row baked into UX. ~2,300-2,900 LOC for 4.2.0 release-blocking scope.
+
+15 open questions distilled for Noel's round-3 review. Most load-bearing: confirm FlexRadio's MAC OUI bytes (Rung 1.5a's ARP filter depends on it) — recommend Stream 2 hardware check before implementation begins.
+
+After Noel ACKs round-3:
+
+1. Round-4 update folds in Stream 2's empirical findings.
+2. Spawn `track/discovery-chain-full-buildout` to implement the locked design.
+3. v3 is a 4.2.0 release-blocking spec.
 
 ## Cross-references
 
