@@ -13,7 +13,7 @@ Hamlib is the de facto open-source library for ham radio CAT control across vend
 
 **Headline conclusions:**
 
-1. **License is fine — Hamlib is LGPL v2.1**, which means JJF can link the Hamlib shared library from a closed/proprietary application without GPL contamination. The GPL only applies to bundled tools (rigctld, rigctl) which we wouldn't link statically anyway. This was the single biggest strategic risk and it lands favorably.
+1. **License is fine — Hamlib is LGPL v2.1**, which means JJF can dynamically link the Hamlib shared library from any application regardless of license — open-source MIT (which is JJF today), proprietary, or otherwise — without GPL contamination. The GPL only applies to bundled tools (rigctld, rigctl) which we wouldn't link statically anyway. This was the single biggest strategic risk and it lands favorably.
 
 2. **Hamlib is complementary to FlexLib, not a replacement.** Hamlib's SmartSDR driver (`rigs/flexradio/smartsdr.c`) supports `set_freq`, `get_freq`, `set_mode`, `get_mode`, `set_ptt`, `get_ptt`, `send_morse`, `stop_morse` — basic CAT only. No SmartLink, no VITA-49 audio/panadapter streaming, no multi-slice, no CWX, no DAX, no APD, no diversity. For Flex radios, FlexLib stays the right backend because it gives us the differentiated features. For non-Flex radios, Hamlib is the *only* backend — there's nothing else.
 
@@ -69,7 +69,7 @@ The repository ships two licenses:
 - **`COPYING`** — GNU GPL v2. Applies to **the tools** (rigctl, rigctld, etc.) and any code that links the library statically into a tool.
 - **`COPYING.LIB`** — GNU LGPL v2.1. Applies to **the library itself** (libhamlib).
 
-Per the LGPL, we can link the Hamlib shared library from a closed/proprietary or differently-licensed application without inheriting the LGPL. Specifically:
+Per the LGPL, we can dynamically link the Hamlib shared library from an application under any license — open-source MIT (JJF's current license), proprietary, GPL, or otherwise — without inheriting the LGPL on JJF's own code. Specifically:
 
 - **Dynamic linking (DLL/.so) is freely permitted.** JJF's installer can ship `libhamlib-5.dll` alongside `JJFlexRadio.exe`. No license contamination.
 - **Static linking** has more constraints (LGPL requires the user be able to relink), but we'd dynamic-link anyway.
@@ -97,6 +97,8 @@ Operations exposed:
 - `set_mode`, `get_mode` — mode (with passband/filter)
 - `set_ptt`, `get_ptt` — push-to-talk
 - `send_morse`, `stop_morse` — CW transmission via the radio's keyer
+
+> **Note on `send_morse` scope:** Hamlib's `send_morse` is text-based — the radio's keyer generates the CW from text input the application sends once. Live paddle keying — where the operator's physical paddle drives radio CW timing in real-time — is *not* a standard Hamlib operation. No standard Hamlib level/function exposes element-on/element-off events. Most Hamlib backends (Kenwood, Yaesu, Icom, etc.) have similar coverage: text-based CW yes, live paddle no. JJF's live-paddle support, when implemented, is Flex-only via FlexLib's element-level CW interface. For non-Flex radios, JJF's plan is computer-side input (keyboard / gamepad / touchscreen with haptic feedback) translated to text-based CW via the radio's keyer — see `memory/project_cw_keying_design.md` for the full design.
 
 Operations NOT exposed (commented out in caps):
 - `reset` — radio reset
@@ -361,7 +363,7 @@ Restating section 2 with operational precision:
 - **JJF dynamically links libhamlib** (the LGPL library). License-clean.
 - **JJF must ship libhamlib's source** if requested by an end user. This is satisfied by pointing at the upstream Hamlib repo (LGPL allows this).
 - **JJF must allow end users to substitute their own libhamlib build.** This is satisfied by JJF's open install layout (no enforced binary signing of the DLL).
-- **JJF's own code stays under whatever license JJF picks** (no LGPL contamination from dynamic linking).
+- **JJF's own code stays under its own license** (currently MIT for authored code; vendored components like FlexLib_API, P-Opus-master, JJPortaudio retain their original licenses). No LGPL contamination from dynamic linking.
 - **rigctld is GPL but irrelevant** if we use the library directly.
 - **If JJF ever spawns rigctld as a subprocess**, that's an operational dependency, not a license dependency. Same logic as JJF talking to SmartLink's server.
 
@@ -432,6 +434,8 @@ Before Phase 2 implementation begins:
 7. **How to discover Hamlib radios in JJF?** No discovery beacon (those are vendor-specific). User picks from a list. Recommendation: JJF's "Add Radio" UI shows Hamlib's full radio list (auto-extracted from Hamlib at install or runtime), user picks vendor + model, configures connection parameters per radio type (serial COM + baud / network IP+port / USB).
 
 8. **What happens if a user has BOTH a Flex AND a Hamlib radio?** Recommendation: per-radio config keyed by serial number (already the architectural direction per memory). Connection picker shows both. User picks one. JJF supports multiple radios but only one *active* at a time initially. Multi-active-radio support is its own architectural arc, deferred.
+
+9. **Refresh `LICENSE.txt` to disambiguate authored code from vendored components?** The current root `LICENSE.txt` is the MIT body but with stale "Othneil Drew" boilerplate from the README template Jim adopted in 2021 — wrong copyright holder. Recommendation: refresh to current MIT with correct attribution (Jim Shaffer, Noel Romey, contributors) plus a short top-note clarifying that vendored components in `FlexLib_API/`, `P-Opus-master/`, and `JJPortaudio/` retain their original licenses. Trivial change (~15 lines), independent of Hamlib but surfaced by this spike's license analysis. Aligns the legal posture with rigmeter's authored-vs-vendor accounting.
 
 ---
 
