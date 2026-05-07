@@ -1,0 +1,642 @@
+677 [T2] Boot Tracing on instance:1 C:\Users\Don\jjf-test\JJFlexRadio.dll 4.1.16.0 5/6/2026 8:00:39 PM level=Info
+678 [T2] GetConfigInfo:C:\Users\Don\AppData\Roaming\JJFlexRadio
+682 [T2] KeyCommands new()
+689 [T2] keyTableToDefault(False)
+690 [T2] SetValues:AllKeys False
+701 [T2] SetValues:AllKeys False
+703 [T2] KeyCommands:merged new item:ShowHelp None
+703 [T2] KeyCommands:merged new item:SmeterDBM None
+703 [T2] KeyCommands:merged new item:ShowMemory None
+703 [T2] KeyCommands:merged new item:CycleContinuous None
+703 [T2] KeyCommands:merged new item:LogFileName None
+703 [T2] KeyCommands:merged new item:LogMode None
+703 [T2] KeyCommands:merged new item:LogRig None
+703 [T2] KeyCommands:merged new item:LogAnt None
+703 [T2] KeyCommands:merged new item:StartScan None
+703 [T2] KeyCommands:merged new item:SavedScan None
+703 [T2] KeyCommands:merged new item:ShowMenus None
+703 [T2] KeyCommands:merged new item:LogStats None
+703 [T2] KeyCommands:merged new item:RemoteAudio None
+703 [T2] KeyCommands:merged new item:AudioSetup None
+703 [T2] KeyCommands:merged new item:GatherDebug None
+703 [T2] KeyCommands:merged new item:ATUMemories None
+703 [T2] KeyCommands:merged new item:Reboot None
+703 [T2] KeyCommands:merged new item:TXControls None
+703 [T2] KeyCommands:merged new item:SpeakTXFilter None
+703 [T2] KeyCommands:merged new item:ToggleMeterTonesGlobal None
+703 [T2] KeyCommands:merged new item:MuteSlice None
+704 [T2] KeyCommands write
+708 [T2] ValidateKeyBindings: all bindings clean, no conflicts
+709 [T2] PersonalData new(C:\Users\Don\AppData\Roaming\JJFlexRadio)
+725 [T2] SetCurrentOp(Donald Breda,0)
+728 [T2] NewLog:JJRadio JJRadio
+729 [T2] Logs.Done
+764 [T2] newLoginInfo:JJRadio
+765 [T2] LogClass setup:
+767 [T2] MainWindow.SetupOperationsMenu: rebuilding menus
+768 [T2] ConfigW2:True
+769 [T2] W2:C:\Users\Don\AppData\Roaming\JJFlexRadio\w2.xml
+769 [T2] Serial
+769 [T2] Config.Read
+770 [T2] StationName:wa2iwc
+771 [T2] ApplyUIMode: Modern
+783 [T2] TryAutoConnectOnStartup: attempting 6300inshack
+786 [T2] AllRadios constructor
+787 [T2] Flex constructor
+787 [T2] setFlexTunerTypeNotAuto:manual
+791 [T2] TryAutoConnect: BEGIN 6300inshack (1315-4176-6300-7236), remote=False, timeout=10000ms
+872 [T2] TryAutoConnect: trying discovery chain Rung 1a (81ms)
+885 [T2] DiscoveryChain: trying CachedLanIp for serial=1315-4176-6300-7236
+Util::FlexVersion::TryParse: Error - Version requires 4 digits (1127020893346674)
+Radio::Constructor: Error converting version string (1127020893346674)
+1047 [T12:.NET TP Worker] DiscoveryChain: CachedLanIp -> success in 160ms
+1048 [T12:.NET TP Worker] DiscoveryChain: WON via CachedLanIp after 1 rung(s), total 162ms
+1048 [T2] DiscoveryChain: handing winning radio (rung=CachedLanIp) to Connect()
+1049 [T2] radioAddedHandler:1315-4176-6300-7236
+1050 [T2] Connect:1315-4176-6300-7236
+1063 [T2] Connect: IsWan=False RequiresHolePunch=False PublicTlsPort=0 NegotiatedHolePunchPort=0 IP=192.168.1.76
+Attempting to perform TCP connection
+1067 [T9:.NET TP Worker] Connected:True
+TCP Read Loop Begins
+1073 [T12:.NET TP Worker] message severity:Info Client connected from IP 192.168.1.21
+1077 [T12:.NET TP Worker] PanadaptersRemaining:2
+1078 [T12:.NET TP Worker] LineoutMute:False
+1078 [T12:.NET TP Worker] IsMuteLocalAudioWhenRemoteOn:False
+1080 [T12:.NET TP Worker] TX1Enabled:True
+1080 [T12:.NET TP Worker] TX2Enabled:True
+1080 [T12:.NET TP Worker] TX3Enabled:True
+JJFlex: radio firmware version=0x0000000000000000 (0.0.0.0); v4.2.18 subs enabled=False
+Vita Socket has bound port 4991
+Setting UDP Port to 4991
+UDP Read Loop Begins
+1086 [T2] Connect worked:1315-4176-6300-7236
+1088 [T2] TryAutoConnect: END won via Rung 1a (total 296ms)
+1107 [T2] TryAutoConnectOnStartup: success
+1111 [T2] NativeMenuBar.ApplyUIMode: Modern
+1124 [T2] NativeMenuBar.ApplyUIMode: Modern complete, 143 items
+1217 [T12:.NET TP Worker] guiClientAdded:id:065BAB54-2725-4EB9-B41A-7D9FB97F634F my client:True handle:322323277 program:JJ station: is local PTT:True is available:True Only:True CanTransmit:True
+1742 [T2] [PROFILE] 1ms start_call_begin 
+1742 [T2] OpenTheRadio:rig is starting
+1761 [T2] [PROFILE] 2ms start_begin {"clientRemovedAlready":false,"clientAddedAlready":false}
+1764 [T2] [PROFILE] 20ms start_slices_available {"freeSlices":2}
+1817 [T12:.NET TP Worker] PanadaptersRemaining:1
+1817 [T12:.NET TP Worker] LineoutMute:False
+1817 [T12:.NET TP Worker] IsMuteLocalAudioWhenRemoteOn:False
+1823 [T12:.NET TP Worker] panadapterAdded:mine 1:Flex.Smoothlake.FlexLib.Panadapter
+1824 [T12:.NET TP Worker] CenterFreq:14.1
+1825 [T12:.NET TP Worker] InterlockState:NotReady
+1825 [T12:.NET TP Worker] TX1Enabled:False
+1825 [T12:.NET TP Worker] TX2Enabled:False
+1825 [T12:.NET TP Worker] TX3Enabled:False
+1826 [T12:.NET TP Worker] InterlockState:Ready
+1826 [T12:.NET TP Worker] TX1Enabled:False
+1826 [T12:.NET TP Worker] TX2Enabled:False
+1826 [T12:.NET TP Worker] TX3Enabled:False
+1829 [T12:.NET TP Worker] txBandSettingsHandler:20
+1829 [T12:.NET TP Worker] txBandSettingsHandler:160
+1829 [T12:.NET TP Worker] txBandSettingsHandler:80
+1829 [T12:.NET TP Worker] txBandSettingsHandler:60
+1829 [T12:.NET TP Worker] txBandSettingsHandler:40
+1829 [T12:.NET TP Worker] txBandSettingsHandler:30
+1829 [T12:.NET TP Worker] TX1Enabled:True
+1829 [T12:.NET TP Worker] TX2Enabled:False
+1829 [T12:.NET TP Worker] TX3Enabled:False
+1830 [T12:.NET TP Worker] txBandSettingsHandler:17
+1830 [T12:.NET TP Worker] txBandSettingsHandler:15
+1830 [T12:.NET TP Worker] txBandSettingsHandler:12
+1830 [T12:.NET TP Worker] txBandSettingsHandler:10
+1830 [T12:.NET TP Worker] txBandSettingsHandler:6
+1830 [T12:.NET TP Worker] txBandSettingsHandler:GEN
+1830 [T12:.NET TP Worker] txBandSettingsHandler:2200
+1830 [T12:.NET TP Worker] txBandSettingsHandler:630
+1830 [T12:.NET TP Worker] TX1Enabled:True
+1830 [T12:.NET TP Worker] TX2Enabled:False
+1830 [T12:.NET TP Worker] TX3Enabled:False
+1831 [T12:.NET TP Worker] ProfileTXList:Default iOS_default_Profile SO2R_TX1 SO2R_TX2 
+1831 [T12:.NET TP Worker] ProfileTXSelection:Default
+1831 [T12:.NET TP Worker] PanadaptersRemaining:1
+1831 [T12:.NET TP Worker] LineoutMute:False
+1831 [T12:.NET TP Worker] IsMuteLocalAudioWhenRemoteOn:False
+Slice::StatusUpdate: Key not parsed (nr_wlen=256)
+Slice::StatusUpdate: Key not parsed (nr_delay=25)
+Slice::StatusUpdate: Key not parsed (nr_adapt_mode=2)
+Slice::StatusUpdate: Key not parsed (nr_isdft_mode=1)
+Slice::StatusUpdate: Key not parsed (nrl_level=50)
+Slice::StatusUpdate: Key not parsed (nrl_filter_size=128)
+Slice::StatusUpdate: Key not parsed (nrl_delay=16)
+Slice::StatusUpdate: Key not parsed (nrl_leakage_level=50)
+Slice::StatusUpdate: Key not parsed (nrf_winc=256)
+Slice::StatusUpdate: Key not parsed (nrf_wlen=2048)
+Slice::StatusUpdate: Key not parsed (anf_wlen=256)
+Slice::StatusUpdate: Key not parsed (anf_delay=25)
+Slice::StatusUpdate: Key not parsed (anf_adapt_mode=2)
+Slice::StatusUpdate: Key not parsed (anf_isdft_mode=1)
+Slice::StatusUpdate: Key not parsed (anfl_level=50)
+Slice::StatusUpdate: Key not parsed (anfl_filter_size=128)
+Slice::StatusUpdate: Key not parsed (anfl_delay=16)
+Slice::StatusUpdate: Key not parsed (anfl_leakage_level=50)
+Slice::StatusUpdate: Key not parsed (post_demod_low=300)
+Slice::StatusUpdate: Key not parsed (post_demod_high=3300)
+Slice::StatusUpdate: Key not parsed (post_demod_low=300)
+Slice::StatusUpdate: Key not parsed (post_demod_high=3300)
+Slice::StatusUpdate: Key not parsed (post_demod_bypass=0)
+1837 [T12:.NET TP Worker] TX1Enabled:True
+1837 [T12:.NET TP Worker] TX2Enabled:False
+1837 [T12:.NET TP Worker] TX3Enabled:False
+Slice::StatusUpdate: Key not parsed (sample_rate=24000)
+Slice::StatusUpdate: Key not parsed (dax_iq_channel=0)
+1839 [T12:.NET TP Worker] SliceToVFO:Error
+1839 [T12:.NET TP Worker] TransmitSlice:mine -1
+1840 [T12:.NET TP Worker] SliceToVFO:Error
+1840 [T12:.NET TP Worker] ActiveSlice:mine -1
+1840 [T12:.NET TP Worker] SliceToVFO:Error
+Slice::StatusUpdate: Key not parsed (nr_wlen=256)
+Slice::StatusUpdate: Key not parsed (nr_delay=25)
+Slice::StatusUpdate: Key not parsed (nr_adapt_mode=2)
+Slice::StatusUpdate: Key not parsed (nr_isdft_mode=1)
+Slice::StatusUpdate: Key not parsed (nrl_level=50)
+Slice::StatusUpdate: Key not parsed (nrl_filter_size=128)
+Slice::StatusUpdate: Key not parsed (nrl_delay=16)
+Slice::StatusUpdate: Key not parsed (nrl_leakage_level=50)
+Slice::StatusUpdate: Key not parsed (nrf_winc=256)
+Slice::StatusUpdate: Key not parsed (nrf_wlen=2048)
+Slice::StatusUpdate: Key not parsed (anf_wlen=256)
+Slice::StatusUpdate: Key not parsed (anf_delay=25)
+Slice::StatusUpdate: Key not parsed (anf_adapt_mode=2)
+Slice::StatusUpdate: Key not parsed (anf_isdft_mode=1)
+Slice::StatusUpdate: Key not parsed (anfl_level=50)
+Slice::StatusUpdate: Key not parsed (anfl_filter_size=128)
+Slice::StatusUpdate: Key not parsed (anfl_delay=16)
+Slice::StatusUpdate: Key not parsed (anfl_leakage_level=50)
+Slice::StatusUpdate: Key not parsed (post_demod_low=300)
+Slice::StatusUpdate: Key not parsed (post_demod_high=3300)
+Slice::StatusUpdate: Key not parsed (post_demod_bypass=0)
+Slice::StatusUpdate: Key not parsed (rx_error_mHz=-14.206108)
+1842 [T12:.NET TP Worker] sliceAdded:mine 1:0: 14.100000 USB [100,2800]
+1842 [T12:.NET TP Worker] sliceAdded:IsTransmitSlice
+1842 [T12:.NET TP Worker] sliceAdded:activeSlice
+Radio::UpdateWaveformsInstalledList: Empty waveform entry in installed list
+Slice::StatusUpdate: Key not parsed (sample_rate=24000)
+Slice::StatusUpdate: Key not parsed (dax_iq_channel=0)
+Slice::StatusUpdate: Key not parsed (nr_wlen=256)
+Slice::StatusUpdate: Key not parsed (nr_delay=25)
+Slice::StatusUpdate: Key not parsed (nr_adapt_mode=2)
+Slice::StatusUpdate: Key not parsed (nr_isdft_mode=1)
+Slice::StatusUpdate: Key not parsed (nrl_level=50)
+Slice::StatusUpdate: Key not parsed (nrl_filter_size=128)
+Slice::StatusUpdate: Key not parsed (nrl_delay=16)
+Slice::StatusUpdate: Key not parsed (nrl_leakage_level=50)
+Slice::StatusUpdate: Key not parsed (nrf_winc=256)
+Slice::StatusUpdate: Key not parsed (nrf_wlen=2048)
+Slice::StatusUpdate: Key not parsed (anf_wlen=256)
+Slice::StatusUpdate: Key not parsed (anf_delay=25)
+Slice::StatusUpdate: Key not parsed (anf_adapt_mode=2)
+Slice::StatusUpdate: Key not parsed (anf_isdft_mode=1)
+Slice::StatusUpdate: Key not parsed (anfl_level=50)
+Slice::StatusUpdate: Key not parsed (anfl_filter_size=128)
+Slice::StatusUpdate: Key not parsed (anfl_delay=16)
+Slice::StatusUpdate: Key not parsed (anfl_leakage_level=50)
+Slice::StatusUpdate: Key not parsed (post_demod_low=300)
+Slice::StatusUpdate: Key not parsed (post_demod_high=3300)
+Slice::StatusUpdate: Key not parsed (post_demod_bypass=0)
+Slice::StatusUpdate: Key not parsed (rx_error_mHz=-14.206108)
+1843 [T12:.NET TP Worker] CenterFreq:14.1
+1844 [T12:.NET TP Worker] FPS:25
+Slice::StatusUpdate: Key not parsed (sample_rate=24000)
+Slice::StatusUpdate: Key not parsed (dax_iq_channel=0)
+Slice::StatusUpdate: Key not parsed (nr_wlen=256)
+Slice::StatusUpdate: Key not parsed (nr_delay=25)
+Slice::StatusUpdate: Key not parsed (nr_adapt_mode=2)
+Slice::StatusUpdate: Key not parsed (nr_isdft_mode=1)
+Slice::StatusUpdate: Key not parsed (nrl_level=50)
+Slice::StatusUpdate: Key not parsed (nrl_filter_size=128)
+Slice::StatusUpdate: Key not parsed (nrl_delay=16)
+Slice::StatusUpdate: Key not parsed (nrl_leakage_level=50)
+Slice::StatusUpdate: Key not parsed (nrf_winc=256)
+Slice::StatusUpdate: Key not parsed (nrf_wlen=2048)
+Slice::StatusUpdate: Key not parsed (anf_wlen=256)
+Slice::StatusUpdate: Key not parsed (anf_delay=25)
+Slice::StatusUpdate: Key not parsed (anf_adapt_mode=2)
+Slice::StatusUpdate: Key not parsed (anf_isdft_mode=1)
+Slice::StatusUpdate: Key not parsed (anfl_level=50)
+Slice::StatusUpdate: Key not parsed (anfl_filter_size=128)
+Slice::StatusUpdate: Key not parsed (anfl_delay=16)
+Slice::StatusUpdate: Key not parsed (anfl_leakage_level=50)
+Slice::StatusUpdate: Key not parsed (post_demod_low=300)
+Slice::StatusUpdate: Key not parsed (post_demod_high=3300)
+Slice::StatusUpdate: Key not parsed (post_demod_bypass=0)
+Slice::StatusUpdate: Key not parsed (rx_error_mHz=-14.206108)
+Radio::UpdateWaveformsInstalledList: Empty waveform entry in installed list
+1844 [T12:.NET TP Worker] PanadaptersRemaining:1
+1844 [T12:.NET TP Worker] LineoutMute:False
+1844 [T12:.NET TP Worker] IsMuteLocalAudioWhenRemoteOn:False
+1844 [T12:.NET TP Worker] CenterFreq:14.1
+1844 [T12:.NET TP Worker] FPS:25
+Slice::StatusUpdate: Key not parsed (sample_rate=24000)
+Slice::StatusUpdate: Key not parsed (dax_iq_channel=0)
+Slice::StatusUpdate: Key not parsed (nr_wlen=256)
+Slice::StatusUpdate: Key not parsed (nr_delay=25)
+Slice::StatusUpdate: Key not parsed (nr_adapt_mode=2)
+Slice::StatusUpdate: Key not parsed (nr_isdft_mode=1)
+Slice::StatusUpdate: Key not parsed (nrl_level=50)
+Slice::StatusUpdate: Key not parsed (nrl_filter_size=128)
+Slice::StatusUpdate: Key not parsed (nrl_delay=16)
+Slice::StatusUpdate: Key not parsed (nrl_leakage_level=50)
+Slice::StatusUpdate: Key not parsed (nrf_winc=256)
+Slice::StatusUpdate: Key not parsed (nrf_wlen=2048)
+Slice::StatusUpdate: Key not parsed (anf_wlen=256)
+Slice::StatusUpdate: Key not parsed (anf_delay=25)
+Slice::StatusUpdate: Key not parsed (anf_adapt_mode=2)
+Slice::StatusUpdate: Key not parsed (anf_isdft_mode=1)
+Slice::StatusUpdate: Key not parsed (anfl_level=50)
+Slice::StatusUpdate: Key not parsed (anfl_filter_size=128)
+Slice::StatusUpdate: Key not parsed (anfl_delay=16)
+Slice::StatusUpdate: Key not parsed (anfl_leakage_level=50)
+Slice::StatusUpdate: Key not parsed (post_demod_low=300)
+Slice::StatusUpdate: Key not parsed (post_demod_high=3300)
+Slice::StatusUpdate: Key not parsed (post_demod_bypass=0)
+Slice::StatusUpdate: Key not parsed (rx_error_mHz=-14.206108)
+Radio::UpdateWaveformsInstalledList: Empty waveform entry in installed list
+Setting diversity_allowed to 0
+1846 [T12:.NET TP Worker] ProfileGlobalList:iOS_default_Profile JJRadioDefault SO2RDefault 
+1846 [T12:.NET TP Worker] ProfileGlobalSelection:JJRadioDefault
+1847 [T12:.NET TP Worker] ProfileTXList:Default iOS_default_Profile SO2R_TX1 SO2R_TX2 
+1847 [T12:.NET TP Worker] guiClientUpdated:id:065BAB54-2725-4EB9-B41A-7D9FB97F634F my client:True handle:322323277 program:JJ station: is local PTT:True is available:True Only:True CanTransmit:True
+1849 [T12:.NET TP Worker] [PROFILE] 106ms gui_client_updated {"clientId":"065BAB54-2725-4EB9-B41A-7D9FB97F634F","station":"","isThisClient":true}
+1851 [T12:.NET TP Worker] RFPower:100
+1851 [T12:.NET TP Worker] TunePower:10
+1851 [T12:.NET TP Worker] DAXOn:True
+1851 [T12:.NET TP Worker] SimpleVOXEnable:False
+1851 [T12:.NET TP Worker] CWPitch:600
+1852 [T12:.NET TP Worker] CWSpeed:30
+1852 [T12:.NET TP Worker] CWIambic:True
+1852 [T12:.NET TP Worker] CWIambicModeB:True
+1852 [T12:.NET TP Worker] CWSwapPaddles:False
+1852 [T12:.NET TP Worker] CWBreakIn:True
+1852 [T12:.NET TP Worker] TXCWMonitorGain:80
+1854 [T12:.NET TP Worker] TX1Enabled:True
+1854 [T12:.NET TP Worker] TX2Enabled:False
+1854 [T12:.NET TP Worker] TX3Enabled:False
+1854 [T12:.NET TP Worker] ATUEnabled:False
+1857 [T12:.NET TP Worker] meterAdded:slice 0 10: SLC-0 24kHz
+1857 [T12:.NET TP Worker] meterAdded:slice 0 11: SLC-0 OSC
+1857 [T12:.NET TP Worker] meterAdded:slice 0 12: SLC-0 NB
+1857 [T12:.NET TP Worker] meterAdded:slice 0 13: SLC-0 ESC
+1857 [T12:.NET TP Worker] meterAdded:slice 0 14: SLC-0 LEVEL
+1857 [T12:.NET TP Worker] meterAdded:slice 0 15: SLC-0 TNF
+1857 [T12:.NET TP Worker] meterAdded:slice 0 16: SLC-0 ANF
+1857 [T12:.NET TP Worker] meterAdded:slice 0 17: SLC-0 SQUELCH
+1857 [T12:.NET TP Worker] meterAdded:slice 0 18: SLC-0 AGC+
+1857 [T12:.NET TP Worker] meterAdded:slice 0 19: SLC-0 NR
+1858 [T12:.NET TP Worker] CenterFreq:14.1
+1858 [T12:.NET TP Worker] FPS:25
+Slice::StatusUpdate: Key not parsed (sample_rate=24000)
+Slice::StatusUpdate: Key not parsed (dax_iq_channel=0)
+Slice::StatusUpdate: Key not parsed (nr_wlen=256)
+Slice::StatusUpdate: Key not parsed (nr_delay=25)
+Slice::StatusUpdate: Key not parsed (nr_adapt_mode=2)
+Slice::StatusUpdate: Key not parsed (nr_isdft_mode=1)
+Slice::StatusUpdate: Key not parsed (nrl_level=50)
+Slice::StatusUpdate: Key not parsed (nrl_filter_size=128)
+Slice::StatusUpdate: Key not parsed (nrl_delay=16)
+Slice::StatusUpdate: Key not parsed (nrl_leakage_level=50)
+Slice::StatusUpdate: Key not parsed (nrf_winc=256)
+Slice::StatusUpdate: Key not parsed (nrf_wlen=2048)
+Slice::StatusUpdate: Key not parsed (anf_wlen=256)
+Slice::StatusUpdate: Key not parsed (anf_delay=25)
+Slice::StatusUpdate: Key not parsed (anf_adapt_mode=2)
+Slice::StatusUpdate: Key not parsed (anf_isdft_mode=1)
+Slice::StatusUpdate: Key not parsed (anfl_level=50)
+Slice::StatusUpdate: Key not parsed (anfl_filter_size=128)
+Slice::StatusUpdate: Key not parsed (anfl_delay=16)
+Slice::StatusUpdate: Key not parsed (anfl_leakage_level=50)
+Slice::StatusUpdate: Key not parsed (post_demod_low=300)
+Slice::StatusUpdate: Key not parsed (post_demod_high=3300)
+Slice::StatusUpdate: Key not parsed (post_demod_bypass=0)
+Slice::StatusUpdate: Key not parsed (rx_error_mHz=-14.206108)
+Radio::UpdateWaveformsInstalledList: Empty waveform entry in installed list
+CWX::StatusUpdate: Key not parsed (dax_sidetone_enabled=0)
+CWX::StatusUpdate: Key not parsed (mf_sidetone_enabled=0)
+1864 [T2] [PROFILE] 123ms start_antenna_available 
+1865 [T2] [PROFILE] 123ms start_station_name_wait_begin {"maxWaitMs":45000,"earlyAbortMs":1000,"removalGraceMs":15000}
+58045 [T2] start:station name timeout, disconnecting for retry
+58049 [T2] [PROFILE] 56304ms station_name_timeout {"clientRemovedDuringStart":false,"ticksSinceRemoval":0}
+58060 [T2] [PROFILE] Saved 7 events to C:\Users\Don\AppData\Roaming\JJFlexRadio\connection-profiles\profile-20260507-000040-468.json
+Disconnecting from radio
+58066 [T2] Connected:False
+58067 [T2] sliceRemoved:VFO adjust removedIdx=0 RXVFO 0→-1 TXVFO 0→-1
+58067 [T2] sliceRemoved:mine, new count:0:0: 14.100000 USB [100,2800]
+58067 [T2] panadapterRemoved:new count:0:Flex.Smoothlake.FlexLib.Panadapter
+58068 [T2] waterfallRemoved
+58070 [T2] guiClientRemoved:my client
+58070 [T2] guiClientRemoved:id:065BAB54-2725-4EB9-B41A-7D9FB97F634F my client:True handle:322323277 program:JJ station: is local PTT:True is available:True Only:True CanTransmit:True
+58073 [T2] [PROFILE] 56329ms gui_client_removed {"clientId":"065BAB54-2725-4EB9-B41A-7D9FB97F634F","handle":322323277,"isThisClient":true,"station":"","msSinceStartBegin":56203}
+UDP Read Loop Ends
+58075 [T2] [PROFILE] 56334ms start_call_end {"success":false,"failureReason":"Station name timeout"}
+58075 [T2] OpenTheRadio:Start failed with auto-connect config, retrying via TryAutoConnect
+60083 [T2] FlexBase.Dispose:True
+60083 [T2] saveNewGlobalProfile
+60084 [T2] Disconnect:1315-4176-6300-7236
+60415 [T2] AllRadios constructor
+60415 [T2] Flex constructor
+60416 [T2] setFlexTunerTypeNotAuto:manual
+60416 [T2] TryAutoConnect: BEGIN 6300inshack (1315-4176-6300-7236), remote=False, timeout=10000ms
+60428 [T2] TryAutoConnect: trying discovery chain Rung 1a (12ms)
+60429 [T2] DiscoveryChain: trying CachedLanIp for serial=1315-4176-6300-7236
+Util::FlexVersion::TryParse: Error - Version requires 4 digits (0)
+Radio::Constructor: Error converting version string (0)
+60430 [T10:.NET TP Worker] DiscoveryChain: CachedLanIp -> success in 1ms
+60430 [T10:.NET TP Worker] DiscoveryChain: WON via CachedLanIp after 1 rung(s), total 0ms
+60457 [T2] DiscoveryChain: handing winning radio (rung=CachedLanIp) to Connect()
+60457 [T2] [PROFILE] 58716ms discovery_chain_win {"rung":"CachedLanIp","serial":"1315-4176-6300-7236"}
+60457 [T2] radioAddedHandler:1315-4176-6300-7236
+60457 [T2] Connect:1315-4176-6300-7236
+60457 [T2] [PROFILE] 58716ms connect_begin {"serial":"1315-4176-6300-7236","lowBW":false}
+60457 [T2] [PROFILE] 58716ms connect_radio_found {"serial":"1315-4176-6300-7236","nickname":"6300inshack"}
+60457 [T2] [PROFILE] 58716ms connect_handlers_wired 
+60457 [T2] Connect: IsWan=False RequiresHolePunch=False PublicTlsPort=0 NegotiatedHolePunchPort=0 IP=192.168.1.76
+60457 [T2] [PROFILE] 58716ms flexlib_connect_begin 
+Attempting to perform TCP connection
+60457 [T10:.NET TP Worker] Connected:True
+TCP Read Loop Begins
+60479 [T10:.NET TP Worker] message severity:Info Client connected from IP 192.168.1.21
+60479 [T10:.NET TP Worker] PanadaptersRemaining:1
+60479 [T10:.NET TP Worker] LineoutMute:False
+60479 [T10:.NET TP Worker] IsMuteLocalAudioWhenRemoteOn:False
+60479 [T10:.NET TP Worker] TX1Enabled:True
+60479 [T10:.NET TP Worker] TX2Enabled:True
+60479 [T10:.NET TP Worker] TX3Enabled:True
+JJFlex: radio firmware version=0x0000000000000000 (0.0.0.0); v4.2.18 subs enabled=False
+Vita Socket has bound port 4991
+Setting UDP Port to 4991
+UDP Read Loop Begins
+60540 [T2] [PROFILE] 58799ms flexlib_connect_end {"success":true}
+60540 [T2] Connect worked:1315-4176-6300-7236
+60541 [T2] [PROFILE] 58800ms connect_success {"serial":"1315-4176-6300-7236","connected":true}
+60541 [T2] TryAutoConnect: END won via Rung 1a (total 125ms)
+60619 [T2] OpenTheRadio:retry - rig is starting
+60619 [T2] [PROFILE] 58878ms start_begin {"clientRemovedAlready":false,"clientAddedAlready":false}
+60619 [T2] [PROFILE] 58878ms start_slices_available {"freeSlices":1}
+60662 [T10:.NET TP Worker] guiClientAdded:id:C92FC714-EE41-4DD0-BAFC-A22CE82DD82E my client:True handle:840172256 program:JJ station: is local PTT:False is available:True Only:True CanTransmit:True
+60663 [T10:.NET TP Worker] [PROFILE] 58921ms gui_client_added {"clientId":"C92FC714-EE41-4DD0-BAFC-A22CE82DD82E","handle":840172256,"station":"","isThisClient":true,"isAvailable":true,"msSinceStartBegin":-1}
+61451 [T10:.NET TP Worker] PanadaptersRemaining:0
+61451 [T10:.NET TP Worker] LineoutMute:False
+61451 [T10:.NET TP Worker] IsMuteLocalAudioWhenRemoteOn:False
+61452 [T10:.NET TP Worker] panadapterAdded:mine 1:Flex.Smoothlake.FlexLib.Panadapter
+61453 [T10:.NET TP Worker] CenterFreq:14.1
+61453 [T10:.NET TP Worker] InterlockState:NotReady
+61453 [T10:.NET TP Worker] InterlockState:Ready
+61453 [T10:.NET TP Worker] TX1Enabled:False
+61453 [T10:.NET TP Worker] TX2Enabled:False
+61453 [T10:.NET TP Worker] TX3Enabled:False
+61453 [T10:.NET TP Worker] txBandSettingsHandler:20
+61453 [T10:.NET TP Worker] txBandSettingsHandler:160
+61453 [T10:.NET TP Worker] txBandSettingsHandler:80
+61453 [T10:.NET TP Worker] txBandSettingsHandler:60
+61453 [T10:.NET TP Worker] txBandSettingsHandler:40
+61453 [T10:.NET TP Worker] txBandSettingsHandler:30
+61454 [T10:.NET TP Worker] TX1Enabled:True
+61454 [T10:.NET TP Worker] TX2Enabled:False
+61454 [T10:.NET TP Worker] TX3Enabled:False
+61454 [T10:.NET TP Worker] txBandSettingsHandler:17
+61454 [T10:.NET TP Worker] txBandSettingsHandler:15
+61454 [T10:.NET TP Worker] txBandSettingsHandler:12
+61454 [T10:.NET TP Worker] txBandSettingsHandler:10
+61454 [T10:.NET TP Worker] txBandSettingsHandler:6
+61454 [T10:.NET TP Worker] txBandSettingsHandler:GEN
+61455 [T10:.NET TP Worker] txBandSettingsHandler:2200
+61455 [T10:.NET TP Worker] txBandSettingsHandler:630
+61455 [T10:.NET TP Worker] TX1Enabled:True
+61455 [T10:.NET TP Worker] TX2Enabled:False
+61455 [T10:.NET TP Worker] TX3Enabled:False
+61455 [T10:.NET TP Worker] ProfileTXList:Default iOS_default_Profile SO2R_TX1 SO2R_TX2 
+61455 [T10:.NET TP Worker] ProfileTXSelection:Default
+61455 [T10:.NET TP Worker] PanadaptersRemaining:0
+61455 [T10:.NET TP Worker] LineoutMute:False
+61455 [T10:.NET TP Worker] IsMuteLocalAudioWhenRemoteOn:False
+Slice::StatusUpdate: Key not parsed (nr_wlen=256)
+Slice::StatusUpdate: Key not parsed (nr_delay=25)
+Slice::StatusUpdate: Key not parsed (nr_adapt_mode=2)
+Slice::StatusUpdate: Key not parsed (nr_isdft_mode=1)
+Slice::StatusUpdate: Key not parsed (nrl_level=50)
+Slice::StatusUpdate: Key not parsed (nrl_filter_size=128)
+Slice::StatusUpdate: Key not parsed (nrl_delay=16)
+Slice::StatusUpdate: Key not parsed (nrl_leakage_level=50)
+Slice::StatusUpdate: Key not parsed (nrf_winc=256)
+Slice::StatusUpdate: Key not parsed (nrf_wlen=2048)
+Slice::StatusUpdate: Key not parsed (anf_wlen=256)
+Slice::StatusUpdate: Key not parsed (anf_delay=25)
+Slice::StatusUpdate: Key not parsed (anf_adapt_mode=2)
+Slice::StatusUpdate: Key not parsed (anf_isdft_mode=1)
+Slice::StatusUpdate: Key not parsed (anfl_level=50)
+Slice::StatusUpdate: Key not parsed (anfl_filter_size=128)
+Slice::StatusUpdate: Key not parsed (anfl_delay=16)
+Slice::StatusUpdate: Key not parsed (anfl_leakage_level=50)
+Slice::StatusUpdate: Key not parsed (post_demod_low=300)
+Slice::StatusUpdate: Key not parsed (post_demod_high=3300)
+Slice::StatusUpdate: Key not parsed (post_demod_low=300)
+Slice::StatusUpdate: Key not parsed (post_demod_high=3300)
+Slice::StatusUpdate: Key not parsed (post_demod_bypass=0)
+Slice::StatusUpdate: Key not parsed (sample_rate=24000)
+Slice::StatusUpdate: Key not parsed (dax_iq_channel=0)
+61456 [T10:.NET TP Worker] SliceToVFO:Error
+61456 [T10:.NET TP Worker] TransmitSlice:mine -1
+61456 [T10:.NET TP Worker] SliceToVFO:Error
+61456 [T10:.NET TP Worker] ActiveSlice:mine -1
+61456 [T10:.NET TP Worker] SliceToVFO:Error
+Slice::StatusUpdate: Key not parsed (nr_wlen=256)
+Slice::StatusUpdate: Key not parsed (nr_delay=25)
+Slice::StatusUpdate: Key not parsed (nr_adapt_mode=2)
+Slice::StatusUpdate: Key not parsed (nr_isdft_mode=1)
+Slice::StatusUpdate: Key not parsed (nrl_level=50)
+Slice::StatusUpdate: Key not parsed (nrl_filter_size=128)
+Slice::StatusUpdate: Key not parsed (nrl_delay=16)
+Slice::StatusUpdate: Key not parsed (nrl_leakage_level=50)
+Slice::StatusUpdate: Key not parsed (nrf_winc=256)
+Slice::StatusUpdate: Key not parsed (nrf_wlen=2048)
+Slice::StatusUpdate: Key not parsed (anf_wlen=256)
+Slice::StatusUpdate: Key not parsed (anf_delay=25)
+Slice::StatusUpdate: Key not parsed (anf_adapt_mode=2)
+Slice::StatusUpdate: Key not parsed (anf_isdft_mode=1)
+Slice::StatusUpdate: Key not parsed (anfl_level=50)
+Slice::StatusUpdate: Key not parsed (anfl_filter_size=128)
+Slice::StatusUpdate: Key not parsed (anfl_delay=16)
+Slice::StatusUpdate: Key not parsed (anfl_leakage_level=50)
+Slice::StatusUpdate: Key not parsed (post_demod_low=300)
+Slice::StatusUpdate: Key not parsed (post_demod_high=3300)
+Slice::StatusUpdate: Key not parsed (post_demod_bypass=0)
+Slice::StatusUpdate: Key not parsed (rx_error_mHz=-14.206108)
+61456 [T10:.NET TP Worker] sliceAdded:mine 1:1: 14.100000 USB [100,2800]
+61456 [T10:.NET TP Worker] sliceAdded:IsTransmitSlice
+61456 [T10:.NET TP Worker] sliceAdded:activeSlice
+Slice::StatusUpdate: Key not parsed (sample_rate=24000)
+Slice::StatusUpdate: Key not parsed (dax_iq_channel=0)
+Slice::StatusUpdate: Key not parsed (nr_wlen=256)
+Slice::StatusUpdate: Key not parsed (nr_delay=25)
+Slice::StatusUpdate: Key not parsed (nr_adapt_mode=2)
+Slice::StatusUpdate: Key not parsed (nr_isdft_mode=1)
+Slice::StatusUpdate: Key not parsed (nrl_level=50)
+Slice::StatusUpdate: Key not parsed (nrl_filter_size=128)
+Slice::StatusUpdate: Key not parsed (nrl_delay=16)
+Slice::StatusUpdate: Key not parsed (nrl_leakage_level=50)
+Slice::StatusUpdate: Key not parsed (nrf_winc=256)
+Slice::StatusUpdate: Key not parsed (nrf_wlen=2048)
+Slice::StatusUpdate: Key not parsed (anf_wlen=256)
+Slice::StatusUpdate: Key not parsed (anf_delay=25)
+Slice::StatusUpdate: Key not parsed (anf_adapt_mode=2)
+Slice::StatusUpdate: Key not parsed (anf_isdft_mode=1)
+Slice::StatusUpdate: Key not parsed (anfl_level=50)
+Slice::StatusUpdate: Key not parsed (anfl_filter_size=128)
+Slice::StatusUpdate: Key not parsed (anfl_delay=16)
+Slice::StatusUpdate: Key not parsed (anfl_leakage_level=50)
+Slice::StatusUpdate: Key not parsed (post_demod_low=300)
+Slice::StatusUpdate: Key not parsed (post_demod_high=3300)
+Slice::StatusUpdate: Key not parsed (post_demod_bypass=0)
+Slice::StatusUpdate: Key not parsed (rx_error_mHz=-14.206108)
+61456 [T10:.NET TP Worker] CenterFreq:14.1
+61456 [T10:.NET TP Worker] FPS:25
+Slice::StatusUpdate: Key not parsed (sample_rate=24000)
+Slice::StatusUpdate: Key not parsed (dax_iq_channel=0)
+Slice::StatusUpdate: Key not parsed (nr_wlen=256)
+Slice::StatusUpdate: Key not parsed (nr_delay=25)
+Slice::StatusUpdate: Key not parsed (nr_adapt_mode=2)
+Slice::StatusUpdate: Key not parsed (nr_isdft_mode=1)
+Slice::StatusUpdate: Key not parsed (nrl_level=50)
+Slice::StatusUpdate: Key not parsed (nrl_filter_size=128)
+Slice::StatusUpdate: Key not parsed (nrl_delay=16)
+Slice::StatusUpdate: Key not parsed (nrl_leakage_level=50)
+Slice::StatusUpdate: Key not parsed (nrf_winc=256)
+Slice::StatusUpdate: Key not parsed (nrf_wlen=2048)
+Slice::StatusUpdate: Key not parsed (anf_wlen=256)
+Slice::StatusUpdate: Key not parsed (anf_delay=25)
+Slice::StatusUpdate: Key not parsed (anf_adapt_mode=2)
+Slice::StatusUpdate: Key not parsed (anf_isdft_mode=1)
+Slice::StatusUpdate: Key not parsed (anfl_level=50)
+Slice::StatusUpdate: Key not parsed (anfl_filter_size=128)
+Slice::StatusUpdate: Key not parsed (anfl_delay=16)
+Slice::StatusUpdate: Key not parsed (anfl_leakage_level=50)
+Slice::StatusUpdate: Key not parsed (post_demod_low=300)
+Slice::StatusUpdate: Key not parsed (post_demod_high=3300)
+Slice::StatusUpdate: Key not parsed (post_demod_bypass=0)
+Slice::StatusUpdate: Key not parsed (rx_error_mHz=-14.206108)
+61467 [T10:.NET TP Worker] PanadaptersRemaining:0
+61467 [T10:.NET TP Worker] LineoutMute:False
+61467 [T10:.NET TP Worker] IsMuteLocalAudioWhenRemoteOn:False
+61467 [T10:.NET TP Worker] CenterFreq:14.1
+61467 [T10:.NET TP Worker] FPS:25
+Slice::StatusUpdate: Key not parsed (sample_rate=24000)
+Slice::StatusUpdate: Key not parsed (dax_iq_channel=0)
+Slice::StatusUpdate: Key not parsed (nr_wlen=256)
+Slice::StatusUpdate: Key not parsed (nr_delay=25)
+Slice::StatusUpdate: Key not parsed (nr_adapt_mode=2)
+Slice::StatusUpdate: Key not parsed (nr_isdft_mode=1)
+Slice::StatusUpdate: Key not parsed (nrl_level=50)
+Slice::StatusUpdate: Key not parsed (nrl_filter_size=128)
+Slice::StatusUpdate: Key not parsed (nrl_delay=16)
+Slice::StatusUpdate: Key not parsed (nrl_leakage_level=50)
+Slice::StatusUpdate: Key not parsed (nrf_winc=256)
+Slice::StatusUpdate: Key not parsed (nrf_wlen=2048)
+Slice::StatusUpdate: Key not parsed (anf_wlen=256)
+Slice::StatusUpdate: Key not parsed (anf_delay=25)
+Slice::StatusUpdate: Key not parsed (anf_adapt_mode=2)
+Slice::StatusUpdate: Key not parsed (anf_isdft_mode=1)
+Slice::StatusUpdate: Key not parsed (anfl_level=50)
+Slice::StatusUpdate: Key not parsed (anfl_filter_size=128)
+Slice::StatusUpdate: Key not parsed (anfl_delay=16)
+Slice::StatusUpdate: Key not parsed (anfl_leakage_level=50)
+Slice::StatusUpdate: Key not parsed (post_demod_low=300)
+Slice::StatusUpdate: Key not parsed (post_demod_high=3300)
+Slice::StatusUpdate: Key not parsed (post_demod_bypass=0)
+Slice::StatusUpdate: Key not parsed (rx_error_mHz=-14.206108)
+Setting diversity_allowed to 0
+61468 [T10:.NET TP Worker] ProfileGlobalList:iOS_default_Profile JJRadioDefault SO2RDefault 
+61468 [T10:.NET TP Worker] ProfileGlobalSelection:JJRadioDefault
+61468 [T10:.NET TP Worker] ProfileTXList:Default iOS_default_Profile SO2R_TX1 SO2R_TX2 
+61472 [T2] [PROFILE] 59731ms start_antenna_available 
+61472 [T2] [PROFILE] 59731ms start_station_name_wait_begin {"maxWaitMs":45000,"earlyAbortMs":1000,"removalGraceMs":15000}
+61473 [T10:.NET TP Worker] guiClientAdded:id:065BAB54-2725-4EB9-B41A-7D9FB97F634F my client:False handle:322323277 program:JJ station:wa2iwc is local PTT:True is available:True Only:True CanTransmit:True
+61473 [T10:.NET TP Worker] [PROFILE] 59732ms gui_client_added {"clientId":"065BAB54-2725-4EB9-B41A-7D9FB97F634F","handle":322323277,"station":"wa2iwc","isThisClient":false,"isAvailable":true,"msSinceStartBegin":0}
+61473 [T10:.NET TP Worker] guiClientUpdated:id:C92FC714-EE41-4DD0-BAFC-A22CE82DD82E my client:True handle:840172256 program:JJ station: is local PTT:False is available:True Only:True CanTransmit:True
+61473 [T10:.NET TP Worker] [PROFILE] 59732ms gui_client_updated {"clientId":"C92FC714-EE41-4DD0-BAFC-A22CE82DD82E","station":"","isThisClient":true}
+61473 [T10:.NET TP Worker] RFPower:100
+61473 [T10:.NET TP Worker] TunePower:10
+61473 [T10:.NET TP Worker] DAXOn:True
+61473 [T10:.NET TP Worker] SimpleVOXEnable:False
+61473 [T10:.NET TP Worker] CWPitch:600
+61473 [T10:.NET TP Worker] CWSpeed:30
+61473 [T10:.NET TP Worker] CWIambic:True
+61473 [T10:.NET TP Worker] CWIambicModeB:True
+61473 [T10:.NET TP Worker] CWSwapPaddles:False
+61473 [T10:.NET TP Worker] CWBreakIn:True
+61473 [T10:.NET TP Worker] TXCWMonitorGain:80
+61473 [T10:.NET TP Worker] TX1Enabled:True
+61473 [T10:.NET TP Worker] TX2Enabled:False
+61473 [T10:.NET TP Worker] TX3Enabled:False
+61474 [T10:.NET TP Worker] ATUEnabled:False
+61474 [T10:.NET TP Worker] meterAdded:slice 1 32: SLC-1 24kHz
+61474 [T10:.NET TP Worker] meterAdded:slice 1 33: SLC-1 OSC
+61474 [T10:.NET TP Worker] meterAdded:slice 1 34: SLC-1 NB
+61474 [T10:.NET TP Worker] meterAdded:slice 1 35: SLC-1 ESC
+61474 [T10:.NET TP Worker] meterAdded:slice 1 36: SLC-1 LEVEL
+61474 [T10:.NET TP Worker] meterAdded:slice 1 37: SLC-1 TNF
+61474 [T10:.NET TP Worker] meterAdded:slice 1 38: SLC-1 ANF
+61474 [T10:.NET TP Worker] meterAdded:slice 1 39: SLC-1 SQUELCH
+61474 [T10:.NET TP Worker] meterAdded:slice 1 40: SLC-1 AGC+
+61474 [T10:.NET TP Worker] meterAdded:slice 1 41: SLC-1 NR
+61475 [T10:.NET TP Worker] panadapterAdded:not mine Flex.Smoothlake.FlexLib.Panadapter
+61475 [T10:.NET TP Worker] CenterFreq:14.1
+61475 [T10:.NET TP Worker] FPS:25
+Slice::StatusUpdate: Key not parsed (sample_rate=24000)
+Slice::StatusUpdate: Key not parsed (dax_iq_channel=0)
+61475 [T10:.NET TP Worker] TransmitSlice:mine 0
+61475 [T10:.NET TP Worker] ActiveSlice:mine 0
+Slice::StatusUpdate: Key not parsed (nr_wlen=256)
+Slice::StatusUpdate: Key not parsed (nr_delay=25)
+Slice::StatusUpdate: Key not parsed (nr_adapt_mode=2)
+Slice::StatusUpdate: Key not parsed (nr_isdft_mode=1)
+Slice::StatusUpdate: Key not parsed (nrl_level=50)
+Slice::StatusUpdate: Key not parsed (nrl_filter_size=128)
+Slice::StatusUpdate: Key not parsed (nrl_delay=16)
+Slice::StatusUpdate: Key not parsed (nrl_leakage_level=50)
+Slice::StatusUpdate: Key not parsed (nrf_winc=256)
+Slice::StatusUpdate: Key not parsed (nrf_wlen=2048)
+Slice::StatusUpdate: Key not parsed (anf_wlen=256)
+Slice::StatusUpdate: Key not parsed (anf_delay=25)
+Slice::StatusUpdate: Key not parsed (anf_adapt_mode=2)
+Slice::StatusUpdate: Key not parsed (anf_isdft_mode=1)
+Slice::StatusUpdate: Key not parsed (anfl_level=50)
+Slice::StatusUpdate: Key not parsed (anfl_filter_size=128)
+Slice::StatusUpdate: Key not parsed (anfl_delay=16)
+Slice::StatusUpdate: Key not parsed (anfl_leakage_level=50)
+Slice::StatusUpdate: Key not parsed (post_demod_low=300)
+Slice::StatusUpdate: Key not parsed (post_demod_high=3300)
+Slice::StatusUpdate: Key not parsed (post_demod_bypass=0)
+Slice::StatusUpdate: Key not parsed (rx_error_mHz=-14.206108)
+61475 [T10:.NET TP Worker] sliceAdded:not mine 0: 14.100000 USB [100,2800]
+Slice::StatusUpdate: Key not parsed (sample_rate=24000)
+Slice::StatusUpdate: Key not parsed (dax_iq_channel=0)
+Slice::StatusUpdate: Key not parsed (nr_wlen=256)
+Slice::StatusUpdate: Key not parsed (nr_delay=25)
+Slice::StatusUpdate: Key not parsed (nr_adapt_mode=2)
+Slice::StatusUpdate: Key not parsed (nr_isdft_mode=1)
+Slice::StatusUpdate: Key not parsed (nrl_level=50)
+Slice::StatusUpdate: Key not parsed (nrl_filter_size=128)
+Slice::StatusUpdate: Key not parsed (nrl_delay=16)
+Slice::StatusUpdate: Key not parsed (nrl_leakage_level=50)
+Slice::StatusUpdate: Key not parsed (nrf_winc=256)
+Slice::StatusUpdate: Key not parsed (nrf_wlen=2048)
+Slice::StatusUpdate: Key not parsed (anf_wlen=256)
+Slice::StatusUpdate: Key not parsed (anf_delay=25)
+Slice::StatusUpdate: Key not parsed (anf_adapt_mode=2)
+Slice::StatusUpdate: Key not parsed (anf_isdft_mode=1)
+Slice::StatusUpdate: Key not parsed (anfl_level=50)
+Slice::StatusUpdate: Key not parsed (anfl_filter_size=128)
+Slice::StatusUpdate: Key not parsed (anfl_delay=16)
+Slice::StatusUpdate: Key not parsed (anfl_leakage_level=50)
+Slice::StatusUpdate: Key not parsed (post_demod_low=300)
+Slice::StatusUpdate: Key not parsed (post_demod_high=3300)
+Slice::StatusUpdate: Key not parsed (post_demod_bypass=0)
+Slice::StatusUpdate: Key not parsed (rx_error_mHz=-14.206108)
+Radio::UpdateWaveformsInstalledList: Empty waveform entry in installed list
+CWX::StatusUpdate: Key not parsed (dax_sidetone_enabled=0)
+CWX::StatusUpdate: Key not parsed (mf_sidetone_enabled=0)

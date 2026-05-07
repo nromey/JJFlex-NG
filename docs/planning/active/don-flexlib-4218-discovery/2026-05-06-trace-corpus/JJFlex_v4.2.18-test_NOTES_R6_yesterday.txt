@@ -1,0 +1,74 @@
+JJ Flex Test Build R6 — discovery cascade
+==========================================
+
+Hey Don,
+
+Big strategy shift in this one. The first five rounds were all
+trying to find what changed in the radio library between the old
+JJ Flex you've been running and the new build that can't see your
+radio. R5 ruled out the last specific suspect we had a theory for
+(thank you for that trace — it was decisive). We're not done
+chasing the root cause, but we stopped letting it block you.
+
+This build is the answer for that. Instead of relying on the
+broadcast announcement your radio sends out (which the new build
+isn't seeing on your machine for reasons we still don't fully
+understand), JJ Flex now remembers your radio's IP address from
+the last time it connected successfully and tries that first.
+That memory lives in the same auto-connect file JJ Flex has
+always written, so your radio's IP is already there from when
+your old working build connected over the past few days.
+
+In short, R6 should connect to your radio like nothing's wrong,
+because it's not asking the broken broadcast path to find anything.
+
+What's actually new under the hood
+----------------------------------
+
+There's a small ladder of paths JJ Flex tries when it goes looking
+for your radio. The cached-IP path is the new top rung. The old
+broadcast path is still there as a lower rung — if it ever starts
+working again on your machine, JJ Flex will use it. Either way,
+the first one to find your radio wins, and the others get cancelled.
+
+This isn't just about the bug you've been hitting. It also makes
+JJ Flex faster on SmartLink connections for everyone, because we
+remember the radio's external IP too and skip the round-trip to
+FlexRadio's cloud server when we can. So even if your bug never
+existed, this design is a performance win for the whole user
+base. Yours just happens to be the case that pushed us to build
+it now.
+
+What to do
+----------
+
+1. Drop this build into your jjf-test folder same as before.
+2. Run it.
+3. If it connects, great — please send the trace anyway. We want
+   to see which path won (the cached IP or the broadcast path
+   that's been silent for you). The trace shows exactly that and
+   tells us whether the underlying broadcast issue is still there
+   or if R6's MMCSS removal happened to also fix it as a side
+   effect.
+4. If it doesn't connect, also send the trace. That's a different
+   problem and we want to know about it fast.
+
+What we're learning either way
+------------------------------
+
+- If R6 connects via the cached IP: we have a working solution to
+  ship in 4.2.0. Your specific bug stops blocking the release. We
+  keep digging on the underlying broadcast issue at our own pace.
+- If R6 still has trouble: the trace tells us what happened. Could
+  be a stale cached IP, could be something we didn't anticipate.
+  Either way the info is useful.
+
+If you want a moment to celebrate
+---------------------------------
+
+If it connects on the first try, you're testing the design that
+makes this kind of bug invisible to every future user. That's a
+pretty good night's work.
+
+73,
+JJ Flex (via Noel)

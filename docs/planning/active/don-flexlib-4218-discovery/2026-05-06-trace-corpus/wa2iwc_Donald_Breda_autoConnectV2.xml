@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AutoConnectConfig xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+  <Enabled>true</Enabled>
+  <RadioSerial>1315-4176-6300-7236</RadioSerial>
+  <RadioName>6300inshack</RadioName>
+  <IsRemote>false</IsRemote>
+  <SmartLinkAccountEmail />
+  <LowBandwidth>false</LowBandwidth>
+  <GlobalAutoConnectEnabled>true</GlobalAutoConnectEnabled>
+</AutoConnectConfig>

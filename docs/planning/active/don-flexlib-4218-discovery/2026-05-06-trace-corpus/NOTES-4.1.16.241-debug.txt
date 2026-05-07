@@ -1,0 +1,132 @@
+﻿JJ Flexible Radio Access -- Debug Build
+Version: 4.1.16.241 (Debug x64)
+Built:   2026-05-06 14:26
+Commit:  e2d4ebea
+
+JJ Flex Two-Step Test — Cache Writer + R6 Cascade
+==================================================
+
+Hey Don,
+
+Thanks for the traces this morning. They were exactly what we needed
+to find the bug, and the bug isn't quite where we thought it was.
+
+What we found
+-------------
+
+The R6 build does have a working "remember the IP and try that first"
+path — but the file it remembers things in is brand new with R6. It
+only writes itself after R6 successfully connects. R6 can't connect on
+your box because UDP discovery is silent. So the file stays empty, the
+"remember" path has nothing to remember, and we fall through to the
+silent UDP path.
+
+Chicken and egg: the thing that's supposed to save us only saves us
+after the thing it's saving us from has already worked once.
+
+In yesterday's NOTES I told you "your IP is already there from your
+old working build." That was wrong — your old build never wrote an IP
+anywhere we can read. Apologies for the misdirection. Today's plan
+fixes the design, not just your machine.
+
+What's in this drop
+-------------------
+
+There are two zips in this folder. They do different things and need
+to run in a specific order.
+
+1. JJFlex_4.1.16.241_x64_debug.zip  (the NEW one with this NOTES file)
+
+   This is a 4.1-line build with one tiny addition: every successful
+   connect now writes your radio's IP into the cache file. It uses
+   regular UDP discovery (which works fine for you on the 4.1 line),
+   so it should connect to your radio just like your normal install
+   does. Difference is invisible — it just leaves a breadcrumb behind
+   for the 4.2 build to find.
+
+2. JJFlex_v4.2.18-test_x64_debug.zip  (the R6 build from yesterday)
+
+   Same R6 build you've already been running. Once the cache file
+   exists, this build's "try the cached IP first" path should win,
+   and it'll connect without UDP discovery getting involved.
+
+What to do, in order
+--------------------
+
+Step 1 — Run the cache-writer build (the NEW zip)
+
+   a. Make a folder for it, anywhere convenient. Suggest:
+
+         C:\Users\Don\jjf-41\
+
+      (separate from jjf-test so you don't mix them up).
+
+   b. Extract this zip into that folder.
+
+   c. Run JJFlexRadio.exe from there.
+
+   d. Let it auto-connect like normal. It should behave exactly like
+      your installed working build does — that is the point. Connect,
+      do whatever quick test you want to confirm it is healthy, then
+      close it.
+
+   e. Send us the trace:
+
+         %AppData%\JJFlexRadio\JJFlexRadioTrace.txt
+
+      Drop into this same Dropbox folder. Overwrite is fine.
+
+   What we want from this trace: confirmation that the connect
+   succeeded and the cache write happened. There will not be a flashy
+   "wrote cache" line, but the trace will show a normal successful
+   connect and we can verify the cache file exists in your AppData.
+
+Step 2 — Run R6 (the same v4.2.18-test zip from yesterday)
+
+   a. Use your existing jjf-test folder, or extract the R6 zip fresh
+      if you already cleaned it up.
+
+   b. Run JJFlexRadio.exe from there.
+
+   c. If our theory is right: it connects in about a second, no UDP
+      discovery involved. The cached-IP path wins immediately.
+
+   d. If our theory is wrong: it will fail like before, but the trace
+      will tell us exactly which rung failed and why. We fixed a
+      logging gap that was hiding that information yesterday.
+
+   e. Send us the trace from this run too. Same Dropbox folder.
+
+Why we are doing it this way
+----------------------------
+
+There is no built-in "send a crash report" feature yet — Noel is
+working on the server side of that. Until that exists, traces ride
+back via Dropbox. So two runs means two trace files. Sorry for the
+manual shuffle.
+
+If it works, we have a real fix for everyone, not just you. Any user
+who installs the cache-writer build first and the 4.2 build later
+will get seeded automatically — no chicken and egg, no manual step.
+You are the first end-to-end test of the whole pipeline.
+
+If it does not work, the trace tells us what we missed. Either way
+we learn something.
+
+A note on safety
+----------------
+
+Both builds write to %AppData%\JJFlexRadio\, which is the same place
+your installed working build writes. The cache file is brand new —
+nothing else in that folder is touched, and your normal config and
+keys and profiles are untouched.
+
+If at any point you want to bail out and just go back to your normal
+working build, close any test exes and run your installed JJFlexRadio
+as usual. Nothing we are doing should affect it.
+
+Thanks for being patient with this. It would be a mystery without
+your traces.
+
+73,
+JJ Flex (via Noel)
