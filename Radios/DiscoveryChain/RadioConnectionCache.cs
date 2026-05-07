@@ -75,7 +75,11 @@ namespace Radios.DiscoveryChain
 
                 entry.Nickname = radio.Nickname ?? entry.Nickname ?? "";
                 entry.Model = radio.Model ?? entry.Model ?? "";
-                entry.Version = radio.Version.ToString();
+                // Use FlexLib's own packer so the cached string round-trips through
+                // FlexVersion.TryParse on the read side. radio.Version.ToString()
+                // gave us decimal-of-ulong (e.g. "1127020893346674"), which TryParse
+                // rejects — manifested as firmware version 0.0.0.0 in Don's R6 trace.
+                entry.Version = Flex.Util.FlexVersion.ToString(radio.Version);
 
                 var nowUtc = DateTime.UtcNow;
                 if (radio.IsWan)
