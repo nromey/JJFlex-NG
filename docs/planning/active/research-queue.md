@@ -52,6 +52,8 @@ These are bounded research tasks suitable for background agents. Each produces a
 
 - **docs/principles.md** — Created 2026-05-04, uncommitted. Noel can commit when convenient (or as part of end-of-day seal).
 
+- **SmartLink login silent-validation test** — Confirm whether bad-credentials feedback now reads automatically under NVDA 2026.1 (browse-mode + WebView2 path), or whether JJF still needs to bridge an announcement in `AuthFormWebView2.cs`. Quick manual test, no agent. → memory: `project_smartlink_login_silent_validation_bug.md`
+
 ## Blocked
 
 - **Phase D firmware update implementation** — Per Q5 (2026-05-05): no longer blocking on R5 outcome. The discovery cascade R6 dissolves the firmware-install dependency. Phase D becomes regular Sprint 29 work, not 4.2.0-critical. → memory: `project_firmware_install_dependency_strategy.md` (now archived/decided)
@@ -75,6 +77,8 @@ These are bounded research tasks suitable for background agents. Each produces a
 - **for-claude/2026-05-04-42-release-execution-plan-pull.md processed** — All 5 questions answered. Phase 0 runbook extracted as standalone. Memory entries: `project_firmware_install_dependency_strategy.md` marked DECIDED, two new entries `project_crash_triage_bundle_flow.md` and `project_claude_as_rarbox_operator.md`. for-claude copy deleted.
 
 - **MEMORY.md index updated** — Two new entries added (crash triage flow, Claude as rarbox operator); firmware-install-dependency entry rewritten as DECIDED; FlexLib silent-discovery entry updated to reflect R6 shipped.
+
+- **NVDA 2026.1 release noted** — 0-size element invisibility fixed in browse mode (covers WebView2 surfaces like SmartLink Auth0 login + future jjflexible.radio / data.jjflexible.radio web UIs; does NOT cover JJF's native WinForms/WPF UI). Help doc updated; durable record in memory. → memory: `project_nvda_2026_1_zero_size_fix.md`
 
 ---
 

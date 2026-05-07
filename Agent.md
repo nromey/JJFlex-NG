@@ -3,23 +3,116 @@
 This document captures the current state of JJ-Flex repository and active work.
 
 **Repository root:** `C:\dev\JJFlex-NG`
-**Branch:** `sprint28/home-key-qsk` (Sprint 28 substantively complete in code; Sprint 28 wrap items committed; 4.1.17 release-verification matrix in active runtime testing — note: 4.1.17 was retired 2026-05-02 in favor of direct 4.2.0 cascade)
+**Branch:** `feature/cache-writer-backport` (cache-writer-backport line; sealing 05-06 work on 05-07. Sprint 28 still substantively complete on `sprint28/home-key-qsk`. 4.2.0 staging continues on `track/flexlib-42`. 4.1.17 retired 2026-05-02.)
 
-## RESUME HERE — post-recovery 2026-05-05 (or whenever Noel is up to it)
+## RESUME HERE — 2026-05-07 (post-pain-night seal of 05-06)
 
-**One file to grab:** `docs/planning/for-noel/2026-05-04-foundation-drop-test-pull.md`
+Noel was hurting last night and skipped the seal. This seal was run on 05-07 morning to capture 05-06's work after the fact. Everything below was 05-06 activity — read in the order you have energy for.
 
-That's the test pull doc for everything that landed today (stuck-modal escape + 7 polish bug fixes, both merged into sprint28/home-key-qsk at commit `ee8faebb`). Nineteen tests in for-noel format with `**** ` slots. Read each test, do the action, write your result on the `**** ` line. Move to for-claude/ when done.
+**Highest-signal pull (read first):** `docs/planning/for-noel/2026-05-06-discovery-cascade-v3-design-pull.md` — short version of the discovery cascade v3 design memo (long version is `2026-05-06-discovery-cascade-v3-full-memo.md`). Six research streams synthesized into a v3 design that supersedes R6.
 
-Build to test against: `bin\x64\Debug\net10.0-windows\win-x64\JJFlexRadio.exe` — already built fresh today, version 4.1.16.0.
+**What shipped to Don:** R6 with cache-writer backport. Don validated it last night — connected in 296ms via cached IP. First end-to-end success of write-then-read across versions. Trace artefact surfaced one small polish bug (FlexVersion was being written as a decimal int instead of dotted form), fixed in both repo lines (e7e2e3b2 main, bd3d2035 in flexlib-42). The 4.1.16.242 polish build was archived to NAS but **not** sent to Don — he doesn't need to act on it; the next public build picks it up.
 
-Skip-friendly: any test you can't run, write `**** SKIP <reason>`. Sessions 1, 2, 5 are pure solo (15 + 15 + 5 min). Session 3 needs Don. Session 4 (forced stuck conditions) is fully optional.
+**Other pulls in queue (lower priority):**
+- `docs/planning/for-noel/2026-05-04-foundation-drop-test-pull.md` — still untouched. Pre-recovery foundation drop test pull. Sit with this when you've got energy for runtime testing.
+- `docs/planning/for-noel/2026-05-04-sprint28-bug-bundle-questions-pull.md` — Q2 still open (RunsWithoutRadio + action-aware no-radio).
+- `docs/planning/for-noel/2026-05-04-42-release-execution-plan-pull.md` — strategic plan for 4.2.0 release.
 
-If the doc-driven format isn't working when you sit down with it, just say "let's walk through the tests in chat" — I can prompt one test at a time interactively.
+**External infrastructure work-in-progress (uncommitted as of 05-06 EOD, committed in this seal):**
+- `docs/planning/active/rarbox-bootstrap.md` — Claude Code install runbook for rarbox.
+- `docs/planning/active/roarbox-bootstrap.md` — same for roarbox (the second box; see `project_roarbox_vs_rarbox.md`).
+- `docs/planning/active/roarbox-account-cleanup-runbook.md` — multi-tenant cleanup procedure.
+- `docs/planning/active/roarbox-upgrade-parts-list.md` — CPU upgrade parts (E5-2697 v2, dual-CPU shroud, fan complement).
+- `docs/planning/active/chris-roarbox-inspection-questions.md` — four pre-purchase questions for Chris Polk before parts get ordered.
 
-**Other pending items (lower priority, only if time + energy):**
-- `docs/planning/for-noel/2026-05-04-sprint28-bug-bundle-questions-pull.md` — Q2 still open (RunsWithoutRadio + action-aware no-radio). Q1 + Q3 auto-resolved.
-- `docs/planning/for-noel/2026-05-04-42-release-execution-plan-pull.md` — strategic plan for 4.2.0 release (firmware updater + crash reporter + updater). Five questions inside. Tomorrow afternoon's Cloudflare R2 + Azure prep work answers some implicitly.
+---
+
+## 2026-05-06 end-of-day seal (sealed 05-07 morning after surgery-recovery pain night)
+
+**The big wins.** R6 cache-writer backport landed end-to-end. Don connected to his radio in 296ms via the cached IP — first real-world validation that the write-then-read chain across the 4.1 / 4.2 line works. Plus discovery cascade v3 — six research streams synthesized into a unified design memo that supersedes R6 — committed and pulled to for-noel/.
+
+### Code that landed (main repo, branch `feature/cache-writer-backport`)
+
+- **e2d4ebea** — Cache writer backport: 4.1 line seeds `radioConnectionCacheV1.xml`. Closes the chicken-and-egg in `project_autoconnect_no_ip_dead_end.md`. Without this, R6's cache-reader has nothing to read on first connect; with this, the 4.1 line lays the cache so R6 (running off 4.2.18) finds the IP on the very next launch. Don's 296ms reconnect proves the write-then-read pipeline.
+- **e7e2e3b2** — Cache writer: use `FlexVersion.ToString` for round-trip-safe version string. Polish-only fix: prior code stored the version as a packed long (something like "1127020893346674"), which R6 parses as 0.0.0.0 and trips up FlexLib 4.2.18 feature gating. Doesn't break the connect itself, so Don's 4.1.16.241 build still works fine — but the 4.1.16.242 build with this fix was archived to NAS rather than shipped to Don, since the next public build picks it up automatically.
+- **1e21f563** — Discovery cascade v3 research: 6 streams complete, 1 awaiting hardware. 4,276 insertions of memos and synthesis notes.
+- **0c5ddf00** — Discovery cascade v3 design memo synthesized. 826 insertions, 6 deletions.
+- **f4256aa4** — Archive Don's 2026-05-06 trace corpus + for-noel v3 review pulls. 2,991 insertions. Don's traces preserved in repo for future bisects; v3 pulls added to for-noel/.
+- **b46388ec** — Archive 4.1.16.242 polish build — Don doesn't need to act on it. 54 insertions (zip + NOTES on NAS only).
+
+### Code that landed (flexlib-42 worktree, branch `track/flexlib-42`)
+
+- **5bfc6501** — DiscoveryChain: log per-rung outcome at Info regardless of success. Makes per-rung diagnostic visibility unconditional — was Verbose-on-failure, now Info-always.
+- **bd3d2035** — RadioConnectionCache: use FlexVersion.ToString for round-trip-safe write. Same fix as e7e2e3b2, applied to the 4.2 line so the cache stays format-compatible across the 4.1/4.2 boundary.
+
+### WIP committed during this seal (Discovery.cs R6 instrumentation)
+
+`Discovery.cs` in the flexlib-42 worktree carries 246 lines of R6 silent-discovery diagnostic instrumentation: unconditional build-marker, NIC enumeration, bind-attempt logging, `SelfTest()` (loopback / NIC-self / limited-broadcast self-test before main Receive loop), and `SyncReceiveDrain()` (5-second sync receive on the bound socket before async handoff). Per `project_flexlib_4218_discovery_investigation.md`, R1–R5 falsified every named source-level suspect and R6 chain-not-gate dissolves the investigation's blocking criticality — so this instrumentation is parked diagnostic work, not a planned shipping feature. Sealed here as a clearly-labeled WIP commit so the experiment stays preserved + pushable rather than living indefinitely as a working-tree edit.
+
+### External infrastructure work (uncommitted on 05-06 EOD; committed in this seal)
+
+A pivot from pure code work into ops planning. Rarbox is the existing VPS hosting `crashes.jjflexible.radio`; roarbox is the newer/faster box being repurposed (see `project_roarbox_vs_rarbox.md`). Five new planning docs:
+
+- `rarbox-bootstrap.md` — Claude Code install runbook for the existing rarbox VPS so the on-box Claude session can take over Phase 0 receiver setup.
+- `roarbox-bootstrap.md` — equivalent for roarbox: NOPASSWD setup for `noel`, install Claude Code, then hand off to on-box session.
+- `roarbox-account-cleanup-runbook.md` — multi-tenant cleanup procedure (rename `patrick` → `borris`, decide Doug's NOPASSWD status, etc.).
+- `roarbox-upgrade-parts-list.md` — CPU upgrade parts shopping list (1× E5-2620 v2 → 2× E5-2697 v2, the official R620 dual-CPU ceiling, plus shroud + fans).
+- `chris-roarbox-inspection-questions.md` — four pre-purchase questions for Chris Polk so Noel doesn't ship the wrong shroud or fan complement.
+
+### Helper / workflow updates
+
+- `screen-reader-setup.md` — added one sentence noting NVDA 2026.1 is current and includes accessibility improvements relevant to web-style content (covers the SmartLink WebView2 login path).
+- `research-queue.md` — added SmartLink login silent-validation manual-test entry; added NVDA-2026.1-released note in Recently completed.
+- `debug-notes.txt` — replaced with the cache-writer-fix note for Don (the F2+M debug-notes content moved to `debug-notes.sprint28-bugbundle.txt` so the canonical `debug-notes.txt` always reflects the latest unsent debug build context).
+- `JJFlexRadio.chm` — rebuilt (2-byte change; routine help-content sync).
+
+### Cross-surface state at end of 05-06
+
+- **Main repo** (`feature/cache-writer-backport`): 8 commits ahead of where the day started; sealed and pushed in this run.
+- **`track/flexlib-42` worktree**: 2 commits + 1 WIP commit (Discovery.cs R6 instrumentation); pushed in this run.
+- **`track/braille-research` worktree**: handoff.md edits committed and pushed in this run; no other 05-06 activity.
+- **`track/multi-radio` worktree**: hamlib-integration-spike.md license clarifications (LGPL-vs-MIT phrasing tightened, `send_morse` scope note added, refresh-LICENSE.txt question added) committed and pushed in this run.
+- **NAS**: 4.1.16.242 archive already in place; memory + private + stats snapshots refreshed in this seal.
+
+### What's set up for next session
+
+- **Discovery cascade v3 design pull** is the priority for Noel when energy returns. Short pull is `2026-05-06-discovery-cascade-v3-design-pull.md`; full memo is `2026-05-06-discovery-cascade-v3-full-memo.md`. Decision needed on whether v3 supersedes R6 in the chain or layers alongside.
+- **Chris Polk has the four inspection questions** — when Chris answers, parts can be ordered, and the roarbox CPU upgrade arc can proceed.
+- **rarbox / roarbox bootstraps** are runbooks Noel executes from his Windows machine; either can fire when convenient.
+- **No changes pending merge to main**. Foundation/polish work on `sprint28/home-key-qsk` still awaits Noel's foundation-drop test pull. 4.2.0 work on `track/flexlib-42` still gated on the three 4.2.0 ship gates per `project_main_branch_41_posture.md`.
+- **R6 instrumentation in flexlib-42** is parked as a labeled WIP commit; can be revived if a future trace surfaces a new lead, or pruned during the next flexlib-42 cleanup pass.
+
+### Rigmeter snapshot — end of 2026-05-06
+
+**Grand totals (authored, excluding vendor):**
+- Files: 774 | Lines: 155,602 | Words: 766,534 | Chars: 7,164,564
+- Per-category authored: code 102,808 lines; text_data 11,797 lines; docs 35,129 lines; build 5,868 lines
+- Vendor totals: code 51,437 lines; text_data 1,211 lines; build 592 lines
+
+**Top languages by authored lines:**
+- C#: 77,453 (75.3% authored) — FlexLib wrappers, JJFlexWpf, JJTrace, JJLogLib, JJPortaudio, P-Opus, etc.
+- VB.NET: 17,343 (16.9% authored) — main app + globals
+- XAML: 4,985 (4.8% authored) — UI controls + dialogs
+- Python: 3,027 (2.9% authored) — rigmeter + tools
+
+**Today's git activity (05-06, main + flexlib-42 + WIP committed in this seal):**
+- Commits: 8 + 1 WIP + 3 seal-day commits = ~12 across surfaces
+- Insertions: ~9,150 across 30+ files
+- Deletions: ~110 (mostly debug-notes.txt rewrite)
+- **Caveat:** rigmeter `today` ran on 05-07 and reported 0 because we're a day past 05-06 local. Numbers above are reconstructed from `git log --shortstat` per surface.
+
+**Fun comparisons (authored only):**
+- Braille volumes (≈100K cells each): 71.6
+- Moby Dicks (~210K words): 3.7
+- King James Bibles (~783K words): 0.98
+- Read-aloud time at 150 wpm: 85.2 hours (5,110 minutes)
+- Printed pages (50 lines/page): 3,112
+- Stack-of-printed-pages height: 12.4 inches (31.6 cm)
+- Docs-to-code ratio: 0.34 (authored docs / authored code, by lines)
+
+**Trend across 12 historical snapshots** — code base grew 102,607 → 102,808 (+201) and doc base grew 28,692 → 35,129 (+6,437) since 05-05. Heavy doc day.
+
+**NAS JSON snapshot:** `\\nas.macaw-jazz.ts.net\jjflex\historical\stats\2026-05-06-b46388ec.json`
 
 ---
 
