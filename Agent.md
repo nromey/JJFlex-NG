@@ -114,6 +114,18 @@ A pivot from pure code work into ops planning. Rarbox is the existing VPS hostin
 
 **NAS JSON snapshot:** `\\nas.macaw-jazz.ts.net\jjflex\historical\stats\2026-05-06-b46388ec.json`
 
+### CLAUDE.md drift check — three flagged items (Step 6)
+
+1. **Stale NAS path reference at line 334.** CLAUDE.md says `publish-daily-to-dropbox.ps1` "Copies the newest debug zip from NAS `nightly\` to Dropbox top level." There is no `nightly\` folder on NAS — the actual layout is `historical\<version>\x64-debug\`. The script's own docstring is correct (`\\nas...\jjflex\historical\<expected>\x64-debug\JJFlex_<expected>_x64_debug_*.zip`); only CLAUDE.md is stale.
+
+2. **Stale sweep-pattern reference at line 334.** CLAUDE.md says the publish-daily script replaces `JJFlex_*_debug*.zip` and `NOTES-*-debug*.txt`. Actual top-level Dropbox filenames are `JJFlex_<version>_x64_daily.zip` and `NOTES-daily.txt`, and today's run swept `JJFlex_4.1.16.236_x64_daily.zip` and `NOTES-daily.txt` (matching the `*_daily.*` pattern noted in the 05-04 publish-nightly rename queue, not the `*_debug*.*` pattern). The script source treats both patterns; CLAUDE.md should reflect that.
+
+3. **Step ordering implied vs. required.** CLAUDE.md lists publish-daily as Step 1, but the script refuses on dirty-tree-with-no-matching-NAS-archive (which is the most common state when sealing the day's work). Practically, Step 5 (commit/push) must run first to reach a clean tree, then publish-daily can build and promote. Adding a one-line note about ordering — "if HEAD does not match an existing NAS archive, do Step 5 first so the tree is clean" — would prevent the next-day-Claude from hitting the same gotcha.
+
+Plus the still-pending publish-daily → publish-nightly rename queued from 05-04. Captured in the 05-04 seal "Tomorrow's autonomous-pass" subsection. Surface still uses `daily` naming everywhere in script + CLAUDE.md + filenames.
+
+None of these block the seal as-completed today; flagging for a future tidy-up pass.
+
 ---
 
 ## 2026-05-04 end-of-day seal: foundation drop merged to sprint28/home-key-qsk + 4.2.0 release plan + format-preference learnings
