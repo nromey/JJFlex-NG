@@ -2,7 +2,7 @@
 
 **Working dashboard.** Distinct from `docs/planning/vision/JJFlex-TODO.md` (long-lived strategic backlog) — this file tracks what's actually queued, in flight, blocked, or waiting for Noel's read **right now**.
 
-**Last updated:** 2026-05-05 (post-surgery seal). Claude updates this whenever items move between states. If the timestamp drifts more than a session, flag it.
+**Last updated:** 2026-05-07 (Phase 0 Section F in flight; rarbox-Claude executing F3-G). Claude updates this whenever items move between states. If the timestamp drifts more than a session, flag it.
 
 **How to use:** Noel scans the sections below to pick what to fire off, or asks Claude to recommend based on what's available. Claude is expected to keep this current.
 
@@ -10,7 +10,7 @@
 
 ## In flight (running now)
 
-- *(nothing actively running — R6 just shipped to Don, awaiting his trace)*
+- **Phase 0 Section F3-G — rarbox FastAPI receiver setup** — F1-F2 complete via SSH-from-orchestrator (nginx 1.26.3 + certbot 4.0.0 + Python 3.13.5 venv with FastAPI 0.136.1 + uvicorn 0.46.0 + pydantic 2.13.4 + python-multipart 0.0.27). F3-G handed off 2026-05-07 to rarbox-Claude (first trial of "Claude lives on rarbox" execution model) with briefing at `docs/planning/active/rarbox-claude-F3-G-briefing.md`. Storage design: zip on disk (forensic preservation) + SQLite index (triage queries) + JSON sidecar (rebuild source). → memory: `project_claude_as_rarbox_operator.md` (promoted from "SSH" to "lives on" model post-trial)
 
 ## Queued — agent-ready (fire whenever)
 
@@ -32,6 +32,12 @@ These are bounded research tasks suitable for background agents. Each produces a
 
 - **Cross-radio favorites format spec** — Brief design memo on portable favorites exchange format. ~20 min. → memory: `project_ts590_menu_favorites_design.md`
 
+- **ntfy upstream-base-url verification** — Confirm ntfy.sh's iOS APNs relay mechanism is still `upstream-base-url` config (vs. anything new in 2025+). Web research against current ntfy docs. ~15-30 min agent. → memory: `project_ntfy_push_architecture.md`
+
+- **ntfy server hosting decision (rarbox vs roarbox)** — Brief design memo on which box hosts ntfy. Roarbox is the dynamic-services fit; rarbox already has nginx + cert footprint as interim option. Sequencing implications. ~20 min. → memory: `project_ntfy_push_architecture.md`
+
+- **ntfy v1 use-case scoping** — What pushes JJF actually sends in v1 (crash-receipt-to-Noel only, or also update-available, or more?). Determines topic schema and access-control model. ~20 min. → memory: `project_ntfy_push_architecture.md`
+
 ## Build-authorized — code work waiting
 
 - **TS-590 metadata catalog Phase 1** — Hand-curate ~70-80 EX-menu items per model (TS-590S + TS-590SG) from Kenwood manuals into JSON files at `radios/kenwood-ts590s.json` and `radios/kenwood-ts590sg.json`. Build-now-ship-later authorized. ~2-4 hours agent time. → memory: `project_ts590_menu_favorites_design.md`
@@ -40,7 +46,7 @@ These are bounded research tasks suitable for background agents. Each produces a
 
 - **Sprint 28 bug bundle** — All 7 bugs shipped on `track/sprint28-bug-bundle` (commits `6752cafa` through `564e9333`). Awaiting orchestrator merge to `sprint28/home-key-qsk`. Triage doc: `docs/planning/active/sprint28-bug-bundle-triage.md`. **Merge target: sprint28/home-key-qsk → main as pre-4.2.0 foundation drop**, alongside stuck-modal.
 
-- **Phase 0 — Cloudflare R2 + DNS + rarbox setup** — **STANDALONE RUNBOOK extracted 2026-05-05** at `docs/planning/active/phase-0-runbook.md`. ACK'd 2026-05-05 per Q1-Q5 answers. ~2-3 hours of Noel-on-Cloudflare-and-rarbox-UI work. Section F (nginx + receiver on rarbox) is critical-path because Phase 2 (crash reporter) ships first per Q1. Per Q4 second answer, Section F is also a candidate for the "Claude operates rarbox directly" execution model trial — see `project_claude_as_rarbox_operator.md`.
+- **Phase 0 — Cloudflare R2 + DNS + rarbox setup** — Section A (DNS for jjflexible.radio transferred to Cloudflare) DONE 2026-05-07. Section F (nginx + receiver on rarbox) IN FLIGHT via rarbox-Claude — see "In flight" section. Sections B-E (R2 bucket + custom domain `data.jjflexible.radio` + R2 API tokens + GitHub Action sync workflow) still queued — Noel-side Cloudflare UI work, ~30-60 min when Noel picks them up. Runbook: `docs/planning/active/phase-0-runbook.md`.
 
 ## Awaiting Noel input (read-and-respond)
 
