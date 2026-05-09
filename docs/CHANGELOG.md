@@ -45,6 +45,7 @@ This release is about the space where you actually spend your time in the app �
 - **[Safety check on port forwarding](#port-forwarding-safety-check).** If you're connected to somebody else's radio via SmartLink and try to change the port settings, JJ Flexible politely stops you instead of overwriting their radio's config.
 - [CW send and receive boxes](#cw-text-boxes) go away if you can't use them. Unless you're in CW mode, the receive and send text boxes aren't visible and they're not in the tab order. Switch to CW with Alt+C and they come right back.
 - **Ctrl+Tab works for [panel navigation](#panel-navigation) again.** Sorry about that. Ctrl+Tab moves you through the major category fields, and Ctrl+Shift+Tab reverses direction. The popup menu that used to live on Ctrl+Tab is disabled pending a proper redesign — it's going to come back as an actual accessible toolbar that also looks spiffy. Stay tuned on that one.
+- **The [Connecting screen now lets you out](#connecting-cancellation).** Press Escape or click the X close button and JJ Flexible cancels the connection attempt right away — no more waiting for a timeout, no more force-quitting the app. The screen also tells you what phase it's in as it works, so you know whether SmartLink is slow, the slice is still being acquired, or something else is up. If a connect takes more than a minute, you get a "keep waiting or cancel" prompt with the actual reason; at five minutes JJ Flexible cancels for you so the screen never sits there spinning forever.
 
 ### Home's got a real name now {#home-intro}
 
@@ -144,6 +145,24 @@ We worked on network connectivity and stability. Hopefully, you'll never know we
 ### Ctrl+Tab Reclaimed for Panel Navigation {#panel-navigation}
 
 Ctrl+Tab used to pop up an "action toolbar" menu. It's disabled now, and Ctrl+Tab / Ctrl+Shift+Tab are back to doing what they do best in a tabbed interface: moving between open field groups. The action toolbar is coming back in a future release as an actual toolbar, not a menu — a persistent accessible UI surface you can navigate, not a popup that interrupted your tab nav every time you reached for it. I'm hoping the toolbar looks good too.
+
+[Return to version headlines](#v4-1-17-headlines)
+
+### The Connecting Screen Is No Longer a Trap {#connecting-cancellation}
+
+You used to be able to open the Connect dialog, watch it say "Connecting..." for a long time, and have absolutely no way to back out short of forcing the app closed from Task Manager. Escape did nothing. The X close button did nothing. Alt+F4 did nothing. If a slice didn't free up or SmartLink hung mid-handshake, you were stuck. This was — being generous here — a bad time, particularly for screen reader users for whom "force-quit the application" means losing your place and starting over. I lived this for over three minutes one night at 1:30 AM, and that was the moment this fix moved to the top of the list.
+
+The Connecting screen now does what it should always have done. Press Escape and JJ Flexible cancels the connection attempt right away. Click the X close button, same thing. Either way, your screen reader hears "Connection attempt cancelled" and you land back where you started.
+
+While the connection is in progress, the screen tells you which phase it's in. You'll hear "Connected to [your radio]. Waiting for slice..." then "Slice acquired. Setting up..." Each phase change rings a small counting tone — one note for the first phase, two for the second, three for the third — so you can hear the connection make progress even when you're not glued to the screen reader. Fast LAN connects (where each phase finishes in under half a second) skip the announcements entirely so the common case stays quiet.
+
+If a connect takes longer than a minute total, JJ Flexible asks: "Connection slow — [what's going on]. Keep waiting, or cancel?" The "what's going on" part pulls real diagnostic information from what's been happening behind the scenes. Maybe SmartLink hasn't sent your station name back yet. Maybe the slice is waiting on a remote re-add. Maybe the connection dropped and is being retried. You get the actual reason, not generic "slow" boilerplate. Choose Keep waiting and you get another minute. Choose Cancel and you're out.
+
+Five minutes is the hard ceiling. If the connection still hasn't completed after five minutes total, JJ Flexible auto-cancels for you and says "Connection attempt timed out — cancelled." This is the safety net for the case where you walked away or got pulled into something else — your radio doesn't sit there pretending it's about to connect indefinitely.
+
+You can silence the phase announcements and counting tones if you find them busy. **Settings > Notifications > Speak connection progress** turns them off. Critical events — connect successful, connect failed, cancel, timeout — still speak regardless. The toggle is on by default for new users so you have some confidence that the app is doing something while a connect is underway.
+
+One more thing in the same neighborhood: if you've ever heard the 73 prosign play twice when you closed JJ Flexible while connected, that was a small bug where the disconnect handler and the app-shutdown handler each played it. Disconnect now claims the prosign for the session and shutdown steps aside, so you hear 73 once — the way Jim originally intended.
 
 [Return to version headlines](#v4-1-17-headlines)
 
