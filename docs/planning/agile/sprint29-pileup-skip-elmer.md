@@ -125,6 +125,13 @@ The order below is the **build order**. Items lower in the list depend on items 
     - **Spec:** `memory/project_sprint29_rit_xit_adjust_mode.md`.
     - **Estimated LOC:** ~150-250.
 
+12. **Stuck-connecting modal escape + state-aware text + counting earcons + 60s/5min escalation** — accessibility-critical fix for the stuck-on-connecting blocker that trapped Noel for 200+ seconds at 1:32 AM 2026-04-28. Pairs naturally with the AS-retry investigation in items 3-5 since both touch connection-flow code, but ships independently and doesn't depend on cascade items completing.
+
+    - **Spec:** `memory/project_stuck_modal_escape_design.md` (ACK'd 2026-05-02 for 4.2.0).
+    - **Estimated LOC:** ~275 across ~5 files (FlexBase.cs cancel token, globals.vb _connectingForm refactor, ConnectionProfiler events, earcon library counting tones, Settings → Notifications "Speak connection progress" toggle).
+    - **Includes 73-Morse-twice fix** (duplicate Disconnect symptom — investigate during impl).
+    - **Success criteria:** Escape always cancels (within 60s OR after escalation); state-aware modal text updates per phase with counting-earcon (1/1+1/1+1+1); 60s escalation produces diagnostic-rich "Connection slow" prompt; 5-min ceiling auto-cancels and returns focus to selector; verbosity opt-out silences progress chatter.
+
 ---
 
 ## Track decomposition for parallel execution
@@ -142,7 +149,8 @@ Per CLAUDE.md sprint-lifecycle rules, max 6 concurrent tracks. With the dependen
 ### Phase 3 (parallel, after Phase 2 merges)
 - **Track B continues:** Discovery cascade Phase 2 (item 4) + Phase 3 (item 5).
 - **Track E:** Firmware update Phase D (item 8) — depends on Track D's app-updater being in main.
-- **Track F:** Tuning unity + RIT/XIT scale-adjust (items 10 + 11) — UI work, independent of cascade/firmware.
+- **Track F:** Tuning unity + RIT/XIT scale-adjust (items 10 + 11) — UI work, independent of cascade/firmware. Worktree: `../jjflex-tuning`. Branch: `sprint29/track-f-tuning`. Spawned 2026-05-09.
+- **Track G:** Stuck-connecting modal escape (item 12) — accessibility-critical, independent of all other tracks. Worktree: `../jjflex-modal-escape`. Branch: `sprint29/track-g-modal-escape`. Spawned 2026-05-09.
 
 ### Phase 4 (orchestrator-only, post-Phase-3)
 - **Track A returns:** Diagnostics + Updates settings tabs (item 9) — absorbs features from B+C+D+E. Lands as final polish before 4.2.0 cut.
@@ -155,8 +163,9 @@ Per CLAUDE.md sprint-lifecycle rules, max 6 concurrent tracks. With the dependen
 2. Tracks B/C/D merge in parallel after Phase 1, in any order. Track A merges any conflicts.
 3. Track E merges after Track D (firmware depends on app-updater).
 4. Track F merges any time after Phase 1 (independent).
-5. Track A's Phase 4 polish merges last.
-6. Final merge to main only after every ship gate is verifiably closed.
+5. Track G merges any time after Phase 1 (independent — connection-flow code only, no overlap with cascade or tuning). Recommended: G before F because G is smaller and less likely to surface integration friction.
+6. Track A's Phase 4 polish merges last.
+7. Final merge to main only after every ship gate is verifiably closed.
 
 ---
 
