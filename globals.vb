@@ -408,6 +408,39 @@ Module globals
         End Try
     End Sub
 
+    ''' <summary>
+    ''' User-initiated trace archive prune. Removes entries + archive files older than
+    ''' <paramref name="retentionDays"/> (or the default 30 if &lt;= 0). Returns the
+    ''' number of entries pruned. Speaks the result so the user gets confirmation
+    ''' (per project_no_silent_keystrokes_rule.md). Safe to call from any UI thread.
+    ''' Per Sprint 29 Track A Phase 2; spec at memory/project_trace_persistence_design.md.
+    ''' </summary>
+    Friend Function PerformTraceArchivePrune(Optional retentionDays As Integer = 0) As Integer
+        Dim days As Integer = If(retentionDays > 0, retentionDays, SessionArchive.DefaultRetentionDays)
+        Dim pruned As Integer = 0
+        Try
+            pruned = SessionArchive.PruneOlderThan(TraceArchiveDir, days)
+            Tracing.TraceLine($"PerformTraceArchivePrune: removed {pruned} entries older than {days} days", TraceLevel.Info)
+        Catch ex As Exception
+            Tracing.ErrMessageTrace(ex)
+            Try
+                Radios.ScreenReaderOutput.Speak("Trace archive prune failed", VerbosityLevel.Critical)
+            Catch
+            End Try
+            Return 0
+        End Try
+
+        Try
+            Dim msg As String = If(pruned = 0,
+                $"No trace archives older than {days} days to remove.",
+                $"Removed {pruned} trace archive {If(pruned = 1, "entry", "entries")} older than {days} days.")
+            Radios.ScreenReaderOutput.Speak(msg, VerbosityLevel.Critical)
+        Catch
+        End Try
+
+        Return pruned
+    End Function
+
     Friend Power As Boolean = False
     Friend LastUserTraceFile As String ' Last user-started trace file (see DebugInfo)
     Friend WithEvents Operators As PersonalData = Nothing
