@@ -1,7 +1,8 @@
 ---
 type: architectural design memo — round 3 (canonical, supersedes round 2)
-status: draft, review needed: ACK or revise
+status: ACK locked 2026-05-08 — build authorized for `track/discovery-chain-full-buildout` against this spec; round-4 update folds in Q1/Q2/Q9 empirical bits as they arrive
 draft date: 2026-05-06
+ack date: 2026-05-08
 supersedes: docs/planning/design/discovery-fallback-chain.md (round 2, ACK'd 2026-05-04)
 draft author: Claude
 synthesis source: docs/planning/research/discovery-cascade-v3/streams 1, 3, 4, 5, 6, 7
@@ -806,8 +807,74 @@ Distilled from the streams' open questions plus questions surfaced during synthe
 - `project_smartlink_login_silent_validation_bug.md` — relevant for Stream 6 manual-IP-entry handoff to SmartLink fallback
 - `project_jjflexible_home_terminology.md` — "JJ Flexible Home" terminology in failure-state speech
 
-### Confirm or revise
+## 13. Round-3 ACK lock — Noel review 2026-05-08
 
-`**** ACK` — design is locked, this document becomes canonical, `track/discovery-cascade-v3` spins up for 4.2.0 release-blocking work.
+The 15-question review pull-doc (`docs/planning/for-claude/2026-05-06-discovery-cascade-v3-design-pull.md`, processed and deleted 2026-05-08) was ACK'd with the following locked answers. Where Noel added nuance beyond plain "ACK," the build track must honor the nuance, not the recommendation alone.
+
+### Q1 — FlexRadio MAC OUI prefix(es) for Rung 1.5a — ACK with empirical
+Don's MAC data was already collected in a prior round; some Dell-component OUI confusion was sorted out. **Action:** Rung 1.5a OUI filter cites Don's empirical bytes (Dell components were actually present in some Flex unit revisions, so the filter must allow that pattern alongside Flex's primary OUI). When the 8600 unboxes, fold its MAC bytes in via round 4.
+
+### Q2 — SmartSDR `SSDR.settings` schema — ACK, deferred for empirical
+Don is not a SmartSDR user, so no file from him. **Action:** Rung 1.7 ships with the regex-only fallback path until a SmartSDR-using tester surfaces a real `SSDR.settings`. Don't block the build on this; round 4 folds in schema-aware parsing when data arrives.
+
+### Q3 — Background watchdog default — ACK with all three options surfaced
+Foreground-only is the default, but the user-facing toggle exposes all three: foreground-only / always-on / disabled. **Action:** Settings → Connection → Discovery presents three radio buttons (or equivalent screen-reader-friendly control), default selected on foreground-only, with brief descriptive text per option.
+
+### Q4 — Third-party config scrape consent — ACK
+On-by-default with first-run disclosure paragraph. Per-app toggles for granular control. No further nuance.
+
+### Q5 — NLM gating of cached-IP rungs — ACK strict, with caveat
+Strict gating is fine **as long as it does not constrict the user's ability to obtain an IP or connect for updating purposes.** **Action:** when NLM identity differs and strict gating skips the cached IP, the cascade falls through to the next rung rather than failing the discovery; the user-visible outcome is "we found your radio anyway via [next-rung-source]" not "we refused to use the cached IP." Strict gating is a *prefer-not-to-probe-on-foreign-networks* preference, not a *refuse-to-connect* posture.
+
+### Q6 — Rung 1c N-deep history — ACK
+5 IPs per radio, LRU eviction.
+
+### Q7 — Subnet-probe consent on Public networks — ACK, only when needed
+Once per new network — **but only ask for consent when subnet scanning is actually about to happen.** **Action:** if an earlier rung resolves the IP, the consent dialog never fires. The dialog is gated on "we're about to do the subnet probe rung," not on "we joined a public network."
+
+### Q8 — Rung 4 SmartLink-as-fallback-row UX — ACK Pattern A
+SmartLink rows surface as the cascade runs (not after exhaustion). Stream 4's biggest UX-win finding stands.
+
+### Q9 — Rung 4b SmartLink-as-metadata-provider — ACK constrained-case now
+Build the constrained case now; upgrade to best-case after live test. **Action:** A Don-driven test pass for the constrained-vs-best-case empirical input is acceptable; Noel's 8600 doesn't have to unbox to gate the build.
+
+### Q10 — Manifest-driven third-party paths — ACK defer to 4.2.x
+Rung 1.7 ships hardcoded list in 4.2.0. Manifest delivery via Data Provider folds in via 4.2.x. **Why this is a 4.2 thing:** the whole cascade is 4.2 release-scope because it materially helps the updater succeed (which is the whole point of the release), so any 4.2.x deferred items still ship in the 4.2 *line*, not slipped to a hypothetical 4.3.
+
+### Q11 — Adaptive timeout via gateway-RTT — ACK
+Default with skip-on-fast-network heuristic (skip the estimate if the first cached-IP probe succeeds in <50ms).
+
+### Q12 — Rung 1.7 walk priority — ACK SmartSDR-first, then alphabetical fallback
+Hardcoded SmartSDR-first per Stream 3's hit-rate evidence. **Refinement:** if SmartSDR connect-trial fails, walk the remaining apps **alphabetically** as an automatic progression — **not as a user choice.** Last-resort: ask for data (i.e., open the manual fallback dialog). The user never picks the order; the cascade just falls through one cheap source after another until it succeeds or exhausts.
+
+### Q13 — Surface "found via" attribution in chooser — ACK
+"Found via SmartSDR config" / "Found via your network" / etc. Reinforces the cascade-worked-harder-than-SmartSDR narrative.
+
+### Q14 — Per-network learned state — ACK with full transparency UX
+LOCAL ONLY (never exported per `project_no_silent_phone_home.md`). **Refinements Noel added — these are part of the spec, not optional:**
+- Storage format: JSON local settings file (human-readable on disk).
+- Settings dialog: **"View collected data"** button → renders the current state in a WebView2 in human-readable form.
+- Settings dialog: **"Remove all collected data"** button → requires user consent first; consent dialog explains "if you do this, [bad things] could happen, but **your data doesn't leave** because of the no-phone-home principle." Link from the consent dialog into the help topic that lists JJ Flex's principles.
+- **Help integration:** if a "JJ Flex principles" help topic doesn't exist yet, create one. Link to the same content from `www.jjflexible.radio` (public-facing).
+- **All help as web with offline fallback:** consider serving help content from the web when reachable, falling back to bundled offline copy when not (contesting / Field Day / no-internet scenarios). This is a broader help-system architectural pivot, separate from this cascade — captured here as Noel-authorized direction for the help track.
+
+### Q15 — Default cascade ceiling — ACK 30s with stuck-tracking + escalation
+30s default; stuck-modal-escape's 5-minute upper bound stays. **Refinements Noel added:**
+- Track the count of "stuck" cascades per session and per network.
+- If stucks recur, the dialog offers to **extend timing** (give it longer next time).
+- If stucks recur, the dialog also offers to **submit feedback with traces to the crash reporter** (the plumbing for which is now in place).
+
+### Closing direction — AetherSDR connection methodology
+Noel: *"remember to use AetherSDR connection methodology to connecting to SmartSDR with radio payload. Let's get a new clone of AetherSDR github to keep tabs since surgery."*
+
+**Action:** clone the AetherSDR repo as a sibling reference (e.g., `C:\dev\aethersdr-reference` or similar — outside the JJFlex-NG repo, so its commits aren't pulled in). Use AetherSDR's connection code as the reference implementation when designing the SmartLink-with-radio-payload bits of Rung 4 / Rung 4b. **Cloning is gated on Noel's go**; he flagged it as a tracking action since surgery, not an immediate task.
+
+---
+
+## 14. Confirm or revise (legacy review surface)
+
+This section preceded the §13 ACK lock. Retained for history only — the answers above are canonical.
+
+`**** ACK` — design is locked, this document becomes canonical, `track/discovery-chain-full-buildout` spins up for 4.2.0 release-blocking work.
 
 `**** ` (specific changes) — apply changes; round 4 if substantial.
