@@ -220,6 +220,11 @@ namespace Radios
                 // over the last few IPs we've seen this radio at — covers
                 // IP-rotation and multi-network cases per cascade design memo §3.
                 rungs.Add(new CachedLanIpHistoryRung());
+                // Rung 1.5a: ARP / neighbor cache read. Filters Windows' ARP
+                // table by FlexRadio MAC OUI prefix (00:1C:2D), then TCP-probes
+                // survivors. Cheap (no packets sent for the read), high signal
+                // when the radio recently spoke to anything on the LAN.
+                rungs.Add(new ArpNeighborCacheRung());
             }
             if (tryWanRung) rungs.Add(new CachedWanIpRung(IsSmartLinkSessionActive));
             if (rungs.Count == 0) return false;
