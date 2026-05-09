@@ -211,7 +211,16 @@ namespace Radios
             if (string.IsNullOrEmpty(serial)) return false;
 
             var rungs = new List<IDiscoveryRung>();
-            if (tryLanRung) rungs.Add(new CachedLanIpRung());
+            if (tryLanRung)
+            {
+                // Rung 1a: most-recent cached LAN IP. Single TCP probe, fast win
+                // when the radio is at the same IP as last time.
+                rungs.Add(new CachedLanIpRung());
+                // Rung 1c: N-deep cached LAN IP history. Parallel TCP probes
+                // over the last few IPs we've seen this radio at — covers
+                // IP-rotation and multi-network cases per cascade design memo §3.
+                rungs.Add(new CachedLanIpHistoryRung());
+            }
             if (tryWanRung) rungs.Add(new CachedWanIpRung(IsSmartLinkSessionActive));
             if (rungs.Count == 0) return false;
 
