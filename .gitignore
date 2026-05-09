@@ -446,10 +446,17 @@ read-trace*.ps1
 /debug2/
 
 # Vendor-payload staging directories — extracted SmartSDR / FlexLib drops
-# used to compare against current vendor source during upgrades. Never get
-# committed: large binaries, vendor-licensed redistribution-restricted, and
-# they recur every time a new SmartSDR drops. Repo-relative paths only.
+# used to compare against current vendor source during upgrades. Also
+# decompiled C# from ILSpy / dnSpy passes, AetherSDR / vendor-source reads,
+# and any analysis evidence that consumes someone else's IP. Never get
+# committed: large binaries, vendor-licensed redistribution-restricted,
+# they recur every time a new SmartSDR drops, and the conclusions belong
+# in memory entries / design docs, not the bytes themselves. Per
+# memory/feedback_no_vendor_derivative_commits.md.
 /firmware/
 /flexlib4218/
 /ssdr4218/
 /docs/smartsdr4218/
+/docs/planning/research/firmware-extraction/
+/docs/planning/research/*-extracted/
+/docs/planning/research/*-decompiled/
