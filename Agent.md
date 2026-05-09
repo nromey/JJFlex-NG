@@ -1804,3 +1804,85 @@ When Noel resumes:
 
 **NAS snapshot JSON:** `python tools/rigmeter/rigmeter.py snapshot` runs after this seal commits to capture the structured time-series at `\\nas.macaw-jazz.ts.net\jjflex\historical\stats\<commit-date>-<short-sha>.json`.
 
+
+## End-of-day seal — 2026-05-08 (extended past midnight into 2026-05-09)
+
+**Theme:** Foundation drop landed on main. Sprint 28 retired. Daily → Nightly terminology cleaned up. The 4.1 trunk now carries everything the 4.1 line has been validating since late April, and tonight's nightly is buildable from a clean main.
+
+### Substantive work shipped tonight
+
+**Sprint 28 design followup (RunsWithoutRadio + action-aware no-radio).** Shipped via taeraflops on `sprint28/bug-bundle-design-followup` track, branched from `sprint28/home-key-qsk`. ~110 LOC across 5 files: `Radios/KeyCommandTypes.cs` adds `RunsWithoutRadio` flag + `ShortActionLabel` field; `Radios/ScreenReaderOutput.cs` extends `SpeakNoRadioConnected` with optional action label; `JJFlexWpf/KeyCommands.cs` and `ApplicationEvents.vb` dispatchers honor the flag and pass label through; `globals.vb` `WriteFreq` handler speaks "no radio, can't tune" at apply time, `DisplayMemory` handler speaks `SpeakNoRadioConnected("show memories")` instead of opening empty viewer. ~16 commands got `ShortActionLabel` populated as Session 6 test surface (BandUp/Down, Mode toggles, BandJump40/20, TuneToggle, ATUTune, AudioGainUp/Down, ATUMemories, Reboot, TXControls, ClearRIT). One spec-vs-implementation delta: Test 23 expected silent dialog open for ShowMemory; implementation chose action-aware speech instead since memory data lives radio-side. Test plan revised to match shipped behavior.
+
+**Foundation drop merged to main via cherry-picks.** Code path: 10 commits cherry-picked from sprint28/home-key-qsk to main (LICENSE update + stuck-modal-escape + 7 bug-bundle fixes + design-followup). Doc/seal/memory path: 15 more commits cherry-picked (evening handoff doc, 6 end-of-day seals 2026-04-29 through 2026-05-05, doc routing, memory ingest, foundation drop docs, 2 CHM refreshes, rarbox setup runbook). All clean — no conflicts. Result: main HEAD `1326b58f` carries the full sprint28 state. Foundation-drop test plan extended on main with Session 6 (tests 20-28) for the design-followup; `for-noel/` cleaned up of processed pull-doc.
+
+**Sprint28/home-key-qsk retired.** Branch deleted locally and on origin. Tributary-for-fold framing dropped — main IS the 4.1 trunk now and seals/memory/docs belong here as durable record. Future fold-time event (when 4.2 ships) brings only the 4.2 corpus from `track/flexlib-42`, not the 4.1 docs (which are already on main).
+
+**Discovery cascade v3 ACK locked.** Canonical memo at `docs/planning/design/discovery-fallback-chain-v3.md` §13 captures all 15 round-3 question answers verbatim with Noel's nuances: Q3 three-option toggle, Q5 strict-but-don't-block-updating, Q7 only-ask-when-needed, Q12 SmartSDR-then-alphabetical-then-manual auto-progression, Q14 view/delete-data UX with help-topic + offline help direction, Q15 stuck-tracking + crash-report escalation, AetherSDR closing direction. Frontmatter flipped to `ACK locked 2026-05-08 — build authorized` for `track/discovery-chain-full-buildout` spawn.
+
+**Daily → Nightly terminology rename.** `publish-daily-to-dropbox.ps1` → `publish-nightly-to-dropbox.ps1` via git mv (history preserved). All 21 internal references updated via sed. Dropbox top-level destination filename pattern: `JJFlex_*_x64_daily.zip` → `JJFlex_*_x64_nightly.zip`; `NOTES-daily.txt` → `NOTES-nightly.txt`. CLAUDE.md "End-of-day done developing workflow" updated. Memory file `feedback_daily_is_debug.md` → `feedback_nightly_is_debug.md`; MEMORY.md index updated; `project_sprint29_updater_vision.md` cross-reference updated. Stale legacy `_daily` artifacts at Dropbox top level (from 5/7) manually cleaned up since the script's purge filter shifted to `_nightly` and didn't catch them. Pairs cleanly with the user-facing channel rename `debug` → `beta` coming as part of Sprint 29 updater work.
+
+**Tonight's nightly build.** `JJFlex_4.1.16.242_x64_nightly.zip` from main HEAD `1326b58f`, built `2026-05-09 00:25:31`. NAS-archived at `\\nas.macaw-jazz.ts.net\jjflex\historical\4.1.16.242\x64-debug\`. Dropbox top level holds the nightly + NOTES. Caught a subtle script bug along the way: the existing 4.1.16.242 polish-build from 2026-05-06 (different commit lineage, same version number due to commit count coincidence) was matched by the script's version-only matching logic and would have been published as tonight's nightly. Forced fresh build to overwrite. Worth a future fix to validate commit hash, not just version, before promoting.
+
+**Memory updates landed.** Three new entries: `project_nvda_remote_server_blindhams.md` (Doug's ask: self-host NVDA Remote at nvdaremote.blindhams.network on roarbox, low compute, LA-central US — captured for next roarbox provisioning); rigmeter v2 architecture revision in `project_rigmeter_stats_tool.md` (per-branch tracking, rich + textual + web viewer, deployable-tool not multi-tenant, --port + config file, discoverability fixes, prior "fewer deps" / "VPS-gated" deferrals reversed); plus the daily→nightly memory file rename. New planning doc `docs/planning/active/2026-05-08-foundation-phasing-agenda.md` distills 7 items from Noel's evening musings into actionable scope.
+
+### Cross-surface activity
+
+- **main:** received 27 commits (10 code + 15 docs/seals + test plan extension + for-noel tidy + script rename + this seal). HEAD: `1326b58f` (will advance once seal commit lands). Pushed to origin throughout the evening.
+- **track/flexlib-42:** received planning corpus commit `5d0502e6` (cascade v3 ACK + design-followup spec + foundation-phasing agenda). Pushed to origin so on-box claude can read 4.2 planning state.
+- **sprint28/bug-bundle-design-followup:** spawned, taeraflops shipped 110 LOC, merged into sprint28/home-key-qsk, then cherry-picked to main, then retired. Branch lifecycle complete.
+- **sprint28/home-key-qsk:** retired (local + origin) after cherry-picks.
+- **feature/cache-writer-backport:** untouched. Carries pre-existing WIP modifications and untracked planning docs from earlier in the week.
+- **NAS:** new snapshot at `2026-05-09-1326b58f.json` (15 historical points now); new debug build at `historical\4.1.16.242\x64-debug\JJFlex_4.1.16.242_x64_debug_20260509-0025.zip`; memory snapshot `memory-20260509-002547.zip`; private docs snapshot `private-20260509-002549.zip`.
+- **Dropbox:** nightly slot has `JJFlex_4.1.16.242_x64_nightly.zip` + `NOTES-nightly.txt`; debug/ subfolder still has earlier `4.1.16.239` tester broadcast (stale by 4 commits — will refresh next time `--publish` runs).
+
+### Decisions and scope changes
+
+- **Sprint 28 retired** rather than kept as fold-time tributary. Reasoning: main IS the 4.1 trunk; seals/memory/docs belong here directly, not on a side branch.
+- **Cherry-pick-not-merge** for sprint28 → main. Preserves per-commit granularity for future bisection. End state same; history cleaner.
+- **Rigmeter v2 deferrals reversed.** Both `rich` (terminal rendering) and `textual` (TUI) authorized to ship. `serve` subcommand for web viewer also authorized. Multi-tenant hosting NOT pursued — deployable-tool model wins (each user runs locally on their own repo, no `stats.jjflexible.radio/SomeoneElsesRepo`). Aligns with no-silent-phone-home.
+- **Daily → Nightly** terminology rename completed same evening (was originally scoped as Sprint 29).
+- **Sprint28-design-followup test plan** revised post-merge to match shipped behavior on Test 23 (ShowMemory speaks rather than opens empty viewer).
+
+### Rigmeter snapshot — end of 2026-05-08
+
+**Authored grand totals:**
+- 752 files, 147,388 lines, 690,787 words, 6,597,094 chars
+- 66.0 braille volumes, 3.3 Moby Dicks, 0.88 King James Bibles
+- 76.8 hours read-aloud time, 2,948 printed pages
+
+**Per-category totals (authored):**
+- code: 102,689 lines (vs 102,607 yesterday — +82 from design-followup)
+- docs: 29,007 lines (vs 28,692 yesterday — +315 from foundation drop docs + planning + agenda)
+- text_data: 9,824 lines (unchanged)
+- build: 5,868 lines (unchanged)
+
+**Code language breakdown:**
+- C#: 75.3% of authored
+- VB: 16.9%
+- XAML: 4.9%
+- Python: 3.0%
+
+**Today's git activity (main repo, post-seal-commit will be ~28 commits):** rigmeter `today` (since 2026-05-09 00:00 local time) reports 18 commits / 75 unique files / +7,844 / -40 / net +7,804 lines — all on main from the cherry-pick + rename + test-plan extension flurry that ran past midnight. The 2026-05-08 calendar-day work (design-followup + planning corpus + agenda) lands on track/flexlib-42 + sprint28/bug-bundle-design-followup branches before midnight; rigmeter measures HEAD only, so the AAR captures the full 2026-05-08 cross-surface picture.
+
+**Trend across 15 historical snapshots:**
+- Code base lines: 230,429 → 102,689 (cleanup-then-growth pattern; the early Phase 0 vendor prune dropped 100K+ lines)
+- Doc base lines: 967,495 → 29,007 (the early drop is the v1.1 derived-artifact exclusion; growth since is real prose)
+
+**NAS snapshot JSON:** `2026-05-09-1326b58f.json` (15 historical points)
+
+### Setup for 2026-05-09
+
+**Foundation drop testing.** Test plan at `docs/planning/for-noel/2026-05-04-foundation-drop-test-pull.md` is on main, complete with 28 tests across 6 sessions. Build the nightly with `git checkout main && git pull && dotnet build JJFlexRadio.vbproj -c Debug -p:Platform=x64 --verbosity minimal` from `C:\dev\JJFlex-NG`. Or grab the pre-built zip at `Dropbox\JJFlexRadio\JJFlex_4.1.16.242_x64_nightly.zip`. Don isn't testing tonight; Sessions 1, 2, 5, 6 are pure solo for Noel.
+
+**Tomorrow's parallel-track candidates (all authorized; pick subset):**
+- Discovery cascade full buildout (against locked v3 spec, Phases 2+ rungs)
+- Rigmeter v2 (per-branch tracking + man page + RECIPES + rich rendering, in that priority order)
+- bh-data migration (private repo + R2 + GHA sync, test on data1.blindhams.network first)
+- Sprint 29 plan formalization (4.2 phasing roadmap doc)
+- Roarbox warm-spare buildout (mirror jjf-data + bh-data; install ntfy server; install NVDA Remote per Doug's ask)
+- Azure Trusted Signing signup walkthrough (interactive; needs Noel at keyboard)
+- Multi-radio + Hamlib SWIG groundwork
+- Track C / BrailleElement primitive v1 build
+
+Heavy day available — the agenda doc at `docs/planning/active/2026-05-08-foundation-phasing-agenda.md` has scoping for items 1-7 of Noel's musings. Pick what to spawn against taeraflops vs what to drive interactively.
+
