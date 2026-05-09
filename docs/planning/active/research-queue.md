@@ -38,6 +38,8 @@ These are bounded research tasks suitable for background agents. Each produces a
 
 - **ntfy v1 use-case scoping** — What pushes JJF actually sends in v1 (crash-receipt-to-Noel only, or also update-available, or more?). Determines topic schema and access-control model. ~20 min. → memory: `project_ntfy_push_architecture.md`
 
+- **Three-tier docs split migration plan (Noel ask 2026-05-09)** — Draft a focused planning doc for splitting JJFlex-NG planning corpus into three tiers: (1) public source repo keeps code + design specs that map to build tracks; (2) new private `jjflex-planning` repo holds sprint plans, agendas, runbooks, tester-context-bearing docs, for-noel/for-claude round-trips; (3) `JJFlex-private` (laptop only, never GitHub) keeps AAR + easter-egg unlock codes. Output: migration plan naming what moves where, cross-reference rewrites, round-trip protocol in tier 2, on-box-claude access pattern. ~30-60 min planning pass. **Priority: deferred behind 4.2 release work per Noel 2026-05-09.** Revisit after Sprint 29 plan or post-4.2.0 release.
+
 ## Build-authorized — code work waiting
 
 - **TS-590 metadata catalog Phase 1** — Hand-curate ~70-80 EX-menu items per model (TS-590S + TS-590SG) from Kenwood manuals into JSON files at `radios/kenwood-ts590s.json` and `radios/kenwood-ts590sg.json`. Build-now-ship-later authorized. ~2-4 hours agent time. → memory: `project_ts590_menu_favorites_design.md`
