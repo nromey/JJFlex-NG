@@ -53,7 +53,6 @@ Press `Ctrl+J` and then release it to enter layered command mode. You'll hear a 
 | P | Cycle meter preset (RX Monitor, TX Monitor, Full Monitor) |
 | M | Toggle meter tones on/off |
 | E | Toggle meter tones on/off (alias for M) |
-| T | Cycle tuning step size |
 | F | Speak current TX filter width |
 | D | Toggle tuning speech debounce |
 | L | Speak log statistics |
@@ -152,6 +151,42 @@ When focused on the Squelch Level field:
 | Down | Lower squelch level by 5 |
 | Q | Toggle squelch on/off |
 
+## JJ Flexible Home — Frequency Field Keys (Modern tuning mode)
+
+When focused on the Frequency field in Modern tuning mode:
+
+| Key | Action |
+|-----|--------|
+| Up | Tune up by your coarse step |
+| Down | Tune down by your coarse step |
+| Shift+Up | Tune up by your fine step |
+| Shift+Down | Tune down by your fine step |
+| Digits | Type a frequency, then Enter to apply |
+| F | Speak the current frequency |
+| Shift+S | Speak both your coarse and fine step sizes |
+
+The coarse and fine step values are configured in Settings → Tuning. The previous `C` toggle and `Page Up / Page Down` step cycling are gone — coarse and fine each have a single step value, so there's no mode to switch and no list to cycle through.
+
+## JJ Flexible Home — RIT and XIT Field Keys
+
+When focused on the RIT or XIT field, the digits 1, 2, 3, and 4 enter a quick scale-adjust mode for offset tuning. This is the Don-driven workflow for chasing a drifting correspondent without having to navigate through decade fields:
+
+| Key | Action |
+|-----|--------|
+| 1 | Enter scale-adjust mode at 1 Hz |
+| 2 | Enter scale-adjust mode at 10 Hz |
+| 3 | Enter scale-adjust mode at 100 Hz |
+| 4 | Enter scale-adjust mode at 1 kHz |
+| Up | Apply the chosen scale to the offset (positive direction) |
+| Down | Apply the chosen scale to the offset (negative direction) |
+| 5–9 | Type a digit at the cursor position (legacy field behaviour) |
+| Space | Toggle RIT or XIT on/off |
+| 0 | Exit scale-adjust mode |
+| Escape | Exit scale-adjust mode |
+| R or X | Toggle RIT or XIT off — also exits scale-adjust mode |
+
+You'll hear a rising mode-enter tone when scale-adjust starts and a descending mode-exit tone when it ends. The mode is also exited automatically when you navigate to a different field — there's no inactivity timeout to surprise you mid-QSO.
+
 ## Mode Switching
 
 | Key | Action |
@@ -164,14 +199,9 @@ When focused on the Squelch Level field:
 
 ## Audio Controls
 
-| Key | Action |
-|-----|--------|
-| Alt+Page Up | Audio gain up |
-| Alt+Page Down | Audio gain down |
-| Alt+Shift+Page Up | Headphones volume up |
-| Alt+Shift+Page Down | Headphones volume down |
-| Shift+Page Up | Line out volume up |
-| Shift+Page Down | Line out volume down |
+Volume, headphone level, and line-out level live in the Audio expander now. Press `Ctrl+Shift+U` to open the Audio expander, then arrow to the level you want and use Up / Down (or Shift + Up / Down for finer steps, Page Up / Page Down for ten-step jumps, Home / End for minimum / maximum).
+
+The previous `Alt+Page Up`, `Alt+Shift+Page Up`, and `Shift+Page Up` shortcuts (and their `Page Down` counterparts) no longer adjust audio. The slots are reserved on purpose so a future feature can claim them deliberately.
 
 ## Scanning
 

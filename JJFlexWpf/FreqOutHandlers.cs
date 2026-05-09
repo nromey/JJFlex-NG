@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using System.Windows.Input;
 using HamBands;
 using JJFlexWpf.Controls;
+using JJFlexWpf.Modes;
 using JJTrace;
 using Radios;
 
@@ -51,7 +52,21 @@ public class FreqOutHandlers
     private FilterEdgeMode _filterEdgeMode = FilterEdgeMode.None;
     private Key _lastBracketKey;
     private DateTime _lastBracketTime = DateTime.MinValue;
-    private CancellationTokenSource? _filterEdgeTimeout;
+    // First consumer of the StickyAnnouncedMode helper (Sprint 29 Track F).
+    // Owns the entry/exit speech, ascending/descending earcons, and the 10s
+    // inactivity watchdog. The per-edge state (Lower / Upper) stays in
+    // _filterEdgeMode above — the helper handles the shell, not the variant.
+    private StickyAnnouncedMode? _filterEdgeSticky;
+
+    // RIT/XIT scale-adjust mode — Don-driven Sprint 29 Track F. Digit 1/2/3/4
+    // on the RIT or XIT field enters scale-adjust at 1 / 10 / 100 / 1000 Hz;
+    // Up/Down then apply that scale to the offset until the user navigates
+    // away, presses Escape, presses 0, or retoggles R/X. Memory:
+    // project_sprint29_rit_xit_adjust_mode.md.
+    private enum RitXitScaleField { None, RIT, XIT }
+    private RitXitScaleField _ritXitScaleField = RitXitScaleField.None;
+    private int _ritXitScale;  // 1, 10, 100, or 1000 Hz
+    private StickyAnnouncedMode? _ritXitSticky;
 
     // Memory of the prior TX slice when transceive was last entered via the
     // universal '=' key. Used to support the symmetric "exit transceive
@@ -131,80 +146,26 @@ public class FreqOutHandlers
     /// </summary>
     public DateTime TuningSpeechUntil { get; private set; } = DateTime.MinValue;
 
-    // Modern mode tuning — coarse/fine with configurable step lists.
-    // Defaults are sane HF values. Users can configure via operator profile later.
-    private int[] _coarseSteps = { 1000, 2000, 5000 };       // 1k, 2k, 5k Hz
-    private int[] _fineSteps = { 5, 10, 100 };                // 5, 10, 100 Hz
-    private bool _coarseMode = true;   // true = coarse, false = fine
-    private int _coarseStepIndex = 0;  // default 1kHz
-    private int _fineStepIndex = 1;    // default 10Hz
+    // Modern mode tuning — single coarse step (Up/Down) + single fine step
+    // (Shift+Up/Down). The pre-Sprint-29 design carried lists of candidate
+    // steps with a coarse/fine mode toggle on `C`; that silent-modal shape
+    // is what tuning unity replaces. Defaults match the prior coarse/fine
+    // defaults so muscle memory survives.
+    private int _coarseStep = 5000;  // 5 kHz coarse default
+    private int _fineStep = 100;     // 100 Hz fine default
 
-    /// <summary>
-    /// Current active tuning step in Hz (from whichever mode is active).
-    /// </summary>
-    public int CurrentTuneStep => _coarseMode
-        ? _coarseSteps[_coarseStepIndex]
-        : _fineSteps[_fineStepIndex];
-
-    /// <summary>
-    /// Current coarse tuning step in Hz.
-    /// </summary>
+    /// <summary>Current coarse tuning step in Hz (Up / Down).</summary>
     public int CoarseTuneStep
     {
-        get => _coarseSteps[_coarseStepIndex];
-        set
-        {
-            for (int i = 0; i < _coarseSteps.Length; i++)
-            {
-                if (_coarseSteps[i] == value) { _coarseStepIndex = i; return; }
-            }
-            _coarseStepIndex = 0;
-        }
+        get => _coarseStep;
+        set { if (value > 0) _coarseStep = value; }
     }
 
-    /// <summary>
-    /// Current fine tuning step in Hz.
-    /// </summary>
+    /// <summary>Current fine tuning step in Hz (Shift+Up / Shift+Down).</summary>
     public int FineTuneStep
     {
-        get => _fineSteps[_fineStepIndex];
-        set
-        {
-            for (int i = 0; i < _fineSteps.Length; i++)
-            {
-                if (_fineSteps[i] == value) { _fineStepIndex = i; return; }
-            }
-            _fineStepIndex = 1;
-        }
-    }
-
-    /// <summary>
-    /// Whether currently in coarse tuning mode (vs fine).
-    /// </summary>
-    public bool IsCoarseMode => _coarseMode;
-
-    /// <summary>Get a copy of the current coarse step list.</summary>
-    public int[] GetCoarseSteps() => (int[])_coarseSteps.Clone();
-
-    /// <summary>Get a copy of the current fine step list.</summary>
-    public int[] GetFineSteps() => (int[])_fineSteps.Clone();
-
-    /// <summary>Replace the coarse step list. Must have at least one value, sorted ascending.</summary>
-    public void SetCoarseSteps(int[] steps)
-    {
-        if (steps == null || steps.Length == 0) return;
-        _coarseSteps = (int[])steps.Clone();
-        Array.Sort(_coarseSteps);
-        if (_coarseStepIndex >= _coarseSteps.Length) _coarseStepIndex = 0;
-    }
-
-    /// <summary>Replace the fine step list. Must have at least one value, sorted ascending.</summary>
-    public void SetFineSteps(int[] steps)
-    {
-        if (steps == null || steps.Length == 0) return;
-        _fineSteps = (int[])steps.Clone();
-        Array.Sort(_fineSteps);
-        if (_fineStepIndex >= _fineSteps.Length) _fineStepIndex = 0;
+        get => _fineStep;
+        set { if (value > 0) _fineStep = value; }
     }
 
     /// <summary>
@@ -1475,10 +1436,55 @@ public class FreqOutHandlers
         if (posInField < 0) posInField = 0;
         if (posInField >= fieldLen) posInField = fieldLen - 1;
 
-        // Step by position (field is 5 chars: sign + 4 digits like +0150)
-        int step = 1;
-        for (int i = 0; i < (fieldLen - 1 - posInField); i++)
-            step *= 10;
+        // If scale-adjust mode is active for the OTHER RIT/XIT field, exit it
+        // before handling this one — the user has navigated between RIT and
+        // XIT, which counts as leaving the field.
+        var thisField = isRIT ? RitXitScaleField.RIT : RitXitScaleField.XIT;
+        if (_ritXitScaleField != RitXitScaleField.None && _ritXitScaleField != thisField)
+            CancelRitXitScaleAdjust();
+
+        // Escape always exits scale-adjust mode (still in same field).
+        if (key == Key.Escape && _ritXitScaleField == thisField)
+        {
+            CancelRitXitScaleAdjust();
+            e.Handled = true;
+            return;
+        }
+
+        // Digit 1/2/3/4 enters or switches scale-adjust mode at 1/10/100/1000 Hz.
+        // Digit 0 exits. The mode pre-empts the legacy digit-entry-at-position
+        // behaviour for 1-4 only — 5-9 still type at the cursor.
+        if (ch >= '1' && ch <= '4')
+        {
+            int newScale = ch == '1' ? 1 : ch == '2' ? 10 : ch == '3' ? 100 : 1000;
+            EnterOrSwitchRitXitScaleAdjust(thisField, newScale);
+            e.Handled = true;
+            return;
+        }
+        if (ch == '0' && _ritXitScaleField == thisField)
+        {
+            CancelRitXitScaleAdjust();
+            e.Handled = true;
+            return;
+        }
+
+        // While in scale-adjust mode, Up/Down apply the chosen scale (instead
+        // of the position-based step). Other keys fall through to the legacy
+        // handlers — including the R/X universal toggles, which auto-exit
+        // scale-adjust as a side effect when they switch RIT/XIT off.
+        bool inScaleAdjust = _ritXitScaleField == thisField;
+        int step;
+        if (inScaleAdjust)
+        {
+            step = _ritXitScale;
+        }
+        else
+        {
+            // Step by position (field is 5 chars: sign + 4 digits like +0150)
+            step = 1;
+            for (int i = 0; i < (fieldLen - 1 - posInField); i++)
+                step *= 10;
+        }
 
         switch (key)
         {
@@ -1490,16 +1496,19 @@ public class FreqOutHandlers
                 else Rig.XIT = toggled;
                 if (toggled.Active) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
                 Radios.ScreenReaderOutput.Speak($"{fieldKey} {(toggled.Active ? "on" : "off")}", VerbosityLevel.Terse);
+                if (!toggled.Active && inScaleAdjust) CancelRitXitScaleAdjust();
                 e.Handled = true;
                 break;
 
             case Key.Up:
                 AdjustRITXITValue(data, isRIT, step);
+                if (inScaleAdjust) _ritXitSticky?.ResetInactivityTimer();
                 e.Handled = true;
                 break;
 
             case Key.Down:
                 AdjustRITXITValue(data, isRIT, -step);
+                if (inScaleAdjust) _ritXitSticky?.ResetInactivityTimer();
                 e.Handled = true;
                 break;
 
@@ -1514,9 +1523,10 @@ public class FreqOutHandlers
                     AdjustRITXITValue(data, isRIT, -step);
                     e.Handled = true;
                 }
-                else if (ch >= '0' && ch <= '9')
+                else if (ch >= '5' && ch <= '9')
                 {
-                    // Digit entry at position
+                    // Digit entry at position. 0-4 are handled above (0/Escape
+                    // exits scale-adjust, 1-4 enters or switches scale).
                     EnterRITXITDigit(data, isRIT, ch, posInField, fieldLen);
                     e.Handled = true;
                 }
@@ -1768,6 +1778,10 @@ public class FreqOutHandlers
             if (rit.Active) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
             Radios.ScreenReaderOutput.Speak(
                 rit.Active ? "RIT on" : "RIT off", VerbosityLevel.Terse, true);
+            // Retoggling R while in RIT scale-adjust mode auto-exits the
+            // mode regardless of which way the toggle went, so a user with
+            // muscle memory can press R-R to bail.
+            if (_ritXitScaleField == RitXitScaleField.RIT) CancelRitXitScaleAdjust();
             e.Handled = true;
             return true;
         }
@@ -1779,6 +1793,7 @@ public class FreqOutHandlers
             if (xit.Active) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
             Radios.ScreenReaderOutput.Speak(
                 xit.Active ? "XIT on" : "XIT off", VerbosityLevel.Terse, true);
+            if (_ritXitScaleField == RitXitScaleField.XIT) CancelRitXitScaleAdjust();
             e.Handled = true;
             return true;
         }
@@ -2017,10 +2032,14 @@ public class FreqOutHandlers
     #region Modern Mode Tuning — Sprint 13B
 
     /// <summary>
-    /// Modern mode frequency handler — simplified coarse/fine tuning.
-    /// Up/Down = tune by current step. C = toggle coarse/fine mode.
-    /// PageUp/PageDown = cycle step within current mode.
-    /// F = toggle frequency readout. S = announce current step.
+    /// Modern mode frequency handler — tuning unity (Sprint 29 Track F).
+    /// Up/Down tune by Coarse step (single value). Shift+Up/Down tune by Fine
+    /// step (single value). The pre-Sprint-29 silent-modal `C` toggle is gone
+    /// — there's no mode to switch any more, so there's nothing to toggle.
+    /// PageUp/PageDown is intentionally unbound here (was step cycling, which
+    /// became meaningless once the lists collapsed to single values). Steps
+    /// are configured in Settings → Tuning, not at runtime.
+    /// F = one-shot read frequency. Shift+S = announce both step sizes.
     /// </summary>
     public void AdjustFreqModern(FrequencyDisplay.DisplayField field, KeyEventArgs e)
     {
@@ -2046,44 +2065,31 @@ public class FreqOutHandlers
         // Quick-type frequency entry: digits, dot, Enter, Escape
         if (HandleQuickTypeKey(key, ch, e)) return;
 
+        // Tuning unity: Up = +coarse, Shift+Up = +fine, Down/Shift+Down inverse.
+        // The Shift case must come first so the unmodified Up/Down branch
+        // doesn't swallow it.
+        bool shiftHeld = (Keyboard.Modifiers & ModifierKeys.Shift) != 0;
+
         switch (key)
         {
             case Key.Up:
-                TuneFreq((ulong)CurrentTuneStep);
+                TuneFreq((ulong)(shiftHeld ? _fineStep : _coarseStep));
                 e.Handled = true;
                 break;
 
             case Key.Down:
-                TuneFreq(unchecked((ulong)(-(long)CurrentTuneStep)));
-                e.Handled = true;
-                break;
-
-            case Key.PageUp:
-                CycleStep(1);
-                e.Handled = true;
-                break;
-
-            case Key.PageDown:
-                CycleStep(-1);
+                TuneFreq(unchecked((ulong)(-(long)(shiftHeld ? _fineStep : _coarseStep))));
                 e.Handled = true;
                 break;
 
             default:
-                if (ch == 'C')
+                if (ch == 'S' && Keyboard.Modifiers == ModifierKeys.Shift)
                 {
-                    // Toggle coarse/fine mode
-                    _coarseMode = !_coarseMode;
-                    string modeName = _coarseMode ? "Coarse" : "Fine";
+                    // Shift+S — announce both step sizes (no current mode to
+                    // pick between any more, so report the whole picture).
                     Radios.ScreenReaderOutput.Speak(
-                        $"{modeName}, {FormatStepForSpeech(CurrentTuneStep)}", VerbosityLevel.Terse, true);
-                    e.Handled = true;
-                }
-                else if (ch == 'S' && Keyboard.Modifiers == ModifierKeys.Shift)
-                {
-                    // Shift+S: Announce current step
-                    string modeName = _coarseMode ? "Coarse" : "Fine";
-                    Radios.ScreenReaderOutput.Speak(
-                        $"{modeName}, {FormatStepForSpeech(CurrentTuneStep)}", VerbosityLevel.Terse, true);
+                        $"Coarse {FormatStepForSpeech(_coarseStep)}, fine {FormatStepForSpeech(_fineStep)}",
+                        VerbosityLevel.Terse, true);
                     e.Handled = true;
                 }
                 else if (ch == 'F' && Keyboard.Modifiers == ModifierKeys.None)
@@ -2158,56 +2164,14 @@ public class FreqOutHandlers
         }
     }
 
-    /// <summary>
-    /// Sprint 26 Phase 8: public wrappers for menu access to tuning actions
-    /// that are also bound to hotkeys on the frequency field (C, PageUp/Down,
-    /// Shift+S). The "JJ Flexible in threes" pattern — every tuning action
-    /// reachable via field keypress, global hotkey, AND menu item.
-    /// </summary>
-    public void ToggleCoarseFineFromMenu()
-    {
-        _coarseMode = !_coarseMode;
-        string modeName = _coarseMode ? "Coarse" : "Fine";
-        Radios.ScreenReaderOutput.Speak(
-            $"{modeName}, {FormatStepForSpeech(CurrentTuneStep)}", VerbosityLevel.Terse, true);
-    }
-
-    /// <summary>Step up or down through the active step list (menu caller).</summary>
-    public void CycleStepFromMenu(int direction)
-    {
-        CycleStep(direction);
-    }
-
-    /// <summary>Announce current tuning mode + step (menu caller).</summary>
+    // Menu caller for "Speak Current Step" — announces both coarse and fine
+    // steps. Survives tuning unity because step values are still configurable
+    // and operators want a one-press way to hear what they're set to.
     public void SpeakCurrentStepFromMenu()
     {
-        string modeName = _coarseMode ? "Coarse" : "Fine";
         Radios.ScreenReaderOutput.Speak(
-            $"{modeName}, {FormatStepForSpeech(CurrentTuneStep)}", VerbosityLevel.Terse, true);
-    }
-
-    /// <summary>
-    /// Cycle through the active step list (coarse or fine depending on current mode).
-    /// </summary>
-    private void CycleStep(int direction)
-    {
-        if (_coarseMode)
-        {
-            int newIndex = _coarseStepIndex + direction;
-            if (newIndex < 0) newIndex = 0;
-            if (newIndex >= _coarseSteps.Length) newIndex = _coarseSteps.Length - 1;
-            _coarseStepIndex = newIndex;
-        }
-        else
-        {
-            int newIndex = _fineStepIndex + direction;
-            if (newIndex < 0) newIndex = 0;
-            if (newIndex >= _fineSteps.Length) newIndex = _fineSteps.Length - 1;
-            _fineStepIndex = newIndex;
-        }
-        string modeName = _coarseMode ? "Coarse" : "Fine";
-        Radios.ScreenReaderOutput.Speak($"{modeName}, {FormatStepForSpeech(CurrentTuneStep)}", VerbosityLevel.Terse, true);
-        SaveStepSizes?.Invoke(CoarseTuneStep, FineTuneStep);
+            $"Coarse {FormatStepForSpeech(_coarseStep)}, fine {FormatStepForSpeech(_fineStep)}",
+            VerbosityLevel.Terse, true);
     }
 
     /// <summary>
@@ -2321,20 +2285,17 @@ public class FreqOutHandlers
 
             if (isDoubleTap)
             {
-                // Enter edge selection mode
                 _filterEdgeMode = key == Key.OemOpenBrackets ? FilterEdgeMode.LowerEdge : FilterEdgeMode.UpperEdge;
                 string edgeName = _filterEdgeMode == FilterEdgeMode.LowerEdge ? "lower" : "upper";
-                Radios.ScreenReaderOutput.Speak($"Adjust {edgeName} filter. Brackets move edge. Escape to exit.", true);
-                EarconPlayer.FilterEdgeEnterTone();
-                ResetFilterEdgeTimeout();
+                EnsureFilterEdgeStickyMode().Enter(
+                    $"Adjust {edgeName} filter. Brackets move edge. Escape to exit.");
                 e.Handled = true;
                 return;
             }
 
             if (_filterEdgeMode != FilterEdgeMode.None)
             {
-                // In edge mode: brackets move the selected edge in either direction
-                ResetFilterEdgeTimeout();
+                _filterEdgeSticky?.ResetInactivityTimer();
                 if (_filterEdgeMode == FilterEdgeMode.LowerEdge)
                 {
                     if (key == Key.OemOpenBrackets) low -= step;
@@ -2427,56 +2388,111 @@ public class FreqOutHandlers
         e.Handled = true;
     }
 
-    /// <summary>
-    /// Reset the 10-second filter edge mode timeout. After 10s of inactivity, exits edge mode.
-    /// </summary>
-    private void ResetFilterEdgeTimeout()
+    // Lazily build the StickyAnnouncedMode wrapping the filter-edge state. We
+    // can't construct it eagerly because _window.Dispatcher isn't available
+    // during field-initializer phase. Once built it's reused for the lifetime
+    // of FreqOutHandlers.
+    private StickyAnnouncedMode EnsureFilterEdgeStickyMode()
     {
-        _filterEdgeTimeout?.Cancel();
-        _filterEdgeTimeout = new CancellationTokenSource();
-        var token = _filterEdgeTimeout.Token;
-        _ = Task.Run(async () =>
+        if (_filterEdgeSticky != null) return _filterEdgeSticky;
+
+        _filterEdgeSticky = new StickyAnnouncedMode(
+            name: "Filter edge",
+            dispatcher: _window.Dispatcher,
+            inactivityTimeout: TimeSpan.FromSeconds(10),
+            entryEarcon: EarconPlayer.FilterEdgeEnterTone,
+            exitEarcon: EarconPlayer.FilterEdgeExitTone)
         {
-            try
+            // When the watchdog fires, drop the per-edge state alongside the
+            // shell state so a stale Lower / Upper marker doesn't survive.
+            OnTimeout = () =>
             {
-                await Task.Delay(10000, token);
                 _filterEdgeMode = FilterEdgeMode.None;
-                _window.Dispatcher.Invoke(() =>
-                {
-                    EarconPlayer.FilterEdgeExitTone();
-                    Radios.ScreenReaderOutput.Speak("Filter edge mode ended", VerbosityLevel.Terse);
-                });
+                Radios.ScreenReaderOutput.Speak("Filter edge mode ended", VerbosityLevel.Terse);
             }
-            catch (OperationCanceledException) { }
-        });
+        };
+        return _filterEdgeSticky;
     }
 
-    /// <summary>
-    /// Cancel filter edge mode (called on Escape).
-    /// </summary>
+    // Cancel filter edge mode (called on Escape from MainWindow).
     public void CancelFilterEdgeMode()
     {
         if (_filterEdgeMode != FilterEdgeMode.None)
         {
             _filterEdgeMode = FilterEdgeMode.None;
-            _filterEdgeTimeout?.Cancel();
-            EarconPlayer.FilterEdgeExitTone();
-            Radios.ScreenReaderOutput.Speak("Filter edge mode cancelled", VerbosityLevel.Terse);
+            _filterEdgeSticky?.Exit("Filter edge mode cancelled");
         }
     }
 
-    /// <summary>
-    /// True if currently in filter edge selection mode.
-    /// </summary>
     public bool InFilterEdgeMode => _filterEdgeMode != FilterEdgeMode.None;
 
-    /// <summary>
-    /// Returns which filter edge is grabbed, or null if not in edge mode.
-    /// </summary>
     public string? FilterEdgeStatus =>
         _filterEdgeMode == FilterEdgeMode.LowerEdge ? "lower filter edge grabbed" :
         _filterEdgeMode == FilterEdgeMode.UpperEdge ? "upper filter edge grabbed" :
         null;
+
+    // RIT/XIT scale-adjust mode helpers — second consumer of the
+    // StickyAnnouncedMode helper. The shell behaviour (entry/exit speech +
+    // ascending/descending earcons) reuses the same wav files as filter-edge
+    // because the design intent is one consistent mode-enter/mode-exit
+    // family across the app.
+    private StickyAnnouncedMode EnsureRitXitStickyMode()
+    {
+        if (_ritXitSticky != null) return _ritXitSticky;
+        _ritXitSticky = new StickyAnnouncedMode(
+            name: "RIT/XIT scale adjust",
+            dispatcher: _window.Dispatcher,
+            // No inactivity timeout — exit is focus-bound per memo.
+            inactivityTimeout: TimeSpan.Zero,
+            entryEarcon: EarconPlayer.FilterEdgeEnterTone,
+            exitEarcon: EarconPlayer.FilterEdgeExitTone);
+        return _ritXitSticky;
+    }
+
+    private static string FormatScaleForSpeech(int hz) =>
+        hz >= 1000 ? $"{hz / 1000} k Hz" : $"{hz} Hz";
+
+    private void EnterOrSwitchRitXitScaleAdjust(RitXitScaleField field, int scale)
+    {
+        string fieldLabel = field == RitXitScaleField.RIT ? "RIT" : "XIT";
+        string scaleSpeech = FormatScaleForSpeech(scale);
+
+        if (_ritXitScaleField == field && _ritXitSticky?.IsActive == true)
+        {
+            // Switching scale within the mode — reset timer, brief speech, no
+            // earcon (this is a sub-state change, not entry).
+            _ritXitScale = scale;
+            _ritXitSticky.ResetInactivityTimer();
+            ScreenReaderOutput.Speak($"{fieldLabel} adjust, {scaleSpeech}", VerbosityLevel.Terse, true);
+            return;
+        }
+
+        // Fresh entry. The memo wants the announcement to lead with the mode
+        // name so screen-reader users know they've entered a sticky state.
+        _ritXitScaleField = field;
+        _ritXitScale = scale;
+        EnsureRitXitStickyMode().Enter($"{fieldLabel} adjust, {scaleSpeech}");
+    }
+
+    public void CancelRitXitScaleAdjust()
+    {
+        if (_ritXitScaleField == RitXitScaleField.None) return;
+        _ritXitScaleField = RitXitScaleField.None;
+        _ritXitScale = 0;
+        _ritXitSticky?.Exit();
+    }
+
+    public bool InRitXitScaleAdjustMode => _ritXitScaleField != RitXitScaleField.None;
+
+    public string? RitXitScaleAdjustStatus
+    {
+        get
+        {
+            if (_ritXitScaleField == RitXitScaleField.None) return null;
+            string label = _ritXitScaleField == RitXitScaleField.RIT ? "RIT" : "XIT";
+            return $"{label} adjust mode, {FormatScaleForSpeech(_ritXitScale)}";
+        }
+    }
 
     /// <summary>
     /// Returns active filter preset description, or null if not on a named preset.

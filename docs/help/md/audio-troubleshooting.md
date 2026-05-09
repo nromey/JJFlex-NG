@@ -5,13 +5,13 @@ If you are not hearing audio, or the audio sounds wrong, here are some things to
 ## No Audio at All
 
 1. **Check your computer's audio output.** Make sure your speakers or headphones are connected, and that the system volume is up.
-2. **Check the JJ Flexible Radio Access audio levels.** Press `Alt+Page Up` a few times to increase the audio gain. If you are using headphones, press `Alt+Shift+Page Up` to increase the headphone volume specifically.
+2. **Check the JJ Flexible Radio Access audio levels.** Press `Ctrl+Shift+U` to open the Audio expander, arrow to Volume, and press Up a few times to raise the audio gain. If you are using headphones, arrow to Headphone Level instead and raise that.
 3. **Check your audio routing.** Open the Audio Workshop by pressing `Ctrl+Shift+W` to verify that audio is being routed to the correct output device.
 4. **Is the radio actually connected?** Press `Ctrl+Shift+S` to hear the connection status. If you are disconnected, no audio will flow — you will need to reconnect first.
 
 ## Distorted or Clipping Audio
 
-- Turn the audio gain down with `Alt+Page Down`.
+- Turn the audio gain down: press `Ctrl+Shift+U`, arrow to Volume, then press Down until it stops clipping.
 - If it is your transmitted audio that sounds distorted, open the TX sculpting settings and make sure your microphone gain is not too high.
 
 ## Audio Only on One Side (Panning)
