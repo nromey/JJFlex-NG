@@ -2279,11 +2279,17 @@ RadioConnected:
                         Dim maxAttempts = 3
                         For attempt = 2 To maxAttempts
                             Tracing.TraceLine($"OpenTheRadio:retry attempt {attempt}/{maxAttempts} (serial={retrySerial})", TraceLevel.Info)
+                            TraceSessionContext.AddKeyEvent($"as_retry_attempt_{attempt}_remote")
 
                             If RigControl.RetryConnect() Then
                                 Tracing.TraceLine($"OpenTheRadio:retry {attempt} - RetryConnect succeeded, calling Start", TraceLevel.Info)
                                 rv = RigControl.Start()
-                                If rv Then Exit For
+                                If rv Then
+                                    TraceSessionContext.AddKeyEvent($"as_retry_then_success_{attempt}_remote")
+                                    TraceSessionContext.MarkOutcome(TraceSessionOutcome.AsRetryThenSuccess,
+                                        $"Remote retry attempt {attempt} succeeded")
+                                    Exit For
+                                End If
                             Else
                                 Tracing.TraceLine($"OpenTheRadio:retry {attempt} - RetryConnect failed", TraceLevel.Error)
                             End If
@@ -2291,12 +2297,15 @@ RadioConnected:
 
                         If Not rv Then
                             Tracing.TraceLine("OpenTheRadio:all retry attempts failed", TraceLevel.Error)
+                            TraceSessionContext.MarkOutcome(TraceSessionOutcome.AsRetryFailed,
+                                $"All {maxAttempts} remote retry attempts exhausted")
                             Radios.ScreenReaderOutput.Speak("Connection failed. Please try Remote again.", VerbosityLevel.Critical)
                         End If
 
                     ElseIf _autoConnectConfig IsNot Nothing AndAlso _autoConnectConfig.ShouldAutoConnect Then
                         ' Auto-connect retry — uses TryAutoConnect with saved config
                         Tracing.TraceLine("OpenTheRadio:Start failed with auto-connect config, retrying via TryAutoConnect", TraceLevel.Info)
+                        TraceSessionContext.AddKeyEvent("as_retry_attempt_autoconnect")
 
                         Threading.Thread.Sleep(2000)
 
@@ -2310,10 +2319,17 @@ RadioConnected:
                             WpfMainWindow.WireRadioEvents()
                             Tracing.TraceLine("OpenTheRadio:retry - rig is starting", TraceLevel.Info)
                             rv = RigControl.Start()
+                            If rv Then
+                                TraceSessionContext.AddKeyEvent("as_retry_then_success_autoconnect")
+                                TraceSessionContext.MarkOutcome(TraceSessionOutcome.AsRetryThenSuccess,
+                                    "Auto-connect retry succeeded")
+                            End If
                         End If
 
                         If Not rv Then
                             Tracing.TraceLine("OpenTheRadio:retry also failed", TraceLevel.Error)
+                            TraceSessionContext.MarkOutcome(TraceSessionOutcome.AsRetryFailed,
+                                "Auto-connect retry attempt exhausted")
                             Radios.ScreenReaderOutput.Speak("Connection failed", VerbosityLevel.Critical)
                         End If
                     Else
@@ -2347,6 +2363,12 @@ RadioConnected:
             Return rv
         Catch ex As Exception
             Tracing.TraceLine("openTheRadio exception:" & ex.Message & Environment.NewLine & ex.StackTrace, TraceLevel.Error)
+            ' Tag the active trace session with the exception so the manifest
+            ' entry reflects this was a crash, not a clean exit. Per Sprint 29
+            ' Track A Phase 2 / memory/project_trace_persistence_design.md.
+            TraceSessionContext.MarkOutcome(TraceSessionOutcome.Crashed,
+                $"openTheRadio exception: {ex.GetType().Name}: {ex.Message}")
+            TraceSessionContext.AddKeyEvent("opentheradio_exception")
             Return False
         End Try
     End Function
