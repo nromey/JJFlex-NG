@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Xml.Serialization;
 using Flex.Smoothlake.FlexLib;
+using JJTrace;
 
 namespace Radios.DiscoveryChain
 {
@@ -93,6 +94,25 @@ namespace Radios.DiscoveryChain
                 }
 
                 Save();
+            }
+
+            // Tag the active trace session with this radio's metadata so the
+            // session manifest entry's connection_target field is populated
+            // automatically — no caller plumbing needed. Per Sprint 29 Track A
+            // Phase 2 / memory/project_trace_persistence_design.md. Safe no-op
+            // when tracing is off (TraceSessionContext.Current is null).
+            try
+            {
+                TraceSessionContext.SetConnectionTarget(
+                    serial: radio.Serial,
+                    nickname: radio.Nickname ?? "",
+                    smartlinkAccount: "",  // populated separately by SmartLink layer when applicable
+                    ip: radio.IP?.ToString() ?? "");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Trace.WriteLine(
+                    $"RadioConnectionCache: SetConnectionTarget failed: {ex.Message}");
             }
         }
 

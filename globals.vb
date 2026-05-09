@@ -245,6 +245,38 @@ Module globals
             Return
         End If
 
+        ' A leftover boot trace at this point means the previous app run did
+        ' NOT clean-exit — clean exit calls ArchiveCurrentTraceSession which
+        ' archives + deletes the source file. So the file's existence is
+        ' evidence of a killed session. Archive it as outcome=killed BEFORE
+        ' the legacy rotate-to-old logic runs, so stuck-session forensics
+        ' (the original motivating scenario for trace persistence per
+        ' memory/project_trace_persistence_design.md) survives next boot.
+        Try
+            Dim leftoverInfo As New FileInfo(tracePath)
+            ' File creation time approximates when the prior app booted —
+            ' good enough for the manifest's boot_time so duration_ms
+            ' reflects roughly how long the prior app ran before being
+            ' killed. Failing back to UtcNow would make every killed
+            ' session look like duration_ms ≈ 0.
+            Dim killedSession As New TraceSession(leftoverInfo.CreationTimeUtc.ToUniversalTime())
+            killedSession.MarkOutcome(TraceSessionOutcome.Killed,
+                "Inferred from leftover boot trace at next launch (no clean exit observed)")
+            Dim relName As String = SessionArchive.ArchiveSession(
+                TraceArchiveDir, tracePath, killedSession, deleteSourceAfter:=True)
+            If Not String.IsNullOrEmpty(relName) Then
+                ' Archive-and-delete succeeded; legacy rotate is no longer needed
+                ' (the source file is gone). Return early.
+                Return
+            End If
+            ' If archive returned null, fall through to legacy rotate so we
+            ' don't drop the trace entirely.
+        Catch ex As Exception
+            Tracing.ErrMessageTrace(ex)
+            ' Fall through to legacy rotate — better to keep the trace as
+            ' OldTraceFileName than lose it because of an archive bug.
+        End Try
+
         Try
             If File.Exists(OldTraceFileName) Then
                 File.Delete(OldTraceFileName)

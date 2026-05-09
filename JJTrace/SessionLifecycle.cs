@@ -24,9 +24,22 @@ namespace JJTrace
         private readonly object _lock = new object();
 
         public TraceSession()
+            : this(DateTime.UtcNow)
+        {
+        }
+
+        /// <summary>
+        /// Construct with an explicit boot time. Used for reconstructing killed
+        /// sessions at next-boot reconciliation: the leftover trace file's
+        /// creation time approximates when the prior app actually booted, so
+        /// the manifest entry's boot_time + duration_ms reflect reality
+        /// instead of "now" (which would make every killed-session entry
+        /// duration_ms ≈ 0 and break grep-by-duration queries).
+        /// </summary>
+        public TraceSession(DateTime bootTimeUtc)
         {
             SessionId = Guid.NewGuid();
-            BootTimeUtc = DateTime.UtcNow;
+            BootTimeUtc = bootTimeUtc;
             AppVersion = ResolveAppVersion();
         }
 
