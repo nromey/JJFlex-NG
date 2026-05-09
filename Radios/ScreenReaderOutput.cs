@@ -177,15 +177,34 @@ namespace Radios
         /// Spoken at Critical level — connection status is the enum's stated example
         /// of an always-spoken message, so even users at "Off" hear a brief form.
         /// Interrupts any current speech so the answer lands immediately.
+        ///
+        /// When <paramref name="actionLabel"/> is provided (a verb-led short phrase
+        /// like "change band"), the announcement names what the user just tried to
+        /// do — "Unable to change band, JJ Flexible Home no radio connected" — so
+        /// the failure isn't ambiguous when the same key would normally do many
+        /// different things depending on radio state.
         /// </summary>
-        public static void SpeakNoRadioConnected()
+        public static void SpeakNoRadioConnected(string? actionLabel = null)
         {
-            string msg = CurrentVerbosity switch
+            string msg;
+            if (string.IsNullOrWhiteSpace(actionLabel))
             {
-                VerbosityLevel.Chatty => "JJ Flexible Home, no radio connected",
-                VerbosityLevel.Terse  => "Home, no radio",
-                _                     => "No radio connected",
-            };
+                msg = CurrentVerbosity switch
+                {
+                    VerbosityLevel.Chatty => "JJ Flexible Home, no radio connected",
+                    VerbosityLevel.Terse  => "Home, no radio",
+                    _                     => "No radio connected",
+                };
+            }
+            else
+            {
+                msg = CurrentVerbosity switch
+                {
+                    VerbosityLevel.Chatty => $"Unable to {actionLabel}, JJ Flexible Home no radio connected",
+                    VerbosityLevel.Terse  => $"{actionLabel}, no radio",
+                    _                     => $"{actionLabel}, no radio",
+                };
+            }
             Speak(msg, VerbosityLevel.Critical, true);
         }
 

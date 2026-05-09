@@ -266,11 +266,15 @@ Namespace My
                         ' Without one, announce "no radio connected" instead of letting
                         ' the handler go silent. Global scope works without a radio by
                         ' definition; Logging scope has its own upstream guard.
+                        ' RunsWithoutRadio opt-out: a small locked list of commands
+                        ' (SetFreq, ShowMemory) work meaningfully with no radio; for
+                        ' those, fall through to the handler.
                         If RigControl Is Nothing AndAlso
+                           Not kt.RunsWithoutRadio AndAlso
                            (kt.Scope = Radios.KeyScope.Radio OrElse
                             kt.Scope = Radios.KeyScope.Classic OrElse
                             kt.Scope = Radios.KeyScope.Modern) Then
-                            Radios.ScreenReaderOutput.SpeakNoRadioConnected()
+                            Radios.ScreenReaderOutput.SpeakNoRadioConnected(kt.ShortActionLabel)
                             Return
                         End If
 

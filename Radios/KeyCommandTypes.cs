@@ -329,6 +329,25 @@ public class KeyTableEntry
     public string? Description;
     public string[]? Keywords;
 
+    /// <summary>
+    /// When true, the dispatcher's no-radio guard skips the "no radio connected"
+    /// announcement and routes the keystroke to the handler. The handler is then
+    /// responsible for any no-radio behavior (e.g., SetFreq still opens its
+    /// dialog so the cqtest easter egg and calibration-ref entry keep working).
+    /// Default false: most Radio-scope commands need a real radio.
+    /// </summary>
+    public bool RunsWithoutRadio;
+
+    /// <summary>
+    /// Verb-led short label naming this command's action (e.g. "change band",
+    /// "toggle tune"). Used by SpeakNoRadioConnected to produce action-aware
+    /// announcements ("Unable to change band, JJ Flexible Home no radio
+    /// connected"). Sprint 28 design followup; Sprint 29 picks up bulk
+    /// population — see memory/project_short_action_labels_vocabulary.md.
+    /// Null falls back to today's plain-form output.
+    /// </summary>
+    public string? ShortActionLabel;
+
     // Menu text can be static or dynamic (via delegate).
     private Func<string>? _menuTextFunc;
     private string? _menuTextStatic;
@@ -358,6 +377,8 @@ public class KeyTableEntry
         Scope = source.Scope;
         Description = source.Description;
         Keywords = source.Keywords;
+        RunsWithoutRadio = source.RunsWithoutRadio;
+        ShortActionLabel = source.ShortActionLabel;
     }
 
     // For a command

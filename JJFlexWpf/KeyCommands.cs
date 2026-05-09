@@ -104,12 +104,27 @@ public class KeyCommands
                 { Keywords = new[] { "cw", "morse", "stop", "abort", "sending" } },
 
             // ── Frequency / Memory ──
+            // SetFreq opts in to RunsWithoutRadio: the freq-input dialog still
+            // works without a connected radio (cqtest easter egg, calibration
+            // reference entry, just-typing-a-frequency-to-remember). The handler
+            // speaks an apply-time error if the user tries to actually tune.
             new(CommandValues.SetFreq, WriteFreqHandler,
                 "Enter frequency", "frequency", FunctionGroups.General, KeyScope.Radio)
-                { Keywords = new[] { "frequency", "enter", "type", "tune", "tuning", "dial" } },
+                {
+                    Keywords = new[] { "frequency", "enter", "type", "tune", "tuning", "dial" },
+                    RunsWithoutRadio = true,
+                    ShortActionLabel = "enter frequency",
+                },
+            // ShowMemory opts in to RunsWithoutRadio: the dialog is a viewer.
+            // Handler speaks an action-aware no-radio message when there's no
+            // memory data to show, so the keystroke isn't silent.
             new(CommandValues.ShowMemory, DisplayMemoryHandler,
                 "Bring up the memory dialogue", "memories", FunctionGroups.Dialog, KeyScope.Radio)
-                { Keywords = new[] { "memory", "memories", "store", "recall", "save", "channel" } },
+                {
+                    Keywords = new[] { "memory", "memories", "store", "recall", "save", "channel" },
+                    RunsWithoutRadio = true,
+                    ShortActionLabel = "show memories",
+                },
             new(CommandValues.CycleContinuous, CycleContinuousHandler,
                 "Toggle continuous frequency display", null, FunctionGroups.General, KeyScope.Radio)
                 { Keywords = new[] { "continuous", "frequency", "display", "toggle" } },
@@ -191,10 +206,10 @@ public class KeyCommands
             // ── Audio volume ──
             new(CommandValues.AudioGainUp, KeyTypes.Command, AudioGainUpHandler,
                 "Raise RF gain or Flex slice gain.", string.Empty, true, FunctionGroups.Audio, KeyScope.Radio)
-                { Keywords = new[] { "volume", "gain", "audio", "louder", "up", "slice" } },
+                { Keywords = new[] { "volume", "gain", "audio", "louder", "up", "slice" }, ShortActionLabel = "raise audio gain" },
             new(CommandValues.AudioGainDown, KeyTypes.Command, AudioGainDownHandler,
                 "Lower RF gain or Flex slice gain.", string.Empty, true, FunctionGroups.Audio, KeyScope.Radio)
-                { Keywords = new[] { "volume", "gain", "audio", "quieter", "down", "slice" } },
+                { Keywords = new[] { "volume", "gain", "audio", "quieter", "down", "slice" }, ShortActionLabel = "lower audio gain" },
             new(CommandValues.HeadphonesUp, KeyTypes.Command, HeadphonesUpHandler,
                 "If supported, raise headphone gain.", string.Empty, true, FunctionGroups.Audio, KeyScope.Radio)
                 { Keywords = new[] { "headphones", "volume", "audio", "louder", "gain" } },
@@ -214,7 +229,7 @@ public class KeyCommands
                 { Keywords = new[] { "cw", "morse", "zerobeat", "zero beat", "tune" } },
             new(CommandValues.ClearRIT, KeyTypes.Command, ClearRitHandler,
                 "Clear RIT.", "Clear Rit", true, FunctionGroups.General, KeyScope.Radio)
-                { Keywords = new[] { "rit", "clear", "offset", "receive", "incremental" } },
+                { Keywords = new[] { "rit", "clear", "offset", "receive", "incremental" }, ShortActionLabel = "clear RIT" },
             new(CommandValues.ReverseBeacon, KeyTypes.Command, ReverseBeaconHandler,
                 "Bring up a reverse beacon site for a call.", "Reverse Beacon", false, FunctionGroups.General, KeyScope.Radio)
                 { Keywords = new[] { "beacon", "reverse", "spots", "dx", "rbn" } },
@@ -244,13 +259,13 @@ public class KeyCommands
                 { Keywords = new[] { "debug", "info", "diagnostic", "troubleshoot" } },
             new(CommandValues.ATUMemories, KeyTypes.Command, ATUMemoriesHandler,
                 "Tuner memories", "Tuner memories", false, FunctionGroups.General, KeyScope.Radio)
-                { Keywords = new[] { "tuner", "atu", "antenna", "memories", "tune" } },
+                { Keywords = new[] { "tuner", "atu", "antenna", "memories", "tune" }, ShortActionLabel = "open ATU memories" },
             new(CommandValues.Reboot, KeyTypes.Command, RebootHandler,
                 "Reboot the radio", "Reboot the radio", false, FunctionGroups.General, KeyScope.Radio)
-                { Keywords = new[] { "reboot", "restart", "radio", "reset" } },
+                { Keywords = new[] { "reboot", "restart", "radio", "reset" }, ShortActionLabel = "reboot radio" },
             new(CommandValues.TXControls, KeyTypes.Command, TXControlsHandler,
                 "Transmit controls", "Transmit controls", false, FunctionGroups.General, KeyScope.Radio)
-                { Keywords = new[] { "transmit", "tx", "power", "controls", "watts", "ptt" } },
+                { Keywords = new[] { "transmit", "tx", "power", "controls", "watts", "ptt" }, ShortActionLabel = "open transmit controls" },
 
             // ── Logging-only actions ──
             new(CommandValues.LogPaneSwitchF6, KeyTypes.Command, LogPaneSwitchHandler,
@@ -289,13 +304,13 @@ public class KeyCommands
                 { Keywords = new[] { "band", "60", "meter", "jump", "frequency" } },
             new(CommandValues.BandJump40, KeyTypes.Command, () => _context.GetMainWindow()?.BandJump(HamBands.Bands.BandNames.m40),
                 "Jump to 40 meter band", "40m", false, FunctionGroups.General, KeyScope.Radio)
-                { Keywords = new[] { "band", "40", "meter", "jump", "frequency" } },
+                { Keywords = new[] { "band", "40", "meter", "jump", "frequency" }, ShortActionLabel = "jump to 40 meters" },
             new(CommandValues.BandJump30, KeyTypes.Command, () => _context.GetMainWindow()?.BandJump(HamBands.Bands.BandNames.m30),
                 "Jump to 30 meter band", "30m", false, FunctionGroups.General, KeyScope.Radio)
                 { Keywords = new[] { "band", "30", "meter", "jump", "frequency", "warc" } },
             new(CommandValues.BandJump20, KeyTypes.Command, () => _context.GetMainWindow()?.BandJump(HamBands.Bands.BandNames.m20),
                 "Jump to 20 meter band", "20m", false, FunctionGroups.General, KeyScope.Radio)
-                { Keywords = new[] { "band", "20", "meter", "jump", "frequency" } },
+                { Keywords = new[] { "band", "20", "meter", "jump", "frequency" }, ShortActionLabel = "jump to 20 meters" },
             new(CommandValues.BandJump17, KeyTypes.Command, () => _context.GetMainWindow()?.BandJump(HamBands.Bands.BandNames.m17),
                 "Jump to 17 meter band", "17m", false, FunctionGroups.General, KeyScope.Radio)
                 { Keywords = new[] { "band", "17", "meter", "jump", "frequency", "warc" } },
@@ -313,27 +328,27 @@ public class KeyCommands
                 { Keywords = new[] { "band", "6", "meter", "jump", "frequency", "vhf" } },
             new(CommandValues.BandUp, KeyTypes.Command, () => _context.GetMainWindow()?.BandNavigate(1),
                 "Next higher band", "Band up", false, FunctionGroups.General, KeyScope.Radio)
-                { Keywords = new[] { "band", "up", "next", "higher", "navigate" } },
+                { Keywords = new[] { "band", "up", "next", "higher", "navigate" }, ShortActionLabel = "change band" },
             new(CommandValues.BandDown, KeyTypes.Command, () => _context.GetMainWindow()?.BandNavigate(-1),
                 "Next lower band", "Band down", false, FunctionGroups.General, KeyScope.Radio)
-                { Keywords = new[] { "band", "down", "previous", "lower", "navigate" } },
+                { Keywords = new[] { "band", "down", "previous", "lower", "navigate" }, ShortActionLabel = "change band" },
 
             // ── Mode switching ──
             new(CommandValues.ModeNext, KeyTypes.Command, () => _context.GetMainWindow()?.CycleMode(1),
                 "Cycle to next mode", "Next mode", false, FunctionGroups.General, KeyScope.Radio)
-                { Keywords = new[] { "mode", "next", "cycle", "usb", "lsb", "cw", "am", "fm", "digu", "digl" } },
+                { Keywords = new[] { "mode", "next", "cycle", "usb", "lsb", "cw", "am", "fm", "digu", "digl" }, ShortActionLabel = "change mode" },
             new(CommandValues.ModePrev, KeyTypes.Command, () => _context.GetMainWindow()?.CycleMode(-1),
                 "Cycle to previous mode", "Previous mode", false, FunctionGroups.General, KeyScope.Radio)
-                { Keywords = new[] { "mode", "previous", "back", "cycle", "usb", "lsb", "cw" } },
+                { Keywords = new[] { "mode", "previous", "back", "cycle", "usb", "lsb", "cw" }, ShortActionLabel = "change mode" },
             new(CommandValues.ModeUSB, KeyTypes.Command, () => _context.GetMainWindow()?.SetMode("USB"),
                 "Switch to USB mode", "USB", false, FunctionGroups.General, KeyScope.Radio)
-                { Keywords = new[] { "mode", "usb", "upper", "sideband", "ssb", "phone" } },
+                { Keywords = new[] { "mode", "usb", "upper", "sideband", "ssb", "phone" }, ShortActionLabel = "switch to USB" },
             new(CommandValues.ModeLSB, KeyTypes.Command, () => _context.GetMainWindow()?.SetMode("LSB"),
                 "Switch to LSB mode", "LSB", false, FunctionGroups.General, KeyScope.Radio)
-                { Keywords = new[] { "mode", "lsb", "lower", "sideband", "ssb", "phone" } },
+                { Keywords = new[] { "mode", "lsb", "lower", "sideband", "ssb", "phone" }, ShortActionLabel = "switch to LSB" },
             new(CommandValues.ModeCW, KeyTypes.Command, () => _context.GetMainWindow()?.SetMode("CW"),
                 "Switch to CW mode", "CW", false, FunctionGroups.General, KeyScope.Radio)
-                { Keywords = new[] { "mode", "cw", "morse", "code", "continuous wave" } },
+                { Keywords = new[] { "mode", "cw", "morse", "code", "continuous wave" }, ShortActionLabel = "switch to CW" },
             new(CommandValues.ModeAM, KeyTypes.Command, () => _context.GetMainWindow()?.SetMode("AM"),
                 "Switch to AM mode", "AM", false, FunctionGroups.General, KeyScope.Radio)
                 { Keywords = new[] { "mode", "am", "amplitude", "modulation", "broadcast" } },
@@ -372,10 +387,10 @@ public class KeyCommands
             // ── Tuning ──
             new(CommandValues.TuneToggle, KeyTypes.Command, TuneToggleHandler,
                 "Toggle tune carrier on or off", "Tune carrier", false, FunctionGroups.General, KeyScope.Radio)
-                { Keywords = new[] { "tune", "carrier", "toggle", "cw", "manual" } },
+                { Keywords = new[] { "tune", "carrier", "toggle", "cw", "manual" }, ShortActionLabel = "toggle tune" },
             new(CommandValues.ATUTune, KeyTypes.Command, ATUTuneHandler,
                 "Start ATU tune cycle", "ATU Tune", false, FunctionGroups.General, KeyScope.Radio)
-                { Keywords = new[] { "atu", "tune", "antenna", "tuner", "auto", "match", "swr" } },
+                { Keywords = new[] { "atu", "tune", "antenna", "tuner", "auto", "match", "swr" }, ShortActionLabel = "start ATU tune" },
             new(CommandValues.ToggleMeters, KeyTypes.Command, ToggleMetersHandler,
                 "Toggle meter tones on or off", "Toggle Meters", false, FunctionGroups.General, KeyScope.Global)
                 { Keywords = new[] { "meter", "tones", "sonification", "audio", "s-meter", "alc", "swr" } },
@@ -1689,12 +1704,19 @@ public class KeyCommands
             // Mirrors ApplicationEvents.vb ExecuteCommandCallback guard for
             // the Command Finder / menu path. This DoCommand path covers
             // direct keystrokes — the actual user-facing dispatch.
+            //
+            // RunsWithoutRadio opt-out: a small locked list of commands
+            // (SetFreq, ShowMemory) work meaningfully with no radio — easter
+            // eggs, calibration-ref entry, just-typing-a-frequency-to-remember.
+            // For those, fall through to the handler; it owns the no-radio
+            // behavior including any necessary speech.
             if (_context.GetRigControl() == null &&
+                !kt.RunsWithoutRadio &&
                 (kt.Scope == Radios.KeyScope.Radio ||
                  kt.Scope == Radios.KeyScope.Classic ||
                  kt.Scope == Radios.KeyScope.Modern))
             {
-                Radios.ScreenReaderOutput.SpeakNoRadioConnected();
+                Radios.ScreenReaderOutput.SpeakNoRadioConnected(kt.ShortActionLabel);
                 return true; // consumed — don't leak to other handlers
             }
 

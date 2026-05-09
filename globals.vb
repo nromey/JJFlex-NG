@@ -608,6 +608,13 @@ Module globals
                         If handlers IsNot Nothing Then
                             handlers.CheckBandBoundary(CULng(newHz))
                         End If
+                    Else
+                        ' SetFreq opts in to RunsWithoutRadio so the dialog
+                        ' opens with no radio (easter egg + calibration paths).
+                        ' If the user actually typed a frequency to tune, the
+                        ' apply-time speech tells them why nothing happened —
+                        ' silent failure violates the no-silent-keystrokes rule.
+                        Radios.ScreenReaderOutput.Speak("No radio, can't tune", Radios.VerbosityLevel.Critical, True)
                     End If
                 End If
             End Sub,
@@ -633,7 +640,16 @@ Module globals
             End Sub,
             .CycleContinuous = Sub() MsgBox("This feature is no longer supported."),
             .DisplayMemory = Sub()
-                If RigControl Is Nothing Then Return
+                If RigControl Is Nothing Then
+                    ' ShowMemory opts in to RunsWithoutRadio. Memories live
+                    ' radio-side, so we can't open the dialog with meaningful
+                    ' data when disconnected — but going silent would violate
+                    ' the no-silent-keystrokes rule. Speak the action-aware
+                    ' no-radio message in place of the dispatcher's generic
+                    ' announcement.
+                    Radios.ScreenReaderOutput.SpeakNoRadioConnected("show memories")
+                    Return
+                End If
                 Try
                     RigControl.ShowMemoriesDialog?.Invoke()
                 Catch ex As Exception
