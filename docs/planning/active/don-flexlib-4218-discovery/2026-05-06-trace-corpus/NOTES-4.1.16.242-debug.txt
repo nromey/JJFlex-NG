@@ -1,0 +1,54 @@
+﻿JJ Flexible Radio Access -- Debug Build
+Version: 4.1.16.242 (Debug x64)
+Built:   2026-05-06 19:20
+Commit:  e7e2e3b2
+
+JJ Flex Cache Writer — small polish fix to the version field
+============================================================
+
+Hey Don,
+
+Quick polish update. The cache writer build you ran last night
+(4.1.16.241) worked perfectly — R6 connected to your radio in 296ms
+via the cached IP. That's the headline. Real-world end-to-end
+validation. Thank you for the round-trip turnaround.
+
+While reviewing the trace afterwards, we noticed one small artifact:
+the version field in the cache file was being stored as a decimal
+number (something like "1127020893346674") instead of FlexLib's
+normal dotted form ("4.1.X.Y" or similar). The connect itself works
+fine, but R6 reads the firmware version as 0.0.0.0 because it can't
+parse the decimal form. That'd eventually trip up feature detection
+for FlexLib 4.2.18-specific subscriptions when those start mattering.
+
+This build (4.1.16.242) is identical to last night's, except for that
+one line. Same 4.1 line, same regular UDP discovery (which works fine
+on your machine on the 4.1 side), same cache-writer addition. Only
+difference: the version goes into the cache in dotted form so R6 can
+read it back.
+
+What to do
+----------
+
+If you want the polish:
+
+1. Replace the contents of your jjf-41 folder with the contents of
+   this new zip (or extract fresh into the same folder, whichever is
+   easier).
+
+2. Run JJFlexRadio.exe from there. Let it auto-connect like normal.
+   Close it after a few seconds — that's enough to refresh the cache.
+
+3. Next time you launch R6 from jjf-test, the firmware version will
+   read correctly. Same connect-in-under-a-second behavior.
+
+Optional trace if you want — same Dropbox folder, same filename. We
+don't strictly need it; R6 works for connection purposes either way.
+This only affects the firmware-version display field.
+
+If you want to skip this and just live with the 0.0.0.0 firmware
+version for now, that is also fine. The next public 4.2 build will
+handle this on the read side too.
+
+73,
+JJ Flex (via Noel)

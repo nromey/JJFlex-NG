@@ -1,0 +1,443 @@
+796 [T2] Boot Tracing on instance:1 C:\Program Files\JJFlexRadio\JJFlexRadio.dll 4.1.16.44 5/6/2026 6:41:50 AM level=Info
+796 [T2] GetConfigInfo:C:\Users\Don\AppData\Roaming\JJFlexRadio
+803 [T2] KeyCommands new()
+809 [T2] keyTableToDefault(False)
+809 [T2] SetValues:AllKeys False
+820 [T2] SetValues:AllKeys False
+821 [T2] SetValues:restored default key for MuteSlice = M, Shift
+821 [T2] KeyCommands write
+825 [T2] KeyCommands:SmartMerge: SpeakFrequency default changed F, Shift, Control -> F, Control, updating
+825 [T2] KeyCommands:SmartMerge: MuteSlice default changed None -> M, Shift, updating
+826 [T2] KeyCommands write
+832 [T2] KeyCommands:merged new item:ShowHelp None
+832 [T2] KeyCommands:merged new item:SmeterDBM None
+832 [T2] KeyCommands:merged new item:ShowMemory None
+832 [T2] KeyCommands:merged new item:CycleContinuous None
+832 [T2] KeyCommands:merged new item:LogFileName None
+832 [T2] KeyCommands:merged new item:LogMode None
+832 [T2] KeyCommands:merged new item:LogRig None
+832 [T2] KeyCommands:merged new item:LogAnt None
+832 [T2] KeyCommands:merged new item:StartScan None
+832 [T2] KeyCommands:merged new item:SavedScan None
+832 [T2] KeyCommands:merged new item:ShowMenus None
+832 [T2] KeyCommands:merged new item:LogStats None
+832 [T2] KeyCommands:merged new item:RemoteAudio None
+832 [T2] KeyCommands:merged new item:AudioSetup None
+832 [T2] KeyCommands:merged new item:GatherDebug None
+832 [T2] KeyCommands:merged new item:ATUMemories None
+832 [T2] KeyCommands:merged new item:Reboot None
+832 [T2] KeyCommands:merged new item:TXControls None
+832 [T2] KeyCommands:merged new item:SpeakTXFilter None
+832 [T2] KeyCommands:merged new item:SpeakFrequency F, Control
+832 [T2] KeyCommands:merged new item:ToggleMeterTonesGlobal None
+832 [T2] KeyCommands write
+838 [T2] KEY CONFLICT: F, Control bound to SetFreq (Radio) AND SpeakFrequency (Radio)
+839 [T2] PersonalData new(C:\Users\Don\AppData\Roaming\JJFlexRadio)
+882 [T2] SetCurrentOp(Donald Breda,0)
+1283 [T2] NewLog:JJRadio JJRadio
+1474 [T2] Logs.Done
+1475 [T2] newLoginInfo:JJRadio
+1511 [T2] LogClass setup:
+1607 [T2] MainWindow.SetupOperationsMenu: rebuilding menus
+1657 [T2] ConfigW2:True
+1657 [T2] W2:C:\Users\Don\AppData\Roaming\JJFlexRadio\w2.xml
+1657 [T2] Serial
+1658 [T2] Config.Read
+1658 [T2] StationName:wa2iwc
+1660 [T2] ApplyUIMode: Modern
+1671 [T2] TryAutoConnectOnStartup: attempting 6300inshack
+1726 [T2] AllRadios constructor
+1727 [T2] Flex constructor
+1728 [T2] setFlexTunerTypeNotAuto:manual
+1731 [T2] TryAutoConnect: BEGIN 6300inshack (1315-4176-6300-7236), remote=False, timeout=10000ms
+1732 [T2] TryAutoConnect: starting local discovery (0ms)
+1732 [T2] LocalRadios
+1732 [T2] apiInit:True
+1739 [T2] TryAutoConnect: waiting for radio serial 1315-4176-6300-7236 in myRadioList (8ms)
+2759 [T12:.NET TP Worker] radioAddedHandler:1315-4176-6300-7236
+2838 [T2] TryAutoConnect: FOUND radio 1315-4176-6300-7236 (6300inshack), connecting with lowBW=False (1106ms)
+2839 [T2] Connect:1315-4176-6300-7236
+2918 [T2] Connect: IsWan=False RequiresHolePunch=False PublicTlsPort=0 NegotiatedHolePunchPort=0 IP=192.168.1.76
+2920 [T2] Connected:True
+2926 [T12:.NET TP Worker] message severity:Info Client connected from IP 192.168.1.21
+2928 [T12:.NET TP Worker] PanadaptersRemaining:2
+2928 [T12:.NET TP Worker] LineoutMute:False
+2928 [T12:.NET TP Worker] IsMuteLocalAudioWhenRemoteOn:False
+2930 [T12:.NET TP Worker] TX1Enabled:True
+2930 [T12:.NET TP Worker] TX2Enabled:False
+2930 [T12:.NET TP Worker] TX3Enabled:False
+3003 [T2] Connect worked:1315-4176-6300-7236
+3003 [T2] TryAutoConnect: END connected successfully (total 1272ms)
+3003 [T2] TryAutoConnectOnStartup: success
+3007 [T2] NativeMenuBar.ApplyUIMode: Modern
+3020 [T2] NativeMenuBar.ApplyUIMode: Modern complete, 133 items
+3195 [T12:.NET TP Worker] guiClientAdded:id:4D9C8BBF-CFDA-4008-B246-C80349734419 my client:True handle:1422676966 program:JJ station: is local PTT:True is available:True Only:True CanTransmit:True
+3196 [T12:.NET TP Worker] InterlockState:Receive
+3198 [T12:.NET TP Worker] ProfileGlobalList:iOS_default_Profile JJRadioDefault SO2RDefault 
+3198 [T12:.NET TP Worker] ProfileGlobalSelection:JJRadioDefault
+3198 [T12:.NET TP Worker] ProfileTXList:Default iOS_default_Profile SO2R_TX1 SO2R_TX2 
+3238 [T12:.NET TP Worker] guiClientUpdated:id:4D9C8BBF-CFDA-4008-B246-C80349734419 my client:True handle:1422676966 program:JJ station: is local PTT:True is available:True Only:True CanTransmit:True
+3240 [T12:.NET TP Worker] RFPower:0
+3240 [T12:.NET TP Worker] TunePower:0
+3240 [T12:.NET TP Worker] DAXOn:False
+3240 [T12:.NET TP Worker] SimpleVOXEnable:False
+3240 [T12:.NET TP Worker] CWPitch:600
+3240 [T12:.NET TP Worker] CWSpeed:30
+3240 [T12:.NET TP Worker] CWIambic:True
+3240 [T12:.NET TP Worker] CWIambicModeB:True
+3240 [T12:.NET TP Worker] CWSwapPaddles:False
+3240 [T12:.NET TP Worker] CWBreakIn:True
+3240 [T12:.NET TP Worker] TXCWMonitorGain:80
+3243 [T12:.NET TP Worker] txBandSettingsHandler:160
+3243 [T12:.NET TP Worker] txBandSettingsHandler:80
+3243 [T12:.NET TP Worker] txBandSettingsHandler:60
+3243 [T12:.NET TP Worker] txBandSettingsHandler:40
+3243 [T12:.NET TP Worker] txBandSettingsHandler:30
+3243 [T12:.NET TP Worker] txBandSettingsHandler:20
+3243 [T12:.NET TP Worker] txBandSettingsHandler:17
+3244 [T12:.NET TP Worker] txBandSettingsHandler:15
+3244 [T12:.NET TP Worker] txBandSettingsHandler:12
+3244 [T12:.NET TP Worker] txBandSettingsHandler:10
+3244 [T12:.NET TP Worker] txBandSettingsHandler:6
+3244 [T12:.NET TP Worker] txBandSettingsHandler:GEN
+3244 [T12:.NET TP Worker] txBandSettingsHandler:2200
+3244 [T12:.NET TP Worker] txBandSettingsHandler:630
+3244 [T12:.NET TP Worker] TX1Enabled:False
+3244 [T12:.NET TP Worker] TX2Enabled:False
+3244 [T12:.NET TP Worker] TX3Enabled:False
+3245 [T12:.NET TP Worker] ATUEnabled:False
+3657 [T14:.NET TP Worker] guiClientPropertyChanged:station wa2iwc
+3761 [T2] [PROFILE] 1ms start_call_begin 
+3761 [T2] OpenTheRadio:rig is starting
+3783 [T2] [PROFILE] 2ms start_begin {"clientRemovedAlready":false,"clientAddedAlready":false}
+3786 [T2] [PROFILE] 24ms start_slices_available {"freeSlices":2}
+3786 [T2] [PROFILE] 26ms start_antenna_available 
+3786 [T2] [PROFILE] 26ms start_station_name_wait_begin {"maxWaitMs":45000,"earlyAbortMs":1000,"removalGraceMs":15000}
+3786 [T2] start:station name set wa2iwc
+3788 [T2] [PROFILE] 26ms station_name_set {"stationName":"wa2iwc"}
+3788 [T2] [PROFILE] 28ms start_success 
+3788 [T19:mainThread] mainThreadProc
+3789 [T19:mainThread] getProfileInfo:False
+3789 [T19:mainThread] getProfileInfo:awaiting default profile in GlobalProfileList
+3789 [T19:mainThread] getProfileInfo:global profile present JJRadioDefault
+3790 [T19:mainThread] SelectProfile:Name:JJRadioDefault,ProfileType:global Default:True
+3790 [T19:mainThread] ProfileGlobalSelection:JJRadioDefault
+3797 [T2] [PROFILE] Saved 7 events to C:\Users\Don\AppData\Roaming\JJFlexRadio\connection-profiles\profile-20260506-104153-384.json
+3797 [T2] [PROFILE] 37ms start_call_end {"success":true,"failureReason":""}
+3797 [T2] MainWindow.OnRadioStarted
+3798 [T2] SetupBoxes
+3800 [T2] EnableDisableWindowControls: False
+3801 [T2] PollTimer: started
+3801 [T2] InitializeApplication: complete
+3804 [T2] FeatureLicenseChanged
+3811 [T2] FeatureLicenseChanged
+3811 [T2] FeatureLicenseChanged
+3812 [T2] FeatureLicenseChanged
+3813 [T2] FeatureLicenseChanged
+3814 [T2] FeatureLicenseChanged
+3814 [T2] FeatureLicenseChanged
+3815 [T2] FeatureLicenseChanged
+3815 [T2] FeatureLicenseChanged
+3815 [T2] FeatureLicenseChanged
+3815 [T2] FeatureLicenseChanged
+3815 [T2] FeatureLicenseChanged
+3816 [T2] FeatureLicenseChanged
+3817 [T2] FeatureLicenseChanged
+3817 [T2] FeatureLicenseChanged
+3822 [T12:.NET TP Worker] TX1Enabled:False
+3822 [T12:.NET TP Worker] TX2Enabled:False
+3822 [T12:.NET TP Worker] TX3Enabled:False
+3827 [T12:.NET TP Worker] PersistenceLoaded:True
+3827 [T12:.NET TP Worker] guiClientUpdated:id:4D9C8BBF-CFDA-4008-B246-C80349734419 my client:True handle:1422676966 program:JJ station:wa2iwc is local PTT:True is available:True Only:True CanTransmit:True
+3827 [T12:.NET TP Worker] [PROFILE] 67ms gui_client_updated {"clientId":"4D9C8BBF-CFDA-4008-B246-C80349734419","station":"wa2iwc","isThisClient":true}
+3827 [T12:.NET TP Worker] ATUEnabled:False
+3827 [T12:.NET TP Worker] RFPower:0
+3827 [T12:.NET TP Worker] TunePower:0
+3827 [T12:.NET TP Worker] DAXOn:False
+3827 [T12:.NET TP Worker] SimpleVOXEnable:False
+3827 [T12:.NET TP Worker] CWPitch:600
+3827 [T12:.NET TP Worker] CWSpeed:30
+3827 [T12:.NET TP Worker] CWIambic:True
+3827 [T12:.NET TP Worker] CWIambicModeB:True
+3827 [T12:.NET TP Worker] CWSwapPaddles:False
+3827 [T12:.NET TP Worker] CWBreakIn:True
+3827 [T12:.NET TP Worker] TXCWMonitorGain:80
+3827 [T12:.NET TP Worker] PanadaptersRemaining:2
+3827 [T12:.NET TP Worker] LineoutMute:False
+3827 [T12:.NET TP Worker] IsMuteLocalAudioWhenRemoteOn:False
+3854 [T2] MainWindow_Loaded: starting init
+3854 [T2] MainWindow_Loaded: init complete
+5446 [T14:.NET TP Worker] RFPower:0
+5446 [T14:.NET TP Worker] TunePower:0
+5447 [T14:.NET TP Worker] PanadaptersRemaining:1
+5447 [T14:.NET TP Worker] LineoutMute:False
+5447 [T14:.NET TP Worker] IsMuteLocalAudioWhenRemoteOn:False
+5450 [T14:.NET TP Worker] panadapterAdded:mine 1:Flex.Smoothlake.FlexLib.Panadapter
+5450 [T14:.NET TP Worker] CenterFreq:3.75
+5450 [T14:.NET TP Worker] FPS:25
+5451 [T14:.NET TP Worker] CenterFreq:3.75
+5452 [T14:.NET TP Worker] InterlockState:Ready
+5452 [T14:.NET TP Worker] CWPitch:600
+5452 [T14:.NET TP Worker] CWSpeed:30
+5452 [T14:.NET TP Worker] CWIambic:True
+5452 [T14:.NET TP Worker] CWIambicModeB:True
+5452 [T14:.NET TP Worker] CWSwapPaddles:False
+5452 [T14:.NET TP Worker] CWBreakIn:True
+5452 [T14:.NET TP Worker] TXCWMonitorGain:80
+5452 [T14:.NET TP Worker] InterlockState:NotReady
+5452 [T14:.NET TP Worker] RFPower:0
+5452 [T14:.NET TP Worker] TunePower:0
+5452 [T14:.NET TP Worker] TX1Enabled:False
+5452 [T14:.NET TP Worker] TX2Enabled:False
+5452 [T14:.NET TP Worker] TX3Enabled:False
+5452 [T14:.NET TP Worker] DAXOn:True
+5452 [T14:.NET TP Worker] TXCWMonitorGain:80
+5452 [T14:.NET TP Worker] RFPower:0
+5452 [T14:.NET TP Worker] TunePower:0
+5452 [T14:.NET TP Worker] SimpleVOXEnable:False
+5452 [T14:.NET TP Worker] ATUEnabled:False
+5453 [T14:.NET TP Worker] RFPower:0
+5453 [T14:.NET TP Worker] TunePower:0
+5453 [T14:.NET TP Worker] DAXOn:True
+5453 [T14:.NET TP Worker] SimpleVOXEnable:False
+5453 [T14:.NET TP Worker] CWPitch:600
+5453 [T14:.NET TP Worker] CWSpeed:30
+5453 [T14:.NET TP Worker] CWIambic:True
+5453 [T14:.NET TP Worker] CWIambicModeB:True
+5453 [T14:.NET TP Worker] CWSwapPaddles:False
+5453 [T14:.NET TP Worker] CWBreakIn:True
+5453 [T14:.NET TP Worker] TXCWMonitorGain:80
+5453 [T14:.NET TP Worker] ATUEnabled:False
+5453 [T14:.NET TP Worker] InterlockState:Ready
+5453 [T14:.NET TP Worker] RFPower:0
+5453 [T14:.NET TP Worker] TunePower:0
+5453 [T14:.NET TP Worker] TX1Enabled:False
+5453 [T14:.NET TP Worker] TX2Enabled:False
+5453 [T14:.NET TP Worker] TX3Enabled:False
+5453 [T14:.NET TP Worker] RFPower:100
+5453 [T14:.NET TP Worker] TunePower:10
+5454 [T14:.NET TP Worker] TX1Enabled:True
+5454 [T14:.NET TP Worker] TX2Enabled:False
+5454 [T14:.NET TP Worker] TX3Enabled:False
+5455 [T14:.NET TP Worker] TX1Enabled:True
+5455 [T14:.NET TP Worker] TX2Enabled:False
+5456 [T14:.NET TP Worker] TX3Enabled:False
+5456 [T14:.NET TP Worker] ProfileTXList:Default iOS_default_Profile SO2R_TX1 SO2R_TX2 
+5456 [T14:.NET TP Worker] ProfileTXSelection:Default
+5456 [T14:.NET TP Worker] ATUEnabled:False
+5461 [T14:.NET TP Worker] TransmitSlice:null
+5461 [T14:.NET TP Worker] RFPower:100
+5461 [T14:.NET TP Worker] TunePower:10
+5461 [T14:.NET TP Worker] PanadaptersRemaining:1
+5461 [T14:.NET TP Worker] LineoutMute:False
+5461 [T14:.NET TP Worker] IsMuteLocalAudioWhenRemoteOn:False
+5462 [T14:.NET TP Worker] SliceToVFO:Error
+5462 [T14:.NET TP Worker] ActiveSlice:mine -1
+5462 [T14:.NET TP Worker] SliceToVFO:Error
+5463 [T14:.NET TP Worker] sliceAdded:mine 1:0: 3.750000 LSB [-2800,-100]
+5463 [T14:.NET TP Worker] sliceAdded:IsTransmitSlice
+5463 [T14:.NET TP Worker] sliceAdded:activeSlice
+5463 [T2] NativeMenuBar.ApplyUIMode: Modern
+5464 [T14:.NET TP Worker] InterlockState:Receive
+5464 [T14:.NET TP Worker] IsTransmit:slice 0 False
+5464 [T14:.NET TP Worker] TransmitSlice:null
+5464 [T14:.NET TP Worker] RFPower:100
+5464 [T14:.NET TP Worker] TunePower:10
+5464 [T14:.NET TP Worker] PanadaptersRemaining:0
+5464 [T14:.NET TP Worker] LineoutMute:False
+5464 [T14:.NET TP Worker] IsMuteLocalAudioWhenRemoteOn:False
+5464 [T14:.NET TP Worker] panadapterAdded:mine 2:Flex.Smoothlake.FlexLib.Panadapter
+5464 [T14:.NET TP Worker] CenterFreq:7.15
+5464 [T14:.NET TP Worker] FPS:25
+5464 [T14:.NET TP Worker] ATUEnabled:False
+5467 [T14:.NET TP Worker] CenterFreq:7.15
+5469 [T14:.NET TP Worker] RFPower:100
+5469 [T14:.NET TP Worker] TunePower:10
+5469 [T14:.NET TP Worker] Active:slice 0 False
+5469 [T14:.NET TP Worker] ActiveSlice:none
+5469 [T14:.NET TP Worker] PanadaptersRemaining:0
+5469 [T14:.NET TP Worker] LineoutMute:False
+5469 [T14:.NET TP Worker] IsMuteLocalAudioWhenRemoteOn:False
+5470 [T14:.NET TP Worker] SliceToVFO:Error
+5470 [T14:.NET TP Worker] ActiveSlice:mine -1
+5470 [T14:.NET TP Worker] SliceToVFO:Error
+5470 [T14:.NET TP Worker] sliceAdded:mine 2:1: 7.150000 LSB [-2800,-100]
+5470 [T14:.NET TP Worker] sliceAdded:activeSlice
+5471 [T14:.NET TP Worker] InterlockState:Ready
+5471 [T14:.NET TP Worker] RFPower:100
+5471 [T14:.NET TP Worker] TunePower:10
+5471 [T14:.NET TP Worker] TX1Enabled:True
+5471 [T14:.NET TP Worker] TX2Enabled:False
+5471 [T14:.NET TP Worker] TX3Enabled:False
+5471 [T14:.NET TP Worker] ATUEnabled:False
+5471 [T14:.NET TP Worker] ATUEnabled:False
+5471 [T14:.NET TP Worker] RFPower:100
+5471 [T14:.NET TP Worker] TunePower:10
+5472 [T14:.NET TP Worker] RFPower:100
+5472 [T14:.NET TP Worker] TunePower:10
+5472 [T14:.NET TP Worker] RFPower:100
+5472 [T14:.NET TP Worker] TunePower:10
+5472 [T14:.NET TP Worker] TX1Enabled:True
+5472 [T14:.NET TP Worker] TX2Enabled:False
+5472 [T14:.NET TP Worker] TX3Enabled:False
+5473 [T14:.NET TP Worker] IsTransmit:slice 1 True
+5473 [T14:.NET TP Worker] TransmitSlice:mine 1
+5473 [T14:.NET TP Worker] Active:slice 1 False
+5473 [T14:.NET TP Worker] ActiveSlice:none
+5473 [T14:.NET TP Worker] Active:slice 0 True
+5473 [T14:.NET TP Worker] ActiveSlice:mine 0
+5474 [T14:.NET TP Worker] CWPitch:600
+5474 [T14:.NET TP Worker] CWSpeed:30
+5474 [T14:.NET TP Worker] CWIambic:True
+5474 [T14:.NET TP Worker] CWIambicModeB:True
+5474 [T14:.NET TP Worker] CWSwapPaddles:False
+5474 [T14:.NET TP Worker] CWBreakIn:False
+5474 [T14:.NET TP Worker] TXCWMonitorGain:80
+5474 [T14:.NET TP Worker] CWPitch:600
+5474 [T14:.NET TP Worker] CWSpeed:30
+5474 [T14:.NET TP Worker] CWIambic:True
+5474 [T14:.NET TP Worker] CWIambicModeB:True
+5474 [T14:.NET TP Worker] CWSwapPaddles:False
+5474 [T14:.NET TP Worker] CWBreakIn:False
+5474 [T14:.NET TP Worker] TXCWMonitorGain:80
+5475 [T2] NativeMenuBar.ApplyUIMode: Modern complete, 135 items
+5475 [T2] NativeMenuBar.ApplyUIMode: Modern
+5476 [T14:.NET TP Worker] RFPower:100
+5476 [T14:.NET TP Worker] TunePower:10
+5477 [T14:.NET TP Worker] TX1Enabled:True
+5477 [T14:.NET TP Worker] TX2Enabled:False
+5477 [T14:.NET TP Worker] TX3Enabled:False
+5479 [T14:.NET TP Worker] TX1Enabled:True
+5479 [T14:.NET TP Worker] TX2Enabled:False
+5479 [T14:.NET TP Worker] TX3Enabled:False
+5479 [T14:.NET TP Worker] ProfileTXList:Default iOS_default_Profile SO2R_TX1 SO2R_TX2 
+5480 [T14:.NET TP Worker] DAXOn:True
+5480 [T14:.NET TP Worker] TXCWMonitorGain:80
+5481 [T14:.NET TP Worker] RFPower:100
+5481 [T14:.NET TP Worker] TunePower:10
+5481 [T14:.NET TP Worker] SimpleVOXEnable:False
+5483 [T14:.NET TP Worker] RFPower:100
+5483 [T14:.NET TP Worker] TunePower:10
+5483 [T14:.NET TP Worker] DAXOn:True
+5483 [T14:.NET TP Worker] SimpleVOXEnable:False
+5483 [T14:.NET TP Worker] CWPitch:600
+5483 [T14:.NET TP Worker] CWSpeed:30
+5483 [T14:.NET TP Worker] CWIambic:True
+5483 [T14:.NET TP Worker] CWIambicModeB:True
+5483 [T14:.NET TP Worker] CWSwapPaddles:False
+5483 [T14:.NET TP Worker] CWBreakIn:False
+5483 [T14:.NET TP Worker] TXCWMonitorGain:80
+5483 [T14:.NET TP Worker] CenterFreq:3.75
+5483 [T14:.NET TP Worker] FPS:1
+5483 [T14:.NET TP Worker] CenterFreq:7.15
+5483 [T14:.NET TP Worker] FPS:1
+5484 [T14:.NET TP Worker] slicePropertyChangedHandler:Mute slice:1 True
+5484 [T2] NativeMenuBar.ApplyUIMode: Modern complete, 135 items
+5484 [T14:.NET TP Worker] RFPower:100
+5484 [T14:.NET TP Worker] TunePower:10
+5484 [T14:.NET TP Worker] DAXOn:True
+5484 [T14:.NET TP Worker] SimpleVOXEnable:False
+5484 [T14:.NET TP Worker] CWPitch:600
+5484 [T14:.NET TP Worker] CWSpeed:30
+5484 [T14:.NET TP Worker] CWIambic:True
+5484 [T14:.NET TP Worker] CWIambicModeB:True
+5484 [T14:.NET TP Worker] CWSwapPaddles:False
+5484 [T14:.NET TP Worker] CWBreakIn:False
+5484 [T14:.NET TP Worker] TXCWMonitorGain:80
+5484 [T14:.NET TP Worker] TX1Enabled:True
+5484 [T14:.NET TP Worker] TX2Enabled:False
+5484 [T14:.NET TP Worker] TX3Enabled:False
+5484 [T14:.NET TP Worker] PanadaptersRemaining:0
+5484 [T14:.NET TP Worker] LineoutMute:False
+5484 [T14:.NET TP Worker] IsMuteLocalAudioWhenRemoteOn:False
+5484 [T14:.NET TP Worker] ProfileGlobalList:iOS_default_Profile JJRadioDefault SO2RDefault 
+5484 [T14:.NET TP Worker] ProfileTXList:Default iOS_default_Profile SO2R_TX1 SO2R_TX2 
+5501 [T19:mainThread] getProfileInfo:global profile loaded JJRadioDefault
+5501 [T19:mainThread] SelectProfile:Name:Default,ProfileType:tx Default:True
+5501 [T19:mainThread] ProfileTXSelection:Default
+5502 [T19:mainThread] flex open:got profile
+5502 [T19:mainThread] flex open:#VFOs 2
+5592 [T9:.NET TP Worker] RFGainLow:0
+5592 [T9:.NET TP Worker] RFGainHigh:20
+5592 [T9:.NET TP Worker] RFGainStep:20
+5592 [T9:.NET TP Worker] RFGainMarkers:0 20 
+5592 [T9:.NET TP Worker] RFGainLow:0
+5592 [T9:.NET TP Worker] RFGainHigh:20
+5592 [T9:.NET TP Worker] RFGainStep:20
+5592 [T9:.NET TP Worker] RFGainMarkers:0 20 
+5592 [T9:.NET TP Worker] RFGainLow:0
+5592 [T9:.NET TP Worker] RFGainHigh:20
+5592 [T9:.NET TP Worker] RFGainStep:20
+5592 [T9:.NET TP Worker] RFGainMarkers:0 20 
+5592 [T9:.NET TP Worker] RFPower:100
+5592 [T9:.NET TP Worker] TunePower:10
+5593 [T9:.NET TP Worker] TX1Enabled:True
+5593 [T9:.NET TP Worker] TX2Enabled:False
+5593 [T9:.NET TP Worker] TX3Enabled:False
+5596 [T9:.NET TP Worker] TX1Enabled:True
+5596 [T9:.NET TP Worker] TX2Enabled:False
+5596 [T9:.NET TP Worker] TX3Enabled:False
+5596 [T9:.NET TP Worker] ProfileTXList:Default iOS_default_Profile SO2R_TX1 SO2R_TX2 
+5596 [T9:.NET TP Worker] ProfileTXList:Default iOS_default_Profile SO2R_TX1 SO2R_TX2 
+5596 [T9:.NET TP Worker] DAXOn:True
+5596 [T9:.NET TP Worker] TXCWMonitorGain:80
+5626 [T19:mainThread] flex open:q.mainloopTrue
+5627 [T19:mainThread] issue7620:read:False
+5628 [T19:mainThread] WpfFilterAdapter.PanSetup
+5638 [T19:mainThread] PanRanges:Donald_Breda_Don
+5652 [T19:mainThread] FreqChange:3961000
+5652 [T19:mainThread] FreqChange:current freq:3961000
+5653 [T19:mainThread] FreqChange:new segment:1 1 3.500.000 4.000.000 permanent
+5653 [T19:mainThread] PanParameterSetup
+5655 [T19:mainThread] FlexWaterfall:3500000 4000000 40
+5655 [T19:mainThread] raisePowerEvent:True True
+5656 [T2] MainWindow PowerNowOn
+5657 [T2] SetupFreqoutModern
+5696 [T2] MainWindow.SetupOperationsMenu: rebuilding menus
+5696 [T2] NativeMenuBar.ApplyUIMode: Modern
+5709 [T2] NativeMenuBar.ApplyUIMode: Modern complete, 145 items
+5709 [T2] EnableDisableWindowControls: True
+5710 [T2] WirePanDisplay: callbacks connected
+RxAudioPipeline: created (48000Hz, 2ch)
+5915 [T21:knob thread] FlexControl:C:\Users\Don\AppData\Roaming\JJFlexRadio\wa2iwc_Donald_Breda_FlexKnob.xml
+5915 [T21:knob thread] Serial
+5915 [T21:knob thread] Config.Read
+5915 [T21:knob thread] FlexControl:using DefaultKeysAndActions
+5916 [T21:knob thread] buildKnobActionsMap:True
+6240 [T2] DoCommand:00040000
+6242 [T2] DoCommand:00040012
+6359 [T2] DoCommand:00040073
+6359 [T2] DoCommand:key not found:F4, Alt
+6360 [T2] DoCommand:00040073
+6360 [T2] DoCommand:key not found:F4, Alt
+6361 [T2] MainWindow.RequestShutdown: starting shutdown
+6368 [T2] Logs.Done
+6369 [T2] CloseTheRadio
+6369 [T2] PollTimer: stopped
+6372 [T21:knob thread] Dispose:True
+6373 [T21:knob thread] Serial.close
+6373 [T2] FlexBase.Dispose:True
+6373 [T2] saveNewGlobalProfile
+6374 [T2] Disconnect:1315-4176-6300-7236
+6374 [T2] Disconnect:stopping main thread
+6394 [T19:mainThread] raisePowerEvent:False False
+6394 [T2] Disconnect:main thread stopped
+6395 [T2] Connected:False
+6396 [T2] sliceRemoved:VFO adjust removedIdx=0 RXVFO 0→0 TXVFO 1→0
+6396 [T2] sliceRemoved:mine, new count:1:0: 3.961000 LSB [-3300,-50]
+6396 [T2] sliceRemoved:VFO adjust removedIdx=0 RXVFO 0→-1 TXVFO 0→-1
+6396 [T2] sliceRemoved:mine, new count:0:1: 7.255000 LSB [-3100,-100]
+6396 [T2] panadapterRemoved:new count:1:Flex.Smoothlake.FlexLib.Panadapter
+6396 [T2] panadapterRemoved:new count:0:Flex.Smoothlake.FlexLib.Panadapter
+6396 [T2] waterfallRemoved
+6396 [T2] waterfallRemoved
+6398 [T2] guiClientRemoved:my client
+6398 [T2] guiClientRemoved:id:4D9C8BBF-CFDA-4008-B246-C80349734419 my client:True handle:1422676966 program:JJ station:wa2iwc is local PTT:True is available:True Only:True CanTransmit:True
+6406 [T2] [PROFILE] 2638ms gui_client_removed {"clientId":"4D9C8BBF-CFDA-4008-B246-C80349734419","handle":1422676966,"isThisClient":true,"station":"wa2iwc","msSinceStartBegin":2610}
+6407 [T2] PCAudio:False
+6408 [T2] WpfFilterAdapter.Close
+6408 [T2] PanAdapterManager.Close
+6409 [T2] W2 Dispose:True
+6409 [T2] Serial.close
+6409 [T2] exit:screen saver set:False
+6409 [T2] End.

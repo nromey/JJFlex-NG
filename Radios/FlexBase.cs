@@ -26,6 +26,7 @@ using Flex.Smoothlake.Vita;
 using HamBands;
 using JJPortaudio;
 using JJTrace;
+using Radios.DiscoveryChain;
 using Radios.SmartLink;
 
 namespace Radios
@@ -685,6 +686,12 @@ namespace Radios
             {
                 Tracing.TraceLine("Connect worked:" + theRadio.Serial, TraceLevel.Info);
 
+                // 4.1-line cache writer: seed radioConnectionCacheV1.xml so the
+                // 4.2-line discovery cascade (Rung 1a CachedLanIp) can short-circuit
+                // UDP discovery on first launch after upgrade. See
+                // memory/project_autoconnect_no_ip_dead_end.md for why this lives here.
+                RecordConnectedRadioForCache();
+
                 if (RemoteRig)
                 {
                     //PCAudio = true;
@@ -936,6 +943,12 @@ namespace Radios
                 {
                     rv = theRadio.Connect();
                     Tracing.TraceLine($"RetryConnect: Radio.Connect returned {rv} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+
+                    if (rv)
+                    {
+                        // Seed the 4.2-line discovery-chain cache on retry success too.
+                        RecordConnectedRadioForCache();
+                    }
                 }
 
                 return rv;
@@ -7340,6 +7353,36 @@ namespace Radios
         /// Operator's directory for rig-specific stuff.
         /// </summary>
         internal string OperatorsDirectory { get { return ConfigDirectory + "\\" + OperatorName; } }
+
+        // Discovery cascade cache — 4.1-line write-only backport. Populates
+        // radioConnectionCacheV1.xml on every successful Connect so the
+        // 4.2-line cascade (Rung 1a CachedLanIp) can short-circuit UDP
+        // discovery on first launch after upgrade. See
+        // memory/project_autoconnect_no_ip_dead_end.md.
+        private RadioConnectionCache _radioConnectionCache;
+
+        private RadioConnectionCache GetRadioConnectionCache()
+        {
+            if (_radioConnectionCache == null)
+            {
+                var dir = Callouts?.ConfigDirectory ?? "";
+                _radioConnectionCache = new RadioConnectionCache(dir);
+            }
+            return _radioConnectionCache;
+        }
+
+        private void RecordConnectedRadioForCache()
+        {
+            try
+            {
+                if (theRadio == null) return;
+                GetRadioConnectionCache().RecordConnectedRadio(theRadio);
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine($"RecordConnectedRadioForCache: {ex.GetType().Name} {ex.Message}", TraceLevel.Warning);
+            }
+        }
 
         // Formatters from callouts.
         internal static FormatFreqDel FormatFreq;

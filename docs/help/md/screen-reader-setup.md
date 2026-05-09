@@ -6,7 +6,7 @@ JJ Flexible Radio Access is designed to work with both NVDA and JAWS. Here is ho
 
 NVDA works well right out of the box, and a few simple tips can make the experience even better:
 
-- Make sure you are running a recent version of NVDA (2023.1 or later is recommended).
+- Make sure you are running a recent version of NVDA (2023.1 or later is recommended). NVDA 2026.1 is the current release and includes accessibility improvements that benefit web-style content such as the SmartLink login window.
 - JJ Flexible Radio Access announces important state changes automatically. If NVDA feels too chatty for your taste, you can tone down its verbosity in NVDA's own speech settings.
 - The ScreenFields panel uses standard accessible controls. Use Tab to move between fields, and use the arrow keys to adjust values.
 

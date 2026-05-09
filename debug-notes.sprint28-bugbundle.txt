@@ -1,0 +1,113 @@
+Headline: Fix for the F2 + M bug Don found — plus two new multi-slice universal
+Home keys that came out of testing the fix, plus two other Sprint 28 polish items
+that Noel surfaced this morning.
+
+WHAT CHANGED SINCE THE LAST DEBUG BUILD YOU RECEIVED
+
+1. The F2 + M bug in Classic tuning mode is fixed.
+
+   You found it, Don — thank you. In Classic tuning mode, pressing F2 to
+   land on the JJ Flexible Home and then M did not mute the active slice,
+   while the same sequence worked in Modern tuning mode.
+
+   Root cause: the Frequency field had two separate handlers, one for each
+   tuning mode. The Modern one picked up the universal Home keys in
+   Sprint 28, the Classic one never did. Both handlers now match —
+   M (mute / unmute), V (cycle slice), R (RIT toggle), X (XIT toggle),
+   Q (squelch toggle), and = (transceive: RX = TX) all work from the
+   Frequency field regardless of whether you are in Classic tuning mode
+   or Modern tuning mode.
+
+   Incidental: V in Classic tuning mode used to open the Flex memory-channel
+   picker. That behaviour is now gone — V cycles slices to match Modern
+   tuning mode and the help docs. Memory-channel access is still available
+   via the leader-key chord Ctrl+J then M.
+
+   WHAT WE NEED YOU TO VERIFY
+   - Press F2 from anywhere. Press M. Slice should mute with a tone.
+     Press M again — unmute.
+   - Do the same in Modern tuning mode (should already work, as a regression
+     check).
+   - R and X toggle RIT and XIT respectively.
+   - Q toggles squelch.
+   - V cycles between slices when you have more than one active.
+   - = sets both RX and TX to the current slice.
+
+2. Two new multi-slice universal Home keys.
+
+   While verifying the F2 + M fix, Don noticed that M correctly mutes the
+   active slice, but with two slices open you can only hear the effect on
+   one of them. Added two new universal Home keys to address that:
+
+   - Shift + M — toggle mute on or off across every slice you own at once.
+     If any of your slices is unmuted, pressing Shift + M mutes them all.
+     If all your slices are already muted, pressing Shift + M unmutes them
+     all.
+   - Shift + Comma (the < key on US keyboards) — release every slice except
+     the first, so you end up cleanly on just Slice A. Think of it as a
+     one-keystroke "reset back to single slice."
+
+   Both actions use a tri-tone earcon (three notes instead of the usual
+   two-tone toggle) pitched about a musical third above the normal feature
+   toggle earcon, so by ear you can tell "this affects all my slices" from
+   "this affects just the active slice."
+
+   The same actions are also wired up in the slice menu and in the
+   ScreenFields Audio category for mouse-driven operation.
+
+   WHAT WE NEED YOU TO VERIFY
+   - With two or more slices open: press Shift + M. Every slice mutes,
+     tri-tone rises, speech says "All slices muted."
+   - Press Shift + M again. Every slice unmutes, tri-tone falls, speech
+     says "All slices unmuted."
+   - With two or more slices open: press Shift + Comma (or press <).
+     Slice count drops to 1, speech says "Released N extra slices,
+     1 slice active."
+   - With only one slice active: press Shift + Comma. Speech says
+     "Only one slice active," no action.
+   - Find "Mute/Unmute All Slices" and "Release All Extra Slices" in the
+     menu and in ScreenFields. Confirm the buttons do the same thing as
+     the hotkeys.
+
+3. Plural-slice speech bug is fixed.
+
+   Create a new slice, release it. The release announcement used to say
+   "Slice released, 1 slices active" even when you had exactly one slice
+   left. Now it says "Slice released, 1 slice active" (singular when
+   appropriate).
+
+4. Squelch Level field now always shows the numeric value.
+
+   In earlier builds, the Squelch Level field on the JJ Flexible Home
+   showed "---" when squelch was off and only displayed the numeric
+   threshold when squelch was on. That caused an announce-vs-display
+   mismatch for screen-reader users — adjusting the level while squelch
+   was off spoke the new number, but screen readers re-reading the field
+   heard "off."
+
+   Now the field always shows the stored numeric level. The adjacent
+   Squelch field ("Q" when on, blank when off) carries the active /
+   inactive signal on its own, so nothing is lost by dropping the
+   "---" placeholder.
+
+TERMINOLOGY NOTE
+
+Noel is normalising the two tuning-mode names to "Classic tuning mode"
+and "Modern tuning mode" everywhere (rather than bare "Classic mode"
+and "Modern mode"). The word "tuning" stays in the name because tuning
+behaviour is the only thing that changes when you switch between them.
+If you notice places in the application or docs where they are still
+called just "Classic" or "Modern," flag them — we are still catching up
+on the scrub across the corpus.
+
+OTHER KNOWN STATE FROM THE 4.1.17 RUN-UP
+
+Everything from the prior debug notes still applies (Sprint 27 networking
+code-complete, help audit landed, test matrix drafted). The matrix is at
+docs\planning\agile\sprint28-test-matrix.md if you want to preview what we
+are going to walk through.
+
+If you hit something networking-related, a trace file at
+%APPDATA%\JJFlexRadio\JJFlexRadioTrace.txt captures enough to diagnose.
+
+73 — Noel + Claude

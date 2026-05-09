@@ -357,6 +357,31 @@ Sprint 15 plan documents (`docs/planning/agile/archive/Sprint-15-pileup-dx-ragch
 
 **Status:** Logged 2026-04-28 morning from Noel's response after band-key test passed but felt under-informative.
 
+### FEATURE: Network identity group in radio info — MAC, IP, subnet, ping (2026-05-07 Don request via Noel)
+
+**Proposal:** Add a small "Network identity" group to the radio info display so hams can read the radio's LAN metadata (DHCP reservations, port forwarding rules, MultiFlex coexistence checks) without leaving JJ Flex. Don asked specifically for MAC address; the expanded scope groups it with the related fields hams typically need at the same time.
+
+**Source request:** Don requested "MAC address in the radio info menu/display" on 2026-05-07 during discovery-cascade OUI work — we asked him for his radio's MAC; he pulled it from his Ubiquiti router admin UI via VoiceOver (`00:1c:2d:02:07:1b` for his 6300 at `192.168.1.76`). His framing implied a general "I shouldn't have to dig in router pages for this" UX gap.
+
+**Fields in scope (all already exposed by FlexLib v4.0.1 and v4.2.18):**
+- **MAC address** — `Radio.FrontPanelMacAddress` (string; populated from discovery exchange; FlexLib parses `-` to `:` form at `Discovery.cs:206`).
+- **IP address** — `Radio.IP` (IPAddress).
+- **Subnet mask** — `Radio.SubnetMask` (IPAddress).
+- **Network ping** — `Radio.NetworkPing` (int, milliseconds). Free quality indicator hams understand.
+- **Gateway / link speed** — NOT exposed by FlexLib; would require `System.Net.NetworkInformation.NetworkInterface` enumeration. Phase 2 stretch only if the core four fields prove insufficient.
+
+**Where it lives:** Existing radio info display (wherever model/serial/firmware already appear) is the natural home. Sprint 29 Diagnostics tab is the alternative — could be the "Network" sub-block of a larger Diagnostics pane per `project_sprint29_diagnostics_settings_tab.md`.
+
+**Accessibility requirements:**
+- Each field has its own `AccessibleName`; group has container labeling.
+- Values reachable via screen-reader navigation, not just visually present.
+- Each value individually copyable on focus (Ctrl+C) — hams paste MACs into router admin pages routinely.
+- Values update via PropertyChanged so DHCP renewals reflect without manual refresh.
+
+**Priority:** Low-medium. Small implementation surface, real user-visible value, fits Sprint 29 diagnostics theme. Not 4.2.0-blocking.
+
+**Status:** Logged 2026-05-07 from Don's request during discovery cascade OUI investigation. The OUI investigation resolved interestingly: IEEE MA-L registry lists `00-1C-2D` to Dell, and Don's Flex 6300 MAC is `00:1c:2d:02:07:1b`. Don clarified there's an embedded Windows computer inside Flex radios (definitely inside the Maestro front-panel controller, very likely inside the 6000/8000-series front panels too) — the MAC almost certainly comes from a Dell-OEM motherboard or NIC chip in that embedded machine. FlexLib's `FLEX_OUI = 0x1C2D` (VITA-49 protocol identifier) numerically matching the Ethernet OUI is either deliberate-by-Flex-choice or a strong coincidence; either way, the practical cascade rung filter is "24-bit prefix `00:1C:2D` + UDP/4992 protocol probe." Dell false positives are bounded by the protocol-probe step. Cascade design can hard-code on this evidence.
+
 ### FEATURE: Disconnect notification — speech + CW prosign when radio disconnects (2026-04-28 Noel proposal)
 
 **Proposal:** When the radio disconnects (user-initiated, network drop, or radio side disconnect), JJ Flex should announce it. Today there's no clear notification. Noel's framing: *"radio disconnect should probably give a CW disconnect / speech should give some kind of notification it has disconnected. Maybe 'jjf DC k' in CW, 'JJ Flexible disconnected from radio' in speech."*

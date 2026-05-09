@@ -3,23 +3,182 @@
 This document captures the current state of JJ-Flex repository and active work.
 
 **Repository root:** `C:\dev\JJFlex-NG`
-**Branch:** `sprint28/home-key-qsk` (Sprint 28 substantively complete in code; Sprint 28 wrap items committed; 4.1.17 release-verification matrix in active runtime testing — note: 4.1.17 was retired 2026-05-02 in favor of direct 4.2.0 cascade)
+**Branch:** `main` (post-merge of feature/cache-writer-backport on 2026-05-09 — main is the 4.1 working branch per project_main_branch_41_posture.md. 4.2.0 staging continues on track/flexlib-42. 4.1.17 retired 2026-05-02.)
 
-## RESUME HERE — post-recovery 2026-05-05 (or whenever Noel is up to it)
+## RESUME HERE — 2026-05-08 (after Phase 0 F3-G ships via rarbox-Claude)
 
-**One file to grab:** `docs/planning/for-noel/2026-05-04-foundation-drop-test-pull.md`
+Phase 0 launched 2026-05-07 with the "Claude lives on rarbox" pivot. F1 + F2 done via SSH (nginx/certbot/Python/FastAPI installed). F3-G handed off to rarbox-Claude with full briefing. Resume:
 
-That's the test pull doc for everything that landed today (stuck-modal escape + 7 polish bug fixes, both merged into sprint28/home-key-qsk at commit `ee8faebb`). Nineteen tests in for-noel format with `**** ` slots. Read each test, do the action, write your result on the `**** ` line. Move to for-claude/ when done.
+1. On rarbox: `cd /home/ner/jjflex-ng && claude`
+2. Paste the kickoff prompt — it tells rarbox-Claude to read `docs/planning/active/rarbox-claude-F3-G-briefing.md` (which references the procedural runbook `rarbox-setup-runbook-for-claude.md`)
+3. Watch rarbox-Claude execute F3 → F4 → F5 → G; verify when prompted
+4. **F5 confirmation gate:** generate Cloudflare Origin Certificate (Cloudflare dashboard → SSL/TLS → Origin Server → Create Certificate) and install at `/etc/ssl/cloudflare/jjflexible.radio.pem` + `.key` before nginx config goes in
+5. After Section G passes, paste the report-back here so the rarbox-operator memory entry can be promoted from tentative to confirmed (or, if it went sideways, lessons recorded)
 
-Build to test against: `bin\x64\Debug\net10.0-windows\win-x64\JJFlexRadio.exe` — already built fresh today, version 4.1.16.0.
+**Other for-noel pulls still queued (lower priority):**
+- `docs/planning/for-noel/2026-05-06-discovery-cascade-v3-design-pull.md` — discovery cascade v3 design (decision: v3 supersedes R6 vs layers alongside)
+- `docs/planning/for-noel/2026-05-04-foundation-drop-test-pull.md` — foundation drop test (still untouched)
+- `docs/planning/for-noel/2026-05-04-sprint28-bug-bundle-questions-pull.md` — Q2 still open (RunsWithoutRadio + action-aware no-radio)
+- `docs/planning/for-noel/2026-05-04-42-release-execution-plan-pull.md` — strategic context (mostly executing now via Phase 0)
 
-Skip-friendly: any test you can't run, write `**** SKIP <reason>`. Sessions 1, 2, 5 are pure solo (15 + 15 + 5 min). Session 3 needs Don. Session 4 (forced stuck conditions) is fully optional.
+---
 
-If the doc-driven format isn't working when you sit down with it, just say "let's walk through the tests in chat" — I can prompt one test at a time interactively.
+## 2026-05-07 end-of-day seal: Phase 0 launch + "Claude lives on rarbox" pivot
 
-**Other pending items (lower priority, only if time + energy):**
-- `docs/planning/for-noel/2026-05-04-sprint28-bug-bundle-questions-pull.md` — Q2 still open (RunsWithoutRadio + action-aware no-radio). Q1 + Q3 auto-resolved.
-- `docs/planning/for-noel/2026-05-04-42-release-execution-plan-pull.md` — strategic plan for 4.2.0 release (firmware updater + crash reporter + updater). Five questions inside. Tomorrow afternoon's Cloudflare R2 + Azure prep work answers some implicitly.
+**The big shifts.** Phase 0 — the Cloudflare R2 + DNS + rarbox setup that every 4.2.0 external dependency hangs on — went from "queued" to "in flight." DNS for `jjflexible.radio` moved to Cloudflare; `crashes.jjflexible.radio` resolves through Cloudflare's edge; nginx + Python + FastAPI installed on rarbox; F3-G handed off to rarbox-Claude as the first concrete trial of the "Claude lives on rarbox" execution model. Three architectural decisions captured (hybrid storage, on-box Claude model, ntfy push architecture).
+
+### External infrastructure (today's primary work)
+
+- **Cloudflare onboarding:** `jjflexible.radio` zone added; nameservers flipped at register.radio. Active in <5 min — `.radio` propagates faster than expected.
+- **DNS A record:** `crashes.jjflexible.radio` → `178.156.204.128`, Proxied (orange cloud). Verified resolving via Google DNS to Cloudflare anycast (`104.21.31.128`, `172.67.176.135`, plus IPv6 dual-stack).
+- **rarbox F1 — nginx + certbot:** `apt install -y nginx certbot python3-certbot-nginx` → nginx 1.26.3-3+deb13u2, certbot 4.0.0-2, python3-certbot-nginx 4.0.0-2. nginx.service auto-enabled. UFW already had 80/443 open per `project_rarbox_hardening.md`.
+- **rarbox F2 — Python venv:** `/opt/jjflex-receiver/venv` with fastapi 0.136.1, uvicorn 0.46.0, pydantic 2.13.4, python-multipart 0.0.27. Imports clean.
+
+### Architectural decisions captured today
+
+- **Storage design (hybrid, approved):** zip on disk (`/var/lib/jjflex-receiver/<date>/<uuid>.zip`) for forensic preservation + SQLite index at `index.db` for triage queries + JSON sidecar per bundle (`<uuid>.json`) as the rebuildable source of truth. Honors auditable-systems preference + preserves byte-perfect user uploads.
+- **"Claude lives on rarbox" pivot (tentative pending F3-G validation):** mid-trial shift from SSH-from-elsewhere to local Claude Code session ON rarbox. Triggered by quote-escape pain on F2 verify (PowerShell→bash→python heredoc) plus looking ahead at writing 100+ line app.py via heredoc. `project_claude_as_rarbox_operator.md` updated with full Evolution section; original SSH model preserved as historical context (revertable if F3-G goes sideways).
+- **ntfy push architecture (firm decision):** self-hosted ntfy server (likely roarbox per dynamic-services framing) with `upstream-base-url: https://ntfy.sh` for iOS APNs relay. Topic names leak to ntfy.sh; message bodies stay self-hosted. Approved against `project_no_silent_phone_home.md` as user-initiated subscription. New memory: `project_ntfy_push_architecture.md`. Three implementation questions added to research queue (upstream-base-url verification, host decision, v1 use-case scoping).
+
+### Repo additions (committed in this seal)
+
+- **NEW:** `docs/planning/active/rarbox-claude-F3-G-briefing.md` — ~280-line handoff briefing for rarbox-Claude. Inlines load-bearing memory excerpts (crash-triage flow, no-silent-phone-home, auditable-systems) since rarbox-Claude has its own disjoint memory tree. Includes storage schema, endpoint contracts, validation rules, F5 confirmation gates, out-of-scope reminders.
+- **MODIFIED:** `docs/planning/active/research-queue.md` — timestamp bumped to 2026-05-07; "In flight" populated with Phase 0 F3-G; Phase 0 entry restructured (Section A done / F in flight / B-E queued); three ntfy items added to Queued — agent-ready.
+- **MODIFIED:** `CLAUDE.md` — End-of-day section now anchors `backup-memory-to-nas.ps1` and `backup-private-to-nas.ps1` at repo root with explicit absolute paths + invocation-pattern note (call-operator preferred over `powershell -File`, which silently exits 0 on bad paths). Tonight's seal hit this footgun — caught it because the repeated invocation revealed the silent failure.
+
+### Memory updates (separately backed up to NAS in tonight's seal)
+
+- `project_claude_as_rarbox_operator.md` — added Evolution section (~50 lines) for the on-box pivot; frontmatter description and MEMORY.md index line updated.
+- `project_ntfy_push_architecture.md` — NEW. Decision spec, privacy posture, open implementation questions.
+- `MEMORY.md` — two index lines updated (ntfy added, rarbox-operator updated).
+
+### Cross-surface state at end of 05-07
+
+- **Main repo** (`feature/cache-writer-backport`): 3 file changes today (briefing + research-queue + CLAUDE.md); pushed in this seal.
+- **External (Cloudflare):** zone active for `jjflexible.radio`; one A record live; Sections B-E queued for Noel UI work.
+- **External (rarbox):** packages installed, Python venv ready, nothing yet listening on 8000/443. Receiver app NOT yet deployed. nginx still serving the default Debian page on 80/443.
+- **rarbox-Claude:** briefing + runbook files dropped at `/home/ner/jjflex-ng/docs/planning/active/`; session not yet kicked off — that's tomorrow.
+- **NAS:** memory + private snapshots refreshed (`memory-20260507-235826.zip` + `private-20260507-221459.zip`).
+- **Other worktrees:** no activity (`track/flexlib-42`, `track/braille-research`, `track/multi-radio` quiet).
+
+### Skipped today (per CLAUDE.md skip rules)
+
+- **Daily debug publish to Dropbox:** no new debug build (docs + setup work only)
+- **Rigmeter snapshot:** docs-only day; values mostly unchanged from yesterday's heavy-doc snapshot
+
+### CLAUDE.md drift check
+
+- **Fixed tonight:** script-path anchoring + invocation-pattern note (see "Repo additions" above).
+- **Still pending from 05-06 seal:** stale NAS path reference, sweep pattern reference, step ordering for publish-daily. Queued for next CLAUDE.md polish pass.
+- **Still pending from 05-04 seal:** publish-daily → publish-nightly rename across script + CLAUDE.md + filenames.
+
+### What's set up for tomorrow
+
+- **Kick off rarbox-Claude** to execute Phase 0 Section F3-G (resume path in RESUME HERE above).
+- **Generate Cloudflare Origin Certificate** at the F5 confirmation gate.
+- **Promote rarbox-operator memory entry** from tentative to confirmed after F3-G completes (or record lessons if it goes sideways).
+- **Phase 0 Sections B-E** (R2 bucket + `data.jjflexible.radio` custom domain + R2 API tokens + GitHub Action sync) remain queued for Noel UI work.
+
+---
+
+## 2026-05-06 end-of-day seal (sealed 05-07 morning after surgery-recovery pain night)
+
+**The big wins.** R6 cache-writer backport landed end-to-end. Don connected to his radio in 296ms via the cached IP — first real-world validation that the write-then-read chain across the 4.1 / 4.2 line works. Plus discovery cascade v3 — six research streams synthesized into a unified design memo that supersedes R6 — committed and pulled to for-noel/.
+
+### Code that landed (main repo, branch `feature/cache-writer-backport`)
+
+- **e2d4ebea** — Cache writer backport: 4.1 line seeds `radioConnectionCacheV1.xml`. Closes the chicken-and-egg in `project_autoconnect_no_ip_dead_end.md`. Without this, R6's cache-reader has nothing to read on first connect; with this, the 4.1 line lays the cache so R6 (running off 4.2.18) finds the IP on the very next launch. Don's 296ms reconnect proves the write-then-read pipeline.
+- **e7e2e3b2** — Cache writer: use `FlexVersion.ToString` for round-trip-safe version string. Polish-only fix: prior code stored the version as a packed long (something like "1127020893346674"), which R6 parses as 0.0.0.0 and trips up FlexLib 4.2.18 feature gating. Doesn't break the connect itself, so Don's 4.1.16.241 build still works fine — but the 4.1.16.242 build with this fix was archived to NAS rather than shipped to Don, since the next public build picks it up automatically.
+- **1e21f563** — Discovery cascade v3 research: 6 streams complete, 1 awaiting hardware. 4,276 insertions of memos and synthesis notes.
+- **0c5ddf00** — Discovery cascade v3 design memo synthesized. 826 insertions, 6 deletions.
+- **f4256aa4** — Archive Don's 2026-05-06 trace corpus + for-noel v3 review pulls. 2,991 insertions. Don's traces preserved in repo for future bisects; v3 pulls added to for-noel/.
+- **b46388ec** — Archive 4.1.16.242 polish build — Don doesn't need to act on it. 54 insertions (zip + NOTES on NAS only).
+
+### Code that landed (flexlib-42 worktree, branch `track/flexlib-42`)
+
+- **5bfc6501** — DiscoveryChain: log per-rung outcome at Info regardless of success. Makes per-rung diagnostic visibility unconditional — was Verbose-on-failure, now Info-always.
+- **bd3d2035** — RadioConnectionCache: use FlexVersion.ToString for round-trip-safe write. Same fix as e7e2e3b2, applied to the 4.2 line so the cache stays format-compatible across the 4.1/4.2 boundary.
+
+### WIP committed during this seal (Discovery.cs R6 instrumentation)
+
+`Discovery.cs` in the flexlib-42 worktree carries 246 lines of R6 silent-discovery diagnostic instrumentation: unconditional build-marker, NIC enumeration, bind-attempt logging, `SelfTest()` (loopback / NIC-self / limited-broadcast self-test before main Receive loop), and `SyncReceiveDrain()` (5-second sync receive on the bound socket before async handoff). Per `project_flexlib_4218_discovery_investigation.md`, R1–R5 falsified every named source-level suspect and R6 chain-not-gate dissolves the investigation's blocking criticality — so this instrumentation is parked diagnostic work, not a planned shipping feature. Sealed here as a clearly-labeled WIP commit so the experiment stays preserved + pushable rather than living indefinitely as a working-tree edit.
+
+### External infrastructure work (uncommitted on 05-06 EOD; committed in this seal)
+
+A pivot from pure code work into ops planning. Rarbox is the existing VPS hosting `crashes.jjflexible.radio`; roarbox is the newer/faster box being repurposed (see `project_roarbox_vs_rarbox.md`). Five new planning docs:
+
+- `rarbox-bootstrap.md` — Claude Code install runbook for the existing rarbox VPS so the on-box Claude session can take over Phase 0 receiver setup.
+- `roarbox-bootstrap.md` — equivalent for roarbox: NOPASSWD setup for `noel`, install Claude Code, then hand off to on-box session.
+- `roarbox-account-cleanup-runbook.md` — multi-tenant cleanup procedure (rename `patrick` → `borris`, decide Doug's NOPASSWD status, etc.).
+- `roarbox-upgrade-parts-list.md` — CPU upgrade parts shopping list (1× E5-2620 v2 → 2× E5-2697 v2, the official R620 dual-CPU ceiling, plus shroud + fans).
+- `chris-roarbox-inspection-questions.md` — four pre-purchase questions for Chris Polk so Noel doesn't ship the wrong shroud or fan complement.
+
+### Helper / workflow updates
+
+- `screen-reader-setup.md` — added one sentence noting NVDA 2026.1 is current and includes accessibility improvements relevant to web-style content (covers the SmartLink WebView2 login path).
+- `research-queue.md` — added SmartLink login silent-validation manual-test entry; added NVDA-2026.1-released note in Recently completed.
+- `debug-notes.txt` — replaced with the cache-writer-fix note for Don (the F2+M debug-notes content moved to `debug-notes.sprint28-bugbundle.txt` so the canonical `debug-notes.txt` always reflects the latest unsent debug build context).
+- `JJFlexRadio.chm` — rebuilt (2-byte change; routine help-content sync).
+
+### Cross-surface state at end of 05-06
+
+- **Main repo** (`feature/cache-writer-backport`): 8 commits ahead of where the day started; sealed and pushed in this run.
+- **`track/flexlib-42` worktree**: 2 commits + 1 WIP commit (Discovery.cs R6 instrumentation); pushed in this run.
+- **`track/braille-research` worktree**: handoff.md edits committed and pushed in this run; no other 05-06 activity.
+- **`track/multi-radio` worktree**: hamlib-integration-spike.md license clarifications (LGPL-vs-MIT phrasing tightened, `send_morse` scope note added, refresh-LICENSE.txt question added) committed and pushed in this run.
+- **NAS**: 4.1.16.242 archive already in place; memory + private + stats snapshots refreshed in this seal.
+
+### What's set up for next session
+
+- **Discovery cascade v3 design pull** is the priority for Noel when energy returns. Short pull is `2026-05-06-discovery-cascade-v3-design-pull.md`; full memo is `2026-05-06-discovery-cascade-v3-full-memo.md`. Decision needed on whether v3 supersedes R6 in the chain or layers alongside.
+- **Chris Polk has the four inspection questions** — when Chris answers, parts can be ordered, and the roarbox CPU upgrade arc can proceed.
+- **rarbox / roarbox bootstraps** are runbooks Noel executes from his Windows machine; either can fire when convenient.
+- **No changes pending merge to main**. Foundation/polish work on `sprint28/home-key-qsk` still awaits Noel's foundation-drop test pull. 4.2.0 work on `track/flexlib-42` still gated on the three 4.2.0 ship gates per `project_main_branch_41_posture.md`.
+- **R6 instrumentation in flexlib-42** is parked as a labeled WIP commit; can be revived if a future trace surfaces a new lead, or pruned during the next flexlib-42 cleanup pass.
+
+### Rigmeter snapshot — end of 2026-05-06
+
+**Grand totals (authored, excluding vendor):**
+- Files: 774 | Lines: 155,602 | Words: 766,534 | Chars: 7,164,564
+- Per-category authored: code 102,808 lines; text_data 11,797 lines; docs 35,129 lines; build 5,868 lines
+- Vendor totals: code 51,437 lines; text_data 1,211 lines; build 592 lines
+
+**Top languages by authored lines:**
+- C#: 77,453 (75.3% authored) — FlexLib wrappers, JJFlexWpf, JJTrace, JJLogLib, JJPortaudio, P-Opus, etc.
+- VB.NET: 17,343 (16.9% authored) — main app + globals
+- XAML: 4,985 (4.8% authored) — UI controls + dialogs
+- Python: 3,027 (2.9% authored) — rigmeter + tools
+
+**Today's git activity (05-06, main + flexlib-42 + WIP committed in this seal):**
+- Commits: 8 + 1 WIP + 3 seal-day commits = ~12 across surfaces
+- Insertions: ~9,150 across 30+ files
+- Deletions: ~110 (mostly debug-notes.txt rewrite)
+- **Caveat:** rigmeter `today` ran on 05-07 and reported 0 because we're a day past 05-06 local. Numbers above are reconstructed from `git log --shortstat` per surface.
+
+**Fun comparisons (authored only):**
+- Braille volumes (≈100K cells each): 71.6
+- Moby Dicks (~210K words): 3.7
+- King James Bibles (~783K words): 0.98
+- Read-aloud time at 150 wpm: 85.2 hours (5,110 minutes)
+- Printed pages (50 lines/page): 3,112
+- Stack-of-printed-pages height: 12.4 inches (31.6 cm)
+- Docs-to-code ratio: 0.34 (authored docs / authored code, by lines)
+
+**Trend across 12 historical snapshots** — code base grew 102,607 → 102,808 (+201) and doc base grew 28,692 → 35,129 (+6,437) since 05-05. Heavy doc day.
+
+**NAS JSON snapshot:** `\\nas.macaw-jazz.ts.net\jjflex\historical\stats\2026-05-06-b46388ec.json`
+
+### CLAUDE.md drift check — three flagged items (Step 6)
+
+1. **Stale NAS path reference at line 334.** CLAUDE.md says `publish-daily-to-dropbox.ps1` "Copies the newest debug zip from NAS `nightly\` to Dropbox top level." There is no `nightly\` folder on NAS — the actual layout is `historical\<version>\x64-debug\`. The script's own docstring is correct (`\\nas...\jjflex\historical\<expected>\x64-debug\JJFlex_<expected>_x64_debug_*.zip`); only CLAUDE.md is stale.
+
+2. **Stale sweep-pattern reference at line 334.** CLAUDE.md says the publish-daily script replaces `JJFlex_*_debug*.zip` and `NOTES-*-debug*.txt`. Actual top-level Dropbox filenames are `JJFlex_<version>_x64_daily.zip` and `NOTES-daily.txt`, and today's run swept `JJFlex_4.1.16.236_x64_daily.zip` and `NOTES-daily.txt` (matching the `*_daily.*` pattern noted in the 05-04 publish-nightly rename queue, not the `*_debug*.*` pattern). The script source treats both patterns; CLAUDE.md should reflect that.
+
+3. **Step ordering implied vs. required.** CLAUDE.md lists publish-daily as Step 1, but the script refuses on dirty-tree-with-no-matching-NAS-archive (which is the most common state when sealing the day's work). Practically, Step 5 (commit/push) must run first to reach a clean tree, then publish-daily can build and promote. Adding a one-line note about ordering — "if HEAD does not match an existing NAS archive, do Step 5 first so the tree is clean" — would prevent the next-day-Claude from hitting the same gotcha.
+
+Plus the still-pending publish-daily → publish-nightly rename queued from 05-04. Captured in the 05-04 seal "Tomorrow's autonomous-pass" subsection. Surface still uses `daily` naming everywhere in script + CLAUDE.md + filenames.
+
+None of these block the seal as-completed today; flagging for a future tidy-up pass.
 
 ---
 
@@ -1804,7 +1963,6 @@ When Noel resumes:
 
 **NAS snapshot JSON:** `python tools/rigmeter/rigmeter.py snapshot` runs after this seal commits to capture the structured time-series at `\\nas.macaw-jazz.ts.net\jjflex\historical\stats\<commit-date>-<short-sha>.json`.
 
-
 ## End-of-day seal — 2026-05-08 (extended past midnight into 2026-05-09)
 
 **Theme:** ALL of Phase 0 stood up today — `crashes.jjflexible.radio` AND `data.jjflexible.radio` both went LIVE in parallel-session work earlier in the day — AND the foundation drop landed on main with sprint 28 retired. Daily → Nightly terminology cleaned up. The 4.1 trunk now carries everything the 4.1 line has been validating since late April, and tonight's nightly is buildable from a clean main. **Three huge milestones in one calendar day:** the crash-receiver server-side piece AND the data-provider tier (two of the three 4.2.0 external-infrastructure ship gates) both went operational, AND main caught up to where the 4.1 trunk should always have been.
@@ -1917,4 +2075,3 @@ A separate Claude session ran F3-G via rarbox-Claude (the on-box execution model
 - Track C / BrailleElement primitive v1 build
 
 Heavy day available — the agenda doc at `docs/planning/active/2026-05-08-foundation-phasing-agenda.md` has scoping for items 1-7 of Noel's musings. Pick what to spawn against taeraflops vs what to drive interactively.
-

@@ -1,14 +1,134 @@
-Subject: FlexLib bug report + a few small upstream asks (JJ Flexible Radio Access)
+Subject: UDP discovery silent-fail on older firmware + a couple of bug reports (JJ Flexible Radio Access)
 
 Hi team,
 
 I'm Noel Romey, K5NER, developer of JJ Flexible Radio Access — an
-accessible alternative UI for the 6000 and 8000 series aimed at blind
+accessible alternative UI for the 6000 and 8000 Flex Radios series aimed at blind
 and low-vision operators. We're actively shipping builds to a small
 group of private testers and our usage of FlexLib is deep and ongoing.
+I've written you previously and really appreciate your past quick
+responses.
 
-Attached (or below) are two bug reports we've hit consistently and
-patched or worked around locally:
+Below: a discovery investigation we'd most appreciate your input on,
+two bug reports we've patched locally, and three small upstream QoL
+asks. The discovery item is the load-bearing one for us — context
+on why before the technical content.
+
+Why discovery on older firmware is structurally critical for us
+---------------------------------------------------------------
+
+JJ Flex exists because SmartSDR is largely inaccessible to blind and
+low-vision operators. Many dialogs aren't reachable with a screen reader,
+many controls aren't labeled, and tasks that should be quick — firmware
+upgrades among the worst offenders — become hours of friction or
+require a sighted helper. Our users have internalized this as the
+"friction tax" disabled people pay on every interaction, and reducing
+that tax is JJ Flex's whole reason for existing.
+
+The reason this framing matters for the investigation below: "have
+them update via SmartSDR first" isn't an escape hatch we can fall back
+on. The very task we're trying to make accessible — firmware updates —
+is one of the ones SmartSDR makes hardest. So when 4.2.18 client can't
+discover an older-firmware radio, we're not blocked on a minor edge
+case. We're blocked on the only path that gets one of our users from
+"older firmware, can't connect" to "current firmware, works fine."
+Discovery is the gate; everything past it (connect, send firmware, let
+the radio handle the rest) is FlexLib's job and works fine.
+
+Currently investigating — UDP discovery silent-fail on FlexLib 4.2.18
+---------------------------------------------------------------------
+
+We're in the middle of a FlexLib v4.1.5 -> v4.2.18 upgrade as part of
+our foundation work for our next release line. Most of the upgrade
+went clean. On one tester's environment our 4.2.18 build silent-fails
+at Discovery: UdpClient binds successfully on UDP/4992, listens for 10
+seconds across three retry cycles, receives zero packets. No exception,
+no error -- the receive loop just never fires. This occurs only on connect to a radio via lan, users who connect via SmartLink can connect with no issues with slight version gating which does not use four blocking functions when a 4.1.x based radio is detected. The same machine, same
+NIC, same radio, same day discovers normally with our 4.2.15 flexlib implementation. Only the FlexLib version differs between working
+and failing.
+
+The tester's radio is a FLEX-6300 on whatever firmware shipped with
+SmartSDR v4.1.5 (he has not installed 4.2.18, which would
+side-effect-update the firmware and destroy our only known reproducer).
+His machine is Windows 11, single Ethernet NIC at 192.168.1.21/24,
+clean LAN, no VPN, no Hyper-V, no virtual switches. A SelfTest probe
+inside our diagnostic build confirms the bound socket itself is healthy
+-- it receives loopback, NIC-self, and limited-broadcast packets fine.
+External UDP/4992 broadcasts simply do not reach it.
+
+Worth noting on what's NOT the bottleneck: everything past discovery
+is in place on our side. We host the .ssdr firmware files unchanged
+from your SmartSDR installer on our own Cloudflare object storage so
+our users don't need to keep SmartSDR installed for periodic firmware
+pushes. JJ Flex fetches the appropriate file and uses FlexLib's
+existing SendUpdateFile path to deliver it -- which means we don't
+need to understand or reimplement your upload protocol at all. If we
+can discover the radio, we can update it. We just can't discover it locally.
+
+What we've ruled out, with evidence:
+
+  - Discovery.cs Start() socket setup is byte-identical between
+    4.0.1 and 4.2.18 (we diffed it).
+  - Receive-loop async-vs-sync (4.2.18 uses ReceiveAsync(token)
+    under NET6_0_OR_GREATER; 4.1.15 uses no-token
+    ReceiveAsync()). We added a 5-second synchronous
+    udp.Receive() drain BEFORE the async loop took over and saw
+    zero packets there too. Sync vs async isn't the variable.
+  - Windows Firewall (explicit per-program allow rule; no change).
+  - .NET 10 runtime change to UdpClient and Windows kernel
+    networking. Controlled experiment ruled both out: our 4.0.1
+    build on the same .NET 10, same OS, same NIC, same radio
+    discovers fine; only FlexLib differs.
+  - The new MMCSS scheduler (MmcssPipelineScheduler.cs). We
+    patched Instance to redirect to TaskScheduler.Default so
+    the four MMCSS Pro Audio threads never spawn. Discovery
+    still silent-failed. MMCSS isn't starving IOCP delivery to
+    the bound socket.
+  - VITA constants (FLEX_OUI = 0x1C2D, SL_VITA_DISCOVERY_CLASS
+    = 0xFFFF), VitaPacketBase, VitaPacketPreamble -- all
+    byte-identical or semantically equivalent.
+
+A grep for Bind.*4992 / EnableBroadcast / MulticastGroup across the
+entire 4.2.18 source tree matches only Discovery.cs. No other file
+touches UDP/4992. So the cause is either (a) something elsewhere in
+4.2.18 startup that perturbs a process's UDP delivery to a bound
+socket as a side effect, or (b) a protocol-level behavior in 4.2.18's
+discovery that interacts badly with this radio's older firmware in a
+way 4.0.1's didn't. We can't distinguish those two without your
+perspective or out-of-process packet capture.
+
+Where your team could most help us, in order of usefulness:
+
+  - Anything in 4.2.18 startup OUTSIDE Discovery.cs that could
+    affect a process's UDP/4992 receive path. Static field
+    initializers, module-level side effects, code that touches
+    WinSock at process init, anything that runs before
+    Discovery.Start() and could leave the WinSock layer in a
+    state that drops broadcast traffic to a later-bound socket.
+  - Whether the v4.2.x-line discovery code path is known to
+    require any minimum firmware level. A "yes, 4.2.18 discovery
+    needs firmware revision X+" answer would be the cleanest
+    explanation and we'd happily document it as an upgrade
+    prerequisite for our users (though it would also mean we
+    need to understand the bootstrap path -- how a user with
+    an older-firmware radio is supposed to get to the required
+    firmware level if 4.2.18 client can't see them in the
+    first place).
+  - Any internal tracker entry resembling "discovery silent-fail
+    on older firmware" or "v2-discovery / v1-firmware mismatch"
+    -- we'd be glad to share our trace artifacts against a
+    known reference.
+
+We can share full trace dumps, the exact diff of our diagnostic
+instrumentation across all five rounds (R1 through R5), and the
+trace-side observations end-to-end. Not asking your team to debug for
+us -- just hoping a "we know what that is" or "try X" reply might be
+cheap on your side and would save us substantial out-of-process
+experimentation (Wireshark on the tester's wire is our next step
+otherwise).
+
+Two bug reports we've patched or worked around locally
+------------------------------------------------------
 
   1. A race condition in Discovery.Receive() that throws an
      unobserved NullReferenceException and terminates the host
@@ -31,12 +151,14 @@ patched or worked around locally:
      same conditions, which hints that the issue lives in the older
      NRL-specific code path rather than something generic.
 
-Both writeups cover root cause where known, repro sequence, and
-what we tried. Happy to share exact diffs, additional repros, or
-trace captures if useful.
+Both writeups cover root cause where known, repro sequence, and what
+we tried. Happy to share exact diffs, additional repros, or trace
+captures if useful.
 
-While I have your attention, three small upstream items would let us
-retire local patches we're currently maintaining:
+Three small upstream QoL items
+------------------------------
+
+These would let us retire local patches we're currently maintaining:
 
   1. An explicit minimum-TLS-version knob on the command transport.
      We wrap SslClient with SslClientTls12.cs to guarantee 1.2+
@@ -59,11 +181,13 @@ retire local patches we're currently maintaining:
      three cases would simplify every consumer (us, SmartSDR,
      anyone else building on FlexLib).
 
-None of the three is urgent — they're quality-of-life asks. The
-Discovery.Receive NRE is the one real defect and the reason for
-this email.
+Of all the items above, the discovery investigation is the one we'd
+most appreciate movement on. The two original defects have local fixes
+or workarounds; the three QoL items are wishlist.
 
-Noel Romey (K5NER)
+Noel Romey (K5NER)Thanks for your time and for reading this.
+
+
 nromey@gmail.com
 JJ Flexible Radio Access
 github.com/nromey/JJFlex-NG
