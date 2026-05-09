@@ -225,6 +225,10 @@ namespace Radios
                 // survivors. Cheap (no packets sent for the read), high signal
                 // when the radio recently spoke to anything on the LAN.
                 rungs.Add(new ArpNeighborCacheRung());
+                // Rung 1.7: third-party config scrape. Walks SmartSDR + other
+                // ham apps' config files for known Flex IPs. Stream 3 evidence:
+                // SmartSDR alone covers ~70% of new-user installs.
+                rungs.Add(new ThirdPartyConfigScrapeRung());
             }
             if (tryWanRung) rungs.Add(new CachedWanIpRung(IsSmartLinkSessionActive));
             if (rungs.Count == 0) return false;
