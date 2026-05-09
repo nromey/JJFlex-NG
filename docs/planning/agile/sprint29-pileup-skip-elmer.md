@@ -83,12 +83,21 @@ The order below is the **build order**. Items lower in the list depend on items 
    - **Estimated LOC:** ~500-700 across `JJFlexUpdater/` (new project), Settings → Updates tab wiring, manifest-fetch path, signed-download verification (when Trusted Signing lands).
    - **Success criteria:** `Updates → Check now` produces "you're up to date" or "version X.Y available, what to do?". Channel selector switches between stable/beta/nightly. First-time nightly selection produces a "you may need to pick up the pieces" consent.
 
-7. **Crash reporter client (WPF DispatcherUnhandledException handler)** — the client half of the crash-reporter pipeline. Server-side already LIVE on `crashes.jjflexible.radio`.
+7. **Feedback / crash reporter — one bundle pipeline, two triggers** — the client half of the bundle pipeline. Server-side already LIVE on `crashes.jjflexible.radio`. Per `memory/project_user_initiated_feedback_session.md` (2026-05-09 refinement), this is NOT just a crash reporter — it's a unified feedback pipeline that fires from two triggers: programmatic (WPF DispatcherUnhandledException) and user-initiated (Operations menu → Submit feedback / Report a problem).
 
    - **Why parallel-capable:** doesn't depend on app-updater. Could land independently.
-   - **Spec:** `memory/project_sprint29_crash_reporter_vision.md` + `memory/project_crash_triage_bundle_flow.md`. Bundle format must be designed for the triage agent from day 1 (not retrofit).
-   - **Estimated LOC:** ~400-600 across `App.xaml.vb` (handler), `JJCrashReporter/` (new project for bundling), `Settings → Diagnostics` tab integration.
-   - **Success criteria:** synthetic crash (test-mode menu item) produces a bundle, displays consent UI showing exactly what's in the bundle, POSTs to crashes.jjflexible.radio on user OK, surfaces success/failure with actionable speech. Bundle includes: exception, stack, last-N-traces (from trace persistence!), system info, JJF version, crash-time UTC.
+   - **Spec:** `memory/project_user_initiated_feedback_session.md` (primary, 2026-05-09) + `memory/project_sprint29_crash_reporter_vision.md` (original) + `memory/project_crash_triage_bundle_flow.md`. Bundle format must be designed for the triage agent from day 1 (not retrofit).
+   - **Components to build:**
+     - Shared bundle assembly (exception OR description+Qs, last-N traces from archive, system info, version, contact opt-in) and consent UX.
+     - Crash trigger: DispatcherUnhandledException handler in WPF, AppDomain.UnhandledException belt-and-suspenders, captures last_action where possible.
+     - Feedback trigger: Operations → Submit feedback dialog with description text area, structured Q form, **"Enable mad man trace and let me reproduce" toggle** (cranks tracing to Verbose, minimizes dialog, dialog reappears on next "I'm done" press).
+     - POST to `https://crashes.jjflexible.radio/` with progress + success/failure speech.
+     - Back-channel mechanism (decision deferred to build time — email simplest, ntfy upgrade path).
+   - **Estimated LOC:** ~600-900 across `App.xaml.vb` (handlers), `JJCrashReporter/` (new project, name now misleading — call it `JJBundleReporter` or similar to reflect dual-trigger nature), `Settings → Diagnostics` tab integration, feedback dialog WPF surface.
+   - **Success criteria:**
+     - Synthetic crash (test-mode menu item) produces a bundle with exception + traces, consent UI shows exactly what's in it, POSTs successfully, speaks outcome.
+     - User clicks Operations → Submit feedback, types a description, toggles mad man trace, reproduces an issue, comes back to dialog, clicks Submit. Bundle posts with description + Q answers + Verbose trace + opt-in contact.
+     - Both triggers route through the same bundle assembly + consent + POST code (verify only the trigger and the description-fields differ).
 
 ### Tier 4 — Firmware update Phase D (depends on app-updater)
 

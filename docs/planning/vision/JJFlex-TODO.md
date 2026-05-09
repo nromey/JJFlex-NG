@@ -382,6 +382,39 @@ Sprint 15 plan documents (`docs/planning/agile/archive/Sprint-15-pileup-dx-ragch
 
 **Status:** Logged 2026-05-07 from Don's request during discovery cascade OUI investigation. The OUI investigation resolved interestingly: IEEE MA-L registry lists `00-1C-2D` to Dell, and Don's Flex 6300 MAC is `00:1c:2d:02:07:1b`. Don clarified there's an embedded Windows computer inside Flex radios (definitely inside the Maestro front-panel controller, very likely inside the 6000/8000-series front panels too) — the MAC almost certainly comes from a Dell-OEM motherboard or NIC chip in that embedded machine. FlexLib's `FLEX_OUI = 0x1C2D` (VITA-49 protocol identifier) numerically matching the Ethernet OUI is either deliberate-by-Flex-choice or a strong coincidence; either way, the practical cascade rung filter is "24-bit prefix `00:1C:2D` + UDP/4992 protocol probe." Dell false positives are bounded by the protocol-probe step. Cascade design can hard-code on this evidence.
 
+### BUG: 6500 ATU does not re-tune after small frequency change (2026-05-09 tester report via Noel)
+
+**Symptom:** User has a FLEX-6500 with built-in ATU. They tune at 3.850 MHz (ATU finds a match, antenna loaded). They move to 3.913 MHz (~63 kHz move, well within a band segment) and press tune again. ATU does NOT re-tune — it appears to think the existing match is still valid for the new frequency, or the re-tune trigger logic isn't firing.
+
+**Why this is wrong:** 63 kHz is plenty of frequency move for an antenna's reactance to shift enough that the previous ATU match is no longer optimal. ATU should either always re-evaluate when the user explicitly presses tune (the user is asserting "I want a new match here"), or at minimum re-evaluate when the frequency delta exceeds a small threshold (typical autotuner thresholds are 5-10 kHz).
+
+**What to investigate:**
+- Whether the issue lives in JJF's tune-key handling (does it just send the command and FlexLib-side decides?), in FlexLib's tune protocol mapping, or radio-side firmware logic.
+- Whether the ATU's "memory match" feature is being triggered — Flex ATU has a per-frequency memory and may be returning a stored match without re-running.
+- Whether the user's `tune` key in JJF maps to a different command than SmartSDR's tune button (semantic difference: "force re-tune" vs "tune if needed").
+- Whether the issue is reproducible on 6300 + 8400 (single-SCU radios with ATU) or specific to 6500 (single-SCU, 4-slice; different DSP path than 6300).
+
+**Where to start:**
+- `globals.vb` `WriteTune` / tune-key handler — what FlexLib command does JJF actually send?
+- `FlexBase.cs` ATU-related properties — is there an `ATUForceRetune` flag we should set?
+- FlexLib `Radio.RequestTune()` / `Radio.RequestATUTune()` — verify which one we call and what the differences are.
+
+**Source:** 2026-05-09 user report relayed via Noel during Sprint 29 trace persistence work. Tester pool: ATU-equipped 6500 owner (specific identity to be captured when Noel relays).
+
+**Priority:** Medium. Real user-impact bug (ATU not doing its job is a daily-operations headache for ATU users). Not 4.2.0 release-blocking but should be on Sprint 29 punch list. Trace persistence (just shipped today) makes this far easier to diagnose: ask the user to enable Verbose tracing, reproduce, send the trace archive via the feedback session flow (per `project_user_initiated_feedback_session.md`).
+
+**Status:** Logged 2026-05-09. Awaiting traces to investigate.
+
+### BUG: 6500 ATU does not re-tune after small frequency change (2026-05-09 tester report via Noel)
+
+**Symptom:** User has a FLEX-6500 with built-in ATU. Tunes at 3.850 MHz (ATU finds a match). Moves to 3.913 MHz (~63 kHz move) and presses tune again — ATU does NOT re-tune.
+
+**Why this is wrong:** Pressing tune is the user asserting "find me a match here." ATU should always re-evaluate on explicit tune press.
+
+**Priority:** Medium. Real user-impact bug. Not 4.2.0 release-blocking but on Sprint 29 punch list. Will be far easier to investigate once the user-initiated feedback flow + mad man trace toggle ships (per `memory/project_user_initiated_feedback_session.md`) — get a Verbose trace from the reporter showing the exact tune-command sequence.
+
+**Status:** Logged 2026-05-09 from a tester report relayed via Noel. Awaiting traces.
+
 ### FEATURE: Disconnect notification — speech + CW prosign when radio disconnects (2026-04-28 Noel proposal)
 
 **Proposal:** When the radio disconnects (user-initiated, network drop, or radio side disconnect), JJ Flex should announce it. Today there's no clear notification. Noel's framing: *"radio disconnect should probably give a CW disconnect / speech should give some kind of notification it has disconnected. Maybe 'jjf DC k' in CW, 'JJ Flexible disconnected from radio' in speech."*
