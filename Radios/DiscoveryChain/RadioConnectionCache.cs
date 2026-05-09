@@ -140,8 +140,9 @@ namespace Radios.DiscoveryChain
         /// <summary>
         /// Push the given IP to the front of the radio's LAN-IP history,
         /// dedup-by-IP-string, and LRU-cap at <see cref="MaxHistoryDepth"/>.
-        /// NetworkIdentityGuid is left empty in Phase 1 (the NLM-gating commit
-        /// populates it). Caller must hold _sync.
+        /// Captures the current NLM-style network identity into the new
+        /// history entry so Rung 1c can NLM-gate its probe set per Q5 ACK
+        /// 2026-05-08. Caller must hold _sync.
         /// </summary>
         private static void AppendLanIpHistory(RadioConnectionCacheEntry entry, string ip, DateTime nowUtc)
         {
@@ -156,7 +157,7 @@ namespace Radios.DiscoveryChain
             {
                 Ip = ip,
                 LastSeenUtc = nowUtc,
-                NetworkIdentityGuid = ""
+                NetworkIdentityGuid = NetworkIdentity.GetCurrentNetworkId()
             });
 
             while (entry.LanIpHistory.Count > MaxHistoryDepth)

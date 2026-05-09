@@ -68,6 +68,31 @@ namespace Radios.DiscoveryChain
                 return Fail(sw, "no_history_to_probe");
             }
 
+            // NLM-style network identity gating per Q5 ACK 2026-05-08:
+            // prefer history entries captured on the current network. If
+            // current identity is unknown OR no entries match, fall back
+            // to probing all entries — the gate is an optimization, not a
+            // refusal-to-connect (per Q5: "as long as it does not constrict
+            // the user's ability to obtain an IP or connect for updating
+            // purposes").
+            string currentNetId = NetworkIdentity.GetCurrentNetworkId();
+            int nlmFiltered = 0;
+            List<HistoricalLanIp> probeHistory = historyTail;
+            if (!string.IsNullOrEmpty(currentNetId))
+            {
+                var matching = historyTail
+                    .Where(h => string.Equals(h.NetworkIdentityGuid, currentNetId, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+                if (matching.Count > 0)
+                {
+                    nlmFiltered = historyTail.Count - matching.Count;
+                    probeHistory = matching;
+                }
+                // else: no entries match current network. Fall through to
+                // probing all (the radio may be on a network we haven't seen
+                // before, or NLM IDs weren't captured for older entries).
+            }
+
             // Parse + dedup against entry.LanIp (defensive — covers the case where
             // Rung 1a's IP isn't actually at position 0 of the history due to
             // an old-format file upgrade or out-of-band edit).
@@ -75,7 +100,7 @@ namespace Radios.DiscoveryChain
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             if (!string.IsNullOrEmpty(entry.LanIp)) seen.Add(entry.LanIp);
 
-            foreach (var hist in historyTail)
+            foreach (var hist in probeHistory)
             {
                 if (string.IsNullOrEmpty(hist?.Ip)) continue;
                 if (!seen.Add(hist.Ip)) continue; // dup with entry.LanIp or earlier history
@@ -122,7 +147,7 @@ namespace Radios.DiscoveryChain
                         OutcomeTag = "success",
                         Radio = radio,
                         Elapsed = sw.Elapsed,
-                        DiagnosticDetail = $"won at {winningIp} after {sw.ElapsedMilliseconds}ms; probed {probeIps.Count} historical IPs"
+                        DiagnosticDetail = $"won at {winningIp} after {sw.ElapsedMilliseconds}ms; probed {probeIps.Count} historical IPs (nlm_filtered={nlmFiltered})"
                     };
                 }
             }
@@ -131,7 +156,7 @@ namespace Radios.DiscoveryChain
                 return Fail(sw, "exception", ex.GetType().Name + ": " + ex.Message);
             }
 
-            return Fail(sw, "all_probes_failed", $"probed {probeIps.Count} historical IPs, none answered on TCP/{FlexLibCommandPort}");
+            return Fail(sw, "all_probes_failed", $"probed {probeIps.Count} historical IPs (nlm_filtered={nlmFiltered}), none answered on TCP/{FlexLibCommandPort}");
         }
 
         /// <summary>
