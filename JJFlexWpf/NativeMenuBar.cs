@@ -977,13 +977,11 @@ public class NativeMenuBar : IDisposable
                 () => _window.ToggleUIMode(),
                 () => _window.ActiveUIMode == MainWindow.UIMode.Classic);
 
-            // Modern-mode-only tuning actions. In classic mode these are no-ops
-            // at the handler level (classic uses digit-position tuning); we still
-            // list them on the menu because menu discoverability matters even
-            // when the current mode doesn't use them.
-            AddWired(tuningSub, "Toggle Coarse/Fine", () => _window.TuningMenuToggleCoarseFine());
-            AddWired(tuningSub, "Step Size Larger\tPage Up", () => _window.TuningMenuCycleStep(+1));
-            AddWired(tuningSub, "Step Size Smaller\tPage Down", () => _window.TuningMenuCycleStep(-1));
+            // Modern-mode-only tuning action. Sprint 29 Track F (tuning unity)
+            // dropped the coarse/fine toggle and the step-cycling pair — Up and
+            // Shift+Up now do what their names suggest, and the step values
+            // themselves live in Settings → Tuning. The remaining menu entry
+            // is the "what are my steps right now?" announcement.
             AddWired(tuningSub, "Speak Current Step\tShift+S", () => _window.TuningMenuSpeakStep());
 
             AddSep(tuningSub);

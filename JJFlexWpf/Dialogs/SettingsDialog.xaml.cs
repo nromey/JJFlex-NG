@@ -1074,30 +1074,8 @@ namespace JJFlexWpf.Dialogs
             workshop.ShowDialog();
         }
 
-        /// <summary>Optional reference to FreqOutHandlers for tuning step editing.</summary>
+        /// <summary>Optional reference to FreqOutHandlers for tuning step access.</summary>
         public FreqOutHandlers? FreqHandlers { get; set; }
-
-        private void EditTuningStepsButton_Click(object sender, RoutedEventArgs e)
-        {
-            if (FreqHandlers == null)
-            {
-                MessageBox.Show("Tuning steps require an active radio connection.",
-                    "Not Available", MessageBoxButton.OK, MessageBoxImage.Information);
-                return;
-            }
-
-            var editor = new TuningStepEditorDialog(
-                FreqHandlers.GetCoarseSteps(),
-                FreqHandlers.GetFineSteps());
-            editor.Owner = this;
-            if (editor.ShowDialog() == true && editor.Changed)
-            {
-                FreqHandlers.SetCoarseSteps(editor.CoarseSteps);
-                FreqHandlers.SetFineSteps(editor.FineSteps);
-                FreqHandlers.SaveStepSizes?.Invoke(FreqHandlers.CoarseTuneStep, FreqHandlers.FineTuneStep);
-                Radios.ScreenReaderOutput.Speak("Tuning steps saved", true);
-            }
-        }
 
         private void EditFilterPresetsButton_Click(object sender, RoutedEventArgs e)
         {

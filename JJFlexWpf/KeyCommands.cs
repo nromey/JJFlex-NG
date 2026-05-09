@@ -970,12 +970,20 @@ public class KeyCommands
         new(Keys.None, CommandValues.SavedScan, KeyScope.Radio),
         new(Keys.Z | Keys.Control, CommandValues.StopScan, KeyScope.Radio),
         new(Keys.None, CommandValues.ShowMenus, KeyScope.Radio),
-        new(Keys.PageUp | Keys.Alt, CommandValues.AudioGainUp, KeyScope.Radio),
-        new(Keys.PageDown | Keys.Alt, CommandValues.AudioGainDown, KeyScope.Radio),
-        new(Keys.PageUp | Keys.Alt | Keys.Shift, CommandValues.HeadphonesUp, KeyScope.Radio),
-        new(Keys.PageDown | Keys.Alt | Keys.Shift, CommandValues.HeadphonesDown, KeyScope.Radio),
-        new(Keys.PageUp | Keys.Shift, CommandValues.LineoutUp, KeyScope.Radio),
-        new(Keys.PageDown | Keys.Shift, CommandValues.LineoutDown, KeyScope.Radio),
+        // Sprint 29 Track F (tuning unity) — these six audio-gain pairs were
+        // bound to Alt/Shift PageUp/PageDown. They moved into the Audio expander
+        // (Ctrl+Shift+U → arrow to Volume / Headphone Level / Line Out Level)
+        // because audio levels aren't real-time controls during a QSO and
+        // hotkey toggles-vs-values discipline says values live in their fields.
+        // Slots intentionally left unbound and reserved per the 2026-05-02 ACK
+        // (option 2) — leave in place so a future sprint doesn't accidentally
+        // claim them without thinking about this design.
+        new(Keys.None, CommandValues.AudioGainUp, KeyScope.Radio),
+        new(Keys.None, CommandValues.AudioGainDown, KeyScope.Radio),
+        new(Keys.None, CommandValues.HeadphonesUp, KeyScope.Radio),
+        new(Keys.None, CommandValues.HeadphonesDown, KeyScope.Radio),
+        new(Keys.None, CommandValues.LineoutUp, KeyScope.Radio),
+        new(Keys.None, CommandValues.LineoutDown, KeyScope.Radio),
         new(Keys.None, CommandValues.RemoteAudio, KeyScope.Radio),
         new(Keys.None, CommandValues.AudioSetup, KeyScope.Radio),
         new(Keys.None, CommandValues.ATUMemories, KeyScope.Radio),

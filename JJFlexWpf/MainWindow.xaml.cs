@@ -380,36 +380,12 @@ public partial class MainWindow : UserControl
     public string? GetPttStatusText() => _pttController?.GetSpokenStatus();
     public string? GetFilterEdgeStatus() => _freqOutHandlers?.FilterEdgeStatus;
 
-    // Sprint 26 Phase 8: menu → handler bridges for the expanded Slice > Tuning
-    // submenu. "JJ Flexible in threes" — field keypress + hotkey + menu. These
-    // delegate to FreqOutHandlers methods that also run on field keypress, so
-    // the menu path and the keyboard path share identical behavior.
+    // Menu → handler bridge for the Slice > Tuning submenu. After tuning unity
+    // (Sprint 29 Track F) the only remaining bridge is "Speak Current Step",
+    // since coarse/fine no longer toggle and the step lists no longer cycle.
+    // The Settings dialog is the canonical place to change step values.
 
-    /// <summary>Menu: toggle coarse/fine tuning mode (modern mode).</summary>
-    public void TuningMenuToggleCoarseFine()
-    {
-        if (ActiveUIMode == UIMode.Classic)
-        {
-            Radios.ScreenReaderOutput.Speak("Coarse and fine apply only in modern tuning mode",
-                Radios.VerbosityLevel.Terse, true);
-            return;
-        }
-        _freqOutHandlers?.ToggleCoarseFineFromMenu();
-    }
-
-    /// <summary>Menu: cycle through the active step list.</summary>
-    public void TuningMenuCycleStep(int direction)
-    {
-        if (ActiveUIMode == UIMode.Classic)
-        {
-            Radios.ScreenReaderOutput.Speak("Step sizes apply only in modern tuning mode",
-                Radios.VerbosityLevel.Terse, true);
-            return;
-        }
-        _freqOutHandlers?.CycleStepFromMenu(direction);
-    }
-
-    /// <summary>Menu: announce current tuning mode + step.</summary>
+    /// <summary>Menu: announce current coarse + fine step sizes.</summary>
     public void TuningMenuSpeakStep()
     {
         if (ActiveUIMode == UIMode.Classic)
@@ -422,15 +398,18 @@ public partial class MainWindow : UserControl
     }
 
     /// <summary>
-    /// Returns tuning mode status for Speak Status, e.g. "coarse 1 kilohertz".
+    /// Returns tuning mode status for Speak Status, e.g.
+    /// "modern tuning, coarse 5 kilohertz, fine 100 hertz".
     /// </summary>
     public string? GetTuningModeStatus()
     {
         if (_freqOutHandlers == null) return null;
         if (ActiveUIMode == UIMode.Classic)
             return "classic tuning mode";
-        string step = _freqOutHandlers.IsCoarseMode ? "coarse" : "fine";
-        return $"modern tuning mode, {step}, {FreqOutHandlers.FormatStepForSpeech(_freqOutHandlers.CurrentTuneStep)}";
+        return "modern tuning mode, coarse "
+            + FreqOutHandlers.FormatStepForSpeech(_freqOutHandlers.CoarseTuneStep)
+            + ", fine "
+            + FreqOutHandlers.FormatStepForSpeech(_freqOutHandlers.FineTuneStep);
     }
 
     /// <summary>
@@ -1032,6 +1011,16 @@ public partial class MainWindow : UserControl
                 e.Handled = true;
                 return;
             }
+            // Escape also cancels RIT/XIT scale-adjust mode. The field handler
+            // catches Escape when focus is still on RIT/XIT, but if focus has
+            // drifted (or the user simply hits Escape from elsewhere) we want
+            // the mode-bail to work from anywhere.
+            if (rawKey == Key.Escape && _freqOutHandlers.InRitXitScaleAdjustMode)
+            {
+                _freqOutHandlers.CancelRitXitScaleAdjust();
+                e.Handled = true;
+                return;
+            }
             if (rawKey == Key.OemOpenBrackets || rawKey == Key.OemCloseBrackets)
             {
                 _freqOutHandlers.HandleFilterHotkey(e);
@@ -1525,13 +1514,15 @@ public partial class MainWindow : UserControl
 
         // Modern mode: Freq field uses modifier keys, not cursor position
         FreqOut.IsModernMode = true;
-        // Modern mode: override step name with actual preset-based step
+        // Modern mode: override step name to report both coarse and fine steps
+        // (Sprint 29 Track F — there's no "current mode" any more, so the
+        // help text describes the unified Up/Down + Shift+Up/Down setup).
         FreqOut.StepNameOverride = (field) =>
         {
             if (field.Key == "Freq" && _freqOutHandlers != null)
             {
-                string mode = _freqOutHandlers.IsCoarseMode ? "coarse" : "fine";
-                return $"{mode} {FreqOutHandlers.FormatStepForSpeech(_freqOutHandlers.CurrentTuneStep)}";
+                return "coarse " + FreqOutHandlers.FormatStepForSpeech(_freqOutHandlers.CoarseTuneStep)
+                    + ", fine " + FreqOutHandlers.FormatStepForSpeech(_freqOutHandlers.FineTuneStep);
             }
             return null;
         };
@@ -1564,6 +1555,16 @@ public partial class MainWindow : UserControl
     private void FreqOut_FieldKeyDown(FrequencyDisplay.DisplayField field, System.Windows.Input.KeyEventArgs e)
     {
         if (_freqOutHandlers == null) return;
+
+        // Focus-bound exit for RIT/XIT scale-adjust mode: any keypress on a
+        // non-RIT/XIT field counts as leaving, so we cancel before routing.
+        // The mode's own handler treats RIT↔XIT navigation as a leave too,
+        // so this catches everything else.
+        if (_freqOutHandlers.InRitXitScaleAdjustMode
+            && field.Key != "RIT" && field.Key != "XIT")
+        {
+            _freqOutHandlers.CancelRitXitScaleAdjust();
+        }
 
         // Modern mode: simplified routing for reduced field set
         if (ActiveUIMode == UIMode.Modern)
@@ -3006,11 +3007,15 @@ public partial class MainWindow : UserControl
             int slice = RigControl.RXVFO;
             string speech = $"Frequency {freqText}, slice {RigControl.VFOToLetter(slice)}";
 
-            // In Modern mode, include the current tuning step and mode
+            // In Modern mode, append both step sizes — tuning unity removed
+            // the "current mode" concept, so we report what Up and Shift+Up
+            // each do.
             if (ActiveUIMode == UIMode.Modern && _freqOutHandlers != null)
             {
-                string stepMode = _freqOutHandlers.IsCoarseMode ? "coarse" : "fine";
-                speech += $", {stepMode} {FreqOutHandlers.FormatStepForSpeech(_freqOutHandlers.CurrentTuneStep)}";
+                speech += ", coarse "
+                    + FreqOutHandlers.FormatStepForSpeech(_freqOutHandlers.CoarseTuneStep)
+                    + ", fine "
+                    + FreqOutHandlers.FormatStepForSpeech(_freqOutHandlers.FineTuneStep);
             }
 
             Radios.ScreenReaderOutput.Speak(speech, VerbosityLevel.Terse, true);
