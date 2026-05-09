@@ -66,15 +66,19 @@ Public Class TraceAdmin
                 MsgBox(setLevel)
                 Return
             End If
-            Tracing.On = False
+            ' Archive the prior session (boot or daily) before starting a user trace.
+            ' Idempotent: if no session active, this is a no-op.
+            ArchiveCurrentTraceSession(TraceSessionOutcome.CleanExit, "User initiated new trace file via TraceAdmin")
             Tracing.TraceFile = FileNameBox.Text
             Tracing.On = True
+            BeginNewTraceSession()
             LastUserTraceFile = FileNameBox.Text
             Tracing.TraceLine("User-initiated trace, " & myAssembly.Location & " " & myVersion.ToString() & " " & Date.Now & " level=" & Tracing.TheSwitch.Level.ToString)
             Tracing.TraceLine("tracing to " & Tracing.TraceFile)
         Else
             Tracing.TraceLine("Tracing off")
-            Tracing.On = False ' closes the file
+            ' Archive the user trace before closing it.
+            ArchiveCurrentTraceSession(TraceSessionOutcome.CleanExit, "User toggled tracing off via TraceAdmin")
         End If
         ' Exit the form
         DialogResult = System.Windows.Forms.DialogResult.OK

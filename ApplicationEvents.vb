@@ -399,6 +399,11 @@ Namespace My
             JJFlexWpf.EarconPlayer.Dispose()
             ' Clean up screen reader resources.
             Radios.ScreenReaderOutput.Shutdown()
+            ' Belt-and-suspenders archive: if ExitApplication wasn't reached (e.g.
+            ' shutdown via WPF route that bypasses Form-side Closing handlers), the
+            ' session is still active here. Idempotent — no-op if ExitApplication
+            ' already archived. Per memory/project_trace_persistence_design.md.
+            ArchiveCurrentTraceSession(JJTrace.TraceSessionOutcome.CleanExit, "MyApplication_Shutdown event")
         End Sub
     End Class
 End Namespace

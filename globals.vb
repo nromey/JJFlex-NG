@@ -307,8 +307,70 @@ Module globals
             Tracing.TheSwitch.Level = TraceLevel.Info
             Tracing.TraceFile = tracePath
             Tracing.On = True
+            BeginNewTraceSession()
             LastUserTraceFile = tracePath
             Tracing.TraceLine($"Daily tracing on {Date.Now:O} level={Tracing.TheSwitch.Level}")
+        Catch ex As Exception
+            Tracing.ErrMessageTrace(ex)
+        End Try
+    End Sub
+
+    ''' <summary>
+    ''' Begin a new trace session. Captures session id, boot time, and current verbosity
+    ''' so that on archive we can write a structured manifest entry. Idempotent — calling
+    ''' twice without an intervening archive overwrites the previous session pointer.
+    ''' Per memory/project_trace_persistence_design.md, Sprint 29 Track A.
+    ''' </summary>
+    Friend Sub BeginNewTraceSession()
+        Try
+            Dim session As TraceSession = TraceSessionContext.BeginSession()
+            session.VerbosityLevel = Tracing.TheSwitch.Level.ToString()
+        Catch ex As Exception
+            Tracing.ErrMessageTrace(ex)
+        End Try
+    End Sub
+
+    ''' <summary>
+    ''' Archive the active trace session (if any) into the per-session archive: compress
+    ''' the trace file, write a manifest entry, and delete the source. Captures the trace
+    ''' path BEFORE closing the listener (since Tracing.On = False clears Tracing.TraceFile).
+    ''' Idempotent — if no session is active, no-op. Called at clean exit and from the
+    ''' shutdown event for belt-and-suspenders.
+    ''' </summary>
+    ''' <param name="outcome">Outcome tag for the manifest entry. Defaults to clean_exit.</param>
+    ''' <param name="detail">Optional outcome detail string.</param>
+    Friend Sub ArchiveCurrentTraceSession(Optional outcome As String = Nothing, Optional detail As String = Nothing)
+        Try
+            Dim session As TraceSession = TraceSessionContext.Current
+            If session Is Nothing Then Return
+
+            If Not String.IsNullOrEmpty(outcome) Then
+                session.MarkOutcome(outcome, detail)
+            End If
+
+            Dim tracePath As String = Tracing.TraceFile
+            Tracing.On = False ' flushes + closes; Tracing.TraceFile becomes null
+
+            TraceSessionContext.EndSession()
+
+            If Not String.IsNullOrEmpty(tracePath) Then
+                SessionArchive.ArchiveSession(TraceArchiveDir, tracePath, session, deleteSourceAfter:=True)
+            End If
+        Catch ex As Exception
+            Tracing.ErrMessageTrace(ex)
+        End Try
+    End Sub
+
+    ''' <summary>
+    ''' Archive maintenance at app boot: reconcile manifest with disk (drop entries
+    ''' whose archive file is gone) and prune entries older than the retention window
+    ''' (default 30 days per spec). Cheap idempotent housekeeping; safe to call before
+    ''' any trace work begins.
+    ''' </summary>
+    Friend Sub TraceArchiveBootMaintenance()
+        Try
+            SessionArchive.Reconcile(TraceArchiveDir)
+            SessionArchive.PruneOlderThan(TraceArchiveDir, SessionArchive.DefaultRetentionDays)
         Catch ex As Exception
             Tracing.ErrMessageTrace(ex)
         End Try
@@ -453,10 +515,12 @@ Module globals
         'BootTrace = True
         If BootTrace Then
             RotateBootTraceIfNeeded()
+            TraceArchiveBootMaintenance()
             Dim bootLevel As TraceLevel = TraceLevel.Info
             Tracing.TheSwitch.Level = bootLevel
             Tracing.TraceFile = BootTraceFileName
             Tracing.On = True
+            BeginNewTraceSession()
             Tracing.TraceLine("Boot Tracing on instance:" & ProgramInstance & " " & myAssembly.Location & " " & myVersion.ToString() & " " & Date.Now & " level=" & bootLevel.ToString)
         End If
 
@@ -2363,7 +2427,10 @@ RadioConnected:
             Tracing.TraceLine("ExitApplication:" & ex.Message, TraceLevel.Error)
         End Try
         Tracing.TraceLine("End.")
-        Tracing.On = False
+        ' Archive the current trace session before closing the listener.
+        ' ArchiveCurrentTraceSession handles Tracing.On = False internally so
+        ' the file is fully flushed before compression. Per memory/project_trace_persistence_design.md.
+        ArchiveCurrentTraceSession(TraceSessionOutcome.CleanExit, "ExitApplication clean shutdown")
         Return True
     End Function
 
