@@ -211,8 +211,43 @@ namespace Radios
             if (string.IsNullOrEmpty(serial)) return false;
 
             var rungs = new List<IDiscoveryRung>();
-            if (tryLanRung) rungs.Add(new CachedLanIpRung());
+            if (tryLanRung)
+            {
+                // Rung 1a: most-recent cached LAN IP. Single TCP probe, fast win
+                // when the radio is at the same IP as last time.
+                rungs.Add(new CachedLanIpRung());
+                // Rung 1c: N-deep cached LAN IP history. Parallel TCP probes
+                // over the last few IPs we've seen this radio at — covers
+                // IP-rotation and multi-network cases per cascade design memo §3.
+                rungs.Add(new CachedLanIpHistoryRung());
+                // Rung 1.5a: ARP / neighbor cache read. Filters Windows' ARP
+                // table by FlexRadio MAC OUI prefix (00:1C:2D), then TCP-probes
+                // survivors. Cheap (no packets sent for the read), high signal
+                // when the radio recently spoke to anything on the LAN.
+                rungs.Add(new ArpNeighborCacheRung());
+                // Rung 1.7: third-party config scrape. Walks SmartSDR + other
+                // ham apps' config files for known Flex IPs. Stream 3 evidence:
+                // SmartSDR alone covers ~70% of new-user installs.
+                rungs.Add(new ThirdPartyConfigScrapeRung());
+            }
             if (tryWanRung) rungs.Add(new CachedWanIpRung(IsSmartLinkSessionActive));
+            // Rung 4: SmartLink-as-LAN-fallback. Fires when prior rungs returned
+            // no result and a SmartLink session is active. Asks the SmartLink
+            // coordinator's known-radio list (populated via WanRadioRadioListRecieved)
+            // for a Radio matching the target serial. Cloud round-trip cost
+            // earns its keep when LAN is misbehaving. Per cascade design memo §3
+            // Rung 4. Phase 2 MVP gates on IsSmartLinkSessionActive() returning
+            // true; auto-open-SmartLink-from-rung is a Phase 2.x follow-up.
+            rungs.Add(new SmartLinkFallbackRung(
+                IsSmartLinkSessionActive,
+                serial =>
+                {
+                    var r = findRadioInAPI(serial);
+                    // Only return WAN radios — a stale LAN handle would route
+                    // the next Connect() back through the LAN path that just
+                    // failed, defeating the whole point of the fallback.
+                    return (r != null && r.IsWan) ? r : null;
+                }));
             if (rungs.Count == 0) return false;
 
             var ctx = new DiscoveryContext

@@ -22,6 +22,14 @@ namespace Radios.DiscoveryChain
     public sealed class RadioConnectionCache
     {
         private const string FileName = "radioConnectionCacheV1.xml";
+
+        /// <summary>
+        /// LRU depth for per-radio LAN-IP history. Q6 ACK 2026-05-08: 5 IPs per radio.
+        /// At 5, single-home users see one entry (no marginal cost), roaming /
+        /// multi-network users get the IP-rotation coverage Stream 5 §3.14 motivates.
+        /// </summary>
+        public const int MaxHistoryDepth = 5;
+
         private readonly string _filePath;
         private RadioConnectionCacheFile _data;
         private readonly object _sync = new();
@@ -39,6 +47,25 @@ namespace Radios.DiscoveryChain
             {
                 return _data.Entries.FirstOrDefault(e =>
                     string.Equals(e.Serial, serial, StringComparison.OrdinalIgnoreCase));
+            }
+        }
+
+        /// <summary>
+        /// Returns a snapshot of the LAN-IP history for the given radio,
+        /// most-recent-first. Empty if no entry or no history captured yet.
+        /// Used by Rung 1c (cached LAN IP history) for parallel probing.
+        /// </summary>
+        public IReadOnlyList<HistoricalLanIp> GetLanIpHistory(string serial)
+        {
+            if (string.IsNullOrEmpty(serial))
+                return Array.Empty<HistoricalLanIp>();
+            lock (_sync)
+            {
+                var entry = _data.Entries.FirstOrDefault(e =>
+                    string.Equals(e.Serial, serial, StringComparison.OrdinalIgnoreCase));
+                if (entry == null || entry.LanIpHistory == null)
+                    return Array.Empty<HistoricalLanIp>();
+                return entry.LanIpHistory.ToList();
             }
         }
 
@@ -93,11 +120,49 @@ namespace Radios.DiscoveryChain
                 }
                 else
                 {
-                    entry.LanIp = radio.IP?.ToString() ?? entry.LanIp;
-                    entry.LanLastSeenUtc = nowUtc;
+                    var ip = radio.IP?.ToString();
+                    if (!string.IsNullOrEmpty(ip))
+                    {
+                        entry.LanIp = ip;
+                        entry.LanLastSeenUtc = nowUtc;
+                        AppendLanIpHistory(entry, ip, nowUtc);
+                    }
+                    else
+                    {
+                        entry.LanLastSeenUtc = nowUtc;
+                    }
                 }
 
                 Save();
+            }
+        }
+
+        /// <summary>
+        /// Push the given IP to the front of the radio's LAN-IP history,
+        /// dedup-by-IP-string, and LRU-cap at <see cref="MaxHistoryDepth"/>.
+        /// Captures the current NLM-style network identity into the new
+        /// history entry so Rung 1c can NLM-gate its probe set per Q5 ACK
+        /// 2026-05-08. Caller must hold _sync.
+        /// </summary>
+        private static void AppendLanIpHistory(RadioConnectionCacheEntry entry, string ip, DateTime nowUtc)
+        {
+            entry.LanIpHistory ??= new List<HistoricalLanIp>();
+
+            // Dedup: drop any prior entry for the same IP. The new entry will
+            // be inserted at position 0, preserving LRU order with most-recent-first.
+            entry.LanIpHistory.RemoveAll(h =>
+                string.Equals(h.Ip, ip, StringComparison.OrdinalIgnoreCase));
+
+            entry.LanIpHistory.Insert(0, new HistoricalLanIp
+            {
+                Ip = ip,
+                LastSeenUtc = nowUtc,
+                NetworkIdentityGuid = NetworkIdentity.GetCurrentNetworkId()
+            });
+
+            while (entry.LanIpHistory.Count > MaxHistoryDepth)
+            {
+                entry.LanIpHistory.RemoveAt(entry.LanIpHistory.Count - 1);
             }
         }
 
@@ -152,6 +217,17 @@ namespace Radios.DiscoveryChain
         public string LanIp { get; set; } = "";
         public DateTime LanLastSeenUtc { get; set; }
 
+        /// <summary>
+        /// N-deep LAN-IP history per radio, most-recent-first. Drives Rung 1c
+        /// (cached LAN IP history) per docs/planning/design/discovery-fallback-chain-v3.md.
+        /// Each entry carries the IP, the UTC timestamp it was last seen at,
+        /// and (when populated) the NLM network-identity GUID at that time.
+        /// LRU-capped at <see cref="RadioConnectionCache.MaxHistoryDepth"/>;
+        /// duplicates are deduplicated on insert. Backward-compatible additive
+        /// schema: older XML files just get an empty list on load.
+        /// </summary>
+        public List<HistoricalLanIp> LanIpHistory { get; set; } = new();
+
         // LOCAL ONLY — never export. See class doc comment.
         public string WanIp { get; set; } = "";
         public int PublicTlsPort { get; set; }
@@ -159,5 +235,19 @@ namespace Radios.DiscoveryChain
         public bool IsPortForwardOn { get; set; }
         public bool IsRemote { get; set; }
         public DateTime WanLastSeenUtc { get; set; }
+    }
+
+    /// <summary>
+    /// A single LAN-IP-history entry: the IP we saw the radio at, when, and
+    /// (when captured) the NLM network identity GUID for that observation.
+    /// NetworkIdentityGuid is empty in Phase 1 (Rung 1c initial ship); the
+    /// NLM-gating commit populates it. An empty GUID means "no network
+    /// identity captured" and the NLM gate falls through (try the entry).
+    /// </summary>
+    public sealed class HistoricalLanIp
+    {
+        public string Ip { get; set; } = "";
+        public DateTime LastSeenUtc { get; set; }
+        public string NetworkIdentityGuid { get; set; } = "";
     }
 }
