@@ -1,7 +1,15 @@
 # Pre-4.2.0 Foundation Drop — Test Pull
 
 **Type:** test execution doc (you read each test, do the action, write your result on the `**** ` line below it)
-**Build:** Debug x64, version `4.1.16.0`, branch `sprint28/home-key-qsk`, commit `ee8faebb`. Already built; exe at `bin\x64\Debug\net10.0-windows\win-x64\JJFlexRadio.exe`.
+**Build (post-cherry-pick to main, 2026-05-08 evening):** All 28 tests run against **main**, commit `28e2eaec`. Code-only cherry-pick from `sprint28/home-key-qsk` landed on main: 10 commits, all the foundation-drop fixes + stuck-modal escape + 7 bug-bundle fixes + design followup. Docs/memory/seals from sprint28 stay parked there until the 4.2-fold (per the keep-main-clean conversation 2026-05-08).
+
+To test:
+1. From `C:\dev\JJFlex-NG`: `git checkout main && git pull` (handle your local working-tree changes first if any — stash, commit, or checkout-discard as appropriate).
+2. `dotnet build JJFlexRadio.vbproj -c Debug -p:Platform=x64 --verbosity minimal` for a Debug build, OR `-c Release` if you want Release.
+3. Exe lands at `bin\x64\Debug\net10.0-windows\win-x64\JJFlexRadio.exe` (or Release path).
+4. Run through all 6 sessions of tests below.
+
+**Test 23 has a known spec-vs-implementation difference** — see Test 23's note for what was actually shipped.
 **When done:** move this doc to `for-claude/`. I'll translate `**** ` results into the matrix at `docs/planning/agile/pre-4.2-foundation-drop-test-matrix.md` and propose the foundation drop merge to main if everything looks clean.
 **Skip-friendly:** any test you can't run, write `**** SKIP <reason>` and move on. Tests are independent — skipping one doesn't invalidate the others.
 **Want to talk through one instead?** Just stop and ask in chat — happy to walk through any specific test interactively rather than have you fight through this doc.
@@ -144,13 +152,86 @@ Connect, then disconnect. The disconnect should produce: 73 plays exactly once (
 
 ---
 
+## Session 6 — Sprint 28 design-followup (RunsWithoutRadio + action-aware no-radio)
+
+**Requires post-design-followup-merge build.** Track is running on auto in `C:\dev\jjflex-bug-bundle` on branch `sprint28/bug-bundle-design-followup`. When done, it merges into `sprint28/home-key-qsk` and the new commit becomes the build target. If you're testing before that merge, mark every test 20–28 as `**** SKIP build-not-ready-yet` and continue.
+
+**What this session validates:**
+- (a) `RunsWithoutRadio` flag — `SetFreq` and `ShowMemory` now run with no radio connected so easter eggs and just-typing-a-frequency-to-remember-it still work.
+- (b) Action-aware no-radio announcement — generic "JJ Flexible Home, no radio connected" is replaced by "Unable to [change band], JJ Flexible Home no radio connected" sourced from each command's `ShortActionLabel`.
+
+### 20. SetFreq with no radio opens dialog silently
+
+Disconnect any radio. Press `Ctrl+F`. Set Frequency dialog opens. **No "no radio" announcement at the open** — the dialog just appears and your screen reader announces the dialog's own focus target normally. Pre-fix: would have spoken "JJ Flexible Home, no radio connected" and never opened the dialog.
+
+**** 
+
+### 21. SetFreq easter-egg input still works with no radio
+
+Continuation of test 20. With the freq dialog open and no radio connected, type your easter-egg trigger (e.g., `cqtest`) and confirm. The easter egg fires normally — same behavior as if a radio were connected.
+
+**** 
+
+### 22. SetFreq apply-time announcement when typing a real frequency with no radio
+
+Continuation of test 20. With no radio and the freq dialog open, type a real frequency (e.g., `14250.00`) and confirm. At apply time the announcement should be something like "no radio, can't tune" — the failure message is moved from open-time to apply-time. Verify the announcement doesn't try to interpret the typed frequency as something it isn't (no "tuning to 14.25" before the failure speech).
+
+**** 
+
+### 23. ShowMemory with no radio (REVISED — implementation chose action-aware speech, not silent dialog)
+
+Disconnect any radio. Trigger ShowMemory (your bound key for it). **Implementation shipped with action-aware speech, not silent dialog**: the keystroke produces the action-aware announcement *"Unable to show memories, JJ Flexible Home no radio connected"* (or the appropriate verbosity-tier form) and the dialog does NOT open. Reasoning: memory data lives radio-side, so opening an empty viewer is more confusing than a clear failure announcement.
+
+What to verify: the announcement names "show memories" (not the generic "JJ Flexible Home, no radio connected"), and the keystroke does not silently fail (no-silent-keystrokes rule). The dialog NOT opening is the intended behavior, not a bug.
+
+If you'd prefer the original spec behavior (dialog opens silently, allows browsing locally-cached memory data when there is some), that's a separate small change — flag it on the `**** ` line and we'll plan a follow-up. Today's behavior matches the no-silent-keystrokes principle and the data-lives-radio-side reality.
+
+**** 
+
+### 24. Action-aware no-radio announcement at Verbose verbosity
+
+Settings → Notifications → verbosity = Verbose. Disconnect. Press `Ctrl+B` (ChangeBand). Should hear: **"Unable to change band, JJ Flexible Home no radio connected."** The action label ("change band") leads, the venue ("JJ Flexible Home") and the failure ("no radio connected") follow. Pre-fix: just "JJ Flexible Home, no radio connected" with no action context.
+
+**** 
+
+### 25. Action-aware announcement at Terse verbosity
+
+Same setup as test 24, switch verbosity to Terse. Press `Ctrl+B`. Should hear something like **"change band, no radio"** — action label still leads, venue + failure abbreviated. Exact phrasing is at the build session's discretion (whatever the helper produces at Terse).
+
+**** 
+
+### 26. Action-aware announcement at Critical-only verbosity
+
+Same setup as test 24, switch verbosity to Critical (the lowest). Press `Ctrl+B`. Should still hear an action-led phrase — not silence. The exact form may be even shorter (e.g., "change band, no radio") but the action label MUST appear; this is the most-information-with-least-words case.
+
+**** 
+
+### 27. Multiple action labels — sample a few
+
+With no radio and at Verbose verbosity, sample these and confirm each speaks its action label:
+- Tune key — should say "Unable to [tune action label], …"
+- RIT toggle key — should say "Unable to [RIT toggle label], …"
+- One band-other-than-Ctrl+B (e.g., 40m direct key) — should say "Unable to [its action label], …"
+
+You don't need to memorize the labels; just confirm each one's announcement names what you tried to do, not just "no radio connected."
+
+**** 
+
+### 28. Regression — command without ShortActionLabel falls back cleanly
+
+Some commands may not have a populated `ShortActionLabel` yet (vocabulary work continues into Sprint 29). Find one such command (or the build session will list a couple in its commit messages). Press it with no radio. The announcement should fall back to **the plain "JJ Flexible Home, no radio connected"** (today's behavior) — NOT speak "Unable to , JJ Flexible Home…" with an empty label, NOT crash, NOT go silent.
+
+**** 
+
+---
+
 ## After you're done
 
-Total: 19 tests across 5 sessions. Skip Session 4 if you're not in the mood for forced-stuck-condition setup; skip Session 3 if Don isn't available. Sessions 1, 2, 5 are pure solo and cover most of the ground.
+Total: 28 tests across 6 sessions. Skip Session 4 if you're not in the mood for forced-stuck-condition setup; skip Session 3 if Don isn't available; skip Session 6 if the design-followup track hasn't merged yet (mark each `**** SKIP build-not-ready-yet`). Sessions 1, 2, 5, 6 are pure solo and cover most of the ground.
 
 Move this doc to `for-claude/` when done. I'll:
 1. Translate `**** ` answers into the matrix's PASS/FAIL/DEFER convention.
-2. Update `docs/planning/agile/pre-4.2-foundation-drop-test-matrix.md` with verified state.
+2. Update `docs/planning/agile/pre-4.2-foundation-drop-test-matrix.md` with verified state (Session 6 results extend the matrix with new test rows).
 3. Promote any FAIL results into TODO entries in `JJFlex-TODO.md`.
 4. If everything's clean (or only minor FAILs that can ship-and-fix-forward), propose the `sprint28/home-key-qsk → main` merge.
 
@@ -163,3 +244,5 @@ Move this doc to `for-claude/` when done. I'll:
 - `memory/feedback_test_matrix_vs_guided_paper.md` — the convention this pull doc enacts
 - `memory/project_stuck_modal_escape_design.md` — design behind tests 10-17
 - `memory/project_no_silent_keystrokes_rule.md` — design behind tests 8-9
+- `docs/planning/active/sprint28-design-followup-track-instructions.md` — spec behind Session 6 (tests 20-28)
+- `memory/project_short_action_labels_vocabulary.md` — the `ShortActionLabel` infrastructure tests 24-28 exercise
