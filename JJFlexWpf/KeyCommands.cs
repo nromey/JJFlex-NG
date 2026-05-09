@@ -9,6 +9,13 @@ using Radios;
 
 namespace JJFlexWpf;
 
+// Quasi-modal "work mode" features (filter-edge grab, RIT/XIT scale-adjust,
+// future siblings) should reach for JJFlexWpf.Modes.StickyAnnouncedMode rather
+// than rolling their own enter/exit/timeout scaffolding. The helper bakes in
+// the mode-enter / mode-exit earcons, the dispatcher-safe inactivity watchdog,
+// and the IsActive / Exit lifecycle that screen-reader users expect to be
+// uniform across the app. See its file header for usage rules.
+
 /// <summary>
 /// C# replacement for KeyCommands.vb.
 /// Owns the key table, dictionaries, dispatch, leader key system, and config persistence.

@@ -45,6 +45,9 @@ This release is about the space where you actually spend your time in the app �
 - **[Safety check on port forwarding](#port-forwarding-safety-check).** If you're connected to somebody else's radio via SmartLink and try to change the port settings, JJ Flexible politely stops you instead of overwriting their radio's config.
 - [CW send and receive boxes](#cw-text-boxes) go away if you can't use them. Unless you're in CW mode, the receive and send text boxes aren't visible and they're not in the tab order. Switch to CW with Alt+C and they come right back.
 - **Ctrl+Tab works for [panel navigation](#panel-navigation) again.** Sorry about that. Ctrl+Tab moves you through the major category fields, and Ctrl+Shift+Tab reverses direction. The popup menu that used to live on Ctrl+Tab is disabled pending a proper redesign — it's going to come back as an actual accessible toolbar that also looks spiffy. Stay tuned on that one.
+- **[Tuning unity](#tuning-unity).** Up and Down arrow tune by your coarse step. Shift+Up and Shift+Down tune by your fine step. There is no mode any more — no `C` key to flip back and forth, no Page Up/Down to cycle a step list. One coarse value, one fine value, set in Settings. Don was the one who said it: "you can tune much more easily if you don't have to mode switch." He's right.
+- **[Audio levels live in the Audio expander now](#audio-expander-volume).** Volume, headphone level, and line out level all live under Ctrl+Shift+U. The old `Alt+Page Up`, `Alt+Shift+Page Up`, and `Shift+Page Up` shortcuts (and their `Page Down` counterparts) are retired. Hotkeys earn their slot when one keystroke equals one action; values belong with their fields.
+- **[RIT and XIT now have a scale-adjust mode](#rit-xit-scale-adjust).** Press a number 1, 2, 3, or 4 while focus is on the RIT or XIT field, and you're in scale-adjust mode at 1 Hz, 10 Hz, 100 Hz, or 1 kHz. Up and Down then walk the offset by that scale until you press 0, Escape, or navigate away. Don asked for this one — chasing a drifting correspondent without field-hopping through decade fields is the workflow this exists for.
 
 ### Home's got a real name now {#home-intro}
 
@@ -144,6 +147,52 @@ We worked on network connectivity and stability. Hopefully, you'll never know we
 ### Ctrl+Tab Reclaimed for Panel Navigation {#panel-navigation}
 
 Ctrl+Tab used to pop up an "action toolbar" menu. It's disabled now, and Ctrl+Tab / Ctrl+Shift+Tab are back to doing what they do best in a tabbed interface: moving between open field groups. The action toolbar is coming back in a future release as an actual toolbar, not a menu — a persistent accessible UI surface you can navigate, not a popup that interrupted your tab nav every time you reached for it. I'm hoping the toolbar looks good too.
+
+[Return to version headlines](#v4-1-17-headlines)
+
+### Tuning Unity — Up coarse, Shift+Up fine, no more mode switching {#tuning-unity}
+
+There used to be a `C` key in Modern tuning that flipped you between coarse and fine. You'd press Up and tune by 1 kHz. Press C, press Up, and now you'd tune by 100 Hz. Press Page Up to climb the step list to 5 kHz. Press C again to drop back to fine. It worked, but it was modal — silent modal, the worst kind, where you forget which one you're in until something doesn't tune the way you expected.
+
+That's all gone. Up and Down are coarse. Shift+Up and Shift+Down are fine. One value per direction, configured in Settings → Tuning. The defaults are 5 kHz coarse and 100 Hz fine, which match what most operators set the old C-toggle to anyway.
+
+Some collateral cleanup that came with this:
+
+- The `C` toggle no longer exists in Modern tuning's Frequency field. Pressing C just types the letter C if you were typing a frequency.
+- Page Up and Page Down on the Frequency field used to cycle through the step list. The list is gone (one value per coarse and one per fine), so the keys do nothing on the Frequency field — they still pan in the Slice field, where they always have.
+- Shift+S still announces your step sizes — it just announces both now ("coarse 5 kilohertz, fine 100 hertz") since there's no "current" mode to single out.
+- The Tuning menu under Slice has slimmed down: Toggle Coarse/Fine and the Step Size Larger/Smaller pair are gone. Speak Current Step is still there.
+- Settings → Tuning still has Coarse and Fine pickers — just one value each, not a list. The "Edit Tuning Steps" button retired with the list.
+
+[Return to version headlines](#v4-1-17-headlines)
+
+### Audio levels live in the Audio expander, not on a hotkey {#audio-expander-volume}
+
+Six audio-volume hotkey pairs got retired:
+
+- `Alt+Page Up` / `Alt+Page Down` — was main audio gain
+- `Alt+Shift+Page Up` / `Alt+Shift+Page Down` — was headphones volume
+- `Shift+Page Up` / `Shift+Page Down` — was line out volume
+
+All three of those values now live in the Audio expander. Press `Ctrl+Shift+U` to open it, then arrow to Volume, Headphone Level, or Line Out Level. Up and Down nudge the value, Shift+Up and Shift+Down move in finer steps, Page Up and Page Down jump by ten, Home and End snap to minimum and maximum.
+
+The reasoning is the same one that powered tuning unity: hotkeys are for toggles, where one key reliably does one thing. Values belong with their fields, where the standard arrow conventions apply consistently. Audio levels especially aren't real-time controls — you're not flicking the volume mid-QSO; you set it once and forget it.
+
+If you don't have a physical volume control on your speakers and you've been relying on the hotkey to adjust speaker volume on the fly, the new path is `Ctrl+Shift+U` then arrow to Volume. We're keeping an eye on whether that's a workable substitute. If it isn't for your setup, let us know — we have a fallback design ready.
+
+The slots themselves stay reserved in the keymap so a future feature can claim them deliberately, instead of someone stumbling into them and being surprised that the keys do nothing.
+
+[Return to version headlines](#v4-1-17-headlines)
+
+### RIT and XIT Scale-Adjust Mode {#rit-xit-scale-adjust}
+
+When you're chasing a slow drift in someone else's signal, RIT (or XIT) is the tool. The old way to tune the offset was to navigate the cursor through the 1, 10, 100, and 1000 Hz columns of the field, then press Up or Down at the column you wanted. That works fine when you've got time. It does not work fine in a pile-up while everyone's calling and the DX is climbing.
+
+Now there's a quick path. With focus on the RIT or XIT field, press 1, 2, 3, or 4. You enter scale-adjust mode at 1 Hz, 10 Hz, 100 Hz, or 1 kHz respectively. Your screen reader announces the mode ("RIT adjust, 100 Hz"). A rising mode-enter tone confirms you're in. Now Up and Down walk the offset by that scale. Press another digit 1–4 to switch scale without leaving the mode. Press 0, Escape, or navigate to a different field to exit; you'll hear a descending mode-exit tone on the way out. Pressing R (or X) to toggle RIT (or XIT) off also exits — useful muscle memory for the bail.
+
+The decade-position cursor approach still works when you're not in scale-adjust mode. Digits 5 through 9 still type at the cursor like before. The new mode is purely additive — Don's fast path, sitting alongside the legacy path.
+
+This is the third home of a pattern we've been quietly building toward: the sticky-but-announced modal. Filter-edge grab uses it (double-tap a bracket key on the filter to grab one edge for adjustment). RIT and XIT scale-adjust is the same idea applied to offset tuning. The plumbing is shared now, so future features that want this feel — a deliberate entry, an announced state, a focus-bound exit — can use it without re-rolling.
 
 [Return to version headlines](#v4-1-17-headlines)
 

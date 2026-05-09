@@ -1488,8 +1488,8 @@ public partial class MainWindow : UserControl
                 ("Space", "toggle mute"), ("M", "mute"), ("S", "sound"),
                 ("A", "make active"), ("T", "make transmit"), ("X", "transceive") } });
         fields.Add(new FrequencyDisplay.DisplayField("Freq", 12, "", "") { Label = "Frequency", DefaultCursorOffset = 8,
-            HelpItems = new() { ("Up Down", "tune"), ("Digits", "type frequency then Enter"), ("F", "speak frequency"),
-                ("C", "toggle coarse and fine"), ("Page Up Down", "cycle step size"),
+            HelpItems = new() { ("Up Down", "coarse tune"), ("Shift Up Down", "fine tune"),
+                ("Digits", "type frequency then Enter"), ("F", "speak frequency"),
                 ("Shift S", "speak current step"), ("M", "mute"), ("V", "cycle slice"),
                 ("R", "toggle RIT"), ("X", "toggle XIT") } });
         fields.Add(new FrequencyDisplay.DisplayField("SMeter", 4, " ", "") { Label = "S Meter",

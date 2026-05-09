@@ -8,16 +8,11 @@ Press `Ctrl+Shift+W` from anywhere in the application to open the Audio Workshop
 
 ## Audio Level Controls
 
-You do not have to open the Audio Workshop to adjust basic levels — several keyboard shortcuts work from anywhere in the application:
+The everyday volume, headphone level, and line-out level live in the Audio expander now, not on global hotkeys. Press `Ctrl+Shift+U` to open the Audio expander, then arrow to the level you want and use the standard value-control keys: Up / Down to nudge, Shift + Up / Down for finer steps, Page Up / Page Down for ten-step jumps, Home / End for minimum / maximum.
 
-| Key | Action |
-|-----|--------|
-| Alt+Page Up | Increase audio gain |
-| Alt+Page Down | Decrease audio gain |
-| Alt+Shift+Page Up | Increase headphone volume |
-| Alt+Shift+Page Down | Decrease headphone volume |
-| Shift+Page Up | Increase line-out volume |
-| Shift+Page Down | Decrease line-out volume |
+The Audio Workshop is for the bigger picture — output device selection, multiple outputs at independent levels, presets — rather than for the moment-to-moment "turn it up a hair" adjustments.
+
+The previous `Alt+Page Up`, `Alt+Shift+Page Up`, and `Shift+Page Up` shortcuts (and their `Page Down` counterparts) are retired. The slots are reserved on purpose so a future feature can claim them deliberately.
 
 ## Audio Routing
 
