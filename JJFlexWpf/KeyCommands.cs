@@ -57,51 +57,51 @@ public class KeyCommands
             // ── Help ──
             new(CommandValues.ShowHelp, ShowHelpHandler,
                 "Show keys help", null, FunctionGroups.Help, KeyScope.Global)
-                { Keywords = new[] { "help", "keys", "hotkeys", "shortcuts", "keyboard" } },
+                { Keywords = new[] { "help", "keys", "hotkeys", "shortcuts", "keyboard" }, ShortActionLabel = "show keys help" },
             new(CommandValues.ShowContextHelp, KeyTypes.Command, ShowContextHelpHandler,
                 "Open help file", "Help file", false, FunctionGroups.Help, KeyScope.Global)
-                { Keywords = new[] { "help", "file", "chm", "documentation", "manual", "f1" } },
+                { Keywords = new[] { "help", "file", "chm", "documentation", "manual", "f1" }, ShortActionLabel = "open help file" },
 
             // ── Routing / Scan ──
             new(CommandValues.ShowFreq, DisplayFreqHandler,
                 "Go to Home", null, FunctionGroups.RoutingScan, KeyScope.Radio)
-                { Keywords = new[] { "home", "frequency", "focus", "display", "tune", "tuning" } },
+                { Keywords = new[] { "home", "frequency", "focus", "display", "tune", "tuning" }, ShortActionLabel = "go to home" },
             new(CommandValues.ResumeTheScan, ResumeScanHandler,
                 "Resume the scan.", "resume scan", FunctionGroups.Scan, KeyScope.Radio)
-                { Keywords = new[] { "scan", "resume", "continue", "scanning" } },
+                { Keywords = new[] { "scan", "resume", "continue", "scanning" }, ShortActionLabel = "resume scan" },
             new(CommandValues.ShowReceived, GotoReceiveHandler,
                 "goto the received text window", null, FunctionGroups.Routing, KeyScope.Radio)
-                { Keywords = new[] { "receive", "text", "window", "cw", "morse", "focus" } },
+                { Keywords = new[] { "receive", "text", "window", "cw", "morse", "focus" }, ShortActionLabel = "go to received text" },
             new(CommandValues.ShowSend, GotoSendHandler,
                 "go to the send text window", null, FunctionGroups.Routing, KeyScope.Radio)
-                { Keywords = new[] { "send", "text", "window", "cw", "morse", "focus" } },
+                { Keywords = new[] { "send", "text", "window", "cw", "morse", "focus" }, ShortActionLabel = "go to send text" },
             new(CommandValues.ShowSendDirect, GotoSendDirectHandler,
                 "go to the send text window and send direct from keyboard", null, FunctionGroups.Routing, KeyScope.Radio)
-                { Keywords = new[] { "send", "direct", "keyboard", "cw", "morse", "type" } },
+                { Keywords = new[] { "send", "direct", "keyboard", "cw", "morse", "type" }, ShortActionLabel = "send direct from keyboard" },
 
             // ── General ──
             new(CommandValues.SmeterDBM, KeyTypes.Command, SmeterDisplayHandler,
                 "Display SMeter in DBM or S-units", _context.SMeterMenuString, false, FunctionGroups.General, KeyScope.Radio)
-                { Keywords = new[] { "s meter", "signal", "strength", "dbm", "s-units", "meter" } },
+                { Keywords = new[] { "s meter", "signal", "strength", "dbm", "s-units", "meter" }, ShortActionLabel = "switch S meter units" },
             new(CommandValues.ReadSMeter, ReadSMeterHandler,
                 "Read the S-meter value aloud", null, FunctionGroups.General, KeyScope.Radio)
-                { Keywords = new[] { "s meter", "signal", "strength", "read", "speak", "announce" } },
+                { Keywords = new[] { "s meter", "signal", "strength", "read", "speak", "announce" }, ShortActionLabel = "read S meter" },
 
             // ── Audio / Meter ──
             new(CommandValues.ToggleMeterTones, ToggleMeterTonesHandler,
                 "Toggle meter sonification tones", null, FunctionGroups.Audio, KeyScope.Radio)
-                { Keywords = new[] { "meter", "tone", "sonification", "audio", "pitch", "toggle" } },
+                { Keywords = new[] { "meter", "tone", "sonification", "audio", "pitch", "toggle" }, ShortActionLabel = "toggle meter tones" },
             new(CommandValues.CycleMeterPreset, CycleMeterPresetHandler,
                 "Cycle meter tone preset (RX, TX, Full Monitor)", null, FunctionGroups.Audio, KeyScope.Radio)
-                { Keywords = new[] { "meter", "preset", "cycle", "rx", "tx", "monitor" } },
+                { Keywords = new[] { "meter", "preset", "cycle", "rx", "tx", "monitor" }, ShortActionLabel = "cycle meter preset" },
             new(CommandValues.SpeakMeters, SpeakMetersHandler,
                 "Speak current meter values", null, FunctionGroups.Audio, KeyScope.Radio)
-                { Keywords = new[] { "meter", "speak", "read", "alc", "swr", "power", "signal" } },
+                { Keywords = new[] { "meter", "speak", "read", "alc", "swr", "power", "signal" }, ShortActionLabel = "speak meter values" },
 
             // ── CW ──
             new(CommandValues.StopCW, KeyTypes.Command, StopCWHandler,
                 "Stop sending CW", "cw stop", true, FunctionGroups.General, KeyScope.Global)
-                { Keywords = new[] { "cw", "morse", "stop", "abort", "sending" } },
+                { Keywords = new[] { "cw", "morse", "stop", "abort", "sending" }, ShortActionLabel = "stop sending C W" },
 
             // ── Frequency / Memory ──
             // SetFreq opts in to RunsWithoutRadio: the freq-input dialog still
@@ -127,81 +127,81 @@ public class KeyCommands
                 },
             new(CommandValues.CycleContinuous, CycleContinuousHandler,
                 "Toggle continuous frequency display", null, FunctionGroups.General, KeyScope.Radio)
-                { Keywords = new[] { "continuous", "frequency", "display", "toggle" } },
+                { Keywords = new[] { "continuous", "frequency", "display", "toggle" }, ShortActionLabel = "toggle continuous frequency" },
 
             // ── Logging ──
             new(CommandValues.LogDateTime, SetLogDateTimeHandler,
                 "Set log date/time", "log date/time", "QSO_DATE", KeyTypes.Log, FunctionGroups.Logging, KeyScope.Logging)
-                { Keywords = new[] { "log", "date", "time", "contact", "logging" } },
+                { Keywords = new[] { "log", "date", "time", "contact", "logging" }, ShortActionLabel = "log date and time" },
             new(CommandValues.LogFinalize, FinalizeLogHandler,
                 "Write log entry", "log write", IADIF_Logwrite, KeyTypes.Command, FunctionGroups.Logging, KeyScope.Logging)
-                { Keywords = new[] { "log", "write", "save", "entry", "contact", "finalize", "logging" } },
+                { Keywords = new[] { "log", "write", "save", "entry", "contact", "finalize", "logging" }, ShortActionLabel = "save log entry" },
             new(CommandValues.LogFileName, GetLogFileNameHandler,
                 "Enter log file name", "log file name", IADIF_Logfile, KeyTypes.Command, FunctionGroups.Logging, KeyScope.Logging)
-                { Keywords = new[] { "log", "file", "name", "logging" } },
+                { Keywords = new[] { "log", "file", "name", "logging" }, ShortActionLabel = "set log file name" },
             new(CommandValues.LogMode, BringUpLogFormHandler,
                 "Log the mode", "log mode", "MODE", KeyTypes.Log, FunctionGroups.Logging, KeyScope.Logging)
-                { Keywords = new[] { "log", "mode", "contact", "logging" } },
+                { Keywords = new[] { "log", "mode", "contact", "logging" }, ShortActionLabel = "log mode" },
             new(CommandValues.LogCall, BringUpLogFormHandler,
                 "Log callsign", "log call", "CALL", KeyTypes.Log, FunctionGroups.Logging, KeyScope.Logging)
-                { Keywords = new[] { "log", "call", "callsign", "contact", "logging" } },
+                { Keywords = new[] { "log", "call", "callsign", "contact", "logging" }, ShortActionLabel = "log callsign" },
             new(CommandValues.LogHisRST, BringUpLogFormHandler,
                 "Log his RST", "log his RST", "RST_SENT", KeyTypes.Log, FunctionGroups.Logging, KeyScope.Logging)
-                { Keywords = new[] { "log", "rst", "signal", "report", "his", "contact", "logging" } },
+                { Keywords = new[] { "log", "rst", "signal", "report", "his", "contact", "logging" }, ShortActionLabel = "log his signal report" },
             new(CommandValues.LogMyRST, BringUpLogFormHandler,
                 "Log my RST", "log my RST", "RST_RCVD", KeyTypes.Log, FunctionGroups.Logging, KeyScope.Logging)
-                { Keywords = new[] { "log", "rst", "signal", "report", "my", "contact", "logging" } },
+                { Keywords = new[] { "log", "rst", "signal", "report", "my", "contact", "logging" }, ShortActionLabel = "log my signal report" },
             new(CommandValues.LogQTH, BringUpLogFormHandler,
                 "Log QTH", "log QTH", "QTH", KeyTypes.Log, FunctionGroups.Logging, KeyScope.Logging)
-                { Keywords = new[] { "log", "qth", "location", "contact", "logging" } },
+                { Keywords = new[] { "log", "qth", "location", "contact", "logging" }, ShortActionLabel = "log location" },
             new(CommandValues.LogState, BringUpLogFormHandler,
                 "Log state/province", "log state", "STATE", KeyTypes.Log, FunctionGroups.Logging, KeyScope.Logging)
-                { Keywords = new[] { "log", "state", "province", "contact", "logging" } },
+                { Keywords = new[] { "log", "state", "province", "contact", "logging" }, ShortActionLabel = "log state" },
             new(CommandValues.LogGrid, BringUpLogFormHandler,
                 "Log Grid square", "log Grid", "GRIDSQUARE", KeyTypes.Log, FunctionGroups.Logging, KeyScope.Logging)
-                { Keywords = new[] { "log", "grid", "square", "locator", "contact", "logging" } },
+                { Keywords = new[] { "log", "grid", "square", "locator", "contact", "logging" }, ShortActionLabel = "log grid square" },
             new(CommandValues.LogHandle, BringUpLogFormHandler,
                 "Log name", "log name", "NAME", KeyTypes.Log, FunctionGroups.Logging, KeyScope.Logging)
-                { Keywords = new[] { "log", "name", "handle", "operator", "contact", "logging" } },
+                { Keywords = new[] { "log", "name", "handle", "operator", "contact", "logging" }, ShortActionLabel = "log name" },
             new(CommandValues.LogRig, BringUpLogFormHandler,
                 "Log rig", "log rig", "RIG", KeyTypes.Log, FunctionGroups.Logging, KeyScope.Logging)
-                { Keywords = new[] { "log", "rig", "radio", "contact", "logging" } },
+                { Keywords = new[] { "log", "rig", "radio", "contact", "logging" }, ShortActionLabel = "log rig" },
             new(CommandValues.LogAnt, BringUpLogFormHandler,
                 "Log antenna", "log antenna", "ANTENNA", KeyTypes.Log, FunctionGroups.Logging, KeyScope.Logging)
-                { Keywords = new[] { "log", "antenna", "contact", "logging" } },
+                { Keywords = new[] { "log", "antenna", "contact", "logging" }, ShortActionLabel = "log antenna" },
             new(CommandValues.LogComments, BringUpLogFormHandler,
                 "Log comments", "log comments", "COMMENT", KeyTypes.Log, FunctionGroups.Logging, KeyScope.Logging)
-                { Keywords = new[] { "log", "comments", "notes", "contact", "logging" } },
+                { Keywords = new[] { "log", "comments", "notes", "contact", "logging" }, ShortActionLabel = "log comments" },
             new(CommandValues.NewLogEntry, BringUpLogFormHandler,
                 "New log entry", "new log entry", IADIF_LogNewEntry, KeyTypes.Command, FunctionGroups.Logging, KeyScope.Logging)
-                { Keywords = new[] { "log", "new", "entry", "contact", "logging" } },
+                { Keywords = new[] { "log", "new", "entry", "contact", "logging" }, ShortActionLabel = "start new log entry" },
             new(CommandValues.SearchLog, SearchLogHandler,
                 "Find a log entry", "log search", IADIF_Logsearch, KeyTypes.Command, FunctionGroups.Logging, KeyScope.Logging)
-                { Keywords = new[] { "log", "search", "find", "contact", "logging" } },
+                { Keywords = new[] { "log", "search", "find", "contact", "logging" }, ShortActionLabel = "search log" },
 
             // ── Navigation / Panning ──
             new(CommandValues.DoPanning, StartPanningHandler,
                 "Focus to panning", "panning", FunctionGroups.General, KeyScope.Radio)
-                { Keywords = new[] { "pan", "panning", "stereo", "audio", "balance" } },
+                { Keywords = new[] { "pan", "panning", "stereo", "audio", "balance" }, ShortActionLabel = "go to panning" },
 
             // ── Scan ──
             new(CommandValues.StartScan, BeginScanHandler,
                 "Start/stop scan", "start scan", FunctionGroups.Scan, KeyScope.Radio)
-                { Keywords = new[] { "scan", "start", "stop", "search", "scanning" } },
+                { Keywords = new[] { "scan", "start", "stop", "search", "scanning" }, ShortActionLabel = "start scan" },
             new(CommandValues.SavedScan, UseSavedScanHandler,
                 "Use a saved scan", "saved scan", FunctionGroups.Scan, KeyScope.Radio)
-                { Keywords = new[] { "scan", "saved", "preset", "scanning" } },
+                { Keywords = new[] { "scan", "saved", "preset", "scanning" }, ShortActionLabel = "use saved scan" },
             new(CommandValues.StopScan, StopScanHandler,
                 "Stop the current scan", "stop scan", FunctionGroups.Scan, KeyScope.Radio)
-                { Keywords = new[] { "scan", "stop", "halt", "scanning" } },
+                { Keywords = new[] { "scan", "stop", "halt", "scanning" }, ShortActionLabel = "stop scan" },
             new(CommandValues.MemoryScan, MemoryScanHandler,
                 "Memory scan", "memory scan", FunctionGroups.Scan, KeyScope.Radio)
-                { Keywords = new[] { "scan", "memory", "memories", "scanning", "channel" } },
+                { Keywords = new[] { "scan", "memory", "memories", "scanning", "channel" }, ShortActionLabel = "start memory scan" },
 
             // ── Dialogs ──
             new(CommandValues.ShowMenus, ShowMenusHandler,
                 "Show the rig's menus.", "menus", FunctionGroups.Dialog, KeyScope.Radio)
-                { Keywords = new[] { "menu", "menus", "rig", "radio", "settings" } },
+                { Keywords = new[] { "menu", "menus", "rig", "radio", "settings" }, ShortActionLabel = "show radio menus" },
 
             // ── Audio volume ──
             new(CommandValues.AudioGainUp, KeyTypes.Command, AudioGainUpHandler,
@@ -212,51 +212,51 @@ public class KeyCommands
                 { Keywords = new[] { "volume", "gain", "audio", "quieter", "down", "slice" }, ShortActionLabel = "lower audio gain" },
             new(CommandValues.HeadphonesUp, KeyTypes.Command, HeadphonesUpHandler,
                 "If supported, raise headphone gain.", string.Empty, true, FunctionGroups.Audio, KeyScope.Radio)
-                { Keywords = new[] { "headphones", "volume", "audio", "louder", "gain" } },
+                { Keywords = new[] { "headphones", "volume", "audio", "louder", "gain" }, ShortActionLabel = "raise headphone volume" },
             new(CommandValues.HeadphonesDown, KeyTypes.Command, HeadphonesDownHandler,
                 "If supported, lower headphone gain.", string.Empty, true, FunctionGroups.Audio, KeyScope.Radio)
-                { Keywords = new[] { "headphones", "volume", "audio", "quieter", "gain" } },
+                { Keywords = new[] { "headphones", "volume", "audio", "quieter", "gain" }, ShortActionLabel = "lower headphone volume" },
             new(CommandValues.LineoutUp, KeyTypes.Command, LineoutUpHandler,
                 "Raise audio gain or Flex lineout gain.", string.Empty, true, FunctionGroups.Audio, KeyScope.Radio)
-                { Keywords = new[] { "lineout", "volume", "audio", "gain", "output" } },
+                { Keywords = new[] { "lineout", "volume", "audio", "gain", "output" }, ShortActionLabel = "raise lineout" },
             new(CommandValues.LineoutDown, KeyTypes.Command, LineoutDownHandler,
                 "lower audio gain or Flex lineout gain.", string.Empty, true, FunctionGroups.Audio, KeyScope.Radio)
-                { Keywords = new[] { "lineout", "volume", "audio", "gain", "output" } },
+                { Keywords = new[] { "lineout", "volume", "audio", "gain", "output" }, ShortActionLabel = "lower lineout" },
 
             // ── CW / RIT / Beacon / Cluster ──
             new(CommandValues.CWZeroBeat, KeyTypes.Command, ZerobeatHandler,
                 "Zerobeat CW signal.", "Zerobeat CW signal", true, FunctionGroups.General, KeyScope.Radio)
-                { Keywords = new[] { "cw", "morse", "zerobeat", "zero beat", "tune" } },
+                { Keywords = new[] { "cw", "morse", "zerobeat", "zero beat", "tune" }, ShortActionLabel = "zero beat C W signal" },
             new(CommandValues.ClearRIT, KeyTypes.Command, ClearRitHandler,
                 "Clear RIT.", "Clear Rit", true, FunctionGroups.General, KeyScope.Radio)
                 { Keywords = new[] { "rit", "clear", "offset", "receive", "incremental" }, ShortActionLabel = "clear RIT" },
             new(CommandValues.ReverseBeacon, KeyTypes.Command, ReverseBeaconHandler,
                 "Bring up a reverse beacon site for a call.", "Reverse Beacon", false, FunctionGroups.General, KeyScope.Radio)
-                { Keywords = new[] { "beacon", "reverse", "spots", "dx", "rbn" } },
+                { Keywords = new[] { "beacon", "reverse", "spots", "dx", "rbn" }, ShortActionLabel = "look up reverse beacon" },
             new(CommandValues.ArCluster, KeyTypes.Command, DXClusterHandler,
                 "Bring up the DX spotting cluster.", "DX cluster", false, FunctionGroups.General, KeyScope.Radio)
-                { Keywords = new[] { "cluster", "dx", "spots", "spotting" } },
+                { Keywords = new[] { "cluster", "dx", "spots", "spotting" }, ShortActionLabel = "open D X cluster" },
 
             // ── Logging (continued) ──
             new(CommandValues.LogStats, KeyTypes.Command, LogStatsHandler,
                 "Show log statistics", "Show log statistics", false, FunctionGroups.Logging, KeyScope.Logging)
-                { Keywords = new[] { "log", "statistics", "stats", "contact", "count", "logging" } },
+                { Keywords = new[] { "log", "statistics", "stats", "contact", "count", "logging" }, ShortActionLabel = "show log statistics" },
 
             // ── Audio features ──
             new(CommandValues.RemoteAudio, KeyTypes.Command, PCAudioHandler,
                 "PC audio on/off", _context.AudioMenuString, false, FunctionGroups.Audio, KeyScope.Radio)
-                { Keywords = new[] { "audio", "remote", "pc", "mute", "unmute", "on", "off" } },
+                { Keywords = new[] { "audio", "remote", "pc", "mute", "unmute", "on", "off" }, ShortActionLabel = "toggle P C audio" },
             new(CommandValues.AudioSetup, KeyTypes.Command, AudioSetupHandler,
                 "Select audio device", "Select Audio Device", false, FunctionGroups.Audio, KeyScope.Radio)
-                { Keywords = new[] { "audio", "device", "setup", "settings", "configure", "preferences", "sound" } },
+                { Keywords = new[] { "audio", "device", "setup", "settings", "configure", "preferences", "sound" }, ShortActionLabel = "select audio device" },
 
             // ── Lookups / Debug / ATU / Reboot / TX ──
             new(CommandValues.StationLookup, KeyTypes.Command, StationLookupHandler,
                 "Station lookup", "Station lookup", false, FunctionGroups.Logging, KeyScope.Global)
-                { Keywords = new[] { "station", "lookup", "callsign", "qrz", "search" } },
+                { Keywords = new[] { "station", "lookup", "callsign", "qrz", "search" }, ShortActionLabel = "look up station" },
             new(CommandValues.GatherDebug, KeyTypes.Command, GatherDebugHandler,
                 "Collect debug info", "Collect debug info", false, FunctionGroups.General, KeyScope.Global)
-                { Keywords = new[] { "debug", "info", "diagnostic", "troubleshoot" } },
+                { Keywords = new[] { "debug", "info", "diagnostic", "troubleshoot" }, ShortActionLabel = "collect debug info" },
             new(CommandValues.ATUMemories, KeyTypes.Command, ATUMemoriesHandler,
                 "Tuner memories", "Tuner memories", false, FunctionGroups.General, KeyScope.Radio)
                 { Keywords = new[] { "tuner", "atu", "antenna", "memories", "tune" }, ShortActionLabel = "open ATU memories" },
@@ -270,62 +270,62 @@ public class KeyCommands
             // ── Logging-only actions ──
             new(CommandValues.LogPaneSwitchF6, KeyTypes.Command, LogPaneSwitchHandler,
                 "Switch between radio and log panes", "Switch panes", false, FunctionGroups.Logging, KeyScope.Logging)
-                { Keywords = new[] { "log", "pane", "switch", "focus", "logging" } },
+                { Keywords = new[] { "log", "pane", "switch", "focus", "logging" }, ShortActionLabel = "switch log pane" },
             new(CommandValues.LogCharacteristicsDialog, KeyTypes.Command, LogCharacteristicsHandler,
                 "Open log characteristics dialog", "Log characteristics", false, FunctionGroups.Logging, KeyScope.Logging)
-                { Keywords = new[] { "log", "characteristics", "settings", "configure", "logging" } },
+                { Keywords = new[] { "log", "characteristics", "settings", "configure", "logging" }, ShortActionLabel = "open log settings" },
             new(CommandValues.LogOpenFullForm, KeyTypes.Command, LogOpenFullFormHandler,
                 "Open full log entry form", "Full log form", false, FunctionGroups.Logging, KeyScope.Logging)
-                { Keywords = new[] { "log", "full", "form", "entry", "logging" } },
+                { Keywords = new[] { "log", "full", "form", "entry", "logging" }, ShortActionLabel = "open full log form" },
 
             // ── Context help / Status ──
             new(CommandValues.ContextHelp, KeyTypes.Command, ContextHelpHandler,
                 "Context-aware command finder", "Command finder", false, FunctionGroups.Help, KeyScope.Global)
-                { Keywords = new[] { "help", "context", "command", "finder", "search", "keys" } },
+                { Keywords = new[] { "help", "context", "command", "finder", "search", "keys" }, ShortActionLabel = "open command finder" },
             new(CommandValues.SpeakStatus, KeyTypes.Command, SpeakStatusHandler,
                 "Speak radio status summary", "Speak status", false, FunctionGroups.General, KeyScope.Global)
-                { Keywords = new[] { "status", "speak", "info", "radio", "summary" } },
+                { Keywords = new[] { "status", "speak", "info", "radio", "summary" }, ShortActionLabel = "speak radio status" },
             new(CommandValues.ShowStatusDialog, KeyTypes.Command, ShowStatusDialogHandler,
                 "Show radio status dialog", "Status dialog", false, FunctionGroups.General, KeyScope.Global)
-                { Keywords = new[] { "status", "dialog", "info", "radio", "show" } },
+                { Keywords = new[] { "status", "dialog", "info", "radio", "show" }, ShortActionLabel = "show status dialog" },
             new(CommandValues.SpeakTxStatus, KeyTypes.Command, SpeakTxStatusHandler,
                 "Speak transmit status and time remaining", "Transmit status", false, FunctionGroups.General, KeyScope.Global)
-                { Keywords = new[] { "transmit", "ptt", "push to talk", "status", "tx", "time" } },
+                { Keywords = new[] { "transmit", "ptt", "push to talk", "status", "tx", "time" }, ShortActionLabel = "speak transmit status" },
 
             // ── Band jumps ──
             new(CommandValues.BandJump160, KeyTypes.Command, () => _context.GetMainWindow()?.BandJump(HamBands.Bands.BandNames.m160),
                 "Jump to 160 meter band", "160m", false, FunctionGroups.General, KeyScope.Radio)
-                { Keywords = new[] { "band", "160", "meter", "jump", "frequency" } },
+                { Keywords = new[] { "band", "160", "meter", "jump", "frequency" }, ShortActionLabel = "jump to 160 meters" },
             new(CommandValues.BandJump80, KeyTypes.Command, () => _context.GetMainWindow()?.BandJump(HamBands.Bands.BandNames.m80),
                 "Jump to 80 meter band", "80m", false, FunctionGroups.General, KeyScope.Radio)
-                { Keywords = new[] { "band", "80", "meter", "jump", "frequency" } },
+                { Keywords = new[] { "band", "80", "meter", "jump", "frequency" }, ShortActionLabel = "jump to 80 meters" },
             new(CommandValues.BandJump60, KeyTypes.Command, () => _context.GetMainWindow()?.BandJump(HamBands.Bands.BandNames.m60),
                 "Jump to 60 meter band", "60m", false, FunctionGroups.General, KeyScope.Radio)
-                { Keywords = new[] { "band", "60", "meter", "jump", "frequency" } },
+                { Keywords = new[] { "band", "60", "meter", "jump", "frequency" }, ShortActionLabel = "jump to 60 meters" },
             new(CommandValues.BandJump40, KeyTypes.Command, () => _context.GetMainWindow()?.BandJump(HamBands.Bands.BandNames.m40),
                 "Jump to 40 meter band", "40m", false, FunctionGroups.General, KeyScope.Radio)
                 { Keywords = new[] { "band", "40", "meter", "jump", "frequency" }, ShortActionLabel = "jump to 40 meters" },
             new(CommandValues.BandJump30, KeyTypes.Command, () => _context.GetMainWindow()?.BandJump(HamBands.Bands.BandNames.m30),
                 "Jump to 30 meter band", "30m", false, FunctionGroups.General, KeyScope.Radio)
-                { Keywords = new[] { "band", "30", "meter", "jump", "frequency", "warc" } },
+                { Keywords = new[] { "band", "30", "meter", "jump", "frequency", "warc" }, ShortActionLabel = "jump to 30 meters" },
             new(CommandValues.BandJump20, KeyTypes.Command, () => _context.GetMainWindow()?.BandJump(HamBands.Bands.BandNames.m20),
                 "Jump to 20 meter band", "20m", false, FunctionGroups.General, KeyScope.Radio)
                 { Keywords = new[] { "band", "20", "meter", "jump", "frequency" }, ShortActionLabel = "jump to 20 meters" },
             new(CommandValues.BandJump17, KeyTypes.Command, () => _context.GetMainWindow()?.BandJump(HamBands.Bands.BandNames.m17),
                 "Jump to 17 meter band", "17m", false, FunctionGroups.General, KeyScope.Radio)
-                { Keywords = new[] { "band", "17", "meter", "jump", "frequency", "warc" } },
+                { Keywords = new[] { "band", "17", "meter", "jump", "frequency", "warc" }, ShortActionLabel = "jump to 17 meters" },
             new(CommandValues.BandJump15, KeyTypes.Command, () => _context.GetMainWindow()?.BandJump(HamBands.Bands.BandNames.m15),
                 "Jump to 15 meter band", "15m", false, FunctionGroups.General, KeyScope.Radio)
-                { Keywords = new[] { "band", "15", "meter", "jump", "frequency" } },
+                { Keywords = new[] { "band", "15", "meter", "jump", "frequency" }, ShortActionLabel = "jump to 15 meters" },
             new(CommandValues.BandJump12, KeyTypes.Command, () => _context.GetMainWindow()?.BandJump(HamBands.Bands.BandNames.m12),
                 "Jump to 12 meter band", "12m", false, FunctionGroups.General, KeyScope.Radio)
-                { Keywords = new[] { "band", "12", "meter", "jump", "frequency", "warc" } },
+                { Keywords = new[] { "band", "12", "meter", "jump", "frequency", "warc" }, ShortActionLabel = "jump to 12 meters" },
             new(CommandValues.BandJump10, KeyTypes.Command, () => _context.GetMainWindow()?.BandJump(HamBands.Bands.BandNames.m10),
                 "Jump to 10 meter band", "10m", false, FunctionGroups.General, KeyScope.Radio)
-                { Keywords = new[] { "band", "10", "meter", "jump", "frequency" } },
+                { Keywords = new[] { "band", "10", "meter", "jump", "frequency" }, ShortActionLabel = "jump to 10 meters" },
             new(CommandValues.BandJump6, KeyTypes.Command, () => _context.GetMainWindow()?.BandJump(HamBands.Bands.BandNames.m6),
                 "Jump to 6 meter band", "6m", false, FunctionGroups.General, KeyScope.Radio)
-                { Keywords = new[] { "band", "6", "meter", "jump", "frequency", "vhf" } },
+                { Keywords = new[] { "band", "6", "meter", "jump", "frequency", "vhf" }, ShortActionLabel = "jump to 6 meters" },
             new(CommandValues.BandUp, KeyTypes.Command, () => _context.GetMainWindow()?.BandNavigate(1),
                 "Next higher band", "Band up", false, FunctionGroups.General, KeyScope.Radio)
                 { Keywords = new[] { "band", "up", "next", "higher", "navigate" }, ShortActionLabel = "change band" },
@@ -351,38 +351,38 @@ public class KeyCommands
                 { Keywords = new[] { "mode", "cw", "morse", "code", "continuous wave" }, ShortActionLabel = "switch to CW" },
             new(CommandValues.ModeAM, KeyTypes.Command, () => _context.GetMainWindow()?.SetMode("AM"),
                 "Switch to AM mode", "AM", false, FunctionGroups.General, KeyScope.Radio)
-                { Keywords = new[] { "mode", "am", "amplitude", "modulation", "broadcast" } },
+                { Keywords = new[] { "mode", "am", "amplitude", "modulation", "broadcast" }, ShortActionLabel = "switch to A M" },
             new(CommandValues.ModeFM, KeyTypes.Command, () => _context.GetMainWindow()?.SetMode("FM"),
                 "Switch to FM mode", "FM", false, FunctionGroups.General, KeyScope.Radio)
-                { Keywords = new[] { "mode", "fm", "frequency", "modulation", "repeater" } },
+                { Keywords = new[] { "mode", "fm", "frequency", "modulation", "repeater" }, ShortActionLabel = "switch to F M" },
             new(CommandValues.ModeDIGU, KeyTypes.Command, () => _context.GetMainWindow()?.SetMode("DIGU"),
                 "Switch to DIGU mode", "DIGU", false, FunctionGroups.General, KeyScope.Radio)
-                { Keywords = new[] { "mode", "digu", "digital", "upper", "ft8", "rtty", "psk" } },
+                { Keywords = new[] { "mode", "digu", "digital", "upper", "ft8", "rtty", "psk" }, ShortActionLabel = "switch to digital upper" },
             new(CommandValues.ModeDIGL, KeyTypes.Command, () => _context.GetMainWindow()?.SetMode("DIGL"),
                 "Switch to DIGL mode", "DIGL", false, FunctionGroups.General, KeyScope.Radio)
-                { Keywords = new[] { "mode", "digl", "digital", "lower", "ft8", "rtty", "psk" } },
+                { Keywords = new[] { "mode", "digl", "digital", "lower", "ft8", "rtty", "psk" }, ShortActionLabel = "switch to digital lower" },
 
             // ── TX Filter ──
             new(CommandValues.TXFilterLowDown, KeyTypes.Command, TXFilterLowDownHandler,
                 "Nudge TX filter low edge down", (string?)null, false, FunctionGroups.Audio, KeyScope.Radio)
-                { Keywords = new[] { "tx", "filter", "low", "down", "transmit", "sculpt" } },
+                { Keywords = new[] { "tx", "filter", "low", "down", "transmit", "sculpt" }, ShortActionLabel = "lower T X filter low edge" },
             new(CommandValues.TXFilterLowUp, KeyTypes.Command, TXFilterLowUpHandler,
                 "Nudge TX filter low edge up", (string?)null, false, FunctionGroups.Audio, KeyScope.Radio)
-                { Keywords = new[] { "tx", "filter", "low", "up", "transmit", "sculpt" } },
+                { Keywords = new[] { "tx", "filter", "low", "up", "transmit", "sculpt" }, ShortActionLabel = "raise T X filter low edge" },
             new(CommandValues.TXFilterHighDown, KeyTypes.Command, TXFilterHighDownHandler,
                 "Nudge TX filter high edge down", (string?)null, false, FunctionGroups.Audio, KeyScope.Radio)
-                { Keywords = new[] { "tx", "filter", "high", "down", "transmit", "sculpt" } },
+                { Keywords = new[] { "tx", "filter", "high", "down", "transmit", "sculpt" }, ShortActionLabel = "lower T X filter high edge" },
             new(CommandValues.TXFilterHighUp, KeyTypes.Command, TXFilterHighUpHandler,
                 "Nudge TX filter high edge up", (string?)null, false, FunctionGroups.Audio, KeyScope.Radio)
-                { Keywords = new[] { "tx", "filter", "high", "up", "transmit", "sculpt" } },
+                { Keywords = new[] { "tx", "filter", "high", "up", "transmit", "sculpt" }, ShortActionLabel = "raise T X filter high edge" },
             new(CommandValues.SpeakTXFilter, KeyTypes.Command, SpeakTXFilterHandler,
                 "Speak TX filter width", (string?)null, false, FunctionGroups.Audio, KeyScope.Radio)
-                { Keywords = new[] { "tx", "filter", "width", "bandwidth", "speak", "transmit", "sculpt" } },
+                { Keywords = new[] { "tx", "filter", "width", "bandwidth", "speak", "transmit", "sculpt" }, ShortActionLabel = "speak T X filter" },
 
             // ── Dialog launchers ──
             new(CommandValues.OpenAudioWorkshop, KeyTypes.Command, OpenAudioWorkshopHandler,
                 "Open Audio Workshop dialog", "Audio Workshop", false, FunctionGroups.Dialog, KeyScope.Global)
-                { Keywords = new[] { "audio", "workshop", "tx", "transmit", "mic", "compander", "preset", "earcon" } },
+                { Keywords = new[] { "audio", "workshop", "tx", "transmit", "mic", "compander", "preset", "earcon" }, ShortActionLabel = "open audio workshop" },
 
             // ── Tuning ──
             new(CommandValues.TuneToggle, KeyTypes.Command, TuneToggleHandler,
@@ -393,32 +393,32 @@ public class KeyCommands
                 { Keywords = new[] { "atu", "tune", "antenna", "tuner", "auto", "match", "swr" }, ShortActionLabel = "start ATU tune" },
             new(CommandValues.ToggleMeters, KeyTypes.Command, ToggleMetersHandler,
                 "Toggle meter tones on or off", "Toggle Meters", false, FunctionGroups.General, KeyScope.Global)
-                { Keywords = new[] { "meter", "tones", "sonification", "audio", "s-meter", "alc", "swr" } },
+                { Keywords = new[] { "meter", "tones", "sonification", "audio", "s-meter", "alc", "swr" }, ShortActionLabel = "toggle meter tones" },
 
             // ── 60m channels ──
             new(CommandValues.SixtyMeterChannelUp, KeyTypes.Command, () => _context.GetMainWindow()?.SixtyMeterChannelNavigate(1),
                 "Next 60 meter channel", "60m Channel Up", false, FunctionGroups.Tuning, KeyScope.Radio)
-                { Keywords = new[] { "60", "meter", "channel", "up", "next", "five", "navigate" } },
+                { Keywords = new[] { "60", "meter", "channel", "up", "next", "five", "navigate" }, ShortActionLabel = "next 60 meter channel" },
             new(CommandValues.SixtyMeterChannelDown, KeyTypes.Command, () => _context.GetMainWindow()?.SixtyMeterChannelNavigate(-1),
                 "Previous 60 meter channel", "60m Channel Down", false, FunctionGroups.Tuning, KeyScope.Radio)
-                { Keywords = new[] { "60", "meter", "channel", "down", "previous", "five", "navigate" } },
+                { Keywords = new[] { "60", "meter", "channel", "down", "previous", "five", "navigate" }, ShortActionLabel = "previous 60 meter channel" },
 
             // ── ScreenFields expanders ──
             new(CommandValues.ToggleDspExpander, KeyTypes.Command, () => _context.GetMainWindow()?.ToggleScreenFieldsCategory(0),
                 "Toggle DSP expander in ScreenFields panel", "DSP Expander", false, FunctionGroups.General, KeyScope.Radio)
-                { Keywords = new[] { "dsp", "noise", "reduction", "expander", "screenfields", "panel" } },
+                { Keywords = new[] { "dsp", "noise", "reduction", "expander", "screenfields", "panel" }, ShortActionLabel = "toggle D S P expander" },
             new(CommandValues.ToggleAudioExpander, KeyTypes.Command, () => _context.GetMainWindow()?.ToggleScreenFieldsCategory(1),
                 "Toggle Audio expander in ScreenFields panel", "Audio Expander", false, FunctionGroups.Audio, KeyScope.Radio)
-                { Keywords = new[] { "audio", "expander", "screenfields", "panel" } },
+                { Keywords = new[] { "audio", "expander", "screenfields", "panel" }, ShortActionLabel = "toggle audio expander" },
             new(CommandValues.ToggleReceiverExpander, KeyTypes.Command, () => _context.GetMainWindow()?.ToggleScreenFieldsCategory(2),
                 "Toggle Receiver expander in ScreenFields panel", "Receiver Expander", false, FunctionGroups.General, KeyScope.Radio)
-                { Keywords = new[] { "receiver", "rx", "expander", "screenfields", "panel" } },
+                { Keywords = new[] { "receiver", "rx", "expander", "screenfields", "panel" }, ShortActionLabel = "toggle receiver expander" },
             new(CommandValues.ToggleTransmissionExpander, KeyTypes.Command, () => _context.GetMainWindow()?.ToggleScreenFieldsCategory(3),
                 "Toggle Transmission expander in ScreenFields panel", "Transmission Expander", false, FunctionGroups.General, KeyScope.Radio)
-                { Keywords = new[] { "transmission", "tx", "expander", "screenfields", "panel" } },
+                { Keywords = new[] { "transmission", "tx", "expander", "screenfields", "panel" }, ShortActionLabel = "toggle transmission expander" },
             new(CommandValues.ToggleAntennaExpander, KeyTypes.Command, () => _context.GetMainWindow()?.ToggleScreenFieldsCategory(4),
                 "Toggle Antenna expander in ScreenFields panel", "Antenna Expander", false, FunctionGroups.General, KeyScope.Radio)
-                { Keywords = new[] { "antenna", "ant", "expander", "screenfields", "panel" } },
+                { Keywords = new[] { "antenna", "ant", "expander", "screenfields", "panel" }, ShortActionLabel = "toggle antenna expander" },
 
             // Sprint 28 Phase 3.10 diagnostic — toggle BrailleStatusEngine on/off
             // for cursor routing investigation. When off, braille display naturally
@@ -426,34 +426,34 @@ public class KeyCommands
             // reach DisplayBox's SelectionStart and fire SelectionChanged.
             new(CommandValues.ToggleBrailleStatus, KeyTypes.Command, () => _context.GetMainWindow()?.ToggleBrailleStatus(),
                 "Toggle braille status line (diagnostic for cursor routing)", "Braille Status Toggle", false, FunctionGroups.General, KeyScope.Global)
-                { Keywords = new[] { "braille", "status", "toggle", "cursor", "routing", "diagnostic" } },
+                { Keywords = new[] { "braille", "status", "toggle", "cursor", "routing", "diagnostic" }, ShortActionLabel = "toggle braille status" },
 
             // ── Speak / Repeat ──
             new(CommandValues.SpeakFrequency, KeyTypes.Command, () => _context.GetMainWindow()?.SpeakFrequency(),
                 "Speak current frequency and mode", "Speak Frequency", false, FunctionGroups.General, KeyScope.Radio)
-                { Keywords = new[] { "frequency", "freq", "speak", "readback" } },
+                { Keywords = new[] { "frequency", "freq", "speak", "readback" }, ShortActionLabel = "speak frequency" },
             new(CommandValues.RepeatLastMessage, KeyTypes.Command, RepeatLastMessageHandler,
                 "Repeat the last spoken message", "Repeat Last Message", false, FunctionGroups.General, KeyScope.Global)
-                { Keywords = new[] { "repeat", "last", "message", "speech", "again" } },
+                { Keywords = new[] { "repeat", "last", "message", "speech", "again" }, ShortActionLabel = "repeat last message" },
 
             // ── Verbosity (Sprint 24 Phase 6) ──
             new(CommandValues.CycleVerbosity, KeyTypes.Command, CycleVerbosityHandler,
                 "Cycle speech verbosity (Chatty/Terse/Off)", "Cycle Verbosity", false, FunctionGroups.Audio, KeyScope.Global)
-                { Keywords = new[] { "verbosity", "speech", "level", "chatty", "terse", "off", "verbose" } },
+                { Keywords = new[] { "verbosity", "speech", "level", "chatty", "terse", "off", "verbose" }, ShortActionLabel = "cycle verbosity" },
             new(CommandValues.ToggleMeterTonesGlobal, KeyTypes.Command, ToggleMeterTonesGlobalHandler,
                 "Toggle meter tones on/off", "Toggle Meter Tones", false, FunctionGroups.Audio, KeyScope.Global)
-                { Keywords = new[] { "meter", "tones", "toggle", "audio", "sonification" } },
+                { Keywords = new[] { "meter", "tones", "toggle", "audio", "sonification" }, ShortActionLabel = "toggle meter tones globally" },
 
             // ── Slice (Sprint 24 Phase 8) ──
             new(CommandValues.MuteSlice, KeyTypes.Command, MuteSliceHandler,
                 "Mute or unmute current slice", "Mute Slice", false, FunctionGroups.Audio, KeyScope.Radio)
-                { Keywords = new[] { "mute", "slice", "audio", "unmute", "silence" } },
+                { Keywords = new[] { "mute", "slice", "audio", "unmute", "silence" }, ShortActionLabel = "mute slice" },
             new(CommandValues.MuteAllSlices, KeyTypes.Command, MuteAllSlicesHandler,
                 "Mute or unmute every slice at once", "Mute All Slices", false, FunctionGroups.Audio, KeyScope.Radio)
-                { Keywords = new[] { "mute", "all", "slices", "audio", "unmute", "silence", "fleet" } },
+                { Keywords = new[] { "mute", "all", "slices", "audio", "unmute", "silence", "fleet" }, ShortActionLabel = "mute all slices" },
             new(CommandValues.ReleaseAllExtraSlices, KeyTypes.Command, ReleaseAllExtraSlicesHandler,
                 "Release every slice except the first, back to one slice", "Release All Extra Slices", false, FunctionGroups.Audio, KeyScope.Radio)
-                { Keywords = new[] { "release", "all", "slices", "extra", "clean", "reset", "single" } },
+                { Keywords = new[] { "release", "all", "slices", "extra", "clean", "reset", "single" }, ShortActionLabel = "release extra slices" },
         };
     }
 
