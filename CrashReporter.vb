@@ -25,6 +25,23 @@ Module CrashReporter
     ''' two before, so the triage agent can spot pre-crash patterns.
     ''' </summary>
     Private Const RecentTracesInBundle As Integer = 3
+
+    ''' <summary>
+    ''' Maximum number of upload attempts before giving up. Transient network
+    ''' failures (timeouts, 5xx server errors) get retried; 4xx (client errors)
+    ''' don't because retrying won't change the outcome.
+    ''' </summary>
+    Private Const MaxUploadAttempts As Integer = 3
+
+    ''' <summary>
+    ''' Reused HttpClient for crash bundle uploads. Static-style instance per
+    ''' the .NET HttpClient guidance — repeated New HttpClient() risks socket
+    ''' exhaustion. One per Module is fine here since uploads are infrequent
+    ''' and never concurrent (one crash → one bundle → one upload).
+    ''' </summary>
+    Private ReadOnly SharedHttpClient As New HttpClient() With {
+        .Timeout = TimeSpan.FromSeconds(30)
+    }
     ' Catch WinForms UI exceptions.
     Public Sub OnThreadException(sender As Object, e As ThreadExceptionEventArgs)
         SaveCrash("UI thread exception", e.Exception, False)
@@ -175,8 +192,11 @@ Module CrashReporter
             If choice = DialogResult.Yes Then
                 ' Fire-and-forget upload. The user has consented; we don't block
                 ' the UI on a network round-trip. Result is announced via
-                ' screen reader when the POST returns.
-                Task.Run(Function() UploadCrashBundleAsync(zipPath))
+                ' screen reader when the POST returns. Discard the Task to
+                ' silence the unawaited-Task warning — UploadCrashBundleAsync
+                ' is already async and self-pumping; an outer Task.Run wrapper
+                ' would only add a redundant thread-pool bounce.
+                Dim _ignored = UploadCrashBundleAsync(zipPath)
             Else
                 Radios.ScreenReaderOutput.Speak(
                     "Crash report kept local. Not uploaded.",
@@ -186,6 +206,12 @@ Module CrashReporter
             Try
                 File.AppendAllText(Path.Combine(Path.GetTempPath(), "JJFlexRadio-crash.txt"),
                     $"{DateTime.Now:u} PromptToUploadCrashBundle failed: {promptEx}{Environment.NewLine}")
+                ' If MessageBox itself failed, the user heard "crash report saved"
+                ' from the SaveCrash speech but nothing about the upload offer.
+                ' Tell them so they can manually retry / mail the bundle.
+                Radios.ScreenReaderOutput.Speak(
+                    "Crash report saved locally. Couldn't show the upload prompt.",
+                    Radios.VerbosityLevel.Critical, True)
             Catch
             End Try
         End Try
@@ -193,14 +219,18 @@ Module CrashReporter
 
     ''' <summary>
     ''' POST the crash bundle to the receiver as multipart/form-data with a
-    ''' single 'file' field per the F3-G server contract. Speaks success or
-    ''' failure on completion. Best-effort — never throws.
+    ''' single 'file' field per the F3-G server contract. Retries up to
+    ''' MaxUploadAttempts on transient failures (timeouts, 5xx). Does NOT retry
+    ''' on 4xx — client errors mean the bundle is rejected; retrying won't
+    ''' help. Speaks the final outcome via screen reader. Diagnostic detail
+    ''' (status codes, exception names) goes to the temp log, never to the
+    ''' user-facing speech. Best-effort — never throws.
     ''' </summary>
     Private Async Function UploadCrashBundleAsync(zipPath As String) As Task
-        Try
-            Using client As New HttpClient()
-                client.Timeout = TimeSpan.FromSeconds(30)
+        Dim lastError As String = "unknown"
 
+        For attempt As Integer = 1 To MaxUploadAttempts
+            Try
                 Using fs As New FileStream(zipPath, FileMode.Open, FileAccess.Read, FileShare.Read)
                     Using form As New MultipartFormDataContent()
                         Dim fileContent As New StreamContent(fs)
@@ -208,29 +238,55 @@ Module CrashReporter
                             New System.Net.Http.Headers.MediaTypeHeaderValue("application/zip")
                         form.Add(fileContent, "file", Path.GetFileName(zipPath))
 
-                        Using response As HttpResponseMessage = Await client.PostAsync(CrashEndpoint, form)
+                        Using response As HttpResponseMessage = Await SharedHttpClient.PostAsync(CrashEndpoint, form)
                             If response.IsSuccessStatusCode Then
                                 Radios.ScreenReaderOutput.Speak(
                                     "Crash report uploaded successfully. Thank you.",
                                     Radios.VerbosityLevel.Critical, True)
-                            Else
-                                Radios.ScreenReaderOutput.Speak(
-                                    $"Crash report upload failed with status {CInt(response.StatusCode)}. The report is still saved locally.",
-                                    Radios.VerbosityLevel.Critical, True)
+                                Return
                             End If
+
+                            lastError = $"status {CInt(response.StatusCode)} {response.ReasonPhrase}"
+
+                            ' 4xx is permanent (bad request, payload too large, auth) —
+                            ' retrying won't change the outcome. Bail out of the loop.
+                            If CInt(response.StatusCode) < 500 Then Exit For
+                            ' 5xx is potentially transient — fall through to retry path.
                         End Using
                     End Using
                 End Using
-            End Using
-        Catch ex As Exception
-            Try
-                File.AppendAllText(Path.Combine(Path.GetTempPath(), "JJFlexRadio-crash.txt"),
-                    $"{DateTime.Now:u} UploadCrashBundleAsync failed: {ex.GetType().Name}: {ex.Message}{Environment.NewLine}")
-                Radios.ScreenReaderOutput.Speak(
-                    "Crash report upload failed. The report is still saved locally.",
-                    Radios.VerbosityLevel.Critical, True)
-            Catch
+            Catch ex As TaskCanceledException
+                ' HttpClient.Timeout produces TaskCanceledException, not TimeoutException.
+                ' Treat as transient.
+                lastError = "timeout"
+            Catch ex As HttpRequestException
+                ' Network-layer failure (DNS, refused, reset). Retry.
+                lastError = $"{ex.GetType().Name}: {ex.Message}"
+            Catch ex As Exception
+                ' Unexpected — log and stop retrying. Likely a programming error,
+                ' not transient.
+                lastError = $"unexpected {ex.GetType().Name}: {ex.Message}"
+                Exit For
             End Try
+
+            If attempt < MaxUploadAttempts Then
+                ' Backoff: 2s, then 4s. Total worst-case extra wait = 6s on top
+                ' of three 30s timeouts = ~96s before user hears the failure.
+                Try
+                    Await Task.Delay(TimeSpan.FromSeconds(2 * attempt))
+                Catch
+                End Try
+            End If
+        Next
+
+        ' All attempts exhausted (or hit a permanent error).
+        Try
+            File.AppendAllText(Path.Combine(Path.GetTempPath(), "JJFlexRadio-crash.txt"),
+                $"{DateTime.Now:u} UploadCrashBundleAsync failed after {MaxUploadAttempts} attempt(s): {lastError}{Environment.NewLine}")
+            Radios.ScreenReaderOutput.Speak(
+                "Crash report upload failed. The report is still saved locally.",
+                Radios.VerbosityLevel.Critical, True)
+        Catch
         End Try
     End Function
 
