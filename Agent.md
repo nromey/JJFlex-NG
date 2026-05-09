@@ -1807,7 +1807,22 @@ When Noel resumes:
 
 ## End-of-day seal — 2026-05-08 (extended past midnight into 2026-05-09)
 
-**Theme:** Foundation drop landed on main. Sprint 28 retired. Daily → Nightly terminology cleaned up. The 4.1 trunk now carries everything the 4.1 line has been validating since late April, and tonight's nightly is buildable from a clean main.
+**Theme:** Phase 0 F3-G validated end-to-end on rarbox — `crashes.jjflexible.radio` is operationally LIVE — AND the foundation drop landed on main with sprint 28 retired. Daily → Nightly terminology cleaned up. The 4.1 trunk now carries everything the 4.1 line has been validating since late April, and tonight's nightly is buildable from a clean main. Two huge milestones in one calendar day: the crash-receiver server-side piece (one of the three 4.2.0 ship gates) just got built and verified, AND main caught up to where the 4.1 trunk should always have been.
+
+### Phase 0 F3-G — crash receiver LIVE on rarbox (morning-side; not a tonight thing)
+
+A separate Claude session ran F3-G via rarbox-Claude (the on-box execution model authorized 2026-05-07 mid-Phase-0). Memory entry at `project_claude_as_rarbox_operator.md` captures full details. Headline:
+
+- **Service active** since 2026-05-08 11:51:34 CDT. Uvicorn bound to `127.0.0.1:8000`; nginx fronts on 443 with TLS valid through 2041-05-04.
+- **F3 storage layer:** `app.py` (root-owned), `/var/lib/jjflex-receiver/` (`ner:ner` 0755), SQLite `index.db` initialized with `PRAGMA user_version = 1` and four-index schema. The hybrid-storage design (zip on disk + JSON sidecar + SQLite index) held up under real-traffic test.
+- **F4 systemd:** unit clean, service `active (running)`, `/healthz` returned 200 internally.
+- **F5 cert/key validation:** modulus pair verified identical, both confirmation gates honored.
+- **G end-to-end POST through Cloudflare edge:** HTTP 200 in **67 ms** with structured response. Bundle byte-identical to source (`cmp IDENTICAL`). Sidecar JSON populated. SQLite row written. Structured journald log line emitted.
+- **Real-IP fix landed same day:** `set_real_ip_from <Cloudflare ranges>; real_ip_header CF-Connecting-IP; real_ip_recursive on;` at http-level in `/etc/nginx/conf.d/cloudflare-realip.conf`. Verified across three independent hashes: pre-fix Cloudflare-edge `940d7db595699a22`, post-fix rarbox-self IPv4 `3e78427a9bbb1355`, post-fix external Windows-client `a43647f828a2290e`. All distinct → real-IP machinery works for both internal and external paths.
+
+**What this unlocks:** The crash-reporter ship gate for 4.2.0 is now ~50% complete — the server-side receiver is live and proven. Remaining work is client-side: WPF DispatcherUnhandledException handler that bundles a crash zip and POSTs it to `https://crashes.jjflexible.radio/`. That's part of tomorrow's Sprint 29 planning (item 1 of the three priority items Noel called out at end of day).
+
+**Claude-as-rarbox-operator confirmed.** First end-to-end on-box-model trial. Both confirmation gates honored; nothing surprised the orchestrator-Claude during the briefing handoff. Default execution model for ops-shaped rarbox/roarbox work going forward. Drafted-runbook-Noel-executes persists for novel / high-risk work; SSH-from-elsewhere persists for one-off probes.
 
 ### Substantive work shipped tonight
 
@@ -1834,6 +1849,7 @@ When Noel resumes:
 - **feature/cache-writer-backport:** untouched. Carries pre-existing WIP modifications and untracked planning docs from earlier in the week.
 - **NAS:** new snapshot at `2026-05-09-1326b58f.json` (15 historical points now); new debug build at `historical\4.1.16.242\x64-debug\JJFlex_4.1.16.242_x64_debug_20260509-0025.zip`; memory snapshot `memory-20260509-002547.zip`; private docs snapshot `private-20260509-002549.zip`.
 - **Dropbox:** nightly slot has `JJFlex_4.1.16.242_x64_nightly.zip` + `NOTES-nightly.txt`; debug/ subfolder still has earlier `4.1.16.239` tester broadcast (stale by 4 commits — will refresh next time `--publish` runs).
+- **rarbox (external infrastructure — morning-side; via separate Claude session):** Phase 0 F3-G ran end-to-end. crash receiver service active since 11:51:34 CDT, listening on `127.0.0.1:8000` with nginx fronting on 443; `crashes.jjflexible.radio` POST verified through Cloudflare edge in 67 ms with byte-identical bundle storage; SQLite index populated; real-IP fix landed same day. **`crashes.jjflexible.radio` is operationally LIVE** — first piece of 4.2.0 external infrastructure now standing.
 
 ### Decisions and scope changes
 
