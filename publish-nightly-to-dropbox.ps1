@@ -1,5 +1,5 @@
-# publish-daily-to-dropbox.ps1
-# End-of-day promotion: publish a debug daily zip to Dropbox top level.
+# publish-nightly-to-dropbox.ps1
+# End-of-day promotion: publish a debug nightly zip to Dropbox top level.
 #
 # Intelligent flow:
 #   1. Compute the expected version from HEAD
@@ -8,16 +8,16 @@
 #         expected = "<base>.<Y>"
 #   2. Look for a matching debug zip on NAS
 #         \\nas...\jjflex\historical\<expected>\x64-debug\JJFlex_<expected>_x64_debug_*.zip
-#   3. If found, copy it to Dropbox top level as the daily.
+#   3. If found, copy it to Dropbox top level as the nightly.
 #      If not found and the tree is clean, invoke build-debug.bat, then copy.
 #      If not found and the tree is dirty, refuse (Y won't reproduce from any commit).
-#   4. Purge any prior daily artifacts in Dropbox top level first so exactly one
-#      daily zip + NOTES lives there at any time. Also sweeps stray
-#      "Setup JJFlex_*-daily.exe" files left behind by the old release-oriented
+#   4. Purge any prior nightly artifacts in Dropbox top level first so exactly one
+#      nightly zip + NOTES lives there at any time. Also sweeps stray
+#      "Setup JJFlex_*-nightly.exe" files left behind by the old release-oriented
 #      version of this script.
 #
-# Daily = debug (per memory feedback_daily_is_debug.md). Release installers go
-# to the stable/ tier and GitHub Releases, not to the top-level daily slot.
+# Nightly = debug (per memory feedback_nightly_is_debug.md). Release installers go
+# to the stable/ tier and GitHub Releases, not to the top-level nightly slot.
 #
 # Triggered manually (or by Claude when you say "done developing"). Each copy
 # into Dropbox JJFlexRadio/ fires a notification to shared users -- do NOT run
@@ -42,7 +42,7 @@ $ErrorActionPreference = 'Stop'
 
 Write-Host ""
 Write-Host "============================================"
-Write-Host "Publish daily debug build to Dropbox"
+Write-Host "Publish nightly debug build to Dropbox"
 Write-Host "  Repo    : $RepoRoot"
 Write-Host "  NAS     : $NasRoot"
 Write-Host "  Dropbox : $DropboxRoot"
@@ -212,55 +212,55 @@ if (-not (Test-Path $DropboxRoot)) {
 }
 
 Write-Host ""
-Write-Host "Cleaning prior daily artifacts in $DropboxRoot..."
+Write-Host "Cleaning prior nightly artifacts in $DropboxRoot..."
 
-$staleZips = Get-ChildItem -Path $DropboxRoot -Filter 'JJFlex_*_x64_daily.zip' -File -ErrorAction SilentlyContinue
+$staleZips = Get-ChildItem -Path $DropboxRoot -Filter 'JJFlex_*_x64_nightly.zip' -File -ErrorAction SilentlyContinue
 foreach ($z in $staleZips) {
     Remove-Item -LiteralPath $z.FullName -Force
     Write-Host "  removed: $($z.Name)"
 }
-$staleNotes = Get-ChildItem -Path $DropboxRoot -Filter 'NOTES-*daily*.txt' -File -ErrorAction SilentlyContinue
+$staleNotes = Get-ChildItem -Path $DropboxRoot -Filter 'NOTES-*nightly*.txt' -File -ErrorAction SilentlyContinue
 foreach ($n in $staleNotes) {
     Remove-Item -LiteralPath $n.FullName -Force
     Write-Host "  removed: $($n.Name)"
 }
 # Sweep stray release installers left behind by the old version of this script.
-$staleExes = Get-ChildItem -Path $DropboxRoot -Filter 'Setup JJFlex_*-daily.exe' -File -ErrorAction SilentlyContinue
+$staleExes = Get-ChildItem -Path $DropboxRoot -Filter 'Setup JJFlex_*-nightly.exe' -File -ErrorAction SilentlyContinue
 foreach ($e in $staleExes) {
     Remove-Item -LiteralPath $e.FullName -Force
     Write-Host "  removed stale release installer: $($e.Name)"
 }
 
-$destZipName = "JJFlex_${expected}_x64_daily.zip"
+$destZipName = "JJFlex_${expected}_x64_nightly.zip"
 $destZipPath = Join-Path $DropboxRoot $destZipName
 Copy-Item -LiteralPath $sourceZip.FullName -Destination $destZipPath -Force
 Write-Host ""
 Write-Host "Copied zip:   $destZipName"
 
 if ($sourceNotes) {
-    $destNotesPath = Join-Path $DropboxRoot 'NOTES-daily.txt'
+    $destNotesPath = Join-Path $DropboxRoot 'NOTES-nightly.txt'
     Copy-Item -LiteralPath $sourceNotes.FullName -Destination $destNotesPath -Force
-    Write-Host "Copied NOTES: NOTES-daily.txt  (from $($sourceNotes.Name))"
+    Write-Host "Copied NOTES: NOTES-nightly.txt  (from $($sourceNotes.Name))"
 } else {
-    Write-Warning "No matching NOTES file found on NAS -- Dropbox daily has no notes."
+    Write-Warning "No matching NOTES file found on NAS -- Dropbox nightly has no notes."
 }
 
 Write-Host ""
 Write-Host "============================================"
-Write-Host "Daily published: $expected"
+Write-Host "Nightly published: $expected"
 Write-Host "============================================"
 
 # --- Seal: also snapshot Claude's memory folder ---------------------------
 # Rides this end-of-day trigger so every "done developing" ceremony also
 # captures a matching memory snapshot to NAS historical\memory\. Memory
-# backup is non-fatal -- if it fails, the daily publish still counts.
+# backup is non-fatal -- if it fails, the nightly publish still counts.
 $memoryScript = Join-Path $RepoRoot 'backup-memory-to-nas.ps1'
 if (Test-Path $memoryScript) {
     try {
         & $memoryScript -NasRoot $NasRoot
     } catch {
         Write-Warning "Memory snapshot step failed: $_"
-        Write-Warning "(Daily publish itself succeeded; re-run backup-memory-to-nas.ps1 manually if needed.)"
+        Write-Warning "(Nightly publish itself succeeded; re-run backup-memory-to-nas.ps1 manually if needed.)"
     }
 } else {
     Write-Warning "backup-memory-to-nas.ps1 not found at repo root; skipping memory snapshot."
@@ -278,7 +278,7 @@ if (Test-Path $privateScript) {
         & $privateScript -NasRoot $NasRoot
     } catch {
         Write-Warning "Private docs snapshot step failed: $_"
-        Write-Warning "(Daily publish itself succeeded; re-run backup-private-to-nas.ps1 manually if needed.)"
+        Write-Warning "(Nightly publish itself succeeded; re-run backup-private-to-nas.ps1 manually if needed.)"
     }
 } else {
     Write-Warning "backup-private-to-nas.ps1 not found at repo root; skipping private docs snapshot."

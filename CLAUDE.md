@@ -320,7 +320,7 @@ Content flows forward: nightly → stable → public. Nothing skips tiers. See `
 - Only run the nightly procedure after Noel confirms. Distribution is a deliberate act.
 
 **Dropbox layout:**
-- `C:\Users\nrome\Dropbox\JJFlexRadio\` — stable installers AND the latest end-of-day "daily" debug zip (top level)
+- `C:\Users\nrome\Dropbox\JJFlexRadio\` — stable installers AND the latest end-of-day "nightly" debug zip (top level)
 - `...\debug\` — shared debug nightlies + NOTES-YYYYMMDD.txt (all private testers read from here)
 - `...\don\` — Don-specific artifacts (his crash dumps, custom builds, saved configs)
 - `...\justin\` — Justin-specific artifacts (as he comes online as a tester)
@@ -329,9 +329,9 @@ Content flows forward: nightly → stable → public. Nothing skips tiers. See `
 
 **End-of-day "done developing" workflow (distinct from per-tester `--publish`):**
 
-When Noel says "done developing" or equivalent, that's the seal-the-day trigger. This is separate from the tester-broadcast nightly publish (`build-debug.bat --publish` to the `debug\` subfolder). End-of-day publishes a "daily" debug snapshot to the Dropbox TOP LEVEL — a single artifact that represents today's state, replacing any prior day's daily.
+When Noel says "done developing" or equivalent, that's the seal-the-day trigger. This is separate from the tester-broadcast nightly publish (`build-debug.bat --publish` to the `debug\` subfolder). End-of-day publishes a "nightly" debug snapshot to the Dropbox TOP LEVEL — a single artifact that represents today's state, replacing any prior day's nightly.
 
-1. **Promote latest debug zip to Dropbox top level as daily:** Run `publish-daily-to-dropbox.ps1`. Copies the newest debug zip from NAS `nightly\` to Dropbox top level, replacing any existing `JJFlex_*_debug*.zip` and `NOTES-*-debug*.txt` there. This is the easy-to-find "what's today's build?" artifact, distinct from the `debug\` subfolder tester distribution. **Skip this step on docs/memory/planning-only days** where no new debug build was produced — the prior day's daily still represents current code state.
+1. **Promote latest debug zip to Dropbox top level as nightly:** Run `publish-nightly-to-dropbox.ps1`. Copies the newest debug zip from NAS `<version>\x64-debug\` to Dropbox top level, replacing any existing `JJFlex_*_x64_nightly.zip` and `NOTES-nightly.txt` there. This is the easy-to-find "what's today's build?" artifact, distinct from the `debug\` subfolder tester distribution. **Skip this step on docs/memory/planning-only days** where no new debug build was produced — the prior day's nightly still represents current code state.
 2. **Memory backup:** `backup-memory-to-nas.ps1` snapshots `C:\Users\nrome\.claude\projects\c--dev-JJFlex-NG\memory\` to NAS `historical\memory\<date>\`. Ensures memory is durable across machine loss.
 3. **Private docs backup:** `backup-private-to-nas.ps1` snapshots `C:\Users\nrome\JJFlex-private\` to NAS `historical\private\<date>\`. Captures easter eggs, unlock codes, and other private-docs state.
 4. **Agent.md update:** Record what happened today and what's next, so the resume path for the next session is clear.
@@ -342,9 +342,9 @@ When Noel says "done developing" or equivalent, that's the seal-the-day trigger.
 
 **Key distinction — two layers of debug distribution:**
 - `build-debug.bat --publish` writes to Dropbox `debug\` subfolder. This is tester distribution — Don, Justin, etc. read from here. Can run multiple times a day if you have testers actively hammering a specific fix.
-- `publish-daily-to-dropbox.ps1` writes to Dropbox TOP LEVEL. This is the end-of-day seal — one artifact per dev day, the "this is where things stand tonight" marker. Not tester-directed; more like a convenient top-level pointer for anyone checking in.
+- `publish-nightly-to-dropbox.ps1` writes to Dropbox TOP LEVEL. This is the end-of-day seal — one artifact per dev day, the "this is where things stand tonight" marker. Not tester-directed; more like a convenient top-level pointer for anyone checking in.
 
-Both can coexist. Nightly `--publish` satisfies tester needs; end-of-day daily satisfies "what's the current state of the dev branch" without hunting through subfolders.
+Both can coexist. Tester `--publish` satisfies tester needs; end-of-day nightly satisfies "what's the current state of the dev branch" without hunting through subfolders.
 
 ## Common Tasks
 
