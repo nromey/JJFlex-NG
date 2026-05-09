@@ -4,6 +4,45 @@
 * text=auto
 
 ###############################################################################
+# Files edited primarily on Linux (rarbox / roarbox / GitHub Actions / docs)
+# pin to LF in both repo AND working tree, so Windows checkouts don't flip
+# them to CRLF and trigger noisy "LF will be replaced by CRLF" warnings.
+# Older files are not renormalized; the rule applies on next write.
+###############################################################################
+*.md       text eol=lf
+*.txt      text eol=lf
+*.sh       text eol=lf
+*.py       text eol=lf
+*.yml      text eol=lf
+*.yaml     text eol=lf
+*.json     text eol=lf
+*.toml     text eol=lf
+
+###############################################################################
+# Windows-only scripts and Visual Studio solution files MUST be CRLF.
+# cmd.exe parser breaks on LF in .bat / .cmd; VS refuses LF solution files.
+###############################################################################
+*.bat      text eol=crlf
+*.cmd      text eol=crlf
+*.ps1      text eol=crlf
+*.sln      text eol=crlf
+
+###############################################################################
+# Binary file types — never diff, never normalize.
+###############################################################################
+*.chm      binary
+*.zip      binary
+*.exe      binary
+*.dll      binary
+*.pdb      binary
+*.png      binary
+*.jpg      binary
+*.jpeg     binary
+*.gif      binary
+*.ico      binary
+*.pdf      binary
+
+###############################################################################
 # Set default behavior for command prompt diff.
 #
 # This is need for earlier builds of msysgit that does not have it on by
