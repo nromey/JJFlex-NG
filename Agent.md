@@ -1807,9 +1807,23 @@ When Noel resumes:
 
 ## End-of-day seal — 2026-05-08 (extended past midnight into 2026-05-09)
 
-**Theme:** Phase 0 F3-G validated end-to-end on rarbox — `crashes.jjflexible.radio` is operationally LIVE — AND the foundation drop landed on main with sprint 28 retired. Daily → Nightly terminology cleaned up. The 4.1 trunk now carries everything the 4.1 line has been validating since late April, and tonight's nightly is buildable from a clean main. Two huge milestones in one calendar day: the crash-receiver server-side piece (one of the three 4.2.0 ship gates) just got built and verified, AND main caught up to where the 4.1 trunk should always have been.
+**Theme:** ALL of Phase 0 stood up today — `crashes.jjflexible.radio` AND `data.jjflexible.radio` both went LIVE in parallel-session work earlier in the day — AND the foundation drop landed on main with sprint 28 retired. Daily → Nightly terminology cleaned up. The 4.1 trunk now carries everything the 4.1 line has been validating since late April, and tonight's nightly is buildable from a clean main. **Three huge milestones in one calendar day:** the crash-receiver server-side piece AND the data-provider tier (two of the three 4.2.0 external-infrastructure ship gates) both went operational, AND main caught up to where the 4.1 trunk should always have been.
 
-### Phase 0 F3-G — crash receiver LIVE on rarbox (morning-side; not a tonight thing)
+### Phase 0 — full stack stood up today (BOTH halves, parallel sessions)
+
+**Two major pieces of 4.2.0 external infrastructure went LIVE today.** Phase 0 includes Sections A through G; both halves shipped via separate Claude sessions earlier in the day. The original seal entry I wrote tonight missed BOTH of these — pre-seal cross-surface sweep discipline now codified in CLAUDE.md, with an additional "anchoring failure mode" lesson captured in memory entry `feedback_anchoring_on_first_relevant_artifact.md`.
+
+#### Phase 0 Sections A-E — `data.jjflexible.radio` LIVE on Cloudflare R2
+
+- **Section A:** DNS for `jjflexible.radio` zone on Cloudflare (active prior to today; verified).
+- **Section B:** R2 bucket `jjflex-data` created via Cloudflare dashboard (account-level R2 storage, not zone-tied).
+- **Section C:** Custom domain `data.jjflexible.radio` connected to the bucket. Cloudflare-fronted, TLS via free Universal SSL, proxied through CF edge for global CDN caching.
+- **Section D:** R2 API tokens generated and captured in 1Password. Cache rules configured for the right edge TTL on JSON / static content.
+- **Section E:** GitHub Action wired up at `nromey/jjf-data` to sync repo content → R2 on push. Two commits today: initial `Initial commit: R2 sync workflow + test file + README` (`1d5118e`) and follow-up `Pass R2 credentials via env vars instead of aws configure set` (`d3f85b9`). Test file pushed and verified arriving at the public URL via CF edge.
+
+**What this unlocks:** The data-provider tier of the JJF infrastructure is now operational. Future content delivery rides this surface: firmware downloads (per `project_firmware_distribution_decision.md`), DSP model packs (per `project_dsp_model_pack_distribution.md`), help system if it goes web-with-offline-fallback (per Q14 of cascade ACK), and other future static content. Egress is zero-cost on R2 + CF edge cache → no marginal cost to scale. Same architecture also unblocks the queued `data.blindhams.network` migration (per `project_blindhams_data_layer_migration.md`, surfaced today as a Phase-0-shaped insight Noel had while verifying cache behavior).
+
+#### Phase 0 F3-G — crash receiver LIVE on rarbox
 
 A separate Claude session ran F3-G via rarbox-Claude (the on-box execution model authorized 2026-05-07 mid-Phase-0). Memory entry at `project_claude_as_rarbox_operator.md` captures full details. Headline:
 
@@ -1849,7 +1863,9 @@ A separate Claude session ran F3-G via rarbox-Claude (the on-box execution model
 - **feature/cache-writer-backport:** untouched. Carries pre-existing WIP modifications and untracked planning docs from earlier in the week.
 - **NAS:** new snapshot at `2026-05-09-1326b58f.json` (15 historical points now); new debug build at `historical\4.1.16.242\x64-debug\JJFlex_4.1.16.242_x64_debug_20260509-0025.zip`; memory snapshot `memory-20260509-002547.zip`; private docs snapshot `private-20260509-002549.zip`.
 - **Dropbox:** nightly slot has `JJFlex_4.1.16.242_x64_nightly.zip` + `NOTES-nightly.txt`; debug/ subfolder still has earlier `4.1.16.239` tester broadcast (stale by 4 commits — will refresh next time `--publish` runs).
-- **rarbox (external infrastructure — morning-side; via separate Claude session):** Phase 0 F3-G ran end-to-end. crash receiver service active since 11:51:34 CDT, listening on `127.0.0.1:8000` with nginx fronting on 443; `crashes.jjflexible.radio` POST verified through Cloudflare edge in 67 ms with byte-identical bundle storage; SQLite index populated; real-IP fix landed same day. **`crashes.jjflexible.radio` is operationally LIVE** — first piece of 4.2.0 external infrastructure now standing.
+- **rarbox (external infrastructure — morning-side; via separate Claude session):** Phase 0 F3-G ran end-to-end. crash receiver service active since 11:51:34 CDT, listening on `127.0.0.1:8000` with nginx fronting on 443; `crashes.jjflexible.radio` POST verified through Cloudflare edge in 67 ms with byte-identical bundle storage; SQLite index populated; real-IP fix landed same day. **`crashes.jjflexible.radio` is operationally LIVE** — server-side piece of crash-reporter ship gate now standing.
+- **Cloudflare R2 / `data.jjflexible.radio` (external infrastructure — earlier today via separate session):** Phase 0 Sections B-E completed. R2 bucket `jjflex-data` created; `data.jjflexible.radio` custom domain connected with TLS through CF edge; cache rules configured; API tokens captured; GitHub Action sync wired up at `nromey/jjf-data`. **`data.jjflexible.radio` is operationally LIVE** — data-provider tier ready for firmware, DSP model packs, future content.
+- **`nromey/jjf-data` repo (separate local clone at `C:/dev/jjf-data/`):** Created and populated today. Two commits (`1d5118e` initial + `d3f85b9` env-vars fix), `.github/workflows/sync-to-r2.yml` workflow in place, README + test file. Decoupled from JJFlex-NG; lives at its own clone path which is part of the operational footprint going forward (and a sweep surface that needs to be checked at seal time per the new discipline).
 
 ### Decisions and scope changes
 
