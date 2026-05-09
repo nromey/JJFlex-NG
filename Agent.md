@@ -3,7 +3,21 @@
 This document captures the current state of JJ-Flex repository and active work.
 
 **Repository root:** `C:\dev\JJFlex-NG`
-**Branch:** `main` (post-merge of feature/cache-writer-backport on 2026-05-09 — main is the 4.1 working branch per project_main_branch_41_posture.md. 4.2.0 staging continues on track/flexlib-42. 4.1.17 retired 2026-05-02.)
+**Branch:** `main` (post-merge of Sprint 29 Tracks F + G on 2026-05-09. Main is the 4.1 working branch per project_main_branch_41_posture.md. 4.2.0 staging continues on track/flexlib-42. 4.1.17 retired 2026-05-02.)
+
+## RESUME HERE — 2026-05-09 (Sprint 29 Tracks F + G merged; Track B Phase 3 in flight on cascade branch)
+
+Today's merges to main:
+- **Sprint 29 Track F** (`2e03345e`) — tuning UX bundle: StickyAnnouncedMode helper extracted, filter-edge code retrofitted, tuning unity (Up/Down coarse + Shift+Up/Down fine, no more `C` toggle), audio gain hotkeys retired into Audio expander, RIT/XIT 1-4 scale-adjust mode, Settings split (Coarse step + Fine step). Per memory/project_sprint29_tune_redesign.md and memory/project_sprint29_rit_xit_adjust_mode.md.
+- **Sprint 29 Track G** (`1dd2aa32`) — stuck-modal escape changelog patch only. The implementation already shipped 2026-05-04 as `fdb987e6`; Track G discovered this and just patched the missing user-facing changelog entry. Memory `project_stuck_modal_escape_design.md` updated to reflect SHIPPED status.
+
+Build state: clean Debug x64 build verified post-merge. Branches deleted, worktrees removed.
+
+**Track B (`sprint29/track-b-cascade`)** still in flight in worktree `C:/dev/jjflex-flexlib-42`. Latest commit: `6de629b9 NetworkChangeWatchdog (standalone class)` — Phase 3 just started. NetworkChangeWatchdog class exists but is NOT yet wired into the cascade entry points. **Wiring is the next concrete work item** for Track B continuation.
+
+**Track C (`sprint29/track-c-feedback`)** branch exists with no worktree; no recent commits. User-initiated feedback session work scoped per memory but not actively in flight.
+
+Sprint 29 plan: `docs/planning/agile/sprint29-pileup-skip-elmer.md` — Track F and G entries can be marked complete; Track B entry shows Phase 1 + Phase 2 done, Phase 3 partial.
 
 ## RESUME HERE — 2026-05-08 (after Phase 0 F3-G ships via rarbox-Claude)
 

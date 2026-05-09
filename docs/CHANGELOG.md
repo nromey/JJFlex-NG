@@ -5,7 +5,7 @@ All notable changes to this project are  documented in this file. The opinions a
 
 ## Jump to a Version {#versions}
 
-- [4.1.17 — The Make Yourself at Home Edition](#v4-1-17)
+- [Unreleased / Foundation Phase — staging for 4.2.0](#unreleased)
 - [4.1.16 — The Name Change Edition](#v4-1-16)
 - [4.1.15.1 — Stop the Presses (local-radio hotfix)](#v4-1-15-1)
 - [4.1.15.0 — More Than Just Rearranging Deck Chairs on the Titanic](#v4-1-15-0)
@@ -29,13 +29,17 @@ All notable changes to this project are  documented in this file. The opinions a
 
 Jim Shaffer's changelog for the 1.x, 2.x, and 3.x versions lives in a separate archival file — see [CHANGELOG-legacy.md](CHANGELOG-legacy.md) for that history.
 
-## 4.1.17: The Make Yourself at Home Edition {#v4-1-17}
+## Unreleased / Foundation Phase — staging for 4.2.0 {#unreleased}
+
+> **Note:** 4.1.17 was officially skipped on 2026-05-09 in favor of going directly to 4.2.0 with the FlexLib 4.2.18 upgrade. This section accumulates user-facing work landing on main as foundation-phase content; it will fold into 4.2.0's release notes when that release cuts. Per `memory/project_flexlib_4218_merge_sequencing.md` and the 2026-05-09 confirmation.
+
+
 
 Moving sucks. Full stop. But isn't it awesome when you realize you've stopped using plastic silverware and paper plates, you've mastered your stove and oven, your pictures are up, your favorite chair is in a favorite place, and — well, this new scary house you just moved into, the one you probably own and still get lost in, starts feeling like home. That's what this release is all about. So make yourself at home and enjoy this slug of mighty fine updates that'll have you thinking "this feels right, it feels like home." Cheesy, yes, but it's helped to define JJ Flexible Radio's newly named "Home."
 
 This release is about the space where you actually spend your time in the app — formerly announced as "the VFO frequency-and-slice area," which was a mouthful I know. It's got a real name now and it speaks for itself when you land on it. It also does more work per keystroke than it ever had a right to. We also fixed some flaky wiring and janky plumbing around connecting your Flex to the network and allowing inbound connections to your radio. This work has been cooking since the last release, and if you've ever had problems establishing a remote connection to your radio from outside your network, these changes will affect you. We also added a safety check that makes sure you don't accidentally change settings on somebody else's radio when you're not the owner. In short, if you're not at your radio, you won't be able to make serious network-related changes that affect the Flex and SmartLink. These and more as you follow this loopy coax down the line.
 
-### Version 4.1.17 Headlines {#v4-1-17-headlines}
+### Foundation Phase Headlines {#unreleased-headlines}
 
 - [The main screen is now called Home](#home-intro), and it tells you so. From anywhere in the application, press F2 to "go home." Your screen reader will say "Home" plus whichever field you're on — slice, frequency, S-meter, wherever. You may hear more or less speech depending on your speech verbosity setting. No more navigating a "Frequency Display" region whose name never quite told you where you were.
 - [Squelch lives in Home now](#squelch-in-home). Arrow right past the S-meter and you'll find it. Press Q from anywhere in Home to toggle it — same muscle memory as M for mute, R for RIT, X for XIT.
@@ -56,7 +60,7 @@ In the past, the place you landed on when you pressed F2 in JJ Flexible Radio wa
 
 When focus lands there, you hear "Home" plus whichever sub-field you landed on. The exact wording scales with your [speech verbosity setting](#speech-verbosity). On Terse, it's "Home, slice" (or whichever field). On Chatty, it's "JJ Flexible Home, slice, 14.225.000" — the full story including the current frequency for context.
 
-[Return to version headlines](#v4-1-17-headlines)
+[Return to version headlines](#unreleased-headlines)
 
 ### Universal Keys from Home {#universal-keys-from-home}
 
@@ -69,7 +73,7 @@ Single-letter keys that toggle radio features on and off now operate the same wa
 - **Q** — toggle squelch
 - **=** — make the current slice transceive (both RX and TX on this slice)
 
-[Return to version headlines](#v4-1-17-headlines)
+[Return to version headlines](#unreleased-headlines)
 
 ### Escape Does Its Job {#escape-does-its-job}
 
@@ -77,7 +81,7 @@ Pressing Escape inside an open field group (DSP, Audio, Receiver, Transmission, 
 
 Press Escape twice quickly and everything collapses at once — all open groups close, focus returns to Home, and you hear a distinctive two-tone descending sound confirming "you backed out of everything." If you've ever had a Windows Explorer moment where you wanted to just get away from the thing you were in, this is that key, applied to JJ Flexible's structure.
 
-[Return to version headlines](#v4-1-17-headlines)
+[Return to version headlines](#unreleased-headlines)
 
 ### Three New Sound Cues {#three-new-sound-cues}
 
@@ -89,7 +93,7 @@ JJ Flexible now has three distinct sound cues that fire when opening and closing
 
 The noise texture on the chirps is designed to cut through radio static better than a pure tone would. Your ear picks out the distinctive "shhhwee" shape even when 40 or 80 meters is crashing with thunderstorm QRN.
 
-[Return to version headlines](#v4-1-17-headlines)
+[Return to version headlines](#unreleased-headlines)
 
 ### You get to decide how quick quick really is {#quick}
 
@@ -97,7 +101,7 @@ There's a new setting in **Settings > Accessibility** called Double-Tap Toleranc
 
 This setting affects two behaviors in JJ Flexible Radio today. First, double-tapping your left or right bracket enters filter-edge adjust mode. Second, double-tapping [Escape](#escape-does-its-job) closes all open category fields in the field list. Any future double-tap features will respect the same setting, so set it once and forget about it — we've got you.
 
-[Return to version headlines](#v4-1-17-headlines)
+[Return to version headlines](#unreleased-headlines)
 
 ### Squelch in Home {#squelch-in-home}
 
@@ -105,7 +109,7 @@ We've tried to keep JJ Flexible Radio's behavior mirroring the older JJ Flex pat
 
 Remember, you don't need to be on the field that says "squelch" in Home to toggle it. Press Q from any Home field to toggle squelch without arrowing — it's the same universal pattern as the other single-letter toggles. JJ Flexible stores your last squelch level, so when you toggle squelch back on, it returns to whatever you set previously.
 
-[Return to version headlines](#v4-1-17-headlines)
+[Return to version headlines](#unreleased-headlines)
 
 ### Network Tab Configurability {#network-tab-configurability}
 
@@ -119,7 +123,7 @@ JJ Flexible now gives you full control over the three SmartLink networking tiers
 
 JJ Flexible tries port forwarding first (if it's set on the radio), so SmartLink can operate through secure networks and networks with restrictive policies. Select UPnP or hole-punch if the tests show those are viable options for you. Either way, this is a huge step forward for screen reader users who want to independently configure their radio and its network settings.
 
-[Return to version headlines](#v4-1-17-headlines)
+[Return to version headlines](#unreleased-headlines)
 
 ### The Port Forwarding Safety Check {#port-forwarding-safety-check}
 
@@ -129,7 +133,7 @@ This behavior catches two different kinds of accidental changes that could other
 
 There is one more tie that binds us to Flex Systems' SmartSDR. For now, you must connect your Flex using SmartSDR to upgrade radio firmware. JJ Flexible will soon support direct firmware upload, and we'll use an even stricter version of this same check to ensure that you're physically at your radio before uploading firmware. SmartSDR requires a quick press of PTT or your code key to confirm you're at the radio, and that's likely how we'll support the feature too. Then ... freedom! Accessibility freedom!!
 
-[Return to version headlines](#v4-1-17-headlines)
+[Return to version headlines](#unreleased-headlines)
 
 ### The CW Text Boxes Know When They're Wanted {#cw-text-boxes}
 
@@ -137,19 +141,19 @@ If your radio's mode is set to any CW variant (CW, CWL, or CWU), JJ Flexible sho
 
 If you switch back to CW, those boxes return. This may seem like a small quality-of-life fix, but if you've been wondering why those boxes lived in your tab order during a phone QSO, the answer is: they didn't have to. Claude and I are absent-minded. I can speak for myself, and I simply forgot to disable them for modes that don't use them.
 
-[Return to version headlines](#v4-1-17-headlines)
+[Return to version headlines](#unreleased-headlines)
 
 ### More Stable Remote Sessions {#remote-stability}
 
 We worked on network connectivity and stability. Hopefully, you'll never know we did, but the work was necessary to make sure you stay connected to your local or remote radio. If you've had SmartLink sessions fall over mid-QSO before, you should see fewer of those dropouts, and the system should stop telling you "connection is slow" as often. We'll keep tuning network behavior, so if you have issues, let us know.
 
-[Return to version headlines](#v4-1-17-headlines)
+[Return to version headlines](#unreleased-headlines)
 
 ### Ctrl+Tab Reclaimed for Panel Navigation {#panel-navigation}
 
 Ctrl+Tab used to pop up an "action toolbar" menu. It's disabled now, and Ctrl+Tab / Ctrl+Shift+Tab are back to doing what they do best in a tabbed interface: moving between open field groups. The action toolbar is coming back in a future release as an actual toolbar, not a menu — a persistent accessible UI surface you can navigate, not a popup that interrupted your tab nav every time you reached for it. I'm hoping the toolbar looks good too.
 
-[Return to version headlines](#v4-1-17-headlines)
+[Return to version headlines](#unreleased-headlines)
 
 ### The Connecting Screen Is No Longer a Trap {#connecting-cancellation}
 
@@ -167,7 +171,7 @@ You can silence the phase announcements and counting tones if you find them busy
 
 One more thing in the same neighborhood: if you've ever heard the 73 prosign play twice when you closed JJ Flexible while connected, that was a small bug where the disconnect handler and the app-shutdown handler each played it. Disconnect now claims the prosign for the session and shutdown steps aside, so you hear 73 once — the way Jim originally intended.
 
-[Return to version headlines](#v4-1-17-headlines)
+[Return to version headlines](#unreleased-headlines)
 
 ### Tuning Unity — Up coarse, Shift+Up fine, no more mode switching {#tuning-unity}
 
@@ -183,7 +187,7 @@ Some collateral cleanup that came with this:
 - The Tuning menu under Slice has slimmed down: Toggle Coarse/Fine and the Step Size Larger/Smaller pair are gone. Speak Current Step is still there.
 - Settings → Tuning still has Coarse and Fine pickers — just one value each, not a list. The "Edit Tuning Steps" button retired with the list.
 
-[Return to version headlines](#v4-1-17-headlines)
+[Return to version headlines](#unreleased-headlines)
 
 ### Audio levels live in the Audio expander, not on a hotkey {#audio-expander-volume}
 
@@ -201,7 +205,7 @@ If you don't have a physical volume control on your speakers and you've been rel
 
 The slots themselves stay reserved in the keymap so a future feature can claim them deliberately, instead of someone stumbling into them and being surprised that the keys do nothing.
 
-[Return to version headlines](#v4-1-17-headlines)
+[Return to version headlines](#unreleased-headlines)
 
 ### RIT and XIT Scale-Adjust Mode {#rit-xit-scale-adjust}
 
@@ -213,7 +217,7 @@ The decade-position cursor approach still works when you're not in scale-adjust 
 
 This is the third home of a pattern we've been quietly building toward: the sticky-but-announced modal. Filter-edge grab uses it (double-tap a bracket key on the filter to grab one edge for adjustment). RIT and XIT scale-adjust is the same idea applied to offset tuning. The plumbing is shared now, so future features that want this feel — a deliberate entry, an announced state, a focus-bound exit — can use it without re-rolling.
 
-[Return to version headlines](#v4-1-17-headlines)
+[Return to version headlines](#unreleased-headlines)
 
 ### Under the kitchen sink: stuff that might interest you but probably not {#under-the-kitchen-sink}
 
@@ -222,7 +226,7 @@ This is the third home of a pattern we've been quietly building toward: the stic
 - Your per-operator accessibility preferences now persist across app restarts, so whatever you set on one session is waiting for you on the next.
 - Home and the Screen Fields panel are cleaner siblings now. Home is where you operate minute-to-minute; the panel is where you reach for deeper settings. Less stepping on each other's toes.
 
-[Return to version headlines](#v4-1-17-headlines)
+[Return to version headlines](#unreleased-headlines)
 
 ### Thanks, Don and Justin {#thanks-don-and-justin}
 
