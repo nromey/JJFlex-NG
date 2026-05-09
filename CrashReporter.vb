@@ -1,12 +1,30 @@
 Imports System.IO
 Imports System.IO.Compression
+Imports System.Net.Http
 Imports System.Runtime.InteropServices
 Imports System.Text
 Imports System.Threading
+Imports System.Threading.Tasks
 Imports System.Windows.Forms
 Imports System.Diagnostics
+Imports JJTrace
 
 Module CrashReporter
+
+    ''' <summary>
+    ''' Endpoint for crash bundle uploads. Standalone constant so it's trivial
+    ''' to override in a test deploy or staging environment. Server is the
+    ''' rarbox FastAPI receiver per memory/project_crash_triage_bundle_flow.md
+    ''' (LIVE since 2026-05-08 11:51:34 CDT per Agent.md 05-08 seal).
+    ''' </summary>
+    Private Const CrashEndpoint As String = "https://crashes.jjflexible.radio/crashes"
+
+    ''' <summary>
+    ''' How many recent trace archives to include in each crash bundle. 3 is
+    ''' the design memo number — covers the crashed session itself plus the
+    ''' two before, so the triage agent can spot pre-crash patterns.
+    ''' </summary>
+    Private Const RecentTracesInBundle As Integer = 3
     ' Catch WinForms UI exceptions.
     Public Sub OnThreadException(sender As Object, e As ThreadExceptionEventArgs)
         SaveCrash("UI thread exception", e.Exception, False)
@@ -53,18 +71,39 @@ Module CrashReporter
             File.WriteAllText(txtPath, BuildReport(context, ex, isTerminating), Encoding.UTF8)
             WriteMiniDump(dmpPath)
 
+            ' Sprint 29 Track C: collect recent trace archives so the triage
+            ' agent can correlate the crash with what the prior sessions
+            ' looked like. Per memory/project_user_initiated_feedback_session.md.
+            Dim recentTraces As List(Of String) = GetRecentTraceArchives(RecentTracesInBundle)
+
             Using zipStream = New FileStream(zipPath, FileMode.Create, FileAccess.Write, FileShare.None)
                 Using zip = New ZipArchive(zipStream, ZipArchiveMode.Create)
                     zip.CreateEntryFromFile(txtPath, Path.GetFileName(txtPath), CompressionLevel.Optimal)
                     If File.Exists(dmpPath) Then
                         zip.CreateEntryFromFile(dmpPath, Path.GetFileName(dmpPath), CompressionLevel.Optimal)
                     End If
+                    For Each tracePath As String In recentTraces
+                        Try
+                            If File.Exists(tracePath) Then
+                                zip.CreateEntryFromFile(tracePath,
+                                    "traces/" & Path.GetFileName(tracePath),
+                                    CompressionLevel.NoCompression) ' already LZMA-compressed
+                            End If
+                        Catch
+                            ' Best-effort — a single unreadable trace shouldn't fail the bundle.
+                        End Try
+                    Next
                 End Using
             End Using
 
-            Dim crashMsg = $"JJ Flexible Radio Access hit an unexpected error.{Environment.NewLine}A report was saved to:{Environment.NewLine}{zipPath}"
-            Radios.ScreenReaderOutput.Speak("JJ Flexible Radio Access hit an unexpected error. A crash report was saved.", Radios.VerbosityLevel.Critical, True)
-            MessageBox.Show(AppShellForm, crashMsg, "JJ Flexible Radio Access crash report", MessageBoxButtons.OK, MessageBoxIcon.Error)
+            Radios.ScreenReaderOutput.Speak(
+                "JJ Flexible Radio Access hit an unexpected error. A crash report was saved.",
+                Radios.VerbosityLevel.Critical, True)
+
+            ' Per project_no_silent_phone_home.md: the bundle is local until
+            ' the user explicitly chooses to upload. Show what's in the report,
+            ' offer Yes/No, send only on Yes.
+            PromptToUploadCrashBundle(zipPath, recentTraces)
         Catch reportEx As Exception
             ' Last-chance logging; do not rethrow.
             Try
@@ -74,6 +113,137 @@ Module CrashReporter
             End Try
         End Try
     End Sub
+
+    ''' <summary>
+    ''' Returns the file paths of the most recent N trace archives, ordered
+    ''' most-recent-first. Pulls from the trace manifest at TraceArchiveDir
+    ''' so we don't double-resolve filename → path. Returns an empty list
+    ''' if the manifest doesn't exist or fails to read; never throws.
+    ''' </summary>
+    Private Function GetRecentTraceArchives(maxCount As Integer) As List(Of String)
+        Dim result As New List(Of String)
+        Try
+            Dim manifestPath As String = Path.Combine(TraceArchiveDir, SessionArchive.ManifestFileName)
+            If Not File.Exists(manifestPath) Then Return result
+
+            Dim manifest As TraceManifest = TraceManifest.Load(manifestPath)
+            If manifest Is Nothing OrElse manifest.Entries Is Nothing Then Return result
+
+            Dim ordered = manifest.Entries _
+                .Where(Function(e) Not String.IsNullOrEmpty(e.Filename)) _
+                .OrderByDescending(Function(e) e.BootTime) _
+                .Take(maxCount)
+
+            For Each entry In ordered
+                Dim fullPath As String = Path.Combine(TraceArchiveDir,
+                    entry.Filename.Replace("/"c, Path.DirectorySeparatorChar))
+                result.Add(fullPath)
+            Next
+        Catch
+            ' Best-effort — failure to enumerate traces shouldn't block crash report.
+        End Try
+        Return result
+    End Function
+
+    ''' <summary>
+    ''' Show the user what's in the crash bundle and offer to upload it. Only
+    ''' POSTs to the receiver if they choose Yes. Honors the no-silent-phone-home
+    ''' principle: nothing leaves the user's machine without explicit consent.
+    ''' </summary>
+    Private Sub PromptToUploadCrashBundle(zipPath As String, recentTraces As List(Of String))
+        Try
+            Dim sb As New StringBuilder()
+            sb.AppendLine("JJ Flexible Radio Access hit an unexpected error.")
+            sb.AppendLine()
+            sb.AppendLine("A crash report was saved to:")
+            sb.AppendLine(zipPath)
+            sb.AppendLine()
+            sb.AppendLine("The report contains:")
+            sb.AppendLine($"  - Exception details ({FormatSize(zipPath)} total)")
+            sb.AppendLine("  - Process minidump")
+            If recentTraces.Count > 0 Then
+                sb.AppendLine($"  - {recentTraces.Count} recent trace archive(s) for context")
+            End If
+            sb.AppendLine()
+            sb.AppendLine("Send this report to the JJ Flexible Data Provider?")
+            sb.AppendLine($"It will upload to {CrashEndpoint}")
+
+            Dim choice = MessageBox.Show(AppShellForm, sb.ToString(),
+                "JJ Flexible Radio Access crash report",
+                MessageBoxButtons.YesNo, MessageBoxIcon.Error)
+
+            If choice = DialogResult.Yes Then
+                ' Fire-and-forget upload. The user has consented; we don't block
+                ' the UI on a network round-trip. Result is announced via
+                ' screen reader when the POST returns.
+                Task.Run(Function() UploadCrashBundleAsync(zipPath))
+            Else
+                Radios.ScreenReaderOutput.Speak(
+                    "Crash report kept local. Not uploaded.",
+                    Radios.VerbosityLevel.Critical, True)
+            End If
+        Catch promptEx As Exception
+            Try
+                File.AppendAllText(Path.Combine(Path.GetTempPath(), "JJFlexRadio-crash.txt"),
+                    $"{DateTime.Now:u} PromptToUploadCrashBundle failed: {promptEx}{Environment.NewLine}")
+            Catch
+            End Try
+        End Try
+    End Sub
+
+    ''' <summary>
+    ''' POST the crash bundle to the receiver as multipart/form-data with a
+    ''' single 'file' field per the F3-G server contract. Speaks success or
+    ''' failure on completion. Best-effort — never throws.
+    ''' </summary>
+    Private Async Function UploadCrashBundleAsync(zipPath As String) As Task
+        Try
+            Using client As New HttpClient()
+                client.Timeout = TimeSpan.FromSeconds(30)
+
+                Using fs As New FileStream(zipPath, FileMode.Open, FileAccess.Read, FileShare.Read)
+                    Using form As New MultipartFormDataContent()
+                        Dim fileContent As New StreamContent(fs)
+                        fileContent.Headers.ContentType =
+                            New System.Net.Http.Headers.MediaTypeHeaderValue("application/zip")
+                        form.Add(fileContent, "file", Path.GetFileName(zipPath))
+
+                        Using response As HttpResponseMessage = Await client.PostAsync(CrashEndpoint, form)
+                            If response.IsSuccessStatusCode Then
+                                Radios.ScreenReaderOutput.Speak(
+                                    "Crash report uploaded successfully. Thank you.",
+                                    Radios.VerbosityLevel.Critical, True)
+                            Else
+                                Radios.ScreenReaderOutput.Speak(
+                                    $"Crash report upload failed with status {CInt(response.StatusCode)}. The report is still saved locally.",
+                                    Radios.VerbosityLevel.Critical, True)
+                            End If
+                        End Using
+                    End Using
+                End Using
+            End Using
+        Catch ex As Exception
+            Try
+                File.AppendAllText(Path.Combine(Path.GetTempPath(), "JJFlexRadio-crash.txt"),
+                    $"{DateTime.Now:u} UploadCrashBundleAsync failed: {ex.GetType().Name}: {ex.Message}{Environment.NewLine}")
+                Radios.ScreenReaderOutput.Speak(
+                    "Crash report upload failed. The report is still saved locally.",
+                    Radios.VerbosityLevel.Critical, True)
+            Catch
+            End Try
+        End Try
+    End Function
+
+    Private Function FormatSize(filePath As String) As String
+        Try
+            Dim bytes As Long = New FileInfo(filePath).Length
+            If bytes < 1024 Then Return $"{bytes} bytes"
+            If bytes < 1024 * 1024 Then Return $"{bytes \ 1024} KB"
+            Return $"{bytes \ (1024 * 1024)} MB"
+        Catch
+            Return "size unknown"
+        End Try
+    End Function
 
     Private Function BuildReport(context As String, ex As Exception, isTerminating As Boolean) As String
         Dim sb As New StringBuilder()
