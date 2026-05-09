@@ -26,4 +26,13 @@
     <Compile Include="Utility.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
+
+  <!-- SharpCompress: managed compression library with LZMA support for trace
+       archive entries. ~25% smaller archives than Deflate at SmallestSize on
+       text traces, important for heavy debug sessions where trace files run
+       to several MB. Pure-managed, no native deps. Per
+       memory/project_trace_persistence_design.md. -->
+  <ItemGroup>
+    <PackageReference Include="SharpCompress" Version="0.40.0" />
+  </ItemGroup>
 </Project>
