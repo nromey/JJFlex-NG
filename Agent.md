@@ -5,6 +5,57 @@ This document captures the current state of JJ-Flex repository and active work.
 **Repository root:** `C:\dev\JJFlex-NG`
 **Branch:** `main` (post-merge of Sprint 29 Tracks F + G on 2026-05-09. Main is the 4.1 working branch per project_main_branch_41_posture.md. 4.2.0 staging continues on track/flexlib-42. 4.1.17 retired 2026-05-02.)
 
+## RESUME HERE — 2026-05-09 end-of-day seal: Sprint 29 mass parallel landing (six tracks closed two of three 4.2.0 ship gates)
+
+**The headline.** Sprint 29 ran a six-track parallel fan-out that closed two of three 4.2.0 ship gates plus shipped self-contained installers, a trace browser surface for users, and the cascade watchdog wiring. Tracks F + G merged earlier in the day; D + H + J + M + N merged tonight; L committed to track/flexlib-42 (rides into 4.2.0 cut). Plus orchestrator-side fixes including a format-mismatch catch (D used LZMA Alone, N pinned XZ; XZStream patch landed before D's merge).
+
+### What shipped (commits on main today: 83 across 175 files, +27,909 / -886 lines per rigmeter)
+
+- **Track A Phase 2** (3 commits) — killed-session detection + connection target auto-capture + AS-retry key event hooks + crashed outcome marking + manual trace archive prune helper. Trace persistence now captures the originally-motivating stuck-session forensics scenario.
+- **Track C** (1 commit) — crash bundle upload to crashes.jjflexible.radio with N=3 recent traces included, Yes/No consent UX, multipart POST via fire-and-forget Task. Closes the "crash reporter is wired up" 4.2.0 ship gate.
+- **CrashReporter polish** (1 commit) — Static SharedHttpClient, removed Task.Run double-wrap, dropped status code from speech, speak on prompt failure, 3-attempt retry loop with backoff.
+- **Track F** (merge + 2 commits) — tuning unity (Up/Down coarse + Shift+Up/Down fine, no `C` toggle) + audio gain hotkeys retired into Audio expander + RIT/XIT 1-4 scale-adjust mode + StickyAnnouncedMode helper extraction with filter-edge retrofit.
+- **Track G** (merge + 1 commit) — stuck-modal escape changelog patch (the implementation already shipped on main 2026-05-04 as `fdb987e6`; Track G discovered this and just patched the missing changelog).
+- **Track D** (merge + 16 commits) — app-updater client: manifest fetch, version compare, delta computation, per-file XZ-compressed download with hash verify, staging dir + handoff to Track M's helper exe, full-bundle fallback, Settings → Updates tab with channel selector, auto-check + periodic-check, Tools → Check for Updates command. Closes the "update plan is operational" 4.2.0 ship gate.
+- **Track H** (merge + 1 squash commit) — Trace Archive Browser tab in TraceAdmin with filter row, list view, selection detail panel, and action buttons (View, Copy Path, Export, Delete, Prune).
+- **Track J** (merge + 3 commits) — self-contained build pipeline: vbproj `<SelfContained>true</SelfContained>` + `<PublishReadyToRun>true</PublishReadyToRun>`, NSIS installer payload covers self-contained subdirs (recursive deleteList), x64 + x86 installers verified at ~55 MB compressed each.
+- **Track M** (merge + 11 commits) — JJFlexUpdaterHelper.exe: standalone single-file exe (~71 MB self-contained) for atomic file replacement during JJF restart. Backup-first + .new-rename atomic replace + rollback path + single-instance mutex + helper.log forensic record. Synthetic test pass: clean update, mid-flight SHA mismatch with rollback, mutex contention, backup blocker, all error paths.
+- **Track N** (merge + 1 commit) — server-side manifest generation tooling at `tools/jjflex-manifest-gen/`: Python click CLI generates per-version manifest, LZMA-compresses each file with FORMAT_XZ, uploads to R2 at content-addressable URLs, updates app-manifest's channel pointers. Includes pytest suite + R2 client wrapper + dry-run/no-upload modes. App-manifest concurrency racy by design (acceptable; if_match support reserved for future hardening).
+- **Track L (track/flexlib-42)** — NetworkChangeWatchdog wiring: `CascadeNetworkChangeHandler` registers OS-level network change subscription in ApplicationEvents.vb, emits `network_change_observed` key event into the active TraceSessionContext for forensic correlation. v1 is observe-only; cache invalidation handled implicitly by existing NLM gating (72cc0edd).
+- **Documentation** — CHANGELOG renamed v4-1-17 anchors to "Unreleased / Foundation Phase" (4.1.17 retired in favor of direct-to-4.2.0); Sprint 29 plan updated with Track G + worktree paths; trace navigation design doc authored.
+
+### Cross-surface activity (per pre-seal sweep)
+
+- **Memory:** 12 files modified today across feedback/project types. New entries: `project_2026_05_09_priority_planning.md`, `project_self_contained_runtime_direction.md`, `feedback_track_launch_prompts_must_name_file.md`. Updated entries: `project_sprint29_updater_vision.md` (delta-from-day-one firm-up), `project_stuck_modal_escape_design.md` (SHIPPED status), `project_flexlib_4218_merge_sequencing.md` (4.1.17-skip firm-up).
+- **Worktrees:** Six sprint29 worktrees spawned, all five merged ones cleaned up (D, H, J, M, N); track/flexlib-42 retained with Tracks B + L; braille-research and multi-radio quiet today.
+- **External infra:** No new R2 / Cloudflare / NAS service changes today (jjf-data repo quiet). NAS used for backups (memory + private archives).
+- **Dropbox:** No tester publish today (no new debug build at end-of-day; existing nightly stands). Tomorrow's plan to generate test packages (per Noel) will refresh.
+- **For-claude/for-noel:** No new pull-docs round-tripped today; the stuck-modal-escape memory caught up to "shipped" status which retires that for-noel design pull.
+- **Sealed cleanup:** D/H/J/M/N branches deleted; B/L preserved on track/flexlib-42; C branch deleted (its work landed directly on main).
+
+### Decisions made today
+
+- **No 4.1.17 release.** Going direct to 4.2.0 with FlexLib 4.2.18 absorbed. CHANGELOG section renamed "Unreleased / Foundation Phase — staging for 4.2.0."
+- **Self-contained .NET 10 installer for 4.2.0 from day one.** Was previously framed as "Sprint 30 candidate"; firmed up tonight after the friction-tax-asymmetry argument. Single publish flag + NSIS template adjustment + ~150 MB installers. Defer NativeAOT (WPF reflection patterns block it; SmartSDR's NativeAOT path doesn't apply).
+- **Delta updates from day one.** Previously framed as "v2 optimization"; firmed up tonight after Noel's "if it takes a few more tracks why not ship the version that does what we want." Per-file LZMA via FORMAT_XZ at upload + R2 content-addressable storage + client-side decompression. Roarbox cross-file bundling considered then deferred — bandwidth is free on R2, the additional 10-20% dedup gain doesn't justify the operational complexity.
+- **Track-launch-prompt convention firmed up.** Memory entry captures: launch prompts MUST name `TRACK-INSTRUCTIONS.md` explicitly. "Follow track instructions" is ambiguous; "read TRACK-INSTRUCTIONS.md" is reliable.
+
+### Outstanding for tomorrow
+
+- **Track E (firmware update Phase D)** — depends on D being on main (now merged). Can spawn whenever ready. Closes the third 4.2.0 ship gate.
+- **Test packages** for 4.1 work and 4.2 work — per Noel, generate tomorrow.
+- **Track J's deferred items** — fresh-VM install test (need clean VM), real-radio smoke test (need radio session).
+- **End-to-end delta update integration test** — once a real release manifest exists on R2, verify D + M + N work together against live infrastructure.
+- **Foundation Phase changelog audit** — small polish surface; missed entries for action-aware no-radio announcements, smarter crash + diagnostic data, filter-edge unification.
+- **Roarbox NVDA Remote Server install** (per Doug ask 2026-05-08) and ntfy notifier setup — both queued.
+
+### Rigmeter snapshot — end of 2026-05-09
+
+- **Today:** 83 commits, 175 unique files, +27,909 / -886 lines (net +27,023). All 83 commits authored by JJ Flexbot.
+- **Cumulative:** 102,689 authored code lines + 29,007 authored doc lines = 131,696 total. Docs-to-code ratio 0.35. Snapshot written to NAS as `2026-05-09-eea25eec.json`.
+
+---
+
 ## RESUME HERE — 2026-05-09 (Sprint 29 Tracks F + G merged; Track B Phase 3 in flight on cascade branch)
 
 Today's merges to main:
