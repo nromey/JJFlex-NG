@@ -16,6 +16,7 @@ internal static class Program
 {
     private const int ExitOk = 0;
     private const int ExitUsage = 64;
+    private const int ExitManifestError = 65;
     private const int ExitFailureRolledBack = 10;
     private const int ExitFailureNotRolledBack = 11;
 
@@ -28,8 +29,28 @@ internal static class Program
         }
 
         var stagingDir = args[0];
+
+        HandoffManifest manifest;
+        try
+        {
+            manifest = ManifestLoader.Load(stagingDir);
+        }
+        catch (ManifestLoadException ex)
+        {
+            Console.Error.WriteLine($"manifest error: {ex.Message}");
+            return ExitManifestError;
+        }
+
         Console.Out.WriteLine($"JJFlexUpdaterHelper: staging-dir={stagingDir}");
-        Console.Out.WriteLine("(scaffold — implementation lands in subsequent commits)");
+        Console.Out.WriteLine($"  source_dir       = {manifest.SourceDir}");
+        Console.Out.WriteLine($"  target_dir       = {manifest.TargetDir}");
+        Console.Out.WriteLine($"  backup_dir       = {manifest.BackupDir}");
+        Console.Out.WriteLine($"  jjf_pid          = {manifest.JjfPid}");
+        Console.Out.WriteLine($"  jjf_relaunch     = {manifest.JjfRelaunchPath}");
+        Console.Out.WriteLine($"  copy_files count = {manifest.CopyFiles.Count}");
+        Console.Out.WriteLine($"  delete_files     = {manifest.DeleteFiles.Count}");
+        Console.Out.WriteLine($"  rollback         = {manifest.RollbackOnAnyFailure}");
+        Console.Out.WriteLine("(further phases land in subsequent commits)");
         return ExitOk;
     }
 }
