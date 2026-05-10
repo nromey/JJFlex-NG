@@ -6,6 +6,7 @@ using System.Runtime.InteropServices;
 using System.Windows;
 using Flex.Smoothlake.FlexLib;
 using HamBands;
+using JJFlexUpdater;
 using JJTrace;
 using Radios;
 
@@ -1105,6 +1106,10 @@ public class NativeMenuBar : IDisposable
         var tools = AddPopup(bar, "&Tools");
         AddWired(tools, "Command Finder", () => ShowCommandFinderDialog());
         AddWired(tools, "Settings", () => ShowSettingsDialog());
+        // Sprint 29 Track D — manual update check. Lives next to Settings
+        // since the Updates settings tab is its preference home; this entry
+        // is the single-action trigger for the same flow.
+        AddWired(tools, "Check for Updates", () => ShowCheckForUpdates());
         AddWired(tools, "Speak Status\tCtrl+Shift+S", () =>
         {
             // Delay speech so it fires after menu close + focus return,
@@ -1540,6 +1545,88 @@ public class NativeMenuBar : IDisposable
         // Always apply typing sound after Settings (config may have been saved even on Cancel)
         if (_window.FreqHandlers != null)
             _window.FreqHandlers.TypingSound = audioConfig.TypingSound;
+    }
+
+    /// <summary>
+    /// Sprint 29 Track D — Tools → Check for Updates command. Manual
+    /// trigger for the same flow Settings → Updates → Check now runs:
+    /// fetch the manifest for the user's selected channel, compare
+    /// against the running version, surface either an "up to date"
+    /// confirmation or the Update available dialog.
+    ///
+    /// Defers when the user has an active radio session so we don't
+    /// pull the rug out mid-QSO per the "no update prompts during
+    /// active radio sessions" rule. They can still get the dialog
+    /// from Settings → Updates if they want to force it.
+    /// </summary>
+    private void ShowCheckForUpdates()
+    {
+        if (Rig != null && Rig.IsConnected)
+        {
+            var proceed = MessageBox.Show(
+                "You're connected to a radio. JJ Flex usually doesn't prompt about updates during an active session — applying an update will close the app. Check anyway?",
+                "Check for updates",
+                MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No);
+            if (proceed != MessageBoxResult.Yes) return;
+        }
+
+        Radios.ScreenReaderOutput.Speak(
+            "Checking for updates",
+            Radios.VerbosityLevel.Terse, true);
+
+        _ = RunUpdateCheckAsync();
+    }
+
+    private async System.Threading.Tasks.Task RunUpdateCheckAsync()
+    {
+        try
+        {
+            var settings = JJFlexUpdater.UpdaterSettings.Load();
+            var service = new JJFlexUpdater.UpdaterService();
+            var available = await service.CheckForUpdateAsync(settings.Channel)
+                                         .ConfigureAwait(true);
+
+            settings.LastCheckUtc = DateTimeOffset.UtcNow;
+            settings.Save();
+
+            if (available is null)
+            {
+                Radios.ScreenReaderOutput.Speak(
+                    $"You're up to date on the {settings.Channel.ToDisplayString()} channel.",
+                    Radios.VerbosityLevel.Critical, true);
+                MessageBox.Show(
+                    $"You're up to date on the {settings.Channel.ToDisplayString()} channel.",
+                    "Check for updates",
+                    MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            // SkippedVersion: the user has already said "skip this one."
+            // Honor that — they can still see it via Settings → Updates if
+            // they want to reverse course.
+            if (string.Equals(settings.SkippedVersion, available.AvailableVersion,
+                              StringComparison.OrdinalIgnoreCase))
+            {
+                Radios.ScreenReaderOutput.Speak(
+                    $"Version {available.AvailableVersion} is available but you've chosen to skip it. " +
+                    "Visit Settings, Updates to install it.",
+                    Radios.VerbosityLevel.Critical, true);
+                return;
+            }
+
+            var dialog = new Dialogs.UpdateAvailableDialog(available);
+            dialog.ShowDialog();
+        }
+        catch (Exception ex)
+        {
+            Radios.ScreenReaderOutput.Speak(
+                "Couldn't reach the update server. Check your network connection.",
+                Radios.VerbosityLevel.Critical, true);
+            MessageBox.Show(
+                "Couldn't reach the update server.\n\n" + ex.Message,
+                "Check for updates",
+                MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
     }
 
     /// <summary>
