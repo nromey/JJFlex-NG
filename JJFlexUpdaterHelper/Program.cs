@@ -22,6 +22,7 @@ internal static class Program
     private const int ExitUsage = 64;
     private const int ExitManifestError = 65;
     private const int ExitJjfStillRunning = 66;
+    private const int ExitAlreadyRunning = 67;
 
     private static int Main(string[] args)
     {
@@ -32,6 +33,17 @@ internal static class Program
         }
 
         var stagingDir = args[0];
+
+        // Single-instance guard goes first — a second helper trying to update
+        // the same install in parallel must back off cleanly without ever
+        // touching the staging dir or the helper.log of the running instance.
+        using var guard = SingleInstanceGuard.TryAcquire();
+        if (!guard.IsOwner)
+        {
+            Console.Error.WriteLine(
+                "another JJFlexUpdaterHelper instance is already running; aborting.");
+            return ExitAlreadyRunning;
+        }
 
         // Open the helper.log alongside the staging dir if it exists. If the
         // staging dir doesn't exist (or isn't writable), the logger silently
