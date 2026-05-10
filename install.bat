@@ -24,22 +24,11 @@ echo Program: %pgm%
 REM change to the folder passed as first arg
 cd /d "%~1" || (echo Failed to change directory to "%~1" & exit /b 2)
 
-REM Attempt to find sed (GnuWin32 or on PATH)
-set "SEDPATH="
-if exist "C:\Program Files (x86)\GnuWin32\bin\sed.exe" set "SEDPATH=C:\Program Files (x86)\GnuWin32\bin\sed.exe"
-if not defined SEDPATH (
-    for %%S in (sed.exe sed) do if exist "%%~$PATH:~0,0%%S" set "SEDPATH=%%S"
-)
-if not defined SEDPATH (
-    where sed >nul 2>nul && for /f "usebackq delims=" %%s in (`where sed`) do set "SEDPATH=%%s"
-)
-
-REM If sed still not found we'll use PowerShell for simple replacement steps
-if defined SEDPATH (
-    echo sed found: %SEDPATH%
-) else (
-    echo sed not found; will use PowerShell text replace as fallback
-)
+REM Sprint 29 Track J: sed lookup removed. install.nsi generation and
+REM deleteList.txt generation both use PowerShell now (PowerShell handles paths
+REM with backslashes more reliably than sed, and the deleteList step needs
+REM recursive directory walking that sed can't do). The legacy src.sed file
+REM is left in the tree for git history and may be removed in a follow-up.
 
 if not exist "install template.nsi" (
     echo ERROR: install template 'install template.nsi' not found in %CD%.
@@ -105,17 +94,16 @@ REM Generate install.nsi with the resolved program name and architecture-specifi
 REM Always use PowerShell for reliable path handling (avoids sed backslash issues)
 powershell -NoProfile -Command "$c = Get-Content 'install template.nsi' -Raw; $c = $c.Replace('MYPGM','%pgm%').Replace('MYVER','%VIAPPVER%').Replace('MYOUTDIR','%OUTDIR%').Replace('MYPROGFILES','%PROGFILES%'); Set-Content -Encoding ASCII 'install.nsi' $c" || (echo PowerShell replace failed & exit /b 5)
 
-REM produce a temporary file list and run sed against it
-pushd "!OUTDIR!" || (echo Cannot cd to output folder & exit /b 7)
-dir /b > "%TEMP%\jjflex_outputs.txt"
-popd
-
-echo Creating deleteList.txt using src.sed...
-if defined SEDPATH (
-    "%SEDPATH%" -f "%~dp0src.sed" "%TEMP%\jjflex_outputs.txt" > "%~dp0deleteList.txt" || (echo sed processing failed & exit /b 8)
-) else (
-    powershell -NoProfile -Command "Get-Content '%TEMP%\jjflex_outputs.txt' | ForEach-Object { 'Delete \"`$INSTDIR\\' + $_ + '\"' } | Set-Content -Encoding UTF8 '%~dp0deleteList.txt'" || (echo fallback delete list creation failed & exit /b 8)
-)
+REM Sprint 29 Track J: build the deleteList.txt via generate-deletelist.ps1.
+REM Self-contained .NET 10 brings 13 satellite-resource subdirs (cs/, de/, es/,
+REM ...) plus runtimes/, help/, Resources/. The legacy approach (top-level
+REM `dir /b` + sed wrap into Delete lines) left every subdirectory dangling at
+REM uninstall time because NSIS Delete silently no-ops on directories. The PS1
+REM helper enumerates files recursively (one Delete each) and subdirectories
+REM (one RMDir /r each), and writes ASCII-without-BOM (NSIS !include chokes on
+REM the BOM bytes the legacy fallback emitted).
+echo Creating deleteList.txt by recursively enumerating output...
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0generate-deletelist.ps1" -OutputDir "!OUTDIR!" -OutFile "%~dp0deleteList.txt" || (echo deleteList.txt generation failed & exit /b 8)
 
 echo Finding makensis...
 set "MAKENSIS="

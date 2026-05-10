@@ -149,12 +149,45 @@ The installer:
 - Installs to correct Program Files folder (64-bit vs 32-bit)
 - Includes architecture suffix in filename
 
+### Self-contained .NET 10 (Sprint 29 Track J onward — 4.2.0+)
+
+`JJFlexRadio.vbproj` sets `<SelfContained>true</SelfContained>` plus
+`<PublishReadyToRun>true</PublishReadyToRun>`, so `dotnet build` (not just
+`dotnet publish`) drops the .NET runtime alongside the app. This is the
+firm ship shape from 4.2.0 onward — no separate .NET install for users.
+
+Expected output shape per Release build (per arch):
+- **Raw publish dir:** ~180-190 MB, 364 files
+- **Compressed installer (LZMA solid):** ~50-55 MB
+- Top-level runtime DLLs you should see: `coreclr.dll`, `clrjit.dll`,
+  `hostfxr.dll`, `hostpolicy.dll`, plus WPF natives (`wpfgfx_cor3.dll`,
+  `D3DCompiler_47_cor3.dll`)
+- Top-level subdirs: `runtimes/`, `help/`, `Resources/`, plus 13
+  satellite-resource dirs (`cs/`, `de/`, `es/`, `fr/`, `it/`, `ja/`,
+  `ko/`, `pl/`, `pt-BR/`, `ru/`, `tr/`, `zh-Hans/`, `zh-Hant/`)
+
+If the runtime DLLs are missing from publish output, the build is NOT
+self-contained — re-check that the vbproj `<SelfContained>` block is
+intact and that no per-arch override is suppressing it.
+
+`generate-deletelist.ps1` (called by `install.bat`) walks the publish
+output to build the NSIS uninstaller's deleteList — every file gets a
+`Delete` line, every top-level subdir gets `RMDir /r`. So new subdirs
+introduced by future SDK upgrades clean up automatically.
+
+**Fresh-VM verification (mandatory before public release):** install on
+a Windows VM that has never had .NET 10. JJFlexRadio.exe must launch and
+display Home without prompting for a runtime install. The first user
+install is the load-bearing accessibility test.
+
 ### Native DLLs
 Architecture-specific native libraries are in:
 - `runtimes/win-x64/native/` - 64-bit portaudio.dll, libopus.dll
 - `runtimes/win-x86/native/` - 32-bit portaudio.dll, libopus.dll
 
-`NativeLoader.vb` resolves the correct DLLs at runtime.
+`NativeLoader.vb` resolves the correct DLLs at runtime. Self-contained
+publishing leaves the `runtimes/` tree intact, so the per-arch probe
+order works unchanged.
 
 ### Known Warnings (safe to ignore)
 - CA1416 platform compatibility warnings (Windows-only APIs)
