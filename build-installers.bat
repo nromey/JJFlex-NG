@@ -170,6 +170,52 @@ echo Location: %~dp0
 echo ============================================
 
 REM ---------------------------------------------------------------------------
+REM MANIFEST GEN HOOK (Sprint 29 Track N)
+REM ---------------------------------------------------------------------------
+REM Off by default for local builds. Roarbox CI/CD sets these env vars to opt
+REM into manifest generation + R2 upload after the installer builds. Local
+REM smoke-test mode: set JJFLEX_MANIFEST_GEN_MODE=dry-run (no R2 calls).
+REM
+REM Env vars consumed:
+REM   JJFLEX_MANIFEST_GEN_MODE     unset/empty=off | dry-run | live
+REM   JJFLEX_MANIFEST_GEN_CHANNEL  nightly | beta | stable  (required if MODE set)
+REM   R2_*                         credentials (required if MODE=live; see README)
+REM ---------------------------------------------------------------------------
+if not "%JJFLEX_MANIFEST_GEN_MODE%"=="" (
+    if "%JJFLEX_MANIFEST_GEN_CHANNEL%"=="" (
+        echo WARNING: JJFLEX_MANIFEST_GEN_MODE set but JJFLEX_MANIFEST_GEN_CHANNEL is empty. Skipping manifest gen.
+    ) else (
+        set "MGEN_FLAGS="
+        if /i "%JJFLEX_MANIFEST_GEN_MODE%"=="dry-run" set "MGEN_FLAGS=--dry-run"
+        if /i "%JJFLEX_MANIFEST_GEN_MODE%"=="live" set "MGEN_FLAGS=--update-app-manifest"
+
+        if "%BUILD_X64%"=="1" (
+            echo.
+            echo [manifest-gen] x64 ^(mode=%JJFLEX_MANIFEST_GEN_MODE% channel=%JJFLEX_MANIFEST_GEN_CHANNEL%^)
+            python "%~dp0tools\jjflex-manifest-gen\manifest_gen.py" generate ^
+                --published-dir "%~dp0bin\x64\Release\net10.0-windows\win-x64" ^
+                --version %APPVER% ^
+                --platform win-x64 ^
+                --channel %JJFLEX_MANIFEST_GEN_CHANNEL% ^
+                !MGEN_FLAGS!
+            if errorlevel 1 echo WARNING: manifest-gen x64 returned non-zero.
+        )
+
+        if "%BUILD_X86%"=="1" (
+            echo.
+            echo [manifest-gen] x86 ^(mode=%JJFLEX_MANIFEST_GEN_MODE% channel=%JJFLEX_MANIFEST_GEN_CHANNEL%^)
+            python "%~dp0tools\jjflex-manifest-gen\manifest_gen.py" generate ^
+                --published-dir "%~dp0bin\x86\Release\net10.0-windows\win-x86" ^
+                --version %APPVER% ^
+                --platform win-x86 ^
+                --channel %JJFLEX_MANIFEST_GEN_CHANNEL% ^
+                !MGEN_FLAGS!
+            if errorlevel 1 echo WARNING: manifest-gen x86 returned non-zero.
+        )
+    )
+)
+
+REM ---------------------------------------------------------------------------
 REM PUBLISH
 REM ---------------------------------------------------------------------------
 if /i "%PUBMODE%"=="nopub" (
