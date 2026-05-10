@@ -55,9 +55,16 @@ public sealed class DeltaDownloader
             string targetPath = ResolveStagingPath(stagingFilesDir, file.RelPath);
             Directory.CreateDirectory(Path.GetDirectoryName(targetPath)!);
 
+            // Wire-bytes for progress (compressed sum); fall back to
+            // uncompressed if the manifest didn't supply a compressed
+            // size for this entry.
+            long fileWire = file.CompressedSizeBytes > 0
+                ? file.CompressedSizeBytes
+                : file.SizeBytes;
+
             progress.Report(new UpdaterProgressSnapshot(
                 UpdaterPhase.DownloadingFiles,
-                $"Downloading {file.RelPath} ({Format.Bytes(file.SizeBytes)})",
+                $"Downloading {file.RelPath} ({Format.Bytes(fileWire)})",
                 FilesCompleted: i,
                 FilesTotal: totalFiles,
                 BytesCompleted: completedBytes,
@@ -77,7 +84,7 @@ public sealed class DeltaDownloader
                     $"download failed: {ex.Message}", ex);
             }
 
-            completedBytes += file.SizeBytes;
+            completedBytes += fileWire;
         }
 
         progress.Report(new UpdaterProgressSnapshot(
@@ -89,33 +96,76 @@ public sealed class DeltaDownloader
             BytesTotal: totalBytes));
     }
 
+    /// <summary>
+    /// Fetch the .lzma blob, optionally verify the wire bytes against
+    /// <see cref="FileEntry.CompressedSha256"/>, decompress via SharpCompress
+    /// LZMA Alone, and verify the decompressed bytes against
+    /// <see cref="FileEntry.Sha256"/>. The post-decompression hash is the
+    /// load-bearing identity check (matches the local-inventory walker's
+    /// hash convention). The compressed-side check is a cheap belt-and
+    /// -suspenders gate.
+    /// </summary>
     private async Task DownloadOneAsync(FileEntry file, string targetPath, CancellationToken ct)
     {
-        using var response = await HttpRetry.SendWithRetryAsync(
-            token => _http.GetAsync(file.Url, HttpCompletionOption.ResponseHeadersRead, token),
-            cancellationToken: ct).ConfigureAwait(false);
-
-        // Stream into the staging file while computing sha256 in parallel.
-        // Using a transform-style read avoids buffering the whole payload in
-        // memory for large native DLLs.
-        await using var sourceStreamRaw = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
-        await using (sourceStreamRaw.ConfigureAwait(false))
+        // 1. Fetch the .lzma blob into memory. Per-file blobs are bounded
+        //    (largest single JJF asset is the main exe at ~8 MB uncompressed
+        //    → ~4 MB compressed) so buffering avoids the LZMA stream having
+        //    to seek backwards during decode.
+        byte[] compressedBytes;
+        using (var response = await HttpRetry.SendWithRetryAsync(
+            token => _http.GetAsync(file.Url, HttpCompletionOption.ResponseContentRead, token),
+            cancellationToken: ct).ConfigureAwait(false))
         {
-            using var sha = SHA256.Create();
-            await using var fileStreamRaw = new FileStream(
-                targetPath, FileMode.Create, FileAccess.Write, FileShare.None,
-                LocalFileHasherBuffer, useAsync: true);
-            await using (fileStreamRaw.ConfigureAwait(false))
+            compressedBytes = await response.Content.ReadAsByteArrayAsync(ct).ConfigureAwait(false);
+        }
+
+        // 2. Optional in-flight integrity check. Cheap — bytes already
+        //    in memory. Catches mid-stream corruption before we waste
+        //    decompression cycles on garbage.
+        if (!string.IsNullOrEmpty(file.CompressedSha256))
+        {
+            string compressedActual = HashBytes(compressedBytes);
+            if (!string.Equals(compressedActual, file.CompressedSha256, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new DeltaDownloadException(file.RelPath, file.Url,
+                    $"compressed sha256 mismatch: got {compressedActual}, expected {file.CompressedSha256}");
+            }
+        }
+
+        // 3. Decompress + write + hash, all in one streaming pass. The
+        //    LZMA Alone container is 5 bytes properties + 8 bytes
+        //    uncompressed-size + payload; we parse the header manually
+        //    because SharpCompress's LzmaStream takes the properties
+        //    byte[] explicitly. The 8-byte size field is informational
+        //    here — the post-decompression sha256 is what we trust.
+        if (compressedBytes.Length < LzmaAloneHeaderBytes)
+        {
+            throw new DeltaDownloadException(file.RelPath, file.Url,
+                $"truncated LZMA blob: got {compressedBytes.Length} bytes, need at least {LzmaAloneHeaderBytes}");
+        }
+        byte[] properties = new byte[LzmaPropertiesBytes];
+        Array.Copy(compressedBytes, 0, properties, 0, LzmaPropertiesBytes);
+
+        using (var memSource = new MemoryStream(
+            compressedBytes, LzmaAloneHeaderBytes, compressedBytes.Length - LzmaAloneHeaderBytes,
+            writable: false, publiclyVisible: false))
+        using (var lzma = new SharpCompress.Compressors.LZMA.LzmaStream(properties, memSource))
+        using (var sha = SHA256.Create())
+        {
+            var fs = new FileStream(targetPath, FileMode.Create, FileAccess.Write,
+                FileShare.None, LocalFileHasherBuffer, useAsync: true);
+            await using (fs.ConfigureAwait(false))
             {
                 byte[] buffer = new byte[LocalFileHasherBuffer];
-                int n;
                 while (true)
                 {
-                    n = await sourceStreamRaw.ReadAsync(buffer.AsMemory(0, buffer.Length), ct)
-                                              .ConfigureAwait(false);
+                    // LzmaStream is sync-only; read inline. Decompress speed
+                    // is ~50-200 MB/sec on modern hardware, so this isn't
+                    // worth offloading to a thread pool task.
+                    int n = lzma.Read(buffer, 0, buffer.Length);
                     if (n <= 0) break;
                     sha.TransformBlock(buffer, 0, n, buffer, 0);
-                    await fileStreamRaw.WriteAsync(buffer.AsMemory(0, n), ct).ConfigureAwait(false);
+                    await fs.WriteAsync(buffer.AsMemory(0, n), ct).ConfigureAwait(false);
                 }
                 sha.TransformFinalBlock(Array.Empty<byte>(), 0, 0);
 
@@ -123,12 +173,21 @@ public sealed class DeltaDownloader
                 if (!string.Equals(actual, file.Sha256, StringComparison.OrdinalIgnoreCase))
                 {
                     throw new DeltaDownloadException(file.RelPath, file.Url,
-                        $"sha256 mismatch: got {actual}, expected {file.Sha256}");
+                        $"sha256 mismatch (post-decompression): got {actual}, expected {file.Sha256}");
                 }
             }
         }
     }
 
+    private static string HashBytes(byte[] bytes)
+    {
+        using var sha = SHA256.Create();
+        return Convert.ToHexString(sha.ComputeHash(bytes)).ToLowerInvariant();
+    }
+
+    /// <summary>LZMA Alone format: 5 bytes properties + 8 bytes uncompressed size = 13 byte header.</summary>
+    private const int LzmaPropertiesBytes = 5;
+    private const int LzmaAloneHeaderBytes = 13;
     private const int LocalFileHasherBuffer = 81920;
 
     /// <summary>
