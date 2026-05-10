@@ -64,7 +64,19 @@ internal static class Program
             return ExitJjfStillRunning;
         }
 
-        Console.Out.WriteLine("(further phases land in subsequent commits)");
+        BackupResult backup;
+        try
+        {
+            backup = BackupStep.Execute(manifest, Console.Out.WriteLine);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            Console.Error.WriteLine($"backup failed: {ex.Message}");
+            Console.Error.WriteLine("Aborting before any file change. Install is untouched.");
+            return ExitFailureNotRolledBack;
+        }
+
+        Console.Out.WriteLine($"(backup OK, {backup.CopyFileBackups.Count + backup.DeleteFileBackups.Count} files preserved; further phases land in subsequent commits)");
         return ExitOk;
     }
 }

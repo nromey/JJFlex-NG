@@ -95,6 +95,8 @@ internal static class ManifestLoader
             if (entry is null) throw new ManifestLoadException($"copy_files[{i}] is null");
             if (string.IsNullOrWhiteSpace(entry.RelPath)) throw new ManifestLoadException($"copy_files[{i}].rel_path is required");
             if (string.IsNullOrWhiteSpace(entry.ExpectedSha256)) throw new ManifestLoadException($"copy_files[{i}].expected_sha256 is required");
+            try { PathGuard.RejectIfUnsafe(entry.RelPath); }
+            catch (ArgumentException ex) { throw new ManifestLoadException($"copy_files[{i}]: {ex.Message}"); }
         }
 
         for (var i = 0; i < m.DeleteFiles.Count; i++)
@@ -103,6 +105,8 @@ internal static class ManifestLoader
             {
                 throw new ManifestLoadException($"delete_files[{i}] is empty");
             }
+            try { PathGuard.RejectIfUnsafe(m.DeleteFiles[i]); }
+            catch (ArgumentException ex) { throw new ManifestLoadException($"delete_files[{i}]: {ex.Message}"); }
         }
     }
 }
