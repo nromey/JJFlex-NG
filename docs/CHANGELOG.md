@@ -53,6 +53,7 @@ This release is about the space where you actually spend your time in the app �
 - **[Tuning unity](#tuning-unity).** Up and Down arrow tune by your coarse step. Shift+Up and Shift+Down tune by your fine step. There is no mode any more — no `C` key to flip back and forth, no Page Up/Down to cycle a step list. One coarse value, one fine value, set in Settings. Don was the one who said it: "you can tune much more easily if you don't have to mode switch." He's right.
 - **[Audio levels live in the Audio expander now](#audio-expander-volume).** Volume, headphone level, and line out level all live under Ctrl+Shift+U. The old `Alt+Page Up`, `Alt+Shift+Page Up`, and `Shift+Page Up` shortcuts (and their `Page Down` counterparts) are retired. Hotkeys earn their slot when one keystroke equals one action; values belong with their fields.
 - **[RIT and XIT now have a scale-adjust mode](#rit-xit-scale-adjust).** Press a number 1, 2, 3, or 4 while focus is on the RIT or XIT field, and you're in scale-adjust mode at 1 Hz, 10 Hz, 100 Hz, or 1 kHz. Up and Down then walk the offset by that scale until you press 0, Escape, or navigate away. Don asked for this one — chasing a drifting correspondent without field-hopping through decade fields is the workflow this exists for.
+- **[The installer brings everything it needs](#self-contained).** Run the new Setup on a fresh Windows machine and JJ Flexible just installs. No more "you need .NET 10, click here to download Microsoft's runtime first." The download is about 55 MB instead of 10 — bigger, but it's one trip instead of three, and that "go install this other thing" detour was an accessibility wall for screen reader users on new machines. Done.
 
 ### Home's got a real name now {#home-intro}
 
@@ -216,6 +217,16 @@ Now there's a quick path. With focus on the RIT or XIT field, press 1, 2, 3, or 
 The decade-position cursor approach still works when you're not in scale-adjust mode. Digits 5 through 9 still type at the cursor like before. The new mode is purely additive — Don's fast path, sitting alongside the legacy path.
 
 This is the third home of a pattern we've been quietly building toward: the sticky-but-announced modal. Filter-edge grab uses it (double-tap a bracket key on the filter to grab one edge for adjustment). RIT and XIT scale-adjust is the same idea applied to offset tuning. The plumbing is shared now, so future features that want this feel — a deliberate entry, an announced state, a focus-bound exit — can use it without re-rolling.
+
+[Return to version headlines](#unreleased-headlines)
+
+### The Installer Brings Everything It Needs {#self-contained}
+
+When you run the new Setup on a fresh Windows machine, JJ Flexible just installs. No more "this app needs Microsoft .NET 10 — please install it first," no chasing a separate download from Microsoft's website, no extra UAC prompt for a runtime installer that may or may not read well in your screen reader. Hit Setup, accept the install location, you're in. JJ Flexible carries its own copy of the runtime now.
+
+The trade is download size. The new installer is about 55 MB instead of about 10 MB, because the runtime is bundled inside. You only download it once per release, so the cost is a single concentrated hit instead of a multi-step scavenger hunt the first time. If you already have .NET 10 installed for another app, no conflict — JJ Flexible runs on its own bundled copy and minds its own business.
+
+Why this mattered enough to do: the "you need a separate runtime" experience for someone using a screen reader on a brand new shack PC was a wall. Microsoft's runtime download page wasn't always clean to navigate; the runtime installer occasionally threw a UAC prompt that read poorly under JAWS; and after all that work the original Setup might still demand a different prerequisite. Installing JJ Flexible should be one step. Now it is.
 
 [Return to version headlines](#unreleased-headlines)
 
