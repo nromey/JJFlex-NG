@@ -267,3 +267,14 @@ The ScreenFields panel has five expandable categories you can jump to instantly:
 | Ctrl+Shift+F3 | Move focus to the received text box |
 | Ctrl+Shift+F4 | Move focus to the CW send text box |
 | Ctrl+Shift+F5 | Move focus to the CW send text box (currently the same as Ctrl+Shift+F4 — a distinct direct-keying mode is planned for a future release) |
+
+## Trace Archive Browser
+
+These keys are active when focus is on the row list inside the Archive Browser tab of the Tracing dialog (Operations → Tracing → Archive Browser).
+
+| Key | Action |
+|-----|--------|
+| Enter | Open the selected trace in your default text viewer |
+| Ctrl+C | Copy the selected trace's full file path to the clipboard |
+| Delete | Delete the selected trace(s), with a confirmation prompt |
+| Ctrl+A | Select every row in the current filter |

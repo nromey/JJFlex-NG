@@ -53,6 +53,7 @@ This release is about the space where you actually spend your time in the app �
 - **[Tuning unity](#tuning-unity).** Up and Down arrow tune by your coarse step. Shift+Up and Shift+Down tune by your fine step. There is no mode any more — no `C` key to flip back and forth, no Page Up/Down to cycle a step list. One coarse value, one fine value, set in Settings. Don was the one who said it: "you can tune much more easily if you don't have to mode switch." He's right.
 - **[Audio levels live in the Audio expander now](#audio-expander-volume).** Volume, headphone level, and line out level all live under Ctrl+Shift+U. The old `Alt+Page Up`, `Alt+Shift+Page Up`, and `Shift+Page Up` shortcuts (and their `Page Down` counterparts) are retired. Hotkeys earn their slot when one keystroke equals one action; values belong with their fields.
 - **[RIT and XIT now have a scale-adjust mode](#rit-xit-scale-adjust).** Press a number 1, 2, 3, or 4 while focus is on the RIT or XIT field, and you're in scale-adjust mode at 1 Hz, 10 Hz, 100 Hz, or 1 kHz. Up and Down then walk the offset by that scale until you press 0, Escape, or navigate away. Don asked for this one — chasing a drifting correspondent without field-hopping through decade fields is the workflow this exists for.
+- **[The Trace Archive Browser is here](#trace-archive-browser).** Every connection your app makes already gets quietly archived in the background — every successful connect, every flaky retry, every killed session. There is now a place inside JJ Flexible Radio to actually look at them. Open the Tracing dialog (Operations menu, then Tracing) and you'll see a new "Archive Browser" tab next to the existing tracing controls. Filter by date, by outcome, by radio. Pop open a trace in your text viewer. Copy the file path so you can attach it to an email. Bundle a handful of traces into a single zip to send to me. The list speaks itself as you arrow through it, so you can hear "AS retry then success on Don 6300, one minute twenty-three seconds" without leaving the row.
 
 ### Home's got a real name now {#home-intro}
 
@@ -216,6 +217,31 @@ Now there's a quick path. With focus on the RIT or XIT field, press 1, 2, 3, or 
 The decade-position cursor approach still works when you're not in scale-adjust mode. Digits 5 through 9 still type at the cursor like before. The new mode is purely additive — Don's fast path, sitting alongside the legacy path.
 
 This is the third home of a pattern we've been quietly building toward: the sticky-but-announced modal. Filter-edge grab uses it (double-tap a bracket key on the filter to grab one edge for adjustment). RIT and XIT scale-adjust is the same idea applied to offset tuning. The plumbing is shared now, so future features that want this feel — a deliberate entry, an announced state, a focus-bound exit — can use it without re-rolling.
+
+[Return to version headlines](#unreleased-headlines)
+
+### The Trace Archive Browser {#trace-archive-browser}
+
+Every time you connect JJ Flexible Radio to a rig, the app keeps a quiet record of what happened. Successful connect? Filed. Slow retry that eventually worked? Filed with that detail attached. Stuck connect that you finally killed by closing the window? When you next launch the app, last session's trace gets filed too, marked as killed so you can tell it apart from clean exits. Old archives age out automatically after thirty days so the folder doesn't grow forever. All of this has been running in the background for a while now.
+
+What was missing was a place to actually look at any of it. That place is here. Open the Operations menu, choose Tracing, and you'll find a new tab next to the existing tracing controls labeled "Archive Browser."
+
+The browser shows you every archived session as a row in a list. The columns are date, how long the session ran, what the outcome was (success, AS retry then success, killed, that sort of thing), which radio you were connecting to, and how big the compressed trace file is on disk. Arrow up and down through the rows and your screen reader speaks each one as a chord — outcome, target, duration. The amount of detail scales with your speech verbosity setting, so on Terse you hear the essentials and on Chatty you also hear how many key events were tagged in that session.
+
+Above the list is a row of filters. There's a date-from and date-to picker (both optional — leave the checkbox unchecked to ignore that bound), an outcome dropdown that defaults to Any, and a free-text search that matches connection target name, IP, callsign, and outcome reason. As you change a filter, your screen reader politely announces "twelve of forty-seven shown" so you know it took effect without having to navigate over to look. The search box debounces — it waits for you to stop typing before it actually filters, so you don't get a flood of announcements per keystroke.
+
+Below the list is a detail panel that fills in when you select a row. It shows the outcome reason, the connection target, any key events the session tagged ("AS retry attempt 2 remote", "slice in use", etc.), the app version that produced the trace, the verbosity level it was running at, and the full file path on disk.
+
+There are four action buttons:
+
+- **View Trace** opens the selected trace in your default text viewer (Notepad on most systems). It pulls the file out of the compressed archive into a temp folder first so the viewer can read it. Press Enter on a row to do the same thing.
+- **Copy Path** copies the full disk path of the selected trace to your clipboard, useful if you want to paste it into an email or attach it to a bug report. Ctrl+C on a row also works.
+- **Export Selected** lets you pick several rows (Shift-click or Ctrl+A for select all) and bundles them into a single zip file at a location you choose. Convenient for sending me a stack of related traces.
+- **Delete Selected** removes the selected traces from disk and from the archive index. It asks first. The Delete key on a row works too.
+
+At the bottom of the tab there's a footer line showing how much space the archive is using total and how many entries it holds, plus a "Prune Now" button. Auto-prune runs in the background at thirty days, but if you want to prune sooner — say, you're trying to free up a bit of disk — you can change the retention number to anything from 1 to 365 days and click Prune Now. It asks for confirmation, then announces how many entries it removed.
+
+The tracing tab on the left is exactly the same as it was — start a user trace, pick a level, set a file name. Nothing changes there. The browser just gives you a window into what the background trace persistence has been quietly building up for you.
 
 [Return to version headlines](#unreleased-headlines)
 

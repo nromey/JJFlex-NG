@@ -22,6 +22,7 @@
     <Compile Include="SessionArchive.cs" />
     <Compile Include="SessionLifecycle.cs" />
     <Compile Include="SessionManifest.cs" />
+    <Compile Include="TraceOutcomeLabels.cs" />
     <Compile Include="Tracing.cs" />
     <Compile Include="Utility.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />

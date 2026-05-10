@@ -309,6 +309,9 @@
     <Compile Include="TraceAdmin.Designer.vb">
       <DependentUpon>TraceAdmin.vb</DependentUpon>
     </Compile>
+    <Compile Include="TraceAdmin.Browser.vb">
+      <DependentUpon>TraceAdmin.vb</DependentUpon>
+    </Compile>
     <Compile Include="TraceAdmin.vb">
       <SubType>Form</SubType>
     </Compile>

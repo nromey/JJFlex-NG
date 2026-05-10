@@ -1,8 +1,10 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
 using SharpCompress.Common;
+using SharpCompress.Readers;
 using SharpCompress.Writers;
 
 namespace JJTrace
@@ -104,6 +106,88 @@ namespace JJTrace
                 Tracing.ErrMessageTrace(ex);
                 return null;
             }
+        }
+
+        /// <summary>
+        /// Extract the (single) trace text entry from a per-session archive zip
+        /// to a destination directory and return the extracted file path.
+        /// Returns null if the archive is missing or empty. The Archive Browser
+        /// uses this for "View Trace" — Windows Explorer can't open LZMA-compressed
+        /// zip entries natively, so we extract via SharpCompress and hand the
+        /// resulting plain-text file to the OS default association.
+        /// </summary>
+        public static string ExtractTraceText(string archiveFullPath, string destDir)
+        {
+            if (string.IsNullOrEmpty(archiveFullPath) || !File.Exists(archiveFullPath)) return null;
+            try
+            {
+                Directory.CreateDirectory(destDir);
+                using (FileStream stream = File.OpenRead(archiveFullPath))
+                using (IReader reader = ReaderFactory.Open(stream))
+                {
+                    while (reader.MoveToNextEntry())
+                    {
+                        if (reader.Entry.IsDirectory) continue;
+                        string entryName = Path.GetFileName(reader.Entry.Key) ?? "trace.txt";
+                        string outPath = Path.Combine(destDir, entryName);
+                        using (FileStream fs = File.Create(outPath))
+                        {
+                            reader.WriteEntryTo(fs);
+                        }
+                        return outPath;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Tracing.ErrMessageTrace(ex);
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Delete a set of archive entries from disk and the manifest. Returns the
+        /// number of entries successfully deleted. Safe to call with relative
+        /// filenames that no longer exist — those rows are removed from the
+        /// manifest regardless. Used by the Archive Browser's Delete Selected.
+        /// </summary>
+        public static int DeleteEntries(string archiveRootDir, IEnumerable<string> relativeFilenames)
+        {
+            if (relativeFilenames == null) return 0;
+            int deleted = 0;
+            try
+            {
+                HashSet<string> toDelete = new HashSet<string>(
+                    relativeFilenames, StringComparer.OrdinalIgnoreCase);
+                if (toDelete.Count == 0) return 0;
+
+                string manifestPath = Path.Combine(archiveRootDir, ManifestFileName);
+                TraceManifest manifest = TraceManifest.Load(manifestPath);
+                bool changed = false;
+                for (int i = manifest.Entries.Count - 1; i >= 0; i--)
+                {
+                    TraceSessionEntry entry = manifest.Entries[i];
+                    if (entry == null || string.IsNullOrEmpty(entry.Filename)) continue;
+                    if (!toDelete.Contains(entry.Filename)) continue;
+
+                    string fullPath = Path.Combine(archiveRootDir, entry.Filename.Replace('/', Path.DirectorySeparatorChar));
+                    try { if (File.Exists(fullPath)) File.Delete(fullPath); }
+                    catch (Exception ex) { Tracing.ErrMessageTrace(ex); }
+
+                    manifest.Entries.RemoveAt(i);
+                    changed = true;
+                    deleted++;
+                }
+                if (changed)
+                {
+                    manifest.Save(manifestPath);
+                }
+            }
+            catch (Exception ex)
+            {
+                Tracing.ErrMessageTrace(ex);
+            }
+            return deleted;
         }
 
         /// <summary>
