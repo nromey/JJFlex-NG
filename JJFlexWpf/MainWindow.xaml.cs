@@ -218,6 +218,9 @@ public partial class MainWindow : UserControl
         // Update status
         StatusText.Text = "Ready — no radio connected";
 
+        // Sprint 29 Track D — auto-update launch + periodic check.
+        StartUpdaterAutoCheck();
+
         Tracing.TraceLine("MainWindow_Loaded: init complete", System.Diagnostics.TraceLevel.Info);
     }
 
