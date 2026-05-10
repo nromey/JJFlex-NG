@@ -99,7 +99,9 @@ internal static class Program
             return ExitFailureNotRolledBack;
         }
 
-        Console.Out.WriteLine("Update applied successfully. (relaunch + cleanup land in subsequent commits)");
+        Console.Out.WriteLine("Update applied successfully.");
+        RelaunchStep.Execute(manifest.JjfRelaunchPath, Console.Out.WriteLine);
+        // (cleanup of staging dir lands in step 9)
         return ExitOk;
     }
 
