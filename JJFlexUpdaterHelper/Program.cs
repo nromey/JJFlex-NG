@@ -65,7 +65,7 @@ internal static class Program
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
         {
             Console.Error.WriteLine($"backup failed: {ex.Message}");
-            Console.Error.WriteLine("Aborting before any file change. Install is untouched.");
+            Console.Error.WriteLine($"Aborting before any file change. Install is untouched. Staging dir preserved at: {stagingDir}");
             return ExitFailureNotRolledBack;
         }
 
@@ -82,26 +82,26 @@ internal static class Program
 
             if (!manifest.RollbackOnAnyFailure)
             {
-                Console.Error.WriteLine("rollback_on_any_failure=false; leaving install in current state.");
+                Console.Error.WriteLine($"rollback_on_any_failure=false; leaving install in current state. Staging dir preserved at: {stagingDir}");
                 return ExitFailureNotRolledBack;
             }
 
             var rollback = RollbackStep.Execute(manifest, backup, Console.Out.WriteLine, Console.Error.WriteLine);
             if (rollback.WasFullyRolledBack)
             {
-                Console.Error.WriteLine("Rolled back to pre-update state. Update did not apply.");
+                Console.Error.WriteLine($"Rolled back to pre-update state. Update did not apply. Staging dir preserved at: {stagingDir}");
                 return ExitFailureRolledBack;
             }
 
             Console.Error.WriteLine(
                 $"Rollback was incomplete: {rollback.FilesFailedToRestore} files could not be restored. " +
-                $"Backup remains at {manifest.BackupDir} for manual recovery.");
+                $"Backup remains at {manifest.BackupDir} for manual recovery. Staging dir preserved at: {stagingDir}");
             return ExitFailureNotRolledBack;
         }
 
         Console.Out.WriteLine("Update applied successfully.");
         RelaunchStep.Execute(manifest.JjfRelaunchPath, Console.Out.WriteLine);
-        // (cleanup of staging dir lands in step 9)
+        CleanupStep.Execute(stagingDir, Console.Out.WriteLine);
         return ExitOk;
     }
 
