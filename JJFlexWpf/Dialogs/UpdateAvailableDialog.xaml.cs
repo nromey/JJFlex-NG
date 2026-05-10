@@ -177,17 +177,17 @@ public partial class UpdateAvailableDialog : JJFlexDialog
 
     private void UpdateSizeText(UpdatePlan plan)
     {
-        long delta = plan.DeltaBytes;
-        long full = _update.FullInstallerSizeBytes;
-        if (full <= 0) full = plan.FullSizeBytes; // fallback when manifest didn't supply size
+        long deltaWire = plan.DeltaBytes;            // compressed .lzma sum
+        long fullWire = _update.FullInstallerSizeBytes; // NSIS .exe size
+        if (fullWire <= 0) fullWire = plan.InstalledSizeBytes; // fallback
 
-        string savings = Format.SavingsPercent(delta, full);
+        string savings = Format.SavingsPercent(deltaWire, fullWire);
         SizeText.Text =
-            $"Delta download: {Format.Bytes(delta)}. " +
-            $"Full installer would be {Format.Bytes(full)} ({savings} smaller via delta).";
+            $"Delta download: {Format.Bytes(deltaWire)}. " +
+            $"Full installer would be {Format.Bytes(fullWire)} ({savings} smaller via delta).";
 
         ScreenReaderOutput.Speak(
-            $"Download size {Format.Bytes(delta)}, {savings} smaller than the full installer.",
+            $"Download size {Format.Bytes(deltaWire)}, {savings} smaller than the full installer.",
             VerbosityLevel.Terse, interrupt: true);
     }
 
