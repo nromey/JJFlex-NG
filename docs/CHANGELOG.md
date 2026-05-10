@@ -5,6 +5,7 @@ All notable changes to this project are  documented in this file. The opinions a
 
 ## Jump to a Version {#versions}
 
+- [4.2.0 — In development](#v4-2-0)
 - [4.1.17 — The Make Yourself at Home Edition](#v4-1-17)
 - [4.1.16 — The Name Change Edition](#v4-1-16)
 - [4.1.15.1 — Stop the Presses (local-radio hotfix)](#v4-1-15-1)
@@ -28,6 +29,14 @@ All notable changes to this project are  documented in this file. The opinions a
 - [4.0.1.0 — Start of the 4.x line](#v4-0-1-0)
 
 Jim Shaffer's changelog for the 1.x, 2.x, and 3.x versions lives in a separate archival file — see [CHANGELOG-legacy.md](CHANGELOG-legacy.md) for that history.
+
+## 4.2.0 (in development) {#v4-2-0}
+
+This entry is being built up as the 4.2 work lands. It's not a release yet — when it ships, this section will get a proper headline and a friendly intro like the others.
+
+### Under the hood
+
+- JJ Flexible now notices when your network changes — when you switch Wi-Fi, plug or unplug Ethernet, or connect a VPN. Today this just shows up in the diagnostic trace so I can see in your logs that "the network shifted at 3:42 PM" when you write me about a connection problem. Down the road, the same plumbing will let JJ Flexible auto-search for your radio after you roam from your home shack to a portable site, instead of stubbornly trying the old IP. One small step today, the foundation for a much bigger quality-of-life win.
 
 ## 4.1.17: The Make Yourself at Home Edition {#v4-1-17}
 
