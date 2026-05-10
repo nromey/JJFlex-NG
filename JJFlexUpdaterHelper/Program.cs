@@ -17,6 +17,7 @@ internal static class Program
     private const int ExitOk = 0;
     private const int ExitUsage = 64;
     private const int ExitManifestError = 65;
+    private const int ExitJjfStillRunning = 66;
     private const int ExitFailureRolledBack = 10;
     private const int ExitFailureNotRolledBack = 11;
 
@@ -50,6 +51,19 @@ internal static class Program
         Console.Out.WriteLine($"  copy_files count = {manifest.CopyFiles.Count}");
         Console.Out.WriteLine($"  delete_files     = {manifest.DeleteFiles.Count}");
         Console.Out.WriteLine($"  rollback         = {manifest.RollbackOnAnyFailure}");
+
+        var waitResult = JjfProcessWaiter.WaitForExit(
+            manifest.JjfPid,
+            JjfProcessWaiter.DefaultTimeout,
+            Console.Out.WriteLine);
+
+        if (waitResult == JjfProcessWaiter.WaitOutcome.TimedOut)
+        {
+            Console.Error.WriteLine(
+                $"JJF pid {manifest.JjfPid} is still running after timeout; aborting before any file change.");
+            return ExitJjfStillRunning;
+        }
+
         Console.Out.WriteLine("(further phases land in subsequent commits)");
         return ExitOk;
     }
