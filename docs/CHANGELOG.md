@@ -55,6 +55,7 @@ This release is about the space where you actually spend your time in the app �
 - **[RIT and XIT now have a scale-adjust mode](#rit-xit-scale-adjust).** Press a number 1, 2, 3, or 4 while focus is on the RIT or XIT field, and you're in scale-adjust mode at 1 Hz, 10 Hz, 100 Hz, or 1 kHz. Up and Down then walk the offset by that scale until you press 0, Escape, or navigate away. Don asked for this one — chasing a drifting correspondent without field-hopping through decade fields is the workflow this exists for.
 - **[The installer brings everything it needs](#self-contained).** Run the new Setup on a fresh Windows machine and JJ Flexible just installs. No more "you need .NET 10, click here to download Microsoft's runtime first." The download is about 55 MB instead of 10 — bigger, but it's one trip instead of three, and that "go install this other thing" detour was an accessibility wall for screen reader users on new machines. Done.
 - **[The Trace Archive Browser is here](#trace-archive-browser).** Every connection your app makes already gets quietly archived in the background — every successful connect, every flaky retry, every killed session. There is now a place inside JJ Flexible Radio to actually look at them. Open the Tracing dialog (Operations menu, then Tracing) and you'll see a new "Archive Browser" tab next to the existing tracing controls. Filter by date, by outcome, by radio. Pop open a trace in your text viewer. Copy the file path so you can attach it to an email. Bundle a handful of traces into a single zip to send to me. The list speaks itself as you arrow through it, so you can hear "AS retry then success on Don 6300, one minute twenty-three seconds" without leaving the row.
+- **[JJ Flex now updates itself](#in-app-updates).** Tools menu has a new "Check for Updates" item. Settings has a new "Updates" tab where you pick your channel — Stable, Beta, or Nightly — and decide whether you want JJ Flex to check on its own. By default it checks at startup and every couple of hours while it's running, but you're in charge of all of that. When an update lands, you get a dialog that tells you what's new and how big the download is, and one keystroke does the install. No more hunting for installers on the website.
 
 ### Home's got a real name now {#home-intro}
 
@@ -221,6 +222,7 @@ This is the third home of a pattern we've been quietly building toward: the stic
 
 [Return to version headlines](#unreleased-headlines)
 
+<<<<<<< HEAD
 ### The Installer Brings Everything It Needs {#self-contained}
 
 When you run the new Setup on a fresh Windows machine, JJ Flexible just installs. No more "this app needs Microsoft .NET 10 — please install it first," no chasing a separate download from Microsoft's website, no extra UAC prompt for a runtime installer that may or may not read well in your screen reader. Hit Setup, accept the install location, you're in. JJ Flexible carries its own copy of the runtime now.
@@ -253,6 +255,26 @@ There are four action buttons:
 At the bottom of the tab there's a footer line showing how much space the archive is using total and how many entries it holds, plus a "Prune Now" button. Auto-prune runs in the background at thirty days, but if you want to prune sooner — say, you're trying to free up a bit of disk — you can change the retention number to anything from 1 to 365 days and click Prune Now. It asks for confirmation, then announces how many entries it removed.
 
 The tracing tab on the left is exactly the same as it was — start a user trace, pick a level, set a file name. Nothing changes there. The browser just gives you a window into what the background trace persistence has been quietly building up for you.
+
+[Return to version headlines](#unreleased-headlines)
+
+### JJ Flex Updates Itself Now {#in-app-updates}
+
+This one's been a long time coming. Up to now, getting a new version of JJ Flexible Radio meant I'd email or message you, you'd go find an installer, you'd run it, and I'd cross my fingers that it worked. That works for a small group of testers, but it's not what users deserve, and it definitely isn't what people who use a screen reader to install software deserve. Hunting for a download link in a browser, getting past SmartScreen, finding the saved file — every step is a friction tax, and the people who most need the latest fixes are the people who pay the most tax. So now JJ Flexible takes care of all of it.
+
+**Settings, Updates tab.** A brand-new home for everything update-related. You pick your channel — Stable, Beta, or Nightly — and decide whether JJ Flex should check on its own. The defaults are friendly: yes, check at launch; yes, check every couple of hours while you're running. If you'd rather drive yourself, flip both toggles off and use the manual button. The tab also shows when the last check ran, so you always know.
+
+**The three channels.** Stable is what most people will want — it's the public release line, the version that's been through the most testing. Beta is a step earlier, where milestone previews land for folks who like to try things slightly ahead of the rest. Nightly is the bleeding edge — every overnight build that compiles cleanly. Nightly is great if you're a tester or you want a fix the same day it lands, but it can also surprise you with brand-new bugs that haven't been caught yet. The first time you switch to Nightly, JJ Flex makes sure you understand that — a confirmation dialog explains the deal so you know what you're opting into.
+
+**Tools menu, Check for Updates.** One-click manual trigger. Same flow as the Settings tab's "Check now" button, but accessible without opening Settings. If you're connected to a radio when you click it, JJ Flex asks first ("hey, applying an update will close the app — check anyway?") so an accidental click during a QSO doesn't kick you out.
+
+**Updates know how big they are.** When an update is available, the dialog tells you both the delta size (how much you'll actually download) and what the full installer would have been. Most updates between nightlies are 5 to 15 megabytes instead of the 100-plus megabytes a full installer would be, because the .NET runtime almost never changes between nightly builds. We only fetch the files that changed. The dialog will say something like "12 MB delta, 92% smaller than the full installer." You see exactly what you're committing to before you say yes.
+
+**Skip a version, change your mind later.** Don't want a particular update? Hit Skip This Version and JJ Flex won't pester you about it again. If you change your mind, the Settings tab can still show it to you. Cancel just closes the dialog and we'll ask again at the next check.
+
+**No silent phone-home.** This is important enough to spell out: JJ Flex only contacts the update server when you've allowed it to. The auto-check toggles are right there in your face, and even with auto-check on, the dialog asks before downloading anything. If something goes wrong fetching the manifest, JJ Flex stays quiet on the launch path — no nag for a transient network blip — but the manual Check for Updates command will tell you what happened so you can troubleshoot.
+
+**Failsafe path.** Most updates use the small delta route, but if for any reason the delta path fails (a partial download, a hash mismatch, anything), JJ Flex automatically falls back to fetching the full installer and running it the old way. You don't see this — it just happens. Either way, you end up on the new version.
 
 [Return to version headlines](#unreleased-headlines)
 

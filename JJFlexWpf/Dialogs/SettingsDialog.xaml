@@ -611,6 +611,69 @@
                 </StackPanel>
                 </ScrollViewer>
             </TabItem>
+
+            <!-- Sprint 29 Track D — Updates tab. Channel selector, auto-check
+                 toggles, manual "Check now," last-check timestamp. The
+                 first-time-nightly consent dialog fires when the user picks
+                 Nightly without having acknowledged it before. -->
+            <TabItem Header="Updates" AutomationProperties.Name="Update channel and auto-check preferences">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <StackPanel Margin="8">
+                    <TextBlock Text="Update channel" FontWeight="SemiBold"
+                               Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
+                    <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
+                               Text="Stable is the public release channel. Beta gets milestone previews. Nightly tracks the very latest overnight build — useful for testers and for picking up fixes the same day, but it can be unstable."/>
+
+                    <GroupBox Header="Channel" Margin="0,0,0,8"
+                              AutomationProperties.Name="Update channel selector">
+                        <StackPanel Margin="4">
+                            <RadioButton x:Name="UpdateChannelStableRadio"
+                                         GroupName="UpdateChannel"
+                                         Margin="0,4,0,4"
+                                         AutomationProperties.Name="Stable, public releases"
+                                         Checked="UpdateChannelRadio_Checked">
+                                <TextBlock Text="Stable (public releases)"/>
+                            </RadioButton>
+                            <RadioButton x:Name="UpdateChannelBetaRadio"
+                                         GroupName="UpdateChannel"
+                                         Margin="0,4,0,4"
+                                         AutomationProperties.Name="Beta, milestone previews"
+                                         Checked="UpdateChannelRadio_Checked">
+                                <TextBlock Text="Beta (milestone previews)"/>
+                            </RadioButton>
+                            <RadioButton x:Name="UpdateChannelNightlyRadio"
+                                         GroupName="UpdateChannel"
+                                         Margin="0,4,0,4"
+                                         AutomationProperties.Name="Nightly, overnight builds, may be unstable"
+                                         Checked="UpdateChannelRadio_Checked">
+                                <TextBlock Text="Nightly (overnight builds, may be unstable)"/>
+                            </RadioButton>
+                        </StackPanel>
+                    </GroupBox>
+
+                    <CheckBox x:Name="UpdateAutoCheckCheckbox"
+                              Content="Check for updates when JJ Flex starts"
+                              Margin="0,0,0,4"
+                              AutomationProperties.Name="Check for updates when JJ Flex starts"/>
+                    <CheckBox x:Name="UpdatePeriodicCheckCheckbox"
+                              Content="Check every two hours while JJ Flex is running"
+                              Margin="0,0,0,12"
+                              AutomationProperties.Name="Check every two hours while JJ Flex is running"/>
+
+                    <TextBlock x:Name="UpdateLastCheckText"
+                               Text="Last check: never"
+                               Margin="0,0,0,8"
+                               AutomationProperties.Name="Last update check timestamp"/>
+
+                    <Button x:Name="UpdateCheckNowButton"
+                            Content="Check for updates now"
+                            HorizontalAlignment="Left"
+                            Padding="12,4"
+                            AutomationProperties.Name="Check for updates now"
+                            Click="UpdateCheckNowButton_Click"/>
+                </StackPanel>
+                </ScrollViewer>
+            </TabItem>
         </TabControl>
     </DockPanel>
 </local:JJFlexDialog>

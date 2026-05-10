@@ -45,5 +45,6 @@
     <ProjectReference Include="..\QrzLookup\QrzLookup.csproj" />
     <ProjectReference Include="..\JJCountriesDB\JJCountriesDB.csproj" />
     <ProjectReference Include="..\JJTrace\JJTrace.csproj" />
+    <ProjectReference Include="..\JJFlexUpdater\JJFlexUpdater.csproj" />
   </ItemGroup>
 </Project>

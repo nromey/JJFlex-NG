@@ -254,6 +254,9 @@ namespace JJFlexWpf.Dialogs
             PortForwardTcpLabel.Text = "Port (TCP and UDP):";
             NetworkCurrentStateText.Text = "No radio connected.";
 
+            // Sprint 29 Track D — Updates tab.
+            LoadUpdaterSettingsIntoUi();
+
             // Sprint 28 Phase 1 — Accessibility tab: set the double-tap tolerance radio
             // from the active config. Announcements on Checked are suppressed during this
             // initial load; the flag clears after this method returns.
@@ -1043,6 +1046,9 @@ namespace JJFlexWpf.Dialogs
             {
                 AccessibilityConfig.Current.Save(ConfigDirectory, OperatorName);
             }
+
+            // Sprint 29 Track D — Updates tab.
+            SaveUpdaterSettingsFromUi();
 
             return true;
         }
