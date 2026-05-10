@@ -132,24 +132,16 @@ public sealed class DeltaDownloader
             }
         }
 
-        // 3. Decompress + write + hash, all in one streaming pass. The
-        //    LZMA Alone container is 5 bytes properties + 8 bytes
-        //    uncompressed-size + payload; we parse the header manually
-        //    because SharpCompress's LzmaStream takes the properties
-        //    byte[] explicitly. The 8-byte size field is informational
-        //    here — the post-decompression sha256 is what we trust.
-        if (compressedBytes.Length < LzmaAloneHeaderBytes)
-        {
-            throw new DeltaDownloadException(file.RelPath, file.Url,
-                $"truncated LZMA blob: got {compressedBytes.Length} bytes, need at least {LzmaAloneHeaderBytes}");
-        }
-        byte[] properties = new byte[LzmaPropertiesBytes];
-        Array.Copy(compressedBytes, 0, properties, 0, LzmaPropertiesBytes);
-
-        using (var memSource = new MemoryStream(
-            compressedBytes, LzmaAloneHeaderBytes, compressedBytes.Length - LzmaAloneHeaderBytes,
-            writable: false, publiclyVisible: false))
-        using (var lzma = new SharpCompress.Compressors.LZMA.LzmaStream(properties, memSource))
+        // 3. Decompress + write + hash, all in one streaming pass. Track N
+        //    pinned the upload format as XZ (FORMAT_XZ via Python's lzma
+        //    module) — framed format with magic bytes (FD 37 7A 58 5A 00)
+        //    + per-block integrity checks. SharpCompress's XZStream
+        //    auto-detects from the magic header so we don't manually parse
+        //    a 13-byte LZMA Alone header. The post-decompression sha256 on
+        //    file.Sha256 stays the canonical integrity gate; XZ's internal
+        //    CRC32 / CRC64 is belt-and-suspenders.
+        using (var memSource = new MemoryStream(compressedBytes, 0, compressedBytes.Length, writable: false, publiclyVisible: false))
+        using (var xz = new SharpCompress.Compressors.Xz.XZStream(memSource))
         using (var sha = SHA256.Create())
         {
             var fs = new FileStream(targetPath, FileMode.Create, FileAccess.Write,
@@ -159,10 +151,10 @@ public sealed class DeltaDownloader
                 byte[] buffer = new byte[LocalFileHasherBuffer];
                 while (true)
                 {
-                    // LzmaStream is sync-only; read inline. Decompress speed
-                    // is ~50-200 MB/sec on modern hardware, so this isn't
+                    // XZStream's Read is sync; call inline. Decompress speed
+                    // is ~50-150 MB/sec on modern hardware, so this isn't
                     // worth offloading to a thread pool task.
-                    int n = lzma.Read(buffer, 0, buffer.Length);
+                    int n = xz.Read(buffer, 0, buffer.Length);
                     if (n <= 0) break;
                     sha.TransformBlock(buffer, 0, n, buffer, 0);
                     await fs.WriteAsync(buffer.AsMemory(0, n), ct).ConfigureAwait(false);
@@ -185,9 +177,6 @@ public sealed class DeltaDownloader
         return Convert.ToHexString(sha.ComputeHash(bytes)).ToLowerInvariant();
     }
 
-    /// <summary>LZMA Alone format: 5 bytes properties + 8 bytes uncompressed size = 13 byte header.</summary>
-    private const int LzmaPropertiesBytes = 5;
-    private const int LzmaAloneHeaderBytes = 13;
     private const int LocalFileHasherBuffer = 81920;
 
     /// <summary>
