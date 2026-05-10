@@ -15,11 +15,11 @@ namespace JJFlexUpdaterHelper;
 internal static class Program
 {
     private const int ExitOk = 0;
+    private const int ExitFailureRolledBack = 10;
+    private const int ExitFailureNotRolledBack = 11;
     private const int ExitUsage = 64;
     private const int ExitManifestError = 65;
     private const int ExitJjfStillRunning = 66;
-    private const int ExitFailureRolledBack = 10;
-    private const int ExitFailureNotRolledBack = 11;
 
     private static int Main(string[] args)
     {
@@ -42,15 +42,7 @@ internal static class Program
             return ExitManifestError;
         }
 
-        Console.Out.WriteLine($"JJFlexUpdaterHelper: staging-dir={stagingDir}");
-        Console.Out.WriteLine($"  source_dir       = {manifest.SourceDir}");
-        Console.Out.WriteLine($"  target_dir       = {manifest.TargetDir}");
-        Console.Out.WriteLine($"  backup_dir       = {manifest.BackupDir}");
-        Console.Out.WriteLine($"  jjf_pid          = {manifest.JjfPid}");
-        Console.Out.WriteLine($"  jjf_relaunch     = {manifest.JjfRelaunchPath}");
-        Console.Out.WriteLine($"  copy_files count = {manifest.CopyFiles.Count}");
-        Console.Out.WriteLine($"  delete_files     = {manifest.DeleteFiles.Count}");
-        Console.Out.WriteLine($"  rollback         = {manifest.RollbackOnAnyFailure}");
+        EchoManifest(stagingDir, manifest);
 
         var waitResult = JjfProcessWaiter.WaitForExit(
             manifest.JjfPid,
@@ -64,6 +56,7 @@ internal static class Program
             return ExitJjfStillRunning;
         }
 
+        // ---------- Backup phase (no install state mutated yet) ----------
         BackupResult backup;
         try
         {
@@ -76,31 +69,50 @@ internal static class Program
             return ExitFailureNotRolledBack;
         }
 
-        List<ReplacedFile> replaced;
+        // ---------- Replace + Delete phases (rollback on any failure) ----------
         try
         {
-            replaced = ReplaceStep.Execute(manifest, Console.Out.WriteLine);
+            ReplaceStep.Execute(manifest, Console.Out.WriteLine);
+            DeleteStep.Execute(manifest, Console.Out.WriteLine);
         }
-        catch (Exception ex) when (ex is FileReplaceException or IOException or UnauthorizedAccessException or ArgumentException)
+        catch (Exception ex) when (
+            ex is FileReplaceException or FileDeleteException or IOException or UnauthorizedAccessException or ArgumentException)
         {
-            Console.Error.WriteLine($"replacement failed: {ex.Message}");
-            Console.Error.WriteLine("(rollback path lands in a subsequent commit; for now the install may be partially modified)");
+            Console.Error.WriteLine($"update failed mid-flight: {ex.Message}");
+
+            if (!manifest.RollbackOnAnyFailure)
+            {
+                Console.Error.WriteLine("rollback_on_any_failure=false; leaving install in current state.");
+                return ExitFailureNotRolledBack;
+            }
+
+            var rollback = RollbackStep.Execute(manifest, backup, Console.Out.WriteLine, Console.Error.WriteLine);
+            if (rollback.WasFullyRolledBack)
+            {
+                Console.Error.WriteLine("Rolled back to pre-update state. Update did not apply.");
+                return ExitFailureRolledBack;
+            }
+
+            Console.Error.WriteLine(
+                $"Rollback was incomplete: {rollback.FilesFailedToRestore} files could not be restored. " +
+                $"Backup remains at {manifest.BackupDir} for manual recovery.");
             return ExitFailureNotRolledBack;
         }
 
-        List<DeletedFile> deleted;
-        try
-        {
-            deleted = DeleteStep.Execute(manifest, Console.Out.WriteLine);
-        }
-        catch (Exception ex) when (ex is FileDeleteException or IOException or UnauthorizedAccessException or ArgumentException)
-        {
-            Console.Error.WriteLine($"deletion failed: {ex.Message}");
-            Console.Error.WriteLine("(rollback path lands in a subsequent commit; for now the install may be partially modified)");
-            return ExitFailureNotRolledBack;
-        }
-
-        Console.Out.WriteLine($"(replace OK, {replaced.Count} replaced + {deleted.Count} deleted; backup holds {backup.CopyFileBackups.Count + backup.DeleteFileBackups.Count} originals; further phases land in subsequent commits)");
+        Console.Out.WriteLine("Update applied successfully. (relaunch + cleanup land in subsequent commits)");
         return ExitOk;
+    }
+
+    private static void EchoManifest(string stagingDir, HandoffManifest manifest)
+    {
+        Console.Out.WriteLine($"JJFlexUpdaterHelper: staging-dir={stagingDir}");
+        Console.Out.WriteLine($"  source_dir       = {manifest.SourceDir}");
+        Console.Out.WriteLine($"  target_dir       = {manifest.TargetDir}");
+        Console.Out.WriteLine($"  backup_dir       = {manifest.BackupDir}");
+        Console.Out.WriteLine($"  jjf_pid          = {manifest.JjfPid}");
+        Console.Out.WriteLine($"  jjf_relaunch     = {manifest.JjfRelaunchPath}");
+        Console.Out.WriteLine($"  copy_files count = {manifest.CopyFiles.Count}");
+        Console.Out.WriteLine($"  delete_files     = {manifest.DeleteFiles.Count}");
+        Console.Out.WriteLine($"  rollback         = {manifest.RollbackOnAnyFailure}");
     }
 }
