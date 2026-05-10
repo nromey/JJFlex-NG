@@ -11,6 +11,18 @@
     <PlatformTarget Condition="'$(Platform)'=='x86'">x86</PlatformTarget>
     <RuntimeIdentifier Condition="'$(Platform)'=='x64'">win-x64</RuntimeIdentifier>
     <RuntimeIdentifier Condition="'$(Platform)'=='x86'">win-x86</RuntimeIdentifier>
+    <!-- Sprint 29 Track J: ship self-contained .NET 10 from 4.2.0 onward. The
+         install bundle carries its own runtime so the JJF installer "just works"
+         on a clean Windows machine with no .NET 10 install dance. SelfContained
+         applies to `dotnet build` (not just publish) when set in the project.
+         PublishReadyToRun pre-JITs to ImageBase native code at build time —
+         worth the extra disk for cold-startup speed on a per-user installer.
+         PublishSingleFile stays off: we keep loose DLLs so NativeLoader.vb,
+         the runtimes\win-x?? probing, and SAAPI/Tolk loose-DLL discovery all
+         keep working unchanged. -->
+    <SelfContained>true</SelfContained>
+    <PublishReadyToRun>true</PublishReadyToRun>
+    <PublishSingleFile>false</PublishSingleFile>
     <RootNamespace>JJRadio</RootNamespace>
     <AssemblyName>JJFlexRadio</AssemblyName>
     <!-- Base X.Y.Z. build-installers.bat overrides with -p:Version=X.Y.Z.Y on the
