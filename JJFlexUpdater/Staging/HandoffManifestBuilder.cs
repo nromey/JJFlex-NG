@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using JJFlexUpdater.Delta;
 using JJFlexUpdater.Manifest;
 
@@ -30,7 +29,7 @@ public static class HandoffManifestBuilder
             SourceDir = staging.FilesDir,
             TargetDir = installDir,
             BackupDir = staging.BackupDir,
-            JjfPid = jjfPid ?? Process.GetCurrentProcess().Id,
+            JjfPid = jjfPid ?? Environment.ProcessId,
             JjfRelaunchPath = relaunchPath,
             CopyFiles = plan.ToDownload
                 .Select(f => new HandoffCopyEntry
