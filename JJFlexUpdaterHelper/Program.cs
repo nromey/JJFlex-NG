@@ -10,6 +10,8 @@
 // See TRACK-INSTRUCTIONS.md (sibling worktree at C:\dev\jjflex-updater-helper)
 // for the full design contract.
 
+using System.Reflection;
+
 namespace JJFlexUpdaterHelper;
 
 internal static class Program
@@ -31,6 +33,26 @@ internal static class Program
 
         var stagingDir = args[0];
 
+        // Open the helper.log alongside the staging dir if it exists. If the
+        // staging dir doesn't exist (or isn't writable), the logger silently
+        // falls back to console-only and the manifest-load below produces
+        // the right ExitManifestError.
+        var logPath = Directory.Exists(stagingDir)
+            ? Path.Combine(stagingDir, "helper.log")
+            : null;
+
+        using var logger = new Logger(logPath);
+
+        var version = Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "?";
+        logger.Info($"JJFlexUpdaterHelper v{version} start, staging-dir={stagingDir}");
+
+        var exitCode = RunUpdate(stagingDir, logger);
+        logger.Info($"JJFlexUpdaterHelper exit code={exitCode}");
+        return exitCode;
+    }
+
+    private static int RunUpdate(string stagingDir, Logger logger)
+    {
         HandoffManifest manifest;
         try
         {
@@ -38,21 +60,21 @@ internal static class Program
         }
         catch (ManifestLoadException ex)
         {
-            Console.Error.WriteLine($"manifest error: {ex.Message}");
+            logger.Warn($"manifest error: {ex.Message}");
             return ExitManifestError;
         }
 
-        EchoManifest(stagingDir, manifest);
+        EchoManifest(stagingDir, manifest, logger);
 
         var waitResult = JjfProcessWaiter.WaitForExit(
             manifest.JjfPid,
             JjfProcessWaiter.DefaultTimeout,
-            Console.Out.WriteLine);
+            logger.Info);
 
         if (waitResult == JjfProcessWaiter.WaitOutcome.TimedOut)
         {
-            Console.Error.WriteLine(
-                $"JJF pid {manifest.JjfPid} is still running after timeout; aborting before any file change.");
+            logger.Warn(
+                $"JJF pid {manifest.JjfPid} is still running after timeout; aborting before any file change. Staging dir preserved at: {stagingDir}");
             return ExitJjfStillRunning;
         }
 
@@ -60,61 +82,66 @@ internal static class Program
         BackupResult backup;
         try
         {
-            backup = BackupStep.Execute(manifest, Console.Out.WriteLine);
+            backup = BackupStep.Execute(manifest, logger.Info);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
         {
-            Console.Error.WriteLine($"backup failed: {ex.Message}");
-            Console.Error.WriteLine($"Aborting before any file change. Install is untouched. Staging dir preserved at: {stagingDir}");
+            logger.Warn($"backup failed: {ex.Message}");
+            logger.Warn($"Aborting before any file change. Install is untouched. Staging dir preserved at: {stagingDir}");
             return ExitFailureNotRolledBack;
         }
 
         // ---------- Replace + Delete phases (rollback on any failure) ----------
         try
         {
-            ReplaceStep.Execute(manifest, Console.Out.WriteLine);
-            DeleteStep.Execute(manifest, Console.Out.WriteLine);
+            ReplaceStep.Execute(manifest, logger.Info);
+            DeleteStep.Execute(manifest, logger.Info);
         }
         catch (Exception ex) when (
             ex is FileReplaceException or FileDeleteException or IOException or UnauthorizedAccessException or ArgumentException)
         {
-            Console.Error.WriteLine($"update failed mid-flight: {ex.Message}");
+            logger.Warn($"update failed mid-flight: {ex.Message}");
 
             if (!manifest.RollbackOnAnyFailure)
             {
-                Console.Error.WriteLine($"rollback_on_any_failure=false; leaving install in current state. Staging dir preserved at: {stagingDir}");
+                logger.Warn($"rollback_on_any_failure=false; leaving install in current state. Staging dir preserved at: {stagingDir}");
                 return ExitFailureNotRolledBack;
             }
 
-            var rollback = RollbackStep.Execute(manifest, backup, Console.Out.WriteLine, Console.Error.WriteLine);
+            var rollback = RollbackStep.Execute(manifest, backup, logger.Info, logger.Warn);
             if (rollback.WasFullyRolledBack)
             {
-                Console.Error.WriteLine($"Rolled back to pre-update state. Update did not apply. Staging dir preserved at: {stagingDir}");
+                logger.Warn($"Rolled back to pre-update state. Update did not apply. Staging dir preserved at: {stagingDir}");
                 return ExitFailureRolledBack;
             }
 
-            Console.Error.WriteLine(
+            logger.Warn(
                 $"Rollback was incomplete: {rollback.FilesFailedToRestore} files could not be restored. " +
                 $"Backup remains at {manifest.BackupDir} for manual recovery. Staging dir preserved at: {stagingDir}");
             return ExitFailureNotRolledBack;
         }
 
-        Console.Out.WriteLine("Update applied successfully.");
-        RelaunchStep.Execute(manifest.JjfRelaunchPath, Console.Out.WriteLine);
-        CleanupStep.Execute(stagingDir, Console.Out.WriteLine);
+        logger.Info("Update applied successfully.");
+        RelaunchStep.Execute(manifest.JjfRelaunchPath, logger.Info);
+
+        // helper.log lives inside stagingDir; close the file handle before
+        // CleanupStep tries to delete the dir or Windows will refuse the
+        // recursive Directory.Delete on the open file.
+        logger.CloseFileLog();
+        CleanupStep.Execute(stagingDir, logger.Info);
         return ExitOk;
     }
 
-    private static void EchoManifest(string stagingDir, HandoffManifest manifest)
+    private static void EchoManifest(string stagingDir, HandoffManifest manifest, Logger logger)
     {
-        Console.Out.WriteLine($"JJFlexUpdaterHelper: staging-dir={stagingDir}");
-        Console.Out.WriteLine($"  source_dir       = {manifest.SourceDir}");
-        Console.Out.WriteLine($"  target_dir       = {manifest.TargetDir}");
-        Console.Out.WriteLine($"  backup_dir       = {manifest.BackupDir}");
-        Console.Out.WriteLine($"  jjf_pid          = {manifest.JjfPid}");
-        Console.Out.WriteLine($"  jjf_relaunch     = {manifest.JjfRelaunchPath}");
-        Console.Out.WriteLine($"  copy_files count = {manifest.CopyFiles.Count}");
-        Console.Out.WriteLine($"  delete_files     = {manifest.DeleteFiles.Count}");
-        Console.Out.WriteLine($"  rollback         = {manifest.RollbackOnAnyFailure}");
+        logger.Info($"JJFlexUpdaterHelper: staging-dir={stagingDir}");
+        logger.Info($"  source_dir       = {manifest.SourceDir}");
+        logger.Info($"  target_dir       = {manifest.TargetDir}");
+        logger.Info($"  backup_dir       = {manifest.BackupDir}");
+        logger.Info($"  jjf_pid          = {manifest.JjfPid}");
+        logger.Info($"  jjf_relaunch     = {manifest.JjfRelaunchPath}");
+        logger.Info($"  copy_files count = {manifest.CopyFiles.Count}");
+        logger.Info($"  delete_files     = {manifest.DeleteFiles.Count}");
+        logger.Info($"  rollback         = {manifest.RollbackOnAnyFailure}");
     }
 }
