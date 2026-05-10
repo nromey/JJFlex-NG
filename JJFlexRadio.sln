@@ -65,6 +65,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tools", "tools", "{07C2787E
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SmartLinkSessionHarness", "tools\SmartLinkSessionHarness\SmartLinkSessionHarness.csproj", "{3F46B956-5C62-4415-B79F-D56AA5EE69BD}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "JJFlexUpdater", "JJFlexUpdater\JJFlexUpdater.csproj", "{B7E9F3A1-5C82-4D7E-9F1B-3A6E0D2C8F4B}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -387,6 +389,18 @@ Global
 		{3F46B956-5C62-4415-B79F-D56AA5EE69BD}.Release|x64.Build.0 = Release|x64
 		{3F46B956-5C62-4415-B79F-D56AA5EE69BD}.Release|x86.ActiveCfg = Release|x64
 		{3F46B956-5C62-4415-B79F-D56AA5EE69BD}.Release|x86.Build.0 = Release|x64
+		{B7E9F3A1-5C82-4D7E-9F1B-3A6E0D2C8F4B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B7E9F3A1-5C82-4D7E-9F1B-3A6E0D2C8F4B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B7E9F3A1-5C82-4D7E-9F1B-3A6E0D2C8F4B}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{B7E9F3A1-5C82-4D7E-9F1B-3A6E0D2C8F4B}.Debug|x64.Build.0 = Debug|Any CPU
+		{B7E9F3A1-5C82-4D7E-9F1B-3A6E0D2C8F4B}.Debug|x86.ActiveCfg = Debug|x86
+		{B7E9F3A1-5C82-4D7E-9F1B-3A6E0D2C8F4B}.Debug|x86.Build.0 = Debug|x86
+		{B7E9F3A1-5C82-4D7E-9F1B-3A6E0D2C8F4B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B7E9F3A1-5C82-4D7E-9F1B-3A6E0D2C8F4B}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B7E9F3A1-5C82-4D7E-9F1B-3A6E0D2C8F4B}.Release|x64.ActiveCfg = Release|Any CPU
+		{B7E9F3A1-5C82-4D7E-9F1B-3A6E0D2C8F4B}.Release|x64.Build.0 = Release|Any CPU
+		{B7E9F3A1-5C82-4D7E-9F1B-3A6E0D2C8F4B}.Release|x86.ActiveCfg = Release|x86
+		{B7E9F3A1-5C82-4D7E-9F1B-3A6E0D2C8F4B}.Release|x86.Build.0 = Release|x86
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

@@ -483,6 +483,7 @@
     <ProjectReference Include="JJArclusterLib\JJArclusterLib.csproj" />
     <ProjectReference Include="JJCountriesDB\JJCountriesDB.csproj" />
     <ProjectReference Include="JJFlexControl\JJFlexControl.csproj" />
+    <ProjectReference Include="JJFlexUpdater\JJFlexUpdater.csproj" />
     <ProjectReference Include="JJLogIO\logio\JJLogIO.csproj" />
     <ProjectReference Include="JJLogLib\JJLogLib.csproj" />
     <ProjectReference Include="JJMinimalTelnet\JJMinimalTelnet.csproj" />
