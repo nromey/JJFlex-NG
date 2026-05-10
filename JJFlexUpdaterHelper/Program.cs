@@ -88,7 +88,19 @@ internal static class Program
             return ExitFailureNotRolledBack;
         }
 
-        Console.Out.WriteLine($"(replace OK, {replaced.Count} files installed; backup holds {backup.CopyFileBackups.Count + backup.DeleteFileBackups.Count} originals for rollback; further phases land in subsequent commits)");
+        List<DeletedFile> deleted;
+        try
+        {
+            deleted = DeleteStep.Execute(manifest, Console.Out.WriteLine);
+        }
+        catch (Exception ex) when (ex is FileDeleteException or IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            Console.Error.WriteLine($"deletion failed: {ex.Message}");
+            Console.Error.WriteLine("(rollback path lands in a subsequent commit; for now the install may be partially modified)");
+            return ExitFailureNotRolledBack;
+        }
+
+        Console.Out.WriteLine($"(replace OK, {replaced.Count} replaced + {deleted.Count} deleted; backup holds {backup.CopyFileBackups.Count + backup.DeleteFileBackups.Count} originals; further phases land in subsequent commits)");
         return ExitOk;
     }
 }
