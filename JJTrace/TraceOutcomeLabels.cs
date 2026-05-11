@@ -22,6 +22,7 @@ namespace JJTrace
             { TraceSessionOutcome.Killed,             "Killed" },
             { TraceSessionOutcome.Crashed,            "Crashed" },
             { TraceSessionOutcome.NetworkFailed,      "Network failed" },
+            { TraceSessionOutcome.NoRadios,           "No radios available" },
             { TraceSessionOutcome.Unknown,            "Unknown" },
         };
 

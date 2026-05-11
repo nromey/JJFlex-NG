@@ -22,6 +22,7 @@ namespace JJTrace
         public const string Killed = "killed";
         public const string Crashed = "crashed";
         public const string NetworkFailed = "network_failed";
+        public const string NoRadios = "no_radios";
         public const string Unknown = "unknown";
     }
 

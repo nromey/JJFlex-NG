@@ -38,6 +38,25 @@ namespace Radios
     }
 
     /// <summary>
+    /// Tri-state outcome from ConnectToSmartLink so setupRemote can distinguish
+    /// "we connected but the user has no radios available" from "we couldn't
+    /// connect at all." Without the distinction setupRemote treated an empty
+    /// radio list as a connection failure and retried with a fresh login,
+    /// which then hit "Invalid state for application registration" on the
+    /// already-registered session and silently timed out for 10 seconds per
+    /// retry — see trace from 2026-05-11 (session a21ef183754d).
+    /// </summary>
+    internal enum SmartLinkConnectResult
+    {
+        /// <summary>Session connected, registered, and radio list contains at least one radio.</summary>
+        Success,
+        /// <summary>Session connected and registered successfully, but the server reported zero radios for this account. Don't retry — the remote rigs are simply off.</summary>
+        NoRadios,
+        /// <summary>Session failed to connect, register, or returned an error. Caller may retry with a fresh login.</summary>
+        ConnectFailed
+    }
+
+    /// <summary>
     /// Flex superclass
     /// </summary>
     public class FlexBase : AllRadios, IDisposable
@@ -1042,17 +1061,34 @@ namespace Radios
             Tracing.TraceLine($"TryAutoConnectRemote: calling apiInit + ConnectToSmartLink ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
             apiInit();
             ConnectionProfiler.Current?.RecordEvent("auto_smartlink_connect_begin");
-            bool connected = ConnectToSmartLink(jwt);
+            SmartLinkConnectResult connectResult = ConnectToSmartLink(jwt);
+            bool connected = connectResult == SmartLinkConnectResult.Success;
             ConnectionProfiler.Current?.RecordEvent("auto_smartlink_connect_end", new Dictionary<string, object>
             {
-                { "success", connected }
+                { "success", connected },
+                { "result", connectResult.ToString() }
             });
 
             if (!connected)
             {
                 sw.Stop();
-                Tracing.TraceLine($"TryAutoConnectRemote: SmartLink connection FAILED (total {sw.ElapsedMilliseconds}ms)", TraceLevel.Error);
-                if (!SuppressSpeech) ScreenReaderOutput.Speak("SmartLink connection failed", VerbosityLevel.Critical, true);
+                Tracing.TraceLine($"TryAutoConnectRemote: SmartLink connection FAILED with {connectResult} (total {sw.ElapsedMilliseconds}ms)", TraceLevel.Error);
+                if (connectResult == SmartLinkConnectResult.NoRadios)
+                {
+                    TraceSessionContext.MarkOutcome(TraceSessionOutcome.NoRadios,
+                        "Auto-connect: SmartLink registered, server returned empty radio list");
+                    TraceSessionContext.AddKeyEvent("smartlink_no_radios_auto");
+                    if (!SuppressSpeech)
+                    {
+                        ScreenReaderOutput.Speak(
+                            "No SmartLink radios available. The remote radio may be turned off.",
+                            VerbosityLevel.Critical, true);
+                    }
+                }
+                else
+                {
+                    if (!SuppressSpeech) ScreenReaderOutput.Speak("SmartLink connection failed", VerbosityLevel.Critical, true);
+                }
                 return false;
             }
 
@@ -1593,25 +1629,61 @@ namespace Radios
             // Connect to SmartLink server
             Tracing.TraceLine($"setupRemote: calling ConnectToSmartLink ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
             ConnectionProfiler.Current?.RecordEvent("smartlink_connect_begin");
-            rv = ConnectToSmartLink(jwt);
+            SmartLinkConnectResult connectResult = ConnectToSmartLink(jwt);
+            rv = connectResult == SmartLinkConnectResult.Success;
             ConnectionProfiler.Current?.RecordEvent("smartlink_connect_end", new Dictionary<string, object>
             {
-                { "success", rv }
+                { "success", rv },
+                { "result", connectResult.ToString() }
             });
-            Tracing.TraceLine($"setupRemote: ConnectToSmartLink returned {rv} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+            Tracing.TraceLine($"setupRemote: ConnectToSmartLink returned {connectResult} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
 
-            // If connection failed, go straight to fresh interactive login.
-            // GetJwtFromSavedAccount already handles expired JWTs via PerformNewLogin,
-            // so if we get here, something unexpected happened (e.g., server-side invalidation).
-            // No MessageBox — just do it. The PKCE flow is fast with a cached Auth0 session.
-            if (!rv)
+            if (connectResult == SmartLinkConnectResult.NoRadios)
+            {
+                // Session connected fine, the account simply has no radios online.
+                // Re-logging in cannot fix this — the prior code did exactly that
+                // and hit "Invalid state for application registration" because the
+                // session was already registered, then silently waited the full
+                // 10s timeout per retry. Tag the trace outcome so the Archive
+                // Browser can filter for this pattern and tell the user fast.
+                TraceSessionContext.MarkOutcome(TraceSessionOutcome.NoRadios,
+                    "SmartLink registered, server returned empty radio list");
+                TraceSessionContext.AddKeyEvent("smartlink_no_radios");
+                if (!SuppressSpeech)
+                {
+                    ScreenReaderOutput.Speak(
+                        "No SmartLink radios available. The remote radio may be turned off.",
+                        VerbosityLevel.Critical, true);
+                }
+                goto setupRemoteDone;
+            }
+
+            // Only retry the fresh-login path for real connection failures. Sending
+            // a fresh login + ReRegister to an already-registered session triggers
+            // "Invalid state for application registration" from the server, which the
+            // dispatcher can't parse — we'd just sit waiting for a radio list that
+            // will never arrive.
+            if (connectResult == SmartLinkConnectResult.ConnectFailed)
             {
                 Tracing.TraceLine($"setupRemote: connect failed, performing fresh login ({sw.ElapsedMilliseconds}ms)", TraceLevel.Warning);
                 jwt = PerformNewLogin();
                 if (!string.IsNullOrEmpty(jwt))
                 {
-                    rv = ConnectToSmartLink(jwt);
-                    Tracing.TraceLine($"setupRemote: retry ConnectToSmartLink returned {rv} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+                    connectResult = ConnectToSmartLink(jwt);
+                    rv = connectResult == SmartLinkConnectResult.Success;
+                    Tracing.TraceLine($"setupRemote: retry ConnectToSmartLink returned {connectResult} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+                    if (connectResult == SmartLinkConnectResult.NoRadios)
+                    {
+                        TraceSessionContext.MarkOutcome(TraceSessionOutcome.NoRadios,
+                            "SmartLink registered after re-login, server returned empty radio list");
+                        TraceSessionContext.AddKeyEvent("smartlink_no_radios_after_relogin");
+                        if (!SuppressSpeech)
+                        {
+                            ScreenReaderOutput.Speak(
+                                "No SmartLink radios available. The remote radio may be turned off.",
+                                VerbosityLevel.Critical, true);
+                        }
+                    }
                 }
             }
 
@@ -1960,7 +2032,7 @@ namespace Radios
         /// <c>session.AvailableRadios</c>.
         /// </para>
         /// </summary>
-        private bool ConnectToSmartLink(string jwt)
+        private SmartLinkConnectResult ConnectToSmartLink(string jwt)
         {
             var sw = System.Diagnostics.Stopwatch.StartNew();
             Tracing.TraceLine($"ConnectToSmartLink: BEGIN jwt length={jwt?.Length ?? 0}", TraceLevel.Info);
@@ -1990,13 +2062,13 @@ namespace Radios
                 if (!await(() => session.IsConnected || session.Status == Radios.SmartLink.SessionStatus.AuthorizationExpired, 10000))
                 {
                     Tracing.TraceLine($"ConnectToSmartLink: session did not reach Connected within 10s (status={session.Status}) ({sw.ElapsedMilliseconds}ms)", TraceLevel.Error);
-                    return false;
+                    return SmartLinkConnectResult.ConnectFailed;
                 }
 
                 if (session.Status == Radios.SmartLink.SessionStatus.AuthorizationExpired)
                 {
                     Tracing.TraceLine($"ConnectToSmartLink: session reports AuthorizationExpired; setupRemote handles re-auth ({sw.ElapsedMilliseconds}ms)", TraceLevel.Warning);
-                    return false;
+                    return SmartLinkConnectResult.ConnectFailed;
                 }
 
                 Tracing.TraceLine($"ConnectToSmartLink: session connected; ReRegister {API.ProgramName} Win10 jwt={jwt.Substring(0, Math.Min(20, jwt.Length))}... ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
@@ -2006,13 +2078,13 @@ namespace Radios
                 if (!await(() => wanListReceived || session.Status == Radios.SmartLink.SessionStatus.AuthorizationExpired, 10000))
                 {
                     Tracing.TraceLine($"ConnectToSmartLink: TIMED OUT waiting for radio list after 10s ({sw.ElapsedMilliseconds}ms)", TraceLevel.Error);
-                    return false;
+                    return SmartLinkConnectResult.ConnectFailed;
                 }
 
                 if (session.Status == Radios.SmartLink.SessionStatus.AuthorizationExpired)
                 {
                     Tracing.TraceLine($"ConnectToSmartLink: server rejected JWT during registration ({sw.ElapsedMilliseconds}ms)", TraceLevel.Warning);
-                    return false;
+                    return SmartLinkConnectResult.ConnectFailed;
                 }
 
                 Tracing.TraceLine($"ConnectToSmartLink: radio list received! {radios.Count} radio(s), myRadioList has {myRadioList.Count} entries ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
@@ -2029,19 +2101,23 @@ namespace Radios
 
                 if (radios.Count == 0)
                 {
-                    Tracing.TraceLine($"ConnectToSmartLink: no radios in list ({sw.ElapsedMilliseconds}ms)", TraceLevel.Error);
-                    return false;
+                    // Distinct from ConnectFailed: the session is alive and registered,
+                    // the server simply has no radios for this account. Re-logging in
+                    // can't fix this (and in fact triggers "Invalid state for
+                    // application registration" because we're already registered).
+                    Tracing.TraceLine($"ConnectToSmartLink: no radios in list ({sw.ElapsedMilliseconds}ms)", TraceLevel.Warning);
+                    return SmartLinkConnectResult.NoRadios;
                 }
 
                 sw.Stop();
                 Tracing.TraceLine($"ConnectToSmartLink: END success (total {sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
-                return true;
+                return SmartLinkConnectResult.Success;
             }
             catch (Exception ex)
             {
                 sw.Stop();
                 Tracing.TraceLine($"ConnectToSmartLink: EXCEPTION {ex.GetType().Name}: {ex.Message} (total {sw.ElapsedMilliseconds}ms)", TraceLevel.Error);
-                return false;
+                return SmartLinkConnectResult.ConnectFailed;
             }
         }
 
