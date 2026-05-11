@@ -263,10 +263,15 @@ Module globals
             killedSession.MarkOutcome(TraceSessionOutcome.Killed,
                 "Inferred from leftover boot trace at next launch (no clean exit observed)")
             Dim relName As String = SessionArchive.ArchiveSession(
-                TraceArchiveDir, tracePath, killedSession, deleteSourceAfter:=True)
+                TraceArchiveDir, tracePath, killedSession, deleteSourceAfter:=False)
             If Not String.IsNullOrEmpty(relName) Then
-                ' Archive-and-delete succeeded; legacy rotate is no longer needed
-                ' (the source file is gone). Return early.
+                ' Archive succeeded. Rename source to a stamp-named .txt so the
+                ' next session opens a fresh JJFlexRadioTrace.txt, but the
+                ' killed session's plain text is still readable in Notepad /
+                ' screen reader for the plain-text retention window
+                ' (PrunePlainTextTracesOlderThan, default 1 day). The LZMA
+                ' .zip stays for the full 30-day archive retention regardless.
+                RenameTraceToStamped(tracePath, killedSession.BootTimeUtc)
                 Return
             End If
             ' If archive returned null, fall through to legacy rotate so we
@@ -386,8 +391,89 @@ Module globals
             TraceSessionContext.EndSession()
 
             If Not String.IsNullOrEmpty(tracePath) Then
-                SessionArchive.ArchiveSession(TraceArchiveDir, tracePath, session, deleteSourceAfter:=True)
+                Dim relName As String = SessionArchive.ArchiveSession(
+                    TraceArchiveDir, tracePath, session, deleteSourceAfter:=False)
+                If Not String.IsNullOrEmpty(relName) Then
+                    ' Archive succeeded; preserve source as stamp-named .txt
+                    ' for the plain-text retention window. See
+                    ' RenameTraceToStamped / PrunePlainTextTracesOlderThan.
+                    RenameTraceToStamped(tracePath, session.BootTimeUtc)
+                End If
             End If
+        Catch ex As Exception
+            Tracing.ErrMessageTrace(ex)
+        End Try
+    End Sub
+
+    ''' <summary>
+    ''' Plain-text trace retention window in days. After this many days, the
+    ''' stamp-named .txt files at BaseConfigDir get pruned at next boot; the
+    ''' LZMA .zip archives in TraceArchiveDir keep their full 30-day retention.
+    ''' Rationale: testers and screen-reader users open plain text in Notepad
+    ''' directly; the .zip is the durable record but needs 7-Zip to extract.
+    ''' 1 day balances "emergent crashes are directly readable" against
+    ''' "AppData stays tidy."
+    ''' </summary>
+    Private Const PlainTextTraceRetentionDays As Integer = 1
+
+    ''' <summary>
+    ''' After SessionArchive.ArchiveSession compresses a trace, rename the
+    ''' plain-text source to a stamp-named sibling so the next session opens
+    ''' a fresh JJFlexRadioTrace.txt but the just-archived plain text remains
+    ''' directly readable in Notepad / NVDA / JAWS. Solves the Sprint 29
+    ''' Track A regression where deleteSourceAfter=True removed the testers'
+    ''' familiar JJFlexRadioTrace.txt workflow. Stamp uses the session's boot
+    ''' time so the filename matches the .zip manifest entry. Collision-safe
+    ''' (appends -1, -2, ... if multiple sessions share a boot second).
+    ''' On failure the source is deleted as a last resort so the next session
+    ''' isn't blocked from opening a clean trace file.
+    ''' </summary>
+    Private Sub RenameTraceToStamped(tracePath As String, bootTimeUtc As DateTime)
+        Try
+            Dim dir As String = Path.GetDirectoryName(tracePath)
+            Dim baseName As String = Path.GetFileNameWithoutExtension(tracePath)
+            Dim ext As String = Path.GetExtension(tracePath)
+            Dim stamp As DateTime = bootTimeUtc.ToLocalTime()
+            Dim target As String = Path.Combine(dir, $"{baseName}-{stamp:yyyyMMdd-HHmmss}{ext}")
+            Dim suffix As Integer = 1
+            While File.Exists(target)
+                target = Path.Combine(dir, $"{baseName}-{stamp:yyyyMMdd-HHmmss}-{suffix}{ext}")
+                suffix += 1
+            End While
+            File.Move(tracePath, target)
+        Catch ex As Exception
+            Tracing.ErrMessageTrace(ex)
+            Try
+                File.Delete(tracePath)
+            Catch
+            End Try
+        End Try
+    End Sub
+
+    ''' <summary>
+    ''' Prune stamp-named plain-text trace files older than retentionDays. Only
+    ''' files matching DailyTraceFilePrefix &amp; "-*.txt" are considered — the
+    ''' live JJFlexRadioTrace.txt (no hyphen) is left alone, as is the legacy
+    ''' JJFlexRadioTraceOld.txt, and the no-hyphen daily-trace files created by
+    ''' StartDailyTraceIfEnabled (those have their own ArchiveOldDailyTraces).
+    ''' The compressed .zip archives in TraceArchiveDir are not touched here.
+    ''' </summary>
+    Private Sub PrunePlainTextTracesOlderThan(retentionDays As Integer)
+        If retentionDays <= 0 Then Return
+        Try
+            If Not Directory.Exists(BaseConfigDir) Then Return
+            Dim cutoffUtc As DateTime = DateTime.UtcNow.AddDays(-retentionDays)
+            Dim pattern As String = $"{DailyTraceFilePrefix}-*.txt"
+            For Each path As String In Directory.GetFiles(BaseConfigDir, pattern)
+                Try
+                    Dim fi As New FileInfo(path)
+                    If fi.LastWriteTimeUtc < cutoffUtc Then
+                        File.Delete(path)
+                    End If
+                Catch ex As Exception
+                    Tracing.ErrMessageTrace(ex)
+                End Try
+            Next
         Catch ex As Exception
             Tracing.ErrMessageTrace(ex)
         End Try
@@ -397,12 +483,14 @@ Module globals
     ''' Archive maintenance at app boot: reconcile manifest with disk (drop entries
     ''' whose archive file is gone) and prune entries older than the retention window
     ''' (default 30 days per spec). Cheap idempotent housekeeping; safe to call before
-    ''' any trace work begins.
+    ''' any trace work begins. Also prunes stamp-named plain-text traces older than
+    ''' PlainTextTraceRetentionDays.
     ''' </summary>
     Friend Sub TraceArchiveBootMaintenance()
         Try
             SessionArchive.Reconcile(TraceArchiveDir)
             SessionArchive.PruneOlderThan(TraceArchiveDir, SessionArchive.DefaultRetentionDays)
+            PrunePlainTextTracesOlderThan(PlainTextTraceRetentionDays)
         Catch ex As Exception
             Tracing.ErrMessageTrace(ex)
         End Try
