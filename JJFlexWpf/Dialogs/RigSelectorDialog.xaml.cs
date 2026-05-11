@@ -285,19 +285,45 @@ namespace JJFlexWpf.Dialogs
             Close();
         }
 
-        private void LowBWButton_Click(object sender, RoutedEventArgs e)
+        /// <summary>
+        /// When true, suppresses the LowBWCheckBox's Checked / Unchecked handler
+        /// so we can programmatically sync the checkbox state from the newly
+        /// selected radio without that programmatic IsChecked write being
+        /// interpreted as a user toggle. WPF raises Checked / Unchecked on every
+        /// IsChecked change, so without this flag SelectionChanged → set
+        /// IsChecked → handler → re-write radio.LowBW would either no-op or
+        /// silently clobber state we just read.
+        /// </summary>
+        private bool _suppressLowBWCheckboxEvent;
+
+        private void LowBWCheckBox_Changed(object sender, RoutedEventArgs e)
         {
+            if (_suppressLowBWCheckboxEvent) return;
             var radio = GetSelectedRadio();
             if (radio == null)
             {
-                new MessageDialog { Title = "Select Radio", Message = MustSelect, Owner = this }.ShowDialog();
-                RadiosBox.Focus();
+                // Defensive: checkbox should be disabled when nothing is selected,
+                // but in case some focus/keyboard race fires the event anyway,
+                // resync the visual to "off" without complaining at the user.
+                _suppressLowBWCheckboxEvent = true;
+                LowBWCheckBox.IsChecked = false;
+                _suppressLowBWCheckboxEvent = false;
                 return;
             }
-
-            radio.LowBW = !radio.LowBW;
+            radio.LowBW = LowBWCheckBox.IsChecked == true;
             RefreshRadiosList();
-            RadiosBox.Focus();
+            // RefreshRadiosList clears + re-adds; restore selection by serial so
+            // arrow-key context isn't lost. SelectionChanged will re-sync the
+            // checkbox from the (now updated) radio.LowBW — no churn because the
+            // bit we just wrote is the same bit it'll read back.
+            for (int i = 0; i < RadiosBox.Items.Count; i++)
+            {
+                if (RadiosBox.Items[i] is RadioListItem r && r.Serial == radio.Serial)
+                {
+                    RadiosBox.SelectedIndex = i;
+                    break;
+                }
+            }
         }
 
         private Action? _closeConnecting;
@@ -316,18 +342,30 @@ namespace JJFlexWpf.Dialogs
                     _closeConnecting();
                     _closeConnecting = null;
                 }
-                // Show error dialog on UI thread if no radios found
+                // Activate the selector and put focus on the radio list. On a
+                // zero-radio result the protocol layer (FlexBase.setupRemote)
+                // already speaks "No SmartLink radios available — the remote
+                // radio may be turned off" via ScreenReaderOutput.Speak with
+                // VerbosityLevel.Critical + interrupt:true. The RadiosBox
+                // additionally carries AutomationProperties.Name "Radio list,
+                // empty, no radios found" so focus-landing alone re-confirms
+                // the empty state. We deliberately do NOT pop a modal
+                // "No Radios Found" MessageDialog here — that used to add a
+                // ~9 second extra dismissal step (find OK via screen reader,
+                // click) on top of the protocol-layer speech, which was
+                // redundant and friction-tax-hostile for screen-reader users.
+                // The dialog's empty state is now self-announcing.
                 Dispatcher.BeginInvoke(() =>
                 {
                     Activate();
+                    // No RadioFound events fired this round, so RefreshRadiosList
+                    // wasn't called and the empty-list AccessibleName fallback
+                    // at line 240 didn't run. Set it explicitly so screen-reader
+                    // focus-landing re-confirms the empty state.
                     if (RadiosBox.Items.Count == 0)
                     {
-                        new MessageDialog
-                        {
-                            Title = "No Radios Found",
-                            Message = "No radios were found on SmartLink. The radio may be powered off or not connected.",
-                            Owner = this
-                        }.ShowDialog();
+                        System.Windows.Automation.AutomationProperties.SetName(
+                            RadiosBox, "Radio list, empty, no radios found");
                     }
                     RadiosBox.Focus();
                 });
@@ -427,10 +465,6 @@ namespace JJFlexWpf.Dialogs
             ConnectButton_Click(sender, e);
         }
 
-        private void LowBWMenuItem_Click(object sender, RoutedEventArgs e)
-        {
-            LowBWButton_Click(sender, e);
-        }
 
         private void RadiosBox_GotFocus(object sender, RoutedEventArgs e)
         {
@@ -477,15 +511,27 @@ namespace JJFlexWpf.Dialogs
             // TestButton stays enabled for tab-order accessibility.
             // Click handler validates selection. Only disable during active test.
 
+            var selected = RadiosBox.SelectedItem as RadioListItem;
+
             // Auto-connect button requires a selected radio
-            AutoConnectButton.IsEnabled = RadiosBox.SelectedItem != null;
+            AutoConnectButton.IsEnabled = selected != null;
+
+            // Low BW checkbox tracks the selected radio's LowBW. Disabled when
+            // nothing is selected so the screen reader announces "not available"
+            // rather than offering a control with no target. Suppress the change
+            // event so syncing IsChecked from the radio doesn't re-trigger
+            // LowBWCheckBox_Changed (which would write back the same bit).
+            _suppressLowBWCheckboxEvent = true;
+            LowBWCheckBox.IsEnabled = selected != null;
+            LowBWCheckBox.IsChecked = selected?.LowBW == true;
+            _suppressLowBWCheckboxEvent = false;
 
             // Announce selected item if list has focus
-            if (RadiosBox.IsFocused && RadiosBox.SelectedItem is RadioListItem item)
+            if (RadiosBox.IsFocused && selected != null)
             {
                 int idx = RadiosBox.SelectedIndex + 1;
                 int count = RadiosBox.Items.Count;
-                ScreenReaderOutput.Speak($"{item.DisplayText}, {idx} of {count}", VerbosityLevel.Terse, true);
+                ScreenReaderOutput.Speak($"{selected.DisplayText}, {idx} of {count}", VerbosityLevel.Terse, true);
             }
         }
 

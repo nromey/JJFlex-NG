@@ -39,8 +39,6 @@
                 <ContextMenu>
                     <MenuItem Header="Connect" Click="ConnectMenuItem_Click"
                               AutomationProperties.Name="Connect to selected radio"/>
-                    <MenuItem Header="Low BW Toggle" Click="LowBWMenuItem_Click"
-                              AutomationProperties.Name="Toggle low bandwidth mode"/>
                     <MenuItem x:Name="AutoConnectMenuItem" Header="Auto-Connect Settings..."
                               Click="AutoConnectMenuItem_Click"
                               AutomationProperties.Name="Auto-connect settings for selected radio"/>
@@ -54,10 +52,13 @@
                     AutomationProperties.Name="Connect"
                     AutomationProperties.AcceleratorKey="Alt+N"
                     Click="ConnectButton_Click"/>
-            <Button Content="_Low BW" MinWidth="100" Height="28" Margin="0,0,0,8"
-                    AutomationProperties.Name="Low BW"
-                    AutomationProperties.AcceleratorKey="Alt+L"
-                    Click="LowBWButton_Click"/>
+            <CheckBox x:Name="LowBWCheckBox" Content="_Low BW" MinWidth="100" Height="28" Margin="0,0,0,8"
+                      VerticalContentAlignment="Center"
+                      IsEnabled="False"
+                      AutomationProperties.Name="Low bandwidth for selected radio"
+                      AutomationProperties.AcceleratorKey="Alt+L"
+                      Checked="LowBWCheckBox_Changed"
+                      Unchecked="LowBWCheckBox_Changed"/>
             <Button Content="_Remote" MinWidth="100" Height="28" Margin="0,0,0,8"
                     AutomationProperties.Name="Remote"
                     AutomationProperties.AcceleratorKey="Alt+R"
