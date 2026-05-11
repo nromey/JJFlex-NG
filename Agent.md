@@ -5,6 +5,59 @@ This document captures the current state of JJ-Flex repository and active work.
 **Repository root:** `C:\dev\JJFlex-NG`
 **Branch:** `main` (post-merge of Sprint 29 Tracks F + G on 2026-05-09. Main is the 4.1 working branch per project_main_branch_41_posture.md. 4.2.0 staging continues on track/flexlib-42. 4.1.17 retired 2026-05-02.)
 
+## RESUME HERE — 2026-05-10 end-of-day seal: Test matrices for Sprints 28 and 29, dev-mirror NAS backup, branch cleanup
+
+**The headline.** Planning + tooling day, not a code day. Wrote two test matrices (Sprint 29 standalone for Don; 4.1.17 Section C extended with 22 new tests for Noel covering post-Phase-9 Home polish + Sprint 28 design followup). Created `backup-dev-to-nas.ps1` rolling-mirror to NAS, wired into CLAUDE.md end-of-day-seal step 3a. Two feedback memory entries saved (PowerShell colon-path quirk + no-tables-in-screen-reader-artifacts). 27 stale sprint11-25 branches deleted (all merged into main, deleted with safety `-d`).
+
+### What shipped (no code commits to main today; documentation + tooling + cleanup)
+
+- **Sprint 29 test matrix** (`docs/planning/agile/sprint29-test-matrix.md`, NEW) — covers all 7 merged Sprint 29 tracks (A, D, F, G, H, J, M, N). Per-track functional checks + dual-screen-reader checks (JAWS + NVDA, bullet form not tables) + end-to-end integration block for D+M+N+J update flow. Tester notes for Don. Track B (cascade) flagged in-flight, gets its own matrix when it merges.
+- **4.1.17 test matrix Section C extension** (`docs/planning/agile/4.1.17-test-matrix.md`, MODIFIED) — added "Post-Phase-9 Home polish (2026-04-24 through 2026-05-09)" subsection: 4 re-runs of fixed FAIL/CAVEAT entries (C.4f-bis, C.7g-bis, C.7h-bis, C.7j-bis) + 11 net-new Home polish tests (C.30-C.41) + 6 tests for Sprint 28 design followup commit `28e2eaec` (`RunsWithoutRadio` opt-out + action-aware no-radio announcements via ShortActionLabel) at C.42-C.47. Build prerequisite documented: needs commit `28e2eaec` or later in the test build.
+- **`backup-dev-to-nas.ps1`** (NEW) — rolling-mirror of `C:\dev\` to NAS `historical\dev-mirror\` via robocopy `/MIR`. Excludes build/dependency caches (bin/obj/.vs/node_modules/etc.), KEEPS `.git` so uncommitted refs and stashes survive a drive failure. Initial run: 2.7 GB / 28,533 files in 5.9 min; incremental: 12 sec. Wired into CLAUDE.md end-of-day-seal as step 3a.
+- **CLAUDE.md** (MODIFIED) — added step 3a documenting the new dev-mirror backup, with rationale and exclude list reference.
+- **Memory** — 2 new feedback entries: `feedback_powershell_native_arg_colon_path.md` (`/FLAG:C:\path` splits at colon under PowerShell 7 native arg splatter; use `*> $logPath` redirection or `--%` stop-parsing) and `feedback_no_tables_in_screen_reader_artifacts.md` (generalizes existing AAR-only "no tables" rule to all screen-reader-navigable artifacts; Excel-plus-prose-pair acceptable when tabular data really is needed).
+- **Branch cleanup** — 27 sprint11-25 branches deleted with `git branch -d` (safety: refuses unmerged). Per-branch SHAs preserved in shell history for any future archaeology. Worktree branches (braille-research, flexlib-42, multi-radio) and in-flight `sprint29/track-b-cascade` preserved.
+
+### Cross-surface activity (per pre-seal sweep)
+
+- **Memory:** 3 files modified today — 2 new feedback entries + MEMORY.md index update. No project entries touched today.
+- **Worktrees:** All three (jjflex-braille, jjflex-flexlib-42, jjflex-multi-radio) idle today. No commits since 2026-05-09 seal.
+- **Sibling repos (`C:\dev\jjf-data` etc.):** All idle today.
+- **External infra:** NAS used for three backups (memory snapshot 418 KB; private docs 1.5 MB; new dev mirror 2.7 GB). Rigmeter snapshot also written to NAS (still keyed by yesterday's HEAD `1a517ae7`; will re-snapshot after seal commit). No Cloudflare/R2/rarbox/roarbox changes today.
+- **Dropbox:** No publish today (no new debug build produced — docs/tooling-only day, so the existing nightly stands per CLAUDE.md skip rule).
+- **For-claude/for-noel:** Folders don't exist; no round-tripping today.
+- **Active planning docs:** None modified today (sprint28-design-followup-track-instructions.md and sprint28-bug-bundle-triage.md both untouched).
+
+### Decisions made today
+
+- **Dev backup model = single rolling mirror, not dated snapshots.** Recovery window is "today only" — git is the time machine for source repos with remotes; memory + private already get their own dated history under `historical\memory\` and `historical\private\`. The mirror's job is "everything that would be permanently lost if the drive failed today," which is non-git artifacts: vendor research clones (smartsdr-extracted, AetherSDR, Dot Pad SDK), per-project `.claude\` state, uncommitted worktree work. Excludes build artifacts and dependency caches; keeps `.git` for stash/ref preservation.
+- **Test artifact accessibility rule generalized.** "NEVER tables" was previously AAR-specific (per `project_after_action_reports.md`); now applies to all screen-reader-navigable artifacts (test matrices, planning docs, walkthroughs, runbooks). Linear prose + bullets is the default. Tabular data acceptable only when split into Excel-fill + Word/md-prose-read pair. Triggered by Noel flagging the screen-reader sub-tables in today's first draft of the Sprint 29 matrix; converted in-session.
+- **`-d` not `-D` for old-branch cleanup.** Safety-first: `git branch -d` refuses unmerged branches, so even with a stale "merged" assumption, no data loss path.
+
+### Outstanding for tomorrow
+
+- **Noel: testing Section C additions to 4.1.17 matrix.** Slotted-in time around catching up after a week out + migraine recovery. Recommended priority: 4 re-runs first (cheapest, highest payoff per minute), then C.42-C.47 (largest behavioural change in the bunch — `RunsWithoutRadio` + action-aware no-radio).
+- **Don: testing Sprint 29 matrix when next build available.** Build prerequisite for both matrices' new tests is commit `28e2eaec` or later.
+- **Don's preferred test format unknown.** Noel will ask Don whether linear script (current matrix format) or Excel-fill + prose-read split works better. Either is supported by the existing matrix structure with minimal rework.
+- **Track B (cascade) still in-flight** on `sprint29/track-b-cascade`. No movement today; preserved.
+- **Sprint 29 cascade matrix** still owed when Track B lands (deliberately deferred until merge).
+- **Sprint 28 design followup track** in `docs/planning/active/sprint28-design-followup-track-instructions.md` was the source of commit `28e2eaec`; the active/ doc may be ready to archive now that the work has shipped (worth checking next session).
+
+### Rigmeter snapshot — end of 2026-05-10
+
+- **Today (pre-seal):** 0 commits, 0 unique files in git diff. All work was uncommitted at sweep time.
+- **Today (post-seal projection):** 1 seal commit covering 4 files — CLAUDE.md (modified), 4.1.17-test-matrix.md (modified), sprint29-test-matrix.md (new), backup-dev-to-nas.ps1 (new). Plus 2 memory files (outside repo, not in rigmeter scope). Net change: ~+700 lines authored docs.
+- **Cumulative pre-seal:** 110,348 authored code lines + 38,110 authored doc lines = 148,458 total. Docs-to-code ratio 0.35. Snapshot pre-seal at NAS as `2026-05-09-1a517ae7.json` (still keyed to yesterday's HEAD).
+- **Post-seal snapshot** scheduled after commit lands so today's work is captured in time-series.
+
+### Setup for tomorrow
+
+- Resume context: this entry. Read top of Agent.md, then if testing matrix work, jump to `docs/planning/agile/4.1.17-test-matrix.md` Section C "Post-Phase-9 Home polish" subsection.
+- Build dependency for Don's Sprint 29 testing: ensure a debug build at commit `28e2eaec` or later is published to Dropbox `debug\` before pinging Don. Sprint 29 matrix expects this build.
+- If Noel tests Section C tomorrow: results land in-place via the existing `Result: ___` → `Result: PASS YYYY-MM-DD, Noel.` convention, then commit-and-push as a normal seal-day flow.
+
+---
+
 ## RESUME HERE — 2026-05-09 end-of-day seal: Sprint 29 mass parallel landing (six tracks closed two of three 4.2.0 ship gates)
 
 **The headline.** Sprint 29 ran a six-track parallel fan-out that closed two of three 4.2.0 ship gates plus shipped self-contained installers, a trace browser surface for users, and the cascade watchdog wiring. Tracks F + G merged earlier in the day; D + H + J + M + N merged tonight; L committed to track/flexlib-42 (rides into 4.2.0 cut). Plus orchestrator-side fixes including a format-mismatch catch (D used LZMA Alone, N pinned XZ; XZStream patch landed before D's merge).
