@@ -1282,6 +1282,45 @@ public partial class MainWindow : UserControl
         _enableDisableControls.Clear();
 
         StatusText.Text = "Ready — no radio connected";
+
+        // Restore the cold-start no-radio visual shell. Without this the
+        // connect-time ShowClassicUI / ShowModernUI calls leave
+        // FieldsPanel / MetersPanel / PanadapterPanel sitting Visible after
+        // disconnect, so users see (and tab through, and focus into) Home
+        // controls that have no underlying radio data. Cold-start XAML
+        // defaults are all Collapsed; we mirror that here.
+        RestoreNoRadioShell();
+    }
+
+    /// <summary>
+    /// Reset MainWindow's visual state to match cold-start (no radio yet).
+    /// Mirrors the XAML default Visibility for each panel:
+    /// RadioControlsPanel Visible (so FreqOut remains the focus anchor),
+    /// FieldsPanel / MetersPanel / PanadapterPanel Collapsed (so they
+    /// drop out of layout AND tab order), focus returned to FreqOut so
+    /// the next Tab press lands somewhere meaningful.
+    /// Called from UnwireRadioEvents on disconnect.
+    /// </summary>
+    private void RestoreNoRadioShell()
+    {
+        try
+        {
+            RadioControlsPanel.Visibility = Visibility.Visible;
+            FieldsPanel.Visibility = Visibility.Collapsed;
+            MetersPanel.Visibility = Visibility.Collapsed;
+            PanadapterPanel.Visibility = Visibility.Collapsed;
+            // FreqOut is the cold-start focus anchor (SpeakWelcome focuses it
+            // after MainWindow loads). Returning focus here means the user
+            // doesn't lose a meaningful focus location during the visibility
+            // changes — without this, focus that was inside FieldsPanel when
+            // it Collapses gets routed by WPF to whatever the next visible
+            // focusable element happens to be, which is screen-reader hostile.
+            FreqOut.FocusDisplay();
+        }
+        catch (System.Exception ex)
+        {
+            Tracing.TraceLine($"RestoreNoRadioShell: exception {ex.Message}", TraceLevel.Error);
+        }
     }
 
     /// <summary>
