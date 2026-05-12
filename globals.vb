@@ -2515,6 +2515,29 @@ RadioConnected:
                 WpfMainWindow.RigControl = Nothing
             End If
         End If
+
+        ' Tear down the WAN SmartLink session that FlexBase opened against the
+        ' user's account. Sprint 26 Phase 4 moved session ownership to the
+        ' Coordinator and removed teardown from FlexBase.Dispose, which left the
+        ' WAN session alive across user-initiated radio disconnects. The next
+        ' setupRemote then reuses the existing session, sends ReRegister to an
+        ' already-registered SmartLink server, and gets back the protocol-level
+        ' "error| Invalid state for application registration" frame that the
+        ' dispatcher silently drops — followed by a 10s wait for a radio_list
+        ' that never arrives, the tri-state retry hitting the same dead end,
+        ' and the user seeing "no radios" for ~27s after Disconnect-then-Remote.
+        ' See traces 190104 / 190405 on 2026-05-11. Reconnecting the WAN
+        ' session on the next Remote click costs ~200 ms, well below the cost
+        ' of the timeout cascade it replaces.
+        Try
+            Dim activeSession = Radios.SmartLink.SmartLinkServices.Coordinator.ActiveSession
+            If activeSession IsNot Nothing Then
+                Tracing.TraceLine($"CloseTheRadio: disconnecting WAN session {activeSession.SessionId}", TraceLevel.Info)
+                Radios.SmartLink.SmartLinkServices.Coordinator.DisconnectSession(activeSession.SessionId)
+            End If
+        Catch ex As Exception
+            Tracing.TraceLine($"CloseTheRadio: WAN session teardown threw: {ex.Message}", TraceLevel.Warning)
+        End Try
     End Sub
 
     ''' <summary>
