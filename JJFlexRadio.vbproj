@@ -23,6 +23,12 @@
     <SelfContained>true</SelfContained>
     <PublishReadyToRun>true</PublishReadyToRun>
     <PublishSingleFile>false</PublishSingleFile>
+    <!-- JJF's own UI is English-only (localization is Sprint 30+ scope). Without
+         this property, self-contained publish drags 13 .NET framework satellite
+         resource folders (~17 MB Debug, similar Release) of localized runtime
+         error text we never surface. Re-add languages here when JJF itself gets
+         translated UIs. -->
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <RootNamespace>JJRadio</RootNamespace>
     <AssemblyName>JJFlexRadio</AssemblyName>
     <!-- Base X.Y.Z. build-installers.bat overrides with -p:Version=X.Y.Z.Y on the
