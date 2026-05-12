@@ -5,7 +5,66 @@ This document captures the current state of JJ-Flex repository and active work.
 **Repository root:** `C:\dev\JJFlex-NG`
 **Branch:** `main` (post-merge of Sprint 29 Tracks F + G on 2026-05-09. Main is the 4.1 working branch per project_main_branch_41_posture.md. 4.2.0 staging continues on track/flexlib-42. 4.1.17 retired 2026-05-02.)
 
-## RESUME HERE — 2026-05-10 end-of-day seal: Test matrices for Sprints 28 and 29, dev-mirror NAS backup, branch cleanup
+## RESUME HERE — 2026-05-11 end-of-day seal: Foundation testing pass with five fixes, K1-K4 verified, two audits captured
+
+**The headline.** Test-driven foundation day. Noel ran the K1-K4 verifications against Don's 6300 in real time, surfacing five distinct bugs across the connect / disconnect / SmartLink / UI surfaces; each got diagnosed and fixed in-session, with verification immediately after. Plus two audit punch lists captured at end of session covering keyboard-reference drift and the JJ+H context-help discoverability problem. Civ VI accessibility breakthrough happened in parallel in `C:\dev\Civ-vi-access/` (separate repo, separate seal).
+
+### What shipped (10 code/doc commits to main + this seal)
+
+- **`4d087709`** — Trace plain-text retention. Plain `.txt` traces now live alongside the LZMA `.zip` archive for 24h, so Don can open recent traces in Notepad without 7-Zip. LZMA archives keep their 30-day retention. Solves the Sprint 29 Track A regression where `deleteSourceAfter=True` removed the testers' familiar workflow.
+- **`859139bb`** — SmartLink tri-state `ConnectToSmartLink`. New `SmartLinkConnectResult` enum (Success / NoRadios / ConnectFailed) so `setupRemote` and `TryAutoConnectRemote` can distinguish "server returned empty radio list" from "couldn't connect at all" and skip the fresh-login retry on the empty-list case. Original symptom: ~30 second hangs after Don's radio off because retry-with-fresh-login hit "Invalid state for application registration" on the already-registered session and silently timed out twice.
+- **`8a9144f2`** — RigSelectorDialog UX cleanup. Dropped the redundant "No Radios Found" modal (the protocol-layer `Speak` already announces; modal added ~9s of screen-reader OK-button-hunting). Replaced the Low BW button-as-checkbox anti-pattern with a CheckBox bound to the selected radio's `LowBW` flag, disabled when nothing is selected. Per-radio memory preserved via the existing `AutoConnectConfig.SaveAutoConnectSettings` path. Alt+L still the quick-toggle accelerator.
+- **`b7d19b52`** — Test matrix section K added: four Don-connected verifications (K1 SmartLink success path, K2 LowBW round-trip, K3 plain-text trace, K4 no-modal-when-found). All four verified PASS later in session.
+- **`d690d61b`** — Build: `SatelliteResourceLanguages=en` in vbproj. Drops 13 .NET runtime satellite-resource folders (~17 MB raw, ~3-6 MB compressed installer). Publish folder 194 MB → 176 MB.
+- **`d752c4dd`** — MainWindow `RestoreNoRadioShell()` on disconnect. Without it, `FieldsPanel`/`MetersPanel`/`PanadapterPanel` stayed Visible after disconnect — Home expander appeared that wasn't at cold-start, tab order included Home controls, focus landed on slice content. Symmetric fix: hide them back on disconnect, return focus to FreqOut, match cold-start state exactly.
+- **`e19ad192`** — `CloseTheRadio` tears down WAN SmartLink session. The bug Noel reproduced deliberately: "Disconnect, then Remote again" timed out for ~27 seconds because Sprint 26 Phase 4 moved session ownership to the Coordinator without giving the user-disconnect path a teardown hook. Same protocol-level "Invalid state for application registration" pattern as the no-radios case. Partial revert of Sprint 26 Phase 4 for the user-initiated path; non-user paths keep the original "coordinator-owns-lifecycle" model.
+- **`15990def`** — For-noel: 4.1.17 test matrix sections A through J extracted as a self-paced testing doc for Noel.
+- **`2c1e1085`** — Folded Noel's A + B.1-B.20 results back to canonical: A.1/A.3/A.4 PASS, A.2 carries "add to Don's test case" note, B.1 FAIL (F2 missing band name), B.2 PASS-WITH-NOTE (speech anomaly "47.040"), B.10 FAIL-WITH-FINDINGS (three findings, two flagged with `****`), rest PASS. Two new TODO entries (mode-menu-checkbox, 60m digital-segment auto-mode) from the `****`-flagged findings.
+- **`167bee11`** — Two audit docs in `active/`: keyboard-reference vs `KeyCommands.cs` (8 missing bindings + 1 scope collision) and JJ+H dispatcher (discoverability problem — `Ctrl+J, H` correctly invokes `LeaderKeyHelp()` which is uncontextualized by design; Noel reached for F1-style context help).
+
+### Cross-surface activity (per pre-seal sweep)
+
+- **Memory:** 2 files modified — new `project_radio_access_scheduling.md` capturing the design need Noel raised for time-bounded auditable radio-access grants (replacing today's credential-sharing pattern), plus the `MEMORY.md` index update.
+- **Worktrees:** All three (jjflex-braille, jjflex-flexlib-42, jjflex-multi-radio) idle today. Track B (cascade) still parked on `sprint29/track-b-cascade`.
+- **Sibling repos:** `Civ-vi-access/civilization-vi-screenreader-access/` had `.gitignore`, `ScreenReaderAccess.sln`, `TESTING.md` modified — major parallel arc Noel drove from "non-functional" to "navigable menus, EULA acceptable, game startable." Documented in the AAR; not counted in JJFlex rigmeter. `jjf-data`, `Hamlib`, `AetherSDR`, decompiled SmartSDR dirs all idle.
+- **External infra:** NAS backups for memory + private + dev mirror. Rigmeter JSON snapshot at `historical\stats\2026-05-11-167bee11.json`. No Dropbox publish (iterative builds, not artifact builds — 2026-05-10 nightly stands per CLAUDE.md skip rule). No Cloudflare/R2/rarbox/roarbox changes.
+- **For-noel / for-claude:** Two for-noel docs created today (one processed mid-session and removed after fold; one — the broader A-J test doc — staying in folder for Noel's B.21+ continuation). for-claude empty.
+- **Active planning docs:** 4 docs touched today — `4.1.17-test-matrix.md` (Noel's results folded in), `JJFlex-TODO.md` (two new B.10 entries), `2026-05-11-keyboard-reference-audit.md` (new), `2026-05-11-jj-h-context-help-audit.md` (new).
+
+### Decisions made today
+
+- **Promote bool returns to tri-state enums where the call site wants to make different decisions per failure mode.** `ConnectToSmartLink` was the example today; generalizes to anywhere a `bool` conflates qualitatively different outcomes.
+- **Protocol-layer Speak owns the announcement when both layers could speak.** RigSelectorDialog's "No Radios Found" modal was redundant against FlexBase's `setupRemote` Speak; modal removed. Pattern: pick a single source of truth for the announcement, let other layers provide focus / labels / button-state context.
+- **`****` annotation convention** confirmed as the right escalation primitive for triage. Two of Noel's B.10 findings flagged with `****` became standalone TODOs; the third stayed in the matrix as a related-finding note.
+- **Sprint 26 Phase 4 partial revert** for user-initiated disconnect. The `CloseTheRadio` path now explicitly tears down the WAN session via `Coordinator.DisconnectSession`. Non-user paths (crash, app-shutdown) keep the original "coordinator owns lifecycle" model intact.
+- **Trace plain-text retention as architectural addition** rather than Track A revert. Plain text retained 24h alongside the LZMA archive. Solves Don's workflow without giving up the compression benefit on older traces.
+
+### Outstanding for tomorrow
+
+- **Noel: continue B.21+ on the for-noel test doc** at his pace. Path `docs/planning/for-noel/2026-05-11-4.1.17-test-matrix-A-through-J.md`. Each batch can be folded back to canonical via the pattern used today.
+- **Doc-edit pass** to resolve the two audit punch lists. Both fix paths converge on one keyboard-reference.md edit. ~20-30 minutes when there's a slot.
+- **Mode-menu-checkbox and 60m digital-segment auto-mode** are at top of `docs/planning/vision/JJFlex-TODO.md`. Sprint 29+ candidates, not foundation-critical.
+- **`error|` frame parsing** in `WanServerAdapter` dispatcher would be the structural fix for the two SmartLink protocol gaps patched today. Worth a Sprint 29+ candidate even though the symptoms are gone.
+- **Alt+F4 shutdown CW cutoff** observation captured in conversation tail; elevate to TODO if it surfaces again.
+
+### Rigmeter snapshot — end of 2026-05-11
+
+- **Authored grand totals:** 110,348 code lines, 38,486 doc lines. Docs-to-code ratio 0.35.
+- **Today (main branch only, since midnight):** 11 commits, 17 unique files, +1,566 / -79 / net +1,487.
+- **Branch-scope caveat:** Civ VI accessibility work in `C:\dev\Civ-vi-access/` is not counted here; rigmeter measures HEAD on the current branch only.
+- **NAS snapshot:** `2026-05-11-167bee11.json` (17 historical points; will re-snapshot post-seal commit when SHA settles).
+- **Trend:** code 230,429 → 110,348 (Phase 0 vendor-prune drop dominates long-term shape); docs 967,495 → 38,486 (early derived-artifact exclusion; growth since is real prose).
+
+### Setup for tomorrow
+
+- Resume context: this entry. If continuing test-matrix work, jump to `docs/planning/for-noel/2026-05-11-4.1.17-test-matrix-A-through-J.md` at row B.21.
+- If picking up the audit doc-edit pass: both audits live at `docs/planning/active/2026-05-11-*.md`, cross-referenced as companions. One pass on `docs/help/md/keyboard-reference.md` resolves both.
+- K1-K4 already verified in-session — no re-test needed on those.
+- Civ VI work has its own seal record on its side.
+
+---
+
+## 2026-05-10 end-of-day seal: Test matrices for Sprints 28 and 29, dev-mirror NAS backup, branch cleanup
 
 **The headline.** Planning + tooling day, not a code day. Wrote two test matrices (Sprint 29 standalone for Don; 4.1.17 Section C extended with 22 new tests for Noel covering post-Phase-9 Home polish + Sprint 28 design followup). Created `backup-dev-to-nas.ps1` rolling-mirror to NAS, wired into CLAUDE.md end-of-day-seal step 3a. Two feedback memory entries saved (PowerShell colon-path quirk + no-tables-in-screen-reader-artifacts). 27 stale sprint11-25 branches deleted (all merged into main, deleted with safety `-d`).
 
