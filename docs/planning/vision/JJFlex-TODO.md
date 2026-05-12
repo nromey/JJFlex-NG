@@ -31,6 +31,39 @@ Last updated: 2026-04-28
 
 ## Open Bugs
 
+### BUG: Mode menu in slice does not show checkbox / state indicator for current mode (2026-05-11 Noel observation, B.10 testing)
+
+**Symptom:** When the user opens the Mode menu inside a slice (the per-slice mode selector), the currently-active mode is NOT indicated by a checkbox or any other state marker. A user navigating the menu has no way to know which mode is currently selected without exiting the menu and listening to a separate announcement.
+
+**Severity:** Important. Screen-reader users rely on the standard "checked" / "unchecked" announcement that WinForms emits for `MenuItem.Checked = true` to know toggle / selection state. Without that flag set on the currently-active entry, navigating the Mode menu becomes a "guess and exit" loop. Mirrors the pattern that test J.7 (toggle-state speech in menus) explicitly covers for DSP / NR style menus — Mode menu was missed.
+
+**Where to fix:** The slice-context Mode menu builder. Most likely `JJFlexWpf/NativeMenuBar.cs` or a slice-specific menu builder that lives near the slice operations code. Look for the code that creates mode entries (USB, LSB, CW, AM, FM, DIGU, DIGL, etc.) and set `IsChecked = true` on the entry that matches the current slice's mode. The slice-mode-changed event handler should also refresh the menu's checked state if the mode is changed via hotkey while the menu is hypothetically open (low-probability case but easy to handle).
+
+**Related findings from same session (B.10 testing):**
+
+- 60m digital segment auto-switch to CW / digital mode — now its own TODO entry directly below this one. Pairs with this entry as the two big UX gaps Noel flagged from B.10 testing.
+- Mode memory across band-segment transitions is lost (previously-selected CW or Digital mode is NOT restored when re-entering the digital segment after leaving it). Smaller finding; captured in the matrix's B.10 row as part of `FAIL-WITH-FINDINGS`. Not yet a standalone TODO — would be subsumed by a comprehensive segment-mode-memory design if the entry below tackles "remember digital-mode preference per-segment" rather than just "force CW on entry."
+
+**Priority:** Medium-high. The checkbox-state pattern is a recurring accessibility expectation and one of the highest-confidence wins per dev-hour (mostly mechanical menu-builder edit). Good Sprint 29+ polish-pass slip-in.
+
+**Status:** Logged 2026-05-11 from Noel's B.10 testing of the 4.1.17 release matrix.
+
+### BUG: 60m digital segment does not auto-switch to CW (or enforce digital mode) (2026-05-11 Noel observation, B.10 testing)
+
+**Symptom:** When the slice enters the 60m digital sub-channel — whether via `Alt+Shift+Up/Down` channel rotation through 60m's channels, or via direct frequency entry into that segment — the slice's mode is NOT verified or forced to CW or any digital-class mode. The segment-entry handler is permissive: whatever mode the slice had on entry stays in effect. The B.10 test row expected "the digital segment switches to CW by default" but this enforcement isn't happening.
+
+**Severity:** Medium. The original design intent (per the test row) was to keep operators legal on 60m's digital-only sub-channel by auto-forcing a digital-class mode. Current permissive behavior means an op on USB voice can wander onto the digital segment, stay on USB, and unknowingly violate the band plan if they transmit. The Settings > License "Enforce transmit rules" toggle is the safety net but doesn't appear to cover this specific transition path.
+
+**Design fix (proposed):** In the band / segment-change handler, when entering the 60m digital sub-channel, check the current mode against an "allowed digital modes" set (CW, DIGU, DIGL, RTTY, FT8, etc.) and force the slice's mode to a default (CW is the test's stated expectation) when the current mode is voice. Announce the auto-switch ("Switched to CW for digital segment") so the user knows what happened. Symmetric handling on exit: do NOT force-revert — let the user keep their digital mode after leaving the segment if they want.
+
+**Related — could subsume the matrix's third B.10 finding:** the "mode memory across band-segment transitions" gap (previously-selected CW or Digi mode not restored when re-entering the digital segment after leaving it) is captured in the matrix's B.10 row but does not yet have its own TODO entry. A richer fix here could remember the digital-mode preference per-segment-per-operator and restore it on entry, which subsumes the simpler "force CW on entry" behavior into a more useful "restore your last digital mode" UX. Worth deciding which shape to take when this entry is sprinted.
+
+**Where to fix:** The 60m band / segment handler. Most likely `HamBands` or whichever module owns band-plan logic and the channel-rotation code that produced B.9's passing behavior. The `Alt+Shift+Up/Down` channel-rotation handler is a good entry point to read since it already knows about the channel-vs-digital-segment distinction.
+
+**Priority:** Medium. Combined with the mode-checkbox entry immediately above, these two B.10 findings together represent the major UX gap in 60m operation. The 4.1.17 release ships without these fixes (current permissive behavior is at parity with prior versions — this is a long-standing gap, not a regression).
+
+**Status:** Logged 2026-05-11 from Noel's B.10 testing of the 4.1.17 release matrix. Confirmed by Noel as one of the two "big findings" from that test session, alongside the mode-checkbox entry above.
+
 ### BUG: CW prosign concatenation has no pause primitive — `73 SK ee` runs together as `73 SKEE` (2026-04-27 Noel observation)
 
 **Symptom:** When PlayCwSK appends `ee` after the SK prosign (the 2026-04-26 friendly hand-wave close), the resulting CW reads as `73 SKEE` rather than `73 SK <pause> EE`. The desired cadence is the same as a sentence-end pause — a clear gap separating SK from the closing dits, the way a real op would key it. Same shape would affect any future prosign+character concatenation (BT, AS, KN, etc. followed by single-character status dits).
