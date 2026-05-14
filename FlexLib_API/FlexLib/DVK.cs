@@ -1,4 +1,16 @@
-﻿using System;
+﻿// ****************************************************************************
+///*!	\file DVK.cs
+// *	\brief Digital Voice Keyer object
+// *
+// *	\copyright	Copyright 2025 FlexRadio Systems.  All Rights Reserved.
+// *				Unauthorized use, duplication or distribution of this software is
+// *				strictly prohibited by law.
+// *
+// *	\date 2026-06-16
+// */
+// ****************************************************************************
+
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -33,11 +45,28 @@ public class DVK : ObservableObject
     {
         if (s.Contains("status=")) // Global DVK status for all recordings
         {
-            Status = new DVKStatus(s.Split(' '));
+            try
+            {
+                Status = new DVKStatus(s.Split(' '));
+            }
+            catch (DVKInvalidStatusException ex)
+            {
+                Trace.WriteLine(ex.Message);
+                return;
+            }
         }
         else // Specific recording has been added/deleted/modified
         {
-            var status = new DVKRecordingStatus(s);
+            DVKRecordingStatus status;
+            try
+            {
+                status = new DVKRecordingStatus(s);
+            }
+            catch (DVKInvalidStatusException ex)
+            {
+                Trace.WriteLine(ex.Message);
+                return;
+            }
             if (status.Added)
             {
                 DVKRecording temp = _recordings.FirstOrDefault(rec => rec.Id == status.Id);
@@ -142,10 +171,14 @@ public class DVKStatus
     public DVKStatus(IEnumerable<string> s)
     {
         IEnumerable<string[]> temp = s.Where(str => !string.IsNullOrEmpty(str)).Select(strings => strings?.Split('='));
-        Dictionary<string, string> kvs = temp?.ToDictionary(pair => pair[0], pair => pair[1]);
+        Dictionary<string, string> kvs = temp?.Where(kv => kv.Length > 1)?.ToDictionary(pair => pair[0], pair => pair[1]);
+        if (kvs is null) throw new DVKInvalidStatusException($"Invalid DVK status: {string.Join(" ", s)}");
         if (kvs.TryGetValue("status", out string status))
         {
-            Type = _statuses[status];
+            if (_statuses.TryGetValue(status, out DVKStatusType statusType))
+            {
+                Type = statusType;
+            }
         }
         if (kvs.TryGetValue("id", out string id))
         {
@@ -188,6 +221,13 @@ public class DVKStatus
     };
 }
 
+public class DVKInvalidStatusException : Exception
+{
+    public DVKInvalidStatusException(string message) : base(message)
+    {
+    }
+}
+
 public class DVKRecordingStatus
 {
     public bool Added;
@@ -198,7 +238,9 @@ public class DVKRecordingStatus
 
     public DVKRecordingStatus(string str)
     {
+        if (string.IsNullOrEmpty(str)) throw new DVKInvalidStatusException("No status message");
         IEnumerable<string> s = str.Split(' ');
+        if (s.Count() < 2) throw new DVKInvalidStatusException($"Status improperly formatted: {str}");
         if (s.Contains("deleted"))
         {
             Deleted = true;
@@ -229,7 +271,10 @@ public class DVKRecordingStatus
         Dictionary<string, string> kvs = temp?.Where(kv => kv.Length > 1)?.ToDictionary(pair => pair[0], pair => pair[1]);
         if (kvs.TryGetValue("id", out string idStr))
         {
-            Id = uint.Parse(idStr);
+            if (!uint.TryParse(idStr, out Id))
+            {
+                throw new DVKInvalidStatusException($"Invalid ID: {idStr}");
+            }
         }
         if (Added)
         {
@@ -368,4 +413,9 @@ public class DVKRecording : ObservableObject
 
     public static readonly char[] FORBIDDEN_NAME_CHARS = { '\'', '\"' }; // The name will be sent back over the radio API and parsed as a single string in quotes,
                                                                          // so prevent user from entering quotes in the name itself.
+
+    public static bool IsCharForbidden(char ch)
+    {
+        return FORBIDDEN_NAME_CHARS.Contains(ch);
+    }
 }

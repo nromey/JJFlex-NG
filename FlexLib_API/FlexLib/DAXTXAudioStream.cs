@@ -68,12 +68,19 @@ namespace Flex.Smoothlake.FlexLib
                 if (_transmit != value)
                 {
                     _transmit = value;
-                    // we no longer need to send this state back down to the radio as it is tracked from the radio (and the
-                    // client doesn't need to use this other than for informational purposes)
-                    //_radio.SendCommand("stream set 0x" + _txStreamID.ToString("X") + " tx=" + Convert.ToByte(_transmit));
                     RaisePropertyChanged("Transmit");
                 }
             }
+        }
+
+        /// <summary>
+        /// Request or yield DAX TX ownership from the radio. Used in multiFLEX
+        /// when another client currently has TX and this client wants to take it
+        /// back, or when this client wants to yield TX to another client.
+        /// </summary>
+        public void RequestTX(bool tx)
+        {
+            _radio.SendCommand($"stream set 0x{_txStreamID:X} tx={Convert.ToByte(tx)}");
         }
 
         private bool _radioAck = false;
@@ -104,7 +111,7 @@ namespace Flex.Smoothlake.FlexLib
 
                 if (_txGain != new_gain)
                 {
-                    _txGain = value;
+                    _txGain = new_gain;
                     RaisePropertyChanged("TXGain");
                 }
                 else if (new_gain != value)
@@ -136,33 +143,48 @@ namespace Flex.Smoothlake.FlexLib
         }
         
         private VitaIFDataPacket _txPacket;
+
+        // Pre-allocated buffers to avoid per-call allocations
+        private readonly Int16[] _int16Buffer = new Int16[TX_SAMPLES_PER_PACKET];
+        private readonly float[] _stereoPayload = new float[TX_SAMPLES_PER_PACKET * 2];
+        private byte[] _sendBufferReduced;
+        private byte[] _sendBufferFull;
+
+        private void EnsureTxPacketInitialized()
+        {
+            if (_txPacket != null) return;
+
+            _txPacket = new VitaIFDataPacket();
+            _txPacket.Header.pkt_type = VitaPacketType.IFDataWithStream;
+            _txPacket.Header.c = true;
+            _txPacket.Header.t = false;
+            _txPacket.Header.tsi = VitaTimeStampIntegerType.Other;
+            _txPacket.Header.tsf = VitaTimeStampFractionalType.SampleCount;
+
+            _txPacket.StreamId = _txStreamID;
+            _txPacket.ClassId.OUI = 0x001C2D;
+            _txPacket.ClassId.InformationClassCode = 0x534C;
+
+            // Pre-assign reusable payload arrays
+            _txPacket.payload_int16 = _int16Buffer;
+            _txPacket.payload = _stereoPayload;
+
+            // Pre-calculate and allocate send buffers for both modes
+            _txPacket.ClassId.PacketClassCode = 0x0123;
+            _txPacket.Header.packet_size = (ushort)((TX_SAMPLES_PER_PACKET * sizeof(Int16) / 4) + 7);
+            _sendBufferReduced = new byte[_txPacket.CalculatePacketSize(use_int16_payload: true)];
+
+            _txPacket.ClassId.PacketClassCode = 0x03E3;
+            _txPacket.Header.packet_size = (ushort)(TX_SAMPLES_PER_PACKET * 2 + 7);
+            _sendBufferFull = new byte[_txPacket.CalculatePacketSize(use_int16_payload: false)];
+        }
+
         public void AddTXData(float[] tx_data_stereo, bool sendReducedBW = false)
         {
             // skip this if we are not the DAX TX Client
             if (!_transmit) return;
 
-            if (_txPacket == null)
-            {
-                _txPacket = new VitaIFDataPacket();
-                _txPacket.header.pkt_type = VitaPacketType.IFDataWithStream;
-                _txPacket.header.c = true;
-                _txPacket.header.t = false;
-                _txPacket.header.tsi = VitaTimeStampIntegerType.Other;
-                _txPacket.header.tsf = VitaTimeStampFractionalType.SampleCount;
-
-                _txPacket.stream_id = _txStreamID;
-                _txPacket.class_id.OUI = 0x001C2D;
-                _txPacket.class_id.InformationClassCode = 0x534C;
-            }
-
-            if (sendReducedBW)
-            {
-                _txPacket.class_id.PacketClassCode = 0x0123;
-            }
-            else
-            {
-                _txPacket.class_id.PacketClassCode = 0x03E3;
-            }
+            EnsureTxPacketInitialized();
 
             // Send entire passed in buffer but warn if not a correct multiple
             if (tx_data_stereo.Length != TX_SAMPLES_PER_PACKET * 2) // * 2 for stereo
@@ -171,73 +193,60 @@ namespace Flex.Smoothlake.FlexLib
                 return;
             }
 
-            float[] tx_data;
-
             if (sendReducedBW)
             {
-                // Deinterleave since we're only sending MONO
-                tx_data = new float[tx_data_stereo.Length / 2];
-                for (int i = 0; i < tx_data.Length; i++)
+                _txPacket.ClassId.PacketClassCode = 0x0123;
+
+                // set the length of the packet -- note this is in 4 byte word units
+                _txPacket.Header.packet_size = (ushort)((TX_SAMPLES_PER_PACKET * sizeof(Int16) / 4) + 7); // 7*4=28 bytes of Vita overhead
+
+                // De-interleave, clamp, and convert to Int16 in a single pass
+                for (int i = 0; i < TX_SAMPLES_PER_PACKET; i++)
                 {
-                    tx_data[i] = tx_data_stereo[i * 2];
+                    float sample = tx_data_stereo[i * 2];
+                    if (sample > 1.0f)
+                        sample = 1.0f;
+                    else if (sample < -1.0f)
+                        sample = -1.0f;
+
+                    _int16Buffer[i] = (Int16)(sample * 32767);
+                }
+
+                // Write directly into pre-allocated send buffer
+                _txPacket.WriteBytes(_sendBufferReduced, use_int16_payload: true);
+                try
+                {
+                    _radio.VitaSock.SendUdp(_sendBufferReduced, _sendBufferReduced.Length);
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"Failed to send reduced bandwidth packet: {ex}");
                 }
             }
             else
             {
-                tx_data = tx_data_stereo;
-            }
+                _txPacket.ClassId.PacketClassCode = 0x03E3;
 
-            int num_samples_to_send = 0;
+                // set the length of the packet -- note this is in 4 byte word units
+                _txPacket.Header.packet_size = (ushort)(TX_SAMPLES_PER_PACKET * 2 + 7); // 7*4=28 bytes of Vita overhead
 
-            // how many samples should we send?
-            if (sendReducedBW)
-            {
-                num_samples_to_send = TX_SAMPLES_PER_PACKET;
+                // Copy the incoming data into the pre-allocated payload
+                Buffer.BlockCopy(tx_data_stereo, 0, _stereoPayload, 0, TX_SAMPLES_PER_PACKET * 2 * sizeof(float));
 
-                _txPacket.payload_int16 = new Int16[num_samples_to_send];
-
-                for (int i = 0; i < num_samples_to_send; i++)
+                // Write directly into pre-allocated send buffer
+                _txPacket.WriteBytes(_sendBufferFull, use_int16_payload: false);
+                try
                 {
-                    if (tx_data[i] > 1.0)
-                        tx_data[i] = 1.0f;
-                    else if (tx_data[i] < -1.0)
-                        tx_data[i] = -1.0f;
-
-                    _txPacket.payload_int16[i] = (Int16)(tx_data[i] * 32767);
+                    _radio.VitaSock.SendUdp(_sendBufferFull, _sendBufferFull.Length);
                 }
-
-                // set the length of the packet -- note this is in 4 byte word units
-                _txPacket.header.packet_size = (ushort)((num_samples_to_send * sizeof(Int16) / 4) + 7); // 7*4=28 bytes of Vita overhead
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"Failed to send full bandwidth packet: {ex}");
+                }           
             }
-            else
-            {
-                num_samples_to_send = TX_SAMPLES_PER_PACKET * 2; // *2 for stereo
-
-                _txPacket.payload = new float[num_samples_to_send];
-
-                // copy the incoming data into the packet payload
-                Array.Copy(tx_data, 0, _txPacket.payload, 0, num_samples_to_send);
-
-                // set the length of the packet -- note this is in 4 byte word units
-                _txPacket.header.packet_size = (ushort)(num_samples_to_send + 7); // 7*4=28 bytes of Vita overhead
-            }
-
-            // send the packet to the radio
-            //Debug.WriteLine("sending from channel " + _daxChannel);
-
-            try
-            {
-
-                _radio.VitaSock.SendUDP(_txPacket.ToBytes(use_int16_payload: sendReducedBW));
-            }
-            catch (Exception e)
-            {
-                Debug.WriteLine("TXAudioStream: AddTXData Exception (" + e.ToString() + ")");
-            }
-            //Debug.Write("("+num_samples_to_send+")");
 
             // bump the packet count
-            _txPacket.header.packet_count = (byte)((_txPacket.header.packet_count + 1) % 16);
+            _txPacket.Header.packet_count = (byte)((_txPacket.Header.packet_count + 1) % 16);
         }
                 
         public void StatusUpdate(string s)
@@ -281,7 +290,7 @@ namespace Flex.Smoothlake.FlexLib
 
                             if (!b || temp > 1)
                             {
-                                Debug.WriteLine("DAXTXAudioStream::StatusUpdate: Invalid value (" + kv + ")");
+                                Debug.WriteLine($"DAXTXAudioStream::StatusUpdate: Invalid value ({kv})");
                                 continue;
                             }
 

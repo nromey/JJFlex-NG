@@ -124,35 +124,35 @@ namespace Flex.Smoothlake.FlexLib
             if (_txPacket == null)
             {
                 _txPacket = new VitaOpusDataPacket();
-                _txPacket.header.pkt_type = VitaPacketType.ExtDataWithStream;
-                _txPacket.header.c = true;
-                _txPacket.header.t = false;
-                _txPacket.header.tsi = VitaTimeStampIntegerType.Other;
-                _txPacket.header.tsf = VitaTimeStampFractionalType.SampleCount;
+                _txPacket.Header.pkt_type = VitaPacketType.ExtDataWithStream;
+                _txPacket.Header.c = true;
+                _txPacket.Header.t = false;
+                _txPacket.Header.tsi = VitaTimeStampIntegerType.Other;
+                _txPacket.Header.tsf = VitaTimeStampFractionalType.SampleCount;
 
-                _txPacket.stream_id = _streamID;
-                _txPacket.class_id.OUI = 0x001C2D;
-                _txPacket.class_id.InformationClassCode = 0x534C;
-                _txPacket.class_id.PacketClassCode = 0x8005;
+                _txPacket.StreamId = _streamID;
+                _txPacket.ClassId.OUI = 0x001C2D;
+                _txPacket.ClassId.InformationClassCode = 0x534C;
+                _txPacket.ClassId.PacketClassCode = 0x8005;
             }
             
             _txPacket.payload = tx_data;
 
             // set the length of the packet
             // packet_size is the 32 bit word length?
-            _txPacket.header.packet_size = (ushort)Math.Ceiling(_txPacket.payload.Length / 4.0 + 7.0); // 7*4=28 bytes of Vita overhead
+            _txPacket.Header.packet_size = (ushort)Math.Ceiling(_txPacket.payload.Length / 4.0 + 7.0); // 7*4=28 bytes of Vita overhead
 
             try
             {
                 // send the packet to the radio
-                _radio.VitaSock.SendUDP(_txPacket.ToBytesTX());
+                _radio.VitaSock.SendUdp(_txPacket.ToBytesTX());
             }
             catch (Exception e)
             {
                 Debug.WriteLine($"TXRemoteAudioStream: AddTXData sendTo() exception = {e}");
             }
             // bump the packet count
-            _txPacket.header.packet_count = (byte)((_txPacket.header.packet_count + 1) % 16);
+            _txPacket.Header.packet_count = (byte)((_txPacket.Header.packet_count + 1) % 16);
         }
 
         private bool _isCompressed;

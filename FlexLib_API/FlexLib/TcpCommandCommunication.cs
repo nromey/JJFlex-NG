@@ -11,299 +11,382 @@
 // */
 // ****************************************************************************
 
+#nullable enable
+
+using AsyncAwaitBestPractices;
 using System;
-using System.Collections.Generic;
 using System.Diagnostics;
-using System.Linq;
+using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using System.Threading;
+using System.Threading.Tasks;
 
-using Flex.UiWpfFramework.Mvvm;
+namespace Flex.Smoothlake.FlexLib;
 
-
-namespace Flex.Smoothlake.FlexLib
+// TODO: IDisposable?
+public class TcpCommandCommunication : ICommandCommunication
 {
-    public class TcpCommandCommunication : ICommandCommunication
+    private StreamWriter? _writer;
+
+    private bool _isConnected;
+    public bool IsConnected
     {
-        private TcpClient _tcpClient;
-        private bool _isConnected = false;
-
-        public bool IsConnected
+        get => _isConnected;
+        private set
         {
-            get
-            {
-                return (_tcpClient != null && _isConnected);
-            }
+            _isConnected = value;
+            OnIsConnectedChanged(value);
         }
+    }
 
-        private IPAddress _localIP = IPAddress.Parse("0.0.0.0");
-        /// <summary>
-        /// The local client IP address
-        /// </summary>
-        public IPAddress LocalIP
+    /// <summary>
+    /// The local client IP address
+    /// </summary>
+    public IPAddress LocalIp { set; get; } = IPAddress.Parse("0.0.0.0");
+
+    private const int COMMAND_PORT = 4992;
+
+    private IPAddress _radioIp = IPAddress.Parse("0.0.0.0");
+    private int _radioPort;
+    private int _sourcePort;
+
+    private TaskCompletionSource<bool> _tcs = new();
+    public bool Connect(IPAddress radioIp, int radioPort = COMMAND_PORT, int srcPort = 0)
+    {
+        _radioIp = radioIp;
+        _radioPort =  radioPort;
+        _sourcePort = srcPort;
+        
+        _tcs = new TaskCompletionSource<bool>();
+        
+        Task.Run(TcpReadLoop).SafeFireAndForget();
+        try
         {
-            set
-            {
-                _localIP = value;
-            }
-            get
-            {
-                // We are no longer looking up the IP Address by the IPEndPoint of this TCPClient
-                // since if someone is connected directly to the radio remotely, the IP address
-                // could also be the public IP address.  This value should now be obtained by
-                // requesting it from the radio.
-                return _localIP;
-            }
+            return _tcs.Task.Result;
         }
-
-        private const int COMMAND_PORT = 4992;
-        private const int TCP_READ_BUFFER_SIZE = 1024;
-
-        public bool Connect(IPAddress radio_ip, bool setup_reply)
+        catch (Exception ex)
         {
-            lock (this)
-            {
-                if (_tcpClient != null) return true;
-
-                int count = 0;
-                while (count++ <= 10)
-                {
-                    try
-                    {
-                        // create tcp client object and connect to the radio
-                        _tcpClient = new TcpClient();
-                        //_tcp_client.NoDelay = true; // hopefully minimize round trip command latency
-                        _tcpClient.Connect(new IPEndPoint(radio_ip, COMMAND_PORT));
-                        count = 20;
-                    }
-                    catch (Exception ex)
-                    {
-                        string s = "Radio::Connect() -- Error creating TCP client\n";
-                        s += ex.Message;
-                        if (ex.InnerException != null)
-                            s += "\n\n" + ex.InnerException.Message;
-                        Debug.WriteLine(s);
-
-                        // clean up tcp client object
-                        if (_tcpClient != null)
-                            _tcpClient = null;
-
-                        // this is likely due to trying to reconnect too quickly -- lets try again after waiting
-                        Thread.Sleep(1000);
-                    }
-                }
-
-                if (count < 20)
-                    return false;
-
-                _isConnected = true;
-                OnIsConnectedChanged(_isConnected);
-
-                if(setup_reply)
-                {
-                    // setup for reading messages coming from the radio
-                    lock (_tcpReadSyncObj)
-                        _tcpClient.GetStream().BeginRead(_tcpReadByteBuffer, 0, TCP_READ_BUFFER_SIZE, new AsyncCallback(TCPReadCallback), null);
-                }
-
-                return true;
-            }
+            Debug.WriteLine($"Exception connecting to radio TCP: {ex}");
+            return false;
         }
+    }
 
-        private object _tcpReadSyncObj = new object();
-        private byte[] _tcpReadByteBuffer = new byte[TCP_READ_BUFFER_SIZE];
-        private string _tcpReadStringBuffer = "";
-        private void TCPReadCallback(IAsyncResult ar)
+    private CancellationTokenSource _cts = new ();
+    private int _connectLockFlag;
+    private async Task TcpReadLoop()
+    {
+        if (Interlocked.CompareExchange(ref _connectLockFlag, 1, 0) != 0)
         {
-            // keep more than one caller from entering the callback at once to
-            // prevent issues with the string buffering
-            lock (_tcpReadSyncObj)
-            {
-                if (_tcpClient == null)
-                {
-                    Disconnect();
-                    API.LogDisconnect("CommandCommunication::TCPReadCallback: tcpClient is null");
-                    return;
-                }
-
-                NetworkStream tcp_stream;
-
-                try
-                {
-                    tcp_stream = _tcpClient.GetStream();
-                }
-                catch (Exception)
-                {
-                    Disconnect();
-                    API.LogDisconnect("CommandCommunication::TCPReadCallback: Exception in _tcpClient.GetStream()");
-                    return;
-                }
-
-                if(tcp_stream == null)
-                {
-                    Disconnect();
-                    API.LogDisconnect("CommandCommunication::TCPReadCallback: tcp_stream is null");
-                    return;
-                }
-
-                // Retrieve Read Bytes
-                int num_bytes;
-                try
-                {
-                    num_bytes = tcp_stream.EndRead(ar);
-                }
-                catch (Exception)
-                {
-                    // if the stream is somehow closed, we should exit gracefully
-                    Disconnect();
-                    API.LogDisconnect("CommandCommunication::TCPReadCallback: Exception in _tcp_stream.EndRead(ar)");
-                    return;
-                }
-
-                if (num_bytes == 0) // stream closed? -- need to handle disconnect
-                {
-                    Disconnect();
-                    API.LogDisconnect("CommandCommunication::TCPReadCallback: 0 bytes read from _tcp_stream.EndRead(ar)");
-                    return;
-                }
-
-                // Convert byte array to a string
-                string new_data = Encoding.UTF8.GetString(_tcpReadByteBuffer, 0, num_bytes);
-
-                // add this string to the buffer
-                _tcpReadStringBuffer += new_data;
-
-                // now process the string buffer
-
-                bool processing = true;
-
-                while (processing)
-                {
-                    // look for end of message token
-                    int eom = _tcpReadStringBuffer.IndexOf('\n');
-
-                    // handle end of message token not found
-                    if (eom < 0) processing = false;
-                    else // process this message
-                    {
-                        // strip message out of larger buffer
-                        string s = _tcpReadStringBuffer.Substring(0, eom).Trim('\0');
-
-                        // remove the processed message from the buffer -- ensure modification of string is safe
-                        _tcpReadStringBuffer = _tcpReadStringBuffer.Substring(eom + 1);
-
-                        // fire the event that signals new data is ready
-                        try // ensure that any exceptions are caught so we don't have silent failures that kill this socket
-                        {
-                            OnDataReceivedReady(s);
-                        }
-                        catch (Exception ex)
-                        {
-                            Debug.WriteLine("Exception while processing TCP Data: " + s);
-                        }
-                    }
-                }
-
-                // Setup next Read
-                try
-                {
-                    tcp_stream.BeginRead(_tcpReadByteBuffer, 0, TCP_READ_BUFFER_SIZE, new AsyncCallback(TCPReadCallback), null);
-                }
-                catch (Exception)
-                {
-                    Disconnect();
-                    API.LogDisconnect("CommandCommunication::TCPReadCallback: Exception in _tcp_stream.BeginRead()");
-                    return;
-                }
-            }
+            Debug.WriteLine("Already connecting to radio TCP");
+            _tcs.SetException(new IOException("Already connecting to radio TCP"));
+            return;
         }
+        
+        Debug.WriteLine("Attempting to perform TCP connection");
 
-        public void Disconnect()
+        _cts.Dispose();
+        _cts = new CancellationTokenSource();
+
+        using var client = new TcpClient(new IPEndPoint(IPAddress.Any, _sourcePort));
+        client.ReceiveBufferSize = 1024;
+
+        for (var retries = 0; retries < 20; ++retries)
         {
-            if (!_isConnected) 
-                return;
-
-            if (_tcpClient != null && _tcpClient.Connected)
-            {
-                // We don't use the Write method here because it could call us if there's an exception, causing
-                // a loop
-                try
-                {
-                    _tcpClient.GetStream()?.Write(new byte[] {0x04}, 0, 1);
-                    _tcpClient.Close();
-                }
-                catch (Exception ex)
-                {
-                    Debug.WriteLine($"Exception disconnecting from radio: {ex}");
-                }
-            }
-
-            _tcpClient = null;
-            _isConnected = false;
-            OnIsConnectedChanged(_isConnected);
-
-            lock (_tcpReadSyncObj)
-            {
-                _tcpReadStringBuffer = "";
-            }
-        }
-
-        public void Write(string msg)
-        {
-            if (_tcpClient == null) return;
-
-            NetworkStream tcp_stream;
-
             try
             {
-                tcp_stream = _tcpClient.GetStream();
-
-                if (tcp_stream == null) return;
-
-                byte[] buf = Encoding.UTF8.GetBytes(msg);
-                tcp_stream.Write(buf, 0, buf.Length);
+#if NET6_0_OR_GREATER
+                var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+                var cts = CancellationTokenSource.CreateLinkedTokenSource(timeoutCts.Token, _cts.Token);
+                await client.ConnectAsync(new IPEndPoint(_radioIp, _radioPort), cts.Token);
+#else
+                await client.ConnectAsync(_radioIp, _radioPort);
+#endif
             }
-            catch(Exception)
+            catch (Exception ex)
             {
-                Disconnect();
+                Debug.WriteLine($"Exception connecting to radio TCP: {ex}");
+#if !NET6_0_OR_GREATER
+                await Task.Delay(TimeSpan.FromSeconds(1));
+#endif
+                continue;
+            }
+
+            if (client.Connected)
+                break;
+        }
+
+        if (!client.Connected)
+        {
+            Debug.WriteLine("Timed out trying to connect to radio TCP");
+            Interlocked.Exchange(ref _connectLockFlag, 0);
+            _tcs.SetException(new IOException("Timed out trying to connect to radio TCP"));
+            return;
+        }
+        
+        IsConnected = client.Connected;
+        _tcs.SetResult(true);
+
+#if NET6_0_OR_GREATER
+        await using var netStream = client.GetStream();
+#else
+        using var netStream = client.GetStream();
+#endif
+        
+        using var streamReader = new StreamReader(netStream, Encoding.UTF8, true, client.ReceiveBufferSize);
+        _writer = new StreamWriter(netStream)
+        {
+            AutoFlush = true
+        };
+        
+        Debug.WriteLine("TCP Read Loop Begins");
+
+        await ReadLoopAsync(streamReader, _cts.Token);
+        
+        IsConnected =  false;
+
+        while (!_cts.Token.IsCancellationRequested)
+        {
+            try
+            {
+#if NET6_0_OR_GREATER
+
+                var nextLine = await streamReader.ReadLineAsync(_cts.Token);
+#else
+                var nextLine = await streamReader.ReadLineAsync();
+#endif
+                if (nextLine == null)
+                    break;
+
+                if (nextLine == string.Empty)
+                    continue;
+
+                OnDataReceivedReady(nextLine);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch(Exception ex) {
+                Debug.WriteLine($"Exception reading from radio: {ex}");
+                break;
             }
         }
 
-        /// <summary>
-        /// Delegate event handler for the IsConnectedChanged event
-        /// </summary>
-        public delegate void IsConnectedChangedEventHandler(bool connected);
-        /// <summary>
-        /// This event is raised when the radio connects or disconnects from the client
-        /// </summary>
-        public event IsConnectedChangedEventHandler IsConnectedChanged;
+        IsConnected = false;
 
-        private void OnIsConnectedChanged(bool connected)
+        try
         {
-            if (IsConnectedChanged != null)
-                IsConnectedChanged(connected);
+#if NET6_0_OR_GREATER
+            using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(0.5));
+            await netStream.WriteAsync(new ReadOnlyMemory<byte>([0x04]), timeoutCts.Token);
+#else
+            await netStream.WriteAsync([0x04], 0, 1);
+#endif
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"Ignoring exception writing dying gasp: {ex}");
         }
 
-        /// <summary>
-        /// Delegate event handler for the DataReceivedReady event
-        /// </summary>
-        public delegate void TCPDataReceivedReadyEventHandler(string msg);
-        /// <summary>
-        /// This event is raised when the client receives data from the radio (each message terminated by '\n')
-        /// </summary>
-        public event TCPDataReceivedReadyEventHandler DataReceivedReady;
+#if  NET6_0_OR_GREATER
+        await _writer.DisposeAsync();
+#else
+        _writer.Dispose();
+#endif
+        _writer = null;
+        
+        Interlocked.Exchange(ref _connectLockFlag, 0);
+        
+        Debug.WriteLine("TCP Read Loop Ends");
+    }
 
-        private void OnDataReceivedReady(string msg)
+#if NET6_0_OR_GREATER
+    private async Task ReadLoopAsync(StreamReader reader, CancellationToken ct)
+    {
+        try
         {
-            if (DataReceivedReady != null)
-                DataReceivedReady(msg);
-        }
+            string? line;
+            while ((line = await reader.ReadLineAsync(ct).ConfigureAwait(false)) != null)
+            {
+                if (line == string.Empty)
+                    continue;
 
-        public bool Connect(IPAddress radio_ip, int radioPort, int src_port = 0)
-        {
-            throw new NotImplementedException();
+                OnDataReceivedReady(line);
+            }
         }
+        catch (OperationCanceledException)
+        {
+            // CancellationToken was triggered — expected, not an error
+        }
+        catch (IOException ex) when (ex.InnerException is SocketException se)
+        {
+            // Abrupt disconnect (reset, timeout, etc.)
+            Debug.WriteLine($"Socket error: {se.SocketErrorCode} – {se.Message}");
+        }
+        catch (IOException ex)
+        {
+            // Other IO error (pipe broken, etc.)
+            Debug.WriteLine($"IO error: {ex.Message}");
+        }
+        catch (ObjectDisposedException)
+        {
+            // Stream was disposed (e.g. by a timeout or another thread)
+        }
+        finally
+        {
+            // When cancellation races with a socket error inside ReadLineAsync,
+            // the underlying NetworkStream.ReadAsync ValueTask can go unobserved.
+            // Perform one final read to drain and observe any faulted ValueTask
+            // left behind by the StreamReader, preventing UnobservedTaskException.
+            // Only drain when cancellation was actually requested — otherwise
+            // (e.g. IOException from a dead socket) ReadLineAsync would block
+            // indefinitely, preventing cleanup and bricking reconnection.
+            if (ct.IsCancellationRequested)
+            {
+                try
+                {
+                    await reader.ReadLineAsync();
+                }
+                catch (Exception)
+                {
+                    // Expected — the stream is closed/faulted. We just need to observe it
+                }
+            }
+        }
+    }
+#else
+    private async Task ReadLoopAsync(StreamReader reader, CancellationToken ct)
+    {
+        try
+        {
+            using (ct.Register(() => reader.Close()))
+            {
+                string line;
+                while ((line = await reader.ReadLineAsync().ConfigureAwait(false)) != null)
+                {
+                    if (line == string.Empty)
+                        continue;
+
+                    OnDataReceivedReady(line);
+                }
+                // line == null → clean EOF / graceful disconnect
+            }
+        }
+        catch (ObjectDisposedException) when (ct.IsCancellationRequested)
+        {
+            // ct.Register closed the stream
+        }
+        catch (OperationCanceledException)
+        {
+            // CancellationToken was triggered — expected, not an error
+        }
+        catch (IOException ex) when (ex.InnerException is SocketException se)
+        {
+            // Abrupt disconnect (reset, timeout, etc.)
+            Debug.WriteLine($"Socket error: {se.SocketErrorCode} – {se.Message}");
+        }
+        catch (IOException ex)
+        {
+            // Other IO error (pipe broken, etc.)
+            Debug.WriteLine($"IO error: {ex.Message}");
+        }
+        catch (ObjectDisposedException)
+        {
+            // Stream was disposed from elsewhere (not due to cancellation)
+        }
+        finally
+        {
+            // When cancellation races with a socket error inside ReadLineAsync,
+            // the underlying NetworkStream.ReadAsync ValueTask can go unobserved.
+            // Perform one final read to drain and observe any faulted ValueTask
+            // left behind by the StreamReader, preventing UnobservedTaskException.
+            // Only drain when cancellation was actually requested — otherwise
+            // (e.g. IOException from a dead socket) ReadLineAsync would block
+            // indefinitely, preventing cleanup and bricking reconnection.
+            if (ct.IsCancellationRequested)
+            {
+                try
+                {
+                    await reader.ReadLineAsync();
+                }
+                catch (Exception)
+                {
+                    // Expected — the stream is closed/faulted. We just need to observe it
+                }
+            }
+        }
+    }
+#endif
+
+    public void Disconnect()
+    {
+        if (!IsConnected || _cts.IsCancellationRequested)
+            return;
+        
+        _cts.Cancel();
+        
+        Debug.WriteLine("Disconnecting from radio");
+    }
+
+    public void Write(string msg)
+    {
+        if (!IsConnected || _writer == null) 
+            return;
+
+        try
+        {
+            _writer?.Write(msg);
+        }
+        catch(Exception ex)
+        {
+            Debug.WriteLine($"Error writing to radio TCP: {ex}");
+            Disconnect();
+        }
+    }
+
+    public async Task WriteAsync(string msg)
+    {
+        if (!IsConnected || _writer == null) 
+            return;
+
+        try
+        {
+            // TODO: Should probably have a timeout here eventually.
+            await (_writer?.WriteAsync(msg) ?? Task.CompletedTask);
+        }
+        catch(Exception ex)
+        {
+            Debug.WriteLine($"Error writing to radio TCP: {ex}");
+            Disconnect();
+        }
+    }
+
+    /// <summary>
+    /// Delegate event handler for the IsConnectedChanged event
+    /// </summary>
+    public delegate void IsConnectedChangedEventHandler(bool connected);
+    /// <summary>
+    /// This event is raised when the radio connects or disconnects from the client
+    /// </summary>
+    public event IsConnectedChangedEventHandler? IsConnectedChanged;
+
+    private void OnIsConnectedChanged(bool connected)
+    {
+        IsConnectedChanged?.Invoke(connected);
+    }
+
+    /// <summary>
+    /// Delegate event handler for the DataReceivedReady event
+    /// </summary>
+    public delegate void TcpDataReceivedReadyEventHandler(string msg);
+    /// <summary>
+    /// This event is raised when the client receives data from the radio (each message terminated by '\n')
+    /// </summary>
+    public event TcpDataReceivedReadyEventHandler? DataReceivedReady;
+
+    private void OnDataReceivedReady(string msg)
+    {
+        DataReceivedReady?.Invoke(msg);
     }
 }

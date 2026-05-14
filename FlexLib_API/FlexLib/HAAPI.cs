@@ -1,9 +1,8 @@
 ﻿using Flex.UiWpfFramework.Mvvm;
-using Flex.Util;
 using System;
-using System.ComponentModel;
+using System.Collections.Generic;
 using System.Diagnostics;
-using System.Threading;
+using System.Linq;
 
 namespace Flex.Smoothlake.FlexLib
 {
@@ -19,69 +18,78 @@ namespace Flex.Smoothlake.FlexLib
     public class HAAPI : ObservableObject
     {
         private Radio _radio;
-        private Slice _transmit_slice;
 
-        public delegate void AmplifierFaultEventHandler(string reason);
+        public delegate void HaapiFaultEventHandler(string noun, string reason);
         /// <summary>
-        /// This event is raised when the client receives a ha_api amplifier fault message
+        /// This event is raised when the client receives a fault message from the ha_api amplifier
         /// </summary>
-        public event AmplifierFaultEventHandler AmplifierFault;
-        private void OnAmplifierFault(string reason)
+        public event HaapiFaultEventHandler HaapiFault;
+        private void OnHaapiFault(string noun, string reason)
         {
-            if (AmplifierFault is not null)
-                AmplifierFault(reason);
+            if (HaapiFault is not null)
+                HaapiFault(noun, reason);
+        }
+
+        public delegate void HaapiWarningEventHandler(string noun, string reason);
+        /// <summary>
+        /// This event is raised when the client receives a warning message from the ha_api amplifier
+        /// </summary>
+        public event HaapiWarningEventHandler HaapiWarning;
+        private void OnHaapiWarning(string noun, string reason)
+        {
+            if (HaapiWarning is not null)
+                HaapiWarning(noun, reason);
+        }
+
+        public delegate void HaapiWarningClearedEventHandler(string noun);
+        /// <summary>
+        /// This event is raised when a warning is cleared (state becomes OK) from the ha_api amplifier
+        /// </summary>
+        public event HaapiWarningClearedEventHandler HaapiWarningCleared;
+        private void OnHaapiWarningCleared(string noun)
+        {
+            if (HaapiWarningCleared is not null)
+                HaapiWarningCleared(noun);
         }
 
         public HAAPI(Radio radio)
         {
             _radio = radio;
-            _radio.PropertyChanged += _radio_PropertyChanged;
+            _meterList = new List<Meter>();
         }
 
-        private void _radio_PropertyChanged(object sender, PropertyChangedEventArgs e)
+        /// <summary>
+        /// Sends a ha_api command to the radio using the _radio object
+        /// </summary>
+        /// <param name="haapi_cmd"> the ha_api command to send, DO NOT include the 
+        /// "ha_api" command prefix as the function prepends that </param>
+        public void SendHaapiCommand(string haapi_cmd)
         {
-            switch (e.PropertyName)
+            string cmd = $"ha_api {haapi_cmd}";
+            _radio.SendCommand(cmd);
+        }
+
+        private void HandleHaapiModeReply(int seq, uint resp_val, string s)
+        {
+            if (resp_val == 0)
             {
-                case nameof(_radio.TransmitSlice):
-                    {
-                        // Stop calling _transmit_slice_PropertyChanged for current _transmit_slice
-                        if (_transmit_slice is not null)
-                        {
-                            _transmit_slice.PropertyChanged -= _transmit_slice_PropertyChanged;
-                        }
+                // Command to change modes succeeded, RaisePropertyChanged to make _ampMode change visible
+                RaisePropertyChanged(nameof(AmpMode));
+            }
 
-                        _transmit_slice = _radio.TransmitSlice;
-
-                        // Begin calling _transmit_slice_PropertyChanged for new _transmit_slice if not null
-                        if (_transmit_slice is not null)
-                        {
-                            _transmit_slice.PropertyChanged += _transmit_slice_PropertyChanged;
-                        }
-                        break;
-                    }
+            else
+            {
+                // amplifier command mode did not succeed and we should default to standby and propogate that up to gui
+                AmpMode = AmplifierMode.STANDBY;
             }
         }
 
-        private void _transmit_slice_PropertyChanged(object sender, PropertyChangedEventArgs e)
+        public void HaapiChangeMode(AmplifierMode mode)
         {
-            switch (e.PropertyName)
-            {
-                case nameof(_transmit_slice.TXAnt):
-                    {
-                        // This radio's TX ANT options should only be 'ANT1' and 'MOD' since it uses the high-power tx amp.
-                        // If TXAnt is something different, we should log it and set AmpIsSelected to false
-                        // Setting AmpIsSelected to false will force the antenna to switch back to ANT1 in the AmpIsSelected setter
-                        if (_transmit_slice.TXAnt != "ANT1" && _transmit_slice.TXAnt != "MOD")
-                        {
-                            Debug.WriteLine($"HAAPI::_transmit_slice_PropertyChanged: Unsupported antenna port for this model radio {_transmit_slice.TXAnt}");
-                            AmpIsSelected = false;
-                            break;
-                        }
+            _radio.SendReplyCommand(new ReplyHandler(HandleHaapiModeReply), $"ha_api amplifier set mode={mode.ToString().ToLower()}");
 
-                        AmpIsSelected = (_transmit_slice.TXAnt == "MOD");
-                        break;
-                    }
-            }
+            // Save new mode but do not RaisePropertyChange until command succeeds
+            _ampMode = mode;
         }
 
         #region Parse Routines
@@ -109,6 +117,10 @@ namespace Flex.Smoothlake.FlexLib
 
                 case "fault":
                     ParseFaultStatus(status.Substring("fault ".Length));
+                    break;
+
+                case "warning":
+                    ParseWarningStatus(status.Substring("warning ".Length));
                     break;
 
                 case "module":
@@ -141,7 +153,7 @@ namespace Flex.Smoothlake.FlexLib
                 {
                     case "frequency":
                         {
-                            if (!float.TryParse(val, out float temp))
+                            if (!float.TryParse(val, out float temp) || float.IsNaN(temp))
                             {
                                 Debug.WriteLine($"HAAPI::ParseAmplifierStatus: Invalid frequency value {temp}");
                                 continue;
@@ -154,7 +166,7 @@ namespace Flex.Smoothlake.FlexLib
 
                     case "module_gain":
                         {
-                            if (!float.TryParse(val, out float temp))
+                            if (!float.TryParse(val, out float temp) || float.IsNaN(temp))
                             {
                                 Debug.WriteLine($"HAAPI::ParseAmplifierStatus: Invalid module gain value {temp}");
                                 continue;
@@ -199,63 +211,396 @@ namespace Flex.Smoothlake.FlexLib
 
         private void ParseFaultStatus(string status)
         {
-            string noun_kv = status?.Split(' ')[0]; // eg. 'amplifier=1'
-            string noun_key = noun_kv?.Split('=')[0];
-            string noun_val = noun_kv?.Split('=')[1];
-
-            if (string.IsNullOrEmpty(noun_kv) || string.IsNullOrEmpty(noun_key))
+            if (string.IsNullOrEmpty(status))
             {
-                Debug.WriteLine($"HAAPI::ParseFaultStatus: Invalid noun field in fault message");
+                Debug.WriteLine($"HAAPI::ParseFaultStatus: Empty fault status message");
                 return;
             }
 
-            if (!uint.TryParse(noun_val, out uint faulted) || faulted != 1)
+            // Parse key-value pairs from status string
+            // Format: "type=detection source=combiner state=OK" or "type=detection source=combiner state=FAULTED"
+            string[] kvs = status.Split(' ');
+            string fault_type = null;
+            string fault_source = null;
+            string fault_state = null;
+
+            foreach (string kv in kvs)
             {
-                Debug.WriteLine($"HAAPI::ParseFaultStatus: Nonexistent or invalid fault for specified noun");
+                if (string.IsNullOrEmpty(kv)) continue;
+
+                string[] parts = kv.Split('=');
+                if (parts.Length != 2) continue;
+
+                string key = parts[0].ToLower();
+                string val = parts[1];
+
+                switch (key)
+                {
+                    case "type":
+                        fault_type = val;
+                        break;
+                    case "source":
+                        fault_source = val;
+                        break;
+                    case "state":
+                        fault_state = val;
+                        break;
+                }
+            }
+
+            // Only raise fault event when state is FAULTED
+            if (string.IsNullOrEmpty(fault_state) || !fault_state.Equals("FAULTED", StringComparison.OrdinalIgnoreCase))
+            {
+                // State is OK or not FAULTED, so no fault to report
                 return;
             }
 
-            //extract reason from status update. If no reason is given, default to "Unknown fault"
-            int reason_idx = status.IndexOf("reason=", StringComparison.OrdinalIgnoreCase);
-            string fault_reason = (reason_idx < 0)? "Unknown fault" : status.Substring("reason=".Length + reason_idx);
+            // Construct noun from type and source, or use source if type is not available
+            string noun = string.IsNullOrEmpty(fault_source) 
+                ? (string.IsNullOrEmpty(fault_type) ? "Unknown" : fault_type)
+                : (string.IsNullOrEmpty(fault_type) ? fault_source : $"{fault_source} ({fault_type})");
 
-            if (string.IsNullOrEmpty(fault_reason))
+            // Use state as the reason, or construct a descriptive message
+            string reason = $"Fault detected - {fault_state}";
+            if (!string.IsNullOrEmpty(fault_type) && !string.IsNullOrEmpty(fault_source))
             {
-                Debug.WriteLine("HAAPI::ParseFaultStatus: No reason value given for 'reason' key");
-                fault_reason = "Unknown fault";
+                reason = $"{fault_type} fault on {fault_source}";
+            }
+            else if (!string.IsNullOrEmpty(fault_type))
+            {
+                reason = $"{fault_type} fault";
+            }
+            else if (!string.IsNullOrEmpty(fault_source))
+            {
+                reason = $"Fault on {fault_source}";
             }
 
-            switch (noun_key.ToLower())
+            OnHaapiFault(noun, reason);
+        }
+
+        private void ParseWarningStatus(string status)
+        {
+            if (string.IsNullOrEmpty(status))
             {
-                case "amplifier":
-                    OnAmplifierFault(fault_reason);
+                Debug.WriteLine($"HAAPI::ParseWarningStatus: Empty warning status message");
+                return;
+            }
+
+            // Parse key-value pairs from status string
+            // Format: "type=detection source=combiner state=OK" or "type=detection source=combiner state=WARNING"
+            string[] kvs = status.Split(' ');
+            string warning_type = null;
+            string warning_source = null;
+            string warning_state = null;
+
+            foreach (string kv in kvs)
+            {
+                if (string.IsNullOrEmpty(kv)) continue;
+
+                string[] parts = kv.Split('=');
+                if (parts.Length != 2) continue;
+
+                string key = parts[0].ToLower();
+                string val = parts[1];
+
+                switch (key)
+                {
+                    case "type":
+                        warning_type = val;
+                        break;
+                    case "source":
+                        warning_source = val;
+                        break;
+                    case "state":
+                        warning_state = val;
+                        break;
+                }
+            }
+
+            // Construct noun from type and source, or use source if type is not available
+            string noun = string.IsNullOrEmpty(warning_source) 
+                ? (string.IsNullOrEmpty(warning_type) ? "Unknown" : warning_type)
+                : (string.IsNullOrEmpty(warning_type) ? warning_source : $"{warning_source} ({warning_type})");
+
+            // If state is OK, clear the warning
+            if (!string.IsNullOrEmpty(warning_state) && warning_state.Equals("OK", StringComparison.OrdinalIgnoreCase))
+            {
+                OnHaapiWarningCleared(noun);
+                return;
+            }
+
+            // Only raise warning event when state is WARNING
+            if (string.IsNullOrEmpty(warning_state) || !warning_state.Equals("WARNING", StringComparison.OrdinalIgnoreCase))
+            {
+                // State is not WARNING or OK, so no warning to report
+                return;
+            }
+
+            // Use state as the reason, or construct a descriptive message
+            string reason = $"Warning detected - {warning_state}";
+            if (!string.IsNullOrEmpty(warning_type) && !string.IsNullOrEmpty(warning_source))
+            {
+                reason = $"{warning_type} warning on {warning_source}";
+            }
+            else if (!string.IsNullOrEmpty(warning_type))
+            {
+                reason = $"{warning_type} warning";
+            }
+            else if (!string.IsNullOrEmpty(warning_source))
+            {
+                reason = $"Warning on {warning_source}";
+            }
+
+            OnHaapiWarning(noun, reason);
+        }
+
+        #endregion
+
+        #region Metering
+
+        private List<Meter> _meterList;
+
+        public Meter FindMeterByIndex(int index)
+        {
+            lock (_meterList)
+                return _meterList.FirstOrDefault(m => m.Index == index);
+        }
+
+        public Meter FindMeterByName(string s)
+        {
+            lock (_meterList)
+                return _meterList.FirstOrDefault(m => m.Name == s);
+        }
+
+        internal void AddMeter(Meter m)
+        {
+            lock (_meterList)
+            {
+                if (!_meterList.Contains(m))
+                {
+                    _meterList.Add(m);
+                }
+            }
+
+            switch (m.Name.ToLower())
+            {
+                case "lpf_fwd_pwr":
+                    m.DataReady += new Meter.DataReadyEventHandler(HaapiFwdPwr_DataReady);
+                    break;
+                case "lpf_swr":
+                    m.DataReady += new Meter.DataReadyEventHandler(HaapiVswr_DataReady);
+                    break;
+                case "hv_sply_out_volt":
+                    m.DataReady += new Meter.DataReadyEventHandler(HaapiHv_DataReady);
+                    break;
+                case "hv_sply_out_current":
+                    m.DataReady += new Meter.DataReadyEventHandler(HaapiCurrent_DataReady);
+                    break;
+                case "hv_sply_temp":
+                    m.DataReady += new Meter.DataReadyEventHandler(HaapiTempPsu_DataReady);
+                    break;
+                case "pa_0_temp":
+                    m.DataReady += new Meter.DataReadyEventHandler(HaapiTempPa0_DataReady);
+                    break;
+                case "pa_1_temp":
+                    m.DataReady += new Meter.DataReadyEventHandler(HaapiTempPa1_DataReady);
+                    break;
+                case "drv_temp":
+                    m.DataReady += new Meter.DataReadyEventHandler(HaapiTempDrvA_DataReady);
+                    break;
+                case "comb_bal_load_temp":
+                    m.DataReady += new Meter.DataReadyEventHandler(HaapiTempComb_DataReady);
+                    break;
+                case "comb_hpf_load_tmp":
+                    m.DataReady += new Meter.DataReadyEventHandler(HaapiTempHpf_DataReady);
                     break;
             }
+        }
+
+        internal void RemoveMeter(Meter m)
+        {
+            lock (_meterList)
+            {
+                if (_meterList.Contains(m))
+                {
+                    _meterList.Remove(m);
+
+                    switch (m.Name.ToLower())
+                    {
+                        case "lpf_fwd_pwr":
+                            m.DataReady -= HaapiFwdPwr_DataReady;
+                            break;
+                        case "lpf_swr":
+                            m.DataReady -= HaapiVswr_DataReady;
+                            break;
+                        case "hv_sply_out_volt":
+                            m.DataReady -= HaapiHv_DataReady;
+                            break;
+                        case "hv_sply_out_current":
+                            m.DataReady -= HaapiCurrent_DataReady;
+                            break;
+                        case "hv_sply_temp":
+                            m.DataReady -= HaapiTempPsu_DataReady;
+                            break;
+                        case "pa_0_temp":
+                            m.DataReady -= HaapiTempPa0_DataReady;
+                            break;
+                        case "pa_1_temp":
+                            m.DataReady -= HaapiTempPa1_DataReady;
+                            break;
+                        case "drv_temp":
+                            m.DataReady -= HaapiTempDrvA_DataReady;
+                            break;
+                        case "comb_bal_load_temp":
+                            m.DataReady -= HaapiTempComb_DataReady;
+                            break;
+                        case "comb_hpf_load_tmp":
+                            m.DataReady -= HaapiTempHpf_DataReady;
+                            break;
+                    }
+                }
+            }
+        }
+
+        private void HaapiHv_DataReady(Meter meter, float data)
+        {
+            OnHaapiHVDataReady(data);
+        }
+
+        private void HaapiCurrent_DataReady(Meter meter, float data)
+        {
+            OnHaapiCurrentDataReady(data);
+        }
+        private void HaapiTempPsu_DataReady(Meter meter, float data)
+        {
+            OnHaapiTempPsuDataReady(data);
+        }
+
+        private void HaapiTempPa0_DataReady(Meter meter, float data)
+        {
+            OnHaapiTempPa0DataReady(data);
+        }
+
+        private void HaapiTempPa1_DataReady(Meter meter, float data)
+        {
+            OnHaapiTempPa1DataReady(data);
+        }
+
+        private void HaapiTempDrvA_DataReady(Meter meter, float data)
+        {
+            OnHaapiTempDrvADataReady(data);
+        }
+        private void HaapiTempDrvB_DataReady(Meter meter, float data)
+        {
+            OnHaapiTempDrvBDataReady(data);
+        }
+
+        private void HaapiTempComb_DataReady(Meter meter, float data)
+        {
+            OnHaapiTempCombDataReady(data);
+        }
+
+        private void HaapiTempHpf_DataReady(Meter meter, float data)
+        {
+            OnHaapiTempHpfDataReady(data);
+        }
+
+        private void HaapiFwdPwr_DataReady(Meter meter, float data)
+        {
+            OnHaapiFwdPwrDataReady(data);
+        }
+
+        private void HaapiVswr_DataReady(Meter meter, float data)
+        {
+            OnHaapiVswrDataReady(data);
+        }
+
+        /// <summary>
+        /// Delegate used for HAAPI module metering inside of ssdr-client
+        /// </summary>
+        /// <param name="data"> The float containing formatted meter data </param>
+        public delegate void MeterDataReadyEventHandler(float data);
+
+        public event MeterDataReadyEventHandler HaapiFwdPwrDataReady;
+        private void OnHaapiFwdPwrDataReady(float data)
+        {
+            if (HaapiFwdPwrDataReady != null)
+                HaapiFwdPwrDataReady(data);
+        }
+
+        public event MeterDataReadyEventHandler HaapiVswrDataReady;
+        private void OnHaapiVswrDataReady(float data)
+        {
+            if (HaapiVswrDataReady != null)
+                HaapiVswrDataReady(data);
+        }
+
+        public event MeterDataReadyEventHandler HaapiHVDataReady;
+        private void OnHaapiHVDataReady(float data)
+        {
+            if (HaapiHVDataReady != null)
+                HaapiHVDataReady(data);
+        }
+
+        public event MeterDataReadyEventHandler HaapiCurrentDataReady;
+        private void OnHaapiCurrentDataReady(float data)
+        {
+            if (HaapiCurrentDataReady != null)
+                HaapiCurrentDataReady(data);
+        }
+
+        public event MeterDataReadyEventHandler HaapiTempPsuDataReady;
+        private void OnHaapiTempPsuDataReady(float data)
+        {
+            if (HaapiTempPsuDataReady != null)
+                HaapiTempPsuDataReady(data);
+        }
+
+        public event MeterDataReadyEventHandler HaapiTempPa0DataReady;
+        private void OnHaapiTempPa0DataReady(float data)
+        {
+            if (HaapiTempPa0DataReady != null)
+                HaapiTempPa0DataReady(data);
+        }
+
+        public event MeterDataReadyEventHandler HaapiTempPa1DataReady;
+        private void OnHaapiTempPa1DataReady(float data)
+        {
+            if (HaapiTempPa1DataReady != null)
+                HaapiTempPa1DataReady(data);
+        }
+
+        public event MeterDataReadyEventHandler HaapiTempDrvADataReady;
+        private void OnHaapiTempDrvADataReady(float data)
+        {
+            if (HaapiTempDrvADataReady != null)
+                HaapiTempDrvADataReady(data);
+        }
+
+        public event MeterDataReadyEventHandler HaapiTempDrvBDataReady;
+        private void OnHaapiTempDrvBDataReady(float data)
+        {
+            if (HaapiTempDrvBDataReady != null)
+                HaapiTempDrvBDataReady(data);
+        }
+
+        public event MeterDataReadyEventHandler HaapiTempCombDataReady;
+        private void OnHaapiTempCombDataReady(float data)
+        {
+            if (HaapiTempCombDataReady != null)
+                HaapiTempCombDataReady(data);
+        }
+
+        public event MeterDataReadyEventHandler HaapiTempHpfDataReady;
+        private void OnHaapiTempHpfDataReady(float data)
+        {
+            if (HaapiTempHpfDataReady != null)
+                HaapiTempHpfDataReady(data);
         }
 
         #endregion
 
         #region TX Amplifier
-
-        private bool _ampIsSelected;
-        public bool AmpIsSelected
-        {
-            get => _ampIsSelected;
-            set
-            {
-                if (value == _ampIsSelected) return;
-
-                if (_radio?.TransmitSlice?.TXAnt is null)
-                {
-                    _ampIsSelected = false;
-                    return;
-                }
-
-                _ampIsSelected = value;
-                _radio.TransmitSlice.TXAnt = _ampIsSelected ? "MOD" : "ANT1";
-                RaisePropertyChanged(nameof(AmpIsSelected));
-            }
-        }
 
         private float _ampFrequency;
         public float AmpFrequency

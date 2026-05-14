@@ -460,3 +460,6 @@ read-trace*.ps1
 /docs/planning/research/firmware-extraction/
 /docs/planning/research/*-extracted/
 /docs/planning/research/*-decompiled/
+
+# FlexLib upgrade staging (Phase 2 backups, deleted at Phase 8)
+/.upgrade-staging/

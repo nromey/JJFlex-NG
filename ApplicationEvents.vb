@@ -46,6 +46,13 @@ Namespace My
             ' Purge connection profiles older than 7 days.
             Radios.ConnectionProfiler.PurgeOldProfiles()
 
+            ' Subscribe to OS-level network-change events so the discovery cascade
+            ' can observe Wi-Fi / Ethernet / VPN transitions. v1 is observe-only:
+            ' the cache's NLM gate already excludes prior-network entries on the
+            ' next cascade, so we just emit a KEY_EVENT trace for forensic
+            ' correlation. Disposed in Shutdown.
+            Radios.DiscoveryChain.CascadeNetworkChangeHandler.Start()
+
             ' ── Create the ShellForm and get the WPF content ───────────────
             ' We create ShellForm here (before OnCreateMainForm) so we can wire
             ' callbacks. OnCreateMainForm will use the same instance.
@@ -393,6 +400,11 @@ Namespace My
                 Catch
                 End Try
             End If
+            ' Release the NetworkAddressChanged subscription before further teardown.
+            Try
+                Radios.DiscoveryChain.CascadeNetworkChangeHandler.Stop()
+            Catch
+            End Try
             ' Shut down meter sonification engine.
             JJFlexWpf.MeterToneEngine.Shutdown()
             ' Clean up NAudio earcon player.

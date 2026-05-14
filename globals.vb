@@ -2143,7 +2143,22 @@ Module globals
 
         ' Build the callbacks for the WPF dialog
         Dim callbacks As New JJFlexWpf.Dialogs.RigSelectorCallbacks() With {
-            .StartLocalDiscovery = Sub() RigControl.LocalRadios(),
+            .StartLocalDiscovery = Sub()
+                                       ' Discovery chain Rung 1a — populate the dialog from
+                                       ' RadioConnectionCache before kicking off UDP discovery so
+                                       ' cached radios appear even when the UDP path is broken (R6
+                                       ' production impact). Belt-and-suspenders: UDP runs as today
+                                       ' in parallel; radioAddedHandler + the dialog both dedupe by
+                                       ' serial so a re-discovery just refreshes the entry. Synchronous
+                                       ' wait keeps the chain shape simple — typical caches hold 1-2
+                                       ' radios so the 750ms-per-rung TCP probe ceiling is fine here.
+                                       Try
+                                           RigControl.PopulateFromCachedRadios(Threading.CancellationToken.None).Wait()
+                                       Catch ex As Exception
+                                           Tracing.TraceLine("PopulateFromCachedRadios:" & ex.Message, TraceLevel.Warning)
+                                       End Try
+                                       RigControl.LocalRadios()
+                                   End Sub,
             .StartRemoteDiscovery = Sub(onComplete As Action(Of Boolean))
                                         ' Run on background thread — WebView2 auth can take seconds
                                         Dim t As New Thread(

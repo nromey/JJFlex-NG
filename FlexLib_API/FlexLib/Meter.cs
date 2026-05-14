@@ -40,6 +40,7 @@ namespace Flex.Smoothlake.FlexLib
     {
         public const string SOURCE_SLICE = "SLC";
         public const string SOURCE_AMPLIFIER = "AMP";
+        public const string SOURCE_HA_API = "HAAPI";
 
         internal Meter(Radio radio, int index)
         {

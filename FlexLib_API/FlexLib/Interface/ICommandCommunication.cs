@@ -1,18 +1,16 @@
 ﻿using System.Net;
 
-namespace Flex.Smoothlake.FlexLib
+namespace Flex.Smoothlake.FlexLib;
+
+public interface ICommandCommunication
 {
-    public interface ICommandCommunication
-    {
-        bool IsConnected { get; }
-        IPAddress LocalIP { set;  get; }
+    bool IsConnected { get; }
+    IPAddress LocalIp { set;  get; }
 
-        event TcpCommandCommunication.TCPDataReceivedReadyEventHandler DataReceivedReady;
-        event TcpCommandCommunication.IsConnectedChangedEventHandler IsConnectedChanged;
-
-        bool Connect(IPAddress radio_ip, bool setup_reply);
-        bool Connect(IPAddress radio_ip, int radioPort, int src_port = 0);
-        void Disconnect();
-        void Write(string msg);
-    }
+    event TcpCommandCommunication.TcpDataReceivedReadyEventHandler DataReceivedReady;
+    event TcpCommandCommunication.IsConnectedChangedEventHandler IsConnectedChanged;
+        
+    bool Connect(IPAddress radioIp, int radioPort = 4992, int srcPort = 0);
+    void Disconnect();
+    void Write(string msg);
 }

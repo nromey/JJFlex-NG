@@ -62,20 +62,35 @@ namespace Flex.Smoothlake.FlexLib
         public void Connect()
         {
             Debug.WriteLine($"Connecting to SmartLink on host {HostName}:{HostPort}");
-            if (_sslClient == null)
+            if (_sslClient != null)
             {
-                _sslClient = new SslClient(HostName, HostPort, src_port: 0, start_ping_thread: true, validate_cert: true);
-                if (!_sslClient.IsConnected)
-                {
-                    _sslClient = null;
-                    return; // to be handled by the reconnect
-                }
+                return;
+            }
+            
+            try
+            {
+                _sslClient = new SslClient(HostName, HostPort, srcPort: 0, startPingThread: true,
+                    validateCert: true);
+            }
+            catch (Exception)
+            {
+                return;
+            }
 
-                _sslClient.MessageReceivedReady += _sslClient_MessageReceivedReady;
-                _sslClient.Disconnected += _sslClient_Disconnected;
-                _sslClient.StartReceiving();                    
-                IsConnected = true;
-            }           
+            try
+            {
+                _sslClient.Connect().GetAwaiter().GetResult();
+            }
+            catch (Exception)
+            {
+                _sslClient = null;
+                return;
+            }
+
+            _sslClient.MessageReceivedReady += _sslClient_MessageReceivedReady;
+            _sslClient.Disconnected += _sslClient_Disconnected;
+                                   
+            IsConnected = true;
         }
 
         public void Disconnect()
@@ -90,7 +105,7 @@ namespace Flex.Smoothlake.FlexLib
             IsConnected = false;
         }
 
-        private void _sslClient_Disconnected(object sender, EventArgs e)
+        private void _sslClient_Disconnected(object sender, bool _)
         {
             Disconnect();      
         }
@@ -323,19 +338,6 @@ namespace Flex.Smoothlake.FlexLib
                      // if the NAT DOES NOT preserve ports then we can't do hole punch
                     requiresHolePunch = true;
                 }
-
-                // DIAGNOSTIC (JJ Flex): Log raw discovery fields to diagnose SmartLink
-                // hole-punch/UPnP connection failures. Read UPnP port fields unconditionally
-                // so we see what the radio reported even when upnpSupported parsed false.
-                keyValuePairs.TryGetValue("public_upnp_tls_port", out string diagUpnpTlsStr);
-                keyValuePairs.TryGetValue("public_upnp_udp_port", out string diagUpnpUdpStr);
-                Debug.WriteLine(
-                    $"WanServer.ParseRadioListMessage DIAG: serial={serial} " +
-                    $"upnp_supported='{upnpSupportedString}' " +
-                    $"public_tls_port='{publicTlsPortString}' public_udp_port='{publicUdpPortString}' " +
-                    $"public_upnp_tls_port='{diagUpnpTlsStr}' public_upnp_udp_port='{diagUpnpUdpStr}' " +
-                    $"-> publicTlsPortToUse={publicTlsPortToUse} publicUdpPortToUse={publicUdpPortToUse} " +
-                    $"isPortForwardOn={isPortForwardOn} requiresHolePunch={requiresHolePunch}");
 
                 // Get reference to radio from flexlib
                 // Add radioviewmodel, 
