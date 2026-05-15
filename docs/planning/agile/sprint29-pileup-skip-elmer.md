@@ -3,23 +3,85 @@ type: sprint plan
 sprint: 29
 target version: 4.2.0
 date authored: 2026-05-09
-status: DRAFT — for Noel review and sign-off before track spawning
+last synthesis: 2026-05-14
+status: ACTIVE — 8 tracks merged, 3 remaining (C/E/O), see §Status update 2026-05-14
 depends on:
-  - track/flexlib-42 (FlexLib 4.2.18 baseline)
-  - main HEAD post-foundation-drop (4.1.16.242)
-  - data.jjflexible.radio LIVE (Phase 0 B-E complete 2026-05-08)
-  - crashes.jjflexible.radio LIVE (Phase 0 F-G complete 2026-05-08)
-ship-gates closed by this sprint:
-  - "firmware can be safely copied to radios" (Phase D)
-  - "crash reporter is wired up" (DispatcherUnhandledException + bundle + POST)
-  - "update plan is operational" (app-updater with channels)
+  - track/flexlib-42 (FlexLib 4.2.18 baseline) — MERGED to main 2026-05-14
+  - main HEAD post-foundation-drop (4.1.16.242) — DONE
+  - data.jjflexible.radio LIVE (Phase 0 B-E complete 2026-05-08) — LIVE
+  - crashes.jjflexible.radio LIVE (Phase 0 F-G complete 2026-05-08) — LIVE
+release gate (per 2026-05-14 bundle-vs-release distinction):
+  - "firmware can be safely copied to radios" (Phase D / Track E) — REMAINING, critical-path for public release
+ship-gates downgraded to "must work, not perfect" per 2026-05-14:
+  - "crash reporter is wired up" (Track C) — REMAINING, doesn't gate release alone
+  - "update plan is operational" (Track D) — MERGED, app-updater functional on main
 out of scope (Sprint 30+):
   - Waterfall (post-foundation flagship)
   - Customize Home (4.2.1 release-headline)
-  - Hamlib / multi-radio (track/multi-radio)
+  - Hamlib / multi-radio / TS-590 (track/multi-radio) — DEMAND SIGNAL we're building infrastructure FOR; see memory/project_soft_launch_strategy.md
   - BrailleElement primitive v1 (track/braille-research)
-  - Verbosity channels architectural redesign
+  - Verbosity channels — full architectural redesign (Sprint 30+); scaffolding NOW (Track O, 2026-05-14 authorization)
 ---
+
+## Status update 2026-05-14
+
+This is the synthesis pass after track/flexlib-42 merged to main. The original plan below remains the canonical record of intent at time of authoring; this section is the current-state overlay.
+
+**Strategic frame** (per `memory/project_soft_launch_strategy.md`, 2026-05-14): 4.2.0 is a soft launch, slow and deliberate. The audience-scaling event is Sprint 30 (Hamlib/TS-590), not 4.2.0. Sprint 29 builds the SUPPORT INFRASTRUCTURE (crash bundles + updater + firmware updater) so that when "tens to hundreds" of blind operators arrive on JJ Flexible via Kenwood, the support load doesn't crater the project. Don't rush 4.2.0 release; let foundation prove out on small tester pool first.
+
+**Bundle vs release distinction** (per `memory/project_main_branch_41_posture.md` updated 2026-05-14):
+- **Bundle** (merge to main, build installer, nightly Debug to testers) = OK to do freely; happening now.
+- **Internal release** (tag + broader tester pool) = no formal gate.
+- **Public 4.2.0 release** (GitHub Release + jjflexible.radio) = single gate, firmware-upload-works end-to-end.
+
+### Items status
+
+| # | Item | Track | Status |
+|---|------|-------|--------|
+| 1 | Trace persistence | A | ✅ MERGED |
+| 2 | Short Action Labels vocab | A | ✅ MERGED |
+| 3 | Cascade Phase 1 (Rungs 1a/1b/1c/1.5a) | B | ✅ MERGED (via track/flexlib-42 2026-05-14) |
+| 4 | Cascade Phase 2 (Rung 1.7 + Rung 4) | B | ✅ MERGED (via track/flexlib-42 2026-05-14) |
+| 5 | Cascade Phase 3 NetworkChangeWatchdog | L | ✅ MERGED (via track/flexlib-42 2026-05-14) |
+| 5b | Cascade Rungs 5/6 (subnet probe + manual fallback) | — | ⏭️ SLIPPED to 4.2.x — not gating release, benefits from real-world rung-failure data from 4.2.0 testers |
+| 6 | App-updater + channels | D | ✅ MERGED (with helper M + manifest tooling N) |
+| 7 | Crash reporter / feedback bundle | **C** | ❌ NOT STARTED — bundle pipeline gating Sprint 30 audience scale per `project_soft_launch_strategy.md` |
+| 8 | Firmware update Phase D | **E** | ❌ NOT STARTED — critical-path for 4.2.0 public release |
+| 9 | Diagnostics + Updates settings tabs | Phase 4 | ⚠️ PARTIAL — Trace Archive Browser tab landed (H); cross-feature consolidation TBD |
+| 10 | Tuning unity | F | ✅ MERGED |
+| 11 | RIT/XIT scale-adjust | F | ✅ MERGED |
+| 12 | Stuck-connecting modal escape | G | ✅ MERGED |
+| 13 | **Verbosity channel scaffolding** (NEW 2026-05-14) | **O** | ❌ NOT STARTED — HOLD lifted today; scaffold only, full design Sprint 30+ |
+
+### Remaining tracks for spawn
+
+**Track C — Crash reporter / feedback bundle pipeline.** Per `memory/project_user_initiated_feedback_session.md` + `memory/project_crash_triage_bundle_flow.md`. Schema choices matter MORE knowing the pipeline scales to "tens to hundreds" of bundles when Sprint 30 audience arrives. Lock schema deliberately during build; trust-the-build but build-deliberately. Independent of all other tracks.
+
+**Track E — Firmware update Phase D.** Per `memory/project_firmware_update_transport_protocol.md`. JJF needs no crypto; fetch versioned `.ssdr` from data.jjflexible.radio, FlexLib's `SendUpdateFile` path uploads to radio. Depends on Track D (already merged). Pre-spawn checklist: stage `.ssdr` firmware on R2 (data.jjflexible.radio); decide which firmware versions to host first; capture Don's pre-upgrade trace + current `.ssdr` archive before he tests this on his 6300.
+
+**Track O — Verbosity channel scaffolding (NEW).** Per `memory/project_verbosity_architecture_proposal.md`. Scaffold the speech / CW / future-braille channels as independent infrastructure with shared verbosity ladder. NOT the full Sprint 30+ design (per-channel verbosity, "Critical only" rename, primary-channel preference) — just the channel separation primitive that future work composes against. Quality-of-life groundwork.
+
+### Open questions — now resolved
+
+1. ~~Channel naming user-facing~~ → `stable / beta / nightly` confirmed (Track D already shipped with this).
+2. ~~First-time-nightly consent text~~ → "you may need to pick up the pieces" direct framing (Track D shipped with this).
+3. **Test pass for Phase D firmware update.** Still open — capture Don's pre-upgrade traces + .ssdr archive before doing the upgrade. This becomes part of Track E's tester runbook, not a pre-spawn blocker.
+4. ~~Bundle format binding~~ → trust the build per 2026-05-14. Lock schema during Track C; don't pre-plan it.
+5. ~~Trusted Signing dependency~~ → app-updater shipped with stubbed verification acceptable; lift stub when Trusted Signing operational.
+
+### Pre-spawn infrastructure prep (Track E)
+
+Before Track E spawns, the firmware artifacts need to be on R2:
+- Decide which firmware versions ship from data.jjflexible.radio (FLEX-6000 series ranges + FLEX-8000 series ranges).
+- Stage `.ssdr` files in the appropriate R2 bucket layout.
+- Update the GitHub Action sync from `nromey/jjf-data` if firmware lives there too.
+- Validate `data.jjflexible.radio/firmware/<model>/<version>.ssdr` resolves correctly.
+
+This is a separate infrastructure task that runs alongside Track E build, not a pre-spawn blocker.
+
+---
+
+## Original plan (2026-05-09, intent at authoring time)
 
 # Sprint 29 — Pileup Skip Elmer
 
