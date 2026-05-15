@@ -44,15 +44,16 @@ namespace Flex.Smoothlake.FlexLib
         private int _sampleRate;
         public int SampleRate
         {
-            get => _sampleRate;
+            get { return _sampleRate; }
             set
             {
-                if (_sampleRate == value) 
-                    return;
-                
-                _sampleRate = value;
-                _radio?.SendCommand("stream set 0x" + _streamId.ToString("X") + " daxiq_rate=" + _sampleRate);
-                RaisePropertyChanged(nameof(SampleRate));
+                if (_sampleRate != value)
+                {
+                    _sampleRate = value;
+                    if (_radio != null)
+                        _radio.SendCommand("stream set 0x" + _streamId.ToString("X") + " daxiq_rate=" + _sampleRate);
+                    RaisePropertyChanged(()=>SampleRate);
+                }
             }
         }
 
@@ -77,7 +78,6 @@ namespace Flex.Smoothlake.FlexLib
         public void Close()
         {
             _closing = true;
-            StopStats();
             Debug.WriteLine("DAXIQStream::Close (0x" + _streamId.ToString("X") + ")");
             _radio.SendCommand("stream remove 0x" + _streamId.ToString("X"));
             _radio.RemoveDAXIQStream(_streamId);
@@ -124,11 +124,8 @@ namespace Flex.Smoothlake.FlexLib
 
                             if (!b) continue;
 
-                            if (_clientHandle != temp)
-                            {
-                                _clientHandle = temp;
-                                RaisePropertyChanged("ClientHandle");
-                            }
+                            _clientHandle = temp;
+                            RaisePropertyChanged("ClientHandle");
 
                             if (!_radioAck)
                                 set_radio_ack = true;
@@ -154,17 +151,17 @@ namespace Flex.Smoothlake.FlexLib
 
                     case "daxiq_rate":
                         {
-                            if (!int.TryParse(value, out var temp))
+                            int temp;
+                            bool b = int.TryParse(value, out temp);
+
+                            if (!b)
                             {
-                                Debug.WriteLine($"DAXIQStream::StatusUpdate: Invalid value ({kv})");
+                                Debug.WriteLine("DAXIQStream::StatusUpdate: Invalid value (" + kv + ")");
                                 continue;
                             }
 
-                            if (_sampleRate != temp)
-                            {
-                                _sampleRate = temp;
-                                RaisePropertyChanged(nameof(SampleRate));
-                            }
+                            _sampleRate = temp;
+                            RaisePropertyChanged("SampleRate");
                         }
                         break;
 
@@ -198,8 +195,7 @@ namespace Flex.Smoothlake.FlexLib
                 RadioAck = true;
                 _radio.OnDAXIQStreamAdded(this);
 
-                if (_statsTimer is not null)
-                    _statsTimer.Enabled = true;
+                _statsTimer.Enabled = true;
             }
         }
     }

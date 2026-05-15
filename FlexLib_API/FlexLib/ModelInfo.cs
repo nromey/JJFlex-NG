@@ -42,14 +42,13 @@ namespace Flex.Smoothlake.FlexLib
         public bool HasTransmitter { get; init; }
         public string ImageSource { get; init; }
         public int MaxDaxIqChannels { get; init; }
-        
-        public ImmutableList<int> DaxIqSampleRates { get; init; }
         public ImmutableList<string> SliceList { get; init; }
         
         public bool HasOverlordPa { get; init; }
         public ModemSupport SupportsRapidMModem { get; init; }
         public ImmutableList<ModemConfigurationType> SupportedRapidMModemConfigTypes { get; init; }
 
+        public bool HasTxAmplifier { get; init; }
 
         private ModelInfo()
         {
@@ -80,11 +79,11 @@ namespace Flex.Smoothlake.FlexLib
                     Has2Meters = false,
                     MaxDaxIqChannels = 2,
                     HasOverlordPa = false,
+                    HasTxAmplifier = false,
                     SupportsRapidMModem = ModemSupport.NotSupported,
                     SupportedRapidMModemConfigTypes = new List<ModemConfigurationType> {}.ToImmutableList(),
                     ImageSource = "pack://application:,,,/FlexLib;component/Images/6300-small.png",
-                    SliceList = new List<string> {"A", "B"}.ToImmutableList(),
-                    DaxIqSampleRates = ImmutableList<int>.Empty
+                    SliceList = new List<string> {"A", "B"}.ToImmutableList()
                 }
             },
             {
@@ -103,11 +102,11 @@ namespace Flex.Smoothlake.FlexLib
                     Has2Meters = false,
                     MaxDaxIqChannels = 2,
                     HasOverlordPa = false,
+                    HasTxAmplifier = false,
                     SupportsRapidMModem = ModemSupport.NotSupported,
                     SupportedRapidMModemConfigTypes = new List<ModemConfigurationType> {}.ToImmutableList(),
                     ImageSource = "pack://application:,,,/FlexLib;component/Images/6300-small.png",
-                    SliceList = new List<string> {"A", "B"}.ToImmutableList(),
-                    DaxIqSampleRates = new List<int> {24000, 48000, 96000}.ToImmutableList()
+                    SliceList = new List<string> {"A", "B"}.ToImmutableList()
                 }
             },
             {
@@ -126,11 +125,11 @@ namespace Flex.Smoothlake.FlexLib
                     Has2Meters = false,
                     MaxDaxIqChannels = 2,
                     HasOverlordPa = false,
+                    HasTxAmplifier = false,
                     SupportsRapidMModem = ModemSupport.NotSupported,
                     SupportedRapidMModemConfigTypes = new List<ModemConfigurationType> {}.ToImmutableList(),
                     ImageSource = "pack://application:,,,/FlexLib;component/Images/6600.png",
-                    SliceList = new List<string> {"A", "B"}.ToImmutableList(),
-                    DaxIqSampleRates = new List<int> {24000, 48000, 96000}.ToImmutableList()
+                    SliceList = new List<string> {"A", "B"}.ToImmutableList()
                 }
             },
             {
@@ -148,11 +147,11 @@ namespace Flex.Smoothlake.FlexLib
                     Has2Meters = false,
                     MaxDaxIqChannels = 2,
                     HasOverlordPa = false,
+                    HasTxAmplifier = false,
                     SupportsRapidMModem = ModemSupport.NotSupported,
                     SupportedRapidMModemConfigTypes = new List<ModemConfigurationType> {}.ToImmutableList(),
                     ImageSource = "pack://application:,,,/FlexLib;component/Images/6600M.png",
-                    SliceList = new List<string> {"A", "B"}.ToImmutableList(),
-                    DaxIqSampleRates = new List<int> {24000, 48000, 96000}.ToImmutableList()
+                    SliceList = new List<string> {"A", "B"}.ToImmutableList()
                 }
             },
             {
@@ -171,11 +170,11 @@ namespace Flex.Smoothlake.FlexLib
                     Has2Meters = false,
                     MaxDaxIqChannels = 4,
                     HasOverlordPa = false,
+                    HasTxAmplifier = false,
                     SupportsRapidMModem = ModemSupport.NotSupported,
                     SupportedRapidMModemConfigTypes = new List<ModemConfigurationType> {}.ToImmutableList(),
                     ImageSource = "pack://application:,,,/FlexLib;component/Images/6000-Cutout.png",
-                    SliceList = new List<string> {"A", "B", "C", "D"}.ToImmutableList(),
-                    DaxIqSampleRates = new List<int> {24000, 48000, 96000, 192000}.ToImmutableList()
+                    SliceList = new List<string> {"A", "B", "C", "D"}.ToImmutableList()
                 }
             },
             {
@@ -194,11 +193,11 @@ namespace Flex.Smoothlake.FlexLib
                     Has2Meters = false,
                     MaxDaxIqChannels = 4,
                     HasOverlordPa = false,
+                    HasTxAmplifier = false,
                     SupportsRapidMModem = ModemSupport.NotSupported,
                     SupportedRapidMModemConfigTypes = new List<ModemConfigurationType> {}.ToImmutableList(),
                     ImageSource = "pack://application:,,,/FlexLib;component/Images/6600.png",
-                    SliceList = new List<string> {"A", "B", "C", "D"}.ToImmutableList(),
-                    DaxIqSampleRates = new List<int> {24000, 48000, 96000, 192000}.ToImmutableList()
+                    SliceList = new List<string> {"A", "B", "C", "D"}.ToImmutableList()
                 }
             },
             {
@@ -217,11 +216,11 @@ namespace Flex.Smoothlake.FlexLib
                     Has2Meters = false,
                     MaxDaxIqChannels = 4,
                     HasOverlordPa = false,
+                    HasTxAmplifier = false,
                     SupportsRapidMModem = ModemSupport.NotSupported,
                     SupportedRapidMModemConfigTypes = new List<ModemConfigurationType> {}.ToImmutableList(),
                     ImageSource = "pack://application:,,,/FlexLib;component/Images/6600M.png",
-                    SliceList = new List<string> {"A", "B", "C", "D"}.ToImmutableList(),
-                    DaxIqSampleRates = new List<int> {24000, 48000, 96000, 192000}.ToImmutableList()
+                    SliceList = new List<string> {"A", "B", "C", "D"}.ToImmutableList()
                 }
             },
             {
@@ -240,11 +239,11 @@ namespace Flex.Smoothlake.FlexLib
                     Has2Meters = true,
                     MaxDaxIqChannels = 4,
                     HasOverlordPa = false,
+                    HasTxAmplifier = false,
                     SupportsRapidMModem = ModemSupport.NotSupported,
                     SupportedRapidMModemConfigTypes = new List<ModemConfigurationType> {}.ToImmutableList(),
                     ImageSource = "pack://application:,,,/FlexLib;component/Images/6000-Cutout.png",
-                    SliceList = new List<string> {"A", "B", "C", "D", "E", "F", "G", "H"}.ToImmutableList(),
-                    DaxIqSampleRates = new List<int> {24000, 48000, 96000, 192000}.ToImmutableList()
+                    SliceList = new List<string> {"A", "B", "C", "D", "E", "F", "G", "H"}.ToImmutableList()
                 }
             },
             {
@@ -263,11 +262,11 @@ namespace Flex.Smoothlake.FlexLib
                     Has2Meters = false,
                     MaxDaxIqChannels = 4,
                     HasOverlordPa = false,
+                    HasTxAmplifier = false,
                     SupportsRapidMModem = ModemSupport.NotSupported,
                     SupportedRapidMModemConfigTypes = new List<ModemConfigurationType> {}.ToImmutableList(),
                     ImageSource = "pack://application:,,,/FlexLib;component/Images/6000-Cutout.png",
-                    SliceList = new List<string> {"A", "B", "C", "D", "E", "F", "G", "H"}.ToImmutableList(),
-                    DaxIqSampleRates = new List<int> {24000, 48000, 96000, 192000}.ToImmutableList()
+                    SliceList = new List<string> {"A", "B", "C", "D", "E", "F", "G", "H"}.ToImmutableList()
                 }
             },
             {
@@ -286,13 +285,13 @@ namespace Flex.Smoothlake.FlexLib
                     Has2Meters = false,
                     MaxDaxIqChannels = 2,
                     HasOverlordPa = false,
+                    HasTxAmplifier = false,
                     SupportsRapidMModem = ModemSupport.SupportedDevOnly,
                     SupportedRapidMModemConfigTypes = new List<ModemConfigurationType> {ModemConfigurationType.SingleModem,
                                                                                         ModemConfigurationType.DualModemCopro,
                                                                                         ModemConfigurationType.DualModemIndependent}.ToImmutableList(),
                     ImageSource = "pack://application:,,,/FlexLib;component/Images/6600.png",
-                    SliceList = new List<string> {"A", "B"}.ToImmutableList(),
-                    DaxIqSampleRates = new List<int> {24000, 48000, 96000}.ToImmutableList()
+                    SliceList = new List<string> {"A", "B"}.ToImmutableList()
                 }
             },
             {
@@ -311,13 +310,13 @@ namespace Flex.Smoothlake.FlexLib
                     Has2Meters = false,
                     MaxDaxIqChannels = 2,
                     HasOverlordPa = false,
+                    HasTxAmplifier = false,
                     SupportsRapidMModem = ModemSupport.SupportedDevOnly,
                     SupportedRapidMModemConfigTypes = new List<ModemConfigurationType> {ModemConfigurationType.SingleModem,
                                                                                         ModemConfigurationType.DualModemCopro,
                                                                                         ModemConfigurationType.DualModemIndependent}.ToImmutableList(),
                     ImageSource = "pack://application:,,,/FlexLib;component/Images/6600M.png",
-                    SliceList = new List<string> {"A", "B"}.ToImmutableList(),
-                    DaxIqSampleRates = new List<int> {24000, 48000, 96000}.ToImmutableList()
+                    SliceList = new List<string> {"A", "B"}.ToImmutableList()
                 }
             },
             {
@@ -336,13 +335,13 @@ namespace Flex.Smoothlake.FlexLib
                     Has2Meters = false,
                     MaxDaxIqChannels = 4,
                     HasOverlordPa = false,
+                    HasTxAmplifier = false,
                     SupportsRapidMModem = ModemSupport.SupportedDevOnly,
                     SupportedRapidMModemConfigTypes = new List<ModemConfigurationType> {ModemConfigurationType.SingleModem,
                                                                                         ModemConfigurationType.DualModemCopro,
                                                                                         ModemConfigurationType.DualModemIndependent}.ToImmutableList(),
                     ImageSource = "pack://application:,,,/FlexLib;component/Images/6600.png",
-                    SliceList = new List<string> {"A", "B", "C", "D"}.ToImmutableList(),
-                    DaxIqSampleRates = new List<int> {24000, 48000, 96000, 192000}.ToImmutableList()
+                    SliceList = new List<string> {"A", "B", "C", "D"}.ToImmutableList()
                 }
             },
             {
@@ -361,13 +360,13 @@ namespace Flex.Smoothlake.FlexLib
                     Has2Meters = false,
                     MaxDaxIqChannels = 4,
                     HasOverlordPa = false,
+                    HasTxAmplifier = false,
                     SupportsRapidMModem = ModemSupport.SupportedDevOnly,
                     SupportedRapidMModemConfigTypes = new List<ModemConfigurationType> {ModemConfigurationType.SingleModem,
                                                                                         ModemConfigurationType.DualModemCopro,
                                                                                         ModemConfigurationType.DualModemIndependent}.ToImmutableList(),
                     ImageSource = "pack://application:,,,/FlexLib;component/Images/6600M.png",
-                    SliceList = new List<string> {"A", "B", "C", "D"}.ToImmutableList(),
-                    DaxIqSampleRates = new List<int> {24000, 48000, 96000, 192000}.ToImmutableList()
+                    SliceList = new List<string> {"A", "B", "C", "D"}.ToImmutableList()
                 }
             },
             {
@@ -386,13 +385,13 @@ namespace Flex.Smoothlake.FlexLib
                     Has2Meters = false,
                     MaxDaxIqChannels = 4,
                     HasOverlordPa = false,
+                    HasTxAmplifier = false,
                     SupportsRapidMModem = ModemSupport.Supported,
                     SupportedRapidMModemConfigTypes = new List<ModemConfigurationType> {ModemConfigurationType.SingleModem,
                                                                                         ModemConfigurationType.DualModemCopro,
                                                                                         ModemConfigurationType.DualModemIndependent}.ToImmutableList(),
                     ImageSource = "pack://application:,,,/FlexLib;component/Images/6600.png",
-                    SliceList = new List<string> {"A", "B", "C", "D"}.ToImmutableList(),
-                    DaxIqSampleRates = new List<int> {24000, 48000, 96000, 192000}.ToImmutableList()
+                    SliceList = new List<string> {"A", "B", "C", "D"}.ToImmutableList()
                 }
             },
             {
@@ -411,13 +410,13 @@ namespace Flex.Smoothlake.FlexLib
                     Has2Meters = false,
                     MaxDaxIqChannels = 4,
                     HasOverlordPa = false,
+                    HasTxAmplifier = false,
                     SupportsRapidMModem = ModemSupport.Supported,
                     SupportedRapidMModemConfigTypes = new List<ModemConfigurationType> {ModemConfigurationType.SingleModem,
                                                                                         ModemConfigurationType.DualModemCopro,
                                                                                         ModemConfigurationType.DualModemIndependent}.ToImmutableList(),
                     ImageSource = "pack://application:,,,/FlexLib;component/Images/6600.png",
-                    SliceList = new List<string> {"A", "B", "C", "D"}.ToImmutableList(),
-                    DaxIqSampleRates = new List<int> {24000, 48000, 96000, 192000}.ToImmutableList()
+                    SliceList = new List<string> {"A", "B", "C", "D"}.ToImmutableList()
                 }
             },
             {
@@ -436,13 +435,13 @@ namespace Flex.Smoothlake.FlexLib
                     Has2Meters = false,
                     MaxDaxIqChannels = 4,
                     HasOverlordPa = false,
+                    HasTxAmplifier = false,
                     SupportsRapidMModem = ModemSupport.Supported,
                     SupportedRapidMModemConfigTypes = new List<ModemConfigurationType> {ModemConfigurationType.SingleModem,
                                                                                         ModemConfigurationType.DualModemCopro,
                                                                                         ModemConfigurationType.DualModemIndependent}.ToImmutableList(),
                     ImageSource = "pack://application:,,,/FlexLib;component/Images/6600.png",
-                    SliceList = new List<string> {"A", "B", "C", "D"}.ToImmutableList(),
-                    DaxIqSampleRates = new List<int> {24000, 48000, 96000, 192000}.ToImmutableList()
+                    SliceList = new List<string> {"A", "B", "C", "D"}.ToImmutableList()
                 }
             },
             {
@@ -461,13 +460,13 @@ namespace Flex.Smoothlake.FlexLib
                     Has2Meters = false,
                     MaxDaxIqChannels = 4,
                     HasOverlordPa = false,
+                    HasTxAmplifier = true,
                     SupportsRapidMModem = ModemSupport.Supported,
                     SupportedRapidMModemConfigTypes = new List<ModemConfigurationType> {ModemConfigurationType.SingleModem,
                                                                                         ModemConfigurationType.DualModemCopro,
                                                                                         ModemConfigurationType.DualModemIndependent}.ToImmutableList(),
                     ImageSource = "pack://application:,,,/FlexLib;component/Images/6600.png",
-                    SliceList = new List<string> {"A", "B", "C", "D"}.ToImmutableList(),
-                    DaxIqSampleRates = new List<int> {24000, 48000, 96000, 192000}.ToImmutableList()
+                    SliceList = new List<string> {"A", "B", "C", "D"}.ToImmutableList()
                 }
             },
             {
@@ -486,13 +485,13 @@ namespace Flex.Smoothlake.FlexLib
                     Has2Meters = false,
                     MaxDaxIqChannels = 4,
                     HasOverlordPa = false,
+                    HasTxAmplifier = false,
                     SupportsRapidMModem = ModemSupport.SupportedDevOnly,
                     SupportedRapidMModemConfigTypes = new List<ModemConfigurationType> {ModemConfigurationType.SingleModem,
                                                                                         ModemConfigurationType.DualModemCopro,
                                                                                         ModemConfigurationType.DualModemIndependent}.ToImmutableList(),
                     ImageSource = "pack://application:,,,/FlexLib;component/Images/6600.png",
-                    SliceList = new List<string> {"A", "B", "C", "D"}.ToImmutableList(),
-                    DaxIqSampleRates = new List<int> {24000, 48000, 96000, 192000}.ToImmutableList()
+                    SliceList = new List<string> {"A", "B", "C", "D"}.ToImmutableList()
                 }
             },
             {
@@ -511,13 +510,13 @@ namespace Flex.Smoothlake.FlexLib
                     Has2Meters = false,
                     MaxDaxIqChannels = 4,
                     HasOverlordPa = false,
+                    HasTxAmplifier = true,
                     SupportsRapidMModem = ModemSupport.SupportedDevOnly,
                     SupportedRapidMModemConfigTypes = new List<ModemConfigurationType> {ModemConfigurationType.SingleModem,
                                                                                         ModemConfigurationType.DualModemCopro,
                                                                                         ModemConfigurationType.DualModemIndependent}.ToImmutableList(),
                     ImageSource = "pack://application:,,,/FlexLib;component/Images/6600.png",
-                    SliceList = new List<string> {"A", "B", "C", "D"}.ToImmutableList(),
-                    DaxIqSampleRates = new List<int> {24000, 48000, 96000, 192000}.ToImmutableList()
+                    SliceList = new List<string> {"A", "B", "C", "D"}.ToImmutableList()
                 }
             },
             {
@@ -536,12 +535,12 @@ namespace Flex.Smoothlake.FlexLib
                     Has2Meters = false,
                     MaxDaxIqChannels = 2,
                     HasOverlordPa = false,
+                    HasTxAmplifier = false,
                     SupportsRapidMModem = ModemSupport.Supported,
                     SupportedRapidMModemConfigTypes = new List<ModemConfigurationType> {ModemConfigurationType.SingleModem,
                                                                                         ModemConfigurationType.DualModemCopro}.ToImmutableList(),
                     ImageSource = "pack://application:,,,/FlexLib;component/Images/6400.png",
-                    SliceList = new List<string> {"A", "B"}.ToImmutableList(),
-                    DaxIqSampleRates = new List<int> {24000, 48000, 96000, 192000}.ToImmutableList()
+                    SliceList = new List<string> {"A", "B"}.ToImmutableList()
                 }
             },
             {
@@ -560,13 +559,13 @@ namespace Flex.Smoothlake.FlexLib
                     Has2Meters = false,
                     MaxDaxIqChannels = 2,
                     HasOverlordPa = true,
+                    HasTxAmplifier = false,
                     SupportsRapidMModem = ModemSupport.SupportedDevOnly,
                     SupportedRapidMModemConfigTypes = new List<ModemConfigurationType> {ModemConfigurationType.SingleModem,
                                                                                         ModemConfigurationType.DualModemCopro,
                                                                                         ModemConfigurationType.DualModemIndependent}.ToImmutableList(),
                     ImageSource = "pack://application:,,,/FlexLib;component/Images/A520.png",
-                    SliceList = new List<string> {"A", "B"}.ToImmutableList(),
-                    DaxIqSampleRates = new List<int> {24000, 48000, 96000}.ToImmutableList()
+                    SliceList = new List<string> {"A", "B"}.ToImmutableList()
                 }
             },
             {
@@ -585,13 +584,13 @@ namespace Flex.Smoothlake.FlexLib
                     Has2Meters = false,
                     MaxDaxIqChannels = 2,
                     HasOverlordPa = true,
+                    HasTxAmplifier = false,
                     SupportsRapidMModem = ModemSupport.SupportedDevOnly,
                     SupportedRapidMModemConfigTypes = new List<ModemConfigurationType> {ModemConfigurationType.SingleModem,
                                                                                         ModemConfigurationType.DualModemCopro,
                                                                                         ModemConfigurationType.DualModemIndependent}.ToImmutableList(),
                     ImageSource = "pack://application:,,,/FlexLib;component/Images/A520M.png",
-                    SliceList = new List<string> {"A", "B"}.ToImmutableList(),
-                    DaxIqSampleRates = new List<int> {24000, 48000, 96000}.ToImmutableList()
+                    SliceList = new List<string> {"A", "B"}.ToImmutableList()
                 }
             },
             {
@@ -610,13 +609,13 @@ namespace Flex.Smoothlake.FlexLib
                     Has2Meters = false,
                     MaxDaxIqChannels = 4,
                     HasOverlordPa = true,
+                    HasTxAmplifier = false,
                     SupportsRapidMModem = ModemSupport.SupportedDevOnly,
                     SupportedRapidMModemConfigTypes = new List<ModemConfigurationType> {ModemConfigurationType.SingleModem,
                                                                                         ModemConfigurationType.DualModemCopro,
                                                                                         ModemConfigurationType.DualModemIndependent}.ToImmutableList(),
                     ImageSource = "pack://application:,,,/FlexLib;component/Images/A520.png",
-                    SliceList = new List<string> {"A", "B", "C", "D"}.ToImmutableList(),
-                    DaxIqSampleRates = new List<int> {24000, 48000, 96000, 192000}.ToImmutableList()
+                    SliceList = new List<string> {"A", "B", "C", "D"}.ToImmutableList()
                 }
             },
             {
@@ -635,13 +634,13 @@ namespace Flex.Smoothlake.FlexLib
                     Has2Meters = false,
                     MaxDaxIqChannels = 4,
                     HasOverlordPa = true,
+                    HasTxAmplifier = false,
                     SupportsRapidMModem = ModemSupport.SupportedDevOnly,
                     SupportedRapidMModemConfigTypes = new List<ModemConfigurationType> {ModemConfigurationType.SingleModem,
                                                                                         ModemConfigurationType.DualModemCopro,
                                                                                         ModemConfigurationType.DualModemIndependent}.ToImmutableList(),
                     ImageSource = "pack://application:,,,/FlexLib;component/Images/A520M.png",
-                    SliceList = new List<string> {"A", "B", "C", "D"}.ToImmutableList(),
-                    DaxIqSampleRates = new List<int> {24000, 48000, 96000, 192000}.ToImmutableList()
+                    SliceList = new List<string> {"A", "B", "C", "D"}.ToImmutableList()
                 }
             }
             

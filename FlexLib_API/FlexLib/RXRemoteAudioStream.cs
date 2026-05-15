@@ -36,7 +36,6 @@ namespace Flex.Smoothlake.FlexLib
         public void Close()
         {
             Debug.WriteLine("RXREmoteAudioStream::Close (0x" + _streamId.ToString("X") + ")");
-            StopStats();
             _radio.RemoveRXRemoteAudioStream(_streamId);
         }
 
@@ -162,8 +161,7 @@ namespace Flex.Smoothlake.FlexLib
                 RadioAck = true;
                 _radio.OnRXRemoteAudioStreamAdded(this);
 
-                if (_statsTimer is not null)
-                    _statsTimer.Enabled = true;
+                _statsTimer.Enabled = true;
             }
         }
     }

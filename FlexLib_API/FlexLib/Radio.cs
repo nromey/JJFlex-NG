@@ -1,4 +1,4 @@
-// ****************************************************************************
+﻿// ****************************************************************************
 ///*!	\file Radio.cs
 // *	\brief Represents a single radio
 // *
@@ -33,10 +33,7 @@ using System.Net.Sockets;
 using System.Text;
 using System.Threading;     // for AutoResetEvent
 using System.Threading.Tasks;
-using System.Threading.Tasks.Dataflow;
 using System.Timers;
-using Vita;
-using AsyncAwaitBestPractices;
 
 namespace Flex.Smoothlake.FlexLib
 {
@@ -215,9 +212,7 @@ namespace Flex.Smoothlake.FlexLib
         private ConcurrentQueue<VitaMeterPacket> meterQueue = new ConcurrentQueue<VitaMeterPacket>();
         private AutoResetEvent _semNewMeterPacket = new AutoResetEvent(false);
         private AutoResetEvent _semNewFFTPacket = new AutoResetEvent(false);
-
-        private ActionBlock<UdpVitaPacket> _udpPacketPipeline;
-        private readonly ConcurrentDictionary<uint, ActionBlock<(byte[] Data, int Bytes)>> _streamWorkers = new();
+        //private AutoResetEvent _semNewReadBuffer = new AutoResetEvent(false);
 
         private NetCWStream _netCWStream;
         public NetCWStream netCWStream
@@ -265,19 +260,6 @@ namespace Flex.Smoothlake.FlexLib
         private List<Meter> _meters;
         private List<Equalizer> _equalizers;
         private List<DAXRXAudioStream> _daxRXAudioStream;
-
-        /// <summary>
-        /// A List of DAX RX Audio Streams present in this Radio instance
-        /// </summary>
-        public List<DAXRXAudioStream> DAXRXAudioStreamList
-        {
-            get
-            {
-                lock (_daxRXAudioStream)
-                    return _daxRXAudioStream.ToList();
-            }
-        }
-
         private List<DAXTXAudioStream> _daxTXAudioStreams;
         private List<DAXMICAudioStream> _daxMicAudioStreams;
         private List<TXRemoteAudioStream> _txRemoteAudioStream;
@@ -299,16 +281,6 @@ namespace Flex.Smoothlake.FlexLib
             {
                 lock (_tnfs)
                     return _tnfs;
-            }
-        }
-        private List<DisplayMarker> _displayMarkers;
-        public readonly object DisplayMarkersLockObj = new object();
-        public List<DisplayMarker> DisplayMarkers
-        {
-            get
-            {
-                lock (DisplayMarkersLockObj)
-                    return _displayMarkers;
             }
         }
         private List<Spot> _spots;
@@ -457,9 +429,6 @@ namespace Flex.Smoothlake.FlexLib
                 }
             }
         }
-
-        private NAVTEX _navtex;
-        public NAVTEX NAVTEX => _navtex;
 
 #if TIMING
         private Hashtable cmd_time_table;
@@ -662,6 +631,8 @@ namespace Flex.Smoothlake.FlexLib
 
         public bool IsOverlord => ModelInfo.GetModelInfoForModel(Model).HasOverlordPa;
 
+        public bool IsTxAmpModel => ModelInfo.GetModelInfoForModel(Model).HasTxAmplifier;
+
         private string _serial;
         /// <summary>
         /// The serial number of the radio, including dashes
@@ -676,35 +647,6 @@ namespace Flex.Smoothlake.FlexLib
 
                 _serial = value;
                 RaisePropertyChanged(nameof(Serial));
-            }
-        }
-
-        private bool _isSystemModel;
-        public bool IsSystemModel
-        {
-            get => _isSystemModel;
-            set
-            {
-                if (_isSystemModel == value) return;
-                _isSystemModel = value;
-                RaisePropertyChanged(nameof(IsSystemModel));
-            }
-        }
-
-        private string _turfRegion;
-        /// <summary>
-        /// The turf region string copied to clipboard from radio chooser list
-        /// </summary>
-        public string TurfRegion
-        {
-            get => _turfRegion;
-            set
-            {
-                string newValue = StringHelper.Sanitize(value);
-                if (_turfRegion == newValue) return;
-
-                _turfRegion = newValue;
-                RaisePropertyChanged(nameof(TurfRegion));
             }
         }
 
@@ -736,14 +678,11 @@ namespace Flex.Smoothlake.FlexLib
         private int _publicUdpPort;
         public int PublicUdpPort
         {
-            get => IsWan ? _publicUdpPort : 4991;
+            get { return _publicUdpPort; }
             set
             {
-                if (value == _publicUdpPort)
-                    return;
-                
                 _publicUdpPort = value;
-                RaisePropertyChanged(nameof(PublicUdpPort));
+                RaisePropertyChanged("PublicUdpPort");
             }
         }
 
@@ -864,7 +803,7 @@ namespace Flex.Smoothlake.FlexLib
                 _ignoreConnectedEvents = true;
 
                 // connect to the radio using a TCP connection
-                _commandCommunication.Connect(_ip);
+                _commandCommunication.Connect(_ip, setup_reply: true);
             }
 
             WanOwnerHandshakeStatus = WanRadioRegistrationState.WaitingOnSmartLinkConnection;
@@ -889,7 +828,7 @@ namespace Flex.Smoothlake.FlexLib
                 _ignoreConnectedEvents = true;
 
                 // connect to the radio using a TCP connection
-                _commandCommunication.Connect(_ip);
+                _commandCommunication.Connect(_ip, setup_reply: true);
             }
 
             WanOwnerHandshakeStatus = WanRadioRegistrationState.WaitingOnSmartLinkConnection;
@@ -911,7 +850,7 @@ namespace Flex.Smoothlake.FlexLib
             if (!already_connected)
             {
                 _ignoreConnectedEvents = true;
-                _commandCommunication.Connect(_ip);
+                _commandCommunication.Connect(_ip, setup_reply: false);
             }
 
             if (isPortForwardOn)
@@ -1044,8 +983,8 @@ namespace Flex.Smoothlake.FlexLib
             }
         }
 
-        private long _countTXCommand;
-        private int _avgTXCommandkbps;
+        private int _countTXCommand = 0;
+        private int _avgTXCommandkbps = 0;
         public int AvgTXCommandkbps
         {
             get { return _avgTXCommandkbps; }
@@ -1749,241 +1688,6 @@ namespace Flex.Smoothlake.FlexLib
             }
         }
 
-        // Filter Presets per mode group
-        public const int NUM_FILT_PRESETS = 6;
-
-        // Public property to notify changes
-        public object FilterPresets => null;
-
-        // Stored "source of truth" for all preset filters
-        //  - all UI elements reflect what is stored here
-        private Filter[] _filterPresetsSSB;
-        private Filter[] _filterPresetsAM;
-        private Filter[] _filterPresetsCW;
-        private Filter[] _filterPresetsDigital;
-        private Filter[] _filterPresetsRTTY;
-
-        /// <summary>
-        /// Initialize Filters with default values
-        ///  - Radio status messages supply the real values
-        /// </summary>
-        private void InitFilterPresets()
-        {
-            _filterPresetsSSB = new Filter[NUM_FILT_PRESETS];
-            _filterPresetsAM = new Filter[NUM_FILT_PRESETS];
-            _filterPresetsCW = new Filter[NUM_FILT_PRESETS];
-            _filterPresetsDigital = new Filter[NUM_FILT_PRESETS];
-            _filterPresetsRTTY = new Filter[NUM_FILT_PRESETS];
-
-            // We will fill these with status messages from the radio
-            for (int i = 0; i < NUM_FILT_PRESETS; i++)
-            {
-                _filterPresetsSSB[i] = new Filter("N/A", 0, 0);
-                _filterPresetsAM[i] = new Filter("N/A", 0, 0);
-                _filterPresetsCW[i] = new Filter("N/A", 0, 0);
-                _filterPresetsDigital[i] = new Filter("N/A", 0, 0);
-                _filterPresetsRTTY[i] = new Filter("N/A", 0, 0);
-            }
-        }
-
-        /// <summary>
-        /// Parse the filter preset status message and update the stored
-        /// filter preset fields
-        /// </summary>
-        /// <param name="s"></param>
-        private void ParseFilterPresetStatus(string s)
-        {
-            // [ssb || am || cw || digital] [0-2] name=[4 char] low=[int] high=[int]
-            string[] words = s.Split(' ');
-
-            string mode_group_str = words[0].ToLower();
-            bool b = uint.TryParse(words[1], out uint preset_index);
-            if (!b)
-            {
-                Debug.WriteLine("Radio::ParseFilterPresetStatus: Invalid value (" + words[1] + ")");
-                return;
-            }
-
-            // Validate the preset index
-            if (preset_index >= NUM_FILT_PRESETS)
-            {
-                Debug.WriteLine("Radio::ParseFilterPresetStatus: Invalid preset value (" + preset_index + ")");
-                return;
-            }
-
-            FilterPresetModeGroup mode_group;
-            try
-            {
-                mode_group = FilterPresetEnumHelpers.GetModeGroupFromString(mode_group_str);
-            }
-            catch
-            {
-                Debug.WriteLine($"Radio::ParseFilterPresetStatus: Invalid mode group string passed: {mode_group_str}");
-                return;
-            }
-
-
-            // Get the filter we intend to modify
-            Filter filter = GetFilterPreset(mode_group, preset_index);
-            if (filter == null)
-            {
-                Debug.WriteLine("Radio::ParseFilterPresetStatus: Could not find filter preset for: (" + mode_group + ", " + preset_index + ")");
-                return;
-            }
-
-            // Populate these with the prexisting defaults in case a field is missing
-            string name = filter.Name;
-            int low_hz = filter.LowCut;
-            int high_hz = filter.HighCut;
-            for (int i = 2; i < words.Length; i++)
-            {
-                // Tokenize
-                string[] tokens = words[i].Split('=');
-                if (tokens.Length != 2)
-                {
-                    Debug.WriteLine("Radio::ParseFilterPresetStatus: Invalid key/value pair (" + words[i] + ")");
-                }
-
-                string key = tokens[0];
-                string value = tokens[1];
-
-                switch (key.ToLower())
-                {
-                    case "name":
-                        {
-                            name = value;
-                        }
-                        break;
-                    case "low":
-                        {
-                            b = int.TryParse(value, out low_hz);
-                            if (!b) Debug.WriteLine("Radio::ParseFilterPresetStatus: Invalid Low value (" + value + ")");
-                        }
-                        break;
-                    case "high":
-                        {
-                            b = int.TryParse(value, out high_hz);
-                            if (!b) Debug.WriteLine("Radio::ParseFilterPresetStatus: Invalid High value (" + value + ")");
-                        }
-                        break;
-                    default:
-                        {
-                            Debug.WriteLine("Radio::ParseFilterPresetStatus: Unrecognized key: " + key);
-                        }
-                        break;
-                }
-
-                // Update filter with the parsed values.
-                UpdateFilterPreset(mode_group, preset_index, name, low_hz, high_hz);
-            }
-        }
-
-        /// <summary>
-        /// Return the filter object from the specified mode_group and preset_index
-        /// </summary>
-        /// <param name="mode_group"></param>
-        /// <param name="preset_index"></param>
-        /// <returns>Filter Preset object in the given mode_group at the given index</returns>
-        public Filter GetFilterPreset(FilterPresetModeGroup mode_group, uint preset_index)
-        {
-            if (preset_index >= NUM_FILT_PRESETS)
-            {
-                Debug.WriteLine("GetFilterPreset: Invalid preset_index: (" + preset_index + ")");
-                return null;
-            }
-
-            switch (mode_group)
-            {
-                case FilterPresetModeGroup.SSB:
-                    return _filterPresetsSSB[preset_index];
-                case FilterPresetModeGroup.AM:
-                    return _filterPresetsAM[preset_index];
-                case FilterPresetModeGroup.CW:
-                    return _filterPresetsCW[preset_index];
-                case FilterPresetModeGroup.Digital:
-                    return _filterPresetsDigital[preset_index];
-                case FilterPresetModeGroup.RTTY:
-                    return _filterPresetsRTTY[preset_index];
-                default:
-                    Debug.WriteLine("GetFilterPreset: Invalid mode group passed: (" + mode_group + ")");
-                    return null;
-            }
-        }
-
-        /// <summary>
-        /// Returns list of all Filter objects for the given mode_group
-        /// </summary>
-        /// <param name="mode_group"></param>
-        /// <returns>List of Filter objects for the given mode_group</returns>
-        public Filter[] GetFilterPresetGroup(FilterPresetModeGroup mode_group)
-        {
-            switch (mode_group)
-            {
-                case FilterPresetModeGroup.SSB:
-                    return _filterPresetsSSB;
-                case FilterPresetModeGroup.AM:
-                    return _filterPresetsAM;
-                case FilterPresetModeGroup.CW:
-                    return _filterPresetsCW;
-                case FilterPresetModeGroup.Digital:
-                    return _filterPresetsDigital;
-                case FilterPresetModeGroup.RTTY:
-                    return _filterPresetsRTTY;
-                default:
-                    Debug.WriteLine("GetFilterPreset: Invalid mode group passed: (" + mode_group + ")");
-                    return null;
-            }
-        }
-
-        /// <summary>
-        /// Updates the Filter Preset in the specified mode group at specified index. Alerts UI of change
-        /// </summary>
-        /// <param name="mode"></param>
-        /// <param name="preset_index"></param>
-        /// <param name="name"></param>
-        /// <param name="low"></param>
-        /// <param name="high"></param>
-        public void UpdateFilterPreset(FilterPresetModeGroup mode, uint preset_index, string name, int low, int high)
-        {
-            // Update the preset
-            var filter_preset = GetFilterPreset(mode, preset_index);
-            if (filter_preset != null)
-            {
-                filter_preset.Update(name, low, high);
-            }
-
-            // Notify that filter presets have been updated
-            RaisePropertyChanged("FilterPresets");
-        }
-
-        /// <summary>
-        /// Send the save command for a filter preset in specified mode group at specified index
-        /// </summary>
-        /// <param name="mode"></param>
-        /// <param name="preset_index"></param>
-        /// <param name="name"></param>
-        /// <param name="low"></param>
-        /// <param name="high"></param>
-        public void SaveFilterPreset(FilterPresetModeGroup mode, uint preset_index, string name, int low, int high)
-        {
-            string mode_group_str = FilterPresetEnumHelpers.GetModeGroupString(mode);
-            string cmd = $"filt_preset save group={mode_group_str} num={preset_index} low={low} high={high} ";
-            if (!string.IsNullOrEmpty(name)) cmd += $"name={name}";
-            SendCommand(cmd);
-        }
-
-        /// <summary>
-        /// Send the reset command for a given mode group. This will reset all filter presets
-        /// in the mode group. UI will be updated through the returned status messages.
-        /// </summary>
-        /// <param name="mode"></param>
-        public void ResetFilterPreset(FilterPresetModeGroup mode)
-        {
-            string mode_group_str = FilterPresetEnumHelpers.GetModeGroupString(mode);
-            SendCommand($"filt_preset reset group={mode_group_str}");
-            // Status updates from the radio will trigger the updates in respective GUIs
-        }
-
         private bool _isAlphaLicensed;
         public bool IsAlphaLicensed
         {
@@ -2023,7 +1727,6 @@ namespace Flex.Smoothlake.FlexLib
             _unique_id = new Random().Next();
 
             InitLists();
-            InitFilterPresets();
             _rapidM = new RapidM(this);
             _ale2G = new ALE2G(this);
             _ale3G = new ALE3G(this);
@@ -2033,14 +1736,10 @@ namespace Flex.Smoothlake.FlexLib
             _dvk = new DVK(this);
             _featureLicense = new FeatureLicense(this);
             _haapi = new HAAPI(this);
-            _navtex = new NAVTEX(this);
 
             IsWan = isWan;
 
-            // JJFlex patch: prefer TLS whenever the radio exposes a TLS port, even on LAN.
-            // Avoids plaintext command channel when modern radios advertise PublicTlsPort.
-            // See MIGRATION.md.
-            if (IsWan || PublicTlsPort > 0)
+            if (IsWan)
             {
                 _commandCommunication = new TlsCommandCommunication();
             }
@@ -2054,23 +1753,6 @@ namespace Flex.Smoothlake.FlexLib
 
             _statisticsTimer.AutoReset = true;
             _statisticsTimer.Elapsed += StatisticsUpdater;
-
-            _udpPacketPipeline = new ActionBlock<UdpVitaPacket>(packet =>
-            {
-                if (packet.Data.Length < 16)
-                    return;
-
-                var vitaPreamble = new VitaPacketPreamble(packet.Data);
-                if (vitaPreamble.class_id.OUI != VitaFlex.FLEX_OUI)
-                    return;
-
-                _udpSuccessfulRegistration = true;
-
-                ProcessVitaPacket(vitaPreamble, packet.Data, packet.Bytes);
-            }, new ExecutionDataflowBlockOptions
-            {
-                TaskScheduler = MmcssPipelineScheduler.Instance
-            });
         }
 
         public void SetLocalPttForGuiClient()
@@ -2133,59 +1815,6 @@ namespace Flex.Smoothlake.FlexLib
             t1.Start();
         }
 
-        // ====================================================================
-        // JJFlex vendor patch: public direct-IP factory.
-        //
-        // The Radio class is public but every constructor is internal, so
-        // outside callers can only obtain a Radio instance via Discovery /
-        // WanServer. JJ Flex's discovery-fallback chain (Rung 1a cached LAN IP,
-        // Rung 1b cached WAN IP, future Rungs 2/4/5) needs to construct a
-        // Radio from connection metadata it has cached locally, without
-        // re-walking UDP discovery or the SmartLink radio-list refresh.
-        //
-        // This wrapper exposes the existing internal constructor unchanged.
-        // No FlexLib behavior changes; the only effect is that JJ Flex code
-        // can now do `Radio.CreateFromIp(model, serial, name, ip, version)`
-        // and feed the result into the same Connect() path the discovery
-        // codepaths already use.
-        //
-        // Same vendor-patch pattern as SslClientTls12.cs. Reapply on FlexLib
-        // upgrades per MIGRATION.md.
-        // ====================================================================
-        public static Radio CreateFromIp(string model, string serial, string name, IPAddress ip, string version)
-        {
-            return new Radio(model, serial, name, ip, version);
-        }
-
-        // ====================================================================
-        // JJFlex vendor patch: WAN-flavored factory.
-        //
-        // Same as CreateFromIp, but pre-populates the WAN flag plus the
-        // PublicTlsPort / RequiresHolePunch / IsPortForwardOn fields so the
-        // Connect() path takes the WAN branch. Used by Rung 1b (cached WAN IP)
-        // to skip the radio-list refresh from SmartLink and go straight to
-        // SendConnectMessageToRadio with a Radio object reconstituted from
-        // local cache (per docs/planning/research/smartlink-auth-direct-
-        // connect-feasibility.md §4).
-        //
-        // IsWan has `internal set`, which is why this factory has to live
-        // inside the FlexLib assembly rather than in JJ Flex's DiscoveryChain
-        // code. No other behavior change.
-        // ====================================================================
-        public static Radio CreateFromIpWan(
-            string model, string serial, string name, IPAddress ip, string version,
-            int publicTlsPort, bool requiresHolePunch, bool isPortForwardOn)
-        {
-            var r = new Radio(model, serial, name, ip, version)
-            {
-                IsWan = true,
-                PublicTlsPort = publicTlsPort,
-                RequiresHolePunch = requiresHolePunch,
-                IsPortForwardOn = isPortForwardOn
-            };
-            return r;
-        }
-
         private void InitLists()
         {
             _replyTable = new Hashtable();
@@ -2202,7 +1831,6 @@ namespace Flex.Smoothlake.FlexLib
             _daxIQStreams = new List<DAXIQStream>();
             _micInputList = new List<string>();
             _tnfs = new List<TNF>();
-            _displayMarkers = new List<DisplayMarker>();
             _spots = new List<Spot>();
             _xvtrs = new List<Xvtr>();
             _guiClients = new List<GUIClient>();
@@ -2223,7 +1851,7 @@ namespace Flex.Smoothlake.FlexLib
         {
             get
             {
-                return _commandCommunication.LocalIp;
+                return _commandCommunication.LocalIP;
             }
         }
 
@@ -2267,12 +1895,12 @@ namespace Flex.Smoothlake.FlexLib
                 }
                 else
                 {
-                    connected = _commandCommunication.Connect(_ip);
+                    connected = _commandCommunication.Connect(_ip, true);
                 }
 
                 // When connecting to a WAN radio, the public IP address of the connected
                 // client must be obtained from the radio.  This value is used to determine
-                // if audio streams from the radio are meant for this client.
+                // if audio streams fromt the radio are meant for this client.
                 // (IsAudioStreamStatusForThisClient() checks for LocalIP)
                 if (connected)
                 {
@@ -2340,27 +1968,6 @@ namespace Flex.Smoothlake.FlexLib
             SendCommand("sub usb_cable all");
             if (_isTNFSubscribed)
                 SendCommand("sub tnf all");
-
-            // JJFlex audio fix (v4.2.18 upgrade): the four sub commands below
-            // (display_marker, navtex, filt_preset, waveform) are new in
-            // FlexLib v4.2.18. Older firmware that doesn't recognize them
-            // halts the opus audio stream after ~2 packets, leaving slices and
-            // command channel functional but no audio. Confirmed against Don's
-            // 6300 (older firmware): with all four enabled, only 2 opus packets
-            // ever arrived; with all four gated, ~600 opus packets flowed
-            // normally and audio worked.
-            //
-            // Gate them on the firmware floor that introduced them on the
-            // radio side (4.2.18.0). Older firmware loses NAVTEX, waveform,
-            // filter-preset, and display-marker subscriptions but keeps
-            // audio + general radio functions working. Recommend users update
-            // firmware to 4.2.18+ to regain those features.
-            ulong newSubsMinVersion = FlexVersion.Parse("4.2.18.0");
-            bool firmwareSupportsNewSubs = Version >= newSubsMinVersion;
-            Debug.WriteLine($"JJFlex: radio firmware version=0x{Version:X16} ({FlexVersion.ToString(Version)}); v4.2.18 subs enabled={firmwareSupportsNewSubs}");
-
-            if (firmwareSupportsNewSubs)
-                SendCommand("sub display_marker all");
             SendCommand("sub spot all");
             SendCommand("sub rapidm all");
             SendCommand("sub ale all");
@@ -2371,13 +1978,6 @@ namespace Flex.Smoothlake.FlexLib
             SendCommand("sub dvk all");
             SendCommand("sub ha_api amplifier");
             SendCommand("sub ha_api fault");
-            // TODO guard by model
-            if (firmwareSupportsNewSubs)
-            {
-                SendCommand("sub navtex all");
-                SendCommand("sub filt_preset all");
-                SendCommand("sub waveform all");
-            }
 
             // ensure that packets are manually fragmented to avoid network issues
             SendRadioMTUCommand(_mtu);
@@ -2387,15 +1987,11 @@ namespace Flex.Smoothlake.FlexLib
 
             Connected = true;
 
-            StartUdp().SafeFireAndForget(ex =>
-                Debug.WriteLine($"StartUdp failed: {ex}"));
+            StartUDP();
 
             // set the streaming UDP port for this client if we're local. Wan clients use udp_register
             if (!IsWan)
-            {
-                Debug.WriteLine($"Setting UDP Port to {UDPPort}");
-                SendReplyCommand(new ReplyHandler(ClientUdpPortReplyHandler), "client udpport " + UDPPort);
-            }
+                SendReplyCommand(new ReplyHandler(ClientUDPPortReplyHandler), "client udpport " + UDPPort);
 
             if (API.ProgramName == "SmartSDR-Maestro")
             {
@@ -2426,7 +2022,6 @@ namespace Flex.Smoothlake.FlexLib
                 }
             }
         }
-        
         private void GUIClientIDReplyHandler(int seq, uint resp_val, string reply)
         {
             if (resp_val != 0) return;
@@ -2434,16 +2029,8 @@ namespace Flex.Smoothlake.FlexLib
             RaisePropertyChanged("GUIClientID");
         }
 
-        private void ClientUdpPortReplyHandler(int seq, uint respVal, string reply)
+        private void ClientUDPPortReplyHandler(int seq, uint resp_val, string reply)
         {
-            Debug.WriteLine($"Got reply {reply} ({respVal}) from UDP Port Command");
-            
-            if (respVal == (uint) SsdrErrors.IpPortInUse)
-            {
-                SendReplyCommand(ClientUdpPortReplyHandler, $"client udpport {UDPPort}");
-                return;
-            }
-            
             PersistenceLoaded = true;
         }
 
@@ -2453,7 +2040,7 @@ namespace Flex.Smoothlake.FlexLib
             bool b = IPAddress.TryParse(reply, out clientIP);
 
             if (b)
-                _commandCommunication.LocalIp = clientIP;
+                _commandCommunication.LocalIP = clientIP;
 
             WaitForIpResponseFromRadioARE.Set();
         }
@@ -2503,11 +2090,6 @@ namespace Flex.Smoothlake.FlexLib
                 _commandCommunication.Disconnect();
             }
 
-            // Stop the keepalive stopwatch and timer loop so elapsed time doesn't accumulate
-            // while disconnected (e.g. during a radio reboot after firmware update) (SMART-12595)
-            _keepAliveTimer.Reset();
-            _keepaliveTimerLoop.Enabled = false;
-
             Connected = false;
 
             lock (_xvtrs)
@@ -2534,8 +2116,6 @@ namespace Flex.Smoothlake.FlexLib
 
             RemoveAllTNFs();
 
-            RemoveAllDisplayMarkers();
-
             RemoveAllAmplifiers();
 
             RemoveAllGUIClients();
@@ -2552,9 +2132,6 @@ namespace Flex.Smoothlake.FlexLib
             lock (_txRemoteAudioStream)
                 _txRemoteAudioStream.Clear();
 
-            lock (_rxRemoteAudioStreams)
-                _rxRemoteAudioStreams.Clear();
-
             lock (_daxIQStreams)
                 _daxIQStreams.Clear();
 
@@ -2570,7 +2147,7 @@ namespace Flex.Smoothlake.FlexLib
             _semNewFFTPacket.Set();
             _semNewMeterPacket.Set();
 
-            StopUdp();
+            StopUDP();
 
             _persistenceLoaded = false;
 
@@ -2592,7 +2169,7 @@ namespace Flex.Smoothlake.FlexLib
             _ignoreConnectedEvents = true;
 
             //connect to the radio that is in use using a TCP connection
-            _commandCommunication.Connect(_ip);
+            _commandCommunication.Connect(_ip, true);
 
             // send the disconnect GUI client command
             SendReplyCommand(new ReplyHandler(DisconnectReplyHandler), "client disconnect");
@@ -2605,20 +2182,7 @@ namespace Flex.Smoothlake.FlexLib
         /// <param name="handle">The handle ID of the client</param>
         public void DisconnectClientByHandle(string handle)
         {
-            // Use the same lightweight ephemeral connection pattern as
-            // DisconnectAllGuiClients so this works when multiFLEX is
-            // disabled and a full Radio.Connect() would not be stable.
-            _ignoreConnectedEvents = true;
-
-            if (!_commandCommunication.IsConnected)
-            {
-                if (!_commandCommunication.Connect(_ip))
-                {
-                    _ignoreConnectedEvents = false;
-                    return;
-                }
-            }
-            SendReplyCommand(new ReplyHandler(DisconnectReplyHandler), "client disconnect " + handle);
+            SendCommand("client disconnect " + handle);
         }
 
         /// <summary>
@@ -2634,7 +2198,7 @@ namespace Flex.Smoothlake.FlexLib
                 _ignoreConnectedEvents = true;
 
                 // connect to the radio using a TCP connection
-                _commandCommunication.Connect(_ip);
+                _commandCommunication.Connect(_ip, setup_reply: true);
             }
 
             if (!already_connected)
@@ -2683,13 +2247,7 @@ namespace Flex.Smoothlake.FlexLib
             SendCommand("keepalive enable");
 #endif
 
-            // Reset the keepalive stopwatch to avoid a stale elapsed time from a previous
-            // connection triggering an immediate ping timeout disconnect (SMART-12595)
-            _keepAliveTimer.Reset();
-
             _keepaliveTimerLoop.AutoReset = true;
-            // Unsubscribe first to prevent duplicate handlers accumulating across reconnects
-            _keepaliveTimerLoop.Elapsed -= KeepaliveTimerLoopTask;
             _keepaliveTimerLoop.Elapsed += KeepaliveTimerLoopTask;
             _keepaliveTimerLoop.Enabled = true;
         }
@@ -2805,20 +2363,20 @@ namespace Flex.Smoothlake.FlexLib
                 if (!_connected) break;
                 while (try_dequeue_result = FFTPacketQueue.TryDequeue(out packet))
                 {
-                    Panadapter pan = FindPanadapterByStreamID(packet.StreamId);
+                    Panadapter pan = FindPanadapterByStreamID(packet.stream_id);
                     if (pan == null) continue;
 
-                    pan.AddData(packet.payload, packet.start_bin_index, packet.frame_index, packet.Header.packet_count);
+                    pan.AddData(packet.payload, packet.start_bin_index, packet.frame_index, packet.header.packet_count);
                 }
             }
         }
 
         private void ProcessWaterfallDataPacket(VitaWaterfallPacket packet)
         {
-            Waterfall fall = FindWaterfallByStreamID(packet.StreamId);
+            Waterfall fall = FindWaterfallByStreamID(packet.stream_id);
             if (fall == null) return;
 
-            fall.AddData(packet.tile, packet.Header.packet_count);
+            fall.AddData(packet.tile, packet.header.packet_count);
         }
 
         private int last_packet_count = LAST_PACKET_COUNT_UNINITIALIZED;
@@ -2841,7 +2399,7 @@ namespace Flex.Smoothlake.FlexLib
             _semNewMeterPacket.Set();
 
             // lost packet diagnostics
-            int packet_count = packet.Header.packet_count;
+            int packet_count = packet.header.packet_count;
             MeterPacketTotalCount++;
             //normal case -- this is the next packet we are looking for, or it is the first one
             if (packet_count == (last_packet_count + 1) % 16 || last_packet_count == LAST_PACKET_COUNT_UNINITIALIZED)
@@ -2911,7 +2469,7 @@ namespace Flex.Smoothlake.FlexLib
 
         private void ProcessOpusDataPacket(VitaOpusDataPacket packet)
         {
-            RXRemoteAudioStream remoteAudioRX = FindRXRemoteAudioStreamByStreamID(packet.StreamId);
+            RXRemoteAudioStream remoteAudioRX = FindRXRemoteAudioStreamByStreamID(packet.stream_id);
             if (remoteAudioRX != null)
             {
                 remoteAudioRX.AddRXData(packet);
@@ -2919,78 +2477,17 @@ namespace Flex.Smoothlake.FlexLib
             }
         }
 
-        /// <summary>
-        /// Dispatches raw IF data to a per-stream MMCSS worker.  Each stream gets its own
-        /// ActionBlock (MaxDegreeOfParallelism=1) so packets within a stream stay ordered,
-        /// while different streams process in parallel across the MMCSS thread pool.
-        /// </summary>
-        private void DispatchToStreamWorker(uint streamId, byte[] data, int bytes)
-        {
-            var worker = _streamWorkers.GetOrAdd(streamId, _ =>
-                new ActionBlock<(byte[] Data, int Bytes)>(item =>
-                {
-                    ProcessStreamPacket(item.Data, item.Bytes);
-                }, new ExecutionDataflowBlockOptions
-                {
-                    TaskScheduler = MmcssPipelineScheduler.Instance,
-                    MaxDegreeOfParallelism = 1
-                }));
-
-            worker.Post((data, bytes));
-        }
-
-        // Per-thread reusable packet and payload buffer for per-stream workers.
-        [ThreadStatic] private static VitaIFDataPacket t_reusableIFDataPacket;
-        [ThreadStatic] private static float[] t_reusableIFPayload;
-
-        /// <summary>
-        /// Processes a single VITA packet on a per-stream worker thread.
-        /// Re-parses the preamble to determine packet type and dispatches accordingly.
-        /// </summary>
-        private void ProcessStreamPacket(byte[] data, int bytes)
-        {
-            var preamble = new VitaPacketPreamble(data);
-
-            switch (preamble.class_id.PacketClassCode)
-            {
-                case VitaFlex.SL_VITA_IF_NARROW_CLASS:
-                case VitaFlex.SL_VITA_IF_NARROW_REDUCED_BW_CLASS:
-                case VitaFlex.SL_VITA_IF_WIDE_CLASS_24kHz:
-                case VitaFlex.SL_VITA_IF_WIDE_CLASS_48kHz:
-                case VitaFlex.SL_VITA_IF_WIDE_CLASS_96kHz:
-                case VitaFlex.SL_VITA_IF_WIDE_CLASS_192kHz:
-                    t_reusableIFDataPacket ??= new VitaIFDataPacket();
-                    t_reusableIFPayload ??= new float[512];
-                    t_reusableIFDataPacket.ParseInto(data, bytes, t_reusableIFPayload);
-                    t_reusableIFPayload = t_reusableIFDataPacket.payload;
-                    ProcessIFDataPacket(t_reusableIFDataPacket);
-                    break;
-
-                case VitaFlex.SL_VITA_FFT_CLASS:
-                    ProcessFFTDataPacket(new VitaFFTPacket(data));
-                    break;
-
-                case VitaFlex.SL_VITA_OPUS_CLASS:
-                    ProcessOpusDataPacket(new VitaOpusDataPacket(data, bytes));
-                    break;
-
-                case VitaFlex.SL_VITA_WATERFALL_CLASS:
-                    ProcessWaterfallDataPacket(new VitaWaterfallPacket(data));
-                    break;
-            }
-        }
-
         private void ProcessIFDataPacket(VitaIFDataPacket packet)
         {
             // Remote audio uncompressed
-            RXRemoteAudioStream remoteAudioRX = FindRXRemoteAudioStreamByStreamID(packet.StreamId);
+            RXRemoteAudioStream remoteAudioRX = FindRXRemoteAudioStreamByStreamID(packet.stream_id);
             if (remoteAudioRX != null)
             {
                 remoteAudioRX.AddRXData(packet);
             }
 
             // DAX RX
-            DAXRXAudioStream audio_stream = FindDAXRXAudioStreamByStreamID(packet.StreamId);
+            DAXRXAudioStream audio_stream = FindDAXRXAudioStreamByStreamID(packet.stream_id);
             if (audio_stream != null)
             {
                 audio_stream.AddRXData(packet);
@@ -2998,7 +2495,7 @@ namespace Flex.Smoothlake.FlexLib
             }
 
             // DAX MIC
-            DAXMICAudioStream mic_audio_stream = FindDAXMICAudioStreamByStreamID(packet.StreamId);
+            DAXMICAudioStream mic_audio_stream = FindDAXMICAudioStreamByStreamID(packet.stream_id);
             if (mic_audio_stream != null)
             {
                 mic_audio_stream.AddRXData(packet);
@@ -3006,7 +2503,7 @@ namespace Flex.Smoothlake.FlexLib
             }
 
             // DAX IQ
-            DAXIQStream iq_stream = FindDAXIQStreamByStreamID(packet.StreamId);
+            DAXIQStream iq_stream = FindDAXIQStreamByStreamID(packet.stream_id);
             if (iq_stream == null) return;
 
             iq_stream.AddRXData(packet);
@@ -3359,73 +2856,6 @@ namespace Flex.Smoothlake.FlexLib
                         break;
                     }
 
-                case "display_marker":
-                    {
-                        // Parse group and id from words[1] and words[2]
-                        // Format: display_marker group=IARU1 id=1 label="160m CW" start_freq=1.810000 ...
-                        if (words.Length < 3)
-                        {
-                            Debug.WriteLine($"ParseStatus: Too few words for display_marker status -- min 3 ({s})");
-                            return;
-                        }
-
-                        // Parse group=xxx
-                        string[] groupWords = words[1].Split('=');
-                        if (groupWords.Length != 2 || groupWords[0] != "group")
-                        {
-                            Debug.WriteLine($"ParseStatus: Invalid display_marker group format ({s})");
-                            return;
-                        }
-                        string group = groupWords[1];
-
-                        // Parse id=yyy
-                        string[] idWords = words[2].Split('=');
-                        if (idWords.Length != 2 || idWords[0] != "id")
-                        {
-                            Debug.WriteLine($"ParseStatus: Invalid display_marker id format ({s})");
-                            return;
-                        }
-                        uint id;
-                        bool b = uint.TryParse(idWords[1], out id);
-                        if (!b)
-                        {
-                            Debug.WriteLine("ParseStatus: Invalid display_marker ID (" + s + ")");
-                            return;
-                        }
-
-                        bool add_new_marker = false;
-
-                        DisplayMarker marker = FindDisplayMarkerByGroupAndId(group, id);
-                        if (marker == null)
-                        {
-                            if (s.Contains("removed")) return;
-                            marker = new DisplayMarker(this, group, id);
-                            add_new_marker = true;
-                        }
-
-                        if (s.Contains("removed"))
-                        {
-                            lock (DisplayMarkersLockObj)
-                            {
-                                _displayMarkers.Remove(marker);
-                            }
-
-                            if (marker != null)
-                                OnDisplayMarkerRemoved(marker);
-                        }
-                        else
-                        {
-                            // Extract the remaining key=value pairs after "display_marker group=xxx id=yyy "
-                            int skipLength = "display_marker group=".Length + group.Length + " id=".Length + idWords[1].Length + 1;
-                            string update = tokens[1].Substring(skipLength);
-                            marker.StatusUpdate(update);
-                        }
-
-                        if (add_new_marker)
-                            AddDisplayMarker(marker);
-                    }
-                    break;
-
                 case "eq":
                     {
                         bool eq_added = false;
@@ -3467,12 +2897,6 @@ namespace Flex.Smoothlake.FlexLib
                 case "file":
                     {
                         ParseUpdateStatus(tokens[1].Substring("file update ".Length)); // "file update "
-                    }
-                    break;
-
-                case "filt_preset":
-                    {
-                        ParseFilterPresetStatus(tokens[1].Substring("filt_preset ".Length));
                     }
                     break;
 
@@ -3554,10 +2978,6 @@ namespace Flex.Smoothlake.FlexLib
                         if (add_new)
                             AddDAXMICAudioStream(mic_audio_stream);
                     }
-                    break;
-
-                case "navtex":
-                    _navtex.ParseStatus(tokens[1].Substring("navtex ".Length));
                     break;
 
                 case "profile":
@@ -4931,64 +4351,6 @@ namespace Flex.Smoothlake.FlexLib
 
         #endregion
 
-        #region DisplayMarker Routines
-
-        private DisplayMarker FindDisplayMarkerByGroupAndId(string group, uint id)
-        {
-            lock (DisplayMarkersLockObj)
-                return _displayMarkers.FirstOrDefault(x => string.Equals(x.Group, group, StringComparison.OrdinalIgnoreCase) && x.ID == id);
-        }
-
-        internal void AddDisplayMarker(DisplayMarker marker)
-        {
-            lock (DisplayMarkersLockObj)
-            {
-                if (_displayMarkers.Contains(marker)) return;
-                _displayMarkers.Add(marker);
-            }
-
-            OnDisplayMarkerAdded(marker);
-        }
-
-        internal void RemoveDisplayMarker(DisplayMarker marker)
-        {
-            lock (DisplayMarkersLockObj)
-            {
-                if (!_displayMarkers.Contains(marker)) return;
-                _displayMarkers.Remove(marker);
-            }
-
-            OnDisplayMarkerRemoved(marker);
-        }
-
-        private void RemoveAllDisplayMarkers()
-        {
-            List<DisplayMarker> removed;
-            lock (DisplayMarkersLockObj)
-            {
-                removed = new List<DisplayMarker>(_displayMarkers);
-                _displayMarkers.Clear();
-            }
-            foreach (DisplayMarker marker in removed)
-                OnDisplayMarkerRemoved(marker);
-        }
-
-        public delegate void DisplayMarkerAddedEventHandler(DisplayMarker marker);
-        public event DisplayMarkerAddedEventHandler DisplayMarkerAdded;
-        private void OnDisplayMarkerAdded(DisplayMarker marker)
-        {
-            DisplayMarkerAdded?.Invoke(marker);
-        }
-
-        public delegate void DisplayMarkerRemovedEventHandler(DisplayMarker marker);
-        public event DisplayMarkerRemovedEventHandler DisplayMarkerRemoved;
-        private void OnDisplayMarkerRemoved(DisplayMarker marker)
-        {
-            DisplayMarkerRemoved?.Invoke(marker);
-        }
-
-        #endregion
-
         #region Spot Routines
 
         /// <summary>
@@ -5699,7 +5061,6 @@ namespace Flex.Smoothlake.FlexLib
         internal void UpdateActiveSlice()
         {
             RaisePropertyChanged("ActiveSlice");
-            UpdateExternalTunerState();
         }
 
         public Slice TransmitSlice
@@ -5722,7 +5083,6 @@ namespace Flex.Smoothlake.FlexLib
         internal void UpdateTransmitSlice()
         {
             RaisePropertyChanged("TransmitSlice");
-            UpdateExternalTunerState();
         }
 
         public Amplifier ActiveAmplifier
@@ -5807,7 +5167,7 @@ namespace Flex.Smoothlake.FlexLib
             RaisePropertyChanged("PanadapterList");
         }
 
-        internal void RemoveAllPanadapters()
+        private void RemoveAllPanadapters()
         {
             lock (_panadapters)
             {
@@ -5881,7 +5241,7 @@ namespace Flex.Smoothlake.FlexLib
                 return _panadapters.FirstOrDefault(x => x.StreamID == stream_id);
         }
 
-        public Waterfall FindWaterfallByParentStreamID(uint stream_id)
+        internal Waterfall FindWaterfallByParentStreamID(uint stream_id)
         {
             lock (_waterfalls)
                 return _waterfalls.FirstOrDefault(x => x.ParentPanadapterStreamID == stream_id);
@@ -5934,7 +5294,7 @@ namespace Flex.Smoothlake.FlexLib
             OnWaterfallRemoved(fall);
         }
 
-        internal void RemoveAllWaterfalls()
+        private void RemoveAllWaterfalls()
         {
             lock (_waterfalls)
             {
@@ -6658,12 +6018,6 @@ namespace Flex.Smoothlake.FlexLib
                         amp.RemoveMeter(m);
                 }
 
-                if (m.Source ==  Meter.SOURCE_HA_API)
-                {
-                    if (_haapi is not null)
-                        _haapi.RemoveMeter(m);
-                }
-
                 RemoveMeter(m);
                 return;
             }
@@ -6837,17 +6191,6 @@ namespace Flex.Smoothlake.FlexLib
                                 tuner.AddMeter(m);
                         }
                     }
-                }
-                else if (m.Source == Meter.SOURCE_HA_API)
-                {
-                    // Make sure _haapi is not null and add this meter to _haapi's MeterList if meter is not already in there
-                    if (_haapi is null)
-                    {
-                        Debug.WriteLine($"Could not create new HAAPI Amp meter - HAAPI object is null");
-                    }
-
-                    if (_haapi.FindMeterByIndex(m.Index) is null)
-                        _haapi.AddMeter(m);
                 }
 
                 if (new_meter)
@@ -7365,13 +6708,6 @@ namespace Flex.Smoothlake.FlexLib
                     case "region":
                         {
                             RegionCode = value;
-                        }
-                        break;
-
-                    case "iaru_region":
-                        {
-                            if (int.TryParse(value, out int iaruRegion) && iaruRegion >= 1 && iaruRegion <= 3)
-                                IARURegion = iaruRegion;
                         }
                         break;
 
@@ -7981,14 +7317,10 @@ namespace Flex.Smoothlake.FlexLib
         {
             ATUTuneStatus status = ATUTuneStatus.None;
             // Check if external tuner is connected and valid. If it is, set TGXL status based on whether or not it is tuning.
-            if (ShouldUseExternalTuner)
+            if (radioShouldUseExtTuner)
             {
-                var tuner = ActiveTuner;
-                if (tuner != null)
-                {
-                    status = tuner.IsTuning ? ATUTuneStatus.TGXL_InProgress : ATUTuneStatus.TGXL_OK;
-                    return status;
-                }
+                status = ActiveTuner.IsTuning ? ATUTuneStatus.TGXL_InProgress : ATUTuneStatus.TGXL_OK;
+                return status;
             }
 
             switch (s)
@@ -8560,22 +7892,14 @@ namespace Flex.Smoothlake.FlexLib
             }
         }
 
-        public void UninstallWaveform(string waveform_name, bool is_docker = false)
+        public void UninstallWaveform(string waveform_name)
         {
-            if (!string.IsNullOrEmpty(waveform_name))
+            if (waveform_name != null && waveform_name != "")
             {
-                if (is_docker)
-                    SendCommand($"waveform remove_container {waveform_name}");
-                else
-                    SendCommand($"waveform uninstall {waveform_name}");
+                SendCommand("waveform uninstall " + waveform_name);
             }
         }
 
-        public void RestartDockerWaveform(string waveform_name)
-        {
-            if (!string.IsNullOrEmpty(waveform_name))
-                SendCommand($"waveform restart {waveform_name}");
-        }
 
         private ObservableCollection<string> _profileMICList;
         public ObservableCollection<string> ProfileMICList
@@ -8866,13 +8190,10 @@ namespace Flex.Smoothlake.FlexLib
             packetErrorCount = _meterPacketErrorCount;
             totalPacketCount = _meterPacketTotalCount;
 
-            lock (_rxRemoteAudioStreams)
+            if (_rxRemoteAudioStreams.Count > 0)
             {
-                if (_rxRemoteAudioStreams.Count > 0)
-                {
-                    packetErrorCount += _rxRemoteAudioStreams[0].ErrorCount;
-                    totalPacketCount += _rxRemoteAudioStreams[0].TotalCount;
-                }
+                packetErrorCount += _rxRemoteAudioStreams[0].ErrorCount;
+                totalPacketCount += _rxRemoteAudioStreams[0].TotalCount;
             }
 
             lock (_panadapters)
@@ -9841,7 +9162,7 @@ namespace Flex.Smoothlake.FlexLib
             }
         }
 
-        private bool _cwIambicModeB = true;
+        private bool _cwIambicModeB;
         /// <summary>
         /// Enables or disables CW Iambic Mode B
         /// </summary>
@@ -9973,15 +9294,15 @@ namespace Flex.Smoothlake.FlexLib
         /// </summary>
         public bool DAXOn
         {
-            get => _daxOn;
+            get { return _daxOn; }
             set
             {
-                if (_daxOn == value) 
-                    return;
-                
-                _daxOn = value;
-                SendCommand("transmit set dax=" + Convert.ToByte(_daxOn));
-                RaisePropertyChanged(nameof(DAXOn));
+                if (_daxOn != value)
+                {
+                    _daxOn = value;
+                    SendCommand("transmit set dax=" + Convert.ToByte(_daxOn));
+                    RaisePropertyChanged("DAXOn");
+                }
             }
         }
 
@@ -10437,23 +9758,20 @@ namespace Flex.Smoothlake.FlexLib
                         }
 
                     case "dax":
-                    {
-                        if (!byte.TryParse(value, out var temp))
                         {
-                            Debug.WriteLine($"Radio::ParseTransmitStatus - dax: Invalid value ({kv})");
-                            continue;
+                            byte temp;
+                            bool b = byte.TryParse(value, out temp);
+
+                            if (!b)
+                            {
+                                Debug.WriteLine("Radio::ParseTransmitStatus - dax: Invalid value (" + kv + ")");
+                                continue;
+                            }
+
+                            _daxOn = Convert.ToBoolean(temp);
+                            RaisePropertyChanged("DAXOn");
+                            break;
                         }
-
-                        var newValue = Convert.ToBoolean(temp);
-
-                        if (newValue != _daxOn)
-                        {
-                            _daxOn = newValue;
-                            RaisePropertyChanged(nameof(DAXOn));
-                        }
-
-                        break;
-                    }
 
                     case "compander":
                         {
@@ -11086,7 +10404,7 @@ namespace Flex.Smoothlake.FlexLib
             get { return _atuMemoriesEnabled; }
             set
             {
-                bool newAtuMemoriesEnabled = !ShouldUseExternalTuner && value;
+                bool newAtuMemoriesEnabled = radioShouldUseExtTuner ? false : value;
 
                 if (_atuMemoriesEnabled == newAtuMemoriesEnabled)
                 {
@@ -11138,7 +10456,6 @@ namespace Flex.Smoothlake.FlexLib
             SendCommand("atu clear");
         }
 
-        private string _lastRawATUTuneStatus;
         private ATUTuneStatus _atuTuneStatus = ATUTuneStatus.None;
         /// <summary>
         /// Gets the current status of the automatic antenna tuning unit (ATU)
@@ -11176,7 +10493,6 @@ namespace Flex.Smoothlake.FlexLib
                 {
                     case "status":
                         {
-                            _lastRawATUTuneStatus = value;
                             ATUTuneStatus = ParseATUTuneStatus(value);
                             break;
                         }
@@ -11225,14 +10541,14 @@ namespace Flex.Smoothlake.FlexLib
             }
         }
 
-        private ObservableCollection<Waveform> _legacyWaveformsList = new ObservableCollection<Waveform>();
-        private ObservableCollection<Waveform> _dockerWaveforms = new ObservableCollection<Waveform>();
-        public ObservableCollection<Waveform> WaveformsInstalledList
+        private ObservableCollection<string> _waveformsInstalledList;
+        public ObservableCollection<string> WaveformsInstalledList
         {
             get
             {
-                if (_legacyWaveformsList?.Concat(_dockerWaveforms) is null) return new ObservableCollection<Waveform>();
-                else return new ObservableCollection<Waveform>(_legacyWaveformsList.Concat(_dockerWaveforms));
+                if (_waveformsInstalledList == null)
+                    return new ObservableCollection<string>();
+                return new ObservableCollection<string>(_waveformsInstalledList);
             }
         }
 
@@ -11240,110 +10556,21 @@ namespace Flex.Smoothlake.FlexLib
         {
             string[] inputs = s.Split(',');
 
-            _legacyWaveformsList.Clear();
+            _waveformsInstalledList = new ObservableCollection<string>();
             foreach (string wave in inputs)
             {
-                if (string.IsNullOrWhiteSpace(wave))
+                if (wave != "")
                 {
-                    Debug.WriteLine("Radio::UpdateWaveformsInstalledList: Empty waveform entry in installed list");
-                    continue;
-                }
-
-                string[] wave_tokens = wave.Split('\u007f');
-                if (wave_tokens.Length != 2)
-                {
-                    Debug.WriteLine("Radio::UpdateWaveformsInstalledList: Invalid waveform entry in installed list");
-                    continue;
-                }
-
-                string name = wave_tokens[0];
-                string version = wave_tokens[1];
-                _legacyWaveformsList.Add(new Waveform(name, version, IsContainer: false));
-            }
-
-            RaisePropertyChanged(nameof(WaveformsInstalledList));
-        }
-
-        private void DockerUpdateWaveformList(string docker_waveform_status, bool is_removed)
-        {
-            string waveform_name = string.Empty;
-            string waveform_version = string.Empty;
-            string[] wf_statuses = docker_waveform_status.Split(' ');
-
-            foreach (string kv in wf_statuses)
-            {
-                string[] toks = kv.Split('=');
-                if (toks.Length != 2)
-                {
-                    Debug.WriteLine("Radio::DockerUpdateWaveformList: Invalid key=value pair");
-                    continue;
-                }
-
-                string key = toks[0];
-                string val = toks[1];
-
-                switch (key.ToLower())
-                {
-                    case "name":
-                        waveform_name = val;
-                        break;
-
-                    case "version":
-                        waveform_version = val;
-                        break;
+                    _waveformsInstalledList.Add(wave.Replace('\u007f', ' '));
                 }
             }
 
-            if (string.IsNullOrEmpty(waveform_name) || string.IsNullOrEmpty(waveform_version))
-            {
-                Debug.WriteLine("Radio::DockerUpdateWaveformList: Empty waveform name or version");
-                return;
-            }
-
-            if (is_removed)
-            {
-                // Find a matching entry in the list and remove it
-                var waveform = _dockerWaveforms.FirstOrDefault(w =>
-                    string.Equals(w.Name, waveform_name, StringComparison.OrdinalIgnoreCase) &&
-                    string.Equals(w.Version, waveform_version, StringComparison.OrdinalIgnoreCase));
-                if (waveform is not null)
-                {
-                    _dockerWaveforms.Remove(waveform);
-                    RaisePropertyChanged(nameof(WaveformsInstalledList));
-                }
-                else
-                {
-                    Debug.WriteLine("Radio::DockerUpdateWaveformList: No matching waveform to remove in docker waveforms list");
-                }
-
-                return;
-            }
-
-            _dockerWaveforms.Add(new Waveform(waveform_name, waveform_version, IsContainer: true));
-            RaisePropertyChanged(nameof(WaveformsInstalledList));
+            RaisePropertyChanged("WaveformsInstalledList");
         }
 
         private void ParseWaveformStatus(string s)
         {
             string[] words = s.Split(' ');
-
-            if (words is null || words.Length == 0)
-            {
-                Debug.WriteLine("Radio::ParseWaveformStatus: Empty / Invalid waveform status");
-                return;
-            }
-
-            if (words[0] == "wfp_status")
-            {
-                ParseWfpStatus(s.Substring("wfp_status ".Length));
-                return;
-            }
-
-            if (s.StartsWith("container"))
-            {
-                DockerUpdateWaveformList(s.Substring("container ".Length), words.Contains("removed"));
-                return;
-            }
 
             foreach (string kv in words)
             {
@@ -11364,37 +10591,6 @@ namespace Flex.Smoothlake.FlexLib
                             UpdateWaveformsInstalledList(value);
                             break;
                         }
-                }
-            }
-        }
-
-        private void ParseWfpStatus(string s)
-        {
-            string[] words = s.Split(' ');
-
-            foreach (string kv in words)
-            {
-                string[] tokens = kv.Split('=');
-                if (tokens.Length != 2)
-                {
-                    Debug.WriteLine($"Radio::ParseWfpStatus: Invalid key/value pair ({kv})");
-                    continue;
-                }
-
-                string key = tokens[0].ToLower();
-                string value = tokens[1];
-
-                switch (key)
-                {
-                    case "power":
-                        IsWfpPowered = value.Equals("on", StringComparison.OrdinalIgnoreCase);
-                        break;
-                    case "ready":
-                        IsWfpReady = value.Equals("true", StringComparison.OrdinalIgnoreCase);
-                        break;
-                    case "ipaddr":
-                        WfpIPAddress = value;
-                        break;
                 }
             }
         }
@@ -11551,38 +10747,62 @@ namespace Flex.Smoothlake.FlexLib
 
         private void UpdateProfileListSelection(string profile_type, string profile_name)
         {
-            // Always accept the radio's authoritative current profile selection.
-            // The local list may not be in sync yet (e.g. list status arrives after
-            // current status during multiFLEX client connect), so gating on
-            // list.Contains() can silently discard the selection, leaving it blank.
             switch (profile_type)
             {
                 case "global":
-                    if (_profileGlobalSelection != profile_name)
+                    if (_profileGlobalList != null && _profileGlobalList.Contains(profile_name))
                     {
-                        _profileGlobalSelection = profile_name;
-                        RaisePropertyChanged("ProfileGlobalSelection");
+                        if (_profileGlobalSelection != profile_name)
+                        {
+                            _profileGlobalSelection = profile_name;
+                            RaisePropertyChanged("ProfileGlobalSelection");
+                        }
+                    }
+                    else
+                    {
+                        Debug.WriteLine("Profile List Problem!");
                     }
                     break;
                 case "tx":
-                    if (_profileTXSelection != profile_name)
+                    if (_profileTXList != null && _profileTXList.Contains(profile_name))
                     {
-                        _profileTXSelection = profile_name;
-                        RaisePropertyChanged("ProfileTXSelection");
+                        if (_profileTXSelection != profile_name)
+                        {
+                            _profileTXSelection = profile_name;
+                            RaisePropertyChanged("ProfileTXSelection");
+                        }
+                    }
+                    else
+                    {
+                        Debug.WriteLine("Profile List Problem!");
                     }
                     break;
                 case "mic":
-                    if (_profileMICSelection != profile_name)
+                    if (_profileMICList != null && _profileMICList.Contains(profile_name))
                     {
-                        _profileMICSelection = profile_name;
-                        RaisePropertyChanged("ProfileMICSelection");
+                        if (_profileMICSelection != profile_name)
+                        {
+                            _profileMICSelection = profile_name;
+                            RaisePropertyChanged("ProfileMICSelection");
+                        }
+                    }
+                    else
+                    {
+                        Debug.WriteLine("Profile List Problem!");
                     }
                     break;
                 case "displays":
-                    if (_profileDisplaySelection != profile_name)
+                    if (_profileDisplayList != null && _profileDisplayList.Contains(profile_name))
                     {
-                        _profileDisplaySelection = profile_name;
-                        RaisePropertyChanged("ProfileDisplaySelection");
+                        if (_profileDisplaySelection != profile_name)
+                        {
+                            _profileDisplaySelection = profile_name;
+                            RaisePropertyChanged("ProfileDisplaySelection");
+                        }
+                    }
+                    else
+                    {
+                        Debug.WriteLine("Profile List Problem!");
                     }
                     break;
             }
@@ -12021,8 +11241,7 @@ namespace Flex.Smoothlake.FlexLib
             {
                 if (value == _maxInternalPaPowerWatts) return;
                 _maxInternalPaPowerWatts = value;
-                if (TransmitSlice != null)
-                    TransmitSlice.MaxInternalPaPowerWatts = value;
+                TransmitSlice.MaxInternalPaPowerWatts = value;
                 RaisePropertyChanged(nameof(MaxInternalPaPowerWatts));
             }
         }
@@ -12054,7 +11273,15 @@ namespace Flex.Smoothlake.FlexLib
         /// For internal use only.
         /// </summary>
         /// <param name="update_filename"></param>
-        
+
+        public void SendUpdateFile(string update_filename)
+        {
+            Thread t = new Thread(new ParameterizedThreadStart(Private_SendUpdateFile));
+            t.Name = "Update File Thread";
+            t.Priority = ThreadPriority.BelowNormal;
+            t.Start(update_filename);
+        }
+
         public void SendSSDRWaveformFile(string wave_filename)
         {
             Thread t = new Thread(new ParameterizedThreadStart(Private_SendSSDRWaveformFile));
@@ -13058,87 +12285,122 @@ namespace Flex.Smoothlake.FlexLib
 
             // if we get this far, the file contents have been sent
         }
-        
-        private async Task<TcpClient> ConnectTcpClientAsync(int requestedPort, int defaultPort=42607)
+
+        private void Private_SendUpdateFile(object obj)
         {
-            TcpClient tcpClient = null;
+            string update_filename = (string)obj;
+
+            // check to make sure the file exists
+            if (!File.Exists(update_filename))
+            {
+                Debug.WriteLine("Update: Update file does not exist (" + update_filename + ")");
+                return;
+            }
+
+            // TODO: verify file integrity
+
+            // read the file contents into a byte buffer to be sent via TCP
+            byte[] update_file_buffer;
+            FileStream stream = null;
+            try
+            {
+                // open the file into a file stream
+                stream = File.OpenRead(update_filename);
+
+                // allocate a buffer large enough for the file
+                update_file_buffer = new byte[stream.Length];
+
+                // read the entire contents of the file into the buffer
+                stream.Read(update_file_buffer, 0, (int)stream.Length);
+            }
+            catch (Exception)
+            {
+                Debug.WriteLine("Update: Error reading the upgrade file");
+                return;
+            }
+            finally
+            {
+                // cleanup -- close the stream
+                stream.Close();
+            }
+
+
+            // create a TCP client to send the data to the radio
+            TcpClient tcp_client = null;
+            NetworkStream tcp_stream = null;
+
+            string filename = update_filename.Substring(update_filename.LastIndexOf("\\") + 1);
+            SendCommand("file filename " + filename);
+            SendReplyCommand(new ReplyHandler(UpdateUpgradePort), "file upload " + update_file_buffer.Length + " update");
+
+            int timeout = 0;
+            while (_upgrade_port == -1 && timeout++ < 100)
+                Thread.Sleep(100);
+
+            if (_upgrade_port == -1)
+                _upgrade_port = 4995;
+
+            if (timeout < 2)
+                Thread.Sleep(200); // wait for the server to get setup and be ready to accept the connection
+
+            // connect to the radio's upgrade port
             try
             {
                 // create tcp client object and connect to the radio
-                tcpClient = new TcpClient();
-                Debug.WriteLine($"Opening TCP upgrade port {requestedPort}");
+                tcp_client = new TcpClient();
+                Debug.WriteLine("Opening TCP upgrade port " + _upgrade_port.ToString());
                 //_tcp_client.NoDelay = true; // hopefully minimize round trip command latency
-                await tcpClient.ConnectAsync(IP, requestedPort);
-                return tcpClient;
+                tcp_client.Connect(new IPEndPoint(IP, _upgrade_port));
+                tcp_stream = tcp_client.GetStream();
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 // lets try again on the new known update port if radio does not reply with proper response
-                Debug.WriteLine($"Failed to get requested update port, using default: {ex}");
-                tcpClient?.Dispose(); // ensure the old object is disposed so we don't orphan it
-                tcpClient = new TcpClient();
+                _upgrade_port = 42607;
+                tcp_client.Close(); // ensure the old object is disposed so we don't orphan it
+                tcp_client = new TcpClient();
 
                 try
                 {
-                    Debug.WriteLine($"Opening TCP upgrade port {defaultPort}");
-                    await tcpClient.ConnectAsync(IP, defaultPort);
-                    return tcpClient;
+                    Debug.WriteLine("Opening TCP upgrade port " + _upgrade_port.ToString());
+                    tcp_client.Connect(new IPEndPoint(IP, _upgrade_port));
+                    tcp_stream = tcp_client.GetStream();
                 }
-                catch (Exception e)
+                catch (Exception)
                 {
-                    Debug.WriteLine($"Update: Error opening the update TCP client: {e}");
-                    tcpClient?.Dispose();
-                    throw;
+                    Debug.WriteLine("Update: Error opening the update TCP client");
+                    tcp_client.Close();
+                    return;
                 }
             }
-        }
 
-        public async Task SendUpdateFile(string updateFilename)
-        {
-            // check to make sure the file exists
-            if (!File.Exists(updateFilename))
-            {
-                Debug.WriteLine($"Update: Update file does not exist ({updateFilename})");
-                return;
-            }
-            
-            await SendCommandAsync($"file filename {Path.GetFileName(updateFilename)}");
-            
-            // TODO: This probably needs a timeout.
-            var fileLength = new FileInfo(updateFilename).Length;
-            var response = await SendCommandAsync($"file upload {fileLength} update");
-            
-            // TODO: Does this need to default to 4995?
-            if (!int.TryParse(response, out var upgradePort))
-            {
-                Debug.WriteLine($"Error parsing Upgrade Port ({response})");
-                return;
-            }
-
-            // TODO: Do we need this to be on the object or do we only use it here?
-            Debug.WriteLine($"Upgrade Port set to {upgradePort}");
-            
             _updating = true;
 
+            // send the data over TCP
             try
             {
-                using var tcpClient = await ConnectTcpClientAsync(upgradePort);
-                using var tcpStream = tcpClient.GetStream();
-                using var fileStream = new FileStream(updateFilename, FileMode.Open, FileAccess.Read, FileShare.Read);
-                await fileStream.CopyToAsync(tcpStream);
-                
-                // TODO: I don't think this is correct.  There are more than one TCP headers in the transfer.
-                _countTXCommand += fileLength + TCP_HEADER_SIZE;
+                tcp_stream.Write(update_file_buffer, 0, update_file_buffer.Length);
+                _countTXCommand += update_file_buffer.Length + TCP_HEADER_SIZE;
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Debug.WriteLine($"Exception occurred during file transfer: {ex}");
-                _updating = false;
+                Debug.WriteLine("Update: Error sending the update buffer over TCP");
+                tcp_stream.Close();
                 return;
             }
 
+            // clean up the upgrade TCP connection
+            tcp_client.Close();
+
             // note: removing this delay causes both the radio and client to crash on the next line
-            await Task.Delay(TimeSpan.FromSeconds(5)); // wait 5 seconds, then disconnect
+            Thread.Sleep(5000); // wait 5 seconds, then disconnect
+
+            // close main command channel too since the radio will reboot
+            //if (_tcp_client != null)
+            //{
+            //    _tcp_client.Close();
+            //    _tcp_client = null;
+            //}
 
             // if we get this far, the file contents have been sent
         }
@@ -13210,23 +12472,6 @@ namespace Flex.Smoothlake.FlexLib
                 {
                     _regionCode = value;
                     RaisePropertyChanged("RegionCode");
-                }
-            }
-        }
-
-        private int _iaruRegion = 0;
-        /// <summary>
-        /// Gets the IARU region number: 1 = Europe/Africa/ME, 2 = Americas, 3 = Asia-Pacific
-        /// </summary>
-        public int IARURegion
-        {
-            get { return _iaruRegion; }
-            internal set
-            {
-                if (_iaruRegion != value)
-                {
-                    _iaruRegion = value;
-                    RaisePropertyChanged(nameof(IARURegion));
                 }
             }
         }
@@ -14036,8 +13281,6 @@ namespace Flex.Smoothlake.FlexLib
                 OnTunerRemoved(tuner);
             }
 
-            UpdateActiveTuner();
-            UpdateExternalTunerState();
             UpdateActiveAmplifier();
             RaisePropertyChanged("AmplifierList");
         }
@@ -14074,29 +13317,11 @@ namespace Flex.Smoothlake.FlexLib
                 TunerAdded(tuner);
         }
 
-        public bool ShouldUseExternalTuner => ActiveTuner != null &&
+        public bool radioShouldUseExtTuner => ActiveTuner != null &&
                                               ActiveTuner.IsOperate &&
-                                              !string.IsNullOrEmpty(ActiveSlice?.TXAnt) &&
-                                              ((ActiveSlice?.TXAnt == ActiveTuner.PortAAnt) ||
-                                              (ActiveSlice?.TXAnt == ActiveTuner.PortBAnt));
-
-        internal void UpdateExternalTunerState()
-        {
-            RaisePropertyChanged(nameof(ShouldUseExternalTuner));
-
-            // When no external tuner is relevant to the TX path, re-enable the
-            // internal ATU.  The firmware disables atu_enabled while an external
-            // tuner is active and may not re-send atu_enabled=1 after the tuner
-            // is removed or leaves Operate.
-            if (!ShouldUseExternalTuner && _atuPresent && !_atuEnabled)
-            {
-                ATUEnabled = true;
-            }
-
-            // Re-evaluate ATU tune status since it depends on ShouldUseExternalTuner
-            if (_lastRawATUTuneStatus != null)
-                ATUTuneStatus = ParseATUTuneStatus(_lastRawATUTuneStatus);
-        }
+                                              !string.IsNullOrEmpty(TransmitSlice?.TXAnt) &&
+                                              ((TransmitSlice?.TXAnt == ActiveTuner.PortAAnt) ||
+                                              (TransmitSlice?.TXAnt == ActiveTuner.PortBAnt));
 
         #endregion
 
@@ -14616,51 +13841,6 @@ namespace Flex.Smoothlake.FlexLib
 
         #endregion
 
-        #region Waveform Processor
-
-        private bool _isWfpPowered;
-        public bool IsWfpPowered
-        {
-            get => _isWfpPowered;
-            internal set
-            {
-                if (_isWfpPowered != value)
-                {
-                    _isWfpPowered = value;
-                    RaisePropertyChanged(nameof(IsWfpPowered));
-                }
-            }
-        }
-
-        private bool _isWfpReady;
-        public bool IsWfpReady
-        {
-            get => _isWfpReady;
-            internal set
-            {
-                if (_isWfpReady != value)
-                {
-                    _isWfpReady = value;
-                    RaisePropertyChanged(nameof(IsWfpReady));
-                }
-            }
-        }
-
-        private string _wfpIPAddress = "";
-        public string WfpIPAddress
-        {
-            get => _wfpIPAddress;
-            internal set
-            {
-                if (_wfpIPAddress != value)
-                {
-                    _wfpIPAddress = value;
-                    RaisePropertyChanged(nameof(WfpIPAddress));
-                }
-            }
-        }
-        #endregion
-
         #region Log Modules
 
         private void ParseLogModuleStatus(string s)
@@ -15072,14 +14252,14 @@ namespace Flex.Smoothlake.FlexLib
             }
         }
 
-        public class UdpVitaPacket
+        public class UDPVitaPacket
         {
             public IPEndPoint Ep { get; set; }
             public byte[] Data { get; set; }
             public int Bytes { get; set; }
 
 
-            public UdpVitaPacket(IPEndPoint ep, byte[] data, int bytes)
+            public UDPVitaPacket(IPEndPoint ep, byte[] data, int bytes)
             {
                 Ep = ep;
                 Data = data;
@@ -15098,24 +14278,24 @@ namespace Flex.Smoothlake.FlexLib
                         {
                             case VitaFlex.SL_VITA_FFT_CLASS:
                                 _countFFT += bytes + UDP_HEADER_SIZE;
-                                DispatchToStreamWorker(vita_preamble.stream_id, data, bytes);
+                                ProcessFFTDataPacket(new VitaFFTPacket(data));
                                 break;
                             case VitaFlex.SL_VITA_OPUS_CLASS:   // Opus Encoded Audio
                                 _countRXOpus += bytes + UDP_HEADER_SIZE;
-                                DispatchToStreamWorker(vita_preamble.stream_id, data, bytes);
+                                ProcessOpusDataPacket(new VitaOpusDataPacket(data, bytes));
                                 break;
                             case VitaFlex.SL_VITA_IF_NARROW_CLASS: // DAX Audio and uncompressed Remote RX Audio
                             case VitaFlex.SL_VITA_IF_NARROW_REDUCED_BW_CLASS: // DAX Audio Reduced BW
-                                    _countDAX += bytes + UDP_HEADER_SIZE;
-                                    DispatchToStreamWorker(vita_preamble.stream_id, data, bytes);
-                                    break;
+                                _countDAX += bytes + UDP_HEADER_SIZE;
+                                ProcessIFDataPacket(new VitaIFDataPacket(data, bytes));
+                                break;
                             case VitaFlex.SL_VITA_METER_CLASS:
                                 _countMeter += bytes + UDP_HEADER_SIZE;
                                 ProcessMeterDataPacket(new VitaMeterPacket(data));
                                 break;
                             case VitaFlex.SL_VITA_WATERFALL_CLASS:
                                 _countWaterfall += bytes + UDP_HEADER_SIZE;
-                                DispatchToStreamWorker(vita_preamble.stream_id, data, bytes);
+                                ProcessWaterfallDataPacket(new VitaWaterfallPacket(data));
                                 break;
                             default:
                                 //Debug.WriteLine("Unprocessed UDP packet");
@@ -15130,7 +14310,7 @@ namespace Flex.Smoothlake.FlexLib
                             case VitaFlex.SL_VITA_IF_WIDE_CLASS_48kHz:
                             case VitaFlex.SL_VITA_IF_WIDE_CLASS_96kHz:
                             case VitaFlex.SL_VITA_IF_WIDE_CLASS_192kHz:
-                                DispatchToStreamWorker(vita_preamble.stream_id, data, bytes);
+                                ProcessIFDataPacket(new VitaIFDataPacket(data, bytes));
                                 break;
                         }
                         break;
@@ -15145,65 +14325,127 @@ namespace Flex.Smoothlake.FlexLib
             }
         }
 
-        private void UdpDataReceivedCallback(IPEndPoint ep, byte[] data, int bytes)
+        public ConcurrentQueue<UDPVitaPacket> UDPCallbackQueue = new ConcurrentQueue<UDPVitaPacket>();
+        private AutoResetEvent _semNewUDPPacket = new AutoResetEvent(false);
+        private void ProcessUDPPackets_ThreadFunction()
+        {
+            while (Connected)
+            {
+                UDPVitaPacket packet;
+                bool try_dequeue_result = false;
+
+                _semNewUDPPacket.WaitOne();
+                while (try_dequeue_result = UDPCallbackQueue.TryDequeue(out packet))
+                {
+                    // ensure that the packet is at least long enough to inspect for VITA info
+                    if (packet.Data.Length < 16)
+                        continue;
+
+                    VitaPacketPreamble vita_preamble = new VitaPacketPreamble(packet.Data);
+
+                    // ensure the packet has our OUI in it -- looks like it came from us
+                    if (vita_preamble.class_id.OUI != VitaFlex.FLEX_OUI)
+                        continue;
+
+                    _udpSuccessfulRegistration = true;
+
+                    ProcessVitaPacket(vita_preamble, packet.Data, packet.Bytes);
+                }
+            }
+
+            // Clear out the queue
+            UDPVitaPacket dummy;
+            while (UDPCallbackQueue.TryDequeue(out dummy))
+            {
+
+            }
+
+            VitaSock.CloseSocket();
+        }
+
+        private void UDPDataReceivedCallback(IPEndPoint ep, byte[] data, int bytes)
         {
             // if we aren't connected, we shouldn't build up a queue of unprocessed UDP data
-            if (!_connected) 
-                return;
+            if (!_connected) return;
 
             // Keep this callback short so we that we don't hold the network thread and so that
             // we can ensure that we are keeping packets the order that they arrive over the network
-            _udpPacketPipeline.Post(new UdpVitaPacket(ep, data, bytes));
+
+            UDPCallbackQueue.Enqueue(new UDPVitaPacket(ep, data, bytes));
+            _semNewUDPPacket.Set();
         }
 
-        private void StopUdp()
+        private void StopUDP()
         {
-            VitaSock?.Dispose();
+            _semNewUDPPacket.Set();
+
+            // Wait for thread to finish
+            if (_udpProcessingThread != null)
+                _udpProcessingThread.Join();
+
             _udpSuccessfulRegistration = false;
         }
 
-        private bool _udpSuccessfulRegistration;
-
-        private async Task UdpRegistrationLoop()
+        private bool _udpSuccessfulRegistration = false;
+        private void RegisterUDP()
         {
-            var interval = TimeSpan.FromMilliseconds(50);
-
-            // make sure the ClientHandle is set before starting
-            while (ClientHandle == 0 && Connected)
+            try
             {
-                await Task.Delay(interval);
+                while (VitaSock != null && !_udpSuccessfulRegistration && Connected)
+                {
+
+                    Byte[] sendBytes = Encoding.ASCII.GetBytes("client udp_register handle=0x" + ClientHandle.ToString("X"));
+                    VitaSock.SendUDP(sendBytes);
+
+                    Thread.Sleep(50);
+                }
+
+                PersistenceLoaded = true;
+
+                while (VitaSock != null && Connected)
+                {
+                    /* We must maintain the NAT rule in the local router
+                     * so we have to send traffic every once in a while 
+                     */
+                    Byte[] sendBytes = Encoding.ASCII.GetBytes("client ping handle=0x" + ClientHandle.ToString("X"));
+                    VitaSock.SendUDP(sendBytes);
+                    Thread.Sleep(5000);
+                }
             }
-
-            while (VitaSock != null && Connected)
+            catch (Exception ex)
             {
-                if (_udpSuccessfulRegistration)
-                {
-                    interval = TimeSpan.FromSeconds(5);
-                    PersistenceLoaded = true;
-                }
-                
-                Byte[] sendBytes = Encoding.ASCII.GetBytes("client udp_register handle=0x" + ClientHandle.ToString("X"));
-                try
-                {
-                    await VitaSock.SendUdpAsync(sendBytes);
-                }
-                catch (Exception ex)
-                {
-                    Debug.WriteLine($"Exception during UDP registration loop: {ex}");
-                }
-
-                await Task.Delay(interval);
+                Debug.WriteLine("Exception: " + ex.ToString());
             }
         }
 
-        private async Task StartUdp()
+        private void StartUDP()
         {
-            VitaSock = new VitaSocket(RequiresHolePunch ? NegotiatedHolePunchPort : 4991, UdpDataReceivedCallback, IP,
-                RequiresHolePunch ? NegotiatedHolePunchPort : PublicUdpPort);
             if (IsWan)
             {
-                await Task.Run(UdpRegistrationLoop);
+                if (RequiresHolePunch)
+                {
+                    VitaSock = new VitaSocket(NegotiatedHolePunchPort, UDPDataReceivedCallback, _ip, NegotiatedHolePunchPort);
+                }
+                else
+                {
+                    VitaSock = new VitaSocket(4991, UDPDataReceivedCallback, IP, PublicUdpPort);
+                }
+
+                Task.Factory.StartNew(() => RegisterUDP(), TaskCreationOptions.LongRunning);
+
             }
+            else
+            {
+                VitaSock = new VitaSocket(4991, UDPDataReceivedCallback, IP, 4991);
+            }
+
+            Thread t = new Thread(new ThreadStart(ProcessUDPPackets_ThreadFunction));
+            t.Name = "UDP Packet Processing Thread";
+            t.IsBackground = true;
+            t.Priority = ThreadPriority.Normal;
+            t.Start();
+
+            _udpProcessingThread = t;
         }
 
         #endregion

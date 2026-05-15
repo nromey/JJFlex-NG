@@ -125,13 +125,6 @@ namespace Flex.Smoothlake.FlexLib
                         break;
                     }
 
-                case "navtex_wf":
-                    {
-                        _licenseFeatNAVTEX = new Feature(featureName, Convert.ToBoolean(uint.Parse(featureEnabled)), FeatureStatusStrToEnum(featureReason));
-                        RaisePropertyChanged(nameof(LicenseFeatNAVTEX));
-                        break;
-                    }
-
                 case "noise_floor":
                     {
                         _licenseFeatNoiseFloor = new Feature(featureName, Convert.ToBoolean(uint.Parse(featureEnabled)), FeatureStatusStrToEnum(featureReason));
@@ -157,27 +150,6 @@ namespace Flex.Smoothlake.FlexLib
                     {
                         _licenseFeatWfp = new Feature(featureName, Convert.ToBoolean(uint.Parse(featureEnabled)), FeatureStatusStrToEnum(featureReason));
                         RaisePropertyChanged(nameof(LicenseFeatWFP));
-                        break;
-                    }
-
-                case "rapidm_logging":
-                    {
-                        _licenseFeatRapidmLogging = new Feature(featureName, Convert.ToBoolean(uint.Parse(featureEnabled)), FeatureStatusStrToEnum(featureReason));
-                        RaisePropertyChanged(nameof(LicenseFeatRapidmLogging));
-                        break;
-                    }
-
-                case "panadapter_visuals":
-                    {
-                        _licenseFeatPanadapterVisuals = new Feature(featureName, Convert.ToBoolean(uint.Parse(featureEnabled)), FeatureStatusStrToEnum(featureReason));
-                        RaisePropertyChanged(nameof(LicenseFeatPanadapterVisuals));
-                        break;
-                    }
-
-                case "filter_preset_conf":
-                    {
-                        _licenseFeatFilterPresetConf = new Feature(featureName, Convert.ToBoolean(uint.Parse(featureEnabled)), FeatureStatusStrToEnum(featureReason));
-                        RaisePropertyChanged(nameof(LicenseFeatFilterPresetConf));
                         break;
                     }
             }
@@ -438,18 +410,6 @@ namespace Flex.Smoothlake.FlexLib
             }
         }
 
-        private Feature _licenseFeatNAVTEX;
-        public Feature LicenseFeatNAVTEX
-        {
-            get => _licenseFeatNAVTEX;
-            set
-            {
-                if (_licenseFeatNAVTEX == value) return;
-                _licenseFeatNAVTEX = value;
-                RaisePropertyChanged(nameof(LicenseFeatNAVTEX));
-            }
-        }
-
         private Feature _licenseFeatWfp;
         public Feature LicenseFeatWFP
         {
@@ -519,42 +479,6 @@ namespace Flex.Smoothlake.FlexLib
                 if (_licenseFeatDivEsc == value) return;
                 _licenseFeatDivEsc = value;
                 RaisePropertyChanged(nameof(LicenseFeatDivEsc));
-            }
-        }
-
-        private Feature _licenseFeatRapidmLogging;
-        public Feature LicenseFeatRapidmLogging
-        {
-            get => _licenseFeatRapidmLogging;
-            set
-            {
-                if (_licenseFeatRapidmLogging == value) return;
-                _licenseFeatRapidmLogging = value;
-                RaisePropertyChanged(nameof(LicenseFeatRapidmLogging));
-            }
-        }
-
-        private Feature _licenseFeatPanadapterVisuals;
-        public Feature LicenseFeatPanadapterVisuals
-        {
-            get => _licenseFeatPanadapterVisuals;
-            set
-            {
-                if (_licenseFeatPanadapterVisuals == value) return;
-                _licenseFeatPanadapterVisuals = value;
-                RaisePropertyChanged(nameof(LicenseFeatPanadapterVisuals));
-            }
-        }
-
-        private Feature _licenseFeatFilterPresetConf;
-        public Feature LicenseFeatFilterPresetConf
-        {
-            get => _licenseFeatFilterPresetConf;
-            set
-            {
-                if (_licenseFeatFilterPresetConf == value) return;
-                _licenseFeatFilterPresetConf = value;
-                RaisePropertyChanged(nameof(LicenseFeatFilterPresetConf));
             }
         }
 
