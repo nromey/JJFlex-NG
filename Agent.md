@@ -3,9 +3,76 @@
 This document captures the current state of JJ-Flex repository and active work.
 
 **Repository root:** `C:\dev\JJFlex-NG`
-**Branch:** `main` (post-merge of Sprint 29 Tracks F + G on 2026-05-09. Main is the 4.1 working branch per project_main_branch_41_posture.md. 4.2.0 staging continues on track/flexlib-42. 4.1.17 retired 2026-05-02.)
+**Branch:** `main` (post-merge of `track/flexlib-42` on 2026-05-14 — main is now the integration branch. FlexLib 4.2.18 + full discovery cascade live on main. Three ship gates (firmware safety / crash reporter / updater) now gate the **public 4.2.0 release**, not the merge. See `memory/project_main_branch_41_posture.md` (superseded entry) and `memory/project_soft_launch_strategy.md` (2026-05-14 strategic frame).)
 
-## RESUME HERE — 2026-05-11 end-of-day seal: Foundation testing pass with five fixes, K1-K4 verified, two audits captured
+## RESUME HERE — 2026-05-14 end-of-day seal: track/flexlib-42 merged home + soft-launch strategic frame + Sprint 29 plan synthesis
+
+**The headline.** The day's structural move: `track/flexlib-42` (FlexLib 4.2.18 + discovery cascade v3 Phases 1-3 + NetworkChangeWatchdog) merged to main as a single 30-commit absorption. 4 real conflicts resolved deliberately — most interestingly the `RadioConnectionCache.cs` add/add, where Track A's trace-tagging and Track B's LRU history compose into a richer single class than either branch had alone. Memory captured a new strategic frame: 4.2.0 is a soft launch BECAUSE Sprint 30's TS-590/Kenwood audience is the scaling event we're building support infrastructure for. Sprint 29 plan synthesis ran on top of all this. Civ VI accessibility work happened in parallel on Noel's side (separate session, separate repo).
+
+### What shipped (2 commits to main + 4 memory updates outside repo)
+
+- **`6d90033e`** — Merge `track/flexlib-42` into main: FlexLib 4.2.18 + discovery cascade. Brings 30 commits onto main including the vendor lib swap (v4.0.1 → v4.2.18 with TLS wrapper reapplied per MIGRATION.md), full discovery cascade v3 (Rungs 1a / 1b / 1c / 1.5a ARP / 1.7 SmartSDR config / Rung 4 SmartLink-as-LAN), NetworkChangeWatchdog wiring via `CascadeNetworkChangeHandler`, Phase 5 firmware-version gating, and the cache-version-string fix for round-trip-safe writes.
+- **`046ae9f4`** — Sprint 29 plan synthesis + Don's Track-A test doc. Plan doc gains a "Status update 2026-05-14" header (items table, bundle-vs-release distinction, remaining tracks C/E/O, resolved open questions, pre-spawn infrastructure prep for Track E). Don's test doc establishes the new `for-don/` folder convention with 7 numbered radio tests for the trace archive surface, friendly tone, Results section at bottom.
+- **Memory updates** (outside repo, backed up to NAS): `project_verbosity_architecture_proposal.md` HOLD lifted (scaffold authorized as Sprint 29 Track O); `project_main_branch_41_posture.md` superseded (4.1-only rule lifted, three gates now gate public release not merge); `project_soft_launch_strategy.md` new entry (audience-scale framing for 4.2.0 → Sprint 30 transition); `MEMORY.md` index updated to match.
+
+### Conflict resolutions worth remembering
+
+The merge had 4 real conflicts. The instructive ones:
+
+- **`Radios/DiscoveryChain/RadioConnectionCache.cs` (add/add):** both branches added this file independently — main's was the 4.1-line write-only backport plus Sprint 29 Track A trace-tagging, track-42's was the full cascade-canonical version with LRU history (Rung 1c). Resolution COMPOSED both: kept track-42's LRU history + `GetLanIpHistory` + `HistoricalLanIp` class + `AppendLanIpHistory` private method, ADDED main's `using JJTrace;` and `TraceSessionContext.SetConnectionTarget(...)` call after `Save()`. Neither feature replaces the other.
+- **`Radios/FlexBase.cs`:** two methods doing the same thing with different names (`RecordConnectedRadioForCache` on main, `RecordConnectedRadioForChain` on track-42, plus duplicate `_radioConnectionCache` field + `GetRadioConnectionCache` accessor). Resolution: keep `RecordConnectedRadioForChain` as canonical (doc comment + more accurate post-cascade name), remove the duplicate method/field/accessor, rename the retry-success call site.
+- **`docs/CHANGELOG.md`:** track-42 still had stale 4.1.17 framing; main's Foundation Phase framing is canonical per 2026-05-09 decision to skip 4.1.17 → 4.2.0. Kept Foundation Phase heading; preserved track-42's "Under the hood" network-change-watchdog bullet as a Foundation Phase subsection (real shipping content, not stale).
+- **`.gitignore`:** orthogonal additions, just concatenated.
+
+Build clean post-merge (0 errors, 1222 warnings, all pre-existing). Not pushed; local-only until Noel eyeballs the merge.
+
+### Cross-surface activity (per pre-seal sweep)
+
+- **Memory:** 4 files modified — `project_verbosity_architecture_proposal.md` (HOLD lifted), `project_main_branch_41_posture.md` (superseded with preserved-history block + new rule), `project_soft_launch_strategy.md` (new, captures audience-scale framing), `MEMORY.md` (index updated for both — verbosity entry, posture entry, plus new soft launch entry near foundation-phase).
+- **Worktrees:** All three (jjflex-braille, jjflex-flexlib-42, jjflex-multi-radio) idle today. `jjflex-flexlib-42` worktree's branch is now merged to main, so the worktree itself can be torn down whenever Noel's ready — but no rush; nothing breaks if it sits.
+- **Sibling repos:** `Civ-V-Access` got real work according to Noel ("good work on this and the Civ Vi access mod / helper today"), but no commits visible in `git log --since=midnight` — work was either uncommitted or in a different branch / clone. JJFlex rigmeter doesn't count this work since it's a separate repo.
+- **External infra:** NAS backups for memory (×2 — once by publish-nightly script, once by my explicit call; harmless redundancy), private (×2 same reason), and dev-mirror (in progress at seal time). Dropbox nightly promoted to `JJFlex_4.1.16.387_x64_nightly.zip` at top level. Rigmeter JSON snapshot at `historical\stats\2026-05-14-046ae9f4.json`. No Cloudflare/R2/rarbox/roarbox changes.
+- **For-don / for-noel / for-claude:** Don's Track-A test doc created in new `for-don/` folder (07:38). for-noel and for-claude empty.
+- **Active planning docs:** none in `docs/planning/active/` touched today, but `docs/planning/agile/sprint29-pileup-skip-elmer.md` substantially updated with the synthesis header.
+
+### Decisions made today
+
+- **Bundle vs release distinction** (per Noel: "we can bundle, but we only release when we can upload firmware"). Bundle = merge to main, build installer, nightly Debug to testers. Public 4.2.0 release = single gate, firmware-upload-works end-to-end. Captured in updated `project_main_branch_41_posture.md` + new `project_soft_launch_strategy.md`.
+- **Soft launch is deliberate, not arbitrary slowness.** Sprint 29 is shipping SUPPORT INFRASTRUCTURE (crash bundles + updater + firmware updater) for the Sprint 30 audience-scaling moment (Kenwood TS-590 / Hamlib). "Tens to hundreds" of blind operators arriving via JJ Radio folding-in is what we're building for. Don't rush 4.2.0; prove foundation on small tester pool first.
+- **Self-contained 150 MB installer stays.** Civ VI install-size question prompted a deep look at framework-dependent / R2R / NativeAOT trade-offs. Conclusion: 150 MB is fine in context (SmartSDR is bigger, Civ VI install dwarfs it), and the friction-tax argument for self-contained (blind users on fresh Windows don't have to install .NET separately) dominates. No code changes.
+- **Cascade Rungs 5+6 slip to 4.2.x.** Last-resort rungs (subnet probe with consent, manual IP-entry fallback). Most users connect via earlier rungs; absence doesn't block firmware-upload-works release gate. Benefits from real-world rung-failure data 4.2.0 testers will produce.
+- **Bundle format binding → trust the build.** Crash-bundle schema gets locked during Track C implementation, not pre-planned. Schema deliberation matters MORE at Sprint 30 audience scale, but locking pre-emptively is over-engineering at our scale.
+- **Verbosity scaffold authorized for Sprint 29 (Track O).** HOLD lifted today. Scaffold only — independent speech / CW / future-braille channels with shared verbosity ladder. Full design (per-channel verbosity, "Critical only" rename) stays Sprint 30+.
+
+### Outstanding for tomorrow
+
+- **TRACK-INSTRUCTIONS.md for Tracks C / E / O.** Plan synthesis is done; track-instructions authorship is the next operational step. ~30 minutes for the three files.
+- **Worktree + branch setup.** `../jjflex-29c`, `../jjflex-29e`, `../jjflex-29o` on `sprint29/track-c-crash-reporter`, `sprint29/track-e-firmware`, `sprint29/track-o-verbosity-scaffold`. ~5 minutes.
+- **Push the day's commits.** Local-only since I deferred to Noel; `git push origin main` when ready.
+- **Updater proving in soft-launch period.** Track D merged but hasn't been exercised against a real version-bump manifest end-to-end. Worth adding as explicit "Updater proving" item to the plan; deliberately publish a manifest bump and watch the auto-check + delta + helper handoff fire on Don's nightly.
+- **R2 firmware staging.** Pre-spawn dependency for Track E. Decide which firmware versions to host, stage `.ssdr` files in R2 bucket, validate `data.jjflexible.radio/firmware/<model>/<version>.ssdr` resolves.
+- **`project_main_branch_41_posture.md` self-prune.** Memory entry's own self-prune rule says "self-prunes when the merge happens." Merge happened. Can delete tomorrow or leave as historical context.
+- **Test pass for Phase D firmware update on Don's 6300.** Mitigation: capture exhaustive pre-upgrade trace + .ssdr archive before doing the upgrade (we lose the only known FlexLib 4.2.18 silent-discovery reproducer if upgrade succeeds).
+
+### Rigmeter snapshot — end of 2026-05-14
+
+- **Authored grand totals:** 871 files, 171,413 lines, 870,368 words. Vendor: 188 files, 55,355 lines (up from prior days because FlexLib 4.2.18 has more files than 4.0.1 had).
+- **Combined:** 1,059 files, 226,768 lines, 1,024,162 words.
+- **Today (main branch only, since midnight):** 2 commits, 74 files in diff, +8,195 / -2,871 / net +5,324. The big delta is the FlexLib 4.2.18 vendor swap landing on main; ~5K of the +8K is vendor source. Authored-side change is modest (memory edits live outside repo, planning docs, conflict resolutions in 4 files).
+- **Trend:** code 230,429 → 171,413 (long-term shape dominated by Phase 0 vendor-prune drop; current growth is real). Docs 967,495 → 39,934 (pruning settled long ago; current growth is real prose).
+- **NAS snapshot:** `2026-05-14-046ae9f4.json` (20+ historical points).
+- **Branch-scope caveat:** Civ VI accessibility work in `C:\dev\Civ-V-Access` is not counted; rigmeter measures HEAD on the current branch only.
+
+### Setup for tomorrow
+
+- Resume context: this entry. The next operational step is authoring TRACK-INSTRUCTIONS.md for Tracks C / E / O, then setting up the worktrees. The plan synthesis at the top of `docs/planning/agile/sprint29-pileup-skip-elmer.md` is the source of truth for what each track should accomplish.
+- If picking up where this session left off: I had just finished updating the plan doc; the next message was going to be "should I author all three TRACK-INSTRUCTIONS now (Path A) or checkpoint first (Path B)?" — Noel sealed the day instead.
+- If continuing with track instructions: leverage memory entries `project_user_initiated_feedback_session.md` + `project_crash_triage_bundle_flow.md` for Track C, `project_firmware_update_transport_protocol.md` for Track E, `project_verbosity_architecture_proposal.md` for Track O.
+- Civ VI work has its own seal record on Noel's side.
+
+---
+
+## 2026-05-11 end-of-day seal: Foundation testing pass with five fixes, K1-K4 verified, two audits captured
 
 **The headline.** Test-driven foundation day. Noel ran the K1-K4 verifications against Don's 6300 in real time, surfacing five distinct bugs across the connect / disconnect / SmartLink / UI surfaces; each got diagnosed and fixed in-session, with verification immediately after. Plus two audit punch lists captured at end of session covering keyboard-reference drift and the JJ+H context-help discoverability problem. Civ VI accessibility breakthrough happened in parallel in `C:\dev\Civ-vi-access/` (separate repo, separate seal).
 
