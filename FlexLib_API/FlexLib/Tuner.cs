@@ -155,7 +155,6 @@ namespace Flex.Smoothlake.FlexLib
                 if (_ant == value) return;
                 _ant = value;
                 ParseAntenna(_ant);
-                _radio.UpdateExternalTunerState();
             }
         }
 
@@ -243,7 +242,6 @@ namespace Flex.Smoothlake.FlexLib
                 RaisePropertyChanged(nameof(IsOperate));
 
                 UpdateState();
-                _radio.UpdateExternalTunerState();
             }
         }
 
@@ -259,7 +257,6 @@ namespace Flex.Smoothlake.FlexLib
                 RaisePropertyChanged(nameof(IsBypass));
 
                 UpdateState();
-                _radio.UpdateExternalTunerState();
             }
         }
 
@@ -337,14 +334,13 @@ namespace Flex.Smoothlake.FlexLib
 
         public void AutoTune()
         {
-            Slice activeSlice = _radio.ActiveSlice;
-            if (activeSlice == null)
+            if (_radio.TransmitSlice == null)
             {
-                Debug.WriteLine("AutoTune skipped as there is no Active Slice selected");
+                Debug.WriteLine("Autotune skipped as there is no Transmit Slice selected");
                 return;
             }
 
-            if (activeSlice.TXAnt != _port_a_ant && activeSlice.TXAnt != _port_b_ant)
+            if (_radio.TransmitSlice.TXAnt != _port_a_ant && _radio.TransmitSlice.TXAnt != _port_b_ant)
             {
                 Debug.WriteLine("AutoTune skipped as Tuner Antenna config doesn't match TX Ant");
                 return;
@@ -545,7 +541,6 @@ namespace Flex.Smoothlake.FlexLib
                             _isOperate = new_val;
                             RaisePropertyChanged(nameof(IsOperate));
                             UpdateState();
-                            _radio.UpdateExternalTunerState();
                         }
                         break;
 
@@ -565,7 +560,6 @@ namespace Flex.Smoothlake.FlexLib
                             _isBypass = Convert.ToBoolean(temp);
                             RaisePropertyChanged(nameof(IsBypass));
                             UpdateState();
-                            _radio.UpdateExternalTunerState();
                         }
                         break;
 

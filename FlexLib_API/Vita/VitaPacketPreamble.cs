@@ -12,8 +12,12 @@
 // ****************************************************************************
 
 using System;
-using System.Buffers.Binary;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
 using System.Net;
+
+using Flex.Util;
 
 namespace Flex.Smoothlake.Vita
 {
@@ -42,7 +46,7 @@ namespace Flex.Smoothlake.Vita
         public VitaPacketPreamble(byte[] data)
         {
             int index = 0;
-            uint temp = BinaryPrimitives.ReadUInt32BigEndian(data.AsSpan(index));
+            uint temp = ByteOrder.SwapBytes(BitConverter.ToUInt32(data, index));
             index += 4;
 
             header = new Header
@@ -60,7 +64,7 @@ namespace Flex.Smoothlake.Vita
             if (header.pkt_type == VitaPacketType.IFDataWithStream ||
                 header.pkt_type == VitaPacketType.ExtDataWithStream)
             {
-                stream_id = BinaryPrimitives.ReadUInt32BigEndian(data.AsSpan(index));
+                stream_id = ByteOrder.SwapBytes(BitConverter.ToUInt32(data, index));
                 index += 4;
             }
             else
@@ -70,11 +74,11 @@ namespace Flex.Smoothlake.Vita
 
             if (header.c)
             {
-                temp = BinaryPrimitives.ReadUInt32BigEndian(data.AsSpan(index));
+                temp = ByteOrder.SwapBytes(BitConverter.ToUInt32(data, index));
                 index += 4;
                 class_id.OUI = temp & 0x00FFFFFF;
 
-                temp = BinaryPrimitives.ReadUInt32BigEndian(data.AsSpan(index));
+                temp = ByteOrder.SwapBytes(BitConverter.ToUInt32(data, index));
                 index += 4;
                 class_id.InformationClassCode = (ushort)(temp >> 16);
                 class_id.PacketClassCode = (ushort)temp;
@@ -86,7 +90,7 @@ namespace Flex.Smoothlake.Vita
 
             if (header.tsi != VitaTimeStampIntegerType.None)
             {
-                timestamp_int = BinaryPrimitives.ReadUInt32BigEndian(data.AsSpan(index));
+                timestamp_int = ByteOrder.SwapBytes(BitConverter.ToUInt32(data, index));
                 index += 4;
             }
             else
@@ -96,7 +100,7 @@ namespace Flex.Smoothlake.Vita
 
             if (header.tsf != VitaTimeStampFractionalType.None)
             {
-                timestamp_frac = BinaryPrimitives.ReadUInt64BigEndian(data.AsSpan(index));
+                timestamp_frac = ByteOrder.SwapBytes(BitConverter.ToUInt64(data, index));
                 index += 8;
             }
             else
@@ -130,30 +134,30 @@ namespace Flex.Smoothlake.Vita
 
             index += 4;
 
-            BinaryPrimitives.WriteUInt32BigEndian(temp.AsSpan(index), stream_id);
+            Array.Copy(BitConverter.GetBytes(ByteOrder.SwapBytes(stream_id)), 0, temp, index, 4);
             index += 4;
 
             if (header.c)
             {
-                BinaryPrimitives.WriteUInt32BigEndian(temp.AsSpan(index), class_id.OUI);
+                Array.Copy(BitConverter.GetBytes(ByteOrder.SwapBytes(class_id.OUI)), 0, temp, index, 4);
                 index += 4;
 
-                BinaryPrimitives.WriteUInt16BigEndian(temp.AsSpan(index), class_id.InformationClassCode);
+                Array.Copy(BitConverter.GetBytes(ByteOrder.SwapBytes(class_id.InformationClassCode)), 0, temp, index, 2);
                 index += 2;
 
-                BinaryPrimitives.WriteUInt16BigEndian(temp.AsSpan(index), class_id.PacketClassCode);
+                Array.Copy(BitConverter.GetBytes(ByteOrder.SwapBytes(class_id.PacketClassCode)), 0, temp, index, 2);
                 index += 2;
             }
 
             if (header.tsi != VitaTimeStampIntegerType.None)
             {
-                BinaryPrimitives.WriteUInt32BigEndian(temp.AsSpan(index), timestamp_int);
+                Array.Copy(BitConverter.GetBytes(ByteOrder.SwapBytes(timestamp_int)), 0, temp, index, 4);
                 index += 4;
             }
 
             if (header.tsf != VitaTimeStampFractionalType.None)
             {
-                BinaryPrimitives.WriteUInt64BigEndian(temp.AsSpan(index), timestamp_frac);
+                Array.Copy(BitConverter.GetBytes(ByteOrder.SwapBytes(timestamp_frac)), 0, temp, index, 8);
                 index += 8;
             }
 

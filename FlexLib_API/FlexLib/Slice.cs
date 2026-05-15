@@ -258,9 +258,6 @@ namespace Flex.Smoothlake.FlexLib
 
                 if (_isTransmitSlice)
                     _radio.UpdateActiveAmplifier();
-
-                if (_active || _isTransmitSlice)
-                    _radio.UpdateExternalTunerState();
             }
         }
 
@@ -1419,7 +1416,7 @@ namespace Flex.Smoothlake.FlexLib
                     _radio.SendCommand("slice set " + _index + " tx=" + Convert.ToByte(_isTransmitSlice));
                 RaisePropertyChanged("IsTransmitSlice");
 
-                _radio.UpdateTransmitSlice(); // also calls UpdateExternalTunerState()
+                _radio.UpdateTransmitSlice();
 
                 if (_isTransmitSlice)
                     _radio.UpdateActiveAmplifier();
@@ -2401,7 +2398,7 @@ namespace Flex.Smoothlake.FlexLib
                                     Debug.WriteLine($"Slice::StatusUpdate: Invalid value ({kv})");
                                     continue;
                                 }
-                                if (!_escGain.HasValue || _escGain.Value != temp)
+                                if (!_escGain.HasValue && DEFAULT_ESC_GAIN != temp)
                                 {
                                     _escGain = temp;
                                     RaisePropertyChanged(nameof(ESCGain));
@@ -2416,7 +2413,7 @@ namespace Flex.Smoothlake.FlexLib
                                     Debug.WriteLine($"Slice::StatusUpdate: Invalid value ({kv})");
                                     continue;
                                 }
-                                if (!_escPhaseShift.HasValue || _escPhaseShift.Value != temp)
+                                if (!_escPhaseShift.HasValue && DEFAULT_ESC_PHASE_SHIFT != temp)
                                 {
                                     _escPhaseShift = temp;
                                     RaisePropertyChanged(nameof(ESCPhaseShift));

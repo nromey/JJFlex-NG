@@ -33,9 +33,7 @@ Jim Shaffer's changelog for the 1.x, 2.x, and 3.x versions lives in a separate a
 
 > **Note:** 4.1.17 was officially skipped on 2026-05-09 in favor of going directly to 4.2.0 with the FlexLib 4.2.18 upgrade. This section accumulates user-facing work landing on main as foundation-phase content; it will fold into 4.2.0's release notes when that release cuts. Per `memory/project_flexlib_4218_merge_sequencing.md` and the 2026-05-09 confirmation.
 
-### Under the hood
 
-- JJ Flexible now notices when your network changes — when you switch Wi-Fi, plug or unplug Ethernet, or connect a VPN. Today this just shows up in the diagnostic trace so I can see in your logs that "the network shifted at 3:42 PM" when you write me about a connection problem. Down the road, the same plumbing will let JJ Flexible auto-search for your radio after you roam from your home shack to a portable site, instead of stubbornly trying the old IP. One small step today, the foundation for a much bigger quality-of-life win.
 
 Moving sucks. Full stop. But isn't it awesome when you realize you've stopped using plastic silverware and paper plates, you've mastered your stove and oven, your pictures are up, your favorite chair is in a favorite place, and — well, this new scary house you just moved into, the one you probably own and still get lost in, starts feeling like home. That's what this release is all about. So make yourself at home and enjoy this slug of mighty fine updates that'll have you thinking "this feels right, it feels like home." Cheesy, yes, but it's helped to define JJ Flexible Radio's newly named "Home."
 
@@ -224,6 +222,7 @@ This is the third home of a pattern we've been quietly building toward: the stic
 
 [Return to version headlines](#unreleased-headlines)
 
+<<<<<<< HEAD
 ### The Installer Brings Everything It Needs {#self-contained}
 
 When you run the new Setup on a fresh Windows machine, JJ Flexible just installs. No more "this app needs Microsoft .NET 10 — please install it first," no chasing a separate download from Microsoft's website, no extra UAC prompt for a runtime installer that may or may not read well in your screen reader. Hit Setup, accept the install location, you're in. JJ Flexible carries its own copy of the runtime now.
