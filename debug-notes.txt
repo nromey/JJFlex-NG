@@ -1,49 +1,61 @@
-JJ Flex Cache Writer — small polish fix to the version field
-============================================================
+Rollback of yesterday's vendor library upgrade
+==============================================
 
 Hey Don,
 
-Quick polish update. The cache writer build you ran last night
-(4.1.16.241) worked perfectly — R6 connected to your radio in 296ms
-via the cached IP. That's the headline. Real-world end-to-end
-validation. Thank you for the round-trip turnaround.
+Thank you for sending the trace this morning. That was exactly what we
+needed to see what went wrong. Your radio connecting but no frequency
+showing up — and the app feeling unresponsive — those weren't general
+problems with the new build. Looking at your trace told us a specific
+story about a specific thing.
 
-While reviewing the trace afterwards, we noticed one small artifact:
-the version field in the cache file was being stored as a decimal
-number (something like "1127020893346674") instead of FlexLib's
-normal dotted form ("4.1.X.Y" or similar). The connect itself works
-fine, but R6 reads the firmware version as 0.0.0.0 because it can't
-parse the decimal form. That'd eventually trip up feature detection
-for FlexLib 4.2.18-specific subscriptions when those start mattering.
+What we found: the new vendor library underneath JJ Flex (FlexLib 4.2.18)
+behaves differently on the LAN connect path than the older one did. The
+radio gets the connect, the slice gets created, the audio plays — but
+one little handshake message (the radio confirming back to JJ Flex what
+its station name is now set to) doesn't come back through promptly on
+the new library. So the app sits there waiting for that confirmation,
+which is the "stuck on connecting" feel you saw.
 
-This build (4.1.16.242) is identical to last night's, except for that
-one line. Same 4.1 line, same regular UDP discovery (which works fine
-on your machine on the 4.1 side), same cache-writer addition. Only
-difference: the version goes into the cache in dotted form so R6 can
-read it back.
+What we found out comparing earlier traces: this is specifically a
+mismatch between the new library and the firmware version your radio is
+currently running. Older firmware doesn't speak the new dialect cleanly
+on the LAN path. The earlier successful test we did was over SmartLink,
+which uses different plumbing, so it didn't surface there.
 
-What to do
-----------
+What this build does: it rolls back yesterday's vendor library bump.
+You should be back to the same behavior you had two days ago. Same
+connect speed, same frequency display, same audio. Nothing fancy here --
+just back to known good while we work on the proper fix.
 
-If you want the polish:
+What the proper fix looks like: we're going to build an in-app firmware
+update feature. Once that's ready, JJ Flex will offer to update your
+radio's firmware to a version that speaks the new library's dialect. At
+that point we can put the new library back and you'll get all of its
+improvements without the LAN handshake issue.
 
-1. Replace the contents of your jjf-41 folder with the contents of
-   this new zip (or extract fresh into the same folder, whichever is
-   easier).
+What to test
+------------
 
-2. Run JJFlexRadio.exe from there. Let it auto-connect like normal.
-   Close it after a few seconds — that's enough to refresh the cache.
+Nothing unusual — just see if your normal day works:
 
-3. Next time you launch R6 from jjf-test, the firmware version will
-   read correctly. Same connect-in-under-a-second behavior.
+1. Open JJ Flex. It should auto-connect like before.
+2. Check that the frequency reads out correctly when you tab to it.
+3. Listen — audio should be clean.
+4. Try cycling slices, changing bands, basic operation.
+5. Disconnect and reconnect a few times if you want.
 
-Optional trace if you want — same Dropbox folder, same filename. We
-don't strictly need it; R6 works for connection purposes either way.
-This only affects the firmware-version display field.
+If anything weird happens, drop a trace into your Dropbox folder same
+as before. If everything feels normal, that's the answer we're hoping
+for and you don't have to do anything.
 
-If you want to skip this and just live with the 0.0.0.0 firmware
-version for now, that is also fine. The next public 4.2 build will
-handle this on the read side too.
+One thing worth knowing for next time: if you ever hit "Connecting..."
+and it feels stuck, you can press Escape now and the modal will cancel
+cleanly — no taskkill needed. That shipped a couple of weeks ago in the
+nightly stream but you may not have had reason to discover it.
+
+Thanks again for the fast trace turnaround. Your testing is what made
+this a same-day catch instead of something we shipped publicly.
 
 73,
 JJ Flex (via Noel)

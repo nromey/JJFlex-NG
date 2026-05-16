@@ -3,9 +3,79 @@
 This document captures the current state of JJ-Flex repository and active work.
 
 **Repository root:** `C:\dev\JJFlex-NG`
-**Branch:** `main` (post-merge of `track/flexlib-42` on 2026-05-14 — main is now the integration branch. FlexLib 4.2.18 + full discovery cascade live on main. Three ship gates (firmware safety / crash reporter / updater) now gate the **public 4.2.0 release**, not the merge. See `memory/project_main_branch_41_posture.md` (superseded entry) and `memory/project_soft_launch_strategy.md` (2026-05-14 strategic frame).)
+**Branch:** `main` (post-REVERT of `track/flexlib-42` merge on 2026-05-15 — main is back to pre-FlexLib-4.2.18 substrate after Don's 2026-05-15 LAN trace exposed a vendor-side station-name regression. FlexLib 4.0.1 is in place. Re-merge of FlexLib 4.2.18 now gated on Sprint 29 Phase D firmware-update UI being operational + Don's radio firmware updated. `track/flexlib-42` parked at `9de45c54`. See `memory/project_flexlib_4218_station_name_regression.md` (new), `memory/project_flexlib_4218_merge_sequencing.md` (refreshed 2026-05-15), and `memory/project_main_branch_41_posture.md` (reality-check note added).)
 
-## RESUME HERE — 2026-05-14 end-of-day seal: track/flexlib-42 merged home + soft-launch strategic frame + Sprint 29 plan synthesis
+## RESUME HERE — 2026-05-15 end-of-day seal: FlexLib 4.2.18 merge reverted after Don's morning trace exposed LAN station-name regression; firmware-update path now gates re-merge
+
+**The headline.** Don submitted a trace at 06:23 saying "audio works, frequency doesn't display, sometimes unresponsive" — yesterday's nightly's first real-world LAN test. Trace analysis revealed FlexLib 4.2.18's TCP reply pipeline delays the radio's `client station` echo by 56+ seconds on Don's older firmware over LAN, while the same path works in 0-102ms on FlexLib 4.0.1 (clean library-version differential, same radio, same firmware — three traces from the May 6 R6 corpus confirm). The Phase 5 audio fix that worked over SmartLink on 2026-05-09 didn't catch this because WAN uses different reply-routing code than direct-LAN-TCP. Reverted the merge, re-cut nightly, Don un-blocked. Strategic move: Sprint 29 Phase D (firmware update UI) becomes the prerequisite to re-merging FlexLib 4.2.18 — once Don updates his radio firmware, the 4.2.18 path becomes the path Flex's QA actually tests.
+
+### What shipped (2 commits to main + 4 memory updates outside repo)
+
+- **`c01549ad`** — Revert "Merge track/flexlib-42 into main: FlexLib 4.2.18 + discovery cascade". Mechanical `git revert -m 1 6d90033e`. Removes FlexLib 4.2.18 + all discovery cascade code (Rungs 1a/1b/1c/1.5a/1.7/4, NetworkChangeWatchdog wiring, CascadeNetworkChangeHandler, RadioConnectionCache LRU additions) + Phase 5 firmware-floor gate + Sprint FlexLib-42 docs. Returns main to substantive equivalence with `cf980569`.
+- **`e46aab5f`** — Merge `fix/revert-flexlib-4218-merge` into main with `--no-ff`. Preserves the revert as a deliberate merge event in `git log --first-parent` with rationale + memory pointers in the commit body. Pushed to `origin` (nromey/JJFlex-NG).
+- **Build + publish:** v4.1.16.390 (Debug x64) built via `build-debug.bat --publish`. Live in Dropbox `debug\` (tester-distribution) AND top-level (via `publish-nightly-to-dropbox.ps1` end-of-day promotion). Don can grab from either.
+- **NOTES corrected in three places** (Dropbox debug, Dropbox top-level, NAS historical) after `build-debug.bat` used a stale R6-era template from `debug-notes.txt`. New NOTES tells Don the regression story in plain ham-friendly prose plus mentions Escape-cancels-stuck-modal (shipped 2026-05-04 but he may not have discovered).
+- **Memory updates** (outside repo, backed up to NAS): NEW `project_flexlib_4218_station_name_regression.md` (full trace evidence + remediation chosen + LAN fast-path preserved for future reference); `project_as_retry_pathway_regression.md` disambiguated (2026-05-15 trace is NOT the 2026-04-28 AS-retry regression — different bug, different cause); `project_main_branch_41_posture.md` reality-checked (2026-05-14 lift superseded — firmware-update gate reinstated based on empirical evidence); `project_flexlib_4218_merge_sequencing.md` refreshed (re-merge now gated on Phase D operational). `MEMORY.md` index updated.
+
+### Cross-surface activity (per pre-seal sweep)
+
+- **Memory:** 5 files modified — 4 content updates + MEMORY.md index. All authored by this session, capture the revert decision + rationale + forward path.
+- **Main branch:** 2 commits (`c01549ad` revert + `e46aab5f` merge revert). Both pushed to `origin`.
+- **Worktrees:** All three (jjflex-braille at `704a36ff`, jjflex-flexlib-42 at `9de45c54`, jjflex-multi-radio at `a3c99f61`) idle today. `track/flexlib-42` parked at its pre-merge tip, preserved off main for continued investigation when Phase D lands.
+- **Sibling repos:** `jjf-data` idle (no Data Provider activity). `smartsdr-decompiled-4.1.x` and `smartsdr-v4.2.18-extracted` clones unmodified (vendor research material, non-git). No other C:\dev sibling activity.
+- **External infra:** NAS backups for memory (`memory-20260515-223027.zip`, 169 files / 428 KB) + private docs (`private-20260515-223028.zip`, 109 files / 1.5 MB) + dev-mirror (in progress at seal-entry time). Dropbox nightly promoted to `JJFlex_4.1.16.390_x64_nightly.zip` at top level with corrected NOTES. NAS historical NOTES at `\\nas...\historical\4.1.16.390\x64-debug\NOTES-4.1.16.390-debug_20260515-1045.txt` corrected via PowerShell after the bat script ran. Rigmeter JSON snapshot at `historical\stats\2026-05-15-<sha>.json`.
+- **For-claude / for-don / for-noel:** all empty.
+- **Active planning docs:** none authored today. `docs/planning/vision/JJFlex-TODO.md` mtime today is a side effect of the revert restoring pre-merge content, not original authoring.
+
+### Decisions made today
+
+- **Revert > fix-forward > workaround.** Three options were considered: (A) revert the merge; (B) fix-forward in FlexLib 4.2.18 vendor code (days of archaeology in `TcpCommandCommunication.cs +541` and `Radio.cs +1430`); (C) JJFlex-side LAN fast-path workaround (~21 LOC drafted in `fix/flexlib-4218-station-name-lan-fast-path`, discarded after this decision). Noel chose A + Phase D as the canonical forward path. The fast-path conditional (`!RemoteRig && OnlyStation && MyNumSlices > 0 && elapsed > 5000`) is preserved in `project_flexlib_4218_station_name_regression.md` as a defensive belt for rare edge cases (radios that can't be firmware-updated) — not the path forward.
+- **Firmware-update path becomes a hard prerequisite to re-merging FlexLib 4.2.18.** Noel: "We make sure that users know that they MUST upload firmware to use 4.2 which is what Flex told us anyway." Aligns with Flex's own support matrix; avoids accumulating per-firmware workaround layers (Phase 5 audio fix + LAN fast-path + whatever else surfaces against the next radio in the wild).
+- **Stuck-modal-escape was already shipped** (2026-05-04, `fdb987e6` + merge `de239328`). The design memory entry caught me about to spawn a redundant track. Don can press Escape during stuck connects today — discoverability gap, not a code gap. NOTES file mentions it to him.
+
+### Open follow-ups
+
+- **Sprint 29 Phase D execution starts tomorrow.** Gates: firmware extraction (Pathway A — authorized 2026-05-07 per `project_firmware_extraction_authorization`), hosting on `data.jjflexible.radio` (R2 already up), JJFlex UI flow (detect outdated firmware + consent + fetch + upload + verify), tester onboarding (Don is first canary; SmartSDR remains fallback firmware-update path), loud user communication.
+- The obsolete `fix/flexlib-4218-station-name-lan-fast-path` branch is empty (uncommitted edit was discarded) and parked for cleanup whenever.
+- **Uncommitted at seal time:** `debug-notes.txt` (template now describes today's build instead of the May 9 R6 cache writer; future builds will inherit the corrected starting content); `docs/help/JJFlexRadio.chm` (chronic Windows build-artifact noise — typically 2-byte timestamp churn).
+- **Workflow foot-gun surfaced:** `build-debug.bat` pulls from repo-tracked `debug-notes.txt` template without validating it matches current build context. Caught today because I was reading what was published; on a less-attentive day the stale R6 cache writer template would have shipped to Don as-is. Worth a future cheap fix: gitignore the template (per-build authoring), OR have the bat warn when template's mtime predates HEAD commit.
+- **CLAUDE.md drift check:** no drift identified. CLAUDE.md guidance on seal-day workflow followed correctly; the revert-then-publish path slots into the existing "bundle vs release" model (this was a bundle correction, not a release event).
+
+### Rigmeter snapshot — end of 2026-05-15
+
+**Grand totals (HEAD `e46aab5f` — post-revert):**
+
+- Authored: 851 files, 168,436 lines, 854,226 words
+- Vendor: 180 files, 53,240 lines (down ~18K from yesterday's post-merge ~71K — revert removed FlexLib 4.2.18)
+- Combined: 1,031 files, 221,676 lines
+
+**Today's git activity:**
+
+- 2 commits (`c01549ad` revert + `e46aab5f` merge revert)
+- 72 unique files touched, 2,852 insertions, 8,023 deletions, net **-5,171 lines**
+- All by JJ Flexbot (this session)
+
+**Per-project (authored, top by line count):**
+
+- JJFlexWpf: 39,594 lines (188 files)
+- docs: 39,202 lines (200 files)
+- main_app: 32,074 lines (170 files)
+- Radios: 24,183 lines (75 files) — down ~3K post-revert (cascade subtracted)
+- JJLogLib: 5,807 lines (22 files)
+- tools: 5,062 lines (15 files)
+
+**Trend snapshot:**
+
+- 2026-05-14: 112,780 code lines, 40,331 doc lines (post-merge peak)
+- 2026-05-15: 110,623 code lines, ~39K doc lines (post-revert; cascade code subtracted)
+
+**Fun comparison:** today's revert touched 72 files in two commits — roughly the entire footprint of FlexLib 4.2.18 + R6 cascade. Day-of-revert is mechanically the inverse of a day-of-merge.
+
+**NAS snapshot:** `\\nas.macaw-jazz.ts.net\jjflex\historical\stats\` (today's JSON snapshot written via `rigmeter snapshot`; durable time-series for `rigmeter growth` queries).
+
+---
+
+## 2026-05-14 end-of-day seal: track/flexlib-42 merged home + soft-launch strategic frame + Sprint 29 plan synthesis
 
 **The headline.** The day's structural move: `track/flexlib-42` (FlexLib 4.2.18 + discovery cascade v3 Phases 1-3 + NetworkChangeWatchdog) merged to main as a single 30-commit absorption. 4 real conflicts resolved deliberately — most interestingly the `RadioConnectionCache.cs` add/add, where Track A's trace-tagging and Track B's LRU history compose into a richer single class than either branch had alone. Memory captured a new strategic frame: 4.2.0 is a soft launch BECAUSE Sprint 30's TS-590/Kenwood audience is the scaling event we're building support infrastructure for. Sprint 29 plan synthesis ran on top of all this. Civ VI accessibility work happened in parallel on Noel's side (separate session, separate repo).
 
