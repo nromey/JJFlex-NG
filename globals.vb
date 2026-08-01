@@ -894,15 +894,51 @@ Module globals
                 End Try
             End Sub,
             .RebootRadio = Sub()
-                If RigControl Is Nothing Then Return
-                If MessageBox.Show("Are you sure you want to reboot the radio?", "Reboot Radio",
-                                   MessageBoxButtons.YesNo) = DialogResult.Yes Then
-                    WpfMainWindow.powerNowOff()
-                    Dim rebootThread As New Threading.Thread(Sub() RigControl.Reboot(Not RigControl.RemoteRig))
-                    rebootThread.Name = "reboot"
-                    rebootThread.Start()
-                    rebootThread.Join()
+                ' No-silent-keystrokes rule: a bound key must always say something,
+                ' even when there's no radio to act on.
+                If RigControl Is Nothing OrElse Not RigControl.IsConnected Then
+                    Radios.ScreenReaderOutput.SpeakNoRadioConnected("reboot the radio")
+                    Return
                 End If
+
+                ' Deliberately NOT gated on RequireOperatorPresence. Reboot is the
+                ' primary remote-recovery tool: a remote owner whose radio has gone
+                ' dumb must be able to restart it even when another client currently
+                ' holds IsLocalPtt. Worst case a reboot drops the radio briefly and it
+                ' comes back. Locking the owner out of recovery is the worse failure,
+                ' so the confirmation dialog (which names who gets disconnected) is
+                ' the safeguard here rather than an ownership check.
+                Dim others = RigControl.OtherConnectedStations
+                ' No Owner assignment: JJ Flex's WPF main window is hosted rather
+                ' than shown as a WPF Window, and setting Owner to a never-shown
+                ' Window throws. Matches how RigSelectorDialog is opened from here.
+                Dim confirm As New JJFlexWpf.Dialogs.ConfirmRebootDialog(others)
+                If confirm.ShowDialog() <> True Then
+                    Radios.ScreenReaderOutput.Speak("Reboot cancelled.", Radios.VerbosityLevel.Terse, True)
+                    Return
+                End If
+
+                Radios.ScreenReaderOutput.Speak(
+                    "Rebooting the radio. This takes several minutes.",
+                    Radios.VerbosityLevel.Critical, True)
+
+                WpfMainWindow.powerNowOff()
+
+                ' Fire and forget. The previous version called Join() immediately
+                ' after Start(), which blocked the UI thread for the whole reboot
+                ' and froze the app — the thread bought nothing. The radio needs no
+                ' further input from us once the command is away.
+                Dim rebootThread As New Threading.Thread(
+                    Sub()
+                        Try
+                            RigControl.Reboot(Not RigControl.RemoteRig)
+                        Catch ex As Exception
+                            Tracing.TraceLine("RebootRadio: " & ex.Message, TraceLevel.Error)
+                        End Try
+                    End Sub)
+                rebootThread.Name = "reboot"
+                rebootThread.IsBackground = True
+                rebootThread.Start()
             End Sub,
             .ShowTXControls = Sub()
                 If RigControl Is Nothing Then Return

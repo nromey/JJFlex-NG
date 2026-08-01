@@ -5,7 +5,122 @@ This document captures the current state of JJ-Flex repository and active work.
 **Repository root:** `C:\dev\JJFlex-NG`
 **Branch:** `main` (post-REVERT of `track/flexlib-42` merge on 2026-05-15 — main is back to pre-FlexLib-4.2.18 substrate after Don's 2026-05-15 LAN trace exposed a vendor-side station-name regression. FlexLib 4.0.1 is in place. Re-merge of FlexLib 4.2.18 now gated on Sprint 29 Phase D firmware-update UI being operational + Don's radio firmware updated. `track/flexlib-42` parked at `9de45c54`. See `memory/project_flexlib_4218_station_name_regression.md` (new), `memory/project_flexlib_4218_merge_sequencing.md` (refreshed 2026-05-15), and `memory/project_main_branch_41_posture.md` (reality-check note added).)
 
-## RESUME HERE — 2026-05-15 end-of-day seal: FlexLib 4.2.18 merge reverted after Don's morning trace exposed LAN station-name regression; firmware-update path now gates re-merge
+## RESUME HERE — 2026-07-31: hole-punch wiring gap found and fixed; reboot hardened; firmware Phase D core + static IP landed (COMMITTED on `main` in the 2026-08-01 seal)
+
+**Context.** Don's antennas came down in NYC; his 6300 is now at a friend's (Tony's) place in the Adirondacks — great location, zero noise, real antenna. Tony is on-site and reachable, and his ISP requires a phone call to change anything on the router (they will do it, it's lead time not a block). The immediate goal is **connectivity so Don can operate**, not firmware. Firmware can wait for a shipped GL.iNet router or Pi and someone with a laptop.
+
+**The headline — hole punch was dead, and it's very likely why Don can't connect.**
+`Radio.NegotiatedHolePunchPort` reads like FlexLib fills it in from a server handshake. It doesn't: it's initialised to `-1` and **never assigned anywhere in FlexLib**, in either 4.0.1 or 4.2.20, while being *read* by `Radio.Connect` and the `VitaSocket` ctor. The decompiled SmartSDR 4.1.3 client shows the client is expected to pick the port itself (`random.Next(25000, 65000)`) and advertise the same number. JJFlex never set it, and branched on local account `ConnectionMode` instead of the radio's own `RequiresHolePunch`. Fixed in `FlexBase.sendRemoteConnect`. **Untested against a real NAT.** Full detail in `memory/project_hole_punch_wiring_gap.md`.
+
+### Landed this session (committed 2026-08-01; see that seal entry)
+
+- **Hole punch fix** — `Radios/FlexBase.cs`. Branches on `r.RequiresHolePunch`, assigns `r.NegotiatedHolePunchPort`, configured-port-else-random per connect (fresh port avoids stale NAT mappings). Added `hole_punch_port_selected` profiler event + trace lines.
+- **Reboot hardened** — `globals.vb` + new `JJFlexWpf/Dialogs/ConfirmRebootDialog.xaml{,.cs}`. Presence gate deliberately **removed** (Noel's call: reboot is the primary remote-recovery tool; locking a remote owner out is worse than a guest rebooting after an explicit warning). Fixed a silent no-radio path, added a confirmation that *names* the stations it will disconnect, added a progress announcement, and fixed a real UI-freeze bug (`rebootThread.Join()` immediately after `Start()`).
+- **New `FlexBase.OtherConnectedStations`** — reusable; the inline copy in the no-slices error path now uses it.
+- **Firmware Phase D core** — `FlexBase.PreflightFirmwareUpdate` (size + SHA256 + Mox + other-clients checks), `BeginFirmwareUpdate`, `IsInRecoveryState`. Plus a **vendor patch** to `FlexLib_API/FlexLib/Radio.cs`: `Private_SendUpdateFile` read the whole image with one un-checked `stream.Read` — a short read would stream a partially-zero firmware image. Now loops and throws on early EOF. Re-apply after any FlexLib upgrade.
+- **Static IP** — `FlexBase.PreflightStaticIp` (contiguous-netmask check, network/broadcast rejection, gateway-same-subnet, and a lock-yourself-out warning when the proposed address isn't on the subnet the radio is currently reachable on), `ApplyStaticIp`, `RevertToDhcp`, `SuggestStaticFromCurrent` (refuses over SmartLink — `theRadio.IP` is not the radio's LAN address on a WAN connection), and `EnforcePrivateIPConnections`.
+
+### Next session — start here
+
+1. **Decide branch vs commit.** All of the above is uncommitted on `main`, including a vendor patch. Also a stray untracked `_nul` to delete.
+2. **Build the UI.** Nothing above is reachable from Settings yet. Agreed design: build each setting as a reusable UserControl, host in **both** the Network tab and a new **Radio Setup** tab. Radio Setup is an **ordered, numbered checklist with live status per step** ("Step 3 — Remote power: disabled"), NOT a modal next/back wizard — heading navigation gives screen-reader users random access, and a checklist decouples cleanly from future per-radio-class setup. A true first-run "Box to QSO" wizard comes later and reuses the same controls.
+3. **Firmware work.** Extract `.ssdr` images from the SmartSDR installers (`FLEX-6x00` for Don's 6300, `FLEX-9600` for Noel's BigBend 8600), hash them, define the manifest, publish to R2 via the `jjf-data` GitHub Action pattern. Then model→filename resolution + version compare + download/verify/upload UI. **Verify from the 4.2.20 release notes that a direct jump from Don's 4.1.15-era firmware is supported with no intermediate step.**
+4. **Known small items:** fix `SettingsDialog.xaml:398` help text (claims JJ Flex does UPnP — the *radio* does); consider loosening `RunNetworkDiagnosticAsync` to work without a connected radio so it can diagnose the can't-connect case; optional client-side "last observed restart" per serial (FlexLib exposes no uptime).
+
+### Reference facts established this session
+
+- **FlexLib 4.2.20** (June 2 2026) changes exactly two files vs 4.2.18 — `Radio.cs` (defensive try/catch around VITA dispatch + a post-firmware-reboot keepalive fix) and `RXAudioStream.cs` (Opus stale-packet lockout). `Discovery.cs` is byte-identical; **neither of our blockers is fixed**. Worth taking anyway. Normalise line endings before diffing vendor drops or everything looks changed.
+- **No Wake-on-LAN on any Flex series.** REM ON RCA jack only, and it must be enabled in software first (`remote_on_enabled`). `radio reboot` is the **only** power command in the entire API — no shutdown exists. Reboot works purely over the command channel, LAN or SmartLink.
+- **UPnP is performed by the radio, not the client.** There is no "enable UPnP" command anywhere in the Flex API. If it's off at the router that's an ISP fix.
+- **The radio is a stratum-1 NTP server** when GNSS is fitted — internal to firmware, nothing to configure, requires a fixed IP.
+- **MEMORY.md was 59.2 KB against a 24.4 KB read limit** — everything past roughly halfway had been silently dropped for some time. Compressed to 16.6 KB / 144 lines; architecture notes, build lessons and release process moved to `memory/reference_architecture_and_release.md`.
+
+---
+
+## 2026-08-01 end-of-day seal: JJ Flexible Connect designed end to end; 7/31 networking work committed; memory backup extended to all projects
+
+**Scope note.** This seal covers the 2026-07-31 dev day *plus* an overnight design session that ran 01:00–03:30 on 08-01. It is also **the first JJFlex seal since 2026-05-15** — an 11-week gap during which Noel's effort went to Freight Fate and Civ VI Access. Main's HEAD had been sitting at the 5/15 seal commit that whole time.
+
+### What shipped
+
+**Design — JJ Flexible Connect (the session's headline).** A full vision record at `docs/planning/vision/cookie-sked-keydown.md`, arrived at from a "waking up just before sleep" idea. Connect is an opt-in alternative to SmartLink for granting others access to your radio: capability grants (one resource, one grantee, one window, independently revocable) brokered by a **rendezvous** service Noel operates — identity, grants, presence, NAT hole-punch coordination, **never relay**, so no audio or IQ crosses the service. The design was pressure-tested against FlexLib source over ~2.5 hours and got materially better in the process, not worse.
+
+**Code — the 2026-07-31 networking work, now committed to `main`.** Hole-punch fix in `Radios/FlexBase.cs`, reboot hardening in `globals.vb` + new `JJFlexWpf/Dialogs/ConfirmRebootDialog.xaml{,.cs}`, `FlexBase.OtherConnectedStations`, firmware Phase D core (`PreflightFirmwareUpdate` / `BeginFirmwareUpdate` / `IsInRecoveryState`), static-IP support (`PreflightStaticIp` / `ApplyStaticIp` / `RevertToDhcp` / `SuggestStaticFromCurrent` / `EnforcePrivateIPConnections`), and a **vendor patch** to `FlexLib_API/FlexLib/Radio.cs` fixing an unchecked `stream.Read` in `Private_SendUpdateFile` that could stream a partially-zero firmware image. Re-apply that patch after any FlexLib upgrade. Detail in the RESUME HERE section above. Stray untracked `_nul` deleted.
+
+**Tooling — `backup-memory-to-nas.ps1` rewritten for all projects.** It previously backed up only the JJFlex memory tree. It now discovers and snapshots **every** per-project Claude memory folder under `C:\Users\nrome\.claude\projects\`. JJFlex keeps its flat legacy path so its dated series stays unbroken; everything else lands under `historical\memory\projects\<slug>\`. First run captured 10 projects — including **Freight Fate (118 files) and Civ VI Access (175 files), neither of which had ever been backed up anywhere.** These live under the user profile, so the `C:\dev` mirror never covered them.
+
+**SOP — CLAUDE.md updated** in two places: the pre-seal sweep now explicitly requires checking Freight Fate and Civ VI Access main roots (not their worktrees) for branch/dirty/unpushed state, and step 2 documents the all-projects memory backup.
+
+### Cross-surface activity (per pre-seal sweep)
+
+- **JJFlex main** — no commits since 2026-07-28; 10 dirty files carrying the whole 7/31 networking session. Now committed.
+- **JJFlex worktrees** — `jjflex-braille` (`track/braille-research`), `jjflex-flexlib-42` (`track/flexlib-42`, parked at `9de45c54` per the 5/15 revert), `jjflex-multi-radio` (`track/multi-radio`). One dirty file each, no commits since 7/28. Nothing in flight.
+- **Freight Fate** — by far the most active surface this week. `C:\dev\Freight-Fate` on `feat/career-1.9`, last commit 7/31, **16 unpushed commits**, 1 dirty file (`docs/user-manual-1.9-draft.md`). Fourteen worktrees; recent work spans map packs with LZMA compression and `.ffmap` packaging, a route gap analyzer (856 of 1,287 pairs have a real parallel alternate), radio catalog healing (+13 stream URLs restored, +162 community stations, NPR translator dark-corridor fills), granular audio experiments (closed as a source-material failure, field-recording spec banked), and a divided-highway flag baked onto 1,201 legs. Outside contributors landed PRs (day-garwood, wleicht).
+- **Civ VI Access** — `C:\dev\Civ-vi-access` on `main`, **45 unpushed commits**, 2 dirty files, last commit 7/10.
+- **Other repos** — `OniAccess` 205 dirty files (no unpushed commits); `Civ-V-Access`, `jjf-data`, `prism`, `rimworld_access` all clean and pushed.
+- **Memory** — 6 JJFlex entries touched (5 new for Connect, then consolidated to 2; MEMORY.md reindexed). Freight Fate memory last written 7/31 23:09, so that project had a session the same evening.
+- **Private docs** — `C:\Users\nrome\JJFlex-private` was missing its `after-action-reports`, `certs`, and `jaws-dev-guides` subfolders on this box; Noel copied them from the laptop mid-seal over RDP. 110 files / 2.04 MB now present and snapshotted. **The AAR series runs 2026-05-06 → 2026-05-15 and then stops**, matching the JJFlex pause.
+- **NAS** — reachable throughout. Memory (10 zips), private, and rigmeter JSON all written this session.
+
+### Decisions made today
+
+- **Connect enforces in JJFlex's layer, not FlexLib's.** Noel's correction, and it reframed everything: "if JJ Flexible won't give you a PTT, there ain't no way you be gonna transmit." This makes Connect radio-independent (a Kenwood over CAT works identically) and unlocks rules the radio cannot express at all — the headline being **license-class-aware frequency limiting**.
+- **The only-door invariant.** Rules state what JJFlex *will do*, never what the radio *will accept*; security comes from path exclusivity. **The owner may always have a second door; the guest never may.** Corollary: **guest sessions fail closed** — a direct-connect fallback added for availability reasons would void every rule at once.
+- **Record the emission, not the operator** — capture only while keyed. Recording is protective (it is the guest's alibi as much as the owner's record), not surveillance, because an amateur transmission is public by law. Disclosure must be *spoken*, not a red dot.
+- **Never paywall accessibility or recording.** Charge for scale and convenience (multiple radios, discoverable listing, extended retention). Never charge for airtime — Part 97.113(a)(2) pecuniary-interest rules.
+- **Memory vs docs split corrected mid-session.** Five new memory entries for an unscheduled feature was too much permanent index weight. Collapsed to two: the verified codebase constraint (`project_multiflex_tx_is_a_mutex`) plus a pointer entry; the design narrative moved to the planning doc.
+- **Did not push Freight Fate or Civ VI Access.** Durability is covered by the NAS dev mirror (which preserves `.git`), and pushing repos with outside contributors is outward-facing — Noel's call, not the sealing session's.
+
+### Verified facts worth not re-deriving
+
+From reading `FlexLib_API/FlexLib/Radio.cs` directly — full detail in `memory/project_multiflex_tx_is_a_mutex.md`:
+
+- **Transmit is a mutex.** One `TXClientHandle` (`Radio.cs:587`), one exciter, one PA. Two operators cannot transmit at once even on a 6600/6700 — two SCUs means two independent *receive* chains. Mutual exclusion is therefore already solved in the radio; a scheduler decides eligibility, the interlock decides who is keyed. Never write a distributed lock.
+- **`TXInhibit` is global, not per-client** (`Radio.cs:8825`). Good owner panic button, useless as a per-guest ACL.
+- **Slice visibility cannot be enforced radio-side.** `AddSlice` (`Radio.cs:4931`) does no client filtering — every slice status reaches every client. Any "hide other operators' slices" role is client-side courtesy, not privacy, and must be labelled honestly. Upside: owner metadata monitoring is free today, no new plumbing.
+
+### Open follow-ups
+
+- Does a non-transmitting client receive `TXMonitor` audio? Fifteen-second test with Don.
+- MultiFlex simultaneous-GUI-client cap on the 6600 — not verified in source.
+- Connect ToS + control-operator disclaimer need drafting, and want a human read before publication.
+- Broker hosting undecided (roarbox? Cloudflare?), as is where the identity store lives.
+- Hole-punch fix is still **untested against a real NAT**.
+- Everything from the 7/31 "Next session" list stands: build the Settings UI for the new networking features, extract `.ssdr` firmware images, fix `SettingsDialog.xaml:398` UPnP help text.
+- RHR: ask is for their Pi image (users still pay and log in normally), not an API. Email sent, no reply. Current step is finding a ham with a personal connection — a partnership request from an individual has no natural owner in a small company's inbox.
+
+### Rigmeter snapshot — end of 2026-08-01
+
+**Authored grand totals:** 851 files, 169,566 lines, 860,547 words, 7,940,648 chars
+**Vendor:** 180 files, 53,257 lines · **Combined:** 1,031 files, 222,823 lines
+
+**Growth since the 2026-05-15 seal** (752 files / 147,388 lines): **+99 files, +22,178 lines.**
+
+**Per-category totals (authored):**
+- code: 111,310 lines (vs 102,689 at last seal — +8,621)
+- docs: 39,605 lines (vs 29,007 — +10,598)
+- text_data: 12,322 lines (vs 9,824 — +2,498)
+- build: 6,329 lines (vs 5,868 — +461)
+
+**Code language breakdown:** C# 74.7%, VB 16.9%, XAML 4.6%, Python 3.9%
+
+**Largest projects:** JJFlexWpf 39,594 lines · docs 39,202 · main_app 32,553 · Radios 24,834
+
+**Today's git activity:** rigmeter `today` reports 0 commits — it measures since local midnight and the seal commit lands after. The real span is the 7/31 dev day, whose ~1,170 insertions across 9 files go in with this seal.
+
+**NAS snapshot JSON:** `2026-05-15-cb1fa5f7.json` (keyed on HEAD's commit date, which was still the 5/15 commit at snapshot time; next run will key on the new commit).
+
+### Setup for next session
+
+**The immediate JJFlex path is unchanged and unblocked:** build the Settings UI for the 7/31 networking work (reusable UserControls hosted in both the Network tab and a new **Radio Setup** tab — an ordered numbered checklist with live per-step status, NOT a modal wizard), then firmware image extraction and the manifest.
+
+**Connect is deliberately unscheduled.** It is a vision doc, not a sprint. It should not displace the foundation work — but the design is now durable enough to survive until there is room for it.
+
+**Two things Noel flagged as his to decide:** whether to push Freight Fate (16) and Civ VI (45) unpushed commits, and whether to tell Don about Connect — he is inclined to keep it quiet and surprise him, which is fitting given Don's "you don't want to change SmartLink for Flex" is what shelved the idea the first time. Don was right about the wrong approach; Connect never touches SmartLink.
+
+---
+
+## 2026-05-15 end-of-day seal: FlexLib 4.2.18 merge reverted after Don's morning trace exposed LAN station-name regression; firmware-update path now gates re-merge
 
 **The headline.** Don submitted a trace at 06:23 saying "audio works, frequency doesn't display, sometimes unresponsive" — yesterday's nightly's first real-world LAN test. Trace analysis revealed FlexLib 4.2.18's TCP reply pipeline delays the radio's `client station` echo by 56+ seconds on Don's older firmware over LAN, while the same path works in 0-102ms on FlexLib 4.0.1 (clean library-version differential, same radio, same firmware — three traces from the May 6 R6 corpus confirm). The Phase 5 audio fix that worked over SmartLink on 2026-05-09 didn't catch this because WAN uses different reply-routing code than direct-LAN-TCP. Reverted the merge, re-cut nightly, Don un-blocked. Strategic move: Sprint 29 Phase D (firmware update UI) becomes the prerequisite to re-merging FlexLib 4.2.18 — once Don updates his radio firmware, the 4.2.18 path becomes the path Flex's QA actually tests.
 

@@ -1144,21 +1144,9 @@ namespace Radios
             {
                 // Include who has the slices so the user knows who to coordinate with
                 string sliceMsg = noSlice;
-                try
-                {
-                    var others = new System.Collections.Generic.List<string>();
-                    lock (theRadio.GuiClientsLockObj)
-                    {
-                        foreach (GUIClient c in theRadio.GuiClients)
-                        {
-                            if (!myClient(c.ClientHandle) && !string.IsNullOrEmpty(c.Station))
-                                others.Add(c.Station);
-                        }
-                    }
-                    if (others.Count > 0)
-                        sliceMsg += " — in use by " + string.Join(", ", others);
-                }
-                catch { /* don't let info gathering block the error */ }
+                var others = OtherConnectedStations;
+                if (others.Count > 0)
+                    sliceMsg += " — in use by " + string.Join(", ", others);
                 Tracing.TraceLine("start: couldn't get a slice", TraceLevel.Error);
                 LastStartFailureReason = "No slices available";
                 raiseNoSliceError(sliceMsg);
@@ -1431,6 +1419,577 @@ namespace Radios
         {
             get { return _IsConnected; }
         }
+
+        #region Static IP / DHCP
+
+        /// <summary>
+        /// Result of validating a proposed static-network configuration.
+        /// </summary>
+        public sealed class StaticIpCheck
+        {
+            public bool CanProceed { get; set; }
+            public string BlockReason { get; set; } = string.Empty;
+            public List<string> Warnings { get; } = new List<string>();
+        }
+
+        /// <summary>Current static IP the radio reports, or null when on DHCP.</summary>
+        public System.Net.IPAddress CurrentStaticIP => theRadio?.StaticIP;
+
+        /// <summary>Current static gateway the radio reports, or null.</summary>
+        public System.Net.IPAddress CurrentStaticGateway => theRadio?.StaticGateway;
+
+        /// <summary>Current static netmask the radio reports, or null.</summary>
+        public System.Net.IPAddress CurrentStaticNetmask => theRadio?.StaticNetmask;
+
+        /// <summary>The address we are actually talking to the radio on right now.</summary>
+        public System.Net.IPAddress CurrentRadioIP => theRadio?.IP;
+
+        /// <summary>
+        /// Validate a proposed static-network configuration without applying it.
+        ///
+        /// This matters more than a normal settings validation. A wrong value here
+        /// doesn't produce an error — it makes the radio unreachable at the next
+        /// reboot, and the only recovery is physical access to the front panel. For a
+        /// radio at a remote site that means someone has to travel. So we check the
+        /// arithmetic properly and warn loudly when the proposed address wouldn't be
+        /// reachable from where we're standing.
+        /// </summary>
+        public StaticIpCheck PreflightStaticIp(string ip, string gateway, string netmask)
+        {
+            var check = new StaticIpCheck();
+
+            if (theRadio == null || !IsConnected)
+            {
+                check.BlockReason = "No radio is connected.";
+                return check;
+            }
+
+            if (!System.Net.IPAddress.TryParse(ip, out var ipAddr)
+                || ipAddr.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork)
+            {
+                check.BlockReason = "The IP address is not a valid IPv4 address.";
+                return check;
+            }
+            if (!System.Net.IPAddress.TryParse(gateway, out var gwAddr)
+                || gwAddr.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork)
+            {
+                check.BlockReason = "The gateway is not a valid IPv4 address.";
+                return check;
+            }
+            if (!System.Net.IPAddress.TryParse(netmask, out var maskAddr)
+                || maskAddr.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork)
+            {
+                check.BlockReason = "The subnet mask is not a valid IPv4 address.";
+                return check;
+            }
+
+            uint ipV = ToUInt(ipAddr), gwV = ToUInt(gwAddr), maskV = ToUInt(maskAddr);
+
+            // A netmask must be a contiguous run of 1 bits. 255.255.0.255 is a
+            // classic typo that parses fine and breaks routing.
+            uint inverted = ~maskV;
+            if ((inverted & (inverted + 1)) != 0)
+            {
+                check.BlockReason = "The subnet mask is not valid — the one bits must be contiguous (for example 255.255.255.0).";
+                return check;
+            }
+            if (maskV == 0xFFFFFFFF || maskV == 0)
+            {
+                check.BlockReason = "The subnet mask must leave room for hosts (for example 255.255.255.0).";
+                return check;
+            }
+
+            uint network = ipV & maskV;
+            uint broadcast = network | ~maskV;
+
+            if (ipV == network)
+            {
+                check.BlockReason = "That IP address is the network address for this subnet and cannot be assigned to the radio.";
+                return check;
+            }
+            if (ipV == broadcast)
+            {
+                check.BlockReason = "That IP address is the broadcast address for this subnet and cannot be assigned to the radio.";
+                return check;
+            }
+            if ((gwV & maskV) != network)
+            {
+                check.BlockReason = "The gateway is not on the same subnet as the IP address. The radio would have no route off its network.";
+                return check;
+            }
+            if (gwV == ipV)
+            {
+                check.BlockReason = "The gateway cannot be the same address as the radio.";
+                return check;
+            }
+
+            // The lock-yourself-out check: if the proposed address isn't on the same
+            // subnet we're currently reaching the radio on, this is very likely a typo
+            // — and if it isn't, whoever applies it needs to know they're changing
+            // networks deliberately.
+            var currentIp = theRadio.IP;
+            if (currentIp != null && currentIp.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
+            {
+                uint curV = ToUInt(currentIp);
+                if ((curV & maskV) != network)
+                {
+                    check.Warnings.Add(
+                        $"The radio is reachable at {currentIp} today, which is on a different subnet than {ip}. " +
+                        "If that is not deliberate, the radio will be unreachable after it restarts and will need " +
+                        "someone at the radio to fix it.");
+                }
+                else if (curV != ipV)
+                {
+                    check.Warnings.Add(
+                        $"The radio's address will change from {currentIp} to {ip}. You will need to reconnect after it restarts.");
+                }
+            }
+
+            var others = OtherConnectedStations;
+            if (others.Count > 0)
+                check.Warnings.Add("Other stations are connected and will need to reconnect: " + string.Join(", ", others));
+
+            check.CanProceed = true;
+            return check;
+        }
+
+        private static uint ToUInt(System.Net.IPAddress a)
+        {
+            byte[] b = a.GetAddressBytes();
+            return ((uint)b[0] << 24) | ((uint)b[1] << 16) | ((uint)b[2] << 8) | b[3];
+        }
+
+        /// <summary>
+        /// A proposed static configuration built from what the radio is using right
+        /// now. Backs the "use the current address" button.
+        /// </summary>
+        public sealed class SuggestedStaticConfig
+        {
+            public bool Available { get; set; }
+            public string Reason { get; set; } = string.Empty;
+            public string Ip { get; set; } = string.Empty;
+            public string Gateway { get; set; } = string.Empty;
+            public string Netmask { get; set; } = string.Empty;
+            public List<string> Warnings { get; } = new List<string>();
+        }
+
+        /// <summary>
+        /// Build a static configuration from the address the radio is currently
+        /// using. This is the safest way to go static — you're pinning an address
+        /// that demonstrably works on that network right now.
+        ///
+        /// Refuses over SmartLink. On a WAN connection <c>theRadio.IP</c> is the
+        /// address we reach the radio *through*, not the radio's address on its own
+        /// LAN. Pinning that as a static IP would make the radio unreachable and need
+        /// physical access to undo — the exact outcome this whole feature exists to
+        /// avoid.
+        ///
+        /// Gateway and netmask come from the radio when it reports them, otherwise
+        /// they're inferred from whichever local adapter shares a subnet with the
+        /// radio. Inference is flagged in Warnings so the user can sanity-check it.
+        /// </summary>
+        public SuggestedStaticConfig SuggestStaticFromCurrent()
+        {
+            var s = new SuggestedStaticConfig();
+
+            if (theRadio == null || !IsConnected)
+            {
+                s.Reason = "No radio is connected.";
+                return s;
+            }
+
+            if (theRadio.IsWan)
+            {
+                s.Reason =
+                    "You are connected over SmartLink. The address JJ Flex sees is not the radio's address " +
+                    "on its own network, so it cannot be used as a static IP. Connect on the same local " +
+                    "network as the radio to use this.";
+                return s;
+            }
+
+            var ip = theRadio.IP;
+            if (ip == null || ip.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork)
+            {
+                s.Reason = "The radio's current IPv4 address is not available.";
+                return s;
+            }
+            s.Ip = ip.ToString();
+
+            // Prefer whatever the radio itself reports.
+            if (theRadio.StaticNetmask != null) s.Netmask = theRadio.StaticNetmask.ToString();
+            if (theRadio.StaticGateway != null) s.Gateway = theRadio.StaticGateway.ToString();
+
+            // Otherwise infer from the local adapter that shares the radio's subnet.
+            if (string.IsNullOrEmpty(s.Netmask) || string.IsNullOrEmpty(s.Gateway))
+            {
+                try
+                {
+                    uint radioV = ToUInt(ip);
+                    foreach (var nic in System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces())
+                    {
+                        if (nic.OperationalStatus != System.Net.NetworkInformation.OperationalStatus.Up) continue;
+                        var props = nic.GetIPProperties();
+                        foreach (var ua in props.UnicastAddresses)
+                        {
+                            if (ua.Address.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork) continue;
+                            var mask = ua.IPv4Mask;
+                            if (mask == null || ToUInt(mask) == 0) continue;
+                            uint maskV = ToUInt(mask);
+                            if ((ToUInt(ua.Address) & maskV) != (radioV & maskV)) continue;
+
+                            if (string.IsNullOrEmpty(s.Netmask))
+                            {
+                                s.Netmask = mask.ToString();
+                                s.Warnings.Add($"The subnet mask {s.Netmask} was taken from this computer's network settings, not from the radio.");
+                            }
+                            if (string.IsNullOrEmpty(s.Gateway))
+                            {
+                                foreach (var gw in props.GatewayAddresses)
+                                {
+                                    if (gw?.Address == null) continue;
+                                    if (gw.Address.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork) continue;
+                                    if (ToUInt(gw.Address) == 0) continue;
+                                    s.Gateway = gw.Address.ToString();
+                                    s.Warnings.Add($"The gateway {s.Gateway} was taken from this computer's network settings, not from the radio.");
+                                    break;
+                                }
+                            }
+                            break;
+                        }
+                        if (!string.IsNullOrEmpty(s.Netmask) && !string.IsNullOrEmpty(s.Gateway)) break;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Tracing.TraceLine($"SuggestStaticFromCurrent: adapter probe failed: {ex.Message}", TraceLevel.Error);
+                }
+            }
+
+            if (string.IsNullOrEmpty(s.Netmask) || string.IsNullOrEmpty(s.Gateway))
+            {
+                s.Reason =
+                    "The radio's current address is " + s.Ip + ", but the gateway and subnet mask could not be " +
+                    "determined automatically. Enter them by hand.";
+                // Still hand back the IP so the field can be filled in.
+                s.Available = false;
+                return s;
+            }
+
+            s.Warnings.Add(
+                "This address was assigned by DHCP. Pinning it as static works, but the router could later hand " +
+                "the same address to another device. A DHCP reservation on the router is the tidier fix where that is possible.");
+
+            s.Available = true;
+            return s;
+        }
+
+        /// <summary>
+        /// Apply a static network configuration. Call <see cref="PreflightStaticIp"/>
+        /// first and only call this when it reports CanProceed.
+        ///
+        /// FlexLib reports the outcome through the radio's StaticIPSetSuccessful /
+        /// StaticIPSetFailed events rather than a return value, so callers pass
+        /// handlers. Both are unsubscribed after the first fire.
+        /// </summary>
+        public bool ApplyStaticIp(string ip, string gateway, string netmask, Action onSuccess, Action onFailure)
+        {
+            if (theRadio == null || !IsConnected) return false;
+
+            try
+            {
+                var r = theRadio;
+                EventHandler okHandler = null, failHandler = null;
+
+                okHandler = (s, e) =>
+                {
+                    r.StaticIPSetSuccessful -= okHandler;
+                    r.StaticIPSetFailed -= failHandler;
+                    Tracing.TraceLine($"ApplyStaticIp: radio accepted {ip}/{netmask} gw {gateway}", TraceLevel.Info);
+                    onSuccess?.Invoke();
+                };
+                failHandler = (s, e) =>
+                {
+                    r.StaticIPSetSuccessful -= okHandler;
+                    r.StaticIPSetFailed -= failHandler;
+                    Tracing.TraceLine("ApplyStaticIp: radio rejected the static network parameters", TraceLevel.Error);
+                    onFailure?.Invoke();
+                };
+
+                r.StaticIPSetSuccessful += okHandler;
+                r.StaticIPSetFailed += failHandler;
+
+                r.StaticIP = System.Net.IPAddress.Parse(ip);
+                r.StaticGateway = System.Net.IPAddress.Parse(gateway);
+                r.StaticNetmask = System.Net.IPAddress.Parse(netmask);
+                r.SetStaticNetworkParams();
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine($"ApplyStaticIp: {ex.Message}", TraceLevel.Error);
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Put the radio back on DHCP. Same event-based outcome reporting as
+        /// <see cref="ApplyStaticIp"/>.
+        /// </summary>
+        public bool RevertToDhcp(Action onSuccess, Action onFailure)
+        {
+            if (theRadio == null || !IsConnected) return false;
+
+            try
+            {
+                var r = theRadio;
+                EventHandler okHandler = null, failHandler = null;
+
+                okHandler = (s, e) =>
+                {
+                    r.DHCPSetSuccessful -= okHandler;
+                    r.DHCPSetFailed -= failHandler;
+                    Tracing.TraceLine("RevertToDhcp: radio accepted DHCP", TraceLevel.Info);
+                    onSuccess?.Invoke();
+                };
+                failHandler = (s, e) =>
+                {
+                    r.DHCPSetSuccessful -= okHandler;
+                    r.DHCPSetFailed -= failHandler;
+                    Tracing.TraceLine("RevertToDhcp: radio rejected the DHCP reset", TraceLevel.Error);
+                    onFailure?.Invoke();
+                };
+
+                r.DHCPSetSuccessful += okHandler;
+                r.DHCPSetFailed += failHandler;
+                r.SetNetworkToDCHP();
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine($"RevertToDhcp: {ex.Message}", TraceLevel.Error);
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Whether the radio refuses connections from non-private source addresses.
+        /// Surfaced because Tailscale hands out CGNAT addresses (100.64.0.0/10), which
+        /// are NOT RFC1918 — with this enabled a tailnet-attached client can be
+        /// silently refused.
+        /// </summary>
+        public bool EnforcePrivateIPConnections
+        {
+            get
+            {
+                try { return theRadio != null && theRadio.EnforcePrivateIPConnections; }
+                catch { return false; }
+            }
+            set
+            {
+                try
+                {
+                    if (theRadio == null) return;
+                    theRadio.EnforcePrivateIPConnections = value;
+                    Tracing.TraceLine($"EnforcePrivateIPConnections set to {value}", TraceLevel.Info);
+                }
+                catch (Exception ex)
+                {
+                    Tracing.TraceLine($"EnforcePrivateIPConnections set failed: {ex.Message}", TraceLevel.Error);
+                }
+            }
+        }
+
+        #endregion
+
+        #region Firmware update (Sprint 29 Phase D)
+
+        /// <summary>
+        /// Result of the pre-flight checks that run before a firmware image is sent.
+        /// Deliberately separate from the upload itself so the UI can show the user
+        /// exactly what it found — file size, computed hash, who else is connected —
+        /// and let them confirm before anything touches the radio.
+        /// </summary>
+        public sealed class FirmwareUpdateCheck
+        {
+            /// <summary>True when nothing blocks the upload. Warnings may still be set.</summary>
+            public bool CanProceed { get; set; }
+
+            /// <summary>Why the upload is blocked. Empty when CanProceed is true.</summary>
+            public string BlockReason { get; set; } = string.Empty;
+
+            /// <summary>Non-blocking things the user should know before confirming.</summary>
+            public List<string> Warnings { get; } = new List<string>();
+
+            /// <summary>Size of the image on disk, in bytes.</summary>
+            public long SizeBytes { get; set; }
+
+            /// <summary>SHA256 of the image as found on disk, lower-case hex.</summary>
+            public string ActualSha256 { get; set; } = string.Empty;
+
+            /// <summary>File name that will be sent to the radio.</summary>
+            public string FileName { get; set; } = string.Empty;
+        }
+
+        /// <summary>
+        /// Verify a firmware image and the radio's state before uploading. Never
+        /// modifies anything — safe to call as often as the UI likes.
+        ///
+        /// The integrity check has to live here rather than in FlexLib: the vendor's
+        /// upload path carries a "TODO: verify file integrity" that was never
+        /// implemented, and it swallows every failure with a Debug.WriteLine. Once
+        /// bytes start moving there is no completion signal, so everything we can
+        /// check has to be checked first.
+        /// </summary>
+        /// <param name="path">Full path to the .ssdr image.</param>
+        /// <param name="expectedSha256">
+        /// Known-good SHA256 (hex, case-insensitive). Pass null or empty to skip the
+        /// comparison — the hash is still computed and reported so the caller can show it.
+        /// </param>
+        public FirmwareUpdateCheck PreflightFirmwareUpdate(string path, string expectedSha256 = null)
+        {
+            var check = new FirmwareUpdateCheck();
+
+            if (theRadio == null || !IsConnected)
+            {
+                check.BlockReason = "No radio is connected.";
+                return check;
+            }
+
+            if (string.IsNullOrWhiteSpace(path) || !System.IO.File.Exists(path))
+            {
+                check.BlockReason = "The firmware file could not be found.";
+                return check;
+            }
+
+            try
+            {
+                var info = new System.IO.FileInfo(path);
+                check.FileName = info.Name;
+                check.SizeBytes = info.Length;
+
+                if (info.Length == 0)
+                {
+                    check.BlockReason = "The firmware file is empty.";
+                    return check;
+                }
+
+                // Hash the whole file. On a ~60 MB image this is fast, and it doubles
+                // as proof the file is readable end to end before FlexLib re-reads it.
+                using (var sha = System.Security.Cryptography.SHA256.Create())
+                using (var fs = System.IO.File.OpenRead(path))
+                {
+                    byte[] hash = sha.ComputeHash(fs);
+                    check.ActualSha256 = Convert.ToHexString(hash).ToLowerInvariant();
+                }
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine($"PreflightFirmwareUpdate: {ex.Message}", TraceLevel.Error);
+                check.BlockReason = "The firmware file could not be read: " + ex.Message;
+                return check;
+            }
+
+            if (!string.IsNullOrWhiteSpace(expectedSha256))
+            {
+                string expected = expectedSha256.Trim().ToLowerInvariant();
+                if (!string.Equals(expected, check.ActualSha256, StringComparison.Ordinal))
+                {
+                    check.BlockReason =
+                        "The firmware file does not match its expected checksum. " +
+                        "Do not send it to the radio — download it again.";
+                    return check;
+                }
+            }
+            else
+            {
+                check.Warnings.Add(
+                    "No expected checksum was supplied, so the file's integrity could not be confirmed.");
+            }
+
+            // Transmitting during an update is a bad idea and easy to rule out.
+            try
+            {
+                if (theRadio.Mox)
+                {
+                    check.BlockReason = "The radio is transmitting. Stop transmitting before updating firmware.";
+                    return check;
+                }
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine($"PreflightFirmwareUpdate: Mox read failed: {ex.Message}", TraceLevel.Error);
+            }
+
+            // Other clients don't block the update, but the user should know they're
+            // about to take the radio away from someone.
+            var others = OtherConnectedStations;
+            if (others.Count > 0)
+            {
+                check.Warnings.Add(
+                    "Other stations are connected and will lose the radio: " + string.Join(", ", others));
+            }
+
+            check.CanProceed = true;
+            return check;
+        }
+
+        /// <summary>
+        /// Send a firmware image to the radio. Call
+        /// <see cref="PreflightFirmwareUpdate"/> first and only call this when it
+        /// reports CanProceed.
+        ///
+        /// Returns as soon as the transfer has been handed to FlexLib — the vendor
+        /// runs it on its own thread and provides no completion callback. Track
+        /// progress by watching the radio's ConnectedState and Status, which move to
+        /// "Update" and then "Recovery" or back to normal as the radio applies the
+        /// image and reboots.
+        /// </summary>
+        /// <returns>true if the transfer was started.</returns>
+        public bool BeginFirmwareUpdate(string path)
+        {
+            if (theRadio == null || !IsConnected)
+            {
+                Tracing.TraceLine("BeginFirmwareUpdate: no radio connected", TraceLevel.Error);
+                return false;
+            }
+
+            try
+            {
+                Tracing.TraceLine($"BeginFirmwareUpdate: sending {path}", TraceLevel.Info);
+                theRadio.SendUpdateFile(path);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine($"BeginFirmwareUpdate: {ex.Message}", TraceLevel.Error);
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// True when the radio reports it is in the middle of applying an update, or
+        /// has fallen into recovery after a failed one. Recovery is retryable by
+        /// sending the same image again — no physical access required, which is the
+        /// whole reason it's surfaced.
+        /// </summary>
+        public bool IsInRecoveryState
+        {
+            get
+            {
+                try
+                {
+                    return theRadio != null
+                        && string.Equals(theRadio.ConnectedState, "Update", StringComparison.OrdinalIgnoreCase)
+                        && string.Equals(theRadio.Status, "Recovery", StringComparison.OrdinalIgnoreCase);
+                }
+                catch
+                {
+                    return false;
+                }
+            }
+        }
+
+        #endregion
 
         /// <summary>
         /// Reboot the radio
@@ -2136,19 +2695,73 @@ namespace Radios
                 return false;
             }
 
-            // Sprint 27 Track F — compute the hole-punch port from the active
-            // account's ConnectionMode. Tier 3 (AutomaticHolePunch) passes the
-            // configured listen port so SmartLink coordinates a UDP hole-punch
-            // between radio and client. Tier 1 / Tier 2 pass 0 (no hole-punch
-            // requested; the route is via manual forward or UPnP mapping).
+            // Hole-punch port selection.
+            //
+            // The radio itself tells us whether hole punch is required — SmartLink
+            // sets Radio.RequiresHolePunch in the radio-list message. That flag, not
+            // our local account config, is the authority: a network that needs hole
+            // punch needs it regardless of which tier the user picked.
+            //
+            // IMPORTANT — "NegotiatedHolePunchPort" is a misnomer in FlexLib. Nothing
+            // ever assigns it: it's initialised to -1 in WanServer's radio-list parse
+            // and read (never written) by Radio.Connect and the VitaSocket ctor, in
+            // both 4.0.1 and 4.2.20. Picking the port is the CLIENT's job. SmartSDR
+            // does exactly this — `if (radio.RequiresHolePunch)
+            // radio.NegotiatedHolePunchPort = random.Next(25000, 65000);` — then
+            // advertises the same number. If we leave it at -1, FlexLib calls
+            // Connect(ip, -1, -1) and the connect cannot succeed.
+            //
+            // A FRESH port per connect is deliberate, not lazy: reusing a port risks
+            // colliding with a stale NAT mapping from a previous session, which makes
+            // hole punch fail intermittently and unreproducibly.
+            //
+            // A configured listen port is for the port-FORWARD path (Tier 1/2), where
+            // the user has told their router about a specific stable port. When
+            // forwarding works SmartLink reports RequiresHolePunch = false, so the two
+            // paths are mutually exclusive in practice. We honour an explicit
+            // configured port if one exists, and randomise otherwise.
             int holePunchPort = 0;
-            if (_currentAccount != null
+            if (r.RequiresHolePunch)
+            {
+                if (_currentAccount != null
+                    && _currentAccount.ConnectionMode == SmartLinkConnectionMode.AutomaticHolePunch
+                    && _currentAccount.ConfiguredListenPort.HasValue)
+                {
+                    holePunchPort = _currentAccount.ConfiguredListenPort.Value;
+                    Tracing.TraceLine(
+                        $"sendRemoteConnect: hole punch required — using configured port {holePunchPort}",
+                        TraceLevel.Info);
+                }
+                else
+                {
+                    holePunchPort = System.Random.Shared.Next(25000, 65000);
+                    Tracing.TraceLine(
+                        $"sendRemoteConnect: hole punch required — auto-assigned port {holePunchPort}",
+                        TraceLevel.Info);
+                }
+
+                // The value FlexLib actually reads at connect time. Without this the
+                // whole hole-punch path is dead.
+                r.NegotiatedHolePunchPort = holePunchPort;
+            }
+            else if (_currentAccount != null
                 && _currentAccount.ConnectionMode == SmartLinkConnectionMode.AutomaticHolePunch
                 && _currentAccount.ConfiguredListenPort.HasValue)
             {
+                // Tier 3 selected by the user but the radio didn't ask for hole punch.
+                // Advertise the configured port anyway — harmless, and preserves the
+                // Sprint 27 Track F behaviour.
                 holePunchPort = _currentAccount.ConfiguredListenPort.Value;
-                Tracing.TraceLine($"sendRemoteConnect: Tier 3 mode — advertising holePunchPort={holePunchPort}", TraceLevel.Info);
+                Tracing.TraceLine(
+                    $"sendRemoteConnect: Tier 3 mode, radio did not require hole punch — advertising {holePunchPort}",
+                    TraceLevel.Info);
             }
+
+            ConnectionProfiler.Current?.RecordEvent("hole_punch_port_selected", new Dictionary<string, object>
+            {
+                { "requiresHolePunch", r.RequiresHolePunch },
+                { "holePunchPort", holePunchPort }
+            });
 
             // session.ConnectToRadio returns Task<string?>: handle on success, null on timeout/failure.
             // We block synchronously to preserve the existing caller contract; the session owner's
@@ -3211,6 +3824,44 @@ namespace Radios
             {
                 GUIClient rv = theRadio.FindGUIClientByClientHandle(clientHandle);
                 return rv;
+            }
+        }
+
+        /// <summary>
+        /// Station names of every GUI client connected to this radio other than us.
+        /// Empty when we're the only station, the radio is null, or the other clients
+        /// haven't reported a station name yet.
+        ///
+        /// Callers use this to tell the user who else is affected before taking an
+        /// action with radio-wide blast radius (reboot, firmware update, port-forward
+        /// changes). On a MultiFlex radio "who else am I about to disconnect" is the
+        /// single most useful thing to put in a confirmation prompt.
+        ///
+        /// Never throws — information gathering must not block the operation it's
+        /// describing.
+        /// </summary>
+        public System.Collections.Generic.List<string> OtherConnectedStations
+        {
+            get
+            {
+                var others = new System.Collections.Generic.List<string>();
+                try
+                {
+                    if (theRadio == null) return others;
+                    lock (theRadio.GuiClientsLockObj)
+                    {
+                        foreach (GUIClient c in theRadio.GuiClients)
+                        {
+                            if (!myClient(c.ClientHandle) && !string.IsNullOrEmpty(c.Station))
+                                others.Add(c.Station);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Tracing.TraceLine($"OtherConnectedStations: {ex.Message}", TraceLevel.Error);
+                }
+                return others;
             }
         }
 

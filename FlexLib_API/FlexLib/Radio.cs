@@ -12297,7 +12297,11 @@ namespace Flex.Smoothlake.FlexLib
                 return;
             }
 
-            // TODO: verify file integrity
+            // Integrity is verified by the caller before we get here
+            // (FlexBase.UpdateFirmware checks size + SHA256 against a known-good
+            // value). Flex's original "TODO: verify file integrity" is deliberately
+            // left unimplemented here — the client shouldn't be the integrity
+            // authority for a file it can't decrypt.
 
             // read the file contents into a byte buffer to be sent via TCP
             byte[] update_file_buffer;
@@ -12310,12 +12314,25 @@ namespace Flex.Smoothlake.FlexLib
                 // allocate a buffer large enough for the file
                 update_file_buffer = new byte[stream.Length];
 
-                // read the entire contents of the file into the buffer
-                stream.Read(update_file_buffer, 0, (int)stream.Length);
+                // JJFlex vendor patch (firmware upload safety): the original called
+                // stream.Read(buffer, 0, length) once and ignored the return value.
+                // Stream.Read may legally return fewer bytes than requested, and a short
+                // read here would stream a partially-zero firmware image to the radio.
+                // Loop until the buffer is full and fail loudly if the file ends early.
+                // Re-apply after any FlexLib upgrade — see MIGRATION.md.
+                int totalRead = 0;
+                while (totalRead < update_file_buffer.Length)
+                {
+                    int n = stream.Read(update_file_buffer, totalRead, update_file_buffer.Length - totalRead);
+                    if (n <= 0)
+                        throw new IOException(
+                            $"Update file truncated: read {totalRead} of {update_file_buffer.Length} bytes");
+                    totalRead += n;
+                }
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                Debug.WriteLine("Update: Error reading the upgrade file");
+                Debug.WriteLine("Update: Error reading the upgrade file: " + ex.Message);
                 return;
             }
             finally
