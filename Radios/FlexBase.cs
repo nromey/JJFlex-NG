@@ -2487,6 +2487,106 @@ namespace Radios
             return check;
         }
 
+        /// <summary>The firmware version the radio is currently running.</summary>
+        public string RadioFirmwareVersion
+        {
+            get
+            {
+                try
+                {
+                    if (theRadio == null || theRadio.Version == 0) return string.Empty;
+                    return Flex.Util.FlexVersion.ToString(theRadio.Version);
+                }
+                catch { return string.Empty; }
+            }
+        }
+
+        /// <summary>
+        /// The firmware version the vendored FlexLib was built against.
+        ///
+        /// FlexLib demands an <b>exact</b> match — `_version != _req_version` sets
+        /// UpdateRequired — so this is not a floor, it is a specific build. Ours is
+        /// pinned well behind current firmware, which is expected while main still
+        /// vendors the older FlexLib.
+        /// </summary>
+        public static string LibraryExpectedFirmwareVersion
+        {
+            get
+            {
+                try { return Flex.Util.FlexVersion.ToString(FirmwareRequiredVersion.RequiredVersion); }
+                catch { return string.Empty; }
+            }
+        }
+
+        /// <summary>
+        /// True when the radio's firmware differs from what this build of FlexLib
+        /// expects.
+        ///
+        /// Important: this does <b>not</b> block connecting. FlexLib only uses the
+        /// mismatch to set <c>ConnectedState</c> to "Update" — nothing in
+        /// <c>Connect()</c> refuses, and JJ Flex does not gate on it either. So a
+        /// mismatch is worth reporting and is not worth panicking about.
+        /// </summary>
+        public bool FirmwareDiffersFromLibraryExpectation
+        {
+            get
+            {
+                try
+                {
+                    return theRadio != null
+                        && theRadio.Version != 0
+                        && theRadio.Version != FirmwareRequiredVersion.RequiredVersion;
+                }
+                catch { return false; }
+            }
+        }
+
+        /// <summary>
+        /// True when FlexRadio's own developer bypass file is present, which makes
+        /// FlexLib skip the exact-version check entirely.
+        ///
+        /// The file is a marker only — its contents are never read. Path:
+        /// <c>%APPDATA%\FlexRadio Systems\smoothlake_dev</c>. Surfaced so the UI can
+        /// explain why a version mismatch is or is not being reported.
+        /// </summary>
+        public static bool FirmwareVersionCheckBypassed
+        {
+            get
+            {
+                try { return Radio.SmoothlakeDevFileExists(); }
+                catch { return false; }
+            }
+        }
+
+        /// <summary>
+        /// Create FlexRadio's developer bypass file so FlexLib stops flagging a
+        /// firmware mismatch. Returns the path on success, empty on failure.
+        ///
+        /// This suppresses a label, not a safety check — FlexLib never refused to
+        /// connect on version mismatch in the first place. It exists so a radio
+        /// running newer firmware than the vendored library expects stops presenting
+        /// itself as needing an update.
+        /// </summary>
+        public static string CreateFirmwareVersionCheckBypass()
+        {
+            try
+            {
+                string dir = System.IO.Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                    "FlexRadio Systems");
+                System.IO.Directory.CreateDirectory(dir);
+                string path = System.IO.Path.Combine(dir, "smoothlake_dev");
+                if (!System.IO.File.Exists(path)) System.IO.File.WriteAllText(path, string.Empty);
+                Tracing.TraceLine($"CreateFirmwareVersionCheckBypass: {path}", TraceLevel.Info);
+                return path;
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine($"CreateFirmwareVersionCheckBypass: {ex.Message}", TraceLevel.Error);
+                return string.Empty;
+            }
+        }
+
         /// <summary>
         /// Send a firmware image to the radio. Call
         /// <see cref="PreflightFirmwareUpdate"/> first and only call this when it

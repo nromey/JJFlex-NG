@@ -564,11 +564,11 @@
                         <StackPanel Margin="4">
                             <TextBlock TextWrapping="Wrap" Margin="0,0,0,6"
                                        Text="The remaining steps change settings stored in the radio itself, so the radio has to be connected. Connect on the same local network as the radio where you can — a few of these steps cannot run over SmartLink."/>
-                            <TextBlock x:Name="SetupStep1Status"
+                            <TextBlock x:Name="SetupConnectStatus"
                                        Style="{StaticResource DialogLabel}"
                                        TextWrapping="Wrap"
                                        AutomationProperties.LiveSetting="Polite"
-                                       AutomationProperties.Name="Step 1 status"/>
+                                       AutomationProperties.Name="Connect status"/>
                         </StackPanel>
                     </GroupBox>
 
@@ -582,12 +582,12 @@
                         <StackPanel Margin="4">
                             <TextBlock TextWrapping="Wrap" Margin="0,0,0,6"
                                        Text="Registering ties the radio to your SmartLink account so you can reach it from away from home. The radio will ask you to key the microphone or the CW key to prove someone is standing at it. FlexRadio requires that and it cannot be done remotely — so a radio has to be registered before it goes anywhere you cannot reach."/>
-                            <TextBlock x:Name="SetupStep2Status"
+                            <TextBlock x:Name="SetupRegisterStatus"
                                        Style="{StaticResource DialogLabel}"
                                        TextWrapping="Wrap"
                                        Margin="0,0,0,6"
                                        AutomationProperties.LiveSetting="Polite"
-                                       AutomationProperties.Name="Step 2 status"/>
+                                       AutomationProperties.Name="Registration status"/>
                             <StackPanel Orientation="Horizontal">
                                 <Button x:Name="SetupRegisterButton"
                                         Content="Re_gister this radio"
@@ -604,32 +604,75 @@
                         </StackPanel>
                     </GroupBox>
 
-                    <!-- Step 3 -->
-                    <GroupBox Header="Step 3 — Give the radio a fixed address" Margin="0,0,0,12"
-                              AutomationProperties.Name="Step 3, give the radio a fixed address">
+                    <!-- Step 3 — firmware. Sits after registration and before the
+                         network steps because an update reboots the radio and would
+                         undo nothing else, but it is the step most likely to be
+                         skipped, so it reports plainly whether it is needed. -->
+                    <GroupBox Header="Step 3 — Radio firmware" Margin="0,0,0,12"
+                              AutomationProperties.Name="Step 3, radio firmware">
                         <StackPanel Margin="4">
-                            <TextBlock x:Name="SetupStep3Status"
+                            <TextBlock TextWrapping="Wrap" Margin="0,0,0,6"
+                                       Text="Firmware has to be sent over your local network — it does not go through SmartLink. So a radio that will live somewhere you cannot reach should be brought up to date before it goes."/>
+                            <TextBlock x:Name="SetupFirmwareStatus"
                                        Style="{StaticResource DialogLabel}"
                                        TextWrapping="Wrap"
                                        Margin="0,0,0,6"
                                        AutomationProperties.LiveSetting="Polite"
-                                       AutomationProperties.Name="Step 3 status"/>
+                                       AutomationProperties.Name="Firmware status"/>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                                <Button x:Name="SetupChooseFirmwareButton"
+                                        Content="C_hoose firmware file..."
+                                        Margin="0,0,8,0" Padding="12,4"
+                                        AutomationProperties.Name="Choose a firmware file to send to the radio"
+                                        AutomationProperties.AcceleratorKey="Alt+H"
+                                        Click="SetupChooseFirmwareButton_Click"/>
+                                <Button x:Name="SetupSendFirmwareButton"
+                                        Content="Send to radio"
+                                        IsEnabled="False" Padding="12,4"
+                                        AutomationProperties.Name="Send the chosen firmware file to the radio"
+                                        Click="SetupSendFirmwareButton_Click"/>
+                            </StackPanel>
+                            <TextBlock x:Name="SetupFirmwareFileText"
+                                       Style="{StaticResource DialogLabel}"
+                                       TextWrapping="Wrap"
+                                       Margin="0,0,0,6"
+                                       AutomationProperties.LiveSetting="Polite"
+                                       AutomationProperties.Name="Chosen firmware file"/>
+                            <Button x:Name="SetupSuppressVersionWarningButton"
+                                    Content="Stop reporting the version mismatch"
+                                    HorizontalAlignment="Left" Padding="12,4"
+                                    Visibility="Collapsed"
+                                    AutomationProperties.Name="Stop reporting the firmware version mismatch. Does not change the radio."
+                                    Click="SetupSuppressVersionWarningButton_Click"/>
+                        </StackPanel>
+                    </GroupBox>
+
+                    <!-- Step 4 -->
+                    <GroupBox Header="Step 4 — Give the radio a fixed address" Margin="0,0,0,12"
+                              AutomationProperties.Name="Step 4, give the radio a fixed address">
+                        <StackPanel Margin="4">
+                            <TextBlock x:Name="SetupAddressStatus"
+                                       Style="{StaticResource DialogLabel}"
+                                       TextWrapping="Wrap"
+                                       Margin="0,0,0,6"
+                                       AutomationProperties.LiveSetting="Polite"
+                                       AutomationProperties.Name="Address status"/>
                             <controls:StaticIpControl x:Name="SetupStaticIpControl"/>
                         </StackPanel>
                     </GroupBox>
 
                     <!-- Step 4 -->
-                    <GroupBox Header="Step 4 — Open a way in from the internet" Margin="0,0,0,12"
-                              AutomationProperties.Name="Step 4, open a way in from the internet">
+                    <GroupBox Header="Step 5 — Open a way in from the internet" Margin="0,0,0,12"
+                              AutomationProperties.Name="Step 5, open a way in from the internet">
                         <StackPanel Margin="4">
                             <TextBlock TextWrapping="Wrap" Margin="0,0,0,6"
                                        Text="To reach the radio from away from home, SmartLink needs a way through the router. A forwarded port is the most reliable and needs one change on the router. UPnP does the same thing automatically when the router allows it. Where the router cannot be changed at all, hole-punch can often get through on its own."/>
-                            <TextBlock x:Name="SetupStep4Status"
+                            <TextBlock x:Name="SetupWayInStatus"
                                        Style="{StaticResource DialogLabel}"
                                        TextWrapping="Wrap"
                                        Margin="0,0,0,6"
                                        AutomationProperties.LiveSetting="Polite"
-                                       AutomationProperties.Name="Step 4 status"/>
+                                       AutomationProperties.Name="Internet access status"/>
                             <Button x:Name="SetupGoToNetworkButton"
                                     Content="Open Net_work settings"
                                     HorizontalAlignment="Left" Padding="12,4"
@@ -640,17 +683,17 @@
                     </GroupBox>
 
                     <!-- Step 5 -->
-                    <GroupBox Header="Step 5 — Check it from outside" Margin="0,0,0,12"
-                              AutomationProperties.Name="Step 5, check the radio can be reached from outside">
+                    <GroupBox Header="Step 6 — Check it from outside" Margin="0,0,0,12"
+                              AutomationProperties.Name="Step 6, check the radio can be reached from outside">
                         <StackPanel Margin="4">
                             <TextBlock TextWrapping="Wrap" Margin="0,0,0,6"
                                        Text="Asks SmartLink to look at your network from the outside and report what it can reach. Run this before you leave, while you can still change things."/>
-                            <TextBlock x:Name="SetupStep5Status"
+                            <TextBlock x:Name="SetupCheckStatus"
                                        Style="{StaticResource DialogLabel}"
                                        TextWrapping="Wrap"
                                        Margin="0,0,0,6"
                                        AutomationProperties.LiveSetting="Polite"
-                                       AutomationProperties.Name="Step 5 status"/>
+                                       AutomationProperties.Name="Outside check status"/>
                             <Button x:Name="SetupTestNetworkButton"
                                     Content="Run the network _test"
                                     HorizontalAlignment="Left" Padding="12,4"
@@ -661,17 +704,17 @@
                     </GroupBox>
 
                     <!-- Step 6 -->
-                    <GroupBox Header="Step 6 — Restart the radio" Margin="0,0,0,12"
-                              AutomationProperties.Name="Step 6, restart the radio">
+                    <GroupBox Header="Step 7 — Restart the radio" Margin="0,0,0,12"
+                              AutomationProperties.Name="Step 7, restart the radio">
                         <StackPanel Margin="4">
                             <TextBlock TextWrapping="Wrap" Margin="0,0,0,6"
                                        Text="A fixed address only takes effect after the radio restarts. Restarting is also the first thing to try when a radio you cannot reach has stopped answering."/>
-                            <TextBlock x:Name="SetupStep6Status"
+                            <TextBlock x:Name="SetupRestartStatus"
                                        Style="{StaticResource DialogLabel}"
                                        TextWrapping="Wrap"
                                        Margin="0,0,0,6"
                                        AutomationProperties.LiveSetting="Polite"
-                                       AutomationProperties.Name="Step 6 status"/>
+                                       AutomationProperties.Name="Restart status"/>
                             <Button x:Name="SetupRebootButton"
                                     Content="R_estart the radio"
                                     HorizontalAlignment="Left" Padding="12,4"

@@ -13,7 +13,7 @@ namespace JJFlexWpf.Dialogs
     /// A numbered checklist rather than a modal wizard, deliberately. A wizard
     /// forces one order and forgets everything on cancel; a checklist lets a
     /// screen-reader user move by heading straight to the one step they came
-    /// back for, re-run it alone, and read the current state of the other five
+    /// back for, re-run it alone, and read the current state of the other six
     /// without touching them. It doubles as a status board, which is what you
     /// want when the question is "did I actually set that before I shipped the
     /// radio?"
@@ -43,7 +43,7 @@ namespace JJFlexWpf.Dialogs
         private void RefreshRadioSetupTab()
         {
             // The Rig setter can fire before InitializeComponent has built these.
-            if (SetupStep1Status == null) return;
+            if (SetupConnectStatus == null) return;
 
             // Either copy of the addressing control can change the radio, and both
             // then hold a stale view — the Network copy would still be showing DHCP
@@ -61,6 +61,7 @@ namespace JJFlexWpf.Dialogs
 
             LoadHolePunchPortIntoUi();
             RefreshSetupStatuses();
+            RefreshFirmwareStatus();
             RefreshReachabilityStatus();
         }
 
@@ -84,13 +85,13 @@ namespace JJFlexWpf.Dialogs
             // Step 1 — connection.
             if (!connected)
             {
-                SetupStep1Status.Text =
+                SetupConnectStatus.Text =
                     "Not done. No radio is connected. Close Settings, connect to the radio, then come back.";
-                SetupStep2Status.Text = "Waiting on step 1.";
-                SetupStep3Status.Text = "Waiting on step 1.";
-                SetupStep4Status.Text = "Waiting on step 1.";
-                SetupStep5Status.Text = "Waiting on step 1.";
-                SetupStep6Status.Text = "Waiting on step 1.";
+                SetupRegisterStatus.Text = "Waiting on step 1.";
+                SetupAddressStatus.Text = "Waiting on step 1.";
+                SetupWayInStatus.Text = "Waiting on step 1.";
+                SetupCheckStatus.Text = "Waiting on step 1.";
+                SetupRestartStatus.Text = "Waiting on step 1.";
                 SetupRegisterButton.IsEnabled = false;
                 SetupUnregisterButton.IsEnabled = false;
                 SetupTestNetworkButton.IsEnabled = false;
@@ -103,8 +104,8 @@ namespace JJFlexWpf.Dialogs
 
             bool overSmartLink = _rig!.IsWanConnection;
             string where = _rig.CurrentRadioIP?.ToString() ?? "an unknown address";
-            SetupStep1Status.Text = overSmartLink
-                ? "Done, over SmartLink. Steps 2 and 3 need you to be on the same network as the radio, so they are not available on this connection."
+            SetupConnectStatus.Text = overSmartLink
+                ? "Done, over SmartLink. Steps 2 and 4 need you to be on the same network as the radio, so they are not available on this connection."
                 : $"Done, on your local network at {where}.";
 
             // Step 2 — registration. Both buttons are off over SmartLink: getting
@@ -116,30 +117,30 @@ namespace JJFlexWpf.Dialogs
 
             if (overSmartLink)
             {
-                SetupStep2Status.Text =
+                SetupRegisterStatus.Text =
                     "Done. You are connected over SmartLink, which is only possible for a radio that is already registered.";
             }
             else if (!regCheck.CanProceed)
             {
-                SetupStep2Status.Text = "Cannot register yet. " + regCheck.BlockReason;
+                SetupRegisterStatus.Text = "Cannot register yet. " + regCheck.BlockReason;
             }
             else if (_rig.RegistrationSucceeded)
             {
-                SetupStep2Status.Text = _rig.RegistrationStateText;
+                SetupRegisterStatus.Text = _rig.RegistrationStateText;
             }
             else
             {
-                SetupStep2Status.Text =
+                SetupRegisterStatus.Text =
                     $"Ready to register to {regCheck.AccountEmail}. " + _rig.RegistrationStateText;
             }
 
-            // Step 3 — addressing.
+            // Step 4 — addressing.
             var staticIp = _rig.CurrentStaticIP;
-            SetupStep3Status.Text = staticIp != null
+            SetupAddressStatus.Text = staticIp != null
                 ? $"Done. The radio is set to the fixed address {staticIp}."
                 : "Not done. The radio takes whatever address the router gives it, which can change after a power cut.";
 
-            // Step 4 — the way in from outside.
+            // Step 5 — the way in from outside.
             bool forwarding = _rig.PortForwardingEnabled;
             int tcp = _rig.PortForwardingTcpPort;
             int udp = _rig.PortForwardingUdpPort;
@@ -156,34 +157,34 @@ namespace JJFlexWpf.Dialogs
                 string ports = (udp > 0 && udp != tcp)
                     ? $"TCP {tcp} and UDP {udp}"
                     : $"port {tcp}, TCP and UDP";
-                SetupStep4Status.Text =
-                    $"Set on the radio. It listens on {ports}. {modeText} Your router still has to forward the same port to the radio — JJ Flex cannot do that part. Step 5 checks whether it worked.";
+                SetupWayInStatus.Text =
+                    $"Set on the radio. It listens on {ports}. {modeText} Your router still has to forward the same port to the radio — JJ Flex cannot do that part. Step 6 checks whether it worked.";
             }
             else
             {
-                SetupStep4Status.Text =
-                    $"Not set. No port is forwarded on the radio. {modeText} If the router cannot be changed, allow hole-punch in Network settings and check it with step 5.";
+                SetupWayInStatus.Text =
+                    $"Not set. No port is forwarded on the radio. {modeText} If the router cannot be changed, allow hole-punch in Network settings and check it with step 6.";
             }
 
-            // Step 5 — whether any of it works from outside. Reports the last probe
+            // Step 6 — whether any of it works from outside. Reports the last probe
             // if one has run rather than pretending nothing is known; a stale answer
             // with a caveat beats no answer.
             var report = _rig.MostRecentNetworkReport;
             if (report == null)
             {
-                SetupStep5Status.Text = "Not run yet.";
+                SetupCheckStatus.Text = "Not run yet.";
             }
             else if (!report.ProbeCompleted)
             {
-                SetupStep5Status.Text = $"The last check did not finish. {report.ErrorDetail}";
+                SetupCheckStatus.Text = $"The last check did not finish. {report.ErrorDetail}";
             }
             else
             {
-                SetupStep5Status.Text = "Last check — " + BuildNetworkDiagnosticSummary(report);
+                SetupCheckStatus.Text = "Last check — " + BuildNetworkDiagnosticSummary(report);
             }
 
-            // Step 6 — restart.
-            SetupStep6Status.Text = staticIp != null
+            // Step 7 — restart.
+            SetupRestartStatus.Text = staticIp != null
                 ? "A fixed address is set. If you set it just now, restart the radio to put it into use."
                 : "Nothing is waiting on a restart.";
         }
@@ -213,7 +214,7 @@ namespace JJFlexWpf.Dialogs
             var check = _rig.PreflightSmartLinkRegistration();
             if (!check.CanProceed)
             {
-                SetupStep2Status.Text = check.BlockReason;
+                SetupRegisterStatus.Text = check.BlockReason;
                 ScreenReaderOutput.Speak(check.BlockReason, VerbosityLevel.Terse, interrupt: true);
                 return;
             }
@@ -227,7 +228,7 @@ namespace JJFlexWpf.Dialogs
 
             if (confirm.ShowDialog() != true)
             {
-                SetupStep2Status.Text = "Cancelled. Nothing was sent to the radio.";
+                SetupRegisterStatus.Text = "Cancelled. Nothing was sent to the radio.";
                 ScreenReaderOutput.Speak("Cancelled.", VerbosityLevel.Terse, interrupt: true);
                 return;
             }
@@ -248,7 +249,7 @@ namespace JJFlexWpf.Dialogs
             var check = _rig.PreflightSmartLinkRegistration();
             if (!check.CanProceed)
             {
-                SetupStep2Status.Text = check.BlockReason;
+                SetupRegisterStatus.Text = check.BlockReason;
                 ScreenReaderOutput.Speak(check.BlockReason, VerbosityLevel.Terse, interrupt: true);
                 return;
             }
@@ -266,7 +267,7 @@ namespace JJFlexWpf.Dialogs
 
             if (confirm.ShowDialog() != true)
             {
-                SetupStep2Status.Text = "Cancelled. The radio is still registered.";
+                SetupRegisterStatus.Text = "Cancelled. The radio is still registered.";
                 ScreenReaderOutput.Speak("Cancelled.", VerbosityLevel.Terse, interrupt: true);
                 return;
             }
@@ -284,12 +285,12 @@ namespace JJFlexWpf.Dialogs
             string opening = register
                 ? "Registering. Watch for the prompt to key the microphone."
                 : "Unregistering.";
-            SetupStep2Status.Text = opening;
+            SetupRegisterStatus.Text = opening;
             ScreenReaderOutput.Speak(opening, VerbosityLevel.Terse, interrupt: true);
 
             void OnState(string text, bool terminal) => Dispatcher.Invoke(() =>
             {
-                SetupStep2Status.Text = text;
+                SetupRegisterStatus.Text = text;
 
                 // The key-the-mic prompt is the one state that must not be missed:
                 // ignore it and the whole attempt times out. Everything else is
@@ -309,7 +310,7 @@ namespace JJFlexWpf.Dialogs
 
             if (!(register ? _rig.BeginSmartLinkRegistration(OnState) : _rig.BeginSmartLinkUnregistration(OnState)))
             {
-                SetupStep2Status.Text =
+                SetupRegisterStatus.Text =
                     "The command could not be sent. Check that you are signed in to SmartLink and see the trace file.";
                 ScreenReaderOutput.Speak("Could not send the command.", VerbosityLevel.Terse, interrupt: true);
                 RefreshSetupStatuses();
@@ -318,10 +319,193 @@ namespace JJFlexWpf.Dialogs
 
         #endregion
 
-        #region Steps 4 to 6
+        #region Step 3 — firmware
+
+        private string _chosenFirmwarePath = string.Empty;
 
         /// <summary>
-        /// Step 4 hands off to the Network tab rather than duplicating the port
+        /// Report where the radio's firmware stands relative to what this build of
+        /// FlexLib expects.
+        ///
+        /// Worth being careful with the wording here. FlexLib demands an exact
+        /// version match and labels anything else as needing an update — but it
+        /// never refuses to connect over it, and JJ Flex does not either. So a
+        /// mismatch is reported as information, not as a failure, and the option to
+        /// silence it is offered rather than a demand to fix it.
+        /// </summary>
+        private void RefreshFirmwareStatus()
+        {
+            if (SetupFirmwareStatus == null) return;
+
+            if (_rig == null || !_rig.IsConnected)
+            {
+                SetupFirmwareStatus.Text = "Waiting on step 1.";
+                SetupChooseFirmwareButton.IsEnabled = false;
+                SetupSendFirmwareButton.IsEnabled = false;
+                SetupSuppressVersionWarningButton.Visibility = Visibility.Collapsed;
+                return;
+            }
+
+            bool local = !_rig.IsWanConnection;
+            SetupChooseFirmwareButton.IsEnabled = local;
+            SetupSendFirmwareButton.IsEnabled = local && !string.IsNullOrEmpty(_chosenFirmwarePath);
+
+            string running = _rig.RadioFirmwareVersion;
+            var parts = new List<string>
+            {
+                string.IsNullOrEmpty(running)
+                    ? "The radio has not reported its firmware version."
+                    : $"The radio is running firmware {running}."
+            };
+
+            if (_rig.IsInRecoveryState)
+            {
+                parts.Add("The radio is in recovery after an interrupted update. Sending the same firmware file again will finish it — this does not need anyone at the radio.");
+            }
+
+            if (FlexBase.FirmwareVersionCheckBypassed)
+            {
+                parts.Add("Firmware version checking is switched off on this computer, so no mismatch will be reported.");
+                SetupSuppressVersionWarningButton.Visibility = Visibility.Collapsed;
+            }
+            else if (_rig.FirmwareDiffersFromLibraryExpectation)
+            {
+                parts.Add(
+                    $"This build of JJ Flex was made against firmware {FlexBase.LibraryExpectedFirmwareVersion}, so the radio will show as needing an update. " +
+                    "That is a label only — it does not stop JJ Flex connecting or working. You can silence it below.");
+                SetupSuppressVersionWarningButton.Visibility = Visibility.Visible;
+            }
+            else
+            {
+                parts.Add("The firmware matches what this build of JJ Flex expects.");
+                SetupSuppressVersionWarningButton.Visibility = Visibility.Collapsed;
+            }
+
+            if (!local)
+                parts.Add("Firmware cannot be sent over SmartLink — the transfer uses a separate connection that SmartLink does not carry. Connect on the same network as the radio.");
+
+            SetupFirmwareStatus.Text = string.Join(" ", parts);
+        }
+
+        private void SetupChooseFirmwareButton_Click(object sender, RoutedEventArgs e)
+        {
+            var dlg = new Microsoft.Win32.OpenFileDialog
+            {
+                Title = "Choose a firmware file",
+                Filter = "Radio firmware (*.ssdr)|*.ssdr|All files (*.*)|*.*",
+                CheckFileExists = true,
+            };
+
+            if (dlg.ShowDialog() != true)
+            {
+                ScreenReaderOutput.Speak("Cancelled.", VerbosityLevel.Terse, interrupt: true);
+                return;
+            }
+
+            _chosenFirmwarePath = dlg.FileName;
+
+            // Run the preflight straight away rather than at send time. Hashing a
+            // 60 MB image takes a moment, and finding out it is the wrong file is
+            // much better here than after committing to an update.
+            var check = _rig?.PreflightFirmwareUpdate(_chosenFirmwarePath);
+            if (check == null)
+            {
+                SetupFirmwareFileText.Text = "No radio is connected.";
+                ScreenReaderOutput.Speak("No radio connected.", VerbosityLevel.Terse, interrupt: true);
+                return;
+            }
+
+            if (!check.CanProceed)
+            {
+                _chosenFirmwarePath = string.Empty;
+                SetupSendFirmwareButton.IsEnabled = false;
+                SetupFirmwareFileText.Text = check.BlockReason;
+                ScreenReaderOutput.Speak(check.BlockReason, VerbosityLevel.Terse, interrupt: true);
+                return;
+            }
+
+            SetupSendFirmwareButton.IsEnabled = true;
+            string mb = (check.SizeBytes / 1024.0 / 1024.0).ToString("F1");
+            SetupFirmwareFileText.Text =
+                $"Chosen: {check.FileName}, {mb} megabytes. Checksum {check.ActualSha256}. Nothing has been sent to the radio yet.";
+            ScreenReaderOutput.Speak($"{check.FileName} ready to send.", VerbosityLevel.Terse, interrupt: true);
+        }
+
+        private void SetupSendFirmwareButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (_rig == null || string.IsNullOrEmpty(_chosenFirmwarePath)) return;
+
+            // Re-run the preflight. The radio may have started transmitting or
+            // picked up another client since the file was chosen, and both matter.
+            var check = _rig.PreflightFirmwareUpdate(_chosenFirmwarePath);
+            if (!check.CanProceed)
+            {
+                SetupFirmwareFileText.Text = check.BlockReason;
+                ScreenReaderOutput.Speak(check.BlockReason, VerbosityLevel.Terse, interrupt: true);
+                return;
+            }
+
+            var warnings = new List<string>(check.Warnings)
+            {
+                "Do not switch the radio off or unplug it while the update runs. Interrupting it partway is the one thing that can leave a radio needing a service visit.",
+                "The radio will be unreachable for several minutes and will restart on its own when it is done.",
+            };
+
+            var confirm = new ConfirmActionDialog(
+                "Send Firmware to Radio",
+                $"JJ Flex will send {check.FileName} ({(check.SizeBytes / 1024.0 / 1024.0):F1} megabytes) to the radio.",
+                warnings,
+                question: "Continue?",
+                yesLabel: "_Send");
+
+            if (confirm.ShowDialog() != true)
+            {
+                SetupFirmwareFileText.Text = "Cancelled. Nothing was sent to the radio.";
+                ScreenReaderOutput.Speak("Cancelled.", VerbosityLevel.Terse, interrupt: true);
+                return;
+            }
+
+            if (_rig.BeginFirmwareUpdate(_chosenFirmwarePath))
+            {
+                // FlexLib gives no completion callback and swallows its own errors,
+                // so there is nothing to await. Progress has to be read from the
+                // radio's own state, which is what Refresh all steps re-reads.
+                SetupFirmwareFileText.Text =
+                    "Sending. The radio applies the update and restarts on its own; this takes several minutes. " +
+                    "JJ Flex is not told when it finishes, so use Refresh all steps once the radio is back.";
+                ScreenReaderOutput.Speak(
+                    "Sending firmware. Do not switch the radio off. This takes several minutes.",
+                    VerbosityLevel.Critical, interrupt: true);
+            }
+            else
+            {
+                SetupFirmwareFileText.Text = "The firmware could not be sent. See the trace file for details.";
+                ScreenReaderOutput.Speak("Could not send the firmware.", VerbosityLevel.Terse, interrupt: true);
+            }
+        }
+
+        private void SetupSuppressVersionWarningButton_Click(object sender, RoutedEventArgs e)
+        {
+            string path = FlexBase.CreateFirmwareVersionCheckBypass();
+            if (string.IsNullOrEmpty(path))
+            {
+                SetupFirmwareFileText.Text = "The setting could not be written. See the trace file for details.";
+                ScreenReaderOutput.Speak("Could not change the setting.", VerbosityLevel.Terse, interrupt: true);
+                return;
+            }
+
+            SetupFirmwareFileText.Text =
+                "Done. Version mismatches will no longer be reported. This takes effect the next time JJ Flex starts, and changes nothing on the radio.";
+            ScreenReaderOutput.Speak("Version mismatch reporting switched off.", VerbosityLevel.Terse, interrupt: true);
+            RefreshFirmwareStatus();
+        }
+
+        #endregion
+
+        #region Steps 5 to 7
+
+        /// <summary>
+        /// Step 5 hands off to the Network tab rather than duplicating the port
         /// and connection-mode controls. Moving focus to the tab header (not just
         /// selecting it) is what makes this work with a screen reader — otherwise
         /// the tab changes silently and the user is left reading the old one.
@@ -341,7 +525,7 @@ namespace JJFlexWpf.Dialogs
         }
 
         /// <summary>
-        /// Step 5 runs the same SmartLink probe as the Network tab's Test network
+        /// Step 6 runs the same SmartLink probe as the Network tab's Test network
         /// button, then folds the result into this step's status line so the
         /// checklist stays the single place to read.
         /// </summary>
@@ -349,12 +533,12 @@ namespace JJFlexWpf.Dialogs
         {
             if (_rig == null)
             {
-                SetupStep5Status.Text = "No radio is selected.";
+                SetupCheckStatus.Text = "No radio is selected.";
                 ScreenReaderOutput.Speak("No radio selected.", VerbosityLevel.Terse, interrupt: true);
                 return;
             }
 
-            SetupStep5Status.Text = "Checking. This usually takes a few seconds.";
+            SetupCheckStatus.Text = "Checking. This usually takes a few seconds.";
             ScreenReaderOutput.Speak("Checking the network.", VerbosityLevel.Terse, interrupt: true);
 
             Radios.SmartLink.NetworkDiagnosticReport? report;
@@ -364,14 +548,14 @@ namespace JJFlexWpf.Dialogs
             }
             catch (Exception ex)
             {
-                SetupStep5Status.Text = $"The check failed: {ex.Message}";
+                SetupCheckStatus.Text = $"The check failed: {ex.Message}";
                 ScreenReaderOutput.Speak("The check failed.", VerbosityLevel.Terse, interrupt: true);
                 return;
             }
 
             if (report == null)
             {
-                SetupStep5Status.Text =
+                SetupCheckStatus.Text =
                     "There is no SmartLink session, so the outside check cannot run. Sign in to SmartLink and try again.";
                 ScreenReaderOutput.Speak("No SmartLink session.", VerbosityLevel.Terse, interrupt: true);
                 return;
@@ -379,19 +563,19 @@ namespace JJFlexWpf.Dialogs
 
             if (!report.ProbeCompleted)
             {
-                SetupStep5Status.Text = $"The check did not finish. {report.ErrorDetail}";
+                SetupCheckStatus.Text = $"The check did not finish. {report.ErrorDetail}";
                 ScreenReaderOutput.Speak("The check did not finish.", VerbosityLevel.Terse, interrupt: true);
                 return;
             }
 
             string summary = BuildNetworkDiagnosticSummary(report);
-            SetupStep5Status.Text = summary;
+            SetupCheckStatus.Text = summary;
             ScreenReaderOutput.Speak(summary, VerbosityLevel.Terse, interrupt: true);
             RefreshReachabilityStatus();
         }
 
         /// <summary>
-        /// Step 6 shares the reboot flow with the hotkey binding in globals.vb via
+        /// Step 7 shares the reboot flow with the hotkey binding in globals.vb via
         /// <see cref="RadioMaintenance"/> — same confirmation, same naming of the
         /// other stations about to be dropped, same absence of a presence gate.
         /// </summary>
@@ -399,7 +583,7 @@ namespace JJFlexWpf.Dialogs
         {
             if (RadioMaintenance.RebootWithConfirmation(_rig, OnRebootInitiated))
             {
-                SetupStep6Status.Text =
+                SetupRestartStatus.Text =
                     "Restarting. The radio will be unreachable for a few minutes, then you can connect again.";
             }
         }
