@@ -1,6 +1,6 @@
 # JJ Flexible Radio Access
 
-Windows desktop application for controlling FlexRadio transceivers (6000/8000 series). Alternative UI to SmartSDR, created by Jim Shaffer, maintained by Noel Romey (K5NER). Current version: 4.1.15, using FlexLib v4.0.1. Internal name remains `JJFlexRadio` (exe, AppData, registry).
+Windows desktop application for controlling FlexRadio transceivers (6000/8000 series). Alternative UI to SmartSDR, created by Jim Shaffer, maintained by Noel Romey (K5NER). Current version: 4.1.16, using **FlexLib v4.1.5.39794** (upgraded 2026-03-18 in `506c2ff9` for 8000-series/Aurora compatibility; the 4.2.18 merge was reverted 2026-05-15, restoring 4.1.5). This line said "4.1.15 / FlexLib v4.0.1" until 2026-08-03 — both were stale. Internal name remains `JJFlexRadio` (exe, AppData, registry).
 
 ## Decision-Making Mindset
 
