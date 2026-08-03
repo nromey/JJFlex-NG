@@ -2241,15 +2241,20 @@ namespace Radios
 
             // Only worth mentioning when it is genuinely ambiguous.
             if (inUse.Equals("gpsdo", StringComparison.OrdinalIgnoreCase) && s.HasGnss && s.HasGpsdo)
-                label += ", and this radio reports both receiver modules installed";
+                label += ", and unusually this radio reports both receiver modules installed";
 
             return label;
         }
 
         /// <summary>
         /// Human-readable list of the reference hardware the radio reports as
-        /// installed. This is the answer to "which receiver do I actually have",
-        /// which in turn is what decides which antenna connector matters.
+        /// installed. This is the answer to "which receiver do I actually have".
+        ///
+        /// The GNSS (10-channel) and GPSDO (32-channel) modules are mutually
+        /// exclusive in practice — verified on a FLEX-8600 ordered with the GPSDO
+        /// option, which reports gpsdo_present=1 and gnss_present=0. So there is
+        /// only ever one GPS antenna connector that matters. The both-present
+        /// branch below is defensive only, not an expected configuration.
         /// </summary>
         public static string DescribeInstalledReferences(GpsStatusSnapshot s)
         {
@@ -2276,8 +2281,9 @@ namespace Radios
             string text = "The radio reports " + list + " installed.";
 
             if (s.HasGnss && s.HasGpsdo)
-                text += " Both receiver modules are present, which is normal. The 32-channel unit is the more capable of the two. " +
-                        "JJ Flex cannot tell you which physical antenna connector feeds which one — the radio does not report that.";
+                text += " Unusually, both receiver modules are reported. Normally a radio has one or the other — " +
+                        "ordering the 32-channel unit means it is fitted instead of the 10-channel one, not alongside it. " +
+                        "If both really are present, JJ Flex cannot tell you which antenna connector feeds which — the radio does not report that.";
 
             return text;
         }
