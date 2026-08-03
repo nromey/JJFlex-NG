@@ -2241,7 +2241,7 @@ namespace Radios
 
             // Only worth mentioning when it is genuinely ambiguous.
             if (inUse.Equals("gpsdo", StringComparison.OrdinalIgnoreCase) && s.HasGnss && s.HasGpsdo)
-                label += ", and this radio reports both a GPSDO and a GNSS receiver installed";
+                label += ", and this radio reports both receiver modules installed";
 
             return label;
         }
@@ -2256,8 +2256,13 @@ namespace Radios
             if (s == null || !s.RadioConnected) return "No radio connected.";
 
             var found = new List<string>();
-            if (s.HasGnss) found.Add("a GNSS receiver");
-            if (s.HasGpsdo) found.Add("a GPS-disciplined oscillator");
+            // The two flags name WHICH RECEIVER MODULE is fitted, not which
+            // constellations it can hear. The GPSDO unit is the 32-channel
+            // receiver and takes GLONASS, Galileo and BeiDou as well as GPS;
+            // the GNSS flag is the 10-channel unit. Do not describe either as
+            // "legacy" — the GPSDO is the better of the two.
+            if (s.HasGnss) found.Add("a 10-channel GNSS receiver");
+            if (s.HasGpsdo) found.Add("a 32-channel GPS-disciplined oscillator");
             if (s.HasTcxo) found.Add("a temperature-compensated oscillator");
             if (s.HasExternalOscillator) found.Add("an external 10 megahertz reference input in use");
 
@@ -2271,7 +2276,7 @@ namespace Radios
             string text = "The radio reports " + list + " installed.";
 
             if (s.HasGnss && s.HasGpsdo)
-                text += " Both a GNSS receiver and a GPSDO are present, which is normal on radios where the older unit was left in place. " +
+                text += " Both receiver modules are present, which is normal. The 32-channel unit is the more capable of the two. " +
                         "JJ Flex cannot tell you which physical antenna connector feeds which one — the radio does not report that.";
 
             return text;
