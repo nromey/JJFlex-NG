@@ -5,6 +5,62 @@ This document captures the current state of JJ-Flex repository and active work.
 **Repository root:** `C:\dev\JJFlex-NG`
 **Branch:** `main` (post-REVERT of `track/flexlib-42` merge on 2026-05-15 — main is back to pre-FlexLib-4.2.18 substrate after Don's 2026-05-15 LAN trace exposed a vendor-side station-name regression. FlexLib 4.0.1 is in place. Re-merge of FlexLib 4.2.18 now gated on Sprint 29 Phase D firmware-update UI being operational + Don's radio firmware updated. `track/flexlib-42` parked at `9de45c54`. See `memory/project_flexlib_4218_station_name_regression.md` (new), `memory/project_flexlib_4218_merge_sequencing.md` (refreshed 2026-05-15), and `memory/project_main_branch_41_posture.md` (reality-check note added).)
 
+## RESUME HERE — 2026-08-03: Radio Setup UI built end to end; registration, hole-punch, GPS and firmware all reachable; 8600 unboxes today
+
+**Context.** Noel's FLEX-8600 (with factory-calibrated GPSDO) is still boxed and gets connected today. Don's 6300 is at Tony's in the Adirondacks; Tony is on site **until August 7**, and Noel remotes into Tony's machine **Tuesday** to install JJ Flex and update Don's firmware. That Tuesday window is the only one — Don will never have physical access, and firmware update is LAN-only by protocol.
+
+**Everything built over 2026-08-02/03 is untested against hardware.** Nine commits, 18 files, +3,908/-52 since the 8/01 seal. Debug x64 builds clean; exe verified fresh.
+
+### Landed — all reachable from Settings now
+
+- **Radio Setup tab, seven steps** — connect → register → firmware → fixed address → way in from the internet → check from outside → restart. Each step carries a live status line, so it doubles as a status board on re-entry. Deliberately a checklist, not a modal wizard: heading navigation gives random access to a single step. Status controls use **semantic** names (`SetupAddressStatus`) not positional ones, so inserting a step stops renumbering code.
+- **SmartLink registration** (`FlexBase.PreflightSmartLinkRegistration` / `BeginSmartLinkRegistration` / `BeginSmartLinkUnregistration`). `WanRegisterRadio` existed in FlexLib and **JJ Flex never called it** — a virgin radio could not be registered without SmartSDR. Progress reports through `WanOwnerHandshakeStatus`; the key-the-mic prompt speaks at **Critical** verbosity because missing it times the attempt out. Unregister is present but heavily guarded.
+- **Firmware, complete path** — download from the data provider *or* choose a local file; preflight (size, SHA256, Mox, other-clients); confirm; send. **`WatchFirmwareUpdateAsync` is the interesting piece**: FlexLib gives no completion callback, so instead of waiting to be told, it polls `API.RadioList` by serial. Discovery packets carry the firmware version and arrive with **no connection**, which is what lets it see across the reboot. Distinguishes three outcomes — verified / came-back-unchanged (rejected) / never-left (upload did nothing) — where a callback would have said "done" to all three. Runs on a background task that outlives the dialog and speaks the result at Critical.
+- **`JJFlexUpdater/Firmware/`** — `FirmwareManifest` + `FirmwareCatalog`. Separate document from the app manifest since radio firmware and JJ Flex releases move independently. Numeric version compare (string compare makes 4.2.9 beat 4.2.20). Downloads to `.partial`, moves into place only after SHA256 matches. Endpoint: `https://data.jjflexible.radio/firmware/manifest.json`.
+- **GPS / GNSS** — `Tools → GPS and Reference`. Live view that follows a fix being acquired; only re-announces when the summary text changes. Reference oscillator selectable.
+- **Network tab** — hole-punch port (pick random / clear / save; blank = fresh port per connect, recommended), a "what the radio reports" readout written as sentences because it is read aloud, and enforce-private-IP (reads back from the radio rather than trusting the click).
+- **`RadioMaintenance.RebootWithConfirmation`** — extracted so the `globals.vb` hotkey and the new Settings button cannot drift.
+- **Fixed:** `SettingsDialog.xaml` UPnP help text (the *radio* does UPnP; JJ Flex cannot enable it); `RunNetworkDiagnosticAsync` no longer requires a connected radio (it only ever needed a serial + session — requiring a connection made it useless in the one case it exists for).
+
+### Reference facts established
+
+- **FlexLib pins an EXACT firmware version** (`FirmwareRequiredVersion.cs`, ours reads 3.3.32.8203) and flags any mismatch as `UpdateRequired` — but **nothing in `Connect()` consults it**. A factory-fresh radio on much newer firmware should still connect; it just presents as needing an update. FlexRadio's own bypass is a marker file at `%APPDATA%\FlexRadio Systems\smoothlake_dev` (contents never read). Wrapped as `FirmwareVersionCheckBypassed` / `CreateFirmwareVersionCheckBypass`.
+- **GPSDO and GNSS are independent presence flags**, but `enum Oscillator` has only auto/external/gpsdo/tcxo — **no `gnss` value**. A radio with both reads as "gpsdo". **Nothing in the API maps a receiver to a physical antenna connector**; the dialog says so rather than guessing.
+- **NEVER `git merge main` into `track/flexlib-42`.** Main carries the 5/15 revert, so the merge replays it and **silently deletes the 4.2.18 vendor drop** — git reports a clean merge. Proven and aborted this session. Check `wc -l FlexLib_API/FlexLib/Radio.cs`: **15,212** = 4.2.18 intact, **14,471** = reverted to 4.0.1. Re-apply the drop on top of main instead.
+- **The 4.2.18 station-name regression has a confound nobody has separated.** It was only ever seen against Don's 6300, whose firmware 4.2.18 logged as `0.0.0.0` — unparseable. **FlexLib 4.2.18 has never run against a radio on matching 4.2.x firmware.** The 8600 is the first opportunity.
+- **Self-contained confirmed** — 367 files with `coreclr/hostfxr/hostpolicy/clrjit`. Tony's machine needs no .NET install, which is what makes Tuesday tractable.
+- `origin` fetch refspec was pinned to a single stale branch, so `origin/main` did not exist locally and push state was invisible. Restored to `+refs/heads/*:refs/remotes/origin/*`.
+
+### Next session — start here
+
+1. **Connect the 8600.** Discover → register → confirm nothing is broken. Read all seven Radio Setup statuses before touching anything; step 3 says whether firmware even needs changing.
+2. **Then the 4.2 experiment** — cut a fresh branch off main, re-apply the `flexlib4218/` drop (TLS wrapper + `SendUpdateFile` short-read patch per `MIGRATION.md`), and see whether the station-name regression reproduces against matching firmware.
+3. **Firmware files → R2**, then Claude writes the manifest. **Host older versions too** — if Don's 6300 needs a stepping stone Tuesday, the intermediate image must be a URL, not a file in Memphis. Known gap: the manifest holds many versions but `BestImageFor` only offers the newest; a version picker is needed, or use "Choose a file instead".
+4. **Homework before Tuesday:** confirm from FlexRadio release notes whether Don's firmware can jump straight to current. Single most likely thing to go wrong.
+5. **Tuesday build** — Release installer, not the Debug zip. Decide 4.0.1 vs 4.2 based on how (2) goes; don't gamble the one window.
+6. Deferred: firmware-floor *policy* (agreed: per-feature floors surfaced in Feature Availability, **not** a hard "won't run" gate — that would strand exactly Don's case). Test later by downgrading the 8600, but **not before** the clean-firmware baseline is collected — and check with Flex first whether a downgrade touches GPSDO calibration.
+
+### Rigmeter snapshot — end of 2026-08-03
+
+- **Grand totals:** authored 865 files / 174,134 lines / 886,462 words; vendor 180 files / 53,257 lines; combined 1,045 files / 227,391 lines / 10,052,176 chars.
+- **Largest projects:** JJFlexWpf 41,750 · docs 40,231 · main_app 32,750 · Radios 25,700 · JJLogLib 5,807 · tools 5,062 · JJFlexUpdater 2,734.
+- **Vendor:** FlexLib_API 48,227 · P-Opus-master 1,081.
+- **Docs-to-code ratio:** 0.36. Stack-of-printed-pages height 13.9 inches.
+- **Session activity (since the 8/01 seal `67ff2bf3`):** 9 commits, 18 files, **+3,908 / -52**. Post-midnight `today` view alone: 5 commits, 7 files, +1,562/-66.
+- NAS snapshot: `historical\stats\2026-08-03-659cb988.json`.
+
+### Cross-surface activity
+
+- **`JJFlex-NG` main** — 9 commits. Mine: the Radio Setup / registration / firmware / GPS / network work above. **Other window:** JJ Flexible Connect design sections 10–12 (spectrum + IQ recording + sample-stream boundary; build order + capability tiers + multi-radio dev model; sonification method + capture corpus) into `docs/planning/vision/cookie-sked-keydown.md` (+650), plus host-agent architecture amendments and README corrections.
+- **NEW repo `C:\dev\jjflexible-connect`** — scaffolded (`9e3897a`, `JJFlexible.Connect.slnx` + `src`). Clean, pushed. Connect has left the planning tree and become real.
+- **Worktrees** — `jjflex-braille`, `jjflex-flexlib-42`, `jjflex-multi-radio` all idle. `flexlib-42` verified intact at 15,212 lines after the aborted merge; one uncommitted `TRACK-INSTRUCTIONS.md` drift.
+- **`AetherSDR` 20 commits, `Hamlib` 1** — both **upstream syncs**, not authored work (PR merges, 0 unpushed). Reference clones tracking upstream.
+- **Freight Fate** — `feat/career-1.9`, 1 dirty, **16 unpushed**, no activity today. **Civ VI Access** — `main`, 2 dirty, **45 unpushed**, no activity today. Unchanged from the 8/01 seal; pushing remains Noel's call.
+- **Memory** — 8 files touched. Mine: `project_gps_gnss_oscillator_facts`, `project_flexlib_exact_firmware_version_pin`, `project_flexlib42_branch_merge_trap`. **Other sessions:** `project_ts590_tester_pool` (a charity, via a man named **Gary**, subsidises ~half the cost of TS-590SG radios for blind operators — the installed base is concentrated *and growing*, which raises the value of TS-590 Hamlib work), `project_jjflexible_connect`, `project_trace_persistence_design` (marked **SHIPPED**, verified in `JJTrace/`), `reference_claude_code_resume_on_windows`.
+- **Infrastructure** — NAS reachable; memory (10 projects), Claude state (981 files / 183.4 MB), private docs (111 files) and dev mirror all snapshotted. Dropbox `JJFlexRadio\` is **empty** and no `build-debug.bat` ran, so no nightly to promote — step 1 skipped deliberately.
+
+---
+
 ## RESUME HERE — 2026-07-31: hole-punch wiring gap found and fixed; reboot hardened; firmware Phase D core + static IP landed (COMMITTED on `main` in the 2026-08-01 seal)
 
 **Context.** Don's antennas came down in NYC; his 6300 is now at a friend's (Tony's) place in the Adirondacks — great location, zero noise, real antenna. Tony is on-site and reachable, and his ISP requires a phone call to change anything on the router (they will do it, it's lead time not a block). The immediate goal is **connectivity so Don can operate**, not firmware. Firmware can wait for a shipped GL.iNet router or Pi and someone with a laptop.
