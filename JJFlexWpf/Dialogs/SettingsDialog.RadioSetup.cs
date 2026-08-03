@@ -452,18 +452,44 @@ namespace JJFlexWpf.Dialogs
                     Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
                     "JJFlexRadio", "firmware");
 
-                double lastSpoken = 0;
-                string path = await catalog.DownloadAsync(image, dir, onProgress: fraction =>
+                // Drive a real ProgressBar and let the screen reader report it the
+                // way the user configured. No spoken percentages: NVDA already
+                // has a progress-bar setting (beep / speak / both / off), and the
+                // app announcing its own percentages both overrides that choice
+                // and interrupts other speech to do it.
+                SetupFirmwareProgress.Visibility = Visibility.Visible;
+                SetupFirmwareProgressText.Visibility = Visibility.Visible;
+                SetupFirmwareProgress.IsIndeterminate = false;
+                SetupFirmwareProgress.Value = 0;
+                SetupFirmwareProgressText.Text = "Starting download...";
+
+                string path;
+                try
                 {
-                    if (fraction < 0) return;
-                    // Speak at quarters only. A percentage read continuously is
-                    // unusable and drowns out anything else.
-                    if (fraction - lastSpoken < 0.25) return;
-                    lastSpoken = fraction;
-                    int pct = (int)(fraction * 100);
-                    Dispatcher.BeginInvoke(() =>
-                        ScreenReaderOutput.Speak($"{pct} percent.", VerbosityLevel.Terse, interrupt: true));
-                });
+                    path = await catalog.DownloadAsync(image, dir, onProgress: (read, total) =>
+                        Dispatcher.BeginInvoke(() =>
+                        {
+                            if (total.HasValue && total.Value > 0)
+                            {
+                                SetupFirmwareProgress.IsIndeterminate = false;
+                                SetupFirmwareProgress.Value = (double)read / total.Value * 100.0;
+                                SetupFirmwareProgressText.Text =
+                                    $"{read / 1024.0 / 1024.0:F1} MB of {total.Value / 1024.0 / 1024.0:F1} MB";
+                            }
+                            else
+                            {
+                                // No Content-Length: an indeterminate bar is honest,
+                                // a fake percentage is not.
+                                SetupFirmwareProgress.IsIndeterminate = true;
+                                SetupFirmwareProgressText.Text = $"{read / 1024.0 / 1024.0:F1} MB downloaded";
+                            }
+                        }));
+                }
+                finally
+                {
+                    SetupFirmwareProgress.Visibility = Visibility.Collapsed;
+                    SetupFirmwareProgressText.Visibility = Visibility.Collapsed;
+                }
 
                 _chosenFirmwarePath = path;
                 var check = _rig.PreflightFirmwareUpdate(path, image.Sha256);

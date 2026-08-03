@@ -131,12 +131,18 @@ public sealed class FirmwareCatalog
     /// </summary>
     /// <param name="image">Catalogue entry to fetch.</param>
     /// <param name="destinationDirectory">Where to put the finished file.</param>
-    /// <param name="onProgress">Fraction 0..1, or -1 when the server sends no length.</param>
+    /// <param name="onProgress">
+    /// Called with (bytesRead, totalBytes). totalBytes is null when the server
+    /// sends no Content-Length. Reports raw counts rather than a percentage so
+    /// the caller can drive a real ProgressBar and show byte totals — screen
+    /// readers announce progress bars according to the user's own settings,
+    /// which is strictly better than the app deciding when to speak.
+    /// </param>
     /// <returns>Full path to the verified file.</returns>
     public async Task<string> DownloadAsync(
         FirmwareImage image,
         string destinationDirectory,
-        Action<double>? onProgress = null,
+        Action<long, long?>? onProgress = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(image);
@@ -167,7 +173,7 @@ public sealed class FirmwareCatalog
                 {
                     await target.WriteAsync(buffer.AsMemory(0, n), cancellationToken).ConfigureAwait(false);
                     read += n;
-                    onProgress?.Invoke(total.HasValue && total.Value > 0 ? (double)read / total.Value : -1);
+                    onProgress?.Invoke(read, total);
                 }
             }
 

@@ -638,6 +638,25 @@
                                         AutomationProperties.Name="Send the chosen firmware file to the radio"
                                         Click="SetupSendFirmwareButton_Click"/>
                             </StackPanel>
+                            <!-- Real WPF ProgressBar rather than spoken percentages.
+                                 NVDA announces progress bars using the user's own
+                                 setting - beep, speak, both, or off - so the app
+                                 deciding when to talk overrides a preference the
+                                 user already expressed, and interrupts other speech
+                                 to do it. The byte-count line below is a plain
+                                 TextBlock, deliberately NOT a live region: it is
+                                 there to be read on demand, not announced. -->
+                            <ProgressBar x:Name="SetupFirmwareProgress"
+                                         Height="18" Minimum="0" Maximum="100"
+                                         Margin="0,0,0,4"
+                                         Visibility="Collapsed"
+                                         AutomationProperties.Name="Firmware download progress"/>
+                            <TextBlock x:Name="SetupFirmwareProgressText"
+                                       Style="{StaticResource DialogLabel}"
+                                       TextWrapping="Wrap"
+                                       Margin="0,0,0,6"
+                                       Visibility="Collapsed"
+                                       AutomationProperties.Name="Firmware download bytes transferred"/>
                             <TextBlock x:Name="SetupFirmwareFileText"
                                        Style="{StaticResource DialogLabel}"
                                        TextWrapping="Wrap"
