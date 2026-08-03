@@ -862,5 +862,168 @@ reality — while sharing most of its code path with the 590 family.
 
 ---
 
+## 12. Amendments — 2026-08-03: sonification method and the capture corpus
+
+Noel's stated albatross is sonification and braillification of the spectrum. This
+section is about how to attack it, and the capture work that has to precede it.
+
+### 12.1 Sonification is a perceptual problem, not an architectural one
+
+Everything in §9–§11 had a **correct answer reachable by reasoning** from
+constraints. Sonification does not. Whether a mapping is *usable* can only be found
+out by listening; twenty schemes that look equally sensible on paper will not be
+equally usable, and no analysis says which.
+
+**So the first thing to build is not a sonification — it is a harness for trying
+twenty of them quickly and comparing.**
+
+**The IQ/bin recording work from §10.3 *is* that harness.** Two sonification schemes
+cannot be A/B'd against live band conditions, because the band changes between
+trials. With a recorded span you play the identical thirty seconds through every
+candidate. That reframes recording's priority: not a training nicety, but the
+development instrument for the hardest design problem in the project.
+
+**Evaluate with tasks, not preferences.** Contrast with Freight Fate: FF's audio
+problem was *generative* — invent a convincing engine, capped by source material,
+with no ground truth (which is why the granular track closed as a source-material
+failure). This problem is *representational* — the signal is already there, exact.
+No fidelity ceiling, but a different bar: the mapping must be **learnable and
+informative**, not merely pleasant.
+
+FF's audio had to *sound* right. This has to *convey* right. So a straight rerun of
+the FF fan-out judging would measure the wrong thing. Don't ask "which sounds
+better." Ask task questions against the same recording — *how many signals are in
+this segment? which is strongest? is that CW or SSB? find the one that just
+appeared* — and measure accuracy and time-to-answer. That converts preference into
+measurement, and it protects against the likely failure mode: a candidate that is
+pleasant and useless, chosen by a judge who has been listening to candidates all
+afternoon.
+
+**Parallelism fits, with a caveat.** The listening is serial and needs Noel's ears.
+Everything around it parallelizes: prior-art research (auditory display is a real
+field with decades of work in radio astronomy, NASA telemetry, and accessibility),
+harness construction, and multiple sessions each implementing a *different*
+candidate against the same harness and recording. Diverse candidates generated in
+parallel, human as judge — correct when the evaluation function lives in a person.
+
+**Braille is a different problem, not a variant.** Audio is temporal and good at
+gestalt ("the band is alive, there's a pileup here"). Braille is spatial,
+low-bandwidth, slowly refreshed, and good at precision ("7.185, S7, CW"). They
+probably want different *content*, not one design rendered twice. Route the braille
+half through the BrailleElement work already in flight with Jamie Teh
+(`project_brailleelement_jamie_handoff_boundary`).
+
+### 12.2 Two scales, because span is free
+
+For bin data the rate is `bins × 2 bytes × fps` — **span does not appear in it.** A
+19 MHz view at 2000 bins costs exactly the same as a 20 kHz view at 2000 bins. What
+span costs is **Hz per bin**: 19 MHz across 2000 bins is 9.5 kHz/bin (individual
+signals vanish); 20 kHz across 2000 bins is 10 Hz/bin (resolves individual CW).
+Wide *or* fine at a given data rate, never both — which is why §10.1 budgets in
+Hz-per-bin rather than bin count.
+
+This hands the sonification design its structure: **it wants two scales, not one.**
+
+- **Survey** — wide span, coarse bins, slow refresh. Answers "which bands are open,
+  where is the activity."
+- **Tune** — 20–50 kHz, fine bins, faster refresh. Answers "what is in front of me,
+  how many signals, where exactly."
+
+Different tasks; a mapping optimised for one will be wrong for the other. Trying to
+serve both with a single sonification is very likely what makes this feel like an
+albatross.
+
+**The survey mode is the genuinely novel piece.** Sighted operators glance at a wide
+waterfall to pick where to go, then zoom in to work — survey, then tune. Blind
+operators have *no equivalent to that first step today, in any form*. And on a wide
+front end it costs the same bytes as looking at 20 kHz.
+
+### 12.3 The corpus
+
+**Bins for breadth, IQ for depth.** A full 350 kHz of 20m at 1000 bins and 10 fps is
+~72 MB/hour — roughly 40× cheaper than IQ and covering the whole band. Sonification
+maps magnitude data, so bins are largely what it needs. IQ earns its cost as
+**ground truth**: tune into a signal the sonification flagged and confirm it is what
+you thought.
+
+**Don's low-noise Adirondack site is one end of the corpus, not the reference.** A
+mapping that works at a quiet site and fails in real conditions does not work. The
+corpus needs the hard cases: Don's baseline, Memphis urban noise as the realistic
+case, contest density, a pileup for discrimination, and the **evening 40/80 storm
+already named as the benchmark** in `project_earcon_audibility_rf_environment`.
+
+**Collect before designing.** Mappings can be iterated forever; band conditions
+cannot be manufactured on demand. You cannot go back and record last night's storm
+or this weekend's contest. Don's radio being up is a collection window.
+
+**Storage is not the constraint** — ~50 TB on the NAS is roughly a year of
+continuous 192 kHz IQ. Neither is throughput: IQ at 192 kHz is 1.5 MB/s and a
+2000-bin panadapter at 30 fps is 120 KB/s, so everything at once is under 2 MB/s.
+10 GbE matters for bulk archive moves, not capture.
+
+**The binding constraint is metadata.** 50 TB of unlabeled IQ is worthless; 500 GB
+well-labeled is gold. Every capture needs centre frequency, sample rate, timestamp,
+station and location, antenna, band, noise floor, and what was happening. Without
+it, "find me a noisy 40m evening to test this mapping against" is unanswerable.
+This is the real reason SigMF's metadata sidecar matters — the difference between an
+archive and a directory. Capacity was never going to stop this; findability in six
+months might.
+
+**Record locally at remote sites.** IQ over SmartLink is the *one* case where Don's
+bandwidth worry is correct: 192 kHz is 12 Mbps of sustained upload from Tony's
+residential connection. FlexLib does not gate DAX IQ by connection type
+(`RequestDAXIQStream` has no WAN check), but that is not permission to use someone's
+uplink for hours. Put the agent on a Pi at the far end with a local SSD (1 TB ≈ 350
+hours at 96 kHz) and sync overnight throttled. **The host agent is therefore also a
+remote recording appliance** — a second, independent justification for building it.
+
+### 12.4 Multi-stream capture: segment, don't stitch
+
+Covering a whole band in IQ needs multiple streams (192 kHz each; 80m is 500 kHz,
+20m is 350 kHz). **But stitching is unnecessary.** Each DAX stream has its own NCO,
+so there is no phase coherence across segment boundaries — and none is needed,
+because **no HF signal approaches 192 kHz wide** (CW ~100 Hz, SSB ~3 kHz, widest
+maybe 20 kHz). You never demodulate across a seam.
+
+So: store N adjacent captures, each with its own centre frequency, with a few kHz of
+deliberate **overlap** at boundaries so a signal near a seam is whole in at least
+one segment. Replay selects by tuned frequency. No stitching, no phase problem —
+just a lookup.
+
+FlexLib already supports simultaneous streams (`_daxIQStreams` is a list,
+`RequestDAXIQStream(int channel)` takes a channel). The ceiling is **`DAXIQCapacity`**,
+radio-reported — worth measuring on the 8600, since four channels at 192 kHz would
+be 768 kHz coherent, enough for all of 80m or 40m+20m together.
+
+**Simultaneity matters for realism.** Sequentially captured segments are temporally
+inconsistent — the pileup at 3.790 would not match what is at 3.850, because they
+are different moments.
+
+Three things that must be right at capture time, none recoverable later:
+
+- **Time alignment is free — just record it.** Every VITA packet carries `tsi`/`tsf`
+  stamped by one radio clock, so all streams share a reference and a jump to time T
+  lands at the same instant in every file. GPS-disciplined where GNSS is fitted, so
+  captures across sessions (and eventually across stations) share absolute time.
+  Cross-file alignment is normally the hard part of multi-channel recording; here it
+  is a field already arriving.
+- **A writer per stream, fed by its own ring buffer.** One blocking writer across
+  four sockets means an I/O stall on one file drops packets on the others.
+- **Build the seek index during capture** (timestamp → byte offset, per file) so
+  jumps are a lookup rather than a scan through gigabytes.
+- **Watch `header.packet_count`** — a 4-bit modulo-16 sequence counter parsed on
+  every VITA packet type. Log discontinuities and you can *certify* a capture
+  gap-free. When a sonification behaves oddly on one file, you want to rule out the
+  file rather than chase the mapping.
+
+### 12.5 Demo mode, restated as a corpus consumer
+
+§10.6's no-hardware demo needs far less than a full band: 192 kHz of 40m holding a
+dozen CW signals, some SSB, and a digital cluster is a complete experience. Someone
+tuning that range and finding real signals has understood the product. One good
+segment, chosen from the corpus — not an engineering problem, a curation one.
+
+---
+
 *Named per convention: cookie (the currency of station-sharing), sked (a
 scheduled contact), keydown (what the whole thing gates).*
