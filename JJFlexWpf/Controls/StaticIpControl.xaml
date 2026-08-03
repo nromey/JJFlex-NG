@@ -1,0 +1,98 @@
+<UserControl x:Class="JJFlexWpf.Controls.StaticIpControl"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             AutomationProperties.Name="Radio network address">
+
+    <!-- DialogStyles is merged here rather than inherited from the hosting
+         dialog. StaticResource resolves by walking the logical tree at parse
+         time, and a UserControl is parsed independently of whatever dialog
+         later hosts it — without this, DialogLabel/DialogTextBox would throw
+         the moment this control was dropped into a second parent. -->
+    <UserControl.Resources>
+        <ResourceDictionary Source="pack://application:,,,/JJFlexWpf;component/Styles/DialogStyles.xaml"/>
+    </UserControl.Resources>
+
+    <StackPanel>
+        <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
+                   Text="By default the radio asks your router for an address each time it starts, so the address can change. Pinning a fixed address keeps port forwarding and saved connections working after a power cut. The radio takes the new address the next time it restarts."/>
+
+        <TextBlock x:Name="CurrentStateText"
+                   Style="{StaticResource DialogLabel}"
+                   TextWrapping="Wrap"
+                   Margin="0,0,0,8"
+                   AutomationProperties.LiveSetting="Polite"
+                   AutomationProperties.Name="Current radio address"/>
+
+        <GroupBox Header="Address mode" Margin="0,0,0,8"
+                  AutomationProperties.Name="Radio address mode">
+            <StackPanel Margin="4">
+                <RadioButton x:Name="DhcpRadio"
+                             GroupName="AddressMode"
+                             Margin="0,4,0,4"
+                             AutomationProperties.Name="Automatic, the router assigns the address. Default."
+                             Checked="AddressModeRadio_Checked">
+                    <TextBlock Text="Automatic — the router assigns the address (default)"/>
+                </RadioButton>
+                <RadioButton x:Name="StaticRadio"
+                             GroupName="AddressMode"
+                             Margin="0,4,0,4"
+                             AutomationProperties.Name="Fixed address, you choose the address the radio keeps"
+                             Checked="AddressModeRadio_Checked">
+                    <TextBlock Text="Fixed address — the radio always uses the address you set"/>
+                </RadioButton>
+            </StackPanel>
+        </GroupBox>
+
+        <Grid x:Name="StaticFieldsGrid" Margin="20,0,0,8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="150"/>
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <TextBlock Grid.Row="0" Grid.Column="0" Text="IP address:"
+                       Style="{StaticResource DialogLabel}" Margin="0,4,8,4"/>
+            <TextBox x:Name="IpBox" Grid.Row="0" Grid.Column="1"
+                     Style="{StaticResource DialogTextBox}"
+                     AutomationProperties.Name="Radio IP address, for example 192.168.1.50"/>
+
+            <TextBlock Grid.Row="1" Grid.Column="0" Text="Gateway:"
+                       Style="{StaticResource DialogLabel}" Margin="0,4,8,4"/>
+            <TextBox x:Name="GatewayBox" Grid.Row="1" Grid.Column="1"
+                     Style="{StaticResource DialogTextBox}"
+                     AutomationProperties.Name="Gateway address, usually your router, for example 192.168.1.1"/>
+
+            <TextBlock Grid.Row="2" Grid.Column="0" Text="Subnet mask:"
+                       Style="{StaticResource DialogLabel}" Margin="0,4,8,4"/>
+            <TextBox x:Name="NetmaskBox" Grid.Row="2" Grid.Column="1"
+                     Style="{StaticResource DialogTextBox}"
+                     AutomationProperties.Name="Subnet mask, usually 255.255.255.0"/>
+        </Grid>
+
+        <StackPanel Orientation="Horizontal" Margin="20,0,0,8">
+            <Button x:Name="UseCurrentButton"
+                    Content="_Use the address the radio has now"
+                    Margin="0,0,8,0" Padding="10,4"
+                    AutomationProperties.Name="Fill in the fields using the address the radio is using right now"
+                    AutomationProperties.AcceleratorKey="Alt+U"
+                    Click="UseCurrentButton_Click"/>
+            <Button x:Name="ApplyAddressButton"
+                    Content="App_ly to radio"
+                    Padding="10,4"
+                    AutomationProperties.Name="Apply the address mode and settings to the radio"
+                    AutomationProperties.AcceleratorKey="Alt+L"
+                    Click="ApplyAddressButton_Click"/>
+        </StackPanel>
+
+        <TextBlock x:Name="ResultText"
+                   Style="{StaticResource DialogLabel}"
+                   TextWrapping="Wrap"
+                   Margin="0,0,0,4"
+                   AutomationProperties.LiveSetting="Polite"
+                   AutomationProperties.Name="Result of the last address change"/>
+    </StackPanel>
+</UserControl>

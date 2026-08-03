@@ -1509,6 +1509,10 @@ public class NativeMenuBar : IDisposable
         var dialog = new Dialogs.SettingsDialog(pttConfig, coarseStep, fineStep, licenseConfig, audioConfig);
         dialog.FreqHandlers = _window.FreqHandlers;
         dialog.Rig = _window.RigControl;
+        // Settings → Radio Setup → Restart shares the hotkey binding's reboot flow;
+        // this is the one piece it cannot reach on its own, since the display state
+        // reset lives on MainWindow.
+        dialog.OnRebootInitiated = _window.powerNowOff;
         if (_window.OpenParms != null)
         {
             dialog.ConfigDirectory = _window.OpenParms.ConfigDirectory;

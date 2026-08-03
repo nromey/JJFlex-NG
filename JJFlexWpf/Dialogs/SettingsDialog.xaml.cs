@@ -26,7 +26,7 @@ namespace JJFlexWpf.Dialogs
         public FlexBase? Rig
         {
             get => _rig;
-            set { _rig = value; RefreshNetworkTabFromRig(); }
+            set { _rig = value; RefreshNetworkTabFromRig(); RefreshRadioSetupTab(); }
         }
 
         // Tuning step results (read after DialogResult == true)

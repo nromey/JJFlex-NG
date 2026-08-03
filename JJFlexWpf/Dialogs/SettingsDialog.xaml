@@ -303,6 +303,7 @@
             </TabItem>
             <!-- Network Tab (SmartLink port forwarding) -->
             <TabItem Header="Network" AutomationProperties.Name="Network and SmartLink settings">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
                 <StackPanel Margin="8">
                     <TextBlock Text="SmartLink Port Forwarding (Tier 1)" FontWeight="SemiBold"
                                Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
@@ -395,7 +396,7 @@
                                 <StackPanel>
                                     <TextBlock Text="Tier 1 + 2 — Manual + UPnP" FontWeight="SemiBold"/>
                                     <TextBlock TextWrapping="Wrap" Margin="0,2,0,0"
-                                               Text="JJ Flex asks your router via UPnP to open the port automatically. Convenient, but UPnP lets any program on your LAN punch holes through the router without asking — it is disabled by many enterprise security policies and by some home routers. If UPnP fails, JJ Flex silently falls back to Tier 1."/>
+                                               Text="The radio asks your router via UPnP to open the port automatically. JJ Flex does not do this itself and cannot turn UPnP on — if your router has UPnP switched off, that is a change on the router, not here. UPnP is also convenient in a way worth knowing about: it lets any program on your network open a way in without asking, which is why many routers and most workplace networks disable it. If UPnP does not work, JJ Flex falls back to Tier 1."/>
                                 </StackPanel>
                             </RadioButton>
                             <RadioButton x:Name="Tier3Radio"
@@ -455,7 +456,131 @@
                               Margin="0,8,0,0"
                               AutomationProperties.Name="Enable verbose network diagnostic output"
                               Click="VerboseDiagnosticsCheck_Click"/>
+
+                    <!-- Radio addressing. The same control also appears as a
+                         numbered step in Radio Setup; this is the copy for people
+                         who already know what they are looking for and came
+                         straight here. -->
+                    <Separator Margin="0,16,0,8"/>
+                    <TextBlock Text="Radio Network Address" FontWeight="SemiBold"
+                               Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
+                    <controls:StaticIpControl x:Name="NetworkStaticIpControl"/>
                 </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
+            <!-- Radio Setup tab — the ordered path for bringing a radio up,
+                 especially one that will live somewhere you cannot walk to.
+                 Deliberately a numbered checklist and not a modal wizard: a
+                 screen reader user can move by heading to any step, in any
+                 order, and re-run a single step without walking a whole flow
+                 again. Steps that are already satisfied say so, so the tab
+                 doubles as a status board. -->
+            <TabItem Header="Radio Setup" AutomationProperties.Name="Radio setup checklist">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <StackPanel Margin="8">
+                    <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
+                               Text="These steps get a radio ready to reach from somewhere else. Work down them in order the first time. Any step can be re-run on its own later, and each one reports where it currently stands."/>
+
+                    <Button x:Name="RadioSetupRefreshButton"
+                            Content="_Refresh all steps"
+                            HorizontalAlignment="Left" Padding="12,4" Margin="0,0,0,12"
+                            AutomationProperties.Name="Re-read the radio and update the status of every step"
+                            AutomationProperties.AcceleratorKey="Alt+R"
+                            Click="RadioSetupRefreshButton_Click"/>
+
+                    <!-- Step 1 -->
+                    <GroupBox Header="Step 1 — Connect to the radio" Margin="0,0,0,12"
+                              AutomationProperties.Name="Step 1, connect to the radio">
+                        <StackPanel Margin="4">
+                            <TextBlock TextWrapping="Wrap" Margin="0,0,0,6"
+                                       Text="The remaining steps change settings stored in the radio itself, so the radio has to be connected. Connect on the same local network as the radio where you can — a few of these steps cannot run over SmartLink."/>
+                            <TextBlock x:Name="SetupStep1Status"
+                                       Style="{StaticResource DialogLabel}"
+                                       TextWrapping="Wrap"
+                                       AutomationProperties.LiveSetting="Polite"
+                                       AutomationProperties.Name="Step 1 status"/>
+                        </StackPanel>
+                    </GroupBox>
+
+                    <!-- Step 2 -->
+                    <GroupBox Header="Step 2 — Give the radio a fixed address" Margin="0,0,0,12"
+                              AutomationProperties.Name="Step 2, give the radio a fixed address">
+                        <StackPanel Margin="4">
+                            <TextBlock x:Name="SetupStep2Status"
+                                       Style="{StaticResource DialogLabel}"
+                                       TextWrapping="Wrap"
+                                       Margin="0,0,0,6"
+                                       AutomationProperties.LiveSetting="Polite"
+                                       AutomationProperties.Name="Step 2 status"/>
+                            <controls:StaticIpControl x:Name="SetupStaticIpControl"/>
+                        </StackPanel>
+                    </GroupBox>
+
+                    <!-- Step 3 -->
+                    <GroupBox Header="Step 3 — Open a way in from the internet" Margin="0,0,0,12"
+                              AutomationProperties.Name="Step 3, open a way in from the internet">
+                        <StackPanel Margin="4">
+                            <TextBlock TextWrapping="Wrap" Margin="0,0,0,6"
+                                       Text="To reach the radio from away from home, SmartLink needs a way through the router. Forwarding a port is the most reliable route and needs one change on the router. Where the router cannot be changed, hole-punch can often get through on its own."/>
+                            <TextBlock x:Name="SetupStep3Status"
+                                       Style="{StaticResource DialogLabel}"
+                                       TextWrapping="Wrap"
+                                       Margin="0,0,0,6"
+                                       AutomationProperties.LiveSetting="Polite"
+                                       AutomationProperties.Name="Step 3 status"/>
+                            <Button x:Name="SetupGoToNetworkButton"
+                                    Content="Open Net_work settings"
+                                    HorizontalAlignment="Left" Padding="12,4"
+                                    AutomationProperties.Name="Go to the Network tab to set the port and connection mode"
+                                    AutomationProperties.AcceleratorKey="Alt+W"
+                                    Click="SetupGoToNetworkButton_Click"/>
+                        </StackPanel>
+                    </GroupBox>
+
+                    <!-- Step 4 -->
+                    <GroupBox Header="Step 4 — Check it from outside" Margin="0,0,0,12"
+                              AutomationProperties.Name="Step 4, check the radio can be reached from outside">
+                        <StackPanel Margin="4">
+                            <TextBlock TextWrapping="Wrap" Margin="0,0,0,6"
+                                       Text="Asks SmartLink to look at your network from the outside and report what it can reach. Run this before you leave, while you can still change things."/>
+                            <TextBlock x:Name="SetupStep4Status"
+                                       Style="{StaticResource DialogLabel}"
+                                       TextWrapping="Wrap"
+                                       Margin="0,0,0,6"
+                                       AutomationProperties.LiveSetting="Polite"
+                                       AutomationProperties.Name="Step 4 status"/>
+                            <Button x:Name="SetupTestNetworkButton"
+                                    Content="Run the network _test"
+                                    HorizontalAlignment="Left" Padding="12,4"
+                                    AutomationProperties.Name="Run the SmartLink network diagnostic"
+                                    AutomationProperties.AcceleratorKey="Alt+T"
+                                    Click="SetupTestNetworkButton_Click"/>
+                        </StackPanel>
+                    </GroupBox>
+
+                    <!-- Step 5 -->
+                    <GroupBox Header="Step 5 — Restart the radio" Margin="0,0,0,12"
+                              AutomationProperties.Name="Step 5, restart the radio">
+                        <StackPanel Margin="4">
+                            <TextBlock TextWrapping="Wrap" Margin="0,0,0,6"
+                                       Text="A fixed address only takes effect after the radio restarts. Restarting is also the first thing to try when a radio you cannot reach has stopped answering."/>
+                            <TextBlock x:Name="SetupStep5Status"
+                                       Style="{StaticResource DialogLabel}"
+                                       TextWrapping="Wrap"
+                                       Margin="0,0,0,6"
+                                       AutomationProperties.LiveSetting="Polite"
+                                       AutomationProperties.Name="Step 5 status"/>
+                            <Button x:Name="SetupRebootButton"
+                                    Content="R_estart the radio"
+                                    HorizontalAlignment="Left" Padding="12,4"
+                                    AutomationProperties.Name="Restart the radio. Asks for confirmation first."
+                                    AutomationProperties.AcceleratorKey="Alt+E"
+                                    Click="SetupRebootButton_Click"/>
+                        </StackPanel>
+                    </GroupBox>
+                </StackPanel>
+                </ScrollViewer>
             </TabItem>
 
             <!-- Verbosity & Notifications Tab -->
