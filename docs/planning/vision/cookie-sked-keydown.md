@@ -714,5 +714,153 @@ the client already supports it.
 
 ---
 
+## 11. Amendments — 2026-08-03: build order and the multi-radio development model
+
+**Scope note.** This section is infrastructure rather than Connect proper. It lives
+here because §9.3 and §10.5 already made the radio abstraction a Connect concern —
+the agent-to-client protocol has to be radio-agnostic, and the sample-stream
+boundary is what makes that true. The infrastructure has to exist before any UI can
+expose it.
+
+### 11.1 Build order: primitives, then audio and CAT, then Flex
+
+Noel's framing, and it inverts what feels natural: **define the primitives, define
+sharing of audio and CAT, and add Flex last, because then it all fits together.**
+
+Building Flex first means the primitives get *discovered from Flex* — and whatever
+Flex happens to do becomes the definition of what a radio is. Slices, client
+handles, and panadapters leak into the abstraction because they are what's in front
+of you. Then the first non-Flex radio arrives and doesn't fit, and the choice is a
+rewrite or a pile of special cases.
+
+**Corollary: build a structurally different radio early.** A CAT-and-audio agent is
+small — serial commands, audio both directions, PTT. No VITA-49, no discovery, no
+SmartLink auth, no slice model, no spectrum. Its real value is that a Kenwood has
+none of Flex's concepts, so the protocol has to work anyway. The cheapest time to
+discover that an abstraction is secretly Flex-specific is before anything is built
+on top of it.
+
+### 11.2 Personal remote before sharing
+
+**Personal remote use is Connect with a grant list of one.** Same agent, same broker,
+same thin client, same NAT traversal — the social layer simply switched off. Not a
+lesser version; the identical code path.
+
+That makes it the right first release:
+
+- No control-operator liability questions when you *are* the control operator
+- No scheduling, booking, or license-class enforcement needed to ship
+- The agent gets battle-tested daily by people using their own radios
+- NAT traversal gets proven at scale before anyone's guest depends on it
+- The iOS client gets built against a need that already exists
+
+It also solves adoption. "Share your radio with friends" needs hosts *and* guests
+before anyone gets value. "Use your own radio from your phone" needs nothing but
+you. Single-player before multiplayer — sharing then becomes a UI addition on a
+system that already works.
+
+Demand signal: friends and elmers with non-Flex radios are more interested in remote
+access to their own station, even limited, than in spectrum features. A TS-590 owner
+wants to operate from the couch or a hotel, not an accessible waterfall.
+
+### 11.3 Capability tiers — the abstraction must not imply uniformity
+
+Spectrum support is **categorical, not a resolution slider**:
+
+- **IQ-capable** (Flex, Airspy, RTL-SDR, any SDR) — full spectrum, retunable,
+  recordable, sonifiable. Everything in §10 applies.
+- **Bandscope-only** (TS-890, TS-990 and similar) — the radio does its own FFT and
+  returns *magnitudes* over CAT or LAN. A few hundred points, slow refresh, no
+  phase. Renderable as a display; cannot be retuned, recorded usefully, or
+  demodulated. Same limitation as recording waterfall bins instead of IQ.
+- **None** (TS-590, most CAT rigs) — frequency, mode, S-meter. No spectrum exists at
+  any resolution. Only path to a waterfall is an IF tap into an external SDR: a
+  hardware mod plus a second device, and an *upgrade path, never a prerequisite*.
+
+**The hazard this creates for §10.5.** A good abstraction unifies plumbing and must
+not be allowed to imply uniform capability. Making every source produce "samples
+with a rate and a center frequency" is right for the code, but that same uniformity
+can make the UI lie — every radio looks like it has a spectrum pipeline because they
+all connect to the same interface.
+
+Fix: **capability is a first-class descriptor that travels with the source**, never
+inferred from whether data happens to arrive. Sources declare; the UI reads the
+declaration; features gate explicitly.
+
+**Disclose at three moments, not one:**
+
+1. **Before acquisition** — a public support matrix, so "what will this radio
+   actually do in JJFlex" is answerable before someone buys a rig or a cable.
+2. **At connect** — the existing Feature Availability tab, new axis: "Spectrum: not
+   available — this radio provides no spectrum data."
+3. **At the moment of use** — pressing the waterfall key on a TS-590 must *say* there
+   is no spectrum on this radio. Silence is a bug. This is
+   `project_no_silent_keystrokes_rule` applied to a capability gap rather than a
+   state gap.
+
+**For Connect:** the capability descriptor is part of the **listing and the grant**,
+not just local UI. A guest must know before connecting that a shared station has no
+spectrum, and the grant editor must not offer panadapter budgets to a radio that
+cannot produce one.
+
+### 11.4 The development model: simulate, own, validate
+
+The scaling answer for a solo developer targeting many radios:
+
+**Simulators for protocol. Owned hardware for real-world behaviour. Testers for
+validation.**
+
+Hamlib ships **59 rig simulators** at `C:\dev\Hamlib\simulators` (verified
+2026-08-03 at HEAD `b897a7be`) — programs that emulate a specific radio's serial
+protocol, so CAT software can be pointed at a virtual port and behave as if the
+radio were present. Protocol design, the agent, command translation, state tracking,
+the client UI, and the whole Connect path can be built with **zero hardware**.
+Hardware becomes a validation pass, which is what a tester is actually good for —
+development over someone else's radio is miserable for both parties.
+
+Roadmap-relevant coverage:
+
+- `simts590` — the radio that prompted this; no purchase needed to develop
+- `simic7300` — highest-demand request, the CI-V spectrum path
+- `simtrusdx`, `simqrplabs` — (tr)uSDX and the QDX/QMX family
+- `simxiegug90`, `simxiegux6100`, `simxiegux108g` — Xiegu line
+- Kenwood: `simts450`, `simts590`, `simts890`, `simts950`, `simts990`, `simkenwood`,
+  `simtmd700`, `simtmd710`
+- Icom: fifteen, including `simic705`, `simic7100`, `simic7610`, `simic9700`, and
+  `simicgeneric`
+- Yaesu: fourteen, from `simft817` through the FTdx line
+- Also `simelecraft`/`simelecraftk4`, `simflex`, `simpowersdr`, and rotator sims
+
+**`simtmd710` is the same family as Doug's TM-V71A** — the D710 is the APRS-capable
+sibling with a heavily overlapping command set. Named tester plus near-simulator
+coverage, the same pairing that just worked out for the 590.
+
+**Gap:** no Xiegu G106 simulator (G90, X6100, X108G are present). If the G106 stays
+on the roadmap it carries protocol work its siblings don't — a different cost class.
+
+**Hamlib's shared-backend structure is why it's the right dependency.**
+`rigs/kenwood/kenwood.c` is 175 KB of shared implementation; `ts590.c` (80 KB) and
+`ts2000.c` (70 KB) sit on top as per-rig deltas. The marginal cost of the next
+Kenwood is a small file, not a new implementation — and **work on the TS-2000 Noel
+owns transfers substantially to the TS-590 he doesn't.**
+
+### 11.5 What simulators cannot cover
+
+Two limits, so the hardware stage doesn't surprise anyone:
+
+**Simulators are CAT only.** No audio. Soundcard capture, PTT keying, and level
+setting need real hardware or a loopback rig — and for non-SDR radios that is where
+much of the real pain lives.
+
+**Simulators are clean.** No serial timing quirks, buffer behaviour, USB adapter
+weirdness, or a radio answering slowly while its own DSP is busy. Those are the bugs
+that eat a day. **Validate on real hardware earlier than feels necessary**, not at
+the end.
+
+The TS-2000 covers exactly this gap — real audio, real PTT, real timing, real cable
+reality — while sharing most of its code path with the 590 family.
+
+---
+
 *Named per convention: cookie (the currency of station-sharing), sked (a
 scheduled contact), keydown (what the whole thing gates).*
