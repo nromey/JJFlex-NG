@@ -23,8 +23,8 @@ You are a pair coder, not a human contractor. Do NOT constrain decisions by huma
 | Installer | Runs automatically after Release build |
 | Output x64 | `bin\x64\Release\net10.0-windows\win-x64\JJFlexRadio.exe` |
 | Output x86 | `bin\x86\Release\net10.0-windows\win-x86\JJFlexRadio.exe` |
-| Installer x64 | `Setup JJFlexRadio_[version]_x64.exe` |
-| Installer x86 | `Setup JJFlexRadio_[version]_x86.exe` |
+| Installer x64 | `Setup JJFlex_[version]_x64.exe` |
+| Installer x86 | `Setup JJFlex_[version]_x86.exe` |
 
 **Note**: Use `dotnet build` (preferred) or `msbuild` if in VS Developer shell. Add `--verbosity minimal` to reduce output noise.
 
@@ -141,8 +141,12 @@ If the timestamp doesn't match the current time, the build did NOT produce a fre
 
 ### Installer Generation
 Installer runs automatically as post-build step for Release builds. Creates:
-- `Setup JJFlexRadio_[version]_x64.exe` (64-bit installer)
-- `Setup JJFlexRadio_[version]_x86.exe` (32-bit installer)
+- `Setup JJFlex_[version]_x64.exe` (64-bit installer)
+- `Setup JJFlex_[version]_x86.exe` (32-bit installer)
+
+**Note the name is `JJFlex`, not `JJFlexRadio`.** This doc said `JJFlexRadio_` until
+2026-08-03; a release script globbing the old pattern finds nothing and silently
+ships nothing.
 
 The installer:
 - Auto-detects architecture from build output
@@ -368,7 +372,7 @@ When Noel says "done developing" or equivalent, that's the seal-the-day trigger.
 
 - **Memory files modified today — READ ALL OF THEM, don't grep for relevance.** Check mtimes in `C:\Users\nrome\.claude\projects\c--dev-JJFlex-NG\memory\` for files touched today. **Read every memory entry that's new or modified today, every one, even if the title doesn't seem topic-relevant.** Memory cross-references mean unrelated-titled entries often hold load-bearing facts (the 2026-05-08 R2 work was captured in `project_blindhams_data_layer_migration.md`, NOT in a `project_phase_0_*.md` entry — anchoring on title-relevance would miss it). The cost of reading 5-10 today-modified entries is minutes; the cost of missing one is a permanent gap.
 - **Every worktree's git log since midnight.** `git log --since=midnight` on main + every active track worktree (`jjflex-braille`, `jjflex-flexlib-42`, `jjflex-multi-radio`, plus any spawned that day). Cherry-pick origins, taeraflops-driven branches, and in-flight feature work all surface here. Do this PER worktree — each has its own HEAD.
-- **Other local repos beyond JJFlex-NG.** `ls C:\dev\` and check git log on any sibling repos with today-mtime activity (e.g. `jjf-data`, future `bh-data`, others). These are separate clones, not worktrees of JJFlex-NG, so they don't show up in `git worktree list`. **The 2026-05-08 gap that exposed this sub-rule:** the entire Phase 0 B-E work landed in `nromey/jjf-data` (cloned to `C:\dev\jjf-data`), which never appears under JJFlex-NG; sealing only against JJFlex-NG missed the GitHub Action + R2 sync entirely.
+- **Other local repos beyond JJFlex-NG.** `ls C:\dev\` and check git log on any sibling repos with today-mtime activity (e.g. `jjf-data`, `jjflexible-connect` (scaffolded 2026-08-03), future `bh-data`, others). These are separate clones, not worktrees of JJFlex-NG, so they don't show up in `git worktree list`. **The 2026-05-08 gap that exposed this sub-rule:** the entire Phase 0 B-E work landed in `nromey/jjf-data` (cloned to `C:\dev\jjf-data`), which never appears under JJFlex-NG; sealing only against JJFlex-NG missed the GitHub Action + R2 sync entirely.
 - **The other major projects — Freight Fate and Civ VI Access.** These are full parallel projects, not side repos, and they routinely out-produce JJFlex on a given day. Check **main project roots only, not their worktrees** (`C:\dev\Freight-Fate`, `C:\dev\Civ-vi-access`); Freight Fate alone spawns a dozen `ff-*` worktrees whose work lands in the main repo anyway. For each, report branch, dirty count, and **unpushed commit count** (`git log --branches --not --remotes --oneline`). **The 2026-08-01 gap that exposed this sub-rule:** Freight Fate was sitting on 16 unpushed commits and Civ VI on 45 — months of work existing on exactly one machine — while the seal SOP looked only at JJFlex. The NAS dev mirror preserves `.git`, so mirroring covers the durability; **pushing those repos is Noel's call, not the sealing session's**, because they have outside contributors and pushing is outward-facing.
 - **External infrastructure activity.** Look for today-dated changes on rarbox/roarbox/Cloudflare/R2/NAS. Memory entries are the primary record of on-box-Claude work; NAS folder mtimes also reveal activity beyond just the seal backup itself; Dropbox top level + debug/ may have publishes from earlier in the day. Cloudflare dashboard activity (R2 bucket creates, custom-domain hookups, cache rules) is captured indirectly via memory entries authored by the session that did the work — see the all-memory-read rule above.
 - **Active planning docs modified today.** `find docs/planning/active/ -newermt today` — walkthroughs, runbooks, briefings, agendas. The session that authored these may not be the session sealing the day; their mtimes reveal what work happened. Specifically the 2026-05-08 `phase-0-bcde-walkthrough.md` was sitting in active/ with a same-day mtime explicitly stating what got done; not opening it was part of why the second-pass also missed B-E.
