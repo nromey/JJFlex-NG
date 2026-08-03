@@ -340,6 +340,7 @@ namespace JJFlexWpf.Dialogs
             if (_rig == null || !_rig.IsConnected)
             {
                 SetupFirmwareStatus.Text = "Waiting on step 1.";
+                SetupGetFirmwareButton.IsEnabled = false;
                 SetupChooseFirmwareButton.IsEnabled = false;
                 SetupSendFirmwareButton.IsEnabled = false;
                 SetupSuppressVersionWarningButton.Visibility = Visibility.Collapsed;
@@ -347,6 +348,7 @@ namespace JJFlexWpf.Dialogs
             }
 
             bool local = !_rig.IsWanConnection;
+            SetupGetFirmwareButton.IsEnabled = local;
             SetupChooseFirmwareButton.IsEnabled = local;
             SetupSendFirmwareButton.IsEnabled = local && !string.IsNullOrEmpty(_chosenFirmwarePath);
 
@@ -385,6 +387,119 @@ namespace JJFlexWpf.Dialogs
                 parts.Add("Firmware cannot be sent over SmartLink — the transfer uses a separate connection that SmartLink does not carry. Connect on the same network as the radio.");
 
             SetupFirmwareStatus.Text = string.Join(" ", parts);
+        }
+
+        /// <summary>
+        /// Look the radio up in the JJ Flexible firmware catalogue and download
+        /// the right image for it.
+        ///
+        /// "The catalogue isn't published yet" is a normal answer, not a fault —
+        /// it is the expected answer on day one — so it reports plainly and points
+        /// at the choose-a-file route rather than presenting as an error.
+        /// </summary>
+        private async void SetupGetFirmwareButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (_rig == null || !_rig.IsConnected)
+            {
+                SetupFirmwareFileText.Text = "No radio is connected.";
+                ScreenReaderOutput.Speak("No radio connected.", VerbosityLevel.Terse, interrupt: true);
+                return;
+            }
+
+            string model = _rig.RadioModel;
+            SetupGetFirmwareButton.IsEnabled = false;
+            SetupFirmwareFileText.Text = "Looking for firmware for this radio...";
+            ScreenReaderOutput.Speak("Looking for firmware.", VerbosityLevel.Terse, interrupt: true);
+
+            try
+            {
+                var catalog = new JJFlexUpdater.Firmware.FirmwareCatalog();
+                var manifest = await catalog.FetchAsync();
+                var image = JJFlexUpdater.Firmware.FirmwareCatalog.BestImageFor(manifest, model, _rig.RadioIsBigBend);
+
+                if (image == null)
+                {
+                    SetupFirmwareFileText.Text =
+                        $"The firmware list does not have anything for a {model}. You can still choose a file from this computer.";
+                    ScreenReaderOutput.Speak("No firmware listed for this radio.", VerbosityLevel.Terse, interrupt: true);
+                    return;
+                }
+
+                string running = _rig.RadioFirmwareVersion;
+                if (!string.IsNullOrEmpty(running)
+                    && JJFlexUpdater.Firmware.FirmwareCatalog.CompareVersions(image.Version, running) <= 0)
+                {
+                    SetupFirmwareFileText.Text =
+                        $"The radio is already running firmware {running}, and the newest offered is {image.Version}. There is nothing to update.";
+                    ScreenReaderOutput.Speak("The radio firmware is already up to date.", VerbosityLevel.Terse, interrupt: true);
+                    return;
+                }
+
+                // Advisory only. Getting a stepping-stone requirement wrong in
+                // either direction is worse than telling the user what we know.
+                if (!string.IsNullOrWhiteSpace(image.MinVersionForDirectUpdate)
+                    && !string.IsNullOrEmpty(running)
+                    && JJFlexUpdater.Firmware.FirmwareCatalog.CompareVersions(running, image.MinVersionForDirectUpdate) < 0)
+                {
+                    SetupFirmwareFileText.Text =
+                        $"Firmware {image.Version} expects the radio to already be on {image.MinVersionForDirectUpdate} or newer, and this one is on {running}. " +
+                        "You may need an in-between version first. Downloading anyway — check with FlexRadio before sending if you are unsure.";
+                    ScreenReaderOutput.Speak("A stepping-stone version may be needed. See the message.",
+                        VerbosityLevel.Terse, interrupt: true);
+                }
+
+                string dir = System.IO.Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                    "JJFlexRadio", "firmware");
+
+                double lastSpoken = 0;
+                string path = await catalog.DownloadAsync(image, dir, onProgress: fraction =>
+                {
+                    if (fraction < 0) return;
+                    // Speak at quarters only. A percentage read continuously is
+                    // unusable and drowns out anything else.
+                    if (fraction - lastSpoken < 0.25) return;
+                    lastSpoken = fraction;
+                    int pct = (int)(fraction * 100);
+                    Dispatcher.BeginInvoke(() =>
+                        ScreenReaderOutput.Speak($"{pct} percent.", VerbosityLevel.Terse, interrupt: true));
+                });
+
+                _chosenFirmwarePath = path;
+                var check = _rig.PreflightFirmwareUpdate(path, image.Sha256);
+                if (!check.CanProceed)
+                {
+                    _chosenFirmwarePath = string.Empty;
+                    SetupSendFirmwareButton.IsEnabled = false;
+                    SetupFirmwareFileText.Text = check.BlockReason;
+                    ScreenReaderOutput.Speak(check.BlockReason, VerbosityLevel.Terse, interrupt: true);
+                    return;
+                }
+
+                SetupSendFirmwareButton.IsEnabled = true;
+                SetupFirmwareFileText.Text =
+                    $"Downloaded firmware {image.Version} for this radio, {(check.SizeBytes / 1024.0 / 1024.0):F1} megabytes, and the checksum matches. " +
+                    "Nothing has been sent to the radio yet — choose Send to radio.";
+                ScreenReaderOutput.Speak($"Firmware {image.Version} downloaded and checked. Choose send to radio.",
+                    VerbosityLevel.Terse, interrupt: true);
+            }
+            catch (JJFlexUpdater.Net.UpdaterFetchException ex)
+            {
+                JJTrace.Tracing.TraceLine($"SetupGetFirmware: {ex.Message}", System.Diagnostics.TraceLevel.Warning);
+                SetupFirmwareFileText.Text =
+                    "The firmware list could not be reached. It may not be published yet. You can choose a file from this computer instead.";
+                ScreenReaderOutput.Speak("Could not reach the firmware list.", VerbosityLevel.Terse, interrupt: true);
+            }
+            catch (Exception ex)
+            {
+                JJTrace.Tracing.TraceLine($"SetupGetFirmware: {ex.Message}", System.Diagnostics.TraceLevel.Error);
+                SetupFirmwareFileText.Text = "The firmware could not be downloaded. See the trace file for details.";
+                ScreenReaderOutput.Speak("Download failed.", VerbosityLevel.Terse, interrupt: true);
+            }
+            finally
+            {
+                SetupGetFirmwareButton.IsEnabled = _rig != null && _rig.IsConnected && !_rig.IsWanConnection;
+            }
         }
 
         private void SetupChooseFirmwareButton_Click(object sender, RoutedEventArgs e)
@@ -465,17 +580,41 @@ namespace JJFlexWpf.Dialogs
                 return;
             }
 
+            // Captured before the send: once the radio drops off the network the
+            // connection is gone and neither of these can be read again.
+            string serial = _rig.SelectedRadioSerial;
+            string previousVersion = _rig.RadioFirmwareVersion;
+
             if (_rig.BeginFirmwareUpdate(_chosenFirmwarePath))
             {
-                // FlexLib gives no completion callback and swallows its own errors,
-                // so there is nothing to await. Progress has to be read from the
-                // radio's own state, which is what Refresh all steps re-reads.
                 SetupFirmwareFileText.Text =
                     "Sending. The radio applies the update and restarts on its own; this takes several minutes. " +
-                    "JJ Flex is not told when it finishes, so use Refresh all steps once the radio is back.";
+                    "JJ Flex is watching for it to come back and will say so when the new firmware is confirmed — " +
+                    "you can close Settings and leave it running.";
                 ScreenReaderOutput.Speak(
                     "Sending firmware. Do not switch the radio off. This takes several minutes.",
                     VerbosityLevel.Critical, interrupt: true);
+
+                // FlexLib reports nothing back, so watch the radio instead of
+                // waiting to be told. The watcher outlives this dialog on purpose:
+                // the answer arrives minutes later and the user should not have to
+                // sit on this tab to hear it.
+                _ = _rig.WatchFirmwareUpdateAsync(
+                    serial,
+                    previousVersion,
+                    onProgress: p => Dispatcher.BeginInvoke(() =>
+                    {
+                        // The dialog may be gone by now; the spoken announcement
+                        // from the watcher is the part that always lands.
+                        if (SetupFirmwareFileText == null) return;
+                        SetupFirmwareFileText.Text = p.Message;
+                        if (p.IsTerminal)
+                        {
+                            RefreshFirmwareStatus();
+                            RefreshSetupStatuses();
+                        }
+                    }),
+                    speakResult: true);
             }
             else
             {

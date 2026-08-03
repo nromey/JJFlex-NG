@@ -16,6 +16,15 @@ public static class UpdaterEndpoints
         "https://data.jjflexible.radio/jjflex-app-manifest.json";
 
     /// <summary>
+    /// Radio firmware catalogue. Separate document from the app manifest
+    /// because radio firmware comes from FlexRadio and JJ Flex releases come
+    /// from us — coupling them would mean republishing one every time the
+    /// other changed. Schema in <see cref="Firmware.FirmwareManifest"/>.
+    /// </summary>
+    public const string FirmwareManifestUrl =
+        "https://data.jjflexible.radio/firmware/manifest.json";
+
+    /// <summary>
     /// HTTP user-agent sent on all updater requests. Lets the data provider
     /// distinguish updater traffic from browser traffic in access logs and
     /// gives Noel a one-grep way to see which JJF versions are checking in.

@@ -2621,6 +2621,212 @@ namespace Radios
         }
 
         /// <summary>
+        /// True for the larger 8000-series radios, which take the FLEX-9600
+        /// firmware image rather than the common FLEX-6x00 one. "BigBend" is
+        /// FlexRadio's own internal codename for the platform.
+        /// </summary>
+        public bool RadioIsBigBend
+        {
+            get { try { return theRadio != null && theRadio.IsBigBend; } catch { return false; } }
+        }
+
+        #region Firmware update watcher
+
+        /// <summary>Where an in-progress firmware update has got to.</summary>
+        public enum FirmwareUpdatePhase
+        {
+            /// <summary>Image handed to FlexLib; radio still answering.</summary>
+            Sending,
+            /// <summary>The radio has dropped off the network. This is the expected, healthy sign that it took the image.</summary>
+            RadioRestarting,
+            /// <summary>The radio is back and reporting a version.</summary>
+            RadioReturned,
+            /// <summary>Back on a new version. Done.</summary>
+            Verified,
+            /// <summary>Back on the same version it started with — the update did not take.</summary>
+            VersionUnchanged,
+            /// <summary>Never left, or never came back, inside the time allowed.</summary>
+            TimedOut,
+        }
+
+        public sealed class FirmwareUpdateProgress
+        {
+            public FirmwareUpdatePhase Phase { get; set; }
+            public string Message { get; set; } = string.Empty;
+            /// <summary>Version the radio was running before the update.</summary>
+            public string PreviousVersion { get; set; } = string.Empty;
+            /// <summary>Version now reported, once it is back.</summary>
+            public string CurrentVersion { get; set; } = string.Empty;
+            public bool IsTerminal { get; set; }
+        }
+
+        /// <summary>
+        /// Watch a firmware update through to a verified answer.
+        ///
+        /// This exists because FlexLib's <c>SendUpdateFile</c> gives nothing back:
+        /// no completion event, no error, every failure path is a Debug.WriteLine
+        /// and a return. Without this the honest thing the UI could say was "sent,
+        /// good luck".
+        ///
+        /// So instead of waiting to be told, watch the radio. Discovery packets
+        /// carry the firmware version and arrive with no connection at all, which
+        /// is what makes this work across the reboot — <c>theRadio</c> is useless
+        /// once the radio drops, but <c>API.RadioList</c> keeps seeing it come back.
+        ///
+        /// The shape of a healthy update is: radio answers, radio disappears
+        /// (this is the good sign, not a fault), radio reappears on a different
+        /// version. Two failures are distinguishable and worth distinguishing:
+        /// never disappearing means the upload silently did nothing, and coming
+        /// back on the same version means it was rejected. Both are far more
+        /// useful than a timeout.
+        ///
+        /// Runs on a background task and survives the dialog that started it, so
+        /// the result still gets announced if the user closes Settings and goes to
+        /// make coffee.
+        /// </summary>
+        /// <param name="serial">Radio serial to watch. Survives the connection dropping.</param>
+        /// <param name="previousVersion">Version before the update, for comparison.</param>
+        /// <param name="onProgress">Called on every phase change. May be null.</param>
+        /// <param name="speakResult">Announce the terminal result at Critical verbosity.</param>
+        public Task WatchFirmwareUpdateAsync(
+            string serial,
+            string previousVersion,
+            Action<FirmwareUpdateProgress> onProgress = null,
+            bool speakResult = true,
+            System.Threading.CancellationToken cancellationToken = default)
+        {
+            // Generous ceilings. A normal update is a few minutes; being wrong in
+            // the impatient direction means announcing failure on a radio that was
+            // going to come back fine.
+            TimeSpan maxWaitToLeave = TimeSpan.FromMinutes(5);
+            TimeSpan maxWaitToReturn = TimeSpan.FromMinutes(15);
+            TimeSpan pollInterval = TimeSpan.FromSeconds(5);
+
+            return Task.Run(async () =>
+            {
+                void Report(FirmwareUpdatePhase phase, string message, string current = "", bool terminal = false)
+                {
+                    var p = new FirmwareUpdateProgress
+                    {
+                        Phase = phase,
+                        Message = message,
+                        PreviousVersion = previousVersion,
+                        CurrentVersion = current,
+                        IsTerminal = terminal,
+                    };
+                    Tracing.TraceLine($"WatchFirmwareUpdate: {phase} — {message}", TraceLevel.Info);
+                    try { onProgress?.Invoke(p); } catch (Exception ex) { Tracing.TraceLine($"WatchFirmwareUpdate: progress callback threw: {ex.Message}", TraceLevel.Error); }
+
+                    if (terminal && speakResult)
+                        ScreenReaderOutput.Speak(message, VerbosityLevel.Critical, true);
+                }
+
+                try
+                {
+                    Report(FirmwareUpdatePhase.Sending,
+                        "Firmware sent. Waiting for the radio to restart.");
+
+                    // Phase 1 — wait for the radio to drop off the network.
+                    var start = DateTime.UtcNow;
+                    bool left = false;
+                    while (DateTime.UtcNow - start < maxWaitToLeave)
+                    {
+                        if (cancellationToken.IsCancellationRequested) return;
+                        await Task.Delay(pollInterval, cancellationToken).ConfigureAwait(false);
+                        if (FindDiscoveredRadio(serial) == null) { left = true; break; }
+                    }
+
+                    if (!left)
+                    {
+                        Report(FirmwareUpdatePhase.TimedOut,
+                            "The radio never restarted, so the firmware was probably not accepted. It is still running " +
+                            previousVersion + ". Nothing has been damaged — you can try again.",
+                            previousVersion, terminal: true);
+                        return;
+                    }
+
+                    Report(FirmwareUpdatePhase.RadioRestarting,
+                        "The radio has restarted and is applying the firmware. This takes several minutes.");
+
+                    // Phase 2 — wait for it to come back and tell us its version.
+                    start = DateTime.UtcNow;
+                    while (DateTime.UtcNow - start < maxWaitToReturn)
+                    {
+                        if (cancellationToken.IsCancellationRequested) return;
+                        await Task.Delay(pollInterval, cancellationToken).ConfigureAwait(false);
+
+                        var found = FindDiscoveredRadio(serial);
+                        if (found == null) continue;
+
+                        string current = string.Empty;
+                        try
+                        {
+                            if (found.Version != 0) current = Flex.Util.FlexVersion.ToString(found.Version);
+                        }
+                        catch { }
+
+                        // Seen again but not yet reporting a version — keep waiting
+                        // rather than declaring an unknown result.
+                        if (string.IsNullOrEmpty(current)) continue;
+
+                        if (!string.IsNullOrEmpty(previousVersion)
+                            && string.Equals(current, previousVersion, StringComparison.OrdinalIgnoreCase))
+                        {
+                            Report(FirmwareUpdatePhase.VersionUnchanged,
+                                $"The radio is back, but still running firmware {current}. The update did not take. " +
+                                "Check that the file matches this radio model, then try again.",
+                                current, terminal: true);
+                            return;
+                        }
+
+                        Report(FirmwareUpdatePhase.Verified,
+                            $"Firmware update complete and verified. The radio is back and running firmware {current}. " +
+                            "You can connect to it again.",
+                            current, terminal: true);
+                        return;
+                    }
+
+                    Report(FirmwareUpdatePhase.TimedOut,
+                        "The radio has not come back on the network yet. It may still be finishing — give it a few more minutes, " +
+                        "then look for it again. If it stays away, it may be in recovery, which can be fixed by sending the same firmware again.",
+                        terminal: true);
+                }
+                catch (OperationCanceledException)
+                {
+                    Tracing.TraceLine("WatchFirmwareUpdate: cancelled", TraceLevel.Info);
+                }
+                catch (Exception ex)
+                {
+                    Tracing.TraceLine($"WatchFirmwareUpdate: {ex.Message}", TraceLevel.Error);
+                }
+            }, cancellationToken);
+        }
+
+        /// <summary>
+        /// Look for a radio by serial in FlexLib's discovery list. Works with no
+        /// connection — discovery packets carry the version, which is the whole
+        /// reason the watcher can see across a reboot.
+        /// </summary>
+        private static Radio FindDiscoveredRadio(string serial)
+        {
+            try
+            {
+                foreach (var r in API.RadioList)
+                {
+                    if (r != null && string.Equals(r.Serial, serial, StringComparison.OrdinalIgnoreCase))
+                        return r;
+                }
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine($"FindDiscoveredRadio: {ex.Message}", TraceLevel.Error);
+            }
+            return null;
+        }
+
+        #endregion
+
+        /// <summary>
         /// True when the radio reports it is in the middle of applying an update, or
         /// has fallen into recovery after a failed one. Recovery is retryable by
         /// sending the same image again — no physical access required, which is the

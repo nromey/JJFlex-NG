@@ -620,10 +620,16 @@
                                        AutomationProperties.LiveSetting="Polite"
                                        AutomationProperties.Name="Firmware status"/>
                             <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
-                                <Button x:Name="SetupChooseFirmwareButton"
-                                        Content="C_hoose firmware file..."
+                                <Button x:Name="SetupGetFirmwareButton"
+                                        Content="_Download firmware for this radio"
                                         Margin="0,0,8,0" Padding="12,4"
-                                        AutomationProperties.Name="Choose a firmware file to send to the radio"
+                                        AutomationProperties.Name="Look for firmware for this radio on the JJ Flexible servers and download it"
+                                        AutomationProperties.AcceleratorKey="Alt+D"
+                                        Click="SetupGetFirmwareButton_Click"/>
+                                <Button x:Name="SetupChooseFirmwareButton"
+                                        Content="C_hoose a file instead..."
+                                        Margin="0,0,8,0" Padding="12,4"
+                                        AutomationProperties.Name="Choose a firmware file already on this computer"
                                         AutomationProperties.AcceleratorKey="Alt+H"
                                         Click="SetupChooseFirmwareButton_Click"/>
                                 <Button x:Name="SetupSendFirmwareButton"
