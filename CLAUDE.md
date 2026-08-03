@@ -301,7 +301,7 @@ powershell -Command "(Get-Item 'bin\x64\Release\net10.0-windows\win-x64\JJFlexRa
    - Upload the x64 and x86 installer .exe files
    - Or use gh CLI:
    ```batch
-   gh release create v4.1.X --repo nromey/JJFlex-NG --title "JJFlexRadio 4.1.X" --notes "Release notes here" "Setup JJFlexRadio_4.1.X_x64.exe" "Setup JJFlexRadio_4.1.X_x86.exe"
+   gh release create v4.1.X --repo nromey/JJFlex-NG --title "JJFlexRadio 4.1.X" --notes "Release notes here" "Setup JJFlex_4.1.X_x64.exe" "Setup JJFlex_4.1.X_x86.exe"
    ```
 
    **IMPORTANT gh CLI gotchas:**
