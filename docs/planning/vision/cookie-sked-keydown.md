@@ -527,5 +527,192 @@ Granularity is not a feature here. It is what converts the answer from no to yes
 
 ---
 
+## 10. Amendments — 2026-08-03: bandwidth, spectrum, and IQ
+
+Triggered by a real question from Don ("I don't want to hog Tony's bandwidth"),
+which turned into the spectrum and recording design. Numbers below are verified
+against FlexLib source.
+
+### 10.1 What a session actually costs
+
+Don's objection is the one every prospective host will raise, so the numbers need
+to be ready and shown in the UI rather than asserted.
+
+**Audio is a phone call, not a video stream.** Opus at voice rates is ~32-64 kbps
+per slice; two slices plus the command channel lands near 100-150 kbps, roughly
+50-70 MB/hour. Literally the same codec Discord and WebRTC use. One Netflix stream
+is ~50× heavier.
+
+**Spectrum is a dial, not a fixed price.** The panadapter stream is
+`Width` bins × 2 bytes (`ushort`) × `FPS`. Both are client-settable — `Width` has a
+setter, FPS goes out as `display pan set 0x… fps=N`. The waterfall is a second
+stream on top (`VitaWaterfallPacket`, tiled, also `ushort`).
+
+- 500 bins @ 5 fps = 5 KB/s (**40 kbps — less than the audio**)
+- 1000 bins @ 10 fps = 20 KB/s (160 kbps)
+- 2000 bins @ 30 fps = 120 KB/s (~1 Mbps)
+
+A ~200:1 spread on the same feature, and users can create **multiple** panadapters,
+so pan count multiplies it.
+
+**`LowBandwidthConnect` is connect-time, not runtime.** `Radio.cs:723`, sending
+`client low_bw_connect` inside the connect sequence (line 1922). Also
+`client set send_reduced_bw_dax=1` and a dedicated
+`SL_VITA_IF_NARROW_REDUCED_BW_CLASS` for DAX audio — so it is a whole-session mode
+affecting audio too. **It therefore belongs in the grant, not in a slider the guest
+nudges mid-QSO.**
+
+**Resource accounting already exists.** `MaxPanadapters`, `AvailablePanadapters`,
+`PanadaptersRemaining`, and the same trio for slices. Grant enforcement is
+`min(grant cap, remaining)`, where the "remaining" side is maintained by the radio
+and pushed to every client — no bookkeeping of our own, and the honest UI number
+("this guest may use 2 panadapters; 3 remain") is computable live.
+
+**Budget in Hz per bin, not bin count.** `BinBandwidth` is already in the waterfall
+packet. Bin count is not arbitrarily reducible — two CW signals 200 Hz apart merge
+if resolution is too coarse, and no rendering recovers them. So express the grant's
+spectrum budget as a *resolution floor plus frame rate*: a guest on a 20 kHz span
+gets fine resolution cheaply, and someone asking for a full-band sweep pays for the
+span they asked for.
+
+**Slider design:** label it in **outcomes, not units**. Not "500 bins" or "12 Hz per
+bin" but "can I separate two CW signals?" versus "am I just checking whether the
+band is open?" Mode- and band-aware presets underneath (CW fine, SSB medium, FM
+coarse), with the honest bandwidth figure shown alongside. Same principle as the
+grant UI — the user picks an outcome, the software picks parameters, nothing hidden.
+
+### 10.2 There is no "visual panadapter" on the wire
+
+The radio only ever sends bins. JJFlex constructs every representation locally —
+sonified, braille, spoken peak list, or pixels. So **Connect and LAN are the same
+data path with a different socket underneath**, and there is no visual-versus-
+accessible bandwidth tier to budget for.
+
+Display resolution and data resolution are decoupled: a 500-bin frame interpolated
+across a 2000-pixel display looks perfectly smooth. Nobody needs 1:1 bins-to-pixels.
+
+The economy that matters: **one renderer serves both transports.** No separate
+remote-rendering mode to build, test, or keep in sync. Obvious now, impossible to
+retrofit once a "remote spectrum" special case exists.
+
+### 10.3 IQ recording — replay and retune
+
+**The distinction that decides whether the feature works:** waterfall and panadapter
+data are FFT *magnitudes*; phase is discarded. You can replay the picture but cannot
+demodulate from it — it is a screenshot movie. **DAX IQ is complex baseband with
+phase intact** (`DAXIQStream.SampleRate`, set via `stream set 0x… daxiq_rate=N`;
+`VitaIFDataPacket.payload` is interleaved `float[]`). Retuning anywhere inside a
+recorded span requires IQ, not bins.
+
+Cost is `SampleRate × 2 × 4 bytes`:
+- 24 kHz — 192 KB/s, ~690 MB/hour
+- 96 kHz — 768 KB/s, ~2.8 GB/hour
+- 192 kHz — 1.5 MB/s, ~5.5 GB/hour
+
+Trivial on gigabit; **disk is the only real constraint**. Flex expands int16 to
+float in some paths (`1.0f / Int16.MaxValue` in the packet parser), so storing back
+as int16 may halve it losslessly for those streams.
+
+**A genuine differentiator** — SmartSDR has no native IQ record/playback. DAX IQ can
+be piped to third-party software, but it is not built in and not accessible.
+
+**The strongest use is repeatability, not archival.** Live radio is never the same
+twice, so a student who fumbles a pileup cannot practice *that exact thing* again.
+A recorded span makes it deterministic: replay the same pileup fifty times, work the
+same crowded 40m evening until the technique sticks, hand out a band segment as a
+lesson where every student gets identical signals. For an operator learning to tune
+by ear, that is the difference between practice and luck — and it needs no radio, no
+antenna, and no propagation.
+
+Practicing *sending* also works against a recording. The recording need not answer
+for someone to drill calling, timing, and breaking a pileup with their own keying
+decoded back. Two-way conversation needs a human; skill-building does not.
+
+### 10.4 Record outside FlexLib
+
+FlexLib is a client library, not a gatekeeper — the radio sprays VITA-49 UDP and
+FlexLib parses it. Tap points, increasingly independent: subscribe to stream events
+(public API, `float[]` payloads already available); tap `VitaSocket` before parsing
+(raw packets, self-timing via `tsi`/`tsf`, format-complete so a future version can
+extract more from an old recording); or run a parallel UDP listener.
+
+**The maintenance argument is stronger than the permission argument.** Two vendor
+patches are already carried — the TLS wrapper and the `Private_SendUpdateFile`
+short-read fix — and both must be reapplied on every FlexLib upgrade per
+`MIGRATION.md`. A third patch just to hook recording would be a permanent tax on
+every vendor drop, and a 4.2.x merge is already pending. Own the tap; don't patch
+the vendor.
+
+### 10.5 The sample-stream boundary — also the multi-radio abstraction
+
+Make the internal interface **a stream of IQ samples with a sample rate and a center
+frequency**. Everything downstream — demodulation, panadapter construction,
+sonification, braille — sits below that line and is written once.
+
+Above the line, every source feeds the same boundary:
+
+- Flex VITA-49, live
+- Flex VITA-49, replayed from a native capture
+- An imported `.iq` / SigMF / WAV-IQ file from any SDR
+- SpyServer / KiwiSDR / WebSDR (see 10.8)
+- A future Kenwood or other rig at whatever fidelity it offers
+
+**This is the same abstraction §9.3 demands for the agent-to-client protocol.** One
+boundary serves recording, playback, file import, and every radio added later. It is
+the single most important structural decision in the whole spectrum design, and it
+costs nothing to get right now.
+
+### 10.6 Demo mode — the software makes its own case
+
+Recorded IQ lets someone **without a Flex** experience accessible Flex operation.
+Download JJFlex free, load a sample capture, and actually tune: real DSP on real
+captured RF, real sonification, real braille, real keyboard navigation. Everything
+except transmit.
+
+This dissolves a chicken-and-egg problem. Today the case for JJFlex requires already
+owning the radio — so a blind ham weighing a $3,000+ purchase has no way to verify
+the accessibility promise at the moment it matters. Works at a club meeting, on a
+BHN net, or alone at a kitchen table.
+
+**Strongest argument yet for the Flex conversation:** a try-before-you-buy funnel for
+a market segment that currently cannot evaluate their product at all. Pairs with the
+Don data point — he is considering an 8600 partly because sharing becomes practical,
+which is the other half of the same pitch: Connect makes a *better* radio easier to
+justify, because a 4-slice radio is worth more when two slices can be lent out.
+
+### 10.7 `.iq` is a family, not a format
+
+Support reading all three; **write SigMF** for export so JJFlex recordings are
+portable into GNU Radio, inspectrum, and others rather than locked in.
+
+- **WAV-based IQ** — SDR# and HDSDR, with an `auxi` chunk carrying center frequency
+  and timestamp. Most common in the wild.
+- **SigMF** — data file plus JSON metadata sidecar. The actual standard.
+- **Raw headerless** — interleaved samples with rate, format, and center frequency
+  living in the filename or nowhere. Needs user input on import.
+
+Native captures stay raw VITA-49 (complete, self-timing, Flex metadata intact); the
+sample-stream boundary in 10.5 is what makes an Airspy capture from a forum post
+work identically.
+
+### 10.8 Open: SpyServer / network SDR sources
+
+Airspy publishes a network streaming protocol (SpyServer) with a public directory of
+servers, and it does server-side decimation — you request a narrow slice and only
+that crosses the wire, which is exactly the right shape for a low-bandwidth
+accessible receiver. **Unverified; needs a look at current protocol state and
+licensing.**
+
+If it works, it slots straight into 10.5 as another source above the boundary, and
+extends the existing accessible-receive strand alongside KiwiSDR and WebSDR
+(`memory/project_remote_services.md`).
+
+**Requirement noted for the Connect client:** as other radios are implemented at the
+data level, the Connect client must handle them without change. The 10.5 boundary is
+the mechanism — if a source can produce samples with a rate and a center frequency,
+the client already supports it.
+
+---
+
 *Named per convention: cookie (the currency of station-sharing), sked (a
 scheduled contact), keydown (what the whole thing gates).*
