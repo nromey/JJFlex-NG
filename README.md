@@ -20,8 +20,9 @@ JJ Flexible Radio Access is designed for ham radio operators who prefer or requi
 ## Requirements
 
 - Windows 10 or 11
-- .NET 8.0 Runtime
 - FlexRadio 6300, 6400/M, 6500, 6600/M, 6700/R, 8400/M, 8600/M, or Aurora AU-510/520
+
+No separate .NET runtime install is required — everything needed is included in the installer.
 
 ## Installation
 
@@ -33,7 +34,7 @@ Download the latest installer from the [Releases](https://github.com/nromey/JJFl
 ## Credits
 
 - **Jim Shaffer** - Original author and creator of JJFlexRadio
-- **Nick Romey, K5NER** - Current maintainer
+- **Noel Romey, K5NER** - Current maintainer
 - **ChatGPT & Claude** - AI assistants for planning and development
 
 ## Related

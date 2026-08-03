@@ -375,5 +375,157 @@ inbox, so silence is almost certainly a routing failure, not a decision.
 
 ---
 
+## 9. Amendments — 2026-08-02
+
+Two days of follow-on thinking. These change §3's architecture materially; where
+they conflict with anything above, these win.
+
+### 9.1 The host agent, and where enforcement actually lives
+
+A grant is worthless if it requires the owner's PC to be awake and JJFlex running.
+Nobody keeps a GUI app open all night so a guest can use a 2 AM slot. So Connect
+needs a **host agent**: a headless process that holds the radio connection and
+serves guests independently of any logged-in session.
+
+This corrects §3. Enforcement does not live "in JJFlex's layer" — that was
+imprecise. It lives in a **portable core library** that both the agent and every
+client consume. Concretely: `JJFlexible.Connect.Core`, targeting `net10.0` and
+**not** `net10.0-windows`.
+
+That TFM choice is load-bearing and has to be made before the first line of
+enforcement code. Grant evaluation, license-class limits, power ceilings, transmit
+eligibility, and the audit log written inside a WPF event handler cannot be
+enforced by a Raspberry Pi. The test for any rule: *could it be applied with no
+user logged in and no window open?*
+
+**Deployment shapes, same binary:**
+
+- **Windows service** — Session 0, survives logoff, starts before login. Run under
+  a **virtual service account** (`NT SERVICE\JJFlexibleConnect`), never LocalSystem;
+  a network-facing daemon holding a listening socket should not have full machine
+  authority. Note Session 0 has **no audio devices**, so owner-side monitoring audio
+  stays in the desktop app — the agent only forwards audio to guests over the wire.
+- **Raspberry Pi (systemd)** — the preferred deployment for standing and scheduled
+  grants. A desktop that patches and reboots overnight will silently kill a 2 AM
+  slot; a Pi is a separate failure domain. Boot from USB SSD rather than SD (this
+  runs 24/7), keep it on the same LAN as the radio, and plan agent self-update from
+  the start.
+- **macOS (launchd)** — same binary again.
+
+**Pi first-boot must be accessible.** An image that needs a monitor and keyboard to
+configure is useless to these users. Flash, plug in, and it announces itself on the
+network and pairs via a code JJFlex reads aloud. This is a requirement, not polish.
+
+### 9.2 The agent upgrades slice isolation from courtesy to real
+
+§4 states that slice visibility cannot be enforced radio-side, because `AddSlice`
+hands every client every slice. True **when the guest talks to the radio directly**.
+
+When the agent holds the radio connection and guests connect *to the agent*, the
+agent filters the status stream before relaying. Slice isolation becomes actual
+privacy. So does everything else: a guest running stock SmartSDR bypasses nothing,
+because they cannot reach the radio at all.
+
+This is the Tier 2 proxy enforcement §3 deferred, arriving as a natural consequence
+rather than a rewrite. It is cheap — the agent relays Opus frames without decoding,
+so it forwards a few KB/sec per slice rather than transcoding.
+
+**Consequence for §6's public listing:** friends-and-elmers works on client-side
+enforcement, because those are people you would hand a house key. A public directory
+changes the population to strangers, which is exactly where client-side enforcement
+stops being adequate. **The public directory is gated on the agent shipping.** Not a
+limitation to work around — a reason to build the agent before opening the doors.
+
+### 9.3 The agent is a client multiplier
+
+Without an agent, an iOS client would need Flex discovery, SmartLink auth, NAT
+traversal, VITA-49 parsing, and Opus decoding inside iOS's background-execution
+restrictions. That is a port fighting a hostile host OS.
+
+With the agent, a client connects to **one endpoint** and speaks **one protocol** —
+audio in, commands out. Small and tractable on every platform. The multi-platform
+vision stops being N full ports and becomes **one agent plus N thin accessible
+UIs**: native SwiftUI on Mac and iOS, where VoiceOver is genuinely excellent and a
+cross-platform framework would squander it.
+
+**Protocol rule, and it is not optional:** the agent-to-client protocol is
+radio-agnostic from the first line. It is *not* the Flex protocol tunneled. A
+Kenwood agent over CAT must serve the same clients. Make it Flex-shaped and Connect
+has rebuilt SmartLink's trap inside its own architecture.
+
+### 9.4 FlexLib is more portable than its project file claims
+
+Checked directly. `FlexLib.csproj` says `net10.0-windows` with `UseWpf`, which looks
+like a hard lock. It is not:
+
+- `Flex.UiWpfFramework.Mvvm` is imported by ~25 files, but that namespace is only
+  `ObservableObject`, `PropertySupport`, `RelayCommand`, and two observable
+  collections — `INotifyPropertyChanged` plumbing from `System.ComponentModel`, not
+  WPF. CommunityToolkit.Mvvm is a cross-platform drop-in.
+- `System.Windows.Media.Color` appears in exactly two files (`Memory.cs`, `Spot.cs`)
+  as a data type.
+- `BitmapImage` in `IUsbPassthroughCable.cs`; a `System.Windows.Navigation` import
+  in `Tuner.cs` that appears vestigial.
+- `OkBoxWithHelpLink.xaml` is the only real WPF in the framework, and FlexLib core
+  does not need it. `Util` has zero `System.Windows` references.
+
+A headless `net10.0` FlexLib is mechanical work, not a port. The lesson for our own
+code: shallow coupling still forces a Windows TFM on everything downstream — which
+is exactly why §9.1's TFM rule matters.
+
+### 9.5 Why the WireGuard workaround is worse than it looks
+
+Justin (Mac operator, FLEX-8400, tester) currently shares his radio by handing out
+WireGuard configs. It avoids sharing a password, and it is the strongest argument
+for Connect in the whole design.
+
+**WireGuard grants a route. Connect grants a capability.** A route is transitive —
+a peer on the network can reach everything on it: NAS, printer, other machines,
+router admin. Unless `AllowedIPs` and firewall rules are carefully constrained (and
+they usually are not), it is a general-purpose door into a house that happens to
+have a radio behind it. Unbounded in time, unscoped, unaudited, and a compromised
+peer device is inside the perimeter.
+
+He solved the credential problem and created a network-perimeter problem —
+arguably a larger blast radius, precisely because it *feels* safer since no secrets
+changed hands.
+
+Also note what it proves: he is generating configs and managing peers by hand
+because he **wants to share his radio**. Demonstrated demand at real effort.
+
+### 9.6 Repository and licensing
+
+**Connect lives in its own repository** — `C:\dev\jjflexible-connect`, scaffolded
+2026-08-02. Ownership clarity, not restriction.
+
+JJFlex-NG is MIT with a copyright line covering Jim Shaffer, Noel Romey, and
+contributors, and it cannot practically be relicensed — that needs permission from
+every holder, and Jim has passed. Connect is new work under a single copyright
+holder, which preserves every future option.
+
+It ships **MIT anyway**. The point is that giving it away becomes a choice rather
+than an inherited default. Owning the copyright is what lets you be generous on
+purpose.
+
+**On Flex taking it:** they already could, and would not need to license anything —
+MIT permits commercial use in a closed-source product with only the notice
+preserved. More fundamentally, copyright protects expression, not ideas: under any
+license, Flex could read this document and implement it independently. That is legal
+and routine. The license was never what stood between Flex and this idea.
+
+What is not copyable: the accessibility, the multi-radio abstraction (against their
+business), and the community relationships. **The broker is infrastructure, not the
+moat.** Invest accordingly.
+
+### 9.7 What the owner-control model actually buys
+
+SmartLink makes sharing a cliff — all or nothing, permanently. Connect makes it a
+dial: one hour a week by appointment, two slices out and two kept, transmit on or
+off per guest, revoked on a word.
+
+Granularity is not a feature here. It is what converts the answer from no to yes.
+
+---
+
 *Named per convention: cookie (the currency of station-sharing), sked (a
 scheduled contact), keydown (what the whole thing gates).*
