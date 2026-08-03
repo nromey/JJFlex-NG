@@ -421,12 +421,29 @@ namespace Radios
         public async System.Threading.Tasks.Task<Radios.SmartLink.NetworkDiagnosticReport?> RunNetworkDiagnosticAsync(bool forceRefresh = true)
         {
             var session = Radios.SmartLink.SmartLinkServices.Coordinator.ActiveSession;
-            if (session == null || theRadio == null)
+            if (session == null)
             {
-                Tracing.TraceLine("RunNetworkDiagnosticAsync: no session or no radio; skipping", TraceLevel.Warning);
+                Tracing.TraceLine("RunNetworkDiagnosticAsync: no SmartLink session; skipping", TraceLevel.Warning);
                 return null;
             }
-            return await session.RunNetworkDiagnosticAsync(theRadio.Serial, forceRefresh).ConfigureAwait(false);
+
+            // The probe only needs a serial and a SmartLink session — it asks Flex's
+            // backend to look at the network from outside, which has nothing to do
+            // with whether we currently hold a connection to the radio.
+            //
+            // Requiring a connected radio made the diagnostic useless in the one
+            // case it exists for: you cannot connect, and you want to know why. So
+            // fall back to the serial of whichever radio was selected, which is what
+            // the discovery cache holds even when the connect attempt failed.
+            string serial = theRadio?.Serial ?? SelectedRadioSerial;
+            if (string.IsNullOrEmpty(serial))
+            {
+                Tracing.TraceLine("RunNetworkDiagnosticAsync: no radio serial available; skipping", TraceLevel.Warning);
+                return null;
+            }
+
+            Tracing.TraceLine($"RunNetworkDiagnosticAsync: probing serial={serial} (connected={theRadio != null})", TraceLevel.Info);
+            return await session.RunNetworkDiagnosticAsync(serial, forceRefresh).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -675,6 +692,11 @@ namespace Radios
             theRadio.RXRemoteAudioStreamAdded += new Radio.RXRemoteAudioStreamAddedEventHandler(opusOutputStreamAddedHandler);
             theRadio.TXRemoteAudioStreamAdded += new Radio.TXRemoteAudioStreamAddedEventHandler(opusInputStreamAddedHandler);
             HookFeatureLicense(theRadio);
+
+            // Remembered so the network diagnostic still has something to probe
+            // after a failed or dropped connect — which is precisely when someone
+            // wants to run it.
+            SelectedRadioSerial = theRadio.Serial;
 
             ConnectionProfiler.Current?.RecordEvent("connect_handlers_wired");
 
@@ -1801,6 +1823,277 @@ namespace Radios
 
         #endregion
 
+        #region SmartLink registration
+
+        /// <summary>
+        /// Result of validating whether this radio can be registered to a SmartLink
+        /// account right now.
+        /// </summary>
+        public sealed class RegistrationCheck
+        {
+            public bool CanProceed { get; set; }
+            public string BlockReason { get; set; } = string.Empty;
+            public List<string> Warnings { get; } = new List<string>();
+            /// <summary>Account the radio would be registered to.</summary>
+            public string AccountEmail { get; set; } = string.Empty;
+        }
+
+        /// <summary>
+        /// The radio's SmartLink ownership handshake state, in plain language.
+        ///
+        /// "WaitingForPTT" is the one that matters: the radio is asking for proof
+        /// that a human is standing at it, and it will sit there until someone keys
+        /// the mic or the attempt times out. That requirement is Flex's, not ours,
+        /// and it is the reason a radio must be registered before it ships anywhere.
+        /// </summary>
+        public string RegistrationStateText
+        {
+            get
+            {
+                if (theRadio == null) return "No radio connected.";
+                try
+                {
+                    return theRadio.WanOwnerHandshakeStatus switch
+                    {
+                        Radio.WanRadioRegistrationState.Undefined =>
+                            "Not started. JJ Flex cannot tell from here whether this radio is already registered — if it shows up in your SmartLink radio list, it is.",
+                        Radio.WanRadioRegistrationState.WaitingOnSmartLinkConnection =>
+                            "The radio is contacting SmartLink.",
+                        Radio.WanRadioRegistrationState.WaitingForPTT =>
+                            "The radio is waiting for you to key the microphone or the CW key. Do that now, at the radio.",
+                        Radio.WanRadioRegistrationState.WaitingOnServerConfirmation =>
+                            "Keyed. Waiting for SmartLink to confirm.",
+                        Radio.WanRadioRegistrationState.RegisterSuccess =>
+                            "Registered. This radio is now tied to your SmartLink account and can be reached from away from home.",
+                        Radio.WanRadioRegistrationState.UnregisterSuccess =>
+                            "Unregistered. This radio is no longer tied to a SmartLink account.",
+                        Radio.WanRadioRegistrationState.FailedPTT =>
+                            "Failed — the radio did not see the microphone or key pressed in time. Try again and key it as soon as you are asked.",
+                        Radio.WanRadioRegistrationState.FailedServerConnection =>
+                            "Failed — the radio could not reach SmartLink. Check that the radio has a working internet connection.",
+                        Radio.WanRadioRegistrationState.FailedServerConfirmation =>
+                            "Failed — SmartLink did not confirm the registration.",
+                        Radio.WanRadioRegistrationState.FailedNotLicensed =>
+                            "Failed — this radio is not licensed for SmartLink.",
+                        Radio.WanRadioRegistrationState.FailedUnknown =>
+                            "Failed, with no reason given. See the trace file.",
+                        _ => "Unknown.",
+                    };
+                }
+                catch (Exception ex)
+                {
+                    Tracing.TraceLine($"RegistrationStateText: {ex.Message}", TraceLevel.Error);
+                    return "Unknown.";
+                }
+            }
+        }
+
+        /// <summary>True once the handshake has reported success this session.</summary>
+        public bool RegistrationSucceeded
+        {
+            get
+            {
+                try
+                {
+                    return theRadio != null
+                        && theRadio.WanOwnerHandshakeStatus == Radio.WanRadioRegistrationState.RegisterSuccess;
+                }
+                catch { return false; }
+            }
+        }
+
+        /// <summary>
+        /// Check whether registration can be attempted, without attempting it.
+        ///
+        /// Registration is sent on the radio's own command channel and the radio
+        /// then reaches out to SmartLink itself, so it needs a live local
+        /// connection plus a SmartLink account to register *to*. Doing it over
+        /// SmartLink would be circular — you cannot connect that way until the
+        /// radio is registered.
+        /// </summary>
+        public RegistrationCheck PreflightSmartLinkRegistration()
+        {
+            var check = new RegistrationCheck();
+
+            if (theRadio == null || !IsConnected)
+            {
+                check.BlockReason = "No radio is connected.";
+                return check;
+            }
+
+            if (theRadio.IsWan)
+            {
+                check.BlockReason =
+                    "You are connected over SmartLink, which means this radio is already registered. " +
+                    "Registration has to be done from the same local network as the radio.";
+                return check;
+            }
+
+            if (_currentAccount == null)
+            {
+                check.BlockReason =
+                    "No SmartLink account is signed in. Sign in to SmartLink first — the radio is registered to an account, " +
+                    "and JJ Flex needs to know which one.";
+                return check;
+            }
+
+            check.AccountEmail = _currentAccount.Email;
+
+            var others = OtherConnectedStations;
+            if (others.Count > 0)
+                check.Warnings.Add("Other stations are connected to this radio: " + string.Join(", ", others));
+
+            check.Warnings.Add(
+                "The radio will ask you to key the microphone or the CW key to prove someone is standing at it. " +
+                "That check is required by FlexRadio and cannot be skipped or done remotely — which is why a radio " +
+                "must be registered before it is shipped anywhere.");
+
+            check.CanProceed = true;
+            return check;
+        }
+
+        /// <summary>
+        /// Register this radio to the signed-in SmartLink account.
+        ///
+        /// Progress arrives through the radio's WanOwnerHandshakeStatus property, so
+        /// the caller supplies a callback that fires on every state change with the
+        /// text from <see cref="RegistrationStateText"/>. The subscription is dropped
+        /// once the handshake reaches any terminal state.
+        /// </summary>
+        /// <returns>False if the command could not be sent at all.</returns>
+        public bool BeginSmartLinkRegistration(Action<string, bool> onStateChange)
+            => SendRegistrationCommand(register: true, onStateChange);
+
+        /// <summary>
+        /// Remove this radio's SmartLink registration.
+        ///
+        /// Dangerous in a way that is not obvious: re-registering requires physically
+        /// keying the radio, so unregistering a radio you cannot reach strands it —
+        /// it can never be reached over SmartLink again without someone travelling to
+        /// it. Callers must warn about this in the strongest terms they have.
+        /// </summary>
+        public bool BeginSmartLinkUnregistration(Action<string, bool> onStateChange)
+            => SendRegistrationCommand(register: false, onStateChange);
+
+        private bool SendRegistrationCommand(bool register, Action<string, bool> onStateChange)
+        {
+            if (theRadio == null || !IsConnected || _currentAccount == null) return false;
+
+            try
+            {
+                var r = theRadio;
+
+                string jwt = GetJwtFromSavedAccount(_currentAccount);
+                if (string.IsNullOrEmpty(jwt))
+                {
+                    Tracing.TraceLine("SendRegistrationCommand: no JWT available", TraceLevel.Error);
+                    return false;
+                }
+
+                System.ComponentModel.PropertyChangedEventHandler handler = null;
+                handler = (s, e) =>
+                {
+                    if (e.PropertyName != "WanOwnerHandshakeStatus") return;
+
+                    var state = r.WanOwnerHandshakeStatus;
+                    bool terminal =
+                        state == Radio.WanRadioRegistrationState.RegisterSuccess
+                        || state == Radio.WanRadioRegistrationState.UnregisterSuccess
+                        || state == Radio.WanRadioRegistrationState.FailedPTT
+                        || state == Radio.WanRadioRegistrationState.FailedServerConnection
+                        || state == Radio.WanRadioRegistrationState.FailedServerConfirmation
+                        || state == Radio.WanRadioRegistrationState.FailedNotLicensed
+                        || state == Radio.WanRadioRegistrationState.FailedUnknown;
+
+                    Tracing.TraceLine($"SendRegistrationCommand: state={state} terminal={terminal}", TraceLevel.Info);
+                    onStateChange?.Invoke(RegistrationStateText, terminal);
+
+                    if (terminal) r.PropertyChanged -= handler;
+                };
+
+                r.PropertyChanged += handler;
+
+                if (register) r.WanRegisterRadio(jwt);
+                else r.WanUnregisterRadio(jwt);
+
+                Tracing.TraceLine($"SendRegistrationCommand: sent {(register ? "register" : "unregister")} for account {_currentAccount.Email}", TraceLevel.Info);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine($"SendRegistrationCommand: {ex.Message}", TraceLevel.Error);
+                return false;
+            }
+        }
+
+        #endregion
+
+        #region SmartLink reachability — what the radio and SmartLink actually report
+
+        /// <summary>
+        /// True when SmartLink has told us this radio needs a UDP hole-punch,
+        /// meaning neither a forwarded port nor UPnP gave it a way in.
+        ///
+        /// This is the flag that decides whether a hole-punch port gets chosen at
+        /// connect time — not the user's tier preference. See
+        /// <c>sendRemoteConnect</c> and the note there about
+        /// <c>NegotiatedHolePunchPort</c> being a value the client supplies.
+        /// </summary>
+        public bool RadioRequiresHolePunch
+        {
+            get { try { return theRadio != null && theRadio.RequiresHolePunch; } catch { return false; } }
+        }
+
+        /// <summary>True when the radio reports a forwarded port is in play.</summary>
+        public bool RadioPortForwardActive
+        {
+            get { try { return theRadio != null && theRadio.IsPortForwardOn; } catch { return false; } }
+        }
+
+        /// <summary>The public TCP port SmartLink says the radio is reachable on, or 0.</summary>
+        public int RadioPublicTlsPort
+        {
+            get { try { return theRadio?.PublicTlsPort ?? 0; } catch { return 0; } }
+        }
+
+        /// <summary>The public UDP port SmartLink says the radio is reachable on, or 0.</summary>
+        public int RadioPublicUdpPort
+        {
+            get { try { return theRadio?.PublicUdpPort ?? 0; } catch { return 0; } }
+        }
+
+        /// <summary>True when the current connection is going through SmartLink.</summary>
+        public bool IsWanConnection
+        {
+            get { try { return theRadio != null && theRadio.IsWan; } catch { return false; } }
+        }
+
+        /// <summary>
+        /// Serial of the radio most recently connected to, kept after the
+        /// connection ends. The network diagnostic needs a serial and a SmartLink
+        /// session but not a live radio, so this is what lets it run in the state
+        /// it exists for — when the connect failed.
+        /// </summary>
+        public string SelectedRadioSerial { get; private set; } = string.Empty;
+
+        /// <summary>
+        /// The hole-punch port chosen for the most recent remote connect, or 0 if
+        /// hole-punch was not used. Recorded so the Network tab can show what
+        /// actually happened rather than what was configured — the two differ
+        /// whenever the radio did not ask for a hole-punch.
+        /// </summary>
+        public int LastHolePunchPort { get; private set; }
+
+        /// <summary>
+        /// The account's saved hole-punch listen port, or null when JJ Flex picks a
+        /// fresh random port per connection (the default, and usually the right
+        /// answer — a reused port can collide with a stale NAT mapping and make
+        /// hole-punch fail intermittently).
+        /// </summary>
+        public int? ConfiguredHolePunchPort => _currentAccount?.ConfiguredListenPort;
+
+        #endregion
+
         #region Firmware update (Sprint 29 Phase D)
 
         /// <summary>
@@ -2744,6 +3037,7 @@ namespace Radios
                 // whole hole-punch path is dead.
                 r.NegotiatedHolePunchPort = holePunchPort;
             }
+
             else if (_currentAccount != null
                 && _currentAccount.ConnectionMode == SmartLinkConnectionMode.AutomaticHolePunch
                 && _currentAccount.ConfiguredListenPort.HasValue)
@@ -2756,6 +3050,11 @@ namespace Radios
                     $"sendRemoteConnect: Tier 3 mode, radio did not require hole punch — advertising {holePunchPort}",
                     TraceLevel.Info);
             }
+
+            // Record what actually happened so the UI can report the real port
+            // rather than the configured one — the two differ whenever the radio
+            // did not ask for a hole-punch.
+            LastHolePunchPort = holePunchPort;
 
             ConnectionProfiler.Current?.RecordEvent("hole_punch_port_selected", new Dictionary<string, object>
             {
