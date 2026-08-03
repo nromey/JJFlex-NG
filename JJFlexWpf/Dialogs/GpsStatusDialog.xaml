@@ -1,0 +1,91 @@
+<local:JJFlexDialog x:Class="JJFlexWpf.Dialogs.GpsStatusDialog"
+                    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:local="clr-namespace:JJFlexWpf"
+                    Title="GPS and Reference"
+                    Width="520" Height="560"
+                    WindowStartupLocation="CenterScreen"
+                    AutomationProperties.Name="GPS and reference oscillator status">
+    <DockPanel Margin="12">
+        <StackPanel DockPanel.Dock="Bottom" Style="{StaticResource ButtonPanel}">
+            <Button Content="_Speak status"
+                    AutomationProperties.Name="Speak the GPS summary"
+                    AutomationProperties.AcceleratorKey="Alt+S"
+                    Click="SpeakStatusButton_Click"/>
+            <Button Content="_Copy details"
+                    AutomationProperties.Name="Copy all GPS details to the clipboard"
+                    AutomationProperties.AcceleratorKey="Alt+C"
+                    Click="CopyDetailsButton_Click"/>
+            <Button Content="C_lose"
+                    IsCancel="True"
+                    AutomationProperties.Name="Close"
+                    Click="CloseButton_Click"/>
+        </StackPanel>
+
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <StackPanel>
+                <!-- Summary first. This is the answer to the question people
+                     actually open this dialog to ask, and it is spoken on open. -->
+                <TextBlock Text="Summary" FontWeight="SemiBold"
+                           Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
+                <TextBlock x:Name="SummaryText"
+                           Style="{StaticResource DialogLabel}"
+                           TextWrapping="Wrap"
+                           Margin="0,0,0,12"
+                           AutomationProperties.LiveSetting="Polite"
+                           AutomationProperties.Name="GPS summary"/>
+
+                <!-- Which hardware is in the box. Separate from the summary
+                     because it answers a different question: not "is it working"
+                     but "what do I have, and therefore what do I plug in". -->
+                <TextBlock Text="Installed Reference Hardware" FontWeight="SemiBold"
+                           Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
+                <TextBlock x:Name="HardwareText"
+                           Style="{StaticResource DialogLabel}"
+                           TextWrapping="Wrap"
+                           Margin="0,0,0,12"
+                           AutomationProperties.Name="Installed reference hardware"/>
+
+                <TextBlock Text="Reference Oscillator" FontWeight="SemiBold"
+                           Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
+                <TextBlock TextWrapping="Wrap" Margin="0,0,0,6"
+                           Text="Which 10 MHz reference the radio should discipline itself to. Automatic is the usual choice — the radio picks the best one it has and falls back on its own if the GPS loses lock."/>
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                    <TextBlock Text="Use:" VerticalAlignment="Center"
+                               Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
+                    <ComboBox x:Name="OscillatorCombo" Width="330"
+                              Style="{StaticResource DialogComboBox}"
+                              AutomationProperties.Name="Reference oscillator selection"
+                              SelectionChanged="OscillatorCombo_SelectionChanged"/>
+                </StackPanel>
+                <TextBlock x:Name="OscillatorStateText"
+                           Style="{StaticResource DialogLabel}"
+                           TextWrapping="Wrap"
+                           Margin="0,0,0,12"
+                           AutomationProperties.LiveSetting="Polite"
+                           AutomationProperties.Name="Reference oscillator state"/>
+
+                <!-- Detail fields as labelled lines rather than a grid or table:
+                     a screen reader reads these in order as ordinary prose, with
+                     no navigation mode to enter and leave. -->
+                <TextBlock Text="Details" FontWeight="SemiBold"
+                           Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
+                <TextBlock x:Name="DetailFixText" Style="{StaticResource DialogLabel}" TextWrapping="Wrap" Margin="0,0,0,4"/>
+                <TextBlock x:Name="DetailSatellitesText" Style="{StaticResource DialogLabel}" TextWrapping="Wrap" Margin="0,0,0,4"/>
+                <TextBlock x:Name="DetailGridText" Style="{StaticResource DialogLabel}" TextWrapping="Wrap" Margin="0,0,0,4"/>
+                <TextBlock x:Name="DetailPositionText" Style="{StaticResource DialogLabel}" TextWrapping="Wrap" Margin="0,0,0,4"/>
+                <TextBlock x:Name="DetailAltitudeText" Style="{StaticResource DialogLabel}" TextWrapping="Wrap" Margin="0,0,0,4"/>
+                <TextBlock x:Name="DetailUtcText" Style="{StaticResource DialogLabel}" TextWrapping="Wrap" Margin="0,0,0,4"/>
+                <TextBlock x:Name="DetailFreqErrorText" Style="{StaticResource DialogLabel}" TextWrapping="Wrap" Margin="0,0,0,12"/>
+
+                <!-- The radio is an NTP server when it has a fix, not an NTP
+                     client. Stated here because it is the single most
+                     misunderstood thing about this feature. -->
+                <TextBlock Text="Time" FontWeight="SemiBold"
+                           Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
+                <TextBlock TextWrapping="Wrap" Margin="0,0,0,12"
+                           Text="With a GPS fix the radio keeps very accurate time and offers it to your network as a time server. It does not get its time from anywhere else, and there is nothing to configure here — point a computer at the radio's address if you want to use it."/>
+            </StackPanel>
+        </ScrollViewer>
+    </DockPanel>
+</local:JJFlexDialog>

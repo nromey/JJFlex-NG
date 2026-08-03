@@ -1132,6 +1132,14 @@ public class NativeMenuBar : IDisposable
         AddNotImplemented(tools, "Hotkey Editor");
         AddNotImplemented(tools, "Band Plans");
         AddWired(tools, "Feature Availability", () => ShowFeatureAvailability());
+        // GPS / GNSS status and reference-oscillator selection. Lives next to
+        // Feature Availability because it answers the same shape of question:
+        // what hardware does this radio actually have, and is it working.
+        AddWired(tools, "GPS and Reference", () =>
+        {
+            if (Rig == null) { SpeakNoRadio(); return; }
+            new Dialogs.GpsStatusDialog(Rig).ShowDialog();
+        });
         AddWired(tools, "Profile Report", () =>
         {
             if (Rig == null) { SpeakNoRadio(); return; }
