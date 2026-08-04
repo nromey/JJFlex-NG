@@ -1,5 +1,5 @@
 ﻿;
-jjflexradio.exe
+jjflexible.exe
 setlocal
 set fn=C:\Users\jjs\appdata\roaming\JJFlexRadio\jjflexradioboottrace.txt
 set outfn=t.txt

@@ -45,8 +45,8 @@ def test_sha256_file_empty(tmp_path: Path):
 
 
 def test_is_excluded_pdb():
-    assert is_excluded("JJFlexRadio.pdb", DEFAULT_EXCLUDES)
-    assert is_excluded("subdir/JJFlexRadio.pdb", DEFAULT_EXCLUDES)
+    assert is_excluded("jjflexible.pdb", DEFAULT_EXCLUDES)
+    assert is_excluded("subdir/jjflexible.pdb", DEFAULT_EXCLUDES)
 
 
 def test_is_excluded_env():
@@ -60,15 +60,15 @@ def test_is_excluded_case_insensitive():
 
 
 def test_is_excluded_normal_files_kept():
-    assert not is_excluded("JJFlexRadio.exe", DEFAULT_EXCLUDES)
+    assert not is_excluded("jjflexible.exe", DEFAULT_EXCLUDES)
     assert not is_excluded("runtimes/win-x64/native/portaudio.dll", DEFAULT_EXCLUDES)
     assert not is_excluded("config.xml", DEFAULT_EXCLUDES)
 
 
 def test_walk_published_dir_basic(tmp_path: Path):
-    (tmp_path / "JJFlexRadio.exe").write_bytes(b"exe content")
+    (tmp_path / "jjflexible.exe").write_bytes(b"exe content")
     (tmp_path / "FlexLib.dll").write_bytes(b"dll content")
-    (tmp_path / "JJFlexRadio.pdb").write_bytes(b"pdb content")  # excluded
+    (tmp_path / "jjflexible.pdb").write_bytes(b"pdb content")  # excluded
     sub = tmp_path / "runtimes" / "win-x64" / "native"
     sub.mkdir(parents=True)
     (sub / "portaudio.dll").write_bytes(b"native content")
@@ -76,10 +76,10 @@ def test_walk_published_dir_basic(tmp_path: Path):
     walked = walk_published_dir(tmp_path)
     rel_paths = [w.rel_path for w in walked]
 
-    assert "JJFlexRadio.exe" in rel_paths
+    assert "jjflexible.exe" in rel_paths
     assert "FlexLib.dll" in rel_paths
     assert "runtimes/win-x64/native/portaudio.dll" in rel_paths
-    assert "JJFlexRadio.pdb" not in rel_paths
+    assert "jjflexible.pdb" not in rel_paths
     assert rel_paths == sorted(rel_paths)
 
 

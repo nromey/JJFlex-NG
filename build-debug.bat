@@ -15,9 +15,11 @@ REM   Y = git rev-list --count HEAD + BUILDNUM_OFFSET (see below).
 REM
 REM LAYOUT
 REM   NAS  \\nas.macaw-jazz.ts.net\jjflex\historical\<ver>\x64-debug\
-REM        Every build drops here: JJFlexRadio.exe + .pdb (overwritten per
+REM        Every build drops here: jjflexible.exe + .pdb (overwritten per
 REM        version) plus the distributed zip + NOTES (timestamped, never
 REM        overwritten). Bisect uses the zips; symbolication uses exe+pdb.
+REM        Builds archived before the 4.2.x rename carry JJFlexRadio.exe/.pdb
+REM        under their own version folders — that history stays as it was.
 REM   Dropbox C:\Users\nrome\Dropbox\JJFlexRadio\debug\JJFlex_<ver>_x64_debug.zip
 REM           only written on --publish; purges prior debug files first so the
 REM           folder holds exactly one current zip + NOTES for testers.
@@ -141,6 +143,32 @@ echo.
 REM ---------------------------------------------------------------------------
 REM Build
 REM ---------------------------------------------------------------------------
+set "BIN_DIR=bin\x64\Debug\net10.0-windows\win-x64"
+
+REM A running instance holds Radios.dll (and its own exe) open, which makes the
+REM purge below fail silently and then the build fail with a confusing file-lock
+REM error. Say so up front instead. Both names are checked: pre-rename builds
+REM run as JJFlexRadio.exe, current ones as jjflexible.exe.
+for /f "usebackq delims=" %%r in (`powershell -NoProfile -Command "@(Get-Process -Name 'jjflexible','JJFlexRadio' -ErrorAction SilentlyContinue).Count"`) do set "RUNNING=%%r"
+if not "%RUNNING%"=="0" (
+    echo.
+    echo ERROR: JJ Flexible is running ^(%RUNNING% process^(es^)^). Close it and re-run —
+    echo   a running instance locks Radios.dll and the exe.
+    echo.
+    exit /b 6
+)
+
+REM Purge the output folder first, the way build-installers.bat does for
+REM Release. Incremental Debug builds never remove files that stopped being
+REM produced, so the tree accumulated 13 satellite-language folders (cs\, de\,
+REM es\, ...) left over from before <SatelliteResourceLanguages>en</> was set —
+REM and every nightly zip shipped them. It also guarantees a stale
+REM JJFlexRadio.exe from a pre-rename build can't ride along in the zip.
+if exist "bin\x64\Debug" (
+    echo [x64 Debug] Cleaning previous build output...
+    rmdir /s /q "bin\x64\Debug"
+)
+
 echo [x64 Debug] Building as %APPVER%...
 dotnet build JJFlexRadio.sln -c Debug -p:Platform=x64 --verbosity minimal -p:Version=%APPVER%
 if errorlevel 1 (
@@ -149,14 +177,13 @@ if errorlevel 1 (
 )
 echo.
 
-set "BIN_DIR=bin\x64\Debug\net10.0-windows\win-x64"
-if not exist "%BIN_DIR%\JJFlexRadio.exe" (
-    echo ERROR: Expected exe not found at %BIN_DIR%\JJFlexRadio.exe
+if not exist "%BIN_DIR%\jjflexible.exe" (
+    echo ERROR: Expected exe not found at %BIN_DIR%\jjflexible.exe
     exit /b 3
 )
 
 REM Verify FileVersion stamped correctly
-for /f "usebackq delims=" %%f in (`powershell -NoProfile -Command "(Get-Item '%BIN_DIR%\JJFlexRadio.exe').VersionInfo.FileVersion"`) do set "EXEVER=%%f"
+for /f "usebackq delims=" %%f in (`powershell -NoProfile -Command "(Get-Item '%BIN_DIR%\jjflexible.exe').VersionInfo.FileVersion"`) do set "EXEVER=%%f"
 if /I not "%EXEVER%"=="%APPVER%" (
     echo ERROR: exe FileVersion is %EXEVER% but we expected %APPVER%
     echo   Clean build might be needed; try: dotnet clean
@@ -203,7 +230,7 @@ set "NOTES_PATH=%TEMP%\%NOTES_NAME%"
 echo Creating zip: %ZIP_PATH%
 powershell -NoProfile -Command "Compress-Archive -Path '%CD%\%BIN_DIR%\*' -DestinationPath '%ZIP_PATH%' -Force"
 if errorlevel 1 (
-    echo ERROR: zip failed ^(is JJFlexRadio.exe locked by a running instance?^)
+    echo ERROR: zip failed ^(is jjflexible.exe locked by a running instance?^)
     exit /b 5
 )
 
@@ -223,7 +250,7 @@ if exist "%~dp0debug-notes.txt" (
 
 REM ---------------------------------------------------------------------------
 REM NAS archive (always) — everything lands in historical\<ver>\x64-debug\
-REM   JJFlexRadio.exe + .pdb  — overwritten per version (symbolication target)
+REM   jjflexible.exe + .pdb  — overwritten per version (symbolication target)
 REM   JJFlex_<ver>_x64_debug_<stamp>.zip  — timestamped, never overwritten
 REM   NOTES-<ver>-debug_<stamp>.txt       — matches the zip
 REM ---------------------------------------------------------------------------
@@ -237,11 +264,11 @@ if errorlevel 10 (
     powershell -NoProfile -Command "New-Item -Path '%NAS_HIST_DIR%' -ItemType Directory -Force | Out-Null"
     powershell -NoProfile -Command "Copy-Item -LiteralPath '%ZIP_PATH%' -Destination '%NAS_HIST_DIR%\JJFlex_%APPVER%_x64_debug_%STAMP%.zip' -Force"
     powershell -NoProfile -Command "Copy-Item -LiteralPath '%NOTES_PATH%' -Destination '%NAS_HIST_DIR%\NOTES-%APPVER%-debug_%STAMP%.txt' -Force"
-    powershell -NoProfile -Command "Copy-Item -LiteralPath '%CD%\%BIN_DIR%\JJFlexRadio.exe' -Destination '%NAS_HIST_DIR%\JJFlexRadio.exe' -Force"
-    powershell -NoProfile -Command "Copy-Item -LiteralPath '%CD%\%BIN_DIR%\JJFlexRadio.pdb' -Destination '%NAS_HIST_DIR%\JJFlexRadio.pdb' -Force"
+    powershell -NoProfile -Command "Copy-Item -LiteralPath '%CD%\%BIN_DIR%\jjflexible.exe' -Destination '%NAS_HIST_DIR%\jjflexible.exe' -Force"
+    powershell -NoProfile -Command "Copy-Item -LiteralPath '%CD%\%BIN_DIR%\jjflexible.pdb' -Destination '%NAS_HIST_DIR%\jjflexible.pdb' -Force"
     echo   JJFlex_%APPVER%_x64_debug_%STAMP%.zip
     echo   NOTES-%APPVER%-debug_%STAMP%.txt
-    echo   JJFlexRadio.exe + .pdb ^(refreshed^)
+    echo   jjflexible.exe + .pdb ^(refreshed^)
 )
 
 REM ---------------------------------------------------------------------------

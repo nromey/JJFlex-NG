@@ -125,7 +125,11 @@ if "%BUILD_X64%"=="1" (
     )
 
     echo [x64] Creating installer...
-    call "%~dp0install.bat" "%~dp0" Release JJFlexRadio x64
+    REM 3rd arg is the TargetName (executable base name), matching what the
+    REM .vbproj post-build event passes as $(TargetName). The package identity
+    REM ("JJFlexRadio" — install dir, registry, shortcuts) is a constant inside
+    REM install.bat and does NOT follow the exe rename.
+    call "%~dp0install.bat" "%~dp0" Release jjflexible x64
     if errorlevel 1 (
         echo ERROR: x64 installer failed
         exit /b 1
@@ -145,7 +149,7 @@ if "%BUILD_X86%"=="1" (
     )
 
     echo [x86] Creating installer...
-    call "%~dp0install.bat" "%~dp0" Release JJFlexRadio x86
+    call "%~dp0install.bat" "%~dp0" Release jjflexible x86
     if errorlevel 1 (
         echo ERROR: x86 installer failed
         exit /b 1

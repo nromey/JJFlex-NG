@@ -61,7 +61,7 @@ def test_file_manifest_key_format():
 
 
 def test_build_file_manifest_schema(tmp_path: Path):
-    (tmp_path / "JJFlexRadio.exe").write_bytes(b"exe")
+    (tmp_path / "jjflexible.exe").write_bytes(b"exe")
     (tmp_path / "FlexLib.dll").write_bytes(b"dll")
     walked = walk_published_dir(tmp_path)
     compressed = [compress_file(w) for w in walked]
