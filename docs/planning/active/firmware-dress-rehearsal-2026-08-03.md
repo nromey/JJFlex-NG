@@ -10,7 +10,10 @@ the reboot, confirm the new version. Tonight's run also genuinely updates the
 Build under test: Debug x64 from branch `track/flexlib-4220` (FlexLib 4.2.20
 underneath, registration detection included). Launch:
 
-`bin\x64\Debug\net10.0-windows\win-x64\JJFlexRadio.exe`
+`bin\x64\Debug\net10.0-windows\win-x64\jjflexible.exe`
+
+(Builds from before the 2026-08-04 rename on `track/rename-jjflexible` still drop
+`JJFlexRadio.exe` at that path — use whichever the tree actually produced.)
 
 ## Step 1 — Connect
 

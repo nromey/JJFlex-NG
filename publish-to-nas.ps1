@@ -63,18 +63,21 @@ foreach ($arch in $Archs) {
     Write-Host "  installer : $installerName -> $Version\installers\"
 
     $binDir = Join-Path $ProjectRoot "bin\$arch\Release\net10.0-windows\win-$arch"
-    $exe = Join-Path $binDir 'JJFlexRadio.exe'
-    $pdb = Join-Path $binDir 'JJFlexRadio.pdb'
+    # The shipped executable is jjflexible.exe from 4.2.x on. Versions archived
+    # before the rename keep JJFlexRadio.exe/.pdb under their own version
+    # folders — this script only ever writes the current build.
+    $exe = Join-Path $binDir 'jjflexible.exe'
+    $pdb = Join-Path $binDir 'jjflexible.pdb'
 
     if (Test-Path $exe) {
         Copy-Item -Path $exe -Destination $histDir -Force
-        Write-Host "  historical: JJFlexRadio.exe -> $Version\$arch\"
+        Write-Host "  historical: jjflexible.exe -> $Version\$arch\"
     } else {
         Write-Warning "  [$arch] exe not found at $exe"
     }
     if (Test-Path $pdb) {
         Copy-Item -Path $pdb -Destination $histDir -Force
-        Write-Host "  historical: JJFlexRadio.pdb -> $Version\$arch\"
+        Write-Host "  historical: jjflexible.pdb -> $Version\$arch\"
     } else {
         Write-Warning "  [$arch] pdb not found (crashes for this build will not symbolicate)"
     }

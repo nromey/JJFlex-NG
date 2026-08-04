@@ -235,13 +235,14 @@ public sealed class UpdaterService
 
     private static string DefaultRelaunchPath()
     {
-        var entry = Assembly.GetEntryAssembly();
-        if (entry is not null)
-        {
-            string? loc = entry.Location;
-            if (!string.IsNullOrEmpty(loc) && File.Exists(loc)) return loc;
-        }
-        return Path.Combine(AppContext.BaseDirectory, "JJFlexRadio.exe");
+        // Environment.ProcessPath is the apphost — jjflexible.exe. Assembly
+        // .Location points at the managed jjflexible.dll instead, which the
+        // helper's ShellExecute relaunch cannot start, so ProcessPath comes
+        // first and the assembly path is not used at all.
+        string? processPath = Environment.ProcessPath;
+        if (!string.IsNullOrEmpty(processPath) && File.Exists(processPath)) return processPath;
+
+        return Path.Combine(AppContext.BaseDirectory, "jjflexible.exe");
     }
 
     private static string ResolveCurrentVersion()

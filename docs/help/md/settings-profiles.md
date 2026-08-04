@@ -39,6 +39,6 @@ The **License** tab controls country-specific transmit rules:
 
 ## Configuration Files
 
-JJ Flexible Radio Access stores its configuration in your user profile folder at `%AppData%\JJFlexRadio\`. (The folder name uses the internal binary name, not the product name.) If you ever need to start from scratch, you can rename or delete that folder while the application is closed, and JJ Flexible Radio Access will create fresh default settings the next time it launches.
+JJ Flexible Radio Access stores its configuration in your user profile folder at `%AppData%\JJFlexRadio\`. (That folder keeps the older `JJFlexRadio` name even though the program file is now `jjflexible.exe` — your settings stay put when you update.) If you ever need to start from scratch, you can rename or delete that folder while the application is closed, and JJ Flexible Radio Access will create fresh default settings the next time it launches.
 
 **Warning:** Back up your configuration folder before making any destructive changes to it. Deleting the folder means losing your saved settings, your CW messages, and your profiles.

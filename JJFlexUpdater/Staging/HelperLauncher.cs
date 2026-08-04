@@ -14,7 +14,7 @@ namespace JJFlexUpdater.Staging;
 ///   2. fallback path supplied via <see cref="LaunchOptions.HelperOverridePath"/>
 ///      so a tester or a development build can point at a worktree exe
 ///
-/// Track M ships the helper into the same install dir as JJFlexRadio.exe,
+/// Track M ships the helper into the same install dir as jjflexible.exe,
 /// so the production lookup is just sibling-path resolution.
 /// </summary>
 public static class HelperLauncher
