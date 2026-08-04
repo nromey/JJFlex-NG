@@ -51,8 +51,15 @@ namespace Flex.Smoothlake.FlexLib
                 if (_slice != value)
                 {
                     _slice = value;
-                    _gainNeverSet = true; // force RXGain to be set again, if called
-                    RaisePropertyChanged("Slice");                    
+                    _gainNeverSet = true;
+
+                    // Re-apply gain now that the slice reference changed.
+                    // When RXGain was previously set while _slice was null,
+                    // the command was suppressed. Sending it now ensures the
+                    // radio receives the correct gain for this stream.
+                    RXGain = _rxGain;
+
+                    RaisePropertyChanged("Slice");
                 }
             }
         }
@@ -78,7 +85,7 @@ namespace Flex.Smoothlake.FlexLib
                     _rxGain = new_gain;
                     if (_slice != null)
                     {
-                        _radio.SendCommand("audio stream 0x" + _streamId.ToString("X") + " slice " + _slice.Index + " gain " + value);
+                        _radio.SendCommand("audio stream 0x" + _streamId.ToString("X") + " slice " + _slice.Index + " gain " + new_gain);
                         _gainNeverSet = false;
                     }
                     RaisePropertyChanged("RXGain");
@@ -107,6 +114,7 @@ namespace Flex.Smoothlake.FlexLib
         {
             Debug.WriteLine("DAXRXAudioStream::Close (0x" + _streamId.ToString("X") + ")");
             _closing = true;
+            StopStats();
             _radio.SendCommand("stream remove 0x" + _streamId.ToString("X"));
             _radio.RemoveAudioStream(_streamId);
         }
@@ -114,6 +122,7 @@ namespace Flex.Smoothlake.FlexLib
         public void StatusUpdate(string s)
         {
             bool set_radio_ack = false;
+            string pendingSliceLetter = null; // defer slice resolution until after loop
             string[] words = s.Split(' ');
 
             foreach (string kv in words)
@@ -168,26 +177,9 @@ namespace Flex.Smoothlake.FlexLib
 
                     case "slice":
                         {
-                            Slice old_slice = _slice;
-                            GUIClient gui_client = _radio.FindGUIClientByClientID(_radio.BoundClientID);
-
-                            // do we have a good reference to the GUI Client?
-                            if (gui_client == null)
-                            {
-                                // no -- clear the Slice reference and carry on
-                                _slice = null;
-                                if (_slice != old_slice)
-                                    RaisePropertyChanged("Slice");
-                                continue;
-                            }
-                            
-                            // Must call the public Slice setter here since the setter has logic
-                            // that syncs the RXGain of the channel, in the case that a client
-                            // has added been started after DAX or a new Slice has been added.
-                            Slice = _radio.FindSliceByLetter(value, gui_client.ClientHandle);
-
-                            if(_slice != old_slice)
-                                RaisePropertyChanged("Slice");
+                            // Defer slice resolution until after the loop so that
+                            // _clientHandle is guaranteed to be set from client_handle key
+                            pendingSliceLetter = value;
                         }
                         break;
 
@@ -197,12 +189,45 @@ namespace Flex.Smoothlake.FlexLib
                 }
             }
 
+            if (_closing)
+                return;
+
+            // Resolve slice after all keys are parsed so _clientHandle is available
+            if (pendingSliceLetter is not null)
+            {
+                Slice old_slice = _slice;
+
+                // Try BoundClientID first, fall back to our own _clientHandle
+                GUIClient gui_client = _radio.FindGUIClientByClientID(_radio.BoundClientID);
+                uint clientHandle = gui_client?.ClientHandle ?? _clientHandle;
+
+                if (clientHandle != 0)
+                {
+                    // Must call the public Slice setter here since the setter has logic
+                    // that syncs the RXGain of the channel, in the case that a client
+                    // has added been started after DAX or a new Slice has been added.
+                    Slice = _radio.FindSliceByLetter(pendingSliceLetter, clientHandle);
+                }
+                else
+                {
+                    _slice = null;
+                }
+
+                if (_slice != old_slice)
+                    RaisePropertyChanged(nameof(Slice));
+            }
+
             if (set_radio_ack)
             {
                 RadioAck = true;
                 _radio.OnAudioStreamAdded(this);
 
-                _statsTimer.Enabled = true;
+                // OnAudioStreamAdded may cause the stream to be closed
+                // synchronously (e.g. when DAX's audio pipeline is not
+                // running), which disposes and nulls _statsTimer via
+                // Close() → StopStats().
+                if (_statsTimer is not null)
+                    _statsTimer.Enabled = true;
             }
         }
     }

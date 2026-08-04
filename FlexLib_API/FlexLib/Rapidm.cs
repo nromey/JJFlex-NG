@@ -25,6 +25,21 @@ namespace Flex.Smoothlake.FlexLib
 {
     public record RapidMMessage(string text, bool? usingAle = null, bool? isOneTime = null, bool? isBinary = null, string? station = null);
 
+    /// <summary>
+    ///  Rap1 thru-radio command interface for sending hex data messages to a modem
+    /// </summary>
+    /// <param name="Timestamp"> The time at which this message was sent/received to/from the client</param>
+    /// <param name="MessageFrom"> Either SENT or RECEIVED </param>
+    /// <param name="Message"> Actual rap1 command/message string </param>
+    /// <param name="Modem"> Which modem being talked to: either primary or secondary </param>
+    public record Rap1Message(DateTime Timestamp, string MessageFrom, string Message, string? Modem)
+    {
+        public string Rap1MessageToString()
+        {
+            return $"[{Timestamp.ToString("HH:mm:ss.fff")}] {MessageFrom}: {Message}\n";
+        }
+    }
+
     public record RapidMOptionStatus(int index, string name, bool activated);
     public record RapidMPerModemConfig(string version, string serial, string mac, string ip, string subnet, string gw, List<RapidMOptionStatus> options);
 
@@ -667,7 +682,7 @@ namespace Flex.Smoothlake.FlexLib
         public void SendMessage(RapidMMessage msg)
         {
             // Default to base waveform message using PSK or MS110, if ALE parameters are not set.
-            if (!msg.usingAle ?? false)
+            if (!msg.usingAle ?? true)
             {
                 _radio.SendCommand($"rapidm tx_message \"{msg.text.Replace(' ', '\u007f')}\"");
                 return;
@@ -813,6 +828,48 @@ namespace Flex.Smoothlake.FlexLib
             }
         }
 
+        public void Rap1SendData(string modem, string data)
+        {
+            if (modem is null)
+                _radio.SendCommand($"rapidm rap1 data={data}");
+            else
+                _radio.SendCommand($"rapid rap1 data={data} modem={modem}");
+        }
+
+        public void RapidmStartLogging(uint id, uint level)
+        {
+            if (id == 0)
+                _radio.SendCommand($"rapidm log level=0x{level:X}");
+
+            else
+                _radio.SendCommand($"rapidm log id={id} level=0x{level:X}");
+        }
+
+        public void RapidmStopLogging(uint id)
+        {
+            if (id == 0)
+                _radio.SendCommand("rapidm log level=0x0000");
+
+            else
+                _radio.SendCommand($"rapidm log id={id} level=0x0000");
+        }
+
+        /// <summary>
+        /// Delegate event handler for rapidm log parsed from status update
+        /// </summary>
+        /// <param name="log"></param>
+        public delegate void LogParsedEventHandler(string log);
+        /// <summary>
+        /// Raised when the client receives a status update from the radio.
+        /// </summary>
+        public event LogParsedEventHandler ModemLogReceived;
+
+        public void OnRapidMLogReceived(string log)
+        {
+            if (ModemLogReceived is not null)
+                ModemLogReceived(log);
+        }
+
         internal void ParseStatus(string s)
         {
             string[] words = s.Split(' ');
@@ -832,6 +889,13 @@ namespace Flex.Smoothlake.FlexLib
                 string message = encoded_message.Replace('\u007f', ' '); // decode the spaces
                 OnMessageReceived(message); // fire the event
                 return;
+            }
+
+            if (words[0] == "log")
+            {
+                // Get log string from primary modem
+                string rapidm_log = s.Substring("log ".Length);
+                OnRapidMLogReceived(rapidm_log);
             }
 
             foreach (string kv in words)

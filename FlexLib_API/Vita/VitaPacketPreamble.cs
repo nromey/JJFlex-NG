@@ -12,12 +12,8 @@
 // ****************************************************************************
 
 using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
+using System.Buffers.Binary;
 using System.Net;
-
-using Flex.Util;
 
 namespace Flex.Smoothlake.Vita
 {
@@ -46,7 +42,7 @@ namespace Flex.Smoothlake.Vita
         public VitaPacketPreamble(byte[] data)
         {
             int index = 0;
-            uint temp = ByteOrder.SwapBytes(BitConverter.ToUInt32(data, index));
+            uint temp = BinaryPrimitives.ReadUInt32BigEndian(data.AsSpan(index));
             index += 4;
 
             header = new Header
@@ -64,7 +60,7 @@ namespace Flex.Smoothlake.Vita
             if (header.pkt_type == VitaPacketType.IFDataWithStream ||
                 header.pkt_type == VitaPacketType.ExtDataWithStream)
             {
-                stream_id = ByteOrder.SwapBytes(BitConverter.ToUInt32(data, index));
+                stream_id = BinaryPrimitives.ReadUInt32BigEndian(data.AsSpan(index));
                 index += 4;
             }
             else
@@ -74,11 +70,11 @@ namespace Flex.Smoothlake.Vita
 
             if (header.c)
             {
-                temp = ByteOrder.SwapBytes(BitConverter.ToUInt32(data, index));
+                temp = BinaryPrimitives.ReadUInt32BigEndian(data.AsSpan(index));
                 index += 4;
                 class_id.OUI = temp & 0x00FFFFFF;
 
-                temp = ByteOrder.SwapBytes(BitConverter.ToUInt32(data, index));
+                temp = BinaryPrimitives.ReadUInt32BigEndian(data.AsSpan(index));
                 index += 4;
                 class_id.InformationClassCode = (ushort)(temp >> 16);
                 class_id.PacketClassCode = (ushort)temp;
@@ -90,7 +86,7 @@ namespace Flex.Smoothlake.Vita
 
             if (header.tsi != VitaTimeStampIntegerType.None)
             {
-                timestamp_int = ByteOrder.SwapBytes(BitConverter.ToUInt32(data, index));
+                timestamp_int = BinaryPrimitives.ReadUInt32BigEndian(data.AsSpan(index));
                 index += 4;
             }
             else
@@ -100,7 +96,7 @@ namespace Flex.Smoothlake.Vita
 
             if (header.tsf != VitaTimeStampFractionalType.None)
             {
-                timestamp_frac = ByteOrder.SwapBytes(BitConverter.ToUInt64(data, index));
+                timestamp_frac = BinaryPrimitives.ReadUInt64BigEndian(data.AsSpan(index));
                 index += 8;
             }
             else
@@ -134,30 +130,30 @@ namespace Flex.Smoothlake.Vita
 
             index += 4;
 
-            Array.Copy(BitConverter.GetBytes(ByteOrder.SwapBytes(stream_id)), 0, temp, index, 4);
+            BinaryPrimitives.WriteUInt32BigEndian(temp.AsSpan(index), stream_id);
             index += 4;
 
             if (header.c)
             {
-                Array.Copy(BitConverter.GetBytes(ByteOrder.SwapBytes(class_id.OUI)), 0, temp, index, 4);
+                BinaryPrimitives.WriteUInt32BigEndian(temp.AsSpan(index), class_id.OUI);
                 index += 4;
 
-                Array.Copy(BitConverter.GetBytes(ByteOrder.SwapBytes(class_id.InformationClassCode)), 0, temp, index, 2);
+                BinaryPrimitives.WriteUInt16BigEndian(temp.AsSpan(index), class_id.InformationClassCode);
                 index += 2;
 
-                Array.Copy(BitConverter.GetBytes(ByteOrder.SwapBytes(class_id.PacketClassCode)), 0, temp, index, 2);
+                BinaryPrimitives.WriteUInt16BigEndian(temp.AsSpan(index), class_id.PacketClassCode);
                 index += 2;
             }
 
             if (header.tsi != VitaTimeStampIntegerType.None)
             {
-                Array.Copy(BitConverter.GetBytes(ByteOrder.SwapBytes(timestamp_int)), 0, temp, index, 4);
+                BinaryPrimitives.WriteUInt32BigEndian(temp.AsSpan(index), timestamp_int);
                 index += 4;
             }
 
             if (header.tsf != VitaTimeStampFractionalType.None)
             {
-                Array.Copy(BitConverter.GetBytes(ByteOrder.SwapBytes(timestamp_frac)), 0, temp, index, 8);
+                BinaryPrimitives.WriteUInt64BigEndian(temp.AsSpan(index), timestamp_frac);
                 index += 8;
             }
 

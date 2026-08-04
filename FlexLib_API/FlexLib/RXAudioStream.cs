@@ -14,6 +14,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Numerics;
 using System.Threading;
 using System.Timers;
 using Flex.Smoothlake.Vita;
@@ -133,7 +134,7 @@ namespace Flex.Smoothlake.FlexLib
 
             Interlocked.Add(ref _byteSum, packet.Length);
 
-            int packet_count = packet.header.packet_count;
+            int packet_count = packet.Header.packet_count;
             OnRXDataReady(this, packet.payload);
 
             // normal case -- this is the next packet we are looking for, or it is the first one
@@ -161,18 +162,28 @@ namespace Flex.Smoothlake.FlexLib
 #endif
             //Debug.WriteLine("OpusTimestamp: " + packet.timestamp_int + "." + packet.timestamp_frac);
 
-            double timestamp_key = packet.timestamp_int + (packet.timestamp_frac / Math.Pow(2, 16));
+            double timestamp_key = packet.TimestampInt + (packet.TimestampFrac / Math.Pow(2, 16));
 
             //Debug.WriteLine("OpusTimestampKey: " + timestamp_key);
             
             Interlocked.Add(ref _byteSum, packet.Length);
 
-            int packet_count = packet.header.packet_count;
+            int packet_count = packet.Header.packet_count;
 
-            // Only queue if the packet is more recent than the last one the 
-            // Audio callback consumed
-
-            if (LastOpusTimestampConsumed < timestamp_key)
+            // Drop a packet only if it falls into the "recently old" middle
+            // band — older than what we've consumed by less than the stale
+            // threshold (stale duplicates, brief reordering — no audio value
+            // and would only re-disturb the queue). Genuinely newer packets
+            // pass as before; packets that are dramatically older also pass
+            // because that signals the radio's timestamp stream stepped
+            // backward (clock adjustment, DSP restart, stream teardown that
+            // left LastOpusTimestampConsumed cached at a high value), and we
+            // need to start consuming again instead of locking out forever.
+            // SMART-12738.
+            const double STALE_PACKET_THRESHOLD_SECONDS = 60.0;
+            double timestamp_delta = timestamp_key - LastOpusTimestampConsumed;
+            if (timestamp_delta > 0 || // this is a newer packet timestamp
+                timestamp_delta < -STALE_PACKET_THRESHOLD_SECONDS) // this is a MUCH older timestamp
             {
                 lock (OpusRXListLockObj)
                 {
@@ -182,7 +193,17 @@ namespace Flex.Smoothlake.FlexLib
                         _opusRXList.Clear(); /* Overflow event */
                     }
 
-                    _opusRXList.Add(timestamp_key, packet);
+                    // Don't attempt to add the packet if there is a matching timestamp as this
+                    // will just cause collection issues (since the SortedList doesn't handle duplicate keys)
+                    if (!_opusRXList.ContainsKey(timestamp_key))
+                    {
+                        _opusRXList.Add(timestamp_key, packet);
+                    }
+                    else
+                    {
+                        Debug.WriteLine("Opus Audio: Duplicate timestamp ignored: " + timestamp_key);
+                        ErrorCount++;
+                    }
                 }
             }
             // else { TODO (SMART-11689) Clean up old data. }
@@ -206,23 +227,36 @@ namespace Flex.Smoothlake.FlexLib
         protected bool _shouldApplyRxGainScalar = false;
         protected float _rxGainScalar = 1.0f;
 
-        public delegate void DataReadyEventHandler(RXAudioStream rxAudioStream, float[] rx_data);
+        public delegate void DataReadyEventHandler(RXAudioStream rxAudioStream, float[] rxData);
         public event DataReadyEventHandler DataReady;
-        private void OnRXDataReady(RXAudioStream rxAudioStream, float[] rx_data)
+        private void OnRXDataReady(RXAudioStream rxAudioStream, float[] rxData)
         {
-            if (DataReady != null)
+            if (DataReady == null) 
+                return;
+            
+            if (_shouldApplyRxGainScalar)
             {
-                if (_shouldApplyRxGainScalar)
+                // MICAudioStream can apply an RX Gain on the client side
+                // Use SIMD for bulk multiplication when available
+                var i = 0;
+                var vecSize = Vector<float>.Count;
+                if (Vector.IsHardwareAccelerated && rxData.Length >= vecSize)
                 {
-                    // MICAudioStream can apply an RX Gain on the client side
-                    for (int i = 0; i < rx_data.Length; i++)
+                    var gainVec = new Vector<float>(_rxGainScalar);
+                    var limit = rxData.Length - vecSize;
+                    for (; i <= limit; i += vecSize)
                     {
-                        rx_data[i] = rx_data[i] * _rxGainScalar;
+                        var v = new Vector<float>(rxData, i);
+                        (v * gainVec).CopyTo(rxData, i);
                     }
                 }
-                
-                DataReady(rxAudioStream, rx_data);
+                for (; i < rxData.Length; i++)
+                {
+                    rxData[i] *= _rxGainScalar;
+                }
             }
+                
+            DataReady(rxAudioStream, rxData);
         }
 
         public delegate void OpusPacketReceivedEventHandler();
@@ -230,6 +264,17 @@ namespace Flex.Smoothlake.FlexLib
         private void OnOpusPacketReceived()
         {
             OpusPacketReceived?.Invoke();
+        }
+
+        protected void StopStats()
+        {
+            if (_statsTimer == null)
+                return;
+
+            _statsTimer.Stop();
+            _statsTimer.Elapsed -= UpdateRXRate;
+            _statsTimer.Dispose();
+            _statsTimer = null;
         }
 
         protected void UpdateRXRate(Object source, ElapsedEventArgs e)

@@ -2604,10 +2604,11 @@ namespace Radios
         /// reports CanProceed.
         ///
         /// Returns as soon as the transfer has been handed to FlexLib — the vendor
-        /// runs it on its own thread and provides no completion callback. Track
-        /// progress by watching the radio's ConnectedState and Status, which move to
-        /// "Update" and then "Recovery" or back to normal as the radio applies the
-        /// image and reboots.
+        /// provides no completion callback (4.1.x ran it on its own thread; 4.2.x
+        /// returns a Task, but it resolves ~5 seconds after the bytes are sent, not
+        /// when the radio has applied anything). Track real progress with
+        /// <see cref="WatchFirmwareUpdateAsync"/>, which watches discovery across
+        /// the reboot.
         /// </summary>
         /// <returns>true if the transfer was started.</returns>
         public bool BeginFirmwareUpdate(string path)
@@ -2621,7 +2622,15 @@ namespace Radios
             try
             {
                 Tracing.TraceLine($"BeginFirmwareUpdate: sending {path}", TraceLevel.Info);
-                theRadio.SendUpdateFile(path);
+                // FlexLib 4.2.x made this async Task where 4.1.x was fire-and-forget
+                // void. Completion is still watched via discovery, not this task —
+                // but a faulted transfer is worth a trace line, which 4.1.x could
+                // never give us.
+                theRadio.SendUpdateFile(path).ContinueWith(
+                    t => Tracing.TraceLine(
+                        $"BeginFirmwareUpdate: transfer task faulted: {t.Exception?.GetBaseException().Message}",
+                        TraceLevel.Error),
+                    TaskContinuationOptions.OnlyOnFaulted);
                 return true;
             }
             catch (Exception ex)
