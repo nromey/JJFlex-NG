@@ -5,7 +5,20 @@ This document captures the current state of JJ-Flex repository and active work.
 **Repository root:** `C:\dev\JJFlex-NG`
 **Branch:** `main` (post-REVERT of `track/flexlib-42` merge on 2026-05-15 — main is back to pre-FlexLib-4.2.18 substrate after Don's 2026-05-15 LAN trace exposed a vendor-side station-name regression. FlexLib 4.0.1 is in place. Re-merge of FlexLib 4.2.18 now gated on Sprint 29 Phase D firmware-update UI being operational + Don's radio firmware updated. `track/flexlib-42` parked at `9de45c54`. See `memory/project_flexlib_4218_station_name_regression.md` (new), `memory/project_flexlib_4218_merge_sequencing.md` (refreshed 2026-05-15), and `memory/project_main_branch_41_posture.md` (reality-check note added).)
 
-## RESUME HERE — 2026-08-03: Radio Setup UI built end to end; registration, hole-punch, GPS and firmware all reachable; 8600 unboxes today
+## RESUME HERE — 2026-08-03 LATE EVENING UPDATE: 4.2.20 substrate live, R2 firmware hosting live, regression cleared
+
+Supersedes items 2, 3, and 4 of the "Next session" list below — all three happened tonight:
+
+- **Branch `track/flexlib-4220`** (4 commits: `b2d75f63` vendor drop, `a73a74c3` registration detection, `5459450c` publish script + rehearsal doc, plus GPS dialog work earlier). FlexLib 4.2.20 via 3-way merge from `track/flexlib-42`'s patched tree — zero conflicts, procedure recorded in `MIGRATION.md`. Radio.cs = 15,268 lines. R5 MMCSS diagnostic reverted to vendor stock; 4.1.x short-read patch obsolete (4.2.x uses CopyToAsync).
+- **Station-name regression FAILED to reproduce**: 8600 (fw 4.1.3, parseable) + 4.2.20 lib on LAN → `station=k5ner` registered instantly, wire-verified. Trigger narrowed to the unparseable-firmware case. Tuesday's firmware update removes that condition from Don's radio.
+- **R2 firmware hosting LIVE**: all four images (4.2.20 + 4.2.18, both families) at `data.jjflexible.radio/firmware/` with manifest; every URL byte-count-verified. Blobs upload via `publish-firmware-to-r2.ps1` (manifest-verified, 1Password CLI creds); manifest rides `nromey/jjf-data` git → Action sync. Sync excludes `*.ssdr` (GitHub 100 MB limit — blobs never enter git).
+- **Registration detection shipped**: `FlexBase.QuerySmartLinkRegistrationAsync` asks the SmartLink server (the radio cannot answer — probed exhaustively). Post-connect suggestion (speak + message box, once per radio per run) + honest Radio Setup step-2 status.
+- **Update policy decided** (memory: `project_sprint29_updater_vision.md` 2026-08-03 section): app = Chrome model (auto-download, message box, install on close); firmware = notify-only, never auto-install, `breaking` flag in manifest schema.
+- **Tuesday homework answered**: no stepping-stone enforced for cross-major firmware jumps (community-verified v2.12.1→4.x direct); stale radio profiles are the hazard, factory reset is the cure not a preventive; stuck-at-100% = power cycle, not brick.
+
+**Tomorrow's plan (Noel's sequencing):** (1) dress rehearsal per `docs/planning/active/firmware-dress-rehearsal-2026-08-03.md` — registration + firmware 4.1.3→4.2.20 on the 8600; (2) hole-punch testing for Don's path; (3) once Don's radio is reachable, 1Password service account on roarbox (Noel has free-for-life 1PW with enterprise features). Tuesday build decision (4.1.5 vs 4.2.20) rides on how the rehearsal goes.
+
+## PREVIOUS — 2026-08-03: Radio Setup UI built end to end; registration, hole-punch, GPS and firmware all reachable; 8600 unboxes today
 
 **Context.** Noel's FLEX-8600 (with factory-calibrated GPSDO) is still boxed and gets connected today. Don's 6300 is at Tony's in the Adirondacks; Tony is on site **until August 7**, and Noel remotes into Tony's machine **Tuesday** to install JJ Flex and update Don's firmware. That Tuesday window is the only one — Don will never have physical access, and firmware update is LAN-only by protocol.
 
