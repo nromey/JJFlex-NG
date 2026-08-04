@@ -1320,7 +1320,9 @@ public partial class MainWindow : UserControl
                         "on the radio's own network, like now.\n\n" +
                         "Two short steps whenever you are ready: sign in to SmartLink using the " +
                         "Switch Account button in the radio picker, then register the radio from " +
-                        "Radio Setup, step 2. The Open Radio Setup button below takes you there.";
+                        "Radio Setup, step 2. The Open Radio Setup button below takes you there.\n\n" +
+                        "Everything happens right here in JJ Flex — you do not need SmartSDR or " +
+                        "any other program for any of it.";
                     Dialogs.AdvisoryDialog.Show(
                         "SmartLink is not set up", msg,
                         suppressKey: "smartlink-setup",
@@ -1346,7 +1348,8 @@ public partial class MainWindow : UserControl
                     "Registering is what lets you reach it from away from home, and it has to be done " +
                     "from home, on the radio's own network — like now.\n\n" +
                     "Registration is step 2 on the Radio Setup tab. The Open Radio Setup button " +
-                    "below takes you there.";
+                    "below takes you there. Everything happens right here in JJ Flex — you do " +
+                    "not need SmartSDR or any other program.";
                 Dialogs.AdvisoryDialog.Show(
                     "Radio not registered with SmartLink", msg,
                     suppressKey: $"register|{serial}",
