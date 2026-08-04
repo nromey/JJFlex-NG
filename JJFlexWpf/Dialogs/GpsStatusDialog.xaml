@@ -28,6 +28,20 @@
                      actually open this dialog to ask, and it is spoken on open. -->
                 <TextBlock Text="Summary" FontWeight="SemiBold"
                            Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
+                <!-- The ONLY live region in this dialog. It receives text solely
+                     on a transition worth interrupting for — the reference
+                     handing over, or the GPS phase changing, or a satellite
+                     count that has actually settled. Everything else on this
+                     page is plain text for the review cursor, because it
+                     changes once a second and a live region on it would never
+                     stop talking. -->
+                <TextBlock x:Name="StateAnnounceText"
+                           Style="{StaticResource DialogLabel}"
+                           TextWrapping="Wrap"
+                           Margin="0,0,0,8"
+                           AutomationProperties.LiveSetting="Polite"
+                           AutomationProperties.Name="GPS state change"/>
+
                 <TextBlock x:Name="SummaryText"
                            Style="{StaticResource DialogLabel}"
                            TextWrapping="Wrap"

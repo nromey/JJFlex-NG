@@ -14,11 +14,14 @@ namespace JJFlexWpf.Dialogs
     /// property changes and refreshes in place, so a screen reader user can leave
     /// it open and hear the summary line update as satellites come in.
     ///
-    /// The view is deliberately SILENT while open. GPS status arrives once per
-    /// second and most fields change on nearly every update, so any automatic
-    /// announcement talks over itself and never completes. The screen refreshes
-    /// at that rate instead and a review cursor reads it on demand. Speech
-    /// happens only when the user presses Speak status.
+    /// Announcement policy, which took two attempts to get right. GPS status
+    /// arrives once per second and most fields change on nearly every update, so
+    /// marking them live meant NVDA never finished a sentence. But going fully
+    /// silent loses the transitions someone actually opened this dialog to wait
+    /// for. So there is exactly ONE live region, and it receives text only when
+    /// the reference hands over, the GPS phase changes, or a satellite count has
+    /// held steady long enough to be worth reporting. Every other field is plain
+    /// text, refreshed at the full rate for the review cursor.
     ///
     /// General rule this follows: standard controls and on-screen text where they
     /// work, Tolk only where they do not.
@@ -28,6 +31,22 @@ namespace JJFlexWpf.Dialogs
         private readonly FlexBase? _rig;
         private Action? _unsubscribe;
         private bool _loadingOscillator;
+
+        // Transition tracking for the single live region. Announcing every
+        // change would be as bad as the live-region-on-everything bug this
+        // replaces, so state changes announce immediately and satellite counts
+        // must hold still first.
+        private string _lastAnnouncedState = string.Empty;
+        private string _lastAnnouncedSats = string.Empty;
+        private string _pendingSats = string.Empty;
+        private DateTime _pendingSatsSince = DateTime.MinValue;
+
+        /// <summary>
+        /// How long a satellite count must stay put before it is worth saying.
+        /// The receiver bounces its tracked count every second or two, so
+        /// without this the live region would chatter continuously.
+        /// </summary>
+        private static readonly TimeSpan SatelliteSettleTime = TimeSpan.FromSeconds(15);
 
         public GpsStatusDialog(FlexBase? rig)
         {
@@ -92,12 +111,68 @@ namespace JJFlexWpf.Dialogs
             DetailUtcText.Text = "GPS time, UTC: " + Or(snapshot.UtcTime, "not reported");
             DetailFreqErrorText.Text = "Frequency error: " + Or(snapshot.FreqError, "not reported");
 
-            // Deliberately silent. GPS status arrives once a second and several
-            // fields change on nearly every update, so ANY automatic speech here
-            // talks over itself and never finishes a sentence. The screen is
-            // refreshed at that same ~1 Hz instead, which a review cursor can
-            // read at whatever pace the user wants. Speech is on request only,
-            // via the Speak status button.
+            UpdateStateAnnouncement(snapshot);
+        }
+
+        /// <summary>
+        /// Decide whether anything happened worth interrupting the user for, and
+        /// if so put it in the live region.
+        ///
+        /// Two classes of event qualify. A change in the reference or the GPS
+        /// phase is announced straight away — those are the transitions someone
+        /// watching this dialog is actually waiting on. A change in satellites
+        /// tracked only announces once it has held for
+        /// <see cref="SatelliteSettleTime"/>, because the receiver bounces that
+        /// number constantly and reporting each bounce is the very noise this
+        /// design exists to avoid.
+        ///
+        /// Everything else — position, grid, altitude, UTC, frequency error —
+        /// never announces. It updates on screen for the review cursor.
+        /// </summary>
+        private void UpdateStateAnnouncement(FlexBase.GpsStatusSnapshot s)
+        {
+            if (StateAnnounceText == null || !s.RadioConnected) return;
+
+            // A reference handover or a GPS phase change is always worth saying.
+            string stateKey = $"{s.OscillatorInUse}|{s.Status}";
+            if (stateKey != _lastAnnouncedState)
+            {
+                bool first = _lastAnnouncedState.Length == 0;
+                _lastAnnouncedState = stateKey;
+                _lastAnnouncedSats = s.SatellitesTracked;
+                _pendingSats = s.SatellitesTracked;
+                _pendingSatsSince = DateTime.UtcNow;
+
+                // Nothing to announce on the very first pass — that is just the
+                // dialog opening, and the summary already covers it.
+                if (first) return;
+
+                string sats = string.IsNullOrWhiteSpace(s.SatellitesTracked)
+                    ? string.Empty
+                    : $" {s.SatellitesTracked} satellites tracked.";
+
+                StateAnnounceText.Text = s.OscillatorLocked && s.OscillatorInUse.Equals("gpsdo", StringComparison.OrdinalIgnoreCase)
+                    ? $"GPS {s.Status}. The radio is now using the GPS reference.{sats}"
+                    : $"GPS {s.Status}. Running on {FlexBase.DescribeOscillatorInUse(s)}.{sats}";
+                return;
+            }
+
+            // Satellite count: only once it has stopped moving.
+            string tracked = s.SatellitesTracked ?? string.Empty;
+            if (tracked != _pendingSats)
+            {
+                _pendingSats = tracked;
+                _pendingSatsSince = DateTime.UtcNow;
+                return;
+            }
+
+            if (tracked != _lastAnnouncedSats
+                && DateTime.UtcNow - _pendingSatsSince >= SatelliteSettleTime)
+            {
+                _lastAnnouncedSats = tracked;
+                StateAnnounceText.Text =
+                    $"{Or(tracked, "unknown")} satellites tracked, {Or(s.SatellitesVisible, "unknown")} visible.";
+            }
         }
 
         private static string Or(string value, string fallback)
