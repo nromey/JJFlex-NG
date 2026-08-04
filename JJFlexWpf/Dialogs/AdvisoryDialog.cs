@@ -44,7 +44,7 @@ public sealed class AdvisoryDialog : JJFlexDialog
 
         var text = new TextBox
         {
-            Text = body,
+            Text = NormalizeLineBreaks(body),
             IsReadOnly = true,
             IsReadOnlyCaretVisible = true,
             TextWrapping = TextWrapping.Wrap,
@@ -120,6 +120,15 @@ public sealed class AdvisoryDialog : JJFlexDialog
     /// already suppressed; passing a key also adds the "Don't show this again"
     /// checkbox. Any chosen action runs after the dialog closes.
     /// </summary>
+    /// <summary>
+    /// Callers write \n freely; a WPF TextBox exposes bare \n or stray \r to
+    /// UIA as control characters, which NVDA announces as "carriage return"
+    /// when the caret crosses them. Normalize every body to \r\n here so no
+    /// call site has to care.
+    /// </summary>
+    private static string NormalizeLineBreaks(string s) =>
+        s.Replace("\r\n", "\n").Replace('\r', '\n').Replace("\n", "\r\n");
+
     public static void Show(string title, string body, string? suppressKey = null,
         params AdvisoryAction[] actions)
     {
