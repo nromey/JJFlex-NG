@@ -2,7 +2,7 @@
 
 **Working dashboard.** Distinct from `docs/planning/vision/JJFlex-TODO.md` (long-lived strategic backlog) — this file tracks what's actually queued, in flight, blocked, or waiting for Noel's read **right now**.
 
-**Last updated:** 2026-05-07 (Phase 0 Section F in flight; rarbox-Claude executing F3-G). Claude updates this whenever items move between states. If the timestamp drifts more than a session, flag it.
+**Last updated:** 2026-08-04 (orchestrator queue worked: auto-connect inversion fixed, rename field filed to Track C2). Claude updates this whenever items move between states. If the timestamp drifts more than a session, flag it.
 
 **How to use:** Noel scans the sections below to pick what to fire off, or asks Claude to recommend based on what's available. Claude is expected to keep this current.
 
@@ -14,20 +14,25 @@
 
 ## Queued — orchestrator session, after Noel starts the B/C2 tracks (2026-08-04)
 
-- **Auto-connect announcement is inverted.** Noel: with auto-connect OFF, speech
-  says "autoconnect enabled" before showing the radio list; with auto-connect ON,
-  nothing is announced and it connects. Desired: ON → speak "Auto connect
-  enabled, connecting to <radio name>" as the attempt starts; OFF → announce
-  nothing. Find the stray "autoconnect enabled" utterance (likely near the
-  selector/startup split in `globals.vb` around `TryAutoConnectOnStartup` /
-  `wpfSelectorProc`) and move the announcement to the enabled path. Builds on
-  `020028fc` (connecting window now shown on auto-connect) — the announcement
-  should lead into the window's phase speech, not duplicate it.
-- **Radio naming, related:** Noel expects to name the radio around registration
-  time. Registration does not name radios — the nickname is a separate radio
-  setting (FlexLib `Radio.Nickname`). Check whether JJ Flex exposes rename
-  anywhere; if not, a rename field on Radio Setup (near step 2) fits the virgin
-  flow. Scope it when working the item above.
+- **DONE (2026-08-04, `62466391` on track/flexlib-4220): auto-connect
+  announcement inversion.** Root cause was not a stray utterance in globals.vb —
+  the rig selector's constructor set `GlobalAutoConnectCheckbox.IsChecked` from
+  the saved setting, which fired the Checked handler and spoke "Auto-connect on
+  startup enabled" as if the user had toggled it. Fixed with a suppress-during-
+  init flag (same pattern as the LowBW checkbox). The enabled path now speaks
+  "Auto connect enabled, connecting to <radio name>" (Critical, interrupt) in
+  `TryAutoConnectOnStartup` before the connecting window opens; OFF → silence.
+  Awaiting Noel's on-radio verification.
+- **FILED to Track C2 (2026-08-04): radio rename field.** Investigation done:
+  JJ Flex exposes no rename anywhere; FlexLib `Radio.Nickname` setter works
+  (sends `radio name <x>`, persists radio-side, flows back through discovery,
+  works over SmartLink too). Fully scoped as work item 5 in
+  `C:\dev\jjflex-dialogs\TRACK-INSTRUCTIONS.md` — Step 2 GroupBox on Radio
+  Setup, FlexBase setter, auto-connect display-name refresh. C2 owns it
+  because the item lands in the same Radio Setup territory as its Know Your
+  Radio button; doing it in the orchestrator would invite a merge collision.
+  **Noel: the C2 session started before item 5 existed — tell it to re-read
+  TRACK-INSTRUCTIONS.md.**
 
 ## Queued — agent-ready (fire whenever)
 
