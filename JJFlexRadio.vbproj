@@ -30,7 +30,15 @@
          translated UIs. -->
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <RootNamespace>JJRadio</RootNamespace>
-    <AssemblyName>JJFlexRadio</AssemblyName>
+    <!-- The shipped executable is jjflexible.exe. SmartScreen reputation accrues
+         against a signed file identity, so the exe carries its final name from
+         before the first Trusted Signing release rather than resetting it later.
+         RootNamespace stays JJRadio (source-level, invisible to users), and the
+         AppData/registry/trace identity stays "JJFlexRadio" (see InternalName in
+         globals.vb) so existing installs keep their settings, per-radio configs,
+         and SmartLink accounts. Support DLLs keep their names too — they are
+         invisible to users and renaming them churns every project for nothing. -->
+    <AssemblyName>jjflexible</AssemblyName>
     <!-- Base X.Y.Z. build-installers.bat overrides with -p:Version=X.Y.Z.Y on the
          command line, where Y = git commit count + BuildNumberOffset (see script).
          If no override is supplied (plain `dotnet build`), SDK fills the 4th part with .0. -->
@@ -461,6 +469,10 @@
     <Content Include="cty_wt.dat" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="install.bat" />
     <Content Include="install.nsi" />
+    <!-- The CHM filename is deliberately NOT tied to the assembly name:
+         JJFlexWpf\HelpLauncher.cs resolves it as a literal "JJFlexRadio.chm"
+         next to the exe, and docs\help\jjflex-help.hhp compiles to that name.
+         Leave it alone when the exe gets renamed. -->
     <None Include="docs\help\JJFlexRadio.chm" Condition="Exists('docs\help\JJFlexRadio.chm')">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>JJFlexRadio.chm</Link>

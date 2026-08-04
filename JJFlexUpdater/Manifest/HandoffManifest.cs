@@ -31,7 +31,7 @@ public sealed class HandoffManifest
     [JsonPropertyName("jjf_pid")]
     public int JjfPid { get; set; }
 
-    /// <summary>Absolute path to JJFlexRadio.exe — the helper relaunches this on success.</summary>
+    /// <summary>Absolute path to jjflexible.exe — the helper relaunches this on success.</summary>
     [JsonPropertyName("jjf_relaunch_path")]
     public string JjfRelaunchPath { get; set; } = string.Empty;
 

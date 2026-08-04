@@ -4,7 +4,7 @@ using System.Diagnostics;
 namespace JJFlexUpdaterHelper;
 
 // Step 8 of the helper flow. After files are replaced and obsolete files
-// deleted, start the new JJFlexRadio.exe. UseShellExecute=true so the new
+// deleted, start the new jjflexible.exe. UseShellExecute=true so the new
 // JJF gets its own process tree (matches launching from Explorer or the
 // Start Menu) and is unaffected by the helper's exit.
 //

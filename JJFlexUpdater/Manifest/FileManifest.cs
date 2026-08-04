@@ -35,7 +35,7 @@ public sealed class FileManifest
 public sealed class FileEntry
 {
     /// <summary>
-    /// Path relative to the install dir (e.g. "JJFlexRadio.exe" or
+    /// Path relative to the install dir (e.g. "jjflexible.exe" or
     /// "runtimes/win-x64/native/portaudio.dll"). Forward slashes only;
     /// the local file walker normalizes platform separators.
     /// </summary>
