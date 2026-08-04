@@ -85,6 +85,19 @@ namespace Radios
         }
 
         /// <summary>
+        /// True when at least one SmartLink account has ever been saved on this
+        /// computer. Cheap enough to call casually — the accounts file is tiny —
+        /// and reads through <see cref="LoadAccounts"/> rather than just testing
+        /// file existence, so an empty or unreadable file counts as "none".
+        /// </summary>
+        public static bool AnySavedAccounts()
+        {
+            var mgr = new SmartLinkAccountManager();
+            mgr.LoadAccounts();
+            return mgr.Accounts.Count > 0;
+        }
+
+        /// <summary>
         /// Saves all accounts to disk with encrypted tokens.
         /// </summary>
         public void SaveAccounts()

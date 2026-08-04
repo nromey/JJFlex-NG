@@ -103,9 +103,12 @@ namespace JJFlexWpf.Dialogs
             {
                 var result = await rig.QuerySmartLinkRegistrationAsync();
                 _registrationQuerySerial = serial;
-                // Unknown is not cached as an answer — leave the neutral text and
-                // let a later refresh try again rather than pinning a shrug.
-                _registrationQueryResult = result == FlexBase.SmartLinkRegistrationQuery.Unknown
+                // Unknown and NoAccount are not cached as answers — leave the
+                // neutral text and let a later refresh try again rather than
+                // pinning a shrug; NoAccount changes the moment the user signs in.
+                _registrationQueryResult =
+                    result is FlexBase.SmartLinkRegistrationQuery.Unknown
+                           or FlexBase.SmartLinkRegistrationQuery.NoAccount
                     ? null
                     : result;
                 if (_registrationQueryResult != null && IsLoaded)

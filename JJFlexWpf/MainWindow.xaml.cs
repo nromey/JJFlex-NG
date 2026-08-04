@@ -1257,7 +1257,19 @@ public partial class MainWindow : UserControl
 
         StatusText.Text = "Radio connected — waiting for power on";
 
-        SuggestRegistrationIfUnregistered();
+        RunStartupAdvisories();
+    }
+
+    /// <summary>
+    /// The connect-time advisories, in virgin-radio order: SmartLink first
+    /// (set it up / register), then firmware. Run one after the other so a
+    /// brand-new radio never stacks two message boxes on top of each other.
+    /// Each advisory swallows its own failures; none may disturb the connection.
+    /// </summary>
+    private async void RunStartupAdvisories()
+    {
+        await SuggestRegistrationIfUnregisteredAsync();
+        await SuggestFirmwareUpdateIfAvailableAsync();
     }
 
     /// <summary>
@@ -1267,16 +1279,23 @@ public partial class MainWindow : UserControl
     private static readonly HashSet<string> _registrationSuggestedSerials = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// After a local connect, quietly find out whether this radio is registered
-    /// to the signed-in SmartLink account, and suggest Radio Setup if it is not.
-    ///
-    /// Fire-and-forget on purpose: the answer comes from the SmartLink server
-    /// and can take seconds, and a connect must never wait on it. Unknown means
-    /// stay silent — no account signed in or no server reachable is not
-    /// evidence the radio needs registering. Suggested at most once per radio
-    /// per app run.
+    /// SmartLink-setup suggestion already made this app run. Not per-serial:
+    /// having no SmartLink account is a property of this computer, not of
+    /// whichever radio happens to be connected.
     /// </summary>
-    private async void SuggestRegistrationIfUnregistered()
+    private static bool _smartLinkSetupSuggested;
+
+    /// <summary>
+    /// After a local connect, quietly find out where this radio stands with
+    /// SmartLink and speak up only when the user has something to gain:
+    /// NoAccount means SmartLink has never been set up on this computer (the
+    /// virgin-radio case — suggest starting it), NotRegistered means the
+    /// account exists but this radio is not in it (suggest registering).
+    /// Unknown means stay silent — an unreachable server is not evidence the
+    /// radio needs anything. The answer comes from the SmartLink server and
+    /// can take seconds; a connect never waits on it.
+    /// </summary>
+    private async Task SuggestRegistrationIfUnregisteredAsync()
     {
         var rig = RigControl;
         if (rig == null) return;
@@ -1284,6 +1303,33 @@ public partial class MainWindow : UserControl
         try
         {
             var result = await rig.QuerySmartLinkRegistrationAsync();
+
+            if (result == FlexBase.SmartLinkRegistrationQuery.NoAccount)
+            {
+                if (_smartLinkSetupSuggested) return;
+                _smartLinkSetupSuggested = true;
+                if (!rig.IsConnected) return;
+
+                Tracing.TraceLine("SuggestRegistration: no SmartLink account on this computer", TraceLevel.Info);
+
+                await Dispatcher.BeginInvoke(() =>
+                {
+                    string msg =
+                        "SmartLink is not set up in JJ Flex yet. SmartLink is what lets you use this radio " +
+                        "from away from home — and registering the radio for it has to be done from home, " +
+                        "on the radio's own network, like now.\n\n" +
+                        "Two short steps whenever you are ready: sign in to SmartLink using the " +
+                        "Switch Account button in the radio picker, then register the radio from the " +
+                        "Tools menu: Settings, the Radio Setup tab, step 2, Register this radio.";
+                    ScreenReaderOutput.Speak(
+                        "SmartLink is not set up yet. Details in the message box.",
+                        VerbosityLevel.Terse, interrupt: false);
+                    MessageBox.Show(msg, "SmartLink is not set up",
+                        MessageBoxButton.OK, MessageBoxImage.Information);
+                });
+                return;
+            }
+
             if (result != FlexBase.SmartLinkRegistrationQuery.NotRegistered) return;
 
             string serial = rig.SelectedRadioSerial ?? string.Empty;

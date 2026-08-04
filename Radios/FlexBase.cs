@@ -1955,11 +1955,19 @@ namespace Radios
         /// <summary>Answer to "is the connected radio registered to the signed-in account?"</summary>
         public enum SmartLinkRegistrationQuery
         {
-            /// <summary>Cannot be determined — no account signed in, or SmartLink unreachable.</summary>
+            /// <summary>Cannot be determined — accounts exist but none is signed in, or SmartLink unreachable.</summary>
             Unknown,
             Registered,
             /// <summary>Not in this account's radio list. It may still be registered to a different account.</summary>
             NotRegistered,
+            /// <summary>
+            /// No SmartLink account has ever been saved on this computer — the
+            /// virgin-radio case. Distinct from Unknown so a caller can suggest
+            /// setting SmartLink up instead of staying silent: silence is right
+            /// when the server is unreachable, wrong when the user has simply
+            /// never been told SmartLink exists.
+            /// </summary>
+            NoAccount,
         }
 
         /// <summary>
@@ -1983,7 +1991,10 @@ namespace Radios
         {
             var serial = theRadio?.Serial;
             if (string.IsNullOrEmpty(serial) || !IsConnected)
+            {
+                Tracing.TraceLine("QuerySmartLinkRegistration: no radio connected", TraceLevel.Info);
                 return Task.FromResult(SmartLinkRegistrationQuery.Unknown);
+            }
 
             // Connected over SmartLink is proof of registration by itself.
             if (theRadio.IsWan)
@@ -1991,7 +2002,16 @@ namespace Radios
 
             var account = _currentAccount;
             if (account == null)
-                return Task.FromResult(SmartLinkRegistrationQuery.Unknown);
+            {
+                // No session this run. Saved accounts on disk mean SmartLink is
+                // set up and we just cannot answer right now (Unknown); a clean
+                // disk means the user has never set SmartLink up at all.
+                bool anySaved = SmartLinkAccountManager.AnySavedAccounts();
+                Tracing.TraceLine($"QuerySmartLinkRegistration: no current account, savedAccounts={anySaved}", TraceLevel.Info);
+                return Task.FromResult(anySaved
+                    ? SmartLinkRegistrationQuery.Unknown
+                    : SmartLinkRegistrationQuery.NoAccount);
+            }
 
             // Fresh list already in hand (e.g. the user browsed Remote radios
             // this session) — answer without touching the network.
