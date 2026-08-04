@@ -33,6 +33,33 @@
   </UL>
 
   <LI><OBJECT type="text/sitemap">
+    <param name="Name" value="Know Your Radio">
+    <param name="Local" value="pages\know-your-radio.htm">
+  </OBJECT>
+  <UL>
+    <LI><OBJECT type="text/sitemap">
+      <param name="Name" value="FLEX-6300">
+      <param name="Local" value="pages\know-your-radio-6300.htm">
+    </OBJECT>
+    <LI><OBJECT type="text/sitemap">
+      <param name="Name" value="FLEX-6400 and FLEX-6600">
+      <param name="Local" value="pages\know-your-radio-6400-6600.htm">
+    </OBJECT>
+    <LI><OBJECT type="text/sitemap">
+      <param name="Name" value="FLEX-6500">
+      <param name="Local" value="pages\know-your-radio-6500.htm">
+    </OBJECT>
+    <LI><OBJECT type="text/sitemap">
+      <param name="Name" value="FLEX-6700">
+      <param name="Local" value="pages\know-your-radio-6700.htm">
+    </OBJECT>
+    <LI><OBJECT type="text/sitemap">
+      <param name="Name" value="FLEX-8400 and FLEX-8600">
+      <param name="Local" value="pages\know-your-radio-8400-8600.htm">
+    </OBJECT>
+  </UL>
+
+  <LI><OBJECT type="text/sitemap">
     <param name="Name" value="Keyboard Reference">
     <param name="Local" value="pages\keyboard-reference.htm">
   </OBJECT>

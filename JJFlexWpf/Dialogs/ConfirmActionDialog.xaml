@@ -35,21 +35,34 @@
                    Margin="0,0,0,12"
                    Text="Continue?"/>
 
-        <StackPanel Orientation="Horizontal"
-                    HorizontalAlignment="Right"
-                    Margin="0,8,0,0">
-            <Button x:Name="NoButton"
-                    Content="_No"
-                    Width="80" Margin="0,0,8,0"
-                    IsCancel="True"
-                    AutomationProperties.Name="No, cancel"
-                    Click="NoButton_Click"/>
-            <Button x:Name="YesButton"
-                    Content="_Yes"
-                    Width="80"
-                    IsDefault="False"
-                    AutomationProperties.Name="Yes, continue"
-                    Click="YesButton_Click"/>
-        </StackPanel>
+        <!-- The jacks button sits on the left, deliberately away from No and Yes:
+             it is a detour, not an answer, and it should not sit between the two
+             buttons that commit or cancel. It appears only when we have a verified
+             panel reference for the connected radio. -->
+        <DockPanel Margin="0,8,0,0" LastChildFill="False">
+            <Button x:Name="JacksButton"
+                    DockPanel.Dock="Left"
+                    Content="Where are the _jacks on my radio?"
+                    Padding="10,0" Height="26"
+                    Visibility="Collapsed"
+                    AutomationProperties.Name="Where are the jacks on my radio?"
+                    AutomationProperties.AcceleratorKey="Alt+J"
+                    Click="JacksButton_Click"/>
+
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                <Button x:Name="NoButton"
+                        Content="_No"
+                        Width="80" Margin="0,0,8,0"
+                        IsCancel="True"
+                        AutomationProperties.Name="No, cancel"
+                        Click="NoButton_Click"/>
+                <Button x:Name="YesButton"
+                        Content="_Yes"
+                        Width="80"
+                        IsDefault="False"
+                        AutomationProperties.Name="Yes, continue"
+                        Click="YesButton_Click"/>
+            </StackPanel>
+        </DockPanel>
     </StackPanel>
 </local:JJFlexDialog>
