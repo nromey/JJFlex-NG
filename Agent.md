@@ -5,6 +5,39 @@ This document captures the current state of JJ-Flex repository and active work.
 **Repository root:** `C:\dev\JJFlex-NG`
 **Branch:** `main` (post-REVERT of `track/flexlib-42` merge on 2026-05-15 — main is back to pre-FlexLib-4.2.18 substrate after Don's 2026-05-15 LAN trace exposed a vendor-side station-name regression. FlexLib 4.0.1 is in place. Re-merge of FlexLib 4.2.18 now gated on Sprint 29 Phase D firmware-update UI being operational + Don's radio firmware updated. `track/flexlib-42` parked at `9de45c54`. See `memory/project_flexlib_4218_station_name_regression.md` (new), `memory/project_flexlib_4218_merge_sequencing.md` (refreshed 2026-05-15), and `memory/project_main_branch_41_posture.md` (reality-check note added).)
 
+## RESUME HERE — 2026-08-04 midday checkpoint (orchestrator, pre-compact): advisories reworked, tracks B/C2 launching
+
+Working session, not a seal. Branch `track/flexlib-4220`, 6 commits today:
+`0dcb8f3d` (NoAccount registration prompt + connect-time firmware advisory),
+`29a45373` (AdvisoryDialog: read-only-edit bodies, Open Radio Setup deep link,
+persisted don't-show-again via `AdvisorySuppression`), `bb43da4a` (tactile
+8400/8600 jack directions in registration preflight — MIC has no PTT, FHM-3
+needs both plugs), `dbd60f60` (signing track plan → `docs/planning/active/signing-track.md`),
+`74228f3a` ("no SmartSDR needed" advisory text + `docs/planning/active/unattended-mode.md`
+design), `020028fc` (auto-connect now shows ConnectingForm — earcons/speech/cancel).
+
+**State right now:**
+- Noel is spawning Track B (Opus, `C:\dev\jjflex-rename`, branch
+  `track/rename-jjflexible`) and Track C2 (Opus, `C:\dev\jjflex-dialogs`,
+  branch `track/dialog-sweep`, ff'd to `74228f3a`). Instructions in each
+  worktree root. C2 holds its MessageBox sweep until Noel's verdict on
+  AdvisoryDialog (he tests tonight).
+- **Exe on disk is STALE (last night's)** — Noel's running app locks the
+  output dir. When he closes it: `dotnet build JJFlexRadio.vbproj -c Debug
+  -p:Platform=x64`, verify timestamp, then he tests: advisories → SmartLink
+  sign-in (Switch Account in radio picker) → register (FHM-3 both plugs: TRS
+  → MIC, RCA → PTT; or CW key in KEY) → firmware rehearsal → network steps.
+- **This session next (after tracks spawn):** work the two research-queue
+  items queued 2026-08-04 — auto-connect announcement inversion ("autoconnect
+  enabled" spoken when OFF, silent when ON; desired: announce only when ON,
+  with radio name) and radio nickname rename exposure in Radio Setup.
+- **Then:** merge B into `track/flexlib-4220` when it reports done (clean
+  build after), merge C2 when done, cut signing track worktree per
+  `signing-track.md` (needs Noel for az login). NEVER merge main into this
+  branch (revert trap — Radio.cs must stay ~15.2k lines).
+- New feedback memory: `feedback_orchestrator_files_work_to_tracks.md` —
+  "add to tracks" means file it, don't implement inline in orchestrator.
+
 ## RESUME HERE — 2026-08-03 SECOND SEAL (late evening): 4.2.20 substrate live, R2 firmware hosting live, regression cleared
 
 > **Two seals ran on 2026-08-03.** The first (`7a1b9a11`, 02:09) closed the session
