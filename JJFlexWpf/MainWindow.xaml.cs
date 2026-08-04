@@ -1319,13 +1319,13 @@ public partial class MainWindow : UserControl
                         "from away from home — and registering the radio for it has to be done from home, " +
                         "on the radio's own network, like now.\n\n" +
                         "Two short steps whenever you are ready: sign in to SmartLink using the " +
-                        "Switch Account button in the radio picker, then register the radio from the " +
-                        "Tools menu: Settings, the Radio Setup tab, step 2, Register this radio.";
-                    ScreenReaderOutput.Speak(
-                        "SmartLink is not set up yet. Details in the message box.",
-                        VerbosityLevel.Terse, interrupt: false);
-                    MessageBox.Show(msg, "SmartLink is not set up",
-                        MessageBoxButton.OK, MessageBoxImage.Information);
+                        "Switch Account button in the radio picker, then register the radio from " +
+                        "Radio Setup, step 2. The Open Radio Setup button below takes you there.";
+                    Dialogs.AdvisoryDialog.Show(
+                        "SmartLink is not set up", msg,
+                        suppressKey: "smartlink-setup",
+                        new Dialogs.AdvisoryDialog.AdvisoryAction(
+                            "Open Radio _Setup", () => OpenSettingsCallback?.Invoke("Radio Setup")));
                 });
                 return;
             }
@@ -1345,13 +1345,13 @@ public partial class MainWindow : UserControl
                     $"This radio is not registered with your SmartLink account ({account}). " +
                     "Registering is what lets you reach it from away from home, and it has to be done " +
                     "from home, on the radio's own network — like now.\n\n" +
-                    "You can register it from the Tools menu: Settings, then the Radio Setup tab, " +
-                    "step 2, Register this radio.";
-                ScreenReaderOutput.Speak(
-                    "This radio is not registered with SmartLink. Details in the message box.",
-                    VerbosityLevel.Terse, interrupt: false);
-                MessageBox.Show(msg, "Radio not registered with SmartLink",
-                    MessageBoxButton.OK, MessageBoxImage.Information);
+                    "Registration is step 2 on the Radio Setup tab. The Open Radio Setup button " +
+                    "below takes you there.";
+                Dialogs.AdvisoryDialog.Show(
+                    "Radio not registered with SmartLink", msg,
+                    suppressKey: $"register|{serial}",
+                    new Dialogs.AdvisoryDialog.AdvisoryAction(
+                        "Open Radio _Setup", () => OpenSettingsCallback?.Invoke("Radio Setup")));
             });
         }
         catch (Exception ex)
@@ -3574,6 +3574,12 @@ public partial class MainWindow : UserControl
     /// Set by ShellForm after creating NativeMenuBar.
     /// </summary>
     public Action? RebuildMenuCallback { get; set; }
+
+    /// <summary>
+    /// Open the Settings dialog on a named tab ("Radio Setup", ...).
+    /// Set by BridgeForm; advisory dialogs use it for their action buttons.
+    /// </summary>
+    public Action<string>? OpenSettingsCallback { get; set; }
 
     /// <summary>
     /// Rebuild the ScreenFields/Operations menus with live DSP controls.

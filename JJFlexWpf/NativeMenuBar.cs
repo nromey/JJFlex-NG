@@ -1466,9 +1466,16 @@ public class NativeMenuBar : IDisposable
     }
 
     /// <summary>
+    /// Public deep-link entry: open Settings, optionally already sitting on a
+    /// named tab ("Radio Setup", "Network", ...). Used by advisory dialogs so
+    /// "Open Radio Setup" is a button, not directions.
+    /// </summary>
+    public void OpenSettings(string? tab = null) => ShowSettingsDialog(tab);
+
+    /// <summary>
     /// Show the Settings dialog (PTT, Tuning, License, Audio tabs).
     /// </summary>
-    private void ShowSettingsDialog()
+    private void ShowSettingsDialog(string? openAtTab = null)
     {
         var pttConfig = _window.CurrentPttConfig ?? new PttConfig();
         var handlers = _window.FreqHandlers;
@@ -1526,6 +1533,8 @@ public class NativeMenuBar : IDisposable
             dialog.ConfigDirectory = _window.OpenParms.ConfigDirectory;
             dialog.OperatorName = _window.OpenParms.GetOperatorName?.Invoke();
         }
+        if (openAtTab != null)
+            dialog.SelectTabByHeader(openAtTab);
         var result = dialog.ShowDialog();
         if (result == true)
         {

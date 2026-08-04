@@ -29,6 +29,26 @@ namespace JJFlexWpf.Dialogs
             set { _rig = value; RefreshNetworkTabFromRig(); RefreshRadioSetupTab(); }
         }
 
+        /// <summary>
+        /// Select a tab by its XAML header text ("Radio Setup", "Network", ...)
+        /// before the dialog is shown, so advisories and other deep links can
+        /// open Settings already sitting on the relevant tab instead of handing
+        /// the user directions to it.
+        /// </summary>
+        public bool SelectTabByHeader(string header)
+        {
+            foreach (var item in SettingsTabs.Items)
+            {
+                if (item is TabItem tab
+                    && string.Equals(tab.Header as string, header, StringComparison.OrdinalIgnoreCase))
+                {
+                    SettingsTabs.SelectedItem = tab;
+                    return true;
+                }
+            }
+            return false;
+        }
+
         // Tuning step results (read after DialogResult == true)
         public int CoarseTuneStep { get; private set; }
         public int FineTuneStep { get; private set; }

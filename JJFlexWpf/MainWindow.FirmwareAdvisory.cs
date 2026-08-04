@@ -81,8 +81,8 @@ public partial class MainWindow
 
             parts.Add(
                 "JJ Flex never installs firmware on its own — updating restarts the radio, so it is " +
-                "always your call. When you are ready, the Tools menu: Settings, the Radio Setup tab, " +
-                "step 3 downloads it and sends it to the radio.");
+                "always your call. When you are ready, Radio Setup step 3 downloads it and sends it " +
+                "to the radio. The Open Radio Setup button below takes you there.");
 
             if (!local)
                 parts.Add(
@@ -90,17 +90,20 @@ public partial class MainWindow
                     "radio's own network, so this will have to wait until you are home with it.");
 
             string msg = string.Join("\n\n", parts);
-            string spoken = image.Breaking
-                ? "An important radio firmware update is available. Details in the message box."
-                : "A radio firmware update is available. Details in the message box.";
             string title = image.Breaking
                 ? "Important radio firmware update available"
                 : "Radio firmware update available";
 
+            // Breaking releases get no "don't show this again" — re-prompting is
+            // the point (2026-08-03 policy). Routine ones can be silenced per
+            // radio and version; the next release announces itself again.
+            string? suppressKey = image.Breaking ? null : $"firmware|{serial}|{image.Version}";
+
             await Dispatcher.BeginInvoke(() =>
             {
-                ScreenReaderOutput.Speak(spoken, VerbosityLevel.Terse, interrupt: false);
-                MessageBox.Show(msg, title, MessageBoxButton.OK, MessageBoxImage.Information);
+                Dialogs.AdvisoryDialog.Show(title, msg, suppressKey,
+                    new Dialogs.AdvisoryDialog.AdvisoryAction(
+                        "Open Radio _Setup", () => OpenSettingsCallback?.Invoke("Radio Setup")));
             });
         }
         catch (Exception ex)
