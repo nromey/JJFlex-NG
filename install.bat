@@ -1,15 +1,25 @@
 @echo off
 REM Robust install.bat
-REM Usage: install.bat <solution_or_project_dir> <Configuration> <PackageName> [x64|x86]
+REM Usage: install.bat <solution_or_project_dir> <Configuration> <TargetName> [x64|x86]
 REM Creates architecture-specific installers with _x64 or _x86 suffix
 REM Optional 4th arg forces architecture (skips auto-detection)
+REM
+REM NAMES — two of them, kept deliberately separate:
+REM   exe  (3rd arg, = MSBuild $(TargetName))  the built executable, "jjflexible".
+REM        This is the signed file identity and what shortcuts point at.
+REM   PKG  (constant below)                    the package identity, "JJFlexRadio".
+REM        Drives the install directory, the HKLM registry keys, and the shortcut
+REM        names. It must NOT follow the exe rename: keeping it fixed is what
+REM        makes 4.2.x land on top of an existing 4.x install (same folder, same
+REM        uninstall entry) instead of installing a second copy beside it.
 
 REM capture inputs and provide sane defaults if missing
 set "cfg=%~2"
-set "pgm=%~3"
+set "exe=%~3"
 set "FORCE_ARCH=%~4"
 if "%cfg%"=="" set "cfg=Release"
-if "%pgm%"=="" set "pgm=JJFlexRadio"
+if "%exe%"=="" set "exe=jjflexible"
+set "PKG=JJFlexRadio"
 
 REM Remove unneeded symbol/doc files before packaging to keep installer small
 del /q "%~1\bin\release\*.pdb" >nul 2>&1
@@ -19,7 +29,7 @@ echo Params: configuration="%~2" package="%~3"
 setlocal enabledelayedexpansion
 
 REM Program name (strip surrounding quotes)
-echo Program: %pgm%
+echo Package: %PKG%   Executable: %exe%.exe
 
 REM change to the folder passed as first arg
 cd /d "%~1" || (echo Failed to change directory to "%~1" & exit /b 2)
@@ -75,8 +85,8 @@ if "%ARCH%"=="x64" (
     set "PROGFILES=$PROGRAMFILES"
 )
 
-REM Always package the JJFlexRadio.exe we just built. Infer version for naming installers.
-set "PGM_EXE=%OUTDIR%\JJFlexRadio.exe"
+REM Always package the executable we just built. Infer version for naming installers.
+set "PGM_EXE=%OUTDIR%\%exe%.exe"
 if not exist "%PGM_EXE%" (
     echo ERROR: Expected exe "%PGM_EXE%" not found.
     exit /b 6
@@ -86,13 +96,13 @@ REM +commit-hash suffix from SDK source-link metadata, which would pollute the
 REM installer filename.
 set "APPVER=0.0.0.0"
 for /f "usebackq delims=" %%v in (`powershell -NoProfile -Command "(Get-Item '%PGM_EXE%').VersionInfo.FileVersion"`) do set "APPVER=%%v"
-echo Program (final): %pgm%   Version: %APPVER%   Architecture: %ARCH%
+echo Program (final): %PKG%   Executable: %exe%.exe   Version: %APPVER%   Architecture: %ARCH%
 set "VIAPPVER=%APPVER%.0.0.0"
 for /f "tokens=1-4 delims=." %%a in ("%VIAPPVER%") do set "VIAPPVER=%%a.%%b.%%c.%%d"
 
-REM Generate install.nsi with the resolved program name and architecture-specific Program Files
+REM Generate install.nsi with the resolved names and architecture-specific Program Files
 REM Always use PowerShell for reliable path handling (avoids sed backslash issues)
-powershell -NoProfile -Command "$c = Get-Content 'install template.nsi' -Raw; $c = $c.Replace('MYPGM','%pgm%').Replace('MYVER','%VIAPPVER%').Replace('MYOUTDIR','%OUTDIR%').Replace('MYPROGFILES','%PROGFILES%'); Set-Content -Encoding ASCII 'install.nsi' $c" || (echo PowerShell replace failed & exit /b 5)
+powershell -NoProfile -Command "$c = Get-Content 'install template.nsi' -Raw; $c = $c.Replace('MYPGM','%PKG%').Replace('MYEXE','%exe%').Replace('MYVER','%VIAPPVER%').Replace('MYOUTDIR','%OUTDIR%').Replace('MYPROGFILES','%PROGFILES%'); Set-Content -Encoding ASCII 'install.nsi' $c" || (echo PowerShell replace failed & exit /b 5)
 
 REM Sprint 29 Track J: build the deleteList.txt via generate-deletelist.ps1.
 REM Self-contained .NET 10 brings 13 satellite-resource subdirs (cs/, de/, es/,
@@ -125,7 +135,7 @@ echo Running makensis to create installer...
 echo makensis exit code: %ERRORLEVEL%
 
 REM Rename installer with architecture suffix (short name: JJFlex)
-set "VERSIONED_SETUP=%~1\Setup %pgm%_%VIAPPVER%.exe"
+set "VERSIONED_SETUP=%~1\Setup %PKG%_%VIAPPVER%.exe"
 set "ARCH_SETUP=%~1\Setup JJFlex_%APPVER%_%ARCH%.exe"
 set "LEGACY_SETUP=%~1\Setup JJFlex_%ARCH%.exe"
 

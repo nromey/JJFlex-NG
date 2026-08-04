@@ -4,6 +4,16 @@
 ; has uninstall support and (optionally) installs start menu shortcuts.
 ;
 ; It will install JJFlexRadio.nsi into a directory that the user selects,
+;
+; TOKENS substituted by install.bat:
+;   MYPGM        package identity — "JJFlexRadio". Drives the install directory,
+;                the registry keys, and the shortcut names. Deliberately NOT the
+;                executable name: keeping it stable is what makes an upgrade land
+;                on top of an existing 4.x install instead of beside it.
+;   MYEXE        executable base name — "jjflexible" (so "$INSTDIR\MYEXE.exe").
+;   MYVER        4-part version
+;   MYOUTDIR     build output directory to package
+;   MYPROGFILES  $PROGRAMFILES64 or $PROGRAMFILES
 
 ;--------------------------------
 
@@ -76,7 +86,30 @@ Section "MYPGM (required)"
 
   ; Include changelog
   File "docs\CHANGELOG.md"
-  
+
+  ; --- Upgrade cleanup: retire the pre-rename executable -------------------
+  ; Up to 4.x the app shipped as JJFlexRadio.exe. deleteList.txt is generated
+  ; from the NEW publish output, so nothing else removes the old file set —
+  ; an upgraded machine would keep a launchable stale exe sitting next to the
+  ; new one. Delete the old exe and its paired runtime files explicitly.
+  ; NOTE: JJFlexRadio.chm is NOT in this list. The help file keeps its name
+  ; (HelpLauncher.cs looks it up literally) and is still shipped.
+  Delete "$INSTDIR\JJFlexRadio.exe"
+  Delete "$INSTDIR\JJFlexRadio.dll"
+  Delete "$INSTDIR\JJFlexRadio.pdb"
+  Delete "$INSTDIR\JJFlexRadio.deps.json"
+  Delete "$INSTDIR\JJFlexRadio.runtimeconfig.json"
+  Delete "$INSTDIR\JJFlexRadio.dll.config"
+  Delete "$INSTDIR\JJFlexRadio.xml"
+
+  ; Old shortcuts point at the exe we just deleted. Remove them here rather
+  ; than only in the shortcut sections below — those are optional components,
+  ; and a user who unticks them on upgrade would otherwise be left with Start
+  ; Menu and desktop shortcuts that launch nothing. The sections re-create
+  ; them immediately after if selected.
+  Delete "$SMPROGRAMS\MYPGM.lnk"
+  Delete "$DESKTOP\MYPGM.lnk"
+
   ; Write the installation path into the registry
   WriteRegStr HKLM "SOFTWARE\MYPGM" "Install_Dir" "$INSTDIR"
   
@@ -98,7 +131,7 @@ Section "Start Menu Shortcuts"
   ; working dirrectory
   SetOutPath $INSTDIR
   
-  CreateShortcut "$SMPROGRAMS\MYPGM.lnk" "$INSTDIR\MYPGM.exe" ""
+  CreateShortcut "$SMPROGRAMS\MYPGM.lnk" "$INSTDIR\MYEXE.exe" ""
   
 SectionEnd
 
@@ -111,7 +144,7 @@ Section "Desktop Shortcuts"
   ; working dirrectory
   SetOutPath $INSTDIR
   
-  CreateShortcut "$DESKTOP\MYPGM.lnk" "$INSTDIR\MYPGM.exe" ""
+  CreateShortcut "$DESKTOP\MYPGM.lnk" "$INSTDIR\MYEXE.exe" ""
   
 SectionEnd
 ;--------------------------------
@@ -136,6 +169,16 @@ Section "Uninstall"
   ; up automatically.
 !include "deleteList.txt"
   Delete "$INSTDIR\uninstall.exe"
+
+  ; Pre-rename leftovers, in case this install dir was upgraded from a 4.x
+  ; JJFlexRadio.exe build before the install-time cleanup above existed.
+  Delete "$INSTDIR\JJFlexRadio.exe"
+  Delete "$INSTDIR\JJFlexRadio.dll"
+  Delete "$INSTDIR\JJFlexRadio.pdb"
+  Delete "$INSTDIR\JJFlexRadio.deps.json"
+  Delete "$INSTDIR\JJFlexRadio.runtimeconfig.json"
+  Delete "$INSTDIR\JJFlexRadio.dll.config"
+  Delete "$INSTDIR\JJFlexRadio.xml"
 
   ; Remove shortcuts, if any
   Delete "$SMPROGRAMS\MYPGM.lnk"
