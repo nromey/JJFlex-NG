@@ -269,6 +269,16 @@ public partial class MainWindow : UserControl
                 {
                     message = $"Connected to {model}, {connType}";
                 }
+
+                // A startup advisory may be up (or about to be) — speaking the
+                // slice rundown now would stomp the dialog the user is reading.
+                // Park it; RunStartupAdvisories speaks it when the last
+                // advisory closes.
+                if (_advisorySequenceActive)
+                {
+                    _deferredConnectStatus = message;
+                    return;
+                }
                 Radios.ScreenReaderOutput.Speak(message, VerbosityLevel.Critical);
             });
         });
@@ -1268,9 +1278,31 @@ public partial class MainWindow : UserControl
     /// </summary>
     private async void RunStartupAdvisories()
     {
-        await SuggestRegistrationIfUnregisteredAsync();
-        await SuggestFirmwareUpdateIfAvailableAsync();
+        _advisorySequenceActive = true;
+        try
+        {
+            await SuggestRegistrationIfUnregisteredAsync();
+            await SuggestFirmwareUpdateIfAvailableAsync();
+        }
+        finally
+        {
+            _advisorySequenceActive = false;
+            // Connect status that arrived while an advisory was up gets its
+            // turn now that the user is done reading.
+            string? deferred = _deferredConnectStatus;
+            _deferredConnectStatus = null;
+            if (deferred != null)
+                Radios.ScreenReaderOutput.Speak(deferred, VerbosityLevel.Critical);
+        }
     }
+
+    /// <summary>
+    /// True while the startup-advisory chain is running. SpeakConnectStatus
+    /// checks it so the slice rundown never talks over an open advisory;
+    /// both run on the dispatcher thread, so no locking is needed.
+    /// </summary>
+    private bool _advisorySequenceActive;
+    private string? _deferredConnectStatus;
 
     /// <summary>
     /// Serials already offered the registration suggestion this app run, so a

@@ -73,6 +73,14 @@ public sealed class AdvisoryDialog : JJFlexDialog
             Margin = new Thickness(0, 12, 0, 0),
         };
 
+        // Tab order: text, then the buttons (the likely next act), then the
+        // rarely-wanted suppression checkbox last — even though the checkbox
+        // sits above the buttons visually.
+        System.Windows.Input.KeyboardNavigation.SetTabIndex(text, 1);
+        System.Windows.Input.KeyboardNavigation.SetTabIndex(buttons, 2);
+        if (_dontShowAgain != null)
+            System.Windows.Input.KeyboardNavigation.SetTabIndex(_dontShowAgain, 3);
+
         foreach (var action in actions)
         {
             var button = new Button
@@ -104,6 +112,11 @@ public sealed class AdvisoryDialog : JJFlexDialog
             IsCancel = true,
         };
         AutomationProperties.SetName(close, "Close");
+        // IsDefault registers the literal \r character as an access key, and
+        // NVDA reads it back as "Close button, carriage return". Explicit
+        // values preempt the phantom one.
+        AutomationProperties.SetAccessKey(close, "Alt+C");
+        AutomationProperties.SetAcceleratorKey(close, "Enter");
         close.Click += (_, _) =>
         {
             if (DialogResult == null) DialogResult = false;
@@ -116,19 +129,30 @@ public sealed class AdvisoryDialog : JJFlexDialog
     }
 
     /// <summary>
+    /// Two NVDA-specific quirks handled here so no call site has to care.
+    /// Callers write \n freely; a WPF TextBox exposes bare \n or stray \r to
+    /// UIA as control characters, so everything is normalized to \r\n. And a
+    /// truly empty line collapses to a degenerate UIA text range that NVDA
+    /// expands to the neighboring line — so arrowing onto a paragraph gap
+    /// re-reads the previous line instead of saying "blank" (JAWS is
+    /// unaffected). A single space on each empty line keeps the range real;
+    /// NVDA reads whitespace-only lines as "blank", which is the behavior
+    /// the user expects.
+    /// </summary>
+    private static string NormalizeLineBreaks(string s)
+    {
+        var lines = s.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
+        for (int i = 0; i < lines.Length; i++)
+            if (lines[i].Length == 0)
+                lines[i] = " ";
+        return string.Join("\r\n", lines);
+    }
+
+    /// <summary>
     /// Show the advisory modally. No-op when <paramref name="suppressKey"/> is
     /// already suppressed; passing a key also adds the "Don't show this again"
     /// checkbox. Any chosen action runs after the dialog closes.
     /// </summary>
-    /// <summary>
-    /// Callers write \n freely; a WPF TextBox exposes bare \n or stray \r to
-    /// UIA as control characters, which NVDA announces as "carriage return"
-    /// when the caret crosses them. Normalize every body to \r\n here so no
-    /// call site has to care.
-    /// </summary>
-    private static string NormalizeLineBreaks(string s) =>
-        s.Replace("\r\n", "\n").Replace('\r', '\n').Replace("\n", "\r\n");
-
     public static void Show(string title, string body, string? suppressKey = null,
         params AdvisoryAction[] actions)
     {
