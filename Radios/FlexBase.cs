@@ -1948,8 +1948,49 @@ namespace Radios
                 "That check is required by FlexRadio and cannot be skipped or done remotely — which is why a radio " +
                 "must be registered before it is shipped anywhere.");
 
+            string jacks = PhysicalKeyingGuidance();
+            if (jacks != null)
+                check.Warnings.Add(jacks);
+
             check.CanProceed = true;
             return check;
+        }
+
+        /// <summary>
+        /// Tactile, model-specific directions for plugging in a microphone or
+        /// CW key well enough to key the radio — for the registration
+        /// proof-of-presence and for first PTT generally. "Key the mic" is an
+        /// instruction that assumes eyes; this is the app doing the looking.
+        ///
+        /// FLEX-8400/8600 facts verified against the FlexRadio FLEX-8000
+        /// Hardware Reference Manual v1.0 (11/2024), sections 1.4, 19.4-19.5,
+        /// 20.6, including the rear-panel photographs: standard models have a
+        /// bare front panel (power button only); MIC, KEY, PHONES and PTT are
+        /// all rear-panel; the MIC jack carries NO PTT — the FHM-3's PTT
+        /// button only works with its second, RCA plug in the PTT jack.
+        ///
+        /// Returns null for models we have not physically verified (6000
+        /// series, Aurora): wrong tactile directions are worse than none.
+        /// Aurora is "based on" the 8400/8600 but its panel has not been
+        /// confirmed — do not fold it in without checking its manual.
+        /// </summary>
+        private string PhysicalKeyingGuidance()
+        {
+            string model = RadioModel ?? string.Empty;
+            if (!model.Contains("8400") && !model.Contains("8600"))
+                return null;
+
+            return
+                $"Where to plug in on a {model}: every jack is on the rear panel — the front has only the power button. " +
+                "Facing the back, find the VGA-style accessory connector with its two screw posts, right of center; it is " +
+                "the easiest landmark to identify by touch. Just left of it is a square of four identical small jacks in " +
+                "two columns of two. The microphone jack is the bottom jack of the column nearest the accessory " +
+                "connector, and the CW key jack is directly above it. " +
+                "The hand mic that came with the radio has two plugs, and both matter: the small plug goes into that " +
+                "microphone jack, and the RCA plug goes into the push-to-talk jack — the top-left RCA in the block of " +
+                "eight RCA jacks just right of the accessory connector. Without the RCA plug, the mic's PTT button " +
+                "does nothing at all. " +
+                "A CW key or paddle plugged into the key jack also works for this, and needs only its one plug.";
         }
 
         /// <summary>Answer to "is the connected radio registered to the signed-in account?"</summary>
