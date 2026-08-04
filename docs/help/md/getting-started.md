@@ -11,7 +11,7 @@ This guide walks you through installing JJ Flexible Radio Access and connecting 
 
 ## Installation
 
-1. Run the installer (`Setup JJFlexRadio_x64.exe` for 64-bit Windows, or `Setup JJFlexRadio_x86.exe` for 32-bit systems).
+1. Run the installer. It's named for the version you downloaded — `Setup JJFlex_4.2.0_x64.exe` for 64-bit Windows, or `Setup JJFlex_4.2.0_x86.exe` for 32-bit systems.
 2. Follow the prompts. The default install location is fine for most people.
 3. Launch JJ Flexible Radio Access from the Start menu or the desktop shortcut. When the application starts up, you'll hear "Welcome to JJ Flexible Radio Access" spoken.
 

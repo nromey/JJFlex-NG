@@ -1,6 +1,8 @@
 # JJ Flexible Radio Access
 
-Windows desktop application for controlling FlexRadio transceivers (6000/8000 series). Alternative UI to SmartSDR, created by Jim Shaffer, maintained by Noel Romey (K5NER). Current version: 4.1.16, using **FlexLib v4.1.5.39794** (upgraded 2026-03-18 in `506c2ff9` for 8000-series/Aurora compatibility; the 4.2.18 merge was reverted 2026-05-15, restoring 4.1.5). This line said "4.1.15 / FlexLib v4.0.1" until 2026-08-03 — both were stale. Internal name remains `JJFlexRadio` (exe, AppData, registry).
+Windows desktop application for controlling FlexRadio transceivers (6000/8000 series). Alternative UI to SmartSDR, created by Jim Shaffer, maintained by Noel Romey (K5NER). Current version: 4.1.16, using **FlexLib v4.1.5.39794** (upgraded 2026-03-18 in `506c2ff9` for 8000-series/Aurora compatibility; the 4.2.18 merge was reverted 2026-05-15, restoring 4.1.5). This line said "4.1.15 / FlexLib v4.0.1" until 2026-08-03 — both were stale.
+
+**Naming, as of the 2026-08-04 rename:** the shipped executable is `jjflexible.exe` (renamed ahead of the first code-signed release so SmartScreen reputation accrues to the final file identity). Everything else keeps the `JJFlexRadio` name on purpose — AppData (`%AppData%\JJFlexRadio\`), the HKLM registry keys, the install directory (`Program Files\JJFlexRadio`), the Start Menu/desktop shortcut names, `JJFlexRadio.chm`, the solution and project filenames, and the support DLLs (`Radios.dll`, `JJFlexWpf.dll`, …). Existing installs upgrade in place and keep their settings. `RootNamespace` stays `JJRadio`.
 
 ## Decision-Making Mindset
 
@@ -21,8 +23,8 @@ You are a pair coder, not a human contractor. Do NOT constrain decisions by huma
 | Build (Debug) | `dotnet build JJFlexRadio.sln -c Debug -p:Platform=x64` |
 | Rebuild (Release) | `dotnet clean JJFlexRadio.sln -c Release -p:Platform=x64 && dotnet build JJFlexRadio.sln -c Release -p:Platform=x64` |
 | Installer | Runs automatically after Release build |
-| Output x64 | `bin\x64\Release\net10.0-windows\win-x64\JJFlexRadio.exe` |
-| Output x86 | `bin\x86\Release\net10.0-windows\win-x86\JJFlexRadio.exe` |
+| Output x64 | `bin\x64\Release\net10.0-windows\win-x64\jjflexible.exe` |
+| Output x86 | `bin\x86\Release\net10.0-windows\win-x86\jjflexible.exe` |
 | Installer x64 | `Setup JJFlex_[version]_x64.exe` |
 | Installer x86 | `Setup JJFlex_[version]_x86.exe` |
 
@@ -129,7 +131,7 @@ dotnet clean JJFlexRadio.sln -c Release -p:Platform=x64 && dotnet build JJFlexRa
 **After every build, verify the exe timestamp matches the current time.** Stale binaries have wasted entire testing sessions. Run:
 
 ```batch
-powershell -Command "(Get-Item 'bin\x64\Release\net10.0-windows\win-x64\JJFlexRadio.exe').LastWriteTime.ToString('yyyy-MM-dd HH:mm:ss')"
+powershell -Command "(Get-Item 'bin\x64\Release\net10.0-windows\win-x64\jjflexible.exe').LastWriteTime.ToString('yyyy-MM-dd HH:mm:ss')"
 ```
 
 If the timestamp doesn't match the current time, the build did NOT produce a fresh binary. Also note: building the **solution** (`JJFlexRadio.sln`) may skip the main project — always build the **project** directly (`JJFlexRadio.vbproj`) to be safe.
@@ -180,7 +182,7 @@ output to build the NSIS uninstaller's deleteList — every file gets a
 introduced by future SDK upgrades clean up automatically.
 
 **Fresh-VM verification (mandatory before public release):** install on
-a Windows VM that has never had .NET 10. JJFlexRadio.exe must launch and
+a Windows VM that has never had .NET 10. jjflexible.exe must launch and
 display Home without prompting for a runtime install. The first user
 install is the load-bearing accessibility test.
 
@@ -271,7 +273,7 @@ dotnet clean JJFlexRadio.vbproj -c Release -p:Platform=x86 && dotnet build JJFle
 
 **Verify the version before distributing:**
 ```batch
-powershell -Command "(Get-Item 'bin\x64\Release\net10.0-windows\win-x64\JJFlexRadio.exe').VersionInfo.ProductVersion"
+powershell -Command "(Get-Item 'bin\x64\Release\net10.0-windows\win-x64\jjflexible.exe').VersionInfo.ProductVersion"
 ```
 
 ### Creating a GitHub Release
@@ -334,7 +336,7 @@ Content flows forward: nightly → stable → public. Nothing skips tiers. See `
 
 1. Verify a fresh Debug x64 build exists:
    - `dotnet build JJFlexRadio.sln -c Debug -p:Platform=x64 --verbosity minimal`
-   - Confirm exe timestamp is current: `powershell -Command "(Get-Item 'bin\x64\Debug\net10.0-windows\win-x64\JJFlexRadio.exe').LastWriteTime"`
+   - Confirm exe timestamp is current: `powershell -Command "(Get-Item 'bin\x64\Debug\net10.0-windows\win-x64\jjflexible.exe').LastWriteTime"`
 
 2. Zip the build folder and archive to the NAS historical tree:
    - **Invariant:** a nightly build IS a Debug build, stamped with the full 4-part version. Release installers go through `build-installers.bat` and land in the same per-version historical tree, just under `installers\` / `x64\` / `x86\` instead of `x64-debug\` — do not conflate Debug and Release subfolders.

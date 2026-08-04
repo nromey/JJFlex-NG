@@ -1,6 +1,6 @@
 # Welcome to JJ Flexible Radio Access
 
-JJ Flexible Radio Access (internal binary name `JJFlexRadio`) is a Windows desktop application for controlling FlexRadio FLEX-6000 and FLEX-8000 series transceivers. It was built from the ground up to be fully accessible with screen readers like NVDA and JAWS.
+JJ Flexible Radio Access (the program file is `jjflexible.exe`) is a Windows desktop application for controlling FlexRadio FLEX-6000 and FLEX-8000 series transceivers. It was built from the ground up to be fully accessible with screen readers like NVDA and JAWS.
 
 Whether you are working a pileup on 20 meters or just ragchewing on 80, JJ Flexible Radio Access gives you complete keyboard control of your Flex radio, with clear audio feedback at every step.
 
