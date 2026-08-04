@@ -1939,6 +1939,14 @@ Module globals
 
             Tracing.TraceLine("TryAutoConnectOnStartup: attempting " & _autoConnectConfig.RadioName, TraceLevel.Info)
 
+            ' Announce only when auto-connect actually fires; when it's off the
+            ' selector opens silently. Critical + interrupt so it always speaks --
+            ' the connecting window's own phase speech is verbosity-gated and
+            ' won't reliably name the radio.
+            Radios.ScreenReaderOutput.Speak(
+                "Auto connect enabled, connecting to " & _autoConnectConfig.RadioName,
+                VerbosityLevel.Critical, True)
+
             ' Same connecting window as a manual connect. Without it, auto-connect
             ' was seconds of pure silence -- no phase announcements, no counting
             ' earcons -- and a blind user has no evidence the app is doing anything.

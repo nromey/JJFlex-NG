@@ -129,7 +129,12 @@ namespace JJFlexWpf.Dialogs
 
             InitializeComponent();
 
+            // Reflect the saved setting without firing Checked/Unchecked --
+            // otherwise opening the selector announces "Auto-connect on
+            // startup enabled" as if the user had just toggled it.
+            _suppressGlobalAutoConnectEvent = true;
             GlobalAutoConnectCheckbox.IsChecked = callbacks.GlobalAutoConnectEnabled;
+            _suppressGlobalAutoConnectEvent = false;
 
             // Set up auto-connect timer
             _autoConnectTimer = new DispatcherTimer
@@ -295,6 +300,7 @@ namespace JJFlexWpf.Dialogs
         /// silently clobber state we just read.
         /// </summary>
         private bool _suppressLowBWCheckboxEvent;
+        private bool _suppressGlobalAutoConnectEvent;
 
         private void LowBWCheckBox_Changed(object sender, RoutedEventArgs e)
         {
@@ -497,6 +503,8 @@ namespace JJFlexWpf.Dialogs
 
         private void GlobalAutoConnectCheckbox_Changed(object sender, RoutedEventArgs e)
         {
+            if (_suppressGlobalAutoConnectEvent) return;
+
             var enabled = GlobalAutoConnectCheckbox.IsChecked == true;
             _callbacks.SaveGlobalAutoConnect(enabled);
 
