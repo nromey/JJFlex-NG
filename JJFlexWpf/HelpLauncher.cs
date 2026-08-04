@@ -78,6 +78,7 @@ namespace JJFlexWpf
             { "WelcomeDialog", "pages/getting-started.htm" },
             { "ConnectDialog", "pages/connection-troubleshooting.htm" },
             { "WhatsNew", "pages/whats-new.htm" },
+            { "KnowYourRadio", "pages/know-your-radio.htm" },
         };
 
         public static void Initialize()

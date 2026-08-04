@@ -21,13 +21,24 @@ namespace JJFlexWpf.Dialogs
     /// </summary>
     public partial class ConfirmActionDialog : JJFlexDialog
     {
+        private readonly string? _radioModel;
+
+        /// <param name="radioModel">
+        /// The connected radio's model, for actions that ask the user to go and touch
+        /// the radio. When a verified panel reference exists for it, the dialog grows
+        /// a "Where are the jacks on my radio?" button — being told to key the
+        /// microphone is not much help if nobody has said where the microphone plugs
+        /// in. Left null, or set to a model we have not verified, the button stays
+        /// hidden: a button that leads to an apology is worse than no button.
+        /// </param>
         public ConfirmActionDialog(
             string title,
             string message,
             IReadOnlyList<string>? warnings = null,
             string question = "Continue?",
             string yesLabel = "_Yes",
-            string noLabel = "_No")
+            string noLabel = "_No",
+            string? radioModel = null)
         {
             InitializeComponent();
 
@@ -37,6 +48,7 @@ namespace JJFlexWpf.Dialogs
             QuestionBlock.Text = question;
             YesButton.Content = yesLabel;
             NoButton.Content = noLabel;
+            _radioModel = radioModel;
 
             if (warnings != null && warnings.Count > 0)
             {
@@ -44,7 +56,20 @@ namespace JJFlexWpf.Dialogs
                 WarningsList.Visibility = Visibility.Visible;
             }
 
+            if (RadioPanelGuide.HasGuide(radioModel))
+                JacksButton.Visibility = Visibility.Visible;
+
             Loaded += (s, e) => NoButton.Focus();
+        }
+
+        /// <summary>
+        /// Open the panel reference over this dialog. It stays open underneath, so
+        /// the user reads, closes, and answers the question they were already on —
+        /// looking something up should not cost them their place.
+        /// </summary>
+        private void JacksButton_Click(object sender, RoutedEventArgs e)
+        {
+            RadioPanelGuide.Show(_radioModel, this);
         }
 
         private void YesButton_Click(object sender, RoutedEventArgs e)

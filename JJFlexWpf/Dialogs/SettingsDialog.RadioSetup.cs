@@ -284,7 +284,8 @@ namespace JJFlexWpf.Dialogs
                 $"JJ Flex will register this radio to your SmartLink account, {check.AccountEmail}.",
                 check.Warnings,
                 question: "Have the microphone or CW key ready. Continue?",
-                yesLabel: "Re_gister");
+                yesLabel: "Re_gister",
+                radioModel: _rig.RadioModel);
 
             if (confirm.ShowDialog() != true)
             {
@@ -323,7 +324,8 @@ namespace JJFlexWpf.Dialogs
                     "If this radio is somewhere you cannot get to, unregistering it means you cannot get it back without travelling there or asking someone on site.",
                 },
                 question: "This is almost never what you want. Continue?",
-                yesLabel: "_Unregister");
+                yesLabel: "_Unregister",
+                radioModel: _rig.RadioModel);
 
             if (confirm.ShowDialog() != true)
             {
@@ -657,7 +659,8 @@ namespace JJFlexWpf.Dialogs
                 $"JJ Flex will send {check.FileName} ({(check.SizeBytes / 1024.0 / 1024.0):F1} megabytes) to the radio.",
                 warnings,
                 question: "Continue?",
-                yesLabel: "_Send");
+                yesLabel: "_Send",
+                radioModel: _rig.RadioModel);
 
             if (confirm.ShowDialog() != true)
             {

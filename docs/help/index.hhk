@@ -42,6 +42,10 @@
     <param name="Local" value="pages\connection-troubleshooting.htm">
   </OBJECT>
   <LI><OBJECT type="text/sitemap">
+    <param name="Name" value="connectors">
+    <param name="Local" value="pages\know-your-radio.htm">
+  </OBJECT>
+  <LI><OBJECT type="text/sitemap">
     <param name="Name" value="channelization">
     <param name="Local" value="pages\sixty-meters.htm">
   </OBJECT>
@@ -74,8 +78,20 @@
     <param name="Local" value="pages\getting-started.htm">
   </OBJECT>
   <LI><OBJECT type="text/sitemap">
+    <param name="Name" value="front panel">
+    <param name="Local" value="pages\know-your-radio.htm">
+  </OBJECT>
+  <LI><OBJECT type="text/sitemap">
     <param name="Name" value="hotkeys">
     <param name="Local" value="pages\keyboard-reference.htm">
+  </OBJECT>
+  <LI><OBJECT type="text/sitemap">
+    <param name="Name" value="jacks">
+    <param name="Local" value="pages\know-your-radio.htm">
+  </OBJECT>
+  <LI><OBJECT type="text/sitemap">
+    <param name="Name" value="key jack">
+    <param name="Local" value="pages\know-your-radio.htm">
   </OBJECT>
   <LI><OBJECT type="text/sitemap">
     <param name="Name" value="JAWS">
@@ -102,6 +118,10 @@
     <param name="Local" value="pages\meter-tones.htm">
   </OBJECT>
   <LI><OBJECT type="text/sitemap">
+    <param name="Name" value="microphone jack">
+    <param name="Local" value="pages\know-your-radio.htm">
+  </OBJECT>
+  <LI><OBJECT type="text/sitemap">
     <param name="Name" value="modes">
     <param name="Local" value="pages\mode-switching.htm">
   </OBJECT>
@@ -118,12 +138,24 @@
     <param name="Local" value="pages\screen-reader-setup.htm">
   </OBJECT>
   <LI><OBJECT type="text/sitemap">
+    <param name="Name" value="ports">
+    <param name="Local" value="pages\know-your-radio.htm">
+  </OBJECT>
+  <LI><OBJECT type="text/sitemap">
     <param name="Name" value="PTT">
     <param name="Local" value="pages\ptt-transmission.htm">
   </OBJECT>
   <LI><OBJECT type="text/sitemap">
+    <param name="Name" value="PTT jack">
+    <param name="Local" value="pages\know-your-radio.htm">
+  </OBJECT>
+  <LI><OBJECT type="text/sitemap">
     <param name="Name" value="QSO">
     <param name="Local" value="pages\logging.htm">
+  </OBJECT>
+  <LI><OBJECT type="text/sitemap">
+    <param name="Name" value="rear panel">
+    <param name="Local" value="pages\know-your-radio.htm">
   </OBJECT>
   <LI><OBJECT type="text/sitemap">
     <param name="Name" value="screen reader">

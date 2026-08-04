@@ -42,6 +42,7 @@ This release is about the space where you actually spend your time in the app �
 ### Foundation Phase Headlines {#unreleased-headlines}
 
 - [The main screen is now called Home](#home-intro), and it tells you so. From anywhere in the application, press F2 to "go home." Your screen reader will say "Home" plus whichever field you're on — slice, frequency, S-meter, wherever. You may hear more or less speech depending on your speech verbosity setting. No more navigating a "Frequency Display" region whose name never quite told you where you were.
+- [Your radio's panels are described in words now](#know-your-radio), jack by jack, with tactile landmarks instead of "see figure 25-4." There's a page per model under Help, and any dialog that asks you to go touch the radio has a "Where are the jacks on my radio?" button that opens the right one.
 - [Squelch lives in Home now](#squelch-in-home). Arrow right past the S-meter and you'll find it. Press Q from anywhere in Home to toggle it — same muscle memory as M for mute, R for RIT, X for XIT.
 - [Escape](#escape-does-its-job) now closes screen field categories. Press Escape once inside an open field group to close it. Press Escape twice quickly (about half a second between presses) to collapse all open field categories at once. Once the categories are collapsed, you'll be back at Home — because there's no place like home ... there's no place like home ... what? Sorry, fell asleep there for a second, no idea why. This suggestion came from Don, who got really tired of tabbing through large fields just to close them. You've done it right if you hear two tones — can't miss 'em.
 - **The [key map across Home](#universal-keys-from-home) makes sense now.** R toggles RIT from anywhere you press it. X toggles XIT. The `=` key does the old transceive thing (which freed X to do what most hams expect). Pan moves to Page Up / Home / Page Down instead of letter keys, so if your finger slips you don't pan to Patagonia.
@@ -275,6 +276,24 @@ This one's been a long time coming. Up to now, getting a new version of JJ Flexi
 **No silent phone-home.** This is important enough to spell out: JJ Flex only contacts the update server when you've allowed it to. The auto-check toggles are right there in your face, and even with auto-check on, the dialog asks before downloading anything. If something goes wrong fetching the manifest, JJ Flex stays quiet on the launch path — no nag for a transient network blip — but the manual Check for Updates command will tell you what happened so you can troubleshoot.
 
 **Failsafe path.** Most updates use the small delta route, but if for any reason the delta path fails (a partial download, a hash mismatch, anything), JJ Flex automatically falls back to fetching the full installer and running it the old way. You don't see this — it just happens. Either way, you end up on the new version.
+
+[Return to version headlines](#unreleased-headlines)
+
+### Know Your Radio: where the jacks actually are {#know-your-radio}
+
+Here's a thing nobody tells you when a new radio lands on your desk: there are a *lot* of ports back there. The manual in the box will happily explain all of them, right after it shows you a photograph. Which is a great help if you can see the photograph.
+
+So there's a new set of help pages, one per radio, that describe your radio's panels the way you'd actually want them described. Not "see figure 25-4." Instead: find the VGA-style connector with the two screw posts, because it's the easiest thing back there to identify by touch, and now everything else can be described relative to it. Just left of it is a square of four identical little jacks in two columns of two. The microphone jack is the bottom one of the column nearest the accessory connector, and the key jack is directly above it. That kind of thing. Landmarks first, then a full inventory of every jack on both panels.
+
+You'll find these under Help, in a new "Know Your Radio" section, with a page each for the FLEX-6300, the 6400 and 6600, the 6500, the 6700, and the 8400 and 8600 — the M models included, since their jacks live in the same places even though their front panels are covered in knobs.
+
+Better still, you usually won't have to go looking. Any dialog that asks you to go put your hands on the radio — registering with SmartLink, sending firmware — now carries a button reading "Where are the jacks on my radio?" It opens the page for the radio you're actually connected to, sits on top of the dialog you were in the middle of, and drops you right back where you were when you close it. Alt+J gets you there.
+
+**The one that bites people.** Where the hand mic plugs in, and whether that one plug is enough, is *not* the same across the line. On the 6300, 6500 and 6700, the mic goes into a round eight-pin connector on the front, and that single plug carries push-to-talk along with it. On the 6400, 6600 and the whole 8000 series, the mic goes into a small jack on the back and it carries **no** PTT at all — the hand mic has a second RCA plug that has to go into the separate PTT jack, or that PTT button does exactly nothing. That's not a broken radio and it's not a broken mic. The jack simply has no PTT pin. This is the single most useful fact in the whole set of pages, which is why it's on the first one.
+
+**Everything here was checked against the pictures.** Each page was written from FlexRadio's own hardware reference manual for that radio, and then checked against the panel photographs in it — because reading a manual's text without looking at its figures gets jack positions wrong, and confidently wrong directions are worse than none. That's also why the Aurora radios aren't in the list yet. They're built on the 8400 and 8600, but "built on" isn't the same as verified, so rather than a stub page that might send you to the wrong end of the radio, the button just doesn't appear. When their panels get checked against a manual, the page shows up and the button starts offering it.
+
+The FLEX-6500 page says so where it applies, too: FlexRadio documents the 6500 and 6700 rear panels together but only ever photographs the 6700, so that page tells you the connector list is solid and the exact left-to-right positions are a good guide rather than a guarantee. You deserve to know which is which.
 
 [Return to version headlines](#unreleased-headlines)
 
