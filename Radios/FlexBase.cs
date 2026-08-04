@@ -1952,6 +1952,96 @@ namespace Radios
             return check;
         }
 
+        /// <summary>Answer to "is the connected radio registered to the signed-in account?"</summary>
+        public enum SmartLinkRegistrationQuery
+        {
+            /// <summary>Cannot be determined — no account signed in, or SmartLink unreachable.</summary>
+            Unknown,
+            Registered,
+            /// <summary>Not in this account's radio list. It may still be registered to a different account.</summary>
+            NotRegistered,
+        }
+
+        /// <summary>
+        /// Find out whether the connected radio is registered to the signed-in
+        /// SmartLink account.
+        ///
+        /// The radio itself cannot answer this — probed 2026-08-03: there is no
+        /// wan-status query command, the discovery packet carries nothing, and
+        /// FlexLib's WanRadioAuthenticated is dead vendor code that nothing
+        /// assigns. The authority is the SmartLink server's per-account radio
+        /// list, which is also how SmartSDR knows. So this compares the radio's
+        /// serial against that list, connecting the account's SmartLink session
+        /// if one is not already up.
+        ///
+        /// Network-bound: may take several seconds when the session has to be
+        /// established. Callers should treat it as background work, and treat
+        /// Unknown as "say nothing" — a suggestion built on a guess is worse
+        /// than no suggestion.
+        /// </summary>
+        public Task<SmartLinkRegistrationQuery> QuerySmartLinkRegistrationAsync()
+        {
+            var serial = theRadio?.Serial;
+            if (string.IsNullOrEmpty(serial) || !IsConnected)
+                return Task.FromResult(SmartLinkRegistrationQuery.Unknown);
+
+            // Connected over SmartLink is proof of registration by itself.
+            if (theRadio.IsWan)
+                return Task.FromResult(SmartLinkRegistrationQuery.Registered);
+
+            var account = _currentAccount;
+            if (account == null)
+                return Task.FromResult(SmartLinkRegistrationQuery.Unknown);
+
+            // Fresh list already in hand (e.g. the user browsed Remote radios
+            // this session) — answer without touching the network.
+            if (wanListReceived && radios != null)
+                return Task.FromResult(SerialInWanList(serial));
+
+            return Task.Run(() =>
+            {
+                try
+                {
+                    string jwt = GetJwtFromSavedAccount(account);
+                    if (string.IsNullOrEmpty(jwt))
+                    {
+                        Tracing.TraceLine("QuerySmartLinkRegistration: no JWT available", TraceLevel.Info);
+                        return SmartLinkRegistrationQuery.Unknown;
+                    }
+
+                    var result = ConnectToSmartLink(jwt);
+                    // NoRadios is a definitive answer: the session is alive and the
+                    // account simply has no radios — so this one is not registered.
+                    if (result == SmartLinkConnectResult.NoRadios)
+                        return SmartLinkRegistrationQuery.NotRegistered;
+                    if (result != SmartLinkConnectResult.Success)
+                    {
+                        Tracing.TraceLine($"QuerySmartLinkRegistration: SmartLink connect result={result}", TraceLevel.Info);
+                        return SmartLinkRegistrationQuery.Unknown;
+                    }
+
+                    return SerialInWanList(serial);
+                }
+                catch (Exception ex)
+                {
+                    Tracing.TraceLine($"QuerySmartLinkRegistration: {ex.Message}", TraceLevel.Error);
+                    return SmartLinkRegistrationQuery.Unknown;
+                }
+            });
+        }
+
+        private SmartLinkRegistrationQuery SerialInWanList(string serial)
+        {
+            var list = radios;
+            if (list == null) return SmartLinkRegistrationQuery.Unknown;
+            foreach (var r in list)
+            {
+                if (string.Equals(r.Serial, serial, StringComparison.OrdinalIgnoreCase))
+                    return SmartLinkRegistrationQuery.Registered;
+            }
+            return SmartLinkRegistrationQuery.NotRegistered;
+        }
+
         /// <summary>
         /// Register this radio to the signed-in SmartLink account.
         ///

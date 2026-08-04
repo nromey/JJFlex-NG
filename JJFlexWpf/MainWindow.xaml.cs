@@ -1256,6 +1256,63 @@ public partial class MainWindow : UserControl
         PollTimerEnabled = true;
 
         StatusText.Text = "Radio connected — waiting for power on";
+
+        SuggestRegistrationIfUnregistered();
+    }
+
+    /// <summary>
+    /// Serials already offered the registration suggestion this app run, so a
+    /// user who declines is not re-asked on every reconnect.
+    /// </summary>
+    private static readonly HashSet<string> _registrationSuggestedSerials = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// After a local connect, quietly find out whether this radio is registered
+    /// to the signed-in SmartLink account, and suggest Radio Setup if it is not.
+    ///
+    /// Fire-and-forget on purpose: the answer comes from the SmartLink server
+    /// and can take seconds, and a connect must never wait on it. Unknown means
+    /// stay silent — no account signed in or no server reachable is not
+    /// evidence the radio needs registering. Suggested at most once per radio
+    /// per app run.
+    /// </summary>
+    private async void SuggestRegistrationIfUnregistered()
+    {
+        var rig = RigControl;
+        if (rig == null) return;
+
+        try
+        {
+            var result = await rig.QuerySmartLinkRegistrationAsync();
+            if (result != FlexBase.SmartLinkRegistrationQuery.NotRegistered) return;
+
+            string serial = rig.SelectedRadioSerial ?? string.Empty;
+            if (serial.Length == 0 || !_registrationSuggestedSerials.Add(serial)) return;
+            if (!rig.IsConnected) return;
+
+            string account = rig.CurrentSmartLinkAccountEmail;
+            Tracing.TraceLine($"SuggestRegistration: {serial} not registered to {account}", TraceLevel.Info);
+
+            await Dispatcher.BeginInvoke(() =>
+            {
+                string msg =
+                    $"This radio is not registered with your SmartLink account ({account}). " +
+                    "Registering is what lets you reach it from away from home, and it has to be done " +
+                    "from home, on the radio's own network — like now.\n\n" +
+                    "You can register it from the Tools menu: Settings, then the Radio Setup tab, " +
+                    "step 2, Register this radio.";
+                ScreenReaderOutput.Speak(
+                    "This radio is not registered with SmartLink. Details in the message box.",
+                    VerbosityLevel.Terse, interrupt: false);
+                MessageBox.Show(msg, "Radio not registered with SmartLink",
+                    MessageBoxButton.OK, MessageBoxImage.Information);
+            });
+        }
+        catch (Exception ex)
+        {
+            // A failed suggestion must never disturb a working connection.
+            Tracing.TraceLine($"SuggestRegistration: {ex.Message}", TraceLevel.Error);
+        }
     }
 
     /// <summary>

@@ -1,5 +1,7 @@
+using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
+using JJTrace;
 using Radios;
 
 namespace JJFlexWpf.Dialogs
@@ -78,6 +80,47 @@ namespace JJFlexWpf.Dialogs
             RefreshSetupStatuses();
         }
 
+        // Cached answer from the SmartLink server for the current radio. Keyed by
+        // serial so a different radio re-asks; refreshed at most once per dialog
+        // instance because the answer only changes when registration itself runs
+        // (and RegistrationSucceeded covers that case before this text is used).
+        private string? _registrationQuerySerial;
+        private FlexBase.SmartLinkRegistrationQuery? _registrationQueryResult;
+        private bool _registrationQueryInFlight;
+
+        private async void KickRegistrationQuery()
+        {
+            var rig = _rig;
+            if (rig == null || !rig.IsConnected) return;
+
+            string serial = rig.SelectedRadioSerial ?? string.Empty;
+            if (serial.Length == 0) return;
+            if (_registrationQueryInFlight) return;
+            if (_registrationQueryResult != null && serial == _registrationQuerySerial) return;
+
+            _registrationQueryInFlight = true;
+            try
+            {
+                var result = await rig.QuerySmartLinkRegistrationAsync();
+                _registrationQuerySerial = serial;
+                // Unknown is not cached as an answer — leave the neutral text and
+                // let a later refresh try again rather than pinning a shrug.
+                _registrationQueryResult = result == FlexBase.SmartLinkRegistrationQuery.Unknown
+                    ? null
+                    : result;
+                if (_registrationQueryResult != null && IsLoaded)
+                    RefreshSetupStatuses();
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine($"KickRegistrationQuery: {ex.Message}", TraceLevel.Error);
+            }
+            finally
+            {
+                _registrationQueryInFlight = false;
+            }
+        }
+
         private void RefreshSetupStatuses()
         {
             bool connected = _rig != null && _rig.IsConnected;
@@ -130,8 +173,22 @@ namespace JJFlexWpf.Dialogs
             }
             else
             {
-                SetupRegisterStatus.Text =
-                    $"Ready to register to {regCheck.AccountEmail}. " + _rig.RegistrationStateText;
+                // Ask the SmartLink server whether this radio is in the account's
+                // list — the only place the answer exists. Async because it can
+                // take seconds; the text upgrades in place when the answer lands.
+                SetupRegisterStatus.Text = _registrationQueryResult switch
+                {
+                    FlexBase.SmartLinkRegistrationQuery.Registered =>
+                        $"Done. This radio is already registered to {regCheck.AccountEmail}. " +
+                        "You only need the button below to register it again after unregistering.",
+                    FlexBase.SmartLinkRegistrationQuery.NotRegistered =>
+                        $"Not done. This radio is not registered to your SmartLink account ({regCheck.AccountEmail}). " +
+                        "Use Register this radio below — without it, the radio cannot be reached from away from home.",
+                    _ =>
+                        $"Ready to register to {regCheck.AccountEmail}. Checking with SmartLink whether it already is... " +
+                        _rig.RegistrationStateText,
+                };
+                KickRegistrationQuery();
             }
 
             // Step 4 — addressing.

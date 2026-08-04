@@ -81,6 +81,24 @@ public sealed class FirmwareImage
     [JsonPropertyName("min_version_for_direct_update")]
     public string? MinVersionForDirectUpdate { get; set; }
 
+    /// <summary>
+    /// True when this release is a breaking change the user genuinely needs —
+    /// a security fix, a protocol change JJ Flex depends on, or a release
+    /// FlexRadio has flagged as mandatory. The update prompt uses stronger
+    /// language and re-offers more insistently. It still never auto-installs:
+    /// firmware forces a radio reboot and is LAN-only, so applying it is
+    /// always a deliberate user act (policy decided 2026-08-03).
+    /// </summary>
+    [JsonPropertyName("breaking")]
+    public bool Breaking { get; set; }
+
+    /// <summary>
+    /// Plain-language reason shown when <see cref="Breaking"/> is true —
+    /// "why you actually want this one", not a changelog.
+    /// </summary>
+    [JsonPropertyName("breaking_reason")]
+    public string? BreakingReason { get; set; }
+
     [JsonPropertyName("notes")]
     public string? Notes { get; set; }
 
