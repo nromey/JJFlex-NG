@@ -395,6 +395,29 @@ The seal entry's "Cross-surface activity" bullet list MUST cover everything foun
 5. **Commit the day's changes and push the feature branch to origin.** Stage specific files (never `-A` / `.`), commit with the end-of-day seal message format (`End-of-day seal YYYY-MM-DD: <summary>`), then `git push origin <current-branch>`. Pushing is durability insurance — without it, an unbacked-up local repo loses every un-pushed commit if the machine fails. Push to `origin` (nromey's fork), NEVER `upstream` (KevinSShaffer). Feature-branch pushes are backup moves, not release moves — no merge to main implied.
 6. **CLAUDE.md drift check:** If the day's work exposed stale guidance in CLAUDE.md (e.g. referenced a retired script, missed a new workflow), flag for update.
 
+**When a second seal runs on the same calendar date.** Late-night sessions that
+cross midnight get sealed under the new date, so a day that starts with a
+post-midnight seal and then has a normal working session ends up sealing twice.
+That is fine and expected — do not skip the second one. Handle the collisions:
+
+- **Scope the sweep to the delta, not the calendar day.** Diff against the first
+  seal's commit (`git diff --shortstat <first-seal-sha>..HEAD`), not against
+  midnight. Say which commit you measured from.
+- **Agent.md** gets a *new* entry marked as the second seal, with a note at the
+  top saying which window it covers and which commit the delta starts at. Don't
+  edit the first seal's entry — it was true when written.
+- **The AAR is one file per date, not per seal.** Append a `# Part two` section
+  to the existing `YYYY-MM-DD.md` rather than overwriting it or inventing a
+  `-2` suffix. Add a pointer at the top of the file saying two sessions ran and
+  which part is current.
+- **Rigmeter `today` spans both seals** because it counts from local midnight.
+  Report both numbers — the since-midnight figure and the since-first-seal
+  figure — and label which is which. Reporting only the first double-counts the
+  earlier session's work.
+- **Re-run the private-docs backup after writing the AAR** (true of every seal,
+  but easy to miss on the second): step 3 runs early in the sequence and would
+  otherwise snapshot the tree without that day's report in it.
+
 **Key distinction — two layers of debug distribution:**
 - `build-debug.bat --publish` writes to Dropbox `debug\` subfolder. This is tester distribution — Don, Justin, etc. read from here. Can run multiple times a day if you have testers actively hammering a specific fix.
 - `publish-nightly-to-dropbox.ps1` writes to Dropbox TOP LEVEL. This is the end-of-day seal — one artifact per dev day, the "this is where things stand tonight" marker. Not tester-directed; more like a convenient top-level pointer for anyone checking in.

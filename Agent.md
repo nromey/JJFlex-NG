@@ -5,7 +5,12 @@ This document captures the current state of JJ-Flex repository and active work.
 **Repository root:** `C:\dev\JJFlex-NG`
 **Branch:** `main` (post-REVERT of `track/flexlib-42` merge on 2026-05-15 — main is back to pre-FlexLib-4.2.18 substrate after Don's 2026-05-15 LAN trace exposed a vendor-side station-name regression. FlexLib 4.0.1 is in place. Re-merge of FlexLib 4.2.18 now gated on Sprint 29 Phase D firmware-update UI being operational + Don's radio firmware updated. `track/flexlib-42` parked at `9de45c54`. See `memory/project_flexlib_4218_station_name_regression.md` (new), `memory/project_flexlib_4218_merge_sequencing.md` (refreshed 2026-05-15), and `memory/project_main_branch_41_posture.md` (reality-check note added).)
 
-## RESUME HERE — 2026-08-03 LATE EVENING UPDATE: 4.2.20 substrate live, R2 firmware hosting live, regression cleared
+## RESUME HERE — 2026-08-03 SECOND SEAL (late evening): 4.2.20 substrate live, R2 firmware hosting live, regression cleared
+
+> **Two seals ran on 2026-08-03.** The first (`7a1b9a11`, 02:09) closed the session
+> that ran from 08-02 into the early hours. This one closes the 16:51–23:20 daytime
+> and evening session. Everything below the "Cross-surface activity" heading is the
+> delta since `7a1b9a11`, not the whole calendar day.
 
 Supersedes items 2, 3, and 4 of the "Next session" list below — all three happened tonight:
 
@@ -17,6 +22,32 @@ Supersedes items 2, 3, and 4 of the "Next session" list below — all three happ
 - **Tuesday homework answered**: no stepping-stone enforced for cross-major firmware jumps (community-verified v2.12.1→4.x direct); stale radio profiles are the hazard, factory reset is the cure not a preventive; stuck-at-100% = power cycle, not brick.
 
 **Tomorrow's plan (Noel's sequencing):** (0) **wire local Trusted Signing into `build-installers.bat`** — the Azure side is ALREADY PROVISIONED (account `nromey`, profile `romeycert`, eastus; working OIDC pipeline in `C:\dev\Civ-vi-access\.github\workflows\release.yml` — discovered tonight, it was built for Civ VI during the JJFlex gap). Local hook = `az login` + `Invoke-TrustedSigning` PS module signing exe + NSIS installers; Noel needs click-by-click steps and may need to grant his user the Certificate Profile Signer role. Gets Tuesday's installer SIGNED — no SmartScreen scare on Tony's machine. See `memory/project_microsoft_trusted_signing.md` (updated tonight). Then: (1) dress rehearsal per `docs/planning/active/firmware-dress-rehearsal-2026-08-03.md` — registration + firmware 4.1.3→4.2.20 on the 8600; (2) hole-punch testing for Don's path; (3) once Don's radio is reachable, 1Password service account on roarbox (Noel has free-for-life 1PW with enterprise features). Tuesday build decision (4.1.5 vs 4.2.20) rides on how the rehearsal goes. Tuesday delivery: RIM copy-paste primary, R2 URL fallback (upload installer to `installers/` in the bucket at build time). Note: Civ VI Access also has a working GitHub-Releases auto-updater (`GitHubReleasesClient.cs`) — in-house reference for the Sprint 29 updater.
+
+### Cross-surface activity — second seal of 2026-08-03
+
+- **`JJFlex-NG`** — 13 commits since `7a1b9a11`, 56 files, **+5,736 / -2,858**. Almost all of that volume is the vendor drop; **excluding `FlexLib_API/` the authored delta is 13 files, +773 / -52**. `main` advanced to `a6ff9f3b` (GPS dialog speech work), then `track/flexlib-4220` branched off it at `b2d75f63`. Both branches pushed to `origin`; working tree clean. Content: two CLAUDE.md installer-naming corrections, two GPS receiver-module corrections, the firmware-download ProgressBar, the CLAUDE.md FlexLib-version correction, two GPS dialog speech-throttling commits, the 4.2.20 vendor drop, registration detection, the R2 publish script plus the dress-rehearsal doc, and two Agent.md notes.
+- **`nromey/jjf-data`** — one commit, `2f68e2a` at 21:51: firmware manifest for 4.2.20 + 4.2.18, with `*.ssdr` excluded from the sync so blobs never enter git (GitHub's 100 MB limit). Pushed, clean, zero unpushed. Rigmeter does not see this repo.
+- **`jjflexible-connect`** — no commits today; clean, zero unpushed. Scaffolded during the *first* seal's session, so it appears here only as a surface now being swept.
+- **Worktrees** — `jjflex-braille`, `jjflex-flexlib-42`, `jjflex-multi-radio` all idle. Each carries one uncommitted `TRACK-INSTRUCTIONS.md`; that is worktree scaffolding, not work in progress.
+- **Freight Fate** — **7 commits today**, the busiest non-JJFlex surface. Four in the morning from Orinks (clipboard read/write on Linux, the save-restore PR #146 merge, a roadmap doc on the mid-drive-quit gaps that fix leaves open). Three in the evening authored here: the stop bar's steady tone always stopping and sounding calmer (22:20), the merge of Josh's 1.9 release train covering 1.8.6.1 through 1.8.7 (22:40), and `feat/career-1.9` merged into `feat/career-2.0` (22:58). Sits on `feat/career-1.9` with **16 unpushed** and one dirty file (`docs/user-manual-1.9-draft.md`).
+- **Civ VI Access** — no commits today; `main`, 2 dirty (`docs/HANDOFF.md` modified, `docs/CAMM_PORTFOLIO_STRATEGY.md` untracked), **45 unpushed**. It was still load-bearing tonight: the Trusted Signing discovery came *out* of this repo, whose `.github/workflows/release.yml` is the working OIDC pipeline JJFlex will copy. The unpushed counts on both projects are unchanged from the 08-01 and 02:09 seals; the dev mirror preserves their `.git`, and **pushing stays Noel's call** because both have outside contributors.
+- **Memory** — 12 files touched today, **9 of them after the 02:09 seal**: `project_gps_gnss_oscillator_facts` (second correction — the two receiver modules are mutually exclusive, which dissolves the "which jack feeds which receiver" ambiguity entirely), `project_hole_punch_wiring_gap`, `project_flexlib_exact_firmware_version_pin`, `project_firmware_update_transport_protocol` (**the 8400 is `RadioPlatform.BigBend` and takes the FLEX-9600 image, not the 6x00 image** — an earlier draft had it wrong, and acting on that would have sent the wrong firmware to a radio), `project_flexlib42_branch_merge_trap` (the 4.2.20 procedure that worked), `project_flexlib_4218_station_name_regression` (step 5 executed — see below), `project_sprint29_updater_vision` (the two update contracts), `user_1password_free_for_life` (**new**), and `project_microsoft_trusted_signing` (the PROVISIONED section). Plus the MEMORY.md index.
+- **Infrastructure** — **R2 firmware hosting went live tonight**: four images (4.2.20 and 4.2.18, both families) at `data.jjflexible.radio/firmware/` with a manifest, every URL byte-count-verified. NAS reachable throughout; memory snapshotted across all 10 project trees (primary 429.8 KB), Claude state 984 files / 424.5 MB raw → 185.1 MB compressed, private docs 112 files, dev mirror completed. Dropbox `JJFlexRadio\` is **still empty**.
+- **Nightly promotion skipped, deliberately.** `build-debug.bat` never ran, so there is no zip to promote — the newest on NAS is from 5/9. The stronger reason to skip: HEAD is on `track/flexlib-4220`, carrying the same 4.2.x substrate class that produced May's station-name regression. That substrate earns a tester-facing label after the dress rehearsal, not before it.
+- **Docs and scripts** — `docs/planning/active/firmware-dress-rehearsal-2026-08-03.md` (new), `MIGRATION.md` gained the 4.2.18→4.2.20 3-way-merge procedure, `publish-firmware-to-r2.ps1` added at repo root, CLAUDE.md corrected twice (installer naming across five instances, and the stale FlexLib version line).
+
+### Rigmeter snapshot — end of 2026-08-03 (second seal)
+
+- **Grand totals:** authored 867 files / 174,911 lines / 892,604 words; vendor 188 files / 55,414 lines; combined 1,055 files / 230,325 lines / 10,174,334 chars.
+- **Largest projects:** JJFlexWpf 41,997 · docs 40,353 · main_app 33,024 · Radios 25,810 · JJLogLib 5,807 · tools 5,062 · JJFlexUpdater 2,758 · JJFlexControl 1,959.
+- **Vendor:** FlexLib_API **50,384** (up from 48,227 at the 02:09 seal — that +2,157 is the 4.2.20 drop) · PortAudioSharp 3,949 · P-Opus-master 1,081.
+- **Authored by category:** code 114,995 · docs 40,923 · text_data 12,322 · build 6,671.
+- **Languages:** C# 86,250 (75.0%) · VB 18,791 (16.3%) · XAML 5,657 (4.9%) · Python 4,297 (3.7%).
+- **Docs-to-code ratio:** 0.36. Stack-of-printed-pages height 14.0 inches. 82.2 braille volumes; 99.2 hours read aloud at 150 wpm.
+- **Today, both seals combined (since midnight):** 19 commits, 58 files, +7,340 / -2,910.
+- **This seal only (since `7a1b9a11`):** 13 commits, 56 files, +5,736 / -2,858 — or 13 files, +773 / -52 with the vendor drop excluded.
+- NAS snapshot: `historical\stats\2026-08-03-3e934fe9.json`.
+- **Scope caveat:** rigmeter measures `JJFlex-NG` only. It does not see `jjf-data`, `jjflexible-connect`, or Freight Fate's seven commits, so the day's true output is understated.
 
 ## PREVIOUS — 2026-08-03: Radio Setup UI built end to end; registration, hole-punch, GPS and firmware all reachable; 8600 unboxes today
 
