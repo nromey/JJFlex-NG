@@ -1939,6 +1939,13 @@ Module globals
 
             Tracing.TraceLine("TryAutoConnectOnStartup: attempting " & _autoConnectConfig.RadioName, TraceLevel.Info)
 
+            ' Same connecting window as a manual connect. Without it, auto-connect
+            ' was seconds of pure silence -- no phase announcements, no counting
+            ' earcons -- and a blind user has no evidence the app is doing anything.
+            ' The form also gives the attempt a cancel target while it runs.
+            Radios.ConnectionProfiler.Current = New Radios.ConnectionProfiler()
+            ShowConnectingFormOnOwnThread(_autoConnectConfig.RadioName, Radios.ConnectionProfiler.Current)
+
             RigControl = New FlexBase(OpenParms)
 
             ' Wire account selector for SmartLink remote auto-connect
@@ -1952,6 +1959,8 @@ Module globals
                                              End Function
 
             Dim connected = RigControl.TryAutoConnect(_autoConnectConfig)
+            _connectingForm?.CloseForm()
+            _connectingForm = Nothing
 
             If connected Then
                 Tracing.TraceLine("TryAutoConnectOnStartup: success", TraceLevel.Info)
@@ -1965,7 +1974,11 @@ Module globals
                 Case Radios.AutoConnectFailedResult.TryAgain
                     RigControl.Dispose()
                     RigControl = New FlexBase(OpenParms)
+                    Radios.ConnectionProfiler.Current = New Radios.ConnectionProfiler()
+                    ShowConnectingFormOnOwnThread(_autoConnectConfig.RadioName, Radios.ConnectionProfiler.Current)
                     connected = RigControl.TryAutoConnect(_autoConnectConfig)
+                    _connectingForm?.CloseForm()
+                    _connectingForm = Nothing
                     If connected Then
                         Return AutoConnectStartupResult.Connected
                     End If
@@ -1994,6 +2007,8 @@ Module globals
             Return AutoConnectStartupResult.ShowSelector
         Catch ex As Exception
             Tracing.TraceLine("TryAutoConnectOnStartup exception: " & ex.Message, TraceLevel.Error)
+            _connectingForm?.CloseForm()
+            _connectingForm = Nothing
             If RigControl IsNot Nothing Then
                 RigControl.Dispose()
                 RigControl = Nothing
