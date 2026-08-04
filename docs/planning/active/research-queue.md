@@ -12,6 +12,23 @@
 
 - **Phase 0 Section F3-G — rarbox FastAPI receiver setup** — F1-F2 complete via SSH-from-orchestrator (nginx 1.26.3 + certbot 4.0.0 + Python 3.13.5 venv with FastAPI 0.136.1 + uvicorn 0.46.0 + pydantic 2.13.4 + python-multipart 0.0.27). F3-G handed off 2026-05-07 to rarbox-Claude (first trial of "Claude lives on rarbox" execution model) with briefing at `docs/planning/active/rarbox-claude-F3-G-briefing.md`. Storage design: zip on disk (forensic preservation) + SQLite index (triage queries) + JSON sidecar (rebuild source). → memory: `project_claude_as_rarbox_operator.md` (promoted from "SSH" to "lives on" model post-trial)
 
+## Queued — orchestrator session, after Noel starts the B/C2 tracks (2026-08-04)
+
+- **Auto-connect announcement is inverted.** Noel: with auto-connect OFF, speech
+  says "autoconnect enabled" before showing the radio list; with auto-connect ON,
+  nothing is announced and it connects. Desired: ON → speak "Auto connect
+  enabled, connecting to <radio name>" as the attempt starts; OFF → announce
+  nothing. Find the stray "autoconnect enabled" utterance (likely near the
+  selector/startup split in `globals.vb` around `TryAutoConnectOnStartup` /
+  `wpfSelectorProc`) and move the announcement to the enabled path. Builds on
+  `020028fc` (connecting window now shown on auto-connect) — the announcement
+  should lead into the window's phase speech, not duplicate it.
+- **Radio naming, related:** Noel expects to name the radio around registration
+  time. Registration does not name radios — the nickname is a separate radio
+  setting (FlexLib `Radio.Nickname`). Check whether JJ Flex exposes rename
+  anywhere; if not, a rename field on Radio Setup (near step 2) fits the virgin
+  flow. Scope it when working the item above.
+
 ## Queued — agent-ready (fire whenever)
 
 These are bounded research tasks suitable for background agents. Each produces a memo and updates a memory entry.
