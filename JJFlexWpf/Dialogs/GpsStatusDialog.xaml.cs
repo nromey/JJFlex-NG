@@ -14,16 +14,20 @@ namespace JJFlexWpf.Dialogs
     /// property changes and refreshes in place, so a screen reader user can leave
     /// it open and hear the summary line update as satellites come in.
     ///
-    /// Announcements are deliberately conservative. Only a change in the spoken
-    /// summary is announced, not every field update — a GPS reporting satellite
-    /// counts would otherwise talk continuously.
+    /// The view is deliberately SILENT while open. GPS status arrives once per
+    /// second and most fields change on nearly every update, so any automatic
+    /// announcement talks over itself and never completes. The screen refreshes
+    /// at that rate instead and a review cursor reads it on demand. Speech
+    /// happens only when the user presses Speak status.
+    ///
+    /// General rule this follows: standard controls and on-screen text where they
+    /// work, Tolk only where they do not.
     /// </summary>
     public partial class GpsStatusDialog : JJFlexDialog
     {
         private readonly FlexBase? _rig;
         private Action? _unsubscribe;
         private bool _loadingOscillator;
-        private string _lastSpokenSummary = string.Empty;
 
         public GpsStatusDialog(FlexBase? rig)
         {
@@ -33,21 +37,20 @@ namespace JJFlexWpf.Dialogs
             foreach (var (value, label) in FlexBase.OscillatorChoices)
                 OscillatorCombo.Items.Add(new ComboBoxItem { Content = label, Tag = value });
 
-            Refresh(announce: false);
+            Refresh();
 
             Loaded += (s, e) =>
             {
                 // Speak the summary once on open — this is the question the dialog
                 // exists to answer, and making the user hunt for it defeats that.
                 ScreenReaderOutput.Speak(SummaryText.Text, VerbosityLevel.Terse, interrupt: true);
-                _lastSpokenSummary = SummaryText.Text;
             };
 
-            _unsubscribe = _rig?.SubscribeGpsChanges(() => Dispatcher.BeginInvoke(() => Refresh(announce: true)));
+            _unsubscribe = _rig?.SubscribeGpsChanges(() => Dispatcher.BeginInvoke(() => Refresh()));
             Closed += (s, e) => { _unsubscribe?.Invoke(); _unsubscribe = null; };
         }
 
-        private void Refresh(bool announce)
+        private void Refresh()
         {
             var snapshot = _rig?.ReadGpsStatus() ?? new FlexBase.GpsStatusSnapshot();
 
@@ -89,13 +92,12 @@ namespace JJFlexWpf.Dialogs
             DetailUtcText.Text = "GPS time, UTC: " + Or(snapshot.UtcTime, "not reported");
             DetailFreqErrorText.Text = "Frequency error: " + Or(snapshot.FreqError, "not reported");
 
-            // Only speak when the summary actually changed. A GPS updating its
-            // satellite count every second would otherwise never stop talking.
-            if (announce && summary != _lastSpokenSummary)
-            {
-                _lastSpokenSummary = summary;
-                ScreenReaderOutput.Speak(summary, VerbosityLevel.Terse, interrupt: true);
-            }
+            // Deliberately silent. GPS status arrives once a second and several
+            // fields change on nearly every update, so ANY automatic speech here
+            // talks over itself and never finishes a sentence. The screen is
+            // refreshed at that same ~1 Hz instead, which a review cursor can
+            // read at whatever pace the user wants. Speech is on request only,
+            // via the Speak status button.
         }
 
         private static string Or(string value, string fallback)
@@ -122,7 +124,6 @@ namespace JJFlexWpf.Dialogs
 
         private void SpeakStatusButton_Click(object sender, RoutedEventArgs e)
         {
-            _lastSpokenSummary = SummaryText.Text;
             ScreenReaderOutput.Speak(SummaryText.Text, VerbosityLevel.Terse, interrupt: true);
         }
 

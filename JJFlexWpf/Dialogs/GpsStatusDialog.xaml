@@ -32,7 +32,6 @@
                            Style="{StaticResource DialogLabel}"
                            TextWrapping="Wrap"
                            Margin="0,0,0,12"
-                           AutomationProperties.LiveSetting="Polite"
                            AutomationProperties.Name="GPS summary"/>
 
                 <!-- Which hardware is in the box. Separate from the summary
@@ -62,7 +61,6 @@
                            Style="{StaticResource DialogLabel}"
                            TextWrapping="Wrap"
                            Margin="0,0,0,12"
-                           AutomationProperties.LiveSetting="Polite"
                            AutomationProperties.Name="Reference oscillator state"/>
 
                 <!-- Detail fields as labelled lines rather than a grid or table:
