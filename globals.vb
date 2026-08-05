@@ -2395,10 +2395,14 @@ RadioConnected:
 
                 Radios.ConnectionProfiler.Current?.RecordEvent("start_call_begin")
                 Tracing.TraceLine("OpenTheRadio:rig is starting", TraceLevel.Info)
-                rv = RigControl.Start()
+                ' Capture the instance: an error dialog inside Start() pumps messages,
+                ' and a user cancel can run CloseTheRadio (nulling RigControl) before
+                ' Start() returns — reading the global here lost the failure reason.
+                Dim startingRig = RigControl
+                rv = startingRig.Start()
                 Radios.ConnectionProfiler.Current?.RecordEvent("start_call_end", New Dictionary(Of String, Object) From {
                     {"success", rv},
-                    {"failureReason", If(RigControl?.LastStartFailureReason, "")}
+                    {"failureReason", If(startingRig?.LastStartFailureReason, "")}
                 })
 
                 ' If Start() failed because SmartLink connection was too slow or dropped
