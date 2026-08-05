@@ -34,6 +34,47 @@
   **Noel: the C2 session started before item 5 existed — tell it to re-read
   TRACK-INSTRUCTIONS.md.**
 
+## SmartLink registration findings — 2026-08-04 late-night live run (8600 now REGISTERED, via SmartSDR)
+
+The radio got registered tonight through SmartSDR's chooser as a diagnostic;
+JJ Flex's native flow has a structural bug plus a token-architecture gap.
+Evidence and fixes, in priority order:
+
+- **Registration must run chooser-style (no client connected) — JJ Flex
+  registers while connected, and the radio refuses instantly.** Three
+  identical failures while connected (mic+PTT plugged, bare jacks, after a
+  radio reboot): ~24s in `wait_on_connection`, then `wait_on_ptt` →
+  `failed_ptt` in the SAME millisecond — the radio never opened a keying
+  window. SmartSDR (client closed, chooser path) succeeded. FlexLib's
+  `WanRegisterRadio` has both paths built in (the `!already_connected` branch
+  connects TCP itself with `_ignoreConnectedEvents`). Fix for JJ Flex: step 2
+  Register should disconnect the session, register through the
+  not-connected path, then reconnect — with clear speech through all three
+  phases. Note `failed_ptt` was the radio's label for "client connected",
+  NOT a PTT-line problem — worth reporting to Flex via the alpha channel
+  (third-party clients will all hit this; SmartSDR never does).
+- **SmartLink id_tokens live 60 SECONDS** (decoded live: iat 04:21:56, exp
+  04:22:56). Any flow that uses a stored token is using a dead one; only
+  just-in-time refresh works. SmartSDR's architecture confirms: it calls
+  `RefreshIdToken()` immediately before EVERY `WanRegisterRadio`, refresh
+  grant with scope `openid profile`, and USES the returned id_token.
+  **Our codebase's belief that "frtest doesn't return id_token on refresh"
+  (comments in SmartLinkAccountManager + FlexBase) is contradicted by
+  vendor code** — likely scope-related (we send `openid offline_access
+  email profile`; SmartSDR sends exactly `openid profile`). Fix: mirror
+  SmartSDR — JIT refresh (their scope) before register/unregister and in
+  the silent query path; interactive login only when refresh truly fails.
+  This also makes the connect-time registration query answer instead of
+  returning Unknown (tonight it went silent because the stored JWT was
+  expired and silent mode declined to refresh it).
+- **The SmartLink server itself is flaky:** SmartSDR's first registration
+  attempt was refused; second worked. JJ Flex's flow should auto-retry
+  once on a server-side failure before surfacing it.
+- **Registration state speech verified working** through the failures:
+  terminal states now speak at Critical (1657a8b6). The full success
+  sequence has never been heard in JJ Flex — verify it when testing the
+  chooser-style fix via an unregister/re-register cycle at the radio.
+
 ## Queued — agent-ready (fire whenever)
 
 These are bounded research tasks suitable for background agents. Each produces a memo and updates a memory entry.
