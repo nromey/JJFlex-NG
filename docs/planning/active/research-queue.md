@@ -14,6 +14,33 @@
 
 ## Queued — orchestrator session, after Noel starts the B/C2 tracks (2026-08-04)
 
+- **HARDENING (Noel ask, 2026-08-05): trust what the radio reports, and
+  never make a human retype a number the app already knows.** Three
+  layers, strongest first:
+  1. **Surface the `test_connection` results we already collect.** Every
+     remote connect fires it; the server answers `fwdTcp`, `fwdUdp`,
+     `upnpTcp`, `upnpUdp`, `holePunch` — ground truth about reachability
+     from OUTSIDE the network. Today we log it and discard it. On a
+     connect failure this is the entire diagnosis: "the radio reports
+     its forwarded TCP port is not reachable — check the router rule."
+     Don's traces read `fwdTcp=False` for hours while we guessed.
+     (Caveat: don't auto-run the probe on a hole-punched session — it
+     appeared to correlate with session death, see the punch section.)
+  2. **Generate the router rule from radio-reported values.** The radio
+     advertises its external ports (`public_tls_port`/`public_udp_port`)
+     and discovery carries its LAN IP; the internal ports are fixed
+     (TCP 4992, UDP 4991). So the app can emit "Forward external TCP
+     4992 to 192.168.1.x port 4992" verbatim — nobody's memory gets a
+     vote. Pairs with the network identity card (dialogs item 10).
+  3. **Distinguish refused from timed out, and say so.** A sub-200ms TCP
+     failure means the router answered and nothing sits behind the rule;
+     a multi-second timeout means the packets never arrived. Different
+     causes, different user advice, currently both "open failed".
+  Origin: Claude asserted the forwarding ports from memory (below), the
+  wrong numbers reached two people's routers, and the app reported none
+  of the evidence it already had. Memory:
+  `feedback_never_assert_config_values_from_memory.md`.
+
 - **PORT NUMBER CORRECTION (2026-08-05 evening) — the forwarding ports
   are TCP 4992 / UDP 4991, NOT 4994/4993.** Claude asserted 4994/4993
   from memory earlier that day; Don's actual forwarded radio advertises
