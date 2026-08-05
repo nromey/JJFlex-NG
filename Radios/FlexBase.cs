@@ -3355,7 +3355,15 @@ namespace Radios
         {
             string jwt = null;
 
-            using (var form = (AuthFormWebView2)AuthForm.CreateAuthForm())
+            // Manual lifetime, not `using`: this method runs on the SmartLink
+            // background thread, but ShowDialog is marshaled to the UI thread,
+            // so the WebView2's COM objects live there. Disposing from this
+            // thread throws InvalidCastException (E_NOINTERFACE) inside
+            // WebView2's cleanup — an unhandled crash that took the whole
+            // process down live on 2026-08-04. The finally marshals the
+            // dispose back to the UI thread.
+            var form = (AuthFormWebView2)AuthForm.CreateAuthForm();
+            try
             {
                 form.ForceNewLogin = forceNewLogin;
                 form.AccountEmail = _currentAccount?.Email ?? "";
@@ -3493,8 +3501,41 @@ namespace Radios
                 tokens = new[] { $"id_token={jwt}" };
                 #pragma warning restore CS0618
             }
+            finally
+            {
+                DisposeAuthFormOnUiThread(form);
+            }
 
             return jwt;
+        }
+
+        /// <summary>
+        /// Dispose the WebView2 auth form on the UI thread that owns its COM
+        /// objects. See the lifetime note in PerformNewLogin.
+        /// </summary>
+        private void DisposeAuthFormOnUiThread(Form form)
+        {
+            if (form == null) return;
+            try
+            {
+                var parent = Callouts?.ParentWindow as Control;
+                if (parent != null && parent.IsHandleCreated && parent.InvokeRequired)
+                {
+                    parent.Invoke(new Action(() =>
+                    {
+                        try { form.Dispose(); }
+                        catch (Exception ex) { Tracing.TraceLine($"DisposeAuthFormOnUiThread: {ex.Message}", TraceLevel.Error); }
+                    }));
+                }
+                else
+                {
+                    form.Dispose();
+                }
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine($"DisposeAuthFormOnUiThread: {ex.Message}", TraceLevel.Error);
+            }
         }
 
         /// <summary>

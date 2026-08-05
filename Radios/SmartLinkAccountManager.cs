@@ -257,10 +257,16 @@ namespace Radios
                     var expTime = DateTimeOffset.FromUnixTimeSeconds(expUnix).UtcDateTime;
                     var now = DateTime.UtcNow;
                     var delta = expTime - now;
-                    var bufferTime = now.AddMinutes(2);
+                    // Buffer must be far under the token's total lifetime.
+                    // Decoded live 2026-08-04: this tenant issues id_tokens
+                    // that expire 60 SECONDS after issue, so the old 2-minute
+                    // buffer declared every token expired at birth — forcing an
+                    // interactive login on every SmartLink operation all night.
+                    // SmartSDR uses a 10-second threshold; match it.
+                    var bufferTime = now.AddSeconds(10);
                     bool expired = expTime <= bufferTime;
 
-                    Tracing.TraceLine($"IsJwtExpired: exp={expTime:yyyy-MM-dd HH:mm:ss}Z, now={now:yyyy-MM-dd HH:mm:ss}Z, delta={delta.TotalMinutes:F1}min, buffer=2min, expired={expired}", TraceLevel.Info);
+                    Tracing.TraceLine($"IsJwtExpired: exp={expTime:yyyy-MM-dd HH:mm:ss}Z, now={now:yyyy-MM-dd HH:mm:ss}Z, delta={delta.TotalSeconds:F0}s, buffer=10s, expired={expired}", TraceLevel.Info);
                     return expired;
                 }
 
