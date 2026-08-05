@@ -218,6 +218,32 @@ namespace JJFlexWpf.Dialogs
 
         private void RefreshRadiosList()
         {
+            // A LAN radio re-announces about once a second, and every
+            // announcement used to tear the ListBox down and rebuild it —
+            // destroying focused containers, firing spurious SelectionChanged
+            // events with a null selection, and generally moving the floor
+            // under a keyboard user for no visible gain. Rebuild only when the
+            // rendered list actually differs.
+            lock (_radiosLock)
+            {
+                if (RadiosBox.Items.Count == _radiosList.Count)
+                {
+                    bool identical = true;
+                    for (int i = 0; i < _radiosList.Count; i++)
+                    {
+                        if (RadiosBox.Items[i] is not RadioListItem shown
+                            || shown.Serial != _radiosList[i].Serial
+                            || shown.DisplayText != _radiosList[i].DisplayText)
+                        {
+                            identical = false;
+                            break;
+                        }
+                    }
+                    if (identical)
+                        return;
+                }
+            }
+
             var selectedSerial = (RadiosBox.SelectedItem as RadioListItem)?.Serial;
             RadiosBox.Items.Clear();
             lock (_radiosLock)
@@ -560,8 +586,13 @@ namespace JJFlexWpf.Dialogs
             LowBWCheckBox.IsChecked = selected?.LowBW == true;
             _suppressLowBWCheckboxEvent = false;
 
-            // Announce selected item if list has focus
-            if (RadiosBox.IsFocused && selected != null)
+            // Announce selected item if list has focus.
+            // IsKeyboardFocusWithin, NOT IsFocused: once WPF realizes item
+            // containers, keyboard focus lives on the ListBoxItem and the
+            // ListBox itself reports IsFocused == false — which silently killed
+            // every arrow-key announcement (Noel, 2026-08-05: "it's not
+            // actually in the list").
+            if (RadiosBox.IsKeyboardFocusWithin && selected != null)
             {
                 int idx = RadiosBox.SelectedIndex + 1;
                 int count = RadiosBox.Items.Count;

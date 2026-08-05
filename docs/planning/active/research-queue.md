@@ -14,6 +14,50 @@
 
 ## Queued — orchestrator session, after Noel starts the B/C2 tracks (2026-08-04)
 
+- **PORT NUMBER CORRECTION (2026-08-05 evening) — the forwarding ports
+  are TCP 4992 / UDP 4991, NOT 4994/4993.** Claude asserted 4994/4993
+  from memory earlier that day; Don's actual forwarded radio advertises
+  `PublicTlsPort=4992` in the SmartLink radio list, and FlexLib's own
+  defaults are `_commandPort = 4992` for the command channel and 4991
+  for VITA UDP (`VitaSocket(4991, ..., 4991)` on the LAN path).
+  **Noel passed the wrong numbers to Tony — correct them before the ISP
+  provisions anything.** Lesson: read the port out of the code or a
+  live radio-list message, never from memory.
+
+- **Don's forwarded radio refuses TCP (2026-08-05 evening, live trace).**
+  Full remote path works up to the connect: SmartLink session as
+  dbreda@mail.com, `6300inshack status=Available`, `connect_ready`
+  returned a handle, `RequiresHolePunch=False PublicTlsPort=4992
+  IP=204.14.60.56` — then `flexlib_connect_end success=false` **129ms**
+  later. A sub-200ms failure is a refused/unreachable TCP connect, not a
+  timeout: nothing is listening on 204.14.60.56:4992 from outside. So
+  the forward is absent, points at the wrong internal host/port, or the
+  ISP hasn't provisioned it yet. Not a JJ Flex bug — but JJ Flex should
+  SAY that: "the radio's remote port is not reachable — port forwarding
+  may not be set up" instead of a bare "open failed". File with the
+  connectivity-tier UX work.
+
+- **DESIGN (Noel, 2026-08-05): per-account radio-list cache as a fast
+  paint, not an authority.** Store each account's last radio list plus
+  the time it was retrieved; when the user switches to that account,
+  paint the cached list immediately so the picker is populated and
+  speakable at once, kick the live fetch in parallel, and replace +
+  announce ("radio list updated") when it lands. Notes that shape it:
+  (a) switching accounts already builds a NEW session and the server
+  always sends a fresh list on a new session — so the cache buys
+  instant UI and server-flakiness resilience, not fetch avoidance;
+  (b) the failure mode of stale data is a radio that looks connectable
+  and fails 30s later (offline, or now in use), so provenance beats
+  TTL: speak "last known radios for <account>, refreshing" and
+  age-announce entries older than a few minutes rather than hiding
+  them; (c) never connect from cache without a refresh in flight;
+  (d) extend the existing `radioConnectionCacheV1.xml` (already holds
+  serial/firmware/LAN-WAN per radio) with account-keyed lists +
+  timestamp rather than adding a second store — it would also let the
+  picker paint before SmartLink connects at all. Pairs with dialogs
+  track item 15 (announce the active account): from the user's side,
+  "whose radios am I seeing" and "how fresh are they" are one feature.
+
 - **BUG (orchestrator lane, found 2026-08-05 ~4:35pm trace): Remote
   re-click on a live SmartLink session times out 10s waiting for a
   radio list the server never resends.** ConnectToSmartLink re-enters
