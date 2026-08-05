@@ -290,7 +290,7 @@ cellular users succeed today only when their path is fast. The ICMP
 port-unreachable seen was the wake of the radio's shutdown, not its
 cause.
 
-**Fix `75636860` (build 4.1.16.454):** StartEarlyHolePunch — VitaSocket
+**Fix `75636860` (shipped in build 4.1.16.455):** StartEarlyHolePunch — VitaSocket
 + registration loop start BEFORE the TCP connect; loop no longer waits
 for ClientHandle (handle=0x0 datagrams hold the NAT doors open) and
 gates on _udpPunchActive instead of Connected. Composes with the
