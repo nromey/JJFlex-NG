@@ -83,8 +83,9 @@ public partial class MainWindow
             parts.Add(
                 "Updating is always your call — JJ Flexible Radio Access never installs firmware on " +
                 "its own. Please note the update restarts the radio and takes some time to complete. " +
-                "JJ Flex downloads the firmware from the JJ Flexible cloud servers and guides you " +
-                "through sending it to the radio. FlexRadio recommends staying on current firmware. " +
+                "JJ Flex downloads the firmware from the JJ Flexible cloud servers, guides you " +
+                "through sending it to the radio, and when the radio comes back up, verifies the new " +
+                "firmware is installed. FlexRadio recommends staying on current firmware. " +
                 "When you are ready, step 3 on the Radio Setup tab starts the process — the Open " +
                 "Radio Setup button below takes you there.");
 
