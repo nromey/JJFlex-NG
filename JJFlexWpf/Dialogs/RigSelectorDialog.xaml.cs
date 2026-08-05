@@ -185,8 +185,18 @@ namespace JJFlexWpf.Dialogs
 
             lock (_radiosLock)
             {
-                _radiosList.RemoveAll(r => r.Serial == radio.Serial);
-                _radiosList.Add(radio);
+                // Replace IN PLACE, never remove-then-append. A LAN radio
+                // re-announces itself roughly once a second, and appending moved
+                // it to the bottom of the list on every packet — so the list
+                // silently reordered under the user between the moment a screen
+                // reader announced a row and the moment they pressed Enter on it.
+                // Noel hit exactly that on 2026-08-05: arrowed to Don's
+                // 6300inshack, pressed Enter, connected to his own 8600.
+                int existing = _radiosList.FindIndex(r => r.Serial == radio.Serial);
+                if (existing >= 0)
+                    _radiosList[existing] = radio;
+                else
+                    _radiosList.Add(radio);
             }
 
             Dispatcher.Invoke(() =>
@@ -224,6 +234,22 @@ namespace JJFlexWpf.Dialogs
                     if (((RadioListItem)RadiosBox.Items[i]).Serial == selectedSerial)
                     {
                         RadiosBox.SelectedIndex = i;
+
+                        // Restoring SelectedIndex does NOT restore keyboard focus:
+                        // Items.Clear() destroyed the focused container, so the
+                        // ListBox's arrow-key anchor falls back to the top of the
+                        // list. The next Down arrow would then move from item 0
+                        // rather than from where the user actually was — landing
+                        // them on a different radio than the one just announced.
+                        if (RadiosBox.IsKeyboardFocusWithin)
+                        {
+                            RadiosBox.UpdateLayout();
+                            if (RadiosBox.ItemContainerGenerator.ContainerFromIndex(i)
+                                    is System.Windows.Controls.ListBoxItem container)
+                            {
+                                container.Focus();
+                            }
+                        }
                         break;
                     }
                 }
