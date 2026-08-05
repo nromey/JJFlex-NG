@@ -188,6 +188,44 @@ no forwarding, PublicTlsPort=-1). Trace: C:\temp\JJFlexRadioTrace-
   NAT. Hotspot CGNAT defeated it; rarbox exit node (or any clean network)
   passes. Tailscale exit node = workable "clean client position" recipe.
 
+## CW output dead on ms-02 — 2026-08-05 pre-bed finding (REOPENS the "73 on close" diagnosis)
+
+Noel's last check before bed: local connect on the ms-02 desktop plays the two
+double beeps but no 73 CW on close — and the CW sound device IS set to Windows
+default, which is correct on that machine. That kills last night's "unset CW
+device" diagnosis. The laptop plays the 73 fine with the same nominal setting,
+so something differs between the two machines in config or code path.
+
+- **Scope**: CW notifications do not fire on ms-02 at all, not just the 73.
+  Treat as "CW output channel dead on this machine," earcons unaffected
+  (double beeps play).
+- **Investigate (queued for later today, Noel's ask)**:
+  1. Diff the JJFlexRadio config folders: ms-02 local `%AppData%\JJFlexRadio\`
+     vs the laptop's copy archived at
+     `\\nas.macaw-jazz.ts.net\jjflex\incoming\laptop-traces\`. Find the
+     setting/state delta (CW device identifier, verbosity/channel flags,
+     per-radio config differences).
+  2. Trace the CW-notifier send path (JJFlexWpf/Radios CW notification code)
+     for silent bail points: device-open failure swallowed, notifier not
+     initialized on this dispatch path, disposed before the async send
+     completes at app exit.
+  3. **Noel's lead hypothesis (2026-08-05): PC audio on/off.** Check whether
+     the CW notifier is gated on (or routed through) the PC-audio /
+     radio-audio-to-computer state, while earcons go straight to the sound
+     device. If PC audio is off on ms-02 and on on the laptop, that's the
+     whole delta. Check first — cheapest to confirm (compare the PC audio
+     setting in the two config trees, then grep the CW send path for a
+     PC-audio gate).
+- **Design ruling (Noel, same message)**: even with PC audio off, CW
+  notifications must still play through the computer/laptop sound device —
+  they're UI feedback like earcons, not radio audio. Whatever the mechanism
+  turns out to be, the fix decouples CW notifications from the PC-audio
+  state.
+- **Cross-ref**: C2 TRACK-INSTRUCTIONS item 9 updated to REOPENED with the
+  same detail. The UX question stands and is now sharpened: a CW path that
+  fails silently is exactly what let this masquerade as a config problem —
+  fallback-to-default-with-spoken-note wants to be the design answer.
+
 ## Queued — agent-ready (fire whenever)
 
 These are bounded research tasks suitable for background agents. Each produces a memo and updates a memory entry.
