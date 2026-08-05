@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Threading;
@@ -27,10 +28,16 @@ namespace JJFlexWpf.Dialogs
             {
                 var autoConn = AutoConnect ? "[AutoConnect] " : "";
                 var lbw = LowBW ? "[LowBW] " : "";
-                var namePart = string.IsNullOrWhiteSpace(Name) ? "Unknown" : Name;
-                var modelPart = string.IsNullOrWhiteSpace(ModelName) ? "Unknown" : ModelName;
-                var serialPart = string.IsNullOrWhiteSpace(Serial) ? "NoSerial" : Serial;
-                return $"{autoConn}{lbw}{namePart} {modelPart} {serialPart}";
+                var namePart = string.IsNullOrWhiteSpace(Name) ? "Unnamed" : Name;
+                var modelPart = string.IsNullOrWhiteSpace(ModelName) ? "Unknown model" : ModelName;
+                // Source, not serial. Two radios that differ only by where they
+                // are were indistinguishable by ear — an unnamed local rig and a
+                // remote one read as near-identical rows of digits. The serial is
+                // rarely what the user needs and never what they navigate by;
+                // making the row configurable (and adding user notes keyed on
+                // serial) is queued as a proper feature.
+                var wherePart = IsRemote ? "remote" : "local";
+                return $"{autoConn}{lbw}{namePart} {modelPart} {wherePart}";
             }
         }
 
@@ -224,6 +231,25 @@ namespace JJFlexWpf.Dialogs
             // events with a null selection, and generally moving the floor
             // under a keyboard user for no visible gain. Rebuild only when the
             // rendered list actually differs.
+            // Remote radios first (Noel, 2026-08-05): pressing Remote means "show
+            // me my remote radios", so they must not sit below locally discovered
+            // ones the user did not ask about. Stable within each group — a LAN
+            // radio re-announcing itself must never reorder anything.
+            lock (_radiosLock)
+            {
+                var ordered = _radiosList
+                    .Select((r, i) => (radio: r, index: i))
+                    .OrderByDescending(x => x.radio.IsRemote)
+                    .ThenBy(x => x.index)
+                    .Select(x => x.radio)
+                    .ToList();
+                if (!_radiosList.SequenceEqual(ordered))
+                {
+                    _radiosList.Clear();
+                    _radiosList.AddRange(ordered);
+                }
+            }
+
             lock (_radiosLock)
             {
                 if (RadiosBox.Items.Count == _radiosList.Count)
