@@ -227,6 +227,114 @@ connect to the 8600, tracing on. Success = trace shows "UDP registration
 succeeded — VITA data flowing" + audio/meters live. Then the night's two
 goals: detached firmware reflash + connect through Don's account.
 
+**CORRECTION + SECOND KILLER FOUND — 2026-08-05 ~10:45am (laptop test of
+4.1.16.452).** The VitaSocket patch worked (trace now narrates: socket
+bound 54625, endpoint 162.200.48.84:54625, registration loop started) and
+promptly exposed that we misread last night: **the punched TCP session
+never survived 34-54s — it dies ~350ms after connect, every time.** The
+34-54s was start_call grinding against a corpse. Re-reading the "SUCCESS"
+trace with fresh eyes: all three sessions across two builds show
+`Connected:False` 5-60ms after `TestConnectionResultsReceived`, 60-78ms
+after `SendTestConnection` — which is OUR OWN Sprint 27 Track C
+`KickPostConnectNetworkTest` firing right after connect. Working
+hypothesis: the radio re-probes its ports (UPnP/forward/hole-punch) when
+told to run test_connection and tears down the live punched TCP session
+in the process. Port-forwarded (Don) and UPnP paths survive it — only
+punch is fragile. **Third member of the detached-client family**
+(registration, firmware, now network test).
+
+Fix in `f842e93f` (build 4.1.16.453): skip the auto post-connect test
+when `RequiresHolePunch`. This is an experiment with a clean readout —
+punched session survives past 1s = probe was the killer; still dies at
+~350ms = something radio-side dooms punched sessions independently
+(alternative hypothesis: radio drops punched clients that don't get UDP
+registered fast enough — deltas from Connected:True were 345/379/360ms,
+also consistent) and rarbox tcpdump is the next lens.
+
+**EXPERIMENT RESULT — NEGATIVE (trace 20260805-105837, build .453).**
+Gate fired ("KickPostConnectNetworkTest: skipped — hole-punched
+session"), no probe ran, session STILL died: Connected:False at +463ms
+(vs 345/379/360ms on prior runs). The network-test correlation was a
+red herring riding a fixed-interval death. Conclusion: the kill is
+radio-side or path-side, ~350-460ms after connect, independent of
+client behavior. Leading hypothesis is now the mirror-image of the
+VitaSocket bug: the RADIO's UDP punch packets toward the client bounce
+(ICMP) if they arrive before the return mapping exists at the exit
+node, and radio firmware treats that as cause to drop the client's TCP
+session. Discriminator: tcpdump on rarbox during a connect — shows who
+RSTs the TCP session, whether radio UDP arrives at all, whether client
+UDP leaves with source port preserved, and any ICMP either direction.
+The skip-gate in f842e93f stays regardless (defense in depth; the probe
+is at minimum useless on a punched session it may also kill).
+
+Filed, not fixed: the USER-initiated Settings "Test network" path
+(`RunNetworkDiagnosticAsync`) would equally kill a live punched session —
+needs warn/defer/detach design, not a silent gate. Also for the Flex
+alpha report: radio's self-test reports holePunch=False while an actual
+punched TCP connection is live, so whatever it probes is not what the
+punch actually uses.
+
+**PCAP VERDICT — ROOT CAUSE FOUND AND FIXED — 2026-08-05 ~11:30am.**
+The laptop session's rarbox capture (results:
+`claude-sync\punch-capture-results-20260805.md`, pcap:
+`incoming\laptop-traces\punch-capture-20260805-111228.pcap`) closed the
+case. The radio punches UDP correctly — 19 packets starting 80ms after
+TCP accept, every 50ms — then gives up at ~904ms with a graceful FIN.
+Our client's first UDP left at ~992ms, gated behind the full TLS + app
+handshake (of which ~415ms is the radio's own TLS response stall). The
+radio quit ~2ms before our first packet arrived. Falsified explicitly:
+radio-doesn't-punch, ICMP-kills-radio, rarbox-port-rewrite, and
+"client-side causes exhausted." NOT a rarbox quirk: any path slow
+enough to push the handshake past ~900ms loses the race — real hotel/
+cellular users succeed today only when their path is fast. The ICMP
+port-unreachable seen was the wake of the radio's shutdown, not its
+cause.
+
+**Fix `75636860` (build 4.1.16.454):** StartEarlyHolePunch — VitaSocket
++ registration loop start BEFORE the TCP connect; loop no longer waits
+for ClientHandle (handle=0x0 datagrams hold the NAT doors open) and
+gates on _udpPunchActive instead of Connected. Composes with the
+SIO_UDP_CONNRESET patch (early punches bounce until the radio's punch
+opens its NAT — the socket now survives that). Validation: re-run the
+rarbox capture — success = radio punch packets forwarded to tailscale0
+AND no FIN AND trace line "UDP registration succeeded — VITA data
+flowing" AND audio.
+
+For the Flex alpha report (from the pcap): (a) the radio's ~415ms TLS
+response stall burns nearly half its own punch budget; (b) the ~900ms
+punch give-up FIN carries no diagnostic and allows no retry; (c) the
+network self-test reports holePunch=False while a punched TCP session
+is live.
+
+**Status change — 2026-08-05 midday (Noel, pre-dentist).** Tony's radio
+handled pragmatically: Noel called Tony, SmartSDR installed there,
+firmware uploaded on-site, and Tony has the radio IP + ports (TCP 4994 /
+UDP 4993) to give his ISP for manual forwards. Urgency off; punch is now
+diligent research, not a rush. Standing plan when Noel returns:
+
+- **Rarbox pcap of OUR punch attempt** — runbook already on NAS
+  (`claude-sync\rarbox-punch-capture-runbook.md`), laptop Claude session
+  drives it. Not yet run as of the dentist break.
+- **SmartSDR as reference implementation (Noel's idea):** run SmartSDR
+  through the same rarbox-exit-node punch scenario and capture ITS
+  packets — same rarbox tcpdump recipe, different client. Compares
+  vendor punch behavior on the wire against ours; if SmartSDR also dies
+  at ~400ms, the bug is radio/firmware-side, full stop. NVDA can't
+  drive SmartSDR's unlabeled buttons well; Noel may want Claude/codex
+  operating the SmartSDR UI via computer control for the clicks. Decide
+  the driving mechanism when he's back.
+- **"Disable hole punch" product option (Noel):** if punch stays broken
+  upstream, JJ Flex should be able to skip doomed punch attempts and
+  fail fast into guidance ("this radio needs port forwarding — here's
+  the recipe"), instead of 30s of silent grinding. Fits the
+  connectivity-tier UX; file into Sprint 29/settings work.
+- **Don's radio (Adirondacks) now has port forwarding on** — connecting
+  through Don's account is the post-dentist test, and it's also the
+  path that exercises the working WAN UDP flow with the new VitaSocket
+  tracing (expect "UDP registration succeeded — VITA data flowing" on a
+  healthy forwarded connect — a nice positive control for the trace
+  instrumentation).
+
 ## CW output dead on ms-02 — RESOLVED 2026-08-05 morning (config: CwNotificationsEnabled=false)
 
 **Root cause found by agent investigation, confirmed via config diff:**
