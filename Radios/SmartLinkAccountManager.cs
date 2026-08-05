@@ -297,7 +297,11 @@ namespace Radios
                     ["grant_type"] = "refresh_token",
                     ["client_id"] = Auth0ClientId,
                     ["refresh_token"] = account.RefreshToken,
-                    ["scope"] = "openid offline_access email profile"
+                    // Exactly SmartSDR's refresh scope (decompile, Auth0Client.
+                    // RefreshIdToken): they get a fresh id_token back with this.
+                    // Our old scope included offline_access/email and we never
+                    // saw an id_token — match the vendor recipe precisely.
+                    ["scope"] = "openid profile"
                 });
 
                 var response = await client.PostAsync($"https://{Auth0Domain}/oauth/token", content);
@@ -319,9 +323,11 @@ namespace Radios
                     return false;
                 }
 
-                // Auth0's frtest tenant does not return id_token on refresh_token grant.
-                // If we got a successful response (access_token + expires_in), the session
-                // is still valid — keep using the saved id_token and update expiry.
+                // With scope "openid profile" the tenant DOES return a fresh
+                // id_token (verified against SmartSDR's shipping code, 2026-08-05;
+                // the old claim that frtest never returns one was an artifact of
+                // our old scope). A response without one still proves the session
+                // is alive — keep the saved id_token and update expiry.
                 if (!string.IsNullOrEmpty(tokenResponse.IdToken))
                 {
                     account.IdToken = tokenResponse.IdToken;

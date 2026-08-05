@@ -3567,13 +3567,34 @@ namespace Radios
             bool isJwtExpired = SmartLinkAccountManager.IsJwtExpired(account.IdToken);
             Tracing.TraceLine($"GetJwtFromSavedAccount: needsRefresh={needsRefresh}, isJwtExpired={isJwtExpired}, hasRefreshToken={!string.IsNullOrEmpty(account.RefreshToken)}", TraceLevel.Info);
 
-            // If the JWT exp claim is expired, we MUST get a new id_token.
-            // Auth0 frtest doesn't return a new id_token on refresh, so token refresh
-            // can't fix an expired JWT — go straight to interactive login.
-            // forceNewLogin only when switching accounts (to clear cached Auth0 session).
+            // The JWT exp claim expires 60 SECONDS after issue on this tenant, so a
+            // stored token is essentially always dead. Try the refresh-token grant
+            // FIRST — SmartSDR does exactly this before every registration and gets
+            // a fresh id_token back (the old belief that "frtest doesn't return
+            // id_token on refresh" is contradicted by the vendor's own shipping
+            // code). Silent, no UI: this is what lets background queries answer.
+            // Only when refresh genuinely fails does interactive login enter.
+            if (isJwtExpired && !string.IsNullOrEmpty(account.RefreshToken))
+            {
+                bool jitRefreshed = false;
+                try
+                {
+                    jitRefreshed = Task.Run(() => AccountManager.RefreshTokenAsync(account)).Result;
+                }
+                catch (Exception ex)
+                {
+                    Tracing.TraceLine($"GetJwtFromSavedAccount: JIT refresh threw: {ex.Message}", TraceLevel.Warning);
+                }
+                if (jitRefreshed)
+                {
+                    isJwtExpired = SmartLinkAccountManager.IsJwtExpired(account.IdToken);
+                    Tracing.TraceLine($"GetJwtFromSavedAccount: JIT refresh ok, isJwtExpired now {isJwtExpired} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+                }
+            }
+
             if (isJwtExpired)
             {
-                Tracing.TraceLine($"GetJwtFromSavedAccount: JWT exp expired, PerformNewLogin for {account.Email} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+                Tracing.TraceLine($"GetJwtFromSavedAccount: JWT still expired, interactive={allowInteractiveLogin} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
                 return allowInteractiveLogin ? PerformNewLogin() : null;
             }
 
