@@ -113,6 +113,38 @@ Evidence and fixes, in priority order:
   (age or size cap) to the crash reporter design. Safe to hand-delete
   pre-August dumps once tonight's copy lands.
 
+## Firmware update live run — 2026-08-05 ~1:15am (FAILED, root-caused, radio unharmed)
+
+First live run of the step 3 pipeline against the 8600 (running 4.1.3):
+catalog fetch, model→family match (FLEX-9600 for BigBend — verified correct),
+download, preflight, send all executed. **The upload died 1.4s in: the radio
+began its update-mode transition, kicked all clients (guiClientRemoved
+my-client in the trace), and RST the in-flight upload socket** (IOException
+"forcibly closed by remote host" inside SendUpdateFile's CopyToAsync). Radio
+rebooted with no valid file, came back on 4.1.3, watcher correctly announced
+VersionUnchanged. Radio unharmed.
+
+**Root cause = same architectural gap as registration: SmartSDR runs firmware
+updates from the radio CHOOSER, detached — no GUI client exists to kick, so
+the transition never races the upload. Our step 3 runs attached.** Fix is the
+same detached pattern now needed by BOTH step 2 (registration) and step 3
+(firmware): disconnect the session, run the operation over a bare connection,
+reconnect after, with speech through every phase. Design them together.
+
+Also from this run:
+- **ConfirmActionDialog warnings unreadable** confirmed again in the firmware
+  confirm (C2 item 5b, second sighting — the do-not-power-off warning is in
+  that unreadable list, which is genuinely dangerous).
+- **No upload progress speech** — SendUpdateFile has no progress callbacks
+  (vendor code swallows everything); at minimum announce "sending, this takes
+  a minute" pacing marks from our side, and the death-at-1.4s case must speak
+  ("the radio closed the connection") instead of sailing on to "waiting for
+  restart".
+- **App-update manifest 404s**: https://data.jjflexible.radio/jjflex-app-manifest.json
+  not published yet — the checker fails quiet (correct), publish when ready.
+- Noel's radio got to 4.2.20 via SmartSDR chooser (pragmatic unblock, also
+  proves the detached path works — pending his confirmation).
+
 ## Queued — agent-ready (fire whenever)
 
 These are bounded research tasks suitable for background agents. Each produces a memo and updates a memory entry.
