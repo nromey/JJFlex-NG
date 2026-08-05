@@ -73,21 +73,26 @@ public partial class MainWindow
             bool local = !rig.IsWanConnection;
             var parts = new List<string>
             {
-                $"Radio firmware {image.Version} is available for this {model}, which is running {running}."
+                $"Newer radio firmware is available for this {model}: version {image.Version}. " +
+                $"The radio is running {running}."
             };
 
             if (image.Breaking && !string.IsNullOrWhiteSpace(image.BreakingReason))
                 parts.Add($"This one matters: {image.BreakingReason}");
 
             parts.Add(
-                "JJ Flex never installs firmware on its own — updating restarts the radio, so it is " +
-                "always your call. When you are ready, Radio Setup step 3 downloads it and sends it " +
-                "to the radio. The Open Radio Setup button below takes you there.");
+                "Updating is always your call — JJ Flexible Radio Access never installs firmware on " +
+                "its own. Please note the update restarts the radio and takes some time to complete. " +
+                "JJ Flex downloads the firmware from the JJ Flexible cloud servers and guides you " +
+                "through sending it to the radio. FlexRadio recommends staying on current firmware. " +
+                "When you are ready, step 3 on the Radio Setup tab starts the process — the Open " +
+                "Radio Setup button below takes you there.");
 
             if (!local)
                 parts.Add(
                     "You are connected over SmartLink right now. Firmware can only be sent from the " +
-                    "radio's own network, so this will have to wait until you are home with it.");
+                    "radio's own network, so this will have to wait until you are on the same network " +
+                    "as the radio.");
 
             string msg = string.Join("\n\n", parts);
             string title = image.Breaking

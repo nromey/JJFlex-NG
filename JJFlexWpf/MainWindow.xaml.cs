@@ -1347,14 +1347,20 @@ public partial class MainWindow : UserControl
                 await Dispatcher.BeginInvoke(() =>
                 {
                     string msg =
-                        "SmartLink is not set up in JJ Flex yet. SmartLink is what lets you use this radio " +
-                        "from away from home — and registering the radio for it has to be done from home, " +
-                        "on the radio's own network, like now.\n\n" +
-                        "Two short steps whenever you are ready: sign in to SmartLink using the " +
-                        "Switch Account button in the radio picker, then register the radio from " +
-                        "Radio Setup, step 2. The Open Radio Setup button below takes you there.\n\n" +
-                        "Everything happens right here in JJ Flex — you do not need SmartSDR or " +
-                        "any other program for any of it.";
+                        "SmartLink is not set up in JJ Flexible Radio Access yet. SmartLink is a service " +
+                        "hosted by FlexRadio Systems that lets you connect to and operate this radio over " +
+                        "the internet when you are away from your shack. Getting going takes two easy " +
+                        "steps. First, you will create a SmartLink account — the account you will use to " +
+                        "log into your radio and other Flex services. Second, you will register this " +
+                        "newfangled radio of yours so Flex knows it is really yours.\n\n" +
+                        "To start, open the Radio menu and choose Manage SmartLink Accounts, then choose " +
+                        "New Login. You can sign in or create your SmartLink account right on the page " +
+                        "that opens. Once you are signed in, step 2 of Radio Setup registers the radio. " +
+                        "Note that you must be at (or near) the radio with a hand microphone or a CW key " +
+                        "plugged in, to prove you are really there — sorry, Flex's rules, not ours.\n\n" +
+                        "The Open Radio Setup button below takes you to the setup path — follow the " +
+                        "bouncing ball. SmartSDR is not required for any of it; you can stay in an " +
+                        "accessible interface for the whole process. Have fun and good luck!";
                     Dialogs.AdvisoryDialog.Show(
                         "SmartLink is not set up", msg,
                         suppressKey: "smartlink-setup",
@@ -1377,11 +1383,13 @@ public partial class MainWindow : UserControl
             {
                 string msg =
                     $"This radio is not registered with your SmartLink account ({account}). " +
-                    "Registering is what lets you reach it from away from home, and it has to be done " +
-                    "from home, on the radio's own network — like now.\n\n" +
-                    "Registration is step 2 on the Radio Setup tab. The Open Radio Setup button " +
-                    "below takes you there. Everything happens right here in JJ Flex — you do " +
-                    "not need SmartSDR or any other program.";
+                    "Registering your radio lets you reach it over the internet when you are away " +
+                    "from your shack, and it tells Flex the radio is yours. Flex requires you to be " +
+                    "physically at the radio with a hand microphone or a CW key plugged in, to prove " +
+                    "someone is really there.\n\n" +
+                    "Select the Open Radio Setup button below to open the setup path — registration " +
+                    "is step 2. It all happens right here in JJ Flexible Radio Access; SmartSDR is " +
+                    "not required.";
                 Dialogs.AdvisoryDialog.Show(
                     "Radio not registered with SmartLink", msg,
                     suppressKey: $"register|{serial}",
