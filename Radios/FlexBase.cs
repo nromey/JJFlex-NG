@@ -1929,7 +1929,7 @@ namespace Radios
                 return check;
             }
 
-            if (_currentAccount == null)
+            if (!TryLoadSavedAccount())
             {
                 check.BlockReason =
                     "No SmartLink account is signed in. Sign in to SmartLink first — the radio is registered to an account, " +
@@ -2041,12 +2041,13 @@ namespace Radios
             if (theRadio.IsWan)
                 return Task.FromResult(SmartLinkRegistrationQuery.Registered);
 
+            // A local connection never loads the account on its own — fall back
+            // to the saved one so the query can give a real answer instead of
+            // an Unknown that silences the not-registered advisory.
+            TryLoadSavedAccount();
             var account = _currentAccount;
             if (account == null)
             {
-                // No session this run. Saved accounts on disk mean SmartLink is
-                // set up and we just cannot answer right now (Unknown); a clean
-                // disk means the user has never set SmartLink up at all.
                 bool anySaved = SmartLinkAccountManager.AnySavedAccounts();
                 Tracing.TraceLine($"QuerySmartLinkRegistration: no current account, savedAccounts={anySaved}", TraceLevel.Info);
                 return Task.FromResult(anySaved
@@ -3145,6 +3146,33 @@ namespace Radios
 
         // Current SmartLink account (for token refresh on re-auth)
         private SmartLinkAccount _currentAccount;
+
+        /// <summary>
+        /// Ensure a SmartLink account session exists, falling back to the most
+        /// recently used saved account. Every path that sets _currentAccount
+        /// otherwise lives in the REMOTE connect flows, so on a purely local
+        /// connection the account was never loaded and everything downstream
+        /// (registration preflight, registration query) wrongly concluded
+        /// "not signed in" — found live 2026-08-04 when the Register button
+        /// stayed grayed on the exact connection type registration requires.
+        /// </summary>
+        private bool TryLoadSavedAccount()
+        {
+            if (_currentAccount != null) return true;
+            try
+            {
+                var accounts = AccountManager.Accounts;
+                if (accounts == null || accounts.Count == 0) return false;
+                _currentAccount = accounts.OrderByDescending(a => a.LastUsed).First();
+                Tracing.TraceLine($"TryLoadSavedAccount: loaded saved account '{_currentAccount.Email}'", TraceLevel.Info);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine($"TryLoadSavedAccount: {ex.Message}", TraceLevel.Error);
+                return false;
+            }
+        }
 
         /// <summary>
         /// Gets the email address of the currently active SmartLink account, if any.
