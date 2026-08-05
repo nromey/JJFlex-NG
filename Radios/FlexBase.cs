@@ -3441,8 +3441,12 @@ namespace Radios
             try
             {
                 form.ForceNewLogin = forceNewLogin;
-                // Cookie profile follows the account being authenticated, not
-                // whichever account happens to be current. See the parameter doc.
+                // AccountEmail follows the account being authenticated, not
+                // whichever account happens to be current. (It no longer selects
+                // a cookie profile — that was reverted in 81b688fe — but keeping
+                // it correct matters if profiles ever return, and it is the
+                // honest value.) Cross-account safety comes from ForceNewLogin
+                // clearing the shared Auth0 cookies plus the identity check below.
                 form.AccountEmail = expectedAccount?.Email ?? _currentAccount?.Email ?? "";
                 if (!string.IsNullOrEmpty(title))
                 {
@@ -3691,9 +3695,18 @@ namespace Radios
             if (isJwtExpired)
             {
                 Tracing.TraceLine($"GetJwtFromSavedAccount: JWT still expired, interactive={allowInteractiveLogin} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
-                // Pass the account: this login is FOR it, so it must use that
-                // account's cookie profile and its identity must match.
-                return allowInteractiveLogin ? PerformNewLogin(account) : null;
+                // Pass the account so the identity check applies, and force a
+                // fresh session when we're authenticating an account other than
+                // the one already signed in — WebView2 uses ONE shared cookie
+                // store (per-account profiles were reverted in 81b688fe over
+                // folder locks), so an existing Auth0 session would otherwise
+                // silently satisfy a request for a different account.
+                bool differentAccount =
+                    _currentAccount != null
+                    && !string.Equals(_currentAccount.Email, account.Email, StringComparison.OrdinalIgnoreCase);
+                return allowInteractiveLogin
+                    ? PerformNewLogin(account, forceNewLogin: differentAccount)
+                    : null;
             }
 
             // Check if account-level token is expired and needs refresh
@@ -3717,9 +3730,18 @@ namespace Radios
                 if (!refreshed)
                 {
                     Tracing.TraceLine($"GetJwtFromSavedAccount: refresh failed, PerformNewLogin for {account.Email} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Warning);
-                    // Pass the account: this login is FOR it, so it must use that
-                // account's cookie profile and its identity must match.
-                return allowInteractiveLogin ? PerformNewLogin(account) : null;
+                    // Pass the account so the identity check applies, and force a
+                // fresh session when we're authenticating an account other than
+                // the one already signed in — WebView2 uses ONE shared cookie
+                // store (per-account profiles were reverted in 81b688fe over
+                // folder locks), so an existing Auth0 session would otherwise
+                // silently satisfy a request for a different account.
+                bool differentAccount =
+                    _currentAccount != null
+                    && !string.Equals(_currentAccount.Email, account.Email, StringComparison.OrdinalIgnoreCase);
+                return allowInteractiveLogin
+                    ? PerformNewLogin(account, forceNewLogin: differentAccount)
+                    : null;
                 }
 
                 // After refresh, check if JWT is still valid
@@ -3728,9 +3750,18 @@ namespace Radios
                 if (isJwtExpired)
                 {
                     Tracing.TraceLine($"GetJwtFromSavedAccount: JWT still expired after refresh, PerformNewLogin for {account.Email} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
-                    // Pass the account: this login is FOR it, so it must use that
-                // account's cookie profile and its identity must match.
-                return allowInteractiveLogin ? PerformNewLogin(account) : null;
+                    // Pass the account so the identity check applies, and force a
+                // fresh session when we're authenticating an account other than
+                // the one already signed in — WebView2 uses ONE shared cookie
+                // store (per-account profiles were reverted in 81b688fe over
+                // folder locks), so an existing Auth0 session would otherwise
+                // silently satisfy a request for a different account.
+                bool differentAccount =
+                    _currentAccount != null
+                    && !string.Equals(_currentAccount.Email, account.Email, StringComparison.OrdinalIgnoreCase);
+                return allowInteractiveLogin
+                    ? PerformNewLogin(account, forceNewLogin: differentAccount)
+                    : null;
                 }
             }
 
