@@ -754,7 +754,25 @@ namespace Radios
                     // the background so the diagnostic report is warm by the
                     // time the user opens Settings or hits a problem. Fire-
                     // and-forget; the session's runner caches the result.
-                    KickPostConnectNetworkTest(theRadio.Serial);
+                    //
+                    // NEVER on a hole-punched session (2026-08-05): the radio
+                    // runs its port probes in response and tears down the live
+                    // punched TCP session while doing so — Connected flipped
+                    // false 5-60ms after TestConnectionResults in all three
+                    // field-test sessions, across two builds. Port-forwarded
+                    // and UPnP paths survive the probe; punch does not. Same
+                    // family as registration/firmware needing a detached
+                    // client. See research-queue "HOLE PUNCH" section.
+                    if (theRadio.RequiresHolePunch)
+                    {
+                        Tracing.TraceLine(
+                            "KickPostConnectNetworkTest: skipped — hole-punched session, radio-side probe would kill it",
+                            TraceLevel.Info);
+                    }
+                    else
+                    {
+                        KickPostConnectNetworkTest(theRadio.Serial);
+                    }
                 }
                 else
                 {
