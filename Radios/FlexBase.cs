@@ -6299,7 +6299,12 @@ namespace Radios
         {
             get
             {
-                return theRadio.ActiveSlice.FilterLow;
+                // Null-conditional matters: the menu bar rebuilds on slice-count
+                // changes, and a network drop fires those DURING teardown when
+                // ActiveSlice is already gone. Unguarded, this getter crash-looped
+                // on every slice event of a dead connection (2026-08-05, four
+                // crash reports in 49 seconds when a VPN came up mid-session).
+                return theRadio?.ActiveSlice?.FilterLow ?? 0;
             }
             set
             {
@@ -6311,7 +6316,7 @@ namespace Radios
         {
             get
             {
-                return theRadio.ActiveSlice.FilterHigh;
+                return theRadio?.ActiveSlice?.FilterHigh ?? 0;
             }
             set
             {

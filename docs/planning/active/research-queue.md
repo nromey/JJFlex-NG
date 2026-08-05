@@ -94,6 +94,19 @@ Evidence and fixes, in priority order:
   local, flip Mullvad on). Full traces each. Watch NegotiatedHolePunchPort
   — the 2026-07-31 wiring fix has still never been observed choosing a
   port.
+- **Crash loop ROOT-CAUSED and half-fixed:** all four 00:31-00:32 crash
+  reports are one bug — `FlexBase.get_FilterLow` NRE (line 6302) via
+  menu rebuild on slice-count change during network teardown. The
+  dispatcher catches it, the next slice event re-fires it: report storm
+  until killed. FilterLow/FilterHigh getters now null-guarded. **19 more
+  getters share the identical unguarded `theRadio.ActiveSlice.X` pattern**
+  (grep `return theRadio\.ActiveSlice\.` — Mute, AudioGain, AudioPan, NB/
+  WNB/NR/ANF/APF levels, AGCMode, AGCThreshold, SquelchLevel, RFGain,
+  PlayEnabled...). Each is the same teardown crash waiting on a different
+  trigger. Sweep them with per-property sensible defaults — needs care
+  (strings/enums/levels differ), not a mechanical regex. Also consider a
+  NativeMenuBar guard: skip RebuildCurrentMenu entirely when the rig is
+  tearing down.
 - **Crash-dump retention gap:** %AppData%\JJFlexRadio\Errors has NO
   prune policy — Jan–Apr dumps at 200–700MB each, gigabytes total, on
   every machine. Trace archive prunes; error dumps don't. Add retention
