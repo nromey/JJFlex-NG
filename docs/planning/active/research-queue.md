@@ -144,6 +144,18 @@ Also from this run:
   not published yet — the checker fails quiet (correct), publish when ready.
 - Noel's radio got to 4.2.20 via SmartSDR chooser (pragmatic unblock, also
   proves the detached path works — pending his confirmation).
+- **Strategic evidence, captured live (2026-08-05 ~1:30am):** Noel on
+  SmartSDR's update flow under NVDA: "it's almost literally impossible to
+  do this with NVDA, I just happened to click an unlabelled button and it
+  worked." An expert screen-reader user completed the vendor's firmware
+  update by ACCIDENT. A typical blind ham cannot update their radio
+  without sighted help. JJ Flex's accessible, narrated firmware update is
+  not polish — it is the only accessible path that will exist. Cite this
+  when prioritizing the detached-update rework and in any positioning
+  writeup. Their progress bar also proves upload+apply progress is
+  trackable (client-side byte count + radio update status messages — the
+  keys our FlexLib logs as "Invalid key/value pair (active/detected)");
+  the accessible equivalent is spoken milestones through both phases.
 
 ## Queued — agent-ready (fire whenever)
 
