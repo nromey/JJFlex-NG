@@ -2131,7 +2131,7 @@ namespace Radios
         public bool BeginSmartLinkUnregistration(Action<string, bool> onStateChange)
             => SendRegistrationCommand(register: false, onStateChange);
 
-        private bool SendRegistrationCommand(bool register, Action<string, bool> onStateChange)
+        private bool SendRegistrationCommand(bool register, Action<string, bool> onStateChange, int attempt = 1)
         {
             if (theRadio == null || !IsConnected || _currentAccount == null) return false;
 
@@ -2161,7 +2161,32 @@ namespace Radios
                         || state == Radio.WanRadioRegistrationState.FailedNotLicensed
                         || state == Radio.WanRadioRegistrationState.FailedUnknown;
 
-                    Tracing.TraceLine($"SendRegistrationCommand: state={state} terminal={terminal}", TraceLevel.Info);
+                    Tracing.TraceLine($"SendRegistrationCommand: state={state} terminal={terminal} attempt={attempt}", TraceLevel.Info);
+
+                    // The SmartLink server itself is flaky: live run 2026-08-04,
+                    // its first registration attempt was refused and the second
+                    // (identical) one worked. Retry ONCE on the two server-side
+                    // failures only — FailedPTT and FailedNotLicensed are radio-
+                    // or account-definitive and repeating them cannot succeed.
+                    bool serverSideFailure =
+                        state == Radio.WanRadioRegistrationState.FailedServerConnection
+                        || state == Radio.WanRadioRegistrationState.FailedServerConfirmation;
+                    if (terminal && serverSideFailure && attempt == 1)
+                    {
+                        r.PropertyChanged -= handler;
+                        Tracing.TraceLine($"SendRegistrationCommand: server-side failure ({state}), retrying once", TraceLevel.Warning);
+                        onStateChange?.Invoke("The SmartLink server refused the first attempt. Trying again.", false);
+                        Task.Run(() =>
+                        {
+                            Thread.Sleep(2000);
+                            // Re-entering fetches a fresh JWT — SmartLink id_tokens
+                            // live 60 seconds, so the first one may already be dead.
+                            if (!SendRegistrationCommand(register, onStateChange, attempt: 2))
+                                onStateChange?.Invoke("The retry could not be sent. See the trace file for details.", true);
+                        });
+                        return;
+                    }
+
                     onStateChange?.Invoke(RegistrationStateText, terminal);
 
                     if (terminal) r.PropertyChanged -= handler;
