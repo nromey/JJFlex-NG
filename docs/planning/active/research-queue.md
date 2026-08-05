@@ -157,6 +157,37 @@ Also from this run:
   keys our FlexLib logs as "Invalid key/value pair (active/detected)");
   the accessible equivalent is spoken milestones through both phases.
 
+## HOLE PUNCH FIELD-PROVEN — 2026-08-05 ~2:30am (TCP works; UDP data plane is the last mile)
+
+Test rig: desktop client routed through the rarbox Tailscale exit node
+(clean Hetzner egress), radio behind the unconfigured home Asus (no UPnP,
+no forwarding, PublicTlsPort=-1). Trace: C:\temp\JJFlexRadioTrace-
+20260805-020415.txt (copy to NAS incoming).
+
+- **WORKS: the entire TCP path.** Two consecutive true-WAN connects
+  (IsWan=True, public IP 162.200.48.84): hole punch port auto-assigned
+  fresh each time (35656, 62417), TLS 1.2 negotiated over the punched
+  path (SslClientTls12), connect_success, radio status flowing (slice
+  availability received over WAN). The 2026-07-31 NegotiatedHolePunchPort
+  fix is fully field-proven. Radio-side requires ZERO router/ISP config —
+  the Tony scenario's radio end is solved.
+- **FAILS: session start over the punched path.** Both sessions:
+  start_call_begin → 54s / 34s → Disconnect, start_call_end success=false
+  (failureReason empty — improve that reporting). Symptom user-side: "no
+  RX antenna and couldn't get a slice." Same shape as the Mullvad flap
+  (profile 20260805-053847): TCP command channel fine, UDP data plane
+  (audio/meters/pan data) not arriving. Hypothesis: the UDP return path
+  needs its own punch — client must send outbound UDP to the radio's
+  public endpoint to open the NAT mapping, and either we don't, or we aim
+  it at the LAN-era endpoint. Suspect a second wiring gap of the same
+  species as NegotiatedHolePunchPort. Investigate FlexLib's UDP
+  registration path under IsWan (where does the UDP socket target?),
+  compare SmartSDR decompile. Earlier client-side failures (hotspot
+  CGNAT, Mullvad strict NAT) were the client network, not this bug.
+- Client-side reality check for the product: punch needs a sane client
+  NAT. Hotspot CGNAT defeated it; rarbox exit node (or any clean network)
+  passes. Tailscale exit node = workable "clean client position" recipe.
+
 ## Queued — agent-ready (fire whenever)
 
 These are bounded research tasks suitable for background agents. Each produces a memo and updates a memory entry.
