@@ -41,15 +41,18 @@
   of the evidence it already had. Memory:
   `feedback_never_assert_config_values_from_memory.md`.
 
-- **PORT NUMBER CORRECTION (2026-08-05 evening) — the forwarding ports
-  are TCP 4992 / UDP 4991, NOT 4994/4993.** Claude asserted 4994/4993
-  from memory earlier that day; Don's actual forwarded radio advertises
-  `PublicTlsPort=4992` in the SmartLink radio list, and FlexLib's own
-  defaults are `_commandPort = 4992` for the command channel and 4991
-  for VITA UDP (`VitaSocket(4991, ..., 4991)` on the LAN path).
-  **Noel passed the wrong numbers to Tony — correct them before the ISP
-  provisions anything.** Lesson: read the port out of the code or a
-  live radio-list message, never from memory.
+- **PORT NUMBERS — SETTLED (2026-08-05 evening). SmartLink forwards to
+  internal UDP 4993 / TCP 4994.** Per FlexRadio's own setup article
+  (`helpdesk.flexradio.com/.../27808005218203-How-to-Set-Up-SmartLink`)
+  and Noel's working experience. External ports are the user's choice
+  and become what the radio advertises as `public_tls_port` /
+  `public_udp_port` (Don's advertises 4992 TCP).
+  **Do not confuse with the LAN path**, which uses TCP 4992
+  (`_commandPort`) and UDP 4991 (`VitaSocket(4991, ..., 4991)`) — both
+  sets are real, they belong to different paths. An earlier entry here
+  "corrected" 4994/4993 to 4992/4991 by generalizing the LAN constants;
+  that was wrong and is retracted. See
+  `feedback_never_assert_config_values_from_memory.md`.
 
 - **Don's forwarded radio refuses TCP (2026-08-05 evening, live trace).**
   Full remote path works up to the connect: SmartLink session as
@@ -57,9 +60,15 @@
   returned a handle, `RequiresHolePunch=False PublicTlsPort=4992
   IP=204.14.60.56` — then `flexlib_connect_end success=false` **129ms**
   later. A sub-200ms failure is a refused/unreachable TCP connect, not a
-  timeout: nothing is listening on 204.14.60.56:4992 from outside. So
-  the forward is absent, points at the wrong internal host/port, or the
-  ISP hasn't provisioned it yet. Not a JJ Flex bug — but JJ Flex should
+  timeout: nothing answered on 204.14.60.56:4992 from outside. With the
+  forwarding rules confirmed correct (external → internal UDP 4993 /
+  TCP 4994), the remaining candidates are a stale LAN IP in the rule
+  (DHCP moved the radio), the radio's SmartLink not actually listening,
+  double-NAT/ISP filtering upstream of Don's router, or a public IP that
+  has changed since the radio last registered. Next diagnostic: an
+  external reachability probe to that IP/port from a machine outside
+  both networks (rarbox), which separates "rule/ISP" from "app" in
+  seconds. Not a JJ Flex bug — but JJ Flex should
   SAY that: "the radio's remote port is not reachable — port forwarding
   may not be set up" instead of a bare "open failed". File with the
   connectivity-tier UX work.
