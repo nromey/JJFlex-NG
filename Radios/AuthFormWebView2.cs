@@ -83,9 +83,51 @@ namespace Radios
         /// <summary>
         /// Account email for per-account WebView2 cookie storage.
         /// Each account gets its own browser profile so sessions don't cross.
+        /// Empty means "no specific account" — the shared default profile.
         /// </summary>
         [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public string AccountEmail { get; set; } = "";
+
+        /// <summary>
+        /// Turns an account email into a legal WebView2 profile name.
+        /// WebView2 allows only ASCII letters, digits, '-' and '_', must start
+        /// with a letter or digit, and caps the name at 64 characters — an email
+        /// address satisfies none of that. A short hash keeps distinct accounts
+        /// distinct (including ones whose sanitized forms would collide) while
+        /// the readable prefix keeps the profile folders diagnosable by eye.
+        /// </summary>
+        private static string BuildProfileName(string accountEmail)
+        {
+            if (string.IsNullOrWhiteSpace(accountEmail))
+                return null;
+
+            string normalized = accountEmail.Trim().ToLowerInvariant();
+
+            var readable = new StringBuilder();
+            foreach (char c in normalized)
+            {
+                if (c >= 'a' && c <= 'z' || c >= '0' && c <= '9')
+                    readable.Append(c);
+                else if (readable.Length > 0)
+                    readable.Append('-');
+
+                if (readable.Length >= 40)
+                    break;
+            }
+
+            string hash;
+            using (var sha = SHA256.Create())
+            {
+                byte[] digest = sha.ComputeHash(Encoding.UTF8.GetBytes(normalized));
+                hash = Convert.ToHexString(digest, 0, 4).ToLowerInvariant();
+            }
+
+            string name = readable.Length > 0
+                ? $"{readable.ToString().Trim('-')}-{hash}"
+                : $"acct-{hash}";
+
+            return name.Length > 64 ? name.Substring(0, 64).Trim('-') : name;
+        }
 
         /// <summary>
         /// When true, the form starts hidden and only shows if Auth0 requires user interaction
@@ -199,7 +241,8 @@ namespace Radios
                     urlLabel.Text = "Authenticating with SmartLink...";
                 }
 
-                // Initialize WebView2 with a user data folder in AppData
+                // ONE user data folder for every account — see the per-account
+                // profile block below for why this must not become per-account.
                 string userDataFolder = System.IO.Path.Combine(
                     Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
                     "JJFlexRadio", "WebView2");
@@ -222,7 +265,47 @@ namespace Radios
                         await Task.Delay(2000);
                     }
                 }
-                await webView.EnsureCoreWebView2Async(env);
+                // Per-account browser profile (2026-08-05). Each SmartLink account
+                // gets its own cookie store, so signing in as one account cannot
+                // silently satisfy a login request for another — the failure that
+                // connected Noel to his own radios while he was asking for Don's.
+                //
+                // This is NOT the March 2026 approach that was reverted in
+                // 81b688fe. That gave each account its own USER DATA FOLDER, which
+                // means a separate browser process per account and a folder lock
+                // that outlives the dialog — hence E_ABORT on the next open. WebView2
+                // multi-profile (SDK 1.0.1245+; we're on 1.0.2478.35) instead nests
+                // named profiles INSIDE one shared user data folder, sharing a single
+                // browser process. No second folder, no second process, no lock race.
+                //
+                // If profile creation fails for any reason, fall through to the
+                // shared default profile: ForceNewLogin cookie-clearing plus
+                // FlexBase's post-login identity check still prevent a wrong-account
+                // sign-in from being accepted.
+                bool profileApplied = false;
+                string profileName = BuildProfileName(AccountEmail);
+                if (!string.IsNullOrEmpty(profileName))
+                {
+                    try
+                    {
+                        var controllerOptions = env.CreateCoreWebView2ControllerOptions();
+                        controllerOptions.ProfileName = profileName;
+                        await webView.EnsureCoreWebView2Async(env, controllerOptions);
+                        profileApplied = true;
+                        Tracing.TraceLine($"AuthFormWebView2: using browser profile '{profileName}'", TraceLevel.Info);
+                    }
+                    catch (Exception ex)
+                    {
+                        Tracing.TraceLine(
+                            $"AuthFormWebView2: profile '{profileName}' unavailable ({ex.Message}); using shared profile",
+                            TraceLevel.Warning);
+                    }
+                }
+
+                if (!profileApplied)
+                {
+                    await webView.EnsureCoreWebView2Async(env);
+                }
                 isInitialized = true;
 
                 // Clear Auth0 session cookies when user wants to log in with a different account
