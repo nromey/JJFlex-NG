@@ -3944,7 +3944,14 @@ namespace Radios
                 });
                 foreach (var r in radios)
                 {
-                    Tracing.TraceLine($"  WAN radio: serial={r.Serial} name={r.Nickname} status={r.Status}", TraceLevel.Info);
+                    // Ports and forwarding flags belong in this line: a radio that
+                    // advertises a forwarded port nothing is listening behind
+                    // fails as a bare "connect failed" 100ms later, with no clue
+                    // that the router rule is the problem (Don's radio, 2026-08-05).
+                    Tracing.TraceLine(
+                        $"  WAN radio: serial={r.Serial} name={r.Nickname} status={r.Status} " +
+                        $"tlsPort={r.PublicTlsPort} udpPort={r.PublicUdpPort} forwarded={r.IsPortForwardOn} punch={r.RequiresHolePunch}",
+                        TraceLevel.Info);
                 }
 
                 if (radios.Count == 0)
