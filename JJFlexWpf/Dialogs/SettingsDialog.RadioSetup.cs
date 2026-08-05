@@ -354,13 +354,16 @@ namespace JJFlexWpf.Dialogs
             {
                 SetupRegisterStatus.Text = text;
 
-                // The key-the-mic prompt is the one state that must not be missed:
-                // ignore it and the whole attempt times out. Everything else is
-                // ordinary progress.
+                // The key-the-mic prompt must not be missed (ignore it and the
+                // attempt times out) — and neither may a terminal verdict. Live
+                // lesson 2026-08-04: the radio went WaitingForPTT -> FailedPTT in
+                // the same millisecond (PTT line read as already active), and the
+                // Terse failure speech got lost — the operator heard nothing at
+                // all after "Registering".
                 bool keyNow = text.Contains("key the microphone", StringComparison.OrdinalIgnoreCase);
                 ScreenReaderOutput.Speak(
                     text,
-                    keyNow ? VerbosityLevel.Critical : VerbosityLevel.Terse,
+                    keyNow || terminal ? VerbosityLevel.Critical : VerbosityLevel.Terse,
                     interrupt: true);
 
                 if (terminal)
