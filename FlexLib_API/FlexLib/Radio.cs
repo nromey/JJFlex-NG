@@ -2255,7 +2255,25 @@ namespace Flex.Smoothlake.FlexLib
                         /* If we require hole punching then the radio port and the source port
                          * will both be the same
                          */
+
+                        // JJFlex patch (2026-08-05 punch-race fix): start the UDP
+                        // punch BEFORE the TCP connect. The radio begins punching
+                        // UDP ~80ms after TCP accept and gives up ~900ms later
+                        // with a FIN; our first UDP used to wait for the full
+                        // TLS + app handshake (~1s on slow paths), losing that
+                        // race structurally. The early datagrams open both NAT
+                        // mappings; their content is ignored until ClientHandle
+                        // arrives. Pcap evidence: punch-capture-20260805-111228.
+                        StartEarlyHolePunch();
+
                         connected = _commandCommunication.Connect(_ip, NegotiatedHolePunchPort, NegotiatedHolePunchPort);
+
+                        if (!connected)
+                        {
+                            // JJFlex patch: connect failed — tear the early punch
+                            // back down so the loop and socket don't outlive it.
+                            StopUdp();
+                        }
                     }
                     else
                     {
@@ -15214,21 +15232,67 @@ namespace Flex.Smoothlake.FlexLib
 
         private void StopUdp()
         {
+            // JJFlex patch: stop the registration/punch loop and drop the socket
+            // reference so a later Connect starts clean. The loop keys on
+            // _udpPunchActive rather than Connected so it can run during the
+            // pre-connect punch window (see StartEarlyHolePunch).
+            _udpPunchActive = false;
             VitaSock?.Dispose();
+            VitaSock = null;
             _udpSuccessfulRegistration = false;
         }
 
         private bool _udpSuccessfulRegistration;
 
+        // JJFlex patch (2026-08-05 punch-race fix): true while the UDP
+        // registration loop should keep sending. Replaces the old Connected
+        // gate, which prevented any UDP from flying before the app-layer
+        // handshake finished — the exact ordering the radio's ~900ms punch
+        // deadline punishes.
+        private volatile bool _udpPunchActive;
+
+        /// <summary>
+        /// JJFlex patch (2026-08-05 punch-race fix): create the VitaSocket and
+        /// start the registration loop BEFORE the TCP connect on hole-punched
+        /// WAN paths. The early datagrams open the client-side NAT mapping (so
+        /// the radio's punches can traverse inward) and, once the radio's own
+        /// punch opens its side, begin reaching the radio — all in parallel
+        /// with the TLS/app handshake instead of after it. Failure here
+        /// degrades to the old post-connect behavior rather than failing the
+        /// connect.
+        /// </summary>
+        private void StartEarlyHolePunch()
+        {
+            try
+            {
+                if (VitaSock != null)
+                    return;
+
+                VitaSock = new VitaSocket(NegotiatedHolePunchPort, UdpDataReceivedCallback, IP, NegotiatedHolePunchPort);
+                _udpPunchActive = true;
+                Task.Run(UdpRegistrationLoop).SafeFireAndForget(ex =>
+                    Debug.WriteLine($"Early hole-punch loop failed: {ex}"));
+                VitaSocket.TraceSink?.Invoke("Early hole-punch UDP started before TCP connect");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"StartEarlyHolePunch failed: {ex}");
+                VitaSocket.TraceSink?.Invoke(
+                    $"Early hole-punch start FAILED: {ex.Message} — falling back to post-connect UDP");
+                VitaSock = null;
+                _udpPunchActive = false;
+            }
+        }
+
         private async Task UdpRegistrationLoop()
         {
             var interval = TimeSpan.FromMilliseconds(50);
 
-            // make sure the ClientHandle is set before starting
-            while (ClientHandle == 0 && Connected)
-            {
-                await Task.Delay(interval);
-            }
+            // JJFlex patch (punch-race fix): do NOT wait for ClientHandle before
+            // sending. Pre-handle packets carry handle=0x0 — the radio ignores
+            // their content, but their existence holds both NAT doors open. The
+            // loop starts sending real registrations the moment ClientHandle
+            // arrives via the command channel.
 
             // JJFlex patch: surface UDP registration health in field traces —
             // this loop is where a dead WAN data plane first becomes observable.
@@ -15236,7 +15300,7 @@ namespace Flex.Smoothlake.FlexLib
                 $"UDP registration loop starting: handle=0x{ClientHandle.ToString("X")} punch={RequiresHolePunch} targetPort={(RequiresHolePunch ? NegotiatedHolePunchPort : PublicUdpPort)}");
             bool announcedRegistration = false;
 
-            while (VitaSock != null && Connected)
+            while (VitaSock != null && _udpPunchActive)
             {
                 if (_udpSuccessfulRegistration)
                 {
@@ -15248,7 +15312,7 @@ namespace Flex.Smoothlake.FlexLib
                     interval = TimeSpan.FromSeconds(5);
                     PersistenceLoaded = true;
                 }
-                
+
                 Byte[] sendBytes = Encoding.ASCII.GetBytes("client udp_register handle=0x" + ClientHandle.ToString("X"));
                 try
                 {
@@ -15265,10 +15329,17 @@ namespace Flex.Smoothlake.FlexLib
 
         private async Task StartUdp()
         {
+            // JJFlex patch (punch-race fix): on hole-punched connects the socket
+            // and loop already exist — StartEarlyHolePunch created them before
+            // the TCP connect. Don't double-create.
+            if (VitaSock != null)
+                return;
+
             VitaSock = new VitaSocket(RequiresHolePunch ? NegotiatedHolePunchPort : 4991, UdpDataReceivedCallback, IP,
                 RequiresHolePunch ? NegotiatedHolePunchPort : PublicUdpPort);
             if (IsWan)
             {
+                _udpPunchActive = true; // JJFlex patch: loop gate (see UdpRegistrationLoop)
                 await Task.Run(UdpRegistrationLoop);
             }
         }
