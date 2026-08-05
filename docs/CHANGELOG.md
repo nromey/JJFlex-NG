@@ -152,6 +152,13 @@ If you switch back to CW, those boxes return. This may seem like a small quality
 
 We worked on network connectivity and stability. Hopefully, you'll never know we did, but the work was necessary to make sure you stay connected to your local or remote radio. If you've had SmartLink sessions fall over mid-QSO before, you should see fewer of those dropouts, and the system should stop telling you "connection is slow" as often. We'll keep tuning network behavior, so if you have issues, let us know.
 
+A few more from this department, found the fun way — by things going wrong on my own radios at one in the morning:
+
+- **Crash fix: the network-drop crash loop is gone.** If your network changed underneath a live session — a VPN switching on, Wi-Fi handing off, a cable getting bumped — JJ Flexible could crash, and then crash again on every twitch of the dying connection until you killed it. That whole family of crashes is fixed. A dropped connection now just means a dropped connection.
+- **Crash reports no longer hoard your disk.** Each crash report includes a memory snapshot that can run a few hundred megabytes, and until now they piled up forever. Old reports now clean themselves up after thirty days, the folder keeps itself under a sensible size, and each report is stored once instead of twice. If you've been crash-free you had nothing to clean anyway — lucky you.
+- **A firmware update that dies mid-send now says so.** If the radio closes the connection while the firmware file is still uploading, JJ Flexible tells you right then — "the radio closed the connection, the update was not applied" — instead of cheerfully waiting for a restart that isn't coming. The watcher still reports what version the radio comes back on, so you always hear the end of the story.
+- **SmartLink registration tries twice before complaining.** The SmartLink server sometimes refuses a perfectly good registration on the first attempt and accepts the identical one a moment later. JJ Flexible now quietly retries once before telling you something went wrong, and tells you when it's doing so.
+
 [Return to version headlines](#unreleased-headlines)
 
 ### Ctrl+Tab Reclaimed for Panel Navigation {#panel-navigation}
