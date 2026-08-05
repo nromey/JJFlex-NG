@@ -14,6 +14,18 @@
 
 ## Queued — orchestrator session, after Noel starts the B/C2 tracks (2026-08-04)
 
+- **BUG (orchestrator lane, found 2026-08-05 ~4:35pm trace): Remote
+  re-click on a live SmartLink session times out 10s waiting for a
+  radio list the server never resends.** ConnectToSmartLink re-enters
+  with the session already connected (0ms), re-sends ReRegister, then
+  blocks on a FRESH radio-list event — but the server already delivered
+  the list earlier in this TLS session and stays silent. Two timeouts
+  back-to-back in trace 20260805-163019 (ms-02). Fix: when the session
+  is already connected and myRadioList is populated, satisfy the wait
+  from the cached list immediately (and treat a later unsolicited list
+  as a refresh). Repro: connect remote once, disconnect, click Remote
+  again within the same app run.
+
 - **DONE (2026-08-04, `62466391` on track/flexlib-4220): auto-connect
   announcement inversion.** Root cause was not a stray utterance in globals.vb —
   the rig selector's constructor set `GlobalAutoConnectCheckbox.IsChecked` from
