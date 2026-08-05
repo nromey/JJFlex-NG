@@ -75,6 +75,31 @@ Evidence and fixes, in priority order:
   sequence has never been heard in JJ Flex — verify it when testing the
   chooser-style fix via an unregister/re-register cycle at the radio.
 
+## Remote-connect field test — 2026-08-05 ~1am (laptop, first true WAN attempts)
+
+- **Key artifact:** connection profile `20260805-053847-514` (NAS
+  incoming\laptop-traces\connection-profiles\): remote connect SUCCEEDS
+  (5.1s transport vs 130ms local), then the radio adds/drops our GUI
+  client twice within 10s → early abort → clean 73. Classic UDP-return-
+  path failure: TCP command channel fine, data stream can't get back
+  through NAT. Exactly the disease hole punch treats; SmartLink reports
+  RequiresHolePunch=True, PublicTlsPort=-1 for this radio.
+- **Crash loop found (fartsnoodle-class):** laptop connected locally →
+  Mullvad VPN came up underneath → never-ending crash loop. Network
+  interface change under a live session must degrade to "connection
+  lost" + reconnect offer, never crash. Not yet root-caused (laptop
+  tracing was off).
+- **Next session protocol (laptop, tracing ON via Operations → Tracing):**
+  1) hotspot attempt, 2) Mullvad attempt, 3) crash-loop repro (connect
+  local, flip Mullvad on). Full traces each. Watch NegotiatedHolePunchPort
+  — the 2026-07-31 wiring fix has still never been observed choosing a
+  port.
+- **Crash-dump retention gap:** %AppData%\JJFlexRadio\Errors has NO
+  prune policy — Jan–Apr dumps at 200–700MB each, gigabytes total, on
+  every machine. Trace archive prunes; error dumps don't. Add retention
+  (age or size cap) to the crash reporter design. Safe to hand-delete
+  pre-August dumps once tonight's copy lands.
+
 ## Queued — agent-ready (fire whenever)
 
 These are bounded research tasks suitable for background agents. Each produces a memo and updates a memory entry.
