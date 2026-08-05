@@ -3898,11 +3898,35 @@ namespace Radios
                 Tracing.TraceLine($"ConnectToSmartLink: session connected; ReRegister {API.ProgramName} Win10 jwt={jwt.Substring(0, Math.Min(20, jwt.Length))}... ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
                 session.ReRegister(API.ProgramName, "Win10", jwt);
 
-                Tracing.TraceLine($"ConnectToSmartLink: registration sent, waiting up to 10s for radio list ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
-                if (!await(() => wanListReceived || session.Status == Radios.SmartLink.SessionStatus.AuthorizationExpired, 10000))
+                // When we already hold a radio list from this session, don't make
+                // the user sit through the full 10s window on the off chance the
+                // server volunteers a new one — it does not resend per session.
+                bool haveCachedList = session.IsConnected && myRadioList.Count > 0;
+                int listWaitMs = haveCachedList ? 2000 : 10000;
+
+                Tracing.TraceLine($"ConnectToSmartLink: registration sent, waiting up to {listWaitMs / 1000}s for radio list (cached={myRadioList.Count}) ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+                if (!await(() => wanListReceived || session.Status == Radios.SmartLink.SessionStatus.AuthorizationExpired, listWaitMs))
                 {
-                    Tracing.TraceLine($"ConnectToSmartLink: TIMED OUT waiting for radio list after 10s ({sw.ElapsedMilliseconds}ms)", TraceLevel.Error);
-                    return SmartLinkConnectResult.ConnectFailed;
+                    // The server sends the radio list once per TLS session. On a
+                    // re-entry into ConnectToSmartLink over a session that is
+                    // ALREADY connected, that list has long since arrived, so
+                    // waiting for a fresh one waits forever — 10s per attempt,
+                    // and setupRemote's retry doubles it. Noel hit ~80s of
+                    // apparent hanging on 2026-08-05 (trace 20260805-171637)
+                    // doing nothing more exotic than pressing Remote twice.
+                    // Accept the list we already have rather than declaring
+                    // failure on a healthy session.
+                    if (haveCachedList)
+                    {
+                        Tracing.TraceLine(
+                            $"ConnectToSmartLink: no new radio list, session live with {myRadioList.Count} cached radio(s) — using those ({sw.ElapsedMilliseconds}ms)",
+                            TraceLevel.Info);
+                    }
+                    else
+                    {
+                        Tracing.TraceLine($"ConnectToSmartLink: TIMED OUT waiting for radio list after {listWaitMs / 1000}s ({sw.ElapsedMilliseconds}ms)", TraceLevel.Error);
+                        return SmartLinkConnectResult.ConnectFailed;
+                    }
                 }
 
                 if (session.Status == Radios.SmartLink.SessionStatus.AuthorizationExpired)
