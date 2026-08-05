@@ -2064,10 +2064,14 @@ namespace Radios
             {
                 try
                 {
-                    string jwt = GetJwtFromSavedAccount(account);
+                    // Silent only: this runs unprompted at connect time (and from
+                    // Radio Setup's status refresh). If the token cannot be
+                    // refreshed without a login page, the answer is Unknown —
+                    // never interrupt the user with auth UI they did not ask for.
+                    string jwt = GetJwtFromSavedAccount(account, allowInteractiveLogin: false);
                     if (string.IsNullOrEmpty(jwt))
                     {
-                        Tracing.TraceLine("QuerySmartLinkRegistration: no JWT available", TraceLevel.Info);
+                        Tracing.TraceLine("QuerySmartLinkRegistration: no JWT available silently", TraceLevel.Info);
                         return SmartLinkRegistrationQuery.Unknown;
                     }
 
@@ -3496,10 +3500,17 @@ namespace Radios
         /// <summary>
         /// Gets JWT from a saved account, refreshing if necessary.
         /// </summary>
-        private string GetJwtFromSavedAccount(SmartLinkAccount account)
+        /// <param name="allowInteractiveLogin">
+        /// False for background callers (the connect-time registration query):
+        /// when a silent refresh cannot produce a valid JWT, return null instead
+        /// of popping the login dialog. A background check surprising the user
+        /// with a login page — and hanging Settings behind it — is exactly what
+        /// happened live on 2026-08-04.
+        /// </param>
+        private string GetJwtFromSavedAccount(SmartLinkAccount account, bool allowInteractiveLogin = true)
         {
             var sw = System.Diagnostics.Stopwatch.StartNew();
-            Tracing.TraceLine($"GetJwtFromSavedAccount: BEGIN email={account.Email}, ExpiresAt={account.ExpiresAt}, now={DateTime.UtcNow}", TraceLevel.Info);
+            Tracing.TraceLine($"GetJwtFromSavedAccount: BEGIN email={account.Email}, ExpiresAt={account.ExpiresAt}, now={DateTime.UtcNow}, interactive={allowInteractiveLogin}", TraceLevel.Info);
 
             // If we already have an active WAN connection, the previous JWT may have been
             // consumed by the server. Always refresh to get a fresh token for re-registration.
@@ -3522,7 +3533,7 @@ namespace Radios
             if (isJwtExpired)
             {
                 Tracing.TraceLine($"GetJwtFromSavedAccount: JWT exp expired, PerformNewLogin for {account.Email} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
-                return PerformNewLogin();
+                return allowInteractiveLogin ? PerformNewLogin() : null;
             }
 
             // Check if account-level token is expired and needs refresh
@@ -3546,7 +3557,7 @@ namespace Radios
                 if (!refreshed)
                 {
                     Tracing.TraceLine($"GetJwtFromSavedAccount: refresh failed, PerformNewLogin for {account.Email} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Warning);
-                    return PerformNewLogin();
+                    return allowInteractiveLogin ? PerformNewLogin() : null;
                 }
 
                 // After refresh, check if JWT is still valid
@@ -3555,7 +3566,7 @@ namespace Radios
                 if (isJwtExpired)
                 {
                     Tracing.TraceLine($"GetJwtFromSavedAccount: JWT still expired after refresh, PerformNewLogin for {account.Email} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
-                    return PerformNewLogin();
+                    return allowInteractiveLogin ? PerformNewLogin() : null;
                 }
             }
 
