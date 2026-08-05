@@ -2766,8 +2766,15 @@ namespace Radios
         /// <see cref="WatchFirmwareUpdateAsync"/>, which watches discovery across
         /// the reboot.
         /// </summary>
+        /// <param name="path">Firmware image to send.</param>
+        /// <param name="onTransferFault">
+        /// Called (on a worker thread) if the transfer task faults — e.g. the radio
+        /// resets the socket mid-upload while entering update mode. The argument is
+        /// the low-level exception message. The announcement is spoken here either
+        /// way; the callback is for UI text.
+        /// </param>
         /// <returns>true if the transfer was started.</returns>
-        public bool BeginFirmwareUpdate(string path)
+        public bool BeginFirmwareUpdate(string path, Action<string> onTransferFault = null)
         {
             if (theRadio == null || !IsConnected)
             {
@@ -2780,12 +2787,21 @@ namespace Radios
                 Tracing.TraceLine($"BeginFirmwareUpdate: sending {path}", TraceLevel.Info);
                 // FlexLib 4.2.x made this async Task where 4.1.x was fire-and-forget
                 // void. Completion is still watched via discovery, not this task —
-                // but a faulted transfer is worth a trace line, which 4.1.x could
-                // never give us.
+                // but a faulted transfer means the image never arrived, and that
+                // must be said out loud instead of letting the UI sit on "sending"
+                // (live run 2026-08-05: radio RST the upload socket 1.4s in and
+                // the flow sailed on to "waiting for restart").
                 theRadio.SendUpdateFile(path).ContinueWith(
-                    t => Tracing.TraceLine(
-                        $"BeginFirmwareUpdate: transfer task faulted: {t.Exception?.GetBaseException().Message}",
-                        TraceLevel.Error),
+                    t =>
+                    {
+                        string detail = t.Exception?.GetBaseException().Message ?? "unknown error";
+                        Tracing.TraceLine($"BeginFirmwareUpdate: transfer task faulted: {detail}", TraceLevel.Error);
+                        ScreenReaderOutput.Speak(
+                            "The radio closed the connection during the upload. The update was not applied.",
+                            VerbosityLevel.Critical, true);
+                        try { onTransferFault?.Invoke(detail); }
+                        catch (Exception cbEx) { Tracing.TraceLine($"BeginFirmwareUpdate: fault callback threw: {cbEx.Message}", TraceLevel.Error); }
+                    },
                     TaskContinuationOptions.OnlyOnFaulted);
                 return true;
             }
