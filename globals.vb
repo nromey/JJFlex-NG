@@ -491,6 +491,10 @@ Module globals
             SessionArchive.Reconcile(TraceArchiveDir)
             SessionArchive.PruneOlderThan(TraceArchiveDir, SessionArchive.DefaultRetentionDays)
             PrunePlainTextTracesOlderThan(PlainTextTraceRetentionDays)
+            ' Crash dumps get the same boot-time housekeeping the trace archive
+            ' has had since Sprint 29 — without it the Errors folder grew by a
+            ' full-memory dump per crash, forever.
+            PruneCrashReports()
         Catch ex As Exception
             Tracing.ErrMessageTrace(ex)
         End Try
