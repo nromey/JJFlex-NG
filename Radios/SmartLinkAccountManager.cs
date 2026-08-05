@@ -315,6 +315,21 @@ namespace Radios
 
                 var json = await response.Content.ReadAsStringAsync();
                 Tracing.TraceLine($"SmartLinkAccountManager: Token refresh response received, parsing", TraceLevel.Info);
+
+                // Diagnostic (2026-08-05): refresh keeps returning success WITHOUT
+                // an id_token, forcing an interactive login every time. Log which
+                // keys came back — names only, never values; these are live
+                // credentials.
+                try
+                {
+                    using var probe = JsonDocument.Parse(json);
+                    var keys = string.Join(",", probe.RootElement.EnumerateObject().Select(p => p.Name));
+                    Tracing.TraceLine($"SmartLinkAccountManager: refresh response keys: [{keys}]", TraceLevel.Info);
+                }
+                catch (Exception ex)
+                {
+                    Tracing.TraceLine($"SmartLinkAccountManager: refresh key probe failed: {ex.Message}", TraceLevel.Warning);
+                }
                 var tokenResponse = JsonSerializer.Deserialize<TokenRefreshResponse>(json);
 
                 if (tokenResponse == null)

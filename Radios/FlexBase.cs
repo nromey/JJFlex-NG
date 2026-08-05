@@ -3410,7 +3410,23 @@ namespace Radios
         /// even if a session already exists (used when adding a new account).</param>
         /// <param name="title">Custom title for the auth form window (e.g., "Connecting to Radio"
         /// for auto-connect flows instead of the default "SmartLink Authentication").</param>
-        private string PerformNewLogin(bool forceNewLogin = false, string title = null)
+        /// <summary>
+        /// Interactive Auth0 login.
+        /// </summary>
+        /// <param name="expectedAccount">
+        /// The saved account this login is FOR, when the caller is trying to
+        /// authenticate a specific one. Two things depend on it: the WebView2
+        /// cookie profile (each account gets its own, so a live session for
+        /// account A cannot silently satisfy a login request for account B),
+        /// and the post-login identity check below. Passing null means "no
+        /// particular account expected" — a genuinely new sign-in.
+        /// 2026-08-05 bug this fixes: every caller relied on the ambient
+        /// _currentAccount, so asking for Don's account opened Noel's cookie
+        /// profile, auto-logged-in as Noel without a prompt, and saved the
+        /// result — leaving the app connected to the wrong SmartLink account
+        /// with no indication anything had gone sideways.
+        /// </param>
+        private string PerformNewLogin(SmartLinkAccount expectedAccount = null, bool forceNewLogin = false, string title = null)
         {
             string jwt = null;
 
@@ -3425,7 +3441,9 @@ namespace Radios
             try
             {
                 form.ForceNewLogin = forceNewLogin;
-                form.AccountEmail = _currentAccount?.Email ?? "";
+                // Cookie profile follows the account being authenticated, not
+                // whichever account happens to be current. See the parameter doc.
+                form.AccountEmail = expectedAccount?.Email ?? _currentAccount?.Email ?? "";
                 if (!string.IsNullOrEmpty(title))
                 {
                     form.Text = title;
@@ -3499,6 +3517,25 @@ namespace Radios
                 if (string.IsNullOrEmpty(jwt))
                 {
                     Tracing.TraceLine("setupRemote: no id_token from auth form", TraceLevel.Error);
+                    return null;
+                }
+
+                // Identity check: if this login was for a specific saved account,
+                // the token we got back must belong to that account. Auth0 can
+                // hand back a different identity when a browser session already
+                // exists; silently accepting it connects the user to someone
+                // else's radios and reports confusing state everywhere after.
+                if (expectedAccount != null
+                    && !string.IsNullOrEmpty(form.Email)
+                    && !string.Equals(form.Email, expectedAccount.Email, StringComparison.OrdinalIgnoreCase))
+                {
+                    Tracing.TraceLine(
+                        $"PerformNewLogin: identity mismatch — asked for {expectedAccount.Email}, Auth0 returned {form.Email}; rejecting",
+                        TraceLevel.Error);
+                    ScreenReaderOutput.Speak(
+                        $"Sign-in returned the account {form.Email}, but {expectedAccount.Email} was requested. " +
+                        "Not switching accounts. Sign out in the account manager and try again.",
+                        VerbosityLevel.Critical, true);
                     return null;
                 }
 
@@ -3654,7 +3691,9 @@ namespace Radios
             if (isJwtExpired)
             {
                 Tracing.TraceLine($"GetJwtFromSavedAccount: JWT still expired, interactive={allowInteractiveLogin} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
-                return allowInteractiveLogin ? PerformNewLogin() : null;
+                // Pass the account: this login is FOR it, so it must use that
+                // account's cookie profile and its identity must match.
+                return allowInteractiveLogin ? PerformNewLogin(account) : null;
             }
 
             // Check if account-level token is expired and needs refresh
@@ -3678,7 +3717,9 @@ namespace Radios
                 if (!refreshed)
                 {
                     Tracing.TraceLine($"GetJwtFromSavedAccount: refresh failed, PerformNewLogin for {account.Email} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Warning);
-                    return allowInteractiveLogin ? PerformNewLogin() : null;
+                    // Pass the account: this login is FOR it, so it must use that
+                // account's cookie profile and its identity must match.
+                return allowInteractiveLogin ? PerformNewLogin(account) : null;
                 }
 
                 // After refresh, check if JWT is still valid
@@ -3687,7 +3728,9 @@ namespace Radios
                 if (isJwtExpired)
                 {
                     Tracing.TraceLine($"GetJwtFromSavedAccount: JWT still expired after refresh, PerformNewLogin for {account.Email} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
-                    return allowInteractiveLogin ? PerformNewLogin() : null;
+                    // Pass the account: this login is FOR it, so it must use that
+                // account's cookie profile and its identity must match.
+                return allowInteractiveLogin ? PerformNewLogin(account) : null;
                 }
             }
 
