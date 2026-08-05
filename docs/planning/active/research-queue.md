@@ -2,7 +2,7 @@
 
 **Working dashboard.** Distinct from `docs/planning/vision/JJFlex-TODO.md` (long-lived strategic backlog) — this file tracks what's actually queued, in flight, blocked, or waiting for Noel's read **right now**.
 
-**Last updated:** 2026-08-04 (orchestrator queue worked: auto-connect inversion fixed, rename field filed to Track C2). Claude updates this whenever items move between states. If the timestamp drifts more than a session, flag it.
+**Last updated:** 2026-08-05 (small-fixes track on `track/small-fixes-4220`, worktree `C:\dev\jjflex-small-fixes`, branched from flexlib-4220: ActiveSlice sweep, failureReason reentrancy fix, firmware death speech, SmartLink register retry, crash-dump retention — all committed, merge target track/flexlib-4220). Claude updates this whenever items move between states. If the timestamp drifts more than a session, flag it.
 
 **How to use:** Noel scans the sections below to pick what to fire off, or asks Claude to recommend based on what's available. Claude is expected to keep this current.
 
@@ -68,8 +68,12 @@ Evidence and fixes, in priority order:
   returning Unknown (tonight it went silent because the stored JWT was
   expired and silent mode declined to refresh it).
 - **The SmartLink server itself is flaky:** SmartSDR's first registration
-  attempt was refused; second worked. JJ Flex's flow should auto-retry
-  once on a server-side failure before surfacing it.
+  attempt was refused; second worked. DONE 2026-08-05 `d5868806`:
+  SendRegistrationCommand retries once (2s pause) on
+  FailedServerConnection / FailedServerConfirmation, with a fresh JWT
+  (the first is dead by then — 60s lifetime) and a spoken non-terminal
+  "trying again" message. FailedPTT and FailedNotLicensed deliberately
+  not retried.
 - **Registration state speech verified working** through the failures:
   terminal states now speak at Critical (1657a8b6). The full success
   sequence has never been heard in JJ Flex — verify it when testing the
@@ -94,24 +98,25 @@ Evidence and fixes, in priority order:
   local, flip Mullvad on). Full traces each. Watch NegotiatedHolePunchPort
   — the 2026-07-31 wiring fix has still never been observed choosing a
   port.
-- **Crash loop ROOT-CAUSED and half-fixed:** all four 00:31-00:32 crash
-  reports are one bug — `FlexBase.get_FilterLow` NRE (line 6302) via
-  menu rebuild on slice-count change during network teardown. The
-  dispatcher catches it, the next slice event re-fires it: report storm
-  until killed. FilterLow/FilterHigh getters now null-guarded. **19 more
-  getters share the identical unguarded `theRadio.ActiveSlice.X` pattern**
-  (grep `return theRadio\.ActiveSlice\.` — Mute, AudioGain, AudioPan, NB/
-  WNB/NR/ANF/APF levels, AGCMode, AGCThreshold, SquelchLevel, RFGain,
-  PlayEnabled...). Each is the same teardown crash waiting on a different
-  trigger. Sweep them with per-property sensible defaults — needs care
-  (strings/enums/levels differ), not a mechanical regex. Also consider a
-  NativeMenuBar guard: skip RebuildCurrentMenu entirely when the rig is
-  tearing down.
-- **Crash-dump retention gap:** %AppData%\JJFlexRadio\Errors has NO
-  prune policy — Jan–Apr dumps at 200–700MB each, gigabytes total, on
-  every machine. Trace archive prunes; error dumps don't. Add retention
-  (age or size cap) to the crash reporter design. Safe to hand-delete
-  pre-August dumps once tonight's copy lands.
+- **DONE (2026-08-05, `f406b4cc` on track/small-fixes-4220): the full
+  ActiveSlice getter sweep.** 39 sites, three layers: (1) `HasActiveSlice`
+  itself dereferenced theRadio unguarded, so even "guarded" properties
+  crashed once Disconnect() nulled the radio; (2) ~25 fully unguarded
+  getters converted to race-free null-conditionals with per-property
+  defaults; (3) check-then-re-read getters (SliceMute, AGCSpeed,
+  diversity, Sprint 22 antennas, six newer DSP toggles) collapsed to
+  single expressions, killing the TOCTOU race. Setter lambdas need no
+  guards — the command-queue main loop catches per-item exceptions. The
+  queue's flagged lines 6365/6389/7568 were `#if zero` dead code. Still
+  open (optional belt-and-suspenders): NativeMenuBar guard to skip
+  RebuildCurrentMenu during teardown.
+- **DONE (2026-08-05, `f42ead39` same branch): crash-dump retention.**
+  Two-part fix: SaveCrash was leaving the loose 200-700MB .dmp next to
+  its own zipped copy (deleted after successful zip now), and
+  PruneCrashReports (30-day window + 2GB cap newest-first) runs at boot
+  via TraceArchiveBootMaintenance AND after each SaveCrash so a crash
+  storm is bounded mid-session. Hand-deleting pre-August dumps is now
+  optional — the next boot of a new build prunes them automatically.
 
 ## Firmware update live run — 2026-08-05 ~1:15am (FAILED, root-caused, radio unharmed)
 
@@ -135,11 +140,14 @@ Also from this run:
 - **ConfirmActionDialog warnings unreadable** confirmed again in the firmware
   confirm (C2 item 5b, second sighting — the do-not-power-off warning is in
   that unreadable list, which is genuinely dangerous).
-- **No upload progress speech** — SendUpdateFile has no progress callbacks
-  (vendor code swallows everything); at minimum announce "sending, this takes
-  a minute" pacing marks from our side, and the death-at-1.4s case must speak
-  ("the radio closed the connection") instead of sailing on to "waiting for
-  restart".
+- **No upload progress speech** — PARTIALLY DONE 2026-08-05 `a1234e8d`:
+  the death case now speaks ("The radio closed the connection during the
+  upload. The update was not applied.") at Critical via a faulted-task
+  continuation in BeginFirmwareUpdate, with dialog text updated through
+  a new onTransferFault callback; the "sending, takes several minutes"
+  pacing line already existed at send time. Still open: byte-count /
+  radio-status progress milestones (needs the vendor-side keys FlexLib
+  currently logs as invalid — pairs with the detached-update rework).
 - **App-update manifest 404s**: https://data.jjflexible.radio/jjflex-app-manifest.json
   not published yet — the checker fails quiet (correct), publish when ready.
 - Noel's radio got to 4.2.20 via SmartSDR chooser (pragmatic unblock, also
@@ -173,7 +181,11 @@ no forwarding, PublicTlsPort=-1). Trace: C:\temp\JJFlexRadioTrace-
   the Tony scenario's radio end is solved.
 - **FAILS: session start over the punched path.** Both sessions:
   start_call_begin → 54s / 34s → Disconnect, start_call_end success=false
-  (failureReason empty — improve that reporting). Symptom user-side: "no
+  (failureReason empty — FIXED 2026-08-05 `2865496f`: the reason was set
+  all along ("No RX antenna detected"), but the user's cancel ran
+  CloseTheRadio and nulled RigControl before Start() returned, so the
+  profiler read a dead reference; it now captures the instance in a
+  local. Next WAN test will show real reasons.). Symptom user-side: "no
   RX antenna and couldn't get a slice." Same shape as the Mullvad flap
   (profile 20260805-053847): TCP command channel fine, UDP data plane
   (audio/meters/pan data) not arriving. Hypothesis: the UDP return path

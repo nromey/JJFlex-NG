@@ -34,6 +34,19 @@ Module CrashReporter
     Private Const MaxUploadAttempts As Integer = 3
 
     ''' <summary>
+    ''' Crash artifacts older than this are pruned. Mirrors the trace archive's
+    ''' 30-day window.
+    ''' </summary>
+    Private Const CrashRetentionDays As Integer = 30
+
+    ''' <summary>
+    ''' Total size cap for the Errors folder, newest kept first. Full-memory
+    ''' minidumps run 200-700 MB compressed, so this holds roughly the last
+    ''' 3-8 crashes — the age window alone let the folder reach gigabytes.
+    ''' </summary>
+    Private Const CrashFolderMaxBytes As Long = 2L * 1024 * 1024 * 1024
+
+    ''' <summary>
     ''' Reused HttpClient for crash bundle uploads. Static-style instance per
     ''' the .NET HttpClient guidance — repeated New HttpClient() risks socket
     ''' exhaustion. One per Module is fine here since uploads are infrequent
@@ -113,6 +126,21 @@ Module CrashReporter
                 End Using
             End Using
 
+            ' The zip now holds both loose files. The .dmp alone is a 200-700 MB
+            ' full-memory dump; leaving it beside its own zipped copy is how the
+            ' Errors folder reached gigabytes per machine (Jan-Apr 2026).
+            Try
+                File.Delete(txtPath)
+                File.Delete(dmpPath)
+            Catch
+            End Try
+
+            ' Bound the folder even mid-session: a teardown crash storm can write
+            ' several bundles a minute, and boot-time pruning alone would let it
+            ' fill the disk until the next restart. Newest-first, so the bundle
+            ' just written always survives.
+            PruneCrashReports()
+
             Radios.ScreenReaderOutput.Speak(
                 "JJ Flexible Radio Access hit an unexpected error. A crash report was saved.",
                 Radios.VerbosityLevel.Critical, True)
@@ -128,6 +156,47 @@ Module CrashReporter
                                    $"{DateTime.Now:u} Failed to write crash report: {reportEx}{Environment.NewLine}")
             Catch
             End Try
+        End Try
+    End Sub
+
+    ''' <summary>
+    ''' Retention for %AppData%\JJFlexRadio\Errors: delete crash artifacts older
+    ''' than CrashRetentionDays, and keep the folder under CrashFolderMaxBytes
+    ''' newest-first. The trace archive has pruned itself since Sprint 29; error
+    ''' dumps never did. Called at boot (TraceArchiveBootMaintenance) and after
+    ''' each SaveCrash. Never throws.
+    ''' </summary>
+    Friend Sub PruneCrashReports()
+        Try
+            Dim baseDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "JJFlexRadio", "Errors")
+            If Not Directory.Exists(baseDir) Then Return
+
+            Dim files = Directory.GetFiles(baseDir, "JJFlexError-*") _
+                .Select(Function(p) New FileInfo(p)) _
+                .OrderByDescending(Function(fi) fi.LastWriteTimeUtc) _
+                .ToList()
+
+            Dim cutoffUtc = DateTime.UtcNow.AddDays(-CrashRetentionDays)
+            Dim keptBytes As Long = 0
+            Dim removed As Integer = 0
+            For Each fi In files
+                If fi.LastWriteTimeUtc < cutoffUtc OrElse keptBytes + fi.Length > CrashFolderMaxBytes Then
+                    Try
+                        fi.Delete()
+                        removed += 1
+                    Catch
+                        ' A locked or unreadable file just stays; the next prune retries.
+                    End Try
+                Else
+                    keptBytes += fi.Length
+                End If
+            Next
+
+            If removed > 0 Then
+                Tracing.TraceLine($"PruneCrashReports: removed {removed} crash file(s), kept {keptBytes \ (1024 * 1024)} MB", TraceLevel.Info)
+            End If
+        Catch
+            ' Housekeeping must never take the app down.
         End Try
     End Sub
 

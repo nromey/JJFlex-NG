@@ -2149,7 +2149,7 @@ namespace Radios
         public bool BeginSmartLinkUnregistration(Action<string, bool> onStateChange)
             => SendRegistrationCommand(register: false, onStateChange);
 
-        private bool SendRegistrationCommand(bool register, Action<string, bool> onStateChange)
+        private bool SendRegistrationCommand(bool register, Action<string, bool> onStateChange, int attempt = 1)
         {
             if (theRadio == null || !IsConnected || _currentAccount == null) return false;
 
@@ -2179,7 +2179,32 @@ namespace Radios
                         || state == Radio.WanRadioRegistrationState.FailedNotLicensed
                         || state == Radio.WanRadioRegistrationState.FailedUnknown;
 
-                    Tracing.TraceLine($"SendRegistrationCommand: state={state} terminal={terminal}", TraceLevel.Info);
+                    Tracing.TraceLine($"SendRegistrationCommand: state={state} terminal={terminal} attempt={attempt}", TraceLevel.Info);
+
+                    // The SmartLink server itself is flaky: live run 2026-08-04,
+                    // its first registration attempt was refused and the second
+                    // (identical) one worked. Retry ONCE on the two server-side
+                    // failures only — FailedPTT and FailedNotLicensed are radio-
+                    // or account-definitive and repeating them cannot succeed.
+                    bool serverSideFailure =
+                        state == Radio.WanRadioRegistrationState.FailedServerConnection
+                        || state == Radio.WanRadioRegistrationState.FailedServerConfirmation;
+                    if (terminal && serverSideFailure && attempt == 1)
+                    {
+                        r.PropertyChanged -= handler;
+                        Tracing.TraceLine($"SendRegistrationCommand: server-side failure ({state}), retrying once", TraceLevel.Warning);
+                        onStateChange?.Invoke("The SmartLink server refused the first attempt. Trying again.", false);
+                        Task.Run(() =>
+                        {
+                            Thread.Sleep(2000);
+                            // Re-entering fetches a fresh JWT — SmartLink id_tokens
+                            // live 60 seconds, so the first one may already be dead.
+                            if (!SendRegistrationCommand(register, onStateChange, attempt: 2))
+                                onStateChange?.Invoke("The retry could not be sent. See the trace file for details.", true);
+                        });
+                        return;
+                    }
+
                     onStateChange?.Invoke(RegistrationStateText, terminal);
 
                     if (terminal) r.PropertyChanged -= handler;
@@ -2784,8 +2809,15 @@ namespace Radios
         /// <see cref="WatchFirmwareUpdateAsync"/>, which watches discovery across
         /// the reboot.
         /// </summary>
+        /// <param name="path">Firmware image to send.</param>
+        /// <param name="onTransferFault">
+        /// Called (on a worker thread) if the transfer task faults — e.g. the radio
+        /// resets the socket mid-upload while entering update mode. The argument is
+        /// the low-level exception message. The announcement is spoken here either
+        /// way; the callback is for UI text.
+        /// </param>
         /// <returns>true if the transfer was started.</returns>
-        public bool BeginFirmwareUpdate(string path)
+        public bool BeginFirmwareUpdate(string path, Action<string> onTransferFault = null)
         {
             if (theRadio == null || !IsConnected)
             {
@@ -2798,12 +2830,21 @@ namespace Radios
                 Tracing.TraceLine($"BeginFirmwareUpdate: sending {path}", TraceLevel.Info);
                 // FlexLib 4.2.x made this async Task where 4.1.x was fire-and-forget
                 // void. Completion is still watched via discovery, not this task —
-                // but a faulted transfer is worth a trace line, which 4.1.x could
-                // never give us.
+                // but a faulted transfer means the image never arrived, and that
+                // must be said out loud instead of letting the UI sit on "sending"
+                // (live run 2026-08-05: radio RST the upload socket 1.4s in and
+                // the flow sailed on to "waiting for restart").
                 theRadio.SendUpdateFile(path).ContinueWith(
-                    t => Tracing.TraceLine(
-                        $"BeginFirmwareUpdate: transfer task faulted: {t.Exception?.GetBaseException().Message}",
-                        TraceLevel.Error),
+                    t =>
+                    {
+                        string detail = t.Exception?.GetBaseException().Message ?? "unknown error";
+                        Tracing.TraceLine($"BeginFirmwareUpdate: transfer task faulted: {detail}", TraceLevel.Error);
+                        ScreenReaderOutput.Speak(
+                            "The radio closed the connection during the upload. The update was not applied.",
+                            VerbosityLevel.Critical, true);
+                        try { onTransferFault?.Invoke(detail); }
+                        catch (Exception cbEx) { Tracing.TraceLine($"BeginFirmwareUpdate: fault callback threw: {cbEx.Message}", TraceLevel.Error); }
+                    },
                     TaskContinuationOptions.OnlyOnFaulted);
                 return true;
             }
@@ -5342,9 +5383,7 @@ namespace Radios
         {
             get
             {
-                Panadapter rv = null;
-                if (theRadio.ActiveSlice != null) rv = theRadio.ActiveSlice.Panadapter;
-                return rv;
+                return theRadio?.ActiveSlice?.Panadapter;
             }
         }
         internal List<Waterfall> waterfallList;
@@ -5688,7 +5727,10 @@ namespace Radios
 
         public bool HasActiveSlice
         {
-            get { return (theRadio.ActiveSlice != null); }
+            // Both hops null-conditional: Disconnect() nulls theRadio while
+            // slice/menu events are still firing, so even this guard must not
+            // assume a live radio (same teardown crash class as FilterLow).
+            get { return (theRadio?.ActiveSlice != null); }
         }
 
         /// <summary>
@@ -5784,7 +5826,7 @@ namespace Radios
         {
             get
             {
-                return HasActiveSlice && theRadio.ActiveSlice.DiversityOn;
+                return theRadio?.ActiveSlice?.DiversityOn ?? false;
             }
             set
             {
@@ -5839,8 +5881,8 @@ namespace Radios
             get
             {
                 if (!HasActiveSlice) return string.Empty;
-                string primary = theRadio.ActiveSlice.RXAnt ?? string.Empty;
-                string child = theRadio.ActiveSlice.DiversitySlicePartner?.RXAnt;
+                string primary = theRadio?.ActiveSlice?.RXAnt ?? string.Empty;
+                string child = theRadio?.ActiveSlice?.DiversitySlicePartner?.RXAnt;
                 if (string.IsNullOrEmpty(child)) return primary;
                 if (string.Equals(primary, child, StringComparison.Ordinal)) return primary;
                 if (string.IsNullOrEmpty(primary)) return child;
@@ -5853,10 +5895,10 @@ namespace Radios
         /// <summary>Current RX antenna name for active slice (e.g. "ANT1", "ANT2", "RX_A").</summary>
         public string RXAntennaName
         {
-            get => theRadio.ActiveSlice?.RXAnt ?? "ANT1";
+            get => theRadio?.ActiveSlice?.RXAnt ?? "ANT1";
             set
             {
-                var s = theRadio.ActiveSlice;
+                var s = theRadio?.ActiveSlice;
                 if (s != null) s.RXAnt = value;
             }
         }
@@ -5864,21 +5906,21 @@ namespace Radios
         /// <summary>Current TX antenna name for active slice.</summary>
         public string TXAntennaName
         {
-            get => theRadio.ActiveSlice?.TXAnt ?? "ANT1";
+            get => theRadio?.ActiveSlice?.TXAnt ?? "ANT1";
             set
             {
-                var s = theRadio.ActiveSlice;
+                var s = theRadio?.ActiveSlice;
                 if (s != null) s.TXAnt = value;
             }
         }
 
         /// <summary>Available RX antenna list from the active slice. Dynamic per radio model.</summary>
         public List<string> RXAntennaList =>
-            theRadio.ActiveSlice?.RXAntList?.ToList() ?? new List<string> { "ANT1", "ANT2" };
+            theRadio?.ActiveSlice?.RXAntList?.ToList() ?? new List<string> { "ANT1", "ANT2" };
 
         /// <summary>Available TX antenna list from the active slice. Dynamic per radio model.</summary>
         public List<string> TXAntennaList =>
-            theRadio.ActiveSlice?.TXAntList?.ToList() ?? new List<string> { "ANT1", "ANT2" };
+            theRadio?.ActiveSlice?.TXAntList?.ToList() ?? new List<string> { "ANT1", "ANT2" };
 
         #endregion
 
@@ -6437,12 +6479,11 @@ namespace Radios
         {
             get
             {
-                if (theRadio.ActiveSlice != null) return theRadio.ActiveSlice.RXAnt;
-                else return "";
+                return theRadio?.ActiveSlice?.RXAnt ?? "";
             }
             set
             {
-                if (theRadio.ActiveSlice != null)
+                if (theRadio?.ActiveSlice != null)
                 {
                     if (value == RxAntDefault)
                     {
@@ -6461,12 +6502,11 @@ namespace Radios
         {
             get
             {
-                if (theRadio.ActiveSlice != null) return theRadio.ActiveSlice.TXAnt;
-                else return "";
+                return theRadio?.ActiveSlice?.TXAnt ?? "";
             }
             set
             {
-                if (theRadio.ActiveSlice != null)
+                if (theRadio?.ActiveSlice != null)
                 {
                     q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.TXAnt = value; }), "TXAnt");
                 }
@@ -6639,8 +6679,7 @@ namespace Radios
         {
             get
             {
-                if (!HasActiveSlice) return false;
-                return theRadio.ActiveSlice.Mute;
+                return theRadio?.ActiveSlice?.Mute ?? false;
             }
             set
             {
@@ -6734,7 +6773,7 @@ namespace Radios
             get
             {
                 //return base.AudioGain;
-                return theRadio.ActiveSlice.AudioGain;
+                return theRadio?.ActiveSlice?.AudioGain ?? 0;
             }
             set
             {
@@ -6748,7 +6787,8 @@ namespace Radios
         {
             get
             {
-                return theRadio.ActiveSlice.AudioPan;
+                // 50 = centered; a 0 default would read as hard-left during teardown.
+                return theRadio?.ActiveSlice?.AudioPan ?? 50;
             }
             set
             {
@@ -6832,7 +6872,7 @@ namespace Radios
         {
             get
             {
-                return (theRadio.ActiveSlice.NBOn) ? OffOnValues.on : OffOnValues.off;
+                return (theRadio?.ActiveSlice?.NBOn == true) ? OffOnValues.on : OffOnValues.off;
             }
             set
             {
@@ -6846,7 +6886,7 @@ namespace Radios
         internal const int NoiseBlankerValueIncrement = 5;
         public int NoiseBlankerLevel
         {
-            get { return theRadio.ActiveSlice.NBLevel; }
+            get { return theRadio?.ActiveSlice?.NBLevel ?? 0; }
             set { if (HasActiveSlice) q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.NBLevel = value; }), "NBLevel"); }
         }
 
@@ -6854,7 +6894,7 @@ namespace Radios
         {
             get
             {
-                return (theRadio.ActiveSlice.WNBOn) ? OffOnValues.on : OffOnValues.off;
+                return (theRadio?.ActiveSlice?.WNBOn == true) ? OffOnValues.on : OffOnValues.off;
             }
             set
             {
@@ -6864,7 +6904,7 @@ namespace Radios
 
         public int WidebandNoiseBlankerLevel
         {
-            get { return theRadio.ActiveSlice.WNBLevel; }
+            get { return theRadio?.ActiveSlice?.WNBLevel ?? 0; }
             set { if (HasActiveSlice) q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.WNBLevel = value; }), "WNBLevel"); }
         }
 
@@ -6872,7 +6912,7 @@ namespace Radios
         {
             get
             {
-                return (theRadio.ActiveSlice.NROn) ? OffOnValues.on : OffOnValues.off;
+                return (theRadio?.ActiveSlice?.NROn == true) ? OffOnValues.on : OffOnValues.off;
             }
             set
             {
@@ -6885,7 +6925,7 @@ namespace Radios
         internal const int NoiseReductionValueIncrement = 5;
         internal int NoiseReductionLevel
         {
-            get { return theRadio.ActiveSlice.NRLevel; }
+            get { return theRadio?.ActiveSlice?.NRLevel ?? 0; }
             set { if (HasActiveSlice) q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.NRLevel = value; })); }
         }
 
@@ -6898,8 +6938,7 @@ namespace Radios
         {
             get
             {
-                if (!HasActiveSlice || theRadio?.ActiveSlice == null) return OffOnValues.off;
-                return (theRadio.ActiveSlice.NRLOn) ? OffOnValues.on : OffOnValues.off;
+                return (theRadio?.ActiveSlice?.NRLOn == true) ? OffOnValues.on : OffOnValues.off;
             }
             set
             {
@@ -6911,7 +6950,7 @@ namespace Radios
         }
         public int NoiseReductionLegacyLevel
         {
-            get { return theRadio.ActiveSlice.NRL_Level; }
+            get { return theRadio?.ActiveSlice?.NRL_Level ?? 0; }
             set { if (HasActiveSlice) q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.NRL_Level = value; }), "NRL_Level"); }
         }
 
@@ -6923,8 +6962,7 @@ namespace Radios
         {
             get
             {
-                if (!HasActiveSlice || theRadio?.ActiveSlice == null) return OffOnValues.off;
-                return (theRadio.ActiveSlice.NRSOn) ? OffOnValues.on : OffOnValues.off;
+                return (theRadio?.ActiveSlice?.NRSOn == true) ? OffOnValues.on : OffOnValues.off;
             }
             set
             {
@@ -6936,7 +6974,7 @@ namespace Radios
         }
         internal int SpectralNoiseReductionLevel
         {
-            get { return theRadio.ActiveSlice.NRSLevel; }
+            get { return theRadio?.ActiveSlice?.NRSLevel ?? 0; }
             set { if (HasActiveSlice) q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.NRSLevel = value; }), "NRSLevel"); }
         }
 
@@ -6948,8 +6986,7 @@ namespace Radios
         {
             get
             {
-                if (!HasActiveSlice || theRadio?.ActiveSlice == null) return OffOnValues.off;
-                return (theRadio.ActiveSlice.NRFOn) ? OffOnValues.on : OffOnValues.off;
+                return (theRadio?.ActiveSlice?.NRFOn == true) ? OffOnValues.on : OffOnValues.off;
             }
             set
             {
@@ -6961,7 +6998,7 @@ namespace Radios
         }
         internal int NoiseReductionFilterLevel
         {
-            get { return theRadio.ActiveSlice.NRFLevel; }
+            get { return theRadio?.ActiveSlice?.NRFLevel ?? 0; }
             set { if (HasActiveSlice) q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.NRFLevel = value; }), "NRFLevel"); }
         }
 
@@ -6970,8 +7007,7 @@ namespace Radios
         {
             get
             {
-                if (!HasActiveSlice || theRadio?.ActiveSlice == null) return OffOnValues.off;
-                return (theRadio.ActiveSlice.RNNOn) ? OffOnValues.on : OffOnValues.off;
+                return (theRadio?.ActiveSlice?.RNNOn == true) ? OffOnValues.on : OffOnValues.off;
             }
             set
             {
@@ -6987,8 +7023,7 @@ namespace Radios
         {
             get
             {
-                if (!HasActiveSlice || theRadio?.ActiveSlice == null) return OffOnValues.off;
-                return (theRadio.ActiveSlice.ANFTOn) ? OffOnValues.on : OffOnValues.off;
+                return (theRadio?.ActiveSlice?.ANFTOn == true) ? OffOnValues.on : OffOnValues.off;
             }
             set
             {
@@ -7007,8 +7042,7 @@ namespace Radios
         {
             get
             {
-                if (!HasActiveSlice || theRadio?.ActiveSlice == null) return OffOnValues.off;
-                return (theRadio.ActiveSlice.ANFLOn) ? OffOnValues.on : OffOnValues.off;
+                return (theRadio?.ActiveSlice?.ANFLOn == true) ? OffOnValues.on : OffOnValues.off;
             }
             set
             {
@@ -7020,7 +7054,7 @@ namespace Radios
         }
         internal int AutoNotchLegacyLevel
         {
-            get { return theRadio.ActiveSlice.ANFL_Level; }
+            get { return theRadio?.ActiveSlice?.ANFL_Level ?? 0; }
             set { if (HasActiveSlice) q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.ANFL_Level = value; }), "ANFL_Level"); }
         }
 
@@ -7031,8 +7065,7 @@ namespace Radios
         public AGCMode AGCSpeed
         {
             get {
-                if (!HasActiveSlice) return AGCMode.None;
-                return theRadio.ActiveSlice.AGCMode;
+                return theRadio?.ActiveSlice?.AGCMode ?? AGCMode.None;
             }
             set {
                 if (HasActiveSlice)
@@ -7047,7 +7080,7 @@ namespace Radios
         public const int AGCThresholdIncrement = 5;
         public int AGCThreshold
         {
-            get { return theRadio.ActiveSlice.AGCThreshold; }
+            get { return theRadio?.ActiveSlice?.AGCThreshold ?? 0; }
             set { if (HasActiveSlice) q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.AGCThreshold = value; })); }
         }
 
@@ -7498,7 +7531,7 @@ namespace Radios
 
         internal OffOnValues ANF
         {
-            get { return (theRadio.ActiveSlice.ANFOn) ? OffOnValues.on : OffOnValues.off; }
+            get { return (theRadio?.ActiveSlice?.ANFOn == true) ? OffOnValues.on : OffOnValues.off; }
             set
             {
                 if (HasActiveSlice)
@@ -7514,7 +7547,7 @@ namespace Radios
         internal const int AutoNotchLevelIncrement = 10;
         internal int AutoNotchLevel
         {
-            get { return theRadio.ActiveSlice.ANFLevel; }
+            get { return theRadio?.ActiveSlice?.ANFLevel ?? 0; }
             set
             {
                 if (HasActiveSlice) q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.ANFLevel = value; }));
@@ -7523,7 +7556,7 @@ namespace Radios
 
         public OffOnValues APF
         {
-            get { return (theRadio.ActiveSlice.APFOn) ? OffOnValues.on : OffOnValues.off; }
+            get { return (theRadio?.ActiveSlice?.APFOn == true) ? OffOnValues.on : OffOnValues.off; }
             //get { return (theRadio.APFMode) ? OffOnValues.on : OffOnValues.off; }
             set
             {
@@ -7537,7 +7570,7 @@ namespace Radios
         internal const int AutoPeakLevelIncrement = 10;
         internal int AutoPeakLevel
         {
-            get { return theRadio.ActiveSlice.APFLevel; }
+            get { return theRadio?.ActiveSlice?.APFLevel ?? 0; }
             set
             {
                 if (HasActiveSlice) q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.APFLevel = value; }));
@@ -7546,7 +7579,7 @@ namespace Radios
 
         private Panadapter activePan
         {
-            get { return (theRadio.ActiveSlice != null) ? theRadio.ActiveSlice.Panadapter : null; }
+            get { return theRadio?.ActiveSlice?.Panadapter; }
         }
 
         public int RFGainMin = -10;
@@ -7614,7 +7647,7 @@ namespace Radios
 
         public OffOnValues Squelch
         {
-            get { return (theRadio.ActiveSlice.SquelchOn) ? OffOnValues.on : OffOnValues.off; }
+            get { return (theRadio?.ActiveSlice?.SquelchOn == true) ? OffOnValues.on : OffOnValues.off; }
             set
             {
                 q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.SquelchOn = (value == OffOnValues.on) ? true : false; }));
@@ -7626,7 +7659,7 @@ namespace Radios
         public const int SquelchLevelIncrement = 5;
         public int SquelchLevel
         {
-            get { return theRadio.ActiveSlice.SquelchLevel; }
+            get { return theRadio?.ActiveSlice?.SquelchLevel ?? 0; }
             set
             {
                 q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.SquelchLevel = value; }));
@@ -7665,16 +7698,14 @@ namespace Radios
         {
             get
             {
-                OffsetDirections rv = OffsetDirections.off;
-                if (theRadio.ActiveSlice != null)
-                {
-                    rv = FlexOffsetDirectionToOffsetDirection(theRadio.ActiveSlice.RepeaterOffsetDirection);
-                }
-                return rv;
+                var slice = theRadio?.ActiveSlice;
+                return (slice != null)
+                    ? FlexOffsetDirectionToOffsetDirection(slice.RepeaterOffsetDirection)
+                    : OffsetDirections.off;
             }
             set
             {
-                if (theRadio.ActiveSlice != null)
+                if (theRadio?.ActiveSlice != null)
                 {
                     FMTXOffsetDirection val = OffsetDirectionToFlexOffsetDirection(value);
                     q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.RepeaterOffsetDirection = val; }));
@@ -7684,7 +7715,7 @@ namespace Radios
 
         internal OffOnValues FMEmphasis
         {
-            get { return (theRadio.ActiveSlice.DFMPreDeEmphasis) ? OffOnValues.on : OffOnValues.off; }
+            get { return (theRadio?.ActiveSlice?.DFMPreDeEmphasis == true) ? OffOnValues.on : OffOnValues.off; }
             set
             {
                 bool val = (value == OffOnValues.on) ? true : false;
@@ -7698,7 +7729,7 @@ namespace Radios
         internal const int offsetIncrement = 50;
         public int OffsetFrequency
         {
-            get { return (int)(theRadio.ActiveSlice.FMRepeaterOffsetFreq * 1e3); }
+            get { return (int)((theRadio?.ActiveSlice?.FMRepeaterOffsetFreq ?? 0) * 1e3); }
             set
             {
                 q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.FMRepeaterOffsetFreq = (double)value / 1e3; }));
@@ -7776,7 +7807,7 @@ namespace Radios
         }
         public ToneCTCSSValue ToneCTCSS
         {
-            get { return ToneModeToToneCTCSS(theRadio.ActiveSlice.ToneMode); }
+            get { return ToneModeToToneCTCSS(theRadio?.ActiveSlice?.ToneMode ?? FMToneMode.Off); }
             set
             {
                 FMToneMode val = ToneCTCSSToToneMode(value);
@@ -7798,7 +7829,7 @@ namespace Radios
         {
             get
             {
-                return ToneValueToFloat(theRadio.ActiveSlice.FMToneValue);
+                return ToneValueToFloat(theRadio?.ActiveSlice?.FMToneValue);
             }
             set
             {
@@ -7809,7 +7840,7 @@ namespace Radios
 
         internal OffOnValues FM1750
         {
-            get { return (theRadio.ActiveSlice.FMTX1750) ? OffOnValues.on : OffOnValues.off; }
+            get { return (theRadio?.ActiveSlice?.FMTX1750 == true) ? OffOnValues.on : OffOnValues.off; }
             set
             {
                 bool val = (value == OffOnValues.on) ? true : false;
@@ -7829,7 +7860,7 @@ namespace Radios
 
         internal OffOnValues Play
         {
-            get { return (theRadio.ActiveSlice.PlayOn) ? OffOnValues.on : OffOnValues.off; }
+            get { return (theRadio?.ActiveSlice?.PlayOn == true) ? OffOnValues.on : OffOnValues.off; }
             set
             {
                 bool val = (value == OffOnValues.on) ? true : false;
@@ -7839,7 +7870,7 @@ namespace Radios
 
         internal OffOnValues Record
         {
-            get { return (theRadio.ActiveSlice.RecordOn) ? OffOnValues.on : OffOnValues.off; }
+            get { return (theRadio?.ActiveSlice?.RecordOn == true) ? OffOnValues.on : OffOnValues.off; }
             set
             {
                 bool val = (value == OffOnValues.on) ? true : false;
@@ -7862,7 +7893,7 @@ namespace Radios
             }
         }
 
-        internal bool CanPlay { get { return theRadio.ActiveSlice.PlayEnabled; } }
+        internal bool CanPlay { get { return theRadio?.ActiveSlice?.PlayEnabled ?? false; } }
 
         internal const int AMCarrierLevelMin = 0;
         internal const int AMCarrierLevelMax = 100;
@@ -7878,13 +7909,15 @@ namespace Radios
 
         internal void setNextValue1()
         {
-            if (theRadio.ActiveSlice.DemodMode == "CW")
+            var slice = theRadio?.ActiveSlice;
+            if (slice == null) return;
+            if (slice.DemodMode == "CW")
             {
-                theRadio.ActiveSlice.APFOn = !theRadio.ActiveSlice.APFOn;
+                slice.APFOn = !slice.APFOn;
             }
             else
             {
-                theRadio.ActiveSlice.NROn = !theRadio.ActiveSlice.NROn;
+                slice.NROn = !slice.NROn;
             }
         }
 

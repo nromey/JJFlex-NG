@@ -491,6 +491,10 @@ Module globals
             SessionArchive.Reconcile(TraceArchiveDir)
             SessionArchive.PruneOlderThan(TraceArchiveDir, SessionArchive.DefaultRetentionDays)
             PrunePlainTextTracesOlderThan(PlainTextTraceRetentionDays)
+            ' Crash dumps get the same boot-time housekeeping the trace archive
+            ' has had since Sprint 29 — without it the Errors folder grew by a
+            ' full-memory dump per crash, forever.
+            PruneCrashReports()
         Catch ex As Exception
             Tracing.ErrMessageTrace(ex)
         End Try
@@ -2395,10 +2399,14 @@ RadioConnected:
 
                 Radios.ConnectionProfiler.Current?.RecordEvent("start_call_begin")
                 Tracing.TraceLine("OpenTheRadio:rig is starting", TraceLevel.Info)
-                rv = RigControl.Start()
+                ' Capture the instance: an error dialog inside Start() pumps messages,
+                ' and a user cancel can run CloseTheRadio (nulling RigControl) before
+                ' Start() returns — reading the global here lost the failure reason.
+                Dim startingRig = RigControl
+                rv = startingRig.Start()
                 Radios.ConnectionProfiler.Current?.RecordEvent("start_call_end", New Dictionary(Of String, Object) From {
                     {"success", rv},
-                    {"failureReason", If(RigControl?.LastStartFailureReason, "")}
+                    {"failureReason", If(startingRig?.LastStartFailureReason, "")}
                 })
 
                 ' If Start() failed because SmartLink connection was too slow or dropped

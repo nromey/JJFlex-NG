@@ -677,7 +677,18 @@ namespace JJFlexWpf.Dialogs
             string serial = _rig.SelectedRadioSerial;
             string previousVersion = _rig.RadioFirmwareVersion;
 
-            if (_rig.BeginFirmwareUpdate(_chosenFirmwarePath))
+            if (_rig.BeginFirmwareUpdate(_chosenFirmwarePath,
+                onTransferFault: detail => Dispatcher.BeginInvoke(() =>
+                {
+                    // Spoken announcement comes from FlexBase; this is the text
+                    // for whoever still has the dialog open. The watcher keeps
+                    // running and will report what version the radio returns on.
+                    if (SetupFirmwareFileText == null) return;
+                    SetupFirmwareFileText.Text =
+                        "The radio closed the connection during the upload, so the update was not applied. " +
+                        "If the radio restarts anyway, JJ Flex is watching and will report the version it comes back on. " +
+                        $"Detail: {detail}";
+                })))
             {
                 SetupFirmwareFileText.Text =
                     "Sending. The radio applies the update and restarts on its own; this takes several minutes. " +
