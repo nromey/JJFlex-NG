@@ -1,61 +1,33 @@
-Rollback of yesterday's vendor library upgrade
-==============================================
+Remote connection fix: the audio path over SmartLink hole punch
+===============================================================
 
-Hey Don,
+This build carries a fix for remote connections to radios that have no
+port forwarding set up — the "hole punch" path.
 
-Thank you for sending the trace this morning. That was exactly what we
-needed to see what went wrong. Your radio connecting but no frequency
-showing up — and the app feeling unresponsive — those weren't general
-problems with the new build. Looking at your trace told us a specific
-story about a specific thing.
+What was happening: the connection itself would succeed (you'd hear the
+connect confirmation and the radio would respond to commands), but the
+audio and meter data never started flowing. After half a minute or so
+the app would give up with "no RX antenna / couldn't get a slice."
 
-What we found: the new vendor library underneath JJ Flex (FlexLib 4.2.18)
-behaves differently on the LAN connect path than the older one did. The
-radio gets the connect, the slice gets created, the audio plays — but
-one little handshake message (the radio confirming back to JJ Flex what
-its station name is now set to) doesn't come back through promptly on
-the new library. So the app sits there waiting for that confirmation,
-which is the "stuck on connecting" feel you saw.
+What we found: the very first data packets sent while the two ends are
+still finding each other can bounce. When one bounced, the networking
+layer under JJ Flex quietly shut down the entire audio channel and never
+told anyone. The connection looked alive — commands worked — but sound
+and meters were gone before they started.
 
-What we found out comparing earlier traces: this is specifically a
-mismatch between the new library and the firmware version your radio is
-currently running. Older firmware doesn't speak the new dialect cleanly
-on the LAN path. The earlier successful test we did was over SmartLink,
-which uses different plumbing, so it didn't surface there.
-
-What this build does: it rolls back yesterday's vendor library bump.
-You should be back to the same behavior you had two days ago. Same
-connect speed, same frequency display, same audio. Nothing fancy here --
-just back to known good while we work on the proper fix.
-
-What the proper fix looks like: we're going to build an in-app firmware
-update feature. Once that's ready, JJ Flex will offer to update your
-radio's firmware to a version that speaks the new library's dialect. At
-that point we can put the new library back and you'll get all of its
-improvements without the LAN handshake issue.
+What this build does: a bounce during that early window is now treated
+as the normal event it is, and the audio channel keeps trying. The
+trace file also narrates the whole story now, so if a remote connect
+still misbehaves, the trace will say exactly where it stopped.
 
 What to test
 ------------
 
-Nothing unusual — just see if your normal day works:
-
-1. Open JJ Flex. It should auto-connect like before.
-2. Check that the frequency reads out correctly when you tab to it.
-3. Listen — audio should be clean.
-4. Try cycling slices, changing bands, basic operation.
-5. Disconnect and reconnect a few times if you want.
-
-If anything weird happens, drop a trace into your Dropbox folder same
-as before. If everything feels normal, that's the answer we're hoping
-for and you don't have to do anything.
-
-One thing worth knowing for next time: if you ever hit "Connecting..."
-and it feels stuck, you can press Escape now and the modal will cancel
-cleanly — no taskkill needed. That shipped a couple of weeks ago in the
-nightly stream but you may not have had reason to discover it.
-
-Thanks again for the fast trace turnaround. Your testing is what made
-this a same-day catch instead of something we shipped publicly.
+1. Remote connect to a radio over SmartLink (the no-port-forwarding
+   path especially).
+2. Listen — audio should start within a few seconds of connecting.
+3. Check meters and the frequency readout are live.
+4. If anything fails, grab the trace file — it now tells the UDP story.
 
 73,
 JJ Flex (via Noel)

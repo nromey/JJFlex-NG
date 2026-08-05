@@ -9360,6 +9360,13 @@ namespace Radios
         public FlexBase(OpenParms p)
         {
             Tracing.TraceLine("Flex constructor", TraceLevel.Info);
+
+            // Route FlexLib's UDP data-plane health messages (VitaSocket + the WAN
+            // udp_register loop) into the JJ trace. Without this, WAN UDP failures
+            // are only visible under a debugger — the 2026-08-05 hole-punch field
+            // test failed with zero trace evidence because of exactly that gap.
+            Vita.VitaSocket.TraceSink = s => Tracing.TraceLine("Vita: " + s, TraceLevel.Info);
+
             theRadio = null;
             _apiInit = false;
 

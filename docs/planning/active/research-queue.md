@@ -188,7 +188,72 @@ no forwarding, PublicTlsPort=-1). Trace: C:\temp\JJFlexRadioTrace-
   NAT. Hotspot CGNAT defeated it; rarbox exit node (or any clean network)
   passes. Tailscale exit node = workable "clean client position" recipe.
 
-## CW output dead on ms-02 — 2026-08-05 pre-bed finding (REOPENS the "73 on close" diagnosis)
+**ROOT CAUSE FOUND + PATCHED — 2026-08-05 morning (field verification
+pending).** The "second wiring gap" hunch was right in spirit, wrong in
+location: the command plane was clean (connect_ready carries only
+handle+serial in both our 4.2.20 and the vendor 4.1.x decompile — client's
+chosen port is the sole authority, proven by TCP working). The kill was in
+**vendor 4.2.x VitaSocket** (`FlexLib_API/Vita/VitaSocket.cs`, unchanged
+since the 4.2.18 drop — verified vendor-stock via git):
+
+- On Windows, a UDP send that draws an ICMP "port unreachable" echo makes
+  the NEXT Send/Receive throw SocketException(ConnectionReset). During the
+  punch window that's near-guaranteed — we fire `client udp_register` at
+  the radio every 50ms while both NATs race to open.
+- Vendor stock called `Dispose()` from EVERY catch site (SendUdp,
+  SendUdpAsync, ReceiveLoop's generic catch). One bounce = socket suicide;
+  all later sends early-return on `_disposed` with zero errors surfaced.
+  `_udpSuccessfulRegistration` never sets → `PersistenceLoaded` never sets
+  → start_call gives up 34-54s later. Exact field-test signature.
+- Why Don's port-forwarded radio never hit it: his forwarded UDP port is
+  always listening — first packet lands, no ICMP, no suicide. Only the
+  punch path has the bounce window. (Possible relative of the AS-retry-
+  then-jank regression — same suicide on a transient WAN blip would kill
+  audio mid-session. Unconfirmed; watch for it after this patch.)
+
+Patch (all JJFlex-comment-marked, MIGRATION.md item 8): SIO_UDP_CONNRESET
+ioctl in the ctor; send catches log-and-continue instead of Dispose;
+ReceiveLoop treats ConnectionReset as non-event + 50-strike limit for
+other exceptions; static `VitaSocket.TraceSink` wired to JJ tracing from
+the FlexBase ctor, with `UdpRegistrationLoop` tracing loop-start and
+first-success. Field traces now SHOW the UDP story either way — if punch
+still fails post-patch, next diagnostic is tcpdump on rarbox (sees both
+directions of the exit-node path). Reportable upstream to Flex (vendor
+bug, alpha channel candidate).
+
+Built into Debug x64 2026-08-05 10:17. **Test protocol:** ms-02 behind
+rarbox exit node (Tailscale, LAN access removed), fresh app start, remote
+connect to the 8600, tracing on. Success = trace shows "UDP registration
+succeeded — VITA data flowing" + audio/meters live. Then the night's two
+goals: detached firmware reflash + connect through Don's account.
+
+## CW output dead on ms-02 — RESOLVED 2026-08-05 morning (config: CwNotificationsEnabled=false)
+
+**Root cause found by agent investigation, confirmed via config diff:**
+`CwNotificationsEnabled` is `false` in ms-02's `audioConfig.xml` (both root and
+Radios copies) and `true` on the laptop. Every CW notification — AS, BT,
+mode-announce, and the close-of-session 73/SK — gates on that single flag;
+earcons don't. The flag **defaults to false** and ms-02's config is
+near-virgin — the checkbox was simply never enabled on that machine.
+
+- **User fix (one checkbox):** Settings → the "Enable CW notifications (AS,
+  BT, SK prosigns)" checkbox → OK. No code needed.
+- **PC-audio hypothesis: refuted in code, coincidentally true in config.**
+  The CW path (MorseNotifier → EarconCwOutput → EarconPlayer alert channel,
+  NAudio) shares zero plumbing with PC audio (JJPortaudio stack). The laptop
+  does have PC audio configured and ms-02 doesn't, so the correlation was
+  real — just not load-bearing. The design ruling ("CW plays through the
+  computer device regardless of PC audio") is already satisfied
+  architecturally.
+- **The real lesson → design follow-ups (filed to C2 item 9):** the gate is
+  invisible — a disabled CW channel is indistinguishable from a broken one.
+  Candidates: (a) group the CW-enable checkbox with the Alert-device combo in
+  Settings so device + enable read as one unit; (b) reconsider default-false
+  for CW notifications; (c) agent flagged vestigial duplicate PlayCwSK wiring
+  at MainWindow.xaml.cs:2352-2362 (PowerOn re-wire) vs the ctor version — the
+  PowerOn version re-introduces the BUG-061 inter-utterance gap pattern.
+
+## ~~CW output dead on ms-02~~ — original 2026-08-05 pre-bed finding (superseded by the resolution above; kept for the diagnosis trail)
 
 Noel's last check before bed: local connect on the ms-02 desktop plays the two
 double beeps but no 73 CW on close — and the CW sound device IS set to Windows

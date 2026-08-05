@@ -15230,10 +15230,21 @@ namespace Flex.Smoothlake.FlexLib
                 await Task.Delay(interval);
             }
 
+            // JJFlex patch: surface UDP registration health in field traces —
+            // this loop is where a dead WAN data plane first becomes observable.
+            VitaSocket.TraceSink?.Invoke(
+                $"UDP registration loop starting: handle=0x{ClientHandle.ToString("X")} punch={RequiresHolePunch} targetPort={(RequiresHolePunch ? NegotiatedHolePunchPort : PublicUdpPort)}");
+            bool announcedRegistration = false;
+
             while (VitaSock != null && Connected)
             {
                 if (_udpSuccessfulRegistration)
                 {
+                    if (!announcedRegistration)
+                    {
+                        announcedRegistration = true;
+                        VitaSocket.TraceSink?.Invoke("UDP registration succeeded — VITA data flowing"); // JJFlex patch
+                    }
                     interval = TimeSpan.FromSeconds(5);
                     PersistenceLoaded = true;
                 }
