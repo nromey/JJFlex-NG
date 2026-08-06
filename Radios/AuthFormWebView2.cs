@@ -183,6 +183,18 @@ namespace Radios
             this.StartPosition = FormStartPosition.CenterScreen;
             this.Text = "SmartLink Authentication";
             this.Load += AuthFormWebView2_Load;
+            // Same foreground battle as the native sign-in form: this window
+            // opens while the Connecting form (another thread) holds
+            // foreground, and plain activation loses to the foreground lock —
+            // the user never learns a browser page appeared.
+            this.Shown += (_, _) =>
+            {
+                bool tookFocus = WindowFocusForcer.ForceForeground(this.Handle);
+                ScreenReaderOutput.Speak(
+                    "SmartLink browser sign in window."
+                    + (tookFocus ? "" : " This window did not receive focus - press Alt Tab to reach it."),
+                    VerbosityLevel.Terse, interrupt: true);
+            };
 
             this.ResumeLayout(false);
         }

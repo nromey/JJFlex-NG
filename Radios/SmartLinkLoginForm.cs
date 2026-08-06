@@ -152,17 +152,24 @@ namespace Radios
                 // Pull keyboard focus here from the Connecting form and SAY SO —
                 // the whole point of this dialog is that a screen reader user
                 // knows it exists the moment it appears (no-silent-state).
-                Activate();
-                BringToFront();
+                // Activate() alone loses to Windows' foreground lock when the
+                // Connecting form (another thread) holds foreground — Noel had
+                // to Alt+Tab to find this window. The forcer uses the
+                // AttachThreadInput recipe proven in Civ VI Access.
+                bool tookFocus = WindowFocusForcer.ForceForeground(Handle);
 
                 bool havePrefill = _emailBox.Text.Trim().Length > 0;
                 if (havePrefill) _passwordBox.Focus();
                 else _emailBox.Focus();
 
+                string where = tookFocus
+                    ? ""
+                    : " This window did not receive focus - press Alt Tab to reach it.";
                 ScreenReaderOutput.Speak(
-                    havePrefill
+                    (havePrefill
                         ? $"SmartLink sign in window. Enter the password for {_emailBox.Text.Trim()}."
-                        : "SmartLink sign in window. Enter your SmartLink email and password.",
+                        : "SmartLink sign in window. Enter your SmartLink email and password.")
+                    + where,
                     VerbosityLevel.Terse, interrupt: true);
             };
         }
