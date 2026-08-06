@@ -49,6 +49,7 @@ This release is about the space where you actually spend your time in the app �
 - **[Networking settings](#network-tab-configurability) you can actually configure on your own.** Manual port forwarding, UPnP, and hole-punch all live in the Network tab now. Bye-bye, SmartSDR, for that task at least. We also included a diagnostic probe with a copy-and-pasteable report you can send me when something breaks.
 - **[Safety check on port forwarding](#port-forwarding-safety-check).** If you're connected to somebody else's radio via SmartLink and try to change the port settings, JJ Flexible politely stops you instead of overwriting their radio's config.
 - **[Each radio now remembers its own connection settings](#radios-tab)** in the new Radios tab under Settings — Tools then Configure Radio jumps straight there. One radio can use a forwarded port while another hole-punches, and it's all editable whether you're connected or not. Oh, and you can finally rename your radio from JJ Flexible instead of borrowing SmartSDR for it.
+- **[SmartLink sign-in is a real dialog now](#native-signin)** — email box, password box, Sign In button, Forgot Password button. No web page, no browser, no fighting a login form that won't talk to your screen reader. And signing in this way sticks: JJ Flexible quietly renews it in the background from then on.
 - [CW send and receive boxes](#cw-text-boxes) go away if you can't use them. Unless you're in CW mode, the receive and send text boxes aren't visible and they're not in the tab order. Switch to CW with Alt+C and they come right back.
 - **Ctrl+Tab works for [panel navigation](#panel-navigation) again.** Sorry about that. Ctrl+Tab moves you through the major category fields, and Ctrl+Shift+Tab reverses direction. The popup menu that used to live on Ctrl+Tab is disabled pending a proper redesign — it's going to come back as an actual accessible toolbar that also looks spiffy. Stay tuned on that one.
 - **The [Connecting screen now lets you out](#connecting-cancellation).** Press Escape or click the X close button and JJ Flexible cancels the connection attempt right away — no more waiting for a timeout, no more force-quitting the app. The screen also tells you what phase it's in as it works, so you know whether SmartLink is slow, the slice is still being acquired, or something else is up. If a connect takes more than a minute, you get a "keep waiting or cancel" prompt with the actual reason; at five minutes JJ Flexible cancels for you so the screen never sits there spinning forever.
@@ -140,6 +141,18 @@ Here's why this matters. How you reach a radio is a fact about where the radio l
 And the name. You can finally name your radio from JJ Flexible. The name lives on the radio itself — discovery, SmartLink, and every other client show it — so saving while connected to the radio renames it for real, and JJ Flexible says so. Saving while not connected updates the name shown in your list and tells you plainly that the radio keeps its old name until you save while connected to it. No more leaving your radio introducing itself by its model number because renaming it meant a trip through somebody else's software.
 
 One more thing lives on this tab: remote administration, for radios that live somewhere you can never be. Normally, changes that persist on the radio — port settings, firmware — require being at the radio, and that's the right default. But if your radio sits at a friend's place three states away, being "at the radio" is exactly what you can't do. Two switches, per radio, both off unless you say otherwise: allow port changes from a remote connection, and allow firmware updates without someone at the radio. When you turn one on, JJ Flexible tells you exactly what you're accepting — port mistakes are recoverable from afar, interrupted firmware updates are not — and then respects your call. Your radio, your risk tolerance, your decision.
+
+[Return to version headlines](#unreleased-headlines)
+
+### Signing In Without the Web Page {#native-signin}
+
+This one goes out to Don, who spent an afternoon locked out of his own radio by a login web page that wouldn't cooperate. SmartLink sign-in is now an ordinary dialog: an email box, a password box, a Sign In button. Type, Enter, connected. Your screen reader treats it like any other dialog because it *is* any other dialog.
+
+There's a Forgot Password button right there too — it emails you a reset link, no hunting through websites. And if your account uses two-factor sign-in, or you just prefer the old way, Use Browser Instead brings back the web page.
+
+Here's the part you'll notice over time: signing in through the new dialog *sticks*. The old web-page sign-ins had a dirty secret — they could never actually renew themselves, and the only thing keeping you signed in was a browser cookie quietly aging in the background. When Don's cookie finally expired, so did his patience. Sign-ins made through the new dialog renew themselves properly, in the background, indefinitely. You'll be asked for your password once after updating, and then the nagging should be over.
+
+[Return to version headlines](#unreleased-headlines)
 
 [Return to version headlines](#unreleased-headlines)
 
