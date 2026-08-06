@@ -572,6 +572,18 @@ These are bounded research tasks suitable for background agents. Each produces a
 
 ## Awaiting Noel input (read-and-respond)
 
+- **Set Don's radio to a static IP (Noel, planned 2026-08-06).** LAN
+  address confirmed by Noel: **`192.168.203.112`**. Still need gateway
+  and netmask from Tony — likely `192.168.203.1` and `255.255.255.0`,
+  but do NOT assume; get them in one exchange. Writing static params works remotely over SmartLink
+  (`Radio.SetStaticNetworkParams`); only reading the current values
+  doesn't. Risk to respect: the radio is at Tony's and nobody can reach
+  it physically, so a wrong gateway or mask strands it. A DHCP
+  reservation on Tony's router achieves the same stability with a
+  failure mode that doesn't require a drive — offered and declined in
+  favour of static, noted here so the tradeoff isn't re-litigated.
+  Memory: `project_don_radio_lives_at_tonys.md`.
+
 - **Discovery-chain worktree cleanup** — `C:\dev\jjflex-discovery-chain` couldn't be force-removed tonight because the parallel CLI session that built R6 still has the directory locked. Close that CLI session and ping Claude — cleanup is one-line then.
 
 - **R6 trace from Don** — R6 shipped to Don's Dropbox folder 2026-05-05 21:57. Trace lands when Don runs the build. Three possible outcomes per `project_flexlib_4218_discovery_investigation.md` resume-path section.

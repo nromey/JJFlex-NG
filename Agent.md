@@ -5,6 +5,123 @@ This document captures the current state of JJ-Flex repository and active work.
 **Repository root:** `C:\dev\JJFlex-NG`
 **Branch:** `main` (post-REVERT of `track/flexlib-42` merge on 2026-05-15 — main is back to pre-FlexLib-4.2.18 substrate after Don's 2026-05-15 LAN trace exposed a vendor-side station-name regression. FlexLib 4.0.1 is in place. Re-merge of FlexLib 4.2.18 now gated on Sprint 29 Phase D firmware-update UI being operational + Don's radio firmware updated. `track/flexlib-42` parked at `9de45c54`. See `memory/project_flexlib_4218_station_name_regression.md` (new), `memory/project_flexlib_4218_merge_sequencing.md` (refreshed 2026-05-15), and `memory/project_main_branch_41_posture.md` (reality-check note added).)
 
+## END-OF-DAY SEAL — 2026-08-05: Don's radio reachable at last; four FlexLib-layer bugs killed
+
+**Window sealed:** 2026-08-04 midday through 2026-08-05 ~22:00. The Aug 4→5
+marathon (through 02:45) was never sealed separately, so this entry covers
+both. Branch `track/flexlib-4220`, everything committed and pushed to
+`origin` (HEAD `376e3fc9`).
+
+**The headline: JJ Flexible connects to Don's FLEX-6300 and plays audio.**
+That station is at Tony's — Don owns the radio and SmartLink account, Tony
+owns the site, router and ISP relationship (new memory:
+`project_don_radio_lives_at_tonys.md`; several sessions had been treating
+them as two separate problems). Proof in trace `20260805-210001`: TLS 1.2
+negotiated, `fwdTcp=True fwdUdp=True` from the radio's own probe, "UDP
+registration succeeded — VITA data flowing", `start_call` success in 3.8s,
+active slice, `PCAudio:True`.
+
+**Bugs root-caused and fixed today (34 commits, +2,406/−233):**
+
+- **Hole-punch race** (`75636860`) — root-caused from a rarbox pcap: the
+  radio punches UDP 80ms after TCP accept and gives up at ~904ms with a
+  graceful FIN; our first UDP waited for the full TLS+app handshake
+  (~992ms) and lost by two milliseconds. Now punches before the TCP
+  connect. **UNTESTED against a real punched connection — first job
+  tomorrow.**
+- **VitaSocket ICMP suicide** (`1d037d3a`) — vendor 4.2.x called
+  `Dispose()` from every catch site, so one ICMP bounce during the punch
+  window silently killed the whole UDP data plane. Plus `SIO_UDP_CONNRESET`
+  and a `TraceSink` so this subsystem finally narrates itself.
+- **TLS fallback that could never succeed** (`b83cc7a9`) — the TLS 1.2
+  retry reused the poisoned socket. Any radio too old for TLS 1.3 was
+  unreachable over SmartLink. Now dials a fresh socket per attempt. This
+  is JJFlex's own wrapper, not vendor code; Noel's 8600 masked it by
+  negotiating 1.3 on the first try.
+- **SmartLink account identity swap** (`c0b392f6`, `5dda1045`) — asking to
+  sign in as Don returned Noel's account, silently, because WebView2 has
+  one shared cookie store. Now forces a fresh session on account switch and
+  refuses a token whose email doesn't match, out loud.
+- **Per-account browser profiles** (`1957420b`) — WebView2 multi-profile
+  (one user-data folder, named profiles) instead of the March per-folder
+  approach that deadlocked and was reverted.
+- **Radio picker, three bugs** (`abbfdabf`, `c9c2e316`, `d193637d`) — the
+  list reordered itself once a second under the user's fingers; arrow
+  announcements went silent (a regression I introduced mid-day, using
+  `IsFocused` where WPF puts focus on the item container); remote radios
+  now sort first and rows say "local"/"remote" instead of a serial.
+- **Phantom 80-second hang** (`2b415e70`) — SmartLink sends its radio list
+  once per session; re-entering waited 10s for one that never comes, twice,
+  with a retry. Now uses the cached list.
+- **Merged `track/small-fixes-4220`** — five finished fixes from a parallel
+  session that were sitting unpushed: the full 39-site ActiveSlice NRE
+  sweep, profiler `failureReason` reentrancy, spoken firmware-upload
+  failure, registration retry, crash-dump retention.
+
+**Root cause of the Don blockage was not ours:** a router passthrough rule
+(external 4992 → internal 4992) shadowing the correct translation, so
+external traffic reached the radio's *plaintext* control port. Proven by
+reading the greeting banner from outside — which also meant Don's
+unencrypted control channel was internet-exposed. Deleting that rule fixed
+it. Correct config is external(any) TCP → internal 4994, UDP → internal
+4993. **I asserted the wrong ports from memory earlier, then "corrected"
+myself wrongly by generalizing FlexLib's LAN constants** — recorded in
+`feedback_never_assert_config_values_from_memory.md`.
+
+**Designed, not yet built:** detached operations (firmware + registration),
+two research memos plus a merged plan in `docs/planning/active/`. The key
+finding is that `API.IsGUI = false` is the whole "detached" trick, and that
+the radio reports real upload progress that SmartSDR ignores in favour of a
+fixed 360-second animation — our progress bar can be genuinely accurate.
+
+**Cross-surface activity:**
+- `JJFlex-NG` (main worktree): 34 commits, pushed.
+- `jjflex-small-fixes`: 13 commits from a parallel session, merged here and
+  pushed to origin.
+- `jjflex-dialogs`: uncommitted `TRACK-INSTRUCTIONS.md` carrying eight new
+  items filed today (10 network identity card, 11 login live regions, 12
+  session-scoped account switch, 13 advisory wording, 14 arrow escaping the
+  list, 15 announce active account, 16 audio device pickers, 17 "see the
+  message" dead ends). Untracked — preserved only by the dev-mirror backup.
+- Other worktrees (braille, flexlib-42, multi-radio, rename): idle.
+- Freight Fate: 16 unpushed commits, 1 dirty, no activity today. Civ VI
+  Access: 45 unpushed, 2 dirty, no activity today. Pushing those remains
+  Noel's call.
+- Memory: 7 entries written or updated (Don-at-Tony's, config-values
+  lesson, Connect protocol requirement, feedback-session trace selection,
+  distribution-channel path + sharing correction, connect earcon, index).
+- External: rarbox used for the packet capture (tcpdump installed, /tmp
+  cleaned); pcap and analysis archived on the NAS.
+- A protocol-spec effort for JJ Flexible Connect started this evening in a
+  separate session; `docs/planning/for-noel/2026-08-05-connect-protocol-reading-list.md`
+  is its artifact here.
+
+**Deliberately NOT done:** the Dropbox nightly broadcast. Distribution is a
+confirmed act, and tonight's build went to Don individually instead
+(`D:\Dropbox\JJFlexRadio\don\JJFlex_4.1.16.478_x64_debug.zip` + notes
+written in operator language). **Dropbox on ms-02 is `D:\Dropbox`, not the
+`C:\Users\nrome\Dropbox` path CLAUDE.md documents** — and the whole
+`JJFlexRadio\` tree is group-shared, so "just put it in Dropbox" means the
+root plus a share link.
+
+**Tomorrow:** (1) test the hole-punch fix for real — rarbox exit node,
+runbook on the NAS; (2) set Don's radio static at 192.168.203.112 once Tony
+supplies gateway and netmask; (3) build the detached-operations engine;
+(4) auto-update is the highest-leverage remaining feature per Noel — every
+build today cost a manual copy.
+
+### Rigmeter snapshot — end of 2026-08-05
+
+- Authored: 885 files, 179,240 lines. Vendor: 188 files, 55,569 lines.
+  Combined: 1,073 files, 234,809 lines.
+- Largest authored areas: JJFlexWpf 43,313 · docs 42,607 · main_app 33,329
+  · Radios 26,263.
+- Today: 34 commits, 18 files, +2,406/−233, net +2,173.
+- Since 2026-07-20 on this branch: 87 commits, +16,724/−3,641, net +13,083
+  — of which the FlexLib 4.1.5 → 4.2.20 vendor leap is +4,986/−2,811.
+  Authored-only: +11,521/−767.
+- Structured snapshot: `historical\stats\2026-08-05-376e3fc9.json`.
+
 ## RESUME HERE — 2026-08-04 midday checkpoint (orchestrator, pre-compact): advisories reworked, tracks B/C2 launching
 
 Working session, not a seal. Branch `track/flexlib-4220`, 6 commits today:
