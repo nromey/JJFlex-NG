@@ -5,6 +5,68 @@ This document captures the current state of JJ-Flex repository and active work.
 **Repository root:** `C:\dev\JJFlex-NG`
 **Branch:** `main` (post-REVERT of `track/flexlib-42` merge on 2026-05-15 — main is back to pre-FlexLib-4.2.18 substrate after Don's 2026-05-15 LAN trace exposed a vendor-side station-name regression. FlexLib 4.0.1 is in place. Re-merge of FlexLib 4.2.18 now gated on Sprint 29 Phase D firmware-update UI being operational + Don's radio firmware updated. `track/flexlib-42` parked at `9de45c54`. See `memory/project_flexlib_4218_station_name_regression.md` (new), `memory/project_flexlib_4218_merge_sequencing.md` (refreshed 2026-05-15), and `memory/project_main_branch_41_posture.md` (reality-check note added).)
 
+## MID-DAY CHECKPOINT — 2026-08-06 (pre-compact; not a seal)
+
+Branch `track/flexlib-4220`, clean, pushed through `82bb9277`. Build
+**4.1.16.497** on NAS (`historical\4.1.16.497\x64-debug\`) — carries the
+punch-race fix, the source latch, and the per-radio profile UI.
+
+**Done this session:**
+- **Hole-punch validation on the 8600** (rarbox exit node, capture
+  `punch-capture-20260806-112030.pcap`, analysis in NAS
+  `claude-sync\punch-capture-results-20260806.md`): the punch-race fix is
+  CONFIRMED on the wire — TCP punch crossed, TLS up, 226 KB status flowed,
+  zero ICMP. New blocker found: the home NAT (**ASUS router**; the AT&T box
+  is passthrough) rewrites the radio's UDP source port (40420 → 7604), so
+  registration never reached the radio and it FIN'd at its ~10s timeout.
+- **Fix committed, UNTESTED: UDP source latch** in VitaSocket (`625bdbae`),
+  hole-punch mode only, guarded to the radio's IP. Decompiled SmartSDR does
+  NOT have this. An unmodified Tailscale exit node can never validate it
+  (port-restricted masquerade) — needs the doorstop DNAT below, a friendly
+  NAT (phone hotspot?), or field use.
+- **Plan:** `docs/planning/active/barefoot-punch-pathfinder.md` — Phase 1
+  network truth bundle → Phase 2 detached ops (the 4.2.0 gate) → Phase 3
+  test-all. Two research agents delivered (docs in `for-noel/`).
+- **Phase 1a DONE:** serial-keyed store `Radios/RadioConfig.cs`
+  (`radios\<serial>\config.xml`); `sendRemoteConnect` resolves per-radio
+  profile → legacy account → radio-reported (Auto); profile stub written on
+  every successful WAN connect. **Phase 1b slice 1 DONE:** "Per-radio
+  connection profile" group atop Settings→Network — picker (offline,
+  editable), Auto/ForwardOnly/HolePunch, fixed punch port, no gates.
+- **Research + decisions:** auto-update is ~80% built with two silent
+  killers (helper exe never ships; client/server manifest schemas diverged —
+  fix BEFORE first R2 publish). Noel: **CI + signing precede the updater
+  rehearsal**; signing scope = installers + deltas + helper
+  (`signing-track.md`, start condition met). Audio: radio-audio picker
+  migration researched (device identity must survive reshuffles); Audio
+  Workshop hear-yourself conversation queued (TXMonitor facts verified;
+  Don's transverter-port loopback intel captured).
+- **Memory updated:** 8600 is the test mule for everything, Don's station is
+  production-only; Don's firmware already current (4.2.0 gate = detached ops
+  + 8600 downgrade cycle); review folders are for-noel/for-claude/for-don
+  (inbox/outbox superseded); hole-punch memory refreshed with today's
+  findings.
+
+**NEXT — latch test (unblocked; needs Noel seated):**
+1. Laptop: run 4.1.16.497, Settings → Network → Per-radio connection
+   profile, radio `4925-1213-8600-6245`, fixed hole-punch port **40420**,
+   Save. Tailscale exit node rarbox ON, LAN access OFF.
+2. ms-02: `ssh ner@rarbox.macaw-jazz.ts.net` (1Password agent, enabled
+   today). Doorstop BEFORE the test (radio's punch UDP arrives from a
+   rewritten source; this forwards it): `sudo iptables -t nat -A PREROUTING
+   -i eth0 -p udp -s 162.200.48.84 --dport 40420 -j DNAT --to-destination
+   100.94.248.61:40420` (laptop tailnet IP; add a matching FORWARD accept if
+   needed). tcpdump capture per the claude-sync runbook. DELETE the rule
+   after (`-D` mirror image).
+3. Success looks like: trace line `source latch — radio UDP arrives
+   from ...:7604`, then `UDP registration succeeded — VITA data flowing`,
+   audio that persists past 10 seconds.
+
+**NEXT — 1b remainder:** per-radio IP settings block (reachable from Radio
+Setup AND the per-radio box; tab-SKIPPED when not connected, full when
+connected), offline network diagnostic (`RunNetworkDiagnosticAsync` gate),
+then retire the old tier-ladder gating.
+
 ## END-OF-DAY SEAL — 2026-08-05: Don's radio reachable at last; four FlexLib-layer bugs killed
 
 **Window sealed:** 2026-08-04 midday through 2026-08-05 ~22:00. The Aug 4→5
