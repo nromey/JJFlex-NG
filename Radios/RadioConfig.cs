@@ -65,6 +65,38 @@ namespace Radios
         public int FixedHolePunchPort { get; set; }
 
         /// <summary>
+        /// App-wide config root, assigned once at startup (ApplicationEvents,
+        /// next to the other handler wiring). Static because the Radios layer
+        /// has no ambient config-path service and the value never changes for
+        /// the life of the process. When unset, LoadForRadio returns defaults
+        /// and SaveForRadio declines — callers never need a null check.
+        /// </summary>
+        public static string? BaseDirectory { get; set; }
+
+        /// <summary>Load via the app-wide <see cref="BaseDirectory"/>.</summary>
+        public static RadioConfig LoadForRadio(string radioId)
+        {
+            var dir = BaseDirectory;
+            return string.IsNullOrEmpty(dir)
+                ? new RadioConfig { RadioId = radioId }
+                : Load(dir, radioId);
+        }
+
+        /// <summary>Save via the app-wide <see cref="BaseDirectory"/>.</summary>
+        public bool SaveForRadio(string radioId)
+        {
+            var dir = BaseDirectory;
+            if (string.IsNullOrEmpty(dir))
+            {
+                Tracing.TraceLine(
+                    "RadioConfig.SaveForRadio: BaseDirectory not set — nothing saved",
+                    System.Diagnostics.TraceLevel.Warning);
+                return false;
+            }
+            return Save(dir, radioId);
+        }
+
+        /// <summary>
         /// Loads the config for a radio, returning defaults when no file exists
         /// or the file is unreadable. Never throws.
         /// </summary>

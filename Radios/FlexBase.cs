@@ -4016,14 +4016,52 @@ namespace Radios
             // forwarding works SmartLink reports RequiresHolePunch = false, so the two
             // paths are mutually exclusive in practice. We honour an explicit
             // configured port if one exists, and randomise otherwise.
+            // Per-radio profile (barefoot-punch-pathfinder Phase 1a). Reachability
+            // is a property of the radio's SITE, not the operator's account —
+            // Don's radio is forwarded while the 8600 needs punch, and one
+            // account-level tier can't describe both. The serial-keyed profile
+            // therefore outranks the account fields. Auto (the default, and the
+            // state of every radio without a saved profile) follows the
+            // radio-reported RequiresHolePunch flag exactly as before, so
+            // pre-profile behavior is unchanged.
+            var radioProfile = RadioConfig.LoadForRadio(r.Serial);
+            if (radioProfile.ConnectionPreference == RadioConnectionPreference.HolePunch
+                && !r.RequiresHolePunch)
+            {
+                Tracing.TraceLine(
+                    "sendRemoteConnect: per-radio profile FORCES hole punch (radio reported RequiresHolePunch=false)",
+                    TraceLevel.Warning);
+                r.RequiresHolePunch = true;
+            }
+            else if (radioProfile.ConnectionPreference == RadioConnectionPreference.ForwardOnly
+                && r.RequiresHolePunch)
+            {
+                Tracing.TraceLine(
+                    $"sendRemoteConnect: per-radio profile FORCES forwarded path (radio reported RequiresHolePunch=true, PublicTlsPort={r.PublicTlsPort}) — connect will fail if the radio has no reachable public ports",
+                    TraceLevel.Warning);
+                r.RequiresHolePunch = false;
+            }
+
             int holePunchPort = 0;
+            string holePunchPortSource = "none";
             if (r.RequiresHolePunch)
             {
-                if (_currentAccount != null
+                if (radioProfile.FixedHolePunchPort > 0)
+                {
+                    holePunchPort = radioProfile.FixedHolePunchPort;
+                    holePunchPortSource = "radioProfile";
+                    Tracing.TraceLine(
+                        $"sendRemoteConnect: hole punch required — using per-radio fixed port {holePunchPort}",
+                        TraceLevel.Info);
+                }
+                else if (_currentAccount != null
                     && _currentAccount.ConnectionMode == SmartLinkConnectionMode.AutomaticHolePunch
                     && _currentAccount.ConfiguredListenPort.HasValue)
                 {
+                    // Legacy account-level pin, kept as a fallback for configs
+                    // written before per-radio profiles existed.
                     holePunchPort = _currentAccount.ConfiguredListenPort.Value;
+                    holePunchPortSource = "account";
                     Tracing.TraceLine(
                         $"sendRemoteConnect: hole punch required — using configured port {holePunchPort}",
                         TraceLevel.Info);
@@ -4031,6 +4069,7 @@ namespace Radios
                 else
                 {
                     holePunchPort = System.Random.Shared.Next(25000, 65000);
+                    holePunchPortSource = "random";
                     Tracing.TraceLine(
                         $"sendRemoteConnect: hole punch required — auto-assigned port {holePunchPort}",
                         TraceLevel.Info);
@@ -4062,7 +4101,9 @@ namespace Radios
             ConnectionProfiler.Current?.RecordEvent("hole_punch_port_selected", new Dictionary<string, object>
             {
                 { "requiresHolePunch", r.RequiresHolePunch },
-                { "holePunchPort", holePunchPort }
+                { "holePunchPort", holePunchPort },
+                { "portSource", holePunchPortSource },
+                { "radioProfilePreference", radioProfile.ConnectionPreference.ToString() }
             });
 
             // session.ConnectToRadio returns Task<string?>: handle on success, null on timeout/failure.
