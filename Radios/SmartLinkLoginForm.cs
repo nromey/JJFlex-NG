@@ -24,6 +24,7 @@ namespace Radios
 
         private readonly TextBox _emailBox;
         private readonly TextBox _passwordBox;
+        private readonly TextBox _friendlyNameBox;
         private readonly Button _signInButton;
         private readonly Button _forgotButton;
         private readonly Button _browserButton;
@@ -38,6 +39,14 @@ namespace Radios
         public string RefreshToken { get; private set; } = "";
         public int ExpiresIn { get; private set; }
 
+        /// <summary>
+        /// The display name the user chose for this account, or empty for
+        /// "use the email". Naming happens where the account is born — a
+        /// friendly name defaulting to the email is what made every account
+        /// read as "email (email)" through a screen reader.
+        /// </summary>
+        public string FriendlyName { get; private set; } = "";
+
         public SmartLinkLoginForm(SmartLinkAccountManager manager, string prefillEmail = "")
         {
             _manager = manager ?? new SmartLinkAccountManager();
@@ -48,7 +57,7 @@ namespace Radios
             MinimizeBox = false;
             StartPosition = FormStartPosition.CenterScreen;
             AutoScaleMode = AutoScaleMode.Dpi;
-            ClientSize = new Size(430, 260);
+            ClientSize = new Size(430, 292);
             // Runs ownerless on its own thread while the Connecting form (also
             // ownerless, also TopMost, also its own thread) is up. Without
             // TopMost this window opens BEHIND the connecting screen and a
@@ -86,9 +95,18 @@ namespace Radios
             };
             Controls.Add(_passwordBox);
 
+            var nameLabel = new Label { Text = "&Name (optional):", Left = 12, Top = 114, Width = 86 };
+            Controls.Add(nameLabel);
+            _friendlyNameBox = new TextBox
+            {
+                Left = 100, Top = 111, Width = 318, TabIndex = 2,
+                AccessibleName = "Account name shown in your list, optional. Leave blank to use the email address.",
+            };
+            Controls.Add(_friendlyNameBox);
+
             _signInButton = new Button
             {
-                Text = "&Sign In", Left = 100, Top = 116, Width = 100, TabIndex = 2,
+                Text = "&Sign In", Left = 100, Top = 146, Width = 100, TabIndex = 3,
                 AccessibleName = "Sign in",
             };
             _signInButton.Click += async (_, _) => await SignInAsync();
@@ -96,7 +114,7 @@ namespace Radios
 
             _forgotButton = new Button
             {
-                Text = "&Forgot Password", Left = 206, Top = 116, Width = 130, TabIndex = 3,
+                Text = "&Forgot Password", Left = 206, Top = 146, Width = 130, TabIndex = 4,
                 AccessibleName = "Forgot password. Sends a password reset email to the address above.",
             };
             _forgotButton.Click += async (_, _) => await ForgotPasswordAsync();
@@ -104,7 +122,7 @@ namespace Radios
 
             _browserButton = new Button
             {
-                Text = "Use &Browser Instead", Left = 100, Top = 148, Width = 160, TabIndex = 4,
+                Text = "Use &Browser Instead", Left = 100, Top = 178, Width = 160, TabIndex = 5,
                 AccessibleName = "Use the browser sign-in page instead",
             };
             _browserButton.Click += (_, _) => { DialogResult = DialogResult.Retry; Close(); };
@@ -112,7 +130,7 @@ namespace Radios
 
             _cancelButton = new Button
             {
-                Text = "Cancel", Left = 266, Top = 148, Width = 100, TabIndex = 5,
+                Text = "Cancel", Left = 266, Top = 178, Width = 100, TabIndex = 6,
                 DialogResult = DialogResult.Cancel,
                 AccessibleName = "Cancel sign in",
             };
@@ -120,7 +138,7 @@ namespace Radios
 
             _statusLabel = new Label
             {
-                Left = 12, Top = 184, Width = 406, Height = 64,
+                Left = 12, Top = 214, Width = 406, Height = 66,
                 AccessibleName = "Sign-in status",
                 AccessibleRole = AccessibleRole.StaticText,
             };
@@ -166,6 +184,7 @@ namespace Radios
             _browserButton.Enabled = !busy;
             _emailBox.Enabled = !busy;
             _passwordBox.Enabled = !busy;
+            _friendlyNameBox.Enabled = !busy;
             // Cancel stays enabled — a stuck network call must not trap the
             // user in the dialog (stuck-modal rule).
         }
@@ -200,6 +219,7 @@ namespace Radios
                     IdToken = result.IdToken;
                     RefreshToken = result.RefreshToken;
                     ExpiresIn = result.ExpiresIn;
+                    FriendlyName = _friendlyNameBox.Text.Trim();
                     ScreenReaderOutput.Speak("Signed in.", VerbosityLevel.Terse, interrupt: true);
                     DialogResult = DialogResult.OK;
                     Close();

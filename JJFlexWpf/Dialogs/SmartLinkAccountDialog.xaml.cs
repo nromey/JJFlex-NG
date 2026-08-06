@@ -24,7 +24,13 @@ namespace JJFlexWpf.Dialogs
                 ? LastUsed.ToLocalTime().ToString("g")
                 : "Never";
             string defaultTag = IsDefault ? " (Default)" : "";
-            return $"{FriendlyName} ({Email}){defaultTag} - Last used: {lastUsed}";
+            // Accounts whose friendly name IS the email (the default when no
+            // name was chosen) read as "email (email)" through a screen
+            // reader — say it once.
+            string identity = string.Equals(FriendlyName, Email, StringComparison.OrdinalIgnoreCase)
+                ? Email
+                : $"{FriendlyName} ({Email})";
+            return $"{identity}{defaultTag} - Last used: {lastUsed}";
         }
     }
 
@@ -183,8 +189,11 @@ namespace JJFlexWpf.Dialogs
             var item = GetSelectedAccount();
             if (item == null || _callbacks.ResetAccountSignIn == null) return;
 
+            string who = string.Equals(item.FriendlyName, item.Email, StringComparison.OrdinalIgnoreCase)
+                ? item.Email
+                : $"\"{item.FriendlyName}\" ({item.Email})";
             var result = MessageBox.Show(
-                $"Reset the sign-in for \"{item.FriendlyName}\" ({item.Email})?\n\n" +
+                $"Reset the sign-in for {who}?\n\n" +
                 "The account stays in your list with all its settings. " +
                 "The next connection will ask for the password again. " +
                 "Use this when signing in has stopped working.",

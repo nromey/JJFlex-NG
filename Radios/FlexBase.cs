@@ -3239,6 +3239,17 @@ namespace Radios
             }
         }
 
+        /// <summary>
+        /// The process-wide account manager — the SAME instance the connect
+        /// flows use. Every UI that edits accounts must go through this, never
+        /// a freshly constructed manager. Lesson of 2026-08-06: the account
+        /// dialog used its own instance, so Reset Sign-In cleared tokens on
+        /// disk while the rig's in-memory copy stayed live, reconnected
+        /// silently, and its next save wrote the old tokens right back —
+        /// the reset silently undone. One instance, one truth.
+        /// </summary>
+        public static SmartLinkAccountManager SharedAccountManager => AccountManager;
+
         // Current SmartLink account (for token refresh on re-auth)
         private SmartLinkAccount _currentAccount;
 
@@ -3471,7 +3482,8 @@ namespace Radios
             if (native.result == DialogResult.OK)
             {
                 RestoreParentFocus();
-                return FinishInteractiveLogin(native.email, native.idToken, native.refreshToken, native.expiresIn, expectedAccount);
+                return FinishInteractiveLogin(native.email, native.idToken, native.refreshToken, native.expiresIn, expectedAccount,
+                    friendlyNameFromForm: native.friendlyName);
             }
             if (native.result != DialogResult.Retry)
             {
@@ -3547,7 +3559,7 @@ namespace Radios
         /// back its outcome. Retry means "open the browser form instead" —
         /// either the user asked for it or the account needs two-factor.
         /// </summary>
-        private (DialogResult result, string email, string idToken, string refreshToken, int expiresIn)
+        private (DialogResult result, string email, string idToken, string refreshToken, int expiresIn, string friendlyName)
             ShowNativeLoginDialog(SmartLinkAccount expectedAccount, bool forceNewLogin)
         {
             // Adding a genuinely new account starts blank; re-authenticating a
@@ -3555,7 +3567,7 @@ namespace Radios
             string prefill = forceNewLogin ? "" : (expectedAccount?.Email ?? _currentAccount?.Email ?? "");
 
             DialogResult dr = DialogResult.Cancel;
-            string email = "", idToken = "", refreshToken = "";
+            string email = "", idToken = "", refreshToken = "", friendlyName = "";
             int expiresIn = 0;
 
             // The dialog gets its OWN STA thread, deliberately — never shown
@@ -3578,6 +3590,7 @@ namespace Radios
                     idToken = dlg.IdToken;
                     refreshToken = dlg.RefreshToken;
                     expiresIn = dlg.ExpiresIn;
+                    friendlyName = dlg.FriendlyName;
                 }
                 catch (Exception ex)
                 {
@@ -3590,7 +3603,7 @@ namespace Radios
             dialogThread.Start();
             dialogThread.Join();
 
-            return (dr, email, idToken, refreshToken, expiresIn);
+            return (dr, email, idToken, refreshToken, expiresIn, friendlyName);
         }
 
         /// <summary>
@@ -3599,7 +3612,8 @@ namespace Radios
         /// the account. Returns the id_token, or null when the sign-in must be
         /// rejected.
         /// </summary>
-        private string FinishInteractiveLogin(string email, string idToken, string refreshToken, int expiresIn, SmartLinkAccount expectedAccount)
+        private string FinishInteractiveLogin(string email, string idToken, string refreshToken, int expiresIn, SmartLinkAccount expectedAccount,
+            string friendlyNameFromForm = null)
         {
             // Diagnostic: log the exp claim from the fresh token
             if (!string.IsNullOrEmpty(idToken))
@@ -3677,6 +3691,11 @@ namespace Radios
                     existingAccount.IdToken = idToken;
                     existingAccount.RefreshToken = refreshToken;
                     existingAccount.ExpiresAt = DateTime.UtcNow.AddSeconds(expiresIn > 0 ? expiresIn : 86400);
+                    // A name typed during re-auth is a rename request.
+                    if (!string.IsNullOrEmpty(friendlyNameFromForm))
+                    {
+                        existingAccount.FriendlyName = friendlyNameFromForm;
+                    }
                     AccountManager.SaveAccount(existingAccount);
                     _currentAccount = existingAccount;
 
@@ -3696,8 +3715,13 @@ namespace Radios
 
                     if (saveResult == DialogResult.Yes)
                     {
-                        // Prompt for friendly name
-                        string friendlyName = PromptForAccountName(email);
+                        // The native form already offered a name field, so a
+                        // second prompt would be a nag — empty there means
+                        // "use the email". Only the browser path (which has
+                        // no name field) still prompts.
+                        string friendlyName = friendlyNameFromForm != null
+                            ? (friendlyNameFromForm.Length > 0 ? friendlyNameFromForm : email)
+                            : PromptForAccountName(email);
 
                         var account = new SmartLinkAccount
                         {

@@ -3334,8 +3334,10 @@ public partial class MainWindow : UserControl
     /// </summary>
     public void ShowSmartLinkAccountManager()
     {
-        var mgr = new Radios.SmartLinkAccountManager();
-        mgr.LoadAccounts();
+        // The SHARED manager, never a fresh instance: a private copy here is
+        // how Reset Sign-In got silently undone on 2026-08-06 — the rig's
+        // in-memory tokens survived the on-disk clear and re-saved themselves.
+        var mgr = Radios.FlexBase.SharedAccountManager;
 
         while (true)
         {
@@ -3376,9 +3378,10 @@ public partial class MainWindow : UserControl
                     if (nativeResult == System.Windows.Forms.DialogResult.OK
                         && !string.IsNullOrEmpty(native.IdToken))
                     {
-                        var nativeFriendly = !string.IsNullOrEmpty(native.Email)
-                            ? native.Email
-                            : "SmartLink Account";
+                        var nativeFriendly =
+                            !string.IsNullOrEmpty(native.FriendlyName) ? native.FriendlyName :
+                            !string.IsNullOrEmpty(native.Email) ? native.Email :
+                            "SmartLink Account";
                         mgr.SaveAccount(new Radios.SmartLinkAccount
                         {
                             FriendlyName = nativeFriendly,
