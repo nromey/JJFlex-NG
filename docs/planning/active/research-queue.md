@@ -2,7 +2,7 @@
 
 **Working dashboard.** Distinct from `docs/planning/vision/JJFlex-TODO.md` (long-lived strategic backlog) — this file tracks what's actually queued, in flight, blocked, or waiting for Noel's read **right now**.
 
-**Last updated:** 2026-08-05 (small-fixes track on `track/small-fixes-4220`, worktree `C:\dev\jjflex-small-fixes`, branched from flexlib-4220: ActiveSlice sweep, failureReason reentrancy fix, firmware death speech, SmartLink register retry, crash-dump retention — all committed, merge target track/flexlib-4220). Claude updates this whenever items move between states. If the timestamp drifts more than a session, flag it.
+**Last updated:** 2026-08-06 (hole-punch validation run: race fix confirmed on the wire, ASUS UDP source-rewrite found, source latch implemented in `625bdbae`, build 4.1.16.480 on NAS). Claude updates this whenever items move between states. If the timestamp drifts more than a session, flag it.
 
 **How to use:** Noel scans the sections below to pick what to fire off, or asks Claude to recommend based on what's available. Claude is expected to keep this current.
 
@@ -11,6 +11,18 @@
 ## In flight (running now)
 
 - **Phase 0 Section F3-G — rarbox FastAPI receiver setup** — F1-F2 complete via SSH-from-orchestrator (nginx 1.26.3 + certbot 4.0.0 + Python 3.13.5 venv with FastAPI 0.136.1 + uvicorn 0.46.0 + pydantic 2.13.4 + python-multipart 0.0.27). F3-G handed off 2026-05-07 to rarbox-Claude (first trial of "Claude lives on rarbox" execution model) with briefing at `docs/planning/active/rarbox-claude-F3-G-briefing.md`. Storage design: zip on disk (forensic preservation) + SQLite index (triage queries) + JSON sidecar (rebuild source). → memory: `project_claude_as_rarbox_operator.md` (promoted from "SSH" to "lives on" model post-trial)
+
+## Hole punch — validated 2026-08-06, latch awaiting a viable test network
+
+- **RESOLVED (race): the punch-before-TCP fix works.** Capture `punch-capture-20260806-112030.pcap` (NAS `incoming\laptop-traces\`), analysis in NAS `claude-sync\punch-capture-results-20260806.md`. First client UDP left 39µs before the TCP SYN; TCP punch crossed; TLS + 226 KB status flowed; zero ICMP. Session died at 10.2s to a NEW cause: the **ASUS router rewrites the radio's UDP source port** (punch 40420 arrived as 7604; the AT&T box is passthrough), so registration to the negotiated port never reached the radio → its ~10s UDP-registration timeout FIN'd. TCP port preserved, UDP rewritten — same router, different protocols.
+- **FIXED (client side): UDP source latch** in `VitaSocket` (`625bdbae`, build 4.1.16.480) — sends retarget onto the radio's observed UDP source; hole-punch mode only; guarded to the radio's address; trace line `source latch` narrates. Decompiled SmartSDR 4.1.x does NOT do this — it fails identically against such routers. JJFlex is now strictly better at punch than the reference client, pending validation.
+- **Test-infrastructure fact (learned the hard way):** an unmodified Tailscale exit node can NEVER validate the latch — its port-restricted masquerade drops the radio's asymmetric-source UDP before the client sees it (that's what rarbox did). Applies equally to any Pi/VPS exit node.
+- **Latch validation options, in order of cheapness:**
+  1. **T-Mobile hotspot, laptop tethered, no exit node.** CGNAT is not an automatic loss: RFC 6888 CGNATs commonly do endpoint-independent mapping, which admits the asymmetric return. Five-minute test; grep the trace for `source latch`.
+  2. **Andre's Pi as exit node + one DNAT rule (needs Andre's OK).** Plain exit node inherits the rarbox flaw, but one reversible rule fixes it: set a FIXED hole-punch listen port in JJFlex (the Tier 3 account setting), DNAT `udp dport <port>` → laptop's tailscale IP on the Pi. Makes the Pi full-cone for that one port. Same trick would work on rarbox but firewall changes there are gated by `project_rarbox_hardening.md` — Noel's explicit call only.
+  3. **Field validation** — first genuinely remote operation (Tony's, hamfest, etc.) tells us for free via the trace line.
+- **Blocked idea (for the record):** running a headless punch probe ON Andre's Pi — everything links FlexLib which targets `net10.0-windows`; no Linux run. `tools/SmartLinkSessionHarness` also stops at the session layer (no radio connect/UDP).
+- **IPv6 → JJ Flexible Connect design input (Noel, 2026-08-06).** SmartLink's rendezvous is IPv4-only end to end (radio advertises v4 addresses only; FlexLib sockets are v4) — no v6 punch is possible inside SmartLink, ever. But mobile carriers are v6-native, and v6↔v6 needs no NAT traversal at all. The Connect protocol should carry IPv6 candidate addresses from day one so direct v6 paths skip the punch entirely. Feed into the Connect protocol spec effort (`docs/planning/for-noel/2026-08-05-connect-protocol-reading-list.md` / `cookie-sked-keydown.md`).
 
 ## Queued — orchestrator session, after Noel starts the B/C2 tracks (2026-08-04)
 
