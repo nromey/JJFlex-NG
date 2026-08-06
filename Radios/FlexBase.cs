@@ -5340,6 +5340,48 @@ namespace Radios
         }
 
         /// <summary>
+        /// Authorization gate for SmartLink port-settings changes (Noel's
+        /// 2026-08-06 ownership decision). Two independent ways to pass:
+        /// presence (primary operator at the radio, same as before), or the
+        /// owner-declared per-radio waiver <see cref="RadioConfig.AllowRemotePortChanges"/>.
+        /// The trust model behind the waiver: a valid SmartLink token for the
+        /// radio's account IS the owner's grant — JJ Flex cannot distinguish
+        /// the owner from someone the owner handed credentials to, and
+        /// pretending otherwise just locks remote-base owners out of their own
+        /// rigs. The waiver is per-radio, default off, and set by whoever runs
+        /// this copy of JJ Flex. Firmware-class operations do NOT use this
+        /// gate — they get PresenceLevel.ActiveChallenge when it ships, which
+        /// must honor <see cref="RadioConfig.AllowRemoteFirmwareUpdates"/>.
+        /// </summary>
+        public void RequirePortSettingsAuthority(string reason, Action onConfirmed, Action onDenied = null)
+        {
+            if (IsCurrentClientLocalPtt())
+            {
+                Tracing.TraceLine($"RequirePortSettingsAuthority: presence pass ({reason})", TraceLevel.Info);
+                onConfirmed?.Invoke();
+                return;
+            }
+
+            string serial = theRadio?.Serial ?? string.Empty;
+            if (serial.Length > 0 && RadioConfig.LoadForRadio(serial).AllowRemotePortChanges)
+            {
+                Tracing.TraceLine(
+                    $"RequirePortSettingsAuthority: remote waiver pass for {serial} ({reason})",
+                    TraceLevel.Info);
+                onConfirmed?.Invoke();
+                return;
+            }
+
+            string msg = $"Cannot {reason}. You must be the primary operator at the radio — " +
+                "or, if this is your own radio, turn on allowing port changes from remote " +
+                "connections, on the Radios tab in Settings.";
+            Radios.ScreenReaderOutput.Speak(msg, VerbosityLevel.Critical, interrupt: true);
+            Tracing.TraceLine(
+                $"RequirePortSettingsAuthority denied: {reason} serial={serial}", TraceLevel.Info);
+            onDenied?.Invoke();
+        }
+
+        /// <summary>
         /// Sprint 28 Phase 6 — returns true when this connection's GUI client holds
         /// <see cref="Flex.Smoothlake.FlexLib.GUIClient.IsLocalPtt"/>. That flag is
         /// the radio's own attestation of "this is the primary operator client,"

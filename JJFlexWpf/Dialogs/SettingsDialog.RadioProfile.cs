@@ -114,6 +114,8 @@ namespace JJFlexWpf.Dialogs
                 RadioProfilePunchPortBox.Text = cfg.FixedHolePunchPort > 0
                     ? cfg.FixedHolePunchPort.ToString()
                     : string.Empty;
+                RadioProfileAllowRemotePortCheck.IsChecked = cfg.AllowRemotePortChanges;
+                RadioProfileAllowRemoteFirmwareCheck.IsChecked = cfg.AllowRemoteFirmwareUpdates;
 
                 // The radio itself is the authority on its name — prefer the
                 // live value over the stored mirror when this radio is the
@@ -145,7 +147,18 @@ namespace JJFlexWpf.Dialogs
             string port = cfg.FixedHolePunchPort > 0
                 ? $", fixed hole-punch port {cfg.FixedHolePunchPort}"
                 : "";
-            return $"Profile: {mode}{port}.";
+            // The waivers only speak when set — silence means the safe default,
+            // and reciting two "not allowed" clauses on every radio would bury
+            // the interesting part.
+            string waivers =
+                cfg.AllowRemotePortChanges && cfg.AllowRemoteFirmwareUpdates
+                    ? " Remote port changes and remote firmware updates are allowed."
+                : cfg.AllowRemotePortChanges
+                    ? " Remote port changes are allowed."
+                : cfg.AllowRemoteFirmwareUpdates
+                    ? " Remote firmware updates are allowed."
+                : "";
+            return $"Profile: {mode}{port}.{waivers}";
         }
 
         private void RadioProfileMode_Checked(object sender, RoutedEventArgs e)
@@ -156,6 +169,39 @@ namespace JJFlexWpf.Dialogs
                 RadioProfileForwardRadio?.IsChecked == true ? "Forwarded ports only." :
                 "Automatic, follow what the radio reports.";
             ScreenReaderOutput.Speak(announcement, VerbosityLevel.Terse, interrupt: true);
+        }
+
+        private void RadioProfileRemoteAdmin_Toggled(object sender, RoutedEventArgs e)
+        {
+            if (_suppressRadioProfileEvents) return;
+            if (sender is not CheckBox box) return;
+
+            bool on = box.IsChecked == true;
+            bool isPort = ReferenceEquals(box, RadioProfileAllowRemotePortCheck);
+
+            if (!on)
+            {
+                ScreenReaderOutput.Speak(
+                    $"{(isPort ? "Remote port changes" : "Remote firmware updates")} not allowed. " +
+                    "Choose save profile to keep it.",
+                    VerbosityLevel.Terse, interrupt: true);
+                return;
+            }
+
+            // Enabling gets the full consequences up front (Noel, 2026-08-06):
+            // the person flipping this may be granting it months before the day
+            // it matters, and no warning repeats at use time. The text also
+            // lands in the status line so it can be re-read, not just heard.
+            string warning = isPort
+                ? "Remote port changes allowed. Anyone who connects to this radio through its SmartLink " +
+                  "account will be able to change its port settings from anywhere. If a change goes wrong " +
+                  "while nobody is at the radio, hole punch remains the way back in. Choose save profile to keep it."
+                : "Remote firmware updates allowed. Firmware can then be sent without anyone at the radio to " +
+                  "confirm. An interrupted firmware update is the one thing that can leave a radio needing a " +
+                  "service visit — and nobody will be there. Leave this off unless it is truly your only " +
+                  "option. Choose save profile to keep it.";
+            RadioProfileStatusText.Text = warning;
+            ScreenReaderOutput.Speak(warning, VerbosityLevel.Terse, interrupt: true);
         }
 
         /// <summary>
@@ -210,6 +256,8 @@ namespace JJFlexWpf.Dialogs
                 RadioProfileForwardRadio.IsChecked == true ? RadioConnectionPreference.ForwardOnly :
                 RadioConnectionPreference.Auto;
             cfg.FixedHolePunchPort = port;
+            cfg.AllowRemotePortChanges = RadioProfileAllowRemotePortCheck.IsChecked == true;
+            cfg.AllowRemoteFirmwareUpdates = RadioProfileAllowRemoteFirmwareCheck.IsChecked == true;
 
             // Nickname: the name lives on the radio, so push it there when the
             // live connection is to this radio; otherwise only the local label

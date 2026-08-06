@@ -139,6 +139,8 @@ Here's why this matters. How you reach a radio is a fact about where the radio l
 
 And the name. You can finally name your radio from JJ Flexible. The name lives on the radio itself — discovery, SmartLink, and every other client show it — so saving while connected to the radio renames it for real, and JJ Flexible says so. Saving while not connected updates the name shown in your list and tells you plainly that the radio keeps its old name until you save while connected to it. No more leaving your radio introducing itself by its model number because renaming it meant a trip through somebody else's software.
 
+One more thing lives on this tab: remote administration, for radios that live somewhere you can never be. Normally, changes that persist on the radio — port settings, firmware — require being at the radio, and that's the right default. But if your radio sits at a friend's place three states away, being "at the radio" is exactly what you can't do. Two switches, per radio, both off unless you say otherwise: allow port changes from a remote connection, and allow firmware updates without someone at the radio. When you turn one on, JJ Flexible tells you exactly what you're accepting — port mistakes are recoverable from afar, interrupted firmware updates are not — and then respects your call. Your radio, your risk tolerance, your decision.
+
 [Return to version headlines](#unreleased-headlines)
 
 ### The Port Forwarding Safety Check {#port-forwarding-safety-check}

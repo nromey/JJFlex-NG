@@ -566,13 +566,14 @@ namespace JJFlexWpf.Dialogs
                 }
             }
 
-            // Sprint 28 Phase 7 — authorization gate. SmartLink port changes modify
-            // radio-persistent state that affects future connections by any client.
-            // Guard with both ownership check (IsLocalPtt = primary operator at rig)
-            // AND a confirmation dialog (defense in depth: ownership catches "not
-            // authorized to do this"; dialog catches "accidental button press").
-            _rig.RequireOperatorPresence(
-                FlexBase.PresenceLevel.Passive,
+            // Authorization gate. SmartLink port changes modify radio-persistent
+            // state that affects future connections by any client. Passes on
+            // presence (primary operator at the rig) OR the owner-declared
+            // per-radio remote waiver (Settings > Radios) — a remote-base owner
+            // is never at their radio and must not be locked out of it. The
+            // confirmation dialog still runs either way: authority catches "not
+            // allowed to do this"; the dialog catches "accidental button press".
+            _rig.RequirePortSettingsAuthority(
                 reason: "change SmartLink port settings",
                 onConfirmed: () =>
                 {

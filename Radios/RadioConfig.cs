@@ -65,6 +65,29 @@ namespace Radios
         public int FixedHolePunchPort { get; set; }
 
         /// <summary>
+        /// Owner-declared waiver (Noel, 2026-08-06): allow changing the radio's
+        /// SmartLink port settings from a remote connection, where the default
+        /// policy demands the primary operator at the radio. The trust model:
+        /// a valid SmartLink token for the radio's account is itself the
+        /// owner's grant — anyone holding it was given it — so the owner of a
+        /// remote-base radio (who is NEVER at it) flips this on rather than
+        /// being locked out of their own rig. Default false: conservative,
+        /// per-radio, the operator's choice.
+        /// </summary>
+        public bool AllowRemotePortChanges { get; set; }
+
+        /// <summary>
+        /// Owner-declared waiver: allow firmware updates without the
+        /// at-the-radio presence challenge. Firmware always travels the local
+        /// network, so "remote" here means a VPN path (Tailscale) that makes a
+        /// distant operator look local. Stored now; enforced when the firmware
+        /// presence challenge (PresenceLevel.ActiveChallenge) ships — that
+        /// implementation MUST honor this waiver or remote-base owners can
+        /// never update firmware at all. Default false.
+        /// </summary>
+        public bool AllowRemoteFirmwareUpdates { get; set; }
+
+        /// <summary>
         /// App-wide config root, assigned once at startup (ApplicationEvents,
         /// next to the other handler wiring). Static because the Radios layer
         /// has no ambient config-path service and the value never changes for

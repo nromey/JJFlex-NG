@@ -106,7 +106,37 @@ number is..."). Future, once multi-radio lands: per-radio audio routing —
 which local device carries this radio's RX is a machine-times-radio pair and
 belongs here, not machine-wide.
 
-### 1b decision needed — ownership vs presence for radio-persistent changes
+### 1b decision RATIFIED (Noel, 2026-08-06) — owner-declared remote-admin waivers
+
+Noel's ruling on the proposal below: the toggle model, not the account-check
+model. The person signed into SmartLink on a given JJ Flex copy decides,
+per radio: "allow port changes from a remote connection" and "allow firmware
+updates without someone at the radio." Both default OFF. Don flips both on
+for his radio because he has no other option; Noel leaves them off for Don's
+serial on his own machines. Key insight driving it: a valid SmartLink token
+IS the owner's grant — anyone holding one was trusted with the password, and
+JJ Flex cannot police past that. Which is why JJ Flexible Connect "is going
+to have to come sooner rather than later" (priority signal, recorded).
+
+Implementation (landed same day): `RadioConfig.AllowRemotePortChanges` +
+`AllowRemoteFirmwareUpdates`; `FlexBase.RequirePortSettingsAuthority` passes
+on presence OR the port waiver (port-forward Apply now routes through it);
+Radios tab gains a "Remote administration" group. The firmware waiver is
+stored-but-not-yet-enforced: nothing gates firmware today beyond the LAN-only
+transport (Tailscale subnet routing already makes Don look local), and when
+PresenceLevel.ActiveChallenge ships with the firmware work it MUST honor the
+waiver — that requirement is written on the enum and the config field.
+
+Gate scoping note: the authority check only ever runs while connected, so it
+keys off the connected radio's serial — which is already the end state Noel
+described ("the connected smartlink... the radio that's been authorized
+last"); no default-radio interim needed for the gate itself.
+
+Queued UX item from the same conversation: you should be able to set the
+CONNECTED radio as default, not only pre-declare a default from the radio
+list. Belongs with the Radios tab growth.
+
+### Superseded analysis (kept for the reasoning trail) — ownership vs presence
 
 Noel, 2026-08-06: could Don change his own radio's port settings while
 connected remotely? Today: NO. `RequireOperatorPresence(Passive)` gates on

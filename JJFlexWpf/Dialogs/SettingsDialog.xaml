@@ -610,6 +610,28 @@
                             </StackPanel>
                         </StackPanel>
                     </GroupBox>
+                    <GroupBox Header="Remote administration" Margin="0,4,0,8"
+                              AutomationProperties.Name="Remote administration">
+                        <StackPanel Margin="4">
+                            <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
+                                       Text="Normally, changes that persist on the radio — port settings, firmware — require being at the radio. If this radio lives somewhere you can never be, turn on what you need here. These choices apply to this radio only and are off unless you say otherwise."/>
+                            <CheckBox x:Name="RadioProfileAllowRemotePortCheck" Margin="0,0,0,6"
+                                      Checked="RadioProfileRemoteAdmin_Toggled"
+                                      Unchecked="RadioProfileRemoteAdmin_Toggled"
+                                      AutomationProperties.Name="Allow changing port settings from a remote connection">
+                                <TextBlock Text="Allow changing port settings from a remote connection" TextWrapping="Wrap"/>
+                            </CheckBox>
+                            <CheckBox x:Name="RadioProfileAllowRemoteFirmwareCheck" Margin="0,0,0,4"
+                                      Checked="RadioProfileRemoteAdmin_Toggled"
+                                      Unchecked="RadioProfileRemoteAdmin_Toggled"
+                                      AutomationProperties.Name="Allow firmware updates without someone at the radio">
+                                <TextBlock Text="Allow firmware updates without someone at the radio" TextWrapping="Wrap"/>
+                            </CheckBox>
+                            <TextBlock TextWrapping="Wrap" Margin="0,0,0,4"
+                                       Style="{StaticResource DialogLabel}"
+                                       Text="Firmware always travels over the radio's local network, so updating from afar means a VPN link, like Tailscale, that makes your computer look local. Getting a port wrong is recoverable — the radio stays registered with SmartLink and hole-punch remains a way back in. Interrupting a firmware update is not, so leave that one off unless it is truly your only option."/>
+                        </StackPanel>
+                    </GroupBox>
                     <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
                         <Button Content="Save pro_file"
                                 Padding="10,4" Margin="0,0,8,0"
