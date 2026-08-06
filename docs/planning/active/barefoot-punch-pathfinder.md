@@ -67,6 +67,53 @@ Split the networking tab by the distinction found 2026-08-06:
 - Accessibility: every mode change announced; disabled controls explain why via
   the Feature Availability pattern; Escape rules unchanged.
 
+### 1b field finding (2026-08-06 afternoon) — empty picker, fixed
+
+First live use found the picker empty after a LAN connect: the profile stub was
+only written on the SmartLink path, so a radio connected locally was never
+recorded. Fixed in `f4da394b` — `FlexBase.Connect()` now records serial +
+nickname on every attempt, any path, and an empty picker explains how radios
+get into the list. A failed attempt recording the radio is a feature: the radio
+you couldn't reach is the one whose profile you need to edit.
+
+### 1b scope decision needed — what is stored per-radio, and where it lives in the UI
+
+Noel, 2026-08-06: per-radio settings span more than network; we need (a) a home
+for per-radio configuration (Tools entry? dedicated Settings tab?) and (b) a
+rule for which settings belong in the per-radio store.
+
+**Proposed storage rule** — four homes, one litmus test each:
+
+- *On the radio*: anything that configures the radio itself — static IP, port
+  forwarding, TX/DSP profiles. The radio is the source of truth; JJ Flex sends
+  commands, never mirrors-and-pushes. (Caching last-known values for offline
+  display is fine if labeled as last-known.)
+- *With the SmartLink account*: only what SmartLink itself scopes to the
+  account. The legacy account-level port preference stays as fallback.
+- *Machine-wide*: operator preferences that don't change per radio — audio
+  devices (already decided machine-scope), key bindings, verbosity, UI mode.
+- *Per-radio store* (`radios\<serial>\config.xml`): what neither the radio nor
+  the account can hold — how THIS machine reaches THAT radio, plus what we
+  remember about it while unreachable. Litmus: "is this setting still
+  meaningful with the radio unplugged?"
+
+**Per-radio store contents.** Shipped: connection preference, fixed hole-punch
+port, nickname mirror. Candidates to add: model string and last-known local +
+public endpoints (offline display, diagnostics, future direct-connect);
+auto-connect + low-bandwidth flags (migrate from their current home so the
+radio list and the store agree); free-text notes ("lives at Tony's, Tony's
+number is..."). Future, once multi-radio lands: per-radio audio routing —
+which local device carries this radio's RX is a machine-times-radio pair and
+belongs here, not machine-wide.
+
+**Proposed UI home**: promote the per-radio section to a dedicated "Radios"
+tab in Settings — picker at top, then connection profile, cached last-known
+info, and the IP addressing block (present only when connected, per the
+tab-skip rule). Add a Tools menu item "Configure radio" that opens Settings
+directly on that tab via the existing `OpenSettings(tab)` plumbing — one
+concept, two doors, same as Radio Setup does today. The Network tab goes back
+to being about this machine's networking, not any particular radio's.
+
 ### 1c. Network diagnostic works offline
 
 - `RunNetworkDiagnosticAsync` currently bails on `theRadio == null` — useless in
