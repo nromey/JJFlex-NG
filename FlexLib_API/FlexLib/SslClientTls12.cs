@@ -109,62 +109,77 @@ public class SslClientTls12
             return;
         }
 
+        // Declared outside the try so the fallback can replace them and the
+        // finally can dispose whichever pair ended up live.
+        TcpClient? tcpClient = null;
+        SslStream? sslStream = null;
+
         try
         {
-            using var tcpClient = new TcpClient(new IPEndPoint(IPAddress.Any, _srcPort));
-            try
-            {
-#if NET6_0_OR_GREATER
-                using var connectTimeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(CANCEL_TOKEN_TIMEOUT_SECS));
-                await tcpClient.ConnectAsync(_hostname, _dstPort, connectTimeoutCts.Token);
-#else
-                await tcpClient.ConnectAsync(_hostname, _dstPort);
-#endif
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"Connection to SSL host failed: {ex}");
-                _connectTcs.SetException(ex);
-                return;
-            }
+            // A failed TLS handshake poisons the TCP connection underneath it:
+            // bytes have already been exchanged and the peer has torn its side
+            // down, so a second AuthenticateAsClientAsync on the same stream
+            // fails with "the supplied message is incomplete / the signature was
+            // not verified" no matter which protocol it asks for. The TLS 1.2
+            // fallback therefore has to dial a NEW socket. Retrying in place —
+            // as this wrapper originally did — could never succeed, which made
+            // every radio that cannot negotiate TLS 1.3 unreachable over
+            // SmartLink (found on Don's 6300, 2026-08-05). See MIGRATION.md.
+            SslProtocols[] attempts = { PreferredProtocols, SslProtocols.Tls12 };
 
-#if NET6_0_OR_GREATER
-            await using var sslStream = new SslStream(tcpClient.GetStream(), false, _validateCert
-#else
-            using var sslStream = new SslStream(tcpClient.GetStream(), false, _validateCert
-#endif
-                ? ValidateServerCertificate
-                : new RemoteCertificateValidationCallback((_, _, _, _) => true), null);
-
-            try
+            for (int attempt = 0; attempt < attempts.Length; attempt++)
             {
-#if NET6_0_OR_GREATER
-                using var authenticationTimeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(CANCEL_TOKEN_TIMEOUT_SECS));
-                await sslStream.AuthenticateAsClientAsync(new SslClientAuthenticationOptions
+                if (sslStream != null)
                 {
-                    TargetHost = _hostname,
-                    EnabledSslProtocols = PreferredProtocols
-                },
-                    authenticationTimeoutCts.Token);
-#else
-                await sslStream.AuthenticateAsClientAsync(_hostname, null, PreferredProtocols, false);
-#endif
-            }
-            catch (AuthenticationException authEx)
-            {
-                // Fallback: TLS 1.3 may not be available on older Windows; retry pinned to TLS 1.2.
-                Debug.WriteLine($"SslClientTls12: TLS 1.3 negotiation failed ({authEx.Message}), retrying TLS 1.2 only");
+                    sslStream.Dispose();
+                    sslStream = null;
+                }
+                tcpClient?.Dispose();
+
+                tcpClient = new TcpClient(new IPEndPoint(IPAddress.Any, _srcPort));
                 try
                 {
 #if NET6_0_OR_GREATER
+                    using var connectTimeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(CANCEL_TOKEN_TIMEOUT_SECS));
+                    await tcpClient.ConnectAsync(_hostname, _dstPort, connectTimeoutCts.Token);
+#else
+                    await tcpClient.ConnectAsync(_hostname, _dstPort);
+#endif
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"Connection to SSL host failed: {ex}");
+                    _connectTcs.SetException(ex);
+                    return;
+                }
+
+                sslStream = new SslStream(tcpClient.GetStream(), false, _validateCert
+                    ? ValidateServerCertificate
+                    : new RemoteCertificateValidationCallback((_, _, _, _) => true), null);
+
+                try
+                {
+#if NET6_0_OR_GREATER
+                    using var authenticationTimeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(CANCEL_TOKEN_TIMEOUT_SECS));
                     await sslStream.AuthenticateAsClientAsync(new SslClientAuthenticationOptions
                     {
                         TargetHost = _hostname,
-                        EnabledSslProtocols = SslProtocols.Tls12
-                    });
+                        EnabledSslProtocols = attempts[attempt]
+                    },
+                        authenticationTimeoutCts.Token);
 #else
-                    await sslStream.AuthenticateAsClientAsync(_hostname, null, SslProtocols.Tls12, false);
+                    await sslStream.AuthenticateAsClientAsync(_hostname, null, attempts[attempt], false);
 #endif
+                    break; // negotiated
+                }
+                catch (Exception ex) when (attempt < attempts.Length - 1)
+                {
+                    // Older radio firmware offers TLS 1.2 only. The rejection
+                    // surfaces as AuthenticationException on some stacks and as a
+                    // truncated-frame IOException on others, so catch broadly and
+                    // retry once on a clean socket.
+                    Debug.WriteLine(
+                        $"SslClientTls12: handshake with {attempts[attempt]} failed ({ex.Message}); reconnecting for TLS 1.2 only");
                 }
                 catch (Exception ex)
                 {
@@ -173,20 +188,14 @@ public class SslClientTls12
                     return;
                 }
             }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"SSL Authentication Failed: {ex}");
-                _connectTcs.SetException(ex);
-                return;
-            }
 
-            Debug.WriteLine("SslClientTls12 negotiated protocol: " + sslStream.SslProtocol);
+            Debug.WriteLine("SslClientTls12 negotiated protocol: " + sslStream!.SslProtocol);
 
             IsConnected = true;
             _connectTcs.SetResult(true);
 
             using var reader = new StreamReader(sslStream);
-            _writer = new StreamWriter(sslStream)
+            _writer = new StreamWriter(sslStream!)
             {
                 AutoFlush = true
             };
@@ -233,6 +242,9 @@ public class SslClientTls12
         }
         finally
         {
+            // Replaces the `using var` declarations these locals used to carry.
+            sslStream?.Dispose();
+            tcpClient?.Dispose();
             _readLoopLock.Release();
         }
     }
