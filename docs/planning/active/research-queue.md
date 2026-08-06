@@ -14,6 +14,35 @@
 
 ## Queued — orchestrator session, after Noel starts the B/C2 tracks (2026-08-04)
 
+- **RESOLVED 2026-08-05 21:00 — remote connect to Don's 6300 works end
+  to end.** Trace `20260805-210001`: `SslClientTls12 negotiated protocol:
+  Tls12`, `fwdTcp=True fwdUdp=True` from the radio's own probe,
+  `Vita: UDP registration succeeded — VITA data flowing`, `start_call_end
+  success=true` in 3.8s, active slice with frequency. Two causes, both
+  now fixed:
+  1. **Don's router had a passthrough rule** (external 4992 → internal
+     4992) shadowing the correct translation rules. External 4992 was
+     reaching the radio's PLAINTEXT LAN command port — proven by reading
+     the greeting banner from outside (`V1.4.0.0 ... nickname=6300inshack
+     callsign=WA2IWC`), which also meant his radio's unencrypted control
+     channel was exposed to the internet. Deleting that one rule fixed
+     both: the port now connects and stays silent, i.e. a TLS listener.
+     Correct config per Flex's manual is external(any) TCP → internal
+     4994 and external(any) UDP → internal 4993. Using 4992 as the
+     external number invites exactly the passthrough mistake that
+     happened here; the manual's 21100/22100 example avoids it.
+  2. **Our TLS fallback could never succeed** (fixed in `b83cc7a9`) —
+     retried on the poisoned socket. Not the cause of Don's failure but
+     a real bug found while chasing it.
+  Diagnostic that cracked it: reading the TCP banner from outside the
+  network. "Connects but isn't TLS" is invisible from the app's side.
+  Follow-ups: PC audio is NOT auto-enabled on remote connect (the line
+  is commented out in FlexBase's RemoteRig branch) — decide whether to
+  enable it or announce that it's off; ms-02 has no `audioDevices.xml`
+  at all, so first-time audio setup there needs the Radio Audio Device
+  picker; and "no RX antenna" is a misleading message for "the audio
+  path never came up" now that `failureReason` is populated.
+
 - **HARDENING (Noel ask, 2026-08-05): trust what the radio reports, and
   never make a human retype a number the app already knows.** Three
   layers, strongest first:
