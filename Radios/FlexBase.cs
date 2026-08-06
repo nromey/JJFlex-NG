@@ -4128,6 +4128,19 @@ namespace Radios
             }
 
             r.WANConnectionHandle = handle;
+
+            // Refresh the per-radio profile stub on every successful WAN
+            // connect: keeps the nickname current and guarantees every radio
+            // ever connected shows up in the Settings per-radio picker with
+            // zero setup. Load/Save never throw; an unset BaseDirectory just
+            // traces and declines.
+            var profileStub = RadioConfig.LoadForRadio(r.Serial);
+            if (!string.IsNullOrEmpty(r.Nickname))
+            {
+                profileStub.Nickname = r.Nickname;
+            }
+            profileStub.SaveForRadio(r.Serial);
+
             ConnectionProfiler.Current?.RecordEvent("wan_connect_ready", new Dictionary<string, object>
             {
                 { "serial", r.Serial }
