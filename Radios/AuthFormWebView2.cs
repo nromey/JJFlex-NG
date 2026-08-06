@@ -142,6 +142,12 @@ namespace Radios
         {
             InitializeComponent();
             GeneratePkceValues();
+
+            // Armistice flag: the ConnectingForm's focus-reclaim timer yields
+            // while any sign-in window is open. Ironically that timer was
+            // originally built to steal focus back from THIS form.
+            WindowFocusForcer.PushSignInWindow();
+            FormClosed += (_, _) => WindowFocusForcer.PopSignInWindow();
         }
 
         private void InitializeComponent()

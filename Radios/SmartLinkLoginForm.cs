@@ -147,6 +147,13 @@ namespace Radios
             AcceptButton = _signInButton;
             CancelButton = _cancelButton;
 
+            // Register with the armistice flag for our whole lifetime: the
+            // ConnectingForm's own focus-reclaim timer yields while any
+            // sign-in window is open, instead of fighting our watchdog for
+            // the foreground four times a second.
+            WindowFocusForcer.PushSignInWindow();
+            FormClosed += (_, _) => WindowFocusForcer.PopSignInWindow();
+
             Shown += (_, _) =>
             {
                 // Pull keyboard focus here from the Connecting form and SAY SO —

@@ -19,9 +19,34 @@ namespace Radios
     /// Call from the thread that owns the target window (its message pump),
     /// e.g. from the form's Shown handler.
     /// </summary>
-    internal static class WindowFocusForcer
+    public static class WindowFocusForcer
     {
         private const int SW_RESTORE = 9;
+
+        // ===================================================================
+        // The armistice flag (round 26, 2026-08-06). The ConnectingForm has
+        // its own 200ms focus-reclaim timer, built in an EARLIER round of
+        // this same battle when the Auth0 browser window was considered the
+        // thief. Two reclaim loops fighting produced "sm connec sm connec sm
+        // connec ... connecting" live. Windows that legitimately own the
+        // user's attention (sign-in forms) register here; everything with a
+        // focus-reclaim habit checks the flag and stands down while any are
+        // open. Counter, not bool, so overlapping windows can't clear each
+        // other's claim.
+        // ===================================================================
+
+        private static int _signInWindowsOpen;
+
+        /// <summary>True while any sign-in window is open — focus-reclaim
+        /// timers elsewhere (ConnectingForm) must yield while this is set.</summary>
+        public static bool SignInWindowOpen =>
+            System.Threading.Volatile.Read(ref _signInWindowsOpen) > 0;
+
+        public static void PushSignInWindow() =>
+            System.Threading.Interlocked.Increment(ref _signInWindowsOpen);
+
+        public static void PopSignInWindow() =>
+            System.Threading.Interlocked.Decrement(ref _signInWindowsOpen);
 
         /// <summary>
         /// Returns true when the window verifiably holds the foreground.

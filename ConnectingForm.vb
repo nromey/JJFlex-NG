@@ -88,10 +88,17 @@ Public Class ConnectingForm
         }
         Controls.Add(_statusLabel)
 
-        ' Focus reclaim — pulls focus back if WebView2 / Auth0 steals it.
+        ' Focus reclaim — pulls focus back from stray windows. Yields while a
+        ' sign-in window is open (round 26 armistice, 2026-08-06): this timer
+        ' was built in an earlier round to steal focus back from the Auth0
+        ' browser window, and it dutifully fought the sign-in dialog's own
+        ' focus watchdog four times a second — "sm connec sm connec sm connec
+        ' ... connecting" heard live. Sign-in windows are friendly now; the
+        ' operator's keyboard belongs in them.
         _focusTimer = New System.Windows.Forms.Timer() With {.Interval = 200}
         AddHandler _focusTimer.Tick, Sub(s, e)
-                                         If Visible AndAlso Not ContainsFocus Then
+                                         If Visible AndAlso Not ContainsFocus AndAlso
+                                            Not Radios.WindowFocusForcer.SignInWindowOpen Then
                                              Activate()
                                          End If
                                      End Sub
@@ -131,6 +138,17 @@ Public Class ConnectingForm
     Public Sub New(initialMessage As String)
         Me.New(ExtractRadioName(initialMessage), Nothing, Nothing)
     End Sub
+
+    ''' <summary>
+    ''' When a sign-in window is already up as this form appears, don't take
+    ''' focus even once on Show — the half-second-later focus squash was the
+    ''' whole round 25 problem. The user's keyboard stays in the sign-in form.
+    ''' </summary>
+    Protected Overrides ReadOnly Property ShowWithoutActivation As Boolean
+        Get
+            Return Radios.WindowFocusForcer.SignInWindowOpen
+        End Get
+    End Property
 
     Private Shared Function ExtractRadioName(msg As String) As String
         If String.IsNullOrEmpty(msg) Then Return "radio"
