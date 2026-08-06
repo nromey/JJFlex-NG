@@ -94,6 +94,20 @@ Split the networking tab by the distinction found 2026-08-06:
   4.2.0 gate review.
 - Test matrix file when Phase 3 opens, per SOP.
 
+## Parallel research track — auto-update (added mid-session per Noel)
+
+Runs in the background alongside Phase 1 via an in-session research agent — no
+extra CLI session, no worktree, read-only plus one output document. Deliverable:
+`docs/planning/active/auto-update-research.md` — inventory of the existing
+`JJFlexUpdater`/`JJFlexUpdaterHelper` projects and installer pipeline, gap
+analysis, proposed channel/manifest/signing architecture, firmware-channel
+tie-in to Phase 2, and a batched open-questions section for Noel. Research only;
+implementation gets scoped after Noel reads it. Correction discovered during
+Phase 1a recon, recorded here so the plan stays honest: the serial-keyed
+`radios\<serial>\config.xml` store from the 2026-04-28 memory is a PRINCIPLE,
+not shipped code — Phase 1a builds the store fresh as its first deliverable,
+with the network profile as first tenant.
+
 ## Explicitly not in this plan (queued separately)
 
 - rarbox WireGuard NAT lab (infrastructure hour, Noel-authorized, own item).
