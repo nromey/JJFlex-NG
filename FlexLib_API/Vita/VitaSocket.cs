@@ -29,7 +29,17 @@ public class VitaSocket : IDisposable
         ExclusiveAddressUse = false
     };
 
-    private readonly IPEndPoint _radioEndpoint;
+    // JJFlex patch: no longer readonly — in hole-punch mode the receive loop
+    // may retarget it onto the radio's observed UDP source (source latch).
+    private IPEndPoint _radioEndpoint;
+
+    // JJFlex patch: hole-punch mode only. The radio-side NAT may rewrite the
+    // UDP source port (2026-08-06 capture: punch port 40420, packets arrived
+    // from 7604), and that rewritten port is the only inbound UDP path to the
+    // radio. No protocol message carries it — it is only learnable from
+    // received datagrams. Never enabled for forwarded or LAN connections,
+    // where the configured port is authoritative and latching could misaim.
+    private readonly bool _latchToSource;
     private volatile bool _stopping;
 
     private bool _disposed;
@@ -106,16 +116,18 @@ public class VitaSocket : IDisposable
             HighPriorityTaskScheduler.Instance);
     }
     
-    public VitaSocket(int port, VitaDataReceivedCallback callback, IPAddress radioIp, int radioPort) : this (port, callback)
+    public VitaSocket(int port, VitaDataReceivedCallback callback, IPAddress radioIp, int radioPort, bool latchToSource = false) : this (port, callback)
     {
-        // In addition to creating the VitaSocket, for WAN we must also send the 
+        // In addition to creating the VitaSocket, for WAN we must also send the
         // 'client udp_register' command to the radio over the created UDP socket
+
+        _latchToSource = latchToSource; // JJFlex patch
 
         //ensure port is within range before assigning endpoint
         if (radioPort is >= MIN_UDP_PORT and <= MAX_UDP_PORT)
         {
             _radioEndpoint = new IPEndPoint(radioIp, radioPort);
-            TraceSink?.Invoke($"VitaSocket: WAN mode, radio endpoint {_radioEndpoint}"); // JJFlex patch
+            TraceSink?.Invoke($"VitaSocket: WAN mode, radio endpoint {_radioEndpoint} latch={latchToSource}"); // JJFlex patch
         }
         else
         {
@@ -192,6 +204,20 @@ public class VitaSocket : IDisposable
             {
                 byte[] data = _client.Receive(ref remoteEP);
                 _consecutiveReceiveFailures = 0; // JJFlex patch
+
+                // JJFlex patch (source latch): adopt the radio's observed UDP
+                // source as the send target. Guarded to the radio's own address
+                // so a stray datagram can't hijack the stream.
+                var target = _radioEndpoint;
+                if (_latchToSource && target != null && remoteEP != null
+                    && remoteEP.Port != target.Port
+                    && remoteEP.Address.Equals(target.Address))
+                {
+                    _radioEndpoint = new IPEndPoint(remoteEP.Address, remoteEP.Port);
+                    TraceSink?.Invoke(
+                        $"VitaSocket: source latch — radio UDP arrives from {remoteEP}, retargeting sends (was {target})");
+                }
+
                 _callback?.Invoke(remoteEP!, data, data.Length);
             }
             catch (ObjectDisposedException)

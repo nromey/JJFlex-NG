@@ -15268,7 +15268,8 @@ namespace Flex.Smoothlake.FlexLib
                 if (VitaSock != null)
                     return;
 
-                VitaSock = new VitaSocket(NegotiatedHolePunchPort, UdpDataReceivedCallback, IP, NegotiatedHolePunchPort);
+                VitaSock = new VitaSocket(NegotiatedHolePunchPort, UdpDataReceivedCallback, IP, NegotiatedHolePunchPort,
+                    latchToSource: true); // JJFlex patch: adopt the radio's NAT-rewritten UDP source (see VitaSocket)
                 _udpPunchActive = true;
                 Task.Run(UdpRegistrationLoop).SafeFireAndForget(ex =>
                     Debug.WriteLine($"Early hole-punch loop failed: {ex}"));
@@ -15336,7 +15337,8 @@ namespace Flex.Smoothlake.FlexLib
                 return;
 
             VitaSock = new VitaSocket(RequiresHolePunch ? NegotiatedHolePunchPort : 4991, UdpDataReceivedCallback, IP,
-                RequiresHolePunch ? NegotiatedHolePunchPort : PublicUdpPort);
+                RequiresHolePunch ? NegotiatedHolePunchPort : PublicUdpPort,
+                latchToSource: RequiresHolePunch); // JJFlex patch: punch mode only — forwarded ports are authoritative
             if (IsWan)
             {
                 _udpPunchActive = true; // JJFlex patch: loop gate (see UdpRegistrationLoop)
