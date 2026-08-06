@@ -25,6 +25,7 @@ namespace Radios
         private readonly TextBox _emailBox;
         private readonly TextBox _passwordBox;
         private readonly TextBox _friendlyNameBox;
+        private readonly CheckBox _rememberCheck;
         private readonly Button _signInButton;
         private readonly Button _forgotButton;
         private readonly Button _browserButton;
@@ -47,6 +48,12 @@ namespace Radios
         /// </summary>
         public string FriendlyName { get; private set; } = "";
 
+        /// <summary>
+        /// Whether the user wants this sign-in saved. Answered on the form,
+        /// before signing in — never as a popup afterward.
+        /// </summary>
+        public bool RememberSignIn { get; private set; } = true;
+
         public SmartLinkLoginForm(SmartLinkAccountManager manager, string prefillEmail = "")
         {
             _manager = manager ?? new SmartLinkAccountManager();
@@ -57,7 +64,7 @@ namespace Radios
             MinimizeBox = false;
             StartPosition = FormStartPosition.CenterScreen;
             AutoScaleMode = AutoScaleMode.Dpi;
-            ClientSize = new Size(430, 292);
+            ClientSize = new Size(430, 322);
             // Runs ownerless on its own thread while the Connecting form (also
             // ownerless, also TopMost, also its own thread) is up. Without
             // TopMost this window opens BEHIND the connecting screen and a
@@ -104,9 +111,25 @@ namespace Radios
             };
             Controls.Add(_friendlyNameBox);
 
+            // The remember choice lives HERE, on the form, answered before
+            // sign-in — never as a popup afterward. Round 27 lesson (Don,
+            // 2026-08-06): the old "Save this account?" MessageBox appeared
+            // ownerless behind the TopMost Connecting form, unannounced, and
+            // the SmartLink thread blocked on it forever. "It says connecting
+            // and sits there." A question nobody can perceive is a deadlock,
+            // not a choice.
+            _rememberCheck = new CheckBox
+            {
+                Text = "&Remember this sign-in on this computer",
+                Left = 100, Top = 143, Width = 318, TabIndex = 3,
+                Checked = true,
+                AccessibleName = "Remember this sign-in on this computer. Checked by default; you can remove the account later in Manage SmartLink Accounts.",
+            };
+            Controls.Add(_rememberCheck);
+
             _signInButton = new Button
             {
-                Text = "&Sign In", Left = 100, Top = 146, Width = 100, TabIndex = 3,
+                Text = "&Sign In", Left = 100, Top = 174, Width = 100, TabIndex = 4,
                 AccessibleName = "Sign in",
             };
             _signInButton.Click += async (_, _) => await SignInAsync();
@@ -114,7 +137,7 @@ namespace Radios
 
             _forgotButton = new Button
             {
-                Text = "&Forgot Password", Left = 206, Top = 146, Width = 130, TabIndex = 4,
+                Text = "&Forgot Password", Left = 206, Top = 174, Width = 130, TabIndex = 5,
                 AccessibleName = "Forgot password. Sends a password reset email to the address above.",
             };
             _forgotButton.Click += async (_, _) => await ForgotPasswordAsync();
@@ -122,7 +145,7 @@ namespace Radios
 
             _browserButton = new Button
             {
-                Text = "Use &Browser Instead", Left = 100, Top = 178, Width = 160, TabIndex = 5,
+                Text = "Use &Browser Instead", Left = 100, Top = 206, Width = 160, TabIndex = 6,
                 AccessibleName = "Use the browser sign-in page instead",
             };
             _browserButton.Click += (_, _) => { DialogResult = DialogResult.Retry; Close(); };
@@ -130,7 +153,7 @@ namespace Radios
 
             _cancelButton = new Button
             {
-                Text = "Cancel", Left = 266, Top = 178, Width = 100, TabIndex = 6,
+                Text = "Cancel", Left = 266, Top = 206, Width = 100, TabIndex = 7,
                 DialogResult = DialogResult.Cancel,
                 AccessibleName = "Cancel sign in",
             };
@@ -138,7 +161,7 @@ namespace Radios
 
             _statusLabel = new Label
             {
-                Left = 12, Top = 214, Width = 406, Height = 66,
+                Left = 12, Top = 242, Width = 406, Height = 66,
                 AccessibleName = "Sign-in status",
                 AccessibleRole = AccessibleRole.StaticText,
             };
@@ -202,6 +225,7 @@ namespace Radios
             _emailBox.Enabled = !busy;
             _passwordBox.Enabled = !busy;
             _friendlyNameBox.Enabled = !busy;
+            _rememberCheck.Enabled = !busy;
             // Cancel stays enabled — a stuck network call must not trap the
             // user in the dialog (stuck-modal rule).
         }
@@ -237,6 +261,7 @@ namespace Radios
                     RefreshToken = result.RefreshToken;
                     ExpiresIn = result.ExpiresIn;
                     FriendlyName = _friendlyNameBox.Text.Trim();
+                    RememberSignIn = _rememberCheck.Checked;
                     ScreenReaderOutput.Speak("Signed in.", VerbosityLevel.Terse, interrupt: true);
                     DialogResult = DialogResult.OK;
                     Close();

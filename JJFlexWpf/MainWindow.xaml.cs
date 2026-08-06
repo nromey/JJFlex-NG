@@ -3378,6 +3378,16 @@ public partial class MainWindow : UserControl
                     if (nativeResult == System.Windows.Forms.DialogResult.OK
                         && !string.IsNullOrEmpty(native.IdToken))
                     {
+                        if (!native.RememberSignIn)
+                        {
+                            // Adding an account to the SAVED list while asking
+                            // not to remember it is a contradiction — honor
+                            // the checkbox and explain.
+                            Radios.ScreenReaderOutput.Speak(
+                                "Signed in without remembering. To keep an account in this list, leave Remember checked.",
+                                VerbosityLevel.Terse, true);
+                            continue;
+                        }
                         var nativeFriendly =
                             !string.IsNullOrEmpty(native.FriendlyName) ? native.FriendlyName :
                             !string.IsNullOrEmpty(native.Email) ? native.Email :

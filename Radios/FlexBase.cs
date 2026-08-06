@@ -3483,7 +3483,7 @@ namespace Radios
             {
                 RestoreParentFocus();
                 return FinishInteractiveLogin(native.email, native.idToken, native.refreshToken, native.expiresIn, expectedAccount,
-                    friendlyNameFromForm: native.friendlyName);
+                    friendlyNameFromForm: native.friendlyName, rememberSignIn: native.rememberSignIn);
             }
             if (native.result != DialogResult.Retry)
             {
@@ -3559,7 +3559,7 @@ namespace Radios
         /// back its outcome. Retry means "open the browser form instead" —
         /// either the user asked for it or the account needs two-factor.
         /// </summary>
-        private (DialogResult result, string email, string idToken, string refreshToken, int expiresIn, string friendlyName)
+        private (DialogResult result, string email, string idToken, string refreshToken, int expiresIn, string friendlyName, bool rememberSignIn)
             ShowNativeLoginDialog(SmartLinkAccount expectedAccount, bool forceNewLogin)
         {
             // Adding a genuinely new account starts blank; re-authenticating a
@@ -3569,6 +3569,7 @@ namespace Radios
             DialogResult dr = DialogResult.Cancel;
             string email = "", idToken = "", refreshToken = "", friendlyName = "";
             int expiresIn = 0;
+            bool rememberSignIn = true;
 
             // The dialog gets its OWN STA thread, deliberately — never shown
             // via the SmartLink thread or marshaled onto the main window.
@@ -3591,6 +3592,7 @@ namespace Radios
                     refreshToken = dlg.RefreshToken;
                     expiresIn = dlg.ExpiresIn;
                     friendlyName = dlg.FriendlyName;
+                    rememberSignIn = dlg.RememberSignIn;
                 }
                 catch (Exception ex)
                 {
@@ -3603,7 +3605,7 @@ namespace Radios
             dialogThread.Start();
             dialogThread.Join();
 
-            return (dr, email, idToken, refreshToken, expiresIn, friendlyName);
+            return (dr, email, idToken, refreshToken, expiresIn, friendlyName, rememberSignIn);
         }
 
         /// <summary>
@@ -3613,7 +3615,7 @@ namespace Radios
         /// rejected.
         /// </summary>
         private string FinishInteractiveLogin(string email, string idToken, string refreshToken, int expiresIn, SmartLinkAccount expectedAccount,
-            string friendlyNameFromForm = null)
+            string friendlyNameFromForm = null, bool rememberSignIn = true)
         {
             // Diagnostic: log the exp claim from the fresh token
             if (!string.IsNullOrEmpty(idToken))
@@ -3679,49 +3681,47 @@ namespace Radios
                 return null;
             }
 
-            // Save or update the account
+            // Save or update the account. NO dialogs anywhere in this tail —
+            // round 27 (Don, 2026-08-06): the old "Save this account?"
+            // MessageBox popped ownerless behind the TopMost Connecting form,
+            // unannounced, and the SmartLink thread blocked on it until Don
+            // gave up. The remember decision now rides in from the sign-in
+            // form itself; the browser path (no such field) saves and says
+            // so — an unwanted account is a ten-second delete in the account
+            // manager, a question nobody can perceive is a hang.
             if (!string.IsNullOrEmpty(refreshToken))
             {
-                // Check if this email already has a saved account
-                var existingAccount = AccountManager.GetAccountByEmail(email);
-
-                if (existingAccount != null)
+                if (!rememberSignIn)
                 {
-                    // Silently update the existing account's tokens
-                    existingAccount.IdToken = idToken;
-                    existingAccount.RefreshToken = refreshToken;
-                    existingAccount.ExpiresAt = DateTime.UtcNow.AddSeconds(expiresIn > 0 ? expiresIn : 86400);
-                    // A name typed during re-auth is a rename request.
-                    if (!string.IsNullOrEmpty(friendlyNameFromForm))
-                    {
-                        existingAccount.FriendlyName = friendlyNameFromForm;
-                    }
-                    AccountManager.SaveAccount(existingAccount);
-                    _currentAccount = existingAccount;
-
-                    Tracing.TraceLine($"setupRemote: updated existing account for {email}", TraceLevel.Info);
+                    Tracing.TraceLine($"setupRemote: user chose not to remember sign-in for {email}", TraceLevel.Info);
+                    ScreenReaderOutput.Speak("Signed in. Not remembered on this computer.", VerbosityLevel.Terse, true);
                 }
                 else
                 {
-                    // New account - ask if they want to save it
-                    var saveResult = MessageBox.Show(
-                        $"Would you like to save this SmartLink account?\n\n" +
-                        $"Email: {email}\n\n" +
-                        "You won't need to log in again next time.",
-                        "Save Account?",
-                        MessageBoxButtons.YesNo,
-                        MessageBoxIcon.Question,
-                        MessageBoxDefaultButton.Button1);
+                    // Check if this email already has a saved account
+                    var existingAccount = AccountManager.GetAccountByEmail(email);
 
-                    if (saveResult == DialogResult.Yes)
+                    if (existingAccount != null)
                     {
-                        // The native form already offered a name field, so a
-                        // second prompt would be a nag — empty there means
-                        // "use the email". Only the browser path (which has
-                        // no name field) still prompts.
-                        string friendlyName = friendlyNameFromForm != null
-                            ? (friendlyNameFromForm.Length > 0 ? friendlyNameFromForm : email)
-                            : PromptForAccountName(email);
+                        // Silently update the existing account's tokens
+                        existingAccount.IdToken = idToken;
+                        existingAccount.RefreshToken = refreshToken;
+                        existingAccount.ExpiresAt = DateTime.UtcNow.AddSeconds(expiresIn > 0 ? expiresIn : 86400);
+                        // A name typed during re-auth is a rename request.
+                        if (!string.IsNullOrEmpty(friendlyNameFromForm))
+                        {
+                            existingAccount.FriendlyName = friendlyNameFromForm;
+                        }
+                        AccountManager.SaveAccount(existingAccount);
+                        _currentAccount = existingAccount;
+
+                        Tracing.TraceLine($"setupRemote: updated existing account for {email}", TraceLevel.Info);
+                    }
+                    else
+                    {
+                        string friendlyName = !string.IsNullOrEmpty(friendlyNameFromForm)
+                            ? friendlyNameFromForm
+                            : email;
 
                         var account = new SmartLinkAccount
                         {
@@ -3736,7 +3736,9 @@ namespace Radios
                         AccountManager.SaveAccount(account);
                         _currentAccount = account;
 
-                        ScreenReaderOutput.Speak("Account saved", VerbosityLevel.Terse, true);
+                        ScreenReaderOutput.Speak(
+                            $"Account saved for {friendlyName}. You can rename or remove it under Manage SmartLink Accounts.",
+                            VerbosityLevel.Terse, true);
                         Tracing.TraceLine($"setupRemote: saved account for {email}", TraceLevel.Info);
                     }
                 }

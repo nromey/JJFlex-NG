@@ -156,6 +156,25 @@ namespace JJFlexWpf.Dialogs
             // Start local discovery
             _callbacks.StartLocalDiscovery();
 
+            // An EMPTY focused ListBox with TabNavigation="Once" can swallow
+            // Tab outright — WPF tries to move into the (nonexistent) items
+            // and goes nowhere. Don hit this live on 2026-08-06: selector open
+            // at startup, no radios found yet, Tab dead, couldn't reach the
+            // Remote button without the mouse. When the list is empty, route
+            // Tab out explicitly in the right direction.
+            RadiosBox.PreviewKeyDown += (_, e) =>
+            {
+                if (e.Key == System.Windows.Input.Key.Tab && RadiosBox.Items.Count == 0)
+                {
+                    var direction =
+                        (System.Windows.Input.Keyboard.Modifiers & System.Windows.Input.ModifierKeys.Shift) != 0
+                            ? System.Windows.Input.FocusNavigationDirection.Previous
+                            : System.Windows.Input.FocusNavigationDirection.Next;
+                    e.Handled = true;
+                    RadiosBox.MoveFocus(new System.Windows.Input.TraversalRequest(direction));
+                }
+            };
+
             // Announce empty list after discovery settles (500ms)
             // Also force keyboard focus to the ListBox so Tab works even when empty
             Loaded += async (_, _) =>
