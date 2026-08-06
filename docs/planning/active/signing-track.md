@@ -7,6 +7,20 @@ final `jjflexible.exe` name; and both tracks edit `build-installers.bat`,
 so serial avoids a pointless conflict. Create the worktree off
 `track/flexlib-4220` at that point; branch name `track/signing`.
 
+> **2026-08-06 status + scope expansion (Noel):** start condition is MET — the
+> rename is in on `track/flexlib-4220`; today's builds emit `jjflexible.exe`
+> (4.1.16.479/480). And the track gains a hard consumer: **CI + signing are
+> prerequisites for the auto-update end-to-end rehearsal** (see
+> `auto-update-research.md` — the updater is ~80% built; its gaps were left on
+> purpose). Signing scope explicitly covers the WHOLE update pipeline:
+> full installers, **delta payloads** (sign the PE files before the
+> file-manifest hashes are computed, so hashes bind signed bits), and
+> **`JJFlexUpdaterHelper.exe`** (which also must start SHIPPING — the research
+> found nothing packs it today). The updater's download-verification gap
+> closes here too: verify Authenticode + manifest hash before applying
+> anything. Item 3 (CI signing) is hereby promoted from "may defer" to
+> required-before-rehearsal.
+
 **Model:** Opus. Involves Azure RBAC and build-script surgery; Noel must be
 reachable for `az login` and any role grant (he is the account owner).
 

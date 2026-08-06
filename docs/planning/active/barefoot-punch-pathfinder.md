@@ -125,7 +125,12 @@ extra CLI session, no worktree, read-only plus one output document. Deliverable:
 `JJFlexUpdater`/`JJFlexUpdaterHelper` projects and installer pipeline, gap
 analysis, proposed channel/manifest/signing architecture, firmware-channel
 tie-in to Phase 2, and a batched open-questions section for Noel. Research only;
-implementation gets scoped after Noel reads it. Correction discovered during
+implementation gets scoped after Noel reads it. **DELIVERED 2026-08-06:** the
+updater is ~80% built (Sprint 29 D/M/N); the gaps were left on purpose.
+**Sequencing decision (Noel, 2026-08-06): CI + code signing come BEFORE the
+end-to-end rehearsal** — full installers, delta payloads, and the helper exe
+all get signed (scope recorded in `signing-track.md`, whose start condition is
+now met). No rehearsal of an unsigned pipeline. Correction discovered during
 Phase 1a recon, recorded here so the plan stays honest: the serial-keyed
 `radios\<serial>\config.xml` store from the 2026-04-28 memory is a PRINCIPLE,
 not shipped code — Phase 1a builds the store fresh as its first deliverable,
