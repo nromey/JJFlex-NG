@@ -106,6 +106,37 @@ number is..."). Future, once multi-radio lands: per-radio audio routing —
 which local device carries this radio's RX is a machine-times-radio pair and
 belongs here, not machine-wide.
 
+### 1b decision needed — ownership vs presence for radio-persistent changes
+
+Noel, 2026-08-06: could Don change his own radio's port settings while
+connected remotely? Today: NO. `RequireOperatorPresence(Passive)` gates on
+`GUIClient.IsLocalPtt` — a presence signal ("physical mic/key routes to this
+client"), which a SmartLink client essentially never holds. It wrongly blocks
+the legitimate remote owner, and Don-at-Tony's is the archetype.
+
+Ownership signals, strongest first:
+
+- SmartLink account binding IS the ownership record: a radio registers to
+  exactly one account (the PTT ceremony binds it), and you can only reach it
+  over SmartLink from that account's radio list. WAN connect == session holds
+  the owning account.
+- The hole: borrowed credentials (us on Don's account today) are
+  indistinguishable from the owner at the protocol level. JJ Flexible Connect
+  is the eventual fix; nothing client-side can truly close it.
+- Machine-local mitigation: an "I own this radio" flag in the per-radio store
+  (`radios\<serial>\config.xml`), user-declared. Set on your own serials,
+  never on Don's — lets JJ Flex warn "you're on an account whose radio you
+  haven't marked as yours" before persistent changes.
+
+Proposed policy (Noel to ratify): firmware-class keeps the strict
+at-the-radio gate (ActiveChallenge, still stubbed). Port-forward-class drops
+to ownership + informed consent — allowed over SmartLink, behind a
+confirmation naming the radio and the honest risk ("wrong port + hole punch
+failing at that site = no remote access until someone local helps"; note the
+radio's outbound SmartLink registration survives a bad port, so hole punch
+remains the recovery path). The my-radio flag drives a bolded
+borrowed-credentials warning in the same dialog.
+
 **Proposed UI home**: promote the per-radio section to a dedicated "Radios"
 tab in Settings — picker at top, then connection profile, cached last-known
 info, and the IP addressing block (present only when connected, per the
