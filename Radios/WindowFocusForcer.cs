@@ -74,6 +74,51 @@ namespace Radios
             return finalCheck;
         }
 
+        /// <summary>
+        /// Guard a just-forced window against LATE thieves — found live
+        /// 2026-08-06: the sign-in dialog verifiably took foreground, then the
+        /// Connecting form appeared ~half a second later and squashed it. The
+        /// initial force "thinks it's been successful because it has" (Noel).
+        /// For the grace window, any foreground steal by a window of OUR OWN
+        /// process gets reclaimed; a steal by another application means the
+        /// user chose to leave, and the watchdog stands down immediately —
+        /// reclaiming against the user is hostile. Call from the form's own
+        /// thread (Shown handler); the timer lives on that thread's pump and
+        /// dies with the form.
+        /// </summary>
+        public static void KeepForegroundWhileVisible(System.Windows.Forms.Form form, int graceMs = 6000)
+        {
+            var timer = new System.Windows.Forms.Timer { Interval = 250 };
+            long deadline = Environment.TickCount64 + graceMs;
+            timer.Tick += (_, _) =>
+            {
+                if (form.IsDisposed || !form.Visible || Environment.TickCount64 > deadline)
+                {
+                    timer.Stop();
+                    timer.Dispose();
+                    return;
+                }
+
+                var fg = GetForegroundWindow();
+                if (fg == form.Handle) return;
+
+                GetWindowThreadProcessId(fg, out uint thiefPid);
+                if (thiefPid == (uint)Environment.ProcessId)
+                {
+                    Tracing.TraceLine(
+                        "WindowFocusForcer: own-process window stole foreground - reclaiming",
+                        TraceLevel.Info);
+                    ForceForeground(form.Handle, attempts: 2, delayMs: 50);
+                }
+                else
+                {
+                    timer.Stop();
+                    timer.Dispose();
+                }
+            };
+            timer.Start();
+        }
+
         [DllImport("user32.dll")]
         private static extern IntPtr GetForegroundWindow();
 

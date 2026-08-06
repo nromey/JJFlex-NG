@@ -157,6 +157,9 @@ namespace Radios
                 // to Alt+Tab to find this window. The forcer uses the
                 // AttachThreadInput recipe proven in Civ VI Access.
                 bool tookFocus = WindowFocusForcer.ForceForeground(Handle);
+                // The Connecting form can appear ~half a second AFTER this
+                // window verifiably took focus and squash it — guard the win.
+                WindowFocusForcer.KeepForegroundWhileVisible(this);
 
                 bool havePrefill = _emailBox.Text.Trim().Length > 0;
                 if (havePrefill) _passwordBox.Focus();

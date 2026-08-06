@@ -190,6 +190,7 @@ namespace Radios
             this.Shown += (_, _) =>
             {
                 bool tookFocus = WindowFocusForcer.ForceForeground(this.Handle);
+                WindowFocusForcer.KeepForegroundWhileVisible(this);
                 ScreenReaderOutput.Speak(
                     "SmartLink browser sign in window."
                     + (tookFocus ? "" : " This window did not receive focus - press Alt Tab to reach it."),
