@@ -1,33 +1,33 @@
-Remote connection fix: the audio path over SmartLink hole punch
-===============================================================
+This build fixes the SmartLink sign-in problem from August 6 - the one
+where connecting threw you at a login web page that wouldn't cooperate.
 
-This build carries a fix for remote connections to radios that have no
-port forwarding set up — the "hole punch" path.
+What changed:
 
-What was happening: the connection itself would succeed (you'd hear the
-connect confirmation and the radio would respond to commands), but the
-audio and meter data never started flowing. After half a minute or so
-the app would give up with "no RX antenna / couldn't get a slice."
+- Signing in to SmartLink no longer uses a web page. When JJ Flex needs
+  you to sign in, you get a normal dialog: an email box, a password box,
+  and a Sign In button. Type, press Enter, done. Works exactly like any
+  other dialog with your screen reader.
+- There's a Forgot Password button on the same dialog. It emails you a
+  reset link at the address you typed.
+- If you'd rather use the old web page, the Use Browser Instead button
+  brings it back. Accounts with two-factor sign-in go there automatically.
+- Once you sign in this way ONE time, the daily nagging should stop for
+  good - sign-ins made through the new dialog renew themselves quietly
+  in the background, which the old web-page sign-ins never could.
 
-What we found: the very first data packets sent while the two ends are
-still finding each other can bounce. When one bounced, the networking
-layer under JJ Flex quietly shut down the entire audio channel and never
-told anyone. The connection looked alive — commands worked — but sound
-and meters were gone before they started.
+What to test:
 
-What this build does: a bounce during that early window is now treated
-as the normal event it is, and the audio channel keeps trying. The
-trace file also narrates the whole story now, so if a remote connect
-still misbehaves, the trace will say exactly where it stopped.
+1. Start JJ Flex and connect via SmartLink. If it asks you to sign in,
+   use the new dialog: email, password, Enter.
+2. Confirm the radio connects and audio flows.
+3. Close JJ Flex, reopen it, connect again. This time it should NOT ask
+   you to sign in at all. That silent second connect is the actual fix -
+   please tell Noel whether you got it.
+4. If anything asks you to sign in through a web page when you didn't
+   choose the browser button, that's a bug - grab the trace and send it.
 
-What to test
-------------
+Known issues:
 
-1. Remote connect to a radio over SmartLink (the no-port-forwarding
-   path especially).
-2. Listen — audio should start within a few seconds of connecting.
-3. Check meters and the frequency readout are live.
-4. If anything fails, grab the trace file — it now tells the UDP story.
-
-73,
-JJ Flex (via Noel)
+- The Settings > Radios tab is new in this build (per-radio connection
+  settings and radio renaming). Feel free to poke at it, but the main
+  event today is the sign-in fix.
