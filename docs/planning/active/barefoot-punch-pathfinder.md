@@ -105,6 +105,18 @@ Split the networking tab by the distinction found 2026-08-06:
   4.2.0 gate review.
 - Test matrix file when Phase 3 opens, per SOP.
 
+## Parallel research track — radio audio form → Audio Settings (added mid-session per Noel)
+
+Second background research agent, same read-only-plus-one-doc pattern.
+Deliverable: `docs/planning/active/radio-audio-settings-research.md` — find and
+inventory the JJ-written radio-audio device picker (the `audioDevices.xml`
+form), what Settings → Audio already holds, a migration proposal, accessibility
+assessment, and batched open questions. Adjacent to dialogs-track item 16
+(audio device pickers) and the queue note that a machine with no
+`audioDevices.xml` needs the picker on first audio use (ms-02 case, 2026-08-05).
+Implementation scoped after Noel reads it — likely joins Phase 1b's Settings
+rework or the dialogs track.
+
 ## Parallel research track — auto-update (added mid-session per Noel)
 
 Runs in the background alongside Phase 1 via an in-session research agent — no
