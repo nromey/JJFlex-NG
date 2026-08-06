@@ -168,6 +168,31 @@ namespace Radios
         }
 
         /// <summary>
+        /// Reset an account's sign-in data by friendly name (Noel, 2026-08-06):
+        /// clears the tokens so the next connection walks through a fresh
+        /// sign-in, while the account itself — name, email, port preferences,
+        /// connection mode — stays exactly as it was. The recovery tool for
+        /// "my login data got screwed up" that deleting the JSON used to be,
+        /// minus losing everything else. With sign-in now native, clearing
+        /// tokens IS the complete reset; no browser cookie participates.
+        /// </summary>
+        public bool ResetAccountSignIn(string friendlyName)
+        {
+            var account = _accounts.FirstOrDefault(a =>
+                string.Equals(a.FriendlyName, friendlyName, StringComparison.OrdinalIgnoreCase));
+
+            if (account == null)
+                return false;
+
+            account.IdToken = string.Empty;
+            account.RefreshToken = string.Empty;
+            account.ExpiresAt = DateTime.MinValue;
+            SaveAccounts();
+            Tracing.TraceLine($"ResetAccountSignIn: cleared tokens for {account.Email}", TraceLevel.Info);
+            return true;
+        }
+
+        /// <summary>
         /// Gets an account by friendly name.
         /// </summary>
         public SmartLinkAccount? GetAccountByName(string friendlyName)

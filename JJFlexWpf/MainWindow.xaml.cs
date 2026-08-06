@@ -3353,6 +3353,7 @@ public partial class MainWindow : UserControl
                     }).ToList(),
                 RenameAccount = (oldName, newName) => mgr.RenameAccount(oldName, newName),
                 DeleteAccount = (name) => { mgr.DeleteAccount(name); },
+                ResetAccountSignIn = (name) => mgr.ResetAccountSignIn(name),
                 ScreenReaderSpeak = (msg, interrupt) => Radios.ScreenReaderOutput.Speak(msg, interrupt)
             };
 
@@ -3364,7 +3365,40 @@ public partial class MainWindow : UserControl
 
             if (dialog.NewLoginRequested)
             {
-                // Launch Auth0 PKCE flow via WPF AuthDialog
+                // Native-first here too (2026-08-06). This button was the
+                // fourth sign-in dispatch path and the last one still leading
+                // with the browser — Noel's live test hit its flakiness within
+                // minutes (silent SSO code, then a hung "authenticating").
+                // Browser remains reachable via Use Browser Instead / MFA.
+                using (var native = new Radios.SmartLinkLoginForm(mgr, ""))
+                {
+                    var nativeResult = native.ShowDialog();
+                    if (nativeResult == System.Windows.Forms.DialogResult.OK
+                        && !string.IsNullOrEmpty(native.IdToken))
+                    {
+                        var nativeFriendly = !string.IsNullOrEmpty(native.Email)
+                            ? native.Email
+                            : "SmartLink Account";
+                        mgr.SaveAccount(new Radios.SmartLinkAccount
+                        {
+                            FriendlyName = nativeFriendly,
+                            Email = native.Email,
+                            IdToken = native.IdToken,
+                            RefreshToken = native.RefreshToken,
+                            ExpiresAt = DateTime.UtcNow.AddSeconds(native.ExpiresIn),
+                            LastUsed = DateTime.UtcNow
+                        });
+                        Radios.ScreenReaderOutput.Speak($"Account saved for {nativeFriendly}", VerbosityLevel.Terse, true);
+                        continue;
+                    }
+                    if (nativeResult != System.Windows.Forms.DialogResult.Retry)
+                    {
+                        Radios.ScreenReaderOutput.Speak("Sign in cancelled", VerbosityLevel.Terse, true);
+                        continue;
+                    }
+                }
+
+                // Fallback: Auth0 PKCE flow via WPF AuthDialog (browser)
                 Radios.ScreenReaderOutput.Speak("Opening SmartLink login", VerbosityLevel.Terse, true);
                 var authDialog = new Dialogs.AuthDialog(
                     trace: (msg, level) => JJTrace.Tracing.TraceLine(msg, (System.Diagnostics.TraceLevel)level),

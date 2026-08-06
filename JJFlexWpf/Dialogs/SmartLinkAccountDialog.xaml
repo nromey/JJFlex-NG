@@ -46,6 +46,11 @@
                     AutomationProperties.Name="Rename"
                     AutomationProperties.AcceleratorKey="Alt+R"
                     Click="RenameButton_Click"/>
+            <Button x:Name="ResetSignInButton" Content="Reset Sign-_In" MinWidth="90" Height="28" Margin="0,0,0,8"
+                    IsEnabled="False"
+                    AutomationProperties.Name="Reset sign-in. Clears the saved login data for this account; the account and its settings stay."
+                    AutomationProperties.AcceleratorKey="Alt+I"
+                    Click="ResetSignInButton_Click"/>
             <Button x:Name="DeleteButton" Content="_Delete" MinWidth="90" Height="28" Margin="0,0,0,8"
                     IsEnabled="False"
                     AutomationProperties.Name="Delete"

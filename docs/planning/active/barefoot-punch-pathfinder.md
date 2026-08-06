@@ -136,6 +136,18 @@ Queued UX item from the same conversation: you should be able to set the
 CONNECTED radio as default, not only pre-declare a default from the radio
 list. Belongs with the Radios tab growth.
 
+Queued (Noel, 2026-08-06 evening, after live-testing the Radios tab): **Clear
+Radio Name button.** The empty-box-keeps-the-name guard is right for
+accidents, but blanking a radio's name is a legitimate deliberate act
+(preparing it for sale). Explicit button next to the name box; enabled only
+while connected to that radio (clearing is a radio-side write); confirmation
+states the consequence ("shows as Unknown in radio lists"); clears the local
+mirror in the same motion. Implementation note: FlexBase.RenameRadio guards
+IsNullOrWhiteSpace, so the clear needs its own deliberate path; FlexLib's
+setter would send `radio name ` with an empty argument — verify on the 8600
+what the firmware actually does with that before shipping. Per-radio track
+resumes after the sign-in work lands.
+
 ### Superseded analysis (kept for the reasoning trail) — ownership vs presence
 
 Noel, 2026-08-06: could Don change his own radio's port settings while

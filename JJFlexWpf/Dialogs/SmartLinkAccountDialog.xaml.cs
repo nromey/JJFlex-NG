@@ -42,6 +42,14 @@ namespace JJFlexWpf.Dialogs
         /// <summary>Delete an account by friendly name.</summary>
         public required Action<string> DeleteAccount { get; init; }
 
+        /// <summary>
+        /// Clear an account's saved sign-in data by friendly name, keeping the
+        /// account and its settings. Returns true if the account was found.
+        /// Optional so older callers compile unchanged; the button hides when
+        /// this is not wired.
+        /// </summary>
+        public Func<string, bool>? ResetAccountSignIn { get; init; }
+
         /// <summary>Screen reader speak delegate (message, interrupt).</summary>
         public Action<string, bool>? ScreenReaderSpeak { get; init; }
     }
@@ -86,6 +94,11 @@ namespace JJFlexWpf.Dialogs
             ConnectButton.IsEnabled = hasSelection;
             RenameButton.IsEnabled = hasSelection;
             DeleteButton.IsEnabled = hasSelection;
+            // Hidden, not disabled, when the caller didn't wire it — an
+            // always-gray button with no path to enablement is tab-order noise.
+            ResetSignInButton.Visibility = _callbacks.ResetAccountSignIn != null
+                ? Visibility.Visible : Visibility.Collapsed;
+            ResetSignInButton.IsEnabled = hasSelection && _callbacks.ResetAccountSignIn != null;
         }
 
         private SmartLinkAccountInfo? GetSelectedAccount()
@@ -162,6 +175,35 @@ namespace JJFlexWpf.Dialogs
                             "Rename Failed", MessageBoxButton.OK, MessageBoxImage.Warning);
                     }
                 }
+            }
+        }
+
+        private void ResetSignInButton_Click(object sender, RoutedEventArgs e)
+        {
+            var item = GetSelectedAccount();
+            if (item == null || _callbacks.ResetAccountSignIn == null) return;
+
+            var result = MessageBox.Show(
+                $"Reset the sign-in for \"{item.FriendlyName}\" ({item.Email})?\n\n" +
+                "The account stays in your list with all its settings. " +
+                "The next connection will ask for the password again. " +
+                "Use this when signing in has stopped working.",
+                "Reset Sign-In",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question,
+                MessageBoxResult.No);
+
+            if (result != MessageBoxResult.Yes) return;
+
+            if (_callbacks.ResetAccountSignIn(item.FriendlyName))
+            {
+                LoadAccounts();
+                _callbacks.ScreenReaderSpeak?.Invoke(
+                    $"Sign-in reset for {item.FriendlyName}. You'll be asked for the password on the next connection.", true);
+            }
+            else
+            {
+                _callbacks.ScreenReaderSpeak?.Invoke("Could not reset the sign-in. See the trace file.", true);
             }
         }
 
