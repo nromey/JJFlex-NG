@@ -711,6 +711,10 @@ namespace Radios
             [JsonConverter(typeof(JsonStringEnumConverter))]
             public SmartLinkConnectionMode ConnectionMode { get; set; }
 
+            // Absent field = false: pre-existing JSON deserializes unchanged.
+            [JsonPropertyName("autoStartRemote")]
+            public bool AutoStartRemote { get; set; }
+
             public static StoredAccount FromSmartLinkAccount(SmartLinkAccount account)
             {
                 return new StoredAccount
@@ -722,7 +726,8 @@ namespace Radios
                     ExpiresAt = account.ExpiresAt,
                     LastUsed = account.LastUsed,
                     ConfiguredListenPort = account.ConfiguredListenPort,
-                    ConnectionMode = account.ConnectionMode
+                    ConnectionMode = account.ConnectionMode,
+                    AutoStartRemote = account.AutoStartRemote
                 };
             }
 
@@ -737,7 +742,8 @@ namespace Radios
                     ExpiresAt = ExpiresAt,
                     LastUsed = LastUsed,
                     ConfiguredListenPort = ConfiguredListenPort,
-                    ConnectionMode = ConnectionMode
+                    ConnectionMode = ConnectionMode,
+                    AutoStartRemote = AutoStartRemote
                 };
             }
         }
@@ -816,6 +822,16 @@ namespace Radios
         /// with a three-state enum so Tier 3 can be represented.
         /// </summary>
         public SmartLinkConnectionMode ConnectionMode { get; set; }
+
+        /// <summary>
+        /// Remote-first startup (Noel, 2026-08-06, for remote-only operators):
+        /// when true and this account is the one that will be used for
+        /// SmartLink, the radio selector kicks off Remote discovery the moment
+        /// it opens instead of waiting for the Remote button. Opt-in, default
+        /// off, per-account. Only safe now that sign-in is native — the worst
+        /// startup surprise is a self-announcing dialog, never a browser page.
+        /// </summary>
+        public bool AutoStartRemote { get; set; }
 
         /// <summary>
         /// Display string for UI.

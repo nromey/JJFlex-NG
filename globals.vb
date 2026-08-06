@@ -988,6 +988,10 @@ Module globals
                                                      Dim cfg = Radios.AutoConnectConfig.Load(BaseConfigDir, opName)
                                                      Return If(cfg.SmartLinkAccountEmail, "")
                                                  End Function
+        WpfMainWindow.SetSessionSmartLinkAccount = Sub(email)
+                                                       SessionSmartLinkEmail = If(email, "")
+                                                       Tracing.TraceLine($"SetSessionSmartLinkAccount: session override = '{SessionSmartLinkEmail}'", TraceLevel.Info)
+                                                   End Sub
 
         ' Load operator and rig data.
         Operators = New PersonalData(BaseConfigDir)
@@ -2104,6 +2108,14 @@ Module globals
         _wpfRadioFoundCallback?.Invoke(item)
     End Sub
 
+    ''' <summary>
+    ''' Session-scoped SmartLink account override, set by "Use Now" in the
+    ''' account manager. ShowAccountSelector honors it AHEAD of the saved
+    ''' default; it is never persisted, so an app restart is back to the
+    ''' default. Empty = no override.
+    ''' </summary>
+    Private SessionSmartLinkEmail As String = ""
+
     Private Sub wpfSelectorProc(initialCall As Boolean)
         RigControl = New FlexBase(OpenParms)
 
@@ -2123,6 +2135,15 @@ Module globals
                                                  Tracing.TraceLine($"ShowAccountSelector: single account '{only.FriendlyName}' ({only.Email}), auto-selected", TraceLevel.Info)
                                                  Return (False, only, True)
                                              End If
+                                             ' Session override ("Use Now") outranks the saved default. Never
+                                             ' persisted — module state only, gone at app exit.
+                                             If Not String.IsNullOrEmpty(SessionSmartLinkEmail) Then
+                                                 Dim sessAcct = accounts.FirstOrDefault(Function(a) a.Email.Equals(SessionSmartLinkEmail, StringComparison.OrdinalIgnoreCase))
+                                                 If sessAcct IsNot Nothing Then
+                                                     Tracing.TraceLine($"ShowAccountSelector: using session-override account '{sessAcct.FriendlyName}' ({sessAcct.Email})", TraceLevel.Info)
+                                                     Return (False, sessAcct, True)
+                                                 End If
+                                             End If
                                              ' Multiple accounts — try to use the saved default from auto-connect config
                                              Dim opName = PersonalData.UniqueOpName(CurrentOp)
                                              Dim savedConfig = Radios.AutoConnectConfig.Load(BaseConfigDir, opName)
@@ -2137,6 +2158,7 @@ Module globals
                                              Dim selectedAccount As Radios.SmartLinkAccount = Nothing
                                              Dim newLogin As Boolean = False
                                              Dim cancelled As Boolean = False
+                                             Dim useOnce As Boolean = False
                                              WpfMainWindow.Dispatcher.Invoke(
                                                  Sub()
                                                      Dim acctCallbacks As New JJFlexWpf.Dialogs.SmartLinkAccountCallbacks() With {
@@ -2145,10 +2167,18 @@ Module globals
                                                                  .FriendlyName = a.FriendlyName,
                                                                  .Email = a.Email,
                                                                  .LastUsed = a.LastUsed,
-                                                                 .AccountData = a
+                                                                 .AccountData = a,
+                                                                 .AutoStartRemote = a.AutoStartRemote
                                                              }).ToList(),
                                                          .RenameAccount = Function(oldName, newName) mgr.RenameAccount(oldName, newName),
                                                          .DeleteAccount = Sub(name) mgr.DeleteAccount(name),
+                                                         .SetAutoStartRemote = Sub(name, enabled)
+                                                                                   Dim acct = mgr.Accounts.FirstOrDefault(Function(a) a.FriendlyName.Equals(name, StringComparison.OrdinalIgnoreCase))
+                                                                                   If acct IsNot Nothing Then
+                                                                                       acct.AutoStartRemote = enabled
+                                                                                       mgr.SaveAccounts()
+                                                                                   End If
+                                                                               End Sub,
                                                          .ScreenReaderSpeak = Sub(msg, interrupt) Radios.ScreenReaderOutput.Speak(msg, interrupt)
                                                      }
                                                      Dim dlg As New JJFlexWpf.Dialogs.SmartLinkAccountDialog(acctCallbacks)
@@ -2159,6 +2189,7 @@ Module globals
                                                          newLogin = True
                                                      Else
                                                          selectedAccount = TryCast(dlg.SelectedAccountData, Radios.SmartLinkAccount)
+                                                         useOnce = dlg.UseOnceRequested
                                                      End If
                                                  End Sub)
                                              If cancelled Then
@@ -2169,13 +2200,48 @@ Module globals
                                                  Tracing.TraceLine("ShowAccountSelector: user requested new login", TraceLevel.Info)
                                                  Return (True, Nothing, True)
                                              End If
-                                             Tracing.TraceLine($"ShowAccountSelector: user selected '{selectedAccount?.FriendlyName}' ({selectedAccount?.Email})", TraceLevel.Info)
+                                             If selectedAccount IsNot Nothing Then
+                                                 If useOnce Then
+                                                     ' Session only; the saved default stays as-is.
+                                                     SessionSmartLinkEmail = selectedAccount.Email
+                                                     Tracing.TraceLine($"ShowAccountSelector: use-now '{selectedAccount.FriendlyName}' ({selectedAccount.Email}), default unchanged", TraceLevel.Info)
+                                                 Else
+                                                     ' The button says "Set Default" — make that true from this
+                                                     ' picker too, so next time no picker is needed at all.
+                                                     savedConfig.SmartLinkAccountEmail = selectedAccount.Email
+                                                     savedConfig.Save(BaseConfigDir, opName)
+                                                     Tracing.TraceLine($"ShowAccountSelector: user selected '{selectedAccount.FriendlyName}' ({selectedAccount.Email}), saved as default", TraceLevel.Info)
+                                                 End If
+                                             End If
                                              Return (False, selectedAccount, True)
                                          End Function
 
         ' Load auto-connect config for this operator
         Dim operatorName = PersonalData.UniqueOpName(CurrentOp)
         Dim autoConfig = Radios.AutoConnectConfig.Load(BaseConfigDir, operatorName)
+
+        ' Remote-first startup: resolve the account setupRemote WOULD use,
+        ' mirroring ShowAccountSelector's order (single account → session
+        ' override → saved default), and honor its AutoStartRemote flag.
+        ' Ambiguous cases (multiple accounts, nothing resolved) would show
+        ' the account picker anyway, so they never auto-start.
+        Dim autoStartRemote As Boolean = False
+        Dim slAccounts = Radios.FlexBase.SharedAccountManager.Accounts
+        Dim resolvedAcct As Radios.SmartLinkAccount = Nothing
+        If slAccounts.Count = 1 Then
+            resolvedAcct = slAccounts(0)
+        ElseIf slAccounts.Count > 1 Then
+            If Not String.IsNullOrEmpty(SessionSmartLinkEmail) Then
+                resolvedAcct = slAccounts.FirstOrDefault(Function(a) a.Email.Equals(SessionSmartLinkEmail, StringComparison.OrdinalIgnoreCase))
+            End If
+            If resolvedAcct Is Nothing AndAlso Not String.IsNullOrEmpty(autoConfig.SmartLinkAccountEmail) Then
+                resolvedAcct = slAccounts.FirstOrDefault(Function(a) a.Email.Equals(autoConfig.SmartLinkAccountEmail, StringComparison.OrdinalIgnoreCase))
+            End If
+        End If
+        autoStartRemote = resolvedAcct IsNot Nothing AndAlso resolvedAcct.AutoStartRemote
+        If autoStartRemote Then
+            Tracing.TraceLine($"wpfSelectorProc: remote-first startup for account '{resolvedAcct.FriendlyName}' ({resolvedAcct.Email})", TraceLevel.Info)
+        End If
 
         ' Build the callbacks for the WPF dialog
         Dim callbacks As New JJFlexWpf.Dialogs.RigSelectorCallbacks() With {
@@ -2242,7 +2308,8 @@ Module globals
                                   frm.Show()
                                   Return Sub() frm.CloseForm()
                               End Function,
-            .ShowSmartLinkAccountManager = Sub() WpfMainWindow.ShowSmartLinkAccountManager()
+            .ShowSmartLinkAccountManager = Sub() WpfMainWindow.ShowSmartLinkAccountManager(),
+            .AutoStartRemote = autoStartRemote
         }
 
         ' Wire the save-default delegate so ShowSmartLinkAccountManager can persist the selection

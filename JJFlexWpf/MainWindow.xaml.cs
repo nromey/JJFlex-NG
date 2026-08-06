@@ -1143,6 +1143,15 @@ public partial class MainWindow : UserControl
     public Func<string>? GetDefaultSmartLinkEmail { get; set; }
 
     /// <summary>
+    /// Use a SmartLink account for the rest of this app session WITHOUT
+    /// changing the saved default (the "Use Now" button). Wired by globals.vb,
+    /// which keeps the session-scoped override and honors it in
+    /// ShowAccountSelector ahead of the saved default. Clears itself by
+    /// existing only in memory — an app restart is back to the default.
+    /// </summary>
+    public Action<string>? SetSessionSmartLinkAccount { get; set; }
+
+    /// <summary>
     /// Update the shell form title bar with radio status.
     /// Wired by globals.vb to AppShellForm.Text.
     /// </summary>
@@ -3351,11 +3360,20 @@ public partial class MainWindow : UserControl
                         Email = a.Email,
                         LastUsed = a.LastUsed,
                         AccountData = a,
-                        IsDefault = a.Email.Equals(defaultEmail, StringComparison.OrdinalIgnoreCase)
+                        IsDefault = a.Email.Equals(defaultEmail, StringComparison.OrdinalIgnoreCase),
+                        AutoStartRemote = a.AutoStartRemote
                     }).ToList(),
                 RenameAccount = (oldName, newName) => mgr.RenameAccount(oldName, newName),
                 DeleteAccount = (name) => { mgr.DeleteAccount(name); },
                 ResetAccountSignIn = (name) => mgr.ResetAccountSignIn(name),
+                SetAutoStartRemote = (name, enabled) =>
+                {
+                    var acct = mgr.Accounts.FirstOrDefault(a =>
+                        a.FriendlyName.Equals(name, StringComparison.OrdinalIgnoreCase));
+                    if (acct == null) return;
+                    acct.AutoStartRemote = enabled;
+                    mgr.SaveAccounts();
+                },
                 ScreenReaderSpeak = (msg, interrupt) => Radios.ScreenReaderOutput.Speak(msg, interrupt)
             };
 
@@ -3447,6 +3465,23 @@ public partial class MainWindow : UserControl
                     // Loop back to show account list
                     continue;
                 }
+            }
+
+            // Use Now: session-only override, saved default untouched.
+            if (dialog.UseOnceRequested && dialog.SelectedAccountData is Radios.SmartLinkAccount useAcct)
+            {
+                Tracing.TraceLine($"ShowSmartLinkAccountManager: use-now for {useAcct.Email} (default unchanged)", TraceLevel.Info);
+                SetSessionSmartLinkAccount?.Invoke(useAcct.Email);
+                System.Threading.Tasks.Task.Delay(200).ContinueWith(_ =>
+                {
+                    Dispatcher.BeginInvoke(() =>
+                    {
+                        Radios.ScreenReaderOutput.Speak(
+                            $"Using {useAcct.FriendlyName} for this session. Your default account is unchanged.",
+                            VerbosityLevel.Critical, true);
+                    });
+                });
+                break;
             }
 
             // User selected an existing account — save as default

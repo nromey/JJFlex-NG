@@ -50,6 +50,9 @@ This release is about the space where you actually spend your time in the app �
 - **[Safety check on port forwarding](#port-forwarding-safety-check).** If you're connected to somebody else's radio via SmartLink and try to change the port settings, JJ Flexible politely stops you instead of overwriting their radio's config.
 - **[Each radio now remembers its own connection settings](#radios-tab)** in the new Radios tab under Settings — Tools then Configure Radio jumps straight there. One radio can use a forwarded port while another hole-punches, and it's all editable whether you're connected or not. Oh, and you can finally rename your radio from JJ Flexible instead of borrowing SmartSDR for it.
 - **[SmartLink sign-in is a real dialog now](#native-signin)** — email box, password box, Sign In button, Forgot Password button. No web page, no browser, no fighting a login form that won't talk to your screen reader. And signing in this way sticks: JJ Flexible quietly renews it in the background from then on.
+- **[Enter connects, like it always said it would](#selector-enter-connects).** The radio selector has told you "press Enter to connect" forever — and now Enter actually does it. Pick a radio in the list, press Enter, you're connecting. Bonus: a stray keypress right after your remote radios appear can no longer accidentally restart the whole remote search.
+- **[Remote can start itself now](#remote-first-startup).** If you only ever operate remote, there's a new checkbox on your SmartLink account: "Start Remote automatically at startup." Check it once, and from then on the radio selector goes looking for your remote radios the moment it opens — no more pressing Remote every single session. Off by default, per account, and local radios still show up alongside.
+- **[Use an account without changing your default](#use-account-now).** The account manager grew a "Use Now" button. Borrowing a friend's SmartLink account for one evening? Use Now switches to it for this session only — your default account is untouched and everything is back to normal next time you start the app.
 - [CW send and receive boxes](#cw-text-boxes) go away if you can't use them. Unless you're in CW mode, the receive and send text boxes aren't visible and they're not in the tab order. Switch to CW with Alt+C and they come right back.
 - **Ctrl+Tab works for [panel navigation](#panel-navigation) again.** Sorry about that. Ctrl+Tab moves you through the major category fields, and Ctrl+Shift+Tab reverses direction. The popup menu that used to live on Ctrl+Tab is disabled pending a proper redesign — it's going to come back as an actual accessible toolbar that also looks spiffy. Stay tuned on that one.
 - **The [Connecting screen now lets you out](#connecting-cancellation).** Press Escape or click the X close button and JJ Flexible cancels the connection attempt right away — no more waiting for a timeout, no more force-quitting the app. The screen also tells you what phase it's in as it works, so you know whether SmartLink is slow, the slice is still being acquired, or something else is up. If a connect takes more than a minute, you get a "keep waiting or cancel" prompt with the actual reason; at five minutes JJ Flexible cancels for you so the screen never sits there spinning forever.
@@ -153,6 +156,28 @@ There's a Forgot Password button right there too — it emails you a reset link,
 Here's the part you'll notice over time: signing in through the new dialog *sticks*. The old web-page sign-ins had a dirty secret — they could never actually renew themselves, and the only thing keeping you signed in was a browser cookie quietly aging in the background. When Don's cookie finally expired, so did his patience. Sign-ins made through the new dialog renew themselves properly, in the background, indefinitely. You'll be asked for your password once after updating, and then the nagging should be over.
 
 [Return to version headlines](#unreleased-headlines)
+
+### Enter Connects Now. For Real This Time {#selector-enter-connects}
+
+Confession time. When the radio selector found exactly one radio, it would announce "selected, press Enter to connect" — and then Enter did absolutely nothing, because nobody ever taught the radio list what Enter means. Worse, if Windows had quietly parked your focus on the Remote button instead of the list (which it loved to do right after a remote search finished), that same Enter press would restart the entire remote search. You'd hear the list flicker and rebuild itself and wonder what on earth just happened. I wondered too, and the trace file ratted us out.
+
+So: the radio list now honors Enter. Arrow to a radio, press Enter, you're connecting — exactly what the announcement has promised all along. And when a remote search finishes, focus lands directly on the first radio in the list, so what your screen reader announces and what Enter acts on are the same thing. If a stray press does land on Remote right after a search finished, JJ Flexible just says your remote radios are already listed and puts you back on the list instead of starting over.
+
+[Return to version headlines](#unreleased-headlines)
+
+### Remote, Before You Ask {#remote-first-startup}
+
+If your radio lives somewhere else — a friend's shack, a remote site, the other end of a SmartLink — then every session starts the same way: open JJ Flexible, wait, press Remote, wait again. That first press is pure ritual. You were always going to press it.
+
+Now the app can press it for you. In Manage SmartLink Accounts, each account has a new checkbox: "Start Remote automatically at startup." Check it, and whenever that account is the one in use, the radio selector starts hunting for your remote radios the moment it opens. You'll hear "Starting remote radios for your account" so it's never a mystery. Local radios still show up alongside like always — this adds, it never takes away. It's off by default, it's per account, and unchecking it puts the ritual back if you miss it.
+
+[Return to version headlines](#unreleased-headlines)
+
+### Borrow an Account Without Losing Your Own {#use-account-now}
+
+The account manager always had Set Default — good for "this is my account, use it from now on." But sometimes you want "use this one just for tonight." Maybe you're helping a friend check their station, maybe you're the club member who connects to three different radios under three different accounts. Changing your default and remembering to change it back was the only way, and "remembering to change it back" is doing a lot of heavy lifting in that sentence.
+
+There's now a Use Now button right below Set Default. It switches to the selected account for the rest of this session — and that's all it does. Close the app, start it again, and you're back on your default like nothing happened. One more thing got fixed along the way: when the account picker appears during a remote connect and you press Set Default there, it now actually saves that account as your default, so the picker stops asking you every time.
 
 [Return to version headlines](#unreleased-headlines)
 

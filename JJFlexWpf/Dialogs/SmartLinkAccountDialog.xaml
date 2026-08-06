@@ -3,13 +3,14 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:JJFlexWpf"
         Title="Select SmartLink Account"
-        Width="420" Height="370"
+        Width="420" Height="440"
         SizeToContent="Manual"
         AutomationProperties.Name="Select SmartLink Account">
     <Grid Margin="12">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="*"/>
@@ -37,6 +38,11 @@
                     AutomationProperties.Name="Set Default"
                     AutomationProperties.AcceleratorKey="Alt+S"
                     Click="ConnectButton_Click"/>
+            <Button x:Name="UseNowButton" Content="_Use Now" MinWidth="90" Height="28" Margin="0,0,0,8"
+                    IsEnabled="False"
+                    AutomationProperties.Name="Use now. Uses this account for the rest of this session without changing your default account."
+                    AutomationProperties.AcceleratorKey="Alt+U"
+                    Click="UseNowButton_Click"/>
             <Button Content="New _Login" MinWidth="90" Height="28" Margin="0,0,0,8"
                     AutomationProperties.Name="New Login"
                     AutomationProperties.AcceleratorKey="Alt+L"
@@ -61,5 +67,14 @@
                     AutomationProperties.Name="Cancel and close dialog"
                     Click="CancelButton_Click"/>
         </StackPanel>
+
+        <!-- Per-account remote-first startup toggle; reflects the SELECTED account -->
+        <CheckBox x:Name="AutoStartRemoteCheck" Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="2"
+                  Content="Start Remote _automatically at startup" Margin="0,8,0,0"
+                  IsEnabled="False"
+                  AutomationProperties.Name="Start Remote automatically at startup. When checked and this account is the one in use, the radio selector begins looking for your remote radios as soon as it opens."
+                  AutomationProperties.AcceleratorKey="Alt+A"
+                  Checked="AutoStartRemoteCheck_Changed"
+                  Unchecked="AutoStartRemoteCheck_Changed"/>
     </Grid>
 </local:JJFlexDialog>

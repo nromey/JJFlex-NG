@@ -100,6 +100,14 @@ namespace JJFlexWpf.Dialogs
         /// <summary>Open the SmartLink account manager to switch accounts.</summary>
         public Action? ShowSmartLinkAccountManager { get; init; }
 
+        /// <summary>
+        /// Remote-first startup: the SmartLink account that will be used has
+        /// asked for Remote discovery to begin the moment the selector opens,
+        /// instead of waiting for the Remote button. Per-account, opt-in
+        /// (SmartLinkAccount.AutoStartRemote). Local discovery still runs —
+        /// this setting adds radios, it never subtracts.
+        /// </summary>
+        public bool AutoStartRemote { get; init; }
     }
 
     public partial class RigSelectorDialog : JJFlexDialog
@@ -173,6 +181,20 @@ namespace JJFlexWpf.Dialogs
                     e.Handled = true;
                     RadiosBox.MoveFocus(new System.Windows.Input.TraversalRequest(direction));
                 }
+                // The single-radio auto-select announcement has promised
+                // "Press Enter to connect" since it shipped, but no Enter
+                // handler ever existed — Enter on the list did nothing, and
+                // if focus was actually sitting on a button (where WPF's
+                // focus-restore drops it after the connecting window closes),
+                // Enter clicked THAT button instead. Noel hit exactly that on
+                // 2026-08-06 (trace 164250): his first "connect" press
+                // re-fired Remote discovery. Make the spoken promise true.
+                else if (e.Key == System.Windows.Input.Key.Enter
+                         && GetSelectedRadio() is RadioListItem selected)
+                {
+                    e.Handled = true;
+                    DoConnect(selected);
+                }
             };
 
             // Announce empty list after discovery settles (500ms)
@@ -184,11 +206,25 @@ namespace JJFlexWpf.Dialogs
                 System.Windows.Input.Keyboard.Focus(RadiosBox);
 
                 await System.Threading.Tasks.Task.Delay(500);
-                if (RadiosBox.Items.Count == 0)
+                // "Press Remote" would be stale advice while remote-first
+                // startup is already running Remote for the user.
+                if (RadiosBox.Items.Count == 0 && !_remoteDiscoveryInFlight)
                 {
                     _callbacks.ScreenReaderSpeak?.Invoke("Radio list, empty. No radios found yet. Press Remote for remote radios.", false);
                 }
             };
+
+            // Remote-first startup: the account in use asked for Remote to
+            // begin immediately. Fire after Loaded so the window is up and
+            // announcing before the connecting window appears over it.
+            if (callbacks.AutoStartRemote)
+            {
+                Loaded += (_, _) => Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    _callbacks.ScreenReaderSpeak?.Invoke("Starting remote radios for your account.", false);
+                    StartRemoteFlow();
+                }), DispatcherPriority.Background);
+            }
 
             // Start auto-connect timer if appropriate
             if (callbacks.IsInitialBringup &&
@@ -233,9 +269,10 @@ namespace JJFlexWpf.Dialogs
                     _closeConnecting();
                     _closeConnecting = null;
 
-                    // Reclaim focus from the closing connecting form
-                    Activate();
-                    RadiosBox.Focus();
+                    // Reclaim focus from the closing connecting form. List
+                    // first so FocusRadioList has an item container to land on.
+                    RefreshRadiosList();
+                    FocusRadioList();
                 }
 
                 RefreshRadiosList();
@@ -431,14 +468,53 @@ namespace JJFlexWpf.Dialogs
 
         private Action? _closeConnecting;
 
+        /// <summary>True while a Remote discovery pass is running.</summary>
+        private bool _remoteDiscoveryInFlight;
+
+        /// <summary>When the last Remote discovery pass completed (UTC).</summary>
+        private DateTime _remoteDiscoveryCompletedUtc = DateTime.MinValue;
+
         private void RemoteButton_Click(object sender, RoutedEventArgs e)
         {
+            StartRemoteFlow();
+        }
+
+        private void StartRemoteFlow()
+        {
+            // Re-entry guards (2026-08-06, trace 164250): a stray keypress
+            // right after discovery completes used to re-run the whole flow —
+            // list flicker, a redundant re-registration the SmartLink server
+            // answers with "Invalid state for application registration", and
+            // a ~15s detour for the user. A live, fresh result doesn't need
+            // re-discovering; just put the user back on the list.
+            if (_remoteDiscoveryInFlight)
+            {
+                _callbacks.ScreenReaderSpeak?.Invoke("Remote discovery is already running.", false);
+                return;
+            }
+            bool haveRemoteRadios;
+            lock (_radiosLock)
+            {
+                haveRemoteRadios = _radiosList.Exists(r => r.IsRemote);
+            }
+            if (haveRemoteRadios
+                && (DateTime.UtcNow - _remoteDiscoveryCompletedUtc) < TimeSpan.FromSeconds(5))
+            {
+                _callbacks.ScreenReaderSpeak?.Invoke("Remote radios already listed.", false);
+                FocusRadioList();
+                return;
+            }
+
+            _remoteDiscoveryInFlight = true;
+
             // Show WinForms connecting window to hold focus while SmartLink auth runs.
             _closeConnecting = _callbacks.ShowConnecting?.Invoke("Connecting to SmartLink...");
 
             _callbacks.StartRemoteDiscovery((success) =>
             {
                 // Called from SmartLink thread when discovery completes.
+                _remoteDiscoveryInFlight = false;
+                _remoteDiscoveryCompletedUtc = DateTime.UtcNow;
                 // Close ConnectingForm first.
                 if (_closeConnecting != null)
                 {
@@ -460,19 +536,51 @@ namespace JJFlexWpf.Dialogs
                 // The dialog's empty state is now self-announcing.
                 Dispatcher.BeginInvoke(() =>
                 {
-                    Activate();
                     // No RadioFound events fired this round, so RefreshRadiosList
                     // wasn't called and the empty-list AccessibleName fallback
-                    // at line 240 didn't run. Set it explicitly so screen-reader
+                    // didn't run. Set it explicitly so screen-reader
                     // focus-landing re-confirms the empty state.
                     if (RadiosBox.Items.Count == 0)
                     {
                         System.Windows.Automation.AutomationProperties.SetName(
                             RadiosBox, "Radio list, empty, no radios found");
                     }
-                    RadiosBox.Focus();
+                    FocusRadioList();
                 });
             });
+        }
+
+        /// <summary>
+        /// Land keyboard focus on the radio list — on an ITEM, not the bare
+        /// ListBox, whenever items exist. Focusing the container alone left
+        /// Enter with no target and, worse, WPF's focus-restore after the
+        /// connecting window closed could quietly put focus back on the
+        /// Remote button while speech said the list was ready (2026-08-06
+        /// first-keypress race). Selecting the first radio and focusing its
+        /// ListBoxItem makes what the screen reader announces and what Enter
+        /// acts on the same thing.
+        /// </summary>
+        private void FocusRadioList()
+        {
+            Activate();
+            if (RadiosBox.Items.Count == 0)
+            {
+                RadiosBox.Focus();
+                System.Windows.Input.Keyboard.Focus(RadiosBox);
+                return;
+            }
+            if (RadiosBox.SelectedIndex < 0)
+                RadiosBox.SelectedIndex = 0;
+            RadiosBox.UpdateLayout();
+            if (RadiosBox.ItemContainerGenerator.ContainerFromIndex(RadiosBox.SelectedIndex)
+                    is System.Windows.Controls.ListBoxItem container)
+            {
+                container.Focus();
+            }
+            else
+            {
+                RadiosBox.Focus();
+            }
         }
 
         private void SwitchAccountButton_Click(object sender, RoutedEventArgs e)

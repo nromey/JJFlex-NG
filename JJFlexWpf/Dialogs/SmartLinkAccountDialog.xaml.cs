@@ -18,6 +18,9 @@ namespace JJFlexWpf.Dialogs
         public object AccountData { get; set; } = null!;
         public bool IsDefault { get; set; }
 
+        /// <summary>Remote-first startup flag for this account.</summary>
+        public bool AutoStartRemote { get; set; }
+
         public override string ToString()
         {
             string lastUsed = LastUsed > DateTime.MinValue
@@ -56,6 +59,12 @@ namespace JJFlexWpf.Dialogs
         /// </summary>
         public Func<string, bool>? ResetAccountSignIn { get; init; }
 
+        /// <summary>
+        /// Persist the remote-first startup flag for an account (friendly
+        /// name, enabled). Optional; the checkbox hides when not wired.
+        /// </summary>
+        public Action<string, bool>? SetAutoStartRemote { get; init; }
+
         /// <summary>Screen reader speak delegate (message, interrupt).</summary>
         public Action<string, bool>? ScreenReaderSpeak { get; init; }
     }
@@ -73,6 +82,21 @@ namespace JJFlexWpf.Dialogs
         /// True if user clicked "New Login".
         /// </summary>
         public bool NewLoginRequested { get; private set; }
+
+        /// <summary>
+        /// True if the user clicked "Use Now" — use <see cref="SelectedAccountData"/>
+        /// for this session only, without touching the saved default.
+        /// </summary>
+        public bool UseOnceRequested { get; private set; }
+
+        /// <summary>
+        /// Suppresses the AutoStartRemoteCheck Checked/Unchecked handler while
+        /// we sync the box from the newly selected account — WPF raises those
+        /// events on every programmatic IsChecked write, and without the guard
+        /// each arrow-key move through the list would re-save (and announce)
+        /// a setting the user never touched.
+        /// </summary>
+        private bool _suppressAutoStartEvent;
 
         public SmartLinkAccountDialog(SmartLinkAccountCallbacks callbacks)
         {
@@ -98,6 +122,7 @@ namespace JJFlexWpf.Dialogs
         {
             bool hasSelection = AccountListBox.SelectedIndex >= 0;
             ConnectButton.IsEnabled = hasSelection;
+            UseNowButton.IsEnabled = hasSelection;
             RenameButton.IsEnabled = hasSelection;
             DeleteButton.IsEnabled = hasSelection;
             // Hidden, not disabled, when the caller didn't wire it — an
@@ -105,6 +130,31 @@ namespace JJFlexWpf.Dialogs
             ResetSignInButton.Visibility = _callbacks.ResetAccountSignIn != null
                 ? Visibility.Visible : Visibility.Collapsed;
             ResetSignInButton.IsEnabled = hasSelection && _callbacks.ResetAccountSignIn != null;
+
+            // Same hide-when-unwired rule as Reset Sign-In.
+            AutoStartRemoteCheck.Visibility = _callbacks.SetAutoStartRemote != null
+                ? Visibility.Visible : Visibility.Collapsed;
+            AutoStartRemoteCheck.IsEnabled = hasSelection && _callbacks.SetAutoStartRemote != null;
+
+            // Reflect the SELECTED account's flag without treating the
+            // programmatic write as a user toggle.
+            _suppressAutoStartEvent = true;
+            AutoStartRemoteCheck.IsChecked = GetSelectedAccount()?.AutoStartRemote == true;
+            _suppressAutoStartEvent = false;
+        }
+
+        private void AutoStartRemoteCheck_Changed(object sender, RoutedEventArgs e)
+        {
+            if (_suppressAutoStartEvent) return;
+            var item = GetSelectedAccount();
+            if (item == null || _callbacks.SetAutoStartRemote == null) return;
+
+            bool enabled = AutoStartRemoteCheck.IsChecked == true;
+            item.AutoStartRemote = enabled;
+            _callbacks.SetAutoStartRemote(item.FriendlyName, enabled);
+            _callbacks.ScreenReaderSpeak?.Invoke(enabled
+                ? $"Remote will start automatically when {item.FriendlyName} is the account in use."
+                : $"Remote will wait for the Remote button for {item.FriendlyName}.", true);
         }
 
         private SmartLinkAccountInfo? GetSelectedAccount()
@@ -144,6 +194,20 @@ namespace JJFlexWpf.Dialogs
             {
                 SelectedAccountData = item.AccountData;
                 NewLoginRequested = false;
+                UseOnceRequested = false;
+                DialogResult = true;
+                Close();
+            }
+        }
+
+        private void UseNowButton_Click(object sender, RoutedEventArgs e)
+        {
+            var item = GetSelectedAccount();
+            if (item != null)
+            {
+                SelectedAccountData = item.AccountData;
+                NewLoginRequested = false;
+                UseOnceRequested = true;
                 DialogResult = true;
                 Close();
             }
