@@ -3460,6 +3460,27 @@ namespace Radios
         /// </param>
         private string PerformNewLogin(SmartLinkAccount expectedAccount = null, bool forceNewLogin = false, string title = null)
         {
+            // Native-first sign-in (2026-08-06, Don's lockout). The native form
+            // exchanges email+password directly via the resource-owner grant —
+            // SmartSDR's own mechanics — so no browser, cookie, or WebView2
+            // profile is involved, and the refresh tokens it mints actually
+            // renew id_tokens later. The browser form below survives as the
+            // fallback: "Use Browser Instead", or automatically for accounts
+            // that require two-factor sign-in.
+            var native = ShowNativeLoginDialog(expectedAccount, forceNewLogin);
+            if (native.result == DialogResult.OK)
+            {
+                RestoreParentFocus();
+                return FinishInteractiveLogin(native.email, native.idToken, native.refreshToken, native.expiresIn, expectedAccount);
+            }
+            if (native.result != DialogResult.Retry)
+            {
+                Tracing.TraceLine("PerformNewLogin: native sign-in cancelled", TraceLevel.Info);
+                RestoreParentFocus();
+                return null;
+            }
+            Tracing.TraceLine("PerformNewLogin: falling back to browser sign-in", TraceLevel.Info);
+
             string jwt = null;
 
             // Manual lifetime, not `using`: this method runs on the SmartLink
@@ -3474,11 +3495,12 @@ namespace Radios
             {
                 form.ForceNewLogin = forceNewLogin;
                 // AccountEmail follows the account being authenticated, not
-                // whichever account happens to be current. (It no longer selects
-                // a cookie profile — that was reverted in 81b688fe — but keeping
-                // it correct matters if profiles ever return, and it is the
-                // honest value.) Cross-account safety comes from ForceNewLogin
-                // clearing the shared Auth0 cookies plus the identity check below.
+                // whichever account happens to be current. It selects the
+                // per-account WebView2 cookie profile (re-added in 1957420b
+                // after the 81b688fe revert — an earlier comment here claimed
+                // profiles were gone, which Don's 2026-08-06 trace disproved).
+                // Cross-account safety = per-account profiles + ForceNewLogin
+                // cookie clearing + the identity check in FinishInteractiveLogin.
                 form.AccountEmail = expectedAccount?.Email ?? _currentAccount?.Email ?? "";
                 if (!string.IsNullOrEmpty(title))
                 {
@@ -3510,128 +3532,7 @@ namespace Radios
                 // because ShowDialog() runs without an owner (cross-thread unsafe).
                 RestoreParentFocus();
 
-                jwt = form.IdToken;
-
-                // Diagnostic: log the exp claim from the fresh token
-                if (!string.IsNullOrEmpty(jwt))
-                {
-                    try
-                    {
-                        var jwtParts = jwt.Split('.');
-                        if (jwtParts.Length == 3)
-                        {
-                            var jwtPayload = jwtParts[1];
-                            switch (jwtPayload.Length % 4)
-                            {
-                                case 2: jwtPayload += "=="; break;
-                                case 3: jwtPayload += "="; break;
-                            }
-                            jwtPayload = jwtPayload.Replace('-', '+').Replace('_', '/');
-                            var jwtJson = System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(jwtPayload));
-                            using var jwtDoc = System.Text.Json.JsonDocument.Parse(jwtJson);
-                            if (jwtDoc.RootElement.TryGetProperty("exp", out var expEl))
-                            {
-                                var expUnix = expEl.GetInt64();
-                                var expTime = DateTimeOffset.FromUnixTimeSeconds(expUnix).UtcDateTime;
-                                var delta = expTime - DateTime.UtcNow;
-                                Tracing.TraceLine($"PerformNewLogin: fresh JWT exp={expTime:yyyy-MM-dd HH:mm:ss}Z, delta={delta.TotalMinutes:F1}min, ExpiresIn={form.ExpiresIn}s", TraceLevel.Info);
-                            }
-                            if (jwtDoc.RootElement.TryGetProperty("iat", out var iatEl))
-                            {
-                                var iatUnix = iatEl.GetInt64();
-                                var iatTime = DateTimeOffset.FromUnixTimeSeconds(iatUnix).UtcDateTime;
-                                Tracing.TraceLine($"PerformNewLogin: fresh JWT iat={iatTime:yyyy-MM-dd HH:mm:ss}Z", TraceLevel.Info);
-                            }
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        Tracing.TraceLine($"PerformNewLogin: JWT diagnostic parse failed: {ex.Message}", TraceLevel.Warning);
-                    }
-                }
-
-                if (string.IsNullOrEmpty(jwt))
-                {
-                    Tracing.TraceLine("setupRemote: no id_token from auth form", TraceLevel.Error);
-                    return null;
-                }
-
-                // Identity check: if this login was for a specific saved account,
-                // the token we got back must belong to that account. Auth0 can
-                // hand back a different identity when a browser session already
-                // exists; silently accepting it connects the user to someone
-                // else's radios and reports confusing state everywhere after.
-                if (expectedAccount != null
-                    && !string.IsNullOrEmpty(form.Email)
-                    && !string.Equals(form.Email, expectedAccount.Email, StringComparison.OrdinalIgnoreCase))
-                {
-                    Tracing.TraceLine(
-                        $"PerformNewLogin: identity mismatch — asked for {expectedAccount.Email}, Auth0 returned {form.Email}; rejecting",
-                        TraceLevel.Error);
-                    ScreenReaderOutput.Speak(
-                        $"Sign-in returned the account {form.Email}, but {expectedAccount.Email} was requested. " +
-                        "Not switching accounts. Sign out in the account manager and try again.",
-                        VerbosityLevel.Critical, true);
-                    return null;
-                }
-
-                // Save or update the account
-                if (!string.IsNullOrEmpty(form.RefreshToken))
-                {
-                    // Check if this email already has a saved account
-                    var existingAccount = AccountManager.GetAccountByEmail(form.Email);
-
-                    if (existingAccount != null)
-                    {
-                        // Silently update the existing account's tokens
-                        existingAccount.IdToken = form.IdToken;
-                        existingAccount.RefreshToken = form.RefreshToken;
-                        existingAccount.ExpiresAt = DateTime.UtcNow.AddSeconds(form.ExpiresIn > 0 ? form.ExpiresIn : 86400);
-                        AccountManager.SaveAccount(existingAccount);
-                        _currentAccount = existingAccount;
-
-                        Tracing.TraceLine($"setupRemote: updated existing account for {form.Email}", TraceLevel.Info);
-                    }
-                    else
-                    {
-                        // New account - ask if they want to save it
-                        var saveResult = MessageBox.Show(
-                            $"Would you like to save this SmartLink account?\n\n" +
-                            $"Email: {form.Email}\n\n" +
-                            "You won't need to log in again next time.",
-                            "Save Account?",
-                            MessageBoxButtons.YesNo,
-                            MessageBoxIcon.Question,
-                            MessageBoxDefaultButton.Button1);
-
-                        if (saveResult == DialogResult.Yes)
-                        {
-                            // Prompt for friendly name
-                            string friendlyName = PromptForAccountName(form.Email);
-
-                            var account = new SmartLinkAccount
-                            {
-                                FriendlyName = friendlyName,
-                                Email = form.Email ?? string.Empty,
-                                IdToken = form.IdToken,
-                                RefreshToken = form.RefreshToken,
-                                ExpiresAt = DateTime.UtcNow.AddSeconds(form.ExpiresIn > 0 ? form.ExpiresIn : 86400),
-                                LastUsed = DateTime.UtcNow
-                            };
-
-                            AccountManager.SaveAccount(account);
-                            _currentAccount = account;
-
-                            ScreenReaderOutput.Speak("Account saved", VerbosityLevel.Terse, true);
-                            Tracing.TraceLine($"setupRemote: saved account for {form.Email}", TraceLevel.Info);
-                        }
-                    }
-                }
-
-                // Legacy compatibility
-                #pragma warning disable CS0618
-                tokens = new[] { $"id_token={jwt}" };
-                #pragma warning restore CS0618
+                jwt = FinishInteractiveLogin(form.Email, form.IdToken, form.RefreshToken, form.ExpiresIn, expectedAccount);
             }
             finally
             {
@@ -3639,6 +3540,179 @@ namespace Radios
             }
 
             return jwt;
+        }
+
+        /// <summary>
+        /// Show the native SmartLink sign-in dialog on the UI thread and hand
+        /// back its outcome. Retry means "open the browser form instead" —
+        /// either the user asked for it or the account needs two-factor.
+        /// </summary>
+        private (DialogResult result, string email, string idToken, string refreshToken, int expiresIn)
+            ShowNativeLoginDialog(SmartLinkAccount expectedAccount, bool forceNewLogin)
+        {
+            // Adding a genuinely new account starts blank; re-authenticating a
+            // known account starts on its email with focus in the password box.
+            string prefill = forceNewLogin ? "" : (expectedAccount?.Email ?? _currentAccount?.Email ?? "");
+
+            DialogResult dr = DialogResult.Cancel;
+            string email = "", idToken = "", refreshToken = "";
+            int expiresIn = 0;
+
+            void Show()
+            {
+                using var dlg = new SmartLinkLoginForm(AccountManager, prefill);
+                var owner = Callouts?.ParentWindow as IWin32Window;
+                dr = owner != null ? dlg.ShowDialog(owner) : dlg.ShowDialog();
+                email = dlg.Email;
+                idToken = dlg.IdToken;
+                refreshToken = dlg.RefreshToken;
+                expiresIn = dlg.ExpiresIn;
+            }
+
+            var parent = Callouts?.ParentWindow as Control;
+            if (parent != null && parent.IsHandleCreated && parent.InvokeRequired)
+            {
+                parent.Invoke(new Action(Show));
+            }
+            else
+            {
+                Show();
+            }
+
+            return (dr, email, idToken, refreshToken, expiresIn);
+        }
+
+        /// <summary>
+        /// Shared tail of every interactive sign-in, native or browser:
+        /// diagnostics, the cross-account identity check, and saving/updating
+        /// the account. Returns the id_token, or null when the sign-in must be
+        /// rejected.
+        /// </summary>
+        private string FinishInteractiveLogin(string email, string idToken, string refreshToken, int expiresIn, SmartLinkAccount expectedAccount)
+        {
+            // Diagnostic: log the exp claim from the fresh token
+            if (!string.IsNullOrEmpty(idToken))
+            {
+                try
+                {
+                    var jwtParts = idToken.Split('.');
+                    if (jwtParts.Length == 3)
+                    {
+                        var jwtPayload = jwtParts[1];
+                        switch (jwtPayload.Length % 4)
+                        {
+                            case 2: jwtPayload += "=="; break;
+                            case 3: jwtPayload += "="; break;
+                        }
+                        jwtPayload = jwtPayload.Replace('-', '+').Replace('_', '/');
+                        var jwtJson = System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(jwtPayload));
+                        using var jwtDoc = System.Text.Json.JsonDocument.Parse(jwtJson);
+                        if (jwtDoc.RootElement.TryGetProperty("exp", out var expEl))
+                        {
+                            var expUnix = expEl.GetInt64();
+                            var expTime = DateTimeOffset.FromUnixTimeSeconds(expUnix).UtcDateTime;
+                            var delta = expTime - DateTime.UtcNow;
+                            Tracing.TraceLine($"PerformNewLogin: fresh JWT exp={expTime:yyyy-MM-dd HH:mm:ss}Z, delta={delta.TotalMinutes:F1}min, ExpiresIn={expiresIn}s", TraceLevel.Info);
+                        }
+                        if (jwtDoc.RootElement.TryGetProperty("iat", out var iatEl))
+                        {
+                            var iatUnix = iatEl.GetInt64();
+                            var iatTime = DateTimeOffset.FromUnixTimeSeconds(iatUnix).UtcDateTime;
+                            Tracing.TraceLine($"PerformNewLogin: fresh JWT iat={iatTime:yyyy-MM-dd HH:mm:ss}Z", TraceLevel.Info);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Tracing.TraceLine($"PerformNewLogin: JWT diagnostic parse failed: {ex.Message}", TraceLevel.Warning);
+                }
+            }
+
+            if (string.IsNullOrEmpty(idToken))
+            {
+                Tracing.TraceLine("setupRemote: no id_token from sign-in", TraceLevel.Error);
+                return null;
+            }
+
+            // Identity check: if this login was for a specific saved account,
+            // the token we got back must belong to that account. The browser
+            // path can hand back a different identity when a cookie session
+            // already exists; the native path canonicalizes the typed email.
+            // Silently accepting a mismatch connects the user to someone
+            // else's radios and reports confusing state everywhere after.
+            if (expectedAccount != null
+                && !string.IsNullOrEmpty(email)
+                && !string.Equals(email, expectedAccount.Email, StringComparison.OrdinalIgnoreCase))
+            {
+                Tracing.TraceLine(
+                    $"PerformNewLogin: identity mismatch — asked for {expectedAccount.Email}, Auth0 returned {email}; rejecting",
+                    TraceLevel.Error);
+                ScreenReaderOutput.Speak(
+                    $"Sign-in returned the account {email}, but {expectedAccount.Email} was requested. " +
+                    "Not switching accounts. Sign out in the account manager and try again.",
+                    VerbosityLevel.Critical, true);
+                return null;
+            }
+
+            // Save or update the account
+            if (!string.IsNullOrEmpty(refreshToken))
+            {
+                // Check if this email already has a saved account
+                var existingAccount = AccountManager.GetAccountByEmail(email);
+
+                if (existingAccount != null)
+                {
+                    // Silently update the existing account's tokens
+                    existingAccount.IdToken = idToken;
+                    existingAccount.RefreshToken = refreshToken;
+                    existingAccount.ExpiresAt = DateTime.UtcNow.AddSeconds(expiresIn > 0 ? expiresIn : 86400);
+                    AccountManager.SaveAccount(existingAccount);
+                    _currentAccount = existingAccount;
+
+                    Tracing.TraceLine($"setupRemote: updated existing account for {email}", TraceLevel.Info);
+                }
+                else
+                {
+                    // New account - ask if they want to save it
+                    var saveResult = MessageBox.Show(
+                        $"Would you like to save this SmartLink account?\n\n" +
+                        $"Email: {email}\n\n" +
+                        "You won't need to log in again next time.",
+                        "Save Account?",
+                        MessageBoxButtons.YesNo,
+                        MessageBoxIcon.Question,
+                        MessageBoxDefaultButton.Button1);
+
+                    if (saveResult == DialogResult.Yes)
+                    {
+                        // Prompt for friendly name
+                        string friendlyName = PromptForAccountName(email);
+
+                        var account = new SmartLinkAccount
+                        {
+                            FriendlyName = friendlyName,
+                            Email = email ?? string.Empty,
+                            IdToken = idToken,
+                            RefreshToken = refreshToken,
+                            ExpiresAt = DateTime.UtcNow.AddSeconds(expiresIn > 0 ? expiresIn : 86400),
+                            LastUsed = DateTime.UtcNow
+                        };
+
+                        AccountManager.SaveAccount(account);
+                        _currentAccount = account;
+
+                        ScreenReaderOutput.Speak("Account saved", VerbosityLevel.Terse, true);
+                        Tracing.TraceLine($"setupRemote: saved account for {email}", TraceLevel.Info);
+                    }
+                }
+            }
+
+            // Legacy compatibility
+            #pragma warning disable CS0618
+            tokens = new[] { $"id_token={idToken}" };
+            #pragma warning restore CS0618
+
+            return idToken;
         }
 
         /// <summary>

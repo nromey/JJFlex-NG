@@ -384,6 +384,165 @@ namespace Radios
         }
 
         /// <summary>
+        /// Outcome of a native password sign-in attempt. Error is one of the
+        /// well-known kinds so the dialog can react specifically (wrong
+        /// password gets a retry, MFA gets the browser); ErrorDetail carries
+        /// Auth0's human text for the trace, never shown raw to the user.
+        /// </summary>
+        public sealed class PasswordLoginResult
+        {
+            public bool Success;
+            public string Error = "";        // "", wrong_credentials, mfa_required, too_many_attempts, network, other
+            public string ErrorDetail = "";
+            public string Email = "";
+            public string IdToken = "";
+            public string RefreshToken = "";
+            public int ExpiresIn;
+        }
+
+        /// <summary>
+        /// Native SmartLink sign-in: the resource-owner password grant, exactly
+        /// as SmartSDR ships it (decompile `Auth0Client.LoginAsync`,
+        /// ResourceOwnerTokenRequest, scope "openid profile offline_access").
+        /// This is the fix for the 2026-08-06 lockout class: refresh tokens
+        /// minted by THIS grant return fresh id_tokens on refresh, so the
+        /// silent JIT path finally works, and no browser, cookie, or WebView2
+        /// profile is involved in signing in. The password is exchanged
+        /// immediately and never stored.
+        /// </summary>
+        public async Task<PasswordLoginResult> LoginWithPasswordAsync(string email, string password)
+        {
+            var result = new PasswordLoginResult { Email = email?.Trim() ?? "" };
+            try
+            {
+                using var client = new HttpClient();
+                var content = new FormUrlEncodedContent(new Dictionary<string, string>
+                {
+                    ["grant_type"] = "password",
+                    ["client_id"] = Auth0ClientId,
+                    ["username"] = result.Email,
+                    ["password"] = password ?? "",
+                    ["scope"] = "openid profile offline_access",
+                });
+
+                var response = await client.PostAsync($"https://{Auth0Domain}/oauth/token", content);
+                var json = await response.Content.ReadAsStringAsync();
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    string error = "other", detail = "";
+                    try
+                    {
+                        using var doc = JsonDocument.Parse(json);
+                        if (doc.RootElement.TryGetProperty("error", out var e)) error = e.GetString() ?? "other";
+                        if (doc.RootElement.TryGetProperty("error_description", out var d)) detail = d.GetString() ?? "";
+                    }
+                    catch { /* non-JSON error body; keep generic */ }
+
+                    result.Error = error switch
+                    {
+                        "invalid_grant" => "wrong_credentials",
+                        "mfa_required" => "mfa_required",
+                        "too_many_attempts" => "too_many_attempts",
+                        _ => "other",
+                    };
+                    result.ErrorDetail = detail;
+                    // Status and error kind only — never the description verbatim
+                    // at higher levels, and never any credential material.
+                    Tracing.TraceLine(
+                        $"LoginWithPasswordAsync: {response.StatusCode} error={error}",
+                        TraceLevel.Warning);
+                    return result;
+                }
+
+                using var ok = JsonDocument.Parse(json);
+                if (ok.RootElement.TryGetProperty("id_token", out var idTok)) result.IdToken = idTok.GetString() ?? "";
+                if (ok.RootElement.TryGetProperty("refresh_token", out var refTok)) result.RefreshToken = refTok.GetString() ?? "";
+                if (ok.RootElement.TryGetProperty("expires_in", out var exp)) result.ExpiresIn = exp.GetInt32();
+
+                if (string.IsNullOrEmpty(result.IdToken))
+                {
+                    result.Error = "other";
+                    result.ErrorDetail = "sign-in succeeded but no id_token came back";
+                    Tracing.TraceLine("LoginWithPasswordAsync: 200 but no id_token in response", TraceLevel.Error);
+                    return result;
+                }
+
+                // The token's email claim is the authoritative identity —
+                // Auth0 canonicalizes what the user typed.
+                var claimEmail = TryGetJwtClaim(result.IdToken, "email");
+                if (!string.IsNullOrEmpty(claimEmail)) result.Email = claimEmail;
+
+                result.Success = true;
+                Tracing.TraceLine($"LoginWithPasswordAsync: success for {result.Email}", TraceLevel.Info);
+                return result;
+            }
+            catch (Exception ex)
+            {
+                result.Error = "network";
+                result.ErrorDetail = ex.Message;
+                Tracing.TraceLine($"LoginWithPasswordAsync: exception: {ex.Message}", TraceLevel.Error);
+                return result;
+            }
+        }
+
+        /// <summary>
+        /// Ask Auth0 to email a password-reset link. Fire-and-report: a true
+        /// return means Auth0 accepted the request, not that the user finished
+        /// resetting. Connection name is SmartSDR's own
+        /// (decompile ChangePasswordRequest: "Username-Password-Authentication").
+        /// </summary>
+        public async Task<bool> SendPasswordResetEmailAsync(string email)
+        {
+            try
+            {
+                using var client = new HttpClient();
+                var body = JsonSerializer.Serialize(new
+                {
+                    client_id = Auth0ClientId,
+                    email = email?.Trim() ?? "",
+                    connection = "Username-Password-Authentication",
+                });
+                var content = new StringContent(body, Encoding.UTF8, "application/json");
+                var response = await client.PostAsync($"https://{Auth0Domain}/dbconnections/change_password", content);
+                Tracing.TraceLine($"SendPasswordResetEmailAsync: {response.StatusCode}", TraceLevel.Info);
+                return response.IsSuccessStatusCode;
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine($"SendPasswordResetEmailAsync: exception: {ex.Message}", TraceLevel.Error);
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Reads a single string claim from a JWT payload without validating
+        /// the signature — fine for our own just-received tokens; the server
+        /// is the authority on validity.
+        /// </summary>
+        public static string TryGetJwtClaim(string jwt, string claim)
+        {
+            try
+            {
+                var parts = jwt?.Split('.');
+                if (parts == null || parts.Length != 3) return "";
+                var payload = parts[1];
+                switch (payload.Length % 4)
+                {
+                    case 2: payload += "=="; break;
+                    case 3: payload += "="; break;
+                }
+                payload = payload.Replace('-', '+').Replace('_', '/');
+                using var doc = JsonDocument.Parse(Encoding.UTF8.GetString(Convert.FromBase64String(payload)));
+                return doc.RootElement.TryGetProperty(claim, out var v) ? v.GetString() ?? "" : "";
+            }
+            catch
+            {
+                return "";
+            }
+        }
+
+        /// <summary>
         /// Updates the LastUsed timestamp for an account.
         /// </summary>
         public void MarkAccountUsed(SmartLinkAccount account)
