@@ -214,9 +214,20 @@ namespace JJFlexWpf.Dialogs
             // Nickname: the name lives on the radio, so push it there when the
             // live connection is to this radio; otherwise only the local label
             // changes, and the status text says so instead of implying more.
+            // An emptied box deliberately does NOT blank the name — a radio
+            // with no name shows as "Unknown" everywhere, and an accidental
+            // clear is far more likely than a wish for that. But ignoring the
+            // empty box silently would leave the UI disagreeing with reality,
+            // so the kept name goes back into the box and the status says so.
             string newNickname = RadioProfileNicknameBox.Text?.Trim() ?? string.Empty;
             string renameNote = "";
-            if (newNickname.Length > 0 && newNickname != (cfg.Nickname ?? string.Empty))
+            if (newNickname.Length == 0 && !string.IsNullOrEmpty(cfg.Nickname))
+            {
+                RadioProfileNicknameBox.Text = cfg.Nickname;
+                renameNote =
+                    $" The name box was empty, so the radio keeps its name, {cfg.Nickname} — a radio with no name would show as Unknown everywhere.";
+            }
+            else if (newNickname.Length > 0 && newNickname != (cfg.Nickname ?? string.Empty))
             {
                 if (IsConnectedTo(radioId))
                 {

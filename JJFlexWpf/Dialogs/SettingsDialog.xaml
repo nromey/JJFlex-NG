@@ -563,7 +563,7 @@
                                    Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
                         <TextBox x:Name="RadioProfileNicknameBox" Width="280"
                                  Style="{StaticResource DialogTextBox}"
-                                 AutomationProperties.Name="Radio name. Saved to the radio itself when you are connected to it; otherwise only the name shown in this list changes."/>
+                                 AutomationProperties.Name="Radio name. Saved to the radio itself when you are connected to it; otherwise only the name shown in this list changes. Leaving this empty keeps the current name."/>
                     </StackPanel>
                     <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
                                Style="{StaticResource DialogLabel}"
