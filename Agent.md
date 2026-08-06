@@ -5,6 +5,55 @@ This document captures the current state of JJ-Flex repository and active work.
 **Repository root:** `C:\dev\JJFlex-NG`
 **Branch:** `main` (post-REVERT of `track/flexlib-42` merge on 2026-05-15 — main is back to pre-FlexLib-4.2.18 substrate after Don's 2026-05-15 LAN trace exposed a vendor-side station-name regression. FlexLib 4.0.1 is in place. Re-merge of FlexLib 4.2.18 now gated on Sprint 29 Phase D firmware-update UI being operational + Don's radio firmware updated. `track/flexlib-42` parked at `9de45c54`. See `memory/project_flexlib_4218_station_name_regression.md` (new), `memory/project_flexlib_4218_merge_sequencing.md` (refreshed 2026-05-15), and `memory/project_main_branch_41_posture.md` (reality-check note added).)
 
+## EVENING CHECKPOINT — 2026-08-06 (pre-compact #2; not a seal)
+
+Branch `track/flexlib-4220`, clean, pushed through `6b2442d2`. Build
+**4.1.16.517** in Dropbox `debug\` (Don's channel) and NAS
+`historical\4.1.16.517\x64-debug\`. Don has been messaged; he tests 517
+after dinner. His state: NO saved account (his aborted 514 sign-ins never
+reached the save), so his first 517 run asks for his password exactly
+once (Remember checked by default, spoken "Account saved"), then every
+later launch is silent.
+
+**The evening's arc — the SmartLink sign-in saga (rounds 22–27):**
+Don's lockout root-caused from his trace: frtest id_tokens live 60
+SECONDS; our browser-lineage refresh tokens never returned id_tokens on
+refresh; WebView2-profile cookie SSO masked it for months; yesterday's
+per-account-profile change (build 468) orphaned the cookie and stranded
+Don at the real Auth0 form. Fix shipped and PROVEN live on both machines
+(`Token refresh returned new id_token`, ~250ms silent refresh): native
+password sign-in (SmartSDR's own ROPG recipe, decompile-verified),
+native-first in all four dispatch paths, browser as MFA fallback.
+Fought and won en route: focus forcing (WindowFocusForcer, Civ VI Access
+AttachThreadInput recipe), keep-foreground watchdog (own-process thieves
+only), the ConnectingForm armistice (its 200ms focus-reclaim timer —
+built to fight the OLD auth window — now yields while
+SignInWindowOpen), the invisible save-MessageBox deadlock (Remember
+checkbox on the form; zero dialogs in the post-sign-in tail), the
+account-manager singleton (Reset Sign-In was being resurrected by the
+rig's stale in-memory copy; now FlexBase.SharedAccountManager), the
+empty-ListBox Tab trap in the selector (remote-only users hit it every
+launch). Full detail: memory `project_smartlink_token_lineage.md`.
+
+**Also landed today (afternoon):** Radios tab in Settings (per-radio
+profiles moved out of Network; radio rename with offline-honesty; Tools
+→ Configure Radio), remote-admin waivers (per-radio owner toggles for
+remote port/firmware changes, memory `project_remote_admin_waivers.md`),
+Reset Sign-In button (Alt+I), name field + remember checkbox on sign-in,
+per-radio store BaseDirectory fixed to true startup (was inert at
+connect time), changelog sections for all of it.
+
+**NEXT, in rough order:**
+- Don's 517 verdict (trace lands in `D:\Dropbox\JJFlexRadio\don\`).
+- Queued selector work as one slice: first-keypress race (trace 164250),
+  remote-first per account + temporary "use account" button.
+- 1b remainder: per-radio IP block, Clear Radio Name (needs 8600 test of
+  empty `radio name`), 1c offline diagnostic; then Phase 2 detached ops.
+- Latch test on the 8600 (procedure in the mid-day checkpoint below);
+  per-radio pinned port now configurable through the real UI.
+- `build-debug.bat` Dropbox path is machine-dependent (D:\Dropbox on
+  ms-02) — publish steps done by hand today; fix bat to read info.json.
+
 ## MID-DAY CHECKPOINT — 2026-08-06 (pre-compact; not a seal)
 
 Branch `track/flexlib-4220`, clean, pushed through `82bb9277`. Build
