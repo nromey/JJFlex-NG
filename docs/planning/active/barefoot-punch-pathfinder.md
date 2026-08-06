@@ -53,6 +53,17 @@ Split the networking tab by the distinction found 2026-08-06:
   register/unregister, reboot, firmware. These legitimately stay gated on a live
   connection, and the UI says so in words instead of gray mystery buttons
   (no-silent-state rule).
+- **Per-radio IP settings** (Noel, 2026-08-06): the radio's own network
+  addressing — static IP / DHCP, address, netmask, gateway — joins the per-radio
+  settings box AND stays reachable from Radio Setup; same data, two doors.
+  Category-wise these are commands to the radio (applying them needs a live
+  connection, likely a reboot), so the tab-order rule governs: when NOT
+  connected to that radio the IP controls are SKIPPED from tab order entirely —
+  a screen reader pass through offline settings never wades through dead
+  controls; when connected, everything is present and available. Verify at
+  build time exactly what FlexLib exposes for static network params. Live
+  driver: Don's radio goes static at 192.168.203.112 once Tony supplies gateway
+  and netmask — this UI is how that gets done without a sighted assist.
 - Accessibility: every mode change announced; disabled controls explain why via
   the Feature Availability pattern; Escape rules unchanged.
 
