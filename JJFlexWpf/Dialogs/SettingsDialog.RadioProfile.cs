@@ -7,13 +7,15 @@ using Radios;
 namespace JJFlexWpf.Dialogs
 {
     /// <summary>
-    /// Per-radio connection profile section of the Network tab
-    /// (barefoot-punch-pathfinder Phase 1b). Reachability belongs to the
-    /// radio's site, not the operator's account, so this section is keyed by
-    /// radio serial and deliberately works with NO radio connected — its whole
-    /// reason to exist is configuring how to reach a radio you cannot
-    /// currently reach. The account-level tier group elsewhere on the tab
-    /// survives as the legacy fallback for radios without a profile.
+    /// The Radios tab (barefoot-punch-pathfinder Phase 1b): everything about a
+    /// particular radio, keyed by serial. Reachability belongs to the radio's
+    /// site, not the operator's account, so this tab deliberately works with
+    /// NO radio connected — its whole reason to exist is configuring how to
+    /// reach a radio you cannot currently reach. The nickname is the one
+    /// radio-side item here: saving it while connected to that radio renames
+    /// the radio for real; offline it only updates the local label. The
+    /// account-level tier group on the Network tab survives as the legacy
+    /// fallback for radios without a profile.
     /// </summary>
     public partial class SettingsDialog
     {
@@ -112,6 +114,14 @@ namespace JJFlexWpf.Dialogs
                 RadioProfilePunchPortBox.Text = cfg.FixedHolePunchPort > 0
                     ? cfg.FixedHolePunchPort.ToString()
                     : string.Empty;
+
+                // The radio itself is the authority on its name — prefer the
+                // live value over the stored mirror when this radio is the
+                // connected one.
+                string nickname = IsConnectedTo(radioId) && !string.IsNullOrEmpty(_rig!.RadioNickname)
+                    ? _rig.RadioNickname
+                    : cfg.Nickname ?? string.Empty;
+                RadioProfileNicknameBox.Text = nickname;
             }
             finally
             {
@@ -147,6 +157,14 @@ namespace JJFlexWpf.Dialogs
                 "Automatic, follow what the radio reports.";
             ScreenReaderOutput.Speak(announcement, VerbosityLevel.Terse, interrupt: true);
         }
+
+        /// <summary>
+        /// True when the live connection is to the radio the picker is showing —
+        /// the condition under which radio-side items (the nickname) can be
+        /// pushed to the radio itself rather than just stored locally.
+        /// </summary>
+        private bool IsConnectedTo(string radioId) =>
+            _rig != null && _rig.IsConnected && _rig.SelectedRadioSerial == radioId;
 
         /// <summary>
         /// The radio id currently named by the picker: the selected known item,
@@ -193,11 +211,34 @@ namespace JJFlexWpf.Dialogs
                 RadioConnectionPreference.Auto;
             cfg.FixedHolePunchPort = port;
 
+            // Nickname: the name lives on the radio, so push it there when the
+            // live connection is to this radio; otherwise only the local label
+            // changes, and the status text says so instead of implying more.
+            string newNickname = RadioProfileNicknameBox.Text?.Trim() ?? string.Empty;
+            string renameNote = "";
+            if (newNickname.Length > 0 && newNickname != (cfg.Nickname ?? string.Empty))
+            {
+                if (IsConnectedTo(radioId))
+                {
+                    renameNote = _rig!.RenameRadio(newNickname)
+                        ? $" The radio is now named {newNickname}."
+                        : " The radio itself could not be renamed; the name shown here was updated.";
+                }
+                else
+                {
+                    renameNote =
+                        $" The name shown here is now {newNickname}; the radio itself keeps its old name until you save this while connected to it.";
+                }
+                cfg.Nickname = newNickname;
+            }
+
             if (cfg.SaveForRadio(radioId))
             {
                 RadioProfileStatusText.Text =
-                    $"Saved. {DescribeRadioProfile(cfg)} Applies from the next connection to this radio.";
-                ScreenReaderOutput.Speak("Profile saved.", VerbosityLevel.Terse, interrupt: true);
+                    $"Saved. {DescribeRadioProfile(cfg)} Applies from the next connection to this radio.{renameNote}";
+                ScreenReaderOutput.Speak(
+                    renameNote.Length > 0 ? "Saved." + renameNote : "Profile saved.",
+                    VerbosityLevel.Terse, interrupt: true);
 
                 // Refresh the picker (a typed-in radio just became a known one)
                 // without losing the selection or re-announcing it.

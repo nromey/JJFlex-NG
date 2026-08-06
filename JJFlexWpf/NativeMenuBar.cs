@@ -1106,6 +1106,11 @@ public class NativeMenuBar : IDisposable
         var tools = AddPopup(bar, "&Tools");
         AddWired(tools, "Command Finder", () => ShowCommandFinderDialog());
         AddWired(tools, "Settings", () => ShowSettingsDialog());
+        // Second door to the Settings Radios tab — per-radio configuration is
+        // a destination of its own (rename a radio, pin its connection mode),
+        // so it gets a direct entry rather than making users know which tab
+        // holds it. Same one-concept-two-doors pattern as Radio Setup.
+        AddWired(tools, "Configure Radio", () => ShowSettingsDialog("Radios"));
         // Sprint 29 Track D — manual update check. Lives next to Settings
         // since the Updates settings tab is its preference home; this entry
         // is the single-action trigger for the same flow.

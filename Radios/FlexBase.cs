@@ -186,6 +186,26 @@ namespace Radios
         /// Gets the connected radio's nickname (user-assigned name), or empty if not connected.
         /// </summary>
         public string RadioNickname => theRadio?.Nickname ?? string.Empty;
+
+        /// <summary>
+        /// Rename the connected radio. The name lives on the radio itself —
+        /// discovery, SmartLink, and every client see it — so this needs a live
+        /// connection. The per-radio profile's nickname mirror is refreshed in
+        /// the same motion so the Settings picker shows the new name offline.
+        /// </summary>
+        public bool RenameRadio(string newName)
+        {
+            var radio = theRadio;
+            if (radio == null || string.IsNullOrWhiteSpace(newName)) return false;
+
+            Tracing.TraceLine($"RenameRadio: '{radio.Nickname}' -> '{newName}'", TraceLevel.Info);
+            radio.Nickname = newName.Trim();
+
+            var profile = RadioConfig.LoadForRadio(radio.Serial);
+            profile.Nickname = newName.Trim();
+            profile.SaveForRadio(radio.Serial);
+            return true;
+        }
         public bool NoiseReductionLicenseReported => theRadio?.FeatureLicense?.LicenseFeatNoiseReduction != null;
         /// <summary>
         /// True only when NR license is positively confirmed as enabled.
