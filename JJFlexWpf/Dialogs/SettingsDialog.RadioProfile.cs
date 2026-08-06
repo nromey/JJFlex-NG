@@ -80,6 +80,14 @@ namespace JJFlexWpf.Dialogs
                 RadioProfilePicker.SelectedItem =
                     items.FirstOrDefault(i => i.Id == connected) ?? items[0];
             }
+            else
+            {
+                // An empty list must explain itself — a blank combo box reads
+                // as broken, especially through a screen reader.
+                RadioProfileStatusText.Text =
+                    "No radios known yet. Radios are remembered here after you connect to them once. " +
+                    "You can also type a radio's serial number above and choose Save profile.";
+            }
         }
 
         private void RadioProfilePicker_SelectionChanged(object sender, SelectionChangedEventArgs e)

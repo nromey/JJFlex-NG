@@ -663,6 +663,18 @@ namespace Radios
                 { "nickname", theRadio.Nickname ?? "" }
             });
 
+            // Record this radio in the per-radio profile store no matter which
+            // path the connect takes. The SmartLink path writes the same stub
+            // at wan_connect_ready, but a LAN connect used to write nothing —
+            // so a radio only ever used locally never appeared in the Settings
+            // per-radio picker. Load/Save never throw.
+            var knownRadioProfile = RadioConfig.LoadForRadio(theRadio.Serial);
+            if (!string.IsNullOrEmpty(theRadio.Nickname))
+            {
+                knownRadioProfile.Nickname = theRadio.Nickname;
+            }
+            knownRadioProfile.SaveForRadio(theRadio.Serial);
+
             // add the handlers.
             theRadio.PropertyChanged += new PropertyChangedEventHandler(radioPropertyChangedHandler);
             theRadio.MessageReceived += new Radio.MessageReceivedEventHandler(messageReceivedHandler);
