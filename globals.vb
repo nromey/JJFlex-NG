@@ -682,6 +682,17 @@ Module globals
         End If
 
         Tracing.TraceLine("GetConfigInfo:" & BaseConfigDir, TraceLevel.Info)
+
+        ' Per-radio serial-keyed store root. This MUST happen here, at true
+        ' startup, not in any radio-window wiring: the store is read and
+        ' written at CONNECT time (profile resolution in sendRemoteConnect,
+        ' known-radio recording in Connect), which runs long before any
+        ' window wires up. Found live 2026-08-06: the assignment sat in
+        ' FreqOutHandlersWireCallback, so every connect-time load returned
+        ' defaults and every save silently declined - the per-radio feature
+        ' was inert exactly where it mattered.
+        Radios.RadioConfig.BaseDirectory = BaseConfigDir
+
         ' Audio device selection file name.
         AudioDevicesFile = BaseConfigDir & "\" & audioDevicesBasename
 

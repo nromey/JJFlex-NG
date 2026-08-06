@@ -46,9 +46,16 @@ namespace Radios
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = false;
             MinimizeBox = false;
-            StartPosition = FormStartPosition.CenterParent;
+            StartPosition = FormStartPosition.CenterScreen;
             AutoScaleMode = AutoScaleMode.Dpi;
             ClientSize = new Size(430, 260);
+            // Runs ownerless on its own thread while the Connecting form (also
+            // ownerless, also TopMost, also its own thread) is up. Without
+            // TopMost this window opens BEHIND the connecting screen and a
+            // screen reader user has no idea it exists — Noel hit exactly
+            // that on 2026-08-06: "it stays on connecting but you don't know
+            // a new window popped up."
+            TopMost = true;
 
             var intro = new Label
             {
@@ -124,10 +131,21 @@ namespace Radios
 
             Shown += (_, _) =>
             {
-                // Land on the empty field: password when the email is prefilled
-                // (the saved-account re-auth case), email otherwise.
-                if (_emailBox.Text.Trim().Length > 0) _passwordBox.Focus();
+                // Pull keyboard focus here from the Connecting form and SAY SO —
+                // the whole point of this dialog is that a screen reader user
+                // knows it exists the moment it appears (no-silent-state).
+                Activate();
+                BringToFront();
+
+                bool havePrefill = _emailBox.Text.Trim().Length > 0;
+                if (havePrefill) _passwordBox.Focus();
                 else _emailBox.Focus();
+
+                ScreenReaderOutput.Speak(
+                    havePrefill
+                        ? $"SmartLink sign in window. Enter the password for {_emailBox.Text.Trim()}."
+                        : "SmartLink sign in window. Enter your SmartLink email and password.",
+                    VerbosityLevel.Terse, interrupt: true);
             };
         }
 

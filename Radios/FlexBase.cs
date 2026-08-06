@@ -3558,26 +3558,37 @@ namespace Radios
             string email = "", idToken = "", refreshToken = "";
             int expiresIn = 0;
 
-            void Show()
+            // The dialog gets its OWN STA thread, deliberately — never shown
+            // via the SmartLink thread or marshaled onto the main window.
+            // Lesson from the 2026-08-06 trace: pumping a modal on the
+            // SmartLink thread executed queued UI work there (ApplyUIMode ran
+            // on T21 mid-login) and the shell then failed with "Error creating
+            // window handle" at Show. A dedicated thread pumps only its own
+            // queue, so no shared control can get its handle created on the
+            // wrong thread. Same pattern as the connecting form. IsBackground
+            // guarantees this thread can never keep a closed app's process
+            // alive (the 2026-08-06 zombie-process lesson).
+            var dialogThread = new System.Threading.Thread(() =>
             {
-                using var dlg = new SmartLinkLoginForm(AccountManager, prefill);
-                var owner = Callouts?.ParentWindow as IWin32Window;
-                dr = owner != null ? dlg.ShowDialog(owner) : dlg.ShowDialog();
-                email = dlg.Email;
-                idToken = dlg.IdToken;
-                refreshToken = dlg.RefreshToken;
-                expiresIn = dlg.ExpiresIn;
-            }
-
-            var parent = Callouts?.ParentWindow as Control;
-            if (parent != null && parent.IsHandleCreated && parent.InvokeRequired)
-            {
-                parent.Invoke(new Action(Show));
-            }
-            else
-            {
-                Show();
-            }
+                try
+                {
+                    using var dlg = new SmartLinkLoginForm(AccountManager, prefill);
+                    dr = dlg.ShowDialog();
+                    email = dlg.Email;
+                    idToken = dlg.IdToken;
+                    refreshToken = dlg.RefreshToken;
+                    expiresIn = dlg.ExpiresIn;
+                }
+                catch (Exception ex)
+                {
+                    Tracing.TraceLine($"ShowNativeLoginDialog: dialog thread exception: {ex.Message}", TraceLevel.Error);
+                    dr = DialogResult.Cancel;
+                }
+            });
+            dialogThread.SetApartmentState(System.Threading.ApartmentState.STA);
+            dialogThread.IsBackground = true;
+            dialogThread.Start();
+            dialogThread.Join();
 
             return (dr, email, idToken, refreshToken, expiresIn);
         }

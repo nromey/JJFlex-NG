@@ -350,9 +350,10 @@ Namespace My
                 ' Wire band memory and license config (Sprint 17 Track C).
                 handlers.GetConfigDirectory = Function() BaseConfigDir
 
-                ' Per-radio serial-keyed config store (barefoot-punch-pathfinder
-                ' Phase 1a). The Radios layer loads radios\<serial>\config.xml
-                ' lazily at connect time; it just needs to know the root once.
+                ' Per-radio store root: the authoritative assignment lives in
+                ' GetConfigInfo (true startup) — this wiring runs only after a
+                ' radio window opens, which is too late for connect-time reads
+                ' (learned live 2026-08-06). Kept here as harmless redundancy.
                 Radios.RadioConfig.BaseDirectory = BaseConfigDir
                 handlers.GetOperatorName = Function()
                     If CurrentOp IsNot Nothing Then
