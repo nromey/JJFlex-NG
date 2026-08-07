@@ -180,6 +180,27 @@ Namespace My
                     .Description = "Set transmit slice (on Slice field)", .KeyDisplay = "T",
                     .Scope = "Radio", .Group = "FreqOut",
                     .Keywords = New String() {"transmit", "tx", "slice"}})
+                ' QB Track I - the discoverable TX-slice, power, and antenna doors.
+                result.Add(New JJFlexWpf.Dialogs.CommandFinderItem With {
+                    .Description = "Transmit slice: set, move, or clear (Transmit slice field)", .KeyDisplay = "Space, Up/Down, A-H, Delete",
+                    .Scope = "Radio", .Group = "FreqOut",
+                    .MenuText = "Slice menu, Transmit Slice submenu",
+                    .Keywords = New String() {"transmit", "tx", "slice", "clear", "keying", "lockout"}})
+                result.Add(New JJFlexWpf.Dialogs.CommandFinderItem With {
+                    .Description = "Power dialog - transmit and tune power (dBm drive on a transverter)",
+                    .Scope = "Radio", .Group = "Transmit",
+                    .MenuText = "Radio menu, Transmit, Power (also Slice menu, Transmission)",
+                    .Keywords = New String() {"power", "watts", "dbm", "drive", "rf", "tune", "xvtr", "transverter", "output"}})
+                result.Add(New JJFlexWpf.Dialogs.CommandFinderItem With {
+                    .Description = "TX antenna selection",
+                    .Scope = "Radio", .Group = "Antenna",
+                    .MenuText = "Radio menu, Transmit, TX Antenna (also Slice menu, Antenna)",
+                    .Keywords = New String() {"antenna", "tx", "transmit", "xvtr", "transverter", "ant1", "ant2"}})
+                result.Add(New JJFlexWpf.Dialogs.CommandFinderItem With {
+                    .Description = "RX antenna selection",
+                    .Scope = "Radio", .Group = "Antenna",
+                    .MenuText = "Slice menu, Antenna, RX Antenna",
+                    .Keywords = New String() {"antenna", "rx", "receive", "ant1", "ant2", "rxa", "rxb"}})
                 result.Add(New JJFlexWpf.Dialogs.CommandFinderItem With {
                     .Description = "Enter frequency digits (on Freq field)", .KeyDisplay = "0-9",
                     .Scope = "Radio", .Group = "FreqOut",

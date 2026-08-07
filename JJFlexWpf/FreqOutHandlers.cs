@@ -1643,6 +1643,141 @@ public class FreqOutHandlers
 
     #endregion
 
+    #region AdjustTxSlice — QB Track I
+
+    /// <summary>
+    /// Transmit-slice field handler. Space sets transmit to the active slice,
+    /// Up/Down moves the transmit designation between our slices, A-H sets it
+    /// by letter (matched against Slice.Letter via VFOToLetter — the radio's
+    /// truth, never positional arithmetic), Delete/Backspace clears it
+    /// entirely (no slice keys the radio — doubles as a soft TX lockout).
+    /// </summary>
+    public void AdjustTxSlice(FrequencyDisplay.DisplayField field, KeyEventArgs e)
+    {
+        if (Rig == null) return;
+        var key = RawKey(e);
+        char ch = KeyToChar(e);
+        bool unmodified = Keyboard.Modifiers == ModifierKeys.None;
+
+        if (!Rig.CanTransmit)
+        {
+            // Every bound key speaks in every state — a receive-only session
+            // hears why nothing changed instead of silence.
+            if (key == Key.Space || key == Key.Up || key == Key.Down
+                || key == Key.Delete || key == Key.Back
+                || (ch >= 'A' && ch <= 'H' && unmodified))
+            {
+                Radios.ScreenReaderOutput.Speak(
+                    "Transmit not available on this connection", VerbosityLevel.Terse, true);
+                e.Handled = true;
+                return;
+            }
+        }
+        else if (key == Key.Space)
+        {
+            // Set transmit to the active (RX) slice — same semantics as the
+            // T key on the Slice field.
+            int vfo = Rig.RXVFO;
+            if (Rig.ValidVFO(vfo))
+            {
+                Rig.TXVFO = vfo;
+                Radios.ScreenReaderOutput.Speak(
+                    $"Slice {Rig.VFOToLetter(vfo)} transmit", VerbosityLevel.Terse, true);
+            }
+            e.Handled = true;
+            return;
+        }
+        else if (key == Key.Up || key == Key.Down)
+        {
+            MoveTxSlice(key == Key.Up ? 1 : -1);
+            e.Handled = true;
+            return;
+        }
+        else if (key == Key.Delete || key == Key.Back)
+        {
+            if (Rig.HasTransmitSlice)
+            {
+                Rig.ClearTransmitSlice();
+                Radios.ScreenReaderOutput.Speak(
+                    "Transmit slice cleared. No slice will key the radio.",
+                    VerbosityLevel.Terse, true);
+            }
+            else
+            {
+                Radios.ScreenReaderOutput.Speak(
+                    "No transmit slice is set", VerbosityLevel.Terse, true);
+            }
+            e.Handled = true;
+            return;
+        }
+        else if (ch >= 'A' && ch <= 'H' && unmodified)
+        {
+            // Set by letter — match the radio-reported slice letter.
+            int target = -1;
+            for (int vfo = 0; vfo < Rig.MyNumSlices; vfo++)
+            {
+                if (string.Equals(Rig.VFOToLetter(vfo), ch.ToString(),
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    target = vfo;
+                    break;
+                }
+            }
+            if (target >= 0)
+            {
+                Rig.TXVFO = target;
+                Radios.ScreenReaderOutput.Speak(
+                    $"Slice {ch} transmit", VerbosityLevel.Terse, true);
+            }
+            else
+            {
+                Radios.ScreenReaderOutput.Speak(
+                    $"No slice {ch}", VerbosityLevel.Terse, true);
+            }
+            e.Handled = true;
+            return;
+        }
+
+        // Universal Home keys fall-through (M/V/R/X/Q/=, Shift+M, Shift+,)
+        if (!e.Handled) TryHandleUniversalHomeKey(e);
+    }
+
+    /// <summary>
+    /// Move the transmit designation to the next/previous of our slices,
+    /// wrapping. Starts from the current TX slice, or from the active slice
+    /// when no transmit slice is set.
+    /// </summary>
+    private void MoveTxSlice(int direction)
+    {
+        if (Rig == null) return;
+        int total = Rig.MyNumSlices;
+        if (total <= 0) return;
+
+        if (total == 1 && Rig.HasTransmitSlice)
+        {
+            Radios.ScreenReaderOutput.Speak(
+                $"Slice {Rig.VFOToLetter(Rig.TXVFO)} transmit, only slice",
+                VerbosityLevel.Terse, true);
+            return;
+        }
+
+        int start = Rig.HasTransmitSlice ? Rig.TXVFO : Rig.RXVFO;
+        if (start < 0) start = 0;
+        int next = start;
+        for (int attempts = 0; attempts < total; attempts++)
+        {
+            next = (next + direction + total) % total;
+            if (Rig.ValidVFO(next)) break;
+        }
+        if (!Rig.ValidVFO(next)) return;
+
+        Rig.TXVFO = next;
+        Radios.ScreenReaderOutput.Speak(
+            $"Slice {Rig.VFOToLetter(next)} transmit", VerbosityLevel.Terse, true);
+    }
+
+    #endregion
+
     #region AdjustSquelch / AdjustSquelchLevel (Sprint 28 Phase 3.9)
 
     /// <summary>

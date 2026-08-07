@@ -787,6 +787,11 @@ public partial class FrequencyDisplay : UserControl
         if (key == "Squelch")
             return raw == "Q" ? "on" : "off";
 
+        // QB Track I — Transmit slice: shows the TX slice letter, "-" when no
+        // slice keys the radio. "Dash" as speech would be meaningless.
+        if (key == "TXSlice")
+            return raw == "-" ? "none" : raw;
+
         return raw;
     }
 
@@ -898,6 +903,7 @@ public partial class FrequencyDisplay : UserControl
             "Freq" => "frequency",
             "SMeter" => "S meter",
             "Slice" => "slice",
+            "TXSlice" => "transmit slice",
             "Mute" => "mute",
             "Volume" => "volume",
             "Split" => "split",
