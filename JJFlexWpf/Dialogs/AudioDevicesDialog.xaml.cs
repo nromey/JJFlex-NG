@@ -176,10 +176,11 @@ namespace JJFlexWpf.Dialogs
                 _status = Devices.Enumerate(out _statusMessage);
 
                 _devices = new Devices(_audioDevicesFile);
-                // Setup re-enumerates; we already did that, but it is also what
-                // loads the saved selection, and doing it twice costs nothing
-                // measurable next to being sure the two agree.
-                _devices.Setup();
+                // Load the saved selection only — Setup would enumerate again,
+                // and a second Pa_Initialize/Pa_Terminate cycle per Refresh is
+                // a real cost on a live audio machine for an answer we are
+                // already holding.
+                _devices.LoadSavedSelection();
 
                 PopulateDeviceList(RadioOutputList, Devices.OutputDevices,
                     _devices.OutputDevice, RadioOutputNote, "radio receive audio");

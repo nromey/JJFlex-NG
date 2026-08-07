@@ -199,6 +199,18 @@ namespace JJPortaudio
                 return false;
             }
 
+            return LoadSavedSelection();
+        }
+
+        /// <summary>
+        /// Load the saved selection without re-enumerating. For callers that
+        /// have just run <see cref="Enumerate"/> themselves — a second sweep
+        /// would mean a second Pa_Initialize/Pa_Terminate cycle for an answer
+        /// already in hand.
+        /// </summary>
+        /// <returns>true when there was nothing to load, or it loaded cleanly.</returns>
+        public bool LoadSavedSelection()
+        {
             if (!string.IsNullOrEmpty(cfgFile) && File.Exists(cfgFile))
             {
                 return readCFG();
@@ -354,6 +366,22 @@ namespace JJPortaudio
         /// Only two-channel devices are listed (see <see cref="StereoOnly"/>).
         /// </remarks>
         public static EnumerationStatus Enumerate(out string message)
+        {
+            lock (EnumerationLock)
+            {
+                return EnumerateLocked(out message);
+            }
+        }
+
+        // Pa_Initialize / Pa_Terminate are reference-counted but not
+        // thread-safe against each other, and enumeration can now be asked for
+        // from the UI (the picker's Refresh button) while the audio thread is
+        // doing its own setup. Serialising our own calls is cheap; it does not
+        // protect against PortAudio work started elsewhere in the process, which
+        // is a pre-existing condition, not one introduced here.
+        private static readonly object EnumerationLock = new object();
+
+        private static EnumerationStatus EnumerateLocked(out string message)
         {
             message = "";
             var inputs = new List<DeviceInfo>();
