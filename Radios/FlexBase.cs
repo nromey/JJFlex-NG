@@ -2480,7 +2480,11 @@ namespace Radios
         public GpsStatusSnapshot ReadGpsStatus()
         {
             var s = new GpsStatusSnapshot();
-            if (theRadio == null || !IsConnected) return s;
+            if (theRadio == null || !IsConnected)
+            {
+                Tracing.TraceLine($"ReadGpsStatus: not connected (theRadio={(theRadio == null ? "null" : "present")}, IsConnected={IsConnected})", TraceLevel.Info);
+                return s;
+            }
 
             try
             {

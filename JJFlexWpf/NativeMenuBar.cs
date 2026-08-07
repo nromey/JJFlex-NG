@@ -305,6 +305,7 @@ public class NativeMenuBar : IDisposable
 
     private void SpeakNoRadio()
     {
+        Tracing.TraceLine("NativeMenuBar: no-radio guard fired", TraceLevel.Info);
         SpeakAfterMenuClose("No radio connected");
     }
 
@@ -1142,8 +1143,22 @@ public class NativeMenuBar : IDisposable
         // what hardware does this radio actually have, and is it working.
         AddWired(tools, "GPS and Reference", () =>
         {
-            if (Rig == null) { SpeakNoRadio(); return; }
-            new Dialogs.GpsStatusDialog(Rig).ShowDialog();
+            // 2026-08-06: reported "No radio connected" from this item while
+            // connected, which the connected-state trace contradicts. Three
+            // paths speak near-identical words, so each one traces and speaks
+            // distinctly until the repro names the guilty path.
+            var gpsRig = Rig;
+            Tracing.TraceLine($"Menu: GPS and Reference (rig={(gpsRig == null ? "null" : "present")})", TraceLevel.Info);
+            if (gpsRig == null) { SpeakAfterMenuClose("GPS and Reference, no radio connected"); return; }
+            try
+            {
+                new Dialogs.GpsStatusDialog(gpsRig).ShowDialog();
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine($"Menu: GPS and Reference dialog failed: {ex}", TraceLevel.Error);
+                SpeakAfterMenuClose("The GPS window could not be opened.");
+            }
         });
         AddWired(tools, "Profile Report", () =>
         {

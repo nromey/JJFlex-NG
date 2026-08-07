@@ -51,6 +51,7 @@ namespace JJFlexWpf.Dialogs
         public GpsStatusDialog(FlexBase? rig)
         {
             _rig = rig;
+            JJTrace.Tracing.TraceLine($"GpsStatusDialog: open (rig={(rig == null ? "null" : "present")})", System.Diagnostics.TraceLevel.Info);
             InitializeComponent();
 
             foreach (var (value, label) in FlexBase.OscillatorChoices)
@@ -62,6 +63,7 @@ namespace JJFlexWpf.Dialogs
             {
                 // Speak the summary once on open — this is the question the dialog
                 // exists to answer, and making the user hunt for it defeats that.
+                JJTrace.Tracing.TraceLine($"GpsStatusDialog: loaded, summary='{SummaryText.Text}'", System.Diagnostics.TraceLevel.Info);
                 ScreenReaderOutput.Speak(SummaryText.Text, VerbosityLevel.Terse, interrupt: true);
             };
 
