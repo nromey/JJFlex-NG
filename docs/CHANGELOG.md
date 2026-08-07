@@ -76,6 +76,13 @@ This release is about the space where you actually spend your time in the app �
 - **[One place to choose your sound devices](#audio-devices-dialog).** The old device picker was two dialogs in a row, both with a list labelled "device list," and on a fresh install it could ambush you mid-connect from the background. It's one dialog now — radio audio out, microphone in, alert and CW device, meter device — reachable from the Audio menu, from Settings, or from the Command Finder. It announces what's currently chosen, marks your system default in words, and if a device you picked gets unplugged it falls back and says so instead of going quiet.
 - **[CW notifications moved in with their speaker](#cw-with-alert-device).** The switch and the device it plays through are on the same tab now, next to each other, instead of one tab apart. Defaults unchanged — CW notifications are still off until you turn them on.
 - **[JJ Flex now updates itself](#in-app-updates).** Tools menu has a new "Check for Updates" item. Settings has a new "Updates" tab where you pick your channel — Stable, Beta, or Nightly — and decide whether you want JJ Flex to check on its own. By default it checks at startup and every couple of hours while it's running, but you're in charge of all of that. When an update lands, you get a dialog that tells you what's new and how big the download is, and one keystroke does the install. No more hunting for installers on the website.
+- **[Hear yourself before anyone else does](#audio-check).** The Audio Workshop grew an Audio Check: one button keys the radio at low power and your own transmit audio comes back in your headphones while you talk. Record a take, unkey, and it plays right back so you can hear what a mic adjustment actually did. If your setup ritual has always been "how do I sound?" into a quiet band, this is that friend, on demand, with nobody rolling their eyes.
+- **[Press D, get D](#slice-identity).** Slice letters are honest now, even when another station's slices share your radio. Jumping to slice D lands on D, a mode change lands on the slice you're actually hearing, and Release All Extra Slices keeps the slice you're on instead of dumping you back to A.
+- **[The transmit slice shows its face](#transmit-slice).** Home has a new Transmit slice field that always shows which slice keys the radio, with the keys to set it, move it, or clear it entirely — cleared means nothing keys up until you say so. The Slice menu grew a matching Transmit Slice submenu.
+- **[Transmit power finally has a front door](#power-dialog)** — Radio menu, Transmit, Power. Transmit and tune power in one dialog, applied as you adjust, and on a transverter port it switches to real dBm with decimals. The rest of the transmit chain — mic gain, compander, speech processor, monitor, TX filter — now has menu paths too.
+- **[A failed connect tells you why](#connect-failure-honesty).** No more bare "Connection failed." You hear what the evidence says — the router refused, the packets vanished, the sign-in was rejected, the radio never showed up in your account — and when the router rule is the problem, JJ Flexible reads you the exact rule your router needs, built from what the radio itself reports.
+- **[Reboot and firmware live on the Radio menu now](#radio-maintenance).** Two new entries at the bottom of the Radio menu: Reboot Radio, with a confirmation so a stray Enter can't power-cycle your rig, and Update Radio Firmware, which takes you straight to the updater.
+- **[The Feature Availability window opens now](#feature-availability).** Tools, Feature Availability tells you feature by feature — diversity, the noise reduction family, auto notch, CW autotune — whether it's on, off, unlicensed, or unavailable, and the reason why. The same window lets you set your radio's callsign, name, and front panel display.
 
 ### Home's got a real name now {#home-intro}
 
@@ -520,12 +527,89 @@ The FLEX-6500 page says so where it applies, too: FlexRadio documents the 6500 a
 
 [Return to version headlines](#unreleased-headlines)
 
+### Hear Yourself Before Anyone Else Does {#audio-check}
+
+Every ham has done the "how's my audio?" dance — find a friend, key up, fiddle with a setting, key up again, apologize for the third time. The Audio Workshop now has an Audio Check that replaces the friend. Start a check (there's a button in the workshop, or ask the Command Finder to "check my transmit audio") and the radio keys up at low power while your own transmit audio plays back to you live in phone modes. Talk, adjust, listen. Press Escape once and transmit stops immediately; press it again and the workshop closes — Escape always gets you out, in that order, on purpose.
+
+A word about safety, because this feature keys your radio: it never does so silently. Every key-down announces itself with your frequency and power, and every key-up announces too, so you always know whether you're on the air. The check also times itself out — it will not leave you transmitting because you got pulled away.
+
+There's a recorder in there too. Record a take, unkey, and it plays back on its own about a second later. Take one, tweak the compander, take two, compare — your radio holds about two minutes of audio, which is more "testing, testing, one two three" than anyone needs. What you hear is your full processed transmit audio, the same chain the other station gets.
+
+On radios with transverter ports there's also a Loopback Check that sends genuine RF from one port to the other, so you can hear your signal after it's been transmitted and received for real. Honest label on this one: it's a rough listen — good for "is my audio present and shaped right," not a faithful off-air recording. A receiver in the same box, inches from its own transmitter, is drinking from a firehose. For ground truth, a cheap SDR on a real antenna still wins, and the help says so.
+
+And the key that opens the workshop, Ctrl+Shift+W, now reliably opens the workshop. An old saved key assignment could silently steal that chord for switching S-meter units — if your workshop key has ever "changed the units" instead, that's what happened, and it's fixed.
+
+[Return to version headlines](#unreleased-headlines)
+
+### Press D, Get D {#slice-identity}
+
+Here's a bug with a long reach. JJ Flexible tracked your slices by their position in a list, while the radio names them by letter. Alone on your radio those two always agree. Add MultiFlex — another station holding slices on the same radio — or churn slices for a while, and they could drift apart. The symptoms were maddening precisely because they were rare: jump to slice D and land somewhere else, change mode from the menu and watch it land on a slice you weren't listening to.
+
+The letter is the identity now. When you say D, JJ Flexible finds the slice the radio calls D — not the fourth thing in a list that may or may not start where you think. Announcements always speak the radio's true letter, so what you hear, what you press, and what the radio does are finally the same conversation.
+
+Related fix from the same digging: Release All Extra Slices keeps the slice you're on. If you're on B and release the extras, you stay on B — it no longer walks you back to slice A as a parting gift.
+
+[Return to version headlines](#unreleased-headlines)
+
+### The Transmit Slice Shows Its Face {#transmit-slice}
+
+Which slice keys your radio when you press PTT? The radio always knew; now you do too, without pressing anything. Home has a Transmit slice field, sitting just past VOX, showing the transmit slice's letter — or a dash, spoken as "none," when no slice will key the radio at all.
+
+On the field: Space sets transmit to the slice you're on, Up and Down move it between slices, a letter A through H sets it directly, and Delete or Backspace clears it. Cleared is a real state, not an error — "Transmit slice cleared. No slice will key the radio." Think of it as a soft transmit lockout: nothing keys up until you assign transmit again. Press ? on the field and it speaks all of this, like every other Home field.
+
+The Slice menu has a matching Transmit Slice submenu, so the same choices are two keystrokes away even when you're nowhere near Home. Before this, moving transmit lived entirely on a hidden T keypress in the Slice field — still there, still works, but no longer a secret.
+
+[Return to version headlines](#unreleased-headlines)
+
+### Transmit Power Finally Has a Front Door {#power-dialog}
+
+Transmit power had no menu path at all — none — and the field for it lived deep in the Screen Fields panel. Now: Radio menu, Transmit, Power (Alt+R, T, P walks straight there; it's also under Slice, Transmission). The dialog holds transmit power and tune power together, each change applies to the radio as you make it, and Escape closes when you're done. No OK button to hunt for, because there's nothing to confirm — you set power by result, not by form.
+
+The transverter part is the quiet star. Select a transverter port as your TX antenna and the power controls switch from watts to dBm, with two decimal places, matching how transverter drive actually works — and JJ Flexible tells you about the change at the moment you select the port. Typed entry takes a minus sign and a decimal point, because minus ten point five is a number you genuinely need there.
+
+While the door was open, the whole transmit chain got menu paths: mic gain, mic boost, mic bias, compander, speech processor, TX monitor, and the TX filter, plus TX antenna selection right next to Power — where you can hear how the two relate. The Command Finder knows all of them by name.
+
+[Return to version headlines](#unreleased-headlines)
+
+### When a Connect Fails, You Hear Why {#connect-failure-honesty}
+
+This one comes from a hard week of real debugging. A remote radio wouldn't connect; the app said "Connection failed" and nothing else — while the whole time it was holding evidence that told the real story. Never again. A failed connect now speaks its evidence:
+
+- **Refused and timed out are different problems, and now different sentences.** A refusal means your router answered and nothing was behind the rule — check the port forward. A timeout means the packets never arrived at all — firewall, ISP, wrong address. You hear which one happened.
+- **The router rule, read aloud, verbatim.** When the evidence points at your router, JJ Flexible builds the exact rule from what the radio itself advertises — external ports, the radio's address, the fixed internal ports — and speaks it. Nothing for you to reconstruct, nothing typed from anyone's memory.
+- **Sign-in problems say "sign-in."** Only an actual rejected sign-in brings up the login form. A network hiccup or a server problem now says your sign-in is fine, instead of marching you through a pointless password ceremony.
+- **The misleading "no RX antenna" message is gone** for failures that were never about antennas. If the radio's setup data never arrived, that's a connection problem, and it says so.
+- **Auto-connect failures explain themselves too.** The morning dialog no longer just says your radio "is not available" — it includes the same reasoned report, so you know whether to check the radio, the router, or your account before you've had coffee.
+
+Two related additions in the same spirit. The Status dialog — and the radio selector — now carry a network identity card: who the radio is (model, serial, firmware) and exactly how this computer reaches it, including forwarded-port status and the most recent reachability test, one arrow-readable line at a time. And the "Test network" button now warns you first when you're connected through a hole punch, because that particular test can knock down the very connection you're testing — your call, made with the facts.
+
+[Return to version headlines](#unreleased-headlines)
+
+### Reboot and Firmware Moved Onto the Radio Menu {#radio-maintenance}
+
+Rebooting your radio used to mean a walk to the power button or a dig through Settings. The Radio menu now ends with a small maintenance section: Reboot Radio and Update Radio Firmware. Reboot asks you to confirm before it does anything — a menu you can arrow through should never be one stray Enter away from power-cycling your rig mid-QSO. Update Radio Firmware drops you at the firmware updater in Radio Setup, already on the right tab.
+
+[Return to version headlines](#unreleased-headlines)
+
+### The Feature Availability Window Actually Opens {#feature-availability}
+
+Confession: Tools, Feature Availability has been on the menu for a long time, and choosing it did absolutely nothing. The window existed; the door was never connected. It opens now, and it's worth the visit — every gated feature on your radio listed with its true state and the reason: diversity ("unavailable - model lacks diversity support" or "need two RX antennas"), the whole noise reduction family, auto notch, CW autotune. "Unsubscribed" tells you it's a license thing; "not available in FM mode" tells you it's a mode thing; "select a slice" tells you it's a you thing. There's a Refresh License button for right after you've changed your subscription.
+
+The same window's General tab is useful in its own right: your radio's model, firmware, serial, and address, plus three things you can change — the radio's callsign, its name (the one every client and SmartLink shows), and what an M-model's front panel displays.
+
+[Return to version headlines](#unreleased-headlines)
+
 ### Under the kitchen sink: stuff that might interest you but probably not {#under-the-kitchen-sink}
 
 - The new sound cues are tuned to cut through real radio noise. Background audio processing favors the earcon frequencies during a chirp, so you can still hear the cue when the band is crashing.
 - A shared safety check now protects destructive operations. Today's port-forward apply uses it, and future features like firmware upload will share the same guard. One place to tighten if we ever need to, not twelve.
 - Your per-operator accessibility preferences now persist across app restarts, so whatever you set on one session is waiting for you on the next.
 - Home and the Screen Fields panel are cleaner siblings now. Home is where you operate minute-to-minute; the panel is where you reach for deeper settings. Less stepping on each other's toes.
+- Value fields that go below zero now take a typed minus sign — RF gain at minus 8 is a couple of keystrokes, not an arrow march down from zero. Fields that never go negative tell you so instead of silently ignoring the key.
+- Every successful connect now lands with the signature double-beep — local, remote, or auto-connect. A fast home-network connect used to complete in total silence, which read as "did anything happen?"
+- The headphone and line out volume keys speak the level as they change it, and the line out keys now work whether or not PC audio is running.
+- The SmartLink account manager has a "Start Fresh" button that clears every saved sign-in and walks you straight into a clean login — the reset that used to mean deleting a settings file by hand with the app closed.
+- A handful of menu items that were quietly dead are now alive: Station Lookup, Operators, Connected Stations, Local PTT On, and Band Plans. The few that really aren't built yet now say "not yet implemented" instead of falsely blaming your radio connection.
 
 [Return to version headlines](#unreleased-headlines)
 
