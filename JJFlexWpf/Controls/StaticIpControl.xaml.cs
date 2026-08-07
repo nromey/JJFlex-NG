@@ -129,7 +129,22 @@ namespace JJFlexWpf.Controls
             if (IpBox != null) IpBox.IsEnabled = editable;
             if (GatewayBox != null) GatewayBox.IsEnabled = editable;
             if (NetmaskBox != null) NetmaskBox.IsEnabled = editable;
-            if (UseCurrentButton != null) UseCurrentButton.IsEnabled = editable;
+            if (UseCurrentButton != null)
+            {
+                UseCurrentButton.IsEnabled = editable;
+
+                // Over SmartLink this button can never work — JJ Flex sees the
+                // address it reaches the radio THROUGH, not the radio's address
+                // on its own network. Say so in the accessible name, so tabbing
+                // onto the button announces the unavailability up front instead
+                // of the press failing and then explaining (Noel, 2026-08-05;
+                // Don's radio lives at Tony's, so this state is routine).
+                bool remote = haveRadio && _rig!.IsWanConnection;
+                System.Windows.Automation.AutomationProperties.SetName(UseCurrentButton, remote
+                    ? "Fill in the fields using the address the radio is using right now. " +
+                      "Not available over SmartLink — connect on the radio's own network to use this."
+                    : "Fill in the fields using the address the radio is using right now");
+            }
         }
 
         private void AddressModeRadio_Checked(object sender, RoutedEventArgs e)
@@ -167,7 +182,10 @@ namespace JJFlexWpf.Controls
 
             if (!suggestion.Available)
             {
-                Report(suggestion.Reason, speak: "Could not fill in the address. See the message.");
+                // Speak the reason ITSELF. "See the message" is a dead end for a
+                // screen reader user — the information exists, so it goes to the
+                // ear, not to a text box the user must go find (Noel, 2026-08-05).
+                Report(suggestion.Reason, speak: suggestion.Reason);
                 if (string.IsNullOrEmpty(GatewayBox.Text)) GatewayBox.Focus();
                 else if (string.IsNullOrEmpty(NetmaskBox.Text)) NetmaskBox.Focus();
                 return;

@@ -10,18 +10,19 @@
                     ResizeMode="NoResize"
                     AutomationProperties.Name="Confirm radio reboot">
     <StackPanel Margin="16">
-        <TextBlock x:Name="MessageBlock"
-                   TextWrapping="Wrap"
-                   Margin="0,0,0,12"
-                   AutomationProperties.Name="Radio reboot confirmation"/>
-        <TextBlock x:Name="OtherStationsBlock"
-                   TextWrapping="Wrap"
-                   Margin="0,0,0,12"
-                   Visibility="Collapsed"
-                   AutomationProperties.Name="Other stations affected"/>
-        <TextBlock TextWrapping="Wrap"
-                   Margin="0,0,0,12"
-                   Text="The radio will be unreachable for several minutes while it restarts. Continue?"/>
+        <!-- One read-only text box so the whole thing — including which other
+             stations are about to be dropped — is arrow-reviewable. Focus
+             lands here; Enter in a read-only box does nothing and Yes is not
+             the default, so reading first stays the safe path. -->
+        <TextBox x:Name="BodyText"
+                 IsReadOnly="True"
+                 IsReadOnlyCaretVisible="True"
+                 TextWrapping="Wrap"
+                 AcceptsReturn="True"
+                 VerticalScrollBarVisibility="Auto"
+                 MaxHeight="360"
+                 Margin="0,0,0,12"
+                 AutomationProperties.Name="Radio reboot confirmation"/>
         <StackPanel Orientation="Horizontal"
                     HorizontalAlignment="Right"
                     Margin="0,8,0,0">

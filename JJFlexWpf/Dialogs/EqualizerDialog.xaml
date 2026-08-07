@@ -77,7 +77,7 @@
                     AutomationProperties.Name="Clear"
                     AutomationProperties.AcceleratorKey="Alt+E"
                     Click="ClearButton_Click"/>
-            <Button Content="_Finished" MinWidth="75" Margin="0,0,8,0" IsDefault="True"
+            <Button Content="_Finished" MinWidth="75" Margin="0,0,8,0" IsDefault="True" AutomationProperties.AccessKey="Alt+F"
                     AutomationProperties.Name="Finished"
                     AutomationProperties.AcceleratorKey="Alt+F"
                     Click="FinishedButton_Click"/>

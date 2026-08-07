@@ -29,7 +29,7 @@
 
         <!-- Buttons -->
         <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
-            <Button Content="_Import" MinWidth="75" Margin="0,0,8,0" IsDefault="True"
+            <Button Content="_Import" MinWidth="75" Margin="0,0,8,0" IsDefault="True" AutomationProperties.AccessKey="Alt+I"
                     AutomationProperties.Name="Import"
                     AutomationProperties.AcceleratorKey="Alt+I"
                     Click="ImportButton_Click"/>

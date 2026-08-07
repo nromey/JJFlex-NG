@@ -38,7 +38,8 @@ namespace JJFlexWpf.Dialogs
             }
             catch (Exception ex)
             {
-                MessageBox.Show(ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                AdvisoryDialog.Show("Welcome Text Not Available",
+                    $"The welcome text could not be loaded.\n\n{ex.Message}");
                 DialogResult = false;
                 Close();
             }
@@ -56,8 +57,8 @@ namespace JJFlexWpf.Dialogs
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Could not open documentation: {ex.Message}",
-                    "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                AdvisoryDialog.Show("Documentation Not Available",
+                    $"The documentation could not be opened.\n\n{ex.Message}");
             }
         }
 

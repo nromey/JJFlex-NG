@@ -60,7 +60,7 @@
             <Button x:Name="DownloadAndInstallButton"
                     Content="_Download and install"
                     MinWidth="160" Height="32" Margin="0,0,8,0"
-                    IsDefault="True"
+                    IsDefault="True" AutomationProperties.AccessKey="Alt+D"
                     AutomationProperties.Name="Download and install update"
                     AutomationProperties.AcceleratorKey="Alt+D"
                     Click="DownloadAndInstallButton_Click"/>

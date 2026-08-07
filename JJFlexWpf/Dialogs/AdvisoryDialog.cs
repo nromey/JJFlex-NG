@@ -44,7 +44,7 @@ public sealed class AdvisoryDialog : JJFlexDialog
 
         var text = new TextBox
         {
-            Text = NormalizeLineBreaks(body),
+            Text = ScreenReaderText.NormalizeLineBreaks(body),
             IsReadOnly = true,
             IsReadOnlyCaretVisible = true,
             TextWrapping = TextWrapping.Wrap,
@@ -126,26 +126,6 @@ public sealed class AdvisoryDialog : JJFlexDialog
 
         root.Children.Add(buttons);
         Content = root;
-    }
-
-    /// <summary>
-    /// Two NVDA-specific quirks handled here so no call site has to care.
-    /// Callers write \n freely; a WPF TextBox exposes bare \n or stray \r to
-    /// UIA as control characters, so everything is normalized to \r\n. And a
-    /// truly empty line collapses to a degenerate UIA text range that NVDA
-    /// expands to the neighboring line — so arrowing onto a paragraph gap
-    /// re-reads the previous line instead of saying "blank" (JAWS is
-    /// unaffected). A single space on each empty line keeps the range real;
-    /// NVDA reads whitespace-only lines as "blank", which is the behavior
-    /// the user expects.
-    /// </summary>
-    private static string NormalizeLineBreaks(string s)
-    {
-        var lines = s.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
-        for (int i = 0; i < lines.Length; i++)
-            if (lines[i].Length == 0)
-                lines[i] = " ";
-        return string.Join("\r\n", lines);
     }
 
     /// <summary>

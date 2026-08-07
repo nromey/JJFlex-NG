@@ -118,18 +118,16 @@ namespace JJFlexWpf.Dialogs
             var selected = ClientList.SelectedItem as MultiFlexClientInfo;
             if (selected == null || selected.IsThisClient) return;
 
-            string sliceInfo = !string.IsNullOrEmpty(selected.OwnedSlices)
-                ? $"\n\nSlices {selected.OwnedSlices} will be released."
-                : "";
-
-            var result = MessageBox.Show(
-                $"Disconnect {selected.Program} on {selected.Station}?{sliceInfo}",
+            var confirm = new ConfirmActionDialog(
                 "Disconnect Client",
-                MessageBoxButton.YesNo,
-                MessageBoxImage.Question,
-                MessageBoxResult.No);
+                $"JJ Flex will disconnect {selected.Program} on {selected.Station} from the radio.",
+                warnings: string.IsNullOrEmpty(selected.OwnedSlices)
+                    ? null
+                    : new[] { $"Slices {selected.OwnedSlices} will be released." },
+                question: "Disconnect them?",
+                yesLabel: "_Disconnect");
 
-            if (result != MessageBoxResult.Yes) return;
+            if (confirm.ShowDialog() != true) return;
 
             if (_callbacks.DisconnectClient(selected.Handle))
             {

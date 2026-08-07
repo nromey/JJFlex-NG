@@ -21,7 +21,7 @@
                     AutomationProperties.Name="Delete Group"
                     AutomationProperties.AcceleratorKey="Alt+D" />
             <Button Content="D_one" MinWidth="80" Height="28"
-                    IsDefault="True" IsCancel="True" Click="DoneButton_Click"
+                    IsDefault="True" AutomationProperties.AccessKey="Alt+O" IsCancel="True" Click="DoneButton_Click"
                     AutomationProperties.Name="Done"
                     AutomationProperties.AcceleratorKey="Alt+O" />
         </StackPanel>

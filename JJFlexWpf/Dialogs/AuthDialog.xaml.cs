@@ -139,12 +139,10 @@ namespace JJFlexWpf.Dialogs
             catch (Exception ex)
             {
                 _trace?.Invoke("AuthDialog Exception: " + ex.Message, 3);
-                MessageBox.Show(
-                    $"Failed to initialize authentication browser:\n\n{ex.Message}\n\n" +
-                    "Make sure WebView2 Runtime is installed.",
+                AdvisoryDialog.Show(
                     "Authentication Error",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Error);
+                    $"The sign-in browser could not be started.\n\n{ex.Message}\n\n" +
+                    "Make sure the WebView2 Runtime is installed.");
                 DialogResult = false;
                 Close();
             }
@@ -185,8 +183,8 @@ namespace JJFlexWpf.Dialogs
                     {
                         var errorDescription = query["error_description"] ?? "Unknown error";
                         _trace?.Invoke($"Auth0 error: {error} - {errorDescription}", 3);
-                        MessageBox.Show($"Authentication failed: {errorDescription}", "Authentication Error",
-                            MessageBoxButton.OK, MessageBoxImage.Error);
+                        AdvisoryDialog.Show("Authentication Error",
+                            $"Authentication failed: {errorDescription}");
                         DialogResult = false;
                         Close();
                         return;
@@ -197,8 +195,8 @@ namespace JJFlexWpf.Dialogs
                         if (returnedState != _state)
                         {
                             _trace?.Invoke("State mismatch - possible CSRF attack", 3);
-                            MessageBox.Show("Authentication failed: Security validation error.", "Authentication Error",
-                                MessageBoxButton.OK, MessageBoxImage.Error);
+                            AdvisoryDialog.Show("Authentication Error",
+                                "Authentication failed: the sign-in response did not pass its security check. Close this window and try again.");
                             DialogResult = false;
                             Close();
                             return;
@@ -339,8 +337,8 @@ namespace JJFlexWpf.Dialogs
                 if (!response.IsSuccessStatusCode)
                 {
                     _trace?.Invoke($"Token exchange failed: {json}", 3);
-                    MessageBox.Show($"Failed to complete authentication.\n\nStatus: {response.StatusCode}",
-                        "Authentication Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    AdvisoryDialog.Show("Authentication Error",
+                        $"Failed to complete authentication.\n\nStatus: {response.StatusCode}");
                     return false;
                 }
 
@@ -364,8 +362,8 @@ namespace JJFlexWpf.Dialogs
             catch (Exception ex)
             {
                 _trace?.Invoke($"Token exchange exception: {ex.Message}", 3);
-                MessageBox.Show($"Authentication error: {ex.Message}", "Authentication Error",
-                    MessageBoxButton.OK, MessageBoxImage.Error);
+                AdvisoryDialog.Show("Authentication Error",
+                    $"Authentication error: {ex.Message}");
                 return false;
             }
         }

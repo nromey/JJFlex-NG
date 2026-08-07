@@ -54,12 +54,16 @@ namespace JJFlexWpf.Dialogs
 
                 if (CheckReplace && System.IO.File.Exists(ofd.FileName))
                 {
-                    var result = MessageBox.Show(
-                        $"{ofd.FileName} exists, replace it?",
+                    // ConfirmActionDialog rather than a raw message box: the
+                    // file name is worth reviewing before agreeing to replace,
+                    // and replace must never be the muscle-memory default.
+                    var confirm = new ConfirmActionDialog(
                         "File Exists",
-                        MessageBoxButton.YesNo,
-                        MessageBoxImage.Question);
-                    if (result == MessageBoxResult.No)
+                        $"{ofd.FileName} already exists.",
+                        question: "Replace it?",
+                        yesLabel: "_Replace",
+                        noLabel: "Choose _another");
+                    if (confirm.ShowDialog() != true)
                         continue; // Loop back to file picker
                 }
 

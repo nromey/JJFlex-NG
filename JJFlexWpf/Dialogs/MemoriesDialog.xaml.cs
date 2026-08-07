@@ -395,10 +395,16 @@ public partial class MemoriesDialog : JJFlexDialog
         string newName = NameBox.Text;
         if (IsDuplicateName?.Invoke(SelectedMemoryRef, newName) == true)
         {
-            var result = MessageBox.Show(
-                "Warning: Duplicate name.\nDo you want to change it?",
-                "Warning", MessageBoxButton.YesNo);
-            if (result == MessageBoxResult.Yes)
+            // Escape/No now means "go back and change it" (nothing saved) —
+            // the old raw message box saved the duplicate on Escape, which is
+            // exactly backwards for a muscle-memory dismissal.
+            var confirm = new ConfirmActionDialog(
+                "Duplicate Name",
+                $"Another memory already has the name {newName}.",
+                question: "Keep the duplicate name anyway?",
+                yesLabel: "_Keep duplicate",
+                noLabel: "_Change it");
+            if (confirm.ShowDialog() != true)
             {
                 NameBox.Focus();
                 return;

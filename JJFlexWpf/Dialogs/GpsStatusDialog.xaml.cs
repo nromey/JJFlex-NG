@@ -20,17 +20,21 @@ namespace JJFlexWpf.Dialogs
     /// silent loses the transitions someone actually opened this dialog to wait
     /// for. So there is exactly ONE live region, and it receives text only when
     /// the reference hands over, the GPS phase changes, or a satellite count has
-    /// held steady long enough to be worth reporting. Every other field is plain
-    /// text, refreshed at the full rate for the review cursor.
+    /// held steady long enough to be worth reporting.
     ///
-    /// General rule this follows: standard controls and on-screen text where they
-    /// work, Tolk only where they do not.
+    /// Third attempt (2026-08-07): the status fields were TextBlocks, which a
+    /// screen reader cannot tab to or arrow through — Noel's live finding.
+    /// Everything now renders into one <see cref="Controls.LiveStatusTextBox"/>:
+    /// a read-only text box that IS a tab stop, holds the review caret in place
+    /// across the 1 Hz refreshes, and skips rewrites when nothing changed so
+    /// NVDA does not chatter.
     /// </summary>
     public partial class GpsStatusDialog : JJFlexDialog
     {
         private readonly FlexBase? _rig;
         private Action? _unsubscribe;
         private bool _loadingOscillator;
+        private string _summary = string.Empty;
 
         // Transition tracking for the single live region. Announcing every
         // change would be as bad as the live-region-on-everything bug this
@@ -63,8 +67,8 @@ namespace JJFlexWpf.Dialogs
             {
                 // Speak the summary once on open — this is the question the dialog
                 // exists to answer, and making the user hunt for it defeats that.
-                JJTrace.Tracing.TraceLine($"GpsStatusDialog: loaded, summary='{SummaryText.Text}'", System.Diagnostics.TraceLevel.Info);
-                ScreenReaderOutput.Speak(SummaryText.Text, VerbosityLevel.Terse, interrupt: true);
+                JJTrace.Tracing.TraceLine($"GpsStatusDialog: loaded, summary='{_summary}'", System.Diagnostics.TraceLevel.Info);
+                ScreenReaderOutput.Speak(_summary, VerbosityLevel.Terse, interrupt: true);
             };
 
             _unsubscribe = _rig?.SubscribeGpsChanges(() => Dispatcher.BeginInvoke(() => Refresh()));
@@ -75,9 +79,7 @@ namespace JJFlexWpf.Dialogs
         {
             var snapshot = _rig?.ReadGpsStatus() ?? new FlexBase.GpsStatusSnapshot();
 
-            string summary = FlexBase.BuildGpsSpokenSummary(snapshot);
-            SummaryText.Text = summary;
-            HardwareText.Text = FlexBase.DescribeInstalledReferences(snapshot);
+            _summary = FlexBase.BuildGpsSpokenSummary(snapshot);
 
             // Oscillator selection. Suppressed while loading so setting the combo
             // from the radio doesn't loop straight back into a set command.
@@ -97,23 +99,53 @@ namespace JJFlexWpf.Dialogs
             }
             finally { _loadingOscillator = false; }
 
-            OscillatorStateText.Text = snapshot.RadioConnected
-                ? $"Currently running on {FlexBase.DescribeOscillatorInUse(snapshot)}. " +
-                  (snapshot.OscillatorLocked ? "It is locked." : "It is not locked.")
-                : "No radio connected.";
-
-            DetailFixText.Text = "GPS status: " + Or(snapshot.Status, "not reported");
-            DetailSatellitesText.Text =
-                $"Satellites visible: {Or(snapshot.SatellitesVisible, "not reported")}. " +
-                $"Satellites tracked: {Or(snapshot.SatellitesTracked, "not reported")}.";
-            DetailGridText.Text = "Grid square: " + Or(snapshot.Grid, "not reported");
-            DetailPositionText.Text =
-                $"Latitude: {Or(snapshot.Latitude, "not reported")}. Longitude: {Or(snapshot.Longitude, "not reported")}.";
-            DetailAltitudeText.Text = "Altitude: " + Or(snapshot.Altitude, "not reported");
-            DetailUtcText.Text = "GPS time, UTC: " + Or(snapshot.UtcTime, "not reported");
-            DetailFreqErrorText.Text = "Frequency error: " + Or(snapshot.FreqError, "not reported");
-
+            StatusText.SetStatusText(BuildStatusText(snapshot));
             UpdateStateAnnouncement(snapshot);
+        }
+
+        /// <summary>
+        /// The whole page as one plain-text document: summary first (the answer
+        /// to the question the dialog exists for), then hardware, oscillator
+        /// state, the per-field details, and the standing explanations. Sections
+        /// are separated by blank lines; the LiveStatusTextBox normalizes those
+        /// so NVDA reads them as "blank" instead of re-reading a neighbor.
+        /// </summary>
+        private string BuildStatusText(FlexBase.GpsStatusSnapshot s)
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("Summary");
+            sb.AppendLine(_summary);
+            sb.AppendLine();
+
+            sb.AppendLine("Installed reference hardware");
+            sb.AppendLine(FlexBase.DescribeInstalledReferences(s));
+            sb.AppendLine();
+
+            sb.AppendLine("Reference oscillator");
+            sb.AppendLine(s.RadioConnected
+                ? $"Currently running on {FlexBase.DescribeOscillatorInUse(s)}. " +
+                  (s.OscillatorLocked ? "It is locked." : "It is not locked.")
+                : "No radio connected.");
+            sb.AppendLine("The choice below sets which 10 MHz reference the radio disciplines itself to. Automatic is the usual choice — the radio picks the best one it has and falls back on its own if the GPS loses lock.");
+            sb.AppendLine();
+
+            sb.AppendLine("Details");
+            sb.AppendLine("GPS status: " + Or(s.Status, "not reported"));
+            sb.AppendLine($"Satellites visible: {Or(s.SatellitesVisible, "not reported")}. " +
+                          $"Satellites tracked: {Or(s.SatellitesTracked, "not reported")}.");
+            sb.AppendLine("Grid square: " + Or(s.Grid, "not reported"));
+            sb.AppendLine($"Latitude: {Or(s.Latitude, "not reported")}. Longitude: {Or(s.Longitude, "not reported")}.");
+            sb.AppendLine("Altitude: " + Or(s.Altitude, "not reported"));
+            sb.AppendLine("GPS time, UTC: " + Or(s.UtcTime, "not reported"));
+            sb.AppendLine("Frequency error: " + Or(s.FreqError, "not reported"));
+            sb.AppendLine();
+
+            // The radio is an NTP server when it has a fix, not an NTP client.
+            // Stated here because it is the single most misunderstood thing
+            // about this feature.
+            sb.AppendLine("Time");
+            sb.Append("With a GPS fix the radio keeps very accurate time and offers it to your network as a time server. It does not get its time from anywhere else, and there is nothing to configure here — point a computer at the radio's address if you want to use it.");
+            return sb.ToString();
         }
 
         /// <summary>
@@ -201,7 +233,7 @@ namespace JJFlexWpf.Dialogs
 
         private void SpeakStatusButton_Click(object sender, RoutedEventArgs e)
         {
-            ScreenReaderOutput.Speak(SummaryText.Text, VerbosityLevel.Terse, interrupt: true);
+            ScreenReaderOutput.Speak(_summary, VerbosityLevel.Terse, interrupt: true);
         }
 
         /// <summary>
@@ -211,26 +243,9 @@ namespace JJFlexWpf.Dialogs
         /// </summary>
         private void CopyDetailsButton_Click(object sender, RoutedEventArgs e)
         {
-            var sb = new StringBuilder();
-            sb.AppendLine("GPS and reference status");
-            sb.AppendLine();
-            sb.AppendLine(SummaryText.Text);
-            sb.AppendLine();
-            sb.AppendLine(HardwareText.Text);
-            sb.AppendLine();
-            sb.AppendLine(OscillatorStateText.Text);
-            sb.AppendLine();
-            sb.AppendLine(DetailFixText.Text);
-            sb.AppendLine(DetailSatellitesText.Text);
-            sb.AppendLine(DetailGridText.Text);
-            sb.AppendLine(DetailPositionText.Text);
-            sb.AppendLine(DetailAltitudeText.Text);
-            sb.AppendLine(DetailUtcText.Text);
-            sb.AppendLine(DetailFreqErrorText.Text);
-
             try
             {
-                Clipboard.SetText(sb.ToString());
+                Clipboard.SetText("GPS and reference status\r\n\r\n" + StatusText.Text);
                 ScreenReaderOutput.Speak("Copied.", VerbosityLevel.Terse, interrupt: true);
             }
             catch

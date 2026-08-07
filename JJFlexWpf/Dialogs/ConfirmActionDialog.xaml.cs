@@ -15,9 +15,13 @@ namespace JJFlexWpf.Dialogs
     /// near-identical dialog file — the network-settings work alone would have
     /// produced three.
     ///
-    /// Same conservative posture as its siblings: focus lands on No, and Yes is
-    /// not the default button, so a user who muscle-memories Enter past a dialog
-    /// does not commit a change that needs someone at the radio to undo.
+    /// Same conservative posture as its siblings: Yes is not the default
+    /// button, and focus lands in the read-only body text — where Enter does
+    /// nothing at all — so a user who muscle-memories Enter past a dialog does
+    /// not commit a change that needs someone at the radio to undo. Landing in
+    /// the text rather than on No is deliberate (2026-08-07): the warnings are
+    /// the highest-stakes text in these flows, and focus starting there is what
+    /// makes a screen reader read them before anything is decided.
     /// </summary>
     public partial class ConfirmActionDialog : JJFlexDialog
     {
@@ -44,22 +48,36 @@ namespace JJFlexWpf.Dialogs
 
             Title = title;
             AutomationProperties.SetName(this, title);
-            MessageBlock.Text = message;
-            QuestionBlock.Text = question;
             YesButton.Content = yesLabel;
             NoButton.Content = noLabel;
             _radioModel = radioModel;
 
-            if (warnings != null && warnings.Count > 0)
+            // One reviewable document: message, then each warning as its own
+            // paragraph, then the question the buttons answer. Blank separator
+            // lines get the standard NVDA treatment from NormalizeLineBreaks.
+            var body = new System.Text.StringBuilder(message);
+            if (warnings != null)
             {
-                WarningsList.ItemsSource = warnings;
-                WarningsList.Visibility = Visibility.Visible;
+                foreach (var warning in warnings)
+                {
+                    body.AppendLine();
+                    body.AppendLine();
+                    body.Append(warning);
+                }
             }
+            body.AppendLine();
+            body.AppendLine();
+            body.Append(question);
+            BodyText.Text = ScreenReaderText.NormalizeLineBreaks(body.ToString());
 
             if (RadioPanelGuide.HasGuide(radioModel))
                 JacksButton.Visibility = Visibility.Visible;
 
-            Loaded += (s, e) => NoButton.Focus();
+            Loaded += (s, e) =>
+            {
+                BodyText.CaretIndex = 0;
+                BodyText.Focus();
+            };
         }
 
         /// <summary>

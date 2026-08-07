@@ -156,10 +156,12 @@ namespace JJFlexWpf.Dialogs
 
         private void ResetButton_Click(object sender, RoutedEventArgs e)
         {
-            var result = MessageBox.Show(
-                $"Reset all {CurrentMode} presets to defaults? Custom presets for this mode will be lost.",
-                "Reset Presets", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No);
-            if (result != MessageBoxResult.Yes) return;
+            var confirm = new ConfirmActionDialog(
+                "Reset Presets",
+                $"This resets all {CurrentMode} presets to their defaults. Custom presets for this mode will be lost.",
+                question: "Reset them?",
+                yesLabel: "_Reset");
+            if (confirm.ShowDialog() != true) return;
 
             // Remove saved presets for this mode — GetPresetsForMode will fall back to defaults
             _presets.Modes.RemoveAll(m =>

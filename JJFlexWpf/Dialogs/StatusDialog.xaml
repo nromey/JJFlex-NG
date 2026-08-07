@@ -24,7 +24,7 @@
                     AutomationProperties.AcceleratorKey="Alt+C"
                     Click="CopyButton_Click"/>
             <Button Content="C_lose" MinWidth="80" Height="28"
-                    IsDefault="True" IsCancel="True"
+                    IsDefault="True" AutomationProperties.AccessKey="Alt+L" IsCancel="True"
                     AutomationProperties.Name="Close"
                     AutomationProperties.AcceleratorKey="Alt+L"
                     Click="CloseButton_Click"/>

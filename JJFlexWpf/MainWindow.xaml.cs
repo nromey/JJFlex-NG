@@ -230,11 +230,26 @@ public partial class MainWindow : UserControl
     /// </summary>
     public void SpeakWelcome()
     {
+        string modeName = ActiveUIMode == UIMode.Classic ? "Classic" : "Modern";
+        string message = $"Welcome to JJ Flexible Radio Access, {modeName} tuning mode";
+
+        // Ordering policy (live find 2026-08-04): with a startup advisory on
+        // screen, this line used to talk over the dialog — and worse, the
+        // FreqOut focus grab below yanked keyboard focus OUT of the modal and
+        // back into the main window, which is how a Tab came to speak slice
+        // state behind an open advisory. While the advisory chain is active,
+        // BOTH the speech and the focus grab wait their turn; the chain
+        // replays them when the last advisory closes.
+        if (_advisorySequenceActive)
+        {
+            _welcomeFocusPending = true;
+            _deferredStartupSpeech.Add((message, null));
+            return;
+        }
+
         // Focus FreqOut so cursor lands on the frequency display at startup
         FreqOut.FocusDisplay();
-
-        string modeName = ActiveUIMode == UIMode.Classic ? "Classic" : "Modern";
-        Radios.ScreenReaderOutput.Speak($"Welcome to JJ Flexible Radio Access, {modeName} tuning mode");
+        Radios.ScreenReaderOutput.Speak(message);
     }
 
     /// <summary>
@@ -276,7 +291,7 @@ public partial class MainWindow : UserControl
                 // advisory closes.
                 if (_advisorySequenceActive)
                 {
-                    _deferredConnectStatus = message;
+                    _deferredStartupSpeech.Add((message, VerbosityLevel.Critical));
                     return;
                 }
                 Radios.ScreenReaderOutput.Speak(message, VerbosityLevel.Critical);
@@ -1304,22 +1319,49 @@ public partial class MainWindow : UserControl
         finally
         {
             _advisorySequenceActive = false;
-            // Connect status that arrived while an advisory was up gets its
-            // turn now that the user is done reading.
-            string? deferred = _deferredConnectStatus;
-            _deferredConnectStatus = null;
-            if (deferred != null)
-                Radios.ScreenReaderOutput.Speak(deferred, VerbosityLevel.Critical);
+
+            // Bring-up speech that arrived while the chain was active gets its
+            // turn now that the user is done reading — focus first (the parked
+            // welcome focus grab), then each parked announcement in arrival
+            // order. One policy for every bring-up path, not per-path patches.
+            if (_welcomeFocusPending)
+            {
+                _welcomeFocusPending = false;
+                try { FreqOut.FocusDisplay(); } catch { /* window may be closing */ }
+            }
+            foreach (var (message, level) in _deferredStartupSpeech)
+            {
+                if (level.HasValue)
+                    Radios.ScreenReaderOutput.Speak(message, level.Value);
+                else
+                    Radios.ScreenReaderOutput.Speak(message);
+            }
+            _deferredStartupSpeech.Clear();
         }
     }
 
     /// <summary>
-    /// True while the startup-advisory chain is running. SpeakConnectStatus
-    /// checks it so the slice rundown never talks over an open advisory;
-    /// both run on the dispatcher thread, so no locking is needed.
+    /// True while the startup-advisory chain is running. Every main-window
+    /// bring-up speech path checks it — the welcome line and the connect-time
+    /// slice rundown both queue into <see cref="_deferredStartupSpeech"/>
+    /// instead of talking over an open advisory (ordering policy, 2026-08-07;
+    /// the connect rundown got this treatment first and the welcome line was
+    /// a separate un-parked path). All on the dispatcher thread, no locking.
     /// </summary>
     private bool _advisorySequenceActive;
-    private string? _deferredConnectStatus;
+
+    /// <summary>
+    /// Parked bring-up announcements, in arrival order. Null level means
+    /// speak at the default verbosity.
+    /// </summary>
+    private readonly List<(string message, VerbosityLevel? level)> _deferredStartupSpeech = new();
+
+    /// <summary>
+    /// SpeakWelcome's FreqOut focus grab was deferred because an advisory was
+    /// open — replay it when the chain ends, BEFORE the parked speech, so the
+    /// caret lands where a cold start would put it.
+    /// </summary>
+    private bool _welcomeFocusPending;
 
     /// <summary>
     /// Serials already offered the registration suggestion this app run, so a
@@ -1370,9 +1412,10 @@ public partial class MainWindow : UserControl
                         "steps. First, you will create a SmartLink account — the account you will use to " +
                         "log into your radio and other Flex services. Second, you will register this " +
                         "newfangled radio of yours so Flex knows it is really yours.\n\n" +
-                        "To start, open the Radio menu and choose Manage SmartLink Accounts, then choose " +
-                        "New Login. You can sign in or create your SmartLink account right on the page " +
-                        "that opens. Once you are signed in, step 2 of Radio Setup registers the radio. " +
+                        "To start, open the Radio menu and choose Manage SmartLink Accounts. Choose " +
+                        "Create Account to make your SmartLink account, or New Login if you already have " +
+                        "one — either way it all happens right here in JJ Flex, no web page involved. " +
+                        "Once you are signed in, step 2 of Radio Setup registers the radio. " +
                         "Note that you must be at (or near) the radio with a hand microphone or a CW key " +
                         "plugged in, to prove you are really there — sorry, Flex's rules, not ours.\n\n" +
                         "The Open Radio Setup button below takes you to the setup path — follow the " +
@@ -1396,22 +1439,49 @@ public partial class MainWindow : UserControl
             string account = rig.CurrentSmartLinkAccountEmail;
             Tracing.TraceLine($"SuggestRegistration: {serial} not registered to {account}", TraceLevel.Info);
 
+            // Registered-elsewhere awareness (live incident 2026-08-05: Noel was
+            // signed in as Don, and the advisory insisted a radio he KNEW was
+            // registered wasn't — true for that account, misleading as stated).
+            // The server was only asked about the signed-in account, so when
+            // other saved accounts exist, say so and offer the switch instead of
+            // presenting registration as the one explanation.
+            int otherAccounts = 0;
+            try
+            {
+                otherAccounts = Radios.FlexBase.SharedAccountManager.Accounts
+                    .Count(a => !a.Email.Equals(account, StringComparison.OrdinalIgnoreCase));
+            }
+            catch { /* count stays 0; the simple advisory is still correct */ }
+
             await Dispatcher.BeginInvoke(() =>
             {
                 string msg =
-                    $"This radio is not registered with your SmartLink account ({account}). " +
-                    "Registering your radio lets you reach it over the internet when you are away " +
-                    "from your shack, and it tells Flex the radio is yours. Flex requires you to be " +
-                    "physically at the radio with a hand microphone or a CW key plugged in, to prove " +
-                    "someone is really there.\n\n" +
+                    $"This radio is not registered to {account}, the SmartLink account you are " +
+                    "signed in with. Registering your radio lets you reach it over the internet " +
+                    "when you are away from your shack, and it tells Flex the radio is yours. " +
+                    "Flex requires you to be physically at the radio with a hand microphone or a " +
+                    "CW key plugged in, to prove someone is really there.\n\n" +
+                    (otherAccounts > 0
+                        ? "One thing to check first: only the signed-in account was asked. If you " +
+                          "registered this radio under one of your other saved accounts, switch to " +
+                          "that account instead of registering it again — the Manage Accounts " +
+                          "button below opens the list.\n\n"
+                        : "") +
                     "Select the Open Radio Setup button below to open the setup path — registration " +
                     "is step 2. It all happens right here in JJ Flexible Radio Access; SmartSDR is " +
                     "not required.";
+
+                var actions = new List<Dialogs.AdvisoryDialog.AdvisoryAction>
+                {
+                    new("Open Radio _Setup", () => OpenSettingsCallback?.Invoke("Radio Setup")),
+                };
+                if (otherAccounts > 0)
+                    actions.Add(new("Manage _Accounts", ShowSmartLinkAccountManager));
+
                 Dialogs.AdvisoryDialog.Show(
                     "Radio not registered with SmartLink", msg,
                     suppressKey: $"register|{serial}",
-                    new Dialogs.AdvisoryDialog.AdvisoryAction(
-                        "Open Radio _Setup", () => OpenSettingsCallback?.Invoke("Radio Setup")));
+                    actions.ToArray());
             });
         }
         catch (Exception ex)
@@ -2248,7 +2318,7 @@ public partial class MainWindow : UserControl
             if (ShowErrorCallback != null)
                 ShowErrorCallback("The radio disconnected", "Error");
             else
-                System.Windows.MessageBox.Show("The radio disconnected", "Error", MessageBoxButton.OK);
+                Dialogs.AdvisoryDialog.Show("Radio Disconnected", "The radio disconnected.");
         }
     }
 
@@ -3413,86 +3483,26 @@ public partial class MainWindow : UserControl
 
             if (dialog.NewLoginRequested)
             {
-                // Native-first here too (2026-08-06). This button was the
-                // fourth sign-in dispatch path and the last one still leading
-                // with the browser — Noel's live test hit its flakiness within
-                // minutes (silent SSO code, then a hung "authenticating").
-                // Browser remains reachable via Use Browser Instead / MFA.
-                using (var native = new Radios.SmartLinkLoginForm(mgr, ""))
+                var signedIn = RunNativeSignInFlow(mgr, prefillEmail: "");
+                if (signedIn != null)
+                    PropagateMidSessionSignIn(signedIn);
+                continue;
+            }
+
+            if (dialog.CreateAccountRequested)
+            {
+                // Native signup — the hosted page's signup link half-works
+                // (creates the account, then fails its redirect and reports
+                // failure), so JJ Flex owns the whole journey: create, then
+                // flow straight into sign-in with the new email prefilled.
+                var signup = new Dialogs.SmartLinkSignUpDialog(mgr);
+                if (signup.ShowDialog() == true && !string.IsNullOrEmpty(signup.SignedUpEmail))
                 {
-                    var nativeResult = native.ShowDialog();
-                    if (nativeResult == System.Windows.Forms.DialogResult.OK
-                        && !string.IsNullOrEmpty(native.IdToken))
-                    {
-                        if (!native.RememberSignIn)
-                        {
-                            // Adding an account to the SAVED list while asking
-                            // not to remember it is a contradiction — honor
-                            // the checkbox and explain.
-                            Radios.ScreenReaderOutput.Speak(
-                                "Signed in without remembering. To keep an account in this list, leave Remember checked.",
-                                VerbosityLevel.Terse, true);
-                            continue;
-                        }
-                        var nativeFriendly =
-                            !string.IsNullOrEmpty(native.FriendlyName) ? native.FriendlyName :
-                            !string.IsNullOrEmpty(native.Email) ? native.Email :
-                            "SmartLink Account";
-                        mgr.SaveAccount(new Radios.SmartLinkAccount
-                        {
-                            FriendlyName = nativeFriendly,
-                            Email = native.Email,
-                            IdToken = native.IdToken,
-                            RefreshToken = native.RefreshToken,
-                            ExpiresAt = DateTime.UtcNow.AddSeconds(native.ExpiresIn),
-                            LastUsed = DateTime.UtcNow
-                        });
-                        Radios.ScreenReaderOutput.Speak($"Account saved for {nativeFriendly}", VerbosityLevel.Terse, true);
-                        continue;
-                    }
-                    if (nativeResult != System.Windows.Forms.DialogResult.Retry)
-                    {
-                        Radios.ScreenReaderOutput.Speak("Sign in cancelled", VerbosityLevel.Terse, true);
-                        continue;
-                    }
+                    var signedIn = RunNativeSignInFlow(mgr, signup.SignedUpEmail);
+                    if (signedIn != null)
+                        PropagateMidSessionSignIn(signedIn);
                 }
-
-                // Fallback: Auth0 PKCE flow via WPF AuthDialog (browser)
-                Radios.ScreenReaderOutput.Speak("Opening SmartLink login", VerbosityLevel.Terse, true);
-                var authDialog = new Dialogs.AuthDialog(
-                    trace: (msg, level) => JJTrace.Tracing.TraceLine(msg, (System.Diagnostics.TraceLevel)level),
-                    screenReaderSpeak: (msg, interrupt) => Radios.ScreenReaderOutput.Speak(msg, interrupt));
-                authDialog.ForceNewLogin = true;
-
-                if (authDialog.ShowDialog() == true && !string.IsNullOrEmpty(authDialog.IdToken))
-                {
-                    // Determine friendly name from email or prompt
-                    var friendlyName = !string.IsNullOrEmpty(authDialog.Email)
-                        ? authDialog.Email
-                        : "SmartLink Account";
-
-                    var newAccount = new Radios.SmartLinkAccount
-                    {
-                        FriendlyName = friendlyName,
-                        Email = authDialog.Email,
-                        IdToken = authDialog.IdToken,
-                        RefreshToken = authDialog.RefreshToken,
-                        ExpiresAt = DateTime.UtcNow.AddSeconds(authDialog.ExpiresIn),
-                        LastUsed = DateTime.UtcNow
-                    };
-
-                    mgr.SaveAccount(newAccount);
-                    Radios.ScreenReaderOutput.Speak($"Account saved for {friendlyName}", VerbosityLevel.Terse, true);
-
-                    // Loop back to show the account list with the new account
-                    continue;
-                }
-                else
-                {
-                    Radios.ScreenReaderOutput.Speak("Login cancelled", VerbosityLevel.Terse, true);
-                    // Loop back to show account list
-                    continue;
-                }
+                continue;
             }
 
             // Use Now: session-only override, saved default untouched.
@@ -3528,6 +3538,119 @@ public partial class MainWindow : UserControl
             }
             break;
         }
+    }
+
+    /// <summary>
+    /// The native-first sign-in flow shared by New Login and Create Account
+    /// (2026-08-06): the native password form leads; the WebView2 browser page
+    /// survives only as the MFA / Use-Browser-Instead fallback. Returns the
+    /// signed-in account (saved when Remember was checked, unsaved otherwise),
+    /// or null when the user backed out.
+    /// </summary>
+    private Radios.SmartLinkAccount? RunNativeSignInFlow(Radios.SmartLinkAccountManager mgr, string prefillEmail)
+    {
+        using (var native = new Radios.SmartLinkLoginForm(mgr, prefillEmail))
+        {
+            var nativeResult = native.ShowDialog();
+            if (nativeResult == System.Windows.Forms.DialogResult.OK
+                && !string.IsNullOrEmpty(native.IdToken))
+            {
+                var nativeFriendly =
+                    !string.IsNullOrEmpty(native.FriendlyName) ? native.FriendlyName :
+                    !string.IsNullOrEmpty(native.Email) ? native.Email :
+                    "SmartLink Account";
+                var account = new Radios.SmartLinkAccount
+                {
+                    FriendlyName = nativeFriendly,
+                    Email = native.Email,
+                    IdToken = native.IdToken,
+                    RefreshToken = native.RefreshToken,
+                    ExpiresAt = DateTime.UtcNow.AddSeconds(native.ExpiresIn),
+                    LastUsed = DateTime.UtcNow
+                };
+
+                if (!native.RememberSignIn)
+                {
+                    // Adding an account to the SAVED list while asking not to
+                    // remember it is a contradiction — honor the checkbox and
+                    // explain. The sign-in itself still counts for this session.
+                    Radios.ScreenReaderOutput.Speak(
+                        "Signed in without remembering. To keep an account in this list, leave Remember checked.",
+                        VerbosityLevel.Terse, true);
+                    return account;
+                }
+
+                mgr.SaveAccount(account);
+                Radios.ScreenReaderOutput.Speak($"Account saved for {nativeFriendly}", VerbosityLevel.Terse, true);
+                return account;
+            }
+            if (nativeResult != System.Windows.Forms.DialogResult.Retry)
+            {
+                Radios.ScreenReaderOutput.Speak("Sign in cancelled", VerbosityLevel.Terse, true);
+                return null;
+            }
+        }
+
+        // Fallback: Auth0 PKCE flow via WPF AuthDialog (browser)
+        Radios.ScreenReaderOutput.Speak("Opening SmartLink login", VerbosityLevel.Terse, true);
+        var authDialog = new Dialogs.AuthDialog(
+            trace: (msg, level) => JJTrace.Tracing.TraceLine(msg, (System.Diagnostics.TraceLevel)level),
+            screenReaderSpeak: (msg, interrupt) => Radios.ScreenReaderOutput.Speak(msg, interrupt));
+        authDialog.ForceNewLogin = true;
+
+        if (authDialog.ShowDialog() == true && !string.IsNullOrEmpty(authDialog.IdToken))
+        {
+            var friendlyName = !string.IsNullOrEmpty(authDialog.Email)
+                ? authDialog.Email
+                : "SmartLink Account";
+
+            var newAccount = new Radios.SmartLinkAccount
+            {
+                FriendlyName = friendlyName,
+                Email = authDialog.Email,
+                IdToken = authDialog.IdToken,
+                RefreshToken = authDialog.RefreshToken,
+                ExpiresAt = DateTime.UtcNow.AddSeconds(authDialog.ExpiresIn),
+                LastUsed = DateTime.UtcNow
+            };
+
+            mgr.SaveAccount(newAccount);
+            Radios.ScreenReaderOutput.Speak($"Account saved for {friendlyName}", VerbosityLevel.Terse, true);
+            return newAccount;
+        }
+
+        Radios.ScreenReaderOutput.Speak("Login cancelled", VerbosityLevel.Terse, true);
+        return null;
+    }
+
+    /// <summary>
+    /// Mid-session sign-in propagation (found live 2026-08-04): a New Login
+    /// while a radio is connected used to change nothing — FlexBase only loads
+    /// its account during connect, so the Register button stayed grayed with
+    /// "no account signed in" and the only recourse was restarting the app.
+    /// Load the fresh account into the live rig, clear the per-run
+    /// already-suggested guard for this radio, and re-run the registration
+    /// suggestion so the advisory chain reflects the new reality.
+    /// </summary>
+    private void PropagateMidSessionSignIn(Radios.SmartLinkAccount account)
+    {
+        var rig = RigControl;
+        if (rig == null || !rig.IsConnected) return;
+
+        if (!rig.AdoptSignedInAccount(account))
+        {
+            Tracing.TraceLine($"PropagateMidSessionSignIn: adopt failed for {account.Email}", TraceLevel.Warning);
+            return;
+        }
+        Tracing.TraceLine($"PropagateMidSessionSignIn: live rig now using {account.Email}", TraceLevel.Info);
+
+        // Signing in changes the answer to "is this radio registered to the
+        // signed-in account" — let both advisory guards re-ask.
+        string serial = rig.SelectedRadioSerial ?? string.Empty;
+        if (serial.Length > 0) _registrationSuggestedSerials.Remove(serial);
+        _smartLinkSetupSuggested = false;
+
+        _ = SuggestRegistrationIfUnregisteredAsync();
     }
 
     /// <summary>Show the MultiFlex client management dialog.</summary>

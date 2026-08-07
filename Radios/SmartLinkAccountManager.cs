@@ -550,6 +550,90 @@ namespace Radios
         }
 
         /// <summary>
+        /// Outcome of a native account-signup attempt. Error is a well-known
+        /// kind so the dialog can speak something specific; ErrorDetail is
+        /// Auth0's own text, for the trace only.
+        /// </summary>
+        public sealed class SignUpResult
+        {
+            public bool Success;
+            public string Error = "";        // "", user_exists, weak_password, network, other
+            public string ErrorDetail = "";
+        }
+
+        /// <summary>
+        /// Create a SmartLink account natively: POST to Auth0's
+        /// dbconnections/signup, exactly as SmartSDR ships it (decompile
+        /// Auth0Client ~2475: client_id + connection
+        /// "Username-Password-Authentication" + email + password). SmartSDR
+        /// never uses the hosted page's signup link — and that link half-works
+        /// at best (creates the account, then fails its redirect and REPORTS
+        /// failure; live find 2026-08-04), which is why this exists. The
+        /// password is sent once and never stored; sign-in afterward goes
+        /// through <see cref="LoginWithPasswordAsync"/> as usual.
+        /// </summary>
+        public async Task<SignUpResult> SignUpAsync(string email, string password)
+        {
+            var result = new SignUpResult();
+            try
+            {
+                using var client = new HttpClient();
+                var body = JsonSerializer.Serialize(new
+                {
+                    client_id = Auth0ClientId,
+                    email = email?.Trim() ?? "",
+                    password = password ?? "",
+                    connection = "Username-Password-Authentication",
+                });
+                var content = new StringContent(body, Encoding.UTF8, "application/json");
+                var response = await client.PostAsync($"https://{Auth0Domain}/dbconnections/signup", content);
+                var json = await response.Content.ReadAsStringAsync();
+
+                if (response.IsSuccessStatusCode)
+                {
+                    result.Success = true;
+                    Tracing.TraceLine("SignUpAsync: account created", TraceLevel.Info);
+                    return result;
+                }
+
+                // Auth0 signup errors carry "code" (and sometimes "name");
+                // map the ones SmartSDR maps, trace the rest.
+                string code = "", name = "", detail = "";
+                try
+                {
+                    using var doc = JsonDocument.Parse(json);
+                    if (doc.RootElement.TryGetProperty("code", out var c)) code = c.GetString() ?? "";
+                    if (doc.RootElement.TryGetProperty("name", out var n)) name = n.GetString() ?? "";
+                    if (doc.RootElement.TryGetProperty("description", out var d))
+                        detail = d.ValueKind == JsonValueKind.String ? d.GetString() ?? "" : d.GetRawText();
+                }
+                catch { /* non-JSON error body; keep generic */ }
+
+                result.Error = code switch
+                {
+                    "user_exists" => "user_exists",
+                    "username_exists" => "user_exists",
+                    "invalid_password" => "weak_password",
+                    _ when name == "PasswordStrengthError" => "weak_password",
+                    _ => "other",
+                };
+                result.ErrorDetail = detail;
+                // Status and error kind only — never credential material.
+                Tracing.TraceLine(
+                    $"SignUpAsync: {response.StatusCode} code={code} name={name}",
+                    TraceLevel.Warning);
+                return result;
+            }
+            catch (Exception ex)
+            {
+                result.Error = "network";
+                result.ErrorDetail = ex.Message;
+                Tracing.TraceLine($"SignUpAsync: exception: {ex.Message}", TraceLevel.Error);
+                return result;
+            }
+        }
+
+        /// <summary>
         /// Reads a single string claim from a JWT payload without validating
         /// the signature — fine for our own just-received tokens; the server
         /// is the authority on validity.

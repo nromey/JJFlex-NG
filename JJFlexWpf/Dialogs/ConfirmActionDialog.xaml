@@ -10,30 +10,25 @@
                     ResizeMode="NoResize"
                     AutomationProperties.Name="Confirm action">
     <StackPanel Margin="16">
-        <TextBlock x:Name="MessageBlock"
-                   TextWrapping="Wrap"
-                   Margin="0,0,0,12"
-                   AutomationProperties.Name="What is about to happen"/>
-
-        <!-- Warnings render as a plain vertical list of wrapped TextBlocks.
-             Deliberately not a ListBox or DataGrid: a screen reader reads
-             this as ordinary prose in reading order, with no grid navigation
-             mode to enter and escape from. -->
-        <ItemsControl x:Name="WarningsList"
-                      Margin="0,0,0,12"
-                      Visibility="Collapsed"
-                      AutomationProperties.Name="Warnings">
-            <ItemsControl.ItemTemplate>
-                <DataTemplate>
-                    <TextBlock Text="{Binding}" TextWrapping="Wrap" Margin="0,0,0,6"/>
-                </DataTemplate>
-            </ItemsControl.ItemTemplate>
-        </ItemsControl>
-
-        <TextBlock x:Name="QuestionBlock"
-                   TextWrapping="Wrap"
-                   Margin="0,0,0,12"
-                   Text="Continue?"/>
+        <!-- The whole body — message, warnings, question — is one read-only
+             text box so it can be read line by line with the arrow keys and
+             re-read at the user's own pace. The warnings are the
+             highest-stakes text in flows like registration and firmware
+             (key-the-mic guidance, do-not-power-off); TextBlocks and
+             ItemsControls are invisible to the caret, which is how they went
+             unread during a real firmware update (live find, 2026-08-04).
+             Focus lands here on open. Enter does nothing in a read-only box
+             and Yes is not the default button, so reading first stays the
+             path of least resistance. -->
+        <TextBox x:Name="BodyText"
+                 IsReadOnly="True"
+                 IsReadOnlyCaretVisible="True"
+                 TextWrapping="Wrap"
+                 AcceptsReturn="True"
+                 VerticalScrollBarVisibility="Auto"
+                 MaxHeight="380"
+                 Margin="0,0,0,12"
+                 AutomationProperties.Name="What is about to happen, and its warnings"/>
 
         <!-- The jacks button sits on the left, deliberately away from No and Yes:
              it is a detour, not an answer, and it should not sit between the two
