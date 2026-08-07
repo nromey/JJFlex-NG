@@ -239,9 +239,23 @@ Module globals
         End Get
     End Property
 
+    ''' <summary>
+    ''' Stem shared by this instance's live trace and every part file it rotates
+    ''' out — "JJFlexRadioTrace" for instance 1, "JJFlexRadio2Trace" for the
+    ''' second instance. Part files are "&lt;stem&gt;-&lt;stamp&gt;-part-NNN.txt".
+    ''' </summary>
+    Private ReadOnly Property LiveTraceStem As String
+        Get
+            Return Path.GetFileNameWithoutExtension(BootTraceFileName)
+        End Get
+    End Property
+
     Private Sub RotateBootTraceIfNeeded()
         Dim tracePath As String = BootTraceFileName
         If Not File.Exists(tracePath) Then
+            ' No live leftover, but a previous run may still have left part
+            ' files whose background compression never finished.
+            ArchiveLeftoverTraceChains(Nothing)
             Return
         End If
 
@@ -259,6 +273,21 @@ Module globals
             ' reflects roughly how long the prior app ran before being
             ' killed. Failing back to UtcNow would make every killed
             ' session look like duration_ms ≈ 0.
+            ' Sweep any leftover part files first. If the killed run had rotated,
+            ' its chain is adopted here and the live leftover becomes that
+            ' chain's final part — so a killed marathon session reads as one
+            ' sequence in the archive instead of a pile of unrelated files.
+            Dim adopted As LeftoverChain = ArchiveLeftoverTraceChains(tracePath)
+            If adopted IsNot Nothing Then
+                Dim finalPart As Integer = adopted.HighestPart + 1
+                Dim partPath As String = RenameTraceToStampedPart(tracePath, adopted.Session.BootTimeUtc, finalPart)
+                If Not String.IsNullOrEmpty(partPath) Then
+                    SessionArchive.ArchiveSession(TraceArchiveDir, partPath, adopted.Session,
+                        deleteSourceAfter:=False, partNumber:=finalPart, isFinalPart:=True)
+                    Return
+                End If
+            End If
+
             Dim killedSession As New TraceSession(leftoverInfo.CreationTimeUtc.ToUniversalTime())
             killedSession.MarkOutcome(TraceSessionOutcome.Killed,
                 "Inferred from leftover boot trace at next launch (no clean exit observed)")
@@ -277,7 +306,7 @@ Module globals
             ' If archive returned null, fall through to legacy rotate so we
             ' don't drop the trace entirely.
         Catch ex As Exception
-            Tracing.ErrMessageTrace(ex)
+            Tracing.ErrTraceOnly(ex)
             ' Fall through to legacy rotate — better to keep the trace as
             ' OldTraceFileName than lose it because of an archive bug.
         End Try
@@ -288,7 +317,7 @@ Module globals
             End If
             File.Move(tracePath, OldTraceFileName)
         Catch ex As Exception
-            Tracing.ErrMessageTrace(ex)
+            Tracing.ErrTraceOnly(ex)
         End Try
     End Sub
 
@@ -305,7 +334,7 @@ Module globals
                 ZipUtils.AddFileToArchive(archive, tracePath, "")
             End Using
         Catch ex As Exception
-            Tracing.ErrMessageTrace(ex)
+            Tracing.ErrTraceOnly(ex)
         End Try
     End Sub
 
@@ -327,12 +356,12 @@ Module globals
                     Try
                         File.Delete(tracePath)
                     Catch ex As Exception
-                        Tracing.ErrMessageTrace(ex)
+                        Tracing.ErrTraceOnly(ex)
                     End Try
                 End If
             Next
         Catch ex As Exception
-            Tracing.ErrMessageTrace(ex)
+            Tracing.ErrTraceOnly(ex)
         End Try
     End Sub
 
@@ -348,7 +377,7 @@ Module globals
             LastUserTraceFile = tracePath
             Tracing.TraceLine($"Daily tracing on {Date.Now:O} level={Tracing.TheSwitch.Level}")
         Catch ex As Exception
-            Tracing.ErrMessageTrace(ex)
+            Tracing.ErrTraceOnly(ex)
         End Try
     End Sub
 
@@ -363,7 +392,7 @@ Module globals
             Dim session As TraceSession = TraceSessionContext.BeginSession()
             session.VerbosityLevel = Tracing.TheSwitch.Level.ToString()
         Catch ex As Exception
-            Tracing.ErrMessageTrace(ex)
+            Tracing.ErrTraceOnly(ex)
         End Try
     End Sub
 
@@ -385,23 +414,50 @@ Module globals
                 session.MarkOutcome(outcome, detail)
             End If
 
+            ' Capture rotation state before closing the listener — Tracing.On =
+            ' False disposes it and the part number goes with it.
+            Dim hadParts As Boolean = Tracing.SessionHasParts
+            Dim finalPartNumber As Integer = Tracing.CurrentPartNumber
+
             Dim tracePath As String = Tracing.TraceFile
             Tracing.On = False ' flushes + closes; Tracing.TraceFile becomes null
 
             TraceSessionContext.EndSession()
 
             If Not String.IsNullOrEmpty(tracePath) Then
-                Dim relName As String = SessionArchive.ArchiveSession(
-                    TraceArchiveDir, tracePath, session, deleteSourceAfter:=False)
-                If Not String.IsNullOrEmpty(relName) Then
-                    ' Archive succeeded; preserve source as stamp-named .txt
-                    ' for the plain-text retention window. See
-                    ' RenameTraceToStamped / PrunePlainTextTracesOlderThan.
-                    RenameTraceToStamped(tracePath, session.BootTimeUtc)
+                If hadParts Then
+                    ' This session rotated, so its tail is the FINAL PART of a
+                    ' chain, not a standalone whole-session archive. Rename to
+                    ' the part name first so the plain-text chain in AppData is
+                    ' complete and consistently named, then archive from there.
+                    Dim partPath As String = RenameTraceToStampedPart(tracePath, session.BootTimeUtc, finalPartNumber)
+                    If Not String.IsNullOrEmpty(partPath) Then
+                        SessionArchive.ArchiveSession(TraceArchiveDir, partPath, session,
+                            deleteSourceAfter:=False, partNumber:=finalPartNumber, isFinalPart:=True)
+                    End If
+                Else
+                    Dim relName As String = SessionArchive.ArchiveSession(
+                        TraceArchiveDir, tracePath, session, deleteSourceAfter:=False)
+                    If Not String.IsNullOrEmpty(relName) Then
+                        ' Archive succeeded; preserve source as stamp-named .txt
+                        ' for the plain-text retention window. See
+                        ' RenameTraceToStamped / PrunePlainTextTracesOlderThan.
+                        RenameTraceToStamped(tracePath, session.BootTimeUtc)
+                    End If
                 End If
             End If
+
+            ' Let queued part compressions finish so a rotated session doesn't
+            ' leave uncompressed parts behind. Bounded: exit must not hang on a
+            ' slow disk. Anything still queued gets picked up by the leftover
+            ' sweep at next boot, so the worst case is a delay, not a loss.
+            If hadParts Then
+                Tracing.WaitForPendingArchives(TimeSpan.FromSeconds(30))
+            End If
         Catch ex As Exception
-            Tracing.ErrMessageTrace(ex)
+            ' Trace-only: this runs during shutdown, where a modal dialog
+            ' carrying a raw framework message is the worst possible outcome.
+            Tracing.ErrTraceOnly(ex)
         End Try
     End Sub
 
@@ -442,7 +498,7 @@ Module globals
             End While
             File.Move(tracePath, target)
         Catch ex As Exception
-            Tracing.ErrMessageTrace(ex)
+            Tracing.ErrTraceOnly(ex)
             Try
                 File.Delete(tracePath)
             Catch
@@ -451,31 +507,154 @@ Module globals
     End Sub
 
     ''' <summary>
+    ''' Rename a closed trace segment to the part-file name its chain uses, so
+    ''' the clean-exit tail (and an adopted killed tail) lands beside the parts
+    ''' rotation already produced. Same shape rotation itself uses:
+    ''' "&lt;stem&gt;-&lt;boot stamp&gt;-part-NNN.txt". Returns the new path, or
+    ''' empty on failure.
+    ''' </summary>
+    Private Function RenameTraceToStampedPart(tracePath As String, bootTimeUtc As DateTime, partNumber As Integer) As String
+        Try
+            Dim dir As String = Path.GetDirectoryName(tracePath)
+            Dim baseName As String = Path.GetFileNameWithoutExtension(tracePath)
+            Dim ext As String = Path.GetExtension(tracePath)
+            Dim stamp As DateTime = bootTimeUtc.ToLocalTime()
+            Dim target As String = Path.Combine(dir, $"{baseName}-{stamp:yyyyMMdd-HHmmss}-part-{partNumber:D3}{ext}")
+            Dim suffix As Integer = 1
+            While File.Exists(target)
+                target = Path.Combine(dir, $"{baseName}-{stamp:yyyyMMdd-HHmmss}-part-{partNumber:D3}-{suffix}{ext}")
+                suffix += 1
+            End While
+            File.Move(tracePath, target)
+            Return target
+        Catch ex As Exception
+            Tracing.ErrTraceOnly(ex)
+            Return String.Empty
+        End Try
+    End Function
+
+    ''' <summary>
+    ''' A chain of leftover part files from a previous run, grouped by the boot
+    ''' stamp baked into their file names.
+    ''' </summary>
+    Private Class LeftoverChain
+        Public Session As TraceSession
+        Public HighestPart As Integer
+        Public StampLocal As DateTime
+    End Class
+
+    ''' <summary>
+    ''' Archive part files left in AppData by a previous run. Rotation hands each
+    ''' closed part to a background compressor; if the app is killed (or exits)
+    ''' before that finishes, the plain-text part survives but has no manifest
+    ''' entry — and the 24h plain-text sweep would eventually delete unread
+    ''' evidence. This closes that hole at boot.
+    '''
+    ''' Parts are grouped by the boot stamp in their names, so one prior session's
+    ''' chain is reconstructed as one TraceSession and its parts keep a shared
+    ''' archive stem. Parts already archived (matched by source_name in the
+    ''' manifest) are skipped, so this is idempotent across boots.
+    '''
+    ''' Returns the chain matching the still-present live trace — the caller
+    ''' attaches that trace as the chain's final part — or Nothing.
+    ''' </summary>
+    Private Function ArchiveLeftoverTraceChains(liveTracePath As String) As LeftoverChain
+        Dim newest As LeftoverChain = Nothing
+        Try
+            If Not Directory.Exists(BaseConfigDir) Then Return Nothing
+            Dim stem As String = LiveTraceStem
+            Dim chains As New Dictionary(Of DateTime, List(Of Tuple(Of String, Integer)))
+
+            For Each partFile As String In Directory.GetFiles(BaseConfigDir, stem & "-*-part-*.txt")
+                Dim name As String = Path.GetFileNameWithoutExtension(partFile)
+                ' <stem>-yyyyMMdd-HHmmss-part-NNN[-collisionSuffix]
+                Dim tail As String = name.Substring(stem.Length + 1)
+                Dim bits As String() = tail.Split("-"c)
+                If bits.Length < 4 Then Continue For
+                Dim stamp As DateTime
+                If Not DateTime.TryParseExact(bits(0) & "-" & bits(1), "yyyyMMdd-HHmmss",
+                                              CultureInfo.InvariantCulture, DateTimeStyles.None, stamp) Then
+                    Continue For
+                End If
+                Dim partNo As Integer
+                If Not Integer.TryParse(bits(3), partNo) Then Continue For
+
+                If Not chains.ContainsKey(stamp) Then chains(stamp) = New List(Of Tuple(Of String, Integer))
+                chains(stamp).Add(Tuple.Create(partFile, partNo))
+            Next
+
+            For Each kvp In chains
+                Dim stampLocal As DateTime = kvp.Key
+                Dim session As New TraceSession(stampLocal.ToUniversalTime())
+                session.MarkOutcome(TraceSessionOutcome.Killed,
+                    "Leftover trace parts adopted at next launch (no clean exit observed)")
+
+                Dim highest As Integer = 0
+                For Each item In kvp.Value.OrderBy(Function(t) t.Item2)
+                    If item.Item2 > highest Then highest = item.Item2
+                    Dim fileName As String = Path.GetFileName(item.Item1)
+                    If SessionArchive.IsSourceArchived(TraceArchiveDir, fileName) Then Continue For
+                    SessionArchive.ArchiveSession(TraceArchiveDir, item.Item1, session,
+                        deleteSourceAfter:=False, partNumber:=item.Item2, isFinalPart:=False)
+                Next
+
+                If newest Is Nothing OrElse stampLocal > newest.StampLocal Then
+                    newest = New LeftoverChain With {
+                        .Session = session,
+                        .HighestPart = highest,
+                        .StampLocal = stampLocal
+                    }
+                End If
+            Next
+        Catch ex As Exception
+            Tracing.ErrTraceOnly(ex)
+            Return Nothing
+        End Try
+
+        ' Only claim the live leftover for a chain when there IS a live leftover.
+        If String.IsNullOrEmpty(liveTracePath) Then Return Nothing
+        Return newest
+    End Function
+
+    ''' <summary>
     ''' Prune stamp-named plain-text trace files older than retentionDays. Only
     ''' files matching DailyTraceFilePrefix &amp; "-*.txt" are considered — the
     ''' live JJFlexRadioTrace.txt (no hyphen) is left alone, as is the legacy
     ''' JJFlexRadioTraceOld.txt, and the no-hyphen daily-trace files created by
     ''' StartDailyTraceIfEnabled (those have their own ArchiveOldDailyTraces).
     ''' The compressed .zip archives in TraceArchiveDir are not touched here.
+    '''
+    ''' Rotation parts ("&lt;stem&gt;-&lt;stamp&gt;-part-NNN.txt") share this
+    ''' shape and age out on the same 24h convenience window — the .zip in the
+    ''' archive is the durable copy of every part, so nothing is lost. The second
+    ''' pattern covers instance 2+ ("JJFlexRadio2Trace-..."), whose stem doesn't
+    ''' match DailyTraceFilePrefix and would otherwise accumulate forever.
     ''' </summary>
     Private Sub PrunePlainTextTracesOlderThan(retentionDays As Integer)
         If retentionDays <= 0 Then Return
         Try
             If Not Directory.Exists(BaseConfigDir) Then Return
             Dim cutoffUtc As DateTime = DateTime.UtcNow.AddDays(-retentionDays)
-            Dim pattern As String = $"{DailyTraceFilePrefix}-*.txt"
-            For Each path As String In Directory.GetFiles(BaseConfigDir, pattern)
-                Try
-                    Dim fi As New FileInfo(path)
-                    If fi.LastWriteTimeUtc < cutoffUtc Then
-                        File.Delete(path)
-                    End If
-                Catch ex As Exception
-                    Tracing.ErrMessageTrace(ex)
-                End Try
+            Dim patterns As New List(Of String) From {$"{DailyTraceFilePrefix}-*.txt"}
+            Dim instanceStem As String = $"{LiveTraceStem}-*.txt"
+            If Not patterns.Contains(instanceStem) Then patterns.Add(instanceStem)
+
+            Dim seen As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+            For Each pattern As String In patterns
+                For Each path As String In Directory.GetFiles(BaseConfigDir, pattern)
+                    If Not seen.Add(path) Then Continue For
+                    Try
+                        Dim fi As New FileInfo(path)
+                        If fi.LastWriteTimeUtc < cutoffUtc Then
+                            File.Delete(path)
+                        End If
+                    Catch ex As Exception
+                        Tracing.ErrTraceOnly(ex)
+                    End Try
+                Next
             Next
         Catch ex As Exception
-            Tracing.ErrMessageTrace(ex)
+            Tracing.ErrTraceOnly(ex)
         End Try
     End Sub
 
@@ -490,13 +669,18 @@ Module globals
         Try
             SessionArchive.Reconcile(TraceArchiveDir)
             SessionArchive.PruneOlderThan(TraceArchiveDir, SessionArchive.DefaultRetentionDays)
+            ' Order matters: adopt leftover parts into the archive BEFORE the
+            ' plain-text sweep can delete them. Rotation is what creates parts,
+            ' so this only finds anything after a run that rotated and then died
+            ' before its background compression finished.
+            ArchiveLeftoverTraceChains(Nothing)
             PrunePlainTextTracesOlderThan(PlainTextTraceRetentionDays)
             ' Crash dumps get the same boot-time housekeeping the trace archive
             ' has had since Sprint 29 — without it the Errors folder grew by a
             ' full-memory dump per crash, forever.
             PruneCrashReports()
         Catch ex As Exception
-            Tracing.ErrMessageTrace(ex)
+            Tracing.ErrTraceOnly(ex)
         End Try
     End Sub
 
@@ -514,7 +698,7 @@ Module globals
             pruned = SessionArchive.PruneOlderThan(TraceArchiveDir, days)
             Tracing.TraceLine($"PerformTraceArchivePrune: removed {pruned} entries older than {days} days", TraceLevel.Info)
         Catch ex As Exception
-            Tracing.ErrMessageTrace(ex)
+            Tracing.ErrTraceOnly(ex)
             Try
                 Radios.ScreenReaderOutput.Speak("Trace archive prune failed", VerbosityLevel.Critical)
             Catch
@@ -668,6 +852,14 @@ Module globals
         End Try
 
         ProgramInstance = Process.GetProcessesByName(Process.GetCurrentProcess().ProcessName).Length
+
+        ' Tell the trace subsystem where rotated parts get compressed to. MUST
+        ' happen before any trace file opens: a live trace that rotates without
+        ' an archive root keeps its part as plain text only. Set unconditionally
+        ' (not inside the BootTrace branch) because Operations → Tracing and the
+        ' daily-trace path can open a live trace with BootTrace off.
+        Tracing.RotationArchiveRootDir = TraceArchiveDir
+
         BootTrace = (Not Debugger.IsAttached)
         'BootTrace = True
         If BootTrace Then

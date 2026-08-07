@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Text;
 using SharpCompress.Common;
 using SharpCompress.Readers;
 using SharpCompress.Writers;
@@ -31,6 +32,27 @@ namespace JJTrace
         public const int DefaultRetentionDays = 30;
 
         /// <summary>
+        /// Largest source trace this will compress whole. Above it, only the
+        /// tail is archived (see <see cref="OversizedTailBytes"/>).
+        ///
+        /// With rotation on, a live trace can't reach this — parts cap at 256 MB.
+        /// It exists for the traces rotation can't help: files written by an
+        /// older build, a run with rotation disabled, or a rotation that kept
+        /// failing. The 2026-08-07 session left an 11.7 GB JJFlexRadioTrace.txt,
+        /// and archiving threw on it, which meant the source was never renamed
+        /// out of the way and the day's evidence stayed a single unusable blob.
+        /// A truncated archive is worth immeasurably more than a failed one.
+        /// </summary>
+        public const long MaxWholeFileArchiveBytes = 1L * 1024 * 1024 * 1024;
+
+        /// <summary>
+        /// How much of an oversized trace's tail to keep. The tail is where the
+        /// failure is; 64 MB is a deep scrollback that still compresses in
+        /// seconds rather than minutes.
+        /// </summary>
+        public const long OversizedTailBytes = 64L * 1024 * 1024;
+
+        /// <summary>
         /// Archive a single trace file: compress to per-session zip, append manifest
         /// entry, optionally delete the source trace file. Returns the relative
         /// archive filename (yyyy/MM/...) on success, null on failure.
@@ -39,7 +61,14 @@ namespace JJTrace
         /// <param name="traceFilePath">Source trace file to archive.</param>
         /// <param name="session">Session metadata; outcome and key events get folded into manifest.</param>
         /// <param name="deleteSourceAfter">If true, delete the source trace file after successful archive.</param>
-        public static string ArchiveSession(string archiveRootDir, string traceFilePath, TraceSession session, bool deleteSourceAfter)
+        /// <param name="partNumber">
+        /// 1-based part number when this is one part of a rotated session; 0 for a
+        /// whole-session archive. Parts of one session share the session's boot
+        /// stamp and a frozen outcome tag so they sort together as a sequence.
+        /// </param>
+        /// <param name="isFinalPart">True when this is the last part of a chain.</param>
+        public static string ArchiveSession(string archiveRootDir, string traceFilePath, TraceSession session, bool deleteSourceAfter,
+                                            int partNumber = 0, bool isFinalPart = false)
         {
             if (string.IsNullOrEmpty(traceFilePath) || !File.Exists(traceFilePath))
             {
@@ -59,26 +88,48 @@ namespace JJTrace
                 string monthDir = Path.Combine(yearDir, stamp.ToString("MM", CultureInfo.InvariantCulture));
                 Directory.CreateDirectory(monthDir);
 
-                string outcomeTag = SanitizeFileTag(session.Outcome);
-                string baseName = string.Format(CultureInfo.InvariantCulture, "trace-{0:yyyyMMdd-HHmmss}-{1}.zip", stamp, outcomeTag);
+                // Parts use the tag frozen at the first rotation so every part of
+                // one session shares a stem; whole-session archives use the live
+                // outcome exactly as before.
+                string outcomeTag = SanitizeFileTag(partNumber > 0 ? session.ResolvePartFileTag() : session.Outcome);
+                string partSuffix = partNumber > 0
+                    ? string.Format(CultureInfo.InvariantCulture, "-part-{0:D3}", partNumber)
+                    : string.Empty;
+
+                string baseName = string.Format(CultureInfo.InvariantCulture, "trace-{0:yyyyMMdd-HHmmss}-{1}{2}.zip", stamp, outcomeTag, partSuffix);
                 string fullPath = Path.Combine(monthDir, baseName);
 
                 int suffix = 1;
                 while (File.Exists(fullPath))
                 {
-                    baseName = string.Format(CultureInfo.InvariantCulture, "trace-{0:yyyyMMdd-HHmmss}-{1}-{2}.zip", stamp, outcomeTag, suffix);
+                    baseName = string.Format(CultureInfo.InvariantCulture, "trace-{0:yyyyMMdd-HHmmss}-{1}{2}-{3}.zip", stamp, outcomeTag, partSuffix, suffix);
                     fullPath = Path.Combine(monthDir, baseName);
                     suffix++;
                 }
 
-                long uncompressed = new FileInfo(traceFilePath).Length;
+                long sourceBytes = new FileInfo(traceFilePath).Length;
+                bool truncated = sourceBytes > MaxWholeFileArchiveBytes;
+                long archivedBytes = truncated ? OversizedTailBytes : sourceBytes;
                 string traceFileNameInZip = Path.GetFileName(traceFilePath);
 
                 WriterOptions writerOptions = new WriterOptions(CompressionType.LZMA);
                 using (FileStream fs = new FileStream(fullPath, FileMode.Create, FileAccess.Write, FileShare.None))
                 using (IWriter writer = WriterFactory.Open(fs, ArchiveType.Zip, writerOptions))
                 {
-                    writer.Write(traceFileNameInZip, traceFilePath);
+                    if (truncated)
+                    {
+                        WriteTailEntry(writer, traceFilePath, traceFileNameInZip, sourceBytes, OversizedTailBytes);
+                    }
+                    else
+                    {
+                        // FileShare.ReadWrite: the live trace is open for writing
+                        // by the rotating listener when a crash-path archive runs.
+                        using (FileStream src = new FileStream(traceFilePath, FileMode.Open, FileAccess.Read,
+                                                               FileShare.ReadWrite | FileShare.Delete))
+                        {
+                            writer.Write(traceFileNameInZip, src, null);
+                        }
+                    }
                 }
 
                 long compressed = new FileInfo(fullPath).Length;
@@ -86,7 +137,23 @@ namespace JJTrace
                 string relativeFilename = Path.Combine(stamp.ToString("yyyy", CultureInfo.InvariantCulture), stamp.ToString("MM", CultureInfo.InvariantCulture), baseName)
                     .Replace(Path.DirectorySeparatorChar, '/');
 
-                TraceSessionEntry entry = session.ToManifestEntry(relativeFilename, compressed, uncompressed);
+                TraceSessionEntry entry = session.ToManifestEntry(relativeFilename, compressed, archivedBytes);
+                entry.SourceName = traceFileNameInZip;
+                if (partNumber > 0)
+                {
+                    entry.PartNumber = partNumber;
+                    if (isFinalPart) entry.PartFinal = true;
+                    // A part's end_time/duration describe the whole session, not
+                    // the part. Only the final part gets to claim the session
+                    // ended; intermediate parts would otherwise each look like a
+                    // complete session in duration queries.
+                    if (!isFinalPart)
+                    {
+                        entry.EndTime = null;
+                        entry.DurationMs = null;
+                    }
+                }
+                if (truncated) entry.Truncated = true;
 
                 string manifestPath = Path.Combine(archiveRootDir, ManifestFileName);
                 TraceManifest manifest = TraceManifest.Load(manifestPath);
@@ -96,16 +163,74 @@ namespace JJTrace
                 if (deleteSourceAfter)
                 {
                     try { File.Delete(traceFilePath); }
-                    catch (Exception ex) { Tracing.ErrMessageTrace(ex); }
+                    catch (Exception ex) { Tracing.ErrTraceOnly(ex); }
                 }
 
                 return relativeFilename;
             }
             catch (Exception ex)
             {
-                Tracing.ErrMessageTrace(ex);
+                // Trace-only. A failure here used to raise a modal MessageBox
+                // carrying the raw framework text — which is how "couldn't save
+                // a stream of that size" reached the user with no explanation
+                // and no action to take.
+                Tracing.ErrTraceOnly(ex);
                 return null;
             }
+        }
+
+        /// <summary>
+        /// Write the last <paramref name="tailBytes"/> of an oversized trace into
+        /// the archive, starting at a line boundary, plus a plain-text notice
+        /// entry saying what was dropped. Screen-reader friendly: the notice is a
+        /// separate readable file, not a banner buried in the trace text.
+        /// </summary>
+        private static void WriteTailEntry(IWriter writer, string traceFilePath, string entryName, long sourceBytes, long tailBytes)
+        {
+            using (FileStream src = new FileStream(traceFilePath, FileMode.Open, FileAccess.Read,
+                                                   FileShare.ReadWrite | FileShare.Delete))
+            {
+                long start = Math.Max(0, sourceBytes - tailBytes);
+                src.Seek(start, SeekOrigin.Begin);
+                if (start > 0) SkipToLineStart(src);
+
+                long actualTail = sourceBytes - src.Position;
+                string notice =
+                    "This trace was too large to archive whole." + Environment.NewLine +
+                    "Original size: " + FormatBytes(sourceBytes) + Environment.NewLine +
+                    "Kept: the last " + FormatBytes(actualTail) + " of " + entryName + Environment.NewLine +
+                    "Everything before that point was not archived." + Environment.NewLine +
+                    "A trace this size means rotation was off or failing; see the" + Environment.NewLine +
+                    "rotation lines in the trace itself." + Environment.NewLine;
+
+                using (MemoryStream noticeStream = new MemoryStream(Encoding.UTF8.GetBytes(notice)))
+                {
+                    writer.Write("TRUNCATED-NOTICE.txt", noticeStream, null);
+                }
+
+                writer.Write(entryName, src, null);
+            }
+        }
+
+        /// <summary>Advance past the remainder of a partial line.</summary>
+        private static void SkipToLineStart(Stream s)
+        {
+            int b;
+            long guard = 0;
+            const long maxScan = 1024 * 1024; // one line should never be a megabyte
+            while ((b = s.ReadByte()) >= 0)
+            {
+                if (b == '\n') return;
+                if (++guard > maxScan) return;
+            }
+        }
+
+        private static string FormatBytes(long bytes)
+        {
+            if (bytes < 1024) return bytes + " bytes";
+            if (bytes < 1024 * 1024) return (bytes / 1024) + " KB";
+            if (bytes < 1024L * 1024 * 1024) return (bytes / (1024 * 1024)) + " MB";
+            return string.Format(CultureInfo.InvariantCulture, "{0:0.0} GB", bytes / (1024.0 * 1024 * 1024));
         }
 
         /// <summary>
@@ -140,7 +265,7 @@ namespace JJTrace
             }
             catch (Exception ex)
             {
-                Tracing.ErrMessageTrace(ex);
+                Tracing.ErrTraceOnly(ex);
             }
             return null;
         }
@@ -172,7 +297,7 @@ namespace JJTrace
 
                     string fullPath = Path.Combine(archiveRootDir, entry.Filename.Replace('/', Path.DirectorySeparatorChar));
                     try { if (File.Exists(fullPath)) File.Delete(fullPath); }
-                    catch (Exception ex) { Tracing.ErrMessageTrace(ex); }
+                    catch (Exception ex) { Tracing.ErrTraceOnly(ex); }
 
                     manifest.Entries.RemoveAt(i);
                     changed = true;
@@ -185,9 +310,35 @@ namespace JJTrace
             }
             catch (Exception ex)
             {
-                Tracing.ErrMessageTrace(ex);
+                Tracing.ErrTraceOnly(ex);
             }
             return deleted;
+        }
+
+        /// <summary>
+        /// True when the manifest already has an entry produced from a plain-text
+        /// trace of this file name. Boot maintenance uses it to spot part files
+        /// left behind by a run that died before its background compression
+        /// finished — those get archived rather than pruned away unread.
+        /// </summary>
+        public static bool IsSourceArchived(string archiveRootDir, string sourceName)
+        {
+            if (string.IsNullOrEmpty(sourceName)) return false;
+            try
+            {
+                string manifestPath = Path.Combine(archiveRootDir, ManifestFileName);
+                if (!File.Exists(manifestPath)) return false;
+                TraceManifest manifest = TraceManifest.Load(manifestPath);
+                if (manifest?.Entries == null) return false;
+                return manifest.Entries.Any(e =>
+                    e != null &&
+                    string.Equals(e.SourceName, sourceName, StringComparison.OrdinalIgnoreCase));
+            }
+            catch (Exception ex)
+            {
+                Tracing.ErrTraceOnly(ex);
+                return false;
+            }
         }
 
         /// <summary>
@@ -222,7 +373,7 @@ namespace JJTrace
             }
             catch (Exception ex)
             {
-                Tracing.ErrMessageTrace(ex);
+                Tracing.ErrTraceOnly(ex);
             }
         }
 
@@ -253,7 +404,7 @@ namespace JJTrace
                     {
                         string fullPath = Path.Combine(archiveRootDir, entry.Filename.Replace('/', Path.DirectorySeparatorChar));
                         try { if (File.Exists(fullPath)) File.Delete(fullPath); }
-                        catch (Exception ex) { Tracing.ErrMessageTrace(ex); }
+                        catch (Exception ex) { Tracing.ErrTraceOnly(ex); }
                     }
                     manifest.Entries.RemoveAt(i);
                     pruned++;
@@ -267,7 +418,7 @@ namespace JJTrace
             }
             catch (Exception ex)
             {
-                Tracing.ErrMessageTrace(ex);
+                Tracing.ErrTraceOnly(ex);
             }
             return pruned;
         }

@@ -21,6 +21,32 @@ namespace JJTrace
         public List<string> KeyEvents { get; } = new List<string>();
         public string VerbosityLevel { get; set; }
 
+        /// <summary>
+        /// True once size-based rotation has split this session into parts.
+        /// </summary>
+        public bool HasParts { get; private set; }
+
+        private string _partFileTag;
+
+        /// <summary>
+        /// The outcome tag baked into every part FILENAME of this session,
+        /// frozen at the first rotation.
+        ///
+        /// Why frozen: a session's Outcome legitimately changes as it runs
+        /// (unknown at boot, success once a radio connects, clean_exit at the
+        /// end). If each part took the outcome live, one session's parts would
+        /// be named trace-...-unknown-part-001.zip and
+        /// trace-...-clean_exit-part-003.zip and would not sort next to each
+        /// other in the archive folder — which is the whole point of the part
+        /// naming. The filename tag is a browsing convenience; the manifest
+        /// entry still carries each part's true outcome, and the manifest is
+        /// what queries read.
+        /// </summary>
+        public string PartFileTag
+        {
+            get { lock (_lock) { return _partFileTag; } }
+        }
+
         private readonly object _lock = new object();
 
         public TraceSession()
@@ -95,6 +121,24 @@ namespace JJTrace
                     SmartlinkAccount = smartlinkAccount,
                     Ip = ip
                 };
+            }
+        }
+
+        /// <summary>
+        /// Resolve (and on first call, freeze) the outcome tag used in this
+        /// session's part filenames, and mark the session as parted. Called by
+        /// SessionArchive when archiving a numbered part.
+        /// </summary>
+        internal string ResolvePartFileTag()
+        {
+            lock (_lock)
+            {
+                HasParts = true;
+                if (string.IsNullOrEmpty(_partFileTag))
+                {
+                    _partFileTag = string.IsNullOrEmpty(Outcome) ? TraceSessionOutcome.Unknown : Outcome;
+                }
+                return _partFileTag;
             }
         }
 
