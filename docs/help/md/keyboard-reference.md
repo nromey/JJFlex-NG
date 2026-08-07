@@ -268,6 +268,25 @@ The ScreenFields panel has five expandable categories you can jump to instantly:
 | Ctrl+Shift+F4 | Move focus to the CW send text box |
 | Ctrl+Shift+F5 | Move focus to the CW send text box (currently the same as Ctrl+Shift+F4 — a distinct direct-keying mode is planned for a future release) |
 
+## Radio Selector
+
+These keys are active in the Select Radio dialog — the window that opens at startup and whenever you connect to a radio. They are dialog accelerators, not global hotkeys: they work only while the selector is open.
+
+| Key | Action |
+|-----|--------|
+| Enter | Connect to the selected radio (on an offline radio, starts looking for it instead) |
+| Up / Down arrow | Move through the radio list. Arrows stay inside the list at both ends |
+| Tab | Leave the radio list. Shift+Tab returns you to the row you left |
+| Applications key, or Shift+F10 | Open the radio's context menu: Connect, Add or Remove Favorite, Auto-Connect Settings |
+| Alt+N | Connect |
+| Alt+L | Low bandwidth for the selected radio |
+| Alt+P | Connection path — choose local network or SmartLink for a radio reachable both ways |
+| Alt+R | Remote. Becomes Refresh Remote List once your remote radios are listed |
+| Alt+S | SmartLink account. The label follows what you have saved: Sign in to SmartLink, SmartLink Account, or Switch Account |
+| Alt+T | Test the connection to the selected radio |
+| Alt+A | Auto-connect settings for the selected radio |
+| Alt+C, or Escape | Cancel and close the selector |
+
 ## Trace Archive Browser
 
 These keys are active when focus is on the row list inside the Archive Browser tab of the Tracing dialog (Operations → Tracing → Archive Browser).

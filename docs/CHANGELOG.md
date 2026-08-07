@@ -53,6 +53,9 @@ This release is about the space where you actually spend your time in the app �
 - **[Enter connects, like it always said it would](#selector-enter-connects).** The radio selector has told you "press Enter to connect" forever — and now Enter actually does it. Pick a radio in the list, press Enter, you're connecting. Bonus: a stray keypress right after your remote radios appear can no longer accidentally restart the whole remote search.
 - **[Remote can start itself now](#remote-first-startup).** If you only ever operate remote, there's a new checkbox on your SmartLink account: "Start Remote automatically at startup." Check it once, and from then on the radio selector goes looking for your remote radios the moment it opens — no more pressing Remote every single session. Off by default, per account, and local radios still show up alongside.
 - **[Use an account without changing your default](#use-account-now).** The account manager grew a "Use Now" button. Borrowing a friend's SmartLink account for one evening? Use Now switches to it for this session only — your default account is untouched and everything is back to normal next time you start the app.
+- **[The radio selector remembers every radio you've ever used](#known-radios-roster).** Open it and your radios are already there — including the ones that are switched off — each row saying whether it's online right now and, if not, when it was last seen and where. Mark the ones you care about as favorites and they sort to the top. No more staring at an empty box while the app goes looking.
+- **[A radio that's on your own network *and* on SmartLink now says both](#dual-homed-radios), and you get to pick.** There's a Connection path control beside the list. Local is still the default because local is the better path, but if you want to reach your own radio the way a distant operator would — to see what they'd see — you can just choose it.
+- **[The account button says what it actually does](#account-button-truth).** No accounts saved? It says "Sign in to SmartLink." One? "SmartLink Account." Two or more? "Switch Account" — and it tells you which one you're using. There's a line under the list saying the same thing, and pressing Remote now announces the account it's about to use.
 - **Busy radio, clean exit.** Connect to a radio whose slices are all taken — somebody's already operating on every one of them — and JJ Flexible now tells you who has them and backs out on its own. It used to announce the problem and then sit at "Connecting" indefinitely, quietly waiting for you to dismiss an error window you had no way of knowing existed.
 - **The Remote button learns a second job.** Once your remote radios are listed, that same button becomes "Refresh Remote List" — same spot, same Alt+R. Press it and JJ Flexible reconnects to SmartLink and looks again, catching radios that came online since you first asked. Radios that went offline drop out of the list with a spoken heads-up instead of sitting there as ghosts. Why a refresh needs a reconnect: SmartLink only hands out the radio list once per connection, so asking twice on the same line gets you yesterday's answer.
 - [CW send and receive boxes](#cw-text-boxes) go away if you can't use them. Unless you're in CW mode, the receive and send text boxes aren't visible and they're not in the tab order. Switch to CW with Alt+C and they come right back.
@@ -180,6 +183,44 @@ Now the app can press it for you. In Manage SmartLink Accounts, each account has
 The account manager always had Set Default — good for "this is my account, use it from now on." But sometimes you want "use this one just for tonight." Maybe you're helping a friend check their station, maybe you're the club member who connects to three different radios under three different accounts. Changing your default and remembering to change it back was the only way, and "remembering to change it back" is doing a lot of heavy lifting in that sentence.
 
 There's now a Use Now button right below Set Default. It switches to the selected account for the rest of this session — and that's all it does. Close the app, start it again, and you're back on your default like nothing happened. One more thing got fixed along the way: when the account picker appears during a remote connect and you press Set Default there, it now actually saves that account as your default, so the picker stops asking you every time.
+
+[Return to version headlines](#unreleased-headlines)
+
+### Your Radios Are Already in the List {#known-radios-roster}
+
+The radio selector used to be an empty room that slowly filled up. You'd open it, hear "no radios found yet," wait a beat, and then things would start appearing — assuming they were switched on. If your radio happened to be off, or the SmartLink hadn't been asked yet, the app behaved as if you'd never owned a radio in your life.
+
+It knows better now. The selector opens with every radio this copy of JJ Flexible has ever met, and each row tells you where it stands: "6300inshack, FLEX-6300, remote via SmartLink" if it's there right now, or "6300inshack, FLEX-6300, offline, last seen remote via SmartLink, last seen 3 days ago" if it isn't. Rows go live as discovery finds them, and a radio that switches off doesn't vanish from the list any more — it just goes quiet and says so.
+
+Press Enter on an offline radio and you won't get a dead end. If it was last seen through SmartLink, JJ Flexible starts looking for it right then and tells you so. If it was on your local network, it says the honest thing: it's not here, it may be powered off.
+
+There's a favorites list, too. Bring up the context menu on any radio — the Applications key, or Shift+F10 — and choose Add to Favorites. Favorites sort to the top of the list and stay there between sessions. If you have one radio you use ninety percent of the time, this is that.
+
+One more small honesty fix while I was in there: the "no radios found" message used to tell you to click a SmartLink button. There has never been a SmartLink button. It says Remote now, which is the button that's actually there.
+
+[Return to version headlines](#unreleased-headlines)
+
+### One Radio, Two Doors {#dual-homed-radios}
+
+Here's something that was quietly true and quietly invisible. If your Flex sits on your own network and you've also registered it with SmartLink, it's reachable two different ways. JJ Flexible knew this perfectly well and never mentioned it — local discovery shouted first, won the row, and the SmartLink identity was thrown in the bin. You'd see "local" and that was the end of the conversation.
+
+Now the row says "local network and SmartLink," and there's a Connection path control next to the list — Alt+P gets you there. Two choices: Local network, or Remote via SmartLink. Local stays selected by default, because local really is the better path: lower latency, no round trip to Flex's servers, nothing to go wrong at your router. But you can choose SmartLink deliberately, and when you do, that's genuinely the path it takes. It won't quietly connect locally behind your back and let you think otherwise.
+
+Why would you want the slower path on purpose? Three reasons, and they're all good ones. It teaches you that both paths exist, which matters the day you're travelling and only one of them works. It lets you test your remote setup from your own chair instead of finding out it's broken when you're four states away. And frankly, it's just the truthful way to describe a radio that has two front doors.
+
+If the radio only answers one way, the control still tells you which — it just doesn't let you change something that has no alternative.
+
+[Return to version headlines](#unreleased-headlines)
+
+### The Account Button Stops Guessing {#account-button-truth}
+
+That button in the radio selector said "Switch Account" no matter what. Never signed in? Switch Account. Exactly one account saved, nothing to switch to? Switch Account. It also announced "Account updated, press Remote to connect" every single time you pressed it, whether or not you'd changed anything — including when you'd opened the account manager, looked around, and pressed Escape.
+
+It behaves now. With nothing saved it says "Sign in to SmartLink." With one account it says "SmartLink Account" and names the account. With two or more it says "Switch Account" and tells you which one you're currently using. It only claims something changed when something changed; otherwise it says what's still true, which beats both lying and saying nothing.
+
+There's also a line under the radio list showing the SmartLink account in play, and it's a real stop on the Tab key rather than decoration you can't reach. And when you press Remote, JJ Flexible now says which account it's signing in as before it goes — "Connecting to SmartLink as yourname@example.com." If you've ever had two accounts and stared at a radio list wondering whose radios these were, that one's for you.
+
+Switching accounts got faster in the bargain. The moment you pick a different account, the selector paints the radios that account had last time — clearly labelled as last known, and clearly labelled as refreshing — while it fetches the current list in the background. When the real list lands you'll hear "radio list updated." You can read and think while it works instead of waiting at an empty screen. It will never connect you to a remembered radio without a live look first; the remembered list is there so you have something to read, not something to trust.
 
 [Return to version headlines](#unreleased-headlines)
 
