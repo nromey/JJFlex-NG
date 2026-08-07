@@ -1260,6 +1260,9 @@ public partial class MainWindow : UserControl
         if (RigControl != null)
         {
             RigControl.ShowMemoriesDialog = ShowMemoriesDialog;
+            // QB Track L: RadioInfoDialog (General + Feature Availability tabs)
+            // — never assigned since Sprint 11, leaving the menu door dead.
+            RigControl.ShowRadioInfoDialog = ShowRadioInfoDialog;
         }
 
         // Disable controls initially — PowerNowOn enables them when radio powers on
@@ -2830,6 +2833,55 @@ public partial class MainWindow : UserControl
         {
             gotoHome();
         }
+    }
+
+    /// <summary>
+    /// Show the WPF RadioInfoDialog with callbacks wired to the current radio.
+    /// QB Track L (2026-08-07): the Sprint 11 dialog existed but
+    /// FlexBase.ShowRadioInfoDialog was never assigned app-side, so the
+    /// Operations menu's Feature Availability door silently did nothing.
+    /// Wired in OnRadioStarted alongside ShowMemoriesDialog.
+    /// </summary>
+    private void ShowRadioInfoDialog(int tabIndex)
+    {
+        var rig = RigControl;
+        if (rig == null)
+        {
+            Radios.ScreenReaderOutput.Speak("No radio connected.",
+                Radios.VerbosityLevel.Critical, true);
+            return;
+        }
+
+        var callbacks = new Dialogs.RadioInfoCallbacks
+        {
+            GetModel = () => rig.RadioModel,
+            GetVersion = () => rig.RadioFirmwareVersion,
+            GetSerial = () => rig.ConnectedSerial ?? "",
+            GetCallsign = () => rig.RadioCallsign,
+            SetCallsign = call => rig.RadioCallsign = call,
+            GetNickname = () => rig.RadioNickname,
+            // RenameRadio is the full rename path — persists radio-side and
+            // refreshes the roster/auto-connect display names.
+            SetNickname = name => rig.RenameRadio(name),
+            GetIPAddress = () => rig.CurrentRadioIP?.ToString() ?? "",
+            GetDisplayModes = () =>
+            {
+                var items = new List<Dialogs.DisplayModeItem>();
+                foreach (var name in rig.FrontPanelDisplayModes)
+                    items.Add(new Dialogs.DisplayModeItem { DisplayText = name, Value = name });
+                return items;
+            },
+            GetCurrentDisplayMode = () => rig.FrontPanelDisplayMode,
+            SetDisplayMode = mode => rig.FrontPanelDisplayMode = mode?.ToString() ?? "",
+            GetFeatureAvailabilityText = () => rig.BuildFeatureAvailabilityText(),
+            RefreshLicense = () => rig.RefreshLicenseState(),
+        };
+
+        var tab = tabIndex == (int)Dialogs.RadioInfoTab.FeatureAvailability
+            ? Dialogs.RadioInfoTab.FeatureAvailability
+            : Dialogs.RadioInfoTab.General;
+        var dialog = new Dialogs.RadioInfoDialog(callbacks, tab);
+        dialog.ShowDialog();
     }
 
     #endregion
