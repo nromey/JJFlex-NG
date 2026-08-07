@@ -4177,6 +4177,14 @@ namespace Radios
                 WanServer.WanRadioRadioListRecieved -= wanRadioListReceivedHandler;
                 WanServer.WanRadioRadioListRecieved += wanRadioListReceivedHandler;
 
+                // Whether this TLS session was live BEFORE this call. The server
+                // sends the radio list exactly once per TLS session, so on a
+                // re-entry over a live session no new list is ever coming and
+                // waiting for one is pure dead time (QB Track A, 2026-08-07,
+                // trace 20260805-163019: re-clicking Remote sat through the
+                // full wait for an event the server never re-sends).
+                bool sessionWasAlreadyConnected = session.IsConnected;
+
                 // Kick the monitor thread. If the session is already connected (e.g. we're
                 // re-entering ConnectToSmartLink after a successful previous call), Connect
                 // is a cheap no-op because _wan.IsConnected is already true.
@@ -4205,6 +4213,24 @@ namespace Radios
                 // WAN entries only: myRadioList also accumulates LAN radios, and
                 // a LAN-only cache says nothing about this SmartLink session.
                 bool haveCachedList = session.IsConnected && myRadioList.Any(r => r.IsWan);
+
+                // Re-entry over a session that was ALREADY live when this call
+                // began: the one list this TLS session will ever send arrived
+                // long ago, so satisfy the wait from the cache IMMEDIATELY
+                // instead of burning even the short window (QB Track A). The
+                // static WanRadioRadioListRecieved subscription stays active,
+                // so if the server ever does volunteer a fresh list it lands
+                // as a refresh through wanRadioListReceivedHandler exactly as
+                // the 2026-08-06 refresh/morph flow expects.
+                if (sessionWasAlreadyConnected && haveCachedList)
+                {
+                    radios = myRadioList.Where(r => r.IsWan).ToList();
+                    Tracing.TraceLine(
+                        $"ConnectToSmartLink: session was already live — satisfied immediately from {radios.Count} cached WAN radio(s), no list wait ({sw.ElapsedMilliseconds}ms)",
+                        TraceLevel.Info);
+                }
+                else
+                {
                 int listWaitMs = haveCachedList ? 2000 : 10000;
 
                 Tracing.TraceLine($"ConnectToSmartLink: registration sent, waiting up to {listWaitMs / 1000}s for radio list (cached={myRadioList.Count}) ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
@@ -4244,6 +4270,7 @@ namespace Radios
                         return SmartLinkConnectResult.ConnectFailed;
                     }
                 }
+                } // end fresh-session wait path
 
                 if (session.Status == Radios.SmartLink.SessionStatus.AuthorizationExpired)
                 {
