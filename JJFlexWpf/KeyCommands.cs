@@ -1638,7 +1638,19 @@ public class KeyCommands
             // MuteSlice (single-slice mute) to MuteAllSlices (multi-slice
             // mute). Users who had never customised Shift+M should get the
             // new behaviour automatically on first launch after the upgrade.
-            if (currentDefault == null)
+            // QB Track H (2026-08-07): the takeover-clearing logic below also
+            // runs when the command still HAS a defaults entry but that entry
+            // is now Keys.None (default changed to unbound). Case in point:
+            // MemoryScan's Ctrl+Shift+M and SpeakFrequency's Ctrl+Shift+F
+            // moved to the promoted meta-commands (ToggleTuningMode /
+            // ToggleFreqReadout). Files with a TRACKED SavedDefaultKey are
+            // handled equivalently by the regular changed-default path, but
+            // files with an untracked (None) SavedDefaultKey would compare
+            // None == None, keep the stale binding, and block — or shadow —
+            // the new owner's default. Same outcome for every case: stale
+            // never-customized bindings clear; explicit customizations stay.
+            if (currentDefault == null ||
+                (currentDefault.Key == Keys.None && saved.Key != Keys.None))
             {
                 if (saved.Key != Keys.None)
                 {
