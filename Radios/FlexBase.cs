@@ -7333,11 +7333,14 @@ namespace Radios
         {
             get
             {
-                //return base.LineoutGain;
-                return theRadio.LineoutGain;
+                // Guarded getter, per the 2026-08-05 ActiveSlice sweep: the
+                // settings surface reads these while a radio can be going away
+                // underneath it. 0 is the honest default — no radio, no output.
+                return theRadio?.LineoutGain ?? 0;
             }
             set
             {
+                if (theRadio == null) return;
                 q.Enqueue((FunctionDel)(() => { theRadio.LineoutGain = value; }), "LineoutGain");
             }
         }
@@ -7348,12 +7351,110 @@ namespace Radios
         {
             get
             {
-                return theRadio.HeadphoneGain;
+                return theRadio?.HeadphoneGain ?? 0;
             }
             set
             {
+                if (theRadio == null) return;
                 q.Enqueue((FunctionDel)(() => { theRadio.HeadphoneGain = value; }), "HeadphoneGain");
             }
+        }
+
+        // --- Output mutes -----------------------------------------------------
+        // QB Track B, 2026-08-07. FlexLib has carried these three all along;
+        // JJ Flex only ever set them together, through LocalAudioMute, and never
+        // read them back. On a radio without a front panel — which is every
+        // non-M model — a muted output is invisible and inaudible at the same
+        // time, and the operator has nothing to check. These are the read side.
+        //
+        // Default false on a null radio: "not muted" is the safe thing to report,
+        // because the alternative invites someone to chase a mute that is not
+        // there while the real problem is that nothing is connected.
+
+        /// <summary>Headphone jack mute. False when no radio is connected.</summary>
+        public bool HeadphoneMute
+        {
+            get { return theRadio?.HeadphoneMute ?? false; }
+            set
+            {
+                if (theRadio == null) return;
+                q.Enqueue((FunctionDel)(() => { theRadio.HeadphoneMute = value; }), "HeadphoneMute");
+            }
+        }
+
+        /// <summary>Line out mute. False when no radio is connected.</summary>
+        public bool LineoutMute
+        {
+            get { return theRadio?.LineoutMute ?? false; }
+            set
+            {
+                if (theRadio == null) return;
+                q.Enqueue((FunctionDel)(() => { theRadio.LineoutMute = value; }), "LineoutMute");
+            }
+        }
+
+        /// <summary>Front panel speaker mute. False when no radio is connected.</summary>
+        public bool FrontSpeakerMute
+        {
+            get { return theRadio?.FrontSpeakerMute ?? false; }
+            set
+            {
+                if (theRadio == null) return;
+                q.Enqueue((FunctionDel)(() => { theRadio.FrontSpeakerMute = value; }), "FrontSpeakerMute");
+            }
+        }
+
+        /// <summary>
+        /// The answer to "why is my radio silent", in the order the rungs
+        /// actually bite. Null when nothing is obviously wrong.
+        /// </summary>
+        /// <remarks>
+        /// QB Track B, 2026-08-07. Rung one is the one that catches people
+        /// coming from a conventional rig, and it caught Noel on his own 8600:
+        /// a Flex produces no audio at all — including at its own headphone
+        /// jack — until a client is connected to it. The radio being powered on
+        /// is not enough. Everything below that is the ordinary ladder: muted
+        /// outputs, levels at the floor, and PC audio off when there is no local
+        /// listening path.
+        ///
+        /// Ordered, and it stops at the first rung that fires, because a ladder
+        /// read out in full is a list nobody finishes.
+        /// </remarks>
+        public string SilentRadioAdvisory()
+        {
+            if (theRadio == null || !IsConnected)
+            {
+                return "No radio is connected. A Flex makes no audio at all until a client connects to it — "
+                     + "including at its own headphone jack. Connect first.";
+            }
+
+            bool hp = HeadphoneMute, lo = LineoutMute, fs = FrontSpeakerMute;
+            if (hp && lo && fs)
+            {
+                return "Every radio output is muted: headphones, line out, and the front speaker.";
+            }
+            if (hp && lo)
+            {
+                return "The headphone and line out outputs are both muted.";
+            }
+            if (hp) return "The headphone output is muted.";
+            if (lo) return "The line out output is muted.";
+
+            int hg = HeadphoneGain, lg = LineoutGain;
+            if (hg == 0 && lg == 0)
+            {
+                return "Both radio output levels are at zero. On a radio with no front panel knob, this is the only volume control there is.";
+            }
+            if (hg == 0) return "The headphone level is at zero.";
+            if (lg == 0) return "The line out level is at zero.";
+            if (hg <= 5 && lg <= 5) return "Both radio output levels are very low.";
+
+            if (!PCAudio && RemoteRig)
+            {
+                return "Radio audio is not playing through this computer, and on a remote connection there is no other way to hear it.";
+            }
+
+            return null;
         }
 
         public OffOnValues Vox
@@ -9001,6 +9102,57 @@ namespace Radios
         private JJPortaudio.Devices.Device remoteInputDevice, remoteOutputDevice;
         private const uint opusSampleRate = 48000;
 
+        /// <summary>
+        /// Resolve one end of the PC-audio path, speaking whenever the answer is
+        /// not the one the operator configured.
+        /// </summary>
+        /// <param name="type">input (computer microphone) or output (radio audio playback)</param>
+        /// <param name="role">word for this end, used in speech: "microphone" / "playback"</param>
+        /// <returns>a usable device, or null when nothing can be used.</returns>
+        /// <remarks>
+        /// QB Track B, 2026-08-07. Three outcomes, each audible except the one
+        /// that means nothing changed:
+        ///   - saved device present  → silent. A re-plug into a different USB
+        ///     port still resolves here, because identity is name plus host API,
+        ///     never the PortAudio index.
+        ///   - saved device missing, or never configured → adopt the system
+        ///     default, say so, keep going. Blocking the connect would punish the
+        ///     ordinary "docked laptop left the USB hub" case.
+        ///   - no device at all → say so and stop. The old code left only a trace
+        ///     line here, which is how a dead audio path came to look like a
+        ///     radio problem.
+        /// </remarks>
+        private JJPortaudio.Devices.Device ResolveAudioDevice(
+            JJPortaudio.Devices.DeviceTypes type, string role)
+        {
+            var dev = audioSystem.GetConfiguredDevice(type);
+            if (dev != null) return dev;
+
+            bool wasConfigured = audioSystem.IsSavedDeviceMissing(type, out string savedName);
+
+            var fallback = audioSystem.AdoptSystemDefault(type);
+            if (fallback == null)
+            {
+                Tracing.TraceLine("ResolveAudioDevice:" + type + " no device available", TraceLevel.Error);
+                ScreenReaderOutput.Speak(
+                    "Radio audio cannot start: this computer has no usable " + role
+                    + " device. Open Settings, Audio, Audio Devices to choose one.",
+                    VerbosityLevel.Critical, true);
+                return null;
+            }
+
+            Tracing.TraceLine("ResolveAudioDevice:" + type + " fell back to system default "
+                + fallback.Name, TraceLevel.Error);
+            ScreenReaderOutput.Speak(
+                wasConfigured
+                    ? "Your saved " + role + " device, " + savedName
+                      + ", is not connected. Using the system default, " + fallback.Name + "."
+                    : "No " + role + " device was chosen yet. Using the system default, "
+                      + fallback.Name + ". You can change it in Settings, Audio, Audio Devices.",
+                VerbosityLevel.Critical, true);
+            return fallback;
+        }
+
         class audioChannelData
         {
             public string Name;
@@ -9154,22 +9306,33 @@ namespace Radios
             }
 #endif
 
+            // QB Track B, 2026-08-07: this used to call GetConfiguredDevice with
+            // getNew:true, which popped a modal WinForms picker from THIS thread —
+            // a background, non-STA, ownerless audio thread, where the dialog can
+            // land behind the main window and focus handoff to NVDA is unreliable.
+            // That was the path a first-run machine actually hit at connect time.
+            // Now: resolve silently if we can, fall back to the system default
+            // with a spoken notice, and only give up — out loud — if there is no
+            // sound device at all. Never silence.
             audioSystem = new JJPortaudio.Devices(Callouts.AudioDevicesFile);
-            // Get the configured devices.
-            if (!audioSystem.Setup())
+            if (!audioSystem.Setup(out var audioEnumStatus, out string audioEnumMessage))
             {
-                Tracing.TraceLine("remoteAudioProc:audio setup failed", TraceLevel.Error);
+                Tracing.TraceLine("remoteAudioProc:audio setup failed, " + audioEnumStatus, TraceLevel.Error);
+                ScreenReaderOutput.Speak(
+                    string.IsNullOrEmpty(audioEnumMessage)
+                        ? "Radio audio cannot start: this computer's sound devices could not be read."
+                        : "Radio audio cannot start. " + audioEnumMessage,
+                    VerbosityLevel.Critical, true);
                 goto remoteDone;
             }
-            remoteInputDevice =
-                audioSystem.GetConfiguredDevice(JJPortaudio.Devices.DeviceTypes.input, true);
+
+            remoteInputDevice = ResolveAudioDevice(JJPortaudio.Devices.DeviceTypes.input, "microphone");
             if (remoteInputDevice == null)
             {
                 Tracing.TraceLine("remoteAudioProc:remoteInputDevice setup error", TraceLevel.Error);
                 goto remoteDone;
             }
-            remoteOutputDevice =
-                audioSystem.GetConfiguredDevice(JJPortaudio.Devices.DeviceTypes.output, true);
+            remoteOutputDevice = ResolveAudioDevice(JJPortaudio.Devices.DeviceTypes.output, "playback");
             if (remoteOutputDevice == null)
             {
                 Tracing.TraceLine("remoteAudioProc:remoteOutputDevice setup error", TraceLevel.Error);

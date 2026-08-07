@@ -1750,14 +1750,35 @@ Module globals
 #Region "remote audio"
     Private Const audioDevicesBasename As String = "audioDevices.xml"
     Friend AudioDevicesFile As String
-    Friend InputAudioDevice, OutputAudioDevice As JJPortaudio.Devices.Device
+    ' InputAudioDevice / OutputAudioDevice removed 2026-08-07 (QB Track B).
+    ' They were write-only: the old picker assigned them and nothing ever read
+    ' them back — FlexBase always re-reads audioDevices.xml through its own
+    ' Devices instance. Two module-level fields that looked like the current
+    ' selection but were not.
 
-    Friend Sub GetNewAudioDevices()
-        Dim dev = New JJPortaudio.Devices(AudioDevicesFile)
-        dev.Setup()
-        InputAudioDevice = dev.getNewDevice(JJPortaudio.Devices.DeviceTypes.input)
-        OutputAudioDevice = dev.getNewDevice(JJPortaudio.Devices.DeviceTypes.output)
-    End Sub
+    ''' <summary>
+    ''' Open the Audio Devices picker.
+    ''' </summary>
+    ''' <returns>True when radio audio has usable input and output devices afterwards.</returns>
+    ''' <remarks>
+    ''' QB Track B, 2026-08-07. This used to show the legacy devList form twice
+    ''' in a row — input, then output — with no announcement that a second
+    ''' dialog was coming, and cancelling the first still marched you into the
+    ''' second. One accessible dialog now covers both, plus the alert and meter
+    ''' devices, so there is one place to answer "which sound device does what".
+    ''' </remarks>
+    Friend Function GetNewAudioDevices() As Boolean
+        Try
+            Dim cfg = JJFlexWpf.AudioOutputConfig.Load(BaseConfigDir)
+            Return JJFlexWpf.Dialogs.AudioDevicesDialog.ShowPicker(
+                Nothing, AudioDevicesFile, cfg, Sub() cfg.Save(BaseConfigDir))
+        Catch ex As Exception
+            Tracing.TraceLine("GetNewAudioDevices failed: " & ex.Message, TraceLevel.Error)
+            ScreenReaderOutput.Speak("The audio device chooser could not open: " & ex.Message,
+                                     VerbosityLevel.Critical, True)
+            Return False
+        End Try
+    End Function
 
     ''' <summary>
     ''' PC audio
@@ -1783,6 +1804,20 @@ Module globals
         End Set
     End Property
 
+    ''' <summary>
+    ''' Gate every road to PC-audio-on through the same check: are there sound
+    ''' devices for it to use?
+    ''' </summary>
+    ''' <remarks>
+    ''' QB Track B, 2026-08-07. Three things changed here. The question is now
+    ''' asked in words that say what is wrong and what pressing Yes will do —
+    ''' "Audio devices are not configured" told an operator nothing about which
+    ''' devices or why it mattered. The yes-branch opens the one accessible
+    ''' picker instead of chaining two naked WinForms modals. And every outcome
+    ''' speaks, including the one where the user says no, because a keystroke
+    ''' that turns PC audio on and then silently does not is worse than one that
+    ''' fails out loud.
+    ''' </remarks>
     Friend Function EnsureAudioDevicesConfigured(prompt As Boolean) As Boolean
         If String.IsNullOrEmpty(AudioDevicesFile) Then
             Return True
@@ -1790,35 +1825,60 @@ Module globals
 
         Try
             Dim devices As New JJPortaudio.Devices(AudioDevicesFile)
-            If Not devices.Setup() Then
+            Dim status As JJPortaudio.Devices.EnumerationStatus
+            Dim enumMessage As String = Nothing
+            If Not devices.Setup(status, enumMessage) Then
+                ' No devices at all, or PortAudio would not start. There is
+                ' nothing the picker could offer, so say the real reason.
+                Tracing.TraceLine("EnsureAudioDevicesConfigured: enumeration failed, " & status.ToString(),
+                                  TraceLevel.Error)
+                ScreenReaderOutput.Speak(
+                    If(String.IsNullOrEmpty(enumMessage),
+                       "Radio audio cannot start: this computer's sound devices could not be read.",
+                       "Radio audio cannot start. " & enumMessage),
+                    VerbosityLevel.Critical, True)
                 Return False
             End If
 
-            Dim inputDev = devices.GetConfiguredDevice(JJPortaudio.Devices.DeviceTypes.input, False)
-            Dim outputDev = devices.GetConfiguredDevice(JJPortaudio.Devices.DeviceTypes.output, False)
+            Dim inputDev = devices.GetConfiguredDevice(JJPortaudio.Devices.DeviceTypes.input)
+            Dim outputDev = devices.GetConfiguredDevice(JJPortaudio.Devices.DeviceTypes.output)
 
             If (inputDev IsNot Nothing) AndAlso (outputDev IsNot Nothing) Then
                 Return True
             End If
 
+            ' Name what is missing. "Your headset is unplugged" and "you have
+            ' never chosen a device" are different problems with different fixes.
+            Dim savedInputName As String = Nothing, savedOutputName As String = Nothing
+            Dim inputMissing = devices.IsSavedDeviceMissing(JJPortaudio.Devices.DeviceTypes.input, savedInputName)
+            Dim outputMissing = devices.IsSavedDeviceMissing(JJPortaudio.Devices.DeviceTypes.output, savedOutputName)
+
+            Dim detail As String
+            If inputMissing OrElse outputMissing Then
+                Dim gone = If(outputMissing, savedOutputName, savedInputName)
+                detail = "The sound device you chose for radio audio, " & gone & ", is not connected."
+            Else
+                detail = "Radio audio needs a sound device on this computer and none has been chosen yet."
+            End If
+
             If Not prompt Then
+                ScreenReaderOutput.Speak(detail, VerbosityLevel.Critical, True)
                 Return False
             End If
 
-            Dim msg = "Audio devices are not configured. Select input and output devices now?"
+            Dim msg = detail & vbCrLf & vbCrLf & "Choose audio devices now?"
             If MessageBox.Show(AppShellForm, msg, MessageHdr, MessageBoxButtons.YesNo, MessageBoxIcon.Information) <> DialogResult.Yes Then
+                ScreenReaderOutput.Speak(
+                    "Radio audio is off. Choose devices any time from Settings, Audio, Audio Devices.",
+                    VerbosityLevel.Critical, True)
                 Return False
             End If
 
-            InputAudioDevice = devices.getNewDevice(JJPortaudio.Devices.DeviceTypes.input)
-            If InputAudioDevice Is Nothing Then
-                Return False
-            End If
-
-            OutputAudioDevice = devices.getNewDevice(JJPortaudio.Devices.DeviceTypes.output)
-            Return (OutputAudioDevice IsNot Nothing)
+            Return GetNewAudioDevices()
         Catch ex As Exception
             Tracing.TraceLine("Audio device check failed: " & ex.Message, TraceLevel.Error)
+            ScreenReaderOutput.Speak("Radio audio could not start: " & ex.Message,
+                                     VerbosityLevel.Critical, True)
             Return False
         End Try
     End Function

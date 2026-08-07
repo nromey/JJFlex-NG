@@ -1,0 +1,129 @@
+<local:JJFlexDialog x:Class="JJFlexWpf.Dialogs.AudioDevicesDialog"
+                    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:local="clr-namespace:JJFlexWpf"
+                    Title="Audio Devices"
+                    Width="560" Height="620"
+                    ResizeMode="NoResize"
+                    AutomationProperties.Name="Audio devices">
+    <DockPanel Margin="12">
+        <StackPanel DockPanel.Dock="Bottom" Style="{StaticResource ButtonPanel}">
+            <Button x:Name="RefreshButton"
+                    Content="_Refresh device list"
+                    MinWidth="150" Height="28" Margin="0,0,8,0"
+                    AutomationProperties.Name="Refresh the device list"
+                    AutomationProperties.AcceleratorKey="Alt+R"
+                    Click="RefreshButton_Click"/>
+            <Button x:Name="OkButton"
+                    Content="_OK"
+                    Style="{StaticResource OkButton}"
+                    AutomationProperties.Name="OK, save these audio devices"
+                    AutomationProperties.AcceleratorKey="Alt+O"
+                    Click="OkButton_Click"/>
+            <Button x:Name="CancelButton"
+                    Content="_Cancel"
+                    Style="{StaticResource CancelButton}"
+                    AutomationProperties.Name="Cancel"
+                    AutomationProperties.AcceleratorKey="Alt+C"
+                    Click="CancelButton_Click"/>
+        </StackPanel>
+
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <StackPanel>
+                <!-- Overall state. Read-only, but it is the first thing on the
+                     page so an operator arrowing down hears the situation before
+                     the controls. -->
+                <TextBlock x:Name="StatusText"
+                           Style="{StaticResource DialogLabel}"
+                           TextWrapping="Wrap"
+                           Margin="0,0,0,10"
+                           Focusable="True"
+                           AutomationProperties.LiveSetting="Polite"
+                           AutomationProperties.Name="Audio device status"/>
+
+                <!-- ================= Radio audio (PortAudio) ================= -->
+                <TextBlock Text="Radio audio through this computer"
+                           FontWeight="SemiBold"
+                           Style="{StaticResource DialogLabel}"
+                           Margin="0,0,0,2"/>
+                <TextBlock Style="{StaticResource DialogLabel}"
+                           TextWrapping="Wrap"
+                           Margin="0,0,0,6"
+                           Focusable="True"
+                           Text="These two are used when radio audio plays through this computer. On a remote connection they are the only way to hear the radio and the only way it hears you."
+                           AutomationProperties.Name="These two devices are used when radio audio plays through this computer. On a remote connection they are the only way to hear the radio and the only way it hears you."/>
+
+                <TextBlock Text="Radio receive audio plays through:"
+                           Style="{StaticResource DialogLabel}"
+                           Margin="0,0,0,2"/>
+                <ListBox x:Name="RadioOutputList"
+                         Height="110"
+                         Margin="0,0,0,4"
+                         KeyboardNavigation.DirectionalNavigation="Contained"
+                         AutomationProperties.Name="Radio receive audio output device"
+                         SelectionChanged="RadioOutputList_SelectionChanged"/>
+                <TextBlock x:Name="RadioOutputNote"
+                           Style="{StaticResource DialogLabel}"
+                           TextWrapping="Wrap"
+                           Margin="0,0,0,10"
+                           Focusable="True"
+                           AutomationProperties.LiveSetting="Polite"
+                           AutomationProperties.Name="Radio receive audio device note"/>
+
+                <TextBlock Text="Microphone sent to the radio:"
+                           Style="{StaticResource DialogLabel}"
+                           Margin="0,0,0,2"/>
+                <ListBox x:Name="RadioInputList"
+                         Height="110"
+                         Margin="0,0,0,4"
+                         KeyboardNavigation.DirectionalNavigation="Contained"
+                         AutomationProperties.Name="Microphone input device sent to the radio"
+                         SelectionChanged="RadioInputList_SelectionChanged"/>
+                <TextBlock x:Name="RadioInputNote"
+                           Style="{StaticResource DialogLabel}"
+                           TextWrapping="Wrap"
+                           Margin="0,0,0,10"
+                           Focusable="True"
+                           AutomationProperties.LiveSetting="Polite"
+                           AutomationProperties.Name="Microphone device note"/>
+
+                <Separator Margin="0,4,0,8"/>
+
+                <!-- ================= Alerts / CW (NAudio) ================= -->
+                <TextBlock Text="Alerts, CW notifications, and meter tones"
+                           FontWeight="SemiBold"
+                           Style="{StaticResource DialogLabel}"
+                           Margin="0,0,0,2"/>
+                <TextBlock Style="{StaticResource DialogLabel}"
+                           TextWrapping="Wrap"
+                           Margin="0,0,0,6"
+                           Focusable="True"
+                           Text="These are JJ Flex's own sounds, not the radio's. CW notifications play through the alert device — there is no separate CW output to choose."
+                           AutomationProperties.Name="These are JJ Flex's own sounds, not the radio's. CW notifications play through the alert device. There is no separate CW output to choose."/>
+
+                <TextBlock Text="Alert and CW notification device:"
+                           Style="{StaticResource DialogLabel}"
+                           Margin="0,0,0,2"/>
+                <ComboBox x:Name="AlertDeviceCombo"
+                          Style="{StaticResource DialogComboBox}"
+                          Margin="0,0,0,8"
+                          AutomationProperties.Name="Alert and CW notification output device"/>
+
+                <TextBlock Text="Meter tone device:"
+                           Style="{StaticResource DialogLabel}"
+                           Margin="0,0,0,2"/>
+                <ComboBox x:Name="MeterDeviceCombo"
+                          Style="{StaticResource DialogComboBox}"
+                          Margin="0,0,0,8"
+                          AutomationProperties.Name="Meter tone output device"/>
+
+                <TextBlock x:Name="FilterNoteText"
+                           Style="{StaticResource DialogLabel}"
+                           TextWrapping="Wrap"
+                           Margin="0,4,0,0"
+                           Focusable="True"
+                           AutomationProperties.Name="Device listing note"/>
+            </StackPanel>
+        </ScrollViewer>
+    </DockPanel>
+</local:JJFlexDialog>
