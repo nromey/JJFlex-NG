@@ -101,3 +101,93 @@ this worktree (`C:\dev\jjflex-qb-l`, branch `qb/track-l`) — never in
 Completed items, deferred items with reasons, changelog entries added
 (list their headings), build status, final pushed SHA. Append a "Design
 decisions" section to this file (committed) for judgment calls.
+
+## Design decisions (appended by QB Track L, 2026-08-07)
+
+1. **FinderDoors is a separate KeyInventory table, deliberately outside
+   All().** The four absorbed Command Finder rows are DOORS (menu paths /
+   dialogs), not keys — putting them through All() would have leaked them
+   into the key manifest and the Keys dialog, which item 1b said must gain
+   only the TXSlice keys. They are emitted verbatim (no "(on ...)"
+   suffix) so speech and searchability match the old inline rows exactly;
+   FixedKeyEntry gained an optional MenuText rather than a second type.
+   Accepted consequence: the Command Finder now carries BOTH the combined
+   TXSlice door row (with its menu path) and four per-key TXSlice rows
+   from the new FieldKeys entries — redundant but each accurate, and the
+   per-key rows are what every other field already gets. TXSlice help
+   descriptions were normalized to house style ("Up / Down", initial
+   caps); the '?' handler previously claimed the field had no keys, so
+   any wording delta is strictly an honesty upgrade.
+
+2. **The selector's identity card describes the CONNECTED radio, not the
+   selected row.** NetworkIdentityInfo.BuildLines takes a FlexBase and
+   renders only a connected rig's identity — that is the contract Track D
+   shipped and the spec said to adopt unchanged. So the card in the
+   picker answers "who am I connected to right now" (useful mid-switch),
+   and says "No radio connected" pre-connect — honest, per D's null
+   design. Wiring: a new GetCurrentRig callback resolved fresh on every
+   refresh (the app disposes/recreates its rig object during retries),
+   and a separate RadiosBox.SelectionChanged subscription — E's handler
+   untouched. Hosted exactly like the Status dialog (bold heading, own
+   tab stop, MaxHeight 120); dialog height 500 → 560 so the radio list
+   keeps its size. A per-SELECTED-radio identity card would need a
+   serial-keyed BuildLines overload — that is a Track D contract change,
+   left for Noel's "non-Settings quick surface" question.
+
+3. **Failure advice replaces the "offline" guess instead of stacking on
+   it.** With a report in hand, the announcement and body say "X is not
+   available. <report>"; "X is offline" survives only when no report was
+   filed (an auth failure is not "offline", and D's model says bare
+   wording only when evidence is genuinely absent). Both dialog variants
+   were updated: the WinForms one is the live startup caller; the WPF
+   twin (currently uncalled) kept in parity so whichever future path
+   adopts it inherits the behavior. The WinForms form now MEASURES the
+   message (TextRenderer) and sizes itself; the WPF one sizes to content.
+
+4. **Feature Availability wiring lives in MainWindow.OnRadioStarted, not
+   ApplicationEvents.vb.** The spec named ApplicationEvents.vb, but
+   ShowRadioInfoDialog is an instance property on each FlexBase — it must
+   be re-assigned per rig creation, and app startup has no rig.
+   OnRadioStarted is where the app already wires FlexBase dialog
+   delegates (ShowMemoriesDialog, and Sprint 11's own commit message says
+   "wired externally by MainWindow"), so the ShowOperatorsCallback
+   pattern's spirit — app-side wiring at the established site — is
+   honored at the site that can actually work. The feature-availability
+   text builder was ported from the deleted WinForms FlexInfo form into
+   FlexBase itself (theRadio is internal to the Radios assembly; the UI
+   gets thin lambdas). Nickname edits route through RenameRadio so the
+   dialog rename gets the same radio-side persistence as Radio Setup's.
+   The menu door speaks "Radio information is not available yet" if the
+   delegate is ever null — no silent menu items.
+
+5. **SliceStates enum went with SliceState(int).** The enum existed
+   solely as that method's return type; zero other references. A short
+   grave comment marks the spot with the MultiFlex rationale.
+   JJTraceListener.cs also came out of JJTrace.csproj's explicit Compile
+   list; "Tracing - Copy.cs" was never compiled at all. Orphan notices on
+   FiltersDspControl / RadioNumberBox are line comments ABOVE the XML doc
+   summaries so tooling still reads the docs.
+
+6. **Changelog: verified-then-added.** Radio output levels
+   (#radio-outputs-visible) and per-radio connection preferences
+   (#radios-tab) were already covered — not duplicated. Eight new
+   sections + six kitchen-sink bullets added; new headline bullets were
+   appended at the end of the existing headline list to keep every
+   existing anchor and narrative intact. The Audio Check section carries
+   the honesty framing Noel ratified for loopback ("rough listen", SDR is
+   ground truth). No track letters, no internal type names.
+
+7. **Debug bundle bounding shipped without a new ZipUtils API.** Items
+   were executed 6-then-7 as specced, but the changelog line for the
+   bounding rode in item 7's commit — a claim only gets written after its
+   code lands. Mechanism: the existing excludePattern drops trace-*.zip
+   from the whole-tree add, and CrashReporter.GetRecentTraceArchives
+   (Private → Friend) adds back the five newest SESSIONS at their real
+   Traces/yyyy/MM paths so the bundled manifest.json still points at
+   them. Five vs the crash bundle's three: a user-initiated support
+   bundle can afford more history than a crash-path artifact. FLAG, not
+   changed: the same routine also zips the entire install directory
+   ("program" entry) — self-contained builds make that ~190 MB raw, now
+   the dominant bundle weight. Bounding it is outside this item's mandate
+   (support may want binary evidence); Noel should decide whether the
+   program tree stays, shrinks to a version/hash manifest, or goes.
