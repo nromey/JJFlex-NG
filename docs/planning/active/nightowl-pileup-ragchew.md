@@ -89,11 +89,27 @@ names account), 17 ("see the message" sweep), startup-speech ordering policy.
 manager dialogs, SettingsDialog.RadioSetup rename GroupBox (only RadioSetup
 touch outside C's tabs).
 
-### Track G — Audio Workshop (deferred until plan lands)
-Cut from `docs/planning/active/audio-workshop-plan.md` when Noel's parallel
-Fable window delivers it. Own worktree `qb/track-g`; model decided from plan
-crispness. Seam: Track B owns SettingsDialog audio; G owns the Audio
-Workshop window.
+### Track G — Audio Workshop: hear yourself (plan delivered 2026-08-07)
+**Worktree:** `C:\dev\jjflex-qb-g`, branch `qb/track-g`. **Model: Fable** —
+phase 1 integrates with keying safety (`PttSafetyController`), which is
+judgment-tier work despite the crisp spec.
+**Spec:** the LIVING plan file `docs/planning/active/audio-workshop-plan.md`
+(mox-parrot-sidetone, Phil2's deliverable — he appends refinements and
+verification results; read the main-repo copy at launch, not a snapshot).
+**Shape decision (orchestrator):** ONE track, phased — all slices edit
+AudioWorkshopDialog, so parallel tracks would collide. Phase 1 buildable
+now: Audio Check session (MOX via PttSafetyController lock path, low-power
+default ON, two-stage Escape, safety line speaks freq+power, remote-DAF
+advisory), mode-aware monitor, TX-source annotations, help rewrite, Command
+Finder registration. Phase 2 gated on 8600 verification item 1: record/play
+wrappers + record-then-listen loop. **Loopback is NOT in G** — future Track
+H, cut only when Don's answers + on-radio verification agree.
+**Launch gate:** verification items 1 and 4 answered (Noel + Phil2 on the
+8600, results appended to the plan file).
+**Owns:** AudioWorkshopDialog.xaml(.cs), FlexBase ~7700-7960 region
+(record/play wrappers, public CW monitor pan), one unbound KeyCommands
+registration, `docs/help/md/audio-workshop.md`. Does NOT touch
+audio-troubleshooting.md (B) or Settings surfaces (B/C/F).
 
 ## Execution order
 
