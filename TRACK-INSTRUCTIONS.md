@@ -106,3 +106,145 @@ closes any dialog you add; errors never get suppress keys.
 Commit after each work item: `QB Track A: <what changed>`. Push to
 `origin` (never `upstream`). Report completion with your Design
 decisions section.
+
+## Design decisions (appended by QB Track A, 2026-08-07)
+
+1. **Radio menu maintenance section (item 1).** Two entries only — Reboot
+   Radio and Update Radio Firmware — in their own separated group above
+   Exit. "Update Radio Firmware" opens Settings pre-selected on the Radio
+   Setup tab, whose step 3 IS the existing firmware updater; no new
+   firmware UI was built and no deep-link-to-groupbox mechanism invented
+   (SelectTabByHeader is the existing deep-link granularity). No further
+   maintenance candidates added: rename lands here via Track F, the Radio
+   menu already carries Profiles/MultiFlex/auto-connect, and Track I's
+   menu-parity audit is the right owner for anything else.
+2. **Lineout gate + speech (item 2).** Gate removed. "Keep the speech
+   honest" was interpreted as: these handlers were entirely silent (the
+   old gate silently ate the keystroke, and even the working headphone
+   pair said nothing), so all four headphone/lineout handlers now compute
+   the clamped target locally and speak it ("Line out 45") — matching the
+   menu AdjustValue pattern, and computing locally because the FlexBase
+   setters are async-queued so an immediate read-back would speak the
+   stale value. AudioGain handlers were left as-is (out of item scope).
+3. **LocalAudioMute (item 3): killed.** No live caller anywhere; both
+   references were already commented out. Also removed its private
+   `maintainAudio` flag (write-only once the method died) and the
+   empty-bodied `if` in the LineoutMute case that read it. A short
+   comment marks the grave to stop future archaeology.
+4. **PlayCwSK (item 4).** Removed the entire four-delegate PowerOn
+   re-wire (AS/BT/SK/Mode), not just PlayCwSK — all four duplicated the
+   ctor wiring, and the SK copy was the pre-BUG-061 gappy version that
+   silently replaced the clean single-utterance one on every connect.
+   The BT connected-prosign block stays (it fires a sound, it doesn't
+   wire delegates). Close-path verification is by inspection:
+   ApplicationEvents.vb:395 and FlexBase.cs:1530 both invoke the static
+   delegate the ctor wired; no code path nulls it.
+5. **Remote re-click (item 5).** The 2026-08-06 fix already shortened the
+   wait to 2s-with-cached-fallback; this item's delta is IMMEDIATE
+   satisfaction. Key call: the discriminator is whether the TLS session
+   was already connected BEFORE this call (captured ahead of
+   session.Connect()), not whether it is connected at wait time — a
+   fresh session's one-and-only list is still in flight and deserves the
+   full wait, while a pre-existing session's list arrived long ago and
+   will never be re-sent. Unsolicited lists still land through the
+   persistent WanRadioRadioListRecieved subscription (the 8/06
+   refresh/morph flow), untouched. Failure classification untouched
+   (Track D seam respected).
+6. **Start Fresh with SmartLink (item 6).** Clears tokens for ALL
+   accounts via a new `ResetAllSignIns()` on the SHARED manager (the
+   2026-08-06 private-instance lesson), then routes through the existing
+   NewLoginRequested door so the clean native sign-in and the follow-up
+   list refresh reuse the tested loop. Deliberately does NOT delete the
+   accounts file: with native sign-in, clearing tokens IS the complete
+   reset (ratified in ResetAccountSignIn's design), and deleting would
+   destroy per-account port/mode settings Don's and Noel's radios need.
+   Per-account clearing already existed (Reset Sign-In), so "one or all"
+   is covered by the pair. The button hides in the connect-flow picker
+   (globals.vb) which doesn't wire the callback — the account MANAGER is
+   its home per spec. Auto-offering Start Fresh after N consecutive auth
+   failures: NOT built; recommend wiring a failure counter in setupRemote's
+   ConnectFailed path once Track D's auth-vs-not classification lands,
+   since counting non-auth failures would offer the wrong medicine.
+7. **Stub audit (item 7).** Wired: Station Lookup (menu routes through
+   ExecuteCommandCallback so menu/hotkey/Command Finder share one
+   dispatch and its no-radio guard), Operators (new
+   ShowOperatorsCallback → the VB Lister form over PersonalData — the
+   same live surface first-run uses; ConfigEvent handles operator
+   changes), Connected Stations (the never-referenced WPF
+   ShowStationNamesDialog + FlexBase.Stations; empty list speaks instead
+   of silently self-closing), Local PTT On (FlexBase.LocalPTT, a
+   set-true-only claim — shown as a checked item, re-click speaks
+   "already on"), Band Plans (the never-referenced WPF ShowBandsDialog +
+   HamBands.Bands, mirroring the old ShowBands form's query logic;
+   works with no radio; result text is plain lines, no tabs/columns).
+   Left stubbed: Log Characteristics, Import Log, Export Log, LOTW Merge
+   — the WinForms forms exist but their app-side wiring
+   (LogCharacteristicsForHotkey etc.) is itself stubbed pending the
+   logging-mode phase ("Phase 9.5"), so there is no working
+   implementation to wire to. Manage CW Messages: not in my list, left
+   alone. Hotkey Editor: untouched per Track H ownership. Honesty fix:
+   AddNotImplemented used to speak "{item}, not yet connected to radio"
+   — a lie that sent users hunting connection problems; it now says
+   "{item} is not yet implemented in this version." (This changes what
+   the remaining stubs, including Hotkey Editor until Track H lands,
+   say — deliberate.)
+8. **Minus entry (item 8).** Minus (unshifted OemMinus, or NumPad
+   Subtract with or without shift — Shift+OemMinus is underscore and
+   stays untouched) toggles the buffer sign and can start entry mode,
+   both gated on `_min < 0`. Rejection on non-negative fields uses
+   LeaderInvalidTone (the app's invalid-input earcon; no dedicated error
+   earcon exists) + "{label} does not go below {min}". Toggle-off speaks
+   "positive" so the state change is never silent. Track I seam: sign
+   handling is its own `ToggleBufferSign()` step inside
+   HandleNumberEntryKey, positioned as a "buffer edit" alongside future
+   decimal-point handling; entry-start went through a new
+   `BeginNumberEntry(firstKey)` that takes any starting key. A bare "-"
+   confirmed with Enter parses invalid, hitting the existing
+   "Invalid, cancelled" path.
+9. **RF Gain bounds + RadioNumberBox (item 9).** Finding: FiltersDspControl
+   (and RadioNumberBox, used only by it) is ORPHANED — no instantiation
+   anywhere outside its own files; it is the Sprint 8 WPF replacement for
+   Flex6300Filters that never got wired in. Defaults corrected to
+   FlexBase's real defaults (-10 to +30, step 10) and a public
+   `SetRFGainRange(min, max, increment)` seam added for whoever revives
+   it (it cannot reference FlexBase itself — documented circular-ref
+   rule). RadioNumberBox minus audit: NO minus gap — it is a plain
+   TextBox, signed entry always worked. Real adjacent bug found and
+   fixed: typed entries confirmed with Enter went to the rig UNCLAMPED
+   (the "overshoots the ceiling" half of Noel's report); UpdateBoxAndRig
+   now clamps to LowValue/HighValue, honoring the unlimited-high
+   convention (HighValue at or below LowValue).
+10. **Teardown guard (item 10): built, not skipped.** `_disposed` flag
+    checked in ApplyUIMode (which RebuildCurrentMenu funnels through).
+    Also unhooked ConnectionStateChanged in Dispose — it was subscribed
+    alongside SliceCountChanged but never removed, a genuine leak that
+    was itself a path to post-dispose rebuilds.
+11. **Connect double-beep (item 11, stretch): wired, audit follows.**
+    All four dispatch paths (picker local, picker remote, auto-connect,
+    remote reconnect) converge on the rig power event, through
+    MainWindow.PowerStatusHandler into PowerNowOn — the same reasoning
+    that moved the BT prosign there ("the semantically correct moment:
+    radio is up"). Today's sounds at that moment: Connecting-modal phase
+    tones (skip any phase under 500ms, so fast local connects are
+    silent) and the BT prosign (default-off CwNotificationsEnabled). So
+    a default-config LAN connect completed in total silence. New
+    `EarconPlayer.ConnectSuccessTone()` = the signature double-beep
+    (same 750 Hz pitch and cadence as phase 2, slightly louder at 0.5)
+    fires in PowerNowOn gated on the off-to-on transition so re-raised
+    power events cannot double-fire. Accepted overlap: a slow remote
+    connect can hear the phase-2 counting pair during progress AND the
+    success pair at arrival — progress vs arrival, distinct moments;
+    flagged for orchestrator review rather than inventing a new sound
+    that would not be "the" signature.
+
+## Needs Noel
+
+- **Success-earcon shape:** the double-beep is implemented as the
+  phase-2 750 Hz pair at slightly higher volume. If Noel wants a
+  distinct arrival voice (for example a rising pair), it is a one-line
+  change in ConnectSuccessTone.
+- **Stub-speech wording:** remaining stubs now say "... is not yet
+  implemented in this version." — confirm the phrasing suits the app's
+  voice.
+- **Start Fresh auto-offer:** deferred until Track D's ConnectFailed
+  auth classification lands (see decision 6).
