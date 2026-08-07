@@ -335,15 +335,50 @@ public class NativeMenuBar : IDisposable
         AddChecked(nrSub, "Legacy NR", () =>
             ToggleDSP("Legacy NR", () => Rig.NoiseReductionLegacy, v => Rig.NoiseReductionLegacy = v),
             () => Rig?.NoiseReductionLegacy == FlexBase.OffOnValues.on);
+        // QB Track I menu parity — the level under the toggle (matches the
+        // ScreenFields NR Level field that appears when Legacy NR is on).
+        AddWired(nrSub, "NR Level Up", () =>
+            AdjustValue("NR Level", () => Rig.NoiseReductionLegacyLevel, v => Rig.NoiseReductionLegacyLevel = v, 1, 1, 15));
+        AddWired(nrSub, "NR Level Down", () =>
+            AdjustValue("NR Level", () => Rig.NoiseReductionLegacyLevel, v => Rig.NoiseReductionLegacyLevel = v, -1, 1, 15));
 
         // === Noise Blankers submenu ===
         var nbSub = AddSubmenu(parent, "Noise Blankers");
         AddChecked(nbSub, "Noise Blanker (NB)\tCtrl+J, B", () =>
             ToggleDSP("Noise Blanker", () => Rig.NoiseBlanker, v => Rig.NoiseBlanker = v),
             () => Rig?.NoiseBlanker == FlexBase.OffOnValues.on);
+        AddWired(nbSub, "NB Level Up", () =>
+            AdjustValue("NB Level", () => Rig.NoiseBlankerLevel, v => Rig.NoiseBlankerLevel = v, 5, 1, 100));
+        AddWired(nbSub, "NB Level Down", () =>
+            AdjustValue("NB Level", () => Rig.NoiseBlankerLevel, v => Rig.NoiseBlankerLevel = v, -5, 1, 100));
         AddChecked(nbSub, "Wideband NB (WNB)\tCtrl+J, W", () =>
             ToggleDSP("Wideband NB", () => Rig.WidebandNoiseBlanker, v => Rig.WidebandNoiseBlanker = v),
             () => Rig?.WidebandNoiseBlanker == FlexBase.OffOnValues.on);
+        AddWired(nbSub, "WNB Level Up", () =>
+            AdjustValue("WNB Level", () => Rig.WidebandNoiseBlankerLevel, v => Rig.WidebandNoiseBlankerLevel = v, 5, 1, 100));
+        AddWired(nbSub, "WNB Level Down", () =>
+            AdjustValue("WNB Level", () => Rig.WidebandNoiseBlankerLevel, v => Rig.WidebandNoiseBlankerLevel = v, -5, 1, 100));
+
+        // === PC-side noise reduction (runs on the computer, ALL radios) ===
+        // QB Track I menu parity — these existed only as ScreenFields
+        // checkboxes; the menu is the addressable second door.
+        var pcSub = AddSubmenu(parent, "PC Noise Reduction");
+        AddChecked(pcSub, "PC Neural NR", () =>
+        {
+            var p = _window.FieldsPanel?.AudioPipeline;
+            if (p == null) { SpeakAfterMenuClose("PC audio pipeline not available"); return; }
+            p.RnnEnabled = !p.RnnEnabled;
+            SpeakAfterMenuClose(p.RnnEnabled ? "PC Neural NR on" : "PC Neural NR off");
+        }, () => _window.FieldsPanel?.AudioPipeline?.RnnEnabled == true);
+        AddChecked(pcSub, "PC Spectral NR", () =>
+        {
+            var p = _window.FieldsPanel?.AudioPipeline;
+            if (p == null) { SpeakAfterMenuClose("PC audio pipeline not available"); return; }
+            p.SpectralEnabled = !p.SpectralEnabled;
+            SpeakAfterMenuClose(!p.SpectralEnabled ? "PC Spectral NR off"
+                : p.HasNoiseProfile ? "PC Spectral NR on"
+                : "PC Spectral NR on, no noise profile loaded");
+        }, () => _window.FieldsPanel?.AudioPipeline?.SpectralEnabled == true);
 
         // === Auto Notch ===
         var anfSub = AddSubmenu(parent, "Auto Notch");
@@ -993,6 +1028,12 @@ public class NativeMenuBar : IDisposable
         AddNotImplemented(radio, "Connected Stations");
         AddNotImplemented(radio, "Local PTT On");
 
+        // QB Track I — the addressable transmit path Noel asked for:
+        // Alt+R → T → P walks to the Power dialog with accelerators the whole
+        // way. Same builder as Slice → Transmission (one room, two doors).
+        var radioTxSub = AddSubmenu(radio, "&Transmit");
+        BuildTransmitItems(radioTxSub);
+
         var loggingSub = AddSubmenu(radio, "Logging");
         AddNotImplemented(loggingSub, "Log Characteristics");
         AddNotImplemented(loggingSub, "Import Log");
@@ -1069,6 +1110,43 @@ public class NativeMenuBar : IDisposable
                             SpeakAfterMenuClose("Cannot release this slice");
                     }
                 });
+            }
+
+            // QB Track I — Transmit Slice submenu, mirroring Selection: one
+            // entry per slice with the checkmark on the current TX slice,
+            // plus an explicit clear. This is the discoverable door for what
+            // was previously only the hidden T keypress on the Slice field.
+            // Letters come from Slice.Letter via VFOToLetter (the radio's
+            // truth — Track J's identity rule), never positional arithmetic.
+            if (Rig.CanTransmit)
+            {
+                var txSliceSub = AddSubmenu(slice, "Transmit S&lice");
+                for (int i = 0; i < Math.Min(Rig.TotalNumSlices, 8); i++)
+                {
+                    int sliceNum = i;
+                    AddChecked(txSliceSub, $"Slice {Rig.VFOToLetter(i)}",
+                        () =>
+                        {
+                            if (Rig == null || !Rig.ValidVFO(sliceNum)) { SpeakNoRadio(); return; }
+                            Rig.TXVFO = sliceNum;
+                            SpeakAfterMenuClose($"Slice {Rig.VFOToLetter(sliceNum)} transmit");
+                        },
+                        () => Rig?.TXVFO == sliceNum);
+                }
+                AddSep(txSliceSub);
+                AddChecked(txSliceSub, "No Transmit Slice",
+                    () =>
+                    {
+                        if (Rig == null) { SpeakNoRadio(); return; }
+                        if (!Rig.HasTransmitSlice)
+                        {
+                            SpeakAfterMenuClose("No transmit slice is set");
+                            return;
+                        }
+                        Rig.ClearTransmitSlice();
+                        SpeakAfterMenuClose("Transmit slice cleared. No slice will key the radio.");
+                    },
+                    () => Rig?.HasTransmitSlice == false);
             }
 
             // Mode
@@ -1153,8 +1231,10 @@ public class NativeMenuBar : IDisposable
             var dspSub = AddSubmenu(slice, "DSP");
             BuildDSPItems(dspSub);
 
-            // Antenna — RX/TX select, ATU (if present), Diversity (if hardware supports)
-            var antSub = AddSubmenu(slice, "Antenna");
+            // Antenna — RX/TX select, ATU (if present), Diversity (if hardware
+            // supports). QB Track I: mnemonic N ("Audio" owns first-letter A),
+            // so exploration by accelerator reaches it directly.
+            var antSub = AddSubmenu(slice, "A&ntenna");
             BuildAntennaSelectItems(antSub);
             if (Rig.HasATU)
             {
@@ -1169,25 +1249,12 @@ public class NativeMenuBar : IDisposable
                 BuildDiversityItems(antSub);
             }
 
-            // Transmission (was "FM" — renamed for consistency with Classic menu)
+            // Transmission (was "FM" — renamed for consistency with Classic
+            // menu). QB Track I: contents now come from the shared
+            // BuildTransmitItems builder — identical to Radio → Transmit, so
+            // the two doors can never drift apart.
             var txSub = AddSubmenu(slice, "Transmission");
-            AddChecked(txSub, "Tune Carrier\tCtrl+Shift+T", () =>
-                _window.ToggleTuneCarrier(),
-                () => Rig?.TxTune == true);
-            AddSep(txSub);
-            AddChecked(txSub, "VOX On/Off", () =>
-                ToggleDSP("VOX", () => Rig.Vox, v => Rig.Vox = v),
-                () => Rig?.Vox == FlexBase.OffOnValues.on);
-            AddSep(txSub);
-            AddChecked(txSub, "Dummy Load Mode", () =>
-            {
-                Rig.DummyLoadMode = !Rig.DummyLoadMode;
-                if (Rig.DummyLoadMode)
-                    SpeakAfterMenuClose("Dummy load mode on. Power zero.");
-                else
-                    SpeakAfterMenuClose($"Dummy load mode off. Power restored to {Rig.XmitPower}.");
-            },
-            () => Rig?.DummyLoadMode == true);
+            BuildTransmitItems(txSub);
         }
         else
         {
