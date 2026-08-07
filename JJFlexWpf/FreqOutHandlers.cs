@@ -73,13 +73,15 @@ public class FreqOutHandlers
     // back to where I was" workflow: first '=' from split saves prior TX
     // and sets transceive; second '=' restores the saved TX (split). null
     // means "no prior split saved, just behave as one-way set transceive."
-    private int? _priorSplitTxVfo;
+    // Stored as the RADIO slice index (identity — letters survive roster
+    // churn; list positions don't). (QB Track J)
+    private int? _priorSplitTxSliceIndex;
 
     /// <summary>
     /// Universal '=' handler with memory of prior split TX. Toggles between
     /// transceive (TX = RX) and the previously-saved split TX.
     ///
-    /// First press from split: save current TX into _priorSplitTxVfo, set
+    /// First press from split: save current TX into _priorSplitTxSliceIndex, set
     /// TX = RX, announce "Slice X transceive."
     /// Second press from transceive (with valid prior): restore TX to the
     /// saved slice, announce "Split, RX slice X, TX slice Y." Clear prior.
@@ -95,27 +97,29 @@ public class FreqOutHandlers
         int tx = Rig.TXVFO;
         bool currentlyTransceive = (tx == rx);
 
-        bool priorIsValid = _priorSplitTxVfo.HasValue
-            && Rig.ValidVFO(_priorSplitTxVfo.Value)
-            && _priorSplitTxVfo.Value != rx;
+        // Resolve the saved IDENTITY to a current position; the saved slice
+        // may have moved (or been released) since the split was saved.
+        int restored = _priorSplitTxSliceIndex.HasValue
+            ? Rig.SliceIndexToVFO(_priorSplitTxSliceIndex.Value)
+            : -1;
+        bool priorIsValid = (restored >= 0) && (restored != rx);
 
         if (currentlyTransceive && priorIsValid)
         {
-            int restored = _priorSplitTxVfo!.Value;
             if (Rig.CanTransmit) Rig.TXVFO = restored;
             string rxLetter = Rig.VFOToLetter(rx);
             string txLetter = Rig.VFOToLetter(restored);
             Radios.ScreenReaderOutput.Speak(
                 $"Split, RX slice {rxLetter}, TX slice {txLetter}",
                 VerbosityLevel.Terse, true);
-            _priorSplitTxVfo = null;
+            _priorSplitTxSliceIndex = null;
         }
         else
         {
-            // Save current TX as the prior split iff we're actually in split.
+            // Save current TX (by identity) iff we're actually in split.
             // No-op if we're already transceive (nothing meaningful to save).
             if (tx != rx && Rig.ValidVFO(tx))
-                _priorSplitTxVfo = tx;
+                _priorSplitTxSliceIndex = Rig.VFOToSliceIndex(tx);
             if (Rig.CanTransmit) Rig.TXVFO = rx;
             string letter = Rig.VFOToLetter(rx);
             Radios.ScreenReaderOutput.Speak(
@@ -855,14 +859,9 @@ public class FreqOutHandlers
                 }
                 else if (ch >= 'A' && ch <= 'H')
                 {
-                    // Direct slice select: A=slice 0, B=slice 1, etc.
-                    int target = ch - 'A';
-                    if (Rig.ValidVFO(target))
-                    {
-                        Rig.RXVFO = target;
-                        Radios.ScreenReaderOutput.Speak($"Slice {Rig.VFOToLetter(target)} active", VerbosityLevel.Terse);
-                        e.Handled = true;
-                    }
+                    // Direct slice select by letter — identity, not position.
+                    SelectSliceByLetter(ch);
+                    e.Handled = true;
                 }
                 else if (ch == 'M')
                 {
@@ -942,6 +941,39 @@ public class FreqOutHandlers
         else
         {
             Tracing.TraceLine($"CycleVFO:no valid VFO found after {attempts} attempts, next={next}", TraceLevel.Warning);
+        }
+    }
+
+    /// <summary>
+    /// Direct slice select by letter — the letter is the radio's IDENTITY
+    /// (A = radio slice index 0), never a position in our slice list; the two
+    /// diverge after slice create/release churn. Pressing 'D' reaches radio
+    /// slice D or speaks an honest miss (not created / in use by another
+    /// station / beyond this radio). It never silently acts on a different
+    /// slice, and never silently swallows the keystroke.
+    /// </summary>
+    private void SelectSliceByLetter(char ch)
+    {
+        if (Rig == null) return;
+        int radioIndex = ch - 'A';
+        int target = Rig.SliceIndexToVFO(radioIndex);
+        if (target >= 0)
+        {
+            Rig.RXVFO = target;
+            // Announce the TRUE letter read back from the slice itself.
+            Radios.ScreenReaderOutput.Speak($"Slice {Rig.VFOToLetter(target)} active", VerbosityLevel.Terse, true);
+        }
+        else if (radioIndex >= Rig.TotalMaxSlices)
+        {
+            Radios.ScreenReaderOutput.Speak($"Slice {ch} not available on this radio", VerbosityLevel.Critical, true);
+        }
+        else if (Rig.SliceIndexOwnedByOther(radioIndex))
+        {
+            Radios.ScreenReaderOutput.Speak($"Slice {ch} is in use by another station", VerbosityLevel.Critical, true);
+        }
+        else
+        {
+            Radios.ScreenReaderOutput.Speak($"Slice {ch} not created", VerbosityLevel.Critical, true);
         }
     }
 
@@ -1159,13 +1191,9 @@ public class FreqOutHandlers
                 }
                 else if (ch >= 'A' && ch <= 'H')
                 {
-                    int target = ch - 'A';
-                    if (Rig.ValidVFO(target))
-                    {
-                        Rig.RXVFO = target;
-                        Radios.ScreenReaderOutput.Speak($"Slice {Rig.VFOToLetter(target)} active", VerbosityLevel.Terse);
-                        e.Handled = true;
-                    }
+                    // Direct slice select by letter — identity, not position.
+                    SelectSliceByLetter(ch);
+                    e.Handled = true;
                 }
                 break;
         }
@@ -1283,19 +1311,10 @@ public class FreqOutHandlers
                 }
                 else if (ch >= 'A' && ch <= 'H')
                 {
-                    // Direct slice select: A=slice 0, B=slice 1, etc. Mirrors
-                    // AdjustVFO's letter-jump so the Slice Operations field
-                    // behaves consistently with the Slice selector — pressing
-                    // 'a' jumps to slice A regardless of which slice is
-                    // currently active. (The previous 'A'-only handler set
-                    // RXVFO to itself, which was a no-op since vfo = RXVFO.)
-                    int target = ch - 'A';
-                    if (Rig.ValidVFO(target))
-                    {
-                        Rig.RXVFO = target;
-                        string letter = Rig.VFOToLetter(target);
-                        Radios.ScreenReaderOutput.Speak($"Slice {letter} active", VerbosityLevel.Terse, true);
-                    }
+                    // Direct slice select by letter — identity, not position.
+                    // Mirrors AdjustVFO's letter-jump so the Slice Operations
+                    // field behaves consistently with the Slice selector.
+                    SelectSliceByLetter(ch);
                     e.Handled = true;
                 }
                 else if (ch == 'T')
@@ -1833,11 +1852,12 @@ public class FreqOutHandlers
     }
 
     /// <summary>
-    /// Shared Shift+Comma handler — release every slice except the first, so
-    /// the operator ends up cleanly on just Slice A. The radio requires at
-    /// least one slice, so "release all" strictly means "release all the
-    /// extras." Speaks a no-op announcement when only one slice is active.
-    /// Reuses the multi-slice tri-tone earcon per user request.
+    /// Shared Shift+Comma handler — release every slice except the one the
+    /// user is ON, so the operator ends up cleanly on their active slice
+    /// (which keeps its letter; it does NOT become slice A). The radio
+    /// requires at least one slice, so "release all" strictly means "release
+    /// all the extras." Speaks a no-op announcement when only one slice is
+    /// active. Reuses the multi-slice tri-tone earcon per user request.
     /// </summary>
     private void ReleaseAllExtraSlicesAndAnnounce()
     {
