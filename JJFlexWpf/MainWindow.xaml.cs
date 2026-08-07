@@ -1225,6 +1225,14 @@ public partial class MainWindow : UserControl
     public Action? AudioSetupCallback { get; set; }
 
     /// <summary>
+    /// Full path to audioDevices.xml. Set by ApplicationEvents.vb at startup,
+    /// so Settings' Audio tab can open the device picker whether or not a radio
+    /// is connected. globals owns the path; this is a handoff, not a second
+    /// place that knows how to build it.
+    /// </summary>
+    public string? AudioDevicesFilePath { get; set; }
+
+    /// <summary>
     /// Antenna tune button base text, matching Form1 pattern.
     /// </summary>
     private const string AntennaTuneButtonBaseText = "Ant Tune";

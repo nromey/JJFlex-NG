@@ -109,6 +109,10 @@ Namespace My
 
             ' Wire audio device callback for NativeMenuBar Audio menu.
             WpfMainWindow.AudioSetupCallback = AddressOf GetNewAudioDevices
+            ' Settings' Audio tab opens the same picker and needs the same path,
+            ' with or without a radio connected. globals owns this string; hand
+            ' it over rather than letting the WPF side rebuild it from parts.
+            WpfMainWindow.AudioDevicesFilePath = AudioDevicesFile
 
             ' Wire key/command callbacks for WPF dialogs (Sprint 16 Track C).
             WpfMainWindow.GetKeyActionsCallback = Function()

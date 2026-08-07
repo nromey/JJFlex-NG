@@ -26,7 +26,7 @@ namespace JJFlexWpf.Dialogs
         public FlexBase? Rig
         {
             get => _rig;
-            set { _rig = value; RefreshNetworkTabFromRig(); RefreshRadioSetupTab(); }
+            set { _rig = value; RefreshNetworkTabFromRig(); RefreshRadioSetupTab(); RefreshAudioTabFromRig(); }
         }
 
         /// <summary>
@@ -112,6 +112,9 @@ namespace JJFlexWpf.Dialogs
             MeterVolumeControl.Min = 0;
             MeterVolumeControl.Max = 100;
             MeterVolumeControl.Step = 5;
+
+            // Radio output levels — live-apply, see SettingsDialog.Audio.cs.
+            InitializeAudioTab();
 
             LoadSettings();
         }
@@ -303,6 +306,11 @@ namespace JJFlexWpf.Dialogs
             {
                 _suppressDoubleTapToleranceAnnouncements = false;
             }
+
+            // Audio tab — radio outputs and PC audio. The Rig setter refreshes
+            // this again once it runs; calling it here means the advisory line
+            // is never blank, even if Rig is never assigned.
+            RefreshAudioTabFromRig();
         }
 
         private bool _suppressDoubleTapToleranceAnnouncements;

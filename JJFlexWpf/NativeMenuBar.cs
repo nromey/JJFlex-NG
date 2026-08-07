@@ -595,8 +595,17 @@ public class NativeMenuBar : IDisposable
             AddChecked(parent, "PC Audio On/Off", () =>
             {
                 if (Rig == null) { SpeakNoRadio(); return; }
-                Rig.PCAudio = !Rig.PCAudio;
-                SpeakAfterMenuClose(Rig.PCAudio ? "PC audio on" : "PC audio off");
+                bool wanted = !Rig.PCAudio;
+                Rig.PCAudio = wanted;
+                // Read the radio back rather than the request. Turning PC audio
+                // on can fail — no usable sound device — and the old code
+                // announced the wish, not the outcome, so a failed toggle said
+                // "PC audio on" while nothing played. QB Track B, 2026-08-07.
+                bool actual = Rig.PCAudio;
+                SpeakAfterMenuClose(
+                    actual ? "PC audio on"
+                    : wanted ? "PC audio could not start, still off"
+                    : "PC audio off");
             }, () => Rig?.PCAudio == true);
 
             AddSep(parent);
@@ -626,8 +635,12 @@ public class NativeMenuBar : IDisposable
             AddSep(parent);
         }
 
-        // Device setup — always available (no radio required)
-        AddWired(parent, "Radio Audio Device", () =>
+        // Device setup — always available (no radio required).
+        // Renamed 2026-08-07 (QB Track B): this is one dialog covering every
+        // sound device JJ Flex uses, not the old two-modals-in-a-row radio-only
+        // picker. The menu entry survives because muscle memory and the help
+        // pages both point at it; only the destination changed.
+        AddWired(parent, "Audio Devices", () =>
             _window.AudioSetupCallback?.Invoke());
         AddWired(parent, "Earcon Scratchpad", () =>
         {
@@ -1543,6 +1556,11 @@ public class NativeMenuBar : IDisposable
 
         var dialog = new Dialogs.SettingsDialog(pttConfig, coarseStep, fineStep, licenseConfig, audioConfig);
         dialog.FreqHandlers = _window.FreqHandlers;
+        // The Audio tab's device picker needs audioDevices.xml. Prefer the path
+        // the connect handed us; fall back to the one globals publishes at
+        // startup, so the picker still works with no radio connected.
+        dialog.AudioDevicesFile =
+            _window.OpenParms?.AudioDevicesFile ?? _window.AudioDevicesFilePath;
         dialog.Rig = _window.RigControl;
         // Settings → Radio Setup → Restart shares the hotkey binding's reboot flow;
         // this is the one piece it cannot reach on its own, since the display state
