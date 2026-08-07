@@ -2048,8 +2048,24 @@ public partial class MainWindow : UserControl
         // aside; Start() returns false and the normal failure path
         // (OpenTheRadio → Abort → CloseTheRadio) tears everything down
         // promptly. Same reasoning as the round-27 save-prompt removal.
-        Radios.ScreenReaderOutput.Speak($"{msg}. Disconnecting from the radio.",
-            VerbosityLevel.Critical, true);
+        //
+        // The speak must OUTLIVE the teardown (2026-08-06, traces 202128 and
+        // 202229): fired inline it dies in the focus churn — the Connecting
+        // window closes and the shell reactivates within milliseconds, and
+        // the screen reader's own focus announcements cut off anything in
+        // flight. Noel heard the earlier phase "connected" and then nothing,
+        // twice. Same swallow documented at the "Default account set" speak;
+        // longer delay here because this churn includes a cross-thread form
+        // close plus shell activation. Past tense — by the time this speaks,
+        // the teardown is done.
+        string speech = $"{msg}. Disconnected from the radio.";
+        System.Threading.Tasks.Task.Delay(750).ContinueWith(_ =>
+        {
+            Dispatcher.BeginInvoke(() =>
+            {
+                Radios.ScreenReaderOutput.Speak(speech, VerbosityLevel.Critical, true);
+            });
+        });
     }
 
     private void FeatureLicenseChangedHandler(object? sender, EventArgs e)
