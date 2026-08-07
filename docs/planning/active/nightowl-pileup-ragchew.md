@@ -190,6 +190,17 @@ costs nothing. The CW pipeline rewrite is deliberately NOT a track —
 design round first (wave 2), fed by the three research memos landing in
 `docs/planning/research/cw/`.
 
+## After this ensemble — the next arc is CW (decided 2026-08-07)
+
+When the merge train lands and the guided testing run completes, **the CW
+pipeline rewrite is the next ensemble** — ahead of Connect's build phase
+(Connect stays a parallel design/reading arc). Same lifecycle as this one:
+design round (Phil window) fed by the three memos in
+`docs/planning/research/cw/` + the trainer/pileup and public-domain-books
+ideas → named plan file → tracks. This section exists so the commitment
+lives in a committed plan document, not a queue line — Noel's explicit
+anti-burial requirement.
+
 ## After the merge — guided testing run
 
 When all tracks are merged and the build is clean, the orchestrator prepares
