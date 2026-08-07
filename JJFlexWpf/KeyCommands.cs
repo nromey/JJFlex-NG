@@ -620,6 +620,14 @@ public class KeyCommands
         if (rig == null) return;
         rig.SmeterInDBM = !rig.SmeterInDBM;
         _context.GetMainWindow()?.SetupOperationsMenu();
+        // Speak the result — this handler was silent when invoked by key,
+        // violating no-silent-keystrokes. A stale keymap binding parked on
+        // Ctrl+Shift+W dispatched here instead of the Audio Workshop and the
+        // only clue was the S-meter quietly "changing units" (2026-08-07
+        // live finding). Speech makes any future mis-dispatch self-diagnosing.
+        Radios.ScreenReaderOutput.Speak(
+            rig.SmeterInDBM ? "S meter in dBm" : "S meter in S units",
+            Radios.VerbosityLevel.Terse, true);
     }
 
     private void ReadSMeterHandler()
@@ -1194,7 +1202,25 @@ public class KeyCommands
         {
             if (!ScopeMatchesMode(item.Scope)) continue;
             if (item.Scope != KeyScope.Global)
-                return item; // Scoped match wins over Global (more specific).
+            {
+                // Scoped match wins over Global (more specific). In the
+                // DEFAULT table this pairing never exists (the validator
+                // treats Global + anything as a conflict), so a scoped entry
+                // sharing a chord with a Global one means a user keymap put
+                // it there — and the Global command is now unreachable in
+                // this mode. Trace it so the next Ctrl+Shift+W-style shadow
+                // hunt starts from evidence, not archaeology. (2026-08-07:
+                // a stale SmeterDBM binding shadowed OpenAudioWorkshop.)
+                foreach (var other in entries)
+                {
+                    if (other.Scope == KeyScope.Global)
+                    {
+                        _context.Trace($"Lookup: {k} scoped {item.KeyDef.Id} ({item.Scope}) shadows Global {other.KeyDef.Id}");
+                        break;
+                    }
+                }
+                return item;
+            }
             globalFallback = item;
         }
 
@@ -1570,7 +1596,20 @@ public class KeyCommands
             // MuteSlice (single-slice mute) to MuteAllSlices (multi-slice
             // mute). Users who had never customised Shift+M should get the
             // new behaviour automatically on first launch after the upgrade.
-            if (currentDefault == null)
+            //
+            // 2026-08-07 extension (the Ctrl+Shift+W shadow): the takeover
+            // check also runs when the command still EXISTS but its current
+            // default is unbound (Keys.None) and its saved-default history is
+            // untracked. Before this, a saved binding parked on a key that a
+            // NEW default later claimed survived every merge — SmeterDBM
+            // (default None since Jim's original) sat on Ctrl+Shift+W and
+            // silently shadowed the Global OpenAudioWorkshop chord via
+            // Lookup's scoped-wins rule, because the old `currentDefault ==
+            // null` gate never fired for a still-present command. Commands
+            // whose default CHANGED from a real key to None keep the normal
+            // default-changed path below (SavedDefaultKey is non-None there).
+            if (currentDefault == null ||
+                (currentDefault.Key == Keys.None && saved.SavedDefaultKey == Keys.None))
             {
                 if (saved.Key != Keys.None)
                 {
