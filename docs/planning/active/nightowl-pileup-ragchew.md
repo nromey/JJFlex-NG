@@ -97,26 +97,98 @@ judgment-tier work despite the crisp spec.
 (mox-parrot-sidetone, Phil2's deliverable — he appends refinements and
 verification results; read the main-repo copy at launch, not a snapshot).
 **Shape decision (orchestrator):** ONE track, phased — all slices edit
-AudioWorkshopDialog, so parallel tracks would collide. Phase 1 buildable
-now: Audio Check session (MOX via PttSafetyController lock path, low-power
-default ON, two-stage Escape, safety line speaks freq+power, remote-DAF
-advisory), mode-aware monitor, TX-source annotations, help rewrite, Command
-Finder registration. Phase 2 gated on 8600 verification item 1: record/play
-wrappers + record-then-listen loop. **Loopback is NOT in G** — future Track
-H, cut only when Don's answers + on-radio verification agree.
-**Launch gate:** verification items 1 and 4 answered (Noel + Phil2 on the
-8600, results appended to the plan file).
+AudioWorkshopDialog, so parallel tracks would collide. **ALL THREE PHASES
+BUILDABLE — the 2026-08-07 marathon completed every gating verification**
+(record-during-mute = real demodulated RF in the buffer; processing chain
+carried; antenna-isolation test closed the three-model saga: genuine RF
+through a massively overloaded receiver). Phase 1: Audio Check session
+(MOX via PttSafetyController lock path, low-power default ON, two-stage
+Escape, key-up announcement SAFETY-CRITICAL, safety line speaks
+freq+power, remote-DAF advisory), phone-mode-only monitor work (**CW half
+deferred behind the CW pipeline rewrite** — wave 2), TX-source awareness
+aimed at the ACTIVE source + mic-source surfacing (source coherence is
+the precondition), help rewrite, Command Finder registration,
+Ctrl+Shift+W shadow fix, MicInput="PC" investigation. Phase 2: record/
+play wrappers, auto-play-on-unkey default, recorder-state check before
+re-arm, 120s-cap/two-take awareness, honest fidelity labels. Phase 3:
+Loopback Check button — verified recipe + the new hard requirement:
+**manage coupling level** (dBm XVTR drive into the receiver's linear
+range; open question whether that upgrades the ratified "simulacrum"
+framing to clean demodulation — no promises in UI copy); SDR-on-antenna
+stays the stated ground-truth tier. Plus the crash pair from plan 4b:
+TX-getter family null-guards (FlexBase ~7839 region) and `_meterTimer`
+stops when the RIG dies, not just on dialog close.
+**Launch gate: NONE — fully cleared 2026-08-07.**
 **Owns:** AudioWorkshopDialog.xaml(.cs), FlexBase ~7700-7960 region
 (record/play wrappers, public CW monitor pan), one unbound KeyCommands
 registration, `docs/help/md/audio-workshop.md`. Does NOT touch
 audio-troubleshooting.md (B) or Settings surfaces (B/C/F).
 
+### Track H — Hotkey surface redesign + key coverage audit (added 2026-08-07)
+**Worktree:** `C:\dev\jjflex-qb-h`, branch `qb/track-h` — cut at launch.
+**Model: Fable.** Noel-directed after live-falsifying the legacy editor
+(Help → Key Assignments → Update cannot change a key; SetupKeysDialog is
+Jim's pre-v5 key-action system, orphaned from the unified KeyCommands
+dispatch). One Keys surface backed by the KeyCommands v5 registry: scope /
+alphabetical / function-group views; real editing with conflict
+detection (names the collision, steal/cancel), live rebind, unbind,
+reset-to-default; field-character keys as read-only rows; Tools and Help
+doors both open it (edit vs view); duplicate Help variants collapse.
+Deliverable: generated canonical key manifest reconciled against
+keyboard-reference.md (the CLAUDE.md keyboard-audit automation seed).
+Verify-then-delete the legacy dialog pair.
+**Owns:** the new Keys dialog, ShowKeysDialog/SetupKeysDialog retirement,
+menu wiring for Tools → Hotkey Editor + Help → Key Assignments,
+keyboard-reference.md reconciliation. Reads KeyCommands.cs broadly; merges
+AFTER A and G so their registrations are absorbed.
+
+### Track I — Menu-parity audit + XVTR-aware power control (added 2026-08-07)
+**Worktree:** `C:\dev\jjflex-qb-i`, branch `qb/track-i` — cut at launch.
+**Model: Fable.** Routed from the audio session (plan section 4a) as
+app-wide UI architecture. Menu-parity audit: every actionable ScreenFields
+control gets an addressable menu path with accelerators (Alt+R → T → P →
+Power dialog); part add-missing (power has no menu path), part
+make-findable (TX/RX antenna submenus exist at NativeMenuBar ~685-707,
+never met by the app's owner), part verify-across-dispatch-paths (four
+un-unified paths). XVTR-aware power control: power surfaces switch to
+dBm/decimal (`Xvtr.MaxPower`) when TX antenna is a transverter port,
+integer watts otherwise; verify typed-digit entry.
+**Owns:** NativeMenuBar menu additions, the new Power dialog, ScreenFields
+power field behavior. Coordinates with A (Radio menu section) and H (any
+new accelerators feed the key manifest) at merge.
+
+### Track J — Slice identity: position vs letter (added 2026-08-07)
+**Worktree:** `C:\dev\jjflex-qb-j`, branch `qb/track-j`. **Model: Fable.**
+The night's deepest correctness find: `mySlices` position ≠ radio letter
+after create/release churn — mode menu hits the wrong slice, pressing D
+lands on C, JumpToSlice announces fabricated letters. Fix: the LETTER is
+the identity (sort `mySlices` by radio index or map by letter), then
+audit every positional consumer (`VFOToSlice`/`SliceToVFO`, direct-select
+`ch-'A'`, `JumpToSlice`, RXVFO/TXVFO stale-position across removal,
+`ReleaseAllExtraSlices`). Slice menu Selection labels are the regression
+canary. **Owns:** FlexBase slice-mapping regions (~4700-5150, 6440-6550,
+8828, 10280-10360), FreqOutHandlers slice-select paths, JumpToSlice.
+No other track touches these. Merge early — it's correctness.
+
+### Track K — Trace rotation + crash-bundle size policy (added 2026-08-07)
+**Worktree:** `C:\dev\jjflex-qb-k`, branch `qb/track-k`. **Model: Opus** —
+design ratified (plan 4b), spec-shaped. Driver: an 11.7 GB live trace and
+a crash bundle that couldn't attach it. Size-based rotation into session
+PARTS (~250-500 MB, zip to archive, start fresh); crash bundles attach
+the CURRENT part; upload size policy with an honest "saved fine, too big
+to auto-send" message. **Owns:** JJTrace/Tracing.cs, boot maintenance,
+SaveCrash/bundle assembly, upload path. Zero overlap with other tracks.
+
 ## Execution order
 
-All five spawnable tracks (B–F) are independent of each other. **Noel's
-call (2026-08-07): no tracks launch until the audio workshop plan lands and
-Track G's instructions are cut** — then B–G can start in any order,
-simultaneously if desired. Track A runs in the orchestrator continuously.
+**Final roster (2026-08-07 integration complete): ten spawnable tracks
+B–K, plus Track A in the orchestrator.** All ten are mutually independent
+— start any subset in any order, simultaneously if desired. Practical
+suggestion at this scale: launch in two waves (e.g. B–G, then H–K as
+sessions free up); H merges after A/G/I regardless, so its late start
+costs nothing. The CW pipeline rewrite is deliberately NOT a track —
+design round first (wave 2), fed by the three research memos landing in
+`docs/planning/research/cw/`.
 
 ## After the merge — guided testing run
 
@@ -129,12 +201,16 @@ route back to the orchestrator.
 ## Merge plan
 
 Target: `track/flexlib-4220`, merged by the orchestrator (Track A session).
-Order: **B and E first** (as they complete, either order — smallest overlap),
-then **F**, then **C**, then **D**. Rationale: F's RadioSetup touch should land
-before C reworks the neighboring tabs; D's failure-path changes sit closest to
-C's sendRemoteConnect consult order, so D rebases on C's merged result. Clean
-build (`dotnet build JJFlexRadio.vbproj -c Debug -p:Platform=x64`) after every
-merge; exe timestamp verified per CLAUDE.md.
+Order: **J first** (core slice-identity correctness — everything else
+retests on top of it), then **B and E** (as they complete, either order),
+then **K and G** (isolated territories, any time), then **F**, then **C**,
+then **D**, then **A's own batch + I** (both touch NativeMenuBar — A lands
+first, I rebases on it), then **H last** (its key manifest absorbs every
+other track's registrations). Rationale for the middle: F's RadioSetup
+touch lands before C reworks neighboring tabs; D's failure-path changes sit
+closest to C's consult order, so D rebases on C's merged result. Clean
+build (`dotnet build JJFlexRadio.vbproj -c Debug -p:Platform=x64`) after
+every merge; exe timestamp verified per CLAUDE.md.
 
 If a track finishes out of order, the orchestrator may adjust and will tell
 Noel before proceeding.
