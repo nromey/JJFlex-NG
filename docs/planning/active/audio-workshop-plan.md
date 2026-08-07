@@ -29,6 +29,9 @@ Underneath, in `Radios/FlexBase.cs`:
 - `CWMonitorGain` → `TXCWMonitorGain` (7713) and internal `MonitorPan` → `TXCWMonitorPan` (7828) — CW-mode monitor, wrapped but not surfaced in the workshop. A `#if CWMonitor` local-sidetone subsystem also exists (enabled at line 7).
 - `Transmit` → `Radio.Mox` (setter ~6183, readback 4926-4930) — software keying already exists.
 - TX antenna list comes from the radio's own `Slice.TXAntList` (6441); internal string `TXAntenna` setter at 7019-7032 is a clean pass-through.
+- `XmitPower` → `Radio.RFPower` with an existing save/restore pattern (`_savedRFPower`, 7963-7984) — precedent for low-power-during-checks.
+
+**Found during verification prep (2026-08-07, changes the design): the keying guardrails already exist.** `JJFlexWpf/PttSafetyController.cs` is a full PTT safety subsystem: Ctrl+Space = TX while held, Shift+Space = TX lock, escalating warning states (Warning1/Warning2/OhCrap beeps), a license-aware `CanTransmitHereCheck` lockout, and a non-configurable 15-minute hard kill. `MainWindow.xaml.cs:2663` routes toggles through it. The Audio Check session must ride this controller, not grow its own timer stack — see section 3. The Transmit Controls dialog, by contrast, is rear-panel keying lines only (RCA/ACC, TX1/2/3 delays, hardware ALC) — no MOX or RF power surface exists in any dialog today.
 
 In vendor FlexLib:
 
@@ -55,10 +58,10 @@ The thing Noel asked for by name: an easy way to say "start transmit," then, in 
 **Session flow.**
 
 - Start speaks the safety line first: "Transmitting on 14.250 megahertz, 100 watts. Escape stops." (frequency + power always; over the Monitor method this is a real on-air signal). Then `Transmit = on`, focus lands on the first relevant control, and the existing tab order *is* the adjust ring — every control already speaks on change. No new focus machinery; the win is auto-focus plus keying, not a new widget set.
-- **Low-power-during-checks option, default ON** (flexibility principle: togglable, conservative default): session start drops RF power to a floor value (10W or the radio minimum), restores on stop, and says so ("power reduced to 10 watts for the check"). No dummy load in Noel's shack and none assumed in anyone's — an audio check should not blast full power by default.
-- While keyed: spoken elapsed reminders every 30 seconds at Terse ("transmitting, one minute"), hard stop at 3 minutes with a Critical announcement.
+- **Low-power-during-checks option, default ON** (flexibility principle: togglable, conservative default): session start drops RF power to a floor value (10W or the radio minimum), restores on stop, and says so ("power reduced to 10 watts for the check"). Reuse the existing `_savedRFPower` save/restore pattern (`FlexBase.cs:7963-7984`). No dummy load in Noel's shack and none assumed in anyone's — an audio check should not blast full power by default.
+- **Keying rides `PttSafetyController`, not a new timer stack.** The controller already owns hold-to-talk (Ctrl+Space), TX lock (Shift+Space), the escalating warning-beep ladder, the license-aware `CanTransmitHereCheck`, and the 15-minute hard kill. The session's Start button drives the controller's lock path so every existing safeguard applies unchanged; the session adds only its own spoken elapsed reminders and a shorter default soft timeout appropriate to a check (3 minutes, configurable later).
 - **Escape is two-stage: first press unkeys** ("Transmit off") and stays in the dialog; second press closes it. Escape never leaves you transmitting — this extends the house Escape rule rather than bending it.
-- Unkey unconditionally on: dialog close, radio disconnect, session teardown, timeout. The session restores whatever state it changed (monitor enable, RF power, and later the loopback's antenna/slice arrangement).
+- Unkey unconditionally on: dialog close, radio disconnect, session teardown, timeout — all through the controller so state stays coherent. The session restores whatever state it changed (monitor enable, RF power, and later the loopback's antenna/slice arrangement).
 - Remote awareness: when `RemoteRig`, session start adds "over remote, monitor audio arrives delayed — record and play back is recommended," because monitor audio rides the compressed RX stream back and delayed self-hearing actively disrupts speech. This is Don's actual situation and the likely test configuration (his radio, remote).
 
 **Record-and-play flow** (pending semantics verification, section 6):
@@ -68,18 +71,46 @@ The thing Noel asked for by name: an easy way to say "start transmit," then, in 
 
 **Mode-aware monitor section.** In CW mode the section shows "CW Monitor Gain" (`CWMonitorGain`, and promote `MonitorPan` to public for CW pan); in phone modes the existing SB fields. Section header names the mode so the screen reader user knows which knob family they're on.
 
-## 4. The transverter loopback (design-pending, mechanism as understood)
+**TX-source semantics and the mic source picker (added from live testing, 2026-08-07).** Discovered at the radio: the transmit source FOLLOWS THE KEYING METHOD. Software keying (Shift+Space lock / Ctrl+Space hold) transmits from the radio's mic-in setting — which JJFlex silently forces to "PC" when PC audio enables (`FlexBase.cs:9147`); the hand mic's own PTT button overrides the setting radio-side and uses the hand mic. Nobody documented this anywhere and it read as chaos until decoded. Work items:
 
-Noel's recollection of Don's procedure: turn the transverter port on, set that port to something very low, tune a second slice to what the transverter port was set to — and you hear your transmitted signal through the radio's own internals, no transverter connected. The likely mechanism: TX routed to the XVTR jack radiates ~milliwatts; a second slice receiving on the XVTR (or leaking into a normal front end) demodulates it — your signal after real modulation, not the DSP tap.
+- **Mic source picker** in the workshop's Microphone section ("Transmit audio from:"), fed by radio-reported `MicInputList`/`MicInput` (Radio.cs:8864-8890) — no JJFlex surface exposes this today. Directly enables Noel's ask: TX lock + hand mic as source, both hands free.
+- **Key-up speaks the source** ("Transmitting from hand mic" / "from PC audio") every time, both software keying and detected PTT.
+- **PTT reachability:** Shift+Space is registered Global (`KeyCommands.cs:1069` region) but modal dialogs swallow it silently — works only in the tuning/slice area (and, verified, the non-modal workshop). Violates no-silent-keystrokes; for remote operators "can't key while a dialog is open" is real. Decide: forward PTT chords from modal dialogs, or announce unavailability.
+- **Hold-to-talk discoverability:** Ctrl+Space (TX while held) exists in PttSafetyController and Noel — the project's own operator — did not know. Verify it's in `keyboard-reference.md` and say it in the workshop help.
 
-Open questions that block building it (Don + hardware answer these):
+## 4. The transverter loopback — VERIFIED LIVE on the 8600 (2026-08-07)
 
-- Does it need a 2-SCU radio (`FullDuplexEnabled` / receive-during-transmit), or does it work on Don's 1-SCU 6300 — and if so, how?
-- Is the second receiver a slice with RX antenna = XVTR, or a normal antenna hearing leakage?
-- Does it involve a defined XVTR band (`Xvtr.cs` objects) or just the antenna selection?
-- What actually goes over the air while doing it — nothing, or leakage worth a caveat?
+**It works, and Noel heard exactly how he sounds** ("you can totally tell exactly how you sound — amazing"): his actual transmitted signal through the real DSP chain (processing audibly present), modulated, demodulated on a second slice, inside one radio with zero antennas connected. Slight delay inherent to the path; fine for listening.
 
-If verified, the app automates the whole dance: snapshot state → arrange TX antenna/level and the listening slice → run the Audio Check session on it → tear down and restore on stop. Feature-gated by radio capability and `AvailableSlices`, with the Feature Availability tab explaining absence.
+**The verified recipe (8600):**
+
+1. `Radio.FullDuplexEnabled = 1` — **the gate.** With it off (factory default), keying mutes every receiver and the loopback is impossible. JJFlex exposes it nowhere; for the test it was set via raw LAN command (`radio set full_duplex_enabled=1`, `R1|0|` success). The automation sets and restores it.
+2. TX antenna = XVT A (per-slice, on the TX slice).
+3. Second slice, same frequency, same mode, **receive antenna = XVT A — same port worked**; no XVT B fallback needed at this power.
+4. RF power = 1 watt (0 was never tested for the loop; 1W confirmed).
+5. **TX Monitor OFF — part of the recipe.** Monitor on stacks the instant DSP tap over the delayed loopback into an echo; off yields the clean real signal. (Noel's live refinement — he first reached for slice muting, then found monitor-off is the whole fix; no slice muting needed since the TX slice's own RX antenna isn't the XVT port.)
+6. Key (hand-mic PTT in the test; software keying equivalent once the mic source picker exists) and talk.
+
+**Automation spec for the "Loopback check" button:** snapshot FDX flag + TX antenna + monitor state + RF power + slice roster → set all six recipe steps → announce "Loopback check ready — transmitting at one watt into the transverter port; you'll hear your actual signal" → teardown restores every saved value and removes the ears-slice. Gate on: 2 SCUs (capability check), `AvailableSlices >= 1`, XVT port present in the radio-reported TX antenna list. Feature Availability tab explains absence on radios that can't.
+
+**Still open (Don + follow-ups):**
+
+- Don's 1-SCU 6300: `FullDuplexEnabled` semantics there, and whether his procedure differs — his answers still gate the 6300/8400-class story (the 2-SCU recipe above is proven for 6600/6700/8600-class).
+- ~~Whether RF power 0 also drives the XVT port enough to loop~~ **ANSWERED: no — at power 0 the loop is silent; 1 watt (the integer floor above zero) is required.** Context that makes 1 fine: `Radio.RFPower` is an int (Radio.cs:8467, whole watts only — Noel's fractional-watts ask is impossible on the main control), but the XVT port is a milliwatt-class output (~+10 dBm max) the slider maps onto proportionally, so "1" is already microscopic at the jack. For precision drive later: `Xvtr.MaxPower` on defined transverter bands is a double in dBm, -10.0 to +10.0 in hundredths (Xvtr.cs:169-202). Check whether the power value field accepts typed digits; if not, work item.
+- **Reframing from Noel, live: the loopback is also a transmitter self-test** ("I'm glad I now know my exciter on A/B works") — one PTT press proves DSP → modulator → exciter → port routing with no antenna. Carry this into the help page and the feature's positioning: "check my audio" and "is my radio actually transmitting" are the same button.
+- No `Xvtr.cs` band definition was needed — plain antenna selection sufficed. Note for the docs: the "set the port to something very low" step in folklore appears to be the RF power floor, not an XVTR band frequency.
+- What leaks over the air at 1W into XVT with antennas connected — caveat wording for the help page.
+
+**Live finding (Noel, 2026-08-07): Ctrl+Shift+W did not open the workshop — it "changed units."** The default binding is correct (`KeyCommands.cs:1069`, Global scope → OpenAudioWorkshop), so something shadowed it: either a control-local units handler swallowing the chord while focus was in a ScreenFields value field (a raw `case Keys.W:` handler exists near `KeyCommands.cs:1958` — investigate), or a saved user keymap override. Audit item for this track: no control-local handler may shadow a Global-scope chord; every bound key speaks its true action in every state (no-silent-keystrokes rule — this one spoke, but spoke the wrong command). Command Finder → "workshop" is the reliable door meanwhile.
+
+## 4a. Menu-parity audit + XVTR-aware power control (Noel, live session, 2026-08-07 — handoff item)
+
+Sparked by the loopback session: the actionable radio controls in ScreenFields (transmit, receive, antenna sections) largely have no menu equivalents — ScreenFields' own menu just expands sections rather than offering actions. Noel uses field expanders constantly but wants the *addressable* path too: **Alt+R → T (Transmit) → P (Power)** should walk a menu with accelerators into a Power dialog. Two work items:
+
+- **Menu-parity audit:** every actionable ScreenFields control gets a menu path with accelerator keys. Reality check from the code: TX Antenna / RX Antenna submenus already EXIST in NativeMenuBar (~line 685-707, checkable, spoken confirmation, built from radio-reported lists) — but Noel has never met them, so the audit is part "add missing items" (power has no menu path anywhere) and part "make existing items findable / verify every menu mode builds them" (the dispatch paths are not unified — four parallel paths per memory). Audit-and-change item, **routed to the orchestrator** (Noel: pass to Phil the first) for filing into the track set — it is app-wide UI architecture, bigger than the audio track.
+
+**Shared-radio courtesy (Noel, same session): keying should not interrupt other clients' listening.** On a shared radio (MultiFlex — e.g., a listen-only guest connected while the owner operates), every listener's RX mutes whenever the transmitting operator keys, because full duplex defaults off. On 2-SCU radios, `FullDuplexEnabled` is exactly the mechanism that would keep listeners' slices alive through the owner's transmissions. Design input for the sharing/scheduling/Connect vision (TX-is-a-mutex memory, slice camping, MultiFlex scheduling): a "keep listeners listening" policy on shared 2-SCU radios — with the front-end/antenna caveats thought through (a listener on a nearby antenna will hear the TX; their choice). Not audio-track scope; flag for the Connect design inputs section of the queue.
+- **XVTR-aware power control:** the Power dialog (menu path) and the ScreenFields power field both switch to milliwatt/dBm entry (decimal, `Xvtr.MaxPower` semantics) when the selected TX antenna is a transverter port; integer watts otherwise. The radio's own design agrees — fine drive control exists only in the XVTR band definition because dBm is the transverter world's unit and mixer overdrive is the classic transverter killer.
 
 ## 5. Help and docs deliverables
 
@@ -90,12 +121,16 @@ If verified, the app automates the whole dance: snapshot state → arrange TX an
 
 ## 6. Verification sessions (split by hardware reality)
 
+**Live results, round two (Noel at the radio with the hand mic, 2026-08-07):** the 8600's hand mic works as TX source WITH PC audio on — monitor audio reached the PC headphones while the front-panel mic fed the transmitter. Code question flagged: `FlexBase.cs:9147` sets `MicInput = "PC"` when PC audio enables, yet the hand mic was clearly the source — either hand-mic PTT overrides the input selection radio-side or the source logic is subtler; investigate in code. **Monitor latency is audible even on LAN** via the PC-audio path ("after a bit of delay I hear myself") while the radio's own headphone jack is instant — the DAF concern is real locally, not just remote; record-then-play-back stays the recommended check for remote. Zero-signal watcher confirmed working: with an empty capture device as source, "check mic" spoke during TX (the advisory pattern the plan wants, already alive).
+
+**Live results, round one (Noel at the 8600 via ms-02, 2026-08-07, RF power 0, no antennas):** TX Monitor audio RIDES THE PC-AUDIO STREAM — Noel heard himself through the PC speakers on a local connection, so the hear-yourself loop needs no radio hardware outputs and is the same path remote users get (plus latency). Shift+Space TX lock WORKS from inside the workshop window — global commands reach it, so the one-surface loop half-exists today. Curiosity flagged: ms-02 reportedly has no mic connected, yet something fed TX audio — whatever capture device PC audio silently defaulted to; live instance of the wrong-mic hazard the Settings→Audio track (Track B) is designing against. Session continuing from a machine with a real mic.
+
 On the 8600 (the test mule — local, low power or loopback; never full power, no dummy load):
 
 1. **Record semantics:** with monitor on, key + `RecordOn` + talk + unkey — does playback contain my TX audio? Does `PlayOn` while keyed transmit the recording (parrot)? What does `PlayEnabled` gate?
-2. **Antenna lists:** does the 8600 report XVTR in `TXAntList`/`RXAntList`, and does the current WPF antenna surface show it?
+2. **Antenna lists:** does the 8600 report XVTR in `TXAntList`/`RXAntList`, and does the current WPF antenna surface show it? **ANSWERED (Noel, live at the 8600, 2026-08-07):** RX antenna picker reads ANT 1, ANT 2, RX antenna 1, RX antenna 2, XVT A, XVT B; TX antenna picker reads ANT 1, ANT 2, XVT A, XVT B. The 8600 exposes TWO transverter ports (vs the 6300 era's single "XVTR"), both selectable on both sides in shipping JJFlex — the entire loopback signal path is reachable with zero new plumbing. The RX-only jacks (RX A/B IN, rear-panel BNCs) correctly drop out of the TX list. Remaining question is purely acoustic: does audio make it around the loop (item 3).
 3. **Loopback:** second slice per Don's procedure — audible? Requires `FullDuplexEnabled`? At what port level?
-4. **TX-source behavior:** with PC-sourced TX audio, does `MicGain` act on the stream? Do compander/processor/filter demonstrably apply? (They should — radio-side DSP — but the workshop's annotations depend on the answer.)
+4. **TX-source behavior:** with PC-sourced TX audio, does `MicGain` act on the stream? Do compander/processor/filter demonstrably apply? (They should — radio-side DSP — but the workshop's annotations depend on the answer.) **ANSWERED for the gain half (Noel, live, 2026-08-07): `MicGain` acts on the SELECTED mic input, not the actual source.** Hand mic + PC audio ON (selection forced to "PC"): monitor audible, Mic Gain arrows do nothing — the knob was adjusting the PC stream while the PTT-override hand mic fed TX untouched. Hand mic + PC audio OFF: Mic Gain works normally. Design consequence: the workshop must aim its controls at the ACTIVE source or say why not — today it silently adjusts a control outside the audio path. Prediction to verify once the mic source picker exists: picker set to MIC + PC audio on → gain works. Compander/processor/filter-apply-to-PC-stream still open (test when a PC mic is available).
 5. **CW monitor:** confirm `TXCWMonitorGain` moves sidetone level as expected with the `#if CWMonitor` subsystem active.
 
 Against Don's 6300 (remote, PC-sourced TX audio — the real user configuration):
