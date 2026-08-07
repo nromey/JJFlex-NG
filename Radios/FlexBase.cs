@@ -7967,6 +7967,87 @@ namespace Radios
             }
         }
 
+        // ── Audio Check / hear-yourself support (QB Track G, 2026-08-07) ──
+        //
+        // Public wrappers for the Audio Workshop's Audio Check session.
+        // Internal OffOnValues-typed Play/Record wrappers already exist for
+        // in-assembly callers; these bool-typed public ones serve JJFlexWpf
+        // (separate assembly, no InternalsVisibleTo).
+
+        /// <summary>
+        /// Radio-reported TX mic input list (e.g. MIC, BAL, LINE, ACC, PC).
+        /// Empty until the radio answers "mic list".
+        /// </summary>
+        public List<string> MicSourceList => theRadio?.MicInputList?.ToList() ?? new List<string>();
+
+        /// <summary>
+        /// The radio's selected TX mic input. Verified live (2026-08-07):
+        /// MicGain acts on THIS selection, not on whatever is actually feeding
+        /// the transmitter — a hand-mic PTT override keys from the mic jack
+        /// regardless of this setting, and the gain knob then adjusts an idle
+        /// stream. Note the PC-audio path silently forces this to "PC" when it
+        /// starts (startOpusOutputChannel) and restores the prior value when
+        /// it stops.
+        /// </summary>
+        public string MicSource
+        {
+            get { return theRadio?.MicInput ?? ""; }
+            set { q.Enqueue((FunctionDel)(() => { theRadio.MicInput = value; }), "MicInput"); }
+        }
+
+        /// <summary>
+        /// Full duplex: receivers stay alive while transmitting. Radio-wide
+        /// flag, meaningful on 2-SCU radios; factory default off (keying mutes
+        /// every RX). The loopback check sets it and MUST restore the prior
+        /// value on teardown — never leave it changed.
+        /// </summary>
+        public bool FullDuplexEnabled
+        {
+            get { return theRadio?.FullDuplexEnabled ?? false; }
+            set { q.Enqueue((FunctionDel)(() => { theRadio.FullDuplexEnabled = value; }), "FullDuplexEnabled"); }
+        }
+
+        /// <summary>
+        /// Active slice quick-record (SmartSDR's Quick Record). Verified
+        /// telemetry (2026-08-07 live): buffer caps at 120 seconds and behaves
+        /// ring-like at the cap (recent material kept); two takes can coexist.
+        /// The record tap sits upstream of the TX audio mute, so it captures
+        /// demodulated audio even with full duplex off. Callers MUST check
+        /// state before re-arming — a live re-arm race nearly wiped takes.
+        /// </summary>
+        public bool SliceRecordOn
+        {
+            get { return theRadio?.ActiveSlice?.RecordOn == true; }
+            set { if (HasActiveSlice) q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.RecordOn = value; }), "RecordOn"); }
+        }
+
+        /// <summary>Active slice quick-play of the record buffer.</summary>
+        public bool SlicePlayOn
+        {
+            get { return theRadio?.ActiveSlice?.PlayOn == true; }
+            set { if (HasActiveSlice) q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.PlayOn = value; }), "PlayOn"); }
+        }
+
+        /// <summary>True when the record buffer has playable content.</summary>
+        public bool SlicePlayEnabled => theRadio?.ActiveSlice?.PlayEnabled ?? false;
+
+        /// <summary>
+        /// The radio-reported PTT source ("SW", "Mic", "ACC", "RCA", "TUNE",
+        /// or "None"), from the interlock status "source=" field.
+        /// </summary>
+        public string PttSourceName => theRadio?.PTTSource.ToString() ?? "None";
+
+        /// <summary>
+        /// True when the transmitter is keyed by a HARDWARE line (front-panel
+        /// mic PTT, ACC, or rear RCA). Safety-critical honesty: software unkey
+        /// correctly cannot override a hardware keying line — a hand mic on
+        /// the rear RCA keeps the rig transmitting no matter what the app
+        /// does, and the operator must be told so (2026-08-07 stuck-TX
+        /// episode, interlock source=RCA).
+        /// </summary>
+        public bool PttSourceIsHardware =>
+            theRadio?.PTTSource is PTTSource.Mic or PTTSource.ACC or PTTSource.RCA;
+
         // Dummy Load Mode: zeroes power for safe PTT testing, restores on disable
         private bool _dummyLoadMode;
         private int _savedRFPower;
