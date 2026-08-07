@@ -142,11 +142,13 @@ namespace JJFlexWpf.Dialogs
                 SetupUnregisterButton.IsEnabled = false;
                 SetupTestNetworkButton.IsEnabled = false;
                 SetupRebootButton.IsEnabled = false;
+                RefreshRadioNameField(connected: false);
                 return;
             }
 
             SetupTestNetworkButton.IsEnabled = true;
             SetupRebootButton.IsEnabled = true;
+            RefreshRadioNameField(connected: true);
 
             bool overSmartLink = _rig!.IsWanConnection;
             string where = _rig.CurrentRadioIP?.ToString() ?? "an unknown address";
@@ -254,6 +256,67 @@ namespace JJFlexWpf.Dialogs
             RefreshRadioSetupTab();
             ScreenReaderOutput.Speak("Steps refreshed.", VerbosityLevel.Terse, interrupt: true);
         }
+
+        #region Step 2 — radio name
+
+        /// <summary>
+        /// Keep the name box tracking the radio's actual name. Skipped while the
+        /// user is typing in it — the status refresh runs on several triggers
+        /// (address changes, registration completing) and clobbering a
+        /// half-typed name would be rude.
+        /// </summary>
+        private void RefreshRadioNameField(bool connected)
+        {
+            if (SetupRadioNameBox == null) return;
+
+            SetupRadioNameBox.IsEnabled = connected;
+            SetupApplyNameButton.IsEnabled = connected;
+
+            if (!SetupRadioNameBox.IsKeyboardFocusWithin)
+                SetupRadioNameBox.Text = connected ? _rig!.RadioNickname : string.Empty;
+        }
+
+        /// <summary>
+        /// Push the typed name to the radio. The name is stored in the radio
+        /// itself and flows back through discovery, so it is what the radio
+        /// list and SmartLink show from now on. Works over any connection type
+        /// — renaming is a plain command, unlike registration.
+        /// </summary>
+        private void SetupApplyNameButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (_rig == null || !_rig.IsConnected)
+            {
+                ScreenReaderOutput.Speak("No radio connected.", VerbosityLevel.Terse, interrupt: true);
+                return;
+            }
+
+            string newName = SetupRadioNameBox.Text?.Trim() ?? string.Empty;
+            if (newName.Length == 0)
+            {
+                // An empty name would show as Unknown everywhere — refuse and
+                // put the current name back so the box matches reality.
+                SetupRadioNameBox.Text = _rig.RadioNickname;
+                ScreenReaderOutput.Speak(
+                    "Type a name first. The radio keeps its current name.",
+                    VerbosityLevel.Terse, interrupt: true);
+                SetupRadioNameBox.Focus();
+                return;
+            }
+
+            if (_rig.RenameRadio(newName))
+            {
+                // Critical: this is a confirmation of a radio-side change the
+                // user cannot see any other way from here.
+                ScreenReaderOutput.Speak($"Radio renamed to {newName}.", VerbosityLevel.Critical, interrupt: true);
+                RefreshRadioNameField(connected: true);
+            }
+            else
+            {
+                ScreenReaderOutput.Speak("The radio could not be renamed.", VerbosityLevel.Terse, interrupt: true);
+            }
+        }
+
+        #endregion
 
         #region Step 2 — SmartLink registration
 

@@ -690,6 +690,30 @@
                         <StackPanel Margin="4">
                             <TextBlock TextWrapping="Wrap" Margin="0,0,0,6"
                                        Text="Registering ties the radio to your SmartLink account so you can reach it from away from home. The radio will ask you to key the microphone or the CW key to prove someone is standing at it. FlexRadio requires that and it cannot be done remotely — so a radio has to be registered before it goes anywhere you cannot reach."/>
+
+                            <!-- Naming lives with registration on purpose: this is
+                                 the moment a radio gets set up, and an unnamed radio
+                                 is what gets mis-picked from the list later. The
+                                 name is stored in the radio itself, so it needs a
+                                 connection — but unlike registering, renaming works
+                                 over SmartLink too, so it only gates on step 1. -->
+                            <TextBlock TextWrapping="Wrap" Margin="0,0,0,6"
+                                       Text="While you are here, give the radio a name. The name lives in the radio itself and is what shows in the radio list and on SmartLink — an unnamed radio shows as Unknown and is easy to pick by mistake."/>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                                <TextBlock Text="Radio name:" VerticalAlignment="Center"
+                                           Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
+                                <TextBox x:Name="SetupRadioNameBox"
+                                         Width="220" VerticalAlignment="Center"
+                                         Style="{StaticResource DialogTextBox}"
+                                         AutomationProperties.Name="Radio name, stored in the radio itself"/>
+                                <Button x:Name="SetupApplyNameButton"
+                                        Content="Apply na_me"
+                                        Margin="8,0,0,0" Padding="12,4"
+                                        AutomationProperties.Name="Apply the name to the radio"
+                                        AutomationProperties.AcceleratorKey="Alt+M"
+                                        Click="SetupApplyNameButton_Click"/>
+                            </StackPanel>
+
                             <TextBlock x:Name="SetupRegisterStatus"
                                        Style="{StaticResource DialogLabel}"
                                        TextWrapping="Wrap"

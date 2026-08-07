@@ -306,7 +306,44 @@ namespace Radios
             var profile = RadioConfig.LoadForRadio(radio.Serial);
             profile.Nickname = newName.Trim();
             profile.SaveForRadio(radio.Serial);
+
+            RefreshAutoConnectDisplayName(radio.Serial, newName.Trim());
             return true;
+        }
+
+        /// <summary>
+        /// After a rename, keep the auto-connect config's stored display name in
+        /// step — serial is its key so nothing breaks without this, but startup
+        /// speech ("Connecting to X") reads the stored name, and hearing the old
+        /// name every morning after renaming would look like the rename failed.
+        /// Best-effort: the auto-connect file is per-operator under the base
+        /// config directory (the parent of the Radios directory Callouts hands
+        /// us), and a radio that is not the auto-connect radio needs nothing.
+        /// </summary>
+        private void RefreshAutoConnectDisplayName(string serial, string newName)
+        {
+            try
+            {
+                string radiosDir = Callouts?.ConfigDirectory ?? string.Empty;
+                string opName = Callouts?.OperatorName ?? string.Empty;
+                if (radiosDir.Length == 0 || opName.Length == 0) return;
+
+                // Callouts.ConfigDirectory is BaseConfigDir + "\Radios" (globals.vb
+                // openTheRadio); AutoConnectConfig lives in BaseConfigDir itself.
+                string baseDir = Path.GetDirectoryName(radiosDir.TrimEnd('\\')) ?? string.Empty;
+                if (baseDir.Length == 0) return;
+
+                var auto = AutoConnectConfig.Load(baseDir, opName);
+                if (!auto.Enabled || auto.RadioSerial != serial || auto.RadioName == newName) return;
+
+                auto.RadioName = newName;
+                auto.Save(baseDir, opName);
+                Tracing.TraceLine($"RenameRadio: auto-connect display name updated to '{newName}'", TraceLevel.Info);
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine($"RenameRadio: auto-connect display name not updated: {ex.Message}", TraceLevel.Error);
+            }
         }
         public bool NoiseReductionLicenseReported => theRadio?.FeatureLicense?.LicenseFeatNoiseReduction != null;
         /// <summary>
