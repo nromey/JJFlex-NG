@@ -41,6 +41,8 @@ public partial class AudioWorkshopDialog : JJFlexDialog
     private CycleFieldControl? _listenMethodControl;
     private CheckBox? _lowPowerCheck;
     private Button? _playTakeButton;
+    private Button? _loopbackButton;
+    private TextBlock? _loopbackInfo;
     private CycleFieldControl? _micSourceControl;
     private TextBlock? _monitorHeader;
 
@@ -150,10 +152,12 @@ public partial class AudioWorkshopDialog : JJFlexDialog
 
     public void SetRig(FlexBase? rig)
     {
+        var oldRig = _rig;
         _rig = rig;
         if (rig != null)
         {
             LoadPerRadioPrefs();
+            UpdateLoopbackAvailability();
             PollTxAudio();
             _meterTimer.Start();
         }
@@ -163,6 +167,11 @@ public partial class AudioWorkshopDialog : JJFlexDialog
             // radio — the session skips rig writes when the rig is null).
             _session?.ForceEnd("Radio disconnected, audio check ended");
             _session = null;
+            // Clear a stale loopback arrangement flag on the departing rig so
+            // a reconnect on the same FlexBase can arrange again. Writes are
+            // internally guarded when the underlying radio is gone.
+            if (oldRig != null && oldRig.LoopbackArranged)
+                oldRig.EndLoopbackArrangement();
             _meterTimer.Stop();
         }
     }
@@ -473,6 +482,119 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         AutomationProperties.SetName(_playTakeButton, "Play last take");
         _playTakeButton.Click += (s, e) => PlayLastTake();
         TxAudioContent.Children.Add(_playTakeButton);
+
+        // Loopback check — real RF through the transverter port, inside one
+        // radio, no antennas. Doubles as a transmitter self-test: "check my
+        // audio" and "is my radio actually transmitting" are the same button.
+        // Hidden (out of tab order) on radios that can't do it; the info line
+        // below explains why.
+        _loopbackButton = new Button
+        {
+            Content = "Loopback Check (transverter port)",
+            Padding = new Thickness(8, 4, 8, 4),
+            MinWidth = 200,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            Margin = new Thickness(2),
+            Visibility = Visibility.Collapsed
+        };
+        AutomationProperties.SetName(_loopbackButton, "Loopback Check, transverter port");
+        _loopbackButton.Click += (s, e) => StartLoopbackCheck();
+        TxAudioContent.Children.Add(_loopbackButton);
+
+        _loopbackInfo = new TextBlock
+        {
+            Text = "",
+            Margin = new Thickness(2, 2, 2, 4),
+            FontSize = 11,
+            TextWrapping = TextWrapping.Wrap,
+            Visibility = Visibility.Collapsed
+        };
+        TxAudioContent.Children.Add(_loopbackInfo);
+    }
+
+    /// <summary>
+    /// Show the loopback button on capable radios; on the rest, show a
+    /// de-emphasized explanation instead (the button stays out of the tab
+    /// order — house rule for unsupported controls).
+    /// </summary>
+    private void UpdateLoopbackAvailability()
+    {
+        if (_loopbackButton == null || _loopbackInfo == null) return;
+        bool supported = _rig?.LoopbackSupported == true;
+        _loopbackButton.Visibility = supported ? Visibility.Visible : Visibility.Collapsed;
+        if (supported)
+        {
+            _loopbackInfo.Visibility = Visibility.Collapsed;
+        }
+        else
+        {
+            string reason = _rig?.LoopbackUnavailableReason ?? "No radio connected";
+            string text = $"Loopback check not available: {reason}.";
+            if (_loopbackInfo.Text != text)
+            {
+                _loopbackInfo.Text = text;
+                AutomationProperties.SetName(_loopbackInfo, text);
+            }
+            _loopbackInfo.Visibility = Visibility.Visible;
+        }
+    }
+
+    /// <summary>
+    /// The Loopback Check: apply the verified recipe (full duplex on, TX to
+    /// the XVT port, ears slice on the same port, 1 watt, monitor off), then
+    /// key through the same PttSafetyController path as every other check.
+    /// Teardown restores every saved value and removes the ears slice.
+    /// </summary>
+    private void StartLoopbackCheck()
+    {
+        if (_session != null && _session.Active)
+        {
+            ScreenReaderOutput.Speak("Stop the current check first.",
+                VerbosityLevel.Critical, interrupt: true);
+            return;
+        }
+        if (_rig == null)
+        {
+            ScreenReaderOutput.Speak("No radio connected", VerbosityLevel.Critical);
+            return;
+        }
+        var ptt = PttControllerSource?.Invoke();
+        if (ptt == null)
+        {
+            ScreenReaderOutput.Speak("Radio is not powered on", VerbosityLevel.Critical);
+            return;
+        }
+        if (ptt.IsTransmitting)
+        {
+            ScreenReaderOutput.Speak("Already transmitting. Stop transmitting first.",
+                VerbosityLevel.Critical, interrupt: true);
+            return;
+        }
+
+        if (!_rig.StartLoopbackArrangement())
+        {
+            string reason = _rig.LoopbackUnavailableReason;
+            if (string.IsNullOrEmpty(reason)) reason = "no free slice for the listening receiver";
+            ScreenReaderOutput.Speak($"Loopback check could not be set up: {reason}.",
+                VerbosityLevel.Critical, interrupt: true);
+            return;
+        }
+
+        var session = new AudioCheckSession(this, _rig, ptt,
+            AudioCheckListenMethods.Monitor, lowPower: false, loopback: true);
+        if (session.Start())
+        {
+            _session = session;
+            SetStartButtonLabel("Stop Audio Check");
+            _micGainControl?.Focus();
+        }
+        else
+        {
+            // Keying refused — take the arrangement back down.
+            string trouble = _rig.EndLoopbackArrangement();
+            if (!string.IsNullOrEmpty(trouble))
+                ScreenReaderOutput.Speak(trouble, VerbosityLevel.Terse);
+        }
     }
 
     private void LowPowerChanged(bool on)
@@ -535,10 +657,21 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         AutomationProperties.SetName(_startCheckButton, label);
     }
 
-    /// <summary>Session ended (any path) — restore the button label.</summary>
+    /// <summary>
+    /// Session ended (any path) — restore the button label, and if a
+    /// loopback arrangement is up, tear it down and say so. Runs on every
+    /// exit path because every exit path funnels through the session's End.
+    /// </summary>
     private void OnSessionEnded()
     {
         SetStartButtonLabel("Start Audio Check");
+        if (_rig != null && _rig.LoopbackArranged)
+        {
+            string trouble = _rig.EndLoopbackArrangement();
+            ScreenReaderOutput.Speak(
+                "Loopback ended. Antenna, power, monitor and duplex settings restored. " + trouble,
+                VerbosityLevel.Terse);
+        }
     }
 
     private void PlayLastTake()
@@ -1078,6 +1211,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         private readonly PttSafetyController _ptt;
         private readonly AudioCheckListenMethods _method;
         private readonly bool _lowPower;
+        private readonly bool _loopback;
         private readonly DispatcherTimer _watcher;
 
         private Phase _phase = Phase.Idle;
@@ -1110,12 +1244,14 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         private FlexBase? Rig => _owner._rig;
 
         public AudioCheckSession(AudioWorkshopDialog owner, FlexBase rig,
-            PttSafetyController ptt, AudioCheckListenMethods method, bool lowPower)
+            PttSafetyController ptt, AudioCheckListenMethods method, bool lowPower,
+            bool loopback = false)
         {
             _owner = owner;
             _ptt = ptt;
             _method = method;
             _lowPower = lowPower;
+            _loopback = loopback;
             _watcher = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
             _watcher.Tick += Watcher_Tick;
         }
@@ -1129,39 +1265,44 @@ public partial class AudioWorkshopDialog : JJFlexDialog
             var rig = Rig;
             if (rig == null) return false;
 
-            // Effective power for the safety line, dropped BEFORE keying.
-            int currentPower = rig.XmitPower;
-            int effectivePower = currentPower;
-            if (_lowPower && currentPower > 10)
-            {
-                _savedPower = currentPower;
-                _powerTouched = true;
-                rig.XmitPower = 10;
-                effectivePower = 10;
-            }
-
+            // Loopback mode: the arrangement (FlexBase) already owns power
+            // (1 W), monitor (off), antennas and full duplex — the session
+            // must not double-manage them.
             bool monitorTurnedOn = false;
-            if (_method == AudioCheckListenMethods.Monitor)
+            bool recorderAlreadyRunning = false;
+            int effectivePower = _loopback ? 1 : rig.XmitPower;
+
+            if (!_loopback)
             {
-                if (rig.Monitor != FlexBase.OffOnValues.on)
+                // Effective power for the safety line, dropped BEFORE keying.
+                int currentPower = rig.XmitPower;
+                if (_lowPower && currentPower > 10)
+                {
+                    _savedPower = currentPower;
+                    _powerTouched = true;
+                    rig.XmitPower = 10;
+                    effectivePower = 10;
+                }
+
+                if (_method == AudioCheckListenMethods.Monitor &&
+                    rig.Monitor != FlexBase.OffOnValues.on)
                 {
                     _monitorTouched = true;
                     monitorTurnedOn = true;
                     rig.Monitor = FlexBase.OffOnValues.on;
                 }
-            }
 
-            bool recorderAlreadyRunning = false;
-            if (_method == AudioCheckListenMethods.RecordPlayback)
-            {
-                // Re-arm race guard (a live re-arm nearly wiped an operator's
-                // takes): stop playback before arming, and never blind-toggle
-                // a recorder that is already running.
-                if (rig.SlicePlayOn) rig.SlicePlayOn = false;
-                if (rig.SliceRecordOn)
-                    recorderAlreadyRunning = true;
-                else
-                    rig.SliceRecordOn = true;
+                if (_method == AudioCheckListenMethods.RecordPlayback)
+                {
+                    // Re-arm race guard (a live re-arm nearly wiped an
+                    // operator's takes): stop playback before arming, and
+                    // never blind-toggle a recorder that is already running.
+                    if (rig.SlicePlayOn) rig.SlicePlayOn = false;
+                    if (rig.SliceRecordOn)
+                        recorderAlreadyRunning = true;
+                    else
+                        rig.SliceRecordOn = true;
+                }
             }
 
             // 3-minute soft timeout for the check — the controller's ladder
@@ -1180,7 +1321,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
                 // power). Roll back everything we touched.
                 _ptt.SessionTimeoutOverrideSeconds = null;
                 RestoreChangedState(rig, speak: false);
-                if (_method == AudioCheckListenMethods.RecordPlayback && !recorderAlreadyRunning)
+                if (!_loopback && _method == AudioCheckListenMethods.RecordPlayback && !recorderAlreadyRunning)
                     rig.SliceRecordOn = false;
                 ScreenReaderOutput.Speak("Audio check could not start.",
                     VerbosityLevel.Critical);
@@ -1188,17 +1329,32 @@ public partial class AudioWorkshopDialog : JJFlexDialog
             }
 
             var line = new StringBuilder();
-            line.Append($"Transmitting on {FormatMHz(rig.TXFrequency)}, {effectivePower} watts, audio from {SourceFriendlyName(rig.MicSource)}.");
-            if (_powerTouched)
-                line.Append($" Power reduced from {_savedPower} watts for the check.");
-            if (monitorTurnedOn)
-                line.Append(" Monitor on.");
-            if (recorderAlreadyRunning)
-                line.Append(" Recorder was already running; using it.");
-            else if (_method == AudioCheckListenMethods.RecordPlayback)
-                line.Append(" Recording; your take plays back when you stop.");
-            if (rig.RemoteRig && _method == AudioCheckListenMethods.Monitor)
-                line.Append(" Over remote, monitor audio arrives delayed; record and play back is recommended.");
+            if (_loopback)
+            {
+                // HONESTY (ratified product framing): this is real RF through
+                // a massively overloaded receiver. It proves presence,
+                // processing, and rough shape — never claim a faithful
+                // off-air listen. An SDR on a real antenna is ground truth.
+                line.Append($"Loopback check. Transmitting at one watt into the transverter port on {FormatMHz(rig.TXFrequency)}, audio from {SourceFriendlyName(rig.MicSource)}.");
+                line.Append(" You will hear your own signal through an overloaded receiver: it proves your audio is present and processed, not exactly how you sound on the air.");
+                if (rig.LoopbackDriveManaged)
+                    line.Append(" Transverter drive reduced for a cleaner listen.");
+                line.Append(" This also proves your transmitter chain end to end.");
+            }
+            else
+            {
+                line.Append($"Transmitting on {FormatMHz(rig.TXFrequency)}, {effectivePower} watts, audio from {SourceFriendlyName(rig.MicSource)}.");
+                if (_powerTouched)
+                    line.Append($" Power reduced from {_savedPower} watts for the check.");
+                if (monitorTurnedOn)
+                    line.Append(" Monitor on.");
+                if (recorderAlreadyRunning)
+                    line.Append(" Recorder was already running; using it.");
+                else if (_method == AudioCheckListenMethods.RecordPlayback)
+                    line.Append(" Recording; your take plays back when you stop.");
+                if (rig.RemoteRig && _method == AudioCheckListenMethods.Monitor)
+                    line.Append(" Over remote, monitor audio arrives delayed; record and play back is recommended.");
+            }
             line.Append(" Escape stops.");
             ScreenReaderOutput.Speak(line.ToString(), VerbosityLevel.Critical, interrupt: true);
 

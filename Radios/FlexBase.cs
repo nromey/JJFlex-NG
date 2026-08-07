@@ -8048,6 +8048,207 @@ namespace Radios
         public bool PttSourceIsHardware =>
             theRadio?.PTTSource is PTTSource.Mic or PTTSource.ACC or PTTSource.RCA;
 
+        // ── Loopback check plumbing (QB Track G, 2026-08-07) ──
+        //
+        // The transverter-port loopback, live-verified on the 8600: with full
+        // duplex on, TX antenna XVT A, an "ears" slice listening on the same
+        // XVT port at the same frequency/mode, 1 watt, and TX monitor OFF,
+        // the operator hears their own transmitted signal demodulated inside
+        // one radio with no antennas. HONESTY (ratified): raw adjacent-port
+        // coupling massively overloads the receiver — what this yields is
+        // presence/processing/rough-shape verification, NOT a faithful
+        // off-air listen. Drive management below aims the coupling at the
+        // receiver's linear range where a transverter band definition exists.
+
+        private bool _loopbackArranged;
+        private bool _lbSavedFdx;
+        private string _lbSavedTxAnt = "";
+        private bool _lbSavedMonitor;
+        private int _lbSavedPower;
+        private int _lbEarsVfo = -1;
+        private Xvtr _lbDriveBand;
+        private double _lbSavedDriveDbm;
+
+        /// <summary>True while the loopback arrangement is applied.</summary>
+        public bool LoopbackArranged => _loopbackArranged;
+
+        /// <summary>
+        /// Loopback needs two receive chains (2-SCU — during TX the radio
+        /// borrows one), a free slice slot for the ears slice, and a
+        /// transverter port in the TX antenna list.
+        /// </summary>
+        public bool LoopbackSupported =>
+            theRadio?.DiversityIsAllowed == true &&
+            TXAntennaList.Exists(a => a.StartsWith("XVT", StringComparison.OrdinalIgnoreCase));
+
+        /// <summary>Why the loopback check is not available here, or "".</summary>
+        public string LoopbackUnavailableReason
+        {
+            get
+            {
+                if (theRadio == null) return "No radio connected";
+                if (theRadio.DiversityIsAllowed != true)
+                    return "This radio has a single receiver, which the radio itself uses during transmit";
+                if (!TXAntennaList.Exists(a => a.StartsWith("XVT", StringComparison.OrdinalIgnoreCase)))
+                    return "No transverter port in this radio's transmit antenna list";
+                return "";
+            }
+        }
+
+        /// <summary>
+        /// Apply the verified loopback recipe: snapshot full-duplex flag, TX
+        /// antenna, monitor state, RF power and slice roster, then set FDX
+        /// on, TX antenna to the first XVT port, 1 watt (power 0 is silent —
+        /// verified), monitor OFF, and create the ears slice on the same
+        /// port/frequency/mode. All radio writes ride the command queue, so a
+        /// caller that keys immediately afterward is sequenced after the
+        /// arrangement. Returns false with nothing changed when unsupported.
+        /// </summary>
+        public bool StartLoopbackArrangement()
+        {
+            if (_loopbackArranged) return true;
+            if (theRadio == null || !HasActiveSlice || !LoopbackSupported) return false;
+            if (theRadio.SliceList.Count >= TotalMaxSlices)
+            {
+                Tracing.TraceLine("StartLoopbackArrangement: no free slice slot", TraceLevel.Warning);
+                return false;
+            }
+
+            string xvt = TXAntennaList.Find(a => a.StartsWith("XVT", StringComparison.OrdinalIgnoreCase));
+            if (string.IsNullOrEmpty(xvt)) return false;
+
+            // Snapshot.
+            _lbSavedFdx = theRadio.FullDuplexEnabled;
+            _lbSavedTxAnt = TXAntennaName;
+            _lbSavedMonitor = theRadio.TXMonitor;
+            _lbSavedPower = XmitPower;
+            int preCount = MyNumSlices;
+
+            // Apply the recipe (queue-sequenced).
+            FullDuplexEnabled = true;
+            TXAntennaName = xvt;                       // TX slice → XVT port
+            XmitPower = 1;                             // integer floor above silent
+            Monitor = OffOnValues.off;                 // monitor stacked over the
+                                                       // delayed loop is an echo
+            // Drive management: where a transverter band is defined, start at
+            // maximum attenuation so the adjacent-port coupling lands as far
+            // into the receiver's linear range as the hardware allows.
+            _lbDriveBand = findAnyValidXvtr();
+            if (_lbDriveBand != null)
+            {
+                _lbSavedDriveDbm = _lbDriveBand.MaxPower;
+                var band = _lbDriveBand;
+                q.Enqueue((FunctionDel)(() => { band.MaxPower = -10.0; }), "LoopbackDrive");
+            }
+
+            // Ears slice: create, then configure once it exists (the NewSlice
+            // queue item awaits creation internally, so this enqueued config
+            // runs after it).
+            if (!NewSlice())
+            {
+                Tracing.TraceLine("StartLoopbackArrangement: NewSlice refused", TraceLevel.Error);
+                rollbackLoopback();
+                return false;
+            }
+            _lbEarsVfo = preCount;
+            q.Enqueue((FunctionDel)(() =>
+            {
+                Slice ears = null;
+                lock (mySlices)
+                {
+                    if (mySlices.Count > preCount) ears = mySlices[preCount];
+                }
+                var tx = theRadio?.ActiveSlice;
+                if (ears == null || tx == null || ReferenceEquals(ears, tx))
+                {
+                    Tracing.TraceLine("Loopback ears slice config: slice missing", TraceLevel.Error);
+                    return;
+                }
+                ears.Freq = tx.Freq;
+                ears.DemodMode = tx.DemodMode;
+                ears.RXAnt = xvt;   // same port worked at this power, verified
+            }), "LoopbackEars");
+
+            _loopbackArranged = true;
+            Tracing.TraceLine($"Loopback arranged: xvt={xvt} savedFdx={_lbSavedFdx} savedAnt={_lbSavedTxAnt} savedPwr={_lbSavedPower} earsVfo={_lbEarsVfo}", TraceLevel.Info);
+            return true;
+        }
+
+        /// <summary>
+        /// Tear the loopback arrangement down: restore every saved value and
+        /// remove the ears slice. Returns a short status suitable for speech
+        /// ("" when everything restored cleanly).
+        /// </summary>
+        public string EndLoopbackArrangement()
+        {
+            if (!_loopbackArranged) return "";
+            _loopbackArranged = false;
+
+            string trouble = "";
+            if (theRadio != null)
+            {
+                // Ears slice out first (can't remove the active VFO — if the
+                // operator moved onto it, leave it and say so).
+                if (_lbEarsVfo >= 0 && _lbEarsVfo < MyNumSlices)
+                {
+                    if (!RemoveSlice(_lbEarsVfo))
+                        trouble = "The listening slice is your active slice, so it was kept. ";
+                }
+                TXAntennaName = _lbSavedTxAnt;
+                XmitPower = _lbSavedPower;
+                Monitor = _lbSavedMonitor ? OffOnValues.on : OffOnValues.off;
+                FullDuplexEnabled = _lbSavedFdx;
+                if (_lbDriveBand != null)
+                {
+                    var band = _lbDriveBand;
+                    double dbm = _lbSavedDriveDbm;
+                    q.Enqueue((FunctionDel)(() => { band.MaxPower = dbm; }), "LoopbackDriveRestore");
+                }
+            }
+            _lbEarsVfo = -1;
+            _lbDriveBand = null;
+            Tracing.TraceLine("Loopback arrangement ended: " + (trouble == "" ? "clean" : trouble), TraceLevel.Info);
+            return trouble;
+        }
+
+        private void rollbackLoopback()
+        {
+            if (theRadio == null) return;
+            FullDuplexEnabled = _lbSavedFdx;
+            TXAntennaName = _lbSavedTxAnt;
+            XmitPower = _lbSavedPower;
+            Monitor = _lbSavedMonitor ? OffOnValues.on : OffOnValues.off;
+            if (_lbDriveBand != null)
+            {
+                var band = _lbDriveBand;
+                double dbm = _lbSavedDriveDbm;
+                q.Enqueue((FunctionDel)(() => { band.MaxPower = dbm; }), "LoopbackDriveRestore");
+                _lbDriveBand = null;
+            }
+        }
+
+        /// <summary>
+        /// Best-effort transverter band probe. FlexLib keeps the Xvtr list
+        /// private and exposes lookup by index only; defined bands get small
+        /// indices. Whether dBm drive management can upgrade the loopback
+        /// listen to clean demodulation is an OPEN question (plan section 4)
+        /// — this is the mechanism, honestly gated on a band existing.
+        /// </summary>
+        private Xvtr findAnyValidXvtr()
+        {
+            if (theRadio == null) return null;
+            for (int i = 0; i < 16; i++)
+            {
+                var x = theRadio.FindXvtrByIndex(i);
+                if (x != null && x.Valid) return x;
+            }
+            return null;
+        }
+
+        /// <summary>True when loopback drive management found a transverter
+        /// band to act on (informs the session's honesty copy).</summary>
+        public bool LoopbackDriveManaged => _lbDriveBand != null;
+
         // Dummy Load Mode: zeroes power for safe PTT testing, restores on disable
         private bool _dummyLoadMode;
         private int _savedRFPower;
