@@ -210,8 +210,102 @@
 
                     <Separator Margin="0,4,0,8"/>
 
-                    <!-- Alert section -->
-                    <TextBlock Text="Alerts" FontWeight="SemiBold"
+                    <!-- ============================================================
+                         Radio Outputs — the radio's own physical outputs.
+
+                         High on the page because on a radio with no front panel
+                         these are the ONLY volume controls that exist. There is
+                         no knob to reach for; if they are wrong the radio is
+                         simply silent and nothing says why.
+
+                         The controls appear only with a radio connected: they
+                         read and write live radio state, and a disabled control
+                         that never explains itself is worse than a sentence that
+                         says why it is not there.
+                         ============================================================ -->
+                    <TextBlock Text="Radio Outputs" FontWeight="SemiBold"
+                               Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
+
+                    <TextBlock x:Name="RadioOutputsAdvisory"
+                               Style="{StaticResource DialogLabel}"
+                               TextWrapping="Wrap"
+                               Margin="0,0,0,6"
+                               Focusable="True"
+                               AutomationProperties.LiveSetting="Polite"
+                               AutomationProperties.Name="Radio audio status"/>
+
+                    <StackPanel x:Name="RadioOutputsPanel" Visibility="Collapsed">
+                        <controls:ValueFieldControl x:Name="HeadphoneLevelControl"
+                            Margin="0,0,0,8"
+                            AutomationProperties.Name="Headphone level, 0 to 100, sent to the radio as you change it"/>
+                        <controls:ValueFieldControl x:Name="LineOutLevelControl"
+                            Margin="0,0,0,8"
+                            AutomationProperties.Name="Line out level, 0 to 100, sent to the radio as you change it"/>
+                        <CheckBox x:Name="HeadphoneMuteCheck"
+                                  Content="Mute the headphone output"
+                                  Margin="0,0,0,4"
+                                  AutomationProperties.Name="Mute the radio's headphone output"
+                                  Click="RadioOutputMute_Click"/>
+                        <CheckBox x:Name="LineOutMuteCheck"
+                                  Content="Mute the line out output"
+                                  Margin="0,0,0,4"
+                                  AutomationProperties.Name="Mute the radio's line out output"
+                                  Click="RadioOutputMute_Click"/>
+                        <CheckBox x:Name="FrontSpeakerMuteCheck"
+                                  Content="Mute the front panel speaker"
+                                  Margin="0,0,0,8"
+                                  AutomationProperties.Name="Mute the radio's front panel speaker"
+                                  Click="RadioOutputMute_Click"/>
+                    </StackPanel>
+
+                    <Button x:Name="WhySilentButton"
+                            Content="Why is my radio _silent?"
+                            HorizontalAlignment="Left" Padding="12,4"
+                            Margin="0,0,0,8"
+                            AutomationProperties.Name="Why is my radio silent, check the most likely causes"
+                            AutomationProperties.AcceleratorKey="Alt+S"
+                            Click="WhySilentButton_Click"/>
+
+                    <Separator Margin="0,4,0,8"/>
+
+                    <!-- ============================================================
+                         Radio audio through this computer (PC audio).
+
+                         Deliberately NOT persisted. This reflects and overrides
+                         the current session: PC audio turns itself on when you
+                         connect remotely, and a remembered "off" would quietly
+                         fight that on every connect, leaving an operator with a
+                         remote radio, no sound, and no explanation.
+                         ============================================================ -->
+                    <TextBlock Text="Radio Audio Through This Computer" FontWeight="SemiBold"
+                               Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
+                    <CheckBox x:Name="PcAudioCheck"
+                              Content="Play radio audio through this computer"
+                              Margin="0,0,0,4"
+                              AutomationProperties.Name="Play radio audio through this computer, and send this computer's microphone to the radio"
+                              Click="PcAudioCheck_Click"/>
+                    <TextBlock x:Name="PcAudioStatusText"
+                               Style="{StaticResource DialogLabel}"
+                               TextWrapping="Wrap"
+                               Margin="0,0,0,8"
+                               Focusable="True"
+                               AutomationProperties.LiveSetting="Polite"
+                               AutomationProperties.Name="Radio audio through this computer, status"/>
+                    <Button x:Name="AudioDevicesButton"
+                            Content="Audio _Devices..."
+                            HorizontalAlignment="Left" Padding="12,4"
+                            Margin="0,0,0,8"
+                            AutomationProperties.Name="Audio Devices, choose which sound devices JJ Flex uses"
+                            AutomationProperties.AcceleratorKey="Alt+D"
+                            Click="AudioDevicesButton_Click"/>
+
+                    <Separator Margin="0,4,0,8"/>
+
+                    <!-- Alert section. The CW notification settings live here
+                         rather than on Notifications, because CW notifications
+                         play through the alert device — the device and the
+                         switch that uses it should read as one thing. -->
+                    <TextBlock Text="Alerts and CW Notifications" FontWeight="SemiBold"
                                Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
                     <controls:ValueFieldControl x:Name="EarconVolumeControl"
                         Margin="0,0,0,8"
@@ -222,8 +316,38 @@
                                    Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
                         <ComboBox x:Name="EarconDeviceCombo" Width="200"
                                   Style="{StaticResource DialogComboBox}"
-                                  AutomationProperties.Name="Alert audio output device"/>
+                                  AutomationProperties.Name="Alert audio output device, also used for CW notifications"/>
                     </StackPanel>
+                    <CheckBox x:Name="CwNotificationsCheck"
+                              Content="Enable CW notifications (AS, BT, SK prosigns)"
+                              Margin="0,0,0,4"
+                              AutomationProperties.Name="Enable Morse code notifications for connection events, played through the alert device"/>
+                    <Grid Margin="20,0,0,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="100"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <TextBlock Grid.Row="0" Grid.Column="0"
+                                   Text="Sidetone frequency (Hz):"
+                                   Style="{StaticResource DialogLabel}" Margin="0,4,8,4"/>
+                        <TextBox x:Name="CwSidetoneBox" Grid.Row="0" Grid.Column="1"
+                                 Style="{StaticResource DialogTextBox}"
+                                 AutomationProperties.Name="CW sidetone frequency, 400 to 1200 hertz"/>
+                        <TextBlock Grid.Row="1" Grid.Column="0"
+                                   Text="Speed (WPM):"
+                                   Style="{StaticResource DialogLabel}" Margin="0,4,8,4"/>
+                        <TextBox x:Name="CwSpeedBox" Grid.Row="1" Grid.Column="1"
+                                 Style="{StaticResource DialogTextBox}"
+                                 AutomationProperties.Name="CW notification speed, 10 to 60 words per minute"/>
+                    </Grid>
+                    <CheckBox x:Name="CwModeAnnounceCheck"
+                              Content="Announce mode changes in CW (when speech is off)"
+                              Margin="0,0,0,8"
+                              AutomationProperties.Name="Play mode name in Morse code when speech verbosity is off"/>
 
                     <Separator Margin="0,4,0,8"/>
 
@@ -888,39 +1012,20 @@
 
                     <Separator Margin="0,4,0,8"/>
 
-                    <!-- CW Notifications section -->
+                    <!-- CW notifications moved to the Audio tab, 2026-08-07
+                         (QB Track B). They play through the alert device, and
+                         the switch belongs beside the device it uses. This
+                         pointer stays for anyone who learned the old location —
+                         a setting that has moved should say where it went, not
+                         just vanish. -->
                     <TextBlock Text="CW Morse Notifications" FontWeight="SemiBold"
                                Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
-                    <CheckBox x:Name="CwNotificationsCheck"
-                              Content="Enable CW notifications (AS, BT, SK prosigns)"
-                              Margin="0,0,0,8"
-                              AutomationProperties.Name="Enable Morse code notifications for connection events"/>
-                    <Grid Margin="20,0,0,8">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="100"/>
-                        </Grid.ColumnDefinitions>
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="Auto"/>
-                        </Grid.RowDefinitions>
-                        <TextBlock Grid.Row="0" Grid.Column="0"
-                                   Text="Sidetone frequency (Hz):"
-                                   Style="{StaticResource DialogLabel}" Margin="0,4,8,4"/>
-                        <TextBox x:Name="CwSidetoneBox" Grid.Row="0" Grid.Column="1"
-                                 Style="{StaticResource DialogTextBox}"
-                                 AutomationProperties.Name="CW sidetone frequency, 400 to 1200 hertz"/>
-                        <TextBlock Grid.Row="1" Grid.Column="0"
-                                   Text="Speed (WPM):"
-                                   Style="{StaticResource DialogLabel}" Margin="0,4,8,4"/>
-                        <TextBox x:Name="CwSpeedBox" Grid.Row="1" Grid.Column="1"
-                                 Style="{StaticResource DialogTextBox}"
-                                 AutomationProperties.Name="CW notification speed, 10 to 30 words per minute"/>
-                    </Grid>
-                    <CheckBox x:Name="CwModeAnnounceCheck"
-                              Content="Announce mode changes in CW (when speech is off)"
-                              Margin="0,0,0,8"
-                              AutomationProperties.Name="Play mode name in Morse code when speech verbosity is off"/>
+                    <TextBlock Style="{StaticResource DialogLabel}"
+                               TextWrapping="Wrap"
+                               Margin="0,0,0,8"
+                               Focusable="True"
+                               Text="CW notification settings are on the Audio tab now, beside the alert device they play through."
+                               AutomationProperties.Name="CW notification settings are on the Audio tab now, beside the alert device they play through."/>
 
                     <Separator Margin="0,4,0,8"/>
 

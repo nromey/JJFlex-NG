@@ -53,5 +53,10 @@
     <ProjectReference Include="..\JJCountriesDB\JJCountriesDB.csproj" />
     <ProjectReference Include="..\JJTrace\JJTrace.csproj" />
     <ProjectReference Include="..\JJFlexUpdater\JJFlexUpdater.csproj" />
+    <!-- QB Track B: the Audio Devices dialog enumerates and persists the
+         PortAudio devices that carry radio audio to and from this computer.
+         Referenced directly rather than relied on transitively through Radios,
+         so the dependency is visible where it is used. -->
+    <ProjectReference Include="..\JJPortaudio\JJPortaudio\JJPortaudio.csproj" />
   </ItemGroup>
 </Project>

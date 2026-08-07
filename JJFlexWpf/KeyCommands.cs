@@ -253,9 +253,17 @@ public class KeyCommands
             new(CommandValues.RemoteAudio, KeyTypes.Command, PCAudioHandler,
                 "PC audio on/off", _context.AudioMenuString, false, FunctionGroups.Audio, KeyScope.Radio)
                 { Keywords = new[] { "audio", "remote", "pc", "mute", "unmute", "on", "off" }, ShortActionLabel = "toggle P C audio" },
+            // QB Track B, 2026-08-07: retargeted at the rebuilt one-page picker.
+            // Keywords keep every old term so existing habits still find it, and
+            // add the words for what it now also covers — someone searching
+            // "where do I set my microphone" should land here rather than
+            // nowhere. Binding is unchanged (none by default).
             new(CommandValues.AudioSetup, KeyTypes.Command, AudioSetupHandler,
-                "Select audio device", "Select Audio Device", false, FunctionGroups.Audio, KeyScope.Radio)
-                { Keywords = new[] { "audio", "device", "setup", "settings", "configure", "preferences", "sound" }, ShortActionLabel = "select audio device" },
+                "Audio devices", "Audio Devices", false, FunctionGroups.Audio, KeyScope.Radio)
+                { Keywords = new[] { "audio", "device", "devices", "setup", "settings", "configure",
+                                     "preferences", "sound", "soundcard", "microphone", "mic", "speaker",
+                                     "headphone", "playback", "output", "input", "alert" },
+                  ShortActionLabel = "choose audio devices" },
 
             // ── Lookups / Debug / ATU / Reboot / TX ──
             new(CommandValues.StationLookup, KeyTypes.Command, StationLookupHandler,

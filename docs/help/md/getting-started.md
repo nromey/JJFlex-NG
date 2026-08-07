@@ -38,6 +38,19 @@ For remote operation through the internet:
 
 **Tip:** If you run into trouble with SmartLink, check the SmartLink and Remote Troubleshooting page for help.
 
+## Radio On But Silent? Connect First
+
+If you are coming from a conventional transceiver, this is the one thing worth
+knowing before anything else. A Flex produces no audio at all — not at its
+headphone jack, not at its line out, not at its front panel speaker — until a
+client program connects to it. Powering the radio on and plugging in
+headphones will get you silence, and nothing is wrong. Connect first, then
+listen.
+
+If you are still not hearing anything after you connect, see **Audio
+Troubleshooting**, or open Settings, go to the Audio tab, and press **Why is
+my radio silent?** — it checks the usual causes and tells you what it finds.
+
 ## What Happens After You Connect
 
 Once you're connected, the application automatically speaks a full status summary which comes from your radio's connection. You'll hear something like: "Connected to FLEX-6600, local network. Listening on 14.225 megahertz, Upper Side Band, 20 meters, slice A." That tells you everything you need to know to start operating right away.
