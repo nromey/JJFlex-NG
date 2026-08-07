@@ -560,28 +560,35 @@ public class KeyCommands
         if (rig != null) rig.AudioGain -= 5;
     }
 
-    private void HeadphonesUpHandler()
-    {
-        var rig = _context.GetRigControl();
-        if (rig != null) rig.HeadphoneGain += 5;
-    }
+    // Headphone/lineout gain handlers compute the clamped target locally and
+    // speak it (matching the menu's AdjustValue pattern) — the FlexBase setters
+    // enqueue the change asynchronously, so reading the property back right
+    // after the set would announce the stale value.
+    private void HeadphonesUpHandler() => AdjustOutputGain("Headphone",
+        r => r.HeadphoneGain, (r, v) => r.HeadphoneGain = v, +5);
 
-    private void HeadphonesDownHandler()
-    {
-        var rig = _context.GetRigControl();
-        if (rig != null) rig.HeadphoneGain -= 5;
-    }
+    private void HeadphonesDownHandler() => AdjustOutputGain("Headphone",
+        r => r.HeadphoneGain, (r, v) => r.HeadphoneGain = v, -5);
 
-    private void LineoutUpHandler()
-    {
-        var rig = _context.GetRigControl();
-        if (rig != null && !rig.PCAudio) rig.LineoutGain += 5;
-    }
+    // QB Track A (2026-08-07): these used to refuse to run while PC audio was
+    // on (!rig.PCAudio). The lineout jacks and the PC audio stream are
+    // independent outputs — the radio drives both at once — so the gate was
+    // wrong, and it was also silent (a bound key that did nothing). The
+    // headphone handlers never gated; now the pair behaves identically.
+    private void LineoutUpHandler() => AdjustOutputGain("Line out",
+        r => r.LineoutGain, (r, v) => r.LineoutGain = v, +5);
 
-    private void LineoutDownHandler()
+    private void LineoutDownHandler() => AdjustOutputGain("Line out",
+        r => r.LineoutGain, (r, v) => r.LineoutGain = v, -5);
+
+    private void AdjustOutputGain(string label, Func<Radios.FlexBase, int> getter,
+        Action<Radios.FlexBase, int> setter, int delta)
     {
         var rig = _context.GetRigControl();
-        if (rig != null && !rig.PCAudio) rig.LineoutGain -= 5;
+        if (rig == null) return; // dispatcher already announced "no radio connected"
+        int newVal = Math.Clamp(getter(rig) + delta, 0, 100);
+        setter(rig, newVal);
+        Radios.ScreenReaderOutput.Speak($"{label} {newVal}", Radios.VerbosityLevel.Terse, true);
     }
 
     #endregion
