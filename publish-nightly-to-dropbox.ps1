@@ -24,7 +24,9 @@
 # this automatically per build.
 
 param(
-    [string] $DropboxRoot    = 'C:\Users\nrome\Dropbox\JJFlexRadio',
+    # Machine-dependent (C:\Users\nrome\Dropbox on ms-01, D:\Dropbox on
+    # ms-02) — resolved from Dropbox's own info.json, hardcoded fallback.
+    [string] $DropboxRoot    = $(try { (Get-Content (Join-Path $env:LOCALAPPDATA 'Dropbox\info.json') -Raw | ConvertFrom-Json).personal.path + '\JJFlexRadio' } catch { 'C:\Users\nrome\Dropbox\JJFlexRadio' }),
     [string] $NasRoot        = '\\nas.macaw-jazz.ts.net\jjflex',
     [string] $RepoRoot       = $PSScriptRoot,
     [int]    $BuildnumOffset = -468,

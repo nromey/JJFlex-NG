@@ -5,6 +5,92 @@ This document captures the current state of JJ-Flex repository and active work.
 **Repository root:** `C:\dev\JJFlex-NG`
 **Branch:** `main` (post-REVERT of `track/flexlib-42` merge on 2026-05-15 — main is back to pre-FlexLib-4.2.18 substrate after Don's 2026-05-15 LAN trace exposed a vendor-side station-name regression. FlexLib 4.0.1 is in place. Re-merge of FlexLib 4.2.18 now gated on Sprint 29 Phase D firmware-update UI being operational + Don's radio firmware updated. `track/flexlib-42` parked at `9de45c54`. See `memory/project_flexlib_4218_station_name_regression.md` (new), `memory/project_flexlib_4218_merge_sequencing.md` (refreshed 2026-05-15), and `memory/project_main_branch_41_posture.md` (reality-check note added).)
 
+## END-OF-DAY SEAL — 2026-08-06
+
+Branch `track/flexlib-4220`, clean, pushed through `39bb27b0`. 57 commits
+today, +4,417 net lines. Nightly **4.1.16.536** at Dropbox top level
+(`JJFlex_4.1.16.536_x64_nightly.zip`, replaces the 390 nightly) and NAS
+`historical\4.1.16.536\x64-debug\`. Testers' `debug\` folder deliberately
+keeps **517** — the Don-confirmed build — because 536's last change
+(RadioRemoved wiring) is untested until morning. Noel chose this split
+explicitly.
+
+**Don's verdict on 517: "a winner," profuse thanks.** The sign-in saga is
+closed by the operator it locked out. See the pre-compact checkpoint
+below for the full rounds-22–27 arc.
+
+**The evening session (post-517, commits `14776662`→`39bb27b0`):**
+
+- **Selector slice shipped and largely confirmed:** Enter-to-connect
+  (the list finally honors its own "Press Enter to connect"
+  announcement — the first-keypress race from trace 164250 is dead);
+  per-account **AutoStartRemote** (remote-first startup, confirmed live
+  by Noel); **Use Now** session account override (default untouched;
+  picker's Set Default now actually saves); focus lands on a radio ITEM
+  after discovery, not the bare list.
+- **No-slices clean exit:** connect to a fully-occupied radio now
+  speaks who has the slices and backs out on its own (round-27-class
+  invisible-dialog deadlock removed from NoSliceErrorHandler); the
+  outcome speech is delayed 750ms so it outlives the teardown's focus
+  churn; `slice_unavailable` archive outcome finally wired. Mechanics
+  proven live (Don's slices were full); announcement retest pending.
+- **Remote morphs to Refresh Remote List** (Noel's design: "listed" is
+  a state, not a 5-second window): after a successful remote pass, the
+  same button (same Alt+R) cycles the WAN session — the only way to get
+  a fresh list, since the server sends it once per TLS session — and
+  re-discovers. Ghost sweep removes WAN radios absent from a fresh list;
+  new static `FlexBase.RadioRemoved` event; selector drops the row and
+  speaks "went offline." Confirmed "very quick" live.
+- **Bugs killed en route:** cached-WAN-list NRE (checked `myRadioList`,
+  dereferenced `radios` — the reopened-selector crash remote-first made
+  common); ConnectFailed no longer prescribes an interactive login on a
+  healthy session (cycle + silent JWT refresh first); FlexLib's
+  `API.RadioRemoved` (17s LAN expiry via RadioListMaid) was never
+  subscribed — powered-off LAN radios sat in the selector forever; the
+  8600 power-cycle test caught it. Rescan teardown suppressed so
+  selector-open doesn't announce the whole list offline.
+- **Queue corrections:** PC audio IS auto-enabled on remote connect
+  (`FlexBase.cs` ~9875) — the 2026-08-05 note was wrong; Noel's fresh
+  ms-02 install disproved it.
+- **Connect design input captured (three queue entries):** slice
+  brokering (broker knows CAPACITY, not just reachability; radio already
+  advertises `available_slices`); two-tier slice-wait (SmartLink camps
+  client-side — trace-proven the status stream flows sliceless; Connect
+  queues broker-side); messaging is a PLANE (chat is Connect-native;
+  presence is free today — and worked live tonight: Don heard "K5NER
+  connected" and offered a slice out-of-band). Favorite-radios roster
+  queued; dual-homed radios present as "local" (LAN wins the row).
+
+**Cross-surface activity (sweep 21:40):** 7 memory files touched today
+(token lineage SHIPPED+CLOSED, remote-admin waivers ratified, 8600
+test-mule doctrine, 4.2.18 sequencing update, punch-latch results,
+inbox/outbox superseded by for-noel/for-claude/for-don). Parallel
+sessions produced `for-noel/2026-08-06-auto-update-research.md` and
+`2026-08-06-radio-audio-settings-research.md` plus
+`active/signing-track.md` — Noel's reading queue. All six worktrees:
+zero commits today. Sibling repos (jjf-data, jjflexible-connect,
+hamlib): quiet. Freight Fate: 16 unpushed (unchanged); Civ VI: 45
+unpushed (unchanged) — pushing is Noel's call; dev mirror covers
+durability. Dropbox: 517 zip+NOTES landed 17:33; 536 nightly tonight.
+
+**NEXT (morning):** 1) Ghost-sweep LAN test on 536: selector open,
+power the 8600 off, ~20s, expect "went offline" with zero keystrokes —
+then 536 can go to testers' `debug\` if Noel calls it. 2) Queue triage
+while Noel reads the Connect protocol documentation
+(`for-noel/2026-08-05-connect-protocol-reading-list.md`) — plus the two
+new for-noel research docs from today's parallel sessions. 3) Still
+open from earlier: busy-radio announcement retest (needs Don's slices
+full), Use Now live test, latch validation network, selector slice
+remainder (per-radio 1b, Clear Radio Name), build-debug.bat Dropbox
+path fix (info.json; publish-nightly took `-DropboxRoot` override
+tonight).
+
+**Rigmeter snapshot — end of 2026-08-06:** authored 894 files / 183,746
+lines / 966,760 words; vendor 55,597 lines; combined 239,343 lines.
+Today: 57 commits, 32 files, +4,608/−191 (net +4,417). Notables:
+JJFlexWpf 44,170 lines; Radios 27,631; docs 44,523. JSON snapshot on
+NAS: `historical\stats\2026-08-06-39bb27b0.json`.
+
 ## EVENING CHECKPOINT — 2026-08-06 (pre-compact #2; not a seal)
 
 Branch `track/flexlib-4220`, clean, pushed through `6b2442d2`. Build
