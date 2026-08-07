@@ -208,9 +208,21 @@ namespace Radios
         public (bool lan, bool wan) RadioAvailability(string serial)
         {
             if (string.IsNullOrWhiteSpace(serial)) return (false, false);
-            bool lan = myRadioList.Any(x => x.Serial == serial && !x.IsWan);
             bool wan = findWanRadio(serial) != null;
-            return (lan, wan);
+            try
+            {
+                // ToList first: myRadioList is appended to from the discovery
+                // thread, and this runs on the UI thread every time a radio
+                // leaves. An enumeration that throws here would take the picker
+                // down over a bookkeeping question.
+                bool lan = myRadioList.ToList().Any(x => x.Serial == serial && !x.IsWan);
+                return (lan, wan);
+            }
+            catch (InvalidOperationException ex)
+            {
+                Tracing.TraceLine($"RadioAvailability({serial}): list changed mid-read: {ex.Message}", TraceLevel.Warning);
+                return (false, wan);
+            }
         }
 
         private void radioAddedHandler(Radio r)
