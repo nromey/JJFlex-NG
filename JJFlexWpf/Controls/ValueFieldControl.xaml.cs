@@ -210,7 +210,7 @@ public partial class ValueFieldControl : UserControl
             case Key.NumPad5: case Key.NumPad6: case Key.NumPad7: case Key.NumPad8: case Key.NumPad9:
                 if (!shift) // Don't trigger on Shift+digit (special chars)
                 {
-                    StartNumberEntry(e.Key);
+                    BeginNumberEntry(e.Key);
                     e.Handled = true;
                 }
                 break;
@@ -222,7 +222,7 @@ public partial class ValueFieldControl : UserControl
                 if (!shift)
                 {
                     if (_min < 0)
-                        StartNumberEntry(e.Key);
+                        BeginNumberEntry(e.Key);
                     else
                         RejectEntryKey($"{_label} does not accept negative values");
                     e.Handled = true;
@@ -235,7 +235,7 @@ public partial class ValueFieldControl : UserControl
                 if (!shift)
                 {
                     if (DecimalPlaces > 0)
-                        StartNumberEntry(e.Key);
+                        BeginNumberEntry(e.Key);
                     else
                         RejectEntryKey($"{_label} takes whole numbers only");
                     e.Handled = true;
@@ -244,14 +244,32 @@ public partial class ValueFieldControl : UserControl
         }
     }
 
-    /// <summary>Begin typed-entry mode and process the triggering key.</summary>
-    private void StartNumberEntry(Key firstKey)
+    /// <summary>
+    /// Begin typed-entry mode and process the triggering key.
+    /// INTEGRATION POINT (merge over Track A): A's minus fix lands first and
+    /// defines BeginNumberEntry()/ToggleBufferSign() as the entry/sign seam.
+    /// Track I's versions here carry the same names and shape deliberately —
+    /// at rebase, keep ONE copy of each and fold I's decimal/unit additions
+    /// (DecimalPlaces gate, point handling, scaled confirm) on top.
+    /// </summary>
+    private void BeginNumberEntry(Key firstKey)
     {
         _numberEntryMode = true;
         _numberBuffer = "";
         _numberNegative = false;
         ScreenReaderOutput.Speak($"Enter {_label} value", interrupt: true);
         HandleNumberEntryKey(firstKey);
+    }
+
+    /// <summary>
+    /// Toggle the pending typed value's sign (see BeginNumberEntry note —
+    /// this is Track A's seam name; one copy survives the merge).
+    /// </summary>
+    private void ToggleBufferSign()
+    {
+        _numberNegative = !_numberNegative;
+        ScreenReaderOutput.Speak(_numberNegative ? "minus" : "minus removed");
+        UpdateNumberEntryDisplay();
     }
 
     /// <summary>Audible rejection — every bound key speaks in every state.</summary>
@@ -277,9 +295,7 @@ public partial class ValueFieldControl : UserControl
                 RejectEntryKey($"{_label} does not accept negative values");
                 return true;
             }
-            _numberNegative = !_numberNegative;
-            ScreenReaderOutput.Speak(_numberNegative ? "minus" : "minus removed");
-            UpdateNumberEntryDisplay();
+            ToggleBufferSign();
             return true;
         }
 
