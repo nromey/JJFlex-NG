@@ -64,6 +64,9 @@ This release is about the space where you actually spend your time in the app �
 - **[The program file has a new name](#exe-rename).** JJ Flexible Radio Access now installs as `jjflexible.exe` rather than `JJFlexRadio.exe`. Your Start Menu and desktop shortcuts are updated for you and keep working, and your settings, radio profiles, CW messages, and SmartLink accounts do not move an inch. The one thing worth a look: a taskbar pin or a shortcut you made yourself points at the old file and needs re-pinning once.
 - **[The installer brings everything it needs](#self-contained).** Run the new Setup on a fresh Windows machine and JJ Flexible just installs. No more "you need .NET 10, click here to download Microsoft's runtime first." The download is about 55 MB instead of 10 — bigger, but it's one trip instead of three, and that "go install this other thing" detour was an accessibility wall for screen reader users on new machines. Done.
 - **[The Trace Archive Browser is here](#trace-archive-browser).** Every connection your app makes already gets quietly archived in the background — every successful connect, every flaky retry, every killed session. There is now a place inside JJ Flexible Radio to actually look at them. Open the Tracing dialog (Operations menu, then Tracing) and you'll see a new "Archive Browser" tab next to the existing tracing controls. Filter by date, by outcome, by radio. Pop open a trace in your text viewer. Copy the file path so you can attach it to an email. Bundle a handful of traces into a single zip to send to me. The list speaks itself as you arrow through it, so you can hear "AS retry then success on Don 6300, one minute twenty-three seconds" without leaving the row.
+- **[Your radio's volume knobs are visible now](#radio-outputs-visible).** Settings, Audio tab has a Radio Outputs group: headphone level, line out level, and the three output mutes, all of which apply to the radio as you change them. On a radio without a front panel, those software levels are the only volume control that exists, and until now JJ Flex could nudge them but never show you where they stood. There's a "Why is my radio silent?" button too, which walks the likely causes and tells you the first thing it finds. Starting with the one that catches everybody: a Flex makes no audio at all — headphone jack included — until something connects to it.
+- **[One place to choose your sound devices](#audio-devices-dialog).** The old device picker was two dialogs in a row, both with a list labelled "device list," and on a fresh install it could ambush you mid-connect from the background. It's one dialog now — radio audio out, microphone in, alert and CW device, meter device — reachable from the Audio menu, from Settings, or from the Command Finder. It announces what's currently chosen, marks your system default in words, and if a device you picked gets unplugged it falls back and says so instead of going quiet.
+- **[CW notifications moved in with their speaker](#cw-with-alert-device).** The switch and the device it plays through are on the same tab now, next to each other, instead of one tab apart. Defaults unchanged — CW notifications are still off until you turn them on.
 - **[JJ Flex now updates itself](#in-app-updates).** Tools menu has a new "Check for Updates" item. Settings has a new "Updates" tab where you pick your channel — Stable, Beta, or Nightly — and decide whether you want JJ Flex to check on its own. By default it checks at startup and every couple of hours while it's running, but you're in charge of all of that. When an update lands, you get a dialog that tells you what's new and how big the download is, and one keystroke does the install. No more hunting for installers on the website.
 
 ### Home's got a real name now {#home-intro}
@@ -269,6 +272,108 @@ The reasoning is the same one that powered tuning unity: hotkeys are for toggles
 If you don't have a physical volume control on your speakers and you've been relying on the hotkey to adjust speaker volume on the fly, the new path is `Ctrl+Shift+U` then arrow to Volume. We're keeping an eye on whether that's a workable substitute. If it isn't for your setup, let us know — we have a fallback design ready.
 
 The slots themselves stay reserved in the keymap so a future feature can claim them deliberately, instead of someone stumbling into them and being surprised that the keys do nothing.
+
+[Return to version headlines](#unreleased-headlines)
+
+### Your Radio's Volume Knobs Are Visible Now {#radio-outputs-visible}
+
+Here's an embarrassing story that turned into a feature. I plugged headphones
+into my 8600, heard nothing, and went hunting for a problem. There wasn't one —
+or rather, there were two, and neither was findable from inside JJ Flex.
+
+The first one is the big one, and it catches everybody once: **a Flex makes no
+audio at all until something connects to it.** Not at the headphone jack, not
+at line out, not at the front speaker. Power it on, plug in headphones, and you
+get silence — by design. It's a server sitting there waiting for a client. If
+you're coming from a conventional rig where the receiver is wired to the
+speaker, this is genuinely surprising, and there was nowhere in the app that
+said so. Now there is: it's the first thing on the new Audio Troubleshooting
+help page, and it's in Getting Started too.
+
+The second one is that on a radio with no front panel — every non-M model —
+the software levels aren't one volume control among several. They're the only
+volume control that exists. JJ Flex could nudge them from a menu but could
+never show you where they stood. If they were at zero, the radio was silent and
+nothing told you why.
+
+So Settings, Audio tab now opens with a **Radio Outputs** group:
+
+- **Headphone level** and **Line out level**, 0 to 100, arrow up and down.
+  These take effect on the radio as you change them, not when you press OK —
+  you're setting these by listening, and a level that doesn't apply until you
+  close and reopen the dialog is useless for that.
+- **Mute the headphone output**, **Mute the line out output**, and **Mute the
+  front panel speaker**, each one saying its new state as you toggle it.
+
+There's also a **Why is my radio silent?** button that walks the causes in
+order and tells you the first thing it finds — not connected, output muted,
+level at zero, radio audio not coming through your computer. It's the ladder I
+should have had that evening.
+
+[Return to version headlines](#unreleased-headlines)
+
+### One Place to Choose Your Sound Devices {#audio-devices-dialog}
+
+The old way to pick which sound devices carried your radio audio was two
+dialogs in a row. The first asked for an input device, the second for an
+output, and nothing announced that a second one was coming. Both had a list
+labelled "device list" — the same words both times — with the window title
+doing all the work of saying which one you were actually choosing. Cancel the
+first and it marched you into the second anyway.
+
+Worse: on a brand new install, that pair of dialogs could appear *during your
+first connect*, thrown up from the background by the audio machinery, sometimes
+landing behind the main window where your screen reader couldn't follow. This
+gated all audio on a fresh install, and choosing by ear was, honestly, not
+really possible.
+
+It's one dialog now, and it covers everything: the device your radio's receive
+audio plays through, the microphone sent to the radio, the device your alerts
+and CW notifications use, and the meter tone device. Open it from the Audio
+menu (**Audio Devices**), from Settings on the Audio tab, or from the Command
+Finder. Each list says what it's for, the current choice is announced when it
+opens, and the system default is marked in words rather than just being first
+in the list.
+
+A few things it now does that it never did:
+
+- **It tells you when a device you chose is gone.** Unplug the interface your
+  radio audio was going to, and JJ Flex falls back to your Windows default and
+  says so out loud. It doesn't go quiet on you, and it doesn't block the
+  connect. Your original choice stays saved, so plugging the device back in
+  picks it right back up.
+- **Moving a USB headset to a different port no longer confuses it.** Your
+  saved devices are remembered by name, not by their position in a list that
+  reshuffles every time hardware comes and goes. That mattered more than it
+  sounds: the old way, a device sliding into a vacated slot could quietly
+  become your transmit microphone.
+- **It has a Refresh button**, because the device list is a snapshot. Plug
+  something in while the dialog is open and Refresh will find it.
+- **It says only stereo devices are listed.** That's a real limitation — a mono
+  microphone won't appear — and it used to just look like JJ Flex couldn't see
+  your headset. Now it says so.
+
+And a small one: **turning PC audio on now tells you the truth.** If it can't
+start, you hear that it didn't, instead of hearing "PC audio on" while nothing
+plays.
+
+[Return to version headlines](#unreleased-headlines)
+
+### CW Notifications Moved In With Their Speaker {#cw-with-alert-device}
+
+CW notifications play through your alert device. They always have. But the
+switch that turned them on lived on the Notifications tab and the device they
+used lived on the Audio tab, which meant setting up prosign notifications
+involved two tabs and a leap of faith about whether they were related.
+
+They're together now, on the Audio tab, under **Alerts and CW Notifications** —
+the device, then the enable checkbox, then sidetone and speed. The Notifications
+tab keeps a line pointing at the new spot, because a setting that moves should
+say where it went rather than just vanishing.
+
+Nothing changed about the defaults. CW notifications are still off unless you
+turn them on — not everybody does CW, and I'm not going to start beeping
+prosigns at people who don't.
 
 [Return to version headlines](#unreleased-headlines)
 

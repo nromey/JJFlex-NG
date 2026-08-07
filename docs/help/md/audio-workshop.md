@@ -1,6 +1,8 @@
 # Audio Workshop
 
-The Audio Workshop gives you control over your radio's audio routing and levels, all in one place. It is where you pick which output device your radio audio flows to, adjust the volume of each output independently, and save your setup as a preset for later.
+The Audio Workshop gives you control over your radio's audio levels and the shape of your transmitted audio, all in one place, with live meters, an earcon explorer, and the ability to save your setup as a preset for later.
+
+It does not choose which sound device your audio goes to. That lives in Settings, on the Audio tab, under **Audio Devices** — or on the Audio menu under the same name. If you are chasing silence rather than shaping a signal, start at **Audio Troubleshooting** instead.
 
 ## Opening the Audio Workshop
 
