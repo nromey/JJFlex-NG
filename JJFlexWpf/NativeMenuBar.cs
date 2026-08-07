@@ -1051,19 +1051,32 @@ public class NativeMenuBar : IDisposable
 
         if (Rig != null)
         {
-            // Selection with active slice checkmark
+            // Selection with active slice checkmark.
+            // QB Track I fix (Track J audit): iterate OUR slices only —
+            // mySlices holds just this client's slices, so positions beyond
+            // MyNumSlices rendered as numeric labels that silently no-opped
+            // on click under MultiFlex. Other stations' slices get one
+            // honest, speaking summary entry instead of dead rows.
             var selSub = AddSubmenu(slice, "Selection");
-            for (int i = 0; i < Math.Min(Rig.TotalNumSlices, 8); i++)
+            for (int i = 0; i < Math.Min(Rig.MyNumSlices, 8); i++)
             {
                 int sliceNum = i;
                 AddChecked(selSub, $"Slice {Rig.VFOToLetter(i)}",
                     () =>
                     {
-                        if (Rig == null || !Rig.ValidVFO(sliceNum)) return;
+                        if (Rig == null || !Rig.ValidVFO(sliceNum)) { SpeakNoRadio(); return; }
                         Rig.RXVFO = sliceNum;
                         SpeakAfterMenuClose($"Slice {Rig.VFOToLetter(sliceNum)} active");
                     },
                     () => Rig?.RXVFO == sliceNum);
+            }
+            int otherSlices = Rig.TotalNumSlices - Rig.MyNumSlices;
+            if (otherSlices > 0)
+            {
+                AddWired(selSub, $"{otherSlices} in use by other stations", () =>
+                    SpeakAfterMenuClose(
+                        $"{otherSlices} {(otherSlices == 1 ? "slice is" : "slices are")} in use by other stations. " +
+                        "See MultiFlex Clients on the Radio menu."));
             }
 
             AddSep(selSub);
@@ -1079,11 +1092,16 @@ public class NativeMenuBar : IDisposable
                     SpeakAfterMenuClose("Cannot create slice, maximum reached");
             });
 
-            // Release Slice (only when more than 1 slice exists)
-            if (Rig.TotalNumSlices > 1)
+            // Release Slice (only when WE have more than one slice — another
+            // station's slices are not ours to release).
+            // QB Track I fix (Track J audit): the old label baked the slice
+            // letter in at menu-BUILD time while the handler acted on the
+            // click-time RXVFO — label/action drift whenever the active slice
+            // changed in between. The label no longer names a letter; the
+            // click-time announcement speaks the letter actually released.
+            if (Rig.MyNumSlices > 1)
             {
-                int activeSlice = Rig.RXVFO;
-                AddWired(selSub, $"Release Slice {Rig.VFOToLetter(activeSlice)}", () =>
+                AddWired(selSub, "Release Active Slice", () =>
                 {
                     if (Rig == null) { SpeakNoRadio(); return; }
                     int toRemove = Rig.RXVFO;
@@ -1120,8 +1138,10 @@ public class NativeMenuBar : IDisposable
             // truth — Track J's identity rule), never positional arithmetic.
             if (Rig.CanTransmit)
             {
+                // MyNumSlices, not TotalNumSlices — TX can only move between
+                // OUR slices (same J-audit dead-entry class as Selection).
                 var txSliceSub = AddSubmenu(slice, "Transmit S&lice");
-                for (int i = 0; i < Math.Min(Rig.TotalNumSlices, 8); i++)
+                for (int i = 0; i < Math.Min(Rig.MyNumSlices, 8); i++)
                 {
                     int sliceNum = i;
                     AddChecked(txSliceSub, $"Slice {Rig.VFOToLetter(i)}",
