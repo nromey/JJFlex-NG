@@ -4046,7 +4046,9 @@ namespace Radios
                 // When we already hold a radio list from this session, don't make
                 // the user sit through the full 10s window on the off chance the
                 // server volunteers a new one — it does not resend per session.
-                bool haveCachedList = session.IsConnected && myRadioList.Count > 0;
+                // WAN entries only: myRadioList also accumulates LAN radios, and
+                // a LAN-only cache says nothing about this SmartLink session.
+                bool haveCachedList = session.IsConnected && myRadioList.Any(r => r.IsWan);
                 int listWaitMs = haveCachedList ? 2000 : 10000;
 
                 Tracing.TraceLine($"ConnectToSmartLink: registration sent, waiting up to {listWaitMs / 1000}s for radio list (cached={myRadioList.Count}) ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
@@ -4063,8 +4065,21 @@ namespace Radios
                     // failure on a healthy session.
                     if (haveCachedList)
                     {
+                        // The cache check above reads myRadioList, but everything
+                        // downstream reads `radios`, which only a fresh
+                        // WanRadioRadioListRecieved event assigns. On a NEW
+                        // FlexBase over the still-live app-global session —
+                        // selector closed and reopened, which remote-first
+                        // startup now does on every open — `radios` is null
+                        // here: NRE, mapped to ConnectFailed, answered with a
+                        // pointless interactive re-login on a healthy session
+                        // (Noel, 2026-08-06, trace 203418). Rebuild it from the
+                        // cache being accepted. RadioFound for these entries
+                        // already fired via radioAddedHandler at apiInit, so no
+                        // re-announce is needed here.
+                        radios = myRadioList.Where(r => r.IsWan).ToList();
                         Tracing.TraceLine(
-                            $"ConnectToSmartLink: no new radio list, session live with {myRadioList.Count} cached radio(s) — using those ({sw.ElapsedMilliseconds}ms)",
+                            $"ConnectToSmartLink: no new radio list, session live with {radios.Count} cached WAN radio(s) — using those ({sw.ElapsedMilliseconds}ms)",
                             TraceLevel.Info);
                     }
                     else
