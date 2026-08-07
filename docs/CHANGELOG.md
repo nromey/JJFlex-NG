@@ -435,7 +435,6 @@ This is the third home of a pattern we've been quietly building toward: the stic
 
 [Return to version headlines](#unreleased-headlines)
 
-<<<<<<< HEAD
 ### The Program File Has a New Name {#exe-rename}
 
 The application you launch is now called `jjflexible.exe`. It used to be `JJFlexRadio.exe`. That's the whole change on disk, and for almost everybody it's invisible — the installer swaps your Start Menu and desktop shortcuts over to the new file and cleans the old one out, so you launch JJ Flexible the same way you always have and land in the same place.
