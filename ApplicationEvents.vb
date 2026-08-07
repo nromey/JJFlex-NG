@@ -150,34 +150,14 @@ Namespace My
                 Next
                 JJTrace.Tracing.TraceLine($"CommandFinder: {result.Count} key commands loaded", TraceLevel.Info)
                 ' Informational rows (field keys, universal Home keys, filter
-                ' chords, leader commands, PTT) come from the KeyInventory table
-                ' — the same data that drives the '?' handler, per-field help,
-                ' and the key manifest. QB Track H (2026-08-07): the hand-built
+                ' chords, leader commands, PTT, and the TX-slice / power /
+                ' antenna door rows) come from the KeyInventory table — the
+                ' same data that drives the '?' handler, per-field help, and
+                ' the key manifest. QB Track H (2026-08-07): the hand-built
                 ' list that lived here had drifted from the real handlers.
+                ' QB Track L: Track I's four inline door rows moved into
+                ' KeyInventory.FinderDoors.
                 result.AddRange(JJFlexWpf.KeyInventory.CommandFinderItems())
-                ' QB Track I rows not yet in the KeyInventory table (merge-time
-                ' composition; fold into KeyInventory at reconciliation) — the
-                ' discoverable TX-slice, power, and antenna doors.
-                result.Add(New JJFlexWpf.Dialogs.CommandFinderItem With {
-                    .Description = "Transmit slice: set, move, or clear (Transmit slice field)", .KeyDisplay = "Space, Up/Down, A-H, Delete",
-                    .Scope = "Radio", .Group = "FreqOut",
-                    .MenuText = "Slice menu, Transmit Slice submenu",
-                    .Keywords = New String() {"transmit", "tx", "slice", "clear", "keying", "lockout"}})
-                result.Add(New JJFlexWpf.Dialogs.CommandFinderItem With {
-                    .Description = "Power dialog - transmit and tune power (dBm drive on a transverter)",
-                    .Scope = "Radio", .Group = "Transmit",
-                    .MenuText = "Radio menu, Transmit, Power (also Slice menu, Transmission)",
-                    .Keywords = New String() {"power", "watts", "dbm", "drive", "rf", "tune", "xvtr", "transverter", "output"}})
-                result.Add(New JJFlexWpf.Dialogs.CommandFinderItem With {
-                    .Description = "TX antenna selection",
-                    .Scope = "Radio", .Group = "Antenna",
-                    .MenuText = "Radio menu, Transmit, TX Antenna (also Slice menu, Antenna)",
-                    .Keywords = New String() {"antenna", "tx", "transmit", "xvtr", "transverter", "ant1", "ant2"}})
-                result.Add(New JJFlexWpf.Dialogs.CommandFinderItem With {
-                    .Description = "RX antenna selection",
-                    .Scope = "Radio", .Group = "Antenna",
-                    .MenuText = "Slice menu, Antenna, RX Antenna",
-                    .Keywords = New String() {"antenna", "rx", "receive", "ant1", "ant2", "rxa", "rxb"}})
                 Return result
             End Function
 

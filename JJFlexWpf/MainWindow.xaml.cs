@@ -1672,13 +1672,10 @@ public partial class MainWindow : UserControl
         // QB Track I — Transmit slice field: shows which slice keys the radio
         // ("-" when none does). Sits by VOX/RIT/XIT where an operator looks
         // for transmit state. The discoverable door for what was previously
-        // only the hidden T keypress on the Slice field. Inline HelpItems until
-        // the field gets a KeyInventory row (post-merge reconciliation).
+        // only the hidden T keypress on the Slice field. HelpItems come from
+        // the KeyInventory table like every other field (QB Track L).
         fields.Add(new FrequencyDisplay.DisplayField("TXSlice", 1, "", "") { Label = "Transmit slice",
-            HelpItems = new() { ("Space", "set transmit to the active slice"),
-                ("Up Down", "move transmit to another slice"),
-                ("A-H", "set transmit slice by letter"),
-                ("Delete or Backspace", "clear transmit slice") } });
+            HelpItems = KeyInventory.HelpItemsFor("TXSlice", modern: false) });
         fields.Add(new FrequencyDisplay.DisplayField("Offset", 1, "", "") { Label = "Offset",
             HelpItems = KeyInventory.HelpItemsFor("Offset", modern: false) });
         fields.Add(new FrequencyDisplay.DisplayField("RIT", 5, "", "") { Label = "RIT", DefaultCursorOffset = 2,
@@ -1752,11 +1749,9 @@ public partial class MainWindow : UserControl
         fields.Add(new FrequencyDisplay.DisplayField("VOX", 1, "", "") { Label = "VOX",
             HelpItems = KeyInventory.HelpItemsFor("VOX", modern: true) });
         // QB Track I — Transmit slice field (see Classic setup for rationale).
+        // HelpItems from the KeyInventory table (QB Track L).
         fields.Add(new FrequencyDisplay.DisplayField("TXSlice", 1, "", "") { Label = "Transmit slice",
-            HelpItems = new() { ("Space", "set transmit to the active slice"),
-                ("Up Down", "move transmit to another slice"),
-                ("A-H", "set transmit slice by letter"),
-                ("Delete or Backspace", "clear transmit slice") } });
+            HelpItems = KeyInventory.HelpItemsFor("TXSlice", modern: true) });
         fields.Add(new FrequencyDisplay.DisplayField("Offset", 1, "", "") { Label = "Offset",
             HelpItems = KeyInventory.HelpItemsFor("Offset", modern: true) });
         fields.Add(new FrequencyDisplay.DisplayField("RIT", 5, "", "") { Label = "RIT", DefaultCursorOffset = 2,

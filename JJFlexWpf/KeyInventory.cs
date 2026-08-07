@@ -41,6 +41,12 @@ public static class KeyInventory
         public string Scope { get; init; } = "Radio";
         public string Group { get; init; } = "FieldKeys";
 
+        /// <summary>
+        /// Menu path for Command Finder door rows (see <see cref="FinderDoors"/>).
+        /// Empty for ordinary key entries — keys are keys, not menu items.
+        /// </summary>
+        public string MenuText { get; init; } = "";
+
         public FixedKeyEntry() { }
         public FixedKeyEntry(string context, string contextLabel, string key,
             string description, string[] keywords, string scope = "Radio", string group = "FieldKeys")
@@ -170,6 +176,16 @@ public static class KeyInventory
         // ── VOX field ──
         new("VOX", "VOX field", "Space, Up, or Down", "Toggle VOX on or off",
             new[] { "vox", "toggle", "voice" }),
+
+        // ── Transmit slice field (QB Track I; absorbed here by QB Track L) ──
+        new("TXSlice", "Transmit slice field", "Space", "Set transmit to the active slice",
+            new[] { "transmit", "tx", "slice", "set" }),
+        new("TXSlice", "Transmit slice field", "Up / Down", "Move transmit to another slice",
+            new[] { "transmit", "tx", "slice", "move" }),
+        new("TXSlice", "Transmit slice field", "A-H", "Set the transmit slice by letter",
+            new[] { "transmit", "tx", "slice", "letter", "jump" }),
+        new("TXSlice", "Transmit slice field", "Delete or Backspace", "Clear the transmit slice",
+            new[] { "transmit", "tx", "slice", "clear", "keying", "lockout" }),
 
         // ── Offset field ──
         new("Offset", "Offset field", "Space, Up, or Down", "Cycle offset direction: off, plus, minus",
@@ -344,6 +360,49 @@ public static class KeyInventory
             new[] { "frequency", "enter", "logging" }, "Logging", "Logging"),
     };
 
+    // ────────────────────────────────────────────────────────────────
+    //  Command Finder door rows — dialogs and menu paths users must be
+    //  able to FIND even though no single fixed key opens them. Emitted
+    //  VERBATIM by CommandFinderItems() (no "(on ...)" suffix — their
+    //  descriptions already carry any context they need). Deliberately
+    //  NOT part of All(): these are doors, not keys, so they stay out of
+    //  the key manifest and the Keys dialog's built-in view.
+    //  QB Track L (2026-08-07): absorbed from the merge-time inline adds
+    //  in ApplicationEvents.vb (QB Track I's discoverability rows).
+    // ────────────────────────────────────────────────────────────────
+    private static readonly FixedKeyEntry[] FinderDoors =
+    {
+        new FixedKeyEntry
+        {
+            Description = "Transmit slice: set, move, or clear (Transmit slice field)",
+            KeyDisplay = "Space, Up/Down, A-H, Delete",
+            Scope = "Radio", Group = "FreqOut",
+            MenuText = "Slice menu, Transmit Slice submenu",
+            Keywords = new[] { "transmit", "tx", "slice", "clear", "keying", "lockout" },
+        },
+        new FixedKeyEntry
+        {
+            Description = "Power dialog - transmit and tune power (dBm drive on a transverter)",
+            Scope = "Radio", Group = "Transmit",
+            MenuText = "Radio menu, Transmit, Power (also Slice menu, Transmission)",
+            Keywords = new[] { "power", "watts", "dbm", "drive", "rf", "tune", "xvtr", "transverter", "output" },
+        },
+        new FixedKeyEntry
+        {
+            Description = "TX antenna selection",
+            Scope = "Radio", Group = "Antenna",
+            MenuText = "Radio menu, Transmit, TX Antenna (also Slice menu, Antenna)",
+            Keywords = new[] { "antenna", "tx", "transmit", "xvtr", "transverter", "ant1", "ant2" },
+        },
+        new FixedKeyEntry
+        {
+            Description = "RX antenna selection",
+            Scope = "Radio", Group = "Antenna",
+            MenuText = "Slice menu, Antenna, RX Antenna",
+            Keywords = new[] { "antenna", "rx", "receive", "ant1", "ant2", "rxa", "rxb" },
+        },
+    };
+
     /// <summary>
     /// Every fixed (non-rebindable) key entry, in presentation order.
     /// </summary>
@@ -438,6 +497,21 @@ public static class KeyInventory
                 Scope = e.Scope,
                 Group = e.Group,
                 Keywords = e.Keywords,
+                Tag = null, // informational — not executable
+            });
+        }
+        // Door rows go out verbatim — their descriptions already name their
+        // context, and their MenuText is the road there.
+        foreach (var d in FinderDoors)
+        {
+            result.Add(new Dialogs.CommandFinderItem
+            {
+                Description = d.Description,
+                KeyDisplay = d.KeyDisplay,
+                Scope = d.Scope,
+                Group = d.Group,
+                MenuText = d.MenuText,
+                Keywords = d.Keywords,
                 Tag = null, // informational — not executable
             });
         }
