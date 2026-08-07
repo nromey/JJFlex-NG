@@ -164,11 +164,15 @@ namespace JJFlexWpf.Dialogs
         private void RadioProfileMode_Checked(object sender, RoutedEventArgs e)
         {
             if (_suppressRadioProfileEvents) return;
+            // "Choose save profile to keep it" matches the waiver toggles below:
+            // a mode change that SOUNDS applied but quietly needs a save button
+            // is the dishonest-speech pattern this dialog exists to avoid.
             string announcement =
                 RadioProfilePunchRadio?.IsChecked == true ? "Hole punch always." :
                 RadioProfileForwardRadio?.IsChecked == true ? "Forwarded ports only." :
                 "Automatic, follow what the radio reports.";
-            ScreenReaderOutput.Speak(announcement, VerbosityLevel.Terse, interrupt: true);
+            ScreenReaderOutput.Speak(announcement + " Choose save profile to keep it.",
+                VerbosityLevel.Terse, interrupt: true);
         }
 
         private void RadioProfileRemoteAdmin_Toggled(object sender, RoutedEventArgs e)
@@ -295,8 +299,12 @@ namespace JJFlexWpf.Dialogs
             {
                 RadioProfileStatusText.Text =
                     $"Saved. {DescribeRadioProfile(cfg)} Applies from the next connection to this radio.{renameNote}";
+                // The applies-on-next-connect clause is SPOKEN, not just written
+                // to the status line: an offline edit that sounds live-applied
+                // would send someone hunting a change that hasn't happened yet.
                 ScreenReaderOutput.Speak(
-                    renameNote.Length > 0 ? "Saved." + renameNote : "Profile saved.",
+                    (renameNote.Length > 0 ? "Saved." + renameNote : "Profile saved.") +
+                    " Applies from the next connection to this radio.",
                     VerbosityLevel.Terse, interrupt: true);
 
                 // Refresh the picker (a typed-in radio just became a known one)
