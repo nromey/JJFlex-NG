@@ -143,6 +143,24 @@ Apply semantics: selections save on Settings OK (same as the rest of the tab). I
 6. **Any appetite for per-radio audio device overrides in `RadioConfig`?** Recommendation: no for v1. Sound cards are machine-scope; the serial-keyed store just got its first tenant (connection preference) and should stay lean. Revisit only if a real two-radio-two-headset workflow shows up.
 7. **Does the "Radio Audio Device" menu item survive as a Settings shortcut?** Recommendation: yes — rename to "Radio Audio Devices..." and point it at `OpenSettings("Audio")`. It costs one line, preserves every documented path (including the whats-new history and Don's habits), and the Command Finder entry retargets identically.
 
+## Addendum — Noel, 2026-08-06 late: radio output levels join the tab
+
+Scope addition from the field: the merged Settings → Audio tab also gets a
+**"Radio Outputs" group** (present when a radio is connected) with direct-set
+sliders for Headphone Level and Line Out Level plus the mute checkboxes —
+live-apply, since audio level feedback is immediate, not save-on-OK. The
+driver: Noel plugged headphones into the 8600 itself, heard nothing, and
+misread it as an antenna problem; PC audio proved the signal was fine —
+almost certainly `HeadphoneGain` at/near zero, and on a non-M radio the
+software slider is the only volume control that exists. Everything below the
+UI already exists: FlexBase wraps both gains 0–100 (`FlexBase.cs:7332-7357`),
+FlexLib has the mutes, and ScreenFields Audio (Ctrl+Shift+U) already renders
+direct-set fields for both (`ScreenFieldsPanel.xaml.cs:410-416`) — this is a
+second door to the same values, per the one-concept-two-doors pattern the tab
+already uses. Full details and audit hooks (the `!PCAudio` gate on the
+Lineout key handlers, dead `LocalAudioMute`, an at-zero visibility
+affordance) live in the research queue entry dated 2026-08-06 late.
+
 ## Addendum — Noel, 2026-08-06: device identity must survive reshuffles
 
 Requirement added after the research round: the saved device selection must
