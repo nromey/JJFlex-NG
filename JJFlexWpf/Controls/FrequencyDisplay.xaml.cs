@@ -346,9 +346,19 @@ public partial class FrequencyDisplay : UserControl
             return;
         }
 
-        // Home: jump to first field
+        // Home: let the field handler try first (the Slice field uses Home
+        // for pan center — QB Track H 2026-08-07: that binding was documented
+        // but dead because this navigation consumed Home unconditionally).
+        // If the handler doesn't claim it, jump to the first field — which
+        // is the Slice field anyway, so nothing is lost where Home is taken.
         if (e.Key == Key.Home)
         {
+            var homeField = PositionToField(DisplayBox.SelectionStart);
+            if (homeField != null)
+            {
+                FieldKeyDown?.Invoke(homeField, e);
+                if (e.Handled) return;
+            }
             if (_fields.Length > 0)
                 NavigateToField(_fields[0]);
             e.Handled = true;
