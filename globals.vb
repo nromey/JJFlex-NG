@@ -2253,7 +2253,11 @@ Module globals
             End If
 
             Tracing.TraceLine("TryAutoConnectOnStartup: failed, showing dialog", TraceLevel.Info)
-            Dim dialogResult = Radios.AutoConnectFailedDialog.ShowDialog(Nothing, _autoConnectConfig.RadioName)
+            ' QB Track L: hand the dialog the classified failure evidence
+            ' (Track D's report) so it states WHY, not just who. Bare wording
+            ' only when no report was filed.
+            Dim dialogResult = Radios.AutoConnectFailedDialog.ShowDialog(
+                Nothing, _autoConnectConfig.RadioName, RigControl?.LastConnectFailureAdvice)
 
             Select Case dialogResult
                 Case Radios.AutoConnectFailedResult.TryAgain
