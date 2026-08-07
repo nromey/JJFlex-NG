@@ -2635,7 +2635,8 @@ Module globals
             .ShowSmartLinkAccountManager = Sub() WpfMainWindow.ShowSmartLinkAccountManager(),
             .AutoStartRemote = autoStartRemote,
             .GetRadioAvailability = Function(serial) RigControl.RadioAvailability(serial),
-            .GetSmartLinkAccountState = Function() ResolveSmartLinkAccountState()
+            .GetSmartLinkAccountState = Function() ResolveSmartLinkAccountState(),
+            .GetCurrentRig = Function() RigControl
         }
 
         ' Wire the save-default delegate so ShowSmartLinkAccountManager can persist the selection
