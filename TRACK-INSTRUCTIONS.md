@@ -98,3 +98,109 @@ at a deliberate VerbosityLevel; failure reports never get suppress keys;
 
 Commit after each work item: `QB Track D: <what changed>`. Push to `origin`
 (never `upstream`). Report completion to Noel when done.
+
+## Design decisions (appended by Track D, 2026-08-07)
+
+1. **One failure-report spine instead of per-site strings.** All seven
+   items funnel through `Radios/ConnectivityGuidance.cs`:
+   `ConnectFailureClass` + `ConnectFailureReport` (spoken summary, detail
+   lines, optional verbatim router rule), filed via
+   `FlexBase.RecordConnectFailure` and read as
+   `FlexBase.LastConnectFailureAdvice`. Callers speak the report; FlexBase
+   composes it. Rationale: the connect pipeline is NOT unified (four entry
+   paths), so putting the words at each site would have re-created the
+   drift this track exists to kill. Every report also traces itself so
+   field traces carry the same story the user heard.
+
+2. **Refused vs timed out is classified by socket error first, timing
+   second.** A `ConnectionRefused`/`ConnectionReset` is definitive router
+   evidence regardless of elapsed ms; the elapsed time is spoken as
+   corroboration ("refused after 143 milliseconds") rather than being the
+   classifier. The spec's sub-200ms heuristic is honored in spirit — an
+   RST *is* the router answering fast — without misclassifying a slow RST.
+   The classifier is client-side (one bare TCP SYN + close, no protocol),
+   run ONLY after a failed connect and ONLY on the forwarded path. On the
+   punch path there is no listening public port, so there is nothing
+   honest to classify — and no probe of any kind runs there.
+
+3. **Fresh radio-side probe is fetched on the forwarded path only.** When
+   a remote connect fails with no cached test_connection report, the
+   report is fetched (8s cap) because the failed connect means there is no
+   live session to endanger. On a punch radio the probe is never
+   auto-run, even after failure — the instruction is absolute and the
+   evidence value is near zero there. Cached reports are consulted on
+   every path (reads are always safe).
+
+4. **Evidence ladder order (forwarded path):** refused → timed
+   out/unreachable (merged with probe corroboration when both agree) →
+   probe-says-unreachable → handshake-failed (sendRemoteConnect never got
+   connect-ready) → port-answers-but-connect-failed (router rule
+   demonstrably fine; rule text suppressed so nobody gets sent to a router
+   that works) → generic. The router rule is attached only when the
+   evidence actually points at the router.
+
+5. **Router rule text degrades honestly.** External ports come from the
+   radio's advertised `public_tls_port`/`public_udp_port`; internal ports
+   are the fixed 4994/4993 constants (named, documented, sourced); the
+   LAN address comes from `radioConnectionCacheV1.xml` (LanIp recorded on
+   every LAN connect). When this machine has never seen the radio on the
+   LAN, the text says "the radio's LAN address" rather than inventing a
+   number. No value in the rule is ever typed from memory.
+
+6. **AuthFailed became an enum member, not a bool.**
+   `SmartLinkConnectResult.AuthFailed` is returned exactly where the
+   server said AuthorizationExpired. The setupRemote ladder is now: cycle
+   + silent JWT refresh for EVERY failure class (cheap, no UI, and the
+   right first medicine for an expired id_token too), then interactive
+   login ONLY for AuthFailed. Non-auth failures file an honest
+   SessionSetupFailed report ("your sign-in is fine — network or server
+   problem") and never summon a form. Auto-connect never pops a form at
+   all (it runs unattended); on AuthFailed it says sign-in needs attention
+   and points at the Remote button.
+
+7. **"No RX antenna" now requires an antenna answer.** The 20s timeout
+   distinguishes: connection dropped (says so), `RXAntList == null` (the
+   ant-list reply never arrived — "the radio never sent its setup data,
+   this is a connection problem, not an antenna problem"), and only a
+   non-null empty list keeps the antenna wording. Judgment call: an empty
+   reply is vanishingly rare but physically expressible, so the honest
+   branch stays.
+
+8. **Identity card = data builder + thin control, hosted in Status.**
+   `Radios.NetworkIdentityInfo.BuildLines` is the single source of lines;
+   `JJFlexWpf/Controls/NetworkIdentityCard` renders them as one
+   arrow-readable ListBox tab stop. The Status dialog hosts the card below
+   its status list (its live home this track) and its Copy-to-Clipboard
+   snapshot includes the identity section. Track E (or the orchestrator at
+   merge) can drop the same control into the picker detail area unchanged
+   — set `Rig`, call `Refresh()`. The card is strictly read-only: the
+   reachability line reads the cached report and never triggers a probe,
+   so it is safe to open on a punched session. Write side (static IP) was
+   left in `StaticIpControl` per scope.
+
+9. **Test-network guard is a confirmation, not a gate.** Both buttons
+   (Network tab + Radio Setup step 6) share
+   `ConfirmNetworkTestOnPunchedSession`: on a live punched session a
+   ConfirmActionDialog names the consequence, focus lands on "Not now",
+   Escape cancels, and declining speaks the outcome plus the alternative
+   (run after disconnecting, or from a forwarded connection). Chose
+   warn-and-confirm over defer/detach because detached-client operations
+   are an established wave-2 design (`detached-operations-plan.md`) and
+   pre-empting it with a one-off defer here would fork that architecture.
+
+10. **Track C merge seam (from the orchestrator's mid-run heads-up):**
+    C's branch carries a string `FlexBase.LastConnectFailureAdvice` (set
+    on its ForwardOnly pre-attempt fail-fast, cleared at Connect/
+    sendRemoteConnect entry, consumed at globals.vb ~2412). D's computed
+    property of the same name owns the name at merge; C's assignment
+    sites become `RecordConnectFailure(new ConnectFailureReport { Class =
+    ConnectFailureClass.PreflightRefused, SpokenSummary = <C's text> })`
+    — the class member is already reserved and documented in code, and
+    the globals.vb consumer here is a superset of C's placeholder. Seam
+    comments sit at all three collision points.
+
+11. **SettingsDialog ownership note.** Item 7 required touching two
+    handlers inside SettingsDialog files whose *tabs* belong to B/C/F.
+    Edits are surgical (handler-entry guard + one shared private method),
+    no tab structure or XAML changed, per the "diagnostics surfaces are
+    D's" grant. Flagging for the orchestrator's merge review anyway.
