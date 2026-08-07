@@ -24,6 +24,9 @@ public partial class ValueFieldControl : UserControl
     private bool _suppressEvents;
     private bool _numberEntryMode;
     private string _numberBuffer = "";
+    // QB Track I — sign state for typed entry on negative-capable fields.
+    // Minus toggles this; it applies to the whole buffer at confirm time.
+    private bool _numberNegative;
 
     /// <summary>Fired when user adjusts the value via keyboard.</summary>
     public event EventHandler<int>? ValueChanged;
@@ -74,6 +77,33 @@ public partial class ValueFieldControl : UserControl
     }
 
     /// <summary>
+    /// QB Track I — decimal display mode. 0 (default) keeps legacy integer
+    /// behavior. N &gt; 0 means Value is carried in scaled integer units
+    /// (e.g. 2 → hundredths: Value 550 displays and speaks as "5.50"). Typed
+    /// entry accepts a decimal point in this mode. Used for transverter drive
+    /// power in centi-dBm.
+    /// </summary>
+    public int DecimalPlaces { get; set; }
+
+    /// <summary>
+    /// QB Track I — unit suffix appended to display and speech (e.g. "dBm").
+    /// Empty (default) keeps legacy unlabeled output. The unit rides every
+    /// announcement so the operator always hears which scale they're on.
+    /// </summary>
+    public string Unit { get; set; } = "";
+
+    /// <summary>Format the scaled integer value for display/speech per DecimalPlaces.</summary>
+    private string FormatValue(int value)
+    {
+        if (DecimalPlaces <= 0) return value.ToString();
+        double scale = System.Math.Pow(10, DecimalPlaces);
+        return (value / scale).ToString("F" + DecimalPlaces,
+            System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    private string UnitSuffix => string.IsNullOrEmpty(Unit) ? "" : " " + Unit;
+
+    /// <summary>
     /// Set to true during poll updates to suppress ValueChanged events and speech.
     /// </summary>
     public bool SuppressEvents
@@ -83,17 +113,26 @@ public partial class ValueFieldControl : UserControl
     }
 
     /// <summary>
-    /// Configure all properties at once. Use during initialization.
+    /// Configure all properties at once. Use during initialization — and for
+    /// live re-configuration when a field changes personality (the TX power
+    /// field flips between integer watts and decimal dBm when the TX antenna
+    /// moves on/off the transverter port).
     /// </summary>
-    public void Setup(string label, int min, int max, int step, int initialValue = 0)
+    public void Setup(string label, int min, int max, int step, int initialValue = 0,
+                      int decimalPlaces = 0, string unit = "")
     {
         _label = label;
         _min = min;
         _max = max;
         _step = step;
+        DecimalPlaces = decimalPlaces;
+        Unit = unit;
+        // Cancel any in-flight typed entry — the old buffer's scale no longer applies.
+        _numberEntryMode = false;
+        _numberBuffer = "";
+        _numberNegative = false;
         _value = Math.Clamp(initialValue, min, max);
         UpdateDisplay();
-        AutomationProperties.SetName(this, $"{_label}: {_value}");
     }
 
     /// <summary>
@@ -102,7 +141,7 @@ public partial class ValueFieldControl : UserControl
     /// </summary>
     private void UpdateDisplay()
     {
-        string text = $"{_label}: {_value}";
+        string text = $"{_label}: {FormatValue(_value)}{UnitSuffix}";
         DisplayText.Text = text;
         AutomationProperties.SetName(this, text);
     }
@@ -113,7 +152,7 @@ public partial class ValueFieldControl : UserControl
     /// </summary>
     private void UpdateVisual()
     {
-        DisplayText.Text = $"{_label}: {_value}";
+        DisplayText.Text = $"{_label}: {FormatValue(_value)}{UnitSuffix}";
     }
 
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)
@@ -176,51 +215,76 @@ public partial class ValueFieldControl : UserControl
                 }
                 break;
 
-            // Minus can also START entry mode, so "-8" is typeable from rest
-            // (QB Track A, 2026-08-07 — Noel live find on RX RF gain).
-            // OemMinus with Shift is underscore, so only the unshifted key
-            // counts; NumPad Subtract is minus regardless of Shift.
+            // Minus can START entry on negative-capable fields ("-8" must be
+            // typeable from the first keystroke — QB Track A, Noel live find on
+            // RX RF gain; refusal speech per QB Track I). OemMinus with Shift
+            // is underscore, so only the unshifted key counts.
             case Key.OemMinus:
                 if (!shift)
                 {
-                    BeginNumberEntry(e.Key);
+                    if (_min < 0)
+                        BeginNumberEntry(e.Key);
+                    else
+                        RejectEntryKey($"{_label} does not accept negative values");
                     e.Handled = true;
                 }
                 break;
+
+            // NumPad Subtract is minus regardless of Shift (QB Track A).
             case Key.Subtract:
-                BeginNumberEntry(e.Key);
+                if (_min < 0)
+                    BeginNumberEntry(e.Key);
+                else
+                    RejectEntryKey($"{_label} does not accept negative values");
                 e.Handled = true;
+                break;
+
+            // QB Track I — decimal point can START entry on decimal fields
+            // (".5" dBm). Integer fields speak the refusal.
+            case Key.OemPeriod: case Key.Decimal:
+                if (!shift)
+                {
+                    if (DecimalPlaces > 0)
+                        BeginNumberEntry(e.Key);
+                    else
+                        RejectEntryKey($"{_label} takes whole numbers only");
+                    e.Handled = true;
+                }
                 break;
         }
     }
 
     /// <summary>
-    /// Enter number-entry mode and process the key that started it
-    /// (a digit, or minus on signed fields).
+    /// Begin typed-entry mode and process the triggering key (a digit, minus
+    /// on signed fields, or point on decimal fields). Rejection of
+    /// inapplicable starters happens at the call sites so every refusal
+    /// speaks — the one surviving copy of the Track A / Track I seam.
     /// </summary>
     private void BeginNumberEntry(Key firstKey)
     {
-        // A minus on a non-negative field must not silently open entry mode —
-        // reject it with the same earcon+speech the in-mode path uses.
-        if ((firstKey == Key.OemMinus || firstKey == Key.Subtract) && _min >= 0)
-        {
-            RejectNegativeEntry();
-            return;
-        }
         _numberEntryMode = true;
         _numberBuffer = "";
+        _numberNegative = false;
         ScreenReaderOutput.Speak($"Enter {_label} value", interrupt: true);
-        HandleNumberEntryKey(firstKey); // Process the first key
+        HandleNumberEntryKey(firstKey);
     }
 
     /// <summary>
-    /// No-silent-keystrokes rejection for minus on a field whose minimum is
-    /// zero or higher.
+    /// Toggle the pending typed value's sign (Track A's seam name; one copy
+    /// survives the merge).
     /// </summary>
-    private void RejectNegativeEntry()
+    private void ToggleBufferSign()
     {
-        EarconPlayer.LeaderInvalidTone();
-        ScreenReaderOutput.Speak($"{_label} does not go below {_min}", interrupt: true);
+        _numberNegative = !_numberNegative;
+        ScreenReaderOutput.Speak(_numberNegative ? "minus" : "minus removed");
+        UpdateNumberEntryDisplay();
+    }
+
+    /// <summary>Audible rejection — every bound key speaks in every state.</summary>
+    private static void RejectEntryKey(string message)
+    {
+        EarconPlayer.Warning1Beep();
+        ScreenReaderOutput.Speak(message, VerbosityLevel.Terse, interrupt: true);
     }
 
     /// <summary>
@@ -229,6 +293,39 @@ public partial class ValueFieldControl : UserControl
     /// </summary>
     private bool HandleNumberEntryKey(Key key)
     {
+        // QB Track I — minus toggles the pending value's sign (so a stray
+        // minus is recoverable by pressing it again). Gated on the field
+        // actually reaching below zero; otherwise it speaks its refusal.
+        if (key == Key.OemMinus || key == Key.Subtract)
+        {
+            if (_min >= 0)
+            {
+                RejectEntryKey($"{_label} does not accept negative values");
+                return true;
+            }
+            ToggleBufferSign();
+            return true;
+        }
+
+        // QB Track I — decimal point, on decimal-capable fields only, one per value.
+        if (key == Key.OemPeriod || key == Key.Decimal)
+        {
+            if (DecimalPlaces <= 0)
+            {
+                RejectEntryKey($"{_label} takes whole numbers only");
+                return true;
+            }
+            if (_numberBuffer.Contains('.'))
+            {
+                RejectEntryKey("Already has a point");
+                return true;
+            }
+            _numberBuffer += '.';
+            ScreenReaderOutput.Speak("point");
+            UpdateNumberEntryDisplay();
+            return true;
+        }
+
         // Digit keys (top row)
         if (key >= Key.D0 && key <= Key.D9)
         {
@@ -246,21 +343,6 @@ public partial class ValueFieldControl : UserControl
             _numberBuffer += digit;
             ScreenReaderOutput.Speak(digit.ToString());
             UpdateNumberEntryDisplay();
-            return true;
-        }
-
-        // Minus toggles the buffer's sign (signed fields only). Kept as its
-        // own small step so Track I's decimal/dBm extension can add its
-        // decimal-point handling alongside without reshaping this method —
-        // sign and (future) decimal are both buffer edits, not digits.
-        if (key == Key.OemMinus || key == Key.Subtract)
-        {
-            if (_min >= 0)
-            {
-                RejectNegativeEntry();
-                return true;
-            }
-            ToggleBufferSign();
             return true;
         }
 
@@ -285,6 +367,7 @@ public partial class ValueFieldControl : UserControl
         {
             _numberEntryMode = false;
             _numberBuffer = "";
+            _numberNegative = false;
             ScreenReaderOutput.Speak("Cancelled", VerbosityLevel.Terse);
             UpdateDisplay();
             return true;
@@ -294,33 +377,32 @@ public partial class ValueFieldControl : UserControl
     }
 
     /// <summary>
-    /// Toggle the leading minus on the entry buffer, speaking which way it
-    /// went. Works on an empty buffer ("-" then digits) and mid-entry
-    /// ("8" → "-8" → "8").
-    /// </summary>
-    private void ToggleBufferSign()
-    {
-        if (_numberBuffer.StartsWith('-'))
-        {
-            _numberBuffer = _numberBuffer.Substring(1);
-            ScreenReaderOutput.Speak("positive");
-        }
-        else
-        {
-            _numberBuffer = "-" + _numberBuffer;
-            ScreenReaderOutput.Speak("minus");
-        }
-        UpdateNumberEntryDisplay();
-    }
-
-    /// <summary>
     /// Confirm the number entry buffer and apply the value.
+    /// Integer fields parse the buffer directly; decimal fields (DecimalPlaces
+    /// &gt; 0) parse a decimal number and scale it to integer units (e.g.
+    /// "5.5" dBm → 550 centi-dBm). The sign toggle applies at the end.
     /// </summary>
     private void ConfirmNumberEntry()
     {
         _numberEntryMode = false;
-        if (int.TryParse(_numberBuffer, out int val))
+        bool parsed;
+        int val = 0;
+        if (DecimalPlaces > 0)
         {
+            parsed = double.TryParse(_numberBuffer,
+                System.Globalization.NumberStyles.AllowDecimalPoint,
+                System.Globalization.CultureInfo.InvariantCulture, out double d);
+            if (parsed)
+                val = (int)System.Math.Round(d * System.Math.Pow(10, DecimalPlaces));
+        }
+        else
+        {
+            parsed = int.TryParse(_numberBuffer, out val);
+        }
+
+        if (parsed)
+        {
+            if (_numberNegative) val = -val;
             val = Math.Clamp(val, _min, _max);
             _value = val;
             UpdateDisplay();
@@ -328,7 +410,7 @@ public partial class ValueFieldControl : UserControl
             if (!_suppressEvents)
             {
                 ValueChanged?.Invoke(this, _value);
-                ScreenReaderOutput.Speak($"{_label} {_value}", VerbosityLevel.Terse);
+                ScreenReaderOutput.Speak($"{_label} {FormatValue(_value)}{UnitSuffix}", VerbosityLevel.Terse);
                 EarconPlayer.ConfirmTone();
             }
         }
@@ -338,6 +420,7 @@ public partial class ValueFieldControl : UserControl
             UpdateDisplay();
         }
         _numberBuffer = "";
+        _numberNegative = false;
     }
 
     /// <summary>
@@ -345,9 +428,10 @@ public partial class ValueFieldControl : UserControl
     /// </summary>
     private void UpdateNumberEntryDisplay()
     {
-        string text = $"{_label}: {_numberBuffer}_";
+        string signed = (_numberNegative ? "-" : "") + _numberBuffer;
+        string text = $"{_label}: {signed}_";
         DisplayText.Text = text;
-        AutomationProperties.SetName(this, $"{_label}: entering {_numberBuffer}");
+        AutomationProperties.SetName(this, $"{_label}: entering {signed}");
     }
 
     private void AdjustValue(int delta)
@@ -361,7 +445,7 @@ public partial class ValueFieldControl : UserControl
         if (!_suppressEvents)
         {
             ValueChanged?.Invoke(this, _value);
-            ScreenReaderOutput.Speak($"{_label} {_value}", VerbosityLevel.Terse, interrupt: true);
+            ScreenReaderOutput.Speak($"{_label} {FormatValue(_value)}{UnitSuffix}", VerbosityLevel.Terse, interrupt: true);
         }
     }
 
@@ -376,7 +460,7 @@ public partial class ValueFieldControl : UserControl
         if (!_suppressEvents)
         {
             ValueChanged?.Invoke(this, _value);
-            ScreenReaderOutput.Speak($"{_label} {_value}", VerbosityLevel.Terse, interrupt: true);
+            ScreenReaderOutput.Speak($"{_label} {FormatValue(_value)}{UnitSuffix}", VerbosityLevel.Terse, interrupt: true);
         }
     }
 

@@ -1,0 +1,30 @@
+<local:JJFlexDialog x:Class="JJFlexWpf.Dialogs.PowerDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:JJFlexWpf"
+        xmlns:controls="clr-namespace:JJFlexWpf.Controls"
+        Title="Power"
+        Width="420" SizeToContent="Height"
+        AutomationProperties.Name="Power">
+    <StackPanel Margin="12" KeyboardNavigation.TabNavigation="Cycle">
+        <!-- Unit/context line. Focusable so an exploring operator can land on it
+             and hear which scale the dialog is currently in. -->
+        <TextBlock x:Name="HeaderText" TextWrapping="Wrap" Margin="0,0,0,10"
+                   Focusable="True" />
+
+        <controls:ValueFieldControl x:Name="RfPowerField" Margin="0,2" />
+        <controls:ValueFieldControl x:Name="TunePowerField" Margin="0,2" />
+
+        <!-- Range and entry help. Focusable for the same exploration reason. -->
+        <TextBlock x:Name="RangeText" TextWrapping="Wrap" Margin="0,8,0,0"
+                   Focusable="True" />
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+            <Button Content="_Close" Padding="12,4"
+                    AutomationProperties.Name="Close power dialog"
+                    AutomationProperties.AcceleratorKey="Alt+C"
+                    IsCancel="True"
+                    Click="CloseButton_Click" />
+        </StackPanel>
+    </StackPanel>
+</local:JJFlexDialog>
