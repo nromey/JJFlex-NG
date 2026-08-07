@@ -171,7 +171,7 @@ Filed at `docs/planning/for-don/2026-08-07-transverter-listening-trick.md` and c
 
 ## 8. Future, explicitly not in this track
 
-- **PC-side QSO recording (TX and RX) to files.** Wanted by Noel; codec bundling acceptable. We already ship Opus (`P-Opus-master`) so .opus/.ogg output is near-free, WAV needs nothing, MP3 is possible (LAME patents expired). Needs its own design round: file naming, storage, retention, hotkeys, and where the tap points sit (PC-audio stream vs radio-side). Seed it in the TODO backlog.
+- **PC-side QSO recording (TX and RX) to files.** Wanted by Noel; codec bundling acceptable. We already ship Opus (`P-Opus-master`) so .opus/.ogg output is near-free, WAV needs nothing, MP3 is possible (LAME patents expired). Needs its own design round: file naming, storage, retention, hotkeys, and where the tap points sit (PC-audio stream vs radio-side). Seed it in the TODO backlog. **Lineage note (Noel, 2026-08-07): the DAXIQ probe doubles as this feature's capture-pipeline prototype** — stream → disk → process is the same spine for IQ probing, QSO recording, and the eventual IQ archive ("save the spectrum, demod later"), so whatever the probe teaches feeds this design round directly. Numpy-side analysis muscle already exists in-house from Freight Fate.
 - **Audio routing / multi-output device work.** Wanted "at some point, not now" (Noel, 2026-08-07).
 
 ## 9. Notes for the orchestrator (deconfliction + track shape)
