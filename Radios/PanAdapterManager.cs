@@ -414,7 +414,14 @@ namespace Radios
             Tracing.TraceLine("gotoFreq:" + freq.ToString() + ' ' + stepSize.ToString(), TraceLevel.Info);
             if (rig.ShowingXmitFrequency)
             {
-                rig.q.Enqueue((FlexBase.FunctionDel)(() => { rig.mySlices[rig.TXVFO].Freq = freq; }), "[rig.TXVFO].Freq");
+                // Capture the TX slice at call time (identity) — resolving the
+                // position inside the queued lambda could land on a different
+                // slice, or crash, after roster churn. (QB Track J)
+                Slice tx = rig.VFOToSlice(rig.TXVFO);
+                if (tx != null)
+                {
+                    rig.q.Enqueue((FlexBase.FunctionDel)(() => { tx.Freq = freq; }), "TXSlice.Freq");
+                }
             }
             else
             {

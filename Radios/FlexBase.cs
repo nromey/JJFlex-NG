@@ -5834,8 +5834,24 @@ namespace Radios
                 int ct;
                 lock (mySlices)
                 {
-                    mySlices.Add(slc);
+                    // The letter is the identity (QB Track J): keep mySlices
+                    // sorted by radio slice index so position order always
+                    // equals letter order, no matter what order slices were
+                    // created or re-created in. Capture the current RX/TX
+                    // slice OBJECTS first — inserting below them shifts their
+                    // positions, and a stored position is only valid for one
+                    // roster generation.
+                    Slice rxSlice = ((_RXVFO >= 0) && (_RXVFO < mySlices.Count)) ? mySlices[_RXVFO] : null;
+                    Slice txSlice = ((_TXVFO >= 0) && (_TXVFO < mySlices.Count)) ? mySlices[_TXVFO] : null;
+
+                    int pos = 0;
+                    while ((pos < mySlices.Count) && (mySlices[pos].Index < slc.Index)) pos++;
+                    mySlices.Insert(pos, slc);
                     ct = mySlices.Count;
+
+                    // Re-derive VFO positions from slice identity.
+                    if (rxSlice != null) _RXVFO = mySlices.IndexOf(rxSlice);
+                    if (txSlice != null) _TXVFO = mySlices.IndexOf(txSlice);
                 }
                 Tracing.TraceLine("sliceAdded:mine " + ct.ToString() + ':' + slc.ToString(), TraceLevel.Info);
                 SliceCountChanged?.Invoke();
@@ -5862,31 +5878,40 @@ namespace Radios
                 {
                     lock (mySlices)
                     {
-                        int removedIndex = mySlices.IndexOf(slc);
-                        mySlices.Remove(slc);
+                        // Identity, not position (QB Track J): capture the
+                        // RX/TX slice OBJECTS before mutating, then re-derive
+                        // the stored positions afterwards by following the
+                        // objects to their new positions. A stored position is
+                        // only valid for one roster generation — positional
+                        // decrement arithmetic silently retargets when it's
+                        // stale (Don's intermittent VFO issue, Noel's 8600
+                        // wrong-slice session of 2026-08-07).
+                        Slice rxSlice = ((_RXVFO >= 0) && (_RXVFO < mySlices.Count)) ? mySlices[_RXVFO] : null;
+                        Slice txSlice = ((_TXVFO >= 0) && (_TXVFO < mySlices.Count)) ? mySlices[_TXVFO] : null;
+                        bool removed = mySlices.Remove(slc);
                         ct = mySlices.Count;
 
-                        // Adjust VFO indices: when a slice is removed from the list,
-                        // all indices above it shift down by 1. Without this fix,
-                        // _RXVFO and _TXVFO point to the wrong slice or go out of bounds,
-                        // breaking A/B switching (BUG: Don's intermittent VFO issue).
-                        if (removedIndex >= 0)
+                        if (removed)
                         {
                             int oldRX = _RXVFO;
                             int oldTX = _TXVFO;
 
-                            if (_RXVFO > removedIndex)
-                                _RXVFO--;
-                            else if (_RXVFO == removedIndex)
+                            // Follow the same slice to its new position. If the
+                            // RX/TX slice itself went away, fall back to the
+                            // first remaining slice (lowest letter), matching
+                            // the prior behavior.
+                            if ((rxSlice != null) && (rxSlice != slc))
+                                _RXVFO = mySlices.IndexOf(rxSlice);
+                            else if (_RXVFO != noVFO)
                                 _RXVFO = (ct > 0) ? 0 : noVFO;
 
-                            if (_TXVFO > removedIndex)
-                                _TXVFO--;
-                            else if (_TXVFO == removedIndex)
+                            if ((txSlice != null) && (txSlice != slc))
+                                _TXVFO = mySlices.IndexOf(txSlice);
+                            else if (_TXVFO != noVFO)
                                 _TXVFO = (ct > 0) ? 0 : noVFO;
 
                             if (_RXVFO != oldRX || _TXVFO != oldTX)
-                                Tracing.TraceLine($"sliceRemoved:VFO adjust removedIdx={removedIndex} RXVFO {oldRX}→{_RXVFO} TXVFO {oldTX}→{_TXVFO}", TraceLevel.Info);
+                                Tracing.TraceLine($"sliceRemoved:VFO re-derive RXVFO {oldRX}→{_RXVFO} TXVFO {oldTX}→{_TXVFO}", TraceLevel.Info);
                         }
                     }
                     mySliceRemoved = true;
@@ -6442,7 +6467,13 @@ namespace Radios
 
         #endregion
 
-        // a VFO is really a slice index.
+        // A "VFO" is a POSITION in mySlices. The list is kept sorted by radio
+        // slice index (see sliceAdded), so position order always equals letter
+        // order. Positions still shift when the roster changes — never store a
+        // VFO across an add/remove; re-derive it from the Slice object (the
+        // letter is the identity). Letter-addressed entry points must resolve
+        // through SliceIndexToVFO / LetterToVFO, never "letter - 'A'"
+        // arithmetic on positions. (QB Track J)
         internal Slice VFOToSlice(int vfo)
         {
             Slice rv;
@@ -6475,6 +6506,63 @@ namespace Radios
                 Tracing.TraceLine("SliceToVFO:Error", TraceLevel.Error);
             }
             return rv;
+        }
+
+        /// <summary>
+        /// Resolve a RADIO slice index (0 = A, 1 = B, ...) to the VFO position
+        /// of OUR slice carrying that index, or -1 if this client does not own
+        /// a slice with that index. The letter is the identity: radio index n
+        /// is letter ('A' + n) regardless of creation order, so this — not
+        /// positional arithmetic — is the correct door for letter-addressed
+        /// selection. Unlike SliceToVFO, absence is a normal answer here and
+        /// is not traced as an error.
+        /// </summary>
+        public int SliceIndexToVFO(int radioIndex)
+        {
+            lock (mySlices)
+            {
+                for (int i = 0; i < mySlices.Count; i++)
+                {
+                    if (mySlices[i].Index == radioIndex) return i;
+                }
+            }
+            return noVFO;
+        }
+
+        /// <summary>
+        /// Resolve a slice letter ('A'-'H', case-insensitive) to the VFO
+        /// position of our slice with that letter, or -1 if we don't own it.
+        /// </summary>
+        public int LetterToVFO(char letter)
+        {
+            return SliceIndexToVFO(char.ToUpperInvariant(letter) - 'A');
+        }
+
+        /// <summary>
+        /// Radio slice index (identity; 0 = A) of the slice at a VFO position,
+        /// or -1 if the position is invalid. The inverse of SliceIndexToVFO —
+        /// use this to hold a durable reference to a slice across roster
+        /// changes, since positions shift and radio indices don't.
+        /// </summary>
+        public int VFOToSliceIndex(int vfo)
+        {
+            Slice s = VFOToSlice(vfo);
+            return (s != null) ? s.Index : -1;
+        }
+
+        /// <summary>
+        /// True if a slice with this radio index exists on the radio but
+        /// belongs to another client. Lets letter-addressed selection speak an
+        /// honest "in use by another station" instead of "not created".
+        /// </summary>
+        public bool SliceIndexOwnedByOther(int radioIndex)
+        {
+            if (theRadio == null) return false;
+            foreach (Slice s in theRadio.SliceList)
+            {
+                if (s.Index == radioIndex) return !myClient(s.ClientHandle);
+            }
+            return false;
         }
 
         /// <summary>
@@ -6521,7 +6609,12 @@ namespace Radios
                     Tracing.TraceLine($"RXVFO:{old}→{value} valid={ValidVFO(value)} slices={MyNumSlices}", TraceLevel.Info);
                     if (ValidVFO(value))
                     {
-                        q.Enqueue((FunctionDel)(() => { VFOToSlice(value).Active = true; }), "Active");
+                        // Capture the slice at set time (identity): if the
+                        // roster shifts before the queue runs, the command
+                        // still lands on the slice the user addressed, not on
+                        // whatever occupies that position later. (QB Track J)
+                        Slice s = VFOToSlice(value);
+                        if (s != null) q.Enqueue((FunctionDel)(() => { s.Active = true; }), "Active");
                         //await(() => { return (_RXVFO == value); }, 1000);
                     }
                     // else we don't reset it.
@@ -6540,7 +6633,12 @@ namespace Radios
                     _TXVFO = value;
                     if (ValidVFO(value))
                     {
-                        q.Enqueue((FunctionDel)(() => { mySlices[value].IsTransmitSlice = true; }), "IsTransmitSlice");
+                        // Capture at set time — see RXVFO. The old raw
+                        // mySlices[value] inside the lambda resolved the
+                        // position at queue-execution time, which could be a
+                        // different slice (or out of range) after churn.
+                        Slice s = VFOToSlice(value);
+                        if (s != null) q.Enqueue((FunctionDel)(() => { s.IsTransmitSlice = true; }), "IsTransmitSlice");
                         //await(() => { return (_TXVFO == value); }, 1000);
                     }
                 }
@@ -6857,7 +6955,20 @@ namespace Radios
             }
             set
             {
-                if (HasActiveSlice) q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.DemodMode = value; }), "RXDemodMode");
+                // QB Track J: target the slice the app has been announcing
+                // (RXVFO → our slice), not theRadio.ActiveSlice. After slice
+                // churn the two could diverge, and ActiveSlice may not even be
+                // ours under MultiFlex — this is how the Slice menu's Mode
+                // change landed on the wrong slice in Noel's 2026-08-07
+                // session. Capture the slice at set time so the queued command
+                // can't retarget either.
+                Slice s = VFOToSlice(RXVFO);
+                if (s == null)
+                {
+                    Slice act = theRadio?.ActiveSlice;
+                    if ((act != null) && myClient(act.ClientHandle)) s = act;
+                }
+                if (s != null) q.Enqueue((FunctionDel)(() => { s.DemodMode = value; }), "RXDemodMode");
             }
         }
 
@@ -6873,9 +6984,13 @@ namespace Radios
             }
             set
             {
-                if (ValidVFO(TXVFO))
+                // Capture the TX slice at set time (identity) — resolving
+                // TXVFO inside the queued lambda could land on a different
+                // slice after roster churn. (QB Track J)
+                Slice s = VFOToSlice(TXVFO);
+                if (s != null)
                 {
-                    q.Enqueue((FunctionDel)(() => { VFOToSlice(TXVFO).DemodMode = value; }), "TXDemodMode");
+                    q.Enqueue((FunctionDel)(() => { s.DemodMode = value; }), "TXDemodMode");
                 }
             }
         }
@@ -7265,23 +7380,34 @@ namespace Radios
             if (theRadio == null) return false;
             if (MyNumSlices <= 1) return false;
 
-            int keepIdx = RXVFO;
+            // Identity, not position (QB Track J): capture the slice the user
+            // is ON as an object. Positions shift as removals land, so every
+            // step below works on Slice objects — the user keeps THEIR slice,
+            // whatever its letter, not whatever ends up at their old position.
+            Slice keep = VFOToSlice(RXVFO);
+            if (keep == null) return false;
 
-            // If TX is on a different slice from RX, move TX to RX's slice so
-            // the TX slice can be released along with the other extras. The
-            // user ends up with a single-slice transceive configuration.
-            if (CanTransmit && TXVFO != keepIdx) TXVFO = keepIdx;
+            // If TX is on a different slice from RX, move TX to the kept slice
+            // so the old TX slice can be released along with the other extras.
+            // The user ends up with a single-slice transceive configuration.
+            if (CanTransmit && (VFOToSlice(TXVFO) != keep)) TXVFO = SliceToVFO(keep);
 
-            // Remove every slice except the active one. Iterate highest to
-            // lowest so queued RemoveSlice captures aren't affected by later
-            // list shifts (RemoveSlice captures the slice reference at call
-            // time, not at queue-execution time).
-            for (int id = MyNumSlices - 1; id >= 0; id--)
+            // Snapshot the extras, then release each by object so no list
+            // shift can retarget a removal.
+            List<Slice> extras = new List<Slice>();
+            lock (mySlices)
             {
-                if (id == keepIdx) continue;
-                RemoveSlice(id);
+                foreach (Slice s in mySlices)
+                {
+                    if (s != keep) extras.Add(s);
+                }
             }
-            return true;
+            bool released = false;
+            foreach (Slice s in extras)
+            {
+                if (RemoveSlice(s)) released = true;
+            }
+            return released;
         }
 
         internal const int AudioGainMinValue = 0;
@@ -8889,8 +9015,12 @@ namespace Radios
             Tracing.TraceLine($"NewSlice: effective={effectiveCount} totalMax={TotalMaxSlices}", TraceLevel.Info);
             if (theRadio == null || effectiveCount >= TotalMaxSlices) return false;
 
-            int myRXVFO = RXVFO;
-            int myTXVFO = TXVFO;
+            // Capture the current RX/TX slices by IDENTITY (radio index) —
+            // the new slice may insert below them and shift their positions,
+            // so a stored position replayed after the add can land on the
+            // wrong slice. (QB Track J)
+            int myRXSliceIndex = VFOToSliceIndex(RXVFO);
+            int myTXSliceIndex = VFOToSliceIndex(TXVFO);
             mySliceAdded = false; // need to know when slice added.
             q.Enqueue((FunctionDel)(() =>
             {
@@ -8901,9 +9031,14 @@ namespace Radios
                     return mySliceAdded & (MyNumPanadapters == MyNumSlices);
                 }, 3000))
                 {
-                    // restore VFOs.
-                    RXVFO = myRXVFO;
-                    if (CanTransmit) TXVFO = myTXVFO;
+                    // restore VFOs by identity.
+                    int rxVfo = SliceIndexToVFO(myRXSliceIndex);
+                    if (rxVfo >= 0) RXVFO = rxVfo;
+                    if (CanTransmit)
+                    {
+                        int txVfo = SliceIndexToVFO(myTXSliceIndex);
+                        if (txVfo >= 0) TXVFO = txVfo;
+                    }
                 }
                 else
                 {
@@ -8914,25 +9049,30 @@ namespace Radios
         }
 
         /// <summary>
-        /// Remove a pan and slice.
+        /// Remove a pan and slice by VFO position. Resolves the position to a
+        /// Slice object immediately — the queued close targets that slice no
+        /// matter how the list shifts before the queue runs. (QB Track J)
         /// </summary>
-        /// <param name="id">slice index</param>
-        /// <returns>true if id valid</returns>
+        /// <param name="id">VFO position</param>
+        /// <returns>true if id valid and removable</returns>
         public bool RemoveSlice(int id)
         {
-            if ((id < 0) | (id >= MyNumSlices)) return false;
-            // Can't remove the active or transmit VFO.
-            if ((id == RXVFO) | (CanTransmit & (id == TXVFO))) return false;
+            return RemoveSlice(VFOToSlice(id));
+        }
 
-            Slice slc;
-            Panadapter pan;
-            lock (mySlices)
-            {
-                slc = mySlices[id];
-            }
-            pan = slc.Panadapter;
+        /// <summary>
+        /// Remove a pan and slice by identity. Refuses the active (RX) slice
+        /// and the transmit slice.
+        /// </summary>
+        internal bool RemoveSlice(Slice slc)
+        {
+            if (slc == null) return false;
+            // Can't remove the active or transmit slice.
+            if ((slc == VFOToSlice(RXVFO)) | (CanTransmit & (slc == VFOToSlice(TXVFO)))) return false;
 
-            Tracing.TraceLine($"RemoveSlice:{id} letter={slc.Letter} count={MyNumSlices}", TraceLevel.Info);
+            Panadapter pan = slc.Panadapter;
+
+            Tracing.TraceLine($"RemoveSlice:letter={slc.Letter} count={MyNumSlices}", TraceLevel.Info);
             mySliceRemoved = false;
             _pendingRemovals++;
             q.Enqueue((FunctionDel)(() =>
@@ -10265,8 +10405,11 @@ namespace Radios
             if (MyNumSlices < initialFreeSlices)
             {
                 Tracing.TraceLine("GetProfileInfo:allocating free slices " + theRadio.PanadaptersRemaining, TraceLevel.Info);
-                int oldRXVFO = RXVFO;
-                int oldTXVFO = TXVFO;
+                // Capture the RX/TX slices by identity — the allocation below
+                // may insert slices ahead of them, shifting positions.
+                // (QB Track J)
+                Slice oldRXSlice = VFOToSlice(RXVFO);
+                Slice oldTXSlice = VFOToSlice(TXVFO);
                 int oldNumSlices = MyNumSlices;
                 while (MyNumSlices < initialFreeSlices)
                 {
@@ -10290,10 +10433,20 @@ namespace Radios
                     }
                 }
 
-                _RXVFO = oldRXVFO;
-                if (_RXVFO != noVFO) mySlices[_RXVFO].Active = true;
-                _TXVFO = oldTXVFO;
-                if (_TXVFO != noVFO) mySlices[_TXVFO].IsTransmitSlice = true;
+                // Restore by identity: follow the captured slice objects to
+                // their current positions instead of replaying stored ints.
+                // If there was no valid RX/TX slice before allocation, keep
+                // whatever the slice-added handlers derived for the new ones.
+                if (oldRXSlice != null)
+                {
+                    _RXVFO = SliceToVFO(oldRXSlice);
+                    oldRXSlice.Active = true;
+                }
+                if (oldTXSlice != null)
+                {
+                    _TXVFO = SliceToVFO(oldTXSlice);
+                    oldTXSlice.IsTransmitSlice = true;
+                }
             }
 
             _TotalNumSlices = theRadio.SliceList.Count;
@@ -10344,21 +10497,34 @@ namespace Radios
             if (rv)
             {
                 Tracing.TraceLine("setupFromScratch:have pan and slices:" + MyNumPanadapters, TraceLevel.Info);
-                // We have pan adapters and slices, so we're done.
-                VFOToSlice(0).Active = true;
-                VFOToSlice(0).Mute = false;
+                // We have pan adapters and slices, so we're done. Position 0 =
+                // lowest letter (mySlices is sorted by radio index), so this
+                // activates slice A on a scratch setup. Null-guarded: raw
+                // positional access must never crash on a roster race.
+                Slice first = VFOToSlice(0);
+                if (first != null)
+                {
+                    first.Active = true;
+                    first.Mute = false;
+                }
                 Tracing.TraceLine("setupFromScratch:have 1 active slice:" + (MyNumSlices - 1), TraceLevel.Info);
                 for (int i = 1; i < MyNumSlices; i++)
                 {
-                    mySlices[i].Mute = true;
+                    Slice extra = VFOToSlice(i);
+                    if (extra != null) extra.Mute = true;
                 }
 
-                VFOToSlice(RXVFO).TXAnt = theRadio.RXAntList[0];
+                Slice rxs = VFOToSlice(RXVFO);
+                if (rxs != null) rxs.TXAnt = theRadio.RXAntList[0];
                 if (CanTransmit)
                 {
                     _TXVFO = 0;
-                    VFOToSlice(TXVFO).IsTransmitSlice = true;
-                    VFOToSlice(TXVFO).TXAnt = theRadio.RXAntList[0];
+                    Slice txs = VFOToSlice(TXVFO);
+                    if (txs != null)
+                    {
+                        txs.IsTransmitSlice = true;
+                        txs.TXAnt = theRadio.RXAntList[0];
+                    }
                     theRadio.RFPower = 100;
                     theRadio.CWBreakIn = false;
                     theRadio.CWIambic = false;
