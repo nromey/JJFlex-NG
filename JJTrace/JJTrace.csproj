@@ -19,10 +19,12 @@
   <ItemGroup>
     <Compile Include="ErrMessageTrace.cs" />
     <Compile Include="JJTraceListener.cs" />
+    <Compile Include="RotatingTraceListener.cs" />
     <Compile Include="SessionArchive.cs" />
     <Compile Include="SessionLifecycle.cs" />
     <Compile Include="SessionManifest.cs" />
     <Compile Include="TraceOutcomeLabels.cs" />
+    <Compile Include="TraceRotation.cs" />
     <Compile Include="Tracing.cs" />
     <Compile Include="Utility.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />

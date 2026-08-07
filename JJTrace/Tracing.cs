@@ -56,14 +56,34 @@ namespace JJTrace
         /// </summary>
         public static TraceSwitch TheSwitch { get; set; }
 
-        private static TextWriterTraceListener listener = null;
+        private static RotatingTraceListener listener = null;
+
+        /// <summary>
+        /// The live trace listener, or null when tracing is not writing to a
+        /// file. Internal so the rotation partial can drive it; callers outside
+        /// JJTrace use the public rotation surface on Tracing.
+        /// </summary>
+        internal static RotatingTraceListener LiveListener
+        {
+            get { return listener; }
+        }
+
         private static string _TraceFile = null;
         /// <summary>
         /// the trace file
         /// </summary>
         public static string TraceFile
         {
-            get { return _TraceFile; }
+            get
+            {
+                // After a rotation the live file keeps the same path, but if a
+                // rotation had to fall back to the part path (rename failed)
+                // the listener is the authority on where lines are actually
+                // landing. Anything that attaches "the current trace" — the
+                // crash bundler above all — must get the real path.
+                RotatingTraceListener live = listener;
+                return live != null ? live.FilePath : _TraceFile;
+            }
             set
             {
                 // Can't change file if on.
@@ -82,7 +102,7 @@ namespace JJTrace
                     }
                     else
                     {
-                        listener = new TextWriterTraceListener(File.Create(value));
+                        listener = CreateLiveListener(value);
                         Trace.Listeners.Add(listener);
                     }
                     _TraceFile = value;

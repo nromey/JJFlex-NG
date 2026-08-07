@@ -94,6 +94,40 @@ namespace JJTrace
 
         [JsonPropertyName("kept_forever")]
         public bool KeptForever { get; set; }
+
+        /// <summary>
+        /// 1-based part number when size-based rotation split the session into
+        /// a chain of parts; null for a session archived whole. All parts of
+        /// one session share <see cref="SessionId"/> and <see cref="BootTime"/>,
+        /// so "give me this session's chain" is a group-by on session_id and
+        /// retention ages every part of a session out together.
+        /// </summary>
+        [JsonPropertyName("part_number")]
+        public int? PartNumber { get; set; }
+
+        /// <summary>
+        /// True on the last part of a chain. Absent on non-parted archives and
+        /// on a chain whose session was killed before it could close cleanly —
+        /// a chain with no part_final is itself a signal.
+        /// </summary>
+        [JsonPropertyName("part_final")]
+        public bool? PartFinal { get; set; }
+
+        /// <summary>
+        /// File name of the plain-text trace this archive was made from. Lets
+        /// boot maintenance tell an already-archived leftover part from an
+        /// orphan that died before its background compression finished.
+        /// </summary>
+        [JsonPropertyName("source_name")]
+        public string SourceName { get; set; }
+
+        /// <summary>
+        /// True when the source was too large to archive whole and only its
+        /// tail was kept. Only reachable for traces written before rotation
+        /// existed, or with rotation disabled.
+        /// </summary>
+        [JsonPropertyName("truncated")]
+        public bool? Truncated { get; set; }
     }
 
     /// <summary>
@@ -144,7 +178,7 @@ namespace JJTrace
             }
             catch (Exception ex)
             {
-                Tracing.ErrMessageTrace(ex);
+                Tracing.ErrTraceOnly(ex);
                 return new TraceManifest { Created = DateTime.UtcNow };
             }
         }
@@ -176,7 +210,7 @@ namespace JJTrace
             }
             catch (Exception ex)
             {
-                Tracing.ErrMessageTrace(ex);
+                Tracing.ErrTraceOnly(ex);
                 try { if (File.Exists(tempPath)) File.Delete(tempPath); } catch { }
             }
         }
