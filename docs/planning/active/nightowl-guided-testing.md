@@ -13,8 +13,9 @@ bulk. When something fails: note the exact spoken text Noel heard, the
 time, and move on — the trace has the rest. When done (or paused), the
 annotated copy goes back to the orchestrator for triage.
 
-**Build:** everything below is on `track/flexlib-4220` at `f7ff5716` or
-later. Build fresh before starting:
+**Build:** everything below is on `track/flexlib-4220` at `81025aae` or
+later (includes the post-train finisher: identity card in the selector,
+Feature Availability wired, auto-connect advice, changelog stories). Build fresh before starting:
 `dotnet build JJFlexRadio.vbproj -c Debug -p:Platform=x64 --verbosity minimal`
 and check the exe timestamp is current. Run from
 `bin\x64\Debug\net10.0-windows\win-x64\jjflexible.exe`.
@@ -38,7 +39,9 @@ Ctrl+Shift+W shadow), they clear automatically and the trace logs a
    powered off — offline rows say they're offline and when last seen
    ("last seen 2 hours ago"), not a timestamp. Favorites sort first. An
    offline row refuses to connect but tells you what to do instead of
-   dead-ending.
+   dead-ending. Tab past the list: a network identity card now lives in
+   the selector too — before any connection it honestly says "No radio
+   connected" rather than pretending.
 
 3. **Row context menu.** On a radio row, press the Applications key.
    You should hear: Connect, Add or Remove Favorite, Auto-Connect
@@ -124,6 +127,12 @@ Ctrl+Shift+W shadow), they clear automatically and the trace logs a
     Delete clears it ("no transmit slice" — the soft lockout), Space
     sets it to the active slice. Every action speaks.
 
+17a. **Ask the field itself.** Still on the Transmit slice field, press
+    `?`.
+    You should hear: the field's own keys listed (Space, Up/Down, A–H,
+    Delete) before the universal keys. Until tonight this field claimed
+    it had no keys.
+
 18. **The menu door for the same thing.** Slice menu → Transmit Slice
     submenu.
     You should hear: one entry per slice with a checkmark on the current
@@ -147,6 +156,13 @@ Ctrl+Shift+W shadow), they clear automatically and the trace logs a
     confirmation flow as the hotkey, announces the radio going down, and
     the selector should re-find it when it returns (a couple of
     minutes).
+
+21a. **Feature Availability opens.** Tools → Feature Availability, while
+    connected.
+    You should hear: a real dialog — radio model, callsign, license
+    state, and the Feature Availability tab explaining what your radio
+    can and can't do and why. This was silently dead UI until tonight;
+    it should open and speak every time.
 
 22. **Settings: your radio has a volume knob now.** Settings → Audio
     tab, connected.
@@ -232,7 +248,9 @@ Ctrl+Shift+W shadow), they clear automatically and the trace logs a
     Dialog.
     You should hear: below the status list, a network identity card —
     one arrowable summary of radio, path (local or SmartLink), and
-    reachability. Copy-to-Clipboard includes it.
+    reachability. Copy-to-Clipboard includes it. The selector's copy of
+    the card (step 2) should now describe this same connected radio if
+    you reopen the selector mid-session.
 
 35. **Optional, careful — Start Fresh.** In the saved-accounts manager
     there's now a "Start fresh with SmartLink" button that clears saved
@@ -260,6 +278,21 @@ Ctrl+Shift+W shadow), they clear automatically and the trace logs a
     Spot-check: the Radio Selector section exists (Alt+P included), the
     Transmit Slice field section exists, and the "Commands With No
     Default Key" section lists memory scan and speak frequency.
+
+40. **What's New tells tonight's stories.** Open the What's New help
+    page.
+    You should hear: the new entries in the usual warm voice — "Press D,
+    Get D", "Hear Yourself Before Anyone Else Does", "When a Connect
+    Fails, You Hear Why", the transmit slice, the Power dialog, the
+    Radio menu maintenance entries, and Feature Availability. If any of
+    the wording lands wrong, flag it — this is the prose your testers
+    read first.
+
+41. **Optional — auto-connect speaks its reasons.** With auto-connect
+    enabled for a radio that's powered OFF, relaunch the app.
+    You should hear: the failure dialog give the radio's name AND the
+    classified reason when one exists, instead of only guessing
+    "offline". Skip if you don't want to reconfigure auto-connect.
 
 That's the sweep. Anything marked optional can wait for Don, the
 transverter, or a braver evening.
