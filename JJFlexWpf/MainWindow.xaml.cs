@@ -1389,22 +1389,49 @@ public partial class MainWindow : UserControl
             string account = rig.CurrentSmartLinkAccountEmail;
             Tracing.TraceLine($"SuggestRegistration: {serial} not registered to {account}", TraceLevel.Info);
 
+            // Registered-elsewhere awareness (live incident 2026-08-05: Noel was
+            // signed in as Don, and the advisory insisted a radio he KNEW was
+            // registered wasn't — true for that account, misleading as stated).
+            // The server was only asked about the signed-in account, so when
+            // other saved accounts exist, say so and offer the switch instead of
+            // presenting registration as the one explanation.
+            int otherAccounts = 0;
+            try
+            {
+                otherAccounts = Radios.FlexBase.SharedAccountManager.Accounts
+                    .Count(a => !a.Email.Equals(account, StringComparison.OrdinalIgnoreCase));
+            }
+            catch { /* count stays 0; the simple advisory is still correct */ }
+
             await Dispatcher.BeginInvoke(() =>
             {
                 string msg =
-                    $"This radio is not registered with your SmartLink account ({account}). " +
-                    "Registering your radio lets you reach it over the internet when you are away " +
-                    "from your shack, and it tells Flex the radio is yours. Flex requires you to be " +
-                    "physically at the radio with a hand microphone or a CW key plugged in, to prove " +
-                    "someone is really there.\n\n" +
+                    $"This radio is not registered to {account}, the SmartLink account you are " +
+                    "signed in with. Registering your radio lets you reach it over the internet " +
+                    "when you are away from your shack, and it tells Flex the radio is yours. " +
+                    "Flex requires you to be physically at the radio with a hand microphone or a " +
+                    "CW key plugged in, to prove someone is really there.\n\n" +
+                    (otherAccounts > 0
+                        ? "One thing to check first: only the signed-in account was asked. If you " +
+                          "registered this radio under one of your other saved accounts, switch to " +
+                          "that account instead of registering it again — the Manage Accounts " +
+                          "button below opens the list.\n\n"
+                        : "") +
                     "Select the Open Radio Setup button below to open the setup path — registration " +
                     "is step 2. It all happens right here in JJ Flexible Radio Access; SmartSDR is " +
                     "not required.";
+
+                var actions = new List<Dialogs.AdvisoryDialog.AdvisoryAction>
+                {
+                    new("Open Radio _Setup", () => OpenSettingsCallback?.Invoke("Radio Setup")),
+                };
+                if (otherAccounts > 0)
+                    actions.Add(new("Manage _Accounts", ShowSmartLinkAccountManager));
+
                 Dialogs.AdvisoryDialog.Show(
                     "Radio not registered with SmartLink", msg,
                     suppressKey: $"register|{serial}",
-                    new Dialogs.AdvisoryDialog.AdvisoryAction(
-                        "Open Radio _Setup", () => OpenSettingsCallback?.Invoke("Radio Setup")));
+                    actions.ToArray());
             });
         }
         catch (Exception ex)
