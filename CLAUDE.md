@@ -359,7 +359,7 @@ Content flows forward: nightly → stable → public. Nothing skips tiers. See `
 - Only run the nightly procedure after Noel confirms. Distribution is a deliberate act.
 
 **Dropbox layout:**
-- **The Dropbox root is machine-dependent** — `C:\Users\nrome\Dropbox` on ms-01, `D:\Dropbox` on ms-02. Resolve it from `%LOCALAPPDATA%\Dropbox\info.json` (`personal.path`) before any hand-drop; `build-debug.bat` and `publish-nightly-to-dropbox.ps1` do this themselves as of 2026-08-06. A hardcoded C:\ path on ms-02 writes to an unsynced dead folder that looks like success.
+- **The Dropbox root is machine-dependent** — `D:\Dropbox` on the ms-02 (the old hardcoded default, `C:\Users\nrome\Dropbox`, is wrong there). Resolve it from `%LOCALAPPDATA%\Dropbox\info.json` (`personal.path`) before any hand-drop; `build-debug.bat` and `publish-nightly-to-dropbox.ps1` do this themselves as of 2026-08-06. A hardcoded C:\ path on the ms-02 writes to an unsynced dead folder that looks like success.
 - `<DropboxRoot>\JJFlexRadio\` — stable installers AND the latest end-of-day "nightly" debug zip (top level)
 - `...\debug\` — shared debug nightlies + NOTES-YYYYMMDD.txt (all private testers read from here)
 - `...\don\` — Don-specific artifacts (his crash dumps, custom builds, saved configs)

@@ -37,9 +37,10 @@ REM ---------------------------------------------------------------------------
 REM CONFIG
 REM ---------------------------------------------------------------------------
 set "BUILDNUM_OFFSET=-468"
-REM Dropbox root is machine-dependent (C:\Users\nrome\Dropbox on ms-01,
-REM D:\Dropbox on ms-02). Resolve it from Dropbox's own info.json; a
-REM hardcoded path here once sent --publish into an unsynced dead folder.
+REM Dropbox root is machine-dependent (D:\Dropbox on the ms-02; the old
+REM hardcoded default was C:\Users\nrome\Dropbox). Resolve it from
+REM Dropbox's own info.json; the hardcoded path once sent --publish into
+REM an unsynced dead folder.
 set "DROPBOX_ROOT="
 for /f "usebackq delims=" %%d in (`powershell -NoProfile -Command "try { (Get-Content (Join-Path $env:LOCALAPPDATA 'Dropbox\info.json') -Raw | ConvertFrom-Json).personal.path } catch { '' }"`) do set "DROPBOX_ROOT=%%d"
 if "%DROPBOX_ROOT%"=="" set "DROPBOX_ROOT=C:\Users\nrome\Dropbox"
