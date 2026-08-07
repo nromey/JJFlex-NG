@@ -6199,7 +6199,9 @@ namespace Radios
         /// </summary>
         public bool RemoteRig
         {
-            get { return theRadio.IsWan; }
+            // Null-conditional: read from the Audio Workshop session while the
+            // radio tears down (same crash class as the TX getter family).
+            get { return theRadio?.IsWan ?? false; }
         }
 
         private int firstCharID = -1;
@@ -7831,18 +7833,25 @@ namespace Radios
             set { q.Enqueue((FunctionDel)(() => { theRadio.TXCWMonitorPan = value; })); }
         }
 
+        // TX getter family null guards (2026-08-07): the Audio Workshop's poll
+        // timer races radio teardown at app close — MeterTimer_Tick →
+        // PollTxAudio → get_MicGain NRE'd on the nulled theRadio (crash zip
+        // JJFlexError-20260807-153513). Same teardown crash class as the
+        // 2026-08-05 ActiveSlice sweep (f406b4cc), which covered slice-level
+        // getters but not this radio-level TX family. Defaults follow that
+        // sweep's conventions: toggles off, levels 0, pans 50 (centered).
         public const int MicGainMin = 0;
         public const int MicGainMax = 100;
         public const int MicGainIncrement = 1;
         public int MicGain
         {
-            get { return theRadio.MicLevel; }
+            get { return theRadio?.MicLevel ?? 0; }
             set { q.Enqueue((FunctionDel)(() => { theRadio.MicLevel = value; })); }
         }
 
         public OffOnValues ProcessorOn
         {
-            get { return (theRadio.SpeechProcessorEnable) ? OffOnValues.on : OffOnValues.off; }
+            get { return (theRadio?.SpeechProcessorEnable == true) ? OffOnValues.on : OffOnValues.off; }
             set { q.Enqueue((FunctionDel)(() => { theRadio.SpeechProcessorEnable = (value == OffOnValues.on) ? true : false; })); }
         }
 
@@ -7854,13 +7863,13 @@ namespace Radios
         }
         public ProcessorSettings ProcessorSetting
         {
-            get { return (ProcessorSettings)theRadio.SpeechProcessorLevel; }
+            get { return (ProcessorSettings)(theRadio?.SpeechProcessorLevel ?? 0); }
             set { q.Enqueue((FunctionDel)(() => { theRadio.SpeechProcessorLevel = (uint)value; })); }
         }
 
         public OffOnValues Compander
         {
-            get { return (theRadio.CompanderOn) ? OffOnValues.on : OffOnValues.off; }
+            get { return (theRadio?.CompanderOn == true) ? OffOnValues.on : OffOnValues.off; }
             set
             {
                 bool val = (value == OffOnValues.on) ? true : false;
@@ -7873,7 +7882,7 @@ namespace Radios
         public const int CompanderLevelIncrement = 5;
         public int CompanderLevel
         {
-            get { return theRadio.CompanderLevel; }
+            get { return theRadio?.CompanderLevel ?? 0; }
             set
             {
                 q.Enqueue((FunctionDel)(() => { theRadio.CompanderLevel = value; }));
@@ -7906,7 +7915,7 @@ namespace Radios
 
         public OffOnValues MicBoost
         {
-            get { return (theRadio.MicBoost) ? OffOnValues.on : OffOnValues.off; }
+            get { return (theRadio?.MicBoost == true) ? OffOnValues.on : OffOnValues.off; }
             set
             {
                 bool val = (value == OffOnValues.on) ? true : false;
@@ -7916,7 +7925,7 @@ namespace Radios
 
         public OffOnValues MicBias
         {
-            get { return (theRadio.MicBias) ? OffOnValues.on : OffOnValues.off; }
+            get { return (theRadio?.MicBias == true) ? OffOnValues.on : OffOnValues.off; }
             set
             {
                 bool val = (value == OffOnValues.on) ? true : false;
@@ -7926,7 +7935,7 @@ namespace Radios
 
         public OffOnValues Monitor
         {
-            get { return (theRadio.TXMonitor) ? OffOnValues.on : OffOnValues.off; }
+            get { return (theRadio?.TXMonitor == true) ? OffOnValues.on : OffOnValues.off; }
             set
             {
                 bool val = (value == OffOnValues.on) ? true : false;
@@ -7939,7 +7948,7 @@ namespace Radios
         public const int SBMonitorLevelIncrement = 5;
         public int SBMonitorLevel
         {
-            get { return theRadio.TXSBMonitorGain; }
+            get { return theRadio?.TXSBMonitorGain ?? 0; }
             set
             {
                 q.Enqueue((FunctionDel)(() => { theRadio.TXSBMonitorGain = value; }));
@@ -7951,7 +7960,7 @@ namespace Radios
         public const int SBMonitorPanIncrement = 5;
         public int SBMonitorPan
         {
-            get { return theRadio.TXSBMonitorPan; }
+            get { return theRadio?.TXSBMonitorPan ?? 50; }
             set
             {
                 q.Enqueue((FunctionDel)(() => { theRadio.TXSBMonitorPan = value; }));

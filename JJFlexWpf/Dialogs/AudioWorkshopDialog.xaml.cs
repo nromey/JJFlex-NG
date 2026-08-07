@@ -113,6 +113,24 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         }
     }
 
+    /// <summary>
+    /// Radio teardown notification. The workshop is a non-modal singleton that
+    /// outlives the radio: before this hook, nothing stopped the 2 Hz poll
+    /// timer when the rig died, and the tick raced Disconnect() nulling
+    /// theRadio (crash zip JJFlexError-20260807-153513, NRE in get_MicGain
+    /// during app close). MainWindow's power-off path calls this; safe from
+    /// any thread, no-op when the dialog isn't open.
+    /// </summary>
+    public static void NotifyRigGone()
+    {
+        var inst = _instance;
+        if (inst == null) return;
+        if (inst.Dispatcher.CheckAccess())
+            inst.SetRig(null);
+        else
+            inst.Dispatcher.BeginInvoke(() => inst.SetRig(null));
+    }
+
     public void FocusTab(int tabIndex)
     {
         if (tabIndex >= 0 && tabIndex < MainTabs.Items.Count)

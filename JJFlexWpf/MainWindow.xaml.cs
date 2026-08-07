@@ -2466,6 +2466,11 @@ public partial class MainWindow : UserControl
         _pttController?.Dispose();
         _pttController = null;
 
+        // Stop the Audio Workshop's poll timer (and any Audio Check session) —
+        // the workshop singleton outlives the radio, and its 2 Hz tick raced
+        // this teardown nulling theRadio (2026-08-07 app-close crash).
+        Dialogs.AudioWorkshopDialog.NotifyRigGone();
+
         // Detach screen fields panel (Sprint 14)
         FieldsPanel.Detach();
 
