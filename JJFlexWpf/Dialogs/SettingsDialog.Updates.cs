@@ -103,28 +103,25 @@ public partial class SettingsDialog
     }
 
     /// <summary>
-    /// First-time-nightly consent dialog. Plain MessageBox — Yes/No — is
-    /// already screen-reader-friendly, fully Escape-closable per
-    /// memory/project_dialog_escape_rule.md, and matches the simple
-    /// confirmation tone we want here. The text explicitly names what
-    /// nightly is so the user knows what they're opting into.
+    /// First-time-nightly consent dialog. ConfirmActionDialog rather than a
+    /// MessageBox (2026-08-07 dialog sweep): the consent text is several
+    /// sentences the user should actually read, and the confirm dialog's
+    /// read-only body can be arrowed through line by line and re-read —
+    /// a message box speaks once, on its own terms. Escape still cancels,
+    /// and Yes is not the default.
     /// </summary>
     private bool ConfirmNightlyConsent()
     {
-        const string text =
+        var confirm = new ConfirmActionDialog(
+            "Switch to Nightly Channel",
             "Nightly builds come straight from the latest overnight compile. " +
             "They include the freshest fixes but can also include brand-new " +
             "bugs, and you may need to pick up the pieces if something goes " +
-            "wrong. Switch to the nightly channel?";
+            "wrong.",
+            question: "Switch to the nightly channel?",
+            yesLabel: "_Switch");
 
-        var result = MessageBox.Show(
-            this, text,
-            "Switch to nightly channel?",
-            MessageBoxButton.YesNo,
-            MessageBoxImage.Question,
-            MessageBoxResult.No);
-
-        return result == MessageBoxResult.Yes;
+        return confirm.ShowDialog() == true;
     }
 
     private void UpdateCheckNowButton_Click(object sender, RoutedEventArgs e)
@@ -178,10 +175,8 @@ public partial class SettingsDialog
             ScreenReaderOutput.Speak(
                 "Couldn't reach the update server. Check your network connection.",
                 VerbosityLevel.Critical, interrupt: true);
-            MessageBox.Show(this,
-                "Couldn't reach the update server.\n\n" + ex.Message,
-                "Check for updates",
-                MessageBoxButton.OK, MessageBoxImage.Warning);
+            AdvisoryDialog.Show("Check for Updates",
+                "Couldn't reach the update server. Check your network connection.\n\n" + ex.Message);
         }
         finally
         {

@@ -127,12 +127,14 @@ public partial class UpdateAvailableDialog : JJFlexDialog
         catch (Exception ex)
         {
             ProgressText.Text = "Update failed: " + ex.Message;
+            // Speak the reason itself — "the crash report mentions why" is a
+            // dead end for a screen reader user (item 17 rule). The advisory
+            // body is arrow-reviewable for the longer detail.
             ScreenReaderOutput.Speak(
-                "Update failed. The crash report mentions why.",
+                "Update failed. " + ex.Message,
                 VerbosityLevel.Critical, interrupt: true);
-            MessageBox.Show(this,
-                "Update failed.\n\n" + ex.Message,
-                "Update", MessageBoxButton.OK, MessageBoxImage.Warning);
+            AdvisoryDialog.Show("Update Failed",
+                "The update could not be applied.\n\n" + ex.Message);
             SetActionsEnabled(true);
         }
     }

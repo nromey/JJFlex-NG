@@ -1354,10 +1354,12 @@ public class NativeMenuBar : IDisposable
     {
         if (Rig != null && Rig.IsConnected)
         {
-            var result = MessageBox.Show(
-                "You're already connected to a radio. Disconnect from this radio and connect to another radio?",
-                "Confirm", MessageBoxButton.YesNo, MessageBoxImage.Question);
-            if (result != MessageBoxResult.Yes) return;
+            var confirm = new Dialogs.ConfirmActionDialog(
+                "Connect to Another Radio",
+                "You're already connected to a radio.",
+                question: "Disconnect from this radio and connect to another radio?",
+                yesLabel: "_Disconnect and choose");
+            if (confirm.ShowDialog() != true) return;
         }
         _window.SelectRadioCallback?.Invoke();
     }
@@ -1604,11 +1606,12 @@ public class NativeMenuBar : IDisposable
     {
         if (Rig != null && Rig.IsConnected)
         {
-            var proceed = MessageBox.Show(
-                "You're connected to a radio. JJ Flex usually doesn't prompt about updates during an active session — applying an update will close the app. Check anyway?",
-                "Check for updates",
-                MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No);
-            if (proceed != MessageBoxResult.Yes) return;
+            var confirm = new Dialogs.ConfirmActionDialog(
+                "Check for Updates",
+                "You're connected to a radio. JJ Flex usually doesn't prompt about updates during an active session — applying an update will close the app.",
+                question: "Check anyway?",
+                yesLabel: "_Check");
+            if (confirm.ShowDialog() != true) return;
         }
 
         Radios.ScreenReaderOutput.Speak(
@@ -1663,10 +1666,8 @@ public class NativeMenuBar : IDisposable
             Radios.ScreenReaderOutput.Speak(
                 "Couldn't reach the update server. Check your network connection.",
                 Radios.VerbosityLevel.Critical, true);
-            MessageBox.Show(
-                "Couldn't reach the update server.\n\n" + ex.Message,
-                "Check for updates",
-                MessageBoxButton.OK, MessageBoxImage.Warning);
+            Dialogs.AdvisoryDialog.Show("Check for Updates",
+                "Couldn't reach the update server. Check your network connection.\n\n" + ex.Message);
         }
     }
 

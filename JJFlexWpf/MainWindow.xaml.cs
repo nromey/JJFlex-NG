@@ -2310,7 +2310,7 @@ public partial class MainWindow : UserControl
             if (ShowErrorCallback != null)
                 ShowErrorCallback("The radio disconnected", "Error");
             else
-                System.Windows.MessageBox.Show("The radio disconnected", "Error", MessageBoxButton.OK);
+                Dialogs.AdvisoryDialog.Show("Radio Disconnected", "The radio disconnected.");
         }
     }
 

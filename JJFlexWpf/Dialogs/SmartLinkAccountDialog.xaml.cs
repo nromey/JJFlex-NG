@@ -255,8 +255,8 @@ namespace JJFlexWpf.Dialogs
                     }
                     else
                     {
-                        MessageBox.Show("Could not rename account. The name may already be in use.",
-                            "Rename Failed", MessageBoxButton.OK, MessageBoxImage.Warning);
+                        AdvisoryDialog.Show("Rename Failed",
+                            "The account could not be renamed. The name may already be in use by another saved account.");
                     }
                 }
             }
@@ -270,17 +270,16 @@ namespace JJFlexWpf.Dialogs
             string who = string.Equals(item.FriendlyName, item.Email, StringComparison.OrdinalIgnoreCase)
                 ? item.Email
                 : $"\"{item.FriendlyName}\" ({item.Email})";
-            var result = MessageBox.Show(
-                $"Reset the sign-in for {who}?\n\n" +
+            var confirm = new ConfirmActionDialog(
+                "Reset Sign-In",
+                $"JJ Flex will reset the sign-in for {who}. " +
                 "The account stays in your list with all its settings. " +
                 "The next connection will ask for the password again. " +
                 "Use this when signing in has stopped working.",
-                "Reset Sign-In",
-                MessageBoxButton.YesNo,
-                MessageBoxImage.Question,
-                MessageBoxResult.No);
+                question: "Reset the sign-in?",
+                yesLabel: "_Reset");
 
-            if (result != MessageBoxResult.Yes) return;
+            if (confirm.ShowDialog() != true) return;
 
             if (_callbacks.ResetAccountSignIn(item.FriendlyName))
             {
@@ -299,15 +298,14 @@ namespace JJFlexWpf.Dialogs
             var item = GetSelectedAccount();
             if (item == null) return;
 
-            var result = MessageBox.Show(
-                $"Are you sure you want to delete the saved account \"{item.FriendlyName}\"?\n\n" +
-                "You will need to log in again to use this account.",
+            var confirm = new ConfirmActionDialog(
                 "Delete Account",
-                MessageBoxButton.YesNo,
-                MessageBoxImage.Question,
-                MessageBoxResult.No);
+                $"JJ Flex will delete the saved account \"{item.FriendlyName}\". " +
+                "You will need to log in again to use this account.",
+                question: "Delete it?",
+                yesLabel: "_Delete");
 
-            if (result == MessageBoxResult.Yes)
+            if (confirm.ShowDialog() == true)
             {
                 _callbacks.DeleteAccount(item.FriendlyName);
                 LoadAccounts();
