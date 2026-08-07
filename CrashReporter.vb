@@ -150,6 +150,11 @@ Module CrashReporter
             ' construction, so unlike the 11.7 GB whole-file case it is always
             ' attachable. Flush first: the last lines before a crash are the
             ' ones worth reading.
+            ' Put rotation health into the trace before the flush, so the part
+            ' we are about to attach says which part it is and whether any
+            ' rotation attempt failed. A silently-failing rotation would
+            ' otherwise be invisible in the very evidence meant to explain it.
+            Try : Tracing.TraceRotationHealth() : Catch : End Try
             Try : Trace.Flush() : Catch : End Try
             Dim currentPart As String = Tracing.TraceFile
             ' If the crash lands moments after a rotation the current part is
