@@ -114,6 +114,19 @@ Namespace My
             ' it over rather than letting the WPF side rebuild it from parts.
             WpfMainWindow.AudioDevicesFilePath = AudioDevicesFile
 
+            ' Wire the operator manager for the Radio menu (QB Track A stub
+            ' audit). Same Lister-over-Operators surface the app raises at
+            ' first run when no operator exists; the Operators.ConfigEvent
+            ' handler picks up any operator change the dialog makes.
+            WpfMainWindow.ShowOperatorsCallback = Sub()
+                If Operators Is Nothing Then
+                    Radios.ScreenReaderOutput.Speak("Operator data is not loaded yet.", Radios.VerbosityLevel.Critical, True)
+                    Return
+                End If
+                Lister.TheList = Operators
+                Lister.ShowDialog()
+            End Sub
+
             ' Wire key/command callbacks for WPF dialogs (Sprint 16 Track C).
             WpfMainWindow.GetKeyActionsCallback = Function()
                 Dim result = New List(Of JJFlexWpf.Dialogs.KeyActionItem)

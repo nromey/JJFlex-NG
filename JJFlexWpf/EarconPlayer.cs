@@ -407,6 +407,26 @@ namespace JJFlexWpf
             }, ConnectPhaseToneVolume);
         }
 
+        /// <summary>
+        /// Connect success — the signature double-beep (QB Track A,
+        /// 2026-08-07, memory: project_connect_earcon_signature_sound.md).
+        /// Same pitch and cadence as the phase-2 counting tone users already
+        /// know, slightly louder because it marks ARRIVAL rather than
+        /// background progress. Fired from MainWindow.PowerNowOn — the one
+        /// point every successful connect path (picker local, picker remote,
+        /// auto-connect, reconnect) flows through — so fast LAN connects are
+        /// no longer silent (the phase tones skip any phase under 500ms).
+        /// </summary>
+        public static void ConnectSuccessTone()
+        {
+            PlayToneSequence(new[]
+            {
+                (ConnectPhaseTonePitchHz, ConnectPhaseToneMs),
+                (0, ConnectPhaseToneGapMs),
+                (ConnectPhaseTonePitchHz, ConnectPhaseToneMs)
+            }, 0.5f);
+        }
+
         /// <summary>Parameterized connect-phase counting tone (1..N identical tones).</summary>
         public static void ConnectPhaseTone(int count)
         {

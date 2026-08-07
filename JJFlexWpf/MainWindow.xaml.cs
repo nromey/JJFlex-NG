@@ -102,11 +102,10 @@ public partial class MainWindow : UserControl
         // the queue boundary that didn't match standard word spacing.
         //
         // 2026-04-28 bug bundle: trailing " ee" (two dits) added so the no-radio
-        // exit path also fires the friendly hand-wave close. Pre-fix the EE was
-        // only on the PowerOn re-wiring below, so connect-to-radio close paths
-        // got it but no-radio close did not. Keep both wirings producing the
-        // same audio shape — the PowerOn duplicate is vestigial but kept until
-        // a future refactor removes it.
+        // exit path also fires the friendly hand-wave close. This is the ONLY
+        // wiring of these delegates — the vestigial PowerOn duplicate (which
+        // re-introduced the BUG-061 inter-utterance gap on every connect) was
+        // removed 2026-08-07 (QB Track A).
         Radios.ScreenReaderOutput.PlayCwSK = () =>
         {
             string prefix = _morseNotifier.SpeedWpm >= 25 ? "73 de JJF" : "73";
@@ -1248,6 +1247,14 @@ public partial class MainWindow : UserControl
     public string? AudioDevicesFilePath { get; set; }
 
     /// <summary>
+    /// Callback to open the operator management dialog (the VB Lister form over
+    /// the PersonalData operators list — the same surface the app shows at
+    /// first run when no operator exists). Set by ApplicationEvents.vb.
+    /// QB Track A stub audit, 2026-08-07.
+    /// </summary>
+    public Action? ShowOperatorsCallback { get; set; }
+
+    /// <summary>
     /// Antenna tune button base text, matching Form1 pattern.
     /// </summary>
     private const string AntennaTuneButtonBaseText = "Ant Tune";
@@ -2369,6 +2376,20 @@ public partial class MainWindow : UserControl
             UpdateTextAreasVisibility();
         }
 
+        // Signature connect double-beep — every successful connect path
+        // (picker local, picker remote, auto-connect, reconnect) converges on
+        // this power transition, so this is the one hook that covers them all
+        // (QB Track A stretch, 2026-08-07). Guarded on the off→on transition
+        // so a re-raised power event can't double-fire it.
+        if (!_radioPowerOn)
+        {
+            try { EarconPlayer.ConnectSuccessTone(); }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine($"PowerNowOn: connect earcon failed: {ex.Message}", TraceLevel.Warning);
+            }
+        }
+
         _radioPowerOn = true;
         StatusText.Text = "Radio connected — power on";
 
@@ -2449,25 +2470,13 @@ public partial class MainWindow : UserControl
                 Debug.WriteLine($"PowerOn: CW migrate-to-root failed: {ex.Message}");
             }
 
-            Radios.ScreenReaderOutput.PlayCwAS = () => _morseNotifier.PlayAS();
-            Radios.ScreenReaderOutput.PlayCwBT = () => _morseNotifier.PlayBT();
-            // PlayCwSK signs off with proper ham etiquette at any speed. Always prefix with
-            // "73" (best regards -- the universal ham farewell) followed by the prosign SK.
-            // At speed >= 25 WPM, extend with "de JJF" callsign signature, which a trained
-            // operator can read comfortably at that rate. Raw bare SK is never sent -- feels
-            // abrupt, not how real operators sign off. "JJF" is our app-callsign signature.
-            Radios.ScreenReaderOutput.PlayCwSK = async () =>
-            {
-                string prefix = _morseNotifier.SpeedWpm >= 25 ? "73 de JJF" : "73";
-                await _morseNotifier.PlayString(prefix);
-                await _morseNotifier.PlaySK();
-                // PARIS inter-word gap so SK and the trailing EE don't mash into "SKEE".
-                await _morseNotifier.PlayPause(7);
-                // Two single dits — friendly hand-wave close. Removes the abruptness
-                // of a bare SK; in CW prosign convention "e e" reads as a quick "bye".
-                await _morseNotifier.PlayString("ee");
-            };
-            Radios.ScreenReaderOutput.PlayCwMode = (mode) => _morseNotifier.PlayString(mode);
+            // The CW prosign delegates (PlayCwAS/BT/SK/Mode) are wired ONCE in
+            // the constructor and deliberately NOT re-wired here. A PowerOn
+            // duplicate used to live at this spot; its PlayCwSK copy was the
+            // pre-BUG-061 multi-call version (separate PlayString + PlaySK
+            // queue entries), so every connect silently swapped the clean
+            // single-utterance "73 <SK> ee" waveform for the gappy one.
+            // Removed 2026-08-07 (QB Track A).
 
             // Fire BT (connected) prosign now that delegates are wired and CwNotificationsEnabled
             // is loaded. This used to fire in FlexBase at connect success, but that location
@@ -3464,6 +3473,11 @@ public partial class MainWindow : UserControl
                 RenameAccount = (oldName, newName) => mgr.RenameAccount(oldName, newName),
                 DeleteAccount = (name) => { mgr.DeleteAccount(name); },
                 ResetAccountSignIn = (name) => mgr.ResetAccountSignIn(name),
+                // Start Fresh goes through the SAME shared manager as Reset
+                // Sign-In — a private manager instance is how Reset Sign-In
+                // got silently undone on 2026-08-06 (the rig's in-memory
+                // tokens re-saved themselves over the on-disk clear).
+                StartFreshAllAccounts = () => mgr.ResetAllSignIns(),
                 SetAutoStartRemote = (name, enabled) =>
                 {
                     var acct = mgr.Accounts.FirstOrDefault(a =>

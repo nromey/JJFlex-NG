@@ -171,14 +171,56 @@ public partial class ValueFieldControl : UserControl
             case Key.NumPad5: case Key.NumPad6: case Key.NumPad7: case Key.NumPad8: case Key.NumPad9:
                 if (!shift) // Don't trigger on Shift+digit (special chars)
                 {
-                    _numberEntryMode = true;
-                    _numberBuffer = "";
-                    ScreenReaderOutput.Speak($"Enter {_label} value", interrupt: true);
-                    HandleNumberEntryKey(e.Key); // Process the first digit
+                    BeginNumberEntry(e.Key);
                     e.Handled = true;
                 }
                 break;
+
+            // Minus can also START entry mode, so "-8" is typeable from rest
+            // (QB Track A, 2026-08-07 — Noel live find on RX RF gain).
+            // OemMinus with Shift is underscore, so only the unshifted key
+            // counts; NumPad Subtract is minus regardless of Shift.
+            case Key.OemMinus:
+                if (!shift)
+                {
+                    BeginNumberEntry(e.Key);
+                    e.Handled = true;
+                }
+                break;
+            case Key.Subtract:
+                BeginNumberEntry(e.Key);
+                e.Handled = true;
+                break;
         }
+    }
+
+    /// <summary>
+    /// Enter number-entry mode and process the key that started it
+    /// (a digit, or minus on signed fields).
+    /// </summary>
+    private void BeginNumberEntry(Key firstKey)
+    {
+        // A minus on a non-negative field must not silently open entry mode —
+        // reject it with the same earcon+speech the in-mode path uses.
+        if ((firstKey == Key.OemMinus || firstKey == Key.Subtract) && _min >= 0)
+        {
+            RejectNegativeEntry();
+            return;
+        }
+        _numberEntryMode = true;
+        _numberBuffer = "";
+        ScreenReaderOutput.Speak($"Enter {_label} value", interrupt: true);
+        HandleNumberEntryKey(firstKey); // Process the first key
+    }
+
+    /// <summary>
+    /// No-silent-keystrokes rejection for minus on a field whose minimum is
+    /// zero or higher.
+    /// </summary>
+    private void RejectNegativeEntry()
+    {
+        EarconPlayer.LeaderInvalidTone();
+        ScreenReaderOutput.Speak($"{_label} does not go below {_min}", interrupt: true);
     }
 
     /// <summary>
@@ -204,6 +246,21 @@ public partial class ValueFieldControl : UserControl
             _numberBuffer += digit;
             ScreenReaderOutput.Speak(digit.ToString());
             UpdateNumberEntryDisplay();
+            return true;
+        }
+
+        // Minus toggles the buffer's sign (signed fields only). Kept as its
+        // own small step so Track I's decimal/dBm extension can add its
+        // decimal-point handling alongside without reshaping this method —
+        // sign and (future) decimal are both buffer edits, not digits.
+        if (key == Key.OemMinus || key == Key.Subtract)
+        {
+            if (_min >= 0)
+            {
+                RejectNegativeEntry();
+                return true;
+            }
+            ToggleBufferSign();
             return true;
         }
 
@@ -234,6 +291,26 @@ public partial class ValueFieldControl : UserControl
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Toggle the leading minus on the entry buffer, speaking which way it
+    /// went. Works on an empty buffer ("-" then digits) and mid-entry
+    /// ("8" → "-8" → "8").
+    /// </summary>
+    private void ToggleBufferSign()
+    {
+        if (_numberBuffer.StartsWith('-'))
+        {
+            _numberBuffer = _numberBuffer.Substring(1);
+            ScreenReaderOutput.Speak("positive");
+        }
+        else
+        {
+            _numberBuffer = "-" + _numberBuffer;
+            ScreenReaderOutput.Speak("minus");
+        }
+        UpdateNumberEntryDisplay();
     }
 
     /// <summary>

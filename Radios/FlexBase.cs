@@ -1161,7 +1161,6 @@ namespace Radios
                 else
                 {
                     // local audio on
-                    //LocalAudioMute(false);
                     theRadio.IsMuteLocalAudioWhenRemoteOn = false;
                 }
             }
@@ -4853,6 +4852,14 @@ namespace Radios
                 WanServer.WanRadioRadioListRecieved -= wanRadioListReceivedHandler;
                 WanServer.WanRadioRadioListRecieved += wanRadioListReceivedHandler;
 
+                // Whether this TLS session was live BEFORE this call. The server
+                // sends the radio list exactly once per TLS session, so on a
+                // re-entry over a live session no new list is ever coming and
+                // waiting for one is pure dead time (QB Track A, 2026-08-07,
+                // trace 20260805-163019: re-clicking Remote sat through the
+                // full wait for an event the server never re-sends).
+                bool sessionWasAlreadyConnected = session.IsConnected;
+
                 // Kick the monitor thread. If the session is already connected (e.g. we're
                 // re-entering ConnectToSmartLink after a successful previous call), Connect
                 // is a cheap no-op because _wan.IsConnected is already true.
@@ -4881,6 +4888,24 @@ namespace Radios
                 // WAN entries only: myRadioList also accumulates LAN radios, and
                 // a LAN-only cache says nothing about this SmartLink session.
                 bool haveCachedList = session.IsConnected && myRadioList.Any(r => r.IsWan);
+
+                // Re-entry over a session that was ALREADY live when this call
+                // began: the one list this TLS session will ever send arrived
+                // long ago, so satisfy the wait from the cache IMMEDIATELY
+                // instead of burning even the short window (QB Track A). The
+                // static WanRadioRadioListRecieved subscription stays active,
+                // so if the server ever does volunteer a fresh list it lands
+                // as a refresh through wanRadioListReceivedHandler exactly as
+                // the 2026-08-06 refresh/morph flow expects.
+                if (sessionWasAlreadyConnected && haveCachedList)
+                {
+                    radios = myRadioList.Where(r => r.IsWan).ToList();
+                    Tracing.TraceLine(
+                        $"ConnectToSmartLink: session was already live — satisfied immediately from {radios.Count} cached WAN radio(s), no list wait ({sw.ElapsedMilliseconds}ms)",
+                        TraceLevel.Info);
+                }
+                else
+                {
                 int listWaitMs = haveCachedList ? 2000 : 10000;
 
                 Tracing.TraceLine($"ConnectToSmartLink: registration sent, waiting up to {listWaitMs / 1000}s for radio list (cached={myRadioList.Count}) ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
@@ -4920,6 +4945,7 @@ namespace Radios
                         return SmartLinkConnectResult.ConnectFailed;
                     }
                 }
+                } // end fresh-session wait path
 
                 if (session.Status == Radios.SmartLink.SessionStatus.AuthorizationExpired)
                 {
@@ -5377,7 +5403,6 @@ namespace Radios
         }
 #endif
 
-        private bool maintainAudio;
         private ATUTuneStatus originalATUStatus = ATUTuneStatus.None;
         private bool oldATUEnable = false; // false is the default, see Flex6300.
         private bool globalProfileLoaded; // see GetProfileInfo().
@@ -5637,11 +5662,6 @@ namespace Radios
                 case "LineoutMute":
                     {
                         Tracing.TraceLine("LineoutMute:" + r.LineoutMute.ToString(), TraceLevel.Info);
-                        if (maintainAudio != r.LineoutMute)
-                        {
-                            //Tracing.TraceLine("LineoutMute:forced to " + maintainAudio.ToString(), TraceLevel.Info);
-                            //LocalAudioMute(maintainAudio);
-                        }
                     }
                     break;
                 case "Mox":
@@ -8161,18 +8181,10 @@ namespace Radios
             }
         }
 
-        /// <summary>
-        /// Mute/unmute local audio.
-        /// </summary>
-        /// <param name="mute">true or false</param>
-        public void LocalAudioMute(bool mute)
-        {
-            Tracing.TraceLine("LocalAudioMute:" + mute.ToString(), TraceLevel.Info);
-            maintainAudio = mute; // enforce this
-            theRadio.LineoutMute = mute;
-            theRadio.HeadphoneMute = mute;
-            theRadio.FrontSpeakerMute = mute;
-        }
+        // LocalAudioMute(bool) used to live here. It ganged all three physical
+        // outputs (lineout, headphone, front speaker) behind one flag and had
+        // no live caller — every reference was already commented out. Deleted
+        // 2026-08-07 (QB Track A); the individual mutes remain the API.
 
         internal const int LineoutGainMinValue = 0;
         internal const int LineoutGainMaxValue = 100;

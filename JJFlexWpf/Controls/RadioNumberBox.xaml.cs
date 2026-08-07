@@ -202,6 +202,15 @@ public partial class RadioNumberBox : UserControl
 
     private void UpdateBoxAndRig(int value)
     {
+        // Clamp typed entries too — arrows already respect the range, but a
+        // value typed into the TextBox and confirmed with Enter used to go to
+        // the rig unclamped, overshooting the field's real ceiling or floor
+        // (QB Track A, 2026-08-07). Minus works here natively: this is a real
+        // TextBox, so signed entry like "-8" was never blocked.
+        if (value < LowValue) value = LowValue;
+        bool hasLimit = HighValue > LowValue;
+        if (hasLimit && value > HighValue) value = HighValue;
+
         TheTextBox.Text = value.ToString();
         TheTextBox.SelectAll();
         UpdateRigFunction?.Invoke(value);
