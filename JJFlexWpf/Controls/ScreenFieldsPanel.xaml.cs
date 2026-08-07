@@ -92,6 +92,9 @@ public partial class ScreenFieldsPanel : UserControl
     #region TX Controls
 
     private ValueFieldControl _txPowerControl = null!;
+    // QB Track I — true while the TX power field is in transverter-drive
+    // personality (dBm, hundredths) because the TX antenna is the XVTR port.
+    private bool _txPowerXvtrMode;
     private CheckBox _voxCheck = null!;
     private ValueFieldControl _tunePowerControl = null!;
     private ValueFieldControl _micGainControl = null!;
@@ -205,6 +208,10 @@ public partial class ScreenFieldsPanel : UserControl
         _rfGainControl.Max = rig.RFGainMax;
         _rfGainControl.Step = rig.RFGainIncrement;
 
+        // QB Track I — TX power personality follows the TX antenna from the
+        // first paint (PollTX keeps it honest afterwards).
+        ReconfigureTxPowerForMode(rig.XvtrPowerAvailable);
+
         // Subscribe to mode changes for immediate DSP refresh
         rig.ModeChanged += OnModeChanged;
 
@@ -244,6 +251,8 @@ public partial class ScreenFieldsPanel : UserControl
         _audioPipeline?.Dispose();
         _audioPipeline = null;
         _rig = null;
+        // QB Track I — back to the watts personality for the next radio.
+        ReconfigureTxPowerForMode(false);
     }
 
     #region Build Controls
@@ -588,7 +597,14 @@ public partial class ScreenFieldsPanel : UserControl
     private void BuildTXControls()
     {
         _txPowerControl = MakeValue("TX Power", 0, 100, 1);
-        _txPowerControl.ValueChanged += (s, v) => { if (_rig != null && !_polling) _rig.XmitPower = v; };
+        // QB Track I — one control, two personalities: integer watts on a
+        // normal TX antenna, centi-dBm transverter drive on the XVTR port.
+        _txPowerControl.ValueChanged += (s, v) =>
+        {
+            if (_rig == null || _polling) return;
+            if (_txPowerXvtrMode) _rig.XvtrDrivePowerCentiDbm = v;
+            else _rig.XmitPower = v;
+        };
         TxContent.Children.Add(_txPowerControl);
 
         _voxCheck = MakeToggle("VOX");
@@ -925,11 +941,49 @@ public partial class ScreenFieldsPanel : UserControl
         System.Windows.Automation.AutomationProperties.SetName(_rxFilterWidthDisplay, widthText);
     }
 
+    /// <summary>
+    /// QB Track I — put the TX power field in the right personality for the
+    /// current TX antenna. Watts (integer, 0-100) normally; transverter drive
+    /// (dBm, hundredths, FlexLib bounds) when the TX antenna is the XVTR
+    /// port. The unit rides the label's value suffix, so entering the field
+    /// always announces which scale it is on.
+    /// </summary>
+    private void ReconfigureTxPowerForMode(bool xvtr)
+    {
+        _txPowerXvtrMode = xvtr;
+        if (xvtr && _rig != null)
+        {
+            _txPowerControl.Setup("TX Power", FlexBase.XvtrDriveMinCentiDbm,
+                _rig.XvtrDriveMaxCentiDbm, FlexBase.XvtrDriveIncrementCentiDbm,
+                _rig.XvtrDrivePowerCentiDbm, decimalPlaces: 2, unit: "dBm");
+        }
+        else
+        {
+            _txPowerControl.Setup("TX Power", 0, 100, 1, _rig?.XmitPower ?? 0);
+        }
+    }
+
     private void PollTX()
     {
         if (_rig == null) return;
 
-        _txPowerControl.Value = _rig.XmitPower;
+        // Personality follows the TX antenna. Speak the flip only when the
+        // operator is sitting on the field — silently changing the meaning of
+        // a focused number would be lying; announcing background flips from a
+        // poll would be noise.
+        bool xvtrNow = _rig.XvtrPowerAvailable;
+        if (xvtrNow != _txPowerXvtrMode)
+        {
+            ReconfigureTxPowerForMode(xvtrNow);
+            if (_txPowerControl.IsKeyboardFocusWithin)
+            {
+                ScreenReaderOutput.Speak(xvtrNow
+                    ? "TX power now transverter drive, in d B m"
+                    : "TX power now in watts", VerbosityLevel.Terse, interrupt: true);
+            }
+        }
+
+        _txPowerControl.Value = xvtrNow ? _rig.XvtrDrivePowerCentiDbm : _rig.XmitPower;
         _voxCheck.IsChecked = _rig.Vox == FlexBase.OffOnValues.on;
         _tunePowerControl.Value = _rig.TunePower;
 
