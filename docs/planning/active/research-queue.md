@@ -58,12 +58,20 @@
      a real bug found while chasing it.
   Diagnostic that cracked it: reading the TCP banner from outside the
   network. "Connects but isn't TLS" is invisible from the app's side.
-  Follow-ups: PC audio is NOT auto-enabled on remote connect (the line
-  is commented out in FlexBase's RemoteRig branch) — decide whether to
-  enable it or announce that it's off; ms-02 has no `audioDevices.xml`
-  at all, so first-time audio setup there needs the Radio Audio Device
-  picker; and "no RX antenna" is a misleading message for "the audio
-  path never came up" now that `failureReason` is populated.
+  Follow-ups: ~~PC audio is NOT auto-enabled on remote connect~~
+  **CORRECTED 2026-08-06 (code-verified after Noel's fresh ms-02 install
+  got sound with zero setup):** PC audio IS auto-enabled on remote
+  connect — `FlexBase.cs` flex-open main sequence, `if (RemoteRig &
+  !PCAudio) PCAudio = true;` (~line 9875). The 2026-08-05 note saw only
+  the commented-out `//PCAudio = true;` in the Connect-time RemoteRig
+  branch (~line 770) and missed the live enable downstream. No decision
+  needed; nothing to build. Lesson: the grep found the dead line and
+  stopped — assert behavior from the full call path, not the first hit.
+  Still open from that list: ms-02-style first-run has no
+  `audioDevices.xml`, which auto-enable evidently tolerates (default
+  device fallback) — confirm the picker story for users who WANT a
+  specific device; and "no RX antenna" is a misleading message for "the
+  audio path never came up" now that `failureReason` is populated.
 
 - **HARDENING (Noel ask, 2026-08-05): trust what the radio reports, and
   never make a human retype a number the app already knows.** Three
