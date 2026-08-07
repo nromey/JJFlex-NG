@@ -47,6 +47,10 @@
                     AutomationProperties.Name="New Login"
                     AutomationProperties.AcceleratorKey="Alt+L"
                     Click="NewLoginButton_Click"/>
+            <Button Content="Create Accou_nt" MinWidth="90" Height="28" Margin="0,0,0,8"
+                    AutomationProperties.Name="Create a new SmartLink account. For when you do not have one yet."
+                    AutomationProperties.AcceleratorKey="Alt+N"
+                    Click="CreateAccountButton_Click"/>
             <Button x:Name="RenameButton" Content="_Rename" MinWidth="90" Height="28" Margin="0,0,0,8"
                     IsEnabled="False"
                     AutomationProperties.Name="Rename"

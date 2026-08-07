@@ -3441,6 +3441,27 @@ namespace Radios
         }
 
         /// <summary>
+        /// Adopt a just-signed-in SmartLink account as this session's current
+        /// account — the mid-session sign-in propagation fix (found live
+        /// 2026-08-04: _currentAccount is only loaded during connect, so a New
+        /// Login while connected left registration preflight insisting nobody
+        /// was signed in until the app restarted). Prefers the saved instance
+        /// from the shared manager when one exists for the same email, so
+        /// later token refreshes persist; an unsaved sign-in (Remember
+        /// unchecked) is adopted as-is for this session only.
+        /// </summary>
+        public bool AdoptSignedInAccount(SmartLinkAccount account)
+        {
+            if (account == null || string.IsNullOrEmpty(account.Email)) return false;
+            var saved = AccountManager.GetAccountByEmail(account.Email);
+            _currentAccount = saved ?? account;
+            Tracing.TraceLine(
+                $"AdoptSignedInAccount: session account is now '{_currentAccount.Email}' ({(saved != null ? "saved" : "session-only")})",
+                TraceLevel.Info);
+            return true;
+        }
+
+        /// <summary>
         /// Gets the email address of the currently active SmartLink account, if any.
         /// Used by the rig selector to save the account email in auto-connect config.
         /// </summary>

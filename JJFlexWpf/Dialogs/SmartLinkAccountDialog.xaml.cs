@@ -84,6 +84,12 @@ namespace JJFlexWpf.Dialogs
         public bool NewLoginRequested { get; private set; }
 
         /// <summary>
+        /// True if the user clicked "Create Account" — the caller opens the
+        /// native signup dialog, then routes into sign-in on success.
+        /// </summary>
+        public bool CreateAccountRequested { get; private set; }
+
+        /// <summary>
         /// True if the user clicked "Use Now" — use <see cref="SelectedAccountData"/>
         /// for this session only, without touching the saved default.
         /// </summary>
@@ -217,6 +223,14 @@ namespace JJFlexWpf.Dialogs
         {
             SelectedAccountData = null;
             NewLoginRequested = true;
+            DialogResult = true;
+            Close();
+        }
+
+        private void CreateAccountButton_Click(object sender, RoutedEventArgs e)
+        {
+            SelectedAccountData = null;
+            CreateAccountRequested = true;
             DialogResult = true;
             Close();
         }
