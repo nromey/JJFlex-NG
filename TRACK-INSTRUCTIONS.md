@@ -98,3 +98,82 @@ Completed items, deferred items with reasons, the manifest schema you
 settled on, measured build-time cost of the manifest target, measured
 bundle-size before/after if obtainable, build status, final pushed SHA.
 Append a "Design decisions" section to this file (committed).
+
+## Design decisions
+
+Written after implementation, 2026-08-07.
+
+- **MSBuild anchoring deviates from the spec's `AfterTargets="Build"`
+  guidance, deliberately.** The PostBuildEvent (install.bat → NSIS
+  `File /r` + generate-deletelist.ps1) is the LAST dependency inside
+  CoreBuild, so an `AfterTargets="Build"` target runs after the
+  installer has already packaged the output — the manifest would miss
+  the installer, or worse, a stale manifest from the previous build
+  would ship. The GenerateInstallManifest target anchors
+  `AfterTargets="CopyFilesToOutputDirectory"` (all outputs present,
+  including the self-contained runtime) and
+  `BeforeTargets="PostBuildEvent"`. Verified empirically in a Release
+  build log: GenerateInstallManifest executes before PostBuildEvent,
+  and generate-deletelist.ps1 emits `Delete "$INSTDIR\install-manifest.json"`,
+  so uninstall cleanup is automatic as assumed.
+- **Schema `jjflex-install-manifest/1`**, camelCase properties, two
+  writers (PowerShell at build, VB at collection) sharing it. Top level:
+  `schema`, `source` ("build" or "live"), `product`, `version` (the
+  exe's 4-part FileVersion — ProductVersion can carry a +hash suffix),
+  `generated` (UTC ISO 8601), `fileCount`, `totalBytes`,
+  `configuration`/`platform` (build manifests), `unreadable` (live
+  manifests, only when non-empty), `files`. Per file: `path`
+  (forward-slash relative), `size`, `sha256` (lowercase hex),
+  `fileVersion` (omitted when the file has no version resource).
+  Optional fields are omitted, not null. The manifest excludes itself
+  by root-relative name, both writers alike, so live-vs-shipped diffs
+  align.
+- **Cross-writer round-trip is tested, not assumed.** A scratchpad VB
+  harness compiled InstallManifest.vb against a fake install whose
+  manifest came from the real generate-install-manifest.ps1: tampered,
+  deleted, and added files each landed in the right category with the
+  right prose; the untouched tree verified clean.
+- **Unreadable files: build fails, runtime reports.** At build time an
+  unreadable output file is a broken build and the script throws
+  ($ErrorActionPreference Stop). At collection time an unreadable file
+  is recorded (path + reason) under `unreadable`, reported in its own
+  section, counted as a difference (unverified is not verified), and
+  never stops the walk.
+- **The diff treats paths case-insensitively** (Windows filesystem
+  semantics) and reports four categories: mismatched (size, or same
+  size with different fingerprint — worded distinctly), missing,
+  unexpected, unreadable. Missing and unreadable are disjoint: a file
+  the live scan could not read is reported as unreadable, not missing.
+- **Fingerprints in prose show the first 12 hex characters.** A screen
+  reader speaking 64 hex characters per file is hostile; 12 is plenty
+  to talk about. The full values ride in the two JSON manifests in the
+  same bundle. User-facing text says "fingerprint," never "SHA-256."
+- **The install directory is `AppContext.BaseDirectory`, not `"."`.**
+  The old code zipped the process's current directory, which drifts
+  with how the app was launched. BaseDirectory is where the program
+  actually runs from.
+- **The live manifest's version comes from the running process**
+  (`Environment.ProcessPath`), not from whatever exe sits in the
+  directory — if those differ, the file-level diff will say so anyway.
+- **Corrupt shipped manifest is a finding, not a failure.** The raw
+  manifest bytes still go into the bundle (a damaged manifest is
+  evidence of a damaged install), the report says what could not be
+  read and why, and collection continues. A catch-all around the whole
+  verification step writes an honest note even on unforeseen failures —
+  the bundle itself must always complete.
+- **Cost, measured:** ~400-470 ms script time for 372 files / ~176 MB;
+  ~525-555 ms end-to-end per build including PowerShell startup. Well
+  inside the couple-of-seconds budget, so no parallel hashing. The
+  target runs on every build (no Inputs/Outputs — the input set is the
+  whole output tree, and a wrong-stale manifest is worse than half a
+  second).
+- **Size, measured (Debug x64):** the old `program/` portion was
+  168.3 MB raw / ~74 MB compressed inside every bundle (Release with
+  ReadyToRun runs larger still); the replacement is two ~107 KB JSONs
+  plus a text report — they compress to well under 100 KB combined.
+  Collection also drops the ~4+ seconds it spent deflating the program
+  tree.
+- **`ZipUtils.AddDirectoryToArchive` stays.** It is not orphaned:
+  DebugInfo.vb:60 (AppData sweep) and ExportSetup.vb:26 (settings
+  export) still call it. Only the whole-program-directory call site is
+  gone.
