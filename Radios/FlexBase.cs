@@ -194,9 +194,23 @@ namespace Radios
         /// </summary>
         public bool IsDualHomed(string serial)
         {
-            if (string.IsNullOrWhiteSpace(serial)) return false;
-            var lan = myRadioList.FirstOrDefault(x => x.Serial == serial && !x.IsWan);
-            return lan != null && findWanRadio(serial) != null;
+            var (lan, wan) = RadioAvailability(serial);
+            return lan && wan;
+        }
+
+        /// <summary>
+        /// Which paths reach this radio right now. The RadioRemoved event says a
+        /// radio left without saying which home it left, so the selector asks
+        /// this before deciding whether "went offline" is even true — a
+        /// dual-homed radio dropping off the LAN is still perfectly reachable
+        /// through SmartLink.
+        /// </summary>
+        public (bool lan, bool wan) RadioAvailability(string serial)
+        {
+            if (string.IsNullOrWhiteSpace(serial)) return (false, false);
+            bool lan = myRadioList.Any(x => x.Serial == serial && !x.IsWan);
+            bool wan = findWanRadio(serial) != null;
+            return (lan, wan);
         }
 
         private void radioAddedHandler(Radio r)

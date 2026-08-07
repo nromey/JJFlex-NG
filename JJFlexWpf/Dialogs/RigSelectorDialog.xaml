@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:JJFlexWpf"
         Title="Select Radio"
-        Width="480" Height="420"
+        Width="560" Height="500"
         ResizeMode="NoResize"
         AutomationProperties.Name="Radio selector"
         Closing="RigSelectorDialog_Closing">
@@ -25,20 +25,30 @@
                    Margin="0,0,0,4"
                    AutomationProperties.Name="Available radios list"/>
 
-        <!-- Radio list -->
+        <!-- Radio list.
+             DirectionalNavigation="Contained" keeps arrow keys inside the list
+             at BOTH ends. Arrowing off the top used to land silently on the
+             auto-connect checkbox — a keyboard user looking for the first radio
+             instead found themselves on a setting they never meant to touch.
+             Tab remains the way out; Shift+Tab comes back to the selected row. -->
         <ListBox x:Name="RadiosBox" Grid.Row="1" Grid.Column="0"
                  Margin="0,0,8,0"
                  Focusable="True"
                  IsTabStop="True"
                  KeyboardNavigation.TabNavigation="Once"
+                 KeyboardNavigation.DirectionalNavigation="Contained"
                  AutomationProperties.Name="Radio list, searching for radios"
                  GotFocus="RadiosBox_GotFocus"
                  LostFocus="RadiosBox_LostFocus"
+                 ContextMenuOpening="RadiosBox_ContextMenuOpening"
                  SelectionChanged="RadiosBox_SelectionChanged">
             <ListBox.ContextMenu>
                 <ContextMenu>
                     <MenuItem Header="Connect" Click="ConnectMenuItem_Click"
                               AutomationProperties.Name="Connect to selected radio"/>
+                    <MenuItem x:Name="FavoriteMenuItem" Header="Add to Favorites"
+                              Click="FavoriteMenuItem_Click"
+                              AutomationProperties.Name="Add selected radio to favorites"/>
                     <MenuItem x:Name="AutoConnectMenuItem" Header="Auto-Connect Settings..."
                               Click="AutoConnectMenuItem_Click"
                               AutomationProperties.Name="Auto-connect settings for selected radio"/>
@@ -48,35 +58,46 @@
 
         <!-- Action buttons -->
         <StackPanel Grid.Row="1" Grid.Column="1" VerticalAlignment="Top">
-            <Button x:Name="ConnectButton" Content="Co_nnect" MinWidth="100" Height="28" Margin="0,0,0,8"
+            <Button x:Name="ConnectButton" Content="Co_nnect" MinWidth="130" Height="28" Margin="0,0,0,8"
                     AutomationProperties.Name="Connect"
                     AutomationProperties.AcceleratorKey="Alt+N"
                     Click="ConnectButton_Click"/>
-            <CheckBox x:Name="LowBWCheckBox" Content="_Low BW" MinWidth="100" Height="28" Margin="0,0,0,8"
+            <CheckBox x:Name="LowBWCheckBox" Content="_Low BW" MinWidth="130" Height="28" Margin="0,0,0,8"
                       VerticalContentAlignment="Center"
                       IsEnabled="False"
                       AutomationProperties.Name="Low bandwidth for selected radio"
                       AutomationProperties.AcceleratorKey="Alt+L"
                       Checked="LowBWCheckBox_Changed"
                       Unchecked="LowBWCheckBox_Changed"/>
-            <Button x:Name="RemoteButton" Content="_Remote" MinWidth="100" Height="28" Margin="0,0,0,8"
+            <!-- Connection path. Enabled only when the selected radio answers
+                 on BOTH the local network and SmartLink; otherwise it names the
+                 one path that exists and is disabled, so it always tells the
+                 truth about how this radio will be reached. -->
+            <Label x:Name="PathLabel" Content="Connection _path" Padding="0,0,0,2"
+                   Target="{Binding ElementName=PathCombo}"/>
+            <ComboBox x:Name="PathCombo" MinWidth="130" Height="24" Margin="0,0,0,8"
+                      IsEnabled="False"
+                      AutomationProperties.Name="Connection path"
+                      AutomationProperties.AcceleratorKey="Alt+P"
+                      SelectionChanged="PathCombo_SelectionChanged"/>
+            <Button x:Name="RemoteButton" Content="_Remote" MinWidth="130" Height="28" Margin="0,0,0,8"
                     AutomationProperties.Name="Remote"
                     AutomationProperties.AcceleratorKey="Alt+R"
                     Click="RemoteButton_Click"/>
-            <Button Content="_Switch Account" MinWidth="100" Height="28" Margin="0,0,0,8"
+            <Button x:Name="AccountButton" Content="_Switch Account" MinWidth="130" Height="28" Margin="0,0,0,8"
                     AutomationProperties.Name="Switch Account"
                     AutomationProperties.AcceleratorKey="Alt+S"
                     Click="SwitchAccountButton_Click"/>
-            <Button x:Name="TestButton" Content="_Test" MinWidth="100" Height="28" Margin="0,0,0,8"
+            <Button x:Name="TestButton" Content="_Test" MinWidth="130" Height="28" Margin="0,0,0,8"
                     AutomationProperties.Name="Test"
                     AutomationProperties.AcceleratorKey="Alt+T"
                     Click="TestButton_Click"/>
-            <Button x:Name="AutoConnectButton" Content="_Auto-Connect" MinWidth="100" Height="28" Margin="0,0,0,8"
+            <Button x:Name="AutoConnectButton" Content="_Auto-Connect" MinWidth="130" Height="28" Margin="0,0,0,8"
                     AutomationProperties.Name="Auto-Connect"
                     AutomationProperties.AcceleratorKey="Alt+A"
                     IsEnabled="False"
                     Click="AutoConnectButton_Click"/>
-            <Button Content="_Cancel" AutomationProperties.AcceleratorKey="Alt+C" MinWidth="100" Height="28" IsCancel="True"
+            <Button Content="_Cancel" AutomationProperties.AcceleratorKey="Alt+C" MinWidth="130" Height="28" IsCancel="True"
                     AutomationProperties.Name="Cancel"
                     Click="CancelButton_Click"/>
         </StackPanel>
@@ -88,6 +109,20 @@
                   Checked="GlobalAutoConnectCheckbox_Changed"
                   Unchecked="GlobalAutoConnectCheckbox_Changed"/>
 
-        <!-- Row 3 reserved for future use -->
+        <!-- Which SmartLink account is in play. Read-only but a real tab stop:
+             a TextBlock is invisible to anyone driving the dialog by keyboard,
+             and "which account am I about to use?" is exactly the question the
+             Remote button used to answer only by surprise. -->
+        <TextBox x:Name="AccountStatusText" Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="2"
+                 Margin="0,8,0,0"
+                 IsReadOnly="True" IsReadOnlyCaretVisible="True"
+                 BorderThickness="0" Background="Transparent"
+                 TextWrapping="Wrap"
+                 Text="SmartLink account: none saved"
+                 AutomationProperties.Name="SmartLink account"/>
+
+        <!-- Row 4 is the picker's detail area — left empty on purpose. Track D's
+             network identity card (IP, serial, firmware, forwarded-port status)
+             is meant to land here; nothing in this dialog claims the row. -->
     </Grid>
 </local:JJFlexDialog>
