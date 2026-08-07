@@ -110,7 +110,7 @@ The thing Noel asked for by name: an easy way to say "start transmit," then, in 
 
 **Still open (Don + follow-ups):**
 
-- Don's 1-SCU 6300: `FullDuplexEnabled` semantics there, and whether his procedure differs — his answers still gate the 6300/8400-class story (the 2-SCU recipe above is proven for 6600/6700/8600-class).
+- Don's 1-SCU 6300: `FullDuplexEnabled` semantics there, and whether his procedure differs — his answers still gate the 6300/8400-class story (the 2-SCU recipe above is proven for 6600/6700/8600-class). **Do NOT assume 1-SCU can't loop (Noel, 2026-08-07): Don has two slices + an XVTR port and has likely done this before.** The physics permits it — TX rides the DAC/upconverter, RX rides the ADC, different converters — so the 2-SCU-only FDX gate may be vendor policy (front-end protection) rather than hardware limit, and milliwatt XVTR drive is exactly the case where the protection concern evaporates. Test the recipe on the 6300 (Don, remotely) before feature-gating loopback to 2-SCU radios.
 - ~~Whether RF power 0 also drives the XVT port enough to loop~~ **ANSWERED: no — at power 0 the loop is silent; 1 watt (the integer floor above zero) is required.** Context that makes 1 fine: `Radio.RFPower` is an int (Radio.cs:8467, whole watts only — Noel's fractional-watts ask is impossible on the main control), but the XVT port is a milliwatt-class output (~+10 dBm max) the slider maps onto proportionally, so "1" is already microscopic at the jack. For precision drive later: `Xvtr.MaxPower` on defined transverter bands is a double in dBm, -10.0 to +10.0 in hundredths (Xvtr.cs:169-202). Check whether the power value field accepts typed digits; if not, work item.
 - **Reframing from Noel, live: the loopback is also a transmitter self-test** ("I'm glad I now know my exciter on A/B works") — one PTT press proves DSP → modulator → exciter → port routing with no antenna. Carry this into the help page and the feature's positioning: "check my audio" and "is my radio actually transmitting" are the same button.
 - No `Xvtr.cs` band definition was needed — plain antenna selection sufficed. Note for the docs: the "set the port to something very low" step in folklore appears to be the RF power floor, not an XVTR band frequency.
@@ -147,6 +147,13 @@ On the 8600 (the test mule — local, low power or loopback; never full power, n
 3. **Loopback:** second slice per Don's procedure — audible? Requires `FullDuplexEnabled`? At what port level?
 4. **TX-source behavior:** with PC-sourced TX audio, does `MicGain` act on the stream? Do compander/processor/filter demonstrably apply? (They should — radio-side DSP — but the workshop's annotations depend on the answer.) **ANSWERED for the gain half (Noel, live, 2026-08-07): `MicGain` acts on the SELECTED mic input, not the actual source.** Hand mic + PC audio ON (selection forced to "PC"): monitor audible, Mic Gain arrows do nothing — the knob was adjusting the PC stream while the PTT-override hand mic fed TX untouched. Hand mic + PC audio OFF: Mic Gain works normally. Design consequence: the workshop must aim its controls at the ACTIVE source or say why not — today it silently adjusts a control outside the audio path. Prediction to verify once the mic source picker exists: picker set to MIC + PC audio on → gain works. Compander/processor/filter-apply-to-PC-stream still open (test when a PC mic is available).
 5. **CW monitor:** confirm `TXCWMonitorGain` moves sidetone level as expected with the `#if CWMonitor` subsystem active.
+
+**Record/play + monitor test matrix (Noel, 2026-08-07 — run these configurations over time, not all tonight):**
+
+- PC audio OFF, hand mic, radio earbuds — the clean baseline; mic-in stays on the jack so even software keying carries voice.
+- PC audio ON, hand mic (PTT override) — confirms buffer playback rides the network audio stream (what a remote operator's ears live on).
+- PC audio ON, SM7dB → EVO as the PC mic — the real PC-sourced TX config; ALSO the config that closes the open "do compander/processor audibly apply to the PC stream" item, since it finally puts a real mic behind the PC path.
+- SmartLink remote from the laptop, laptop's own sound card — the true remote-operator config, deliberately unglamorous hardware; merges with the queued WAN self-testing enabler (port-forward the 8600 so Noel can SmartLink his own radio from home).
 
 Against Don's 6300 (remote, PC-sourced TX audio — the real user configuration):
 
