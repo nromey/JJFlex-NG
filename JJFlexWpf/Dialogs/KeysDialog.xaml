@@ -37,23 +37,33 @@
                 <Button x:Name="ChangeKeyButton" Content="_Change Key"
                         MinWidth="100" Height="28" Margin="0,0,8,0"
                         AutomationProperties.Name="Change Key"
+                        AutomationProperties.AccessKey="Alt+C"
+                        AutomationProperties.AcceleratorKey="Alt+C"
                         Click="ChangeKeyButton_Click" />
                 <Button x:Name="UnbindButton" Content="_Unbind"
                         MinWidth="80" Height="28" Margin="0,0,8,0"
                         AutomationProperties.Name="Unbind"
+                        AutomationProperties.AccessKey="Alt+U"
+                        AutomationProperties.AcceleratorKey="Alt+U"
                         Click="UnbindButton_Click" />
                 <Button x:Name="ResetButton" Content="_Reset to Default"
                         MinWidth="120" Height="28" Margin="0,0,8,0"
                         AutomationProperties.Name="Reset to Default"
+                        AutomationProperties.AccessKey="Alt+R"
+                        AutomationProperties.AcceleratorKey="Alt+R"
                         Click="ResetButton_Click" />
                 <Button x:Name="ResetAllButton" Content="Reset _All..."
                         MinWidth="90" Height="28" Margin="0,0,8,0"
                         AutomationProperties.Name="Reset All"
+                        AutomationProperties.AccessKey="Alt+A"
+                        AutomationProperties.AcceleratorKey="Alt+A"
                         Click="ResetAllButton_Click" />
             </StackPanel>
             <Button x:Name="ExportButton" Content="_Export Key List..."
                     MinWidth="130" Height="28" Margin="0,0,8,0"
                     AutomationProperties.Name="Export Key List"
+                    AutomationProperties.AccessKey="Alt+E"
+                    AutomationProperties.AcceleratorKey="Alt+E"
                     Click="ExportButton_Click" />
             <Button x:Name="CloseButton" Content="Close" IsCancel="True"
                     MinWidth="80" Height="28"
