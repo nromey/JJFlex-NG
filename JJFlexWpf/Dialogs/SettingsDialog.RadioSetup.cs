@@ -572,7 +572,11 @@ namespace JJFlexWpf.Dialogs
                     SetupFirmwareFileText.Text =
                         $"Firmware {image.Version} expects the radio to already be on {image.MinVersionForDirectUpdate} or newer, and this one is on {running}. " +
                         "You may need an in-between version first. Downloading anyway — check with FlexRadio before sending if you are unsure.";
-                    ScreenReaderOutput.Speak("A stepping-stone version may be needed. See the message.",
+                    // Speak the reason itself, not "see the message" — the
+                    // information reaching the ear is the whole point.
+                    ScreenReaderOutput.Speak(
+                        $"Firmware {image.Version} expects the radio to already be on {image.MinVersionForDirectUpdate} or newer, and this one is on {running}. " +
+                        "An in-between version may be needed. Downloading anyway.",
                         VerbosityLevel.Terse, interrupt: true);
                 }
 
