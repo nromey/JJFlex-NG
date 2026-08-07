@@ -13,7 +13,7 @@
 
         <!-- Buttons -->
         <StackPanel Orientation="Horizontal">
-            <Button Content="_Select" MinWidth="75" Margin="0,0,8,0" IsDefault="True"
+            <Button Content="_Select" MinWidth="75" Margin="0,0,8,0" IsDefault="True" AutomationProperties.AccessKey="Alt+S"
                     AutomationProperties.Name="Select"
                     AutomationProperties.AcceleratorKey="Alt+S"
                     Click="SelectButton_Click"/>

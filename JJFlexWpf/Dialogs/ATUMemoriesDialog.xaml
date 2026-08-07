@@ -18,7 +18,7 @@
                     AutomationProperties.Name="Clear Memories"
                     AutomationProperties.AcceleratorKey="Alt+M" />
             <Button Content="_Done" MinWidth="80" Height="28"
-                    IsDefault="True" IsCancel="True"
+                    IsDefault="True" AutomationProperties.AccessKey="Alt+D" IsCancel="True"
                     AutomationProperties.Name="Done"
                     AutomationProperties.AcceleratorKey="Alt+D" />
         </StackPanel>

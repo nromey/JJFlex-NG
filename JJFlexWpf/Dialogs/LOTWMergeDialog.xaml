@@ -28,7 +28,7 @@
                  AutomationProperties.LiveSetting="Polite" />
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
             <Button x:Name="MergeButton" Content="_Merge" MinWidth="80" Height="28"
-                    Margin="0,0,8,0" IsDefault="True" Click="MergeButton_Click"
+                    Margin="0,0,8,0" IsDefault="True" AutomationProperties.AccessKey="Alt+M" Click="MergeButton_Click"
                     AutomationProperties.Name="Merge"
                     AutomationProperties.AcceleratorKey="Alt+M" />
             <Button x:Name="CancelCloseButton" Content="_Cancel" AutomationProperties.AcceleratorKey="Alt+C" MinWidth="80" Height="28"
