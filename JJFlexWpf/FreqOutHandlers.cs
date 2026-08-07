@@ -1181,13 +1181,25 @@ public class FreqOutHandlers
 
                 if (ch >= '0' && ch <= '9')
                 {
+                    // QB Track H (2026-08-07): a jump to a slice that isn't
+                    // created used to be silent — no-silent-keystrokes says
+                    // the miss must speak too.
                     int target = ch - '0';
                     if (Rig.ValidVFO(target))
                     {
                         Rig.RXVFO = target;
                         Radios.ScreenReaderOutput.Speak($"Slice {Rig.VFOToLetter(target)} active", VerbosityLevel.Terse);
-                        e.Handled = true;
                     }
+                    else if (target < 8)
+                    {
+                        Radios.ScreenReaderOutput.Speak(
+                            $"Slice {(char)('A' + target)} not created", VerbosityLevel.Terse, true);
+                    }
+                    else
+                    {
+                        Radios.ScreenReaderOutput.Speak("No such slice", VerbosityLevel.Terse, true);
+                    }
+                    e.Handled = true;
                 }
                 else if (ch >= 'A' && ch <= 'H')
                 {
@@ -1197,6 +1209,11 @@ public class FreqOutHandlers
                 }
                 break;
         }
+
+        // Universal Home keys fall-through — QB Track H (2026-08-07): the
+        // Slice field handled M/R/X/Q/= inline but was missing V (cycle
+        // slice), breaking the "works from ANY Home field" promise.
+        if (!e.Handled) TryHandleUniversalHomeKey(e);
     }
 
     private void AdjustGain(int vfo, int delta)
@@ -1374,6 +1391,11 @@ public class FreqOutHandlers
                 }
                 break;
         }
+
+        // Universal Home keys fall-through — QB Track H (2026-08-07): the
+        // Slice operations field was missing V (cycle slice) from the
+        // universal set. Its own M/S/T/=/X/R/Q claims above win first.
+        if (!e.Handled) TryHandleUniversalHomeKey(e);
     }
 
     #endregion
@@ -1816,6 +1838,9 @@ public class FreqOutHandlers
             ToggleSquelch();
             e.Handled = true;
         }
+
+        // Universal Home keys fall-through — QB Track H (2026-08-07).
+        if (!e.Handled) TryHandleUniversalHomeKey(e);
     }
 
     /// <summary>
@@ -1846,6 +1871,9 @@ public class FreqOutHandlers
             ToggleSquelch();
             e.Handled = true;
         }
+
+        // Universal Home keys fall-through — QB Track H (2026-08-07).
+        if (!e.Handled) TryHandleUniversalHomeKey(e);
     }
 
     /// <summary>
@@ -2044,6 +2072,11 @@ public class FreqOutHandlers
             Radios.ScreenReaderOutput.Speak($"S meter {reading}", VerbosityLevel.Terse);
             e.Handled = true;
         }
+
+        // Universal Home keys fall-through — QB Track H (2026-08-07): the
+        // S Meter field had NO universal keys at all, breaking the
+        // "works from ANY Home field" promise.
+        if (!e.Handled) TryHandleUniversalHomeKey(e);
     }
 
     #endregion
@@ -2387,7 +2420,13 @@ public class FreqOutHandlers
         int step = GetAdaptiveFilterStep(low, high);
         var (lowMin, highMax) = GetFilterBounds();
 
-        if (shift && !ctrl) // Shift = slide passband (unchanged from Sprint 14)
+        // QB Track H (2026-08-07): the Shift and Ctrl branches below must be
+        // modifier-STRICT. The old `ctrl && !shift` check ignored Alt, so
+        // Ctrl+Alt+[ and Ctrl+Alt+] — the registry's TX-filter high-edge
+        // chords — were silently swallowed here as an RX squeeze/pull before
+        // registry dispatch ever saw them. Unmatched combos now fall through
+        // (unhandled) so the window-level registry dispatch gets its turn.
+        if (shift && !ctrl && !alt) // Shift = slide passband (unchanged from Sprint 14)
         {
             if (key == Key.OemOpenBrackets)
             {
@@ -2401,7 +2440,7 @@ public class FreqOutHandlers
             }
             else return;
         }
-        else if (ctrl && !shift) // Ctrl = squeeze/pull (both edges equally)
+        else if (ctrl && !shift && !alt) // Ctrl = squeeze/pull (both edges equally)
         {
             if (key == Key.OemOpenBrackets)
             {

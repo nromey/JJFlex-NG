@@ -1,0 +1,97 @@
+<local:JJFlexDialog x:Class="JJFlexWpf.Dialogs.KeysDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:JJFlexWpf"
+        Title="Key Assignments"
+        Width="680" Height="520"
+        ResizeMode="CanResizeWithGrip">
+    <DockPanel Margin="12">
+        <!-- Arrange + category selectors -->
+        <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+            <Label Content="Arrange:" DockPanel.Dock="Left" Padding="0,0,8,0"
+                   VerticalAlignment="Center" Target="{Binding ElementName=ViewCombo}" />
+            <ComboBox x:Name="ViewCombo"
+                      AutomationProperties.Name="Arrange by"
+                      SelectionChanged="ViewCombo_SelectionChanged"
+                      VerticalAlignment="Center" />
+        </DockPanel>
+        <DockPanel x:Name="CategoryRow" DockPanel.Dock="Top" Margin="0,0,0,8">
+            <Label Content="Category:" DockPanel.Dock="Left" Padding="0,0,8,0"
+                   VerticalAlignment="Center" Target="{Binding ElementName=CategoryCombo}" />
+            <ComboBox x:Name="CategoryCombo"
+                      AutomationProperties.Name="Category"
+                      SelectionChanged="CategoryCombo_SelectionChanged"
+                      VerticalAlignment="Center" />
+        </DockPanel>
+
+        <!-- Status line: live announcements mirror speech -->
+        <TextBlock x:Name="StatusText" DockPanel.Dock="Bottom"
+                   Margin="0,6,0,0" Foreground="Gray"
+                   AutomationProperties.Name="Status"
+                   AutomationProperties.LiveSetting="Polite" />
+
+        <!-- Button rows -->
+        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal"
+                    HorizontalAlignment="Right" Margin="0,10,0,0">
+            <StackPanel x:Name="EditPanel" Orientation="Horizontal">
+                <Button x:Name="ChangeKeyButton" Content="_Change Key"
+                        MinWidth="100" Height="28" Margin="0,0,8,0"
+                        AutomationProperties.Name="Change Key"
+                        AutomationProperties.AccessKey="Alt+C"
+                        AutomationProperties.AcceleratorKey="Alt+C"
+                        Click="ChangeKeyButton_Click" />
+                <Button x:Name="UnbindButton" Content="_Unbind"
+                        MinWidth="80" Height="28" Margin="0,0,8,0"
+                        AutomationProperties.Name="Unbind"
+                        AutomationProperties.AccessKey="Alt+U"
+                        AutomationProperties.AcceleratorKey="Alt+U"
+                        Click="UnbindButton_Click" />
+                <Button x:Name="ResetButton" Content="_Reset to Default"
+                        MinWidth="120" Height="28" Margin="0,0,8,0"
+                        AutomationProperties.Name="Reset to Default"
+                        AutomationProperties.AccessKey="Alt+R"
+                        AutomationProperties.AcceleratorKey="Alt+R"
+                        Click="ResetButton_Click" />
+                <Button x:Name="ResetAllButton" Content="Reset _All..."
+                        MinWidth="90" Height="28" Margin="0,0,8,0"
+                        AutomationProperties.Name="Reset All"
+                        AutomationProperties.AccessKey="Alt+A"
+                        AutomationProperties.AcceleratorKey="Alt+A"
+                        Click="ResetAllButton_Click" />
+            </StackPanel>
+            <Button x:Name="ExportButton" Content="_Export Key List..."
+                    MinWidth="130" Height="28" Margin="0,0,8,0"
+                    AutomationProperties.Name="Export Key List"
+                    AutomationProperties.AccessKey="Alt+E"
+                    AutomationProperties.AcceleratorKey="Alt+E"
+                    Click="ExportButton_Click" />
+            <Button x:Name="CloseButton" Content="Close" IsCancel="True"
+                    MinWidth="80" Height="28"
+                    AutomationProperties.Name="Close" />
+        </StackPanel>
+
+        <!-- View-mode hint -->
+        <TextBlock x:Name="ViewHint" DockPanel.Dock="Bottom"
+                   Margin="0,8,0,0" TextWrapping="Wrap"
+                   Text="Viewing only. To change a key, open Tools, then Hotkey Editor." />
+
+        <!-- The one Keys list -->
+        <ListView x:Name="KeysList"
+                  AutomationProperties.Name="Key assignments"
+                  SelectionChanged="KeysList_SelectionChanged"
+                  KeyDown="KeysList_KeyDown">
+            <ListView.View>
+                <GridView>
+                    <GridViewColumn Header="Command" Width="300"
+                                    DisplayMemberBinding="{Binding Description}" />
+                    <GridViewColumn Header="Key" Width="130"
+                                    DisplayMemberBinding="{Binding KeyDisplay}" />
+                    <GridViewColumn Header="Scope" Width="80"
+                                    DisplayMemberBinding="{Binding Scope}" />
+                    <GridViewColumn Header="Default" Width="110"
+                                    DisplayMemberBinding="{Binding DefaultKeyDisplay}" />
+                </GridView>
+            </ListView.View>
+        </ListView>
+    </DockPanel>
+</local:JJFlexDialog>

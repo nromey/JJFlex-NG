@@ -917,6 +917,26 @@ public partial class MainWindow : UserControl
     public Func<System.Windows.Forms.Keys, bool>? DoCommandHandler { get; set; }
 
     /// <summary>
+    /// The live KeyCommands registry instance. Set by ApplicationEvents.vb
+    /// right after the DoCommandHandler wiring. The Keys dialog (Tools →
+    /// Hotkey Editor / Help → Key Assignments) edits bindings through this.
+    /// </summary>
+    public KeyCommands? KeyCommandsRef { get; set; }
+
+    /// <summary>
+    /// Registry handler target for CommandValues.ToggleFreqReadout — toggles
+    /// the frequency speech readout. Radio scope guards the no-radio case in
+    /// dispatch, but keep a spoken fallback for safety.
+    /// </summary>
+    public void ToggleFreqReadoutCommand()
+    {
+        if (_freqOutHandlers != null)
+            _freqOutHandlers.ToggleFreqReadout();
+        else
+            Radios.ScreenReaderOutput.Speak("No radio connected", VerbosityLevel.Critical, true);
+    }
+
+    /// <summary>
     /// Window-level PreviewKeyDown — intercepts ALL keys before child controls.
     /// Replaces Form1.ProcessCmdKey override.
     ///
@@ -948,58 +968,14 @@ public partial class MainWindow : UserControl
         if (rawKey == Key.Tab)
             return;
 
-        // 1. Hard-wired meta-commands (always active, any mode)
-        if (Keyboard.Modifiers == (ModifierKeys.Control | ModifierKeys.Shift))
-        {
-            var key = e.Key == Key.System ? e.SystemKey : e.Key;
-
-            if (key == Key.M)
-            {
-                ToggleUIMode();
-                e.Handled = true;
-                return;
-            }
-
-            if (key == Key.L)
-            {
-                if (ActiveUIMode == UIMode.Logging)
-                    ExitLoggingMode();
-                else
-                    EnterLoggingMode();
-                e.Handled = true;
-                return;
-            }
-
-            if (key == Key.F)
-            {
-                if (_freqOutHandlers != null)
-                    _freqOutHandlers.ToggleFreqReadout();
-                else
-                    Radios.ScreenReaderOutput.Speak("No radio connected", VerbosityLevel.Critical, true);
-                e.Handled = true;
-                return;
-            }
-
-            // Category navigation hotkeys (Ctrl+Shift+N/U/R/X/A) moved to KeyCommands.vb
-            // Sprint 23 Phase 2: Unified hotkey dispatch — all through scope system now
-        }
-
-        // 1b. Alt+Ctrl+F — read current filter values
-        if (Keyboard.Modifiers == (ModifierKeys.Alt | ModifierKeys.Control) && rawKey == Key.F)
-        {
-            if (RigControl != null && _radioPowerOn)
-            {
-                int low = RigControl.FilterLow;
-                int high = RigControl.FilterHigh;
-                Radios.ScreenReaderOutput.Speak($"Filter {low} to {high}", VerbosityLevel.Terse, true);
-            }
-            else
-            {
-                Radios.ScreenReaderOutput.Speak("No radio connected", VerbosityLevel.Critical, true);
-            }
-            e.Handled = true;
-            return;
-        }
+        // 1. Former hard-wired meta-commands (Ctrl+Shift+M tuning mode,
+        // Ctrl+Shift+L logging mode, Ctrl+Shift+F frequency readout, and
+        // Ctrl+Alt+F read filter values) now live in the KeyCommands registry
+        // as ToggleTuningMode / ToggleLoggingMode / ToggleFreqReadout /
+        // SpeakRXFilter — dispatched at step 4 below. QB Track H (2026-08-07):
+        // the hard-wired versions silently shadowed registry bindings on the
+        // same chords (MemoryScan, SpeakFrequency, SearchLog-in-Logging) and
+        // were invisible to the Keys surface and Command Finder.
 
         // 1c. Universal Home keys (M/V/R/X/Q/=) no-radio guard.
         //
@@ -1199,17 +1175,11 @@ public partial class MainWindow : UserControl
     /// </summary>
     public Action<string, string>? ShowErrorCallback { get; set; }
 
-    /// <summary>
-    /// Callback to build the list of current key-action mappings for ShowKeysDialog.
-    /// Set by ApplicationEvents.vb.
-    /// </summary>
-    public Func<List<Dialogs.KeyActionItem>>? GetKeyActionsCallback { get; set; }
-
-    /// <summary>
-    /// Callback to build the list of all available actions for SetupKeysDialog.
-    /// Set by ApplicationEvents.vb.
-    /// </summary>
-    public Func<List<Dialogs.ActionItem>>? GetAvailableActionsCallback { get; set; }
+    // QB Track H (2026-08-07): GetKeyActionsCallback / GetAvailableActionsCallback /
+    // SaveKeyActionsCallback are gone with the legacy ShowKeysDialog/SetupKeysDialog
+    // pair. SaveKeyActionsCallback was never wired — the legacy Update button
+    // saved into a null callback, which is why Noel's live test couldn't
+    // change a key. The Keys surface talks to KeyCommandsRef directly.
 
     /// <summary>
     /// Callback to build the list of command finder items for CommandFinderDialog.
@@ -1222,12 +1192,6 @@ public partial class MainWindow : UserControl
     /// Set by ApplicationEvents.vb.
     /// </summary>
     public Action<object>? ExecuteCommandCallback { get; set; }
-
-    /// <summary>
-    /// Callback to save updated key mappings from the ShowKeysDialog.
-    /// Set by ApplicationEvents.vb.
-    /// </summary>
-    public Action<List<Dialogs.KeyActionItem>>? SaveKeyActionsCallback { get; set; }
 
     /// <summary>Callback to speak the current radio status summary. Set by ApplicationEvents.vb.</summary>
     public Action? SpeakStatusCallback { get; set; }
@@ -1680,53 +1644,51 @@ public partial class MainWindow : UserControl
         // M universal key and the Audio expander) and now sit at the end of
         // the order so they don't interrupt the high-traffic Freq → SMeter
         // path. Customize Home (Sprint 30+) will let users override.
+        // HelpItems come from the KeyInventory table — the single source that
+        // also drives the '?' handler, the Keys surface, and the key manifest.
+        // QB Track H (2026-08-07): the previous inline lists had drifted from
+        // the real handlers (e.g. the removed 'C' coarse/fine toggle).
         fields.Add(new FrequencyDisplay.DisplayField("Slice", 1, "", "") { Label = "Slice",
-            HelpItems = new() { ("Up Down", "cycle slices"), ("Space", "next slice"), ("A-H or 0-7", "jump to slice"),
-                ("T", "set transmit"), ("Period", "create slice"), ("Comma", "release slice") } });
+            HelpItems = KeyInventory.HelpItemsFor("Slice", modern: false) });
         fields.Add(new FrequencyDisplay.DisplayField("SliceOps", 3, "", "") { Label = "Slice operations",
-            HelpItems = new() { ("Up Down", "volume"), ("Page Up Down", "pan"),
-                ("Space", "toggle mute"), ("M", "mute"), ("S", "sound"),
-                ("A", "make active"), ("T", "make transmit"), ("X", "transceive") } });
+            HelpItems = KeyInventory.HelpItemsFor("SliceOps", modern: false) });
         fields.Add(new FrequencyDisplay.DisplayField("Freq", 12, "", "") { Label = "Frequency", DefaultCursorOffset = 8,
-            HelpItems = new() { ("Up Down", "tune by cursor position"), ("Digits", "type frequency then Enter"),
-                ("K", "round to nearest kilohertz"), ("C", "toggle coarse and fine"),
-                ("Plus N", "set step multiplier"), ("F", "speak frequency") } });
+            HelpItems = KeyInventory.HelpItemsFor("Freq", modern: false) });
         fields.Add(new FrequencyDisplay.DisplayField("SMeter", 4, "", "") { Label = "S Meter",
-            HelpItems = new() { ("This field is read-only", "shows signal strength") } });
+            HelpItems = KeyInventory.HelpItemsFor("SMeter", modern: false) });
         // Sprint 28 Phase 3.9 — Squelch + Squelch Level fields. Squelch state
         // always visible (toggle with Space or Q); level field always present
         // and adjustable (pre-loads threshold when squelch is off, takes effect
         // when squelch is on). Positioned after S Meter since they're the
         // "signal threshold" response to what S Meter shows.
         fields.Add(new FrequencyDisplay.DisplayField("Squelch", 1, "", "") { Label = "Squelch",
-            HelpItems = new() { ("Space or Q", "toggle squelch") } });
+            HelpItems = KeyInventory.HelpItemsFor("Squelch", modern: false) });
         fields.Add(new FrequencyDisplay.DisplayField("SquelchLevel", 3, "", "") { Label = "Squelch Level",
-            HelpItems = new() { ("Up Down", "adjust squelch level"), ("Q", "toggle squelch on off") } });
+            HelpItems = KeyInventory.HelpItemsFor("SquelchLevel", modern: false) });
         fields.Add(new FrequencyDisplay.DisplayField("Split", 1, "", "") { Label = "Split",
-            HelpItems = new() { ("Space", "toggle split mode") } });
+            HelpItems = KeyInventory.HelpItemsFor("Split", modern: false) });
         fields.Add(new FrequencyDisplay.DisplayField("VOX", 1, "", "") { Label = "VOX",
-            HelpItems = new() { ("Space", "toggle VOX") } });
+            HelpItems = KeyInventory.HelpItemsFor("VOX", modern: false) });
         // QB Track I — Transmit slice field: shows which slice keys the radio
         // ("-" when none does). Sits by VOX/RIT/XIT where an operator looks
         // for transmit state. The discoverable door for what was previously
-        // only the hidden T keypress on the Slice field.
+        // only the hidden T keypress on the Slice field. Inline HelpItems until
+        // the field gets a KeyInventory row (post-merge reconciliation).
         fields.Add(new FrequencyDisplay.DisplayField("TXSlice", 1, "", "") { Label = "Transmit slice",
             HelpItems = new() { ("Space", "set transmit to the active slice"),
                 ("Up Down", "move transmit to another slice"),
                 ("A-H", "set transmit slice by letter"),
                 ("Delete or Backspace", "clear transmit slice") } });
         fields.Add(new FrequencyDisplay.DisplayField("Offset", 1, "", "") { Label = "Offset",
-            HelpItems = new() { ("Space", "cycle RIT XIT offset") } });
+            HelpItems = KeyInventory.HelpItemsFor("Offset", modern: false) });
         fields.Add(new FrequencyDisplay.DisplayField("RIT", 5, "", "") { Label = "RIT", DefaultCursorOffset = 2,
-            HelpItems = new() { ("Up Down", "adjust by cursor position"), ("Space", "toggle RIT on off"),
-                ("Digits", "enter value") } });
+            HelpItems = KeyInventory.HelpItemsFor("RIT", modern: false) });
         fields.Add(new FrequencyDisplay.DisplayField("XIT", 5, " ", "") { Label = "XIT", DefaultCursorOffset = 2,
-            HelpItems = new() { ("Up Down", "adjust by cursor position"), ("Space", "toggle XIT on off"),
-                ("Digits", "enter value") } });
+            HelpItems = KeyInventory.HelpItemsFor("XIT", modern: false) });
         fields.Add(new FrequencyDisplay.DisplayField("Mute", 1, "", "") { Label = "Mute",
-            HelpItems = new() { ("Space or M", "toggle mute") } });
+            HelpItems = KeyInventory.HelpItemsFor("Mute", modern: false) });
         fields.Add(new FrequencyDisplay.DisplayField("Volume", 3, "", "") { Label = "Volume",
-            HelpItems = new() { ("Up Down", "adjust volume") } });
+            HelpItems = KeyInventory.HelpItemsFor("Volume", modern: false) });
 
         // Classic mode uses position-based step names (no override)
         FreqOut.StepNameOverride = null;
@@ -1771,29 +1733,24 @@ public partial class MainWindow : UserControl
         // these fields reuse the classic-mode handlers unchanged.
         //
         // Field order: Slice → SliceOps → Freq → SMeter → Split → VOX → Offset → RIT → XIT
+        // HelpItems come from the KeyInventory table (see Classic setup note).
         fields.Add(new FrequencyDisplay.DisplayField("Slice", 1, "", "") { Label = "Slice",
-            HelpItems = new() { ("Up Down", "cycle slices"), ("Space", "next slice"), ("A-H or 0-7", "jump to slice"),
-                ("T", "set transmit"), ("Period", "create slice"), ("Comma", "release slice") } });
+            HelpItems = KeyInventory.HelpItemsFor("Slice", modern: true) });
         fields.Add(new FrequencyDisplay.DisplayField("SliceOps", 3, "", "") { Label = "Slice operations",
-            HelpItems = new() { ("Up Down", "volume"), ("Page Up Down", "pan"),
-                ("Space", "toggle mute"), ("M", "mute"), ("S", "sound"),
-                ("A", "make active"), ("T", "make transmit"), ("X", "transceive") } });
+            HelpItems = KeyInventory.HelpItemsFor("SliceOps", modern: true) });
         fields.Add(new FrequencyDisplay.DisplayField("Freq", 12, "", "") { Label = "Frequency", DefaultCursorOffset = 8,
-            HelpItems = new() { ("Up Down", "coarse tune"), ("Shift Up Down", "fine tune"),
-                ("Digits", "type frequency then Enter"), ("F", "speak frequency"),
-                ("Shift S", "speak current step"), ("M", "mute"), ("V", "cycle slice"),
-                ("R", "toggle RIT"), ("X", "toggle XIT") } });
+            HelpItems = KeyInventory.HelpItemsFor("Freq", modern: true) });
         fields.Add(new FrequencyDisplay.DisplayField("SMeter", 4, " ", "") { Label = "S Meter",
-            HelpItems = new() { ("This field is read-only", "shows signal strength") } });
+            HelpItems = KeyInventory.HelpItemsFor("SMeter", modern: true) });
         // Sprint 28 Phase 3.9 — Squelch + Squelch Level fields (see Classic setup for rationale)
         fields.Add(new FrequencyDisplay.DisplayField("Squelch", 1, "", "") { Label = "Squelch",
-            HelpItems = new() { ("Space or Q", "toggle squelch") } });
+            HelpItems = KeyInventory.HelpItemsFor("Squelch", modern: true) });
         fields.Add(new FrequencyDisplay.DisplayField("SquelchLevel", 3, "", "") { Label = "Squelch Level",
-            HelpItems = new() { ("Up Down", "adjust squelch level"), ("Q", "toggle squelch on off") } });
+            HelpItems = KeyInventory.HelpItemsFor("SquelchLevel", modern: true) });
         fields.Add(new FrequencyDisplay.DisplayField("Split", 1, "", "") { Label = "Split",
-            HelpItems = new() { ("Space", "toggle split mode") } });
+            HelpItems = KeyInventory.HelpItemsFor("Split", modern: true) });
         fields.Add(new FrequencyDisplay.DisplayField("VOX", 1, "", "") { Label = "VOX",
-            HelpItems = new() { ("Space", "toggle VOX") } });
+            HelpItems = KeyInventory.HelpItemsFor("VOX", modern: true) });
         // QB Track I — Transmit slice field (see Classic setup for rationale).
         fields.Add(new FrequencyDisplay.DisplayField("TXSlice", 1, "", "") { Label = "Transmit slice",
             HelpItems = new() { ("Space", "set transmit to the active slice"),
@@ -1801,13 +1758,11 @@ public partial class MainWindow : UserControl
                 ("A-H", "set transmit slice by letter"),
                 ("Delete or Backspace", "clear transmit slice") } });
         fields.Add(new FrequencyDisplay.DisplayField("Offset", 1, "", "") { Label = "Offset",
-            HelpItems = new() { ("Space", "cycle RIT XIT offset") } });
+            HelpItems = KeyInventory.HelpItemsFor("Offset", modern: true) });
         fields.Add(new FrequencyDisplay.DisplayField("RIT", 5, "", "") { Label = "RIT", DefaultCursorOffset = 2,
-            HelpItems = new() { ("Up Down", "adjust by cursor position"), ("Space", "toggle RIT on off"),
-                ("Digits", "enter value"), ("Equals", "copy to XIT and clear RIT") } });
+            HelpItems = KeyInventory.HelpItemsFor("RIT", modern: true) });
         fields.Add(new FrequencyDisplay.DisplayField("XIT", 5, " ", "") { Label = "XIT", DefaultCursorOffset = 2,
-            HelpItems = new() { ("Up Down", "adjust by cursor position"), ("Space", "toggle XIT on off"),
-                ("Digits", "enter value") } });
+            HelpItems = KeyInventory.HelpItemsFor("XIT", modern: true) });
 
         // Modern mode: Freq field uses modifier keys, not cursor position
         FreqOut.IsModernMode = true;
@@ -1852,6 +1807,23 @@ public partial class MainWindow : UserControl
     private void FreqOut_FieldKeyDown(FrequencyDisplay.DisplayField field, System.Windows.Input.KeyEventArgs e)
     {
         if (_freqOutHandlers == null) return;
+
+        // '?' on any Home field speaks the keys that work right here —
+        // field-specific keys first, then the universal Home keys. Generated
+        // from the same KeyInventory table as the help dialog, the Keys
+        // surface, and the manifest, so speech and docs can't drift.
+        // QB Track H (2026-08-07). Accepts the /? key with or without Shift.
+        var qKey = e.Key == Key.System ? e.SystemKey : e.Key;
+        if (qKey == Key.OemQuestion &&
+            (Keyboard.Modifiers == ModifierKeys.None || Keyboard.Modifiers == ModifierKeys.Shift))
+        {
+            Radios.ScreenReaderOutput.Speak(
+                KeyInventory.SpeakTextFor(field.Key, field.Label ?? field.Key,
+                    ActiveUIMode == UIMode.Modern),
+                VerbosityLevel.Terse, true);
+            e.Handled = true;
+            return;
+        }
 
         // Focus-bound exit for RIT/XIT scale-adjust mode: any keypress on a
         // non-RIT/XIT field counts as leaving, so we cancel before routing.

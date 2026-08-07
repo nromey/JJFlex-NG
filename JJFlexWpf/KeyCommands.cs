@@ -475,6 +475,26 @@ public class KeyCommands
             new(CommandValues.ReleaseAllExtraSlices, KeyTypes.Command, ReleaseAllExtraSlicesHandler,
                 "Release every slice except the first, back to one slice", "Release All Extra Slices", false, FunctionGroups.Audio, KeyScope.Radio)
                 { Keywords = new[] { "release", "all", "slices", "extra", "clean", "reset", "single" }, ShortActionLabel = "release extra slices" },
+
+            // ── Former hard-wired meta-commands (QB Track H, 2026-08-07) ──
+            // These lived as hard-wired chords in MainWindow_PreviewKeyDown,
+            // invisible to the registry, the Command Finder, and the Keys
+            // surface — and their chords silently shadowed registry bindings
+            // (Ctrl+Shift+M ate MemoryScan; Ctrl+Shift+F ate SpeakFrequency
+            // AND SearchLog-in-Logging). Registered here they are visible,
+            // rebindable, and scope-checked like everything else.
+            new(CommandValues.ToggleTuningMode, KeyTypes.Command, ToggleTuningModeHandler,
+                "Switch between Classic and Modern tuning mode", "Tuning mode", false, FunctionGroups.General, KeyScope.Global)
+                { Keywords = new[] { "tuning", "mode", "classic", "modern", "switch", "toggle" }, ShortActionLabel = "switch tuning mode" },
+            new(CommandValues.ToggleLoggingMode, KeyTypes.Command, ToggleLoggingModeHandler,
+                "Enter or exit Logging mode", "Logging mode", false, FunctionGroups.General, KeyScope.Global)
+                { Keywords = new[] { "logging", "log", "mode", "enter", "exit", "toggle" }, ShortActionLabel = "switch logging mode" },
+            new(CommandValues.ToggleFreqReadout, KeyTypes.Command, ToggleFreqReadoutHandler,
+                "Toggle frequency speech readout on or off", "Frequency readout", false, FunctionGroups.General, KeyScope.Radio)
+                { Keywords = new[] { "frequency", "readout", "speech", "announce", "quiet", "toggle" }, ShortActionLabel = "toggle frequency readout" },
+            new(CommandValues.SpeakRXFilter, KeyTypes.Command, SpeakRXFilterHandler,
+                "Speak RX filter low, high, and width", "Speak RX filter", false, FunctionGroups.Audio, KeyScope.Radio)
+                { Keywords = new[] { "rx", "filter", "width", "bandwidth", "speak", "receive" }, ShortActionLabel = "speak R X filter" },
         };
     }
 
@@ -762,6 +782,37 @@ public class KeyCommands
     #region Dialog / Feature Handlers
 
     private void ShowMenusHandler() => _context.ShowMenus();
+
+    // ── Former hard-wired meta-command handlers (QB Track H) ──
+
+    private void ToggleTuningModeHandler()
+    {
+        // ToggleUIMode silently no-ops in Logging mode — speak instead
+        // (no-silent-keystrokes: the chord did press, tell the user why
+        // nothing changed and what gets them out).
+        if (_context.GetActiveUIMode() == 2)
+        {
+            Radios.ScreenReaderOutput.Speak(
+                "In Logging mode. Press Control Shift L to return to tuning.",
+                Radios.VerbosityLevel.Terse, true);
+            return;
+        }
+        _context.GetMainWindow()?.ToggleUIMode();
+    }
+
+    private void ToggleLoggingModeHandler()
+    {
+        var mw = _context.GetMainWindow();
+        if (mw == null) return;
+        if (_context.GetActiveUIMode() == 2) // Logging
+            mw.ExitLoggingMode();
+        else
+            mw.EnterLoggingMode();
+    }
+
+    private void ToggleFreqReadoutHandler() => _context.GetMainWindow()?.ToggleFreqReadoutCommand();
+
+    private void SpeakRXFilterHandler() => SpeakRXFilterWidth();
     private void ReverseBeaconHandler() => _context.ShowReverseBeacon();
     private void DXClusterHandler() => _context.ShowDXCluster();
     private void StationLookupHandler() => _context.StationLookup();
@@ -997,7 +1048,13 @@ public class KeyCommands
         new(Keys.F2, CommandValues.ShowFreq, KeyScope.Radio),
         new(Keys.F | Keys.Control, CommandValues.SetFreq, KeyScope.Radio),
         new(Keys.None, CommandValues.ShowMemory, KeyScope.Radio),
-        new(Keys.M | Keys.Control | Keys.Shift, CommandValues.MemoryScan, KeyScope.Radio),
+        // MemoryScan was "bound" to Ctrl+Shift+M for sprints, but the chord
+        // never reached it — the hard-wired ToggleUIMode meta-command consumed
+        // Ctrl+Shift+M at window level first (QB Track H shadow sweep,
+        // 2026-08-07). Now that ToggleTuningMode owns Ctrl+Shift+M in the
+        // registry (Global scope), MemoryScan is honestly unbound: reachable
+        // via Command Finder, bindable in the Hotkey Editor.
+        new(Keys.None, CommandValues.MemoryScan, KeyScope.Radio),
         new(Keys.None, CommandValues.SmeterDBM, KeyScope.Radio),
         new(Keys.S | Keys.Control, CommandValues.ReadSMeter, KeyScope.Radio),
         new(Keys.M | Keys.Control | Keys.Alt, CommandValues.ToggleMeterTones, KeyScope.Radio),
@@ -1120,13 +1177,24 @@ public class KeyCommands
         new(Keys.A | Keys.Control | Keys.Shift, CommandValues.ToggleAntennaExpander, KeyScope.Radio),
         new(Keys.B | Keys.Control | Keys.Shift, CommandValues.ToggleBrailleStatus, KeyScope.Global),
 
-        // Speak frequency (Ctrl+Shift+F per Sprint 15+21 design intent;
-        // typo as Ctrl+F prior to 2026-04-28 caused a startup KEY CONFLICT
-        // warning with SetFreq line 940). Co-binds with SearchLog at
-        // Ctrl+Shift+F (Logging scope) — Radio + Logging is non-conflicting
-        // per the validator at line 2252 (modes are mutually exclusive).
-        new(Keys.F | Keys.Control | Keys.Shift, CommandValues.SpeakFrequency, KeyScope.Radio),
+        // SpeakFrequency claimed Ctrl+Shift+F (Sprint 15+21 design intent) but
+        // never actually received it — the hard-wired ToggleFreqReadout
+        // meta-command consumed Ctrl+Shift+F at window level first (QB Track H
+        // shadow sweep, 2026-08-07). ToggleFreqReadout now owns Ctrl+Shift+F
+        // in the registry (Radio scope; co-binds with SearchLog in Logging
+        // scope, non-conflicting because the modes are mutually exclusive).
+        // SpeakFrequency is honestly unbound: the F key on the Frequency
+        // field speaks the frequency, and the command stays in the Command
+        // Finder / Hotkey Editor for anyone who wants a chord on it.
+        new(Keys.None, CommandValues.SpeakFrequency, KeyScope.Radio),
         new(Keys.F4 | Keys.Control, CommandValues.RepeatLastMessage, KeyScope.Global),
+
+        // Former hard-wired meta-commands (QB Track H, 2026-08-07) — same
+        // chords they always had, now registry-owned and visible.
+        new(Keys.M | Keys.Control | Keys.Shift, CommandValues.ToggleTuningMode, KeyScope.Global),
+        new(Keys.L | Keys.Control | Keys.Shift, CommandValues.ToggleLoggingMode, KeyScope.Global),
+        new(Keys.F | Keys.Control | Keys.Shift, CommandValues.ToggleFreqReadout, KeyScope.Radio),
+        new(Keys.F | Keys.Control | Keys.Alt, CommandValues.SpeakRXFilter, KeyScope.Radio),
 
         // Verbosity (Sprint 24 Phase 6)
         new(Keys.V | Keys.Control | Keys.Shift, CommandValues.CycleVerbosity, KeyScope.Global),
@@ -1626,17 +1694,22 @@ public class KeyCommands
             // mute). Users who had never customised Shift+M should get the
             // new behaviour automatically on first launch after the upgrade.
             //
-            // 2026-08-07 extension (the Ctrl+Shift+W shadow): the takeover
-            // check also runs when the command still EXISTS but its current
-            // default is unbound (Keys.None) and its saved-default history is
-            // untracked. Before this, a saved binding parked on a key that a
-            // NEW default later claimed survived every merge — SmeterDBM
-            // (default None since Jim's original) sat on Ctrl+Shift+W and
-            // silently shadowed the Global OpenAudioWorkshop chord via
-            // Lookup's scoped-wins rule, because the old `currentDefault ==
-            // null` gate never fired for a still-present command. Commands
-            // whose default CHANGED from a real key to None keep the normal
-            // default-changed path below (SavedDefaultKey is non-None there).
+            // 2026-08-07 extension (Tracks G and H, same gate independently):
+            // the takeover check also runs when the command still EXISTS but
+            // its current default is unbound (Keys.None) and its saved-default
+            // history is untracked. Track G's case — SmeterDBM (default None
+            // since Jim's original) sat on Ctrl+Shift+W and silently shadowed
+            // the Global OpenAudioWorkshop chord via Lookup's scoped-wins
+            // rule, because the old `currentDefault == null` gate never fired
+            // for a still-present command. Track H's case — MemoryScan's
+            // Ctrl+Shift+M and SpeakFrequency's Ctrl+Shift+F moved to the
+            // promoted meta-commands (ToggleTuningMode / ToggleFreqReadout);
+            // untracked files would compare None == None, keep the stale
+            // binding, and shadow the new owner's default. Commands whose
+            // default CHANGED from a real key to None keep the normal
+            // default-changed path below (SavedDefaultKey is non-None there,
+            // with the same outcome: stale never-customized bindings clear,
+            // explicit customizations stay).
             if (currentDefault == null ||
                 (currentDefault.Key == Keys.None && saved.SavedDefaultKey == Keys.None))
             {
@@ -1712,6 +1785,144 @@ public class KeyCommands
 
         if (needWrite)
             Write();
+    }
+
+    // ────────────────────────────────────────────────────────────────
+    //  Keys surface editor API — QB Track H (2026-08-07)
+    //  Live rebinding against the same KeyDictionary the dispatcher reads,
+    //  persisted through the existing Write() path (KeyDefs.xml). The Keys
+    //  dialog is the only intended caller.
+    // ────────────────────────────────────────────────────────────────
+
+    /// <summary>A binding that would collide with a proposed key.</summary>
+    public sealed class BindingConflict
+    {
+        public CommandValues Id { get; init; }
+        public string Description { get; init; } = "";
+        public KeyScope Scope { get; init; }
+        /// <summary>False for CW message keys — those are managed by the CW
+        /// Messages editor and can't be stolen from here.</summary>
+        public bool CanSteal { get; init; }
+    }
+
+    /// <summary>
+    /// True when two scopes can be active at the same time, i.e. a shared
+    /// key would be ambiguous. Mirrors ValidateKeyBindings and the runtime
+    /// ScopeMatchesMode logic: Global collides with everything; Radio
+    /// collides with Classic and Modern (they run simultaneously); Radio or
+    /// Classic or Modern never collide with Logging; Classic never collides
+    /// with Modern.
+    /// </summary>
+    public static bool ScopesCollide(KeyScope a, KeyScope b)
+    {
+        if (a == b) return true;
+        if (a == KeyScope.Global || b == KeyScope.Global) return true;
+        bool aRadioish = a is KeyScope.Radio or KeyScope.Classic or KeyScope.Modern;
+        bool bRadioish = b is KeyScope.Radio or KeyScope.Classic or KeyScope.Modern;
+        if (a == KeyScope.Logging || b == KeyScope.Logging) return false;
+        // Both radio-ish here. Radio overlaps Classic and Modern;
+        // Classic and Modern are mutually exclusive.
+        if (aRadioish && bRadioish)
+            return a == KeyScope.Radio || b == KeyScope.Radio;
+        return false;
+    }
+
+    /// <summary>
+    /// Find every existing binding that collides with putting
+    /// <paramref name="key"/> on <paramref name="forCommand"/>.
+    /// </summary>
+    public List<BindingConflict> FindBindingConflicts(Keys key, CommandValues forCommand)
+    {
+        var result = new List<BindingConflict>();
+        if (key == Keys.None) return result;
+        var target = Lookup(forCommand);
+        var targetScope = target?.Scope ?? KeyScope.Global;
+        if (!KeyDictionary.TryGetValue(key, out var entries)) return result;
+        foreach (var e in entries)
+        {
+            if (e.KeyDef.Id == forCommand) continue;
+            if (!ScopesCollide(targetScope, e.Scope)) continue;
+            result.Add(new BindingConflict
+            {
+                Id = e.KeyDef.Id,
+                Description = e.KeyType == KeyTypes.CWText
+                    ? "CW Message: " + e.HelpText
+                    : e.HelpText,
+                Scope = e.Scope,
+                CanSteal = e.KeyType != KeyTypes.CWText,
+            });
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// Apply a new key to a command — the live-rebind core. Removes the
+    /// command's old binding, optionally unbinds colliding commands
+    /// (steal), installs the new key into the dispatch dictionary, and
+    /// persists. Keys.None unbinds. Returns false if a non-stealable
+    /// conflict remains or the command is unknown; no changes are made in
+    /// that case.
+    /// </summary>
+    public bool ApplyBinding(CommandValues id, Keys newKey, bool stealConflicts)
+    {
+        var entry = Lookup(id);
+        if (entry == null) return false;
+
+        var conflicts = FindBindingConflicts(newKey, id);
+        if (conflicts.Count > 0 && (!stealConflicts || conflicts.Any(c => !c.CanSteal)))
+            return false;
+
+        // Steal: unbind each colliding command.
+        foreach (var c in conflicts)
+        {
+            var victim = Lookup(c.Id);
+            if (victim == null) continue;
+            RemoveFromKeyDictionary(victim);
+            victim.KeyDef.Key = Keys.None;
+        }
+
+        // Move this command onto the new key.
+        RemoveFromKeyDictionary(entry);
+        entry.KeyDef.Key = newKey;
+        if (newKey != Keys.None)
+            AddToKeyDictionary(entry);
+
+        Write();
+        _context.Trace($"KeyCommands:ApplyBinding {id} -> {newKey} (steal={stealConflicts})");
+        return true;
+    }
+
+    /// <summary>
+    /// Reset one command to its built-in default key. Same conflict
+    /// semantics as ApplyBinding. Commands with no default entry unbind.
+    /// </summary>
+    public bool ResetBindingToDefault(CommandValues id, bool stealConflicts, out Keys defaultKey)
+    {
+        defaultKey = GetDefaultKey(id)?.Key ?? Keys.None;
+        return ApplyBinding(id, defaultKey, stealConflicts);
+    }
+
+    /// <summary>
+    /// Reset every binding to the defaults table and persist. CW message
+    /// keys are re-installed afterwards (SetValues clears them).
+    /// </summary>
+    public void ResetAllBindingsToDefault()
+    {
+        KeyTableToDefault(true);
+        UpdateCWText();
+        _context.Trace("KeyCommands:ResetAllBindingsToDefault");
+    }
+
+    /// <summary>Remove a command's current key from the dispatch dictionary.</summary>
+    private void RemoveFromKeyDictionary(KeyTableEntry entry)
+    {
+        var oldKey = entry.KeyDef.Key;
+        if (oldKey == Keys.None) return;
+        if (KeyDictionary.TryGetValue(oldKey, out var list))
+        {
+            list.RemoveAll(e => e.KeyDef.Id == entry.KeyDef.Id);
+            if (list.Count == 0) KeyDictionary.Remove(oldKey);
+        }
     }
 
     // ────────────────────────────────────────────────────────────────

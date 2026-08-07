@@ -1431,7 +1431,9 @@ public class NativeMenuBar : IDisposable
             () => _window.ToggleUIMode(),
             () => _window.ActiveUIMode == MainWindow.UIMode.Classic);
         AddSep(tools);
-        AddNotImplemented(tools, "Hotkey Editor");
+        // QB Track H (2026-08-07): the Hotkey Editor is the editable door into
+        // the one Keys surface; Help → Key Assignments is the viewing door.
+        AddWired(tools, "Hotkey Editor", () => ShowKeysSurface(editable: true));
         // QB Track A stub audit: band-plan data (HamBands.Bands) and the WPF
         // ShowBandsDialog both existed, unconnected. Works without a radio —
         // the band table is static data.
@@ -1593,9 +1595,10 @@ public class NativeMenuBar : IDisposable
         AddWired(help, "Keyboard Reference", () => HelpLauncher.ShowHelp("CommandFinder"));
         AddWired(help, "What's &New", () => HelpLauncher.ShowHelp("WhatsNew"));
         AddSep(help);
-        AddWired(help, "Key Assignments", () => ShowKeysDialog());
-        AddWired(help, "Key Assignments (Alphabetical)", () => ShowKeysDialog());
-        AddWired(help, "Key Assignments (By Function)", () => ShowKeysDialog());
+        // QB Track H (2026-08-07): ONE Key Assignments item (the old
+        // Alphabetical / By Function duplicates opened the same dialog three
+        // times over). Arrangement is a combo inside the surface now.
+        AddWired(help, "Key Assignments", () => ShowKeysSurface(editable: false));
         AddWired(help, "Tracing", () =>
         {
             var dialog = new Dialogs.TraceAdminDialog
@@ -1753,26 +1756,20 @@ public class NativeMenuBar : IDisposable
     #region Dialog Launchers — Sprint 16 Track C
 
     /// <summary>
-    /// Show the Key Assignments dialog populated with current key bindings.
+    /// Open the one Keys surface (QB Track H). Editable from Tools →
+    /// Hotkey Editor; viewing from Help → Key Assignments. Works with or
+    /// without a radio — key bindings are app state, not radio state.
     /// </summary>
-    private void ShowKeysDialog()
+    private void ShowKeysSurface(bool editable)
     {
-        var keyActions = _window.GetKeyActionsCallback?.Invoke();
-        if (keyActions == null)
+        var commands = _window.KeyCommandsRef;
+        if (commands == null)
         {
             SpeakAfterMenuClose("Key data not available");
             return;
         }
-        var dialog = new Dialogs.ShowKeysDialog
-        {
-            KeyActions = keyActions,
-            AvailableKeys = keyActions, // Same list — the dialog filters configured vs available
-            AvailableActions = _window.GetAvailableActionsCallback?.Invoke()
-        };
-        if (dialog.ShowDialog() == true)
-        {
-            _window.SaveKeyActionsCallback?.Invoke(dialog.KeyActions);
-        }
+        var dialog = new Dialogs.KeysDialog(commands, editable);
+        dialog.ShowDialog();
     }
 
     /// <summary>
