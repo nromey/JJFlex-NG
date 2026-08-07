@@ -199,3 +199,102 @@ unkey-on-every-exit-path guarantee.
 Commit after each numbered item (or coherent group): `QB Track G: <what
 changed>`. Push to `origin` (never `upstream`). Append a "Design decisions"
 section here as you make calls; report completion to Noel when done.
+
+## Design decisions (QB Track G execution, 2026-08-07)
+
+1. **Safety-line ordering: key first, speak the full line with interrupt.**
+   The controller's own key-down announcement ("Transmitting, locked",
+   Critical, interrupt) is unconditional and would have cut off a
+   pre-key safety line mid-sentence. Sequence chosen: `ToggleLock()`,
+   verify keyed, then speak the full safety line with interrupt=true.
+   Audible result: the safety line is the first complete utterance, and
+   key-down can never be silent even if the session code faults between
+   the two. The plan's intent (operator hears freq/power/source/how-to-
+   stop as TX begins; TX never starts silently) is preserved; the
+   literal "speak then key" ordering is not, deliberately.
+
+2. **The Ctrl+Shift+W shadow root cause is registry-side, not a control
+   handler.** Investigated every `Keys.W`/`Key.W` site: the
+   `case Keys.W:` near KeyCommands.cs:1958 is inside DoLeaderCommand
+   (reachable only after Ctrl+J, matches unmodified W only) and cannot
+   swallow the chord. MainWindow's PreviewKeyDown is window-level
+   (tunneling), so no child control can preempt dispatch. The only
+   mechanism that matches the symptom: `Lookup`'s scoped-match-wins rule
+   plus a saved keymap entry (SmeterDBM — Command Finder label "switch
+   S meter units", matching the "changed units" report) parked on
+   Ctrl+Shift+W. Fixed at the migration layer (SmartMergeDefaults now
+   clears stale bindings squatting on keys claimed by new defaults when
+   the command's own default is None with untracked history), plus
+   speech in SmeterDisplayHandler and a shadow trace in Lookup.
+   Tradeoff accepted: a user who DELIBERATELY bound a None-default
+   command onto a later-claimed default chord loses that binding once
+   (SavedDefaultKey cannot distinguish this — it stores None for
+   None-default commands). Same rationale as the existing SmartMerge
+   comment; DefineKeys re-binding works, and Track H owns bind-time
+   conflict warnings.
+
+3. **Session engine is a nested class in AudioWorkshopDialog, watcher is
+   bookkeeping-only.** One 1-second DispatcherTimer for elapsed speech,
+   auto-play, restores, and the hardware-keying honesty check. It never
+   keys the radio; all keying/unkeying rides PttSafetyController. The
+   3-minute check timeout is `SessionTimeoutOverrideSeconds` on the
+   controller (min with the operator's configured timeout) — the one
+   minimal hook the instructions authorized. Flagged for the report as
+   the controller hook added.
+
+4. **Controller access via `AudioWorkshopDialog.PttControllerSource`**
+   (static Func set by MainWindow when it creates the controller),
+   resolved per use — the controller is recreated on operator switch
+   and nulled at power-off, so caching would be a stale-reference bug.
+   MainWindow got two one-line touches total (source wiring +
+   NotifyRigGone on teardown); both are the minimal hooks the
+   PttSafety/teardown integration requires.
+
+5. **"Check my transmit audio" from Command Finder auto-starts the
+   session** (opens the workshop and keys, safety line first). The
+   command IS the ask — an easy way to say "start transmit." Invoking it
+   while a check is active stops the check (toggle semantics, spoken).
+   Registered Radio scope, Keys.None, so the no-radio guard speaks.
+
+6. **Loopback drive management is honestly gated.** FlexLib keeps the
+   Xvtr list private (index probe only) and no band-range fields are
+   exposed, so the mechanism sets `Xvtr.MaxPower` to -10 dBm for the
+   check (restoring after) only when a defined, valid transverter band
+   exists; the session's speech says when drive management is active.
+   Auto-creating a temporary XVTR band (CreateXvtr exists) was rejected
+   for unattended work: band definitions remap frequency display and
+   persist in radio config — too invasive without live validation.
+   Auto-calibration against ears-slice level needs level telemetry that
+   isn't plumbed; both flagged Needs Noel.
+
+7. **Feature Availability surface**: RadioInfoDialog's Feature
+   Availability tab exists but `ShowRadioInfoDialog` is never assigned
+   app-side (dead UI today). The loopback absence explanation therefore
+   lives in the workshop itself as a de-emphasized, non-focusable text
+   line; the button leaves the tab order entirely when unsupported
+   (house rule). Orchestrator may want a queue item for wiring the
+   RadioInfo dialog.
+
+8. **Record wrappers duplicated as public.** FlexBase already had
+   internal OffOnValues-typed `Play`/`Record`/`CanPlay`; JJFlexWpf is a
+   separate assembly with no InternalsVisibleTo, so the track added
+   public bool-typed `SliceRecordOn`/`SlicePlayOn`/`SlicePlayEnabled`
+   rather than widening the internals (other in-assembly callers keep
+   their types).
+
+9. **Null-guard scope held to the named family** (MicGain, boost, bias,
+   compander+level, processor+setting, monitor, SB gain/pan, TX filter
+   edges — filters were already guarded) plus `RemoteRig`, which the new
+   session reads during teardown. CW-family getters (SidetoneGain etc.)
+   were left alone: the CW monitor subsystem is explicitly out of this
+   track, and the workshop polls none of them.
+
+10. **Mode-aware monitor section = header only.** Phone modes title the
+    section "TX Monitor — {mode}"; CW mode keeps today's exact fields
+    and plain header. No CW gain/pan promotion (deferred with the CW
+    rewrite arc per the 2026-08-07 sequencing change).
+
+11. **Second-seal note on ShowOrFocusAndStartCheck with no radio:** the
+    workshop opens, then ToggleAudioCheck speaks "No radio connected" —
+    the DoCommand-layer guard normally catches this first (Radio scope),
+    so this is belt-and-suspenders for the direct-call path.
