@@ -911,7 +911,6 @@ namespace Radios
                 else
                 {
                     // local audio on
-                    //LocalAudioMute(false);
                     theRadio.IsMuteLocalAudioWhenRemoteOn = false;
                 }
             }
@@ -4656,7 +4655,6 @@ namespace Radios
         }
 #endif
 
-        private bool maintainAudio;
         private ATUTuneStatus originalATUStatus = ATUTuneStatus.None;
         private bool oldATUEnable = false; // false is the default, see Flex6300.
         private bool globalProfileLoaded; // see GetProfileInfo().
@@ -4916,11 +4914,6 @@ namespace Radios
                 case "LineoutMute":
                     {
                         Tracing.TraceLine("LineoutMute:" + r.LineoutMute.ToString(), TraceLevel.Info);
-                        if (maintainAudio != r.LineoutMute)
-                        {
-                            //Tracing.TraceLine("LineoutMute:forced to " + maintainAudio.ToString(), TraceLevel.Info);
-                            //LocalAudioMute(maintainAudio);
-                        }
                     }
                     break;
                 case "Mox":
@@ -7314,18 +7307,10 @@ namespace Radios
             }
         }
 
-        /// <summary>
-        /// Mute/unmute local audio.
-        /// </summary>
-        /// <param name="mute">true or false</param>
-        public void LocalAudioMute(bool mute)
-        {
-            Tracing.TraceLine("LocalAudioMute:" + mute.ToString(), TraceLevel.Info);
-            maintainAudio = mute; // enforce this
-            theRadio.LineoutMute = mute;
-            theRadio.HeadphoneMute = mute;
-            theRadio.FrontSpeakerMute = mute;
-        }
+        // LocalAudioMute(bool) used to live here. It ganged all three physical
+        // outputs (lineout, headphone, front speaker) behind one flag and had
+        // no live caller — every reference was already commented out. Deleted
+        // 2026-08-07 (QB Track A); the individual mutes remain the API.
 
         internal const int LineoutGainMinValue = 0;
         internal const int LineoutGainMaxValue = 100;
