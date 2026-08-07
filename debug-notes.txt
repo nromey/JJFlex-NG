@@ -1,33 +1,36 @@
-This build fixes the SmartLink sign-in problem from August 6 - the one
-where connecting threw you at a login web page that wouldn't cooperate.
+Evening build, August 6, 2026. Everything from build 517's sign-in
+overhaul is here, plus an evening of radio selector improvements.
 
-What changed:
+New since build 517:
 
-- Signing in to SmartLink no longer uses a web page. When JJ Flex needs
-  you to sign in, you get a normal dialog: an email box, a password box,
-  and a Sign In button. Type, press Enter, done. Works exactly like any
-  other dialog with your screen reader.
-- There's a Forgot Password button on the same dialog. It emails you a
-  reset link at the address you typed.
-- If you'd rather use the old web page, the Use Browser Instead button
-  brings it back. Accounts with two-factor sign-in go there automatically.
-- Once you sign in this way ONE time, the daily nagging should stop for
-  good - sign-ins made through the new dialog renew themselves quietly
-  in the background, which the old web-page sign-ins never could.
+1. Press Enter on a radio in the list to connect. The list has promised
+   this forever; now it is true.
+2. Start Remote automatically: Manage SmartLink Accounts has a new
+   checkbox, "Start Remote automatically at startup." Check it and the
+   radio selector begins looking for your remote radios the moment it
+   opens. No more pressing Remote every session.
+3. The Remote button becomes "Refresh Remote List" once your remote
+   radios are listed. Same spot, same Alt+R. Pressing it reconnects to
+   SmartLink and looks again, picking up radios that came online since
+   you first asked. Radios that went offline drop out with a spoken
+   notice.
+4. Use Now: use an account for just this session without changing your
+   default. New button in Manage SmartLink Accounts, Alt+U.
+5. If every slice on the radio is busy, JJ Flexible now tells you who
+   has them and backs out on its own instead of sitting at
+   "Connecting" forever.
+6. A radio on your local network that powers off now leaves the list
+   about 20 seconds later, with a spoken notice.
 
-What to test:
+Things to test:
 
-1. Start JJ Flex and connect via SmartLink. If it asks you to sign in,
-   use the new dialog: email, password, Enter.
-2. Confirm the radio connects and audio flows.
-3. Close JJ Flex, reopen it, connect again. This time it should NOT ask
-   you to sign in at all. That silent second connect is the actual fix -
-   please tell Noel whether you got it.
-4. If anything asks you to sign in through a web page when you didn't
-   choose the browser button, that's a bug - grab the trace and send it.
+1. Enter to connect from the radio list.
+2. The auto-start checkbox: check it, restart the app, listen for
+   "Starting remote radios for your account."
+3. Refresh Remote List after your radios appear. It should be quick.
+4. With the selector open, power a local radio off. It should announce
+   "went offline" within about 20 seconds.
 
-Known issues:
-
-- The Settings > Radios tab is new in this build (per-radio connection
-  settings and radio renaming). Feel free to poke at it, but the main
-  event today is the sign-in fix.
+Known: item 6 (local radio leaving the list) landed at the end of the
+evening and has not been verified live yet. First test tomorrow
+morning.
