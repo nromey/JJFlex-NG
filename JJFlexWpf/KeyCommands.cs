@@ -756,7 +756,20 @@ public class KeyCommands
 
     // ── Former hard-wired meta-command handlers (QB Track H) ──
 
-    private void ToggleTuningModeHandler() => _context.GetMainWindow()?.ToggleUIMode();
+    private void ToggleTuningModeHandler()
+    {
+        // ToggleUIMode silently no-ops in Logging mode — speak instead
+        // (no-silent-keystrokes: the chord did press, tell the user why
+        // nothing changed and what gets them out).
+        if (_context.GetActiveUIMode() == 2)
+        {
+            Radios.ScreenReaderOutput.Speak(
+                "In Logging mode. Press Control Shift L to return to tuning.",
+                Radios.VerbosityLevel.Terse, true);
+            return;
+        }
+        _context.GetMainWindow()?.ToggleUIMode();
+    }
 
     private void ToggleLoggingModeHandler()
     {
