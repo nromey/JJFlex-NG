@@ -61,7 +61,7 @@ namespace JJFlexWpf.Dialogs
             if (SetupStaticIpControl != null) SetupStaticIpControl.Rig = _rig;
             if (NetworkStaticIpControl != null) NetworkStaticIpControl.Rig = _rig;
 
-            LoadHolePunchPortIntoUi();
+            LoadEnforcePrivateIpIntoUi();
             RefreshSetupStatuses();
             RefreshFirmwareStatus();
             RefreshReachabilityStatus();
@@ -832,75 +832,24 @@ namespace JJFlexWpf.Dialogs
 
         #endregion
 
-        #region Network tab — hole-punch port, reachability, private-IP enforcement
+        #region Network tab — reachability, private-IP enforcement
 
-        private void LoadHolePunchPortIntoUi()
+        // QB Track C: the account-level hole-punch port editor that lived here
+        // (HolePunchPortBox + random/clear/save) is gone. It wrote the CLIENT
+        // punch port into SmartLinkAccount.ConfiguredListenPort — the same slot
+        // the port-forward Apply writes the RADIO-side forwarded port into. One
+        // field, two meanings. The punch port now lives in the per-radio
+        // profile (Radios tab, RadioConfig.FixedHolePunchPort); the account
+        // field keeps only the forwarded-port meaning. Legacy values written by
+        // the old editor are still honored by sendRemoteConnect's fallback.
+
+        private void LoadEnforcePrivateIpIntoUi()
         {
-            if (HolePunchPortBox == null) return;
-            int? configured = _rig?.ConfiguredHolePunchPort;
-            HolePunchPortBox.Text = configured.HasValue ? configured.Value.ToString() : string.Empty;
-
             if (EnforcePrivateIpCheck != null && _rig != null && _rig.IsConnected)
             {
                 _suppressPrivateIpAnnouncement = true;
                 try { EnforcePrivateIpCheck.IsChecked = _rig.EnforcePrivateIPConnections; }
                 finally { _suppressPrivateIpAnnouncement = false; }
-            }
-        }
-
-        private void RandomHolePunchPortButton_Click(object sender, RoutedEventArgs e)
-        {
-            // Same range SmartSDR uses, so a port that works there works here.
-            int port = Random.Shared.Next(25000, 65000);
-            HolePunchPortBox.Text = port.ToString();
-            ScreenReaderOutput.Speak($"Port {port}. Choose save port to keep it.", VerbosityLevel.Terse, interrupt: true);
-        }
-
-        private void ClearHolePunchPortButton_Click(object sender, RoutedEventArgs e)
-        {
-            HolePunchPortBox.Text = string.Empty;
-            ScreenReaderOutput.Speak("Cleared. Choose save port to use a new port each time.",
-                VerbosityLevel.Terse, interrupt: true);
-        }
-
-        private void SaveHolePunchPortButton_Click(object sender, RoutedEventArgs e)
-        {
-            if (_rig == null || !_rig.HasCurrentSmartLinkAccount)
-            {
-                ReachabilityStatusText.Text =
-                    "The hole-punch port is saved with your SmartLink account, and no account is signed in.";
-                ScreenReaderOutput.Speak("No SmartLink account signed in.", VerbosityLevel.Terse, interrupt: true);
-                return;
-            }
-
-            string text = HolePunchPortBox.Text.Trim();
-            if (string.IsNullOrEmpty(text))
-            {
-                _rig.SaveCurrentAccountListenPort(null);
-                ReachabilityStatusText.Text =
-                    "Saved. JJ Flex will pick a new hole-punch port for every connection, which is the recommended setting.";
-                ScreenReaderOutput.Speak("Saved. A new port each time.", VerbosityLevel.Terse, interrupt: true);
-                return;
-            }
-
-            if (!int.TryParse(text, out int port) || port < 1024 || port > 65535)
-            {
-                ReachabilityStatusText.Text = "The hole-punch port must be a number between 1024 and 65535, or blank.";
-                ScreenReaderOutput.Speak("Invalid port.", VerbosityLevel.Terse, interrupt: true);
-                HolePunchPortBox.Focus();
-                return;
-            }
-
-            if (_rig.SaveCurrentAccountListenPort(port))
-            {
-                ReachabilityStatusText.Text =
-                    $"Saved. Hole-punch will use port {port}. If hole-punch starts failing on and off, clear this — a fixed port can clash with a leftover mapping in the router.";
-                ScreenReaderOutput.Speak($"Saved port {port}.", VerbosityLevel.Terse, interrupt: true);
-            }
-            else
-            {
-                ReachabilityStatusText.Text = "The port could not be saved. See the trace file for details.";
-                ScreenReaderOutput.Speak("Could not save the port.", VerbosityLevel.Terse, interrupt: true);
             }
         }
 

@@ -416,39 +416,22 @@
                     <!-- Legacy checkbox kept hidden for backward binding during the F.0/F.1 transition. The radio group above is the canonical UI. Will be removed in F.3 rollup cleanup if still present. -->
                     <CheckBox x:Name="UPnPEnabledCheck" Visibility="Collapsed" IsEnabled="False"/>
 
-                    <!-- Hole-punch port. Kept next to the tier selector because Tier 3
-                         is the only mode that uses it. Default is a fresh random port
-                         per connection: reusing one risks colliding with a stale NAT
-                         mapping, which makes hole-punch fail intermittently and in a
-                         way that is miserable to reproduce. -->
+                    <!-- QB Track C untangling: the account-level ConfiguredListenPort
+                         used to carry TWO meanings — the radio-side forwarded port
+                         (written by Apply above) AND the client-side hole-punch port
+                         (written by a box that lived here) — one slot, disambiguated
+                         only by connection mode. The punch meaning now lives in the
+                         per-radio profile (Radios tab, FixedHolePunchPort), which is
+                         where it belongs: the punch port is a property of reaching a
+                         particular radio's site, not of the operator's account. The
+                         account field keeps only the forwarded-port meaning. A punch
+                         port saved by an older build is still honored as a legacy
+                         fallback until the radio has its own profile setting. -->
                     <Separator Margin="0,16,0,8"/>
                     <TextBlock Text="Hole-punch Port" FontWeight="SemiBold"
                                Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
                     <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
-                               Text="Used only when the radio reports it needs a hole-punch. Leaving this blank is recommended — JJ Flex then picks a fresh port for every connection, which avoids clashing with a leftover mapping in the router from a previous session. Set a fixed port only if you have a reason to."/>
-
-                    <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-                        <TextBlock Text="Port (blank = new one each time):"
-                                   VerticalAlignment="Center"
-                                   Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
-                        <TextBox x:Name="HolePunchPortBox" Width="90"
-                                 Style="{StaticResource DialogTextBox}"
-                                 AutomationProperties.Name="Hole-punch port, 1024 to 65535, or blank to use a new random port for each connection"/>
-                    </StackPanel>
-                    <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-                        <Button Content="Pick a random port"
-                                Margin="0,0,8,0" Padding="10,4"
-                                AutomationProperties.Name="Fill the hole-punch port with a random value"
-                                Click="RandomHolePunchPortButton_Click"/>
-                        <Button Content="Clear (new port each time)"
-                                Margin="0,0,8,0" Padding="10,4"
-                                AutomationProperties.Name="Clear the fixed hole-punch port so a new one is used for every connection"
-                                Click="ClearHolePunchPortButton_Click"/>
-                        <Button Content="Save port"
-                                Padding="10,4"
-                                AutomationProperties.Name="Save the hole-punch port with your SmartLink account"
-                                Click="SaveHolePunchPortButton_Click"/>
-                    </StackPanel>
+                               Text="The hole-punch port is a per-radio setting — it belongs to the radio's site, not your account. Set it on the Radios tab, which works whether or not a radio is connected. Leaving it blank there is recommended: JJ Flex then picks a fresh port for every connection, which avoids clashing with a leftover mapping in the router. A port saved here by an earlier version of JJ Flex is still honored until the radio has its own setting."/>
 
                     <!-- What the radio and SmartLink actually report, as opposed to
                          what has been configured. The two differ constantly, and the

@@ -466,6 +466,15 @@ namespace Radios
         /// is invalid. Validation is delegated to
         /// <see cref="SmartLinkAccountManager.IsValidPort"/> so the UI can
         /// check the same rule before calling.
+        ///
+        /// <para>QB Track C — meaning contract: from this build on, the value
+        /// saved here carries exactly ONE meaning — the RADIO-side forwarded
+        /// port (Tier 1), written by the Network tab's port-forward Apply and
+        /// re-applied on connect. The client-side hole-punch port, which an
+        /// older build also wrote into this same field, lives per-radio in
+        /// <see cref="RadioConfig.FixedHolePunchPort"/> now. Legacy punch
+        /// values already on disk are still honored by sendRemoteConnect's
+        /// account fallback until a per-radio profile takes over.</para>
         /// </summary>
         public bool SaveCurrentAccountListenPort(int? port)
         {
@@ -2419,13 +2428,11 @@ namespace Radios
         /// </summary>
         public int LastHolePunchPort { get; private set; }
 
-        /// <summary>
-        /// The account's saved hole-punch listen port, or null when JJ Flex picks a
-        /// fresh random port per connection (the default, and usually the right
-        /// answer — a reused port can collide with a stale NAT mapping and make
-        /// hole-punch fail intermittently).
-        /// </summary>
-        public int? ConfiguredHolePunchPort => _currentAccount?.ConfiguredListenPort;
+        // QB Track C: ConfiguredHolePunchPort (=> _currentAccount?.ConfiguredListenPort)
+        // was removed here. It read the account listen-port field under its PUNCH
+        // meaning; that meaning now lives per-radio (RadioConfig.FixedHolePunchPort)
+        // and the account field keeps only the forwarded-port meaning. Its one
+        // consumer, the Network tab's account-level punch-port editor, is gone too.
 
         #endregion
 

@@ -810,6 +810,17 @@ namespace Radios
         /// A non-null value is applied to the radio post-connect via
         /// <c>FlexBase.SetSmartLinkPortForwarding</c> so the router's manually
         /// forwarded port matches what the radio listens on.
+        ///
+        /// <para>QB Track C migration note: before per-radio profiles existed,
+        /// this one field carried TWO meanings — the radio-side forwarded port
+        /// above, and the CLIENT-side hole-punch port (when ConnectionMode was
+        /// AutomaticHolePunch). The punch meaning moved to the per-radio store
+        /// (<c>RadioConfig.FixedHolePunchPort</c>, Settings > Radios) and no UI
+        /// writes it here anymore. On-disk values written by older builds (or
+        /// by hand, the documented interim unblocker) keep working: when a
+        /// radio requires hole punch, has no per-radio fixed port, and this
+        /// account's mode is AutomaticHolePunch, sendRemoteConnect still uses
+        /// this value as the punch port. Per-radio always wins when set.</para>
         /// </summary>
         public int? ConfiguredListenPort { get; set; }
 
