@@ -26,6 +26,23 @@ namespace Radios
     }
 
     /// <summary>
+    /// How the Audio Check session lets the operator hear themselves.
+    /// Numeric values are stable so a future Loopback tier (or others) can
+    /// join the cycle without renumbering saved configs.
+    /// </summary>
+    public enum AudioCheckListenMethods
+    {
+        /// <summary>TX monitor — instant, colored (post-DSP, pre-RF tap).
+        /// Works on every model. The conservative default.</summary>
+        Monitor = 0,
+
+        /// <summary>Slice quick-record, auto-played after unkey. The
+        /// recommended path over remote (no delayed-self-hearing) — the
+        /// recording carries the full processing chain.</summary>
+        RecordPlayback = 1,
+    }
+
+    /// <summary>
     /// Per-radio configuration, keyed by radio serial (or, for future non-Flex
     /// rigs, whatever stable identifier the backend provides). Stored at
     /// <c>{BaseConfigDir}\radios\{radioId}\config.xml</c>.
@@ -124,6 +141,23 @@ namespace Radios
         /// as to see this radio again?" — the question an offline remote row
         /// otherwise leaves dangling.</summary>
         public string LastSeenViaAccount { get; set; } = "";
+
+        /// <summary>
+        /// Audio Check listen method for this radio (2026-08-07 Audio
+        /// Workshop). Per-radio because the right answer follows the radio's
+        /// situation (a remote rig wants record-and-play, a local one is fine
+        /// on monitor). Conservative default: Monitor.
+        /// </summary>
+        public AudioCheckListenMethods AudioCheckListenMethod { get; set; }
+            = AudioCheckListenMethods.Monitor;
+
+        /// <summary>
+        /// Low-power-during-checks (default ON, flexibility principle:
+        /// togglable, conservative default). The Audio Check session drops RF
+        /// power to a 10 watt floor while keyed and restores it after — no
+        /// dummy load is assumed in anyone's shack.
+        /// </summary>
+        public bool AudioCheckLowPower { get; set; } = true;
 
         /// <summary>
         /// App-wide config root, assigned once at startup (ApplicationEvents,

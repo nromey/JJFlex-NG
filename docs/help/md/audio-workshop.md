@@ -1,27 +1,71 @@
 # Audio Workshop
 
-The Audio Workshop gives you control over your radio's audio levels and the shape of your transmitted audio, all in one place, with live meters, an earcon explorer, and the ability to save your setup as a preset for later.
+The Audio Workshop is where you shape how you sound on the air and — new — where you *hear* it. One window holds your whole transmit audio chain, live meters, and the Audio Check session that keys the rig, lets you adjust while you talk, and plays you back to yourself. Adjust and hear, one surface.
 
 It does not choose which sound device your audio goes to. That lives in Settings, on the Audio tab, under **Audio Devices** — or on the Audio menu under the same name. If you are chasing silence rather than shaping a signal, start at **Audio Troubleshooting** instead.
 
 ## Opening the Audio Workshop
 
-Press `Ctrl+Shift+W` from anywhere in the application to open the Audio Workshop.
+Press `Ctrl+Shift+W` from anywhere in the application. You can also find it in the Command Finder (`Ctrl+/`) by searching for "workshop". The window is non-modal, so you can leave it open while you operate.
 
-## Audio Level Controls
+## The TX Audio tab
 
-The everyday volume, headphone level, and line-out level live in the Audio expander now, not on global hotkeys. Press `Ctrl+Shift+U` to open the Audio expander, then arrow to the level you want and use the standard value-control keys: Up / Down to nudge, Shift + Up / Down for finer steps, Page Up / Page Down for ten-step jumps, Home / End for minimum / maximum.
+Everything here speaks as you change it, and the standard value keys work everywhere: Up / Down to nudge, Shift + Up / Down for fine steps, Page Up / Page Down for bigger jumps, Home / End for the ends of the range.
 
-The Audio Workshop is for the bigger picture — output device selection, multiple outputs at independent levels, presets — rather than for the moment-to-moment "turn it up a hair" adjustments.
+### Audio Check — hear yourself
 
-The previous `Alt+Page Up`, `Alt+Shift+Page Up`, and `Shift+Page Up` shortcuts (and their `Page Down` counterparts) are retired. The slots are reserved on purpose so a future feature can claim them deliberately.
+At the top of the tab. Press **Start Audio Check** and the radio keys up through the same safety system as regular transmit — the timeout warnings, the license check, and the hard kill all stay on duty. The first thing you hear is the safety line: the frequency, the power, where your transmit audio is coming from, and the reminder that Escape stops. Then focus lands on Mic Gain and the tab order is your adjust ring — arrow through gain, compander, processor, and filter while you talk.
 
-## Audio Routing
+- **Listen method** picks how you hear yourself, remembered per radio:
+  - **Monitor** — instant. The radio's TX monitor feeds your own voice back while you talk. Fine on a local connection; over remote the monitor arrives late enough to trip up your speech, which is why the session recommends the next one.
+  - **Record and play back** — talk first, listen after. The radio records your transmission (it captures the full processing chain — compander, processor, filters, all of it) and plays it back to you automatically the moment you unkey. No talking and listening at once, ever. The buffer holds about two minutes and keeps the most recent material; two takes fit, so you can tweak a setting and compare.
+- **Low power during checks** is on by default: the session drops to 10 watts for the check and puts your power back when it ends. Nobody's shack is assumed to have a dummy load. Turn it off if you genuinely want full power.
+- **Play last take** replays the recording buffer whenever you like, or stops a playback in progress.
+- **Escape is two-stage** while a check is transmitting: the first press unkeys ("Transmit off") and leaves you in the workshop with your settings; the second press closes the window. Escape never leaves you transmitting.
+- The session ends itself — and puts back everything it changed — on every exit: the Stop button, Escape, the transmit timeout, closing the window, or the radio going away.
 
-Inside the Audio Workshop you can configure where the audio goes — to your speakers, your headphones, a line-out device, or some combination — and then adjust the level for each output independently. This is useful when you want, for example, a quieter line-out signal going to a recorder while the headphone feed stays at a comfortable listening level.
+One honest warning worth knowing: if your hand mic keys the radio through a hardware line (the front-panel jack or the rear RCA connector), software cannot unkey it. If that ever happens the workshop tells you plainly, names the keying source, and keeps warning until the line releases.
 
-## Audio Presets
+### Transmit audio source
 
-You can save your current audio configuration as a named preset and recall it later with a single action. See the Audio Presets help page for details on saving, loading, and deleting presets.
+The Microphone section starts with **Transmit audio from**, showing the radio's own input list — the mic jack, line in, PC audio, and so on. This matters more than it looks: the Mic Gain control adjusts the *selected* input. If your transmit audio actually comes from somewhere else (say a hand mic overriding while PC audio is selected), the gain knob is turning a knob on an idle stream. The workshop names the source in the Audio Check safety line, and when the selection is PC audio, the jack-only controls — Mic Boost and Mic Bias — label themselves "radio mic jack only, not in use" so you don't chase a control that isn't in your audio path.
 
-**Tip:** If you are running into audio issues — no sound, distorted audio, wrong levels, or audio coming out of the wrong device — see the Audio Troubleshooting help page for a step-by-step checklist.
+### The sculpting chain
+
+Mic gain, mic boost, mic bias, the compander and its level, the speech processor and its mode, and the TX filter edges with a live width readout. The TX Monitor section holds the monitor toggle, level, and pan; in phone modes its header names the mode you're in so you know which monitor family you're adjusting.
+
+### Loopback Check — for radios with two receivers
+
+On radios with two receive chains and transverter ports (the 6600, 6700, and 8600 families), the **Loopback Check** button runs your actual RF through the radio and back: it transmits at one watt into the transverter port while a second slice listens on the same port, then puts every setting back and removes the extra slice when you stop.
+
+Be clear about what this is: your signal arrives at that receiver enormously strong, so what you hear is your audio — present, processed, recognizably you — through an overloaded front end. It proves your audio chain and your transmitter work end to end ("is my radio actually transmitting" and "check my audio" are the same button), but it is not a faithful recording-studio listen. For ground truth on how you sound on the air, nothing beats a real receiver on a real antenna — a WebSDR or KiwiSDR tuned to your frequency is the gold standard.
+
+Also worth knowing: one watt into a transverter port with antennas connected can still leak a little RF. It should not put a meaningful signal on the air, but it is a transmission — identify if your regulations require it.
+
+On radios that can't do this, the workshop says why instead of hiding the fact.
+
+### Command Finder
+
+"Check my transmit audio" in the Command Finder (`Ctrl+/`) opens the workshop and starts an Audio Check in one step. Search for "audio", "check", "hear", or "myself".
+
+### While we're talking transmit
+
+Outside the workshop, `Ctrl+Space` is push-to-talk (transmit while held) and `Shift+Space` toggles transmit lock, both from JJ Flexible Home. The Audio Check rides the same safety system those do.
+
+## The Live Meters tab
+
+S-meter, forward power, SWR, ALC, mic level, PA temperature, and supply voltage, refreshed twice a second while the tab is open. During an Audio Check, ALC and mic level are the two worth watching — the transmit health watcher will also speak up on its own if the mic looks silent or the ALC is pegging.
+
+## The Earcon Explorer tab
+
+Every sound the application makes, each behind a button so you can learn them at your own pace — meter tones, transmit start and stop, the filter sounds, the warning ladder.
+
+## Presets
+
+The toolbar's Load, Save, Export, and Reset buttons work on the whole TX audio chain, so you can keep one setup for ragchews and another for DX and switch between them. See the Audio Presets help page.
+
+## Everyday volume lives elsewhere
+
+The moment-to-moment volume, headphone, and line-out levels live in the Audio expander on JJ Flexible Home — press `Ctrl+Shift+U` and arrow to the level you want. The workshop is for shaping your transmit audio, not for turning the speakers up a hair.
+
+**Tip:** If you are running into audio issues — no sound, distorted audio, audio from the wrong device — see the Audio Troubleshooting help page for a step-by-step checklist.

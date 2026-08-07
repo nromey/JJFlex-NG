@@ -6970,7 +6970,9 @@ namespace Radios
         /// </summary>
         public bool RemoteRig
         {
-            get { return theRadio.IsWan; }
+            // Null-conditional: read from the Audio Workshop session while the
+            // radio tears down (same crash class as the TX getter family).
+            get { return theRadio?.IsWan ?? false; }
         }
 
         private int firstCharID = -1;
@@ -8941,18 +8943,25 @@ namespace Radios
             set { q.Enqueue((FunctionDel)(() => { theRadio.TXCWMonitorPan = value; })); }
         }
 
+        // TX getter family null guards (2026-08-07): the Audio Workshop's poll
+        // timer races radio teardown at app close — MeterTimer_Tick →
+        // PollTxAudio → get_MicGain NRE'd on the nulled theRadio (crash zip
+        // JJFlexError-20260807-153513). Same teardown crash class as the
+        // 2026-08-05 ActiveSlice sweep (f406b4cc), which covered slice-level
+        // getters but not this radio-level TX family. Defaults follow that
+        // sweep's conventions: toggles off, levels 0, pans 50 (centered).
         public const int MicGainMin = 0;
         public const int MicGainMax = 100;
         public const int MicGainIncrement = 1;
         public int MicGain
         {
-            get { return theRadio.MicLevel; }
+            get { return theRadio?.MicLevel ?? 0; }
             set { q.Enqueue((FunctionDel)(() => { theRadio.MicLevel = value; })); }
         }
 
         public OffOnValues ProcessorOn
         {
-            get { return (theRadio.SpeechProcessorEnable) ? OffOnValues.on : OffOnValues.off; }
+            get { return (theRadio?.SpeechProcessorEnable == true) ? OffOnValues.on : OffOnValues.off; }
             set { q.Enqueue((FunctionDel)(() => { theRadio.SpeechProcessorEnable = (value == OffOnValues.on) ? true : false; })); }
         }
 
@@ -8964,13 +8973,13 @@ namespace Radios
         }
         public ProcessorSettings ProcessorSetting
         {
-            get { return (ProcessorSettings)theRadio.SpeechProcessorLevel; }
+            get { return (ProcessorSettings)(theRadio?.SpeechProcessorLevel ?? 0); }
             set { q.Enqueue((FunctionDel)(() => { theRadio.SpeechProcessorLevel = (uint)value; })); }
         }
 
         public OffOnValues Compander
         {
-            get { return (theRadio.CompanderOn) ? OffOnValues.on : OffOnValues.off; }
+            get { return (theRadio?.CompanderOn == true) ? OffOnValues.on : OffOnValues.off; }
             set
             {
                 bool val = (value == OffOnValues.on) ? true : false;
@@ -8983,7 +8992,7 @@ namespace Radios
         public const int CompanderLevelIncrement = 5;
         public int CompanderLevel
         {
-            get { return theRadio.CompanderLevel; }
+            get { return theRadio?.CompanderLevel ?? 0; }
             set
             {
                 q.Enqueue((FunctionDel)(() => { theRadio.CompanderLevel = value; }));
@@ -9016,7 +9025,7 @@ namespace Radios
 
         public OffOnValues MicBoost
         {
-            get { return (theRadio.MicBoost) ? OffOnValues.on : OffOnValues.off; }
+            get { return (theRadio?.MicBoost == true) ? OffOnValues.on : OffOnValues.off; }
             set
             {
                 bool val = (value == OffOnValues.on) ? true : false;
@@ -9026,7 +9035,7 @@ namespace Radios
 
         public OffOnValues MicBias
         {
-            get { return (theRadio.MicBias) ? OffOnValues.on : OffOnValues.off; }
+            get { return (theRadio?.MicBias == true) ? OffOnValues.on : OffOnValues.off; }
             set
             {
                 bool val = (value == OffOnValues.on) ? true : false;
@@ -9036,7 +9045,7 @@ namespace Radios
 
         public OffOnValues Monitor
         {
-            get { return (theRadio.TXMonitor) ? OffOnValues.on : OffOnValues.off; }
+            get { return (theRadio?.TXMonitor == true) ? OffOnValues.on : OffOnValues.off; }
             set
             {
                 bool val = (value == OffOnValues.on) ? true : false;
@@ -9049,7 +9058,7 @@ namespace Radios
         public const int SBMonitorLevelIncrement = 5;
         public int SBMonitorLevel
         {
-            get { return theRadio.TXSBMonitorGain; }
+            get { return theRadio?.TXSBMonitorGain ?? 0; }
             set
             {
                 q.Enqueue((FunctionDel)(() => { theRadio.TXSBMonitorGain = value; }));
@@ -9061,12 +9070,294 @@ namespace Radios
         public const int SBMonitorPanIncrement = 5;
         public int SBMonitorPan
         {
-            get { return theRadio.TXSBMonitorPan; }
+            get { return theRadio?.TXSBMonitorPan ?? 50; }
             set
             {
                 q.Enqueue((FunctionDel)(() => { theRadio.TXSBMonitorPan = value; }));
             }
         }
+
+        // ── Audio Check / hear-yourself support (QB Track G, 2026-08-07) ──
+        //
+        // Public wrappers for the Audio Workshop's Audio Check session.
+        // Internal OffOnValues-typed Play/Record wrappers already exist for
+        // in-assembly callers; these bool-typed public ones serve JJFlexWpf
+        // (separate assembly, no InternalsVisibleTo).
+
+        /// <summary>
+        /// Radio-reported TX mic input list (e.g. MIC, BAL, LINE, ACC, PC).
+        /// Empty until the radio answers "mic list".
+        /// </summary>
+        public List<string> MicSourceList => theRadio?.MicInputList?.ToList() ?? new List<string>();
+
+        /// <summary>
+        /// The radio's selected TX mic input. Verified live (2026-08-07):
+        /// MicGain acts on THIS selection, not on whatever is actually feeding
+        /// the transmitter — a hand-mic PTT override keys from the mic jack
+        /// regardless of this setting, and the gain knob then adjusts an idle
+        /// stream. Note the PC-audio path silently forces this to "PC" when it
+        /// starts (startOpusOutputChannel) and restores the prior value when
+        /// it stops.
+        /// </summary>
+        public string MicSource
+        {
+            get { return theRadio?.MicInput ?? ""; }
+            set { q.Enqueue((FunctionDel)(() => { theRadio.MicInput = value; }), "MicInput"); }
+        }
+
+        /// <summary>
+        /// Full duplex: receivers stay alive while transmitting. Radio-wide
+        /// flag, meaningful on 2-SCU radios; factory default off (keying mutes
+        /// every RX). The loopback check sets it and MUST restore the prior
+        /// value on teardown — never leave it changed.
+        /// </summary>
+        public bool FullDuplexEnabled
+        {
+            get { return theRadio?.FullDuplexEnabled ?? false; }
+            set { q.Enqueue((FunctionDel)(() => { theRadio.FullDuplexEnabled = value; }), "FullDuplexEnabled"); }
+        }
+
+        /// <summary>
+        /// Active slice quick-record (SmartSDR's Quick Record). Verified
+        /// telemetry (2026-08-07 live): buffer caps at 120 seconds and behaves
+        /// ring-like at the cap (recent material kept); two takes can coexist.
+        /// The record tap sits upstream of the TX audio mute, so it captures
+        /// demodulated audio even with full duplex off. Callers MUST check
+        /// state before re-arming — a live re-arm race nearly wiped takes.
+        /// </summary>
+        public bool SliceRecordOn
+        {
+            get { return theRadio?.ActiveSlice?.RecordOn == true; }
+            set { if (HasActiveSlice) q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.RecordOn = value; }), "RecordOn"); }
+        }
+
+        /// <summary>Active slice quick-play of the record buffer.</summary>
+        public bool SlicePlayOn
+        {
+            get { return theRadio?.ActiveSlice?.PlayOn == true; }
+            set { if (HasActiveSlice) q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.PlayOn = value; }), "PlayOn"); }
+        }
+
+        /// <summary>True when the record buffer has playable content.</summary>
+        public bool SlicePlayEnabled => theRadio?.ActiveSlice?.PlayEnabled ?? false;
+
+        /// <summary>
+        /// The radio-reported PTT source ("SW", "Mic", "ACC", "RCA", "TUNE",
+        /// or "None"), from the interlock status "source=" field.
+        /// </summary>
+        public string PttSourceName => theRadio?.PTTSource.ToString() ?? "None";
+
+        /// <summary>
+        /// True when the transmitter is keyed by a HARDWARE line (front-panel
+        /// mic PTT, ACC, or rear RCA). Safety-critical honesty: software unkey
+        /// correctly cannot override a hardware keying line — a hand mic on
+        /// the rear RCA keeps the rig transmitting no matter what the app
+        /// does, and the operator must be told so (2026-08-07 stuck-TX
+        /// episode, interlock source=RCA).
+        /// </summary>
+        public bool PttSourceIsHardware =>
+            theRadio?.PTTSource is PTTSource.Mic or PTTSource.ACC or PTTSource.RCA;
+
+        // ── Loopback check plumbing (QB Track G, 2026-08-07) ──
+        //
+        // The transverter-port loopback, live-verified on the 8600: with full
+        // duplex on, TX antenna XVT A, an "ears" slice listening on the same
+        // XVT port at the same frequency/mode, 1 watt, and TX monitor OFF,
+        // the operator hears their own transmitted signal demodulated inside
+        // one radio with no antennas. HONESTY (ratified): raw adjacent-port
+        // coupling massively overloads the receiver — what this yields is
+        // presence/processing/rough-shape verification, NOT a faithful
+        // off-air listen. Drive management below aims the coupling at the
+        // receiver's linear range where a transverter band definition exists.
+
+        private bool _loopbackArranged;
+        private bool _lbSavedFdx;
+        private string _lbSavedTxAnt = "";
+        private bool _lbSavedMonitor;
+        private int _lbSavedPower;
+        private int _lbEarsVfo = -1;
+        private Xvtr _lbDriveBand;
+        private double _lbSavedDriveDbm;
+
+        /// <summary>True while the loopback arrangement is applied.</summary>
+        public bool LoopbackArranged => _loopbackArranged;
+
+        /// <summary>
+        /// Loopback needs two receive chains (2-SCU — during TX the radio
+        /// borrows one), a free slice slot for the ears slice, and a
+        /// transverter port in the TX antenna list.
+        /// </summary>
+        public bool LoopbackSupported =>
+            theRadio?.DiversityIsAllowed == true &&
+            TXAntennaList.Exists(a => a.StartsWith("XVT", StringComparison.OrdinalIgnoreCase));
+
+        /// <summary>Why the loopback check is not available here, or "".</summary>
+        public string LoopbackUnavailableReason
+        {
+            get
+            {
+                if (theRadio == null) return "No radio connected";
+                if (theRadio.DiversityIsAllowed != true)
+                    return "This radio has a single receiver, which the radio itself uses during transmit";
+                if (!TXAntennaList.Exists(a => a.StartsWith("XVT", StringComparison.OrdinalIgnoreCase)))
+                    return "No transverter port in this radio's transmit antenna list";
+                return "";
+            }
+        }
+
+        /// <summary>
+        /// Apply the verified loopback recipe: snapshot full-duplex flag, TX
+        /// antenna, monitor state, RF power and slice roster, then set FDX
+        /// on, TX antenna to the first XVT port, 1 watt (power 0 is silent —
+        /// verified), monitor OFF, and create the ears slice on the same
+        /// port/frequency/mode. All radio writes ride the command queue, so a
+        /// caller that keys immediately afterward is sequenced after the
+        /// arrangement. Returns false with nothing changed when unsupported.
+        /// </summary>
+        public bool StartLoopbackArrangement()
+        {
+            if (_loopbackArranged) return true;
+            if (theRadio == null || !HasActiveSlice || !LoopbackSupported) return false;
+            if (theRadio.SliceList.Count >= TotalMaxSlices)
+            {
+                Tracing.TraceLine("StartLoopbackArrangement: no free slice slot", TraceLevel.Warning);
+                return false;
+            }
+
+            string xvt = TXAntennaList.Find(a => a.StartsWith("XVT", StringComparison.OrdinalIgnoreCase));
+            if (string.IsNullOrEmpty(xvt)) return false;
+
+            // Snapshot.
+            _lbSavedFdx = theRadio.FullDuplexEnabled;
+            _lbSavedTxAnt = TXAntennaName;
+            _lbSavedMonitor = theRadio.TXMonitor;
+            _lbSavedPower = XmitPower;
+            int preCount = MyNumSlices;
+
+            // Apply the recipe (queue-sequenced).
+            FullDuplexEnabled = true;
+            TXAntennaName = xvt;                       // TX slice → XVT port
+            XmitPower = 1;                             // integer floor above silent
+            Monitor = OffOnValues.off;                 // monitor stacked over the
+                                                       // delayed loop is an echo
+            // Drive management: where a transverter band is defined, start at
+            // maximum attenuation so the adjacent-port coupling lands as far
+            // into the receiver's linear range as the hardware allows.
+            _lbDriveBand = findAnyValidXvtr();
+            if (_lbDriveBand != null)
+            {
+                _lbSavedDriveDbm = _lbDriveBand.MaxPower;
+                var band = _lbDriveBand;
+                q.Enqueue((FunctionDel)(() => { band.MaxPower = -10.0; }), "LoopbackDrive");
+            }
+
+            // Ears slice: create, then configure once it exists (the NewSlice
+            // queue item awaits creation internally, so this enqueued config
+            // runs after it).
+            if (!NewSlice())
+            {
+                Tracing.TraceLine("StartLoopbackArrangement: NewSlice refused", TraceLevel.Error);
+                rollbackLoopback();
+                return false;
+            }
+            _lbEarsVfo = preCount;
+            q.Enqueue((FunctionDel)(() =>
+            {
+                Slice ears = null;
+                lock (mySlices)
+                {
+                    if (mySlices.Count > preCount) ears = mySlices[preCount];
+                }
+                var tx = theRadio?.ActiveSlice;
+                if (ears == null || tx == null || ReferenceEquals(ears, tx))
+                {
+                    Tracing.TraceLine("Loopback ears slice config: slice missing", TraceLevel.Error);
+                    return;
+                }
+                ears.Freq = tx.Freq;
+                ears.DemodMode = tx.DemodMode;
+                ears.RXAnt = xvt;   // same port worked at this power, verified
+            }), "LoopbackEars");
+
+            _loopbackArranged = true;
+            Tracing.TraceLine($"Loopback arranged: xvt={xvt} savedFdx={_lbSavedFdx} savedAnt={_lbSavedTxAnt} savedPwr={_lbSavedPower} earsVfo={_lbEarsVfo}", TraceLevel.Info);
+            return true;
+        }
+
+        /// <summary>
+        /// Tear the loopback arrangement down: restore every saved value and
+        /// remove the ears slice. Returns a short status suitable for speech
+        /// ("" when everything restored cleanly).
+        /// </summary>
+        public string EndLoopbackArrangement()
+        {
+            if (!_loopbackArranged) return "";
+            _loopbackArranged = false;
+
+            string trouble = "";
+            if (theRadio != null)
+            {
+                // Ears slice out first (can't remove the active VFO — if the
+                // operator moved onto it, leave it and say so).
+                if (_lbEarsVfo >= 0 && _lbEarsVfo < MyNumSlices)
+                {
+                    if (!RemoveSlice(_lbEarsVfo))
+                        trouble = "The listening slice is your active slice, so it was kept. ";
+                }
+                TXAntennaName = _lbSavedTxAnt;
+                XmitPower = _lbSavedPower;
+                Monitor = _lbSavedMonitor ? OffOnValues.on : OffOnValues.off;
+                FullDuplexEnabled = _lbSavedFdx;
+                if (_lbDriveBand != null)
+                {
+                    var band = _lbDriveBand;
+                    double dbm = _lbSavedDriveDbm;
+                    q.Enqueue((FunctionDel)(() => { band.MaxPower = dbm; }), "LoopbackDriveRestore");
+                }
+            }
+            _lbEarsVfo = -1;
+            _lbDriveBand = null;
+            Tracing.TraceLine("Loopback arrangement ended: " + (trouble == "" ? "clean" : trouble), TraceLevel.Info);
+            return trouble;
+        }
+
+        private void rollbackLoopback()
+        {
+            if (theRadio == null) return;
+            FullDuplexEnabled = _lbSavedFdx;
+            TXAntennaName = _lbSavedTxAnt;
+            XmitPower = _lbSavedPower;
+            Monitor = _lbSavedMonitor ? OffOnValues.on : OffOnValues.off;
+            if (_lbDriveBand != null)
+            {
+                var band = _lbDriveBand;
+                double dbm = _lbSavedDriveDbm;
+                q.Enqueue((FunctionDel)(() => { band.MaxPower = dbm; }), "LoopbackDriveRestore");
+                _lbDriveBand = null;
+            }
+        }
+
+        /// <summary>
+        /// Best-effort transverter band probe. FlexLib keeps the Xvtr list
+        /// private and exposes lookup by index only; defined bands get small
+        /// indices. Whether dBm drive management can upgrade the loopback
+        /// listen to clean demodulation is an OPEN question (plan section 4)
+        /// — this is the mechanism, honestly gated on a band existing.
+        /// </summary>
+        private Xvtr findAnyValidXvtr()
+        {
+            if (theRadio == null) return null;
+            for (int i = 0; i < 16; i++)
+            {
+                var x = theRadio.FindXvtrByIndex(i);
+                if (x != null && x.Valid) return x;
+            }
+            return null;
+        }
+
+        /// <summary>True when loopback drive management found a transverter
+        /// band to act on (informs the session's honesty copy).</summary>
+        public bool LoopbackDriveManaged => _lbDriveBand != null;
 
         // Dummy Load Mode: zeroes power for safe PTT testing, restores on disable
         private bool _dummyLoadMode;

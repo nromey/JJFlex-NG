@@ -131,6 +131,7 @@ public enum CommandValues
     MuteAllSlices,
     ReleaseAllExtraSlices,
     ToggleBrailleStatus,
+    StartAudioCheck,
 }
 
 /// <summary>

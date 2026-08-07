@@ -2435,6 +2435,12 @@ public partial class MainWindow : UserControl
             _pttController.CanTransmitHereCheck = () =>
                 _freqOutHandlers?.CanTransmitHere() ?? true;
 
+            // Give the Audio Workshop's Audio Check session a live path to
+            // the controller (QB Track G). Resolved per call — the controller
+            // is recreated on operator switch and nulled on power-off, so the
+            // workshop must never cache it.
+            Dialogs.AudioWorkshopDialog.PttControllerSource = () => _pttController;
+
             // Apply band memory and frequency units settings from config
             if (_freqOutHandlers != null)
             {
@@ -2578,6 +2584,11 @@ public partial class MainWindow : UserControl
         // Dispose PTT safety controller (Sprint 15) — stops TX if active
         _pttController?.Dispose();
         _pttController = null;
+
+        // Stop the Audio Workshop's poll timer (and any Audio Check session) —
+        // the workshop singleton outlives the radio, and its 2 Hz tick raced
+        // this teardown nulling theRadio (2026-08-07 app-close crash).
+        Dialogs.AudioWorkshopDialog.NotifyRigGone();
 
         // Detach screen fields panel (Sprint 14)
         FieldsPanel.Detach();

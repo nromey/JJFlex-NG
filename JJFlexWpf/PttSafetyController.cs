@@ -38,6 +38,24 @@ namespace JJFlexWpf
         /// </summary>
         public Func<bool>? CanTransmitHereCheck { get; set; }
 
+        /// <summary>
+        /// Session-scoped soft-timeout override in seconds (QB Track G,
+        /// 2026-08-07). When non-null, the effective lock timeout is the
+        /// SMALLER of the operator's configured timeout and this value; the
+        /// existing warning ladder scales off the effective value unchanged
+        /// and the 15-minute hard kill is untouched. Set by the Audio Check
+        /// session on start (a check wants a short leash regardless of the
+        /// operator's ragchew timeout) and cleared on session end. This is
+        /// deliberately the minimal hook — the session must NOT grow its own
+        /// safety timer stack.
+        /// </summary>
+        public int? SessionTimeoutOverrideSeconds { get; set; }
+
+        private double EffectiveTimeoutSeconds =>
+            SessionTimeoutOverrideSeconds is int o
+                ? Math.Min(o, _config.TimeoutSeconds)
+                : _config.TimeoutSeconds;
+
         // Timers
         private DispatcherTimer? _warningTimer;
         private DispatcherTimer? _beepTimer;
@@ -95,7 +113,7 @@ namespace JJFlexWpf
 
             // Locked or warning states — calculate time remaining
             var elapsed = (DateTime.UtcNow - _lockStartTime).TotalSeconds;
-            var remaining = Math.Max(0, _config.TimeoutSeconds - elapsed);
+            var remaining = Math.Max(0, EffectiveTimeoutSeconds - elapsed);
 
             string timeLeft;
             if (remaining >= 120)
@@ -282,7 +300,7 @@ namespace JJFlexWpf
             if (State == PttState.Idle) { StopAllTimers(); return; }
 
             var elapsed = (DateTime.UtcNow - _lockStartTime).TotalSeconds;
-            var timeout = _config.TimeoutSeconds;
+            var timeout = EffectiveTimeoutSeconds;
 
             // Check escalation thresholds (most urgent first)
             if (elapsed >= timeout)
