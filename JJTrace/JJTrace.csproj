@@ -18,7 +18,6 @@
   <!-- Explicitly include source files (excludes JJTraceNet2.0 subfolder and backup files) -->
   <ItemGroup>
     <Compile Include="ErrMessageTrace.cs" />
-    <Compile Include="JJTraceListener.cs" />
     <Compile Include="RotatingTraceListener.cs" />
     <Compile Include="SessionArchive.cs" />
     <Compile Include="SessionLifecycle.cs" />

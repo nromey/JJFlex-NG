@@ -10562,22 +10562,10 @@ namespace Radios
             }
         }
 
-        public enum SliceStates
-        {
-            none,
-            mine,
-            others,
-            available
-        }
-
-        public SliceStates SliceState(int id)
-        {
-            SliceStates rv = SliceStates.none;
-            if (id < MyNumSlices) rv = SliceStates.mine;
-            else if (id - MyNumSlices < OtherNumSlices) rv = SliceStates.others;
-            else rv = SliceStates.available;
-            return rv;
-        }
+        // SliceState(int) and its SliceStates enum were deleted here (QB
+        // Track L, 2026-08-07; Track J's find): zero callers, and the
+        // positional mine/others/available classification lies under
+        // MultiFlex, where our slices need not start at radio index 0.
 
         /// <summary>
         /// Add a pan and slice.

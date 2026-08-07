@@ -6,6 +6,13 @@ using System.Windows.Input;
 
 namespace JJFlexWpf.Controls;
 
+// ORPHANED (QB Track L audit, 2026-08-07): the only consumer of this
+// control is FiltersDspControl, which is itself orphaned (Sprint 8
+// replacement never wired in — see its header). If FiltersDspControl gets
+// wired in, this rides along; note it lacks minus-sign entry (negative
+// values unreachable by typing — the ValueFieldControl fix is the model).
+// Wire-in-or-remove is Noel's call — do not delete without that decision.
+
 /// <summary>
 /// WPF replacement for RadioBoxes.NumberBox — header + numeric TextBox with keyboard shortcuts.
 /// Used for integer rig parameters (e.g., power level, filter width).
