@@ -2132,10 +2132,16 @@ public class KeyCommands
     }
 
     /// <summary>
-    /// Universal slice-jump target. Validates the slice exists on the
-    /// radio, announces it via speech + earcon, and sets RXVFO without
-    /// disturbing the current keyboard focus (so a user on, say, VOX
-    /// field stays on VOX but is now operating on the new slice).
+    /// Universal slice-jump target. The parameter is the RADIO slice index
+    /// (0 = A, 1 = B, ...) — the letter IS the identity, so Shift+D always
+    /// means radio slice D. It is resolved to a list position through
+    /// SliceIndexToVFO, never used as a position directly: after slice
+    /// create/release churn, position and letter diverge, and the old
+    /// positional jump activated whatever sat at that position while
+    /// announcing a fabricated letter. Announces via speech + earcon and
+    /// sets RXVFO without disturbing the current keyboard focus (so a user
+    /// on, say, VOX field stays on VOX but is now operating on the new
+    /// slice).
     ///
     /// Auto-create on jump-to-uncreated-slice is deferred until the
     /// FlexLib NewSlice flow is wrapped to support targeting a specific
@@ -2149,34 +2155,45 @@ public class KeyCommands
         var rig = _context.GetRigControl();
         if (rig == null) { LeaderNoRadio(); return; }
 
-        char letter = (char)('A' + sliceIndex);
-
-        if (rig.ValidVFO(sliceIndex))
+        int vfo = rig.SliceIndexToVFO(sliceIndex);
+        if (vfo >= 0)
         {
-            rig.RXVFO = sliceIndex;
+            rig.RXVFO = vfo;
             EarconPlayer.ConfirmTone();
+            // Announce the TRUE letter read back from the slice itself.
             Radios.ScreenReaderOutput.Speak(
-                $"Slice {letter} active",
+                $"Slice {rig.VFOToLetter(vfo)} active",
                 Radios.VerbosityLevel.Terse, true);
             return;
         }
 
-        // Slice index is beyond what's currently created. Two cases:
-        //   - within radio capacity: not yet created
-        //   - exceeds capacity:      not supported on this radio
+        // We don't own a slice with this radio index. Letter arithmetic on a
+        // RADIO index is identity-correct (index 3 is letter D whether or not
+        // the slice exists), so it's safe for the miss messages. Three cases:
+        //   - exceeds capacity:            not supported on this radio
+        //   - exists, another client's:    in use by another station
+        //   - within capacity, not there:  not yet created
+        char letter = (char)('A' + sliceIndex);
         int totalCap = rig.TotalMaxSlices;
-        if (sliceIndex < totalCap)
+        if (sliceIndex >= totalCap)
         {
             EarconPlayer.LeaderInvalidTone();
             Radios.ScreenReaderOutput.Speak(
-                $"Slice {letter} not yet created. From the Slice field, press period to create the next slice.",
+                $"Slice {letter} not available on this radio. Maximum {totalCap} slices.",
+                Radios.VerbosityLevel.Critical, true);
+        }
+        else if (rig.SliceIndexOwnedByOther(sliceIndex))
+        {
+            EarconPlayer.LeaderInvalidTone();
+            Radios.ScreenReaderOutput.Speak(
+                $"Slice {letter} is in use by another station.",
                 Radios.VerbosityLevel.Critical, true);
         }
         else
         {
             EarconPlayer.LeaderInvalidTone();
             Radios.ScreenReaderOutput.Speak(
-                $"Slice {letter} not available on this radio. Maximum {totalCap} slices.",
+                $"Slice {letter} not yet created. From the Slice field, press period to create the next slice.",
                 Radios.VerbosityLevel.Critical, true);
         }
     }
