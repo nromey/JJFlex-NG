@@ -105,6 +105,21 @@ public partial class FiltersDspControl : UserControl
         WireButtonHandlers();
     }
 
+    /// <summary>
+    /// Apply the connected radio's actual RF gain range (FlexBase
+    /// RFGainMin/RFGainMax/RFGainIncrement — the radio reports these per
+    /// model). Call from the external rig-wiring code at connect, the same
+    /// place the Update delegates are attached; this control deliberately
+    /// doesn't reference FlexBase itself. Mirrors what ScreenFieldsPanel
+    /// does for its RF Gain field. QB Track A, 2026-08-07.
+    /// </summary>
+    public void SetRFGainRange(int min, int max, int increment)
+    {
+        RFGainBox.LowValue = min;
+        RFGainBox.HighValue = max;
+        RFGainBox.Increment = increment;
+    }
+
     #region Initialization
 
     /// <summary>
@@ -201,10 +216,14 @@ public partial class FiltersDspControl : UserControl
         AGCThresholdBox.HighValue = 100;
         AGCThresholdBox.Increment = 1;
 
-        // RF Gain — range varies by rig, these are safe defaults
-        RFGainBox.LowValue = 0;
-        RFGainBox.HighValue = 50;
-        RFGainBox.Increment = 1;
+        // RF Gain — range varies by rig; defaults match FlexBase's
+        // RFGainMin/Max/Increment defaults (-10..+30 in 10 dB steps).
+        // The old 0..50 hardcode made negative gain unreachable and let the
+        // box overshoot the real ceiling (QB Track A, 2026-08-07). Rig-true
+        // bounds come in through SetRFGainRange when a radio connects.
+        RFGainBox.LowValue = -10;
+        RFGainBox.HighValue = 30;
+        RFGainBox.Increment = 10;
 
         // Noise Reduction level
         NRLevelBox.LowValue = 0;
