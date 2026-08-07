@@ -84,6 +84,12 @@ public class NativeMenuBar : IDisposable
     // Slice event subscription tracking (to trigger menu rebuild on slice add/remove)
     private FlexBase? _subscribedRig;
 
+    // Teardown guard (QB Track A, 2026-08-07, belt-and-suspenders from the
+    // 8/05 ActiveSlice sweep): slice/connection events queue RebuildCurrentMenu
+    // through the dispatcher, so a rebuild can land AFTER Dispose has
+    // destroyed the menu bar — recreating Win32 menus against a dying window.
+    private bool _disposed;
+
     public NativeMenuBar(MainWindow window)
     {
         _window = window;
@@ -112,7 +118,7 @@ public class NativeMenuBar : IDisposable
     /// </summary>
     public void ApplyUIMode(MainWindow.UIMode mode)
     {
-        if (_hwnd == IntPtr.Zero) return;
+        if (_disposed || _hwnd == IntPtr.Zero) return;
 
         Tracing.TraceLine($"NativeMenuBar.ApplyUIMode: {mode}", TraceLevel.Info);
 
@@ -232,9 +238,14 @@ public class NativeMenuBar : IDisposable
 
     public void Dispose()
     {
+        _disposed = true;
         if (_subscribedRig != null)
         {
             _subscribedRig.SliceCountChanged -= OnSliceCountChanged;
+            // ConnectionStateChanged was subscribed alongside SliceCountChanged
+            // but never unhooked here — the leaked handler was another way a
+            // rebuild could fire against a disposed menu bar.
+            _subscribedRig.ConnectionStateChanged -= OnConnectionStateChanged;
             _subscribedRig = null;
         }
         if (_currentMenuBar != IntPtr.Zero)
