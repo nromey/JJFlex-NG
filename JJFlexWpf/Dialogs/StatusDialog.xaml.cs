@@ -65,6 +65,11 @@ public partial class StatusDialog : JJFlexDialog
     /// </summary>
     private void RefreshStatus()
     {
+        // QB Track D: the identity card refreshes on the same cadence and
+        // guards its own focus, so it stays current even while the user is
+        // reading the status list (and vice versa).
+        IdentityCard.Rig = Rig;
+
         // Don't refresh while user is reading the list — it steals selection
         if (StatusList.IsKeyboardFocusWithin) return;
 
@@ -179,6 +184,16 @@ public partial class StatusDialog : JJFlexDialog
         foreach (var item in StatusList.Items)
         {
             sb.AppendLine(item?.ToString() ?? "");
+        }
+
+        // QB Track D: the identity card's lines belong in the copied snapshot
+        // too — a pasted status report that omits how the radio is reached is
+        // half a report. Same builder the card uses, so the text matches.
+        sb.AppendLine();
+        sb.AppendLine("--- Network identity ---");
+        foreach (string line in Radios.NetworkIdentityInfo.BuildLines(Rig))
+        {
+            sb.AppendLine(line);
         }
 
         return sb.ToString();

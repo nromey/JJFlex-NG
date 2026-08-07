@@ -2,13 +2,16 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:JJFlexWpf"
+        xmlns:controls="clr-namespace:JJFlexWpf.Controls"
         Title="Radio Status"
-        Width="480" Height="420"
+        Width="480" Height="560"
         ResizeMode="NoResize"
         AutomationProperties.Name="Radio Status">
     <Grid Margin="12">
         <Grid.RowDefinitions>
             <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
@@ -18,7 +21,16 @@
                  IsTabStop="True"
                  KeyboardNavigation.TabNavigation="Once"/>
 
-        <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
+        <!-- QB Track D: network identity card — who the radio is and how we
+             reach it. Its own tab stop below the status list; arrow through
+             the lines. The label is a heading for sighted layout; the card's
+             list carries its own accessible name for screen readers. -->
+        <TextBlock Grid.Row="1" Text="Network identity" Margin="4,8,4,0"
+                   FontWeight="Bold"/>
+        <controls:NetworkIdentityCard x:Name="IdentityCard" Grid.Row="2"
+                 Margin="4,2,4,0" MaxHeight="150"/>
+
+        <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
             <Button Content="_Copy to Clipboard" MinWidth="130" Height="28" Margin="0,0,8,0"
                     AutomationProperties.Name="Copy to Clipboard"
                     AutomationProperties.AcceleratorKey="Alt+C"
