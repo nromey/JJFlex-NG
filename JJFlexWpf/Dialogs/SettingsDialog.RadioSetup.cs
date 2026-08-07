@@ -780,6 +780,16 @@ namespace JJFlexWpf.Dialogs
                 return;
             }
 
+            // QB Track D (item 7): on a hole-punched session this probe can
+            // drop the live connection — warn and confirm, never a silent
+            // gate. Shared guard with the Network tab's Test network button.
+            if (!ConfirmNetworkTestOnPunchedSession())
+            {
+                SetupCheckStatus.Text =
+                    "Not run — the outside check can drop a hole-punched connection. Run it after disconnecting, or from a port-forwarded connection.";
+                return;
+            }
+
             SetupCheckStatus.Text = "Checking. This usually takes a few seconds.";
             ScreenReaderOutput.Speak("Checking the network.", VerbosityLevel.Terse, interrupt: true);
 

@@ -694,12 +694,54 @@ namespace JJFlexWpf.Dialogs
         /// one-line summary to the diagnostic live region and speaks it.
         /// Full report (with ToMarkdown + copy/save) lands in Track D.
         /// </summary>
+        /// <summary>
+        /// QB Track D (item 7) — the network test makes the radio probe its
+        /// own ports from outside, and on a hole-punched session that probe
+        /// is known to kill the live connection (Connected flipped false
+        /// 5-60ms after TestConnectionResults in every 2026-08-05 field
+        /// test; same reason the automatic post-connect probe is gated off
+        /// on punched sessions). The user may still choose to run it — a
+        /// silent gate would hide a working feature — but only after a
+        /// confirmation that names the consequence. Returns true to proceed.
+        /// Shared by the Network tab and Radio Setup step 6 buttons.
+        /// </summary>
+        private bool ConfirmNetworkTestOnPunchedSession()
+        {
+            if (_rig == null || !_rig.IsConnected || !_rig.IsWanConnection || !_rig.RadioRequiresHolePunch)
+                return true; // not a punched session — nothing to warn about
+
+            var confirm = new ConfirmActionDialog(
+                "Test Network on a Hole-Punched Connection",
+                "This radio is connected through a hole-punched link. The network test asks the radio to probe its own ports from the internet, and on a hole-punched link that probe is known to drop the live connection.",
+                new[]
+                {
+                    "You may lose this connection and have to reconnect to the radio.",
+                },
+                question: "Run the test anyway?",
+                yesLabel: "_Run the test",
+                noLabel: "_Not now")
+            {
+                Owner = this,
+            };
+            if (confirm.ShowDialog() == true) return true;
+
+            ScreenReaderOutput.Speak("Network test not run. The connection stays up.", VerbosityLevel.Terse, interrupt: true);
+            return false;
+        }
+
         private async void TestNetworkButton_Click(object sender, RoutedEventArgs e)
         {
             if (_rig == null || !_rig.IsConnected)
             {
                 NetworkDiagnosticResultText.Text = "No radio connected. Connect to a radio first.";
                 ScreenReaderOutput.Speak("No radio connected.", VerbosityLevel.Terse, interrupt: true);
+                return;
+            }
+
+            if (!ConfirmNetworkTestOnPunchedSession())
+            {
+                NetworkDiagnosticResultText.Text =
+                    "Network test not run — it can drop a hole-punched connection. Run it after disconnecting, or from a port-forwarded connection.";
                 return;
             }
 
