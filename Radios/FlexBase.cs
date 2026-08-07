@@ -77,6 +77,26 @@ namespace Radios
             public string ModelName;
             public string Serial;
             public bool Remote { get; internal set; }
+
+            /// <summary>
+            /// True when local discovery can see this radio right now.
+            /// </summary>
+            public bool LanAvailable { get; internal set; }
+
+            /// <summary>
+            /// True when the SmartLink account's radio list carries this radio.
+            /// <para>Independent of <see cref="LanAvailable"/> on purpose: a radio
+            /// sitting on the operator's own LAN and registered with SmartLink is
+            /// reachable BOTH ways, and until 2026-08-07 the selector could only
+            /// ever say "local" for it — the LAN announcement wins the row and the
+            /// WAN identity was never surfaced at all. Both flags true means the
+            /// user gets to pick the path (Noel, 2026-08-07).</para>
+            /// </summary>
+            public bool WanAvailable { get; internal set; }
+
+            /// <summary>True when the radio answers on both paths.</summary>
+            public bool DualHomed => LanAvailable && WanAvailable;
+
             internal RigData() { }
         }
         public delegate void RadioFoundDel(object sender, RigData r);
@@ -113,6 +133,72 @@ namespace Radios
         }
 
         private List<Radio> myRadioList = new List<Radio>();
+
+        /// <summary>
+        /// The WAN <see cref="Radio"/> objects the SmartLink list delivered, kept
+        /// by serial. For a radio that is ONLY remote this is the same object
+        /// <see cref="myRadioList"/> holds. For a DUAL-HOMED radio it is the only
+        /// copy of the WAN identity that survives:
+        /// <see cref="wanRadioListReceivedHandler"/> merges the server's fields
+        /// into the already-known LAN object and drops the WAN one on the floor,
+        /// so without this dictionary "connect over SmartLink even though it is
+        /// local" has nothing to connect with.
+        /// <para>Static because the selector builds a fresh FlexBase per open and
+        /// the WAN session outlives it. Cleared whenever the session is cycled or
+        /// discovery is force-restarted, so a stale handle can never be dialled.</para>
+        /// </summary>
+        private static readonly Dictionary<string, Radio> _wanRadiosBySerial =
+            new Dictionary<string, Radio>(StringComparer.OrdinalIgnoreCase);
+        private static readonly object _wanRadiosLock = new object();
+
+        /// <summary>True when the SmartLink list has this radio right now.</summary>
+        private static bool WanKnows(string serial)
+        {
+            if (string.IsNullOrWhiteSpace(serial)) return false;
+            lock (_wanRadiosLock) { return _wanRadiosBySerial.ContainsKey(serial); }
+        }
+
+        private static void RememberWanRadio(Radio r)
+        {
+            if (r == null || string.IsNullOrWhiteSpace(r.Serial)) return;
+            lock (_wanRadiosLock) { _wanRadiosBySerial[r.Serial] = r; }
+        }
+
+        private static void ForgetWanRadios(string reason)
+        {
+            lock (_wanRadiosLock)
+            {
+                if (_wanRadiosBySerial.Count == 0) return;
+                Tracing.TraceLine($"ForgetWanRadios ({reason}): dropping {_wanRadiosBySerial.Count} WAN radio handle(s)", TraceLevel.Info);
+                _wanRadiosBySerial.Clear();
+            }
+        }
+
+        /// <summary>
+        /// The WAN-path <see cref="Radio"/> for this serial, or null when the
+        /// SmartLink list does not currently carry it.
+        /// </summary>
+        private static Radio findWanRadio(string serial)
+        {
+            if (string.IsNullOrWhiteSpace(serial)) return null;
+            lock (_wanRadiosLock)
+            {
+                return _wanRadiosBySerial.TryGetValue(serial, out var r) && r != null && r.IsWan ? r : null;
+            }
+        }
+
+        /// <summary>
+        /// True when this radio is reachable both on the local network and
+        /// through the current SmartLink account — the case where the operator
+        /// gets to choose the path.
+        /// </summary>
+        public bool IsDualHomed(string serial)
+        {
+            if (string.IsNullOrWhiteSpace(serial)) return false;
+            var lan = myRadioList.FirstOrDefault(x => x.Serial == serial && !x.IsWan);
+            return lan != null && findWanRadio(serial) != null;
+        }
+
         private void radioAddedHandler(Radio r)
         {
             Tracing.TraceLine("radioAddedHandler:" + r.Serial, TraceLevel.Info);
@@ -123,12 +209,29 @@ namespace Radios
                 return;
             }
             myRadioList.Add(r);
-            RigData rd = new RigData();
+            if (r.IsWan) RememberWanRadio(r);
+            RaiseRadioFound(null, BuildRigData(r));
+        }
+
+        /// <summary>
+        /// Describe a radio for the selector, filling in BOTH homes. The
+        /// discovering path tells us one of them; the WAN dictionary answers for
+        /// the other, and it is consulted every time because a LAN radio
+        /// re-announces itself long after the SmartLink list has landed.
+        /// </summary>
+        private static RigData BuildRigData(Radio r)
+        {
+            var rd = new RigData();
             rd.Name = string.IsNullOrWhiteSpace(r.Nickname) ? "Unknown" : r.Nickname;
             rd.ModelName = string.IsNullOrWhiteSpace(r.Model) ? "Unknown" : r.Model;
             rd.Serial = r.Serial;
+            // Remote keeps its existing meaning — the path this row connects by
+            // unless the user says otherwise — and LAN still wins, because it is
+            // the better path.
             rd.Remote = r.IsWan;
-            RaiseRadioFound(null, rd);
+            rd.LanAvailable = !r.IsWan;
+            rd.WanAvailable = r.IsWan || WanKnows(r.Serial);
+            return rd;
         }
         internal static bool _apiInit;
 
@@ -154,6 +257,8 @@ namespace Radios
                     finally { _suppressApiRemovals = false; }
                     // Force init.
                     _apiInit = false;
+                    // The WAN handles belonged to the session we just tore down.
+                    ForgetWanRadios("forced apiInit");
                 }
             }
             // Won't init if !force and already inited.
@@ -194,6 +299,27 @@ namespace Radios
                 if (r.Serial == serial) return r;
             }
             return null;
+        }
+
+        /// <summary>
+        /// Resolve the <see cref="Radio"/> object a connect should actually use.
+        /// <para><paramref name="preferWan"/> true means the operator explicitly
+        /// asked for the SmartLink path on a radio that may also be local; it
+        /// returns null rather than quietly handing back the LAN object, because
+        /// connecting locally after the user chose SmartLink would be a lie the
+        /// UI could not detect.</para>
+        /// <para>preferWan false prefers a non-WAN entry when the list holds
+        /// both, so "local network" means local network even if the SmartLink
+        /// list happened to arrive first.</para>
+        /// </summary>
+        private Radio findRadioForConnect(string serial, bool preferWan)
+        {
+            if (preferWan) return findWanRadio(serial);
+            foreach (Radio r in myRadioList)
+            {
+                if (r.Serial == serial && !r.IsWan) return r;
+            }
+            return findRadioInAPI(serial);
         }
 
         /// <summary>
@@ -278,6 +404,10 @@ namespace Radios
             }
             radios = null;
             wanListReceived = false;
+            // The WAN Radio objects belong to the session being cycled; a fresh
+            // list repopulates them. Keeping them would let a path-choice
+            // connect dial a handle the server has already forgotten.
+            ForgetWanRadios(reason);
         }
 
         internal Radio theRadio;
@@ -757,9 +887,15 @@ namespace Radios
         /// </summary>
         /// <param name="serial">serial#</param>
         /// <param name="lowBW">true if low bandwidth connect</param>
-        public bool Connect(string serial, bool lowBW)
+        /// <param name="preferWanPath">
+        /// True when the operator explicitly chose the SmartLink path for a radio
+        /// that is ALSO on the local network. Default false keeps every existing
+        /// caller on the historical resolution, where local wins because local is
+        /// the better path.
+        /// </param>
+        public bool Connect(string serial, bool lowBW, bool preferWanPath = false)
         {
-            Tracing.TraceLine("Connect:" + serial, TraceLevel.Info);
+            Tracing.TraceLine($"Connect:{serial} preferWanPath={preferWanPath}", TraceLevel.Info);
             bool rv = true;
 
             // Save connection parameters for retry support
@@ -769,13 +905,22 @@ namespace Radios
             ConnectionProfiler.Current?.RecordEvent("connect_begin", new Dictionary<string, object>
             {
                 { "serial", serial },
-                { "lowBW", lowBW }
+                { "lowBW", lowBW },
+                { "preferWanPath", preferWanPath }
             });
 
-            theRadio = findRadioInAPI(serial);
+            theRadio = findRadioForConnect(serial, preferWanPath);
             if (theRadio == null)
             {
-                Tracing.TraceLine("Connect didn't find radio", TraceLevel.Error);
+                // Deliberately no LAN fallback when the SmartLink path was asked
+                // for: silently connecting the other way would make the selector's
+                // spoken "over SmartLink" false, and this is the exact path Noel
+                // uses to test WAN behaviour from inside his own shack.
+                Tracing.TraceLine(
+                    preferWanPath
+                        ? "Connect: SmartLink path requested but the account's radio list has no such radio"
+                        : "Connect didn't find radio",
+                    TraceLevel.Error);
                 return false;
             }
 
@@ -1035,11 +1180,17 @@ namespace Radios
         /// <param name="serial">Serial number of the radio to reconnect to</param>
         /// <param name="lowBW">Whether to use low bandwidth mode</param>
         /// <param name="timeoutMs">How long to wait for radio discovery (default 15 seconds)</param>
+        /// <param name="forceWanPath">
+        /// True when the operator chose "connect over SmartLink" for a radio that
+        /// is also on the local network. Makes the wait hold out for the WAN
+        /// identity specifically rather than settling for the LAN object that is
+        /// already sitting in the list.
+        /// </param>
         /// <returns>True if the radio was found and Connect() succeeded</returns>
-        public bool ReconnectRemote(string serial, bool lowBW, int timeoutMs = 15000)
+        public bool ReconnectRemote(string serial, bool lowBW, int timeoutMs = 15000, bool forceWanPath = false)
         {
             var sw = System.Diagnostics.Stopwatch.StartNew();
-            Tracing.TraceLine($"ReconnectRemote: BEGIN serial={serial} lowBW={lowBW} timeout={timeoutMs}ms", TraceLevel.Info);
+            Tracing.TraceLine($"ReconnectRemote: BEGIN serial={serial} lowBW={lowBW} timeout={timeoutMs}ms forceWanPath={forceWanPath}", TraceLevel.Info);
 
             try
             {
@@ -1070,7 +1221,11 @@ namespace Radios
 
                 while ((DateTime.Now - startTime).TotalMilliseconds < timeoutMs)
                 {
-                    foundRadio = findRadioInAPI(serial);
+                    // With forceWanPath this holds out for the WAN identity: the
+                    // LAN object for a dual-homed radio is present from the first
+                    // millisecond and would end the wait before the fresh
+                    // SmartLink list has even arrived.
+                    foundRadio = findRadioForConnect(serial, forceWanPath);
                     if (foundRadio != null)
                         break;
                     Thread.Sleep(100);
@@ -1078,7 +1233,7 @@ namespace Radios
 
                 if (foundRadio == null)
                 {
-                    Tracing.TraceLine($"ReconnectRemote: radio {serial} NOT FOUND within {timeoutMs}ms. myRadioList has {myRadioList.Count} radios ({sw.ElapsedMilliseconds}ms)", TraceLevel.Warning);
+                    Tracing.TraceLine($"ReconnectRemote: radio {serial} NOT FOUND within {timeoutMs}ms (forceWanPath={forceWanPath}). myRadioList has {myRadioList.Count} radios ({sw.ElapsedMilliseconds}ms)", TraceLevel.Warning);
                     foreach (Radio r in myRadioList)
                     {
                         Tracing.TraceLine($"  myRadioList entry: serial={r.Serial} name={r.Nickname} status={r.Status}", TraceLevel.Info);
@@ -1087,8 +1242,8 @@ namespace Radios
                 }
 
                 // Connect to the radio.
-                Tracing.TraceLine($"ReconnectRemote: FOUND radio {foundRadio.Serial} ({foundRadio.Nickname}), connecting lowBW={lowBW} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
-                bool connected = Connect(serial, lowBW);
+                Tracing.TraceLine($"ReconnectRemote: FOUND radio {foundRadio.Serial} ({foundRadio.Nickname}) isWan={foundRadio.IsWan}, connecting lowBW={lowBW} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+                bool connected = Connect(serial, lowBW, forceWanPath);
 
                 sw.Stop();
                 Tracing.TraceLine($"ReconnectRemote: END connected={connected} (total {sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
@@ -3277,6 +3432,33 @@ namespace Radios
                     RaiseRadioRemoved(this, g.Serial, g.Nickname ?? "");
                 }
 
+                // The WAN identity of every listed radio, banked BEFORE the merge
+                // loop below folds the server's fields into an already-known LAN
+                // object and discards the WAN one. Dual-homing's path choice
+                // connects through these. Also drop handles for radios that left
+                // the list — those serials are dual-homed no longer.
+                lock (_wanRadiosLock)
+                {
+                    foreach (var stale in _wanRadiosBySerial.Keys.Where(k => !freshSerials.Contains(k)).ToList())
+                        _wanRadiosBySerial.Remove(stale);
+                }
+                foreach (Radio w in lst) RememberWanRadio(w);
+
+                // Fast paint for next time: this account's radio list, on disk,
+                // so the selector can speak the account's radios the instant it
+                // opens instead of after a TLS round trip. Display only — see
+                // RecordAccountRadioList, nothing connects from it.
+                try
+                {
+                    var acctEmail = CurrentSmartLinkEmail;
+                    if (!string.IsNullOrWhiteSpace(acctEmail))
+                        GetRadioConnectionCache().RecordAccountRadioList(acctEmail, lst);
+                }
+                catch (Exception cacheEx)
+                {
+                    Tracing.TraceLine($"wanRadioListReceivedHandler: account list cache failed: {cacheEx.Message}", TraceLevel.Warning);
+                }
+
                 foreach (Radio r in lst)
                 {
                     Radio oldRadio = findRadioInAPI(r.Serial);
@@ -3291,14 +3473,15 @@ namespace Radios
                         // so the RigSelector dialog sees the radio on reconnect attempts.
                         // Without this, the second SmartLink discovery after disconnect
                         // silently updates the existing entry and the ConnectingForm never closes.
+                        //
+                        // This branch used to `break`, which abandoned the rest of
+                        // the list the moment one radio was already known — with
+                        // two SmartLink radios the second never got a RadioFound,
+                        // and a dual-homed radio (always already known, because
+                        // LAN found it first) killed the loop on the first
+                        // iteration. `continue` is what was meant.
                         UpdateRadioDiscoveryFields(r, oldRadio);
-                        RigData rd = new RigData();
-                        rd.Name = string.IsNullOrWhiteSpace(oldRadio.Nickname) ? "Unknown" : oldRadio.Nickname;
-                        rd.ModelName = string.IsNullOrWhiteSpace(oldRadio.Model) ? "Unknown" : oldRadio.Model;
-                        rd.Serial = oldRadio.Serial;
-                        rd.Remote = oldRadio.IsWan;
-                        RaiseRadioFound(null, rd);
-                        break;
+                        RaiseRadioFound(null, BuildRigData(oldRadio));
                     }
                 }
             }
