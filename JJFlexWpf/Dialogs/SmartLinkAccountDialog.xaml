@@ -64,7 +64,7 @@
                     Click="DeleteButton_Click"/>
             <Button Content="_Cancel" AutomationProperties.AcceleratorKey="Alt+C" MinWidth="90" Height="28" IsCancel="True"
                     Margin="0,20,0,0"
-                    AutomationProperties.Name="Cancel and close dialog"
+                    AutomationProperties.Name="Cancel"
                     Click="CancelButton_Click"/>
         </StackPanel>
 
