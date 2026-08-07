@@ -10,13 +10,18 @@
                     ResizeMode="NoResize"
                     AutomationProperties.Name="Confirm port forward apply">
     <StackPanel Margin="16">
-        <TextBlock x:Name="MessageBlock"
-                   TextWrapping="Wrap"
-                   Margin="0,0,0,12"
-                   AutomationProperties.Name="Port forwarding change confirmation"/>
-        <TextBlock TextWrapping="Wrap"
-                   Margin="0,0,0,12"
-                   Text="These settings persist on the radio across future connections by any client. Continue?"/>
+        <!-- One read-only text box so the change being confirmed is
+             arrow-reviewable. Focus lands here; Enter in a read-only box does
+             nothing and Yes is not the default. -->
+        <TextBox x:Name="BodyText"
+                 IsReadOnly="True"
+                 IsReadOnlyCaretVisible="True"
+                 TextWrapping="Wrap"
+                 AcceptsReturn="True"
+                 VerticalScrollBarVisibility="Auto"
+                 MaxHeight="360"
+                 Margin="0,0,0,12"
+                 AutomationProperties.Name="Port forwarding change confirmation"/>
         <StackPanel Orientation="Horizontal"
                     HorizontalAlignment="Right"
                     Margin="0,8,0,0">

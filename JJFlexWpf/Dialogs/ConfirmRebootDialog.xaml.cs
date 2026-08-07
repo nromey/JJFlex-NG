@@ -15,8 +15,10 @@ namespace JJFlexWpf.Dialogs
     /// is about to disconnect. On a MultiFlex radio that is the single most
     /// decision-relevant fact, and JJ Flex already knows it.
     ///
-    /// Default focus lands on No, matching the port-forward dialog: a user who
-    /// muscle-memories Enter past a dialog must not take the radio down.
+    /// Focus lands in the read-only body text, where Enter does nothing, and
+    /// Yes is not the default: a user who muscle-memories Enter past a dialog
+    /// must not take the radio down — and the text a screen reader starts on
+    /// is the text that says who else gets dropped.
     /// </summary>
     public partial class ConfirmRebootDialog : JJFlexDialog
     {
@@ -24,22 +26,31 @@ namespace JJFlexWpf.Dialogs
         {
             InitializeComponent();
 
-            MessageBlock.Text =
-                "JJ Flex will restart the radio. Any transmission in progress will stop.";
+            var body = new System.Text.StringBuilder(
+                "JJ Flex will restart the radio. Any transmission in progress will stop.");
 
             int count = otherStations?.Count ?? 0;
             if (count > 0)
             {
                 // Name names. "2 other stations" is less useful than "Don and Justin".
-                string stations = string.Join(", ", otherStations);
-                OtherStationsBlock.Text = count == 1
+                string stations = string.Join(", ", otherStations!);
+                body.AppendLine();
+                body.AppendLine();
+                body.Append(count == 1
                     ? $"This will also disconnect {stations}, who is connected to this radio."
-                    : $"This will also disconnect {count} other stations connected to this radio: {stations}.";
-                OtherStationsBlock.Visibility = Visibility.Visible;
+                    : $"This will also disconnect {count} other stations connected to this radio: {stations}.");
             }
 
-            // Conservative default for a destructive action — user must Tab to Yes.
-            Loaded += (s, e) => NoButton.Focus();
+            body.AppendLine();
+            body.AppendLine();
+            body.Append("The radio will be unreachable for several minutes while it restarts. Continue?");
+            BodyText.Text = ScreenReaderText.NormalizeLineBreaks(body.ToString());
+
+            Loaded += (s, e) =>
+            {
+                BodyText.CaretIndex = 0;
+                BodyText.Focus();
+            };
         }
 
         private void YesButton_Click(object sender, RoutedEventArgs e)

@@ -23,11 +23,18 @@ namespace JJFlexWpf.Dialogs
                     : $"JJ Flex will tell the radio to listen for SmartLink on TCP port {tcp} and UDP port {udp}.")
                 : "JJ Flex will tell the radio to stop listening on a forwarded port (disable port forwarding).";
 
-            MessageBlock.Text = actionDescription;
+            BodyText.Text = ScreenReaderText.NormalizeLineBreaks(
+                actionDescription +
+                "\n\nThese settings persist on the radio across future connections by any client. Continue?");
 
-            // Land default focus on the No button — conservative default for
-            // destructive/persistent actions. User must Tab to Yes to commit.
-            Loaded += (s, e) => NoButton.Focus();
+            // Focus lands in the read-only text — conservative default for
+            // destructive/persistent actions: Enter there does nothing, and the
+            // user must Tab to Yes to commit.
+            Loaded += (s, e) =>
+            {
+                BodyText.CaretIndex = 0;
+                BodyText.Focus();
+            };
         }
 
         private void YesButton_Click(object sender, RoutedEventArgs e)
