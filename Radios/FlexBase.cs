@@ -98,6 +98,20 @@ namespace Radios
             }
         }
 
+        public delegate void RadioRemovedDel(object sender, string serial, string name);
+        /// <summary>
+        /// Raised when a previously listed WAN radio is absent from a freshly
+        /// received SmartLink list — it went offline (or left the account).
+        /// Lets the RigSelector drop ghost rows on a refresh instead of
+        /// offering radios that will only fail to connect.
+        /// </summary>
+        public static event RadioRemovedDel RadioRemoved;
+        internal static void RaiseRadioRemoved(object sender, string serial, string name)
+        {
+            Tracing.TraceLine("RaiseRadioRemoved:" + serial + " " + name, TraceLevel.Info);
+            RadioRemoved?.Invoke(sender, serial, name);
+        }
+
         private List<Radio> myRadioList = new List<Radio>();
         private void radioAddedHandler(Radio r)
         {
@@ -176,6 +190,61 @@ namespace Radios
             bool stat = setupRemote();
             sw.Stop();
             Tracing.TraceLine($"RemoteRadios: END setupRemote={stat} (total {sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+        }
+
+        /// <summary>
+        /// True when the app-global SmartLink session is connected. Distinct
+        /// from <see cref="IsConnected"/>, which is RADIO-level and stays
+        /// false after a successful radio-LIST pass — use this one as the
+        /// "did the remote pass succeed" signal.
+        /// </summary>
+        public bool IsSmartLinkSessionLive =>
+            Radios.SmartLink.SmartLinkServices.Coordinator.ActiveSession?.IsConnected == true;
+
+        /// <summary>
+        /// Refresh the remote radio list by cycling the SmartLink session
+        /// first. The server sends the radio list once per TLS session and
+        /// never resends on re-registration, so a live session can only ever
+        /// show the list it was born with — radios that came online since are
+        /// invisible until a fresh session dials in. The RigSelector's Remote
+        /// button morphs into "Refresh Remote List" after a successful remote
+        /// pass and calls this.
+        /// </summary>
+        public void RefreshRemoteRadios()
+        {
+            Tracing.TraceLine("RefreshRemoteRadios: BEGIN", TraceLevel.Info);
+            CycleWanSession("user refresh");
+            RemoteRadios();
+        }
+
+        /// <summary>
+        /// Disconnect the app-global WAN session so the next
+        /// ConnectToSmartLink dials a fresh one — the only way to make the
+        /// server send the radio list again. Also clears this instance's
+        /// one-shot list latch so the fresh list is waited for rather than a
+        /// stale cache accepted.
+        /// </summary>
+        private void CycleWanSession(string reason)
+        {
+            try
+            {
+                var session = Radios.SmartLink.SmartLinkServices.Coordinator.ActiveSession;
+                if (session != null)
+                {
+                    Tracing.TraceLine($"CycleWanSession ({reason}): disconnecting session {session.SessionId} for a fresh radio list", TraceLevel.Info);
+                    Radios.SmartLink.SmartLinkServices.Coordinator.DisconnectSession(session.SessionId);
+                }
+                else
+                {
+                    Tracing.TraceLine($"CycleWanSession ({reason}): no active session; next connect dials fresh", TraceLevel.Info);
+                }
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine($"CycleWanSession ({reason}): {ex.Message}", TraceLevel.Error);
+            }
+            radios = null;
+            wanListReceived = false;
         }
 
         internal Radio theRadio;
@@ -3156,6 +3225,21 @@ namespace Radios
                 Tracing.TraceLine("wanRadioListReceivedHandler:" + lst.Count, TraceLevel.Info);
                 radios = lst;
                 wanListReceived = true;
+
+                // Ghost sweep: this is the server's FULL current list, so any
+                // WAN radio we hold that isn't in it has gone offline (or left
+                // the account). Without this, a Refresh Remote List shows
+                // yesterday's radios forever — they only "leave" by failing to
+                // connect.
+                var freshSerials = new HashSet<string>(lst.Select(x => x.Serial));
+                var gone = myRadioList.Where(x => x.IsWan && !freshSerials.Contains(x.Serial)).ToList();
+                foreach (Radio g in gone)
+                {
+                    Tracing.TraceLine($"wanRadioListReceivedHandler: WAN radio {g.Serial} ({g.Nickname}) absent from fresh list — removing", TraceLevel.Info);
+                    myRadioList.Remove(g);
+                    RaiseRadioRemoved(this, g.Serial, g.Nickname ?? "");
+                }
+
                 foreach (Radio r in lst)
                 {
                     Radio oldRadio = findRadioInAPI(r.Serial);
@@ -3382,6 +3466,42 @@ namespace Radios
                         VerbosityLevel.Critical, true);
                 }
                 goto setupRemoteDone;
+            }
+
+            // First medicine for ConnectFailed: cycle the WAN session and retry
+            // with the CURRENT sign-in. Most non-auth failures here are the
+            // pre-existing-session trap — the server sends the radio list once
+            // per TLS session, so a re-entered connect over a live session can
+            // time out (or worse) without any credential being wrong, and the
+            // old response of popping an interactive login on a healthy account
+            // was wrong medicine (Noel, 2026-08-06, trace 203418). Refresh the
+            // JWT silently when we hold an account (id_tokens live 60 seconds;
+            // native-lineage refresh takes ~250ms and no UI).
+            if (connectResult == SmartLinkConnectResult.ConnectFailed)
+            {
+                Tracing.TraceLine($"setupRemote: connect failed; cycling WAN session and retrying with current sign-in ({sw.ElapsedMilliseconds}ms)", TraceLevel.Warning);
+                CycleWanSession("connect failed — possible stale pre-existing session");
+                if (_currentAccount != null)
+                {
+                    string silentJwt = GetJwtFromSavedAccount(_currentAccount, allowInteractiveLogin: false);
+                    if (!string.IsNullOrEmpty(silentJwt)) jwt = silentJwt;
+                }
+                connectResult = ConnectToSmartLink(jwt);
+                rv = connectResult == SmartLinkConnectResult.Success;
+                Tracing.TraceLine($"setupRemote: cycled retry returned {connectResult} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+                if (connectResult == SmartLinkConnectResult.NoRadios)
+                {
+                    TraceSessionContext.MarkOutcome(TraceSessionOutcome.NoRadios,
+                        "SmartLink registered after session cycle, server returned empty radio list");
+                    TraceSessionContext.AddKeyEvent("smartlink_no_radios_after_cycle");
+                    if (!SuppressSpeech)
+                    {
+                        ScreenReaderOutput.Speak(
+                            "No SmartLink radios available. The remote radio may be turned off.",
+                            VerbosityLevel.Critical, true);
+                    }
+                    goto setupRemoteDone;
+                }
             }
 
             // Only retry the fresh-login path for real connection failures. Sending

@@ -2108,6 +2108,12 @@ Module globals
         _wpfRadioFoundCallback?.Invoke(item)
     End Sub
 
+    Private _wpfRadioRemovedCallback As Action(Of String, String)
+
+    Private Sub wpfRadioRemovedHandler(sender As Object, serial As String, name As String)
+        _wpfRadioRemovedCallback?.Invoke(serial, name)
+    End Sub
+
     ''' <summary>
     ''' Session-scoped SmartLink account override, set by "Use Now" in the
     ''' account manager. ShowAccountSelector honors it AHEAD of the saved
@@ -2251,9 +2257,11 @@ Module globals
                                         Dim t As New Thread(
                                             Sub()
                                                 RigControl.RemoteRadios()
-                                                ' Notify completion immediately
+                                                ' Notify completion immediately. Session-level success:
+                                                ' IsConnected is RADIO-level and is still False after a
+                                                ' successful radio-LIST pass, so it can't carry this flag.
                                                 Tracing.TraceLine("StartRemoteDiscovery: calling onComplete", TraceLevel.Info)
-                                                onComplete?.Invoke(RigControl.IsConnected)
+                                                onComplete?.Invoke(RigControl.IsSmartLinkSessionLive)
                                                 Tracing.TraceLine("StartRemoteDiscovery: onComplete returned", TraceLevel.Info)
                                             End Sub)
                                         t.IsBackground = True
@@ -2269,6 +2277,30 @@ Module globals
                                         RemoveHandler FlexBase.RadioFound, AddressOf wpfRadioFoundHandler
                                         _wpfRadioFoundCallback = Nothing
                                     End Sub,
+            .RegisterRadioRemoved = Sub(callback)
+                                        _wpfRadioRemovedCallback = callback
+                                        AddHandler FlexBase.RadioRemoved, AddressOf wpfRadioRemovedHandler
+                                    End Sub,
+            .UnregisterRadioRemoved = Sub()
+                                          RemoveHandler FlexBase.RadioRemoved, AddressOf wpfRadioRemovedHandler
+                                          _wpfRadioRemovedCallback = Nothing
+                                      End Sub,
+            .StartRemoteRefresh = Sub(onComplete As Action(Of Boolean))
+                                      ' Same shape as StartRemoteDiscovery, but cycles the
+                                      ' SmartLink session first so the server sends a fresh
+                                      ' radio list (it sends one per TLS session, ever).
+                                      Dim t As New Thread(
+                                          Sub()
+                                              RigControl.RefreshRemoteRadios()
+                                              Tracing.TraceLine("StartRemoteRefresh: calling onComplete", TraceLevel.Info)
+                                              onComplete?.Invoke(RigControl.IsSmartLinkSessionLive)
+                                              Tracing.TraceLine("StartRemoteRefresh: onComplete returned", TraceLevel.Info)
+                                          End Sub)
+                                      t.IsBackground = True
+                                      t.SetApartmentState(ApartmentState.STA)
+                                      t.Name = "SmartLink"
+                                      t.Start()
+                                  End Sub,
             .SaveAutoConnectSettings = Sub(serial, radioName, isRemote, lowBW, enabled)
                                            Dim opName = PersonalData.UniqueOpName(CurrentOp)
                                            Dim cfg = Radios.AutoConnectConfig.Load(BaseConfigDir, opName)

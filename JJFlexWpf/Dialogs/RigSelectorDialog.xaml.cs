@@ -108,6 +108,20 @@ namespace JJFlexWpf.Dialogs
         /// this setting adds radios, it never subtracts.
         /// </summary>
         public bool AutoStartRemote { get; init; }
+
+        /// <summary>
+        /// Refresh the remote radio list by cycling the SmartLink session
+        /// (the server sends the list once per session, so a real refresh
+        /// needs a fresh one). When wired, the Remote button morphs into
+        /// "Refresh Remote List" after a successful remote pass.
+        /// </summary>
+        public Action<Action<bool>>? StartRemoteRefresh { get; init; }
+
+        /// <summary>Register for radio-removed events (serial, name) — WAN radios that vanished from a fresh list.</summary>
+        public Action<Action<string, string>>? RegisterRadioRemoved { get; init; }
+
+        /// <summary>Unregister from radio-removed events.</summary>
+        public Action? UnregisterRadioRemoved { get; init; }
     }
 
     public partial class RigSelectorDialog : JJFlexDialog
@@ -160,6 +174,7 @@ namespace JJFlexWpf.Dialogs
 
             // Register for radio discovery events
             _callbacks.RegisterRadioFound(OnRadioFound);
+            _callbacks.RegisterRadioRemoved?.Invoke(OnRadioRemoved);
 
             // Start local discovery
             _callbacks.StartLocalDiscovery();
@@ -276,6 +291,32 @@ namespace JJFlexWpf.Dialogs
                 }
 
                 RefreshRadiosList();
+            });
+        }
+
+        private void OnRadioRemoved(string serial, string name)
+        {
+            Dispatcher.Invoke(() =>
+            {
+                bool removed;
+                lock (_radiosLock)
+                {
+                    removed = _radiosList.RemoveAll(r => r.Serial == serial) > 0;
+                }
+                if (!removed) return;
+
+                bool hadKeyboard = RadiosBox.IsKeyboardFocusWithin;
+                RefreshRadiosList();
+                // If the vanished row was the selection, RefreshRadiosList had
+                // nothing to restore — don't leave a keyboard user floating
+                // over no row.
+                if (RadiosBox.SelectedIndex < 0 && RadiosBox.Items.Count > 0)
+                {
+                    RadiosBox.SelectedIndex = 0;
+                    if (hadKeyboard) FocusRadioList();
+                }
+                var who = string.IsNullOrWhiteSpace(name) ? "A radio" : name;
+                _callbacks.ScreenReaderSpeak?.Invoke($"{who} went offline.", false);
             });
         }
 
@@ -471,50 +512,63 @@ namespace JJFlexWpf.Dialogs
         /// <summary>True while a Remote discovery pass is running.</summary>
         private bool _remoteDiscoveryInFlight;
 
-        /// <summary>When the last Remote discovery pass completed (UTC).</summary>
-        private DateTime _remoteDiscoveryCompletedUtc = DateTime.MinValue;
+        /// <summary>
+        /// True once a remote pass has succeeded (SmartLink session live).
+        /// From then on the Remote button is "Refresh Remote List": with a
+        /// live session, re-running discovery can never yield anything new —
+        /// the server sends the radio list once per TLS session — so the only
+        /// meaningful repeat action is a session-cycling refresh. No timer:
+        /// "listed" is a state, not a five-second window (Noel, 2026-08-06).
+        /// </summary>
+        private bool _remoteListLive;
 
         private void RemoteButton_Click(object sender, RoutedEventArgs e)
         {
             StartRemoteFlow();
         }
 
+        /// <summary>
+        /// Morph the Remote button into Refresh Remote List — same button,
+        /// same spot, same Alt+R, new job. One control renaming itself keeps
+        /// the tab order stable and announces its own state change on the
+        /// next focus visit; hiding one button and showing another moves the
+        /// floor under a keyboard user.
+        /// </summary>
+        private void MorphRemoteToRefresh()
+        {
+            if (_remoteListLive) return;
+            _remoteListLive = true;
+            if (_callbacks.StartRemoteRefresh == null) return;
+            RemoteButton.Content = "_Refresh Remote List";
+            System.Windows.Automation.AutomationProperties.SetName(RemoteButton,
+                "Refresh Remote List. Reconnects to SmartLink and looks again, picking up radios that came online since.");
+            _callbacks.ScreenReaderSpeak?.Invoke("The Remote button is now Refresh Remote List.", false);
+        }
+
         private void StartRemoteFlow()
         {
-            // Re-entry guards (2026-08-06, trace 164250): a stray keypress
-            // right after discovery completes used to re-run the whole flow —
-            // list flicker, a redundant re-registration the SmartLink server
-            // answers with "Invalid state for application registration", and
-            // a ~15s detour for the user. A live, fresh result doesn't need
-            // re-discovering; just put the user back on the list.
             if (_remoteDiscoveryInFlight)
             {
                 _callbacks.ScreenReaderSpeak?.Invoke("Remote discovery is already running.", false);
                 return;
             }
-            bool haveRemoteRadios;
-            lock (_radiosLock)
-            {
-                haveRemoteRadios = _radiosList.Exists(r => r.IsRemote);
-            }
-            if (haveRemoteRadios
-                && (DateTime.UtcNow - _remoteDiscoveryCompletedUtc) < TimeSpan.FromSeconds(5))
-            {
-                _callbacks.ScreenReaderSpeak?.Invoke("Remote radios already listed.", false);
-                FocusRadioList();
-                return;
-            }
 
+            bool refreshing = _remoteListLive && _callbacks.StartRemoteRefresh != null;
             _remoteDiscoveryInFlight = true;
 
             // Show WinForms connecting window to hold focus while SmartLink auth runs.
-            _closeConnecting = _callbacks.ShowConnecting?.Invoke("Connecting to SmartLink...");
+            _closeConnecting = _callbacks.ShowConnecting?.Invoke(
+                refreshing ? "Refreshing remote radios..." : "Connecting to SmartLink...");
 
-            _callbacks.StartRemoteDiscovery((success) =>
+            var start = refreshing ? _callbacks.StartRemoteRefresh! : _callbacks.StartRemoteDiscovery;
+            start((success) =>
             {
                 // Called from SmartLink thread when discovery completes.
                 _remoteDiscoveryInFlight = false;
-                _remoteDiscoveryCompletedUtc = DateTime.UtcNow;
+                if (success)
+                {
+                    Dispatcher.BeginInvoke(() => MorphRemoteToRefresh());
+                }
                 // Close ConnectingForm first.
                 if (_closeConnecting != null)
                 {
@@ -802,6 +856,7 @@ namespace JJFlexWpf.Dialogs
         {
             _autoConnectTimer.Stop();
             _callbacks.UnregisterRadioFound();
+            _callbacks.UnregisterRadioRemoved?.Invoke();
         }
     }
 }

@@ -59,7 +59,7 @@
                       AutomationProperties.AcceleratorKey="Alt+L"
                       Checked="LowBWCheckBox_Changed"
                       Unchecked="LowBWCheckBox_Changed"/>
-            <Button Content="_Remote" MinWidth="100" Height="28" Margin="0,0,0,8"
+            <Button x:Name="RemoteButton" Content="_Remote" MinWidth="100" Height="28" Margin="0,0,0,8"
                     AutomationProperties.Name="Remote"
                     AutomationProperties.AcceleratorKey="Alt+R"
                     Click="RemoteButton_Click"/>
