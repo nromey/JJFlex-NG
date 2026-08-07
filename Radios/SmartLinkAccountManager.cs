@@ -193,6 +193,35 @@ namespace Radios
         }
 
         /// <summary>
+        /// Start fresh with SmartLink (QB Track A, 2026-08-07): clear the
+        /// sign-in tokens of EVERY saved account in one move — the button
+        /// version of the "delete SmartLinkAccounts.json" recovery Noel used
+        /// to talk testers through by hand, minus losing the accounts and
+        /// their settings (names, ports, connection modes all survive).
+        /// Returns the number of accounts whose sign-in was cleared.
+        /// </summary>
+        public int ResetAllSignIns()
+        {
+            int cleared = 0;
+            foreach (var account in _accounts)
+            {
+                if (string.IsNullOrEmpty(account.IdToken)
+                    && string.IsNullOrEmpty(account.RefreshToken)
+                    && account.ExpiresAt == DateTime.MinValue)
+                {
+                    continue; // already clean
+                }
+                account.IdToken = string.Empty;
+                account.RefreshToken = string.Empty;
+                account.ExpiresAt = DateTime.MinValue;
+                cleared++;
+            }
+            if (cleared > 0) SaveAccounts();
+            Tracing.TraceLine($"ResetAllSignIns: cleared tokens for {cleared} of {_accounts.Count} account(s)", TraceLevel.Info);
+            return cleared;
+        }
+
+        /// <summary>
         /// Gets an account by friendly name.
         /// </summary>
         public SmartLinkAccount? GetAccountByName(string friendlyName)

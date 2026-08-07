@@ -65,6 +65,14 @@ namespace JJFlexWpf.Dialogs
         /// </summary>
         public Action<string, bool>? SetAutoStartRemote { get; init; }
 
+        /// <summary>
+        /// Start fresh with SmartLink: clear the saved sign-in for EVERY
+        /// account, returning how many were cleared. The dialog follows a
+        /// successful clear by requesting a clean sign-in (NewLoginRequested).
+        /// Optional; the button hides when not wired. QB Track A, 2026-08-07.
+        /// </summary>
+        public Func<int>? StartFreshAllAccounts { get; init; }
+
         /// <summary>Screen reader speak delegate (message, interrupt).</summary>
         public Action<string, bool>? ScreenReaderSpeak { get; init; }
     }
@@ -131,7 +139,13 @@ namespace JJFlexWpf.Dialogs
                 ? Visibility.Visible : Visibility.Collapsed;
             ResetSignInButton.IsEnabled = hasSelection && _callbacks.ResetAccountSignIn != null;
 
-            // Same hide-when-unwired rule as Reset Sign-In.
+            // Same hide-when-unwired rule as Reset Sign-In. Start Fresh works
+            // on the whole list, so it needs accounts, not a selection.
+            StartFreshButton.Visibility = _callbacks.StartFreshAllAccounts != null
+                ? Visibility.Visible : Visibility.Collapsed;
+            StartFreshButton.IsEnabled = _callbacks.StartFreshAllAccounts != null
+                && AccountListBox.Items.Count > 0;
+
             AutoStartRemoteCheck.Visibility = _callbacks.SetAutoStartRemote != null
                 ? Visibility.Visible : Visibility.Collapsed;
             AutoStartRemoteCheck.IsEnabled = hasSelection && _callbacks.SetAutoStartRemote != null;
@@ -278,6 +292,44 @@ namespace JJFlexWpf.Dialogs
             {
                 _callbacks.ScreenReaderSpeak?.Invoke("Could not reset the sign-in. See the trace file.", true);
             }
+        }
+
+        private void StartFreshButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (_callbacks.StartFreshAllAccounts == null) return;
+
+            int count = AccountListBox.Items.Count;
+            string accountsWord = count == 1 ? "account" : $"{count} accounts";
+            var result = MessageBox.Show(
+                $"Start fresh with SmartLink?\n\n" +
+                $"This clears the saved sign-in for your {accountsWord} on this computer " +
+                "and then opens a clean sign-in form. " +
+                "The accounts themselves stay in your list with all their settings — " +
+                "names, port choices, and connection modes are kept. " +
+                "Only the stored login data is removed, so each account will ask for " +
+                "its password again the next time you connect.\n\n" +
+                "Use this when SmartLink sign-in has stopped working and resetting " +
+                "a single account hasn't helped.",
+                "Start Fresh with SmartLink",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question,
+                MessageBoxResult.No);
+
+            if (result != MessageBoxResult.Yes) return;
+
+            int cleared = _callbacks.StartFreshAllAccounts();
+            LoadAccounts();
+            _callbacks.ScreenReaderSpeak?.Invoke(
+                $"Sign-in cleared for {(cleared == 1 ? "1 account" : cleared + " accounts")}. Opening a clean sign-in.",
+                true);
+
+            // Force the clean native sign-in through the same door as New
+            // Login — the caller's loop opens the native form and returns
+            // here afterwards.
+            SelectedAccountData = null;
+            NewLoginRequested = true;
+            DialogResult = true;
+            Close();
         }
 
         private void DeleteButton_Click(object sender, RoutedEventArgs e)

@@ -3381,6 +3381,11 @@ public partial class MainWindow : UserControl
                 RenameAccount = (oldName, newName) => mgr.RenameAccount(oldName, newName),
                 DeleteAccount = (name) => { mgr.DeleteAccount(name); },
                 ResetAccountSignIn = (name) => mgr.ResetAccountSignIn(name),
+                // Start Fresh goes through the SAME shared manager as Reset
+                // Sign-In — a private manager instance is how Reset Sign-In
+                // got silently undone on 2026-08-06 (the rig's in-memory
+                // tokens re-saved themselves over the on-disk clear).
+                StartFreshAllAccounts = () => mgr.ResetAllSignIns(),
                 SetAutoStartRemote = (name, enabled) =>
                 {
                     var acct = mgr.Accounts.FirstOrDefault(a =>
