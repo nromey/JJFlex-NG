@@ -885,6 +885,12 @@ Module globals
         ' was inert exactly where it mattered.
         Radios.RadioConfig.BaseDirectory = BaseConfigDir
 
+        ' Where radioConnectionCacheV1.xml lives - the same folder FlexBase gets
+        ' as OpenParms.ConfigDirectory. Set here for the same reason as the line
+        ' above: the radio selector reads the roster before any radio window
+        ' exists, so it cannot wait for radio wiring to hand it a path.
+        Radios.KnownRadioRoster.CacheDirectory = BaseConfigDir & "\Radios"
+
         ' Audio device selection file name.
         AudioDevicesFile = BaseConfigDir & "\" & audioDevicesBasename
 
@@ -2350,11 +2356,16 @@ Module globals
 
     Private Sub wpfRadioFoundHandler(sender As Object, e As FlexBase.RigData)
         Tracing.TraceLine("wpfRadioFoundHandler:" & e.Serial, TraceLevel.Info)
+        ' Both homes, not one verdict. IsRemote is now derived from these two
+        ' flags plus the operator's path choice, so a radio that is on the LAN
+        ' and registered with SmartLink no longer has its remote identity
+        ' thrown away by whichever announcement arrived last.
         Dim item As New JJFlexWpf.Dialogs.RadioListItem() With {
             .Serial = e.Serial,
             .Name = e.Name,
             .ModelName = e.ModelName,
-            .IsRemote = e.Remote,
+            .LanAvailable = e.LanAvailable,
+            .WanAvailable = e.WanAvailable,
             .RigData = e
         }
         _wpfRadioFoundCallback?.Invoke(item)
@@ -2373,6 +2384,47 @@ Module globals
     ''' default. Empty = no override.
     ''' </summary>
     Private SessionSmartLinkEmail As String = ""
+
+    ''' <summary>
+    ''' The SmartLink account setupRemote would actually use, resolved the same
+    ''' way ShowAccountSelector resolves it: a lone saved account wins outright,
+    ''' then the session "Use Now" override, then the saved default. Nothing
+    ''' resolves when several accounts exist and none has been chosen — that is
+    ''' the case where the account picker appears, and pretending otherwise
+    ''' would let the selector name an account the connect never uses.
+    ''' Re-read on every call so the account manager's changes are visible
+    ''' while the selector is still open.
+    ''' </summary>
+    Friend Function ResolveSmartLinkAccount() As Radios.SmartLinkAccount
+        Dim slAccounts = Radios.FlexBase.SharedAccountManager.Accounts
+        If slAccounts.Count = 0 Then Return Nothing
+        If slAccounts.Count = 1 Then Return slAccounts(0)
+
+        If Not String.IsNullOrEmpty(SessionSmartLinkEmail) Then
+            Dim sessAcct = slAccounts.FirstOrDefault(Function(a) a.Email.Equals(SessionSmartLinkEmail, StringComparison.OrdinalIgnoreCase))
+            If sessAcct IsNot Nothing Then Return sessAcct
+        End If
+
+        Dim opName = PersonalData.UniqueOpName(CurrentOp)
+        Dim cfg = Radios.AutoConnectConfig.Load(BaseConfigDir, opName)
+        If Not String.IsNullOrEmpty(cfg.SmartLinkAccountEmail) Then
+            Return slAccounts.FirstOrDefault(Function(a) a.Email.Equals(cfg.SmartLinkAccountEmail, StringComparison.OrdinalIgnoreCase))
+        End If
+        Return Nothing
+    End Function
+
+    ''' <summary>
+    ''' Saved-account count plus the account in play, for the radio selector's
+    ''' account button, its accessible name, and the readable account line.
+    ''' </summary>
+    Friend Function ResolveSmartLinkAccountState() As JJFlexWpf.Dialogs.SmartLinkAccountState
+        Dim acct = ResolveSmartLinkAccount()
+        Return New JJFlexWpf.Dialogs.SmartLinkAccountState() With {
+            .Count = Radios.FlexBase.SharedAccountManager.Accounts.Count,
+            .Email = If(acct?.Email, ""),
+            .FriendlyName = If(acct?.FriendlyName, "")
+        }
+    End Function
 
     Private Sub wpfSelectorProc(initialCall As Boolean)
         RigControl = New FlexBase(OpenParms)
@@ -2483,20 +2535,8 @@ Module globals
         ' override → saved default), and honor its AutoStartRemote flag.
         ' Ambiguous cases (multiple accounts, nothing resolved) would show
         ' the account picker anyway, so they never auto-start.
-        Dim autoStartRemote As Boolean = False
-        Dim slAccounts = Radios.FlexBase.SharedAccountManager.Accounts
-        Dim resolvedAcct As Radios.SmartLinkAccount = Nothing
-        If slAccounts.Count = 1 Then
-            resolvedAcct = slAccounts(0)
-        ElseIf slAccounts.Count > 1 Then
-            If Not String.IsNullOrEmpty(SessionSmartLinkEmail) Then
-                resolvedAcct = slAccounts.FirstOrDefault(Function(a) a.Email.Equals(SessionSmartLinkEmail, StringComparison.OrdinalIgnoreCase))
-            End If
-            If resolvedAcct Is Nothing AndAlso Not String.IsNullOrEmpty(autoConfig.SmartLinkAccountEmail) Then
-                resolvedAcct = slAccounts.FirstOrDefault(Function(a) a.Email.Equals(autoConfig.SmartLinkAccountEmail, StringComparison.OrdinalIgnoreCase))
-            End If
-        End If
-        autoStartRemote = resolvedAcct IsNot Nothing AndAlso resolvedAcct.AutoStartRemote
+        Dim resolvedAcct As Radios.SmartLinkAccount = ResolveSmartLinkAccount()
+        Dim autoStartRemote As Boolean = resolvedAcct IsNot Nothing AndAlso resolvedAcct.AutoStartRemote
         If autoStartRemote Then
             Tracing.TraceLine($"wpfSelectorProc: remote-first startup for account '{resolvedAcct.FriendlyName}' ({resolvedAcct.Email})", TraceLevel.Info)
         End If
@@ -2593,7 +2633,9 @@ Module globals
                                   Return Sub() frm.CloseForm()
                               End Function,
             .ShowSmartLinkAccountManager = Sub() WpfMainWindow.ShowSmartLinkAccountManager(),
-            .AutoStartRemote = autoStartRemote
+            .AutoStartRemote = autoStartRemote,
+            .GetRadioAvailability = Function(serial) RigControl.RadioAvailability(serial),
+            .GetSmartLinkAccountState = Function() ResolveSmartLinkAccountState()
         }
 
         ' Wire the save-default delegate so ShowSmartLinkAccountManager can persist the selection
@@ -2645,13 +2687,17 @@ Module globals
             Dim serial = dialog.SelectedSerial
             Dim lowBW = dialog.SelectedLowBW
             Dim isRemote = dialog.SelectedIsRemote
+            ' Set only when the operator explicitly chose SmartLink for a radio
+            ' that is ALSO on the local network. The connect layer must not
+            ' quietly substitute the LAN path underneath that choice.
+            Dim preferWan = dialog.SelectedPreferRemotePath
             Dim connectOk As Boolean
 
-            Tracing.TraceLine($"wpfSelectorProc: connecting {serial} lowBW={lowBW} remote={isRemote}", TraceLevel.Info)
+            Tracing.TraceLine($"wpfSelectorProc: connecting {serial} lowBW={lowBW} remote={isRemote} preferWanPath={preferWan}", TraceLevel.Info)
             Radios.ConnectionProfiler.Current?.RecordEvent("connect_call_begin")
 
             If isRemote Then
-                connectOk = RigControl.ReconnectRemote(serial, lowBW)
+                connectOk = RigControl.ReconnectRemote(serial, lowBW, forceWanPath:=preferWan)
             Else
                 ' Local radio: discovery already happened in the RigSelector dialog.
                 ' Just connect directly.

@@ -55,6 +55,67 @@ namespace Radios.DiscoveryChain
             }
         }
 
+        /// <summary>
+        /// Remember the radio list a SmartLink account last returned, so the
+        /// selector can PAINT that account's radios the instant it opens
+        /// instead of showing an empty box for the seconds a TLS session takes.
+        ///
+        /// <para>This is a fast paint, never an authority: entries recorded here
+        /// carry <see cref="AccountRadioListEntry.FetchedUtc"/> so the UI can
+        /// say "last known radios for &lt;account&gt;, refreshing" and age-announce
+        /// stale ones. Nothing may be CONNECTED to from this record without a
+        /// live fetch in flight — provenance beats TTL, and a cached row that
+        /// pretends to be live is exactly the lie this project does not tell.</para>
+        ///
+        /// <para>Stored in the same file rather than a second store, as an
+        /// additional top-level element. XmlSerializer ignores elements it does
+        /// not know, so a 4.2-line build reading this file skips
+        /// <c>AccountLists</c> and the per-radio Entries schema stays parity-locked.</para>
+        /// </summary>
+        public void RecordAccountRadioList(string accountEmail, IEnumerable<Radio> radios)
+        {
+            if (string.IsNullOrWhiteSpace(accountEmail)) return;
+            if (radios == null) return;
+
+            lock (_sync)
+            {
+                var entry = _data.AccountLists.FirstOrDefault(a =>
+                    string.Equals(a.AccountEmail, accountEmail, StringComparison.OrdinalIgnoreCase));
+                if (entry == null)
+                {
+                    entry = new AccountRadioListEntry { AccountEmail = accountEmail };
+                    _data.AccountLists.Add(entry);
+                }
+
+                entry.FetchedUtc = DateTime.UtcNow;
+                entry.Radios = radios
+                    .Where(r => r != null && !string.IsNullOrWhiteSpace(r.Serial))
+                    .Select(r => new CachedRadioListItem
+                    {
+                        Serial = r.Serial,
+                        Nickname = r.Nickname ?? "",
+                        Model = r.Model ?? "",
+                    })
+                    .ToList();
+
+                Save();
+            }
+        }
+
+        /// <summary>
+        /// The last radio list seen for this account, or null when the account
+        /// has never completed a SmartLink list pass on this machine.
+        /// </summary>
+        public AccountRadioListEntry LookupAccountRadioList(string accountEmail)
+        {
+            if (string.IsNullOrWhiteSpace(accountEmail)) return null;
+            lock (_sync)
+            {
+                return _data.AccountLists.FirstOrDefault(a =>
+                    string.Equals(a.AccountEmail, accountEmail, StringComparison.OrdinalIgnoreCase));
+            }
+        }
+
         public void RecordConnectedRadio(Radio radio)
         {
             if (radio == null || string.IsNullOrEmpty(radio.Serial)) return;
@@ -155,6 +216,36 @@ namespace Radios.DiscoveryChain
     public sealed class RadioConnectionCacheFile
     {
         public List<RadioConnectionCacheEntry> Entries { get; set; } = new();
+
+        /// <summary>
+        /// Per-SmartLink-account radio lists (queue-burn Track E). Additive:
+        /// older readers ignore the element, older files deserialize to an
+        /// empty list. Do NOT fold these into <see cref="Entries"/> — Entries
+        /// is schema-parity-locked with the 4.2 discovery cascade.
+        /// </summary>
+        public List<AccountRadioListEntry> AccountLists { get; set; } = new();
+    }
+
+    /// <summary>
+    /// One SmartLink account's last known radio list, with the timestamp that
+    /// makes its age announceable. LOCAL ONLY, like the WAN fields above: the
+    /// account email is personally identifying and never leaves the machine.
+    /// </summary>
+    public sealed class AccountRadioListEntry
+    {
+        public string AccountEmail { get; set; } = "";
+        public DateTime FetchedUtc { get; set; }
+        public List<CachedRadioListItem> Radios { get; set; } = new();
+    }
+
+    /// <summary>One radio as it appeared in a cached account list. Deliberately
+    /// display-only — no addresses, ports, or handles, because nothing here may
+    /// ever be used to open a connection.</summary>
+    public sealed class CachedRadioListItem
+    {
+        public string Serial { get; set; } = "";
+        public string Nickname { get; set; } = "";
+        public string Model { get; set; } = "";
     }
 
     public sealed class RadioConnectionCacheEntry
