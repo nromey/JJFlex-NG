@@ -962,7 +962,8 @@ public class NativeMenuBar : IDisposable
         AddSep(parent);
 
         // --- Monitor ---
-        AddChecked(parent, "&TX Monitor", () =>
+        // Mnemonic O — "&TX Antenna" above owns T in this menu.
+        AddChecked(parent, "TX M&onitor", () =>
             ToggleDSP("TX Monitor", () => Rig.Monitor, v => Rig.Monitor = v),
             () => Rig?.Monitor == FlexBase.OffOnValues.on);
         AddWired(parent, "Monitor Level Up", () =>
