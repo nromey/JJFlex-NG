@@ -5834,8 +5834,24 @@ namespace Radios
                 int ct;
                 lock (mySlices)
                 {
-                    mySlices.Add(slc);
+                    // The letter is the identity (QB Track J): keep mySlices
+                    // sorted by radio slice index so position order always
+                    // equals letter order, no matter what order slices were
+                    // created or re-created in. Capture the current RX/TX
+                    // slice OBJECTS first — inserting below them shifts their
+                    // positions, and a stored position is only valid for one
+                    // roster generation.
+                    Slice rxSlice = ((_RXVFO >= 0) && (_RXVFO < mySlices.Count)) ? mySlices[_RXVFO] : null;
+                    Slice txSlice = ((_TXVFO >= 0) && (_TXVFO < mySlices.Count)) ? mySlices[_TXVFO] : null;
+
+                    int pos = 0;
+                    while ((pos < mySlices.Count) && (mySlices[pos].Index < slc.Index)) pos++;
+                    mySlices.Insert(pos, slc);
                     ct = mySlices.Count;
+
+                    // Re-derive VFO positions from slice identity.
+                    if (rxSlice != null) _RXVFO = mySlices.IndexOf(rxSlice);
+                    if (txSlice != null) _TXVFO = mySlices.IndexOf(txSlice);
                 }
                 Tracing.TraceLine("sliceAdded:mine " + ct.ToString() + ':' + slc.ToString(), TraceLevel.Info);
                 SliceCountChanged?.Invoke();
@@ -5862,31 +5878,40 @@ namespace Radios
                 {
                     lock (mySlices)
                     {
-                        int removedIndex = mySlices.IndexOf(slc);
-                        mySlices.Remove(slc);
+                        // Identity, not position (QB Track J): capture the
+                        // RX/TX slice OBJECTS before mutating, then re-derive
+                        // the stored positions afterwards by following the
+                        // objects to their new positions. A stored position is
+                        // only valid for one roster generation — positional
+                        // decrement arithmetic silently retargets when it's
+                        // stale (Don's intermittent VFO issue, Noel's 8600
+                        // wrong-slice session of 2026-08-07).
+                        Slice rxSlice = ((_RXVFO >= 0) && (_RXVFO < mySlices.Count)) ? mySlices[_RXVFO] : null;
+                        Slice txSlice = ((_TXVFO >= 0) && (_TXVFO < mySlices.Count)) ? mySlices[_TXVFO] : null;
+                        bool removed = mySlices.Remove(slc);
                         ct = mySlices.Count;
 
-                        // Adjust VFO indices: when a slice is removed from the list,
-                        // all indices above it shift down by 1. Without this fix,
-                        // _RXVFO and _TXVFO point to the wrong slice or go out of bounds,
-                        // breaking A/B switching (BUG: Don's intermittent VFO issue).
-                        if (removedIndex >= 0)
+                        if (removed)
                         {
                             int oldRX = _RXVFO;
                             int oldTX = _TXVFO;
 
-                            if (_RXVFO > removedIndex)
-                                _RXVFO--;
-                            else if (_RXVFO == removedIndex)
+                            // Follow the same slice to its new position. If the
+                            // RX/TX slice itself went away, fall back to the
+                            // first remaining slice (lowest letter), matching
+                            // the prior behavior.
+                            if ((rxSlice != null) && (rxSlice != slc))
+                                _RXVFO = mySlices.IndexOf(rxSlice);
+                            else if (_RXVFO != noVFO)
                                 _RXVFO = (ct > 0) ? 0 : noVFO;
 
-                            if (_TXVFO > removedIndex)
-                                _TXVFO--;
-                            else if (_TXVFO == removedIndex)
+                            if ((txSlice != null) && (txSlice != slc))
+                                _TXVFO = mySlices.IndexOf(txSlice);
+                            else if (_TXVFO != noVFO)
                                 _TXVFO = (ct > 0) ? 0 : noVFO;
 
                             if (_RXVFO != oldRX || _TXVFO != oldTX)
-                                Tracing.TraceLine($"sliceRemoved:VFO adjust removedIdx={removedIndex} RXVFO {oldRX}→{_RXVFO} TXVFO {oldTX}→{_TXVFO}", TraceLevel.Info);
+                                Tracing.TraceLine($"sliceRemoved:VFO re-derive RXVFO {oldRX}→{_RXVFO} TXVFO {oldTX}→{_TXVFO}", TraceLevel.Info);
                         }
                     }
                     mySliceRemoved = true;
@@ -6442,7 +6467,13 @@ namespace Radios
 
         #endregion
 
-        // a VFO is really a slice index.
+        // A "VFO" is a POSITION in mySlices. The list is kept sorted by radio
+        // slice index (see sliceAdded), so position order always equals letter
+        // order. Positions still shift when the roster changes — never store a
+        // VFO across an add/remove; re-derive it from the Slice object (the
+        // letter is the identity). Letter-addressed entry points must resolve
+        // through SliceIndexToVFO / LetterToVFO, never "letter - 'A'"
+        // arithmetic on positions. (QB Track J)
         internal Slice VFOToSlice(int vfo)
         {
             Slice rv;
@@ -6475,6 +6506,63 @@ namespace Radios
                 Tracing.TraceLine("SliceToVFO:Error", TraceLevel.Error);
             }
             return rv;
+        }
+
+        /// <summary>
+        /// Resolve a RADIO slice index (0 = A, 1 = B, ...) to the VFO position
+        /// of OUR slice carrying that index, or -1 if this client does not own
+        /// a slice with that index. The letter is the identity: radio index n
+        /// is letter ('A' + n) regardless of creation order, so this — not
+        /// positional arithmetic — is the correct door for letter-addressed
+        /// selection. Unlike SliceToVFO, absence is a normal answer here and
+        /// is not traced as an error.
+        /// </summary>
+        public int SliceIndexToVFO(int radioIndex)
+        {
+            lock (mySlices)
+            {
+                for (int i = 0; i < mySlices.Count; i++)
+                {
+                    if (mySlices[i].Index == radioIndex) return i;
+                }
+            }
+            return noVFO;
+        }
+
+        /// <summary>
+        /// Resolve a slice letter ('A'-'H', case-insensitive) to the VFO
+        /// position of our slice with that letter, or -1 if we don't own it.
+        /// </summary>
+        public int LetterToVFO(char letter)
+        {
+            return SliceIndexToVFO(char.ToUpperInvariant(letter) - 'A');
+        }
+
+        /// <summary>
+        /// Radio slice index (identity; 0 = A) of the slice at a VFO position,
+        /// or -1 if the position is invalid. The inverse of SliceIndexToVFO —
+        /// use this to hold a durable reference to a slice across roster
+        /// changes, since positions shift and radio indices don't.
+        /// </summary>
+        public int VFOToSliceIndex(int vfo)
+        {
+            Slice s = VFOToSlice(vfo);
+            return (s != null) ? s.Index : -1;
+        }
+
+        /// <summary>
+        /// True if a slice with this radio index exists on the radio but
+        /// belongs to another client. Lets letter-addressed selection speak an
+        /// honest "in use by another station" instead of "not created".
+        /// </summary>
+        public bool SliceIndexOwnedByOther(int radioIndex)
+        {
+            if (theRadio == null) return false;
+            foreach (Slice s in theRadio.SliceList)
+            {
+                if (s.Index == radioIndex) return !myClient(s.ClientHandle);
+            }
+            return false;
         }
 
         /// <summary>
