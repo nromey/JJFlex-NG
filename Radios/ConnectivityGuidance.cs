@@ -42,6 +42,17 @@ namespace Radios
         SessionSetupFailed,
         /// <summary>SmartLink rejected our authorization — the one class where a sign-in form is the right medicine.</summary>
         AuthenticationFailed,
+        /// <summary>
+        /// JJ Flex refused to attempt the connect at all (e.g. Track C's
+        /// ForwardOnly profile fail-fast: the radio needs hole punch but the
+        /// per-radio profile forbids it). MERGE SEAM (Track C → Track D):
+        /// Track C sets a string LastConnectFailureAdvice on this path; at
+        /// merge, that assignment becomes
+        /// RecordConnectFailure(new ConnectFailureReport { Class = PreflightRefused,
+        /// SpokenSummary = &lt;C's text&gt; }) and D's computed
+        /// LastConnectFailureAdvice property owns the name.
+        /// </summary>
+        PreflightRefused,
         /// <summary>SmartLink accepted the connect request but the radio never reported ready.</summary>
         RemoteHandshakeFailed,
         /// <summary>TCP to the radio's public port was actively refused — the router answered, nothing behind the rule.</summary>

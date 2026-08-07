@@ -2415,6 +2415,11 @@ Module globals
                 ' including the verbatim router rule when the evidence points
                 ' at the router. Bare "Connection failed" only when the report
                 ' is genuinely absent.
+                ' MERGE SEAM (Track C -> Track D): Track C's branch has a
+                ' placeholder consumer of LastConnectFailureAdvice at this same
+                ' site (its ForwardOnly fail-fast). At merge, keep THIS block --
+                ' it is a superset: D's computed property carries C's
+                ' pre-attempt refusal as ConnectFailureClass.PreflightRefused.
                 Dim advice = RigControl.LastConnectFailureAdvice
                 Dim failMsg = If(String.IsNullOrEmpty(advice), "Connection failed", "Connection failed. " & advice)
                 Radios.ScreenReaderOutput.Speak(failMsg, VerbosityLevel.Critical, True)

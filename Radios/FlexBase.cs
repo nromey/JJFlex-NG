@@ -52,8 +52,22 @@ namespace Radios
         Success,
         /// <summary>Session connected and registered successfully, but the server reported zero radios for this account. Don't retry — the remote rigs are simply off.</summary>
         NoRadios,
-        /// <summary>Session failed to connect, register, or returned an error. Caller may retry with a fresh login.</summary>
-        ConnectFailed
+        /// <summary>
+        /// Session failed at the transport / server level: TLS connect timed
+        /// out, the radio list never came on a fresh session, or an exception
+        /// fired. The user's SIGN-IN is not implicated — QB Track D: a retry
+        /// (session cycle) is fair medicine, an interactive login form is not.
+        /// Treating every one of these as auth-shaped is what used to summon
+        /// pointless sign-in forms over healthy accounts.
+        /// </summary>
+        ConnectFailed,
+        /// <summary>
+        /// SmartLink explicitly rejected our authorization (session status
+        /// AuthorizationExpired before or during registration). This is the
+        /// ONE failure class where re-authentication — silent JWT refresh
+        /// first, interactive login as last resort — is the right medicine.
+        /// </summary>
+        AuthFailed
     }
 
     /// <summary>
@@ -1328,8 +1342,26 @@ namespace Radios
                             VerbosityLevel.Critical, true);
                     }
                 }
+                else if (connectResult == SmartLinkConnectResult.AuthFailed)
+                {
+                    // QB Track D: auto-connect deliberately never pops a login
+                    // form (it runs before the user has touched anything), but
+                    // it can at least say that sign-in — not the network — is
+                    // what needs attention.
+                    RecordConnectFailure(new ConnectFailureReport
+                    {
+                        Class = ConnectFailureClass.AuthenticationFailed,
+                        SpokenSummary = $"SmartLink did not accept the saved sign-in for {config.SmartLinkAccountEmail}. Connect with the Remote button to sign in again.",
+                    });
+                    if (!SuppressSpeech) ScreenReaderOutput.Speak("SmartLink sign-in was not accepted. Use the Remote button to sign in again.", VerbosityLevel.Critical, true);
+                }
                 else
                 {
+                    RecordConnectFailure(new ConnectFailureReport
+                    {
+                        Class = ConnectFailureClass.SessionSetupFailed,
+                        SpokenSummary = "Could not reach the SmartLink server. Your sign-in is fine — check your internet connection and try again.",
+                    });
                     if (!SuppressSpeech) ScreenReaderOutput.Speak("SmartLink connection failed", VerbosityLevel.Critical, true);
                 }
                 return false;
@@ -2515,6 +2547,17 @@ namespace Radios
         /// The speakable form of <see cref="LastConnectFailureReport"/> —
         /// summary sentence(s) plus the verbatim router rule when the
         /// evidence points at the router. Null when there is nothing to say.
+        ///
+        /// MERGE SEAM (Track C → Track D, 2026-08-07): Track C's branch
+        /// carries a string property of this same name, set only on its
+        /// ForwardOnly pre-attempt fail-fast and cleared at Connect() /
+        /// sendRemoteConnect() entry. At merge, THIS computed property owns
+        /// the name; C's assignment sites become
+        /// RecordConnectFailure(new ConnectFailureReport {
+        ///   Class = ConnectFailureClass.PreflightRefused,
+        ///   SpokenSummary = &lt;C's message text&gt; }).
+        /// The Connect()-entry reset already exists here; add the same
+        /// reset at sendRemoteConnect() entry if C's contract requires it.
         /// </summary>
         public string? LastConnectFailureAdvice => LastConnectFailureReport?.ComposeSpeech();
 
@@ -3807,7 +3850,7 @@ namespace Radios
                 goto setupRemoteDone;
             }
 
-            // First medicine for ConnectFailed: cycle the WAN session and retry
+            // First medicine for any failure: cycle the WAN session and retry
             // with the CURRENT sign-in. Most non-auth failures here are the
             // pre-existing-session trap — the server sends the radio list once
             // per TLS session, so a re-entered connect over a live session can
@@ -3815,10 +3858,13 @@ namespace Radios
             // old response of popping an interactive login on a healthy account
             // was wrong medicine (Noel, 2026-08-06, trace 203418). Refresh the
             // JWT silently when we hold an account (id_tokens live 60 seconds;
-            // native-lineage refresh takes ~250ms and no UI).
-            if (connectResult == SmartLinkConnectResult.ConnectFailed)
+            // native-lineage refresh takes ~250ms and no UI). The same cheap
+            // silent pair is also the right FIRST medicine for AuthFailed — an
+            // expired id_token refreshes without any form.
+            if (connectResult == SmartLinkConnectResult.ConnectFailed
+                || connectResult == SmartLinkConnectResult.AuthFailed)
             {
-                Tracing.TraceLine($"setupRemote: connect failed; cycling WAN session and retrying with current sign-in ({sw.ElapsedMilliseconds}ms)", TraceLevel.Warning);
+                Tracing.TraceLine($"setupRemote: {connectResult}; cycling WAN session and retrying with current sign-in ({sw.ElapsedMilliseconds}ms)", TraceLevel.Warning);
                 CycleWanSession("connect failed — possible stale pre-existing session");
                 if (_currentAccount != null)
                 {
@@ -3843,14 +3889,18 @@ namespace Radios
                 }
             }
 
-            // Only retry the fresh-login path for real connection failures. Sending
-            // a fresh login + ReRegister to an already-registered session triggers
-            // "Invalid state for application registration" from the server, which the
-            // dispatcher can't parse — we'd just sit waiting for a radio list that
-            // will never arrive.
-            if (connectResult == SmartLinkConnectResult.ConnectFailed)
+            // QB Track D (item 6): the interactive sign-in form is the LAST
+            // resort, and only for failures that are actually auth-shaped —
+            // the server said AuthorizationExpired and a silent refresh did
+            // not fix it. Transport/server failures (timeouts, exceptions,
+            // list-never-came) must NOT summon a login form: the account is
+            // healthy, and a form the user cannot fix anything with is worse
+            // than an honest failure. (Also, historically: a fresh login +
+            // ReRegister on an already-registered session triggers "Invalid
+            // state for application registration" and a silent 10s hang.)
+            if (connectResult == SmartLinkConnectResult.AuthFailed)
             {
-                Tracing.TraceLine($"setupRemote: connect failed, performing fresh login ({sw.ElapsedMilliseconds}ms)", TraceLevel.Warning);
+                Tracing.TraceLine($"setupRemote: auth still failing after silent refresh, performing interactive login ({sw.ElapsedMilliseconds}ms)", TraceLevel.Warning);
                 jwt = PerformNewLogin();
                 if (!string.IsNullOrEmpty(jwt))
                 {
@@ -3870,6 +3920,30 @@ namespace Radios
                         }
                     }
                 }
+            }
+
+            // File the classified failure story so callers can speak the
+            // reason itself. AuthFailed and ConnectFailed get different
+            // words because they need different action from the user.
+            if (connectResult == SmartLinkConnectResult.AuthFailed)
+            {
+                RecordConnectFailure(new ConnectFailureReport
+                {
+                    Class = ConnectFailureClass.AuthenticationFailed,
+                    SpokenSummary = "SmartLink did not accept the sign-in for "
+                        + (_currentAccount?.Email ?? "this account")
+                        + ". Signing in again from the SmartLink account manager is the fix.",
+                });
+            }
+            else if (connectResult == SmartLinkConnectResult.ConnectFailed)
+            {
+                RecordConnectFailure(new ConnectFailureReport
+                {
+                    Class = ConnectFailureClass.SessionSetupFailed,
+                    SpokenSummary = "Could not reach the SmartLink server, or it stopped answering. "
+                        + "Your sign-in is fine — this is a network or server problem. "
+                        + "Check your internet connection and try again in a moment.",
+                });
             }
 
             setupRemoteDone:
@@ -4496,7 +4570,7 @@ namespace Radios
                 if (session.Status == Radios.SmartLink.SessionStatus.AuthorizationExpired)
                 {
                     Tracing.TraceLine($"ConnectToSmartLink: session reports AuthorizationExpired; setupRemote handles re-auth ({sw.ElapsedMilliseconds}ms)", TraceLevel.Warning);
-                    return SmartLinkConnectResult.ConnectFailed;
+                    return SmartLinkConnectResult.AuthFailed;
                 }
 
                 Tracing.TraceLine($"ConnectToSmartLink: session connected; ReRegister {API.ProgramName} Win10 jwt={jwt.Substring(0, Math.Min(20, jwt.Length))}... ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
@@ -4551,7 +4625,7 @@ namespace Radios
                 if (session.Status == Radios.SmartLink.SessionStatus.AuthorizationExpired)
                 {
                     Tracing.TraceLine($"ConnectToSmartLink: server rejected JWT during registration ({sw.ElapsedMilliseconds}ms)", TraceLevel.Warning);
-                    return SmartLinkConnectResult.ConnectFailed;
+                    return SmartLinkConnectResult.AuthFailed;
                 }
 
                 Tracing.TraceLine($"ConnectToSmartLink: radio list received! {radios.Count} radio(s), myRadioList has {myRadioList.Count} entries ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
