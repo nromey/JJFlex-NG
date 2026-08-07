@@ -131,6 +131,13 @@ public enum CommandValues
     MuteAllSlices,
     ReleaseAllExtraSlices,
     ToggleBrailleStatus,
+    // QB Track H (2026-08-07) — former hard-wired MainWindow meta-commands,
+    // promoted into the registry so the Keys surface / manifest can see them
+    // and so their chords stop shadowing registry bindings invisibly.
+    ToggleTuningMode,
+    ToggleLoggingMode,
+    ToggleFreqReadout,
+    SpeakRXFilter,
 }
 
 /// <summary>

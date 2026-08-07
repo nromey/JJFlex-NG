@@ -903,6 +903,26 @@ public partial class MainWindow : UserControl
     public Func<System.Windows.Forms.Keys, bool>? DoCommandHandler { get; set; }
 
     /// <summary>
+    /// The live KeyCommands registry instance. Set by ApplicationEvents.vb
+    /// right after the DoCommandHandler wiring. The Keys dialog (Tools →
+    /// Hotkey Editor / Help → Key Assignments) edits bindings through this.
+    /// </summary>
+    public KeyCommands? KeyCommandsRef { get; set; }
+
+    /// <summary>
+    /// Registry handler target for CommandValues.ToggleFreqReadout — toggles
+    /// the frequency speech readout. Radio scope guards the no-radio case in
+    /// dispatch, but keep a spoken fallback for safety.
+    /// </summary>
+    public void ToggleFreqReadoutCommand()
+    {
+        if (_freqOutHandlers != null)
+            _freqOutHandlers.ToggleFreqReadout();
+        else
+            Radios.ScreenReaderOutput.Speak("No radio connected", VerbosityLevel.Critical, true);
+    }
+
+    /// <summary>
     /// Window-level PreviewKeyDown — intercepts ALL keys before child controls.
     /// Replaces Form1.ProcessCmdKey override.
     ///
@@ -934,58 +954,14 @@ public partial class MainWindow : UserControl
         if (rawKey == Key.Tab)
             return;
 
-        // 1. Hard-wired meta-commands (always active, any mode)
-        if (Keyboard.Modifiers == (ModifierKeys.Control | ModifierKeys.Shift))
-        {
-            var key = e.Key == Key.System ? e.SystemKey : e.Key;
-
-            if (key == Key.M)
-            {
-                ToggleUIMode();
-                e.Handled = true;
-                return;
-            }
-
-            if (key == Key.L)
-            {
-                if (ActiveUIMode == UIMode.Logging)
-                    ExitLoggingMode();
-                else
-                    EnterLoggingMode();
-                e.Handled = true;
-                return;
-            }
-
-            if (key == Key.F)
-            {
-                if (_freqOutHandlers != null)
-                    _freqOutHandlers.ToggleFreqReadout();
-                else
-                    Radios.ScreenReaderOutput.Speak("No radio connected", VerbosityLevel.Critical, true);
-                e.Handled = true;
-                return;
-            }
-
-            // Category navigation hotkeys (Ctrl+Shift+N/U/R/X/A) moved to KeyCommands.vb
-            // Sprint 23 Phase 2: Unified hotkey dispatch — all through scope system now
-        }
-
-        // 1b. Alt+Ctrl+F — read current filter values
-        if (Keyboard.Modifiers == (ModifierKeys.Alt | ModifierKeys.Control) && rawKey == Key.F)
-        {
-            if (RigControl != null && _radioPowerOn)
-            {
-                int low = RigControl.FilterLow;
-                int high = RigControl.FilterHigh;
-                Radios.ScreenReaderOutput.Speak($"Filter {low} to {high}", VerbosityLevel.Terse, true);
-            }
-            else
-            {
-                Radios.ScreenReaderOutput.Speak("No radio connected", VerbosityLevel.Critical, true);
-            }
-            e.Handled = true;
-            return;
-        }
+        // 1. Former hard-wired meta-commands (Ctrl+Shift+M tuning mode,
+        // Ctrl+Shift+L logging mode, Ctrl+Shift+F frequency readout, and
+        // Ctrl+Alt+F read filter values) now live in the KeyCommands registry
+        // as ToggleTuningMode / ToggleLoggingMode / ToggleFreqReadout /
+        // SpeakRXFilter — dispatched at step 4 below. QB Track H (2026-08-07):
+        // the hard-wired versions silently shadowed registry bindings on the
+        // same chords (MemoryScan, SpeakFrequency, SearchLog-in-Logging) and
+        // were invisible to the Keys surface and Command Finder.
 
         // 1c. Universal Home keys (M/V/R/X/Q/=) no-radio guard.
         //
