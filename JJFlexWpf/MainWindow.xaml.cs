@@ -2038,14 +2038,18 @@ public partial class MainWindow : UserControl
             return;
         }
 
-        Radios.ScreenReaderOutput.Speak(msg, VerbosityLevel.Critical, true);
-
-        if (ShowErrorCallback != null)
-            ShowErrorCallback(msg, "Error");
-        else
-            System.Windows.MessageBox.Show(msg, "Error", MessageBoxButton.OK);
-
-        CloseRadioCallback?.Invoke();
+        // No dialog here, on purpose (2026-08-06). This fires from inside
+        // Start() while the TopMost Connecting window is still up, so a modal
+        // parked behind it is a question nobody can perceive — with all of
+        // Don's slices in use, the app sat at "Connecting" until Escape
+        // finally unwound the hidden dialog chain. There is also no actual
+        // question to ask: the only move is to back out and let the user
+        // coordinate with whoever has the slices. Speak the reason and step
+        // aside; Start() returns false and the normal failure path
+        // (OpenTheRadio → Abort → CloseTheRadio) tears everything down
+        // promptly. Same reasoning as the round-27 save-prompt removal.
+        Radios.ScreenReaderOutput.Speak($"{msg}. Disconnecting from the radio.",
+            VerbosityLevel.Critical, true);
     }
 
     private void FeatureLicenseChangedHandler(object? sender, EventArgs e)

@@ -1221,6 +1221,8 @@ namespace Radios
                     sliceMsg += " — in use by " + string.Join(", ", others);
                 Tracing.TraceLine("start: couldn't get a slice", TraceLevel.Error);
                 LastStartFailureReason = "No slices available";
+                TraceSessionContext.MarkOutcome(TraceSessionOutcome.SliceUnavailable, sliceMsg);
+                TraceSessionContext.AddKeyEvent("no_slices_available");
                 raiseNoSliceError(sliceMsg);
                 return false;
             }
