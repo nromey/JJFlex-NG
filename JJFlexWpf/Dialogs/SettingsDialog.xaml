@@ -377,6 +377,15 @@
                     <GroupBox Header="Connection mode" Margin="0,0,0,8"
                               AutomationProperties.Name="SmartLink connection mode">
                         <StackPanel Margin="4">
+                            <!-- QB Track C: the tier gate needs its reason on the
+                                 surface (Feature Availability pattern) — a screen
+                                 reader user landing on a disabled Tier 3 with no
+                                 explanation, while owning a radio that can ONLY
+                                 hole punch, was the lived chicken-and-egg. The
+                                 per-radio path is the honest answer for that radio
+                                 and this text is the signpost to it. -->
+                            <TextBlock TextWrapping="Wrap" Margin="0,0,0,4"
+                                       Text="This ladder is your account-wide default, and tiers 2 and 3 unlock only after manual port forwarding above is enabled with a valid port, because they build on it. It cannot describe a radio that has no port forwarding at all. For that — or for any radio that should always hole punch — use the Radios tab: the per-radio setting there outranks this ladder, needs no port-forward setup, and works without a connected radio."/>
                             <RadioButton x:Name="Tier1Radio"
                                          GroupName="ConnectionMode"
                                          Margin="0,4,0,4"

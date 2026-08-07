@@ -365,7 +365,15 @@ namespace JJFlexWpf.Dialogs
 
             if (_rig == null || !_rig.IsConnected)
             {
-                NetworkCurrentStateText.Text = "No radio connected. Connect to a radio to configure port forwarding.";
+                // QB Track C: the connect-first requirement is real for THIS tab —
+                // port forwarding writes radio-persistent firmware state, so it
+                // needs the radio. But it must not read as a dead end: per-radio
+                // connection settings (including hole punch with no port-forward
+                // config at all) live on the Radios tab and work offline.
+                NetworkCurrentStateText.Text =
+                    "No radio connected. Connect to a radio to configure port forwarding. " +
+                    "Per-radio connection settings, including hole punch, are on the Radios tab " +
+                    "and can be edited any time, connected or not.";
                 PortForwardEnabledCheck.IsChecked = false;
                 PortForwardTcpBox.Text = "4992";
                 PortForwardUdpBox.Text = "4992";
