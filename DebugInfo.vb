@@ -171,31 +171,66 @@ Friend Class DebugInfo
     ''' bundle (dev trees and pre-manifest installs are normal).
     ''' </summary>
     Private Shared Function AddInstallVerification(archive As ZipArchive) As String
-        ' The install directory is where the program actually runs from, not
-        ' the process's current directory (the old "." could drift with cwd).
-        Dim installDir As String = AppContext.BaseDirectory
-        Dim live = InstallManifest.BuildLive(installDir)
-        WriteTextEntry(archive, "program-manifest.json", InstallManifest.ToJson(live))
-
         Dim summary As String
-        Dim reportText As String
-        Dim shippedPath As String = Path.Combine(installDir, InstallManifest.ShippedManifestName)
-        If File.Exists(shippedPath) Then
-            ' Ship the known-good manifest itself alongside the live one.
-            ZipUtils.AddFileToArchive(archive, shippedPath, "")
-            Dim known = InstallManifest.Load(shippedPath)
-            Dim result = InstallManifest.Verify(known, live)
-            reportText = InstallManifest.FormatReport(result, known, installDir)
-            If result.DifferenceCount = 0 Then
-                summary = "Install verified clean."
+        Try
+            ' The install directory is where the program actually runs from, not
+            ' the process's current directory (the old "." could drift with cwd).
+            Dim installDir As String = AppContext.BaseDirectory
+            Dim live = InstallManifest.BuildLive(installDir)
+            WriteTextEntry(archive, "program-manifest.json", InstallManifest.ToJson(live))
+
+            Dim reportText As String
+            Dim shippedPath As String = Path.Combine(installDir, InstallManifest.ShippedManifestName)
+            If File.Exists(shippedPath) Then
+                ' Ship the known-good manifest itself alongside the live one.
+                ' Even if it turns out to be unreadable below, the raw bytes
+                ' still belong in the bundle — a damaged manifest is evidence.
+                Try
+                    ZipUtils.AddFileToArchive(archive, shippedPath, "")
+                Catch ex As Exception
+                    Tracing.ErrTraceOnly(ex)
+                End Try
+                Try
+                    Dim known = InstallManifest.Load(shippedPath)
+                    Dim result = InstallManifest.Verify(known, live)
+                    reportText = InstallManifest.FormatReport(result, known, installDir)
+                    If result.DifferenceCount = 0 Then
+                        summary = "Install verified clean."
+                    Else
+                        summary = $"Install verification found {result.DifferenceCount} difference{If(result.DifferenceCount = 1, "", "s")} — see install-verification.txt."
+                    End If
+                Catch ex As Exception
+                    ' The shipped manifest exists but could not be read or
+                    ' parsed. That is a finding, not a fatal error — say so in
+                    ' the report and keep the bundle going.
+                    Tracing.ErrTraceOnly(ex)
+                    reportText = InstallManifest.FormatUnreadableManifestReport(installDir, ex.Message)
+                    summary = "Install could not be checked — the shipped manifest was unreadable. See install-verification.txt."
+                End Try
             Else
-                summary = $"Install verification found {result.DifferenceCount} difference{If(result.DifferenceCount = 1, "", "s")} — see install-verification.txt."
+                reportText = InstallManifest.FormatMissingManifestReport(installDir)
+                summary = "Install check skipped — no shipped manifest to compare against."
             End If
-        Else
-            reportText = InstallManifest.FormatMissingManifestReport(installDir)
-            summary = "Install check skipped — no shipped manifest to compare against."
-        End If
-        WriteTextEntry(archive, "install-verification.txt", reportText)
+            WriteTextEntry(archive, "install-verification.txt", reportText)
+        Catch ex As Exception
+            ' Catch-all honesty: whatever went wrong with the verification
+            ' step, the bundle itself must still complete — a user reaching
+            ' for the debug archive is already having a bad day. Trace the
+            ' real exception, put an honest note where the report would have
+            ' been, and carry on.
+            Tracing.ErrTraceOnly(ex)
+            summary = "Install check failed — see install-verification.txt."
+            Try
+                WriteTextEntry(archive, "install-verification.txt",
+                    "JJ Flexible Radio Access — install verification" & vbCrLf &
+                    "The install check itself failed, so the installation was not verified." & vbCrLf &
+                    "What went wrong: " & ex.Message & vbCrLf &
+                    "The rest of this bundle was still collected normally.")
+            Catch
+                ' If even the note cannot be written, the spoken summary and
+                ' the trace still tell the story.
+            End Try
+        End Try
         Tracing.TraceLine("GetDebugInfo:install verification: " & summary, TraceLevel.Info)
         Return summary
     End Function
