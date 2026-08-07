@@ -131,6 +131,16 @@ namespace Radios
             RaiseRadioFound(null, rd);
         }
         internal static bool _apiInit;
+
+        /// <summary>
+        /// True while a forced rescan is tearing down FlexLib's radio list.
+        /// API.CloseSession fires RadioRemoved for every known radio; those
+        /// are rescan bookkeeping, not radios going offline, and announcing
+        /// "went offline" for the whole list on every selector open would be
+        /// noise and a lie.
+        /// </summary>
+        private static bool _suppressApiRemovals;
+
         internal void apiInit(bool force = false)
         {
             Tracing.TraceLine("apiInit:" + force.ToString(), TraceLevel.Info);
@@ -139,7 +149,9 @@ namespace Radios
                 // Always initialize.
                 if (_apiInit)
                 {
-                    API.CloseSession();
+                    _suppressApiRemovals = true;
+                    try { API.CloseSession(); }
+                    finally { _suppressApiRemovals = false; }
                     // Force init.
                     _apiInit = false;
                 }
@@ -149,9 +161,30 @@ namespace Radios
             {
                 API.RadioAdded -= radioAddedHandler;
                 API.RadioAdded += radioAddedHandler;
+                // FlexLib's RadioListMaid evicts a LAN radio after
+                // RADIOLIST_TIMEOUT_SECONDS (17s) without a discovery
+                // announcement — the powered-off case. Nothing subscribed to
+                // this before 2026-08-06, so a dark radio sat in the selector
+                // forever (Noel's 8600 power-cycle test).
+                API.RadioRemoved -= apiRadioRemovedHandler;
+                API.RadioRemoved += apiRadioRemovedHandler;
                 API.Init();
                 _apiInit = true;
             }
+        }
+
+        private void apiRadioRemovedHandler(Radio r)
+        {
+            if (r == null || string.IsNullOrWhiteSpace(r.Serial)) return;
+            if (_suppressApiRemovals)
+            {
+                Tracing.TraceLine("apiRadioRemovedHandler: suppressed (rescan teardown) " + r.Serial, TraceLevel.Info);
+                return;
+            }
+            Tracing.TraceLine($"apiRadioRemovedHandler: {r.Serial} ({r.Nickname}) gone from discovery — removing", TraceLevel.Info);
+            var mine = myRadioList.FirstOrDefault(x => x.Serial == r.Serial);
+            if (mine != null) myRadioList.Remove(mine);
+            RaiseRadioRemoved(this, r.Serial, r.Nickname ?? "");
         }
 
         private Radio findRadioInAPI(string serial)
