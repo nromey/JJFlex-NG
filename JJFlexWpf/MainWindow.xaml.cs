@@ -230,11 +230,26 @@ public partial class MainWindow : UserControl
     /// </summary>
     public void SpeakWelcome()
     {
+        string modeName = ActiveUIMode == UIMode.Classic ? "Classic" : "Modern";
+        string message = $"Welcome to JJ Flexible Radio Access, {modeName} tuning mode";
+
+        // Ordering policy (live find 2026-08-04): with a startup advisory on
+        // screen, this line used to talk over the dialog — and worse, the
+        // FreqOut focus grab below yanked keyboard focus OUT of the modal and
+        // back into the main window, which is how a Tab came to speak slice
+        // state behind an open advisory. While the advisory chain is active,
+        // BOTH the speech and the focus grab wait their turn; the chain
+        // replays them when the last advisory closes.
+        if (_advisorySequenceActive)
+        {
+            _welcomeFocusPending = true;
+            _deferredStartupSpeech.Add((message, null));
+            return;
+        }
+
         // Focus FreqOut so cursor lands on the frequency display at startup
         FreqOut.FocusDisplay();
-
-        string modeName = ActiveUIMode == UIMode.Classic ? "Classic" : "Modern";
-        Radios.ScreenReaderOutput.Speak($"Welcome to JJ Flexible Radio Access, {modeName} tuning mode");
+        Radios.ScreenReaderOutput.Speak(message);
     }
 
     /// <summary>
@@ -276,7 +291,7 @@ public partial class MainWindow : UserControl
                 // advisory closes.
                 if (_advisorySequenceActive)
                 {
-                    _deferredConnectStatus = message;
+                    _deferredStartupSpeech.Add((message, VerbosityLevel.Critical));
                     return;
                 }
                 Radios.ScreenReaderOutput.Speak(message, VerbosityLevel.Critical);
@@ -1296,22 +1311,49 @@ public partial class MainWindow : UserControl
         finally
         {
             _advisorySequenceActive = false;
-            // Connect status that arrived while an advisory was up gets its
-            // turn now that the user is done reading.
-            string? deferred = _deferredConnectStatus;
-            _deferredConnectStatus = null;
-            if (deferred != null)
-                Radios.ScreenReaderOutput.Speak(deferred, VerbosityLevel.Critical);
+
+            // Bring-up speech that arrived while the chain was active gets its
+            // turn now that the user is done reading — focus first (the parked
+            // welcome focus grab), then each parked announcement in arrival
+            // order. One policy for every bring-up path, not per-path patches.
+            if (_welcomeFocusPending)
+            {
+                _welcomeFocusPending = false;
+                try { FreqOut.FocusDisplay(); } catch { /* window may be closing */ }
+            }
+            foreach (var (message, level) in _deferredStartupSpeech)
+            {
+                if (level.HasValue)
+                    Radios.ScreenReaderOutput.Speak(message, level.Value);
+                else
+                    Radios.ScreenReaderOutput.Speak(message);
+            }
+            _deferredStartupSpeech.Clear();
         }
     }
 
     /// <summary>
-    /// True while the startup-advisory chain is running. SpeakConnectStatus
-    /// checks it so the slice rundown never talks over an open advisory;
-    /// both run on the dispatcher thread, so no locking is needed.
+    /// True while the startup-advisory chain is running. Every main-window
+    /// bring-up speech path checks it — the welcome line and the connect-time
+    /// slice rundown both queue into <see cref="_deferredStartupSpeech"/>
+    /// instead of talking over an open advisory (ordering policy, 2026-08-07;
+    /// the connect rundown got this treatment first and the welcome line was
+    /// a separate un-parked path). All on the dispatcher thread, no locking.
     /// </summary>
     private bool _advisorySequenceActive;
-    private string? _deferredConnectStatus;
+
+    /// <summary>
+    /// Parked bring-up announcements, in arrival order. Null level means
+    /// speak at the default verbosity.
+    /// </summary>
+    private readonly List<(string message, VerbosityLevel? level)> _deferredStartupSpeech = new();
+
+    /// <summary>
+    /// SpeakWelcome's FreqOut focus grab was deferred because an advisory was
+    /// open — replay it when the chain ends, BEFORE the parked speech, so the
+    /// caret lands where a cold start would put it.
+    /// </summary>
+    private bool _welcomeFocusPending;
 
     /// <summary>
     /// Serials already offered the registration suggestion this app run, so a
