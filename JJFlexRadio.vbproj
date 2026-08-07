@@ -160,6 +160,7 @@
     </Compile>
     <Compile Include="CWMessages.vb" />
     <Compile Include="DebugInfo.vb" />
+    <Compile Include="InstallManifest.vb" />
     <Compile Include="ZipUtils.vb" />
     <Compile Include="DefineCommands.Designer.vb">
       <DependentUpon>DefineCommands.vb</DependentUpon>
@@ -534,4 +535,27 @@
   <PropertyGroup>
     <PostBuildEvent Condition="'$(Configuration)'=='Release' and ('$(Platform)'=='x64' or '$(Platform)'=='x86') and '$(TargetFramework)'=='net10.0-windows'">if not defined JJFLEX_SKIP_POSTBUILD_INSTALLER call "$(MSBuildProjectDirectory)\install.bat" "$(MSBuildProjectDirectory)" "$(ConfigurationName)" "$(TargetName)"</PostBuildEvent>
   </PropertyGroup>
+
+  <!-- QB Track M: known-good install manifest. Writes install-manifest.json
+       into the build output — every file's relative path, size, and SHA-256,
+       plus FileVersion where present — so the debug bundle can verify a live
+       install against what the build actually shipped instead of zipping the
+       whole 190 MB program directory into every bundle (DebugInfo.vb).
+       Scheduling matters: the PostBuildEvent (install.bat → NSIS File /r and
+       generate-deletelist.ps1) runs as the LAST step inside CoreBuild, so this
+       target anchors AFTER CopyFilesToOutputDirectory (all outputs present,
+       including the self-contained runtime) and BEFORE PostBuildEvent (so the
+       manifest is packaged by the installer and picked up by the uninstaller's
+       deleteList). A plain AfterTargets="Build" would run too late for the
+       installer. Runs for Debug and Release, x64 and x86 alike — the debug
+       bundle verifies dev trees too. -->
+  <Target Name="GenerateInstallManifest"
+          AfterTargets="CopyFilesToOutputDirectory"
+          BeforeTargets="PostBuildEvent"
+          Condition="'$(DesignTimeBuild)' != 'true' and '$(TargetDir)' != ''">
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\generate-install-manifest.ps1&quot; -OutputDir &quot;$(TargetDir.TrimEnd('\'))&quot; -Configuration &quot;$(Configuration)&quot; -Platform &quot;$(Platform)&quot;" />
+    <ItemGroup>
+      <FileWrites Include="$(TargetDir)install-manifest.json" />
+    </ItemGroup>
+  </Target>
 </Project>

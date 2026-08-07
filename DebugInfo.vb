@@ -52,6 +52,10 @@ Friend Class DebugInfo
 
         Try
             File.Delete(openDialog.FileName)
+            ' QB Track M: the completion message carries the install
+            ' verification outcome, so the user hears whether their install
+            ' checked out without opening the bundle.
+            Dim verifySummary As String = Nothing
             Using archive As ZipArchive = ZipFile.Open(openDialog.FileName, ZipArchiveMode.Create)
                 ' get application data — minus the archived trace sessions.
                 ' The Traces directory holds up to 30 days of per-session
@@ -83,8 +87,15 @@ Friend Class DebugInfo
                     End Try
                 Next
 
-                ' get the program
-                ZipUtils.AddDirectoryToArchive(archive, ".", "program")
+                ' The program itself rides along as a fingerprint manifest plus
+                ' a self-verification report, not as 190 MB of binaries. The
+                ' whole-directory zip predates the self-contained runtime; once
+                ' the .NET runtime moved into the install directory it was
+                ' mostly Microsoft's files, identical on every machine, and it
+                ' guaranteed the upload limit tripped. The manifest diff answers
+                ' the same diagnostic question (stale / corrupt / mixed
+                ' install?) and answers it by name.
+                verifySummary = AddInstallVerification(archive)
 
                 Dim tempFileName = My.Computer.FileSystem.GetTempFileName
                 Try
@@ -112,11 +123,20 @@ Friend Class DebugInfo
             End Using
 
             Tracing.TraceLine($"GetDebugInfo: wrote {openDialog.FileName}", TraceLevel.Info)
+            ' One message, spoken and shown alike: the gather result plus the
+            ' install verification outcome ("Install verified clean." or
+            ' "Install verification found N differences — see
+            ' install-verification.txt."). Same speech pattern as before —
+            ' no new dialogs, just a completion message that reflects reality.
+            Dim doneMsg As String = infoGathered
+            If Not String.IsNullOrEmpty(verifySummary) Then
+                doneMsg = infoGathered & " " & verifySummary
+            End If
             Try
-                Radios.ScreenReaderOutput.Speak(infoGathered, Radios.VerbosityLevel.Critical, True)
+                Radios.ScreenReaderOutput.Speak(doneMsg, Radios.VerbosityLevel.Critical, True)
             Catch
             End Try
-            MessageBox.Show(infoGathered, MessageHdr, MessageBoxButtons.OK)
+            MessageBox.Show(doneMsg, MessageHdr, MessageBoxButtons.OK)
         Catch ex As Exception
             ' Never suppress: trace the real exception for diagnosis, tell the
             ' user something they can act on, and speak it. What must NOT happen
@@ -133,5 +153,94 @@ Friend Class DebugInfo
         Finally
             openDialog.Dispose()
         End Try
+    End Sub
+
+    ''' <summary>
+    ''' QB Track M: add the install's self-verification to the bundle in place
+    ''' of the old whole-program zip. Three entries at the bundle root:
+    '''  - program-manifest.json: live manifest of the actual install directory
+    '''    (path, size, fingerprint per file — same schema the build writes)
+    '''  - install-manifest.json: the shipped known-good manifest, when present,
+    '''    included verbatim so support can diff against the exact release even
+    '''    if the live machine's copy is the thing that's corrupt
+    '''  - install-verification.txt: the live-vs-shipped diff in plain prose —
+    '''    verified clean, or every mismatched, missing, unexpected, and
+    '''    unreadable file by name
+    ''' Returns a one-clause summary of the outcome for the completion message.
+    ''' A missing shipped manifest is reported plainly and never blocks the
+    ''' bundle (dev trees and pre-manifest installs are normal).
+    ''' </summary>
+    Private Shared Function AddInstallVerification(archive As ZipArchive) As String
+        Dim summary As String
+        Try
+            ' The install directory is where the program actually runs from, not
+            ' the process's current directory (the old "." could drift with cwd).
+            Dim installDir As String = AppContext.BaseDirectory
+            Dim live = InstallManifest.BuildLive(installDir)
+            WriteTextEntry(archive, "program-manifest.json", InstallManifest.ToJson(live))
+
+            Dim reportText As String
+            Dim shippedPath As String = Path.Combine(installDir, InstallManifest.ShippedManifestName)
+            If File.Exists(shippedPath) Then
+                ' Ship the known-good manifest itself alongside the live one.
+                ' Even if it turns out to be unreadable below, the raw bytes
+                ' still belong in the bundle — a damaged manifest is evidence.
+                Try
+                    ZipUtils.AddFileToArchive(archive, shippedPath, "")
+                Catch ex As Exception
+                    Tracing.ErrTraceOnly(ex)
+                End Try
+                Try
+                    Dim known = InstallManifest.Load(shippedPath)
+                    Dim result = InstallManifest.Verify(known, live)
+                    reportText = InstallManifest.FormatReport(result, known, installDir)
+                    If result.DifferenceCount = 0 Then
+                        summary = "Install verified clean."
+                    Else
+                        summary = $"Install verification found {result.DifferenceCount} difference{If(result.DifferenceCount = 1, "", "s")} — see install-verification.txt."
+                    End If
+                Catch ex As Exception
+                    ' The shipped manifest exists but could not be read or
+                    ' parsed. That is a finding, not a fatal error — say so in
+                    ' the report and keep the bundle going.
+                    Tracing.ErrTraceOnly(ex)
+                    reportText = InstallManifest.FormatUnreadableManifestReport(installDir, ex.Message)
+                    summary = "Install could not be checked — the shipped manifest was unreadable. See install-verification.txt."
+                End Try
+            Else
+                reportText = InstallManifest.FormatMissingManifestReport(installDir)
+                summary = "Install check skipped — no shipped manifest to compare against."
+            End If
+            WriteTextEntry(archive, "install-verification.txt", reportText)
+        Catch ex As Exception
+            ' Catch-all honesty: whatever went wrong with the verification
+            ' step, the bundle itself must still complete — a user reaching
+            ' for the debug archive is already having a bad day. Trace the
+            ' real exception, put an honest note where the report would have
+            ' been, and carry on.
+            Tracing.ErrTraceOnly(ex)
+            summary = "Install check failed — see install-verification.txt."
+            Try
+                WriteTextEntry(archive, "install-verification.txt",
+                    "JJ Flexible Radio Access — install verification" & vbCrLf &
+                    "The install check itself failed, so the installation was not verified." & vbCrLf &
+                    "What went wrong: " & ex.Message & vbCrLf &
+                    "The rest of this bundle was still collected normally.")
+            Catch
+                ' If even the note cannot be written, the spoken summary and
+                ' the trace still tell the story.
+            End Try
+        End Try
+        Tracing.TraceLine("GetDebugInfo:install verification: " & summary, TraceLevel.Info)
+        Return summary
+    End Function
+
+    ''' <summary>Write a text entry into the bundle. UTF-8 without a byte order
+    ''' mark — plain enough for Notepad, screen readers, and support scripts.</summary>
+    Private Shared Sub WriteTextEntry(archive As ZipArchive, entryName As String, text As String)
+        Dim entry As ZipArchiveEntry = archive.CreateEntry(entryName, CompressionLevel.Optimal)
+        Using writer As New StreamWriter(entry.Open())
+            writer.Write(text)
+        End Using
     End Sub
 End Class
