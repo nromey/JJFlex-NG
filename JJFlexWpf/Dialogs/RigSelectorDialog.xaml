@@ -2,8 +2,9 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:JJFlexWpf"
+        xmlns:controls="clr-namespace:JJFlexWpf.Controls"
         Title="Select Radio"
-        Width="560" Height="500"
+        Width="560" Height="560"
         ResizeMode="NoResize"
         AutomationProperties.Name="Radio selector"
         Closing="RigSelectorDialog_Closing">
@@ -11,6 +12,7 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
@@ -121,8 +123,17 @@
                  Text="SmartLink account: none saved"
                  AutomationProperties.Name="SmartLink account"/>
 
-        <!-- Row 4 is the picker's detail area — left empty on purpose. Track D's
-             network identity card (IP, serial, firmware, forwarded-port status)
-             is meant to land here; nothing in this dialog claims the row. -->
+        <!-- Row 4: the picker's detail area — Track D's network identity card
+             (wired in by QB Track L). Same hosting shape as the Status dialog:
+             a bold heading for sighted layout, the card as its own tab stop,
+             arrow-readable lines. The card describes the radio this app is
+             CONNECTED to (or says no radio is connected) — it renders cached
+             identity lines only and never probes, so it is safe in every
+             selector state including a live hole-punched session. -->
+        <TextBlock Grid.Row="4" Grid.Column="0" Grid.ColumnSpan="2"
+                   Text="Network identity" Margin="0,8,0,0" FontWeight="Bold"/>
+        <controls:NetworkIdentityCard x:Name="IdentityCard"
+                 Grid.Row="5" Grid.Column="0" Grid.ColumnSpan="2"
+                 Margin="0,2,0,0" MaxHeight="120"/>
     </Grid>
 </local:JJFlexDialog>

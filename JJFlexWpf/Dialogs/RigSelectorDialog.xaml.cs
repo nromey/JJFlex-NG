@@ -238,6 +238,15 @@ namespace JJFlexWpf.Dialogs
         /// the account manager can change it while the selector is open.
         /// </summary>
         public Func<SmartLinkAccountState>? GetSmartLinkAccountState { get; init; }
+
+        /// <summary>
+        /// The app's current rig object, for the network identity card in the
+        /// detail area (QB Track L). Read fresh on every refresh — the app can
+        /// dispose and recreate its rig while the selector is open. Null or a
+        /// not-yet-connected rig is the normal pre-connect state; the card says
+        /// "No radio connected" rather than going blank.
+        /// </summary>
+        public Func<FlexBase?>? GetCurrentRig { get; init; }
     }
 
     public partial class RigSelectorDialog : JJFlexDialog
@@ -311,6 +320,16 @@ namespace JJFlexWpf.Dialogs
             _suppressGlobalAutoConnectEvent = false;
 
             UpdateAccountAffordances();
+
+            // Network identity card (QB Track L). The card describes the rig
+            // this app currently holds — before a connect that reads as
+            // "No radio connected", which is the honest answer. A separate
+            // event subscription (not a change to the selection handler) keeps
+            // it current as the user moves through the list, and re-resolving
+            // the rig on each refresh also picks up connects/disconnects that
+            // happen while the selector is open.
+            RefreshIdentityCard();
+            RadiosBox.SelectionChanged += (_, _) => RefreshIdentityCard();
 
             // Set up auto-connect timer
             _autoConnectTimer = new DispatcherTimer
@@ -800,6 +819,24 @@ namespace JJFlexWpf.Dialogs
         private RadioListItem? GetSelectedRadio()
         {
             return RadiosBox.SelectedItem as RadioListItem;
+        }
+
+        /// <summary>
+        /// Point the identity card at the app's current rig and re-render.
+        /// Setting <see cref="Controls.NetworkIdentityCard.Rig"/> refreshes;
+        /// the card itself guards against stealing focus mid-read.
+        /// </summary>
+        private void RefreshIdentityCard()
+        {
+            try
+            {
+                IdentityCard.Rig = _callbacks.GetCurrentRig?.Invoke();
+            }
+            catch (Exception ex)
+            {
+                // A detail card must never break the picker.
+                System.Diagnostics.Trace.WriteLine($"RigSelector.RefreshIdentityCard: {ex.Message}");
+            }
         }
 
         // ------------------------------------------------------------------

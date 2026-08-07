@@ -5,6 +5,13 @@ using System.Windows.Controls;
 
 namespace JJFlexWpf.Controls;
 
+// ORPHANED (QB Track L audit, 2026-08-07): this control is never
+// instantiated anywhere — the Sprint 8 replacement for Flex6300Filters was
+// never wired in, and the ScreenFields panel became the live DSP surface
+// instead. Known bug while orphaned: the RF Gain box hardcodes 0-50 instead
+// of the radio-reported RFGainMin/Max (research-queue Track A note).
+// Wire-in-or-remove is Noel's call — do not delete without that decision.
+
 /// <summary>
 /// WPF replacement for Radios\Flex6300Filters.cs (2,822 lines).
 /// Pure WPF UserControl — no WinForms, no ElementHost.

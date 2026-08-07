@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:JJFlexWpf"
         Title="Auto-Connect Failed"
-        Width="440" Height="190"
+        Width="440" SizeToContent="Height"
         ResizeMode="NoResize"
         AutomationProperties.Name="Auto-connect failed">
     <Grid Margin="12">

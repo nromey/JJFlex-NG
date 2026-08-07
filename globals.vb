@@ -2253,7 +2253,11 @@ Module globals
             End If
 
             Tracing.TraceLine("TryAutoConnectOnStartup: failed, showing dialog", TraceLevel.Info)
-            Dim dialogResult = Radios.AutoConnectFailedDialog.ShowDialog(Nothing, _autoConnectConfig.RadioName)
+            ' QB Track L: hand the dialog the classified failure evidence
+            ' (Track D's report) so it states WHY, not just who. Bare wording
+            ' only when no report was filed.
+            Dim dialogResult = Radios.AutoConnectFailedDialog.ShowDialog(
+                Nothing, _autoConnectConfig.RadioName, RigControl?.LastConnectFailureAdvice)
 
             Select Case dialogResult
                 Case Radios.AutoConnectFailedResult.TryAgain
@@ -2635,7 +2639,8 @@ Module globals
             .ShowSmartLinkAccountManager = Sub() WpfMainWindow.ShowSmartLinkAccountManager(),
             .AutoStartRemote = autoStartRemote,
             .GetRadioAvailability = Function(serial) RigControl.RadioAvailability(serial),
-            .GetSmartLinkAccountState = Function() ResolveSmartLinkAccountState()
+            .GetSmartLinkAccountState = Function() ResolveSmartLinkAccountState(),
+            .GetCurrentRig = Function() RigControl
         }
 
         ' Wire the save-default delegate so ShowSmartLinkAccountManager can persist the selection

@@ -1260,6 +1260,9 @@ public partial class MainWindow : UserControl
         if (RigControl != null)
         {
             RigControl.ShowMemoriesDialog = ShowMemoriesDialog;
+            // QB Track L: RadioInfoDialog (General + Feature Availability tabs)
+            // — never assigned since Sprint 11, leaving the menu door dead.
+            RigControl.ShowRadioInfoDialog = ShowRadioInfoDialog;
         }
 
         // Disable controls initially — PowerNowOn enables them when radio powers on
@@ -1672,13 +1675,10 @@ public partial class MainWindow : UserControl
         // QB Track I — Transmit slice field: shows which slice keys the radio
         // ("-" when none does). Sits by VOX/RIT/XIT where an operator looks
         // for transmit state. The discoverable door for what was previously
-        // only the hidden T keypress on the Slice field. Inline HelpItems until
-        // the field gets a KeyInventory row (post-merge reconciliation).
+        // only the hidden T keypress on the Slice field. HelpItems come from
+        // the KeyInventory table like every other field (QB Track L).
         fields.Add(new FrequencyDisplay.DisplayField("TXSlice", 1, "", "") { Label = "Transmit slice",
-            HelpItems = new() { ("Space", "set transmit to the active slice"),
-                ("Up Down", "move transmit to another slice"),
-                ("A-H", "set transmit slice by letter"),
-                ("Delete or Backspace", "clear transmit slice") } });
+            HelpItems = KeyInventory.HelpItemsFor("TXSlice", modern: false) });
         fields.Add(new FrequencyDisplay.DisplayField("Offset", 1, "", "") { Label = "Offset",
             HelpItems = KeyInventory.HelpItemsFor("Offset", modern: false) });
         fields.Add(new FrequencyDisplay.DisplayField("RIT", 5, "", "") { Label = "RIT", DefaultCursorOffset = 2,
@@ -1752,11 +1752,9 @@ public partial class MainWindow : UserControl
         fields.Add(new FrequencyDisplay.DisplayField("VOX", 1, "", "") { Label = "VOX",
             HelpItems = KeyInventory.HelpItemsFor("VOX", modern: true) });
         // QB Track I — Transmit slice field (see Classic setup for rationale).
+        // HelpItems from the KeyInventory table (QB Track L).
         fields.Add(new FrequencyDisplay.DisplayField("TXSlice", 1, "", "") { Label = "Transmit slice",
-            HelpItems = new() { ("Space", "set transmit to the active slice"),
-                ("Up Down", "move transmit to another slice"),
-                ("A-H", "set transmit slice by letter"),
-                ("Delete or Backspace", "clear transmit slice") } });
+            HelpItems = KeyInventory.HelpItemsFor("TXSlice", modern: true) });
         fields.Add(new FrequencyDisplay.DisplayField("Offset", 1, "", "") { Label = "Offset",
             HelpItems = KeyInventory.HelpItemsFor("Offset", modern: true) });
         fields.Add(new FrequencyDisplay.DisplayField("RIT", 5, "", "") { Label = "RIT", DefaultCursorOffset = 2,
@@ -2835,6 +2833,55 @@ public partial class MainWindow : UserControl
         {
             gotoHome();
         }
+    }
+
+    /// <summary>
+    /// Show the WPF RadioInfoDialog with callbacks wired to the current radio.
+    /// QB Track L (2026-08-07): the Sprint 11 dialog existed but
+    /// FlexBase.ShowRadioInfoDialog was never assigned app-side, so the
+    /// Operations menu's Feature Availability door silently did nothing.
+    /// Wired in OnRadioStarted alongside ShowMemoriesDialog.
+    /// </summary>
+    private void ShowRadioInfoDialog(int tabIndex)
+    {
+        var rig = RigControl;
+        if (rig == null)
+        {
+            Radios.ScreenReaderOutput.Speak("No radio connected.",
+                Radios.VerbosityLevel.Critical, true);
+            return;
+        }
+
+        var callbacks = new Dialogs.RadioInfoCallbacks
+        {
+            GetModel = () => rig.RadioModel,
+            GetVersion = () => rig.RadioFirmwareVersion,
+            GetSerial = () => rig.ConnectedSerial ?? "",
+            GetCallsign = () => rig.RadioCallsign,
+            SetCallsign = call => rig.RadioCallsign = call,
+            GetNickname = () => rig.RadioNickname,
+            // RenameRadio is the full rename path — persists radio-side and
+            // refreshes the roster/auto-connect display names.
+            SetNickname = name => rig.RenameRadio(name),
+            GetIPAddress = () => rig.CurrentRadioIP?.ToString() ?? "",
+            GetDisplayModes = () =>
+            {
+                var items = new List<Dialogs.DisplayModeItem>();
+                foreach (var name in rig.FrontPanelDisplayModes)
+                    items.Add(new Dialogs.DisplayModeItem { DisplayText = name, Value = name });
+                return items;
+            },
+            GetCurrentDisplayMode = () => rig.FrontPanelDisplayMode,
+            SetDisplayMode = mode => rig.FrontPanelDisplayMode = mode?.ToString() ?? "",
+            GetFeatureAvailabilityText = () => rig.BuildFeatureAvailabilityText(),
+            RefreshLicense = () => rig.RefreshLicenseState(),
+        };
+
+        var tab = tabIndex == (int)Dialogs.RadioInfoTab.FeatureAvailability
+            ? Dialogs.RadioInfoTab.FeatureAvailability
+            : Dialogs.RadioInfoTab.General;
+        var dialog = new Dialogs.RadioInfoDialog(callbacks, tab);
+        dialog.ShowDialog();
     }
 
     #endregion

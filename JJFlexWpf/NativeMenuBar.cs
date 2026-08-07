@@ -2096,11 +2096,18 @@ public class NativeMenuBar : IDisposable
 
     /// <summary>
     /// Show the Feature Availability tab of the RadioInfo dialog.
+    /// QB Track L: the delegate is wired in MainWindow.OnRadioStarted; if it
+    /// is somehow still null, say so — a menu item must never go silent.
     /// </summary>
     private void ShowFeatureAvailability()
     {
         if (Rig == null) { SpeakNoRadio(); return; }
-        Rig.ShowRadioInfoDialog?.Invoke((int)Dialogs.RadioInfoTab.FeatureAvailability);
+        if (Rig.ShowRadioInfoDialog == null)
+        {
+            SpeakAfterMenuClose("Radio information is not available yet");
+            return;
+        }
+        Rig.ShowRadioInfoDialog((int)Dialogs.RadioInfoTab.FeatureAvailability);
     }
 
     /// <summary>

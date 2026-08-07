@@ -8142,8 +8142,309 @@ namespace Radios
         /// Delegate to show the Radio Info dialog. Returns nothing.
         /// Sprint 11: Replaces direct FlexInfo form creation.
         /// Parameter: tab index (0=General, 1=FeatureAvailability).
+        /// QB Track L (2026-08-07): finally wired — MainWindow.OnRadioStarted
+        /// assigns it (same pattern as ShowMemoriesDialog), backed by the
+        /// Radio Info support members below.
         /// </summary>
         public Action<int> ShowRadioInfoDialog { get; set; }
+
+        // ────────────────────────────────────────────────────────────────
+        //  Radio Info dialog support (QB Track L, 2026-08-07).
+        //  The WPF RadioInfoDialog (Sprint 11) needs radio-side accessors
+        //  that only existed inside the deleted WinForms FlexInfo form —
+        //  callsign, front-panel display mode, license refresh, and the
+        //  feature-availability report. They live here because theRadio is
+        //  internal to this assembly; the UI layer gets thin callbacks.
+        // ────────────────────────────────────────────────────────────────
+
+        /// <summary>
+        /// The callsign stored on the radio itself (shown on M-model front
+        /// panels and in discovery). Empty when no radio is connected;
+        /// setting with no radio is a traced no-op, never a throw.
+        /// </summary>
+        public string RadioCallsign
+        {
+            get { return theRadio?.Callsign ?? string.Empty; }
+            set
+            {
+                var r = theRadio;
+                if (r == null)
+                {
+                    Tracing.TraceLine("RadioCallsign set ignored: no radio", TraceLevel.Warning);
+                    return;
+                }
+                if (r.Callsign != value) r.Callsign = value;
+            }
+        }
+
+        /// <summary>
+        /// The front-panel display (screensaver) mode choices the radio
+        /// understands, as displayable names. Model-independent — FlexLib
+        /// defines one enum for the whole line.
+        /// </summary>
+        public string[] FrontPanelDisplayModes =>
+            Enum.GetNames(typeof(ScreensaverMode));
+
+        /// <summary>
+        /// The current front-panel display mode by name (one of
+        /// <see cref="FrontPanelDisplayModes"/>). Empty when no radio is
+        /// connected; setting an unknown name or setting with no radio is a
+        /// traced no-op.
+        /// </summary>
+        public string FrontPanelDisplayMode
+        {
+            get { return theRadio?.Screensaver.ToString() ?? string.Empty; }
+            set
+            {
+                var r = theRadio;
+                if (r == null)
+                {
+                    Tracing.TraceLine("FrontPanelDisplayMode set ignored: no radio", TraceLevel.Warning);
+                    return;
+                }
+                if (Enum.TryParse<ScreensaverMode>(value, out var mode))
+                {
+                    if (r.Screensaver != mode) r.Screensaver = mode;
+                }
+                else
+                {
+                    Tracing.TraceLine($"FrontPanelDisplayMode set ignored: unknown mode '{value}'", TraceLevel.Warning);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Ask the radio to re-read its feature-license state. Failures are
+        /// swallowed by design (the old FlexInfo behavior): the radio reports
+        /// any valid status updates on its own, and a refresh that can't run
+        /// simply leaves the current answer standing.
+        /// </summary>
+        public void RefreshLicenseState()
+        {
+            try { theRadio?.RefreshLicenseState(); }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine($"RefreshLicenseState: {ex.Message}", TraceLevel.Error);
+            }
+        }
+
+        /// <summary>
+        /// The feature-availability report: one plain line per feature saying
+        /// enabled / disabled / unavailable / unsubscribed / pending and WHY —
+        /// the "explain why radio features are unavailable" surface. Ported
+        /// from the deleted WinForms FlexInfo form (Sprint 11 → QB Track L).
+        /// </summary>
+        public string BuildFeatureAvailabilityText()
+        {
+            var radio = theRadio;
+            if (radio == null) return "Radio: unavailable - radio not ready";
+
+            var lines = new List<string>();
+            lines.Add(BuildDiversityStatus(radio));
+            lines.Add(BuildEscStatus(radio));
+            lines.AddRange(BuildNoiseReductionStatuses(radio));
+            lines.AddRange(BuildAutoNotchStatuses(radio));
+            lines.Add(BuildCwAutotuneStatus());
+            return string.Join(Environment.NewLine, lines);
+        }
+
+        private string BuildDiversityStatus(Radio radio)
+        {
+            string status;
+            string reason = string.Empty;
+
+            bool hasSlice = HasActiveSlice;
+            bool hasHardware = DiversityHardwareSupported;
+            var licenseFeature = radio.FeatureLicense?.LicenseFeatDivEsc;
+            bool licenseReported = licenseFeature != null;
+            bool licenseEnabled = licenseFeature?.FeatureEnabled == true;
+            bool hasAntennas = (radio.RXAntList?.Length ?? 0) >= 2;
+            bool hasSlices = radio.AvailableSlices >= 2;
+
+            if (!hasHardware) { status = "unavailable"; reason = "model lacks diversity support"; }
+            else if (!licenseReported) { status = "pending"; reason = "license status pending"; }
+            else if (!licenseEnabled) { status = "unsubscribed"; reason = licenseFeature.FeatureGatedMessage ?? "license disabled"; }
+            else if (!hasSlice) { status = "unavailable"; reason = "select a slice"; }
+            else if (!hasAntennas) { status = "unavailable"; reason = "need two RX antennas"; }
+            else if (!hasSlices) { status = "unavailable"; reason = "need two slices"; }
+            else
+            {
+                status = DiversityOn ? "enabled" : "disabled";
+                if (!DiversityOn) reason = "diversity ready";
+            }
+
+            return BuildFeatureLine("Diversity", status, reason);
+        }
+
+        private string BuildEscStatus(Radio radio)
+        {
+            string status;
+            string reason = string.Empty;
+
+            bool hasSlice = HasActiveSlice;
+            bool hasHardware = DiversityHardwareSupported;
+            var licenseFeature = radio.FeatureLicense?.LicenseFeatDivEsc;
+            bool licenseReported = licenseFeature != null;
+            bool licenseEnabled = licenseFeature?.FeatureEnabled == true;
+            bool hasAntennas = (radio.RXAntList?.Length ?? 0) >= 2;
+            bool hasSlices = radio.AvailableSlices >= 2;
+
+            if (!hasHardware) { status = "unavailable"; reason = "model lacks diversity support"; }
+            else if (!licenseReported) { status = "pending"; reason = "license status pending"; }
+            else if (!licenseEnabled) { status = "unsubscribed"; reason = licenseFeature.FeatureGatedMessage ?? "license disabled"; }
+            else if (!hasSlice) { status = "unavailable"; reason = "select a slice"; }
+            else if (!hasAntennas) { status = "unavailable"; reason = "need two RX antennas"; }
+            else if (!hasSlices) { status = "unavailable"; reason = "need two slices"; }
+            else if (!DiversityOn) { status = "disabled"; reason = "enable diversity to use ESC"; }
+            else
+            {
+                var escSlice = GetEscSlice(radio.ActiveSlice);
+                if (escSlice == null) { status = "unavailable"; reason = "select a slice"; }
+                else if (escSlice.ESCEnabled) { status = "enabled"; }
+                else { status = "disabled"; reason = "ESC disabled"; }
+            }
+
+            return BuildFeatureLine("ESC", status, reason);
+        }
+
+        private static Slice GetEscSlice(Slice active)
+        {
+            if (active == null) return null;
+            if (active.DiversityChild && active.DiversitySlicePartner != null)
+                return active.DiversitySlicePartner;
+            return active;
+        }
+
+        private List<string> BuildNoiseReductionStatuses(Radio radio)
+        {
+            var lines = new List<string>();
+
+            bool hasSlice = HasActiveSlice;
+            bool licenseReported = NoiseReductionLicenseReported;
+            bool licenseEnabled = NoiseReductionLicensed;
+            var licenseFeature = radio.FeatureLicense?.LicenseFeatNoiseReduction;
+
+            string mode = (Mode ?? string.Empty).ToLowerInvariant();
+            bool cwOrFm = mode.StartsWith("cw") || mode.Contains("fm");
+            bool nrModeAllowed = !cwOrFm;
+
+            lines.Add(BuildBaseNoiseStatus("Noise Reduction (Basic NR)",
+                NoiseReduction == OffOnValues.on,
+                hasSlice, nrModeAllowed, "not available in CW or FM modes"));
+
+            bool rnnSupported = IsRnnModel(radio);
+            lines.Add(BuildAdvancedNoiseStatus("Noise Reduction (RNN)",
+                NeuralNoiseReduction == OffOnValues.on,
+                rnnSupported, rnnSupported ? "" : "requires 8000-series radio",
+                hasSlice, nrModeAllowed, "not available in CW or FM modes",
+                licenseFeature, licenseReported, licenseEnabled));
+
+            lines.Add(BuildAdvancedNoiseStatus("Noise Reduction (NRF)",
+                NoiseReductionFilter == OffOnValues.on,
+                true, "",
+                hasSlice, nrModeAllowed, "not available in CW or FM modes",
+                licenseFeature, licenseReported, licenseEnabled));
+
+            lines.Add(BuildAdvancedNoiseStatus("Noise Reduction (NRS)",
+                SpectralNoiseReduction == OffOnValues.on,
+                true, "",
+                hasSlice, nrModeAllowed, "not available in CW or FM modes",
+                licenseFeature, licenseReported, licenseEnabled));
+
+            lines.Add(BuildAdvancedNoiseStatus("Noise Reduction (NRL)",
+                NoiseReductionLegacy == OffOnValues.on,
+                true, "",
+                hasSlice, nrModeAllowed, "not available in CW or FM modes",
+                licenseFeature, licenseReported, licenseEnabled));
+
+            return lines;
+        }
+
+        private List<string> BuildAutoNotchStatuses(Radio radio)
+        {
+            var lines = new List<string>();
+
+            bool hasSlice = HasActiveSlice;
+            bool licenseReported = NoiseReductionLicenseReported;
+            bool licenseEnabled = NoiseReductionLicensed;
+            var licenseFeature = radio.FeatureLicense?.LicenseFeatNoiseReduction;
+
+            string mode = (Mode ?? string.Empty).ToLowerInvariant();
+            bool fmMode = mode.Contains("fm");
+            bool anfModeAllowed = !fmMode;
+
+            lines.Add(BuildBaseNoiseStatus("Auto Notch (Basic ANF)",
+                ANF == OffOnValues.on,
+                hasSlice, anfModeAllowed, "not available in FM mode"));
+
+            lines.Add(BuildAdvancedNoiseStatus("Auto Notch (ANFT)",
+                AutoNotchFFT == OffOnValues.on,
+                true, "",
+                hasSlice, anfModeAllowed, "not available in FM mode",
+                licenseFeature, licenseReported, licenseEnabled));
+
+            lines.Add(BuildAdvancedNoiseStatus("Auto Notch (ANFL)",
+                AutoNotchLegacy == OffOnValues.on,
+                true, "",
+                hasSlice, anfModeAllowed, "not available in FM mode",
+                licenseFeature, licenseReported, licenseEnabled));
+
+            return lines;
+        }
+
+        private string BuildCwAutotuneStatus()
+        {
+            string status;
+            string reason = string.Empty;
+
+            bool hasSlice = HasActiveSlice;
+            bool supported = SupportsCwAutotune;
+            string mode = (Mode ?? string.Empty).ToLowerInvariant();
+            bool cwMode = mode.StartsWith("cw");
+
+            if (!supported) { status = "unavailable"; reason = "not supported on this radio"; }
+            else if (!hasSlice) { status = "unavailable"; reason = "select a slice"; }
+            else if (!cwMode) { status = "disabled"; reason = "switch to CW mode to use autotune"; }
+            else { status = "enabled"; }
+
+            return BuildFeatureLine("CW Autotune", status, reason);
+        }
+
+        private static string BuildFeatureLine(string feature, string status, string reason)
+        {
+            return string.IsNullOrEmpty(reason)
+                ? feature + ": " + status
+                : feature + ": " + status + " - " + reason;
+        }
+
+        private static string BuildBaseNoiseStatus(string feature, bool enabled,
+            bool hasSlice, bool modeAllowed, string modeReason)
+        {
+            if (!hasSlice) return BuildFeatureLine(feature, "unavailable", "select a slice");
+            if (!modeAllowed) return BuildFeatureLine(feature, "unavailable", modeReason);
+            return BuildFeatureLine(feature, enabled ? "enabled" : "disabled", enabled ? "" : "available");
+        }
+
+        private static string BuildAdvancedNoiseStatus(string feature, bool enabled,
+            bool modelSupported, string modelReason,
+            bool hasSlice, bool modeAllowed, string modeReason,
+            Feature licenseFeature, bool licenseReported, bool licenseEnabled)
+        {
+            if (!modelSupported) return BuildFeatureLine(feature, "unavailable", modelReason);
+            if (!licenseReported) return BuildFeatureLine(feature, "pending", "license status pending");
+            if (!licenseEnabled) return BuildFeatureLine(feature, "unsubscribed", licenseFeature?.FeatureGatedMessage ?? "license disabled");
+            if (!hasSlice) return BuildFeatureLine(feature, "unavailable", "select a slice");
+            if (!modeAllowed) return BuildFeatureLine(feature, "unavailable", modeReason);
+            return BuildFeatureLine(feature, enabled ? "enabled" : "disabled", enabled ? "" : "available");
+        }
+
+        private static bool IsRnnModel(Radio radio)
+        {
+            var model = radio?.Model ?? string.Empty;
+            // 8000 series and Aurora AU-520 (based on 8600) support RNN
+            return model.StartsWith("FLEX-8", StringComparison.OrdinalIgnoreCase)
+                || model.StartsWith("AU-52", StringComparison.OrdinalIgnoreCase);
+        }
 
         /// <summary>
         /// Delegate to show the Memories dialog. Wired externally.
@@ -10261,22 +10562,10 @@ namespace Radios
             }
         }
 
-        public enum SliceStates
-        {
-            none,
-            mine,
-            others,
-            available
-        }
-
-        public SliceStates SliceState(int id)
-        {
-            SliceStates rv = SliceStates.none;
-            if (id < MyNumSlices) rv = SliceStates.mine;
-            else if (id - MyNumSlices < OtherNumSlices) rv = SliceStates.others;
-            else rv = SliceStates.available;
-            return rv;
-        }
+        // SliceState(int) and its SliceStates enum were deleted here (QB
+        // Track L, 2026-08-07; Track J's find): zero callers, and the
+        // positional mine/others/available classification lies under
+        // MultiFlex, where our slices need not start at radio index 0.
 
         /// <summary>
         /// Add a pan and slice.
