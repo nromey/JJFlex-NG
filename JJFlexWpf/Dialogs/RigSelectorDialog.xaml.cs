@@ -266,9 +266,9 @@ namespace JJFlexWpf.Dialogs
         /// <summary>True once any radio has been seen live in this session.</summary>
         private bool _anyLiveRadioSeen;
 
-        /// <summary>The account whose cached list was painted, so a switch can
-        /// tell whether anything actually changed.</summary>
-        private string _paintedAccountEmail = "";
+        /// <summary>Guards the Shift+Tab focus redirect against re-entering
+        /// itself if the item container cannot be realized.</summary>
+        private bool _redirectingFocusToRow;
 
         /// <summary>
         /// The selected radio data, or null if cancelled.
@@ -463,7 +463,6 @@ namespace JJFlexWpf.Dialogs
                 }
             }
 
-            _paintedAccountEmail = accountEmail;
             if (added) RefreshRadiosList();
         }
 
@@ -940,12 +939,32 @@ namespace JJFlexWpf.Dialogs
         private const string PathSmartLink = "Remote via SmartLink";
 
         /// <summary>
+        /// What the path control should currently be showing. Compared before
+        /// every rebuild because a LAN radio re-announces about once a second,
+        /// and tearing the combo's items down that often would fight a user who
+        /// is arrowing through it.
+        /// </summary>
+        private string PathKey()
+        {
+            var r = GetSelectedRadio();
+            return r == null
+                ? "<none>"
+                : $"{r.Serial}|{r.LanAvailable}|{r.WanAvailable}|{r.PreferRemotePath}|{r.LastSeenRemote}";
+        }
+
+        private string _pathAffordanceKey = "";
+
+        /// <summary>
         /// Rebuild the path affordance for the current selection. A radio with
         /// one home still gets the control filled in and disabled, so the answer
         /// to "how will this connect?" is always present rather than blank.
         /// </summary>
         private void SyncPathAffordance()
         {
+            var key = PathKey();
+            if (key == _pathAffordanceKey) return;
+            _pathAffordanceKey = key;
+
             var radio = GetSelectedRadio();
             _suppressPathComboEvent = true;
             try
@@ -1002,6 +1021,10 @@ namespace JJFlexWpf.Dialogs
             if (preferRemote == radio.PreferRemotePath) return;
 
             radio.PreferRemotePath = preferRemote;
+            // The combo already shows the new choice; re-syncing it from the
+            // list refresh below would rip its items out from under the user's
+            // focus for no change they can perceive.
+            _pathAffordanceKey = PathKey();
             _callbacks.ScreenReaderSpeak?.Invoke(
                 preferRemote
                     ? $"{RowName(radio)} will connect over SmartLink, even though it is on your local network."
@@ -1126,6 +1149,7 @@ namespace JJFlexWpf.Dialogs
             bool refreshing = (_remoteListLive || forceSessionCycle) && _callbacks.StartRemoteRefresh != null;
             _remoteDiscoveryInFlight = true;
             MarkCachedRowsRefreshing(true);
+            RefreshRadiosList();
 
             // Say WHICH account is about to be used. Anyone with more than one
             // SmartLink login was previously left to infer it from whichever
@@ -1502,12 +1526,19 @@ namespace JJFlexWpf.Dialogs
             // Shift+Tab back into the list must land on the row the user left,
             // not on the bare ListBox where arrows have no anchor and Enter has
             // no target. Only redirect when focus stopped on the ListBox itself.
-            if (ReferenceEquals(e.OriginalSource, RadiosBox) && RadiosBox.Items.Count > 0)
+            if (ReferenceEquals(e.OriginalSource, RadiosBox)
+                && RadiosBox.Items.Count > 0
+                && !_redirectingFocusToRow)
             {
+                _redirectingFocusToRow = true;
                 Dispatcher.BeginInvoke(new Action(() =>
                 {
-                    if (ReferenceEquals(System.Windows.Input.Keyboard.FocusedElement, RadiosBox))
-                        FocusRadioList();
+                    try
+                    {
+                        if (ReferenceEquals(System.Windows.Input.Keyboard.FocusedElement, RadiosBox))
+                            FocusRadioList();
+                    }
+                    finally { _redirectingFocusToRow = false; }
                 }), DispatcherPriority.Input);
             }
 
@@ -1531,12 +1562,20 @@ namespace JJFlexWpf.Dialogs
             }
 
             var selected = RadiosBox.SelectedItem as RadioListItem;
+            if (selected == null)
+            {
+                // Focus landed on the bare ListBox with nothing selected. The
+                // redirect above is about to put focus on a real row and that
+                // row will announce itself; "none selected, 0 of 3" here would
+                // just be a wrong answer arriving first.
+                return;
+            }
+
             int idx = RadiosBox.SelectedIndex + 1;
-            string name = selected?.DisplayText ?? "none selected";
             ScreenReaderOutput.Speak(
                 live == 0
-                    ? $"{name}, {idx} of {count}, none online"
-                    : $"{name}, {idx} of {count}",
+                    ? $"{selected.DisplayText}, {idx} of {count}, none online"
+                    : $"{selected.DisplayText}, {idx} of {count}",
                 VerbosityLevel.Terse, true);
         }
 
