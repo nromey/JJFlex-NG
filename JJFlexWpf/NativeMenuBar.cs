@@ -848,10 +848,31 @@ public class NativeMenuBar : IDisposable
             () => _window.IsAutoConnectEnabled?.Invoke() ?? false);
         AddWired(radio, "Clear Auto-Connect",
             () => { var msg = _window.ClearAutoConnect(); if (msg != null) SpeakAfterMenuClose(msg); });
-        AddNotImplemented(radio, "Operators");
+        // QB Track A stub audit (2026-08-07): these three were AddNotImplemented
+        // leftovers from the native-menu migration whose implementations
+        // already existed — wire, don't rebuild.
+        AddWired(radio, "Operators", () =>
+        {
+            if (_window.ShowOperatorsCallback != null)
+                _window.ShowOperatorsCallback();
+            else
+                SpeakAfterMenuClose("Operator management is not available.");
+        });
         AddWired(radio, "Profiles", () => ShowManageProfilesDialog());
-        AddNotImplemented(radio, "Connected Stations");
-        AddNotImplemented(radio, "Local PTT On");
+        AddWired(radio, "Connected Stations", () => ShowConnectedStations());
+        // LocalPTT is a one-way claim: FlexLib only supports granting local
+        // PTT to this client, never releasing it from here — hence "On".
+        AddChecked(radio, "Local PTT On", () =>
+        {
+            if (Rig == null) { SpeakNoRadio(); return; }
+            if (Rig.LocalPTT)
+            {
+                SpeakAfterMenuClose("Local PTT is already on");
+                return;
+            }
+            Rig.LocalPTT = true;
+            SpeakAfterMenuClose("Local PTT on");
+        }, () => Rig?.LocalPTT == true);
 
         var loggingSub = AddSubmenu(radio, "Logging");
         AddNotImplemented(loggingSub, "Log Characteristics");
@@ -1141,7 +1162,17 @@ public class NativeMenuBar : IDisposable
         });
         AddWired(tools, "Status Dialog\tCtrl+Alt+S", () =>
             _window.ShowStatusDialogCallback?.Invoke());
-        AddNotImplemented(tools, "Station Lookup");
+        // QB Track A stub audit: the registered StationLookup command was
+        // already working (Ctrl+L, Command Finder) — the menu item was the
+        // only dead door. Route through ExecuteCommandCallback so the menu,
+        // the hotkey, and the Command Finder share one dispatch path.
+        AddWired(tools, "Station Lookup\tCtrl+L", () =>
+        {
+            if (_window.ExecuteCommandCallback != null)
+                _window.ExecuteCommandCallback(CommandValues.StationLookup);
+            else
+                SpeakAfterMenuClose("Station lookup is not available.");
+        });
         AddSep(tools);
         AddWired(tools, "Enter Logging Mode", () => _window.EnterLoggingMode());
         AddChecked(tools, "Classic Tuning Mode\tCtrl+Shift+M",
@@ -1149,7 +1180,10 @@ public class NativeMenuBar : IDisposable
             () => _window.ActiveUIMode == MainWindow.UIMode.Classic);
         AddSep(tools);
         AddNotImplemented(tools, "Hotkey Editor");
-        AddNotImplemented(tools, "Band Plans");
+        // QB Track A stub audit: band-plan data (HamBands.Bands) and the WPF
+        // ShowBandsDialog both existed, unconnected. Works without a radio —
+        // the band table is static data.
+        AddWired(tools, "Band Plans", () => ShowBandPlansDialog());
         AddWired(tools, "Feature Availability", () => ShowFeatureAvailability());
         // GPS / GNSS status and reference-oscillator selection. Lives next to
         // Feature Availability because it answers the same shape of question:
@@ -1410,7 +1444,12 @@ public class NativeMenuBar : IDisposable
         _checkItems.Add((popup, id, stateGetter, text));
     }
 
-    /// <summary>Add a menu item that speaks "not yet connected to radio".</summary>
+    /// <summary>
+    /// Add a menu item whose implementation is not wired yet. Speaks an honest
+    /// "not yet implemented" — the old text claimed "not yet connected to
+    /// radio", which was a lie for stubs and sent users hunting for a
+    /// connection problem that didn't exist (QB Track A, 2026-08-07).
+    /// </summary>
     private void AddNotImplemented(IntPtr popup, string text)
     {
         int id = _nextId++;
@@ -1418,7 +1457,7 @@ public class NativeMenuBar : IDisposable
         _handlers[id] = () =>
         {
             Tracing.TraceLine($"Menu: {text} (not yet wired)", TraceLevel.Info);
-            SpeakAfterMenuClose($"{text}, not yet connected to radio");
+            SpeakAfterMenuClose($"{text} is not yet implemented in this version.");
         };
     }
 
@@ -1681,6 +1720,123 @@ public class NativeMenuBar : IDisposable
                 "Check for updates",
                 MessageBoxButton.OK, MessageBoxImage.Warning);
         }
+    }
+
+    /// <summary>
+    /// Show the connected-stations list (QB Track A stub audit). The WPF
+    /// ShowStationNamesDialog existed unused since the migration; FlexBase
+    /// exposes the station list directly.
+    /// </summary>
+    private void ShowConnectedStations()
+    {
+        if (Rig == null) { SpeakNoRadio(); return; }
+        List<string> stations;
+        try
+        {
+            stations = Rig.Stations
+                .Where(s => !string.IsNullOrWhiteSpace(s))
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            Tracing.TraceLine($"ShowConnectedStations: {ex.Message}", TraceLevel.Error);
+            SpeakAfterMenuClose("The station list could not be read.");
+            return;
+        }
+        if (stations.Count == 0)
+        {
+            // The dialog silently self-closes on an empty list — say why
+            // nothing appeared instead of letting the click go silent.
+            SpeakAfterMenuClose("No stations connected");
+            return;
+        }
+        var dialog = new Dialogs.ShowStationNamesDialog { StationNames = stations };
+        dialog.ShowDialog();
+    }
+
+    /// <summary>
+    /// Show the band-plans browser (QB Track A stub audit). Mirrors the old
+    /// WinForms ShowBands form: pick a band (optionally license class and
+    /// mode), get the band edges and division breakdown. Static data — works
+    /// with no radio connected; when a radio is present the current band and
+    /// a mode guess are preselected.
+    /// </summary>
+    private void ShowBandPlansDialog()
+    {
+        // Index 0 of the license/mode lists means "All" (no filter), matching
+        // the enums' "none" member — the dialog treats index 0 the same way.
+        var licenseNames = Enum.GetNames(typeof(Bands.Licenses))
+            .Select(n => n == "none" ? "All" : n).ToArray();
+        var modeNames = Enum.GetNames(typeof(Bands.Modes))
+            .Select(n => n == "none" ? "All" : n).ToArray();
+        var bandNames = Bands.TheBands.Select(b => b.Name).ToArray();
+
+        int initialBand = -1;
+        int initialMode = -1;
+        var rig = Rig;
+        if (rig != null)
+        {
+            var current = Bands.Query(rig.RXFrequency);
+            if (current != null) initialBand = current.ID;
+            string mode = rig.Mode ?? "";
+            initialMode = mode.StartsWith("CW", StringComparison.OrdinalIgnoreCase)
+                ? (int)Bands.Modes.CW
+                : (int)Bands.Modes.PhoneCW;
+        }
+
+        var dialog = new Dialogs.ShowBandsDialog
+        {
+            BandNames = bandNames,
+            LicenseNames = licenseNames,
+            ModeNames = modeNames,
+            InitialBandIndex = initialBand,
+            InitialLicenseIndex = 0,
+            InitialModeIndex = initialMode,
+            QueryBands = (bandIdx, licenseIdx, modeIdx) =>
+            {
+                if (bandIdx < 0) return null;
+                var band = (Bands.BandNames)bandIdx;
+                bool haveLicense = licenseIdx > 0;
+                bool haveMode = modeIdx > 0;
+                Bands.BandItem result;
+                if (haveLicense && haveMode)
+                    result = Bands.Query(band, (Bands.Licenses)licenseIdx, (Bands.Modes)modeIdx);
+                else if (haveLicense)
+                    result = Bands.Query(band, (Bands.Licenses)licenseIdx);
+                else if (haveMode)
+                    result = Bands.Query(band, (Bands.Modes)modeIdx);
+                else
+                    result = Bands.Query(band);
+                return result == null ? "No band plan entry found." : FormatBandPlan(result);
+            }
+        };
+        dialog.ShowDialog();
+    }
+
+    /// <summary>
+    /// Format a band-plan entry for the ShowBandsDialog result box.
+    /// Frequencies in kHz, one division per line — screen-reader-friendly
+    /// plain text, no tabs or columns.
+    /// </summary>
+    private static string FormatBandPlan(Bands.BandItem band)
+    {
+        static string KHz(ulong hz) => (hz / 1000).ToString();
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine($"{band.Name}: {KHz(band.Low)} to {KHz(band.High)} kilohertz");
+        if (band.Divisions != null)
+        {
+            foreach (var d in band.Divisions)
+            {
+                var line = new System.Text.StringBuilder();
+                line.Append($"{KHz(d.Low)} to {KHz(d.High)}");
+                if (d.License != null && d.License.Length > 0)
+                    line.Append(": " + string.Join(", ", d.License.Select(l => l.ToString())));
+                if (d.Mode != null && d.Mode.Length > 0)
+                    line.Append(" - " + string.Join(", ", d.Mode.Select(m => m.ToString())));
+                sb.AppendLine(line.ToString());
+            }
+        }
+        return sb.ToString();
     }
 
     /// <summary>

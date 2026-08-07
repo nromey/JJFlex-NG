@@ -1224,6 +1224,14 @@ public partial class MainWindow : UserControl
     public Action? AudioSetupCallback { get; set; }
 
     /// <summary>
+    /// Callback to open the operator management dialog (the VB Lister form over
+    /// the PersonalData operators list — the same surface the app shows at
+    /// first run when no operator exists). Set by ApplicationEvents.vb.
+    /// QB Track A stub audit, 2026-08-07.
+    /// </summary>
+    public Action? ShowOperatorsCallback { get; set; }
+
+    /// <summary>
     /// Antenna tune button base text, matching Form1 pattern.
     /// </summary>
     private const string AntennaTuneButtonBaseText = "Ant Tune";
