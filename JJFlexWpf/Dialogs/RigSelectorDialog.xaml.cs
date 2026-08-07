@@ -551,7 +551,10 @@ namespace JJFlexWpf.Dialogs
                 }
                 else
                 {
-                    radio.IsFavorite = SafeIsFavorite(radio.Serial);
+                    // A radio with no roster row has never been seen on this
+                    // install, so it cannot be a favorite. Reading the favorite
+                    // flag from disk here would put file IO under this lock on
+                    // the discovery thread for no possible gain.
                     _radiosList.Add(radio);
                 }
             }
@@ -575,12 +578,6 @@ namespace JJFlexWpf.Dialogs
                 RefreshRadiosList();
                 SyncPathAffordance();
             });
-        }
-
-        private static bool SafeIsFavorite(string serial)
-        {
-            try { return KnownRadioRoster.IsFavorite(serial); }
-            catch { return false; }
         }
 
         private void RecordSightingOnce(RadioListItem radio)
@@ -1641,10 +1638,12 @@ namespace JJFlexWpf.Dialogs
 
         private void ShowNoRadiosGuidance()
         {
+            // Name the button that actually exists. "Click SmartLink" sent people
+            // hunting for a control this dialog has never had.
             new MessageDialog
             {
                 Title = "No Radios Found",
-                Message = "No radios found. Click SmartLink to discover remote radios.",
+                Message = "No radios found on the local network. Press Remote, Alt+R, to look for radios through SmartLink.",
                 Owner = this
             }.ShowDialog();
         }

@@ -90,11 +90,20 @@ namespace Radios
         /// and reads through <see cref="LoadAccounts"/> rather than just testing
         /// file existence, so an empty or unreadable file counts as "none".
         /// </summary>
-        public static bool AnySavedAccounts()
+        public static bool AnySavedAccounts() => SavedAccountCount() > 0;
+
+        /// <summary>
+        /// How many SmartLink accounts are saved on this computer. A COUNT, not
+        /// a yes/no, because the three states read differently to a user: none
+        /// saved means the button should offer to sign in, one saved means
+        /// "SmartLink Account", and two or more is the only case where
+        /// "Switch Account" is a truthful label.
+        /// </summary>
+        public static int SavedAccountCount()
         {
             var mgr = new SmartLinkAccountManager();
             mgr.LoadAccounts();
-            return mgr.Accounts.Count > 0;
+            return mgr.Accounts.Count;
         }
 
         /// <summary>
