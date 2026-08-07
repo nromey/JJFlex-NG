@@ -52,8 +52,22 @@ namespace Radios
         Success,
         /// <summary>Session connected and registered successfully, but the server reported zero radios for this account. Don't retry — the remote rigs are simply off.</summary>
         NoRadios,
-        /// <summary>Session failed to connect, register, or returned an error. Caller may retry with a fresh login.</summary>
-        ConnectFailed
+        /// <summary>
+        /// Session failed at the transport / server level: TLS connect timed
+        /// out, the radio list never came on a fresh session, or an exception
+        /// fired. The user's SIGN-IN is not implicated — QB Track D: a retry
+        /// (session cycle) is fair medicine, an interactive login form is not.
+        /// Treating every one of these as auth-shaped is what used to summon
+        /// pointless sign-in forms over healthy accounts.
+        /// </summary>
+        ConnectFailed,
+        /// <summary>
+        /// SmartLink explicitly rejected our authorization (session status
+        /// AuthorizationExpired before or during registration). This is the
+        /// ONE failure class where re-authentication — silent JWT refresh
+        /// first, interactive login as last resort — is the right medicine.
+        /// </summary>
+        AuthFailed
     }
 
     /// <summary>
@@ -970,13 +984,13 @@ namespace Radios
             Tracing.TraceLine($"Connect:{serial} preferWanPath={preferWanPath}", TraceLevel.Info);
             bool rv = true;
 
-            // A fresh attempt owes a fresh verdict — stale advice from a previous
-            // fail-fast must not narrate an unrelated failure.
-            LastConnectFailureAdvice = null;
-
             // Save connection parameters for retry support
             _connectedSerial = serial;
             _connectedLowBW = lowBW;
+
+            // Fresh attempt, fresh story — a stale failure report from a
+            // previous attempt must never narrate this one.
+            LastConnectFailureReport = null;
 
             ConnectionProfiler.Current?.RecordEvent("connect_begin", new Dictionary<string, object>
             {
@@ -997,6 +1011,13 @@ namespace Radios
                         ? "Connect: SmartLink path requested but the account's radio list has no such radio"
                         : "Connect didn't find radio",
                     TraceLevel.Error);
+                RecordConnectFailure(new ConnectFailureReport
+                {
+                    Class = ConnectFailureClass.RadioNotFound,
+                    SpokenSummary = preferWanPath
+                        ? "The SmartLink radio list for this account no longer includes that radio. Refresh the radio list, or choose the local path if the radio is on your network."
+                        : "The radio is no longer in the list of available radios. It may have gone offline — refresh the radio list and try again.",
+                });
                 return false;
             }
 
@@ -1057,10 +1078,18 @@ namespace Radios
 
             theRadio.LowBandwidthConnect = lowBW;
 
+            // Which stage failed decides what the failure MEANS: a
+            // sendRemoteConnect failure is SmartLink/radio-side (the radio
+            // never said "ready"); a Radio.Connect failure is transport
+            // (the TCP/TLS path to the radio's port). Track it so the
+            // failure report tells the right story.
+            bool remoteHandshakeFailed = false;
+
             if (RemoteRig)
             {
                 ConnectionProfiler.Current?.RecordEvent("send_remote_connect_begin");
                 rv = sendRemoteConnect(theRadio);
+                remoteHandshakeFailed = !rv;
                 ConnectionProfiler.Current?.RecordEvent("send_remote_connect_end", new Dictionary<string, object>
                 {
                     { "success", rv }
@@ -1139,6 +1168,30 @@ namespace Radios
             else
             {
                 Tracing.TraceLine("Connect failed", TraceLevel.Error);
+                // Compose the evidence NOW, while the radio object still
+                // carries the flags and address of the attempt. Callers
+                // speak LastConnectFailureAdvice instead of a bare
+                // "connection failed".
+                try
+                {
+                    if (RemoteRig)
+                    {
+                        RecordConnectFailure(BuildRemoteConnectFailureReport(theRadio, remoteHandshakeFailed));
+                    }
+                    else
+                    {
+                        RecordConnectFailure(new ConnectFailureReport
+                        {
+                            Class = ConnectFailureClass.LocalConnectFailed,
+                            SpokenSummary = $"Could not open the command channel to the radio at {theRadio?.IP?.ToString() ?? "its LAN address"}. The radio may have just powered off or changed address — refresh the radio list and try again.",
+                        });
+                    }
+                }
+                catch (Exception ex)
+                {
+                    // Failure reporting must never turn a clean false into a throw.
+                    Tracing.TraceLine($"Connect: failure-report composition threw: {ex.Message}", TraceLevel.Error);
+                }
             }
 
             ConnectionProfiler.Current?.RecordEvent(rv ? "connect_success" : "connect_failed", new Dictionary<string, object>
@@ -1215,6 +1268,13 @@ namespace Radios
                     {
                         Tracing.TraceLine($"  myRadioList entry: serial={r.Serial} name={r.Nickname} status={r.Status}", TraceLevel.Info);
                     }
+                    RecordConnectFailure(new ConnectFailureReport
+                    {
+                        Class = ConnectFailureClass.RadioNotFound,
+                        SpokenSummary = config.IsRemote
+                            ? $"{config.RadioName} never appeared in the SmartLink radio list. It may be powered off, offline, or registered to a different account."
+                            : $"{config.RadioName} was not found on the local network. It may be powered off or on a different network.",
+                    });
                     if (!SuppressSpeech) ScreenReaderOutput.Speak($"{config.RadioName} not found", VerbosityLevel.Critical, true);
                     return false;
                 }
@@ -1235,7 +1295,12 @@ namespace Radios
                 else
                 {
                     Tracing.TraceLine($"TryAutoConnect: END Connect() FAILED (total {sw.ElapsedMilliseconds}ms)", TraceLevel.Error);
-                    if (!SuppressSpeech) ScreenReaderOutput.Speak($"Failed to connect to {config.RadioName}", VerbosityLevel.Critical, true);
+                    // Speak the classified evidence, not just the verdict —
+                    // Connect() filed LastConnectFailureReport before returning.
+                    string failSpeech = $"Failed to connect to {config.RadioName}.";
+                    string? advice = LastConnectFailureAdvice;
+                    if (!string.IsNullOrEmpty(advice)) failSpeech += " " + advice;
+                    if (!SuppressSpeech) ScreenReaderOutput.Speak(failSpeech, VerbosityLevel.Critical, true);
                 }
 
                 return connected;
@@ -1285,6 +1350,17 @@ namespace Radios
                     if (!remoteOk)
                     {
                         Tracing.TraceLine($"ReconnectRemote: setupRemote FAILED ({sw.ElapsedMilliseconds}ms)", TraceLevel.Error);
+                        // setupRemote files its own classified report (auth vs
+                        // server vs cancelled). Only file a generic one if it
+                        // did not — a caller must always find SOMETHING here.
+                        if (LastConnectFailureReport == null)
+                        {
+                            RecordConnectFailure(new ConnectFailureReport
+                            {
+                                Class = ConnectFailureClass.SessionSetupFailed,
+                                SpokenSummary = "Could not sign in to SmartLink or reach its server, so the radio was never contacted.",
+                            });
+                        }
                         return false;
                     }
                 }
@@ -1314,6 +1390,11 @@ namespace Radios
                     {
                         Tracing.TraceLine($"  myRadioList entry: serial={r.Serial} name={r.Nickname} status={r.Status}", TraceLevel.Info);
                     }
+                    RecordConnectFailure(new ConnectFailureReport
+                    {
+                        Class = ConnectFailureClass.RadioNotFound,
+                        SpokenSummary = "Signed in to SmartLink, but this radio never appeared in the account's radio list. The radio may be powered off, offline, or registered to a different SmartLink account.",
+                    });
                     return false;
                 }
 
@@ -1490,8 +1571,26 @@ namespace Radios
                             VerbosityLevel.Critical, true);
                     }
                 }
+                else if (connectResult == SmartLinkConnectResult.AuthFailed)
+                {
+                    // QB Track D: auto-connect deliberately never pops a login
+                    // form (it runs before the user has touched anything), but
+                    // it can at least say that sign-in — not the network — is
+                    // what needs attention.
+                    RecordConnectFailure(new ConnectFailureReport
+                    {
+                        Class = ConnectFailureClass.AuthenticationFailed,
+                        SpokenSummary = $"SmartLink did not accept the saved sign-in for {config.SmartLinkAccountEmail}. Connect with the Remote button to sign in again.",
+                    });
+                    if (!SuppressSpeech) ScreenReaderOutput.Speak("SmartLink sign-in was not accepted. Use the Remote button to sign in again.", VerbosityLevel.Critical, true);
+                }
                 else
                 {
+                    RecordConnectFailure(new ConnectFailureReport
+                    {
+                        Class = ConnectFailureClass.SessionSetupFailed,
+                        SpokenSummary = "Could not reach the SmartLink server. Your sign-in is fine — check your internet connection and try again.",
+                    });
                     if (!SuppressSpeech) ScreenReaderOutput.Speak("SmartLink connection failed", VerbosityLevel.Critical, true);
                 }
                 return false;
@@ -1504,26 +1603,6 @@ namespace Radios
 
         /// <summary>Reason the last Start() call failed. Set before returning false.</summary>
         public string? LastStartFailureReason { get; private set; }
-
-        /// <summary>
-        /// QB Track C — why the most recent Connect() attempt was refused BEFORE
-        /// any network attempt was made, in user-speakable words. Null when the
-        /// connect proceeded normally (including when it later failed for other
-        /// reasons — those are classified elsewhere). Set today only by the
-        /// ForwardOnly fail-fast in sendRemoteConnect: a radio whose per-radio
-        /// profile says "forwarded ports only" but which advertises no reachable
-        /// public port has nothing to even try, and grinding through a doomed
-        /// attempt would just burn 30 seconds before a bare "connection failed".
-        ///
-        /// SEAM FOR TRACK D (connect-failure classification and messaging):
-        /// deliberately a bare speakable string so the placeholder consumption in
-        /// globals.vb wpfSelectorProc can say something honest today. When Track
-        /// D's failure classifier lands, profile-refused/fail-fast becomes one of
-        /// its failure classes, Track D owns the message text (including the
-        /// generated router-rule recipe this string deliberately does NOT
-        /// attempt), and the placeholder consumption routes through it.
-        /// </summary>
-        public string? LastConnectFailureAdvice { get; private set; }
 
         /// <summary>Suppress screen reader speech. Set true for automated testing.</summary>
         public bool SuppressSpeech { get; set; }
@@ -1589,7 +1668,30 @@ namespace Radios
                 return ((theRadio.RXAntList != null) && (theRadio.RXAntList.Length > 0)) || _cancelRequested;
             }, 20000))
             {
-                Tracing.TraceLine("start:no RX antenna", TraceLevel.Error);
+                // QB Track D (item 4): "no RX antenna" was a misleading verdict
+                // for this timeout. Every Flex physically has RX antennas; when
+                // this wait expires the real story is almost always that the
+                // "ant list" REPLY never arrived — the command/data path came
+                // up dead or the connection dropped mid-setup. Say the real
+                // thing; only an actually-empty reply earns the antenna words.
+                if (!IsConnected)
+                {
+                    Tracing.TraceLine("start: connection dropped during antenna-list wait", TraceLevel.Error);
+                    LastStartFailureReason = "Connection lost during setup";
+                    raiseNoSliceError("the connection to the radio dropped during setup");
+                    return false;
+                }
+                if (theRadio.RXAntList == null)
+                {
+                    Tracing.TraceLine("start: antenna list never arrived — command/data path never came up", TraceLevel.Error);
+                    LastStartFailureReason = "Radio setup stalled — the radio never sent its setup data";
+                    raiseNoSliceError("the radio connected but never sent its setup data. "
+                        + "This is a connection problem, not an antenna problem — try connecting again");
+                    return false;
+                }
+                // RXAntList arrived but is empty: the radio genuinely reported
+                // zero RX antennas. Vanishingly rare, but honest.
+                Tracing.TraceLine("start: radio answered with an empty RX antenna list", TraceLevel.Error);
                 LastStartFailureReason = "No RX antenna detected";
                 raiseNoSliceError(noRXAnt);
                 return false;
@@ -2675,6 +2777,250 @@ namespace Radios
         // meaning; that meaning now lives per-radio (RadioConfig.FixedHolePunchPort)
         // and the account field keeps only the forwarded-port meaning. Its one
         // consumer, the Network tab's account-level punch-port editor, is gone too.
+
+        // ── QB Track D — connect-failure truth ─────────────────────────
+        //
+        // Why this exists: Don's traces read fwdTcp=False for hours while
+        // humans guessed at router rules. The evidence was in hand and the
+        // user heard "connection failed". These members hold the composed
+        // story of the most recent failed connect so every caller can speak
+        // the reason itself instead of a shrug.
+
+        /// <summary>
+        /// Classified evidence for the most recent failed connect attempt,
+        /// or null when the last attempt succeeded (or none was made).
+        /// Reset at the top of every <see cref="Connect(string, bool)"/>.
+        /// </summary>
+        public ConnectFailureReport? LastConnectFailureReport { get; private set; }
+
+        /// <summary>
+        /// The speakable form of <see cref="LastConnectFailureReport"/> —
+        /// summary sentence(s) plus the verbatim router rule when the
+        /// evidence points at the router. Null when there is nothing to say.
+        ///
+        /// MERGE SEAM (Track C → Track D, 2026-08-07): Track C's branch
+        /// carries a string property of this same name, set only on its
+        /// ForwardOnly pre-attempt fail-fast and cleared at Connect() /
+        /// sendRemoteConnect() entry. At merge, THIS computed property owns
+        /// the name; C's assignment sites become
+        /// RecordConnectFailure(new ConnectFailureReport {
+        ///   Class = ConnectFailureClass.PreflightRefused,
+        ///   SpokenSummary = &lt;C's message text&gt; }).
+        /// The Connect()-entry reset already exists here; add the same
+        /// reset at sendRemoteConnect() entry if C's contract requires it.
+        /// </summary>
+        public string? LastConnectFailureAdvice => LastConnectFailureReport?.ComposeSpeech();
+
+        /// <summary>
+        /// Record a composed failure report and trace it. Internal seam so
+        /// every failure site files its evidence the same way.
+        /// </summary>
+        internal void RecordConnectFailure(ConnectFailureReport report)
+        {
+            LastConnectFailureReport = report;
+            report.Trace();
+        }
+
+        /// <summary>
+        /// Cached SmartLink test_connection report for a radio, if one has
+        /// been collected this app run. Cache read only — never triggers a
+        /// probe, so it is safe to consult from any state including a live
+        /// hole-punched session.
+        /// </summary>
+        public Radios.SmartLink.NetworkDiagnosticReport? LastNetworkReportFor(string serial)
+        {
+            if (string.IsNullOrEmpty(serial)) return null;
+            try
+            {
+                return Radios.SmartLink.SmartLinkServices.Coordinator.ActiveSession?.GetLastNetworkReport(serial);
+            }
+            catch { return null; }
+        }
+
+        /// <summary>
+        /// The radio's last-known LAN address from the connection cache, or
+        /// null if this machine has never seen it on the LAN. This is what
+        /// lets the router-rule text name a real address for a radio we can
+        /// currently only reach (or fail to reach) over SmartLink.
+        /// </summary>
+        public string? CachedLanIpFor(string serial)
+        {
+            if (string.IsNullOrEmpty(serial)) return null;
+            try
+            {
+                string? lanIp = GetRadioConnectionCache().Lookup(serial)?.LanIp;
+                return string.IsNullOrWhiteSpace(lanIp) ? null : lanIp;
+            }
+            catch { return null; }
+        }
+
+        /// <summary>
+        /// The exact router rule this radio needs, built entirely from
+        /// radio-reported values: advertised external ports, cached LAN IP,
+        /// fixed internal TCP 4994 / UDP 4993. Null when the radio has not
+        /// advertised external ports (e.g. pure hole-punch site). Public so
+        /// any settings / guidance surface can offer the same verbatim text.
+        /// </summary>
+        public string? BuildRouterRuleText()
+        {
+            var r = theRadio;
+            if (r == null) return null;
+            return RouterRuleAdvisor.BuildRouterRuleText(
+                r.PublicTlsPort, r.IsWan ? r.PublicUdpPort : 0, CachedLanIpFor(r.Serial));
+        }
+
+        /// <summary>
+        /// Compose the failure story for a failed REMOTE connect, from the
+        /// evidence already in hand plus (when safe) evidence one probe away:
+        ///
+        /// 1. The SmartLink test_connection report — reachability ground
+        ///    truth measured from OUTSIDE the user's network. Cached copy is
+        ///    used when present; a fresh probe is fetched only on the
+        ///    forwarded path. NEVER auto-run on a hole-punch radio — the
+        ///    radio-side probe is at minimum useless there and was implicated
+        ///    in killing punched sessions (the f842e93f gate's reasoning).
+        /// 2. A client-side TCP classification of the radio's public port —
+        ///    refused (router answered, nothing behind the rule) versus
+        ///    timed out (packets never arrived) are different diseases with
+        ///    different medicine, and both used to be "open failed".
+        /// 3. Radio-reported flags (forwarding on, ports, punch required).
+        /// </summary>
+        private ConnectFailureReport BuildRemoteConnectFailureReport(Radio r, bool remoteHandshakeFailed)
+        {
+            var detail = new List<string>();
+            bool punch = false;
+            try { punch = r.RequiresHolePunch; } catch { }
+            int tlsPort = 0, udpPort = 0;
+            try { tlsPort = r.PublicTlsPort; udpPort = r.PublicUdpPort; } catch { }
+            detail.Add($"radio-reported path: {(punch ? "hole punch" : "forwarded ports")}, TCP {tlsPort}, UDP {udpPort}, forwarding flag {(RadioPortForwardActive ? "on" : "off")}");
+
+            string? ruleText = BuildRouterRuleText();
+
+            // Evidence source 1 — SmartLink's own outside-in probe.
+            Radios.SmartLink.NetworkDiagnosticReport? probe = LastNetworkReportFor(r.Serial);
+            if (probe == null && !punch)
+            {
+                // Forwarded path with no cached report: fetch one now. The
+                // connect already failed, so there is no live session to
+                // endanger, and eight seconds of waiting buys the difference
+                // between evidence and a shrug. Punch path: never — see the
+                // method doc.
+                try
+                {
+                    var session = Radios.SmartLink.SmartLinkServices.Coordinator.ActiveSession;
+                    if (session != null && session.IsConnected)
+                    {
+                        Tracing.TraceLine("BuildRemoteConnectFailureReport: fetching fresh test_connection (forwarded path, no cached report)", TraceLevel.Info);
+                        var task = session.RunNetworkDiagnosticAsync(r.Serial, forceRefresh: false, timeout: TimeSpan.FromSeconds(8));
+                        if (task.Wait(9000)) probe = task.Result;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Tracing.TraceLine($"BuildRemoteConnectFailureReport: probe fetch failed: {ex.Message}", TraceLevel.Warning);
+                }
+            }
+            if (probe != null && probe.ProbeCompleted)
+            {
+                detail.Add($"SmartLink outside-in test ({probe.TimestampUtc:HH:mm:ss} UTC): forwarded TCP {YesNo(probe.ManualForwardTcpReachable)}, forwarded UDP {YesNo(probe.ManualForwardUdpReachable)}, UPnP TCP {YesNo(probe.UpnpTcpReachable)}, UPnP UDP {YesNo(probe.UpnpUdpReachable)}, NAT hole-punch support {YesNo(probe.NatSupportsHolePunch)}");
+            }
+            else if (probe != null)
+            {
+                detail.Add($"SmartLink outside-in test did not complete: {probe.ErrorDetail}");
+            }
+
+            // Evidence source 2 — our own TCP classification of the public
+            // port. Forwarded path only; a punch radio has no listening
+            // public TCP port to classify.
+            TcpProbeResult? tcp = null;
+            if (!punch && tlsPort > 0 && r.IP != null)
+            {
+                tcp = TcpReachabilityProbe.Classify(r.IP, tlsPort);
+                detail.Add($"client-side TCP check of {r.IP}:{tlsPort}: {tcp.Outcome} after {tcp.ElapsedMs}ms ({tcp.Detail})");
+            }
+
+            // Compose the spoken story, most specific evidence first.
+            ConnectFailureClass cls;
+            string spoken;
+
+            if (punch)
+            {
+                cls = ConnectFailureClass.TransportFailed;
+                spoken = "Could not open a hole-punched connection to the radio. "
+                    + "The radio has no forwarded ports, so the connection depends on both routers allowing the punch, and some networks never will.";
+                if (probe?.ProbeCompleted == true && probe.NatSupportsHolePunch == false)
+                {
+                    spoken += " SmartLink's own network test reports this network does not support hole punch — a forwarded port on the radio's router is the reliable path.";
+                }
+                else
+                {
+                    spoken += " Trying again sometimes wins the timing; a forwarded port on the radio's router is the reliable fix.";
+                }
+                // A rule is still worth stating on the punch path when the
+                // radio advertises nothing: the fix IS creating the rule.
+                // But with no advertised external ports there are no honest
+                // numbers to speak, so ruleText stays null unless the radio
+                // provided them.
+            }
+            else if (tcp != null && tcp.Outcome == TcpProbeOutcome.Refused)
+            {
+                cls = ConnectFailureClass.TransportRefused;
+                spoken = $"The radio's router answered on port {tlsPort} and refused the connection after {tcp.ElapsedMs} milliseconds — "
+                    + "the port forward reaches the router, but nothing is listening behind the rule. "
+                    + "The rule may point at the wrong LAN address, or the radio may be off.";
+            }
+            else if (tcp != null && (tcp.Outcome == TcpProbeOutcome.TimedOut || tcp.Outcome == TcpProbeOutcome.Unreachable))
+            {
+                cls = ConnectFailureClass.TransportTimedOut;
+                spoken = $"Connection attempts to the radio's public port {tlsPort} got no answer at all — the packets never arrived. "
+                    + "That usually means the router rule is missing, a firewall is dropping them, or the radio's public address has changed.";
+                if (probe?.ProbeCompleted == true && probe.ManualForwardTcpReachable == false)
+                {
+                    spoken = $"SmartLink tested the radio's forwarded TCP port from the internet and could not reach it, and this computer's own check got no answer either. "
+                        + "The router rule is the likely problem.";
+                }
+            }
+            else if (probe?.ProbeCompleted == true && probe.ManualForwardTcpReachable == false && RadioPortForwardActive)
+            {
+                cls = ConnectFailureClass.TransportFailed;
+                spoken = "The radio reports its forwarded TCP port is not reachable from the internet — SmartLink tested it from outside. Check the router rule.";
+            }
+            else if (remoteHandshakeFailed)
+            {
+                cls = ConnectFailureClass.RemoteHandshakeFailed;
+                spoken = "SmartLink accepted the request, but the radio never reported ready to connect. The radio may be busy, restarting, or just dropped off the network. Trying again usually works.";
+                ruleText = null; // no evidence pointing at the router — don't send anyone there
+            }
+            else if (tcp != null && tcp.Outcome == TcpProbeOutcome.Connected)
+            {
+                cls = ConnectFailureClass.TransportFailed;
+                spoken = $"The radio's public port {tlsPort} answers from here, so the router rule looks right — the failure happened after the port, most likely in the secure handshake with the radio. Trying again usually works.";
+                ruleText = null; // the rule is demonstrably fine
+            }
+            else
+            {
+                cls = ConnectFailureClass.TransportFailed;
+                spoken = "Could not connect to the radio over SmartLink.";
+                if (probe?.ProbeCompleted == true
+                    && (probe.ManualForwardTcpReachable == true || probe.UpnpTcpReachable == true))
+                {
+                    spoken += " SmartLink's network test says the radio's port is reachable from the internet, so this looks like a passing problem — trying again usually works.";
+                    ruleText = null;
+                }
+            }
+
+            return new ConnectFailureReport
+            {
+                Class = cls,
+                SpokenSummary = spoken,
+                RouterRuleText = ruleText,
+                DetailLines = detail,
+                ProbeReport = probe,
+                TcpProbe = tcp,
+            };
+        }
+
+        private static string YesNo(bool? v) => v switch { true => "yes", false => "no", null => "unknown" };
 
         #endregion
 
@@ -3803,7 +4149,7 @@ namespace Radios
                 goto setupRemoteDone;
             }
 
-            // First medicine for ConnectFailed: cycle the WAN session and retry
+            // First medicine for any failure: cycle the WAN session and retry
             // with the CURRENT sign-in. Most non-auth failures here are the
             // pre-existing-session trap — the server sends the radio list once
             // per TLS session, so a re-entered connect over a live session can
@@ -3811,10 +4157,13 @@ namespace Radios
             // old response of popping an interactive login on a healthy account
             // was wrong medicine (Noel, 2026-08-06, trace 203418). Refresh the
             // JWT silently when we hold an account (id_tokens live 60 seconds;
-            // native-lineage refresh takes ~250ms and no UI).
-            if (connectResult == SmartLinkConnectResult.ConnectFailed)
+            // native-lineage refresh takes ~250ms and no UI). The same cheap
+            // silent pair is also the right FIRST medicine for AuthFailed — an
+            // expired id_token refreshes without any form.
+            if (connectResult == SmartLinkConnectResult.ConnectFailed
+                || connectResult == SmartLinkConnectResult.AuthFailed)
             {
-                Tracing.TraceLine($"setupRemote: connect failed; cycling WAN session and retrying with current sign-in ({sw.ElapsedMilliseconds}ms)", TraceLevel.Warning);
+                Tracing.TraceLine($"setupRemote: {connectResult}; cycling WAN session and retrying with current sign-in ({sw.ElapsedMilliseconds}ms)", TraceLevel.Warning);
                 CycleWanSession("connect failed — possible stale pre-existing session");
                 if (_currentAccount != null)
                 {
@@ -3839,14 +4188,18 @@ namespace Radios
                 }
             }
 
-            // Only retry the fresh-login path for real connection failures. Sending
-            // a fresh login + ReRegister to an already-registered session triggers
-            // "Invalid state for application registration" from the server, which the
-            // dispatcher can't parse — we'd just sit waiting for a radio list that
-            // will never arrive.
-            if (connectResult == SmartLinkConnectResult.ConnectFailed)
+            // QB Track D (item 6): the interactive sign-in form is the LAST
+            // resort, and only for failures that are actually auth-shaped —
+            // the server said AuthorizationExpired and a silent refresh did
+            // not fix it. Transport/server failures (timeouts, exceptions,
+            // list-never-came) must NOT summon a login form: the account is
+            // healthy, and a form the user cannot fix anything with is worse
+            // than an honest failure. (Also, historically: a fresh login +
+            // ReRegister on an already-registered session triggers "Invalid
+            // state for application registration" and a silent 10s hang.)
+            if (connectResult == SmartLinkConnectResult.AuthFailed)
             {
-                Tracing.TraceLine($"setupRemote: connect failed, performing fresh login ({sw.ElapsedMilliseconds}ms)", TraceLevel.Warning);
+                Tracing.TraceLine($"setupRemote: auth still failing after silent refresh, performing interactive login ({sw.ElapsedMilliseconds}ms)", TraceLevel.Warning);
                 jwt = PerformNewLogin();
                 if (!string.IsNullOrEmpty(jwt))
                 {
@@ -3866,6 +4219,30 @@ namespace Radios
                         }
                     }
                 }
+            }
+
+            // File the classified failure story so callers can speak the
+            // reason itself. AuthFailed and ConnectFailed get different
+            // words because they need different action from the user.
+            if (connectResult == SmartLinkConnectResult.AuthFailed)
+            {
+                RecordConnectFailure(new ConnectFailureReport
+                {
+                    Class = ConnectFailureClass.AuthenticationFailed,
+                    SpokenSummary = "SmartLink did not accept the sign-in for "
+                        + (_currentAccount?.Email ?? "this account")
+                        + ". Signing in again from the SmartLink account manager is the fix.",
+                });
+            }
+            else if (connectResult == SmartLinkConnectResult.ConnectFailed)
+            {
+                RecordConnectFailure(new ConnectFailureReport
+                {
+                    Class = ConnectFailureClass.SessionSetupFailed,
+                    SpokenSummary = "Could not reach the SmartLink server, or it stopped answering. "
+                        + "Your sign-in is fine — this is a network or server problem. "
+                        + "Check your internet connection and try again in a moment.",
+                });
             }
 
             setupRemoteDone:
@@ -4492,7 +4869,7 @@ namespace Radios
                 if (session.Status == Radios.SmartLink.SessionStatus.AuthorizationExpired)
                 {
                     Tracing.TraceLine($"ConnectToSmartLink: session reports AuthorizationExpired; setupRemote handles re-auth ({sw.ElapsedMilliseconds}ms)", TraceLevel.Warning);
-                    return SmartLinkConnectResult.ConnectFailed;
+                    return SmartLinkConnectResult.AuthFailed;
                 }
 
                 Tracing.TraceLine($"ConnectToSmartLink: session connected; ReRegister {API.ProgramName} Win10 jwt={jwt.Substring(0, Math.Min(20, jwt.Length))}... ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
@@ -4547,7 +4924,7 @@ namespace Radios
                 if (session.Status == Radios.SmartLink.SessionStatus.AuthorizationExpired)
                 {
                     Tracing.TraceLine($"ConnectToSmartLink: server rejected JWT during registration ({sw.ElapsedMilliseconds}ms)", TraceLevel.Warning);
-                    return SmartLinkConnectResult.ConnectFailed;
+                    return SmartLinkConnectResult.AuthFailed;
                 }
 
                 Tracing.TraceLine($"ConnectToSmartLink: radio list received! {radios.Count} radio(s), myRadioList has {myRadioList.Count} entries ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
@@ -4597,7 +4974,7 @@ namespace Radios
             // Also cleared here because RetryConnect calls this without going
             // through Connect() — and each retry re-loads the per-radio profile,
             // so a Settings edit made between attempts is honored.
-            LastConnectFailureAdvice = null;
+            LastConnectFailureReport = null;
             ConnectionProfiler.Current?.RecordEvent("send_remote_connect", new Dictionary<string, object>
             {
                 { "serial", r.Serial }
@@ -4662,14 +5039,17 @@ namespace Radios
                     // there is literally no address:port a forwarded connect could
                     // try. Attempting anyway is the old behavior: tens of seconds of
                     // silent grinding ending in a bare "connection failed". Refuse
-                    // up front and say why. Deliberately NO router-rule recipe here —
-                    // generating that from radio-reported values is Track D's job;
-                    // this is the honest placeholder.
-                    LastConnectFailureAdvice =
-                        "Not connecting. This radio is set to use forwarded ports only, " +
-                        "but SmartLink reports no forwarded port is reachable for it, so there is nothing to connect to. " +
-                        "Set up port forwarding at the radio's site, or change this radio's connection setting " +
-                        "on the Radios tab in Settings — hole punch there needs no port forwarding.";
+                    // up front and say why, filed as a pre-attempt refusal in
+                    // Track D's failure classification.
+                    RecordConnectFailure(new ConnectFailureReport
+                    {
+                        Class = ConnectFailureClass.PreflightRefused,
+                        SpokenSummary =
+                            "Not connecting. This radio is set to use forwarded ports only, " +
+                            "but SmartLink reports no forwarded port is reachable for it, so there is nothing to connect to. " +
+                            "Set up port forwarding at the radio's site, or change this radio's connection setting " +
+                            "on the Radios tab in Settings — hole punch there needs no port forwarding.",
+                    });
                     Tracing.TraceLine(
                         "sendRemoteConnect: FAIL FAST — per-radio profile is ForwardOnly, radio reported RequiresHolePunch=true and no public TLS port; refusing the doomed attempt",
                         TraceLevel.Error);

@@ -1,0 +1,20 @@
+<UserControl x:Class="JJFlexWpf.Controls.NetworkIdentityCard"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             AutomationProperties.Name="Network identity">
+
+    <!-- QB Track D (item 5) — the network identity card, read side.
+         One arrow-readable list: who the radio is (model, serial, firmware)
+         and how we reach it (LAN address / SmartLink public address,
+         forwarded-port or hole-punch path, reachability test results).
+         Reusable by design: the Status dialog hosts it today; the radio
+         picker detail area (Track E's territory) can drop it in unchanged.
+         Content comes from Radios.NetworkIdentityInfo so every host shows
+         identical lines. -->
+
+    <ListBox x:Name="IdentityList"
+             BorderThickness="0" Background="Transparent"
+             AutomationProperties.Name="Network identity"
+             IsTabStop="True"
+             KeyboardNavigation.TabNavigation="Once"/>
+</UserControl>

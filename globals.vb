@@ -2707,13 +2707,16 @@ Module globals
             If Not connectOk Then
                 _connectingForm?.CloseForm()
                 _connectingForm = Nothing
-                ' QB Track C placeholder for Track D's failure classifier: when the
-                ' connect was refused up front with advice (ForwardOnly fail-fast),
-                ' speak the advice instead of the bare generic line. Track D
-                ' absorbs this into its classification when it lands.
-                Dim failureSpeech = If(String.IsNullOrEmpty(RigControl.LastConnectFailureAdvice),
-                                       "Connection failed", RigControl.LastConnectFailureAdvice)
-                Radios.ScreenReaderOutput.Speak(failureSpeech, VerbosityLevel.Critical, True)
+                ' QB Track D: speak the classified evidence, not a bare verdict.
+                ' FlexBase files LastConnectFailureReport at every failure site
+                ' (auth vs server vs radio-missing vs refused vs timed out),
+                ' including the verbatim router rule when the evidence points
+                ' at the router. Bare "Connection failed" only when the report
+                ' is genuinely absent. Track C's pre-attempt refusal rides in as
+                ' ConnectFailureClass.PreflightRefused via the same property.
+                Dim advice = RigControl.LastConnectFailureAdvice
+                Dim failMsg = If(String.IsNullOrEmpty(advice), "Connection failed", "Connection failed. " & advice)
+                Radios.ScreenReaderOutput.Speak(failMsg, VerbosityLevel.Critical, True)
                 radioSelected = DialogResult.Cancel
                 RigControl.Dispose()
                 RigControl = Nothing
@@ -2863,7 +2866,19 @@ RadioConnected:
                             Tracing.TraceLine("OpenTheRadio:all retry attempts failed", TraceLevel.Error)
                             TraceSessionContext.MarkOutcome(TraceSessionOutcome.AsRetryFailed,
                                 $"All {maxAttempts} remote retry attempts exhausted")
-                            Radios.ScreenReaderOutput.Speak("Connection failed. Please try Remote again.", VerbosityLevel.Critical)
+                            ' QB Track D: name the reason the app already knows.
+                            ' Start()-stage failures carry LastStartFailureReason
+                            ' (populated since 2026-08-05); connect-stage retries
+                            ' carry LastConnectFailureAdvice. Say whichever we have.
+                            Dim retryReason = RigControl?.LastConnectFailureAdvice
+                            If String.IsNullOrEmpty(retryReason) Then
+                                Dim startReason = RigControl?.LastStartFailureReason
+                                If Not String.IsNullOrEmpty(startReason) Then retryReason = startReason & "."
+                            End If
+                            Dim retryMsg = If(String.IsNullOrEmpty(retryReason),
+                                "Connection failed. Please try Remote again.",
+                                "Connection failed. " & retryReason & " Please try Remote again.")
+                            Radios.ScreenReaderOutput.Speak(retryMsg, VerbosityLevel.Critical)
                         End If
 
                     ElseIf _autoConnectConfig IsNot Nothing AndAlso _autoConnectConfig.ShouldAutoConnect Then
