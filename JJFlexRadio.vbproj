@@ -160,6 +160,7 @@
     </Compile>
     <Compile Include="CWMessages.vb" />
     <Compile Include="DebugInfo.vb" />
+    <Compile Include="InstallManifest.vb" />
     <Compile Include="ZipUtils.vb" />
     <Compile Include="DefineCommands.Designer.vb">
       <DependentUpon>DefineCommands.vb</DependentUpon>

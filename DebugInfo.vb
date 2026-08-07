@@ -83,8 +83,15 @@ Friend Class DebugInfo
                     End Try
                 Next
 
-                ' get the program
-                ZipUtils.AddDirectoryToArchive(archive, ".", "program")
+                ' The program itself rides along as a fingerprint manifest plus
+                ' a self-verification report, not as 190 MB of binaries. The
+                ' whole-directory zip predates the self-contained runtime; once
+                ' the .NET runtime moved into the install directory it was
+                ' mostly Microsoft's files, identical on every machine, and it
+                ' guaranteed the upload limit tripped. The manifest diff answers
+                ' the same diagnostic question (stale / corrupt / mixed
+                ' install?) and answers it by name.
+                AddInstallVerification(archive)
 
                 Dim tempFileName = My.Computer.FileSystem.GetTempFileName
                 Try
@@ -133,5 +140,59 @@ Friend Class DebugInfo
         Finally
             openDialog.Dispose()
         End Try
+    End Sub
+
+    ''' <summary>
+    ''' QB Track M: add the install's self-verification to the bundle in place
+    ''' of the old whole-program zip. Three entries at the bundle root:
+    '''  - program-manifest.json: live manifest of the actual install directory
+    '''    (path, size, fingerprint per file — same schema the build writes)
+    '''  - install-manifest.json: the shipped known-good manifest, when present,
+    '''    included verbatim so support can diff against the exact release even
+    '''    if the live machine's copy is the thing that's corrupt
+    '''  - install-verification.txt: the live-vs-shipped diff in plain prose —
+    '''    verified clean, or every mismatched, missing, unexpected, and
+    '''    unreadable file by name
+    ''' Returns a one-clause summary of the outcome for the completion message.
+    ''' A missing shipped manifest is reported plainly and never blocks the
+    ''' bundle (dev trees and pre-manifest installs are normal).
+    ''' </summary>
+    Private Shared Function AddInstallVerification(archive As ZipArchive) As String
+        ' The install directory is where the program actually runs from, not
+        ' the process's current directory (the old "." could drift with cwd).
+        Dim installDir As String = AppContext.BaseDirectory
+        Dim live = InstallManifest.BuildLive(installDir)
+        WriteTextEntry(archive, "program-manifest.json", InstallManifest.ToJson(live))
+
+        Dim summary As String
+        Dim reportText As String
+        Dim shippedPath As String = Path.Combine(installDir, InstallManifest.ShippedManifestName)
+        If File.Exists(shippedPath) Then
+            ' Ship the known-good manifest itself alongside the live one.
+            ZipUtils.AddFileToArchive(archive, shippedPath, "")
+            Dim known = InstallManifest.Load(shippedPath)
+            Dim result = InstallManifest.Verify(known, live)
+            reportText = InstallManifest.FormatReport(result, known, installDir)
+            If result.DifferenceCount = 0 Then
+                summary = "Install verified clean."
+            Else
+                summary = $"Install verification found {result.DifferenceCount} difference{If(result.DifferenceCount = 1, "", "s")} — see install-verification.txt."
+            End If
+        Else
+            reportText = InstallManifest.FormatMissingManifestReport(installDir)
+            summary = "Install check skipped — no shipped manifest to compare against."
+        End If
+        WriteTextEntry(archive, "install-verification.txt", reportText)
+        Tracing.TraceLine("GetDebugInfo:install verification: " & summary, TraceLevel.Info)
+        Return summary
+    End Function
+
+    ''' <summary>Write a text entry into the bundle. UTF-8 without a byte order
+    ''' mark — plain enough for Notepad, screen readers, and support scripts.</summary>
+    Private Shared Sub WriteTextEntry(archive As ZipArchive, entryName As String, text As String)
+        Dim entry As ZipArchiveEntry = archive.CreateEntry(entryName, CompressionLevel.Optimal)
+        Using writer As New StreamWriter(entry.Open())
+            writer.Write(text)
+        End Using
     End Sub
 End Class
