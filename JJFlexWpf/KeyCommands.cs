@@ -390,6 +390,12 @@ public class KeyCommands
             new(CommandValues.OpenAudioWorkshop, KeyTypes.Command, OpenAudioWorkshopHandler,
                 "Open Audio Workshop dialog", "Audio Workshop", false, FunctionGroups.Dialog, KeyScope.Global)
                 { Keywords = new[] { "audio", "workshop", "tx", "transmit", "mic", "compander", "preset", "earcon" }, ShortActionLabel = "open audio workshop" },
+            // Audio Check: "check my transmit audio" — opens the workshop and
+            // keys through the PTT safety controller with the safety line
+            // first. Command Finder only, no key binding (QB Track G).
+            new(CommandValues.StartAudioCheck, KeyTypes.Command, StartAudioCheckHandler,
+                "Check my transmit audio (Audio Check session)", "Audio Check", false, FunctionGroups.Audio, KeyScope.Radio)
+                { Keywords = new[] { "audio", "check", "monitor", "hear", "myself", "transmit", "tx", "test" }, ShortActionLabel = "start audio check" },
 
             // ── Tuning ──
             new(CommandValues.TuneToggle, KeyTypes.Command, TuneToggleHandler,
@@ -759,6 +765,13 @@ public class KeyCommands
         mw?.Dispatcher.Invoke(() => Dialogs.AudioWorkshopDialog.ShowOrFocus(rig, 0));
     }
 
+    private void StartAudioCheckHandler()
+    {
+        var rig = _context.GetRigControl();
+        var mw = _context.GetMainWindow();
+        mw?.Dispatcher.Invoke(() => Dialogs.AudioWorkshopDialog.ShowOrFocusAndStartCheck(rig));
+    }
+
     #endregion
 
     #region Tuning Handlers
@@ -1075,6 +1088,7 @@ public class KeyCommands
 
         // Audio Workshop, Tune, ATU, Meters
         new(Keys.W | Keys.Control | Keys.Shift, CommandValues.OpenAudioWorkshop, KeyScope.Global),
+        new(Keys.None, CommandValues.StartAudioCheck, KeyScope.Radio), // Command Finder only
         new(Keys.T | Keys.Control | Keys.Shift, CommandValues.TuneToggle, KeyScope.Radio),
         new(Keys.T | Keys.Control, CommandValues.ATUTune, KeyScope.Radio),
         new(Keys.M | Keys.Control, CommandValues.ToggleMeters, KeyScope.Global),

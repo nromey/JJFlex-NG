@@ -2310,6 +2310,12 @@ public partial class MainWindow : UserControl
             _pttController.CanTransmitHereCheck = () =>
                 _freqOutHandlers?.CanTransmitHere() ?? true;
 
+            // Give the Audio Workshop's Audio Check session a live path to
+            // the controller (QB Track G). Resolved per call — the controller
+            // is recreated on operator switch and nulled on power-off, so the
+            // workshop must never cache it.
+            Dialogs.AudioWorkshopDialog.PttControllerSource = () => _pttController;
+
             // Apply band memory and frequency units settings from config
             if (_freqOutHandlers != null)
             {
