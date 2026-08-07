@@ -2298,6 +2298,20 @@ public partial class MainWindow : UserControl
             UpdateTextAreasVisibility();
         }
 
+        // Signature connect double-beep — every successful connect path
+        // (picker local, picker remote, auto-connect, reconnect) converges on
+        // this power transition, so this is the one hook that covers them all
+        // (QB Track A stretch, 2026-08-07). Guarded on the off→on transition
+        // so a re-raised power event can't double-fire it.
+        if (!_radioPowerOn)
+        {
+            try { EarconPlayer.ConnectSuccessTone(); }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine($"PowerNowOn: connect earcon failed: {ex.Message}", TraceLevel.Warning);
+            }
+        }
+
         _radioPowerOn = true;
         StatusText.Text = "Radio connected — power on";
 
