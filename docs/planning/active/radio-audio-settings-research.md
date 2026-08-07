@@ -150,9 +150,13 @@ Scope addition from the field: the merged Settings → Audio tab also gets a
 sliders for Headphone Level and Line Out Level plus the mute checkboxes —
 live-apply, since audio level feedback is immediate, not save-on-OK. The
 driver: Noel plugged headphones into the 8600 itself, heard nothing, and
-misread it as an antenna problem; PC audio proved the signal was fine —
-almost certainly `HeadphoneGain` at/near zero, and on a non-M radio the
-software slider is the only volume control that exists. Everything below the
+misread it as an antenna problem; PC audio proved the signal was fine.
+Resolved same night: levels were 50/50 unmuted all along — **a Flex's audio
+outputs, jacks included, are silent until a client connects** (it's a
+server, not a TS-2000). The sliders still belong in the tab (on a non-M
+radio they are the only volume control that exists), and the planned
+silent-radio advisory should check connected state first, before levels
+and mutes. See the queue entry for the docs/help deliverable. Everything below the
 UI already exists: FlexBase wraps both gains 0–100 (`FlexBase.cs:7332-7357`),
 FlexLib has the mutes, and ScreenFields Audio (Ctrl+Shift+U) already renders
 direct-set fields for both (`ScreenFieldsPanel.xaml.cs:410-416`) — this is a
