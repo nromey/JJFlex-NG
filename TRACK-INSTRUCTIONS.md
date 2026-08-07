@@ -125,3 +125,93 @@ Timestamp must be fresh after every build.
 
 Commit after each work item (sweep: per batch): `QB Track F: <what changed>`.
 Push to `origin` (never `upstream`). Report completion to Noel when done.
+
+## Design decisions (appended 2026-08-07, Track F run)
+
+- **LiveStatusTextBox restores the caret by line + column, not raw offset.**
+  The C2 spec said save SelectionStart/SelectionLength; raw offsets drift the
+  caret sideways through a word whenever a number changes width above it,
+  which at 1 Hz means constant drift. Line+column keeps the review position
+  on the line the user was reading. An active selection is still preserved by
+  raw offsets, clamped — mid-selection during a refresh is rare enough that
+  approximate is fine.
+- **GPS dialog became ONE arrowable text surface** (summary, hardware,
+  oscillator state, details, standing explanations) rather than several
+  small ones — one tab stop to park in, headers as plain lines. The
+  oscillator combo moved below the text ("read first, then act") with
+  explicit tab indexes so focus lands in the text on open.
+- **ConfirmActionDialog (and both bespoke siblings) put focus IN the
+  read-only body text instead of on No.** Enter in a read-only box does
+  nothing at all — strictly safer than focus-on-No, where Enter presses No —
+  and it makes a screen reader read the warnings before anything is decided,
+  which is the entire point of item 5b. Yes remains non-default; Escape
+  still cancels.
+- **Rename UI location:** inside the Step 2 (registration) GroupBox per the
+  C2 spec, placed after the step's intro text with its own one-line copy.
+  Enabled whenever a radio is connected — renaming works over SmartLink,
+  unlike registering, so it does NOT share the register buttons' WAN gate.
+  An empty-name Apply refuses and restores the current name (a radio with
+  no name shows as Unknown everywhere; accidental clear is likelier than
+  wanting that) — mirrors the Radios-tab behavior.
+- **Auto-connect display-name refresh lives inside FlexBase.RenameRadio**,
+  so both rename surfaces (Radio Setup and the Radios tab) get it. The
+  auto-connect file's directory is derived as the parent of
+  Callouts.ConfigDirectory (which globals.vb sets to BaseConfigDir\Radios);
+  documented at the site, best-effort with trace on failure.
+- **Signup dialog grows a "Send Reset Email" button that appears only on
+  user_exists** — the person who hits that has usually forgotten they have
+  an account, and the reset email is the way back in (friction-tax: the app
+  does the walking). Server error mapping follows SmartSDR's decompiled
+  mapping; Auth0's raw description goes to the trace, never to the ear.
+- **Mid-session sign-in propagation (8a) adopts the SAVED account instance**
+  when one exists for the email (so later token refreshes persist to disk)
+  and the unsaved instance for Remember-unchecked sign-ins (session-only).
+  Both advisory guards reset (per-serial registration suggestion + the
+  smartlink-setup once-per-run flag) before re-running the suggestion.
+- **Item 13 ships the honest text branch:** the advisory names the account
+  it asked about, and when other saved accounts exist it says only the
+  signed-in account was checked and offers a Manage Accounts action button.
+  A definitive "registered to your other account X" needs per-account cached
+  radio lists — Track E's cache extension; noted as the upgrade path.
+- **Startup speech ordering:** one queue (`_deferredStartupSpeech`) that any
+  bring-up announcement parks in while `_advisorySequenceActive`; flushed in
+  arrival order when the chain ends. Root cause of "Tab spoke slice state
+  behind the modal" found during this: SpeakWelcome's FreqOut.FocusDisplay()
+  fired while the advisory was up and yanked keyboard focus out of the
+  modal. The focus grab now parks with the speech and replays first. All
+  other FocusDisplay call sites are user-action-driven and untouched.
+- **MessageBox sweep triage:** ~60 validation one-liners inside modal
+  dialogs ("You must select an item.", range checks) STAY as MessageBox,
+  per the C2 ledger's explicit rule — native message boxes are announced by
+  NVDA, Escape-closable, and a one-sentence error has nothing to arrow
+  through; converting them to Speak-only would remove the visible error for
+  sighted users, and adding status areas to ~30 dialogs is restructuring
+  the sweep was told to avoid. Converted instead: every raw Yes/No confirm
+  (→ ConfirmActionDialog) and every multi-sentence / variable-detail error
+  (→ AdvisoryDialog). 92 sites reviewed → 22 converted, 70 remain by
+  deliberate triage.
+- **MemoriesDialog duplicate-name confirm semantics inverted deliberately:**
+  the old raw box's Escape path SAVED the duplicate. Now Yes = "Keep
+  duplicate", No/Escape = "Change it" (nothing committed) — Escape is the
+  conservative out.
+- **The first-nightly consent MessageBox became ConfirmActionDialog** despite
+  a code comment defending the MessageBox: that comment predates the
+  readable-body confirm dialog, and multi-sentence consent text is exactly
+  what should be arrow-reviewable. Comment updated in place.
+- **IsDefault access-key fix applied app-wide** (33 dialogs): house style
+  already set AutomationProperties.AcceleratorKey; the phantom "carriage
+  return" NVDA reads lives in the AccessKey property, so every IsDefault
+  button now carries an explicit AccessKey derived from its mnemonic.
+  SetupKeysDialog/ShowKeysDialog skipped (Track H retires them).
+- **Item 17 boundary note:** one Speak-string fix landed in the firmware
+  region of SettingsDialog.RadioSetup.cs (the stepping-stone "See the
+  message.") — a call-site-only speech fix, no restructuring, judged within
+  the sweep's cross-file mandate despite the rename-GroupBox-only ownership
+  line. "See the trace file" pointers were left alone: they point at
+  diagnostics that genuinely are not in the UI, a different class from
+  text sitting on screen unread.
+- **Hosted page's forgot-password link: NOT tested** — it needs a live
+  browser session against the Auth0 hosted page. The native forgot-password
+  path (login form) already existed and remains the reliable path either
+  way; the signup endpoint itself was probed live (400 + JSON error shape
+  on an unusable payload, nothing created).
