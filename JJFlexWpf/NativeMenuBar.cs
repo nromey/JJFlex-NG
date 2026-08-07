@@ -859,6 +859,19 @@ public class NativeMenuBar : IDisposable
         AddNotImplemented(loggingSub, "Export Log");
         AddNotImplemented(loggingSub, "LOTW Merge");
 
+        // ── Maintenance ── (QB Track A, 2026-08-07, Noel's call)
+        // Second home for the radio-maintenance actions that otherwise live
+        // only inside Settings → Radio Setup. Reboot goes through the SAME
+        // shared flow as the hotkey and the Radio Setup step-7 button
+        // (RadioMaintenance owns the no-radio announcement, the confirmation
+        // that names other connected stations, and the deliberately absent
+        // presence gate); firmware update opens the existing Radio Setup
+        // surface whose step 3 is the firmware updater — no new firmware UI.
+        AddSep(radio);
+        AddWired(radio, "Reboot Radio", () =>
+            RadioMaintenance.RebootWithConfirmation(Rig, _window.powerNowOff));
+        AddWired(radio, "Update Radio Firmware", () => ShowSettingsDialog("Radio Setup"));
+
         AddSep(radio);
         AddWired(radio, "Exit", () => _window.CloseShellCallback?.Invoke());
 
