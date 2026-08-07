@@ -9,6 +9,15 @@ Friend Class DebugInfo
     Private Const infoGathered As String = "Debug info gathered."
 
     ''' <summary>
+    ''' How many archived trace SESSIONS ride along in the debug bundle
+    ''' (newest part of each, most recent first — the crash bundle's
+    ''' selection logic). The archive directory holds up to 30 days of
+    ''' sessions and used to go into the bundle whole, which could dwarf
+    ''' everything else in it (QB Track L bounding).
+    ''' </summary>
+    Private Const RecentTraceSessionsInBundle As Integer = 5
+
+    ''' <summary>
     ''' Honest failure text for the debug archive. This routine builds a bundle
     ''' out of whatever is in AppData, so it is exposed to the same size class
     ''' that produced an unexplained framework dialog about a stream of that
@@ -44,8 +53,35 @@ Friend Class DebugInfo
         Try
             File.Delete(openDialog.FileName)
             Using archive As ZipArchive = ZipFile.Open(openDialog.FileName, ZipArchiveMode.Create)
-                ' get application data
-                ZipUtils.AddDirectoryToArchive(archive, BaseConfigDir, ProgramName)
+                ' get application data — minus the archived trace sessions.
+                ' The Traces directory holds up to 30 days of per-session
+                ' zips; whole, it can dwarf everything else in the bundle.
+                ' The most recent sessions are added back individually below.
+                ZipUtils.AddDirectoryToArchive(archive, BaseConfigDir, ProgramName, "trace-*.zip")
+
+                ' The most recent trace sessions (newest part of each), at
+                ' their real Traces/yyyy/MM paths so the bundled
+                ' manifest.json still points at them. The manifest also
+                ' lists older sessions that are deliberately NOT bundled —
+                ' it is an index, and a triage read knows more from a full
+                ' index than a truncated one.
+                Dim traceRoot = Path.GetFullPath(TraceArchiveDir).TrimEnd(Path.DirectorySeparatorChar) &
+                    Path.DirectorySeparatorChar
+                For Each tracePath As String In CrashReporter.GetRecentTraceArchives(RecentTraceSessionsInBundle)
+                    Try
+                        Dim fullPath = Path.GetFullPath(tracePath)
+                        If File.Exists(fullPath) AndAlso
+                           fullPath.StartsWith(traceRoot, StringComparison.OrdinalIgnoreCase) Then
+                            Dim relative = fullPath.Substring(traceRoot.Length).Replace(Path.DirectorySeparatorChar, "/"c)
+                            ' Session zips are already LZMA-compressed — store as-is.
+                            archive.CreateEntryFromFile(fullPath,
+                                ProgramName & "/Traces/" & relative,
+                                CompressionLevel.NoCompression)
+                        End If
+                    Catch
+                        ' Best-effort — one unreadable archive must not sink the bundle.
+                    End Try
+                Next
 
                 ' get the program
                 ZipUtils.AddDirectoryToArchive(archive, ".", "program")

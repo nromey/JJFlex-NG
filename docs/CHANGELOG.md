@@ -610,6 +610,7 @@ The same window's General tab is useful in its own right: your radio's model, fi
 - The headphone and line out volume keys speak the level as they change it, and the line out keys now work whether or not PC audio is running.
 - The SmartLink account manager has a "Start Fresh" button that clears every saved sign-in and walks you straight into a clean login — the reset that used to mean deleting a settings file by hand with the app closed.
 - A handful of menu items that were quietly dead are now alive: Station Lookup, Operators, Connected Stations, Local PTT On, and Band Plans. The few that really aren't built yet now say "not yet implemented" instead of falsely blaming your radio connection.
+- The "Gather debug info" bundle travels light now. It used to pack your entire trace archive — up to thirty days of sessions — into every bundle; it now brings the five most recent sessions, which is what a bug hunt actually reads. Your full archive stays right where it was on disk.
 
 [Return to version headlines](#unreleased-headlines)
 

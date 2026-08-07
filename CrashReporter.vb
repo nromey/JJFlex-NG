@@ -421,8 +421,10 @@ Module CrashReporter
     ''' most-recent-first. Pulls from the trace manifest at TraceArchiveDir
     ''' so we don't double-resolve filename → path. Returns an empty list
     ''' if the manifest doesn't exist or fails to read; never throws.
+    ''' Friend (QB Track L): DebugInfo bounds its bundle with the same
+    ''' one-archive-per-session selection.
     ''' </summary>
-    Private Function GetRecentTraceArchives(maxCount As Integer) As List(Of String)
+    Friend Function GetRecentTraceArchives(maxCount As Integer) As List(Of String)
         Dim result As New List(Of String)
         Try
             Dim manifestPath As String = Path.Combine(TraceArchiveDir, SessionArchive.ManifestFileName)
