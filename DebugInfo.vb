@@ -52,6 +52,10 @@ Friend Class DebugInfo
 
         Try
             File.Delete(openDialog.FileName)
+            ' QB Track M: the completion message carries the install
+            ' verification outcome, so the user hears whether their install
+            ' checked out without opening the bundle.
+            Dim verifySummary As String = Nothing
             Using archive As ZipArchive = ZipFile.Open(openDialog.FileName, ZipArchiveMode.Create)
                 ' get application data — minus the archived trace sessions.
                 ' The Traces directory holds up to 30 days of per-session
@@ -91,7 +95,7 @@ Friend Class DebugInfo
                 ' guaranteed the upload limit tripped. The manifest diff answers
                 ' the same diagnostic question (stale / corrupt / mixed
                 ' install?) and answers it by name.
-                AddInstallVerification(archive)
+                verifySummary = AddInstallVerification(archive)
 
                 Dim tempFileName = My.Computer.FileSystem.GetTempFileName
                 Try
@@ -119,11 +123,20 @@ Friend Class DebugInfo
             End Using
 
             Tracing.TraceLine($"GetDebugInfo: wrote {openDialog.FileName}", TraceLevel.Info)
+            ' One message, spoken and shown alike: the gather result plus the
+            ' install verification outcome ("Install verified clean." or
+            ' "Install verification found N differences — see
+            ' install-verification.txt."). Same speech pattern as before —
+            ' no new dialogs, just a completion message that reflects reality.
+            Dim doneMsg As String = infoGathered
+            If Not String.IsNullOrEmpty(verifySummary) Then
+                doneMsg = infoGathered & " " & verifySummary
+            End If
             Try
-                Radios.ScreenReaderOutput.Speak(infoGathered, Radios.VerbosityLevel.Critical, True)
+                Radios.ScreenReaderOutput.Speak(doneMsg, Radios.VerbosityLevel.Critical, True)
             Catch
             End Try
-            MessageBox.Show(infoGathered, MessageHdr, MessageBoxButtons.OK)
+            MessageBox.Show(doneMsg, MessageHdr, MessageBoxButtons.OK)
         Catch ex As Exception
             ' Never suppress: trace the real exception for diagnosis, tell the
             ' user something they can act on, and speak it. What must NOT happen
