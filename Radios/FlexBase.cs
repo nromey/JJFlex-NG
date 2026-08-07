@@ -1439,7 +1439,30 @@ namespace Radios
                 return ((theRadio.RXAntList != null) && (theRadio.RXAntList.Length > 0)) || _cancelRequested;
             }, 20000))
             {
-                Tracing.TraceLine("start:no RX antenna", TraceLevel.Error);
+                // QB Track D (item 4): "no RX antenna" was a misleading verdict
+                // for this timeout. Every Flex physically has RX antennas; when
+                // this wait expires the real story is almost always that the
+                // "ant list" REPLY never arrived — the command/data path came
+                // up dead or the connection dropped mid-setup. Say the real
+                // thing; only an actually-empty reply earns the antenna words.
+                if (!IsConnected)
+                {
+                    Tracing.TraceLine("start: connection dropped during antenna-list wait", TraceLevel.Error);
+                    LastStartFailureReason = "Connection lost during setup";
+                    raiseNoSliceError("the connection to the radio dropped during setup");
+                    return false;
+                }
+                if (theRadio.RXAntList == null)
+                {
+                    Tracing.TraceLine("start: antenna list never arrived — command/data path never came up", TraceLevel.Error);
+                    LastStartFailureReason = "Radio setup stalled — the radio never sent its setup data";
+                    raiseNoSliceError("the radio connected but never sent its setup data. "
+                        + "This is a connection problem, not an antenna problem — try connecting again");
+                    return false;
+                }
+                // RXAntList arrived but is empty: the radio genuinely reported
+                // zero RX antennas. Vanishingly rare, but honest.
+                Tracing.TraceLine("start: radio answered with an empty RX antenna list", TraceLevel.Error);
                 LastStartFailureReason = "No RX antenna detected";
                 raiseNoSliceError(noRXAnt);
                 return false;
