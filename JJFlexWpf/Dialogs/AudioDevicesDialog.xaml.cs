@@ -1,4 +1,5 @@
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using JJPortaudio;
 using Radios;
@@ -32,6 +33,25 @@ namespace JJFlexWpf.Dialogs
     /// </remarks>
     public partial class AudioDevicesDialog : JJFlexDialog
     {
+        /// <summary>
+        /// Set a status line's text and its accessible name together.
+        /// </summary>
+        /// <remarks>
+        /// A focusable TextBlock reports AutomationProperties.Name, not its
+        /// Text, so a status line whose Name was authored once in XAML reads the
+        /// same sentence forever no matter what it is displaying. These lines
+        /// exist precisely because their content changes; they have to say the
+        /// current thing. Empty text becomes a single space — a genuinely blank
+        /// line is a hole a screen reader arrows straight past.
+        /// </remarks>
+        internal static void SetStatusLine(TextBlock block, string text)
+        {
+            if (block == null) return;
+            string value = string.IsNullOrEmpty(text) ? " " : text;
+            block.Text = value;
+            AutomationProperties.SetName(block, value);
+        }
+
         private readonly string _audioDevicesFile;
         private readonly AudioOutputConfig? _audioConfig;
         private readonly Action? _persistAudioConfig;
@@ -80,6 +100,27 @@ namespace JJFlexWpf.Dialogs
 
             LoadNAudioDevices();
             ReloadPortAudioDevices(announce: false);
+        }
+
+        /// <summary>
+        /// Land on the radio output list rather than the first control in tab
+        /// order.
+        /// </summary>
+        /// <remarks>
+        /// The button row is declared first so it docks to the bottom, which
+        /// means the base class's "first focusable element" is Refresh — a
+        /// perfectly good button and completely the wrong place to start. Radio
+        /// receive audio is what almost everyone opens this dialog to set, so
+        /// that is where focus goes, with its current value already spoken.
+        /// </remarks>
+        protected override void FocusFirstControl()
+        {
+            if (RadioOutputList != null && RadioOutputList.IsEnabled)
+            {
+                RadioOutputList.Focus();
+                return;
+            }
+            base.FocusFirstControl();
         }
 
         // ---------------------------------------------------------------- load
@@ -145,9 +186,9 @@ namespace JJFlexWpf.Dialogs
                 PopulateDeviceList(RadioInputList, Devices.InputDevices,
                     _devices.InputDevice, RadioInputNote, "microphone");
 
-                FilterNoteText.Text = Devices.StereoOnly
+                SetStatusLine(FilterNoteText, Devices.StereoOnly
                     ? "Only two-channel (stereo) devices are listed here. A mono microphone will not appear — that is a JJ Flex limitation, not a fault with your device."
-                    : "";
+                    : "");
                 FilterNoteText.Visibility = Devices.StereoOnly ? Visibility.Visible : Visibility.Collapsed;
 
                 UpdateStatusText();
@@ -190,7 +231,7 @@ namespace JJFlexWpf.Dialogs
                 // No dead controls in tab order: an empty list is not something
                 // you can arrow through, so say why it is empty and disable it.
                 list.IsEnabled = false;
-                note.Text = $"No usable {role} device was found on this computer.";
+                SetStatusLine(note, $"No usable {role} device was found on this computer.");
                 return;
             }
 
@@ -201,7 +242,7 @@ namespace JJFlexWpf.Dialogs
             {
                 int idx = IndexOf(live, match);
                 list.SelectedIndex = idx >= 0 ? idx : 0;
-                note.Text = $"Currently using {match.Display}.";
+                SetStatusLine(note, $"Currently using {match.Display}.");
                 return;
             }
 
@@ -210,13 +251,13 @@ namespace JJFlexWpf.Dialogs
                 // Saved but gone. Pre-select the system default so OK does the
                 // right thing, and say plainly what happened.
                 list.SelectedIndex = 0;
-                note.Text = $"Saved device not connected: {saved.Name}. "
-                          + $"{live[0].Display} will be used unless you choose another.";
+                SetStatusLine(note, $"Saved device not connected: {saved.Name}. "
+                          + $"{live[0].Display} will be used unless you choose another.");
                 return;
             }
 
             list.SelectedIndex = 0;
-            note.Text = $"No {role} device chosen yet. {live[0].Display} will be used unless you choose another.";
+            SetStatusLine(note, $"No {role} device chosen yet. {live[0].Display} will be used unless you choose another.");
         }
 
         private static int IndexOf(IReadOnlyList<Devices.DeviceInfo> list, Devices.DeviceInfo target)
@@ -232,7 +273,7 @@ namespace JJFlexWpf.Dialogs
         {
             if (_status != Devices.EnumerationStatus.Ok)
             {
-                StatusText.Text = _statusMessage;
+                SetStatusLine(StatusText, _statusMessage);
                 return;
             }
 
@@ -241,17 +282,17 @@ namespace JJFlexWpf.Dialogs
 
             if (haveOut && haveIn)
             {
-                StatusText.Text = $"{Devices.OutputDevices.Count} output and {Devices.InputDevices.Count} input devices found.";
+                SetStatusLine(StatusText, $"{Devices.OutputDevices.Count} output and {Devices.InputDevices.Count} input devices found.");
             }
             else if (haveOut)
             {
-                StatusText.Text = "Output devices were found but no usable microphone was. "
-                                + "Radio audio will play, but this computer cannot send audio to the radio.";
+                SetStatusLine(StatusText, "Output devices were found but no usable microphone was. "
+                                + "Radio audio will play, but this computer cannot send audio to the radio.");
             }
             else
             {
-                StatusText.Text = "A microphone was found but no usable playback device was. "
-                                + "You will not hear radio audio through this computer.";
+                SetStatusLine(StatusText, "A microphone was found but no usable playback device was. "
+                                + "You will not hear radio audio through this computer.");
             }
         }
 

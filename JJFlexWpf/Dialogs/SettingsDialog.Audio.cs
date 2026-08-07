@@ -109,16 +109,16 @@ namespace JJFlexWpf.Dialogs
             var rig = _rig;
             if (rig == null || !rig.IsConnected)
             {
-                RadioOutputsAdvisory.Text =
+                AudioDevicesDialog.SetStatusLine(RadioOutputsAdvisory,
                     "No radio is connected, so there is nothing to set here yet. Worth knowing: a Flex makes no audio "
                     + "at all until a client connects to it — including at its own headphone jack. A powered-on radio "
-                    + "with headphones plugged in is silent by design until you connect.";
+                    + "with headphones plugged in is silent by design until you connect.");
                 return;
             }
 
             string? advisory = rig.SilentRadioAdvisory();
-            RadioOutputsAdvisory.Text = advisory
-                ?? $"Headphone level {rig.HeadphoneGain}, line out level {rig.LineoutGain}, nothing muted.";
+            AudioDevicesDialog.SetStatusLine(RadioOutputsAdvisory, advisory
+                ?? $"Headphone level {rig.HeadphoneGain}, line out level {rig.LineoutGain}, nothing muted.");
         }
 
         private void RefreshPcAudioStatus()
@@ -128,22 +128,22 @@ namespace JJFlexWpf.Dialogs
             var rig = _rig;
             if (rig == null || !rig.IsConnected)
             {
-                PcAudioStatusText.Text =
-                    "Available once a radio is connected. This setting is not remembered between sessions.";
+                AudioDevicesDialog.SetStatusLine(PcAudioStatusText,
+                    "Available once a radio is connected. This setting is not remembered between sessions.");
                 return;
             }
 
             if (rig.PCAudio)
             {
-                PcAudioStatusText.Text = rig.RemoteRig
+                AudioDevicesDialog.SetStatusLine(PcAudioStatusText, rig.RemoteRig
                     ? "On. Radio audio is playing through this computer, which on a remote connection is the only way to hear it."
-                    : "On. Radio audio is playing through this computer.";
+                    : "On. Radio audio is playing through this computer.");
             }
             else
             {
-                PcAudioStatusText.Text = rig.RemoteRig
+                AudioDevicesDialog.SetStatusLine(PcAudioStatusText, rig.RemoteRig
                     ? "Off. On a remote connection there is no other way to hear the radio, so it is silent here."
-                    : "Off. You will hear the radio at its own headphone, line out, or speaker outputs.";
+                    : "Off. You will hear the radio at its own headphone, line out, or speaker outputs.");
             }
         }
 
