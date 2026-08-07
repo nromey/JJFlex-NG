@@ -249,6 +249,19 @@ When focused on the RIT or XIT field, the digits 1, 2, 3, and 4 enter a quick sc
 
 You'll hear a rising mode-enter tone when scale-adjust starts and a descending mode-exit tone when it ends. The mode is also exited automatically when you navigate to a different field — there's no inactivity timeout to surprise you mid-QSO.
 
+## JJ Flexible Home — Transmit Slice Field Keys
+
+The Transmit slice field sits after VOX and shows which slice keys the radio ("-" when none does). These keys work while it has focus:
+
+| Key | Action |
+|-----|--------|
+| Space | Set transmit to the active slice |
+| Up / Down | Move transmit to another slice |
+| A–H | Set the transmit slice by letter |
+| Delete or Backspace | Clear the transmit slice (no slice keys the radio — a soft transmit lockout) |
+
+On a receive-only connection these keys speak a refusal instead of acting silently. The same controls live in the Slice menu under Transmit Slice.
+
 ## JJ Flexible Home — Mute and Volume Fields (Classic tuning only)
 
 On the Mute field, Space or M toggles mute. On the Volume field, Up and Down adjust the volume. (Modern tuning handles these through the universal M key and the Audio expander.)

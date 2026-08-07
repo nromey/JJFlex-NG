@@ -2,7 +2,7 @@
 
 **Working dashboard.** Distinct from `docs/planning/vision/JJFlex-TODO.md` (long-lived strategic backlog) — this file tracks what's actually queued, in flight, blocked, or waiting for Noel's read **right now**.
 
-**Last updated:** 2026-08-07 (overnight queue-burn setup: queue pruned of shipped items — history lives in Agent.md seals and git; six-track decomposition assigned; six stale worktrees closed down, instructions archived to `docs/planning/agile/archive/track-instructions/`). Claude updates this whenever items move between states. If the timestamp drifts more than a session, flag it.
+**Last updated:** 2026-08-07 evening — **the queue-burn ensemble LANDED.** All eleven tracks plus the NAT lab ran as background agents and merged the same day (see the ensemble section below). Earlier setup notes retained further down for context. Claude updates this whenever items move between states. If the timestamp drifts more than a session, flag it.
 
 **How to use:** Noel scans the sections below to pick what to fire off, or asks Claude to recommend based on what's available. Claude is expected to keep this current.
 
@@ -15,6 +15,72 @@
 - **Build 4.1.16.536 published to testers' `debug\`** (2026-08-07, replaces 517) after Noel confirmed the LAN ghost sweep live — radios appear on discovery and are removed when powered off. Major coding today; testers get the next drop when we're ready. Don is the only regular tester right now.
 - **rarbox WireGuard NAT lab: GO.** Noel authorized execution 2026-08-07; rarbox is in approve mode (expect at most one approval prompt). Read `memory/project_rarbox_hardening.md` before any command. Orchestrator runs it while tracks code.
 - **Confirmed live by Noel 2026-08-07:** Use Now (Alt+U) session override; auto-connect startup announcement (verified earlier at the radio); LAN radio add/remove in the selector. The selector slice is fully verified except the two waits-on-circumstance items in Blocked below.
+
+## Queue-burn ensemble — LANDED 2026-08-07 evening
+
+Eleven track agents (Fable: A/C/D/F/G/H/I/J; Opus: B/E/K) plus the NAT-lab
+agent, all spawned as background subagents from the orchestrator session,
+all completed the same evening. Merge order as executed: J, B, K, E, F, C,
+D, A, I, G, H — clean Debug x64 build verified at every landing. Branch
+head after the train: `f7ff5716` on `track/flexlib-4220`, pushed. Per-track
+design decisions live in `docs/planning/agile/archive/track-instructions/
+qb-track-*.md`. The NAT lab is live on rarbox (port-restricted active);
+run report at `docs/planning/active/natlab-run-report.md`.
+
+**Consolidated Needs Noel (taste calls and live verifications, none
+blocking):**
+
+- Guided testing run covers most live verifications — doc at
+  `docs/planning/active/nightowl-guided-testing.md`.
+- Track A: connect success earcon shape (classic double vs distinct rising
+  arrival — one-line change); stub-speech phrasing check.
+- Track B: relax the stereo-only mic filter (mono USB headsets are common
+  blind-op hardware; needs one live mono-capture test, then a one-line
+  change); menu-vs-key level step mismatch (menu 10, keys 5); AudioSetup
+  registered `KeyScope.Radio` so Command Finder hides it with no radio.
+- Track C: want a machine-wide "never hole punch from this computer"
+  policy on top of per-radio? Legacy account punch fallback retirement
+  timing.
+- Track D: refused-vs-timeout wording against Don's real router failure;
+  speak-connection-summary hotkey proposal (needs keyboard-audit yes/no);
+  should the identity card get a non-Settings quick surface?
+- Track E: Alt+P accelerator sign-off; favorites-first vs live-first
+  ordering taste; dual-homed live test (8600 on LAN while
+  SmartLink-registered — NAT loopback unknown until tried).
+- Track F: hosted forgot-password link live test; wording approval on new
+  confirm labels.
+- Track G: -10 dBm drive de-overload question (the open clean-demodulation
+  item); ears-slice level telemetry — plumb it or accept fixed drive; temp
+  XVTR band auto-creation yes/no; record/play timing over SmartLink with
+  Don.
+- Track H: optional default chords for MemoryScan / SpeakFrequency (now
+  honest-unbound); NVDA rebind-persist-reset loop is in the guided doc.
+- Track I: gate "No Transmit Slice" behind a confirmation? XVTR end-to-end
+  needs a real transverter. NVDA pass on new menu mnemonics.
+- Track J: miss-announcement wording ("Slice D is in use by another
+  station") when next on the air.
+
+**Post-merge follow-ups (Claude-side, queued):**
+
+- Fold Track I's TXSlice field keys + four Command Finder rows into
+  KeyInventory (in-code markers say where); the keyboard-reference TXSlice
+  section is already added.
+- Wire Track D's NetworkIdentityCard into the selector detail area — Track
+  E left grid Row 4 empty for it.
+- Wire D's failure advice into AutoConnectFailedDialog body text (D left it
+  as Track A territory).
+- Start-fresh auto-offer after N consecutive AUTH failures (now possible —
+  D's AuthFailed classification landed).
+- Bound `DebugInfo.GetDebugInfo`'s 30-day archive zip (needs a size-aware
+  ZipUtils; shared code).
+- Delete dead code: `JJTraceListener.cs`, `Tracing - Copy.cs`,
+  `FlexBase.SliceState(int)`; decide fate of orphaned FiltersDspControl /
+  RadioNumberBox (Sprint 8 archaeology, per Track A).
+- RadioInfoDialog's Feature Availability tab is dead UI
+  (`ShowRadioInfoDialog` never assigned) — wire or remove.
+- Track G changelog entry at ship time (deliberately deferred).
+- `UploadMaxBytes` hardcoded to the receiver's 50 MB limit — move together
+  if the receiver's limit moves.
 
 ## In flight
 
@@ -31,9 +97,12 @@
 - **Third parties (Noel is the channel):** Don — busy-radio announcement retest (needs his slices full), **ask for the YouTube link** (the trick's provenance is a video, likely a 6600 — canonical recipe + level settings are prior art; Don has NEVER run it on his 6300), and the 6300 guided record-during-mute experiment (likely-confirm after the FDX-off simulation; his radio gets the final word). Andre — Pi DNAT rule, only if hotspot and NAT lab both fail.
 - **WAN self-testing enabler (Noel idea 2026-08-07):** port-forward his own radio (external → internal TCP 4994 / UDP 4993) so he can operate his 8600 over SmartLink from home — enables the remote-side ghost sweep test and all WAN-path testing without Don. Alternative: punch working via NAT lab findings.
 
-## Queued — assigned to queue-burn tracks
+## Queued — assigned to queue-burn tracks — ALL SHIPPED 2026-08-07
 
-Full specs live in each worktree's TRACK-INSTRUCTIONS.md; entries here are the queue-of-record.
+Every entry below landed with its track (see the ensemble section at the
+top). Full specs and design decisions live in the archived
+`qb-track-*.md` instruction files. Kept for one seal cycle as the
+queue-of-record, then prunable.
 
 **Track A (orchestrator lane, main worktree — small fixes):**
 - Radio menu maintenance section: Reboot (decided above), firmware update entry, candidates per judgment.
