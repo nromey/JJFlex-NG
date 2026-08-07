@@ -87,6 +87,44 @@ namespace Radios
         /// </summary>
         public bool AllowRemoteFirmwareUpdates { get; set; }
 
+        // ---------------------------------------------------------------
+        // Roster display metadata (queue-burn Track E, 2026-08-07).
+        // APPEND-ONLY: these fields exist so the radio selector can present
+        // every radio this install has ever seen, whether or not it is
+        // discoverable right now. They describe how the radio PRESENTS in a
+        // list, never how it is reached — the reachability fields above are a
+        // separate concern and must not be folded in here.
+        //
+        // Absent elements deserialize to their defaults, so a config.xml
+        // written before this shipped loads unchanged.
+        // ---------------------------------------------------------------
+
+        /// <summary>Last known model string ("FLEX-8600"), refreshed whenever the
+        /// radio is seen. Lets an offline row read as a radio rather than a
+        /// serial number.</summary>
+        public string Model { get; set; } = "";
+
+        /// <summary>User-marked favorite. Favorites sort to the top of the
+        /// selector's list. Purely a display preference — it changes no
+        /// connection behaviour.</summary>
+        public bool IsFavorite { get; set; }
+
+        /// <summary>When this radio was last seen by discovery (UTC).
+        /// <see cref="DateTime.MinValue"/> means "never seen since this field
+        /// shipped" and is announced as "last seen unknown", never as 1 AD.</summary>
+        public DateTime LastSeenUtc { get; set; }
+
+        /// <summary>True when the last sighting arrived over SmartLink rather
+        /// than local discovery. Drives the offline row's "remote via
+        /// SmartLink" versus "local network" wording.</summary>
+        public bool LastSeenRemote { get; set; }
+
+        /// <summary>SmartLink account (email) that last listed this radio, or
+        /// empty for a LAN-only sighting. Answers "which account do I sign in
+        /// as to see this radio again?" — the question an offline remote row
+        /// otherwise leaves dangling.</summary>
+        public string LastSeenViaAccount { get; set; } = "";
+
         /// <summary>
         /// App-wide config root, assigned once at startup (ApplicationEvents,
         /// next to the other handler wiring). Static because the Radios layer
@@ -202,6 +240,32 @@ namespace Radios
                 .Select(name => name!)
                 .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
                 .ToList();
+        }
+
+        /// <summary>
+        /// Every saved per-radio config, loaded. The roster's data source;
+        /// <see cref="ListKnownRadioIds"/> gives ids alone when that is all a
+        /// caller needs. Never throws — an unreadable file contributes its
+        /// defaults rather than aborting the whole enumeration.
+        /// </summary>
+        public static List<RadioConfig> LoadAllKnown(string configDirectory)
+        {
+            var result = new List<RadioConfig>();
+            if (string.IsNullOrEmpty(configDirectory)) return result;
+            foreach (var id in ListKnownRadioIds(configDirectory))
+            {
+                result.Add(Load(configDirectory, id));
+            }
+            return result;
+        }
+
+        /// <summary>Load every saved per-radio config via the app-wide
+        /// <see cref="BaseDirectory"/>. Empty list when the base directory has
+        /// not been assigned yet.</summary>
+        public static List<RadioConfig> LoadAllKnown()
+        {
+            var dir = BaseDirectory;
+            return string.IsNullOrEmpty(dir) ? new List<RadioConfig>() : LoadAllKnown(dir);
         }
 
         private static string GetFilePath(string configDirectory, string radioId)
