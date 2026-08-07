@@ -771,6 +771,10 @@ namespace Radios
             Tracing.TraceLine("Connect:" + serial, TraceLevel.Info);
             bool rv = true;
 
+            // A fresh attempt owes a fresh verdict — stale advice from a previous
+            // fail-fast must not narrate an unrelated failure.
+            LastConnectFailureAdvice = null;
+
             // Save connection parameters for retry support
             _connectedSerial = serial;
             _connectedLowBW = lowBW;
@@ -1282,6 +1286,26 @@ namespace Radios
 
         /// <summary>Reason the last Start() call failed. Set before returning false.</summary>
         public string? LastStartFailureReason { get; private set; }
+
+        /// <summary>
+        /// QB Track C — why the most recent Connect() attempt was refused BEFORE
+        /// any network attempt was made, in user-speakable words. Null when the
+        /// connect proceeded normally (including when it later failed for other
+        /// reasons — those are classified elsewhere). Set today only by the
+        /// ForwardOnly fail-fast in sendRemoteConnect: a radio whose per-radio
+        /// profile says "forwarded ports only" but which advertises no reachable
+        /// public port has nothing to even try, and grinding through a doomed
+        /// attempt would just burn 30 seconds before a bare "connection failed".
+        ///
+        /// SEAM FOR TRACK D (connect-failure classification and messaging):
+        /// deliberately a bare speakable string so the placeholder consumption in
+        /// globals.vb wpfSelectorProc can say something honest today. When Track
+        /// D's failure classifier lands, profile-refused/fail-fast becomes one of
+        /// its failure classes, Track D owns the message text (including the
+        /// generated router-rule recipe this string deliberately does NOT
+        /// attempt), and the placeholder consumption routes through it.
+        /// </summary>
+        public string? LastConnectFailureAdvice { get; private set; }
 
         /// <summary>Suppress screen reader speech. Set true for automated testing.</summary>
         public bool SuppressSpeech { get; set; }
@@ -4303,6 +4327,10 @@ namespace Radios
         private bool sendRemoteConnect(Radio r)
         {
             Tracing.TraceLine("sendRemoteConnect: " + r.Serial, TraceLevel.Info);
+            // Also cleared here because RetryConnect calls this without going
+            // through Connect() — and each retry re-loads the per-radio profile,
+            // so a Settings edit made between attempts is honored.
+            LastConnectFailureAdvice = null;
             ConnectionProfiler.Current?.RecordEvent("send_remote_connect", new Dictionary<string, object>
             {
                 { "serial", r.Serial }
@@ -4360,6 +4388,36 @@ namespace Radios
             else if (radioProfile.ConnectionPreference == RadioConnectionPreference.ForwardOnly
                 && r.RequiresHolePunch)
             {
+                if (r.PublicTlsPort <= 0)
+                {
+                    // Fail fast (QB Track C item 6): ForwardOnly forbids the punch
+                    // path, and SmartLink advertises no public port for this radio —
+                    // there is literally no address:port a forwarded connect could
+                    // try. Attempting anyway is the old behavior: tens of seconds of
+                    // silent grinding ending in a bare "connection failed". Refuse
+                    // up front and say why. Deliberately NO router-rule recipe here —
+                    // generating that from radio-reported values is Track D's job;
+                    // this is the honest placeholder.
+                    LastConnectFailureAdvice =
+                        "Not connecting. This radio is set to use forwarded ports only, " +
+                        "but SmartLink reports no forwarded port is reachable for it, so there is nothing to connect to. " +
+                        "Set up port forwarding at the radio's site, or change this radio's connection setting " +
+                        "on the Radios tab in Settings — hole punch there needs no port forwarding.";
+                    Tracing.TraceLine(
+                        "sendRemoteConnect: FAIL FAST — per-radio profile is ForwardOnly, radio reported RequiresHolePunch=true and no public TLS port; refusing the doomed attempt",
+                        TraceLevel.Error);
+                    ConnectionProfiler.Current?.RecordEvent("forward_only_fail_fast", new Dictionary<string, object>
+                    {
+                        { "serial", r.Serial },
+                        { "publicTlsPort", r.PublicTlsPort },
+                        { "publicUdpPort", r.PublicUdpPort }
+                    });
+                    return false;
+                }
+
+                // Public ports ARE advertised — the user said the radio's punch
+                // flag is wrong and there is a real address:port to try, which is
+                // exactly the escape hatch the mode's description promises.
                 Tracing.TraceLine(
                     $"sendRemoteConnect: per-radio profile FORCES forwarded path (radio reported RequiresHolePunch=true, PublicTlsPort={r.PublicTlsPort}) — connect will fail if the radio has no reachable public ports",
                     TraceLevel.Warning);
@@ -4383,7 +4441,16 @@ namespace Radios
                     && _currentAccount.ConfiguredListenPort.HasValue)
                 {
                     // Legacy account-level pin, kept as a fallback for configs
-                    // written before per-radio profiles existed.
+                    // written before per-radio profiles existed — including the
+                    // documented hand-edit interim unblocker (connectionMode 2 +
+                    // configuredListenPort in SmartLinkAccounts.json). No UI
+                    // writes this meaning anymore (QB Track C untangle); the
+                    // per-radio FixedHolePunchPort above outranks it whenever
+                    // set. Known wart, accepted: a value written by port-forward
+                    // Apply (the field's forward meaning) can land here as a
+                    // punch port if the router rule later breaks — semantically
+                    // wrong but functionally harmless, since any port number
+                    // punches equally well.
                     holePunchPort = _currentAccount.ConfiguredListenPort.Value;
                     holePunchPortSource = "account";
                     Tracing.TraceLine(

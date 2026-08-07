@@ -2409,7 +2409,13 @@ Module globals
             If Not connectOk Then
                 _connectingForm?.CloseForm()
                 _connectingForm = Nothing
-                Radios.ScreenReaderOutput.Speak("Connection failed", VerbosityLevel.Critical, True)
+                ' QB Track C placeholder for Track D's failure classifier: when the
+                ' connect was refused up front with advice (ForwardOnly fail-fast),
+                ' speak the advice instead of the bare generic line. Track D
+                ' absorbs this into its classification when it lands.
+                Dim failureSpeech = If(String.IsNullOrEmpty(RigControl.LastConnectFailureAdvice),
+                                       "Connection failed", RigControl.LastConnectFailureAdvice)
+                Radios.ScreenReaderOutput.Speak(failureSpeech, VerbosityLevel.Critical, True)
                 radioSelected = DialogResult.Cancel
                 RigControl.Dispose()
                 RigControl = Nothing
