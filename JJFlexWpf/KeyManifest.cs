@@ -38,6 +38,9 @@ public static class KeyManifest
         /// <summary>Registry command id, when the row is a rebindable command.</summary>
         public CommandValues? CommandId { get; init; }
         public bool Rebindable { get; init; }
+
+        /// <summary>Screen readers fall back to this — keep it meaningful.</summary>
+        public override string ToString() => $"{Description}, {KeyDisplay}, {Scope}";
     }
 
     /// <summary>

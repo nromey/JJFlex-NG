@@ -1161,17 +1161,11 @@ public partial class MainWindow : UserControl
     /// </summary>
     public Action<string, string>? ShowErrorCallback { get; set; }
 
-    /// <summary>
-    /// Callback to build the list of current key-action mappings for ShowKeysDialog.
-    /// Set by ApplicationEvents.vb.
-    /// </summary>
-    public Func<List<Dialogs.KeyActionItem>>? GetKeyActionsCallback { get; set; }
-
-    /// <summary>
-    /// Callback to build the list of all available actions for SetupKeysDialog.
-    /// Set by ApplicationEvents.vb.
-    /// </summary>
-    public Func<List<Dialogs.ActionItem>>? GetAvailableActionsCallback { get; set; }
+    // QB Track H (2026-08-07): GetKeyActionsCallback / GetAvailableActionsCallback /
+    // SaveKeyActionsCallback are gone with the legacy ShowKeysDialog/SetupKeysDialog
+    // pair. SaveKeyActionsCallback was never wired — the legacy Update button
+    // saved into a null callback, which is why Noel's live test couldn't
+    // change a key. The Keys surface talks to KeyCommandsRef directly.
 
     /// <summary>
     /// Callback to build the list of command finder items for CommandFinderDialog.
@@ -1184,12 +1178,6 @@ public partial class MainWindow : UserControl
     /// Set by ApplicationEvents.vb.
     /// </summary>
     public Action<object>? ExecuteCommandCallback { get; set; }
-
-    /// <summary>
-    /// Callback to save updated key mappings from the ShowKeysDialog.
-    /// Set by ApplicationEvents.vb.
-    /// </summary>
-    public Action<List<Dialogs.KeyActionItem>>? SaveKeyActionsCallback { get; set; }
 
     /// <summary>Callback to speak the current radio status summary. Set by ApplicationEvents.vb.</summary>
     public Action? SpeakStatusCallback { get; set; }
