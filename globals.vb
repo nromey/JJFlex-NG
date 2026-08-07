@@ -306,7 +306,7 @@ Module globals
             ' If archive returned null, fall through to legacy rotate so we
             ' don't drop the trace entirely.
         Catch ex As Exception
-            Tracing.ErrMessageTrace(ex)
+            Tracing.ErrTraceOnly(ex)
             ' Fall through to legacy rotate — better to keep the trace as
             ' OldTraceFileName than lose it because of an archive bug.
         End Try
@@ -317,7 +317,7 @@ Module globals
             End If
             File.Move(tracePath, OldTraceFileName)
         Catch ex As Exception
-            Tracing.ErrMessageTrace(ex)
+            Tracing.ErrTraceOnly(ex)
         End Try
     End Sub
 
@@ -334,7 +334,7 @@ Module globals
                 ZipUtils.AddFileToArchive(archive, tracePath, "")
             End Using
         Catch ex As Exception
-            Tracing.ErrMessageTrace(ex)
+            Tracing.ErrTraceOnly(ex)
         End Try
     End Sub
 
@@ -356,12 +356,12 @@ Module globals
                     Try
                         File.Delete(tracePath)
                     Catch ex As Exception
-                        Tracing.ErrMessageTrace(ex)
+                        Tracing.ErrTraceOnly(ex)
                     End Try
                 End If
             Next
         Catch ex As Exception
-            Tracing.ErrMessageTrace(ex)
+            Tracing.ErrTraceOnly(ex)
         End Try
     End Sub
 
@@ -377,7 +377,7 @@ Module globals
             LastUserTraceFile = tracePath
             Tracing.TraceLine($"Daily tracing on {Date.Now:O} level={Tracing.TheSwitch.Level}")
         Catch ex As Exception
-            Tracing.ErrMessageTrace(ex)
+            Tracing.ErrTraceOnly(ex)
         End Try
     End Sub
 
@@ -392,7 +392,7 @@ Module globals
             Dim session As TraceSession = TraceSessionContext.BeginSession()
             session.VerbosityLevel = Tracing.TheSwitch.Level.ToString()
         Catch ex As Exception
-            Tracing.ErrMessageTrace(ex)
+            Tracing.ErrTraceOnly(ex)
         End Try
     End Sub
 
@@ -498,7 +498,7 @@ Module globals
             End While
             File.Move(tracePath, target)
         Catch ex As Exception
-            Tracing.ErrMessageTrace(ex)
+            Tracing.ErrTraceOnly(ex)
             Try
                 File.Delete(tracePath)
             Catch
@@ -698,7 +698,7 @@ Module globals
             pruned = SessionArchive.PruneOlderThan(TraceArchiveDir, days)
             Tracing.TraceLine($"PerformTraceArchivePrune: removed {pruned} entries older than {days} days", TraceLevel.Info)
         Catch ex As Exception
-            Tracing.ErrMessageTrace(ex)
+            Tracing.ErrTraceOnly(ex)
             Try
                 Radios.ScreenReaderOutput.Speak("Trace archive prune failed", VerbosityLevel.Critical)
             Catch
