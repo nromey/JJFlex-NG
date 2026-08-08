@@ -5,6 +5,92 @@ This document captures the current state of JJ-Flex repository and active work.
 **Repository root:** `C:\dev\JJFlex-NG`
 **Branch:** `main` (post-REVERT of `track/flexlib-42` merge on 2026-05-15 — main is back to pre-FlexLib-4.2.18 substrate after Don's 2026-05-15 LAN trace exposed a vendor-side station-name regression. FlexLib 4.0.1 is in place. Re-merge of FlexLib 4.2.18 now gated on Sprint 29 Phase D firmware-update UI being operational + Don's radio firmware updated. `track/flexlib-42` parked at `9de45c54`. See `memory/project_flexlib_4218_station_name_regression.md` (new), `memory/project_flexlib_4218_merge_sequencing.md` (refreshed 2026-05-15), and `memory/project_main_branch_41_posture.md` (reality-check note added).)
 
+## END-OF-DAY SEAL — 2026-08-07 — THE NIGHTOWL QUEUE-BURN
+
+Branch `track/flexlib-4220`, clean, pushed through `191e5d94` (seal commit
+follows). **154 commits today, +17.4k net lines — the largest single day
+in the project's history.** Nightly **4.1.16.697** at Dropbox top level
+(replaces 536) and NAS `historical\4.1.16.697\x64-debug\`. Testers'
+`debug\` folder deliberately still holds **536** — the ensemble build is
+untested until Noel's guided run tomorrow. Version build-count jumped
+536→697 because the eleven merged track branches carry their commits in.
+
+**What happened:** the entire tactical backlog was burned in one evening
+by a background-agent fleet — a new execution model. After an overnight
+insomnia session staged eleven worktrees (qb/track-a..k) with committed
+TRACK-INSTRUCTIONS, this orchestrator session spawned all eleven track
+agents PLUS the rarbox NAT-lab agent as background subagents (Fable:
+A/C/D/F/G/H/I/J; Opus: B/E/K), relayed cross-track seams mid-flight, and
+ran the eleven-landing merge train the same evening — clean Debug x64
+build verified at every stop, four conflicts all resolved per the
+agents' own pre-scripted resolutions. Two follow-up finishers (L:
+integration tie-ups + changelog stories; M: install manifest +
+self-verification replacing the 190MB debug-bundle program dir) also
+landed. Full pattern: `memory/project_background_agent_fleet_model.md`.
+Landing record + consolidated Needs-Noel: top of
+`docs/planning/active/research-queue.md`. Per-track design decisions:
+`docs/planning/agile/archive/track-instructions/qb-track-*.md`.
+
+**Headline user-facing wins:** slice identity fixed (press D, get D;
+Release All keeps YOUR slice — one root cause, four live symptoms);
+Audio Workshop "hear yourself" Audio Check (PttSafetyController-gated,
+record-and-playback, loopback on 2-SCU rigs); TX-slice discoverable
+(Home field + slice menu); Power dialog with XVTR dBm; connect-failure
+honesty (refused vs timed-out, generated router rules, auth-only login
+forms); selector roster with favorites/last-seen/dual-homing path choice
+(WAN-path discard bug found+fixed); one Keys surface with real rebinding
+(legacy editor was orphaned — SaveKeyActionsCallback never assigned);
+trace rotation at 256MB parts + crash bundles that actually contain
+traces (the 11.7GB "couldn't save a stream" mystery root-caused); radio
+output levels in Settings; reboot/firmware on the Radio menu; connect
+double-beep on every path; install manifest self-verification.
+
+**Also today:** WireGuard NAT lab LIVE on rarbox (port-restricted
+active, client conf in JJFlex-private\natlab, run report committed) —
+the source-latch validation rig. CW research round complete (three
+memos in docs/planning/research/cw/, copies + cover in for-noel);
+**CW pipeline rewrite ratified as the NEXT ARC**, ahead of Connect's
+build phase. **Signing + CI track ratified** (evening): adopt the
+provisioned Trusted Signing setup via the working Civ VI pipeline —
+queued in research-queue Decisions. **Strategic frame captured:** the
+infra push serves the eventual "lock JJFlex, all-in on Connect" intent
+(memory/project_jjflexible_connect.md). Guided testing doc ready:
+`docs/planning/active/nightowl-guided-testing.md` (41 steps, 4
+sessions) — Noel runs it TOMORROW with an Oatis window.
+
+**Cross-surface activity (seal sweep):**
+- Memory: 7 files touched today — pause-means-whole-lane (new),
+  phil/oatis naming (new), roarbox correction (NOT 40-core; ms-02+GPU
+  trains), CW keying rewrite update, Connect sequencing intent,
+  fleet-model (new), MEMORY.md compacted 17.4KB→~16.6KB.
+- Worktrees: eleven qb/* cut, worked, merged, removed same day (l and m
+  too). Only the main tree remains. qb/* branches kept on origin.
+- Sibling repos: AetherSDR re-pulled by Noel (CW research input). No
+  jjf-data / jjflexible-connect activity today.
+- Freight Fate: feat/career-1.9, 1 dirty, **16 unpushed** — unchanged,
+  Noel's call. Civ VI: main, 2 dirty, **45 unpushed** — unchanged.
+- External: rarbox gained the WireGuard NAT lab (additive, UFW 51820/udp
+  + wg0 route); Dropbox debug\ = 536 (unchanged), top level = 697
+  nightly; NAS gained 4.1.16.697 build + all backup snapshots.
+- for-noel: CW research drop added (4 files); May-era docs audited,
+  Noel cleared to delete all four (annotations verified absorbed).
+- Live testing during the day (Noel + 8600): confirmed Use Now,
+  auto-connect announcement, LAN ghost sweep; found the slice-identity
+  cluster, TX-slice discoverability gap, dead hotkey editor — all fixed
+  by tonight's tracks.
+
+**Next session:** Noel's guided testing run (fresh exe already built,
+18:47, manifest verified beside it). Triage findings as they come. Then:
+signing+CI mini-track, then the CW design round. Model observations for
+staffing live in the AAR and the fleet-model memory.
+
+**Rigmeter snapshot — end of 2026-08-07:** authored 939 files / 202,039
+lines / 1.10M words; vendor 55,597 lines; combined 257,636 lines.
+Biggest projects: JJFlexWpf 50,611, Radios 30,524. Today: 154 commits,
++20,588 / −3,178 = **+17,410 net** across 147 files (fleet window alone:
+119 commits, ~18k lines in ~2 hours wall clock). Yesterday's +4,417 was
+the previous benchmark; today nearly quadrupled it.
+
 ## END-OF-DAY SEAL — 2026-08-06
 
 Branch `track/flexlib-4220`, clean, pushed through `39bb27b0`. 57 commits

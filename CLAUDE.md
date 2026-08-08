@@ -521,7 +521,23 @@ Claude performs ALL setup before the user spawns any CLI sessions:
      - If merge order doesn't matter: say "Tracks merge in any order as they complete."
      - This lets the user know what to expect and whether completing Track C before Track B changes anything
 
-#### Phase 3: Execution (User spawns CLI sessions)
+#### Phase 3: Execution (two launcher models)
+
+**Model B — orchestrator-spawned background agents (proven 2026-08-07,
+now the default).** The orchestrator session spawns every track as a
+background subagent (Agent tool, one spawn per track, model per track's
+weight), keeps the task list as the user's live progress board, relays
+cross-track facts to in-flight agents, and processes completion reports.
+The user watches one window instead of N terminals. Same worktrees, same
+TRACK-INSTRUCTIONS contract, same merge train — only the launcher
+differs. Full pattern and load-bearing practices:
+`memory/project_background_agent_fleet_model.md`. Thirteen agents in one
+evening is proven scale.
+
+**Model A — user-spawned CLI sessions (the original).** Use when tracks
+need live user interaction mid-flight (radio-seat work, testing
+conversations) or the user wants to drive a session directly.
+
 User opens Claude CLI sessions (one per track) following the execution order Claude specified.
 
 Each CLI session:
