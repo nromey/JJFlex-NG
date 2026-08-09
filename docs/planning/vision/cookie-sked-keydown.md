@@ -1743,3 +1743,95 @@ genuinely the *right* answer:
 
 Sequencing: **after the agent, alongside or before the public directory**, and
 never as a substitute for finishing the native client.
+
+---
+
+## 17. Amendment — 2026-08-09: the commercial case for Flex (extends §7)
+
+*Noel's counter to the objection §7 anticipates — that Connect lets people share a
+radio instead of buying one. Sharpened here with one finding from source that
+changes the shape of the argument.*
+
+### 17.1 The finding: MultiFlex is a licensed feature, and Connect consumes it
+
+`FeatureLicense.cs` parses `multiflex` into `LicenseFeatMultiflex`, sitting
+alongside `LicenseFeatSmartlink`, `LicenseFeatNoiseReduction`, `LicenseFeatDVK`,
+`LicenseFeatWFP` and the rest, under a subscription carrying a name and an
+expiration date. **Sharing a radio between clients is a paid entitlement on Flex's
+side.**
+
+That inverts the objection rather than confirming it. **Connect does not substitute
+for MultiFlex — it requires it.** A guest operating while the owner is also
+connected *is* a MultiFlex session; §4's verified constraints are precisely the
+MultiFlex constraints, and the slice-camping work already notes that a camped
+session costs a MultiFlex client slot. Every hosted session depends on the owner's
+entitlement being live.
+
+So the honest framing is not §7's defensive "you lose nothing." It is: **Connect
+increases consumption of a feature Flex already sells.** An owner with no current
+reason to maintain MultiFlex acquires one the first time a friend asks for a
+Saturday evening.
+
+The strongest second-order form: **sharing already happens today, invisibly, via
+credential handoff.** That is one subscription serving several people with Flex
+seeing none of it — and §1 diagnoses exactly why it is the only mechanism
+available. Connect converts that into legitimate, entitled,
+individually-attributable sessions. The traffic is not new; the visibility and the
+entitlement are.
+
+**Verify before using this.** The feature names come from FlexLib; the commercial
+terms do not. Whether MultiFlex is bundled or separately priced, and which tier
+carries it, is not knowable from the code and must be checked before the argument
+is made in a meeting. An argument built on a wrong assumption about someone else's
+pricing fails badly and in public.
+
+### 17.2 Noel's argument, and the sharper form of it
+
+His version: someone who can only operate by requesting a slot, or by becoming best
+friends with an owner, eventually says *screw it, I need one of these* — so they can
+work rare DX when they want to, not when they can scrounge a 3 AM window.
+
+The sharper form is that **borrowing is structurally incapable of serving the demand
+it creates.** Rare DX and contest openings are unpredictable and time-critical; a
+DXpedition appearing on 30 m tonight cannot be scheduled a week out. The very
+qualities that make a station worth borrowing — good antennas, a quiet QTH, a
+capable radio — are worth nothing if you cannot be at the key when the opportunity
+exists. So the borrowed-station model cannot serve the highest-value operating there
+is, and that is exactly the operating that motivates buying a serious radio.
+
+Friction is not a flaw in the pitch. It is the conversion mechanism, and it is
+self-administering: every missed opening is an argument the borrower makes to
+themselves, in their own words, with no salesperson in the room.
+
+### 17.3 Why the lead is better qualified than any Flex currently gets
+
+§10.6 identified the chicken-and-egg: today the case for JJFlex requires already
+owning the radio, so a blind ham weighing a $3,000+ purchase cannot verify the
+accessibility promise at the moment it matters. Connect removes that — real radio,
+real conditions, real DX, over hours rather than a showroom minute.
+
+The person who comes out of that and then cannot get a slot at 0200Z is the most
+qualified lead Flex will ever see. **Every uncertainty has been resolved except
+availability, and availability is precisely what buying fixes.** Connect converts
+"I do not know whether I could use one of these" — a very hard sale — into "I know I
+can, and I need my own," which closes itself.
+
+It also reaches a segment that cannot evaluate the product at all today. Not a
+segment being taken from anyone: one that does not convert because it cannot try.
+
+### 17.4 What this does not resolve
+
+Keep §9.6's honesty intact. The multi-radio abstraction genuinely is against their
+interest, and §9.3 makes radio-agnosticism a protocol rule from the first line.
+Everything above is a strong case for **Connect on Flex hardware**; none of it
+argues that a single accessible client spanning every brand is good for Flex.
+
+Both are true at once, and the sequencing question stands: *accessible sharing for
+Flex owners* and *one accessible client for every radio* are the same codebase and
+very different pitches. Decide which leads before the conversation rather than
+during it — it is the first thing they will ask if the first pitch lands.
+
+---
+
+*Named per convention: cookie (the currency of station-sharing), sked (a
+scheduled contact), keydown (what the whole thing gates).*
