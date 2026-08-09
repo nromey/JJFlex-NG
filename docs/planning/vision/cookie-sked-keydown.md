@@ -1511,6 +1511,36 @@ radio reports, never widen it. An owner cannot declare an amp onto a radio whose
 `ExternalPaAllowed` is false. Same clipping discipline as §13.3 and §14.5 —
 `radio-reported ∩ declared ∩ grant`, stateless and reversible at every layer.
 
+**The one exception to narrowing, and it needs its own vocabulary: band coverage
+reached through a transverter (Noel, 2026-08-09).** A transverter genuinely adds a
+band the radio does not have, which looks like the declared tier *widening*
+capability. It is not — it is a **different kind of capability wearing the same
+word**, and the roster must never merge the two.
+
+The model table is unambiguous about what native coverage means. `Has2Meters` is
+`true` on **exactly one model, the FLEX-6700** (false everywhere else, including
+the 6700R); `Has4Meters` is `true` on the **FLEX-6500 and FLEX-6700** only. These
+are `{ get; init; }` on immutable records in a static table keyed by model name —
+**nothing at runtime can change them, and defining an `Xvtr` band does not and must
+not flip `Has2Meters`.** `Xvtr` is an unrelated object; the two never touch.
+
+Which means: in practice **almost every 2 m-capable Flex station is transverter-based**,
+so this distinction is load-bearing rather than academic. The two facts have
+materially different consequences for whoever is operating:
+
+- **Native coverage** — tune there and talk. Nothing else has to be true.
+- **Transverter-reached coverage** — requires the right port selected, drive managed
+  into the transverter's linear range (§14.5), the physical box powered, and for a
+  guest, the port enabled in the grant. **Every one of those can be false while the
+  band still "exists" on paper.**
+
+So the roster says *"2 metres — via transverter on XVT A"*, never a bare
+*"2 metres."* A guest told a station has 2 m will expect to tune to 144 and be
+heard; if what they actually have is a transverter that is switched off, they hit
+§14.7's silent failure with no way to know why. Conflating the two turns the
+capability roster — the surface whose entire job is telling someone what they can
+do — into the thing that misleads them.
+
 ### 15.3 Hide from browsing, never from asking, never silent on invoking
 
 Hiding unavailable features is right, and it collides with two standing rules
