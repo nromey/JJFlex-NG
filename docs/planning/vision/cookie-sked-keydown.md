@@ -1454,5 +1454,135 @@ though nothing enforces it yet:
 
 ---
 
+## 15. Amendment — 2026-08-09: station capability declaration, and menus that hide what you do not have
+
+*Noel's idea, captured on waking. It generalises §11.3's capability descriptor
+from "what spectrum can this source produce" to "what does this whole station
+have," and it turns out to be the same gap §14.2 found for transverters.*
+
+### 15.1 The idea
+
+At enrollment the owner declares what their station can do — amp, transverter(s),
+and the rest. When a guest connects, features enable or disable from **grant ∩
+radio capability**, not grant alone. A menu item tells the guest what they
+actually have access to, so someone who has never touched a FLEX-8600 does not
+have to know what one can do — the system says so. And **features that are not
+available do not appear in menus at all.** No clutter.
+
+The same mechanism serves the owner on their own radio: amp controls vanish if
+there is no amp. Noel's worked example is already live behaviour — Don's 6300
+reports two slices, not four, and that is radio-reported today.
+
+### 15.2 Four tiers of capability, and only one of them is new work
+
+The important structural point: most of this data already exists, in two places
+that are easy to miss.
+
+- **Model-intrinsic — a static table that already ships.** `ModelInfo.cs`
+  (`GetModelInfoForModel(modelName)`) is a per-model capability record carrying
+  `IsDiversityAllowed`, `HasTransmitter`, `Has2Meters`, `Has4Meters`, `HasLoopA`,
+  `HasLoopB`, `HasOverlordPa`, `IsOscillatorSelectAvailable`, `HasOledDisplay`,
+  `HasBacklitFrontPanel`, `MaxDaxIqChannels`, `DaxIqSampleRates`, `SliceList`,
+  and modem support. **"What can a FLEX-8600 do" is already a lookup**, and it
+  answers *before* anyone connects — which is exactly what §11.3's
+  before-acquisition disclosure moment needs.
+- **Runtime-reported — the live radio tells us.** `MaxSlices`, `MaxPanadapters`,
+  `AvailableSlices`/`PanadaptersRemaining`, `ATUPresent`, `GPSInstalled`,
+  `ExternalPaAllowed`, `MaxInternalPaPowerWatts`, `DiversityIsAllowed`,
+  `TXAllowed`, `TXFilterChangesAllowed`, `TXRFPowerChangesAllowed`,
+  `IsGnssPresent`, `IsGpsdoPresent`, `IsTcxoPresent`,
+  `IsExternalOscillatorPresent`. Note `ExternalPaAllowed` is the amp bit Noel
+  asked for, and it is radio-reported rather than needing declaration.
+- **Owner-declared — the genuinely new tier, and §14 already proved why it must
+  exist.** §14.2 found the radio cannot bind a transverter band to a port because
+  `Xvtr` has no port field. Generalise it: **the radio cannot model anything
+  outside the coax.** Amps it does not key, rotators, filters, switches, which
+  antenna is on which port and what it is pointed at. That knowledge lives with
+  the operator, and today has nowhere to go. This is the tier the enrollment step
+  creates, and the transverter profile of §14 is its first instance rather than a
+  special case.
+- **Discovered — capability that arrives by itself.** 4O3A station-automation gear
+  announces itself; discovery flips features on without the owner declaring
+  anything. Design consequence: the capability set is **not static for the life of
+  a session** (see 15.4).
+
+**Precedence:** declared and discovered capability may only ever *narrow* what the
+radio reports, never widen it. An owner cannot declare an amp onto a radio whose
+`ExternalPaAllowed` is false. Same clipping discipline as §13.3 and §14.5 —
+`radio-reported ∩ declared ∩ grant`, stateless and reversible at every layer.
+
+### 15.3 Hide from browsing, never from asking, never silent on invoking
+
+Hiding unavailable features is right, and it collides with two standing rules
+unless stated carefully. §11.3 requires disclosure **at the moment of use** —
+"pressing the waterfall key on a TS-590 must *say* there is no spectrum; silence
+is a bug" — and `project_no_silent_keystrokes_rule` says every bound key speaks in
+every state. Meanwhile the house accessibility guideline says to keep unsupported
+controls out of tab order. All three reconcile on one line:
+
+> **Hide it from browsing. Never hide it from asking. Never let it go silent when
+> invoked.**
+
+Concretely, three surfaces with three different jobs:
+
+- **Menus and tab order — hide.** This is Noel's ask and it is correct. A menu is a
+  browsing surface; every item you cannot use is a cost paid on every pass through
+  it, and that cost is far higher for a screen reader user reading linearly than
+  for a sighted user skipping visually.
+- **The capability roster — always present, never hidden.** Noel's menu item: "what
+  does this station have." This is the answer to "I have never used an 8600." It
+  must never itself be conditional, or the one door to the information disappears
+  along with the information.
+- **Bound keys and the Feature Availability tab — still speak.** A key that is
+  bound still answers when pressed ("no amplifier on this station"), and the
+  Feature Availability tab still explains *why* something is absent — model
+  limitation, missing hardware, subscription, or grant. Hiding from a menu removes
+  clutter; it must not remove the explanation.
+
+### 15.4 The screen-reader hazard Noel's own preference implies
+
+**Menus that change shape break positional muscle memory.** Blind operators learn
+menu positions — this is the same instinct behind the standing "visual layout
+still matters: grouping and placement, not just tab order" preference. A menu
+whose contents vary by capability is a menu whose learned positions are only valid
+for one station.
+
+Three rules that follow, none of which Noel stated but all of which his own
+constraint implies:
+
+- **Stable ordering.** Hidden items must not reorder the survivors. Build menus
+  from a fixed canonical order with absent entries omitted, never from a list
+  assembled in discovery order.
+- **Announce capability changes, do not silently reshape.** Discovery finding a
+  4O3A box, an owner enabling a transverter port mid-session, or a grant being
+  amended all change the menu under someone who may be mid-navigation. Speak it —
+  "amplifier control now available" — because a menu that grew an item without
+  saying so is a silent state change wearing a UI costume.
+- **Prefer session-boundary changes.** Where a capability change can wait for a
+  natural boundary without harming the operator, let it. Stability is worth more
+  than immediacy for a surface people navigate by memory.
+
+### 15.5 What it changes for Connect specifically
+
+- **Enrollment grows a station-capability step** alongside §13.8's licence
+  ceremony. Same shape: the owner actively declares, because the system cannot
+  discover it. The transverter port declaration of §14 is one field in this step,
+  not a separate flow.
+- **The capability roster is part of the listing and the grant**, per §11.3 —
+  a guest must know before connecting, not after. This is also what stops the
+  grant editor from offering budgets a radio cannot honour (panadapters on a rig
+  with none, a satellite slot on a 1-SCU radio).
+- **It makes the shared station self-describing**, which matters more here than
+  locally. On your own radio you know what you own. On someone else's you know
+  nothing, and the alternative to a capability roster is asking the owner over
+  another channel — exactly the out-of-band coordination §4's request-transmit
+  protocol was written to eliminate.
+- **Owners get it too, and that is the honest sequencing:** build it for the local
+  case first (hide amp controls when there is no amp), because it is testable
+  without a second person and it is where the clutter complaint actually starts.
+  Connect then consumes the same descriptor rather than inventing one.
+
+---
+
 *Named per convention: cookie (the currency of station-sharing), sked (a
 scheduled contact), keydown (what the whole thing gates).*
