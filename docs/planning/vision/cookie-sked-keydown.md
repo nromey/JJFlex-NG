@@ -1752,38 +1752,39 @@ never as a substitute for finishing the native client.
 radio instead of buying one. Sharpened here with one finding from source that
 changes the shape of the argument.*
 
-### 17.1 The finding: MultiFlex is a licensed feature, and Connect consumes it
+### 17.1 MultiFlex is licensed to the radio and bundled — which is a better argument than the one it replaces
 
-`FeatureLicense.cs` parses `multiflex` into `LicenseFeatMultiflex`, sitting
-alongside `LicenseFeatSmartlink`, `LicenseFeatNoiseReduction`, `LicenseFeatDVK`,
-`LicenseFeatWFP` and the rest, under a subscription carrying a name and an
-expiration date. **Sharing a radio between clients is a paid entitlement on Flex's
-side.**
+`FeatureLicense.cs` parses `multiflex` into `LicenseFeatMultiflex` alongside
+`LicenseFeatSmartlink` and the rest, so both appear as licensed features in the
+protocol. **The commercial reality, per Noel (2026-08-09): both are licensed to
+each radio and included in the base feature set. You do not buy a Plus subscription
+to get MultiFlex or SmartLink — they come with the shiny expensive toy.**
 
-That inverts the objection rather than confirming it. **Connect does not substitute
-for MultiFlex — it requires it.** A guest operating while the owner is also
-connected *is* a MultiFlex session; §4's verified constraints are precisely the
-MultiFlex constraints, and the slice-camping work already notes that a camped
-session costs a MultiFlex client slot. Every hosted session depends on the owner's
-entitlement being live.
+*(An earlier draft of this section read the license plumbing as evidence that
+sharing was a paid add-on and argued Connect would drive subscription revenue.
+That was wrong and is removed. Feature names in FlexLib describe entitlement
+mechanics, not pricing — a reminder that the code cannot tell you a business
+model.)*
 
-So the honest framing is not §7's defensive "you lose nothing." It is: **Connect
-increases consumption of a feature Flex already sells.** An owner with no current
-reason to maintain MultiFlex acquires one the first time a friend asks for a
-Saturday evening.
+The corrected fact makes a cleaner case:
 
-The strongest second-order form: **sharing already happens today, invisibly, via
-credential handoff.** That is one subscription serving several people with Flex
-seeing none of it — and §1 diagnoses exactly why it is the only mechanism
-available. Connect converts that into legitimate, entitled,
-individually-attributable sessions. The traffic is not new; the visibility and the
-entitlement are.
+- **Flex has already decided that sharing is bundled value that helps sell
+  hardware.** They built MultiFlex, they include it at no extra charge, and they
+  market it. Connect is not circumventing a monetisation scheme — there is no
+  scheme to circumvent. It does what MultiFlex was built to enable, for a
+  population that cannot use the client which drives it.
+- **The entitlement is per radio, not per person, so sharing capacity cannot be
+  conjured.** Every hosted session runs on hardware somebody bought. The total
+  supply of borrowable time scales exactly with radios sold — there is no
+  configuration of Connect where sharing grows without hardware growing first.
+- **Revenue is therefore neutral by construction, and §7's original "Flex loses
+  nothing" framing was right.** The user still buys the radio, still holds the
+  licence, still holds any subscription. Nothing moves from Flex's column to
+  anyone else's.
 
-**Verify before using this.** The feature names come from FlexLib; the commercial
-terms do not. Whether MultiFlex is bundled or separately priced, and which tier
-carries it, is not knowable from the code and must be checked before the argument
-is made in a meeting. An argument built on a wrong assumption about someone else's
-pricing fails badly and in public.
+Which means the commercial case rests entirely on §17.2 and §17.3 — conversion, not
+consumption. That is a weaker-sounding claim and a stronger real one, because it
+does not depend on any assumption about their pricing.
 
 ### 17.2 Noel's argument, and the sharper form of it
 
