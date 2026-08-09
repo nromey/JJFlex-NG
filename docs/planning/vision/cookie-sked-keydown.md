@@ -1025,5 +1025,393 @@ segment, chosen from the corpus — not an engineering problem, a curation one.
 
 ---
 
+## 13. Amendment — 2026-08-08: roaming operator settings
+
+*Captured from Noel's dictation, with analysis. The idea in one line: settings
+should follow the operator, not live on the radio.*
+
+### 13.1 The idea
+
+Today, radio settings live in profiles bound to the radio — Flex profiles are
+literally stored on the radio, and JJFlex's own config is keyed by radio serial.
+That is right for the owner sitting at their own rig and wrong for everything
+Connect enables. The proposal: an operator's settings become global to the
+*operator* — stored on disk or in the cloud against their Connect identity — and
+apply to whatever radio they are currently using.
+
+Concretely: HF memory channels stored per-operator would work identically on a
+connected Kenwood, an Icom, or a Flex. Flex-specific preferences like slice
+defaults would travel too, subject to grant limitations when you're a guest.
+Whether Noel connects to Don's radio or his own via Connect, the settings that
+aren't model-constrained stay with Noel. Owner precedence is preserved: an owner
+using their own radio can elect "use profile settings over Connect settings" and
+the radio-resident profile wins.
+
+### 13.2 Why this is the same insight as §1, applied a second time
+
+§1 diagnosed SmartLink's category error: it conflates identity with access.
+Radio-resident profiles are the *same category error in the configuration
+domain* — they conflate the operator's preferences with the hardware's
+configuration. Memory channels, mode defaults, filter widths, tuning steps,
+CW speed, verbosity, keybindings: these are properties of the *person*. Antenna
+selections, power calibration, ATU memories, network settings: these are
+properties of the *station*. One profile blob that mixes both is why a guest
+session today leaves fingerprints all over the owner's radio, and why moving to
+a second radio means reconfiguring yourself from scratch.
+
+Connect already had to invent a real identity layer for grants. Settings
+roaming is the second thing that identity is *for* — the account isn't just a
+key, it's a suitcase.
+
+### 13.3 Four layers, and who wins
+
+The resolution model falls out cleanly:
+
+- **Operator layer** — travels with the Connect identity. Memory channels, mode
+  and filter defaults, tuning steps, slice-default preferences, speech/braille
+  verbosity, keybindings, CW speed/pitch. RX-side and workflow settings roam
+  well.
+- **Station layer** — bound to the radio and its owner. Antenna config, power
+  calibration, ATU memories, network parameters. Never roams.
+- **Pairing layer** — settings that are a function of *both* the operator and
+  the station, the TX audio chain above all. Mic gain, proc, TX EQ depend on
+  whose voice is speaking *and* which station's microphone and audio path it
+  passes through: Don's mic does not equal Noel's mic, and Noel's audio
+  settings on Don's radio equal neither Noel's defaults nor Don's. These are
+  stored per (operator × radio) under the *operator's* identity — tuned once,
+  restored on the next grant to that same radio. See §13.8 for the flow.
+- **Grant layer** — when guesting, the grant *clips* the operator layer rather
+  than replacing it. A power ceiling caps your power default. Frequency limits
+  clip your memory channel list — a channel outside the grant (or outside your
+  license class, per §3) doesn't vanish, it applies receive-only or not at all.
+
+Precedence: grant clips operator; station settings are never overridden by a
+guest; and the owner on their own radio can pin the radio-resident profile over
+their roaming layer when they want the shack left exactly as the hardware knows
+it. The clipping model matters — clipping is stateless and reversible, so the
+same operator profile works under every grant without forking per-station
+copies of itself.
+
+### 13.4 Cross-radio portability is a schema question, and §11.3 already answered it
+
+An HF memory channel is (frequency, mode, name, filter width, maybe a tone).
+That schema is radio-neutral — which is exactly why it's the proof case for the
+whole idea, and why it works on a Kenwood over CAT the day Hamlib lands. The
+capability-tier rule from §11.3 governs the rest: the operator profile is a
+*superset*, and each radio takes the slice it can express. A setting the
+current radio can't honor is **held, not dropped** — apply the Flex profile to
+a TS-590 and the slice defaults sit dormant in the profile, intact for the next
+Flex session. Roaming must never be lossy in the direction of the less capable
+radio, or one afternoon on a simple rig quietly bleaches your profile.
+
+### 13.5 Guests leave no residue
+
+The politeness dividend: when a guest session ends, the guest's settings leave
+with the guest. Combined with the host agent's snapshot-and-restore (§9.1),
+the owner's radio returns to exactly the owner's state on release — the guest's
+preferences were only ever a transient overlay, never writes to the radio's
+resident profiles. This is a real feature today's SmartLink guesting simply
+cannot offer: currently a guest mutates the owner's actual radio state and the
+owner tidies up after. Under Connect, guesting becomes stateless from the
+station's point of view.
+
+### 13.6 Storage and the phone-home rule
+
+Disk is the default and the offline truth; cloud sync of the operator profile
+is **explicit opt-in**, per the no-silent-phone-home principle. The broker
+holding an opt-in settings blob is within "the broker knows what it must" — and
+profile sync across machines is a natural fit for the convenience tier of §6
+(never the accessibility features, which include the roaming of speech and
+braille settings locally — a blind operator's verbosity configuration following
+them to a borrowed radio *is* an accessibility feature and stays free).
+
+### 13.7 The audio-tuning flow, and what it costs
+
+The pairing layer needs a bootstrap path, and Noel specified it: the operator
+carries a **default audio profile** they've saved (their known-good Flex
+starting point). On first transmit grant at an unfamiliar radio, JJFlex applies
+that default and offers to tune-and-save *for this radio*. The tuned result is
+stored against the (operator × radio) pair; subsequent grants at that radio
+restore it silently.
+
+Tuning eats the guest's grant time, and that's accepted — the operator can
+request more time if they hold a transmit grant on that radio (the grant-
+extension path, [[project_radio_access_scheduling]]'s territory). The default
+profile keeps the cost low: you're trimming from a known-good baseline, not
+building an audio chain from zero on someone else's clock.
+
+### 13.8 License verification is enforced, and the data has a pipeline
+
+§3's license-class-aware frequency limiting gets its teeth here: Connect
+performs **license verification**, and transmit boundaries are strongly
+enforced from the verified license — not self-declared. The clipping model
+composes: effective transmit privileges = license ∩ grant ∩ hardware. License
+is just another clip, stateless like the others.
+
+Licenses change — upgrades, expirations, renewals, vanity calls — so the
+verification data needs upkeep. The pipeline: either Noel updates it directly,
+or **an agent processes the day's license changes and Noel verifies the report
+before the changes are committed** — a daily, human-verified, committed
+changeset. That shape matters: the license database becomes a versioned
+artifact with an audit trail, never a silent background mutation. (For US hams
+this is automatable from ULS daily transaction files. Non-US jurisdictions
+without a queryable database are an open question — likely self-attestation
+plus owner discretion, consistent with §3's "the grant list stays a social
+decision.")
+
+**Enrollment is a ceremony, not a lookup (Noel, 2026-08-08).** Connect could
+silently verify anyone against ULS — less work for the operator of the broker,
+and wrong. The user **actively enrolls**: they submit a PDF of their license,
+or at minimum enter their callsign and license class themselves — because the
+enrollment moment is where they read the terms of service and the rules, and a
+passive lookup can't make anyone read anything. A short **rules quiz** at
+enrollment confirms the reading actually happened. This is deliberate friction,
+and it's the sanctioned kind: the friction-tax principle exempts exactly
+safety/ownership moments, and agreeing to the rules that govern keying someone
+else's transmitter is both. Culturally it lands fine — every ham at this door
+earned their license by passing a multiple-choice exam; five questions about
+house rules is native, not insulting.
+
+The self-entered claim then gets **cross-checked against ULS** — the submission
+is the ceremony, ULS is the verification. On the PDF, ULS actually issues two
+different documents, and the distinction is load-bearing: the **Reference
+Copy** is downloadable by anyone from the public record and proves nothing
+about the person holding it; the **Official Copy** (watermarked, FCC's only
+license document since paper stopped in 2015) can only be generated by the
+licensee logged into ULS with their FRN and password. Requiring the Official
+Copy — RemoteHamRadio's method, see below — is therefore a **proof of control
+of the FCC account** wearing a PDF costume. Not cryptographically strong (a
+determined forger can doctor any PDF), but it moves the dishonest path from
+"download a public file" to "deliberately falsify a federal document," which
+is a different act with different deterrence. A generic license printout
+remains worthless as evidence. Where a document upload is *required* is
+non-US jurisdictions with no queryable database — there the scanned license is
+the only evidence, reviewed by a human (Noel or the agent-plus-verified-report
+pipeline above). Record the acceptance durably: which ToS/rules version was
+accepted, when, and the quiz result — versioned, so material rule changes can
+require re-acceptance. Same audit-trail posture as the license changeset.
+
+Note what the ceremony does and doesn't solve: it delivers **informed
+consent** — the person transmitting has read the rules. It does not deliver
+**binding** (below); entering K5NER's callsign and acing the quiz doesn't prove
+you're K5NER. Two different problems; the ceremony cleanly solves the first.
+
+The deeper open question isn't the class data — it's the **binding**: proving
+this Connect identity *is* KD2ABC, not merely that KD2ABC exists in ULS. ULS is
+public record with no auth mechanism. Prior art: LoTW mails a postcard to the
+ULS address of record. The electronic version is now available for free: since
+mid-2021 the FCC requires an email address on every license record, so a
+**verification code sent to the ULS email of record** is the postcard without
+the stamp. (An email loop against the QRZ profile address — Noel's suggestion —
+is the fallback signal where the ULS email is stale; weaker, since a QRZ
+profile is self-created, but real effort for an impostor to fake.) Layer on a
+**one-active-identity-per-callsign** rule and impersonation becomes
+self-surfacing: the real holder eventually enrolls, finds their call claimed,
+and the dispute process catches what verification missed.
+
+How the neighbors do it — two services, two tiers. RemoteHams (the free RCForb
+network) runs callsign-as-username accounts with passwords, and transmit is
+granted **manually by each radio owner** after the operator requests it —
+owner vouching over an honor-system account layer, exactly the v1 shape
+proposed here. RemoteHamRadio (the premium pay service) sits one tier up:
+registration requires the ULS **Official Copy**, i.e. proof of FRN control as
+described above. The two map directly onto Connect's ladder: email-loop plus
+owner vouching is the v1 posture, and Official-Copy upload is the documented
+escalation if stronger binding is ever demanded (a listed-public-station tier,
+say, where the owner isn't personally vouching). And the DMR world taught the governing
+lesson (Noel, from years of watching it): DMR ID spoofing was rampant for as
+long as the network accepted any ID unauthenticated — and dropped sharply once
+BrandMeister and TGIF required per-account passwords to transmit. What cleaned
+it up was not better identity vetting; it was **bannable credentials**. Every
+transmission became attributable to a revocable account, and revocation is what
+abusers actually fear. Accountability beats forensic identity.
+
+Connect is structurally post-BrandMeister from day one: every keydown ties to
+an account, a grant, and a recording — all three revocable or evidentiary. So
+binding needs to be good enough to make **bans stick** (email loop raises the
+cost of re-enrolling under a fresh identity), not good enough for a courtroom.
+Weak-ish binding + owner vouching + one-identity-per-callsign + the ban lever
+is the honest v1. Belongs in the protocol spec.
+
+### 13.9 What this asks of JJFlex now
+
+Nothing structural yet — but the settings-parity work already in flight should
+start **tagging each setting with its layer** (operator / station /
+model-constrained) as settings surfaces get touched. The taxonomy then accrues
+for free instead of becoming a big-bang audit when Connect's build phase
+arrives. Per-radio-serial config keying stays; this adds a second axis
+(per-operator) rather than replacing the first.
+
+---
+
+## 14. Amendment — 2026-08-08: transverters as a grantable resource
+
+*Arose from the transverter-loopback work in `audio-workshop-plan.md` §4c. Full
+feature design in `docs/planning/vision/moonbounce-mixer-handshake.md`; this
+section is only the Connect-facing half.*
+
+### 14.1 The rule
+
+The owner can disallow or enable transverter access per guest, and **enabling
+availability for a port is an active, deliberate act — never a side effect of
+granting a session.** Default off.
+
+The one exception is the operator's own "don't ask again" preference on their
+own station, which is a standing statement about hardware they can see.
+
+### 14.2 The finding that forces this into JJFlex's layer (verified in source)
+
+**The radio's transverter model has no port field.** `Xvtr.cs` on
+`track/flexlib-4220` carries exactly nine status fields — `name`, `rf_freq`,
+`if_freq`, `lo_error`, `rx_gain`, `rx_only`, `max_power`, `order`, `is_valid` —
+and the TX/RX antenna is a separate per-slice setting the radio never binds to a
+band.
+
+So with two transverters on two ports, **the radio cannot tell them apart.** It
+knows two frequency translations exist; it does not know which jack either one
+sits behind. That knowledge lives with the operator and currently has nowhere to
+go.
+
+This is §3's "what owning the client unlocks" in a new domain: the binding
+between a band and a port is information the radio does not model, so Connect is
+the only layer that can carry it into a grant.
+
+### 14.3 The driving case, and why it is categorically different
+
+Noel's scenario: a friend asks an operator whether he can play with a European
+operator's QO-100 rig; if the transverter is on and the grant is correct, he gets
+his slot.
+
+**QO-100 is not reachable from Memphis at all.** Es'hail-2 is geostationary over
+Africa and the Middle East — permanently below the horizon from North America. No
+antenna, no amplifier, no patience gets a US operator onto that transponder. The
+only path is somebody else's station.
+
+That reframes what Connect is for. §9.7 described it as converting the sharing
+answer from no to yes; §11.2 made personal remote the first release. This is a
+third thing neither covers: **operating a radio you could never own, pointed at a
+sky you cannot see.** Remote-access products compete on convenience. Nothing
+competes on access to the physically impossible, and for an operator whose travel
+is constrained that difference is the whole proposition.
+
+It also raises the ceiling on §6's Plus tier and §10.6's demo funnel without
+touching either — a station offering QO-100 is worth listing publicly in a way an
+HF station is not.
+
+### 14.4 Why default-off is not paranoia
+
+Transverters are the most damage-prone item on the port list, and the failure
+modes are unlike anything else a grant currently gates:
+
+- Drive is milliwatt-class and **mixer overdrive is the classic way to destroy
+  one**. The margin between correct and ruined is small and invisible.
+- The boxes are expensive and often not quickly replaceable.
+- Band privileges differ by **jurisdiction**, and a guest transmitting outside
+  their licence through the owner's station lands in the *owner's* regulatory
+  world, not their own. §13.8's licence clipping is US-shaped; a European host
+  with a US guest is precisely where that assumption thins out.
+- QO-100 carries an enforced operating norm — do not exceed the beacon level —
+  which is a community expectation, not something the hardware prevents.
+
+An owner sharing HF must never discover they also shared a 2.4 GHz uplink.
+
+### 14.5 The drive ceiling is another clip
+
+§13.3 established that a grant **clips** the operator layer rather than replacing
+it, and that clipping is stateless and reversible. Transverter drive composes
+into that model exactly: each profile owns a dBm/mW drive setting (ratified
+2026-08-08, `audio-workshop-plan.md` §4a), and the owner caps what a guest may
+reach — **the guest's slider tops out at the granted ceiling, not the hardware
+ceiling.**
+
+Effective drive becomes `hardware clamp ∩ station setting ∩ grant ceiling`, the
+same shape as §13.8's `licence ∩ grant ∩ hardware`. No new mechanism.
+
+**And the layer assignment matters more here than anywhere else in §13.**
+Transverter drive is a **station-layer** setting — it is a property of a specific
+physical box, not of the operator. It must never roam. "Zero dBm is right for my
+2 metre transverter" is true of *that* transverter; carried onto someone else's
+station by a roaming operator profile, the same number could destroy a different
+box. §13.4's rule that roaming is never lossy toward the less capable radio has a
+mirror image here: **roaming must never be lossy in the direction of the more
+fragile hardware.** Transverter settings are the sharpest test case for the
+operator/station split, and getting the taxonomy wrong is expensive in a way that
+mis-filing a filter width is not.
+
+### 14.6 A guest cannot perform the connection handshake
+
+The transverter feature's confirmation ("2 metre transverter, transmit antenna
+XVT A — connected?") exists for one reason: **software can verify the band
+definition but physically cannot verify that a box is plugged into a jack.** It
+asks a human to vouch for something no machine can check, which is the friction
+the friction-tax principle explicitly exempts.
+
+A remote guest cannot check it either. They are not in the room.
+
+So under Connect the assertion moves to the **owner, at grant time** — "XVT A has
+the 2.4 GHz transverter and it is powered" is part of enabling the port, not
+something asked of the guest. What the guest receives is a statement of the
+grant's terms — band, port, drive ceiling, slot length — and an acknowledgment.
+Same principle, correctly re-aimed at the only person who can answer.
+
+This generalises, and it is worth stating as a rule for the whole grant system:
+**any confirmation whose purpose is to attest to physical reality belongs to the
+owner, never to the guest.** A guest-facing dialog that asks about the state of
+hardware in another country is theatre, and worse than nothing — it manufactures
+a record of someone confirming something they had no way to know.
+
+### 14.7 Silent failure is the unsolved part
+
+If the transverter is off, or was never on, the guest keys up and **radiates
+nothing, with no local symptom.** The radio cannot see the box, so this is not
+directly detectable. It is the exact failure class
+`project_no_silent_keystrokes_rule` exists to prevent, arriving through hardware
+rather than through software state.
+
+Candidate signals, none verified: reflected power or SWR anomalies at the port,
+or the absence of an expected downlink. For QO-100 specifically the downlink
+*is* the check (see below), which makes the satellite case better instrumented
+than the terrestrial one. Open question; do not ship the guest tier without an
+answer, because a guest with no local symptom has no way to distinguish "I am not
+transmitting" from "nobody is answering."
+
+### 14.8 QO-100 needs full duplex, so it needs two SCUs
+
+The transponder is worked full-duplex: operators find themselves on the downlink
+while transmitting, which is the standard way to confirm you are on frequency and
+at the right level. That requires the receiver alive during transmit —
+`Radio.FullDuplexEnabled` — and therefore a 2-SCU radio.
+
+This is a **new consequence of §4's hardware constraints**, which established
+that transmit is a mutex and that two SCUs buy two independent *receive* chains.
+§4 read that as a limit on simultaneous operators. Here the second SCU does
+something else entirely: it keeps the owner's or guest's own receive path alive
+through their own transmission. Worth adding to the capability descriptor
+(§11.3), because a shared 1-SCU station cannot host satellite work no matter what
+transverter is bolted to it.
+
+Note the convergence with the audio-check work: **QO-100 operating is the
+hear-yourself loop at satellite scale.** The full-duplex mechanism being built so
+an operator can hear their own transmitted audio through a transverter port is
+the same mechanism the satellite requires, at 22,000 miles instead of across a
+chassis. One capability, two features, and the capability gate is identical.
+
+### 14.9 What this asks of the grant vocabulary
+
+Per §3's instruction to keep the broker's grant vocabulary richer than what is
+currently enforceable, transverter access should enter the grant record now even
+though nothing enforces it yet:
+
+- Per-port availability flag (default off).
+- Drive ceiling in dBm, per port.
+- The owner's physical-connection assertion, timestamped — it is part of the
+  control-operator record, and it is the owner's statement, not the guest's.
+- Transverter presence and full-duplex capability in the **listing** and the
+  capability descriptor, per §11.3 — a guest must know before connecting, and the
+  grant editor must not offer a satellite slot on a radio that cannot receive
+  during transmit.
+
+---
+
 *Named per convention: cookie (the currency of station-sharing), sked (a
 scheduled contact), keydown (what the whole thing gates).*

@@ -48,7 +48,7 @@ That also resolves the automation's teardown obligation cleanly: **band definiti
 
 ## Transverters as a grantable resource in JJ Flexible Connect (Noel, 2026-08-08)
 
-**Belongs in the Connect design (`cookie-sked-keydown.md`) once merged — kept here for now because that file had uncommitted edits in flight on 2026-08-08.**
+**MERGED into the Connect design 2026-08-08 — see `cookie-sked-keydown.md` §14, which is now canonical for the Connect-facing half.** The summary below is kept as the transverter feature's own view of the same decisions; when the two disagree, §14 wins.
 
 **The rule:** the owner can disallow or enable transverter access per guest, and **enabling availability for a port is an active, deliberate act** — never a side effect of granting a session. Default off. Exception: the operator's own "don't ask" checkbox above, which is their standing statement about their own station.
 
