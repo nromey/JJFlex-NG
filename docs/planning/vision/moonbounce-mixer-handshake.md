@@ -32,7 +32,7 @@ That argues the confirmation must **name the port, not just the band**: "2 meter
 
 **Proposed refinement: gate the confirmation on first transmit, not on tuning.** Receiving through a transverter port with nothing connected is harmless — you hear nothing and learn something. Transmitting is the act with consequences (wrong band, unterminated port, or silently radiating nothing while believing otherwise). So let tuning be friction-free and put the handshake at first key-up in that band per session. Less friction, and the check lands where the risk actually is.
 
-Open question for Noel: re-ask per session, per reconnect, or once per profile with a "this is connected" state the operator maintains?
+**RATIFIED (Noel, 2026-08-08): once per session by default, with a checkbox to remember the state.** The operator makes the rule; we pick the conservative default. Straight application of the flexibility principle — togglable, conservative default, per-radio. A station where the 2 m transverter is permanently wired and always powered should not be asked daily; a station where boxes get swapped should be asked every time. Only the operator knows which station they have.
 
 ## Why this unifies with the loopback work
 
@@ -45,6 +45,26 @@ That also resolves the automation's teardown obligation cleanly: **band definiti
 - **Does the radio auto-select a band when you tune into its range, or must the band be selected explicitly?** `order` implies a precedence list, which suggests the radio does the mapping itself — but `rf_freq` and `if_freq` are single values with no width field anywhere, so how the band's extent is determined is unknown. If the radio already maps frequency to band, our job is the port binding and the speech; if not, we own the mapping too.
 - Whether a defined band translates the *ears-slice* as well as the TX slice (matters for the loopback, see `audio-workshop-plan.md` §4c).
 - What `is_valid` rejects — it is the radio's verdict on a coherent definition and should drive our validation messages rather than us reimplementing the rules.
+
+## Transverters as a grantable resource in JJ Flexible Connect (Noel, 2026-08-08)
+
+**Belongs in the Connect design (`cookie-sked-keydown.md`) once merged — kept here for now because that file had uncommitted edits in flight on 2026-08-08.**
+
+**The rule:** the owner can disallow or enable transverter access per guest, and **enabling availability for a port is an active, deliberate act** — never a side effect of granting a session. Default off. Exception: the operator's own "don't ask" checkbox above, which is their standing statement about their own station.
+
+**The driving use case, and it is a good one.** Noel: a friend asks an operator whether he can play with a European operator's QO-100 rig. If the transverter is on and the grant is correct, the friend gets his time slot. Noel wants to do this himself.
+
+This is the strongest Connect story yet, because **QO-100 is not reachable from Memphis at all.** Es'hail-2 is geostationary over Africa and the Middle East — below the horizon from North America, permanently. No amount of equipment or patience gets a US operator onto that transponder. The only path is somebody else's station. That reframes Connect from "operate your radio from elsewhere" (convenience) to **"operate a radio you could never own, pointed at a sky you cannot see"** (access to the physically impossible). For an operator whose travel is constrained, that difference is the whole point.
+
+**Why default-off is not paranoia here.** Transverters are the most damage-prone thing on the port list: drive is milliwatt-class and mixer overdrive is the classic way to destroy one, the boxes are expensive, and band privileges differ by country — a guest transmitting outside their licence, through the owner's station, lands in the *owner's* jurisdiction. QO-100 additionally has an enforced operating norm (do not exceed the beacon level). An owner sharing HF should never discover they also shared a 2.4 GHz uplink.
+
+**Design consequences that fall out:**
+
+- **The drive ceiling travels with the grant.** Since each profile owns a dBm/mW drive setting, the owner should cap what a guest may reach — the guest's slider tops out at the *granted* ceiling, not the hardware ceiling. This is what protects a stranger's transverter from a guest who has never met that box, and it maps directly onto the QO-100 beacon-level norm.
+- **A guest cannot perform the connection handshake, and must not be asked to.** The whole justification for that confirmation is that it asks a human to vouch for physical reality the machine cannot check — but a remote guest cannot check it either. So the physical assertion moves to the **owner, at grant time** ("XVT A has the 2.4 GHz transverter, it is powered"). What the guest sees is a statement of the grant's terms — band, port, drive ceiling, slot length — and an acknowledgment, not a verification. Same principle, correctly re-aimed at the only person who can actually answer.
+- **Silent failure is the risk to design against.** If the transverter is off, or was never on, the guest keys up and simply radiates nothing — with no local symptom. The radio cannot see the box, so we cannot detect this directly. Candidate signals: reflected power or SWR anomalies, or the absence of an expected downlink. Open question, not solved here.
+- **QO-100 operation needs full duplex, so it needs 2 SCUs.** The transponder is worked full-duplex — operators find themselves on the downlink while transmitting, which is the standard way to confirm you are on frequency and at the right level. That requires the receiver alive during transmit, i.e. `Radio.FullDuplexEnabled`, i.e. a 2-SCU radio. The same capability gate the audio-check loopback work established. Worth noting the convergence: **QO-100 operating IS the hear-yourself loop, at satellite scale** — the feature we are building for audio checks is the same mechanism the satellite requires.
+- Slot mechanics belong to the existing scheduling problem (`project_radio_access_scheduling.md`, `project_multiflex_tx_is_a_mutex.md`); a transverter grant is an attribute of a slot, not a separate booking system.
 
 ## Why it is worth doing
 
