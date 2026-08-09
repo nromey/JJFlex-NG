@@ -1749,8 +1749,36 @@ never as a substitute for finishing the native client.
 ## 17. Amendment — 2026-08-09: the commercial case for Flex (extends §7)
 
 *Noel's counter to the objection §7 anticipates — that Connect lets people share a
-radio instead of buying one. Sharpened here with one finding from source that
-changes the shape of the argument.*
+radio instead of buying one.*
+
+### 17.0 Lead with the club station
+
+**The strongest framing is the oldest one, and it needs no economics at all
+(Noel, 2026-08-09): this is a ham using a club station, or a buddy's radio.**
+
+Shared operating is not a novel business model that has to be justified — it is a
+century-old, universally accepted part of the hobby. W1AW exists. Field Day exists.
+Multi-op contest stations exist. Clubs put good radios and good antennas in front
+of people who own neither, and nobody has ever argued that club stations depress
+radio sales. The opposite is assumed so widely it goes unstated: **club stations
+are how people get into the hobby and end up buying their own gear.**
+
+So Connect is not asking anyone to accept a new practice. It is asking them to
+accept the practice they already endorse, **made reachable by operators who cannot
+drive to the clubhouse** — and given real access control, which the credential-
+handoff status quo of §1 conspicuously lacks.
+
+That reframes the conversation from *"here is our new thing, please do not feel
+threatened"* to *"you know how club stations work? This is that, for people the
+clubhouse does not reach."* Everything below is supporting argument; this is the
+opening line.
+
+Two boundaries Noel states plainly, and they are worth repeating early because they
+pre-empt the two questions a vendor actually worries about: **nothing here is being
+patented** (MIT, §9.6), and **nothing modified is being pushed at Flex's servers** —
+Connect never touches SmartLink (§1a), and SmartLink itself still requires owning
+the radio. This is ground-up work for an accessible interface to radios you own, to
+share or not.
 
 ### 17.1 MultiFlex is licensed to the radio and bundled — which is a better argument than the one it replaces
 
