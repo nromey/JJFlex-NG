@@ -1360,20 +1360,61 @@ owner, never to the guest.** A guest-facing dialog that asks about the state of
 hardware in another country is theatre, and worse than nothing — it manufactures
 a record of someone confirming something they had no way to know.
 
-### 14.7 Silent failure is the unsolved part
+### 14.7 Silent failure, and how to detect an unpowered transverter
 
 If the transverter is off, or was never on, the guest keys up and **radiates
-nothing, with no local symptom.** The radio cannot see the box, so this is not
-directly detectable. It is the exact failure class
+nothing, with no local symptom.** It is the exact failure class
 `project_no_silent_keystrokes_rule` exists to prevent, arriving through hardware
-rather than through software state.
+rather than through software state — and a guest with no local symptom cannot
+distinguish "I am not transmitting" from "nobody is answering."
 
-Candidate signals, none verified: reflected power or SWR anomalies at the port,
-or the absence of an expected downlink. For QO-100 specifically the downlink
-*is* the check (see below), which makes the satellite case better instrumented
-than the terrestrial one. Open question; do not ship the guest tier without an
-answer, because a guest with no local symptom has no way to distinguish "I am not
-transmitting" from "nobody is answering."
+**The transmit side gives us nothing (checked in source).** There is no presence
+or detect field anywhere in the transverter model, and no accessory-presence
+input in the interlock system to repurpose — the interlock covers PTT sources and
+TX faults only. `FWDPWR` and `SWR` are radio-level meters reading the PA, and the
+XVTR port is a low-level exciter output that bypasses the PA entirely, so there is
+almost certainly no directional coupler on it. Treat that last point as strong
+inference rather than fact: the meter list is radio-reported at runtime, so
+enumerating meters with TX antenna set to XVT settles it on the 8600.
+
+**The receive side almost certainly does.** A powered transverter's receive
+converter injects noise into the radio continuously; an unpowered one is a
+terminated stub. Point a slice's receive antenna at the XVT port and read the
+per-slice S-meter (FlexLib reports it in dBm) and the difference should be many
+dB, not a subtle shift. **LO leakage is the sharper signature** — a transverter's
+local oscillator leaks into its IF port, so a powered box often presents a
+detectable carrier or birdie, visible in the bin data already arriving.
+
+**Design move: make it a calibration rather than a physics problem.** At profile
+setup the owner performs a one-time *learn what this port looks like powered*
+capture — noise floor and spectrum signature, stored in the transverter profile.
+Every later check compares that station's port against its own known-good
+baseline, which controls for antenna, local noise floor, and the particular box.
+No universal threshold has to be right.
+
+Two properties make this cheap: **the check is pure receive, so it emits nothing**
+and carries no regulatory or interference consideration, and it can therefore run
+at grant-enable, at session start, and before first key-up without asking anyone's
+permission.
+
+**It cross-checks the owner's assertion rather than replacing it.** §14.6 puts the
+physical-connection statement with the owner, and that stands — this detects when
+the statement has gone *stale*, which is the realistic failure (the box was
+switched off last week and nobody updated the profile). The valuable output is the
+disagreement: "you have marked XVT A as connected, but that port reads like an
+unpowered transverter."
+
+Honest limits, all of which the profile must accommodate:
+
+- A transverter powered but with a **failed converter stage** passes the check.
+- **Sequencer setups**, where the transverter powers up only on transmit, read as
+  off while idle. That is a real false positive and needs a per-profile flag, not
+  a smarter detector.
+- A genuinely RX-quiet transverter may not separate cleanly — which is exactly why
+  the baseline is per-station and captured, rather than a constant.
+
+For QO-100 the downlink is its own check (§14.8), making the satellite case better
+instrumented than the terrestrial one.
 
 ### 14.8 QO-100 needs full duplex, so it needs two SCUs
 
