@@ -51,9 +51,14 @@ blocking):**
 - Track F: hosted forgot-password link live test; wording approval on new
   confirm labels.
 - Track G: -10 dBm drive de-overload question (the open clean-demodulation
-  item); ears-slice level telemetry — plumb it or accept fixed drive; temp
-  XVTR band auto-creation yes/no; record/play timing over SmartLink with
-  Don.
+  item) — **Don's answers 2026-08-08 supply an eyewitness recipe pointing
+  the same way: the demo he saw drove sub-watt via a defined XVTR band, not
+  integer watts, and possibly used a separate RX port**; ears-slice level
+  telemetry — plumb it or accept fixed drive; temp XVTR band auto-creation
+  yes/no — **effectively answered YES by the same datapoint, pending the
+  levelled-loopback rerun (plan §6 item 1b)**; record/play timing over
+  SmartLink with Don; **new: RX-bandwidth-matched-to-TX before recording,
+  Don's stated condition for the record tier (plan §6 item 1a)**.
 - Track H: optional default chords for MemoryScan / SpeakFrequency (now
   honest-unbound); NVDA rebind-persist-reset loop is in the guided doc.
 - Track I: gate "No Transmit Slice" behind a confirmation? XVTR end-to-end
@@ -95,7 +100,7 @@ blocking):**
 - **Live observation (Noel, 2026-08-07): the 8600 still reports "not registered"** — despite being registered via SmartSDR's chooser 2026-08-04. NOT (only) a detach-work problem: detach fixes PERFORMING registration; a wrong report is the query path — likely the stored-JWT-expired → silent-mode-declines-refresh → Unknown misread (the JIT id_token refresh item), or the advisory checking a different account (Track F item 13). Diagnostic: grab a trace when the advisory fires during the 8600 session with Phil2 — the SuggestRegistration line names the account it checked and the query result. Route the finding to Track F (advisory honesty) and/or the wave-2 JIT refresh item.
 - **Slice identity bug cluster → PROMOTED TO TRACK J** (see assigned tracks). Noel's trace, when it lands, confirms the trigger sequence (greps: `sliceAdded`, `RXVFO:`, `ActiveSlice:`, `VFOToSlice:null`) but the fix isn't blocked on it.
 - **Radio-seat tests:** ~~Recording tests~~ **DONE 2026-08-07 (marathon):** record-during-mute = voice in buffer (real demodulated RF, proven by the antenna-isolation test); processing chain carried (A/B verified); buffer telemetry learned (120s cap, ring-like retention, re-arm race). Results in plan sections 4/4b/6 — G phase 2 unblocked. Still open: (1) CW monitor gain check; (2) compander-on-PC-stream config — when the SM7dB → EVO mic is set up; (3) the DAXIQ-during-TX probe (scripted; now doubly motivated — it is ALSO the instrument-verification the three-model saga demanded, ears-through-six-routing-layers having misled twice); (4) SmartLink-remote config of the record/play matrix (pairs with port-forwarding the 8600); (5) Release All Extra Slices repro — now a Track J regression check rather than an investigation; (6) latch validation (T-Mobile hotspot or NAT lab); (7) loopback level-management experiments (dBm drive into linear range — G's open question, needs the radio).
-- **Third parties (Noel is the channel):** Don — busy-radio announcement retest (needs his slices full), **ask for the YouTube link** (the trick's provenance is a video, likely a 6600 — canonical recipe + level settings are prior art; Don has NEVER run it on his 6300), and the 6300 guided record-during-mute experiment (likely-confirm after the FDX-off simulation; his radio gets the final word). Andre — Pi DNAT rule, only if hotspot and NAT lab both fail.
+- **Third parties (Noel is the channel):** Don — busy-radio announcement retest (needs his slices full), and the 6300 guided record-during-mute experiment (likely-confirm after the FDX-off simulation; his radio gets the final word — and since he has never run the trick himself, he is the experiment now, not the informant). ~~Ask for the YouTube link~~ **ANSWERED 2026-08-07 evening, absorbed 2026-08-08: all six transverter questions came back — no video existed (in-person demo by another ham, unidentified 6000-series radio), the demo drove ~100 mW via a defined XVTR band rather than integer watts, Jim's version never achieved duplex, and the record tier must match RX bandwidth to TX bandwidth. Full absorption in `audio-workshop-plan.md` §4c.** Andre — Pi DNAT rule, only if hotspot and NAT lab both fail.
 - **WAN self-testing enabler (Noel idea 2026-08-07):** port-forward his own radio (external → internal TCP 4994 / UDP 4993) so he can operate his 8600 over SmartLink from home — enables the remote-side ghost sweep test and all WAN-path testing without Don. Alternative: punch working via NAT lab findings.
 
 ## Queued — assigned to queue-burn tracks — ALL SHIPPED 2026-08-07
