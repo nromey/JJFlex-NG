@@ -1614,5 +1614,132 @@ constraint implies:
 
 ---
 
-*Named per convention: cookie (the currency of station-sharing), sked (a
-scheduled contact), keydown (what the whole thing gates).*
+## 16. Amendment — 2026-08-09: a web client for granted time
+
+*Noel's idea. The native app is always best, but a guest could operate their
+granted slot from a web page — accessible, obviously. Likely needs WebRTC and
+possibly QUIC. The stated analogy is the Zoom desktop app versus Zoom web: both
+functional, one clearly preferred.*
+
+### 16.1 It does not violate the only-door invariant, but it does move where
+enforcement lives
+
+§3's invariant is about the guest having no **alternate path to the radio**, not
+about there being a single client binary. A web client that reaches the radio only
+through the broker and agent is the same door in a different shape.
+
+The catch is enforcement. §9.1 put enforcement in `JJFlexible.Connect.Core`
+targeting `net10.0`, consumed by both agent and clients — **and a browser cannot
+consume that library.** So a web tier forces every rule to be genuinely agent-side:
+grant evaluation, licence clipping, power ceilings, transmit eligibility, and the
+audit log all have to hold when the client is untrusted JavaScript that the guest
+could rewrite in devtools.
+
+That is not a problem so much as a schedule: §9.2 already established that the
+agent turns slice isolation from courtesy into real privacy by filtering the
+status stream before relaying. **The web client is gated on the agent shipping,
+for exactly the same reason the public directory is** (§9.2). Before the agent it
+would be a client-side-enforced tier handed to people who did not install anything
+— the weakest possible combination. After the agent it is safe by construction,
+because the browser gets only what the agent chooses to relay.
+
+Useful side effect: **building the web client is a good adversarial test of the
+agent.** If anything breaks when the client is untrustworthy, enforcement was in
+the wrong place.
+
+### 16.2 WebRTC is not a bolt-on — it is the shape Connect already has
+
+The fit is unusually clean, and it is worth being explicit about because it makes
+this cheaper than it sounds:
+
+- **Rendezvous, never relay** (§2) is WebRTC's native model. The signalling server
+  exchanges candidates and never touches media; peers connect directly. That is
+  precisely the broker's job description already.
+- **ICE is what Connect is already doing.** The protocol requirement to carry both
+  internal and external addresses alongside ports is standard ICE candidate
+  practice — the broker has to perform candidate exchange for the native client
+  regardless. A WebRTC client consumes the same machinery rather than needing a
+  parallel path.
+- **Opus is already the audio format.** §10.1's 32-64 kbps per slice is what
+  WebRTC negotiates by default, and §5's "tap compressed frames, not PCM" means the
+  agent is already handling encoded frames rather than decoding and re-encoding.
+- **DTLS/SRTP** gives transport security without inventing any.
+- **Data channels** carry the command stream, which is small.
+
+QUIC/WebTransport is the more interesting question for **spectrum data** rather
+than audio — the bin streams of §10.1 are high-rate, one-directional, and
+loss-tolerant, which is where WebTransport's unreliable datagram mode earns its
+keep over a reliable channel. Audio and commands probably do not need it. Treat
+QUIC as a spectrum-tier decision, not a prerequisite.
+
+### 16.3 The accessibility objection is about who built it, not about the browser
+
+This has to be faced directly, because the project holds a stated position that
+appears to contradict the idea. `project_remote_services.md` says: *"Bypass the web
+browser entirely — speak the protocol directly, so we control the full accessible
+experience. Browser-based SDR interfaces are accessibility nightmares."* And
+`project_csharp_accessibility_moat.md` says to weigh cross-platform pitches against
+the .NET accessibility moat.
+
+Both stand. But the objection is aimed at **other people's browser applications**,
+not at browsers — those interfaces are nightmares because they are unlabelled
+canvases with custom widgets and no keyboard model, not because NVDA and JAWS work
+badly on the web. They work fine on the web. A page built semantics-first, with
+real controls and a real keyboard model, can be excellent.
+
+**This is the same correction as the SDR-tier one made hours earlier** (§4c of
+`audio-workshop-plan.md`, and 2026-08-08's ruling that in-radio and SDR-listen are
+peers): Don objected that SDR interfaces have inaccessible bandwidth controls, and
+the answer was that this describes other people's clients, not SDR. Identical
+shape here. **When a user reports an accessibility barrier, the first question is
+whose surface it lives on — if it is a surface we would be building, it is a
+requirement rather than a constraint.**
+
+So the moat argument does not forbid a web client. It says: do not let the web
+client become the *only* client, because the native app is where the moat lives.
+Which matches Noel's own ordering — app first, always.
+
+### 16.4 What the web tier genuinely cannot do, and §15 already covers it
+
+The honest losses are real and they are not accessibility losses; they are
+capability losses:
+
+- **No system-global keyboard layer.** The Invisible Interface — the "operate your
+  radio from any freaking where" layer in `audio-workshop-plan.md` §3 — needs a
+  low-level hook. A browser tab cannot capture keys outside itself, so the web
+  client is inherently a focused-window experience.
+- **No braille display.** There is no browser API for one. The multi-braille output
+  work with Jamie Teh — a flagship — simply does not exist in the web tier.
+- **Weaker audio-device control** (no exclusive-mode, no per-device routing, higher
+  and less predictable latency), which matters because §5 already found monitor
+  latency audible even on LAN.
+- **No local recording to disk** on the guest side, and no background operation
+  when the tab is closed.
+
+**These are exactly what §15's capability descriptor was designed to express — and
+this is the case that shows the descriptor has a second axis.** §15 describes what
+the *station* can do. A guest on the web tier also needs to know what their
+*client* cannot do, and it must not be discovered by pressing a braille key and
+getting silence. Same three rules: hide unavailable features from browsing, keep
+the roster always askable, never go silent on invoke. The roster answers two
+questions, not one: *what does this station have* and *what can I reach it with*.
+
+### 16.5 Positioning: the trial and the borrowed-computer tier
+
+The web client is not the daily driver and should not be sold as one. Where it is
+genuinely the *right* answer:
+
+- **Zero-install trial**, which is §10.6's demo-mode argument with the last barrier
+  removed. A blind ham evaluating a $3,000+ radio currently cannot verify the
+  accessibility promise at all; a web demo against a recorded capture drops that to
+  a link. Works at a club meeting, on a BHN net, on someone else's laptop.
+- **The one-slot guest.** §14.3's QO-100 borrower wants a single evening on a
+  station they will never use again. Asking them to install a Windows application
+  first is a real barrier to the exact social case Connect exists to enable.
+- **Platforms before the native client reaches them.** Justin operates from a Mac;
+  iOS is a stated ambition. §9.3 already argues the agent makes clients thin — a
+  web client is the thinnest possible one, and it serves platforms while the native
+  ports are still unwritten.
+
+Sequencing: **after the agent, alongside or before the public directory**, and
+never as a substitute for finishing the native client.
