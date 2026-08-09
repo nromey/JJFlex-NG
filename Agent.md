@@ -5,6 +5,120 @@ This document captures the current state of JJ-Flex repository and active work.
 **Repository root:** `C:\dev\JJFlex-NG`
 **Branch:** `main` (post-REVERT of `track/flexlib-42` merge on 2026-05-15 — main is back to pre-FlexLib-4.2.18 substrate after Don's 2026-05-15 LAN trace exposed a vendor-side station-name regression. FlexLib 4.0.1 is in place. Re-merge of FlexLib 4.2.18 now gated on Sprint 29 Phase D firmware-update UI being operational + Don's radio firmware updated. `track/flexlib-42` parked at `9de45c54`. See `memory/project_flexlib_4218_station_name_regression.md` (new), `memory/project_flexlib_4218_merge_sequencing.md` (refreshed 2026-05-15), and `memory/project_main_branch_41_posture.md` (reality-check note added).)
 
+## END-OF-DAY SEAL — 2026-08-08 — DON'S ANSWERS, AND THREE DESIGN RATIFICATIONS
+
+*Session ran 2026-08-08 evening into 2026-08-09 00:35; sealed post-midnight.
+Delta measured from the previous seal `6ab1bb88`, not from midnight — see the
+rigmeter note below for both figures.*
+
+Branch `track/flexlib-4220`, clean. **10 commits, 6 files, +657/-11.** Nightly
+**4.1.16.708** at Dropbox top level (replaces 697) and NAS
+`historical\4.1.16.708\x64-debug\`. Testers' `debug\` deliberately untouched —
+still 536, and nothing tonight is tester-facing.
+
+**Theme: an absorb-and-decide evening, not a build evening.** Yesterday's
+164-commit queue-burn was followed by a night of resolving what it left open.
+One real code fix; everything else is durable design record.
+
+**Don's transverter answers came back** (his Dropbox folder; all six answered).
+Absorbed into `audio-workshop-plan.md` §4c and the answered doc in `for-don/`.
+Provenance corrected a *third* time — no YouTube video and not his own operating,
+but an in-person demo by another ham on an unidentified 6000-series radio, so the
+1-SCU question is still open and **Don shifts from informant to experiment
+subject**. Two findings that matter: the demo drove sub-watt through a *defined
+XVTR band* rather than the integer watt control (flipping band definition from
+"not needed" to the primary drive mechanism), and Jim's version **never achieved
+duplex** — closing that thread, and matching the code archaeology exactly. Also a
+new hard requirement for the record tier: match RX bandwidth to TX bandwidth
+before recording. Noel then corrected the SDR-tier reading: Don's
+"SDR interfaces have inaccessible bandwidth controls" objection dies when *we* are
+the SDR client (KiwiSDR is on the roadmap), so in-radio and SDR-listen are **peers,
+not ranked** — filed as design input on `project_remote_services.md`.
+
+**The 2026-08-07 crash: dated, already fixed, and it exposed two reporter bugs.**
+The crash was 15:35 local on 08-07, mid-loopback-marathon, in *old* code (the
+workshop's 2 Hz poll racing radio teardown) — not in the queue-burn work. Track G
+fixed it 90 minutes later in `7149ca41`; verified both layers hold, including that
+every property `PollTxAudio` touches now survives a null radio. **Why Noel couldn't
+tell which build crashed: the report never said.** It read
+`GetType(Form).Assembly`, so every crash report ever filed said
+`App: System.Windows.Forms 10.0.0.0` and carried no JJFlex version — and `When:`
+used `DateTime.Now` with the `u` format, stamping local time with a UTC `Z`.
+Both fixed in `b49274d7`; reports now carry App, Build (informational version with
+git SHA), FileVersion, honest local time with offset, and a separate true UTC line.
+
+**Three ratifications, all captured:**
+- **A dBm/mW drive slider we build ourselves.** Established first by code search
+  that *no milliwatt-denominated property exists anywhere in FlexLib* — the only
+  fine drive control is `Xvtr.MaxPower` in dBm. Arrowable, speaks both units,
+  ceiling computed from the radio (the clamp is model- and IF-dependent, never a
+  constant). `audio-workshop-plan.md` §4a.
+- **Transverter profiles** — new vision doc
+  `docs/planning/vision/moonbounce-mixer-handshake.md`. The load-bearing finding:
+  the radio's `Xvtr` model has **no port field**, so with two transverters on two
+  ports the radio cannot tell them apart. Confirmation policy: once per session by
+  default, checkbox to remember.
+- **Transverters as a grantable Connect resource** — `cookie-sked-keydown.md` §14
+  (nine subsections). Default off, enabling a port is a deliberate owner act. QO-100
+  is the driving case and reframes Connect a third way: **operating a radio you
+  could never own, pointed at a sky you cannot see** — Es'hail-2 is permanently
+  below the horizon from Memphis. Drive ceiling composes into §13's clipping model;
+  transverter drive is **station-layer and must never roam** (the right number for
+  your box could destroy someone else's). Generalized rule: *attestations of
+  physical reality belong to the owner, never the guest.* §14.7 turns the
+  silent-failure blocker into a design — the transmit side can't detect a dead
+  transverter, but the receive side can (converter noise + LO leakage), made robust
+  by capturing a per-station powered baseline. **§13 (roaming operator settings) was
+  sitting uncommitted in the working tree and got swept into `2d1aec41`** — it is
+  another session's work, not this one's.
+
+**DSP noise reduction re-queued** after Noel flagged it ("I still haven't forgotten
+it" — he means SUB). Verified in code: **the engine is complete and Phase 1 is a
+pure UI track with zero engine work.** Thirteen public APIs on `RxAudioPipeline`,
+exactly two wired. The damning symptom: `ScreenFieldsPanel.xaml.cs:379` speaks
+*"PC Spectral NR on, no noise profile loaded"* while no capture command exists
+anywhere — the feature narrates its own broken state with no exit. Full work list
+in the queue's wave 2; `project_dsp_controls_design.md` updated with the recheck and
+a **training-host correction (ms-02 + NVIDIA, not Mac ARM)**. RNN wants more knobs
+and presets once we can train our own.
+
+**Cross-surface sweep:** one worktree (queue-burn trees cleaned up). No sibling-repo
+activity — only JJFlex-NG. `for-noel`/`for-claude` unchanged since 08-07, no deltas
+to process. Two memory files touched: `project_remote_services.md` (mine) and
+`project_jjflexible_connect.md` (00:16, another session absorbing §13/§14 — I
+corrected its now-stale "silent failure is an open blocker" line). **Durability
+standing, unchanged and still Noel's call: Freight Fate 16 unpushed commits, Civ VI
+Access 45.** Both covered by the NAS dev mirror.
+
+**Rigmeter — end of 2026-08-08 (both figures, per the second-seal rule).** Since
+local midnight (08-09): 4 commits, 3 files, +438/-1. **Since the previous seal
+`6ab1bb88` — the honest session figure: 10 commits, 6 files, +657/-11.** Repo
+totals at `31e07ddf`: authored 940 files / 202,787 lines / 1,107,586 words; vendor
+188 files / 55,597 lines; combined 1,128 files / 258,384 lines. `docs` is now
+51,781 lines across 252 files and is the largest single project by word count
+(515k) — tonight was entirely docs and design. Snapshot JSON on NAS at
+`historical\stats\2026-08-09-31e07ddf.json`.
+
+**Flags for Noel:**
+- `MEMORY.md` compaction **broke even at 16.4 KB** rather than shrinking. It
+  absorbed tonight's four new pointers at zero net cost, but the index is mostly
+  filenames, which are irreducible. Real reduction means *dropping* entries — a
+  judgment call worth doing awake.
+- `build-debug.bat` printed `The system cannot find the path specified.` mid-run.
+  NAS archive still succeeded and the version stamped correctly (4.1.16.708), but
+  something in the script's path handling has drifted.
+- `rigmeter` could not resolve a tokei download URL, so code-vs-comment splits are
+  unavailable. Line/word counts are unaffected.
+
+**Next session — the transverter test at the radio.** Test card is in this
+conversation and in `audio-workshop-plan.md` §6 items 1a/1b. Cheapest first move
+needs no XVTR band at all: last night's proven recipe with the ears-slice on
+**XVT B instead of XVT A**, at power 1. **Pass/fail is the chipmunk** — detune the
+ears-slice down 1 kHz; under front-end overload you get frequency-agnostic envelope
+spray (normal voice, which is what misled us twice), but a receiver in its linear
+range *must* pitch-shift. If port isolation alone clears the overload, the XVTR
+band may not be needed and the feature gets much simpler.
+
 ## END-OF-DAY SEAL — 2026-08-07 — THE NIGHTOWL QUEUE-BURN
 
 Branch `track/flexlib-4220`, clean, pushed through `191e5d94` (seal commit
