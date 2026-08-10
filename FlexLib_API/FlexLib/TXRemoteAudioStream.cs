@@ -116,10 +116,26 @@ namespace Flex.Smoothlake.FlexLib
             _radio.SendCommand("stream remove 0x" + _streamID.ToString("X"));
         }
 
+        // JJFlex diag 2026-08-10 (708 TX-audio): local patch to vendor code.
+        // AddTXData's catch below swallows every exception into Debug.WriteLine,
+        // which is invisible in field traces — a per-packet NullReference or
+        // ObjectDisposed here would exactly mimic dead TX audio while the app's
+        // own counters show 100 pkts/s "delivered". Route first-call detail and
+        // any exception (rate-limited) through the VitaSocket trace hook.
+        private bool _firstAddTxLogged;
+        private int _addTxErrLastLog;
+
         private VitaOpusDataPacket _txPacket;
         public void AddTXData(byte[] tx_data)
         {
             Interlocked.Add(ref _byteSumTX, tx_data.Length);
+
+            if (!_firstAddTxLogged) // JJFlex diag 2026-08-10
+            {
+                _firstAddTxLogged = true;
+                global::Vita.VitaSocket.TraceSink?.Invoke(
+                    $"TXRemoteAudioStream: first AddTXData: streamID=0x{_streamID:X} payload={tx_data.Length}B radioAck={_radioAck} VitaSock={(_radio?.VitaSock == null ? "NULL" : "ok")}");
+            }
 
             if (_txPacket == null)
             {
@@ -150,6 +166,14 @@ namespace Flex.Smoothlake.FlexLib
             catch (Exception e)
             {
                 Debug.WriteLine($"TXRemoteAudioStream: AddTXData sendTo() exception = {e}");
+                // JJFlex diag 2026-08-10: surface the swallowed exception in field
+                // traces, at most once per second (this runs 100x/s while keyed).
+                var now = Environment.TickCount;
+                if (now - _addTxErrLastLog >= 1000)
+                {
+                    _addTxErrLastLog = now;
+                    global::Vita.VitaSocket.TraceSink?.Invoke($"TXRemoteAudioStream: AddTXData EXCEPTION: {e}");
+                }
             }
             // bump the packet count
             _txPacket.Header.packet_count = (byte)((_txPacket.Header.packet_count + 1) % 16);
@@ -168,6 +192,15 @@ namespace Flex.Smoothlake.FlexLib
 
         public void StatusUpdate(string s)
         {
+            // JJFlex diag 2026-08-10 (708 TX-audio): capture the radio's TX-stream
+            // status verbatim. Field traces show the 4.2.20-era status carries keys
+            // this parser never handles (ip=, likely port=); the compression= value
+            // the radio chose for a create sent WITHOUT a compression argument is
+            // also invisible today. One keyed test with this line settles whether
+            // the radio considers the stream uncompressed, re-addressed, or
+            // otherwise not what the client is feeding it.
+            global::Vita.VitaSocket.TraceSink?.Invoke($"TXRemoteAudioStream status (0x{_streamID:X}): {s}");
+
             bool set_radio_ack = false;
             string[] words = s.Split(' ');
 

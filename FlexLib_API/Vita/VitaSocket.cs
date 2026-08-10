@@ -54,6 +54,20 @@ public class VitaSocket : IDisposable
 
     private int _consecutiveReceiveFailures;
 
+    // JJFlex diag 2026-08-10 (708 TX-audio): send-side telemetry, local patch to
+    // vendor code. TX opus reaches AddTXData at 100 pkts/s with a healthy
+    // endpoint, yet the radio meters silence. Every hop from AddTXData to the
+    // Send() call below has been verified byte-equivalent to the working 4.1.5
+    // code (serializer harness-proven identical), so this instruments the one
+    // unobserved hop: datagrams actually handed to the OS — how many, from
+    // which local port, to which destination, and the exact head bytes of the
+    // first TX packet. On LAN there is no other client-to-radio UDP, so these
+    // lines appear only while keyed — exactly the window under test.
+    private int _sentDatagrams, _sentBytes, _sentVitaTx;
+    private int _skippedSends;
+    private int _sendTelemetryLastLog, _skipTelemetryLastLog;
+    private bool _firstSendLogged, _firstVitaTxLogged;
+
     public int Port { get; }
 
     public IPAddress Ip => ((IPEndPoint)_client.Client.LocalEndPoint)?.Address;
@@ -149,12 +163,14 @@ public class VitaSocket : IDisposable
         // failed (already traced there once) — don't throw per-send over it.
         if (_disposed || _radioEndpoint == null)
         {
+            TraceSkippedSend(); // JJFlex diag 2026-08-10: a silent no-op here would exactly mimic dead TX audio
             return;
         }
 
         try
         {
             _client.Send(data, length, _radioEndpoint);
+            TraceSendSuccess(data, length); // JJFlex diag 2026-08-10
         }
         catch (Exception ex)
         {
@@ -170,18 +186,66 @@ public class VitaSocket : IDisposable
     {
         if (_disposed || _radioEndpoint == null)
         {
+            TraceSkippedSend(); // JJFlex diag 2026-08-10
             return;
         }
 
         try
         {
             await _client.SendAsync(data, data.Length, _radioEndpoint);
+            TraceSendSuccess(data, data.Length); // JJFlex diag 2026-08-10
         }
         catch (Exception ex)
         {
             // JJFlex patch: same as SendUdp — transient failures never dispose.
             Debug.WriteLine($"Exception sending UDP packet: {ex}");
             TraceSink?.Invoke($"VitaSocket: send failed: {ex.Message}");
+        }
+    }
+
+    // JJFlex diag 2026-08-10 (708 TX-audio): successful-send telemetry.
+    // Counters are unsynchronized on purpose — sends come from the audio
+    // callback and the registration loop, and a torn diag counter is harmless.
+    private void TraceSendSuccess(byte[] data, int length)
+    {
+        _sentDatagrams++;
+        _sentBytes += length;
+        // VITA ExtDataWithStream (pkt_type 3 in the top nibble) = TX opus / net CW.
+        var isVitaTx = length > 0 && (data[0] >> 4) == 3;
+        if (isVitaTx) _sentVitaTx++;
+
+        if (!_firstSendLogged || (isVitaTx && !_firstVitaTxLogged))
+        {
+            _firstSendLogged = true;
+            if (isVitaTx) _firstVitaTxLogged = true;
+            var n = Math.Min(28, length);
+            TraceSink?.Invoke(
+                $"VitaSocket: first {(isVitaTx ? "VITA-TX " : "")}send: local={_client.Client.LocalEndPoint} dest={_radioEndpoint} len={length} head={BitConverter.ToString(data, 0, n)}");
+        }
+
+        var now = Environment.TickCount;
+        if (now - _sendTelemetryLastLog >= 1000)
+        {
+            _sendTelemetryLastLog = now;
+            TraceSink?.Invoke(
+                $"VitaSocket: sent {_sentDatagrams} datagrams ({_sentVitaTx} vita-tx, {_sentBytes} bytes) to {_radioEndpoint} from {_client.Client.LocalEndPoint}, skippedTotal={_skippedSends}");
+            _sentDatagrams = 0;
+            _sentBytes = 0;
+            _sentVitaTx = 0;
+        }
+    }
+
+    // JJFlex diag 2026-08-10 (708 TX-audio): the guarded early-returns above are
+    // the only silent drop point in the client-side TX chain; make them loud.
+    private void TraceSkippedSend()
+    {
+        _skippedSends++;
+        var now = Environment.TickCount;
+        if (now - _skipTelemetryLastLog >= 1000)
+        {
+            _skipTelemetryLastLog = now;
+            TraceSink?.Invoke(
+                $"VitaSocket: DROPPING sends: disposed={_disposed} endpointNull={_radioEndpoint == null} droppedTotal={_skippedSends}");
         }
     }
     

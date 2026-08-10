@@ -115,6 +115,11 @@ namespace Flex.Smoothlake.FlexLib
 
         public void StatusUpdate(string s)
         {
+            // JJFlex diag 2026-08-10 (708 TX-audio): raw status dump for the
+            // WORKING direction, as the reference to compare the TX stream's
+            // status keys against (see TXRemoteAudioStream.StatusUpdate).
+            global::Vita.VitaSocket.TraceSink?.Invoke($"RXRemoteAudioStream status (0x{_streamId:X}): {s}");
+
             bool set_radio_ack = false;
             string[] words = s.Split(' ');
 
