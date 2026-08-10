@@ -71,6 +71,10 @@
                     AutomationProperties.Name="Start fresh with SmartLink. Clears the saved sign-in for every account on this computer and opens a clean sign-in form. Accounts and their settings stay."
                     AutomationProperties.AcceleratorKey="Alt+F"
                     Click="StartFreshButton_Click"/>
+            <Button Content="Ass_ociations" MinWidth="90" Height="28" Margin="0,0,0,8"
+                    AutomationProperties.Name="Radio associations. View which radios each account covers and change the account a radio connects with. Viewing and rebinding only, never connecting."
+                    AutomationProperties.AcceleratorKey="Alt+O"
+                    Click="AssociationsButton_Click"/>
             <Button Content="_Cancel" AutomationProperties.AcceleratorKey="Alt+C" MinWidth="90" Height="28" IsCancel="True"
                     Margin="0,20,0,0"
                     AutomationProperties.Name="Cancel"

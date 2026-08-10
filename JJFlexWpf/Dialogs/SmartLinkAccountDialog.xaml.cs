@@ -307,6 +307,16 @@ namespace JJFlexWpf.Dialogs
             }
         }
 
+        /// <summary>
+        /// Phase 2, door two: view which radios each account covers and rebind
+        /// them. Opens the associations dialog — which may view and rebind but
+        /// never connect; connecting lives in the radio selector alone.
+        /// </summary>
+        private void AssociationsButton_Click(object sender, RoutedEventArgs e)
+        {
+            new RadioAssociationsDialog { Owner = this }.ShowDialog();
+        }
+
         private void StartFreshButton_Click(object sender, RoutedEventArgs e)
         {
             if (_callbacks.StartFreshAllAccounts == null) return;

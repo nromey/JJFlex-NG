@@ -369,6 +369,29 @@ namespace Radios.Tests
         }
 
         [Fact]
+        public void Roster_SightingNeverOverwritesThePreferredAccount()
+        {
+            // The choice/observation split: PreferredAccount is operator-set
+            // and sticky; sightings write LastSeenViaAccount and must never
+            // touch it. Conflating them lets an incidental listing destroy a
+            // deliberate decision with no event anyone could hear.
+            Assert.True(KnownRadioRoster.SetPreferredAccount("2222", "club@example.com"));
+            KnownRadioRoster.RecordSighting("2222", "club", "FLEX-6600",
+                isRemote: true, accountEmail: "other@example.com");
+
+            var cfg = RadioConfig.Load(_dir, "2222");
+            Assert.Equal("club@example.com", cfg.PreferredAccount);
+            Assert.Equal("other@example.com", cfg.LastSeenViaAccount);
+
+            // Resolution order: the choice outranks the observation.
+            Assert.Equal("club@example.com", KnownRadioRoster.Load().Single().ResolvedAccount);
+
+            // Clearing the preference falls back to the observation.
+            Assert.True(KnownRadioRoster.SetPreferredAccount("2222", ""));
+            Assert.Equal("other@example.com", KnownRadioRoster.Load().Single().ResolvedAccount);
+        }
+
+        [Fact]
         public void Roster_SetFavorite_PersistsAndReportsSuccess()
         {
             new RadioConfig { Nickname = "6300inshack" }.Save(_dir, "2222");

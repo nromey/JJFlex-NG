@@ -31,6 +31,16 @@ namespace Radios
         /// LAN-only sighting.</summary>
         public string LastSeenViaAccount { get; set; } = "";
 
+        /// <summary>The operator's chosen account for this radio — sticky,
+        /// never auto-overwritten by a sighting. Empty means automatic.</summary>
+        public string PreferredAccount { get; set; } = "";
+
+        /// <summary>Which account reaches this radio: the choice if made,
+        /// otherwise the observation. Callers fall through to the
+        /// preferred-account-for-new-connections when this is empty too.</summary>
+        public string ResolvedAccount =>
+            !string.IsNullOrWhiteSpace(PreferredAccount) ? PreferredAccount : LastSeenViaAccount;
+
         /// <summary>True when this radio appears in the cached radio list for
         /// the account the selector is currently working with. Such a row is a
         /// FAST PAINT — it is honest about what the account last returned and
@@ -117,6 +127,7 @@ namespace Radios
                         LastSeenUtc = cfg.LastSeenUtc,
                         LastSeenRemote = cfg.LastSeenRemote,
                         LastSeenViaAccount = cfg.LastSeenViaAccount ?? "",
+                        PreferredAccount = cfg.PreferredAccount ?? "",
                     };
                 }
             }
@@ -281,6 +292,32 @@ namespace Radios
             catch (Exception ex)
             {
                 Tracing.TraceLine($"KnownRadioRoster.SetFavorite({serial}): {ex.Message}",
+                    System.Diagnostics.TraceLevel.Warning);
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Set (or clear, with an empty string) the operator's preferred
+        /// account for one radio. Returns true when the value was persisted —
+        /// a false return means the caller must NOT announce success, because
+        /// the store declined and the next launch would silently disagree.
+        /// The ONLY writers are the deliberate-action surfaces (row context
+        /// menu, account manager associations view); sightings write
+        /// LastSeenViaAccount and must never touch this field.
+        /// </summary>
+        public static bool SetPreferredAccount(string serial, string accountEmail)
+        {
+            if (string.IsNullOrWhiteSpace(serial)) return false;
+            try
+            {
+                var cfg = RadioConfig.LoadForRadio(serial);
+                cfg.PreferredAccount = accountEmail ?? "";
+                return cfg.SaveForRadio(serial);
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine($"KnownRadioRoster.SetPreferredAccount({serial}): {ex.Message}",
                     System.Diagnostics.TraceLevel.Warning);
                 return false;
             }

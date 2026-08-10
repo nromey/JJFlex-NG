@@ -1,0 +1,51 @@
+<local:JJFlexDialog x:Class="JJFlexWpf.Dialogs.RadioAssociationsDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:JJFlexWpf"
+        Title="Radio Associations"
+        Width="480" Height="420"
+        AutomationProperties.Name="Radio Associations">
+
+    <!-- Phase 2: per-radio account binding, door two of two — the door for
+         thinking about an ACCOUNT (which radios does it cover?). Writes the
+         same per-serial PreferredAccount the row context menu writes; one
+         store, no sync problem. BOUNDARY (ratified): this surface may view
+         and rebind but must never initiate a connect — connecting lives in
+         exactly one surface, the radio selector. -->
+
+    <Grid Margin="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0" Margin="0,0,0,8" TextWrapping="Wrap"
+                   Text="Radios this computer knows, and the SmartLink account each one uses. Select a radio, then choose the account it should connect with."
+                   AutomationProperties.Name="Radios this computer knows, and the SmartLink account each one uses. Select a radio, then choose the account it should connect with."/>
+
+        <ListBox x:Name="RadioList" Grid.Row="1" Margin="0,0,0,8"
+                 AutomationProperties.Name="Known radios and their accounts"
+                 SelectionChanged="RadioList_SelectionChanged"/>
+
+        <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,0,0,8">
+            <Label Content="Connect _using:" Target="{Binding ElementName=AccountCombo}"
+                   VerticalAlignment="Center" Padding="0,0,8,0"/>
+            <ComboBox x:Name="AccountCombo" MinWidth="220" IsEnabled="False"
+                      AutomationProperties.Name="Account for the selected radio"/>
+        </StackPanel>
+
+        <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button x:Name="BindButton" Content="_Bind" MinWidth="90" Height="28" Margin="0,0,8,0"
+                    IsEnabled="False"
+                    AutomationProperties.Name="Bind the selected radio to the chosen account"
+                    AutomationProperties.AcceleratorKey="Alt+B"
+                    Click="BindButton_Click"/>
+            <Button Content="_Close" MinWidth="90" Height="28" IsCancel="True"
+                    AutomationProperties.Name="Close"
+                    AutomationProperties.AcceleratorKey="Alt+C"
+                    Click="CloseButton_Click"/>
+        </StackPanel>
+    </Grid>
+</local:JJFlexDialog>

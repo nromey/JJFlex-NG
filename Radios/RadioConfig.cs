@@ -143,6 +143,20 @@ namespace Radios
         public string LastSeenViaAccount { get; set; } = "";
 
         /// <summary>
+        /// The operator's CHOICE of SmartLink account for this radio, as
+        /// opposed to <see cref="LastSeenViaAccount"/> which is an
+        /// observation. Set only by deliberate action (the row's context menu,
+        /// the account manager's associations view) and NEVER auto-overwritten
+        /// by a sighting — conflating the two lets an incidental listing
+        /// destroy a deliberate decision with no event anyone could hear.
+        /// Empty means automatic: resolution falls through to the observation,
+        /// then to the preferred-account-for-new-connections. Exists for the
+        /// radio reachable by TWO accounts (a club rig), where no heuristic
+        /// can choose and last-seen-wins would flip-flop.
+        /// </summary>
+        public string PreferredAccount { get; set; } = "";
+
+        /// <summary>
         /// Audio Check listen method for this radio (2026-08-07 Audio
         /// Workshop). Per-radio because the right answer follows the radio's
         /// situation (a remote rig wants record-and-play, a local one is fine

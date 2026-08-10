@@ -65,12 +65,23 @@ namespace JJFlexWpf.Dialogs
         /// <summary>SmartLink account that last listed this radio.</summary>
         public string LastSeenViaAccount { get; set; } = "";
 
-        /// <summary>True when this row is attributed to an account other than
-        /// the one the selector is working with (or attribution exists and no
-        /// account is chosen). Set at roster paint. The one case where the
-        /// operator genuinely needs the owner named — and the one case where
-        /// Enter must refuse instead of hunting the radio on an account that
-        /// can never list it.</summary>
+        /// <summary>The operator's chosen account for this radio (sticky,
+        /// context-menu-set). Empty means automatic.</summary>
+        public string PreferredAccount { get; set; } = "";
+
+        /// <summary>Which account reaches this radio: the choice if made,
+        /// otherwise the observation. Empty when neither exists — the
+        /// preferred-account-for-new-connections covers that case at connect
+        /// time.</summary>
+        public string BoundAccount =>
+            !string.IsNullOrWhiteSpace(PreferredAccount) ? PreferredAccount : LastSeenViaAccount;
+
+        /// <summary>True when this row is bound to an account other than
+        /// the one the selector is working with (or bound while no account is
+        /// chosen). Set at roster paint. The one case where the operator
+        /// genuinely needs the owner named — and the case where Enter switches
+        /// accounts instead of hunting the radio on one that can never list
+        /// it.</summary>
         public bool ForeignAccount { get; set; }
 
         /// <summary>Row came from the cached per-account radio list — a fast
@@ -111,13 +122,17 @@ namespace JJFlexWpf.Dialogs
                 // Roster row: say it is offline first, then how it was last seen.
                 var age = string.IsNullOrEmpty(LastSeenText) ? "" : ", " + LastSeenText;
 
-                // Another operator's radio — the only case where naming the
+                // Another account's radio — the only case where naming the
                 // owner is load-bearing. Before this branch, a foreign radio
                 // read as an anonymous remote row while the operator's own
                 // radios got their account named: inverted relative to need.
-                if (ForeignAccount && !string.IsNullOrWhiteSpace(LastSeenViaAccount))
+                // A set preference is a choice and reads as one; a bare
+                // observation reads as what it is.
+                if (ForeignAccount && !string.IsNullOrWhiteSpace(BoundAccount))
                 {
-                    return $"offline, registered to {LastSeenViaAccount}{age}";
+                    return !string.IsNullOrWhiteSpace(PreferredAccount)
+                        ? $"offline, preferred account {PreferredAccount}{age}"
+                        : $"offline, registered to {LastSeenViaAccount}{age}";
                 }
 
                 if (FromAccountCache && !string.IsNullOrWhiteSpace(LastSeenViaAccount))
@@ -275,6 +290,14 @@ namespace JJFlexWpf.Dialogs
         /// "No radio connected" rather than going blank.
         /// </summary>
         public Func<FlexBase?>? GetCurrentRig { get; init; }
+
+        /// <summary>
+        /// Set the session-only SmartLink account override (the "Use Now"
+        /// machinery). Phase 2 row activation uses this to switch to a row's
+        /// bound account without touching the saved default — the sticky
+        /// per-radio answer is PreferredAccount, never the app default.
+        /// </summary>
+        public Action<string>? SetSessionAccount { get; init; }
     }
 
     public partial class RigSelectorDialog : JJFlexDialog
@@ -543,12 +566,14 @@ namespace JJFlexWpf.Dialogs
                         LastSeenRemote = k.LastSeenRemote,
                         LastSeenText = KnownRadioRoster.DescribeAge(k.LastSeenUtc),
                         LastSeenViaAccount = k.LastSeenViaAccount,
+                        PreferredAccount = k.PreferredAccount,
                         FromAccountCache = k.InAccountCache,
-                        // Attributed to some other account than the one in play
-                        // (or attributed while no account is chosen) — the row
-                        // names its owner and Enter refuses instead of hunting.
-                        ForeignAccount = !string.IsNullOrWhiteSpace(k.LastSeenViaAccount)
-                            && !string.Equals(k.LastSeenViaAccount, accountEmail, StringComparison.OrdinalIgnoreCase),
+                        // Bound to some other account than the one in play (or
+                        // bound while no account is chosen) — the row names
+                        // its owner, and Enter switches instead of hunting.
+                        // The operator's preference outranks the observation.
+                        ForeignAccount = !string.IsNullOrWhiteSpace(k.ResolvedAccount)
+                            && !string.Equals(k.ResolvedAccount, accountEmail, StringComparison.OrdinalIgnoreCase),
                         AutoConnect = _callbacks.AutoConnectSerial == k.Serial && _callbacks.AutoConnectDesired,
                         LowBW = _callbacks.AutoConnectSerial == k.Serial && _callbacks.AutoConnectLowBW,
                     });
@@ -983,7 +1008,17 @@ namespace JJFlexWpf.Dialogs
                 return;
             }
 
-            var via = radio.IsRemote ? "over SmartLink" : "on the local network";
+            // Name the account on EVERY SmartLink connect, not only
+            // cross-account ones — symmetry teaches the pattern instead of
+            // asking the operator to notice an exception at the moment it
+            // matters. TX-safety line: a unified list puts Don's production
+            // 6300 one arrow key from Noel's 8600. Spoken before the dialog
+            // closes and the session work starts, never after it succeeds.
+            var acctEmail = CurrentAccountEmail();
+            var via = radio.IsRemote
+                ? string.IsNullOrWhiteSpace(acctEmail)
+                    ? "over SmartLink" : $"over SmartLink as {acctEmail}"
+                : "on the local network";
             _callbacks.ScreenReaderSpeak?.Invoke($"Connecting to {radioName} {via}", true);
             // AS prosign (wait / standing by) alongside the "Connecting to X" speech.
             // Pair with BT which fires at connect-ready in MainWindow.PowerOn.
@@ -1006,16 +1041,33 @@ namespace JJFlexWpf.Dialogs
         /// </summary>
         private void HandleOfflineConnectAttempt(RadioListItem radio, string radioName)
         {
-            // A row owned by another account never starts a SmartLink pass:
-            // the current account structurally cannot list it, so the pass is
-            // a thirty-second authentication grind toward a guaranteed empty
-            // answer (the 2026-08-09 wrong-account hunt). Refuse immediately,
-            // name the owner, and point at the switch.
-            if (radio.ForeignAccount && !string.IsNullOrWhiteSpace(radio.LastSeenViaAccount))
+            // A row bound to another account never hunts on the current one —
+            // that pass is a thirty-second authentication grind toward a
+            // guaranteed empty answer (the 2026-08-09 wrong-account hunt).
+            // Phase 2: the account is a property of the radio, so activation
+            // SWITCHES to the row's account, announced before any session
+            // opens, and runs the standard forced refresh under it. The
+            // refusal survives only when the bound account is not saved on
+            // this machine, where switching is impossible and honesty is all
+            // we have. Session-only switch: the saved default is untouched,
+            // and the sticky per-radio answer is PreferredAccount, not the
+            // app default.
+            if (radio.ForeignAccount && !string.IsNullOrWhiteSpace(radio.BoundAccount))
             {
+                var target = Radios.FlexBase.SharedAccountManager.GetAccountByEmail(radio.BoundAccount);
+                if (target == null)
+                {
+                    _callbacks.ScreenReaderSpeak?.Invoke(
+                        $"{radioName} is registered to {radio.BoundAccount}, and that account is not saved " +
+                        "on this computer. Sign in to it from Manage SmartLink Accounts to reach this radio.", true);
+                    return;
+                }
+
                 _callbacks.ScreenReaderSpeak?.Invoke(
-                    $"{radioName} is registered to {radio.LastSeenViaAccount}. " +
-                    "To connect, press Switch Account to use that account, then refresh the remote list.", true);
+                    $"{radioName} uses account {target.Email}. Switching to {target.Email} and refreshing the radio list.", true);
+                _callbacks.SetSessionAccount?.Invoke(target.Email);
+                UpdateAccountAffordances();
+                SwitchToAccount(CurrentAccountState());
                 return;
             }
 
@@ -1235,6 +1287,84 @@ namespace JJFlexWpf.Dialogs
             System.Windows.Automation.AutomationProperties.SetName(FavoriteMenuItem,
                 fav ? "Remove selected radio from favorites" : "Add selected radio to favorites");
             FavoriteMenuItem.IsEnabled = radio != null;
+            BuildPreferredAccountSubmenu(radio);
+        }
+
+        /// <summary>
+        /// Phase 2, door one: the per-row Preferred Account submenu. Rebuilt
+        /// on every open because the saved-account roster can change while the
+        /// selector is up. Checkable items so the current binding announces
+        /// itself; "Automatic" clears the preference and resolution falls back
+        /// to the observation, then the default.
+        /// </summary>
+        private void BuildPreferredAccountSubmenu(RadioListItem? radio)
+        {
+            PreferredAccountMenuItem.Items.Clear();
+            PreferredAccountMenuItem.IsEnabled = radio != null;
+            if (radio == null) return;
+
+            var auto = new MenuItem
+            {
+                Header = "Automatic",
+                IsCheckable = true,
+                IsChecked = string.IsNullOrWhiteSpace(radio.PreferredAccount),
+            };
+            System.Windows.Automation.AutomationProperties.SetName(auto,
+                "Automatic. Use the account that last listed this radio, or the default account.");
+            auto.Click += (_, _) => SetPreferredAccountForRow(radio, "");
+            PreferredAccountMenuItem.Items.Add(auto);
+
+            foreach (var acct in Radios.FlexBase.SharedAccountManager.Accounts)
+            {
+                var email = acct.Email;
+                if (string.IsNullOrWhiteSpace(email)) continue;
+                var label = string.IsNullOrWhiteSpace(acct.FriendlyName)
+                            || string.Equals(acct.FriendlyName, email, StringComparison.OrdinalIgnoreCase)
+                    ? email
+                    : $"{acct.FriendlyName} ({email})";
+                var item = new MenuItem
+                {
+                    // "_" in a header is an access-key marker; emails keep theirs.
+                    Header = label.Replace("_", "__"),
+                    IsCheckable = true,
+                    IsChecked = string.Equals(radio.PreferredAccount, email, StringComparison.OrdinalIgnoreCase),
+                };
+                System.Windows.Automation.AutomationProperties.SetName(item, label);
+                item.Click += (_, _) => SetPreferredAccountForRow(radio, email);
+                PreferredAccountMenuItem.Items.Add(item);
+            }
+        }
+
+        /// <summary>
+        /// Persist a preferred-account choice for one row. A choice, not an
+        /// observation: sightings write LastSeenViaAccount and never touch
+        /// this. Announces failure honestly — a spoken success over a
+        /// declined save is a promise the next launch breaks.
+        /// </summary>
+        private void SetPreferredAccountForRow(RadioListItem radio, string email)
+        {
+            if (!KnownRadioRoster.SetPreferredAccount(radio.Serial, email))
+            {
+                _callbacks.ScreenReaderSpeak?.Invoke(
+                    "Could not save the preferred account. It would not survive a restart, so nothing was changed.",
+                    true);
+                return;
+            }
+
+            radio.PreferredAccount = email;
+            var current = CurrentAccountEmail();
+            radio.ForeignAccount = !string.IsNullOrWhiteSpace(radio.BoundAccount)
+                && !string.Equals(radio.BoundAccount, current, StringComparison.OrdinalIgnoreCase);
+
+            var rowName = RowName(radio);
+            _callbacks.ScreenReaderSpeak?.Invoke(
+                string.IsNullOrWhiteSpace(email)
+                    ? $"{rowName} preferred account cleared. Automatic."
+                    : $"{rowName} will connect as {email}.",
+                true);
+            RefreshRadiosList();
+            ReselectBySerial(radio.Serial);
+            if (RadiosBox.IsKeyboardFocusWithin) FocusRadioList();
         }
 
         /// <summary>

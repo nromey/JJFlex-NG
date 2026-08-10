@@ -54,6 +54,12 @@
                     <MenuItem x:Name="AutoConnectMenuItem" Header="Auto-Connect Settings..."
                               Click="AutoConnectMenuItem_Click"
                               AutomationProperties.Name="Auto-connect settings for selected radio"/>
+                    <!-- Phase 2: per-radio account binding, door one of two.
+                         Items are built per open (saved accounts change while
+                         the selector is up). Same store as the Account
+                         Manager's associations view - no sync problem. -->
+                    <MenuItem x:Name="PreferredAccountMenuItem" Header="Preferred Account"
+                              AutomationProperties.Name="Preferred account for selected radio"/>
                 </ContextMenu>
             </ListBox.ContextMenu>
         </ListBox>

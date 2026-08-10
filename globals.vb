@@ -2651,7 +2651,11 @@ Module globals
             .AutoStartRemote = autoStartRemote,
             .GetRadioAvailability = Function(serial) RigControl.RadioAvailability(serial),
             .GetSmartLinkAccountState = Function() ResolveSmartLinkAccountState(),
-            .GetCurrentRig = Function() RigControl
+            .GetCurrentRig = Function() RigControl,
+            .SetSessionAccount = Sub(email)
+                                     SessionSmartLinkEmail = If(email, "")
+                                     Tracing.TraceLine($"RigSelector.SetSessionAccount: session override = '{SessionSmartLinkEmail}'", TraceLevel.Info)
+                                 End Sub
         }
 
         ' Wire the save-default delegate so ShowSmartLinkAccountManager can persist the selection

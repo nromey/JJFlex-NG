@@ -362,10 +362,11 @@ These keys are active in the Select Radio dialog — the window that opens at st
 
 | Key | Action |
 |-----|--------|
-| Enter | Connect to the selected radio (on an offline radio, starts looking for it instead) |
+| Enter | Connect to the selected radio, announcing the account for a SmartLink connect. On an offline radio it starts looking for it; on a radio that uses a different SmartLink account, it switches to that account and refreshes the list |
+| F2 | Speak which halves of the list have loaded — local and remote — and how many radios are online right now |
 | Up / Down arrow | Move through the radio list. Arrows stay inside the list at both ends |
 | Tab | Leave the radio list. Shift+Tab returns you to the row you left |
-| Applications key, or Shift+F10 | Open the radio's context menu: Connect, Add or Remove Favorite, Auto-Connect Settings |
+| Applications key, or Shift+F10 | Open the radio's context menu: Connect, Add or Remove Favorite, Auto-Connect Settings, Preferred Account |
 | Alt+N | Connect |
 | Alt+L | Low bandwidth for the selected radio |
 | Alt+P | Connection path — choose local network or SmartLink for a radio reachable both ways |
