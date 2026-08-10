@@ -1,5 +1,6 @@
 #nullable enable
 
+using System;
 using System.Windows.Controls;
 using Radios;
 
@@ -12,7 +13,10 @@ namespace JJFlexWpf.Controls
     /// serial, firmware, LAN or SmartLink public address, forwarded-port or
     /// hole-punch path with the verbatim router rule, and the most recent
     /// SmartLink reachability test. Every line is a plain sentence in a
-    /// ListBox — Tab reaches the card, arrows read it line by line.
+    /// read-only TextBox — Tab reaches the card, arrows read it line by
+    /// line, and text can be selected and copied. (Converted from ListBox
+    /// in Phase 0.5d, 2026-08-10: prose in a list announces "item 1 of N"
+    /// and arrow keys pretend to change a selection.)
     ///
     /// Hosts: the Status dialog (this track). Built for the radio picker
     /// detail area too — that surface is Track E's; drop this control in
@@ -46,22 +50,18 @@ namespace JJFlexWpf.Controls
 
         /// <summary>
         /// Rebuild the lines from current radio state. Safe to call on a
-        /// timer; a rebuild is skipped while the user is arrowing through
-        /// the list so the refresh never steals their place.
+        /// timer; a rebuild is skipped while the user's focus is inside the
+        /// card so the refresh never steals their reading position — that
+        /// guard is why arrowing through the card survives a refresh, and
+        /// it must outlive any future control-type change.
         /// </summary>
         public void Refresh()
         {
-            if (IdentityList == null) return; // before InitializeComponent completes
-            if (IdentityList.IsKeyboardFocusWithin) return;
+            if (IdentityText == null) return; // before InitializeComponent completes
+            if (IdentityText.IsKeyboardFocusWithin) return;
 
-            int savedIndex = IdentityList.SelectedIndex;
-            IdentityList.Items.Clear();
-            foreach (string line in NetworkIdentityInfo.BuildLines(_rig))
-            {
-                IdentityList.Items.Add(line);
-            }
-            if (savedIndex >= 0 && savedIndex < IdentityList.Items.Count)
-                IdentityList.SelectedIndex = savedIndex;
+            IdentityText.Text = string.Join(Environment.NewLine,
+                NetworkIdentityInfo.BuildLines(_rig));
         }
     }
 }

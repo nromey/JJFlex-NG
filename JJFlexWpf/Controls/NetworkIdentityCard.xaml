@@ -4,17 +4,24 @@
              AutomationProperties.Name="Network identity">
 
     <!-- QB Track D (item 5) — the network identity card, read side.
-         One arrow-readable list: who the radio is (model, serial, firmware)
-         and how we reach it (LAN address / SmartLink public address,
-         forwarded-port or hole-punch path, reachability test results).
+         Who the radio is (model, serial, firmware) and how we reach it
+         (LAN address / SmartLink public address, forwarded-port or
+         hole-punch path, reachability test results).
          Reusable by design: the Status dialog hosts it today; the radio
          picker detail area (Track E's territory) can drop it in unchanged.
          Content comes from Radios.NetworkIdentityInfo so every host shows
-         identical lines. -->
+         identical lines.
 
-    <ListBox x:Name="IdentityList"
+         A read-only TextBox, not a ListBox (Phase 0.5d, 2026-08-10): this
+         is prose to read, not items to pick. List semantics announce
+         "item 1 of N" and treat arrows as selection — a lie the screen
+         reader faithfully repeats. The read-only edit gives line, word
+         and character navigation plus select-and-copy. -->
+
+    <TextBox x:Name="IdentityText"
              BorderThickness="0" Background="Transparent"
              AutomationProperties.Name="Network identity"
-             IsTabStop="True"
-             KeyboardNavigation.TabNavigation="Once"/>
+             IsReadOnly="True" IsReadOnlyCaretVisible="True"
+             AcceptsReturn="True" TextWrapping="Wrap"
+             VerticalScrollBarVisibility="Auto"/>
 </UserControl>

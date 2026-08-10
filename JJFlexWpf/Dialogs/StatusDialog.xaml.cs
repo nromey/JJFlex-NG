@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Text;
 using System.Windows;
 using System.Windows.Threading;
@@ -8,8 +9,10 @@ namespace JJFlexWpf.Dialogs;
 
 /// <summary>
 /// Accessible radio status dialog. Shows a live snapshot of radio state
-/// in a ListBox for screen reader navigation. Auto-refreshes every 2 seconds.
-/// Sprint 24 Phase 9A.
+/// in a read-only text readout for screen reader navigation (line/word/
+/// character, select-and-copy). Auto-refreshes on a timer.
+/// Sprint 24 Phase 9A; ListBox converted to read-only TextBox in
+/// Phase 0.5d (2026-08-10) — status is prose, not a selection list.
 /// </summary>
 public partial class StatusDialog : JJFlexDialog
 {
@@ -40,18 +43,8 @@ public partial class StatusDialog : JJFlexDialog
     private void StatusDialog_Loaded(object sender, RoutedEventArgs e)
     {
         RefreshStatus();
-        if (StatusList.Items.Count > 0)
-        {
-            StatusList.SelectedIndex = 0;
-            // Deferred focus so ListBoxItem containers are generated
-            Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded, () =>
-            {
-                StatusList.Focus();
-                var container = StatusList.ItemContainerGenerator
-                    .ContainerFromIndex(0) as System.Windows.Controls.ListBoxItem;
-                container?.Focus();
-            });
-        }
+        StatusText.CaretIndex = 0;
+        StatusText.Focus();
         _refreshTimer.Start();
     }
 
@@ -60,33 +53,38 @@ public partial class StatusDialog : JJFlexDialog
         _refreshTimer.Stop();
     }
 
+    // Lines for the current rebuild; joined into StatusText at the end.
+    private readonly List<string> _lines = new();
+
     /// <summary>
-    /// Rebuild the status list from current radio state.
+    /// Rebuild the status readout from current radio state.
     /// </summary>
     private void RefreshStatus()
     {
         // QB Track D: the identity card refreshes on the same cadence and
         // guards its own focus, so it stays current even while the user is
-        // reading the status list (and vice versa).
+        // reading the status readout (and vice versa).
         IdentityCard.Rig = Rig;
 
-        // Don't refresh while user is reading the list — it steals selection
-        if (StatusList.IsKeyboardFocusWithin) return;
+        // Don't refresh while the user is reading — a rebuild would reset
+        // their caret position mid-readout.
+        if (StatusText.IsKeyboardFocusWithin) return;
 
-        int savedIndex = StatusList.SelectedIndex;
-        StatusList.Items.Clear();
+        _lines.Clear();
 
         if (Rig == null)
         {
-            StatusList.Items.Add("Not connected to a radio.");
-            StatusList.Items.Add("Connect to a radio to see status here.");
+            AddItem("Not connected to a radio.");
+            AddItem("Connect to a radio to see status here.");
+            CommitLines();
             return;
         }
 
         var snap = RadioStatusBuilder.BuildDetailedStatus(Rig);
         if (!snap.IsConnected)
         {
-            StatusList.Items.Add("Not connected to a radio.");
+            AddItem("Not connected to a radio.");
+            CommitLines();
             return;
         }
 
@@ -153,22 +151,25 @@ public partial class StatusDialog : JJFlexDialog
             AddItem(tunerState);
         }
 
-        // Restore selection after rebuild
-        if (savedIndex >= 0 && savedIndex < StatusList.Items.Count)
-            StatusList.SelectedIndex = savedIndex;
+        CommitLines();
     }
 
     private void AddSection(string heading)
     {
         // Blank line before section (except first)
-        if (StatusList.Items.Count > 0)
-            StatusList.Items.Add("");
-        StatusList.Items.Add($"--- {heading} ---");
+        if (_lines.Count > 0)
+            _lines.Add("");
+        _lines.Add($"--- {heading} ---");
     }
 
     private void AddItem(string text)
     {
-        StatusList.Items.Add(text);
+        _lines.Add(text);
+    }
+
+    private void CommitLines()
+    {
+        StatusText.Text = string.Join(Environment.NewLine, _lines);
     }
 
     /// <summary>
@@ -181,10 +182,7 @@ public partial class StatusDialog : JJFlexDialog
         sb.AppendLine($"Generated: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
         sb.AppendLine();
 
-        foreach (var item in StatusList.Items)
-        {
-            sb.AppendLine(item?.ToString() ?? "");
-        }
+        sb.AppendLine(StatusText.Text);
 
         // QB Track D: the identity card's lines belong in the copied snapshot
         // too — a pasted status report that omits how the radio is reached is

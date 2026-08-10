@@ -382,6 +382,24 @@ namespace JJFlexWpf.Dialogs
                     e.Handled = true;
                     DoConnect(selected);
                 }
+                // Phase 0.5e (2026-08-10): Shift+F10 must open the row menu.
+                // The automatic route never engaged — the keypress fell all
+                // the way through to DefWindowProc, which popped the window's
+                // SYSTEM menu instead (Noel's "system tree"). Whether WPF's
+                // WM_CONTEXTMENU handling or the WinForms-pumped modal loop
+                // eats it is moot from up here: PreviewKeyDown tunnels in
+                // before either layer, so opening the menu deliberately makes
+                // Shift+F10 and the Applications key one door by construction.
+                // F10 arrives as Key.System with SystemKey carrying the real
+                // key — checking e.Key == F10 alone silently never matches.
+                else if (e.Key == System.Windows.Input.Key.Apps
+                         || (e.Key == System.Windows.Input.Key.System
+                             && e.SystemKey == System.Windows.Input.Key.F10
+                             && (System.Windows.Input.Keyboard.Modifiers & System.Windows.Input.ModifierKeys.Shift) != 0))
+                {
+                    e.Handled = true;
+                    OpenRadioContextMenuFromKeyboard();
+                }
             };
 
             // Announce an empty list only after discovery has had a real chance.
@@ -1092,12 +1110,45 @@ namespace JJFlexWpf.Dialogs
 
         private void RadiosBox_ContextMenuOpening(object sender, ContextMenuEventArgs e)
         {
+            PrepareRadioContextMenu();
+        }
+
+        /// <summary>
+        /// Per-open menu prep (favorite item retitle/enable). Shared between
+        /// the automatic route (ContextMenuOpening, mouse right-click) and the
+        /// keyboard route — a manual IsOpen = true does NOT raise
+        /// ContextMenuOpening, so prep that lives only in that handler
+        /// silently goes stale for keyboard users.
+        /// </summary>
+        private void PrepareRadioContextMenu()
+        {
             var radio = GetSelectedRadio();
             bool fav = radio?.IsFavorite == true;
             FavoriteMenuItem.Header = fav ? "Remove from Favorites" : "Add to Favorites";
             System.Windows.Automation.AutomationProperties.SetName(FavoriteMenuItem,
                 fav ? "Remove selected radio from favorites" : "Add selected radio to favorites");
             FavoriteMenuItem.IsEnabled = radio != null;
+        }
+
+        /// <summary>
+        /// Phase 0.5e: open the row context menu from Shift+F10 or the
+        /// Applications key, anchored to the selected row so it appears where
+        /// a sighted operator expects and where a magnifier user is looking.
+        /// Escape closes it natively; WPF announces it as a menu.
+        /// </summary>
+        private void OpenRadioContextMenuFromKeyboard()
+        {
+            var menu = RadiosBox.ContextMenu;
+            if (menu == null) return;
+
+            PrepareRadioContextMenu();
+
+            var anchor = RadiosBox.SelectedIndex >= 0
+                ? RadiosBox.ItemContainerGenerator.ContainerFromIndex(RadiosBox.SelectedIndex) as System.Windows.UIElement
+                : null;
+            menu.PlacementTarget = anchor ?? RadiosBox;
+            menu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
+            menu.IsOpen = true;
         }
 
         private void FavoriteMenuItem_Click(object sender, RoutedEventArgs e)

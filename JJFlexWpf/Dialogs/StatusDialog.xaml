@@ -15,11 +15,16 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <ListBox x:Name="StatusList" Grid.Row="0"
+        <!-- Read-only TextBox, not a ListBox (Phase 0.5d, 2026-08-10):
+             status is prose to read, not items to pick. The read-only edit
+             reads line by line without "item 1 of N" noise and allows
+             select-and-copy. -->
+        <TextBox x:Name="StatusText" Grid.Row="0"
                  Margin="4" BorderThickness="0" Background="Transparent"
                  AutomationProperties.Name="Radio status information"
-                 IsTabStop="True"
-                 KeyboardNavigation.TabNavigation="Once"/>
+                 IsReadOnly="True" IsReadOnlyCaretVisible="True"
+                 AcceptsReturn="True" TextWrapping="Wrap"
+                 VerticalScrollBarVisibility="Auto"/>
 
         <!-- QB Track D: network identity card — who the radio is and how we
              reach it. Its own tab stop below the status list; arrow through

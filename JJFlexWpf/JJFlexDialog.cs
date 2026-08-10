@@ -34,6 +34,14 @@ namespace JJFlexWpf
             ShowInTaskbar = false;
             ResizeMode = ResizeMode.NoResize;
 
+            // Tab wraps at both ends. WPF's default (Continue) stops dead at
+            // the edges of the tab order, so Shift+Tab from the first control
+            // went nowhere and content late in the order was effectively
+            // unreachable backward — found at the keyboard 2026-08-10 in the
+            // radio selector, but inherited by every dialog built on this
+            // base. A dialog is a cycle, not a corridor.
+            KeyboardNavigation.SetTabNavigation(this, KeyboardNavigationMode.Cycle);
+
             // MainWindow is a UserControl hosted in ElementHost, so
             // Application.Current.MainWindow is null. Use the process main
             // window handle as Owner for proper modality and centering.
