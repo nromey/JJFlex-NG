@@ -10704,6 +10704,19 @@ namespace Radios
         private JJPortaudio.Devices audioSystem;
         private JJPortaudio.Devices.Device remoteInputDevice, remoteOutputDevice;
         private const uint opusSampleRate = 48000;
+        // JJFlex diag 2026-08-10 (708 TX-audio): TX encode rate now mirrors the
+        // shipped SmartSDR client. Decompiled SmartSDR 4.2.18
+        // (OpusStreamViewModel.OpusEncodingThread) encodes remote TX audio at
+        // 24 kHz stereo / 10 ms frames — the radio's remote-audio subsystem is
+        // built around 24 kHz (SmartSDR also decodes the radio's RX stream at
+        // 24 kHz). We were encoding at 48 kHz, the one remaining field-level
+        // difference from the working client after the VITA serializer was
+        // proven byte-identical by decompile. RX playback keeps 48 kHz: an
+        // Opus decoder's output rate is independent of the encoder's input
+        // rate, and our 48 kHz RX decode of the radio's 24 kHz stream already
+        // works. MME opens at 24 kHz fine (tonight's trace shows a successful
+        // 24000 MME output open on this same box).
+        private const uint opusTxSampleRate = 24000;
 
         /// <summary>
         /// Resolve one end of the PC-audio path, speaking whenever the answer is
@@ -10990,7 +11003,7 @@ namespace Radios
             }
             opusInputChannel = new audioChannelData(txStream, "JJFlexRadio.OpusInputChan");
             opusInputChannel.PortAudioStream = new JJAudioStream();
-            opusInputChannel.PortAudioStream.OpenOpus(Devices.DeviceTypes.input, opusSampleRate, sendOpusInput);
+            opusInputChannel.PortAudioStream.OpenOpus(Devices.DeviceTypes.input, opusTxSampleRate, sendOpusInput);
             Tracing.TraceLine("remoteAudioProc:Opus Input Channel setup", TraceLevel.Info);
 
 #if CWMonitor

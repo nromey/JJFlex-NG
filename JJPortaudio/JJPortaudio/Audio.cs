@@ -382,8 +382,21 @@ namespace JJPortaudio
                 }
                 // always create the encoder to get values for bufSZ.
                 CBData.Encoder = new OpusEncoder(oRate, POpusCodec.Enums.Channels.Stereo);
-                CBData.Encoder.MaxBandwidth = POpusCodec.Enums.Bandwidth.SuperWideband;
                 CBData.Encoder.EncoderDelay = POpusCodec.Enums.Delay.Delay10ms;
+                // JJFlex diag 2026-08-10 (708 TX-audio): mirror the shipped
+                // SmartSDR 4.2.18 TX encoder profile exactly (decompiled
+                // OpusStreamViewModel.OpusEncodingThread): bitrate 70000,
+                // Complexity 1, MaxBandwidth Fullband, in-band FEC off, 10 ms
+                // frames, stereo. We previously left bitrate at the libopus
+                // default (~100+ kbps VBR observed) and capped bandwidth at
+                // SuperWideband. The VITA wrapping is proven byte-identical to
+                // the working client, so the encode profile is the remaining
+                // field-level difference on the TX wire; replicate it rather
+                // than improvise.
+                CBData.Encoder.Bitrate = 70000;
+                CBData.Encoder.Complexity = POpusCodec.Enums.Complexity.Complexity1;
+                CBData.Encoder.MaxBandwidth = POpusCodec.Enums.Bandwidth.Fullband;
+                CBData.Encoder.UseInbandFEC = false;
                 CBData.OpusFrameSZ = (uint)CBData.Encoder.FrameSizePerChannel * 2;
                 // Get a buffer size to yield 10 callbacks/second.
                 float channelsPerDecisec = (float)rate / (float)CBData.Encoder.FrameSizePerChannel / cbPerSec;

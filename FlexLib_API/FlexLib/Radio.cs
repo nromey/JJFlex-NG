@@ -2981,6 +2981,10 @@ namespace Flex.Smoothlake.FlexLib
             worker.Post((data, bytes));
         }
 
+        // JJFlex diag 2026-08-10 (708 TX-audio): counter for the one-shot OpusRX
+        // packet-geometry trace in ProcessStreamPacket below.
+        private static int _opusRxDiagCount;
+
         // Per-thread reusable packet and payload buffer for per-stream workers.
         [ThreadStatic] private static VitaIFDataPacket t_reusableIFDataPacket;
         [ThreadStatic] private static float[] t_reusableIFPayload;
@@ -3013,7 +3017,22 @@ namespace Flex.Smoothlake.FlexLib
                     break;
 
                 case VitaFlex.SL_VITA_OPUS_CLASS:
-                    ProcessOpusDataPacket(new VitaOpusDataPacket(data, bytes));
+                    var opusPacket = new VitaOpusDataPacket(data, bytes);
+                    // JJFlex diag 2026-08-10 (708 TX-audio): one-shot ground truth
+                    // from the radio's own Opus packets. Our TX header claims
+                    // packet_size = ceil(payload/4)+7 words but sends an unpadded
+                    // payload, so nearly every VBR packet claims more bytes than
+                    // the datagram carries — and our sample-count timestamp never
+                    // advances. Decompiled SmartSDR 4.2.18 does exactly the same,
+                    // so log what the RADIO does on its side of the same protocol:
+                    // claimed words vs actual datagram length (pad or tolerate?)
+                    // and whether its timestamps advance.
+                    if (_opusRxDiagCount < 5 && Interlocked.Increment(ref _opusRxDiagCount) <= 5)
+                    {
+                        VitaSocket.TraceSink?.Invoke(
+                            $"OpusRX diag: datagram={bytes}B claimed packet_size={opusPacket.Header.packet_size}w ({opusPacket.Header.packet_size * 4}B) payload={opusPacket.payload.Length}B claimMinusActual={(opusPacket.Header.packet_size * 4) - bytes}B pkt_count={opusPacket.Header.packet_count} tsi={opusPacket.Header.tsi} tsf={opusPacket.Header.tsf} tsInt={opusPacket.TimestampInt} tsFrac={opusPacket.TimestampFrac}");
+                    }
+                    ProcessOpusDataPacket(opusPacket);
                     break;
 
                 case VitaFlex.SL_VITA_WATERFALL_CLASS:
