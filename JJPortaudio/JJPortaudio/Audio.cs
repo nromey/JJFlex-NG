@@ -356,7 +356,9 @@ namespace JJPortaudio
             CBData.Device = (inOut == Devices.DeviceTypes.input) ?
                 inDevice : outDevice;
             Tracing.TraceLine("Audio.Open:" + CBData.Device.Name + ' ' + rate + ' ' + useOpus.ToString()
-                + " api=" + CBData.Device.HostApiName, TraceLevel.Info);
+                + " api=" + CBData.Device.hostApiName
+                + " inCh=" + CBData.Device.maxInputChannels
+                + " outCh=" + CBData.Device.maxOutputChannels, TraceLevel.Info);
             CBData.SampleRate = (rate == 0) ? (uint)CBData.Device.defaultSampleRate : rate;
             if (outputCallback != null) CBData.CB = outputCallback;
             else
