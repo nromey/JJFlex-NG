@@ -284,6 +284,74 @@ namespace Radios.Tests
         }
 
         [Fact]
+        public void Roster_AttributesRadiosFromEveryAccountList_NotJustTheCurrentOne()
+        {
+            // Don's 6300 exists only in DON'S cached list, and the selector is
+            // open under Noel's account. The row must still name Don's account
+            // — a foreign radio is the one case where naming the owner is
+            // load-bearing — while InAccountCache stays false, because Noel's
+            // account cannot see it now (phase 1 of the unified roster; before
+            // this, the label was inverted relative to need).
+            var fetched = DateTime.UtcNow.AddHours(-2);
+            File.WriteAllText(Path.Combine(_dir, "radioConnectionCacheV1.xml"),
+                "<?xml version=\"1.0\"?>\n" +
+                "<RadioConnectionCache xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\">\n" +
+                "  <Entries />\n" +
+                "  <AccountLists>\n" +
+                "    <AccountRadioListEntry>\n" +
+                "      <AccountEmail>dbreda@example.com</AccountEmail>\n" +
+                $"      <FetchedUtc>{fetched:yyyy-MM-ddTHH:mm:ss}Z</FetchedUtc>\n" +
+                "      <Radios><CachedRadioListItem><Serial>2222</Serial>" +
+                "<Nickname>6300inshack</Nickname><Model>FLEX-6300</Model></CachedRadioListItem></Radios>\n" +
+                "    </AccountRadioListEntry>\n" +
+                "  </AccountLists>\n" +
+                "</RadioConnectionCache>\n");
+
+            var roster = KnownRadioRoster.Load("nromey@example.com");
+            var row = Assert.Single(roster);
+            Assert.Equal("dbreda@example.com", row.LastSeenViaAccount);
+            Assert.False(row.InAccountCache);
+            Assert.True(row.LastSeenRemote);
+            Assert.True(row.LastSeenUtc > DateTime.MinValue);
+        }
+
+        [Fact]
+        public void Roster_LatestListWinsAttribution_AndProfileOutranksCache()
+        {
+            // A club rig both accounts can list: the LATER fetch attributes it,
+            // because last-listed is the freshest observation available.
+            var early = DateTime.UtcNow.AddDays(-3);
+            var late = DateTime.UtcNow.AddHours(-1);
+            File.WriteAllText(Path.Combine(_dir, "radioConnectionCacheV1.xml"),
+                "<?xml version=\"1.0\"?>\n" +
+                "<RadioConnectionCache xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\">\n" +
+                "  <Entries />\n" +
+                "  <AccountLists>\n" +
+                "    <AccountRadioListEntry>\n" +
+                "      <AccountEmail>later@example.com</AccountEmail>\n" +
+                $"      <FetchedUtc>{late:yyyy-MM-ddTHH:mm:ss}Z</FetchedUtc>\n" +
+                "      <Radios><CachedRadioListItem><Serial>2222</Serial></CachedRadioListItem></Radios>\n" +
+                "    </AccountRadioListEntry>\n" +
+                "    <AccountRadioListEntry>\n" +
+                "      <AccountEmail>earlier@example.com</AccountEmail>\n" +
+                $"      <FetchedUtc>{early:yyyy-MM-ddTHH:mm:ss}Z</FetchedUtc>\n" +
+                "      <Radios><CachedRadioListItem><Serial>2222</Serial></CachedRadioListItem></Radios>\n" +
+                "    </AccountRadioListEntry>\n" +
+                "  </AccountLists>\n" +
+                "</RadioConnectionCache>\n");
+
+            Assert.Equal("later@example.com",
+                KnownRadioRoster.Load().Single().LastSeenViaAccount);
+
+            // A profile-written attribution (a real sighting) outranks the
+            // cache: the cache fills blanks, it never overwrites.
+            KnownRadioRoster.RecordSighting("2222", "club", "FLEX-6600",
+                isRemote: true, accountEmail: "profile@example.com");
+            Assert.Equal("profile@example.com",
+                KnownRadioRoster.Load().Single().LastSeenViaAccount);
+        }
+
+        [Fact]
         public void Roster_RecordSighting_DoesNotEraseTheKnownAccountOnALanSighting()
         {
             KnownRadioRoster.RecordSighting("2222", "6300inshack", "FLEX-6300",

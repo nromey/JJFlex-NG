@@ -116,6 +116,21 @@ namespace Radios.DiscoveryChain
             }
         }
 
+        /// <summary>
+        /// Every account's last known radio list. The unified roster reads ALL
+        /// of these for attribution — a radio that only some OTHER account can
+        /// list is exactly the row the operator needs told about, and its
+        /// attribution would otherwise sit here unread (the 2026-08-09
+        /// inverted-label bug). Display-only, like the per-account lookup.
+        /// </summary>
+        public IReadOnlyList<AccountRadioListEntry> GetAllAccountRadioLists()
+        {
+            lock (_sync)
+            {
+                return _data.AccountLists.ToList();
+            }
+        }
+
         public void RecordConnectedRadio(Radio radio)
         {
             if (radio == null || string.IsNullOrEmpty(radio.Serial)) return;

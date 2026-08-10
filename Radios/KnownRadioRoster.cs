@@ -157,40 +157,65 @@ namespace Radios
                         System.Diagnostics.TraceLevel.Warning);
                 }
 
-                if (!string.IsNullOrWhiteSpace(accountEmail))
+                // Attribution comes from EVERY cached account list, not only
+                // the account the selector is working with. A radio that only
+                // some OTHER account can list is exactly the row the operator
+                // needs told about, and skipping the other lists left it
+                // anonymous (the 2026-08-09 inverted-label bug). InAccountCache
+                // stays scoped to the matching account — it means "this account
+                // can see it now" and drives live/offline logic downstream.
+                try
                 {
-                    try
+                    // Ascending fetch order so the LATEST list to mention a
+                    // radio wins attribution when several do (a club rig on
+                    // two accounts). The per-radio profile's value, written at
+                    // sighting time, outranks the cache either way.
+                    var cacheAttribution = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var acct in cache.GetAllAccountRadioLists()
+                                 .Where(a => a?.Radios != null && !string.IsNullOrWhiteSpace(a.AccountEmail))
+                                 .OrderBy(a => a.FetchedUtc))
                     {
-                        var acct = cache.LookupAccountRadioList(accountEmail);
-                        if (acct?.Radios != null)
+                        bool isCurrent = !string.IsNullOrWhiteSpace(accountEmail)
+                            && string.Equals(acct.AccountEmail, accountEmail, StringComparison.OrdinalIgnoreCase);
+                        foreach (var r in acct.Radios)
                         {
-                            foreach (var r in acct.Radios)
+                            if (string.IsNullOrWhiteSpace(r.Serial)) continue;
+                            if (!byserial.TryGetValue(r.Serial, out var entry))
                             {
-                                if (string.IsNullOrWhiteSpace(r.Serial)) continue;
-                                if (!byserial.TryGetValue(r.Serial, out var entry))
-                                {
-                                    entry = new KnownRadioEntry { Serial = r.Serial };
-                                    byserial[r.Serial] = entry;
-                                }
-                                if (string.IsNullOrWhiteSpace(entry.Nickname)) entry.Nickname = r.Nickname ?? "";
-                                if (string.IsNullOrWhiteSpace(entry.Model)) entry.Model = r.Model ?? "";
+                                entry = new KnownRadioEntry { Serial = r.Serial };
+                                byserial[r.Serial] = entry;
+                            }
+                            if (string.IsNullOrWhiteSpace(entry.Nickname)) entry.Nickname = r.Nickname ?? "";
+                            if (string.IsNullOrWhiteSpace(entry.Model)) entry.Model = r.Model ?? "";
+                            if (isCurrent)
+                            {
                                 entry.InAccountCache = true;
                                 entry.AccountListFetchedUtc = acct.FetchedUtc;
-                                if (string.IsNullOrWhiteSpace(entry.LastSeenViaAccount))
-                                    entry.LastSeenViaAccount = acct.AccountEmail;
-                                if (acct.FetchedUtc > entry.LastSeenUtc)
-                                {
-                                    entry.LastSeenUtc = acct.FetchedUtc;
-                                    entry.LastSeenRemote = true;
-                                }
+                            }
+                            cacheAttribution[r.Serial] = acct.AccountEmail;
+                            // Appearing in an account's fetched list IS a remote
+                            // sighting, whichever account fetched it.
+                            if (acct.FetchedUtc > entry.LastSeenUtc)
+                            {
+                                entry.LastSeenUtc = acct.FetchedUtc;
+                                entry.LastSeenRemote = true;
                             }
                         }
                     }
-                    catch (Exception ex)
+
+                    foreach (var kv in cacheAttribution)
                     {
-                        Tracing.TraceLine($"KnownRadioRoster.Load: account list merge failed: {ex.Message}",
-                            System.Diagnostics.TraceLevel.Warning);
+                        if (byserial.TryGetValue(kv.Key, out var entry)
+                            && string.IsNullOrWhiteSpace(entry.LastSeenViaAccount))
+                        {
+                            entry.LastSeenViaAccount = kv.Value;
+                        }
                     }
+                }
+                catch (Exception ex)
+                {
+                    Tracing.TraceLine($"KnownRadioRoster.Load: account list merge failed: {ex.Message}",
+                        System.Diagnostics.TraceLevel.Warning);
                 }
             }
 

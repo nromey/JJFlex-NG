@@ -65,6 +65,14 @@ namespace JJFlexWpf.Dialogs
         /// <summary>SmartLink account that last listed this radio.</summary>
         public string LastSeenViaAccount { get; set; } = "";
 
+        /// <summary>True when this row is attributed to an account other than
+        /// the one the selector is working with (or attribution exists and no
+        /// account is chosen). Set at roster paint. The one case where the
+        /// operator genuinely needs the owner named — and the one case where
+        /// Enter must refuse instead of hunting the radio on an account that
+        /// can never list it.</summary>
+        public bool ForeignAccount { get; set; }
+
         /// <summary>Row came from the cached per-account radio list — a fast
         /// paint, honest about its provenance, never a connect authority.</summary>
         public bool FromAccountCache { get; set; }
@@ -101,14 +109,34 @@ namespace JJFlexWpf.Dialogs
                 if (WanAvailable) return "remote via SmartLink";
 
                 // Roster row: say it is offline first, then how it was last seen.
-                var lastPath = LastSeenRemote ? "last seen remote via SmartLink" : "last seen on the local network";
                 var age = string.IsNullOrEmpty(LastSeenText) ? "" : ", " + LastSeenText;
+
+                // Another operator's radio — the only case where naming the
+                // owner is load-bearing. Before this branch, a foreign radio
+                // read as an anonymous remote row while the operator's own
+                // radios got their account named: inverted relative to need.
+                if (ForeignAccount && !string.IsNullOrWhiteSpace(LastSeenViaAccount))
+                {
+                    return $"offline, registered to {LastSeenViaAccount}{age}";
+                }
+
                 if (FromAccountCache && !string.IsNullOrWhiteSpace(LastSeenViaAccount))
                 {
                     var refreshing = RefreshInFlight ? ", refreshing" : "";
                     return $"offline, last known for {LastSeenViaAccount}{age}{refreshing}";
                 }
-                return $"offline, {lastPath}{age}";
+
+                // 0.5c: LastSeenText carries its own "last seen" prefix, and
+                // the old path wording repeated it ("last seen on the local
+                // network, last seen 4 hours ago"). Fold path and age into one
+                // sentence; an unknown age is omitted rather than spoken.
+                var path = LastSeenRemote ? "remote via SmartLink" : "on the local network";
+                var bareAge = LastSeenText.StartsWith("last seen ", StringComparison.OrdinalIgnoreCase)
+                    ? LastSeenText.Substring("last seen ".Length)
+                    : LastSeenText;
+                return string.IsNullOrEmpty(bareAge) || bareAge == "unknown"
+                    ? $"offline, last seen {path}"
+                    : $"offline, last seen {path} {bareAge}";
             }
         }
 
@@ -416,17 +444,40 @@ namespace JJFlexWpf.Dialogs
                     await System.Threading.Tasks.Task.Delay(200);
                 }
 
+                _localSettled = true;
+
                 // A radio landed inside the window — its own arrival speech and
-                // the auto-select line already told the user. Saying "no radios
-                // found" on top of that is the collision this window exists to
-                // prevent.
-                if (_anyLiveRadioSeen) return;
+                // the auto-select line already told the user the interesting
+                // part. The loaded-state line queues behind it (interrupt:
+                // false), and its wording admits local never really finishes:
+                // VITA discovery keeps listening the whole time the picker is
+                // open, so "loaded" alone would quietly become a lie.
+                if (_anyLiveRadioSeen)
+                {
+                    AnnounceLoadedState("Local loaded",
+                        "Local connection list loaded, still listening");
+                    return;
+                }
 
                 // "Press Remote" would be stale advice while remote-first
                 // startup is already running Remote for the user.
                 if (_remoteDiscoveryInFlight) return;
 
                 AnnounceNothingLive();
+            };
+
+            // Phase 1: on-demand loaded-state query. An announcement is a
+            // one-shot — if the screen reader was mid-sentence or the operator
+            // alt-tabbed, it is gone, and they are back to inferring state
+            // from list contents. F2 answers "which halves have loaded?" at
+            // the moment the operator actually has the question.
+            PreviewKeyDown += (_, e) =>
+            {
+                if (e.Key == System.Windows.Input.Key.F2)
+                {
+                    e.Handled = true;
+                    SpeakLoadedState();
+                }
             };
 
             // Remote-first startup: the account in use asked for Remote to
@@ -493,6 +544,11 @@ namespace JJFlexWpf.Dialogs
                         LastSeenText = KnownRadioRoster.DescribeAge(k.LastSeenUtc),
                         LastSeenViaAccount = k.LastSeenViaAccount,
                         FromAccountCache = k.InAccountCache,
+                        // Attributed to some other account than the one in play
+                        // (or attributed while no account is chosen) — the row
+                        // names its owner and Enter refuses instead of hunting.
+                        ForeignAccount = !string.IsNullOrWhiteSpace(k.LastSeenViaAccount)
+                            && !string.Equals(k.LastSeenViaAccount, accountEmail, StringComparison.OrdinalIgnoreCase),
                         AutoConnect = _callbacks.AutoConnectSerial == k.Serial && _callbacks.AutoConnectDesired,
                         LowBW = _callbacks.AutoConnectSerial == k.Serial && _callbacks.AutoConnectLowBW,
                     });
@@ -519,6 +575,44 @@ namespace JJFlexWpf.Dialogs
         private int LiveCount()
         {
             lock (_radiosLock) { return _radiosList.Count(r => r.IsLive); }
+        }
+
+        /// <summary>True once the initial local-discovery settle window has
+        /// elapsed (or a live radio arrived sooner). Local discovery keeps
+        /// listening for as long as the picker is open — this marks "the first
+        /// wave is in," not "local is done."</summary>
+        private bool _localSettled;
+
+        /// <summary>
+        /// Loaded-state announcements, Terse-gated, never interrupting: they
+        /// queue behind whatever arrival or delta speech is already going out,
+        /// which is the ordering requirement — a state line that clobbers the
+        /// delta line would trade one lie for another.
+        /// </summary>
+        private static void AnnounceLoadedState(string terse, string chatty)
+        {
+            var text = Radios.ScreenReaderOutput.CurrentVerbosity == Radios.VerbosityLevel.Chatty
+                ? chatty : terse;
+            Radios.ScreenReaderOutput.Speak(text, Radios.VerbosityLevel.Terse, false);
+        }
+
+        /// <summary>
+        /// F2: speak which halves of the roster have loaded, on demand.
+        /// User-initiated, so it interrupts and bypasses the verbosity gate —
+        /// a deliberate question deserves an answer even with speech turned
+        /// down.
+        /// </summary>
+        private void SpeakLoadedState()
+        {
+            string local = _localSettled
+                ? "Local loaded, still listening."
+                : "Local still loading.";
+            string remote = _remoteDiscoveryInFlight
+                ? "Remote loading."
+                : _remoteListLive ? "Remote loaded." : "Remote not loaded.";
+            int live = LiveCount();
+            string count = $" {live} radio{(live == 1 ? "" : "s")} online.";
+            _callbacks.ScreenReaderSpeak?.Invoke($"{local} {remote}{count}", true);
         }
 
         private void AnnounceNothingLive()
@@ -912,6 +1006,19 @@ namespace JJFlexWpf.Dialogs
         /// </summary>
         private void HandleOfflineConnectAttempt(RadioListItem radio, string radioName)
         {
+            // A row owned by another account never starts a SmartLink pass:
+            // the current account structurally cannot list it, so the pass is
+            // a thirty-second authentication grind toward a guaranteed empty
+            // answer (the 2026-08-09 wrong-account hunt). Refuse immediately,
+            // name the owner, and point at the switch.
+            if (radio.ForeignAccount && !string.IsNullOrWhiteSpace(radio.LastSeenViaAccount))
+            {
+                _callbacks.ScreenReaderSpeak?.Invoke(
+                    $"{radioName} is registered to {radio.LastSeenViaAccount}. " +
+                    "To connect, press Switch Account to use that account, then refresh the remote list.", true);
+                return;
+            }
+
             bool remoteish = radio.LastSeenRemote || radio.FromAccountCache;
 
             if (remoteish && !_remoteListLive && !_remoteDiscoveryInFlight)
@@ -1293,6 +1400,19 @@ namespace JJFlexWpf.Dialogs
                     RefreshRadiosList();
                     UpdateListAutomationName();
                     SyncPathAffordance();
+                    // Loaded-state line lives HERE, not in MorphRemoteToRefresh:
+                    // that method opens with "if (_remoteListLive) return" so
+                    // anything inside it fires once per session and then stops
+                    // forever — it would pass a first-launch test and fail every
+                    // refresh after. Remote is a discrete event (the server
+                    // sends its list once per TLS session), so "loaded" is true
+                    // every successful pass. Before AnnounceListDelta so the
+                    // state line leads and the delta follows, both queued.
+                    if (success)
+                    {
+                        AnnounceLoadedState("Remote loaded",
+                            "Remote connection list loaded");
+                    }
                     AnnounceListDelta(liveBefore, success);
                     FocusRadioList();
                 });
