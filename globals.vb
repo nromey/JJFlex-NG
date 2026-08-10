@@ -1191,6 +1191,16 @@ Module globals
                                                        Tracing.TraceLine($"SetSessionSmartLinkAccount: session override = '{SessionSmartLinkEmail}'", TraceLevel.Info)
                                                    End Sub
 
+        ' One resolver for "which SmartLink account is in play". FlexBase's
+        ' account loading (registration preflight and the background
+        ' registration query on local connects) asks this hook instead of
+        ' guessing most-recently-used — the 2026-08-10 bug where every launch
+        ' silently opened a SmartLink session on another operator's account.
+        ' The hook is Shared on FlexBase, so this single wiring covers every
+        ' instance: wpfSelectorProc's and auto-connect's alike (GetConfigInfo
+        ' runs in InitializeApplication, before either path can construct one).
+        Radios.FlexBase.ResolveCurrentAccountHook = Function() ResolveSmartLinkAccount()
+
         ' Load operator and rig data.
         Operators = New PersonalData(BaseConfigDir)
         ' There must be a default operator!
@@ -2476,7 +2486,8 @@ Module globals
                                              WpfMainWindow.Dispatcher.Invoke(
                                                  Sub()
                                                      Dim acctCallbacks As New JJFlexWpf.Dialogs.SmartLinkAccountCallbacks() With {
-                                                         .GetAccounts = Function() mgr.Accounts.OrderByDescending(Function(a) a.LastUsed).
+                                                         .GetAccounts = Function() mgr.Accounts.
+                                                             OrderBy(Function(a) a.FriendlyName, StringComparer.CurrentCultureIgnoreCase).
                                                              Select(Function(a) New JJFlexWpf.Dialogs.SmartLinkAccountInfo() With {
                                                                  .FriendlyName = a.FriendlyName,
                                                                  .Email = a.Email,

@@ -3516,7 +3516,14 @@ public partial class MainWindow : UserControl
             var defaultEmail = GetDefaultSmartLinkEmail?.Invoke() ?? "";
             var callbacks = new Dialogs.SmartLinkAccountCallbacks
             {
-                GetAccounts = () => mgr.Accounts.OrderByDescending(a => a.LastUsed)
+                // Default first, then friendly name — an order the operator
+                // chose. Ordering by LastUsed put another operator's account
+                // on top of the very screen showing Noel's as default
+                // (2026-08-10): two answers, inches apart. LastUsed is still
+                // displayed per account; it just no longer drives position.
+                GetAccounts = () => mgr.Accounts
+                    .OrderByDescending(a => a.Email.Equals(defaultEmail, StringComparison.OrdinalIgnoreCase))
+                    .ThenBy(a => a.FriendlyName, StringComparer.CurrentCultureIgnoreCase)
                     .Select(a => new Dialogs.SmartLinkAccountInfo
                     {
                         FriendlyName = a.FriendlyName,

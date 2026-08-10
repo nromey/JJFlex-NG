@@ -434,7 +434,14 @@ namespace Radios
                     account.RefreshToken = tokenResponse.RefreshToken;
                 }
 
-                account.LastUsed = DateTime.UtcNow;
+                // Deliberately NOT stamping LastUsed here. A token refresh is
+                // the program touching the account, not the operator using it,
+                // and stamping it made most-recently-used a self-reinforcing
+                // latch: each launch picked the top account, refreshed its
+                // token, and thereby re-elected it — signing in as yourself
+                // corrected it for exactly one launch (2026-08-10). LastUsed
+                // is stamped only on deliberate use: sign-in (SaveAccount)
+                // and MarkAccountUsed from the connect/registration flows.
                 SaveAccounts();
 
                 return true;

@@ -1601,6 +1601,11 @@ namespace Radios
             }
 
             sw.Stop();
+            // A successful auto-connect is the operator genuinely using this
+            // account (a standing choice, stamped into the auto-connect
+            // record) — without this, someone who only ever auto-connects
+            // would show a forever-stale LastUsed in the account manager.
+            AccountManager.MarkAccountUsed(account);
             Tracing.TraceLine($"TryAutoConnectRemote: END success (total {sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
             return true;
         }
@@ -2442,9 +2447,16 @@ namespace Radios
 
             if (!TryLoadSavedAccount())
             {
-                check.BlockReason =
-                    "No SmartLink account is signed in. Sign in to SmartLink first — the radio is registered to an account, " +
-                    "and JJ Flex needs to know which one.";
+                // Two different problems, two different fixes. With several
+                // accounts saved and none chosen, "sign in first" is false
+                // advice — the operator is signed in, possibly twice; what is
+                // missing is a decision, and re-signing-in does not make one.
+                check.BlockReason = AccountManager.Accounts.Count == 0
+                    ? "No SmartLink account is signed in. Sign in to SmartLink first — the radio is registered to an account, " +
+                      "and JJ Flex needs to know which one."
+                    : "Several SmartLink accounts are saved and none is set as the default. Open Manage SmartLink Accounts " +
+                      "and choose a default account — the radio is registered to an account, and JJ Flex needs to know " +
+                      "which one to check against.";
                 return check;
             }
 
@@ -2579,7 +2591,10 @@ namespace Radios
                     // Radio Setup's status refresh). If the token cannot be
                     // refreshed without a login page, the answer is Unknown —
                     // never interrupt the user with auth UI they did not ask for.
-                    string jwt = GetJwtFromSavedAccount(account, allowInteractiveLogin: false);
+                    // markUsed: false — this is background bookkeeping, not the
+                    // operator using the account, and it must not perturb the
+                    // LastUsed ordering shown in the account manager.
+                    string jwt = GetJwtFromSavedAccount(account, allowInteractiveLogin: false, markUsed: false);
                     if (string.IsNullOrEmpty(jwt))
                     {
                         Tracing.TraceLine("QuerySmartLinkRegistration: no JWT available silently", TraceLevel.Info);
@@ -4000,17 +4015,34 @@ namespace Radios
         /// </summary>
         public static SmartLinkAccountManager SharedAccountManager => AccountManager;
 
+        /// <summary>
+        /// The one answer to "which SmartLink account is in play." Wired once
+        /// at startup (GetConfigInfo in globals.vb) to the same resolver the
+        /// account selector uses: sole saved account, then the session
+        /// "Use Now" override, then the saved default — and null when several
+        /// accounts are saved and none has been chosen, because guessing there
+        /// is the 2026-08-10 bug: most-recently-used elected another
+        /// operator's account and silently opened a SmartLink session on it
+        /// every launch. Static so a single wiring covers every FlexBase
+        /// instance, including auto-connect's. Null hook means Radios.dll is
+        /// running standalone.
+        /// </summary>
+        public static Func<SmartLinkAccount> ResolveCurrentAccountHook { get; set; }
+
         // Current SmartLink account (for token refresh on re-auth)
         private SmartLinkAccount _currentAccount;
 
         /// <summary>
-        /// Ensure a SmartLink account session exists, falling back to the most
-        /// recently used saved account. Every path that sets _currentAccount
+        /// Ensure a SmartLink account session exists, resolving through
+        /// ResolveCurrentAccountHook. Every path that sets _currentAccount
         /// otherwise lives in the REMOTE connect flows, so on a purely local
         /// connection the account was never loaded and everything downstream
         /// (registration preflight, registration query) wrongly concluded
         /// "not signed in" — found live 2026-08-04 when the Register button
         /// stayed grayed on the exact connection type registration requires.
+        /// Returns false, deliberately, when several accounts are saved and
+        /// none has been chosen: no answer beats a wrong one, and each caller
+        /// handles the ambiguity in its own honest way.
         /// </summary>
         private bool TryLoadSavedAccount()
         {
@@ -4019,8 +4051,26 @@ namespace Radios
             {
                 var accounts = AccountManager.Accounts;
                 if (accounts == null || accounts.Count == 0) return false;
+
+                var hook = ResolveCurrentAccountHook;
+                if (hook != null)
+                {
+                    var resolved = hook();
+                    if (resolved == null)
+                    {
+                        Tracing.TraceLine("TryLoadSavedAccount: several accounts saved, none chosen — not guessing", TraceLevel.Info);
+                        return false;
+                    }
+                    _currentAccount = resolved;
+                    Tracing.TraceLine($"TryLoadSavedAccount: resolved account '{_currentAccount.Email}'", TraceLevel.Info);
+                    return true;
+                }
+
+                // Hook unwired: Radios.dll standalone. Most-recently-used is a
+                // guess — trace loudly so a wiring regression in the app is
+                // visible instead of quietly reviving the old behaviour.
                 _currentAccount = accounts.OrderByDescending(a => a.LastUsed).First();
-                Tracing.TraceLine($"TryLoadSavedAccount: loaded saved account '{_currentAccount.Email}'", TraceLevel.Info);
+                Tracing.TraceLine($"TryLoadSavedAccount: resolver hook UNWIRED — standalone fallback picked most-recently-used '{_currentAccount.Email}'", TraceLevel.Warning);
                 return true;
             }
             catch (Exception ex)
@@ -4629,7 +4679,7 @@ namespace Radios
         /// with a login page — and hanging Settings behind it — is exactly what
         /// happened live on 2026-08-04.
         /// </param>
-        private string GetJwtFromSavedAccount(SmartLinkAccount account, bool allowInteractiveLogin = true)
+        private string GetJwtFromSavedAccount(SmartLinkAccount account, bool allowInteractiveLogin = true, bool markUsed = true)
         {
             var sw = System.Diagnostics.Stopwatch.StartNew();
             Tracing.TraceLine($"GetJwtFromSavedAccount: BEGIN email={account.Email}, ExpiresAt={account.ExpiresAt}, now={DateTime.UtcNow}, interactive={allowInteractiveLogin}", TraceLevel.Info);
@@ -4746,8 +4796,14 @@ namespace Radios
                 }
             }
 
-            // Mark account as used
-            AccountManager.MarkAccountUsed(account);
+            // LastUsed means "the operator deliberately used this account" —
+            // connects and registration commands qualify; the silent
+            // background registration query passes markUsed: false. Stamping
+            // on every touch was half the latch that kept re-electing the
+            // same account under the old most-recently-used resolution
+            // (2026-08-10; the other half was the token-refresh stamp in
+            // SmartLinkAccountManager).
+            if (markUsed) AccountManager.MarkAccountUsed(account);
 
             sw.Stop();
             Tracing.TraceLine($"GetJwtFromSavedAccount: END returning jwt={(!string.IsNullOrEmpty(account.IdToken) ? "yes" : "null/empty")} (total {sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
