@@ -3,7 +3,120 @@
 This document captures the current state of JJ-Flex repository and active work.
 
 **Repository root:** `C:\dev\JJFlex-NG`
-**Branch:** `main` (post-REVERT of `track/flexlib-42` merge on 2026-05-15 — main is back to pre-FlexLib-4.2.18 substrate after Don's 2026-05-15 LAN trace exposed a vendor-side station-name regression. FlexLib 4.0.1 is in place. Re-merge of FlexLib 4.2.18 now gated on Sprint 29 Phase D firmware-update UI being operational + Don's radio firmware updated. `track/flexlib-42` parked at `9de45c54`. See `memory/project_flexlib_4218_station_name_regression.md` (new), `memory/project_flexlib_4218_merge_sequencing.md` (refreshed 2026-05-15), and `memory/project_main_branch_41_posture.md` (reality-check note added).)
+**Branch:** `track/flexlib-4220` — **this is where all current work lives.** It vendors **FlexLib 4.2.20.41343** (landed 2026-08-03, `b2d75f63`) and is **305 commits ahead of `main`, which is 0 commits ahead of it** — so promoting main is a clean **fast-forward**, not a merge, with no conflicts possible. `main` still vendors FlexLib 4.1.5.39794. **Do the fast-forward before building anything on main** (Noel, 2026-08-09: *"I don't want to lose work if we're thinking we're working stuff on main when we're not"*).
+
+*Superseded history, kept for context: main was reverted off `track/flexlib-42` on 2026-05-15 after Don's LAN trace exposed a vendor-side station-name regression; that era's notes are `memory/project_flexlib_4218_*.md` and `memory/project_main_branch_41_posture.md`. 4.2.20 supersedes all of it and works.*
+
+## END-OF-DAY SEAL — 2026-08-09 — THE IQ TIER, AND A FEATURE THAT INVERTED TWICE
+
+*Radio-bench day, ~14:00 to 22:45. Delta measured from midnight; note the day
+opened with the post-midnight seal of 2026-08-08, so the first two commits below
+belong to that session's tail.*
+
+Branch `track/flexlib-4220`. **12 commits, 20 files, +2,680/-1.** No new debug
+build — bench tooling and design record only, so **no nightly published** and
+testers' `debug\` untouched.
+
+**Theme: the feature inverted twice and ended somewhere better than it started.**
+The day began chasing a transverter loopback and ended with a decode
+architecture that makes the loopback largely unnecessary.
+
+**Cross-surface sweep.** JJFlex-NG only — one worktree, no sibling repos active
+today. Seven memory entries touched, **two from other sessions this session
+never saw**: `project_daxiq_iq_findings.md` (17:43) and
+`project_dax_cat_driver_strategy.md` (18:46, a full decision landscape — SmartSDR
+never needed, Flex's CAT/DAX utilities install standalone and are accessible, no
+MIT virtual audio driver ships production-signed, **Trusted Signing does NOT
+cover kernel drivers**). Freight Fate idle (`feat/career-1.9`, 1 dirty, **16
+unpushed**); Civ VI Access idle (`main`, 2 dirty, **45 unpushed**) — both
+unchanged today, pushing remains Noel's call. No for-noel/for-don/for-claude
+deltas.
+
+**Morning: a selector bug, root-caused and queued.** Opening on Noel's own
+account listed Don's 6300 as if Remote had been pressed. Trace proved remote
+never auto-started and the button was honest — **the list was the liar**:
+`KnownRadioRoster.Load()` never filters by account, and `WhereText` needs
+attribution that only exists in the account list it skips, so a foreign-account
+radio renders unattributed. **The label is inverted relative to need.** Design
+grew into a unified account-aware roster with per-radio account binding
+(`docs/planning/active/qsl-roster-ragchew.md`), queued wave 2. Stage 1 is a
+~40-line fix, gated on nothing.
+
+**Afternoon at the radio — three things died, one was born.**
+- **`Xvtr.MaxPower` is inert for drive.** Swept its full −10→+15 dBm range twice,
+  no audible change. Corroborated from the other side: SmartSDR's own transverter
+  control is a **bare pass-through** to the same field. The ratified dBm/mW
+  slider is not the loopback's drive control.
+- **Receiver RF gain is the real knob** — and **a vendor FlexLib bug hid it.**
+  `Slice.cs:213` omits the space in `"slice set" + _index`, emitting
+  `slice set1 rfgain=24`, silently discarded. Present in the pristine 4.2.20
+  drop, so it is FlexRadio's bug. **RF gain has never been settable by any
+  FlexLib client**, and this retroactively falsifies 2026-08-07's "a 32 dB cut
+  did nothing" — that was a malformed string, not a measurement. Sent correctly
+  the radio validates it: −8/0/8/16/24/32.
+- **A clean loopback exists** — TX into XVT A, listen on XVT B, gain to taste.
+  Detune-confirmed, splatter-free, milliwatt class.
+
+**Evening: the two-day saga resolved, by Noel's control.** Recording at
+**144.500** — 400 kHz off, where nothing can be received — came back with voice.
+**The record buffer is a mic tap**, which falsifies 2026-08-07's 1-SCU record
+tier outright. Both prior sessions were right about *different paths* and
+cross-applied the results: live-with-full-duplex is real RF, record-with-half-
+duplex is the mic.
+
+**Then the headline: the IQ stream carries the transmitted signal through the
+transmit mute.** Proven with full duplex OFF — energy floor −52.87 dBFS jumping
+to −40.52 with a stable spectral peak at +328…+1254 Hz, returning on unkey —
+and confirmed by **software detuning** of the recorded IQ at 144.099 / .100 /
+.101, which shifts pitch a full kHz each way. **Every Flex, including 1-SCU
+radios like Don's, can have genuine RF ground truth.** It is also *cleaner* than
+the loopback, because DAX IQ taps upstream of the slice's AGC.
+
+**Design ratified on top of it** (`audio-workshop-plan.md` §4e–4h): software
+full duplex with a readiness countdown; a **detune button as a trust
+affordance**; trim-to-audio recording; rolling IQ ring for "you said what" with
+re-decode rather than replay; spatial default with duck/mute as user options;
+24 kHz default (halves bandwidth, loses nothing); active-slice-only on
+constrained links, announced not silent; QUIC reliable-then-degrade, measured.
+**No new dependencies** — FftSharp, NAudio, P-Opus, PortAudio and our own VITA
+layer already cover it; MP3/M4A come from Windows, with LAME as the N-edition
+escape.
+
+**Discipline notes, both worth keeping.** I recorded the DAX IQ payload as a
+"synthetic test pattern"; it was real quantized noise (LSB 16 at FS 32768) and
+**the disconfirming evidence was in my own logs** — per-second means and peaks
+varied, which no deterministic generator does. Corrected same day by the
+follow-up session. And **instrument validation caught two near-false-negatives**:
+running the full-duplex control before trusting a null result is now mandatory
+in the plan.
+
+**Housekeeping.** CLAUDE.md's FlexLib line fixed (it claimed 4.1.5
+unconditionally for six days after 4.2.20 landed, and misled this session).
+`tools/rigbench/.gitignore` added — 59 MB of IQ captures and WAVs fenced out of
+git but kept on disk, since raw IQ re-decodes without the radio.
+**`MEMORY.md` is 17.3 KB, above the 16 KB seal threshold** — needs a structural
+compaction pass, deliberately deferred rather than botched at 22:45.
+
+### Setup for tomorrow — in this order
+
+1. **Fast-forward `main` to `track/flexlib-4220`** (305 commits, zero conflicts)
+   *before* anything else, so the guided run validates what would actually ship.
+2. **Two keying cycles:** compander A/B (capture at `compander=0`, compare
+   against the existing take at 85 — proves whether TX processing rides the IQ)
+   and the same-port test (TX and IQ both on XVT A with gain low — if it works,
+   the unconnected-port requirement disappears).
+3. **The 43-step guided run** (`docs/planning/active/nightowl-guided-testing.md`)
+   — the only thing standing between Don and features he can use.
+4. MEMORY.md compaction; the qsl-roster Stage 1 fix whenever it fits.
+
+### Rigmeter snapshot — end of 2026-08-09
+
+- **Today:** 12 commits, 20 unique files, +2,680 / −1, net **+2,679**. Sole
+  author JJ Flexbot.
+- **Tree now:** 130,779 code lines, 52,834 doc lines (from 130,745 / 52,206 on
+  2026-08-07 — a docs-heavy day, as expected for a bench-and-design session).
+- Structured snapshot on NAS:
+  `historical\stats\2026-08-09-91f34e30.json`.
 
 ## END-OF-DAY SEAL — 2026-08-08 — DON'S ANSWERS, AND THREE DESIGN RATIFICATIONS
 

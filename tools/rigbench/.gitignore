@@ -1,0 +1,19 @@
+# Bench artifacts — never committed. These are captures from a specific radio
+# on a specific evening, not source. The 2026-08-09 session alone produced
+# ~59 MB of them.
+#
+# Kept on disk deliberately: raw IQ can be re-decoded at any tuning, filter
+# width or AGC setting without touching the radio (see audio-workshop-plan.md
+# §4e), so a capture stays useful long after the session that made it. The NAS
+# dev mirror picks them up; git should not.
+
+# Raw interleaved float32 IQ captures
+*.f32
+
+# Demodulated audio
+*.wav
+
+# Capture and stepper logs
+iq-*.txt
+power-log.txt
+gain-log.txt

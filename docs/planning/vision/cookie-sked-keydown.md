@@ -307,6 +307,33 @@ not a subsystem.
   separation instead:** replay hard left, live in its normal position, speech
   distinct from both. The ear separates spatially far better than by volume. Only
   solvable in a mixer you own.
+  - **EXPANDED by Noel 2026-08-09 — the ruling above becomes the default, not
+    the policy.** He re-derived spatial separation independently ("pan the
+    say-what stream hard left or mostly left, just to separate it out of your
+    normal sound") and then widened it: **the behaviour is the operator's
+    choice.** Pan position, ducking the live stream, muting it outright, or any
+    combination — all offered, none treated as the correct answer. *"We leave it
+    up to the user on what behaviour they wish to happen."*
+  - Spatial remains the shipped **default** because it is the only option that
+    costs you nothing while you are trying not to miss something. But operators,
+    bands, headphones and hearing profiles differ enough that the earlier
+    reasoning — right for a default — was never a reason to withhold the others.
+    Straight application of the flexibility principle: togglable, conservative
+    default, the operator decides.
+- **Ring contents: hybrid, not one or the other (2026-08-09).** The 10 MB /
+  30 min figure above is for *demodulated audio*. The DAX IQ work that night
+  (`docs/planning/active/audio-workshop-plan.md` §4e–4g) established that
+  buffering **IQ** instead buys something audio cannot: a **re-decode** rather
+  than a replay — go back five seconds *and* narrow the filter, shift the
+  passband, or re-tune. "Decode that callsign narrower" is a new capability;
+  replaying the rendering that was already unintelligible is not.
+  - IQ costs far more: 48 kHz complex float32 is ~23 MB/min per stream, so
+    30 minutes across four slices is ~2.8 GB versus ~40 MB for audio.
+  - **So keep both:** a long audio ring for deep history (unchanged), plus a
+    short IQ ring — 60–90 s per slice, ~90 MB across four — so the recent past,
+    which is what "you said what" actually reaches for, can be re-decoded rather
+    than merely replayed. Retained material encodes to Opus (~3 KB/s), which is
+    free by comparison.
 - **Two return behaviors:** catch-up playback (~1.2×, pitch-corrected) until you
   rejoin live, and jump-to-live that abandons the gap.
 - **The headline interaction is one key that replays the last ten seconds** of

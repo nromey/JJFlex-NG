@@ -183,6 +183,458 @@ What that leaves:
 
 **Still open after Don's answers.** The 6300 test itself — Don has never run this, so his radio remains the only 1-SCU datapoint and he shifts from informant to experiment subject. The guided record-during-mute session (plan §6, likely-confirm after the FDX-off simulation) is unchanged and still the decisive run. Ask when scheduling it: whether his 6300's single "XVTR" port behaves like the 8600's XVT A for coupling purposes.
 
+## 4d. ITEM 1b RUN AND ANSWERED — the working recipe is RECEIVER GAIN, not drive (Noel at the 8600, 2026-08-09)
+
+**A clean, detune-confirmed, splatter-free in-radio loopback exists.** Noel: *"at rf gain of 8 I can start to hear myself, at 32 it's full signal... setting rx to transverter B doesn't have any splatter... I hear myself detuned which I do."* This is materially better than the 2026-08-07 "simulacrum of a signal, basically splatter, can't be detuned" verdict, and it was reached by turning a knob nobody had been able to turn.
+
+**The verified 8600 recipe (2026-08-09), superseding §4's:**
+
+1. `full_duplex_enabled=1` — still the gate. **Set it AFTER connecting**: the global profile load on connect (`getProfileInfo:global profile loaded JJRadioDefault`) resets it to 0 every time.
+2. Transverter band defined (`xvtr create`; name TEST, rf_freq 144.1, if_freq 28.1). Its role is to make the band tunable — **not** to control drive.
+3. TX slice: tuned in the band, USB, **txant = XVT A**, `rfpower = 1`.
+4. Ears slice: same frequency, USB, **rxant = XVT B** — a DIFFERENT transverter port. Same-port (A→A) is what overloads.
+5. **Every other slice muted** (`slice set N audio_mute=1`). Non-negotiable — see the contamination finding below.
+6. **Ears slice `rfgain` is the control.** 8 = first audible, 32 = full signal. Set 32 for a "check my audio" session, restore after.
+7. TX monitor off.
+
+**Three things this overturns.**
+
+- **`Xvtr.MaxPower` is inert for drive.** Swept the full −10 → +15 dBm range twice, once under clean mute conditions; no audible change. Confirmed from the other side by the SmartSDR decompile: `XvtrViewModel.MaxPower` is a **bare pass-through** to `Xvtr.MaxPower` with no scaling, no companion command, and no interaction with RF power. SmartSDR has no secret handshake — the field simply does not govern drive. **Design consequence: the ratified dBm/mW slider (§4a, 2026-08-08) is NOT the loopback's drive control.** It may still be worth building for real transverter owners, but the audio-check feature must not depend on it. Don's remembered "100 milliwatts" was almost certainly a *displayed* number, never an achieved level — consistent with it being numerically out of range on every model.
+- **`rfpower` still governs, and it is still coarse.** 0 = silence, 1 = yesterday's overload on XVT A. The "no room between nothing and too much" problem was never solved by transverter mode; it was **side-stepped** by loosening coupling and amplifying after the front end instead.
+- **The physics, stated plainly:** port-to-port coupling is fixed in hardware. XVT A couples tightly enough to drive the front end into overload, and no downstream gain rescues an overloaded front end — which is exactly why 2026-08-07 could not detune it. XVT B couples loosely enough that the receiver stays linear, and once linear, receiver gain simply sets the listening level. **The recipe is not "turn the transmitter down." It is "pick a port loose enough to stay linear, then turn the receiver up."**
+
+**BLOCKER FOR IMPLEMENTATION — a vendor FlexLib bug means we cannot set RF gain at all.**
+
+`Slice.cs:213` builds the command without a space after `set`:
+
+```csharp
+_radio.SendCommand("slice set" + _index + " rfgain=" + _rfGain);
+```
+
+emitting `slice set1 rfgain=24`, which the radio silently discards. **Every other setter in the file has the space.** Present in our vendored copy AND in the pristine `flexlib-api-4.2.20` drop, so it is FlexRadio's bug, not ours. Report upstream (Noel has the alpha-tester channel).
+
+Sent correctly the radio parses and validates it, and answers: valid values are **−8, 0, 8, 16, 24, 32** (six discrete 8 dB steps, 40 dB span); anything else returns `50000031 RF Gain out of range`. **This also retroactively falsifies the 2026-08-07 conclusion that "a 32 dB rfgain cut produced no response, so the overload margin exceeds it"** — that command never reached the radio. It was a malformed string, not a measurement.
+
+Implementation options: patch the vendored FlexLib (one character), or send the raw command from our layer. Patching is cleaner and should be noted in `MIGRATION.md` so the next FlexLib upgrade re-applies it.
+
+**METHODOLOGICAL FINDING, and the reason this session nearly recorded a false negative: the operator hears a MIX of every unmuted slice.** For most of the run only ONE slice was on a transverter port while three others sat on ANT 1 at 14.100 contributing noise, so loop changes were buried. The "max_power does nothing" and "detuning does nothing" results were both measured through that contamination, and the detune result **reversed** once Noel muted everything but the ears slice. Carry this into the automated session: **mute every slice except the ears slice, and restore the mute state on teardown.** Also carry it into how we score any future by-ear experiment — say what else was audible.
+
+**Open after this run:**
+
+- **Don's 6300 (1 SCU) has only ONE transverter port ("XVTR"), not an A/B pair.** The whole recipe rests on transmitting into one port and listening on another, so the 8600 path may not exist on his radio at all. His test is now specifically: is there a second port, and if not, does max RF gain on the single port stay linear? Noel's read: *"On a radio like Don's, you could maybe try a tx antenna to hear yourself, but setting rf gain to max seems to do it."*
+- Where between XVT A and XVT B the linear range actually sits, and whether rfgain on XVT A at −8 clears the overload (untested — the first honest test of that knob).
+- `band_persistence_enabled` flipped itself back to 1 during the session after being set to 0. Something re-asserts it; unidentified.
+- `transmit freq` reported 28.100 (correct IF) early in the session and 144.100 later, with the band still valid. Unexplained; may be a reporting quirk.
+
+### The feature shape, ratified by Noel at the radio (2026-08-09)
+
+> *"The way you'd want to design a feature is to allow the user to select an unconnected antenna port from a combo box. It would set up the radio, making sure mute and rf gain is set up. On a single SCU unit it would use record; on 2 SCU units you get to hear it from the beginning."*
+
+**The operator picks the listening port. The app cannot and must not guess.** Nothing in the protocol reports what is physically plugged into a jack, so which port is free is knowledge only the operator has. A combo box built from the radio-reported RX antenna list, minus whatever port we are transmitting into, with a label that says *why* it is being asked — pick a port with nothing connected to it. Persist the choice **per radio serial** (same pattern as the rest of the per-radio config), because it is a property of the station's wiring, not of the session.
+
+**Everything else the app does itself** (friction-tax principle — the operator answers the one question only they can answer, and we handle the rest): snapshot current state, set the TX slice onto the transverter port, create/aim the ears slice at the chosen port, **mute every other slice**, set RF gain (32 is the working value on the 8600; make it adjustable and speak both the value and the step), full duplex where applicable, monitor off, RX filter matched to the TX filter (Don's condition, §4c). Teardown restores all of it, including the mute state and the gain.
+
+**Two tiers, chosen by SCU count, not by guesswork:**
+
+- **2 SCU (6600, 6700, 8600, AU-520): live.** Full duplex on, you hear yourself from the first syllable. Verified on the 8600, 2026-08-09.
+- **1 SCU (6300, 6400, 8400, AU-510): record then play — but it is a PROCESSING check, not an RF check.** ~~No full-duplex gate needed — the record tap sits upstream of the transmit mute (proven 2026-08-07).~~ **Corrected 2026-08-09: the record buffer captures the MIC / TX-audio tap, not RF** (see the 144.500 control below). Key, talk, unkey, hear your processed transmit audio back. Auto-play on unkey is the right default; Noel judged it "arguably the nicer default everywhere, since it never demands talking and listening at once." **The announcement and help text must say what this tier can and cannot prove** — it answers "how does my processing sound", not "how do I sound on the air". Offering it as an equivalent to the 2-SCU loopback would be a false claim.
+
+**Two recording-tier rules, from watching the raw version fail (Noel, 2026-08-09):**
+
+- **Gate the recording to the keyed interval — arm at key-down, stop at key-up.** A free-running recorder fills its buffer to the 120-second cap, and playback then starts two minutes upstream of anything the operator said. Today's manual run hit exactly that: `record_time=120.0`, with the take buried somewhere inside a rolling window. Transmit-gated recording makes the take *be* the recording, makes auto-play-on-unkey instant and exact, and sidesteps the cap entirely. It also removes the re-arm hazard that nearly wiped an operator's takes on 2026-08-07, because arming is tied to a PTT edge rather than to a button someone might press twice.
+- **Playback is heard in isolation.** Silence everything except the playback source before play starts, restore afterwards. Same discipline as the capture side and for the same reason: the operator hears a mix of every unmuted slice, and a judgment about audio quality made over other slices' noise is not a judgment about audio quality. The mute state is part of what teardown restores.
+
+Gate on the radio's reported capability, never on a model table. The Feature Availability tab explains the tier a given radio gets and why.
+
+**Announcement obligations:** say which port is being used for listening, say that other slices are being muted (and that they will be restored), and say the gain being applied. Every one of those is a change the operator would otherwise discover by its side effects — the exact failure mode that made today's session take four hours.
+
+### THE SAGA RESOLVED — the record buffer is a MIC TAP, the live loopback is real RF (Noel's control, 2026-08-09)
+
+**The control that settled it, designed by Noel:** tune the ears slice to **144.500** — 400 kHz off, where nothing can possibly be received — set **half duplex**, transmit on slice 0, record slice 1, play it back.
+
+**Result: voice, with silence around it.** No RF at 144.500 could be demodulated by any mechanism, so the voice in that buffer cannot be RF. It is the microphone / TX-audio path being injected into the record stream.
+
+**This falsifies the 2026-08-07 conclusion outright.** That session recorded "VOICE IN THE BUFFER" with full duplex off, concluded the record tap sits upstream of the transmit mute, and built the entire 1-SCU record tier on it. The voice was the mic tap. There was never a 1-SCU RF path.
+
+**And yet both days were right about different paths — that is why the saga went in circles for two days:**
+
+- **Live listening, full duplex ON, is genuine RF.** Confirmed today the honest way: on the clean XVT A → XVT B path at rfgain 32 with every other slice muted, detuning 1 kHz low chipmunks the voice. Frequency-selective demodulation, which no injected tap can fake.
+- **Record with full duplex OFF is the mic tap.** Confirmed today by the 144.500 control.
+
+The 2026-08-07 session ran both paths and attributed the results of each to the other. The antenna-isolation test that "proved it was real RF all along" was testing the *live* path; the detune tests that "proved it was a tap" were testing the *record* path. Both experiments were sound. The error was treating them as evidence about one mechanism.
+
+**THE FIDELITY LADDER, now empirically grounded rather than assumed:**
+
+1. **Processed-TX-tap recording — universal, every radio, no full duplex needed.** What the record buffer actually captures. It carries the full processing chain (2026-08-07's two-take A/B with the processor cranked came back audibly saturated), so it genuinely answers *"how does my compander/processor sound?"* — which is Don's actual stated need. **It does NOT prove modulation, exciter, RF routing, or signal-in-noise behaviour.** Label it honestly as a processing check, never as an off-air listen.
+2. **In-radio RF loopback — 2-SCU / full-duplex-capable radios only.** TX into one transverter port, listen on a different unconnected port, receiver gain to taste. Detune-confirmed real demodulation, no splatter, milliwatt class. Proves DSP → modulator → exciter → port routing → a real receiver.
+3. **External SDR — absolute ground truth, off-air.** Unchanged.
+
+**Consequence for Don and every 1-SCU owner:** tier 1 and tier 3, not tier 2. His 6300 cannot do the in-radio RF loopback — it has one transverter port, no dedicated receive input, and no full duplex. But tier 1 covers the thing he actually asked for, and tier 3 (a KiwiSDR that JJFlex drives, so the bandwidth controls are ours and accessible) covers off-air truth. Neither is a consolation prize; they answer different questions.
+
+### DAXIQ probe built and INCONCLUSIVE — do not read it as a negative (2026-08-09)
+
+`tools/rigbench/daxiq_probe.py` exists and the plumbing is proven end to end: `client udpport` over TCP, `client udp_register handle=0x..` as a UDP keepalive to port 4991, `stream create type=dax_iq daxiq_channel=1`, `display pan set 0x<pan> daxiq_channel=1`, `stream set 0x<id> daxiq_rate=48000`. Packets arrive at ~273/sec, correctly framed — verified against a real dump: type 1 with our stream ID, OUI `1C2D`, packet class `0x02E4` (48 kHz wide IQ), payload little-endian float32 at offset 28, exactly as the parser computes.
+
+Energy sat at a mean of ~48.4 for thirty seconds in BOTH a half-duplex run and a full-duplex run, the latter while Noel could hear himself with full processing. **The instrument showed no response to a signal known to be present, so neither run says anything about whether the transmit mute reaches the IQ stream.** Recording these as "IQ is muted during TX" would be a false negative.
+
+**CORRECTION, same day (follow-up instrument session — see `daxiq-instrument-task.md` Findings).** This section originally claimed the payload was "a synthetic test pattern (`-64, +64, -16, +16` repeating)". **That was wrong, and the binding was never broken.** DAX IQ is coarsely quantized — every sample is a multiple of 16.0 against a full scale of 32768 (`VitaIFDataPacket.cs`, `ONE_OVER_ZERO_DBFS`) — so at a quiet noise floor the sample alphabet is only ~25 values and a hex dump reads as if it repeats. It was **real receiver noise** throughout. Three proofs, all gathered with no operator and no transmission: autocorrelation over lags 2..512 peaks at r = 0.16–0.18 (a genuine repeating pattern scores above 0.95); the mean tracks the preamp (23.6 at rfgain 0 rising to 47.8 at rfgain 32), which no generator could know; and the broadband floor is frequency-dependent (~6 dB higher at 14.075 than at 14.990), which is atmospheric band noise behaving normally.
+
+**The disconfirming evidence was already in the original logs and was misread.** `iq-run.txt` and `iq-fdx-on.txt` show per-second means varying (48.20–48.72) and peaks varying (224–288). A deterministic pattern at a fixed packet rate yields identical statistics every second; those numbers were never flat, they were varying-but-unresponsive. **Lesson for any future by-ear or by-eye scoring: "looks constant" is not a measurement. Autocorrelate, or vary a control (here, the preamp) and check the response.** Same failure mode as the detune misscoring on 2026-08-07, one level up the stack.
+
+All three hypotheses in the original brief are resolved and all three were wrong: pan ownership is a non-issue (the radio auto-associates an unbound client's dax_iq stream with the resident GUI client), the `daxiq` key in `Waterfall.cs:1123` is an ignored status key rather than a settable flag, and no client-identity registration is required on the LAN path.
+
+**So the real open question is unchanged and untested: does IQ energy respond to keying with full duplex OFF?** The probe is now rewritten, validated against the live 8600, and self-owning — it needs nobody. Stage 1 is GO, with a mandatory pre-flight signal check. **Note for whoever runs it: the bench 8600 has no antenna connected**, so the only signal available is the transverter loopback itself.
+
+**A Windows Firewall rule was required** before any UDP reached the probe — inbound UDP to `python.exe` was silently dropped, including the radio's own discovery broadcasts. Diagnosed by testing against those broadcasts rather than by guessing at the VITA parse. Noel allowed it via the Windows Security prompt. Any future bench tooling that listens on UDP will hit this.
+
+**Still worth chasing (Noel, same session): raw IQ during transmit.** We have only ever asked what the *audio* path does. If DAXIQ keeps streaming real IQ from the ears slice while keyed, JJFlex could demodulate PC-side and get tier-2 fidelity with no full-duplex flag — the universal rung the ladder is missing. Unknown whether the IQ stream survives the transmit mute; the audio mute clearly does not stop the record tap, so the two are plumbed separately. This is the DAXIQ probe already sketched in §6, now with a specific motivating question.
+
+**Bench tooling built for this run lives in `tools/rigbench/`** — `flexwire.py` (raw wire client), `snapshot.py`, `slices.py`, `txset.py`, `rset.py`, `raw.py`, plus two operator steppers, `power.py` (transverter dBm) and `gain.py` (receiver RF gain). All of them refuse to transmit by construction: keying stayed with the operator's hand mic throughout.
+
+## 4e. THE IQ TIER IS REAL — and it supersedes the loopback (2026-08-09 evening)
+
+**Proven live on the 8600, with full duplex OFF and the audio path muted.** The
+DAX IQ stream carries the transmitted signal straight through the transmit
+mute. Captured, demodulated PC-side, and confirmed by software detuning.
+
+**The evidence, in order of strength:**
+
+- **Software detune works perfectly.** One recorded capture decoded at 144.099,
+  144.100 and 144.101 gives a voice that shifts pitch a full kHz up and a full
+  kHz down. *Nothing about the radio, the coupling, or the voice differs between
+  those files — only the arithmetic.* No tap, injection, or non-RF path can
+  produce a pitch shift under those conditions, because there is no carrier for
+  the shift to be relative to. This is a far stronger test than the live detune,
+  and it is repeatable forever without the radio.
+- **Energy tracks keying** with full duplex OFF: floor at −52.87 dBFS, jumping
+  to −40.52 mean / −31.94 peak while keyed, with a **stable spectral peak
+  between +328 and +1254 Hz** — SSB voice exactly where it belongs relative to
+  the carrier — returning to the floor the instant the operator unkeys.
+- **A full-duplex control run** was taken first and behaves identically, so the
+  instrument was validated against a signal known to be present before the
+  decisive run. (Mandatory: two earlier runs were nearly recorded as a false
+  negative for want of exactly this.)
+
+**Consequence: the fidelity ladder collapses.** The morning's conclusion — that
+1-SCU radios get only a processing check — is superseded. **Don's 6300 and every
+other single-SCU radio can have genuine RF ground-truth audio checking**, with
+no full-duplex flag and no second receiver, by demodulating IQ PC-side.
+
+**The IQ path is not merely equal to the in-radio loopback, it is cleaner.**
+Listening through a slice means hearing the transmitted audio *plus the
+receiver's AGC* (slice 1 was running `agc_mode=med, agc_threshold=70`) — a
+compressor applied after the fact to the very thing being judged; the "pumping"
+Noel heard live is that AGC breathing, and none of it is in the signal. DAX IQ
+is tapped at the DDC, upstream of the slice demodulator and its AGC. **Full
+duplex retains exactly one advantage: immediacy — you hear yourself live rather
+than after the fact** (Noel's assessment). That is a real UX benefit and a
+narrow one.
+
+**Three design problems dissolve into decode-time parameters.** Once
+demodulation is ours, every rendering choice is a setting on the same recording,
+re-listenable indefinitely:
+
+- **Filter width** — Don's stated hard condition for accepting a recorded tier
+  ("set the receiver's bandwidth to match that of the transmitter") is satisfied
+  *by construction*, because we choose the filter. The bench demod already
+  band-limits to 150–2900 Hz against a TX filter of `lo=100 hi=2900`. No slice
+  plumbing, no save/restore, no spoken fallback prompt.
+- **AGC simulation** (Noel's design call) — an app checkbox that applies a
+  software AGC mirroring the radio's own `agc_mode` / `agc_threshold` /
+  `agc_off_level`, so the two listens are directly comparable. **Default OFF**:
+  the entire argument for this tier is an uncoloured listen, so the honest
+  rendering is what you get without asking. On answers "what does the receiving
+  station hear", off answers "what did I actually transmit".
+- **Tuning offset** — free, as demonstrated. Useful as a diagnostic and as proof
+  to the operator that they are hearing real RF.
+
+### Architecture decision (Noel, 2026-08-09): the demodulator lives IN THE APP
+
+**Not numpy, not a script.** The Python demod (`tools/rigbench/demod.py`) was
+scaffolding to prove the mechanism and should be treated as a reference
+implementation only. The real thing is C# inside JJFlex, **writing an audio
+file** — because a recording of what you transmitted is a feature we want
+regardless, and the audio check is only its first consumer.
+
+Why this is tractable rather than a DSP project:
+
+- **We already own the VITA layer** (`FlexLib_API/Vita/`), including
+  `VitaIFDataPacket` with the wide-IQ classes already parsed.
+- **The demodulation is almost trivial** because the pan is centred on the
+  transmit frequency, so the suppressed carrier sits at DC and the complex
+  baseband IS the analytic signal of the audio. Keep the positive-frequency
+  voice band, take the real part. **No mixing, no Hilbert transform, no carrier
+  recovery.**
+- **FFT infrastructure already exists** in the PC-side DSP work
+  (`SpectralSubtractionProvider` and friends).
+
+Plumbing learned on the bench that the C# implementation inherits: the probe
+must hold its own GUI seat and **create its own panadapter** — a pan owned by a
+different GUI client cannot be bound (`endpoint_type=Not Assigned`), and a pan
+we retune but do not own has its centre re-asserted by its owner. Bind
+`daxiq_channel`, set `daxiq_rate`, and the stream reports
+`endpoint_type=Display` when it is live.
+
+### 4f. SOFTWARE FULL DUPLEX — build our own, on any radio (Noel, 2026-08-09 evening)
+
+> *"By default radios don't give us full duplex, and when they do you get the
+> processed audio which you may or may not want. So why don't we create our own
+> full duplex with a small delay."*
+
+**Take the IQ stream live instead of to a file, demodulate continuously, and
+play it to the operator as they transmit.** This works because of the finding
+above: the IQ keeps flowing through the transmit mute on a half-duplex radio,
+so the receiver is live during transmit on *every* Flex — the only missing
+piece was somebody demodulating it. **This deletes full duplex's last remaining
+advantage.** Live self-monitoring becomes available on hardware that has no
+full-duplex capability at all. We are not working around the radio's
+limitation; we are routing around the stage that imposes it.
+
+**The shape:**
+
+1. Operator says they are ready to check their audio.
+2. **Countdown with beeps from five.** During it, the app opens an IQ stream
+   centred on the transmit frequency (it knows the frequency — no operator
+   input needed) and mutes every other slice.
+3. Continuous demodulation, played back live as it happens.
+
+**What the countdown is actually for (Noel's correction): it is a READINESS
+GATE, not a speech-timing device.** *"The countdown's really there to make sure
+we have the IQ connection bound and make sure the op has their mic in hand,
+then they can twiddle knobs to their hearts content."* It covers stream binding
+latency and gets the microphone into the operator's hand; it also happens to
+tell a blind operator when to start with nothing to watch. **Then the session
+stays live indefinitely.** This is not a "say your test phrase" moment — it is
+an adjustment session with your own transmitted signal in your ears while you
+change mic gain, compander, EQ, filter edges.
+
+**A detune button, as a trust affordance (Noel).** *"If they don't believe us
+it's the real signal we can add the detune button to show them."* One press
+shifts the software tuning and the operator's own voice changes pitch — proof
+from physics that no injected tap can fake, on demand, on their own voice. Most
+software asks to be believed; this lets the operator demand proof and get it
+instantly. It costs nothing: we already have software tuning, demonstrated
+2026-08-09 by decoding one capture at 144.099 / 144.100 / 144.101.
+
+**Recording becomes a byproduct, trimmed to the audio (Noel).** *"If they just
+want to record a chunk, that could be demodulated and trimmed to the audio
+length."* Detect the voiced span in the demodulated stream and trim to it —
+which permanently solves the fixed-buffer problem (the radio's recorder fills
+to its 120-second cap and buries the take, hit live on 2026-08-09).
+
+**The radio's own record/play retires from this feature.** Not because ours is
+nicer but because **the radio's record buffer is a MIC TAP** — proven by the
+144.500 control — so it structurally cannot show an operator their transmitted
+signal, however the rest of the feature is built. Keep it only as a convenience
+for someone who explicitly wants a quick radio-side record.
+
+**Risk: delayed auditory feedback — real, but smaller than it first looks.**
+Hearing your own voice delayed disrupts speech, peaking around 150–200 ms;
+under ~25 ms it is unnoticeable. Our budget is one IQ block (1024 samples at
+48 kHz ≈ 21 ms) plus network jitter plus output buffering.
+
+**Noel's mitigating observation, which materially lowers this risk: the radio's
+own full-duplex loopback already has a delay, and it was already judged fine**
+(*"you can totally tell exactly how you sound — amazing"*, §4). That path runs
+TX → modulator → port → receiver → demodulator → audio. **So the relevant
+number is not our total latency but the INCREMENT over a path already accepted**
+— network transport plus our buffering on top of a chain that mostly existed
+already.
+
+**Measure it, do not estimate it.** VITA packets carry `tsi`/`tsf` timestamps
+which the probe already parses. Comparing a packet's radio-side timestamp
+against the moment its audio reaches the sound card yields true end-to-end
+latency in milliseconds. **Build this in as a diagnostic from the start** — it
+turns "does the delay bother you" into a number to tune against.
+
+Secondary mitigation, already inherent in the design: reading or counting under
+DAF is far less disruptive than composing speech, because the disruption acts on
+speech planning. "Beeps, then say your test phrase" is close to best case;
+"hold a QSO while monitoring" would be worst case. If measurement lands us above
+~80 ms, the honest response is a spoken warning plus record-then-play as the
+alternative, not silently shipping a disruptive live mode.
+
+### 4h. Libraries and settings for the decode work (2026-08-09)
+
+**No new dependencies are needed.** Everything the decode/record architecture
+requires is already referenced:
+
+- **IQ ingestion** — `FlexLib_API/Vita`, already parsing the wide-IQ packet
+  classes (`0x02E3`–`0x02E6`) confirmed on the bench.
+- **DSP** — **FftSharp**, already a PackageReference. The demodulation itself is
+  ~15 lines of signal processing: the pan sits on the transmit frequency so the
+  suppressed carrier is at DC, so it is band-limit plus take the real part. No
+  mixing, no Hilbert transform, no carrier recovery.
+- **Playback and panning** — existing `RxAudioPipeline` + JJPortaudio, which is
+  also the mixer the spatial replay-vs-live separation needs.
+- **Opus** — `P-Opus-master` (Opus 1.5.2 wrapper), already in the solution.
+- **WAV / MP3 / M4A export (Noel: "hams like to pass that around")** —
+  **NAudio 2.2.1**, already referenced, exposes `MediaFoundationEncoder`
+  (`EncodeToMp3`, `EncodeToAac` — AAC is what M4A wraps) using **Windows' own
+  built-in codecs**. No LAME binary, and MP3 patents expired in 2017, so
+  shipping MP3 export is clean. **Skip Vorbis** — hams do not circulate `.ogg`;
+  MP3 is the lowest common denominator, M4A covers Apple.
+  - **Caveat to design for:** Windows N/KN editions lack the Media Feature Pack
+    and may have no Media Foundation encoders. **We cannot download or bundle
+    it** — it is a Windows Feature-on-Demand served by Microsoft, not a
+    redistributable. Three-layer answer (Noel asked 2026-08-09 whether we could
+    offer the download):
+    1. **Ship our own MP3 encoder and skip the OS entirely.** LAME is LGPL,
+       MP3 patents expired 2017, dynamic linking satisfies the licence. MP3 is
+       the format hams actually circulate, so this makes the common case work
+       on every Windows edition.
+    2. **AAC/M4A stays Media-Foundation-only** (AAC licensing is messier than
+       MP3's). When absent, **deep-link to `ms-settings:optionalfeatures`** —
+       drops the operator on the exact screen. For a blind user, "here is the
+       button" beats "go find Optional Features" by a wide margin.
+    3. WAV and Opus are always available; we own both.
+
+**DAXIQ sample rates are 24, 48, 96 and 192 kHz** — those four only, from the
+packet classes at `VitaFlex.cs:30-33`; **24 kHz is the floor.** Cost is
+`rate × 8` bytes/sec: 24 kHz ≈ 192 KB/s (~1.5 Mbps), 48 kHz ≈ 384 KB/s
+(~3.1 Mbps).
+
+**Default the audio check to 24 kHz.** A 3 kHz SSB signal needs nothing
+approaching 24 kHz of spectrum, so the lower rate halves the bandwidth and
+loses nothing that matters. This is the single biggest lever on whether the IQ
+tier is viable over SmartLink for remote-only operators like Don. Higher rates
+belong to anything that wants a wide view, not to this feature.
+
+**FFT block size is a user-changeable setting (Noel), in advanced settings**,
+because it is a latency-versus-CPU trade and not every machine can hold the
+small end: 1024 samples at 48 kHz ≈ 21 ms, 512 ≈ 11 ms; smaller means lower
+delay and more work per second.
+
+- **Speak both numbers** — block size and the resulting latency in milliseconds.
+  Same reasoning as the dBm/mW slider: one is the wire unit, the other is the
+  one that means something to an operator.
+- **Show MEASURED latency, not theoretical.** Since VITA packets carry
+  `tsi`/`tsf` timestamps, the setting can report what the path is actually
+  doing end to end rather than what the arithmetic predicts — a self-verifying
+  knob, and the same measurement that tells us whether we are in the
+  transparent (<25 ms) or disruptive (~150 ms) DAF zone.
+- Help text should say the symptom plainly: if the audio breaks up, raise it.
+
+### 4g. The rolling IQ buffer — "you said what?" and recording (Noel, 2026-08-09)
+
+**The decode architecture's real payoff is not the audio check.** Noel:
+*"'you said what' relies on the ability to go back 5 seconds in a live IQ
+stream. We'll have to start slice number (n) streams and keep them rolling, but
+that's just temporary disk that we can clear, since recording data will be
+piped to Opus."*
+
+The shape: each slice of interest gets its own DAX IQ stream, continuously
+written to a temporary ring on disk. **"You said what?" replays the last N
+seconds from that ring.** Retained recordings get encoded to Opus; the raw ring
+is scratch and is cleared as it ages.
+
+**Why buffer IQ rather than demodulated audio**, which would be four times
+cheaper: because a re-decode is *better than a replay*. From IQ you can go back
+five seconds **and change the filter, shift the passband, or re-tune** —
+"I missed that callsign, decode it narrower" is a genuinely new capability, not
+a repeat of what already failed to be intelligible. Buffering audio can only
+replay the same rendering that was already missed.
+
+**This is an accessibility feature first.** Replay-with-re-decode serves
+operators with hearing loss (see `memory/patrick_bh_network_tester.md`), noisy
+shacks, split attention, and anyone who missed a callsign in a pileup. It is
+arguably higher-value than the audio check that motivated the decode work.
+
+**Disk math, so the design is sized honestly.** 48 kHz complex float32 is
+384 KB/s ≈ 23 MB per minute per stream; four slices rolling is ~92 MB/min. A
+60-second ring across four slices is ~92 MB of scratch — unremarkable. Opus at
+~24 kbps is ~3 KB/s, negligible, so anything *retained* costs nothing. Sizing
+the ring is therefore a pure UX decision (how far back can you go), not a
+storage constraint. The 8600 reports `daxiq_capacity=16`, so stream count is
+not the limit either.
+
+**Graceful degradation on constrained links (Noel, 2026-08-09): stream the
+ACTIVE SLICE ONLY.** Rolling IQ for every slice is a LAN luxury; over SmartLink,
+or on any link that cannot carry it, instantiate one stream and follow the
+active slice. This is a real capability reduction and a sensible one — the
+active slice is what the operator is listening to anyway.
+
+- **Default by transport:** all slices on LAN, active-slice-only over
+  SmartLink, with an override either way (flexibility principle).
+- **Say which mode is in effect, and document it** in help and the changelog.
+  A "you said what" that works on slice A and silently does nothing on slice B
+  reads as a bug, not a policy — the same failure shape as the band-persistence
+  reverts that cost an hour on 2026-08-09. Silent capability differences are
+  the thing this project keeps having to fix.
+- At 24 kHz a single stream is ~1.5 Mbps, which is what makes one-stream mode
+  plausible remotely where four would not be.
+
+**Link capacity check — measure the real stream, not a speed test (Noel,
+2026-08-09).** Driven by Tony's rural connection, where Don's radio lives: the
+downlink is poor and the uplink is unknown.
+
+- **Do not use Ookla.** Their official Speedtest CLI's EULA restricts
+  redistribution, so shipping it needs a commercial agreement, and the
+  unofficial scrapers break and violate the ToS. **More importantly it measures
+  the wrong thing** — PC-to-Ookla burst throughput, when the question is
+  whether *this* uplink sustains a *UDP VITA stream* to *this* operator. A good
+  Speedtest number and a stuttering stream coexist easily on rural links with
+  asymmetric upstream and shallow buffers.
+- **Measure the feature itself.** The packet rate is fixed and therefore known
+  arithmetic — the probe already observes ~273 pkt/s at 48 kHz. Open a 24 kHz
+  stream for ~10 s, compare received against expected, and report gaps and
+  arrival jitter. That answers the only question that matters: can this link
+  carry this feature to this operator right now.
+- **Self-selecting:** start at 24 kHz; if it is clean with margin, offer 48. If
+  24 stutters, say so plainly and fall back to the audio tiers rather than
+  shipping something that breaks up.
+- Needs no keying and no transmitting, so it can run quietly at connect — and
+  it is exactly the pre-flight to run before spending a remote tester's time.
+- **Do NOT trigger the radio's own network self-test** for this; per the queue
+  it endangers punched sessions. Ours is a passive observation of a stream we
+  were opening anyway.
+  - **That caveat is transport-specific and temporary (Noel):** it applies to
+    today's hole-punched UDP sessions. **JJ Flexible Connect's transport is
+    QUIC + ICE**, where ICE does candidate gathering and connectivity checks
+    properly, so there is no fragile punch to endanger. Do not inherit this
+    constraint into Connect-era code.
+  - **Reliability policy for that era — use BOTH, split by purpose (Noel's
+    correction, 2026-08-09).** An initial "always use unreliable datagrams"
+    recommendation was too dogmatic: head-of-line blocking only costs you when
+    there is loss, so on a LAN or a symmetric gigabit link reliable delivery is
+    essentially free and gives perfect IQ.
+    - **The two consumers want opposite things.** Live monitoring (§4f) is
+      latency-critical and loss-tolerant — a dropped packet is a click, a
+      retransmit is a latency spike that can push you into DAF range. The
+      recording and "you said what" buffer (§4g) are completeness-critical and
+      latency-tolerant — you want every sample, and 200 ms spent filling a gap
+      is invisible in something replayed later, let alone exported to MP3.
+    - **QUIC multiplexes reliable streams and unreliable datagrams (RFC 9221)
+      over the SAME connection** — one handshake, one NAT traversal. Map them
+      onto the split: reliable for the buffer, unreliable for the live monitor.
+    - **For the live path, start reliable and degrade only on measurement.**
+      The end-to-end latency measurement built for the block-size knob (§4h)
+      already watches true delay via VITA timestamps; drop to datagrams when
+      retransmits push it past threshold. The same build then behaves correctly
+      on a gigabit link and on Tony's rural one with nothing to configure.
+    - QUIC's congestion control remains a genuine upgrade over raw UDP either
+      way: on a marginal link it backs off and degrades rather than gapping
+      blindly.
+
+**Consequence flagged by Noel: slice handling has to change** when recording or
+"you said what" is active — streams must be started per slice and kept rolling,
+rather than opened on demand. That is a real architectural change to how slices
+are managed, and it belongs in the decode-architecture design rather than being
+bolted on later.
+
+**Open question this raises: can we listen on the SAME port we transmit into?**
+A→A overloaded the *audio* path at rfgain 32, but it was never tested against
+the IQ tap with gain pulled down. If same-port works, the second-port
+requirement disappears and radios with few ports stop being a special case.
+One keying cycle to find out.
+
+**Still open, one keying cycle:** the compander A/B. Capture with
+`compander=0` and compare against the existing take (`compander=1,
+compander_level=85`, i.e. high — the scale clamps at 100, `Radio.cs:10007`).
+Different → the transmit processing chain rides the IQ and the tier is proven
+end to end. Identical → the IQ tap sits upstream of TX processing, a real limit
+worth knowing before anyone builds on it. Deferred to after dinner, 2026-08-09.
+
 ## 5. Help and docs deliverables
 
 - Rewrite `docs/help/md/audio-workshop.md` to describe the dialog that exists (TX sculpting, live meters, earcons, presets) plus the new Audio Check session; delete the never-built routing/multi-output text. CHM rebuild so updated help ships.

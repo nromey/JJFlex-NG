@@ -174,6 +174,18 @@ def main():
     ap.add_argument("--record", default=None,
                     help="write raw interleaved float32 IQ (radio units) here")
     ap.add_argument("--host", default=DEFAULT_RADIO)
+    ap.add_argument("--newpan", action="store_true",
+                    help="always create our own panadapter rather than reusing "
+                         "one. Required when we hold our own GUI seat: a pan "
+                         "owned by a DIFFERENT gui client cannot be bound (the "
+                         "stream comes back endpoint_type=Not Assigned), and a "
+                         "pan we retune but do not own gets its center "
+                         "re-asserted by its owner.")
+    ap.add_argument("--pan", default=None,
+                    help="bind to this existing panadapter id, e.g. 0x40000001, "
+                         "instead of picking one. Use when another client owns a "
+                         "pan already centered where you want to listen — its "
+                         "owner will re-assert center/rxant on a pan you retune.")
     args = ap.parse_args()
 
     udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -228,6 +240,11 @@ def main():
                 if "client_handle=0x" in body:
                     pan_id = body.split()[2]
                     break
+        if args.newpan:
+            pan_id = None
+        elif args.pan:
+            pan_id = args.pan
+            created = False
         if pan_id is None and gui:
             code, msg = wire.send("display panafall create x=800 y=400")
             if code == "0":
