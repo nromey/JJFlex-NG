@@ -11016,6 +11016,21 @@ namespace Radios
                     if (Transmit)
                     {
                         startOpusInputChannel(); // only starts it once
+                        // Diag 2026-08-10: once per second while keyed, record what
+                        // the radio itself reports about the TX audio it receives.
+                        int txNowMs = System.Environment.TickCount;
+                        if (txNowMs - _txRadioStatusLastLog >= 1000)
+                        {
+                            _txRadioStatusLastLog = txNowMs;
+                            try
+                            {
+                                Tracing.TraceLine("TXaudio radio status: MicInput=" + theRadio.MicInput
+                                    + " MicLevel=" + theRadio.MicLevel
+                                    + " MicData=" + _MicData.ToString("F3")
+                                    + " ALC=" + _ALC.ToString("F3"), TraceLevel.Info);
+                            }
+                            catch { }
+                        }
                     }
                     else
                     {
@@ -11123,6 +11138,9 @@ namespace Radios
             Tracing.TraceLine("remoteAudioProc exiting", TraceLevel.Info);
         }
 
+        // Diag 2026-08-10: per-second counters proving encoded TX audio enters FlexLib.
+        private int _txOpusBytes, _txOpusPackets, _txOpusLastLog, _txRadioStatusLastLog;
+
         // Note:  Called from the audio callback.
         private void sendOpusInput(byte[] data)
         {
@@ -11132,6 +11150,15 @@ namespace Radios
             if (data.Length > 0)
             {
                 opusInputChannel.TXOpusChannel.AddTXData(data);
+                _txOpusPackets++;
+                _txOpusBytes += data.Length;
+                int nowMs = System.Environment.TickCount;
+                if (nowMs - _txOpusLastLog >= 1000)
+                {
+                    Tracing.TraceLine("sendOpusInput: " + _txOpusPackets + " pkts "
+                        + _txOpusBytes + " bytes into FlexLib this interval", TraceLevel.Info);
+                    _txOpusPackets = 0; _txOpusBytes = 0; _txOpusLastLog = nowMs;
+                }
             }
             else { }
         }
@@ -11228,11 +11255,13 @@ namespace Radios
 
         private bool startOpusInputChannel()
         {
-            Tracing.TraceLine("startOpusInputChannel:" +
-                opusInputChannel.Name + ' ' + opusInputChannel.Started.ToString(), TraceLevel.Info);
+            // Trace only the actual start transition — this runs every spin of the
+            // audio loop while keyed, and tracing it unconditionally wrote 268 MB.
             lock (opusInputChannel)
             {
                 if (opusInputChannel.Started) return true;
+                Tracing.TraceLine("startOpusInputChannel:" +
+                    opusInputChannel.Name + " starting", TraceLevel.Info);
                 opusInputChannel.Started = opusInputChannel.PortAudioStream.StartAudio();
                 if (!opusInputChannel.Started)
                 {

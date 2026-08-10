@@ -430,6 +430,19 @@ namespace JJPortaudio
                             + ", " + ex.Message, TraceLevel.Info);
                     }
 
+                    // Diag 2026-08-10: log every endpoint PortAudio reports, including
+                    // the ones the stereo-only filter hides — a mono mic that never
+                    // appears in the picker is invisible in every other trace we have.
+                    Tracing.TraceLine("Devices.Enumerate: dev " + i + ": \"" + pinfo.name
+                        + "\" api=" + apiName
+                        + " in=" + pinfo.maxInputChannels
+                        + " out=" + pinfo.maxOutputChannels
+                        + ((i == defaultInputId) ? " [default input]" : "")
+                        + ((i == defaultOutputId) ? " [default output]" : "")
+                        + ((pinfo.maxInputChannels > 0 && pinfo.maxInputChannels != 2)
+                            ? " [input HIDDEN by stereo-only filter]" : ""),
+                        TraceLevel.Info);
+
                     if (pinfo.maxInputChannels == 2)
                     {
                         inputs.Add(new DeviceInfo

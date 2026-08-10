@@ -355,7 +355,8 @@ namespace JJPortaudio
         {
             CBData.Device = (inOut == Devices.DeviceTypes.input) ?
                 inDevice : outDevice;
-            Tracing.TraceLine("Audio.Open:" + CBData.Device.Name + ' ' + rate + ' ' + useOpus.ToString(), TraceLevel.Info);
+            Tracing.TraceLine("Audio.Open:" + CBData.Device.Name + ' ' + rate + ' ' + useOpus.ToString()
+                + " api=" + CBData.Device.HostApiName, TraceLevel.Info);
             CBData.SampleRate = (rate == 0) ? (uint)CBData.Device.defaultSampleRate : rate;
             if (outputCallback != null) CBData.CB = outputCallback;
             else
@@ -518,6 +519,11 @@ namespace JJPortaudio
 
         private static int bufCount = 0;
         private static int byteCount = 0;
+        // Diag 2026-08-10: once-per-second capture peak, so a trace shows whether
+        // real audio or pure zeros is entering at the PortAudio boundary.
+        private static float inPeak = 0f;
+        private static int inFrames = 0;
+        private static int inLevelLastLog = 0;
         private static PortAudio.PaStreamCallbackResult inputCallback(IntPtr inbuf,
                 IntPtr outbuf,
                 uint frameCount,
@@ -551,13 +557,23 @@ namespace JJPortaudio
                         }
                         for (int i = 0; i < data.OpusFrameSZ; i++)
                         {
-                            buf[i] = *(inPtr++);
+                            float s = *(inPtr++);
+                            buf[i] = s;
+                            if (s > inPeak) inPeak = s; else if (-s > inPeak) inPeak = -s;
                         }
                         byte[] encodedBuf = data.Encoder.Encode(buf);
                         if (!data.Active) break;
                         data.OpusInputHandler(encodedBuf);
                         bufCount++;
                         byteCount += buf.Length;
+                        inFrames++;
+                        int nowMs = System.Environment.TickCount;
+                        if (nowMs - inLevelLastLog >= 1000)
+                        {
+                            Tracing.TraceLine("InputCallback level: peak=" + inPeak.ToString("F4")
+                                + " over " + inFrames + " frames", TraceLevel.Info);
+                            inPeak = 0f; inFrames = 0; inLevelLastLog = nowMs;
+                        }
                     } while (data.Active && (inPtr != endPtr));
                     if (!data.Active) rv = PortAudio.PaStreamCallbackResult.paComplete;
                 }
