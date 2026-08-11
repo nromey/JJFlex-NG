@@ -329,9 +329,23 @@ SWR one, and Track C makes it materially more likely by making tones easy.
 - **Offer a settable low-power value** (Noel: "a low power output with a combo
   you can change so I can change it to 1 if I need to") for the separate,
   deliberate act of confirming RF actually leaves the radio.
-- **Say which mode you are in, out loud, at key-down.** "Audio check, dummy
-  load, no RF" versus "Audio check, transmitting at 1 watt" are different enough
-  that the operator must never have to infer it.
+- **Say which mode you are in, out loud, at key-down — and note the safety line
+  currently cannot.** `AudioWorkshopDialog.xaml.cs:1812` builds
+  *"Transmitting on {freq}, {effectivePower} watts, audio from {source}"* from
+  `rig.XmitPower` with **no awareness of `DummyLoadMode` whatsoever.** With
+  dummy load engaged that renders as **"Transmitting on 14.100, 0 watts"** —
+  technically true and genuinely confusing, since "transmitting at zero watts"
+  invites the operator to wonder what failed. It must name the *mode*:
+  "Audio check, dummy load, no RF" versus "Audio check, transmitting at 1 watt".
+  That is the difference between a reading and an explanation, and it is the
+  same honesty standard the rest of this arc is built on.
+- **Field note confirming the ceiling is milder than it looks (Noel,
+  2026-08-11):** his check announced **1 watt** despite the hardcoded 10,
+  because his radio had been sitting at 1 W since the 2026-08-09 DAX IQ tone
+  runs and `currentPower > 10` never fired. The announcement was honest. The 10
+  is a cap that catches a 100 W station, not a level the check imposes — so the
+  fix is about the *default* and the *choice*, not about the check secretly
+  raising power.
 - Treat *measuring your audio* and *confirming you are on the air* as two
   separate tests, because they are.
 
