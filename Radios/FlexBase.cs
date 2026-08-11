@@ -6853,6 +6853,8 @@ namespace Radios
                         _diagMeterLastLog = nowMs;
                         Tracing.TraceLine("TXmeter: MicData=" + _MicData.ToString("F3")
                             + " ALC=" + _ALC.ToString("F3")
+                            + " FwdPwrDBM=" + _PowerDBM.ToString("F2")
+                            + " SWR=" + _SWR.ToString("F2")
                             + " MicInput=" + theRadio.MicInput
                             + " MicLevel=" + theRadio.MicLevel, TraceLevel.Info);
                     }
