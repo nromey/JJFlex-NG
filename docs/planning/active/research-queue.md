@@ -103,10 +103,65 @@ tracks and not one is ticked.**
     carry `coreclr.dll`, `clrjit.dll`, `hostfxr.dll` and `hostpolicy.dll`, so
     `<SelfContained>` is doing its job. What is missing is only the *proof on a
     machine without the runtime*.
-  - **Cheaper proxy than standing up a VM:** run `dotnet --list-runtimes` on the
-    Lenovo laptop. It is a test machine rather than a dev machine, and if it has
-    never had the SDK then its successful diag-build runs are meaningful
-    evidence. Not as clean as a never-had-.NET-10 VM, but nearly free.
+  - **The Lenovo is disqualified too (Noel, 2026-08-11): it was the build
+    machine in May, before the ms-02 existed.** So both available Windows boxes
+    have the SDK and neither can serve as the control. Don's and Justin's
+    machines are no better — pre-self-contained builds required a .NET 10
+    Desktop Runtime install, so testers likely acquired it that way.
+  - **USE WINDOWS SANDBOX, not a provisioned VM.** Checked on the ms-02
+    2026-08-11: `HypervisorPresent: True`, edition **Windows 11 Pro**, so it is
+    supported; the feature is simply not enabled yet
+    (`WindowsSandbox.exe` absent). Enable once with elevation plus a reboot:
+    `Enable-WindowsOptionalFeature -Online -FeatureName "Containers-DisposableClientVM"`.
+    Why it beats a VM for this specific job:
+    - **Disposable means the control cannot rot.** Every launch is a fresh
+      Windows image, so it is structurally impossible for .NET 10 to be present
+      unless something in the test installs it. A hand-built VM is clean once
+      and drifts thereafter — exactly how a fresh-VM test quietly stops proving
+      anything.
+    - **No ISO, licence or disk provisioning** — it derives from the host image.
+    - **It makes the SOP sustainable.** CLAUDE.md calls this mandatory before
+      every public release; a five-minute repeatable check gets run, a
+      provisioned-VM ritual does not.
+    - **It is verifiable without sight or a screen reader inside the sandbox,
+      which is the part that matters here.** A `.wsb` config takes
+      `MappedFolders` plus a `LogonCommand`, so the run can be fully scripted:
+      assert `dotnet --list-runtimes` is empty (proving the control is valid),
+      run the installer silently, launch `jjflexible.exe`, wait, then assert the
+      process is alive, a main window exists, and no dialog mentioning ".NET" or
+      "runtime" appeared — writing a plain-text verdict to the mapped folder.
+      **Noel reads the result file on the host with NVDA.** This is not a
+      workaround for blindness; a written assertion is stronger evidence than
+      anyone eyeballing a VM screen, and it satisfies
+      `feedback_accessibility_is_end_to_end.md` rather than straining it.
+    - Scope note: the publish-shape items (~180-190 MB, ~364 files, satellite
+      dirs, runtime DLLs present) are **host-side** checks and need no sandbox
+      at all. Only the launch-without-runtime assertion does.
+  - **REFRAME — THE TEST IS NO LONGER ABOUT .NET, AND "IT LAUNCHED FINE" IS THE
+    WRONG ASSERTION (2026-08-11).** Noel's reasoning that SmartSDR ran on Tony's
+    runtime-free machine using the same technique is sound about the *technique*
+    — and the .NET question is settled more directly than that anyway, by
+    inspection: our own output carries `coreclr.dll`, `clrjit.dll`,
+    `hostfxr.dll`, `hostpolicy.dll` and `vcruntime140_cor3.dll`. **What a fresh
+    machine uniquely catches is everything else the app silently assumes is
+    present — and the two leading candidates do not fail at launch:**
+    - **WebView2 Evergreen Runtime.** The build bundles the managed wrappers and
+      `WebView2Loader.dll`, but **the loader is a shim that loads a separately
+      installed system runtime** (Microsoft Edge WebView2 Runtime); it is not
+      the browser engine. Windows 11 preinstalls it, Windows 10 machines may
+      not. **Failure surface is SmartLink/Auth0 login, not startup** — the app
+      opens to Home perfectly and then cannot log in.
+    - **The public VC++ redistributable for the native audio DLLs.**
+      `portaudio.dll` and `libopus.dll` are bundled under
+      `runtimes/win-x64/native/`, but they are MSVC-built natives that may bind
+      to system `msvcp140.dll` / `vcruntime140.dll`. .NET's private
+      `vcruntime140_cor3.dll` is a renamed copy those natives will not use.
+      **Failure surface is audio not starting** — again, well after launch.
+    - **So the sandbox script must exercise more than a launch:** open to Home,
+      attempt a SmartLink login far enough to prove WebView2 instantiates, and
+      start the audio engine far enough to prove both natives load. A
+      launch-only check would return a green result on a machine where the two
+      things remote operators depend on are both broken.
 - **Remaining tracks:** F (tuning UX bundle, 13) and G (stuck-modal escape
   changelog, 2) — user-facing, not infrastructure, but equally unverified.
 - **Suggested shape:** do not treat this as one 83-item slog. Split it — the
