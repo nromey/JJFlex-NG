@@ -166,6 +166,22 @@ namespace POpusCodec
             }
         }
 
+        /// <summary>
+        /// False = hard CBR: every packet is exactly Bitrate/(frames per
+        /// second)/8 bytes, using Opus's internal (decode-safe) padding.
+        /// </summary>
+        public bool UseVBR
+        {
+            get
+            {
+                return Wrapper.get_opus_encoder_ctl(_handle, OpusCtlGetRequest.VBR) == 1;
+            }
+            set
+            {
+                Wrapper.set_opus_encoder_ctl(_handle, OpusCtlSetRequest.VBR, value ? 1 : 0);
+            }
+        }
+
         public bool DtxEnabled
         {
             get

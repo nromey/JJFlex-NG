@@ -393,7 +393,15 @@ namespace JJPortaudio
                 // the working client, so the encode profile is the remaining
                 // field-level difference on the TX wire; replicate it rather
                 // than improvise.
-                CBData.Encoder.Bitrate = 70000;
+                // Diag 714: hard CBR at 70400 bps — 88-byte frames at 10 ms,
+                // always a multiple of 4, so the VITA packet_size word count
+                // matches the datagram exactly on every packet. Port-latch fix
+                // (713) got packets INTO the radio but the mic meter only
+                // blipped (-88 to -120): the shape of a receiver discarding the
+                // ~75% of VBR frames whose length is not word-aligned. CBR
+                // makes every packet honest without touching the wrapping.
+                CBData.Encoder.Bitrate = 70400;
+                CBData.Encoder.UseVBR = false;
                 CBData.Encoder.Complexity = POpusCodec.Enums.Complexity.Complexity1;
                 CBData.Encoder.MaxBandwidth = POpusCodec.Enums.Bandwidth.Fullband;
                 CBData.Encoder.UseInbandFEC = false;
