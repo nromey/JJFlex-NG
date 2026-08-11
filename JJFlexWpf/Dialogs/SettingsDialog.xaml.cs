@@ -256,6 +256,13 @@ namespace JJFlexWpf.Dialogs
             SpeechVerbosityCombo.Items.Add("Chatty");               // 2
             SpeechVerbosityCombo.SelectedIndex = Math.Clamp(_audioConfig.SpeechVerbosity, 0, 2);
 
+            // Mic-audio verdict output (Audio Arc Keys Track). Item order
+            // matches MicVerdictOutputMode values.
+            MicVerdictOutputCombo.Items.Add("Plain English plus decibels (default)"); // 0 Both
+            MicVerdictOutputCombo.Items.Add("Plain English only");                    // 1 Plain
+            MicVerdictOutputCombo.Items.Add("Decibels only");                         // 2 Numbers
+            MicVerdictOutputCombo.SelectedIndex = Math.Clamp(_audioConfig.MicVerdictOutput, 0, 2);
+
             EarconsEnabledCheck.IsChecked = _audioConfig.EarconsEnabled;
 
             CwNotificationsCheck.IsChecked = _audioConfig.CwNotificationsEnabled;
@@ -1098,6 +1105,7 @@ namespace JJFlexWpf.Dialogs
 
             // Verbosity & Notifications tab
             _audioConfig.SpeechVerbosity = SpeechVerbosityCombo.SelectedIndex;
+            _audioConfig.MicVerdictOutput = Math.Clamp(MicVerdictOutputCombo.SelectedIndex, 0, 2);
             _audioConfig.EarconsEnabled = EarconsEnabledCheck.IsChecked == true;
             _audioConfig.CwNotificationsEnabled = CwNotificationsCheck.IsChecked == true;
             if (int.TryParse(CwSidetoneBox.Text, out int sidetone) && sidetone >= 400 && sidetone <= 1200)

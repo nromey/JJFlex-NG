@@ -8,7 +8,7 @@ JJ Flexible Radio Access has three operating scopes: some keys work everywhere (
 
 ## Global Hotkeys
 
-These keys work no matter where you are in the application.
+These keys work no matter where you are in the application — and "no matter where" now honestly includes dialogs. For a long while a Global key pressed inside a dialog quietly did nothing, or worse, landed on a dialog button that happened to share the keystroke (Alt+Shift+S inside the Audio Workshop used to save a preset instead of speaking your transmit status). That's fixed: press a Global key anywhere and its real command answers. A dialog's own keys still come first, so nothing a dialog needs is taken away from it.
 
 | Key | Action |
 |-----|--------|
@@ -49,6 +49,8 @@ Press `Ctrl+J` and then release it to enter layered command mode. You'll hear a 
 | A | Toggle Auto Notch |
 | P | Toggle Audio Peak Filter (APF, CW only) |
 | V | Enter volume mode — pick what to adjust, ride the arrows (see "Volume mode" below) |
+| K | Mic check — speak your mic-audio verdict and level, nothing else (see below) |
+| G | Arm or disarm the TX test tone (it replaces your microphone while transmitting) |
 | C | Toggle Compander |
 | Shift+P | Toggle Speech Processor |
 | F | Speak the TX filter width |
@@ -81,6 +83,16 @@ The targets:
 - **S** — speech processor mode: Up and Down step through Normal, DX, and DX plus. (Toggle the processor with `Ctrl+J`, `Shift+P`.)
 
 Press `?` inside volume mode to hear the target list again. Escape exits and announces it. A quick word on "on-radio": those two targets move the radio's own jacks — if you're listening over PC audio from across town, they won't change what you hear, and now they say so right in their names.
+
+### Mic check — Ctrl+J, then K
+
+The binding you ride while setting mic gain. One chord, one answer: your mic-audio verdict and level — "just right, peak minus 12 dBFS" — and nothing else in front of it. While you're transmitting it follows the last second and a half of audio, so each gain change is audible in the next check; while you're receiving it reports your last transmission's peak. You can change how the answer reads (plain English, decibels, or both) under Settings, Notifications, "Mic audio readout."
+
+### Test tone — Ctrl+J, then G
+
+Arms or disarms the Audio Workshop's TX test tone from anywhere, using your saved frequency and level — no need to open the workshop first. Same honesty rules as the workshop: if the tone can't reach the transmitter (PC audio off, transmit input not set to PC, CW mode), it refuses to arm and tells you why; if your tone frequency sits outside the transmit filter, it arms but warns you loudly that nothing will go out. While armed, every key-down announces that the tone is riding your transmission instead of your voice.
+
+One more thing about the JJ layer: it works inside dialogs now. Press `Ctrl+J` in the Audio Workshop — or any other dialog — and the layer answers exactly as it does from Home. The mic check was built with that in mind, since the workshop is precisely where you sit while adjusting mic gain.
 
 ## Band Jumping
 
@@ -139,7 +151,7 @@ These keys work when you're in either Classic or Modern tuning mode:
 
 ### Push to Talk
 
-These work while your focus is in the JJ Flexible Home:
+These work while your focus is in the JJ Flexible Home or in Home's field groups (the DSP, Audio, Receiver, Transmission, and Antenna expanders) — so you can key up while you're riding Mic Level without tabbing back to Home first:
 
 | Key | Action |
 |-----|--------|

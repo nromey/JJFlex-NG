@@ -167,6 +167,16 @@ namespace JJFlexWpf
         /// </summary>
         public bool TxToneLocalMonitor { get; set; } = true;
 
+        /// <summary>
+        /// How spoken mic-audio verdicts read (Alt+Shift+S while transmitting,
+        /// and the Ctrl+J, K mic check): 0 = plain English plus dBFS (both —
+        /// the conservative default, exactly what shipped before this
+        /// setting), 1 = plain English only, 2 = dBFS numbers only. Stored as
+        /// int for XML serialization; see <see cref="MicVerdictOutputMode"/>.
+        /// Noel asked for this explicitly (Audio Arc, 2026-08-11).
+        /// </summary>
+        public int MicVerdictOutput { get; set; } = (int)MicVerdictOutputMode.Both;
+
         /// <summary>Per-slot meter tone configurations.</summary>
         public List<MeterSlotConfig> MeterSlots { get; set; } = new();
 
@@ -254,6 +264,20 @@ namespace JJFlexWpf
             EarconDeviceNumber = EarconPlayer.GetAlertDeviceNumber();
             MeterDeviceNumber = EarconPlayer.GetMeterDeviceNumber();
         }
+    }
+
+    /// <summary>
+    /// How spoken mic-audio verdicts read. Values are the stored ints in
+    /// <see cref="AudioOutputConfig.MicVerdictOutput"/>.
+    /// </summary>
+    public enum MicVerdictOutputMode
+    {
+        /// <summary>Plain English plus the dBFS peak (default): "just right, peak -12 dBFS".</summary>
+        Both = 0,
+        /// <summary>Plain English only: "just right".</summary>
+        Plain = 1,
+        /// <summary>dBFS numbers only: "peak -12 dBFS".</summary>
+        Numbers = 2,
     }
 
     /// <summary>Frequency entry typing sound mode.</summary>
