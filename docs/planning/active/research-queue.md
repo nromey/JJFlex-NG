@@ -2,11 +2,58 @@
 
 **Working dashboard.** Distinct from `docs/planning/vision/JJFlex-TODO.md` (long-lived strategic backlog) — this file tracks what's actually queued, in flight, blocked, or waiting for Noel's read **right now**.
 
-**Last updated:** 2026-08-10 afternoon — added the PC Audio preflight/coaching item (wave 2) out of Don's TX-audio report. Prior update 2026-08-07 evening — **the queue-burn ensemble LANDED.** All eleven tracks plus the NAT lab ran as background agents and merged the same day (see the ensemble section below). Earlier setup notes retained further down for context. Claude updates this whenever items move between states. If the timestamp drifts more than a session, flag it.
+**Last updated:** 2026-08-11 — arc sequencing decided (audio → infrastructure/reporting/signing → CW) and the honest-TX-audio arc organized into `docs/planning/vision/honest-tx-audio.md`. Prior update 2026-08-10 afternoon — added the PC Audio preflight/coaching item (wave 2) out of Don's TX-audio report. Prior update 2026-08-07 evening — **the queue-burn ensemble LANDED.** All eleven tracks plus the NAT lab ran as background agents and merged the same day (see the ensemble section below). Earlier setup notes retained further down for context. Claude updates this whenever items move between states. If the timestamp drifts more than a session, flag it.
 
 **How to use:** Noel scans the sections below to pick what to fire off, or asks Claude to recommend based on what's available. Claude is expected to keep this current.
 
 ---
+
+## Arc sequencing decided 2026-08-11 (Noel)
+
+**Order: finish the audio arc → backend reporting + infrastructure + signing →
+CW rewrite.** The CW rewrite was previously "the next arc"; it is not. An
+infrastructure phase goes in front of it.
+
+**This does NOT supersede the audio work.** Noel was explicit — the
+honest-TX-audio arc (`docs/planning/vision/honest-tx-audio.md`) finishes first.
+This entry exists so the infrastructure phase is not forgotten, not to reorder
+anything in flight.
+
+**What the infrastructure phase covers:**
+
+- **Storage and processing on R2 plus rarbox/roarbox** for crash reports, user
+  feedback, and problem reports — the server side of the three report types
+  that currently have designs but no destination. Existing design memory:
+  `project_sprint29_crash_reporter_vision.md`,
+  `project_user_initiated_feedback_session.md`,
+  `project_crash_triage_bundle_flow.md`. Hosting precedent:
+  `project_data_provider_hosting.md`.
+- **The update pipeline** — `active/auto-update-research.md`,
+  `project_sprint29_updater_vision.md`, `project_chained_updater_pattern.md`.
+  Note the app-update manifest at `data.jjflexible.radio` still 404s.
+- **Code signing** — `active/signing-track.md`,
+  `project_microsoft_trusted_signing.md`.
+
+**THE TRACE BROWSER IS THE CLIENT-SIDE HALF OF THAT PIPELINE — AND IT HAS NEVER
+BEEN TESTED (Noel, 2026-08-11).** Sprint 29 Track H shipped a Trace Browser tab
+in the TraceAdmin dialog (`ff7b3b16`, 2026-05-09, on main): date/outcome/text
+filters, sortable list, detail panel, and **View / Export / Delete / Prune**
+actions over the trace archive.
+
+- **Noel does not recall ever testing it, and the evidence agrees:** the
+  Sprint 29 test matrix already carries a written checklist for it
+  (`agile/sprint29-test-matrix.md`, "Track H — Trace Archive Browser tab") with
+  **every functional box still unchecked.** The test plan exists; nobody ran it.
+  This is shipped, unverified code sitting in a release branch.
+- **Architecturally it is further along than it looks.** A crash report, a
+  feedback bundle and a problem report all need the same client-side act: *find
+  the relevant trace, select it, package it, send it.* The browser already does
+  find / filter / select / **Export**. What is missing is the transport (upload
+  to R2) and the backend that receives and processes. **So the reporting work is
+  mostly a transport-and-backend job with the selection UI already built** — and
+  testing that UI is therefore a prerequisite for the phase, not a side errand.
+- **Do this when the audio arc's radio-seat session happens**, since the browser
+  needs real archived traces to browse and the audio testing generates them.
 
 ## Decisions captured 2026-08-07 (overnight)
 
