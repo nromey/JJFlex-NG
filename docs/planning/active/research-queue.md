@@ -89,6 +89,24 @@ tracks and not one is ticked.**
   jjflexible.exe launches to Home without a runtime prompt. Those 9 items are
   unchecked, so the release-blocking test our own SOP calls mandatory has no
   record of ever running.
+  - **The ms-02 cannot serve as that proof, and it is worth writing down before
+    someone proposes it again (checked 2026-08-11).** JJFlex launching fine on
+    the ms-02 is not evidence of self-containment: `dotnet --list-runtimes`
+    there reports **Microsoft.NETCore.App 10.0.9 and
+    Microsoft.WindowsDesktop.App 10.0.9**, installed alongside SDK 10.0.301. A
+    build machine necessarily has the runtime — **the box you build on is the
+    one box that can never validate self-containment.** Nor is .NET 10 bundled
+    with Windows 11; Windows ships .NET *Framework* 4.8, a different and much
+    older product, so "it must have come with the OS" does not explain it
+    either.
+  - **The configuration itself is verified good:** the x64 Release output does
+    carry `coreclr.dll`, `clrjit.dll`, `hostfxr.dll` and `hostpolicy.dll`, so
+    `<SelfContained>` is doing its job. What is missing is only the *proof on a
+    machine without the runtime*.
+  - **Cheaper proxy than standing up a VM:** run `dotnet --list-runtimes` on the
+    Lenovo laptop. It is a test machine rather than a dev machine, and if it has
+    never had the SDK then its successful diag-build runs are meaningful
+    evidence. Not as clean as a never-had-.NET-10 VM, but nearly free.
 - **Remaining tracks:** F (tuning UX bundle, 13) and G (stuck-modal escape
   changelog, 2) — user-facing, not infrastructure, but equally unverified.
 - **Suggested shape:** do not treat this as one 83-item slog. Split it — the
