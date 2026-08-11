@@ -1259,6 +1259,10 @@ public class NativeMenuBar : IDisposable
             // Audio
             var audioSub = AddSubmenu(slice, "Audio");
             BuildAudioItems(audioSub);
+            // Audio Workshop belongs on the Audio menu, not just Tools — it's the
+            // mic-setup/monitoring surface, so operators look for it here (Noel 2026-08-11).
+            AddWired(audioSub, "Audio Workshop\tCtrl+Shift+W", () =>
+                Dialogs.AudioWorkshopDialog.ShowOrFocus(Rig, 0));
 
             // Slice management
             BuildSliceItems(slice);

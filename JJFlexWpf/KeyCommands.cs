@@ -969,11 +969,16 @@ public class KeyCommands
     private void SpeakTxStatusHandler()
     {
         var mw = _context.GetMainWindow();
-        var pttStatus = mw?.GetPttStatusText();
-        if (pttStatus != null)
-            Radios.ScreenReaderOutput.Speak(pttStatus, Radios.VerbosityLevel.Terse, true);
-        else
-            Radios.ScreenReaderOutput.Speak("Receiving", Radios.VerbosityLevel.Terse, true);
+        var text = mw?.GetPttStatusText() ?? "Receiving";
+
+        // Live mic-audio verdict while transmitting, so an operator can adjust mic
+        // gain and hear the effect WITHOUT stopping an audio check. The recent
+        // (~1.5 s) peak follows the level down, unlike the whole-transmit peak.
+        var rig = _context.GetRigControl();
+        if (rig != null && rig.Transmit && rig.ScMicRecentDb > -140f)
+            text += $". Mic audio {Dialogs.AudioWorkshopDialog.MicAudioVerdict(rig.ScMicRecentDb)}, peak {rig.ScMicRecentDb:F0} dBFS";
+
+        Radios.ScreenReaderOutput.Speak(text, Radios.VerbosityLevel.Terse, true);
     }
 
     private void RepeatLastMessageHandler()

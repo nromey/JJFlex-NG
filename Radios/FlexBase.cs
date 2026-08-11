@@ -1881,8 +1881,8 @@ namespace Radios
             {
                 string msg = ScreenReaderOutput.CurrentVerbosity switch
                 {
-                    VerbosityLevel.Chatty => "JJ Flexible disconnected from radio",
-                    VerbosityLevel.Terse  => "Disconnected from radio",
+                    VerbosityLevel.Chatty => "JJ Flexible Access disconnected from radio",
+                    VerbosityLevel.Terse  => "JJ Flexible disconnected",
                     _                     => "Disconnected"
                 };
                 ScreenReaderOutput.Speak(msg, VerbosityLevel.Critical, true);
@@ -6935,11 +6935,18 @@ namespace Radios
         // All values dBFS.
         private bool _txMetersHooked;
         private float _scMicDb = -150f, _scMicMaxDb = -150f, _swAlcDb = -150f;
+        private float _scMicRecentDb = -150f;
+        private int _scMicRecentTime;
         /// <summary>Instantaneous SC_MIC — transmit mic audio from any source, dBFS.</summary>
         public float ScMicDb => _scMicDb;
         /// <summary>Max SC_MIC since the last <see cref="ResetScMicMax"/> — a peak-hold
-        /// across a transmit window so the gaps between spoken words don't read as silence.</summary>
+        /// across a transmit window so the gaps between spoken words don't read as silence.
+        /// Use for the silent-mic warning and end-of-check verdict.</summary>
         public float ScMicMaxDb => _scMicMaxDb;
+        /// <summary>Peak SC_MIC over a rolling ~1.5 s window, dBFS. Follows the level down
+        /// after ~1.5 s, so a LIVE "how's my audio" query tracks mic-gain changes mid-transmit
+        /// (where <see cref="ScMicMaxDb"/> only ever grows).</summary>
+        public float ScMicRecentDb => _scMicRecentDb;
         /// <summary>SW ALC — transmit drive after software ALC (SSB peak), dBFS. Distinct from
         /// <see cref="ALC"/> (=HWALC, the external-amplifier jack).</summary>
         public float SwAlcDb => _swAlcDb;
@@ -6950,7 +6957,13 @@ namespace Radios
             if (_txMetersHooked || theRadio == null) return;
             var sc = theRadio.FindMeterByName("SC_MIC");
             var alc = theRadio.FindMeterByName("ALC");
-            if (sc != null) sc.DataReady += (m, d) => { _scMicDb = d; if (d > _scMicMaxDb) _scMicMaxDb = d; };
+            if (sc != null) sc.DataReady += (m, d) =>
+            {
+                _scMicDb = d;
+                if (d > _scMicMaxDb) _scMicMaxDb = d;
+                int now = System.Environment.TickCount;
+                if (d >= _scMicRecentDb || (now - _scMicRecentTime) > 1500) { _scMicRecentDb = d; _scMicRecentTime = now; }
+            };
             if (alc != null) alc.DataReady += (m, d) => _swAlcDb = d;
             if (sc != null && alc != null) _txMetersHooked = true;
         }
