@@ -220,8 +220,31 @@ an external tone player piped through a virtual audio cable. A built-in
 generator removes that rig entirely, and it is how we calibrate the verdict
 thresholds in the first place.
 
-- Default **440 Hz** (A440, the media-business reference), adjustable to 1 kHz
-  and elsewhere, with adjustable level.
+- Default **440 Hz** (A440, the media-business reference), with adjustable level.
+- **Frequency is adjustable as an ACCESSIBILITY requirement, not a convenience
+  (Noel, 2026-08-11).** Hearing varies — age-related loss, noise-induced loss,
+  asymmetric loss — and **a test tone the operator cannot hear is useless for
+  the thing the tone is for**: confirming the check is actually running and
+  hearing what your transmit chain does to it. 440 Hz is a good default, not a
+  universally good choice. The operator picks; we suggest.
+  - **This setting is per-operator, not per-radio.** Hearing does not change
+    when you switch rigs, so it belongs in app settings and not the
+    serial-keyed per-radio config. It persists across sessions — nobody should
+    re-dial it every time.
+  - **Named presets plus free entry**, per the progressive-disclosure pattern
+    used elsewhere in this arc: a short list (440 Hz reference, 1 kHz standard
+    test, 700 Hz CW-like) with a raw frequency field for anyone who wants it.
+  - **Constrain or warn against frequencies outside the TX filter passband.**
+    This is the trap: SSB transmit filters typically run roughly 100–2900 Hz,
+    so an operator who moves the tone to where *they* hear best can land
+    outside the passband and **transmit nothing at all** — silently, while
+    believing they are testing. The app already knows the TX filter low and
+    high (the Audio Workshop surfaces them with a width readout), so either
+    clamp the range to the live passband or speak a plain warning: "that tone
+    is outside your transmit filter — nothing will go out." Never let this fail
+    quietly; it is the same class of defect as the meter that lied.
+  - **Relevant tester:** Patrick (BHN) is the hearing-loss axis in the tester
+    pool — see `memory/patrick_bh_network_tester.md`.
 - **Replace the mic, do not mix** — mute the real input while the tone runs so
   only the clean tone transmits with no room bleed. Insert at the input stage
   ahead of the pipeline.
@@ -365,6 +388,12 @@ Small, independent, surfaced during the same investigation:
   alone solve the confusion.
 - Verdict thresholds are currently −30 / −6 dBFS by judgment; the tone generator
   is how we calibrate them honestly.
+- Whether the tone generator **clamps** its frequency range to the live TX
+  filter passband or **allows-and-warns**. Clamping cannot mislead but silently
+  removes a choice; warning respects the operator but relies on them hearing it.
+  Leaning allow-and-warn, on the flexibility principle — but the warning has to
+  be unmissable, because the failure mode is transmitting nothing while
+  believing otherwise.
 - For never-configured users, whether audio devices default to
   follow-Windows-default on both directions. Existing users keep pinned devices
   untouched either way.
