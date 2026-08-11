@@ -96,6 +96,46 @@ tracks and not one is ticked.**
   (verify, then deploy, then build the report backend on top), while F and G
   ride along with whatever radio-seat session happens next.
 
+**SPLIT BY WHAT ACTUALLY NEEDS A RADIO (Noel, 2026-08-11 — "mechanics of making
+sure buttons click, CW announces right, etc. can easily be tested with this
+radio rather than tying up Don's").** Read against the matrix, the radio burden
+is far smaller than 83 items suggests:
+
+- **NO RADIO AT ALL — 45 of 83 items.** Track D (updater client: on-demand
+  check, SHA-256 tamper detection, channel selector), Track G (changelog prose
+  review), Track J (build output size/file count/satellite dirs, fresh-VM
+  install), Track M (helper waits for PID, per-file backup→download→rename,
+  SHA-mismatch rollback), Track N (`manifest_gen.py` dry run, R2 upload,
+  hash-match skip, XZ magic-byte check). These are file, network and build
+  assertions. **A rig would not participate even if one were connected.**
+- **NEEDS ARCHIVED TRACES, NOT A LIVE RADIO — Track H's 16.** Tab visibility,
+  filters, sorting, detail panel, View/Export/Delete/Prune all operate on the
+  archive. **The audio investigation has already generated a large trace corpus**,
+  so the archive is likely populated enough to test against right now.
+- **NEEDS A RADIO, AND THE BENCH 8600 FULLY SUFFICES — 22 items.** Track A's 9
+  (connect/disconnect archiving, AS-retry marker, killed-session detection) and
+  Track F's 13 (coarse/fine tuning steps, the retired `C` binding, the split
+  Settings fields). **No antenna required** — none of it transmits.
+- **NEEDS DON'S RADIO: ZERO ITEMS.** Nothing in Sprint 29's matrix requires his
+  6300, which matters because his radio is a production station and never a test
+  target (`memory/project_don_radio_lives_at_tonys.md`).
+
+**Two consequences worth acting on:**
+
+1. **Testing Track N IS the deployment.** N's items run `manifest_gen.py` and
+   push to `data.jjflexible.radio` — so working through that track produces the
+   manifest whose absence is the current 404, which in turn unblocks Track D's
+   items (D needs a manifest to fetch). The update pipeline therefore has a
+   natural test ORDER that is also a rollout order: **N → deploy → D → M → J's
+   fresh-VM install as the end-to-end proof.** Do not test them in matrix order.
+2. **D, M and N are largely scriptable, so background agents can run them.**
+   Hash comparisons, XZ magic bytes (`FD 37 7A 58 5A`), helper.log assertions,
+   PID-exit sequencing and upload skip-on-hash-match are all machine-checkable
+   without a human or a screen reader. Track J's size and file-count assertions
+   too — only its fresh-VM launch needs a person. **What genuinely needs Noel at
+   the keyboard with NVDA is Track H's browser mechanics, Track A's labels, and
+   Track F's tuning feel.**
+
 ## Decisions captured 2026-08-07 (overnight)
 
 - **Reboot gets a second home on the Radio menu** (Noel's call; Radio Setup step 7 stays). The Radio menu grows a maintenance section: Reboot, firmware update entry, plus other radio-function candidates at Claude's judgment (rename lands there via Track F's Radio Setup work). → Track A.
