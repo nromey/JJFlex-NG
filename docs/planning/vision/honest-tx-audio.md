@@ -255,8 +255,32 @@ twin of the same meter plumbing Track A's readouts use.
   point; while transmitting, it is a preamble in front of the one thing they
   lack. Make the command **context-aware**: lead with verdict and peak while
   keyed, keep today's behaviour while receiving.
+- **THE BETTER PRIMARY: a read-only EDIT field carrying the live reading,
+  placed immediately before the Start Test button in tab order (Noel,
+  2026-08-11).** Shift+Tab from Start Test lands on it. Two reasons this beats a
+  spoken command as the main route:
+  - **A read-only *edit* is focusable and review-readable; a label is not.**
+    Static text gets skipped by tab order and is awkward to re-read on demand.
+    This is the screen-reader-native way to expose a live value, and it is worth
+    treating as a house pattern rather than a one-off.
+  - **It means the app does not need a "speak my level" command at all — the
+    screen reader already has one.** Sitting on the field, NVDA's read-current-
+    control command polls the value as often as the operator wants, with no
+    binding to remember, no chord to collide with, and no speech firing when
+    they did not ask.
+  - **Update mechanics, learned from Track A's expander field:** keep the text
+    current continuously so review reads fresh, but **do not fire live-region or
+    name-change notifications**, or a value that moves twice a second floods
+    NVDA. Fresh on demand, silent otherwise.
+- **`Ctrl+S` for Save Preset** — Noel's suggestion, and it resolves the specific
+  collision: moving Save off the `Alt+Shift+S` mnemonic frees that chord inside
+  the Workshop. Worth doing regardless of the general routing fix, since it is
+  the conventional Save key and the current binding was accidental.
+- **A hotkey to start the test**, so the adjust-and-hear loop does not require
+  finding a button.
 - **Add a dedicated mic-audio query on the `Ctrl+J` leader** that speaks *only*
-  verdict and level. That is the binding an operator rides while adjusting gain,
+  verdict and level — the secondary route, for operators who prefer speech to
+  navigation, and **context-aware per Noel (2026-08-11)**. That is the binding an operator rides while adjusting gain,
   it costs no new flat hotkey, and it fits the leader-as-audio-hub framing.
   **It also works where `Alt+Shift+S` currently does not:** the Audio Workshop
   swallows that chord as a Save Preset mnemonic (see the global-routing defect),
