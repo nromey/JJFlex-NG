@@ -245,6 +245,23 @@ twin of the same meter plumbing Track A's readouts use.
   detail on request — fits the verbosity architecture and the Sprint 29
   diagnostics tab.
 - **Live-verdict output configurable:** plain English, dBFS, or both.
+- **DROP THE TRANSMIT-STATUS PREAMBLE WHILE TRANSMITTING (Noel, field use
+  2026-08-11: "I really don't need to hear my TX before mic if we're going to
+  use this to monitor audio").** `Alt+Shift+S` currently speaks
+  `GetPttStatusText()` and *then* appends the mic verdict, so riding mic gain
+  means hearing "Transmitting on 14.100…" before every reading. **The principle:
+  transmit state is only information when the operator does not already know it
+  — and they just keyed the radio.** While receiving, the status is the entire
+  point; while transmitting, it is a preamble in front of the one thing they
+  lack. Make the command **context-aware**: lead with verdict and peak while
+  keyed, keep today's behaviour while receiving.
+- **Add a dedicated mic-audio query on the `Ctrl+J` leader** that speaks *only*
+  verdict and level. That is the binding an operator rides while adjusting gain,
+  it costs no new flat hotkey, and it fits the leader-as-audio-hub framing.
+  **It also works where `Alt+Shift+S` currently does not:** the Audio Workshop
+  swallows that chord as a Save Preset mnemonic (see the global-routing defect),
+  and the Workshop is precisely where someone sits while adjusting mic gain.
+  Leader chords are not mnemonics, so this route is unaffected.
 - **Measurement-point caveat:** PC-side LUFS is clean for the PC-audio path;
   the analog-at-the-radio path has no PC-side samples and falls back to the
   SC_MIC/ALC meters. First cut targets PC audio — the remote operators who most
