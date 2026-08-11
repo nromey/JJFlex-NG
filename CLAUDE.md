@@ -44,7 +44,7 @@ You are a pair coder, not a human contractor. Do NOT constrain decisions by huma
 - **Platforms**: x64 (primary), x86 (legacy support)
 - **UI**: WinForms (primary), WPF (UiWpfFramework)
 - **Auth**: WebView2 (Edge/Chromium) for SmartLink Auth0
-- **Native deps**: Opus 1.5.2, PortAudio 19.7.0 (architecture-specific in `runtimes/`)
+- **Native deps**: **Opus 1.6.1**, PortAudio 19.7.0-devel (architecture-specific in `runtimes/`). This line claimed Opus 1.5.2 until 2026-08-11 and was wrong — the shipped DLLs are 1.6.1 on **both** x64 and x86. **Verify, do not trust this line:** the DLLs carry no Win32 version resource, but both embed a readable version string, so `opus_get_version_string()` / `Pa_GetVersionText()` — or simply searching the binary for `libopus 1.` / `PortAudio V` — gives the truth in seconds. PortAudio reports "revision unknown", meaning it was built without git revision info; if it is ever rebuilt from a master snapshot, record the snapshot date here the way FlexLib's version is pinned above.
 - **Installer**: NSIS via `install.bat` + `install template.nsi`
 
 ## Project Structure
