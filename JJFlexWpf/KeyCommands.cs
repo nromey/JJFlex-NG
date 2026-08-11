@@ -2483,16 +2483,19 @@ public class KeyCommands
                 else ToggleLeaderDSP("Wideband NB",
                     () => rig.WidebandNoiseBlanker, v => rig.WidebandNoiseBlanker = v);
                 break;
+            // "On-Radio" prefix (DSP controls track, 2026-08-11): these two
+            // have PC-side namesakes on Shift+R/Shift+S — the spoken names
+            // now say which side of the wire each one lives on.
             case Keys.R:
                 if (rig == null)
                     LeaderNoRadio();
                 else if (!rig.NeuralNRHardwareSupported)
                 {
                     EarconPlayer.LeaderInvalidTone();
-                    Radios.ScreenReaderOutput.Speak("Neural NR not available on this radio", Radios.VerbosityLevel.Critical);
+                    Radios.ScreenReaderOutput.Speak("On-Radio Neural NR not available on this radio", Radios.VerbosityLevel.Critical);
                 }
                 else
-                    ToggleLeaderDSP("Neural NR",
+                    ToggleLeaderDSP("On-Radio Neural NR",
                         () => rig.NeuralNoiseReduction, v => rig.NeuralNoiseReduction = v);
                 break;
             case Keys.S:
@@ -2501,10 +2504,10 @@ public class KeyCommands
                 else if (!rig.NeuralNRHardwareSupported)
                 {
                     EarconPlayer.LeaderInvalidTone();
-                    Radios.ScreenReaderOutput.Speak("Spectral NR not available on this radio", Radios.VerbosityLevel.Critical);
+                    Radios.ScreenReaderOutput.Speak("On-Radio Spectral NR not available on this radio", Radios.VerbosityLevel.Critical);
                 }
                 else
-                    ToggleLeaderDSP("Spectral NR",
+                    ToggleLeaderDSP("On-Radio Spectral NR",
                         () => rig.SpectralNoiseReduction, v => rig.SpectralNoiseReduction = v);
                 break;
             case Keys.N | Keys.Shift:
@@ -2536,6 +2539,7 @@ public class KeyCommands
                         pipeline.RnnEnabled = !pipeline.RnnEnabled;
                         if (pipeline.RnnEnabled) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
                         Radios.ScreenReaderOutput.Speak($"PC Neural NR {(pipeline.RnnEnabled ? "on" : "off")}", Radios.VerbosityLevel.Terse);
+                        _context.GetMainWindow()?.PersistDspSettings();
                     }
                 }
                 break;
@@ -2553,11 +2557,41 @@ public class KeyCommands
                     {
                         pipeline.SpectralEnabled = !pipeline.SpectralEnabled;
                         if (pipeline.SpectralEnabled) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
+                        // The no-profile message names the exit now (DSP
+                        // controls track) — it used to announce a dead end
+                        // nothing in the app could resolve.
                         string msg = pipeline.SpectralEnabled
-                            ? (pipeline.HasNoiseProfile ? "PC Spectral NR on" : "PC Spectral NR on, no noise profile loaded")
+                            ? (pipeline.HasNoiseProfile
+                                ? "PC Spectral NR on"
+                                : "PC Spectral NR on, no noise profile loaded. Press Control J then Q to capture one.")
                             : "PC Spectral NR off";
                         Radios.ScreenReaderOutput.Speak(msg, Radios.VerbosityLevel.Terse);
+                        _context.GetMainWindow()?.PersistDspSettings();
                     }
+                }
+                break;
+
+            // DSP controls track (2026-08-11): Q = capture a noise profile
+            // for PC Spectral NR — Q for "quiet", the thing you're capturing
+            // (hams may prefer to read it as QRN). Press Q again while the
+            // capture runs to cancel it. The narrator speaks start, each
+            // second, and the result; a completed capture auto-saves and is
+            // reloaded on the next connect. Works on every radio — the
+            // pipeline runs on this computer.
+            case Keys.Q:
+                {
+                    var win = _context.GetMainWindow();
+                    var pipeline = win?.FieldsPanel.AudioPipeline;
+                    if (rig == null)
+                        LeaderNoRadio();
+                    else if (pipeline == null)
+                    {
+                        EarconPlayer.LeaderInvalidTone();
+                        Radios.ScreenReaderOutput.Speak("PC audio pipeline not ready", Radios.VerbosityLevel.Critical);
+                    }
+                    else
+                        NoiseCaptureNarrator.Toggle(rig, pipeline,
+                            win?.CurrentAudioConfig?.SpectralSubSampleDuration ?? 3);
                 }
                 break;
 

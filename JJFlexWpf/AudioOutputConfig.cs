@@ -99,8 +99,24 @@ namespace JJFlexWpf
         /// <summary>Spectral subtraction strength 0.0-1.0.</summary>
         public float SpectralSubStrength { get; set; } = 0.7f;
 
-        /// <summary>Noise sampling duration in seconds (1-5).</summary>
-        public int SpectralSubSampleDuration { get; set; } = 2;
+        /// <summary>
+        /// Spectral floor 0.0-1.0 — how much of the original audio survives
+        /// subtraction, the guard against musical-noise artifacts. DSP
+        /// controls track, 2026-08-11.
+        /// </summary>
+        public float SpectralSubFloor { get; set; } = 0.02f;
+
+        /// <summary>Noise sampling duration in seconds (1-5). Default 3 per the
+        /// ratified capture-window decision (was 2 — nothing ever read this
+        /// field until the DSP controls track, 2026-08-11).</summary>
+        public int SpectralSubSampleDuration { get; set; } = 3;
+
+        /// <summary>
+        /// Full path of the last noise profile loaded or captured, so PC
+        /// Spectral NR picks up the same profile on the next connect instead
+        /// of announcing "no noise profile loaded" forever. Empty = none.
+        /// </summary>
+        public string NoiseProfileLastPath { get; set; } = "";
 
         /// <summary>Whether CW Morse code notifications are enabled (AS/BT/SK prosigns).</summary>
         public bool CwNotificationsEnabled { get; set; }

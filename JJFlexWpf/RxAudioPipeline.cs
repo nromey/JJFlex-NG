@@ -109,8 +109,9 @@ namespace JJFlexWpf
 
         // --- Noise profile management ---
 
-        /// <summary>Start sampling noise. Call when the band is quiet.</summary>
-        public void StartNoiseSampling(int durationSeconds = 2)
+        /// <summary>Start sampling noise. Call when the band is quiet.
+        /// Default 3 seconds (range 1-5) per the ratified capture-window decision.</summary>
+        public void StartNoiseSampling(int durationSeconds = 3)
         {
             _spectralSub.StartSampling(durationSeconds);
         }

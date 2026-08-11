@@ -299,16 +299,21 @@ public static class KeyInventory
             new[] { "nb", "noise", "blanker", "leader", "toggle" }, "Radio", "DSP"),
         new("Leader", "Leader key", "Ctrl+J, W", "Toggle Wideband Noise Blanker",
             new[] { "wnb", "wideband", "noise", "blanker", "leader" }, "Radio", "DSP"),
-        new("Leader", "Leader key", "Ctrl+J, R", "Toggle Neural Noise Reduction",
-            new[] { "rnn", "neural", "noise", "reduction", "leader" }, "Radio", "DSP"),
-        new("Leader", "Leader key", "Ctrl+J, S", "Toggle Spectral Noise Reduction",
-            new[] { "nrs", "spectral", "noise", "reduction", "leader" }, "Radio", "DSP"),
+        new("Leader", "Leader key", "Ctrl+J, R", "Toggle On-Radio Neural Noise Reduction (the radio's own DSP)",
+            new[] { "rnn", "neural", "noise", "reduction", "on-radio", "leader" }, "Radio", "DSP"),
+        new("Leader", "Leader key", "Ctrl+J, S", "Toggle On-Radio Spectral Noise Reduction (the radio's own DSP)",
+            new[] { "nrs", "spectral", "noise", "reduction", "on-radio", "leader" }, "Radio", "DSP"),
         new("Leader", "Leader key", "Ctrl+J, Shift+N", "Toggle NR Filter",
             new[] { "nr", "filter", "noise", "leader" }, "Radio", "DSP"),
         new("Leader", "Leader key", "Ctrl+J, Shift+R", "Toggle PC Neural Noise Reduction (runs on your computer)",
             new[] { "pc", "neural", "noise", "reduction", "leader" }, "Radio", "DSP"),
         new("Leader", "Leader key", "Ctrl+J, Shift+S", "Toggle PC Spectral Noise Reduction (runs on your computer)",
             new[] { "pc", "spectral", "noise", "reduction", "leader" }, "Radio", "DSP"),
+        // DSP controls track (2026-08-11) — Q for "quiet": capture what the
+        // band sounds like with nobody talking, so Spectral NR can subtract it.
+        new("Leader", "Leader key", "Ctrl+J, Q", "Capture a noise profile for PC Spectral NR (press Q again to cancel)",
+            new[] { "noise", "profile", "capture", "quiet", "qrn", "sample", "spectral", "sub",
+                    "subtraction", "baseline", "leader" }, "Radio", "DSP"),
         new("Leader", "Leader key", "Ctrl+J, A", "Toggle Auto Notch",
             new[] { "anf", "auto", "notch", "leader" }, "Radio", "DSP"),
         new("Leader", "Leader key", "Ctrl+J, P", "Toggle Audio Peak Filter (CW only)",
@@ -441,6 +446,16 @@ public static class KeyInventory
             Scope = "Radio", Group = "Antenna",
             MenuText = "Slice menu, Antenna, RX Antenna",
             Keywords = new[] { "antenna", "rx", "receive", "ant1", "ant2", "rxa", "rxb" },
+        },
+        // DSP controls track (2026-08-11) — the PC noise reduction room:
+        // strengths, floor, capture duration, and the saved-profile shelf.
+        new FixedKeyEntry
+        {
+            Description = "Noise Profiles dialog - PC noise reduction strengths, capture duration, save and load profiles",
+            Scope = "Radio", Group = "DSP",
+            MenuText = "Slice menu, DSP, PC Noise Reduction, Noise Profiles (also the DSP field group's Noise Profiles button)",
+            Keywords = new[] { "noise", "profile", "profiles", "spectral", "neural", "rnn", "strength",
+                               "floor", "capture", "duration", "save", "load", "pc", "reduction", "folder" },
         },
     };
 
