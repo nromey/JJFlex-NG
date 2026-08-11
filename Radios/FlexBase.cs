@@ -12102,6 +12102,25 @@ namespace Radios
             crnt = GetProfilesByType(ProfileTypes.mic, GetDefaultProfiles());
             if (crnt.Count > 0) SelectProfile(crnt[0]);
 
+            // THE PC-AUDIO-TX FIX (2026-08-10, pcap-diffed against SmartSDR):
+            // if no default MIC profile was selected above, the radio can be
+            // left with an EMPTY mic profile — profile-mic-current="" — which
+            // leaves the transmit-audio DSP chain unconfigured, so PC (remote)
+            // transmit audio modulates NOTHING (SC_MIC meter pinned at -120).
+            // SmartSDR keeps mic profile "Default" and transmits fine; loading
+            // the "JJRadioDefault" GLOBAL profile does not carry a mic profile,
+            // so ours came up empty and PC-audio TX never worked in the modern
+            // app. Guarantee a valid mic profile whenever one isn't set.
+            if (theRadio != null
+                && string.IsNullOrEmpty(theRadio.ProfileMICSelection)
+                && theRadio.ProfileMICList.Count > 0)
+            {
+                string micPick = theRadio.ProfileMICList.Contains("Default")
+                    ? "Default" : theRadio.ProfileMICList[0];
+                Tracing.TraceLine("GetProfileInfo:mic profile empty, selecting " + micPick, TraceLevel.Info);
+                theRadio.ProfileMICSelection = micPick;
+            }
+
             // Allocate any free slices.
             if (MyNumSlices < initialFreeSlices)
             {
