@@ -6881,6 +6881,7 @@ namespace Radios
         private void micData(float data)
         {
             _MicData = data;
+            hookTxMeters(); // lazy: SC_MIC / SW ALC meters exist by the first mic-meter event
             Tracing.TraceLine("micData:" + data.ToString(), TraceLevel.Verbose);
             MeterChanged?.Invoke(this, MeterType.Mic, data);
         }
@@ -6905,7 +6906,11 @@ namespace Radios
 
         private float _ALC;
         /// <summary>
-        /// Current ALC level from hardware meter. Updated by meter callback.
+        /// Current HARDWARE ALC — the voltage on the external-amplifier ALC RCA
+        /// jack, dBFS. This is amp-overdrive-protection feedback (older amps use
+        /// it), NOT the radio's transmit drive. Reads ~0 with no amp connected.
+        /// For transmit-drive level use <see cref="SwAlcDb"/>. Kept and correctly
+        /// scoped as of 2026-08-11 (it was previously mislabeled the TX "ALC").
         /// </summary>
         public float ALC => _ALC;
 
@@ -6914,6 +6919,40 @@ namespace Radios
             _ALC = data;
             Tracing.TraceLine("hwALCData:" + data.ToString(), TraceLevel.Verbose);
             MeterChanged?.Invoke(this, MeterType.ALC, data);
+        }
+
+        // --- Transmit-audio meters (2026-08-11) ------------------------------
+        // FlexLib raises no dedicated event for SC_MIC or the SW ALC meter, so
+        // we hook their DataReady directly via FindMeterByName. Why these:
+        //   * SC_MIC ("MIC output") sits downstream of mic SELECTION, so it
+        //     reflects transmit audio from EITHER source — the analog mic AND
+        //     PC/codec audio. MicData (the COD-/MIC meter, "MIC in CODEC") is the
+        //     analog ADC path and reads -120 for PC audio, which is why the old
+        //     "Check microphone" warning cried wolf on every PC-audio transmit.
+        //   * SW ALC is the real transmit-drive meter (the ALC property above is
+        //     HWALC, the external-amp jack).
+        // Proven with a two-source meter truth table on the bench 2026-08-11.
+        // All values dBFS.
+        private bool _txMetersHooked;
+        private float _scMicDb = -150f, _scMicMaxDb = -150f, _swAlcDb = -150f;
+        /// <summary>Instantaneous SC_MIC — transmit mic audio from any source, dBFS.</summary>
+        public float ScMicDb => _scMicDb;
+        /// <summary>Max SC_MIC since the last <see cref="ResetScMicMax"/> — a peak-hold
+        /// across a transmit window so the gaps between spoken words don't read as silence.</summary>
+        public float ScMicMaxDb => _scMicMaxDb;
+        /// <summary>SW ALC — transmit drive after software ALC (SSB peak), dBFS. Distinct from
+        /// <see cref="ALC"/> (=HWALC, the external-amplifier jack).</summary>
+        public float SwAlcDb => _swAlcDb;
+        /// <summary>Reset the SC_MIC peak-hold. Call at transmit start.</summary>
+        public void ResetScMicMax() => _scMicMaxDb = -150f;
+        private void hookTxMeters()
+        {
+            if (_txMetersHooked || theRadio == null) return;
+            var sc = theRadio.FindMeterByName("SC_MIC");
+            var alc = theRadio.FindMeterByName("ALC");
+            if (sc != null) sc.DataReady += (m, d) => { _scMicDb = d; if (d > _scMicMaxDb) _scMicMaxDb = d; };
+            if (alc != null) alc.DataReady += (m, d) => _swAlcDb = d;
+            if (sc != null && alc != null) _txMetersHooked = true;
         }
 
         private void txBandSettingsHandler(TxBandSettings settings)

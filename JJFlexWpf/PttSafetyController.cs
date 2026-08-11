@@ -68,7 +68,20 @@ namespace JJFlexWpf
         // ALC zero-signal tracking
         private int _alcZeroConsecutiveSeconds;
 
-        // TX health monitor — warn once per TX session
+        // TX health monitor — warn once per TX session.
+        // 2026-08-11 rewrite: judge transmit audio by SC_MIC (universal across
+        // the analog mic AND PC audio — see FlexBase) using a peak-hold over the
+        // window so speech pauses don't read as silence, and by SW ALC for drive
+        // (not HWALC, the external-amp jack the old code used). Thresholds in
+        // dBFS; tunable. Silent: even the loudest moment in the window never rose
+        // above the floor. Hot: SW ALC pegging near 0 dBFS.
+        private const float SilentMicDbfs = -45f;
+        private const float AlcHotDbfs = -0.3f;
+        // "No transmit signal this second" for the dead-carrier auto-release —
+        // SW ALC below this means essentially no modulation. (Old code read
+        // HWALC, always ~0, so it treated EVERY transmission as dead and would
+        // auto-unkey any lock held past AlcAutoReleaseSeconds.)
+        private const float NoSignalDbfs = -50f;
         private bool _healthSilentMicWarned;
         private bool _healthAlcHighWarned;
         private int _healthLockSeconds;
@@ -247,6 +260,7 @@ namespace JJFlexWpf
             _healthSilentMicWarned = false;
             _healthAlcHighWarned = false;
             _healthLockSeconds = 0;
+            _getRigControl()?.ResetScMicMax(); // start the SC_MIC peak-hold fresh for this TX
 
             _updateStatusDisplay?.Invoke("TX Locked");
             if (_config.SpeechEnabled)
@@ -423,13 +437,13 @@ namespace JJFlexWpf
             var rig = _getRigControl();
             if (rig == null) return;
 
-            // Skip ALC monitoring when dummy load mode is active — ALC is always zero
+            // Skip dead-carrier monitoring in dummy load mode — drive behaves differently
             if (rig.DummyLoadMode) { _alcZeroConsecutiveSeconds = 0; return; }
 
-            // Skip ALC monitoring when disabled (0 = disabled)
+            // Skip when disabled (0 = disabled)
             if (_config.AlcAutoReleaseSeconds <= 0) return;
 
-            if (rig.ALC <= 0.001f) // effectively zero
+            if (rig.SwAlcDb < NoSignalDbfs) // no modulation this second (was HWALC, always ~0)
             {
                 _alcZeroConsecutiveSeconds++;
                 if (_alcZeroConsecutiveSeconds >= _config.AlcAutoReleaseSeconds)
@@ -448,18 +462,24 @@ namespace JJFlexWpf
             _healthLockSeconds++;
             if (_healthLockSeconds >= 5)
             {
-                if (!_healthSilentMicWarned && rig.MicData < 0.01f && rig.ALC <= 0.001f)
+                // Silent mic: the loudest moment of transmit audio over the whole
+                // locked window never rose above the floor. SC_MIC reflects PC
+                // audio AND the analog mic; the peak-hold ignores the quiet gaps
+                // between words. (Old code read MicData — the COD-/MIC meter, dead
+                // for PC audio — and compared dBFS against a linear 0.01, so it
+                // cried wolf on every PC-audio transmit.)
+                if (!_healthSilentMicWarned && rig.ScMicMaxDb < SilentMicDbfs)
                 {
                     _healthSilentMicWarned = true;
                     ScreenReaderOutput.Speak("Check microphone", VerbosityLevel.Critical);
-                    Tracing.TraceLine("PTT: Health warning — silent mic", TraceLevel.Info);
+                    Tracing.TraceLine($"PTT: Health warning — silent mic (SC_MIC peak {rig.ScMicMaxDb:F1} dBFS)", TraceLevel.Info);
                 }
 
-                if (!_healthAlcHighWarned && rig.ALC > 0.95f)
+                if (!_healthAlcHighWarned && rig.SwAlcDb > AlcHotDbfs)
                 {
                     _healthAlcHighWarned = true;
                     ScreenReaderOutput.Speak("Microphone level too high", VerbosityLevel.Critical);
-                    Tracing.TraceLine("PTT: Health warning — ALC pegging", TraceLevel.Info);
+                    Tracing.TraceLine($"PTT: Health warning — ALC pegging (SW ALC {rig.SwAlcDb:F1} dBFS)", TraceLevel.Info);
                 }
             }
         }
