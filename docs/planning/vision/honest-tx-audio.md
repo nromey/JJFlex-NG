@@ -295,6 +295,46 @@ thresholds in the first place.
   locally. Both answers are legitimate: confirm by ear, or keep quiet.
 - Lives in the Audio Workshop.
 
+### Track C-2 — the Audio Check should not transmit by default
+
+**Noel at the radio, 2026-08-11, seeing the safety line: "you have it at 10
+watts. If you have no antenna, that's a bit high."** Correct, and the fix is
+mostly wiring something that already exists.
+
+**Current behaviour, verified:** `AudioWorkshopDialog.xaml.cs:1745-1750` reads
+`if (_lowPower && currentPower > 10) rig.XmitPower = 10`. So **10 W is a
+ceiling, not a setting** — it only ever lowers power, never raises it, and it
+**cannot override dummy load** because 0 is not greater than 10. That is better
+than it first appears, but 10 W is still the wrong ceiling for a bench with no
+antenna, and there is no way to choose the value.
+
+**`DummyLoadMode` already exists and is already on the menu** —
+`FlexBase.cs:9825` zeroes both `XmitPower` and `TunePower` and restores them on
+disable, and `PttSafetyController.cs:464` already skips the ALC auto-release
+check while it is active (correct — no ALC at zero power must not read as a
+dead mic). It is simply not wired into the Audio Check.
+
+**The design point, which is stronger than "lower the number": an audio check
+does not need RF at all.** Every meter the coaching depends on — `SC_MIC`,
+SW `ALC`, and the LUFS metering in Track B — sits **upstream of the power
+amplifier**, so the measurement is identical at 0 W and at 100 W. And the risk
+is not only the finals: **with a tone armed, a 10 W audio check transmits a
+steady 440 Hz carrier onto whatever frequency the operator is tuned to** —
+possibly an occupied one. That is a courtesy and licensing problem, not just an
+SWR one, and Track C makes it materially more likely by making tones easy.
+
+**So:**
+
+- **Default the Audio Check to dummy load (0 W).** Not an option — the default.
+- **Offer a settable low-power value** (Noel: "a low power output with a combo
+  you can change so I can change it to 1 if I need to") for the separate,
+  deliberate act of confirming RF actually leaves the radio.
+- **Say which mode you are in, out loud, at key-down.** "Audio check, dummy
+  load, no RF" versus "Audio check, transmitting at 1 watt" are different enough
+  that the operator must never have to infer it.
+- Treat *measuring your audio* and *confirming you are on the air* as two
+  separate tests, because they are.
+
 ### Track D — the input-rescue TX pipeline
 
 **Why this is a real feature and not radio-DSP duplication:** a Flex has TX EQ
