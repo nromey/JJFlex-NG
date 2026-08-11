@@ -15355,16 +15355,16 @@ namespace Flex.Smoothlake.FlexLib
             if (VitaSock != null)
                 return;
 
-            // JJFlex patch: latch EVERYWHERE, not just punch mode. The FLEX-8600
-            // sends all VITA from source port 4993 while FlexLib's LAN default
-            // aims client TX datagrams at 4991 — a port with no listener on that
-            // radio, so TX audio silently vanished (pcap-proven 2026-08-10). The
-            // latch retargets sends to the radio's observed UDP source, which is
-            // safe on every path: this socket only ever hears the radio
-            // (discovery runs on its own socket).
+            // JJFlex patch: source-latch in punch mode only — forwarded ports
+            // are authoritative on LAN. (An earlier build latched EVERYWHERE to
+            // chase a TX-audio-silence bug; 2026-08-10 pcap disproved that — the
+            // FLEX-8600 LISTENS on 4991 and only SENDS from 4993, and SmartSDR
+            // transmits fine to 4991. Latching to the radio's 4993 source on LAN
+            // was wrong. The real TX-audio bug is in the command handshake, not
+            // the UDP destination.)
             VitaSock = new VitaSocket(RequiresHolePunch ? NegotiatedHolePunchPort : 4991, UdpDataReceivedCallback, IP,
                 RequiresHolePunch ? NegotiatedHolePunchPort : PublicUdpPort,
-                latchToSource: true);
+                latchToSource: RequiresHolePunch);
             if (IsWan)
             {
                 _udpPunchActive = true; // JJFlex patch: loop gate (see UdpRegistrationLoop)
