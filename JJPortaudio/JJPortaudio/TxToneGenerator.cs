@@ -140,6 +140,14 @@ namespace JJPortaudio
         /// <param name="sampleRate">stream sample rate in Hz</param>
         public void Process(float[] buffer, int count, uint sampleRate)
         {
+            // Stamp the clock on EVERY call, including idle passthrough —
+            // otherwise an engage while mic audio is flowing reads as a cold
+            // stream start and hard-cuts the mic (a click) instead of fading
+            // it. Caught by the numerical harness, 2026-08-11.
+            long now = Environment.TickCount64;
+            long last = _lastProcessMs;
+            _lastProcessMs = now;
+
             int state = _state;
             if (state == StIdle) return;
 
@@ -147,9 +155,7 @@ namespace JJPortaudio
             // and has just restarted, there is no established mic audio to
             // ramp against and no tone in flight — resolve transition states
             // instantly and start any engaged tone from silence.
-            long now = Environment.TickCount64;
-            bool cold = (now - _lastProcessMs) > StreamGapMs;
-            _lastProcessMs = now;
+            bool cold = (now - last) > StreamGapMs;
             if (cold)
             {
                 if (state == StMicFadeOut || state == StToneFadeIn || state == StTone)
