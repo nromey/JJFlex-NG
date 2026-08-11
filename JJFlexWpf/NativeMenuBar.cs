@@ -324,11 +324,14 @@ public class NativeMenuBar : IDisposable
         // NRF, NRS, RNN all require 8000-series/Aurora DSP hardware
         if (Rig.NeuralNRHardwareSupported)
         {
-            AddChecked(nrSub, "Neural NR (RNN)\tCtrl+J, R", () =>
-                ToggleDSP("Neural NR", () => Rig.NeuralNoiseReduction, v => Rig.NeuralNoiseReduction = v),
+            // "On-Radio" prefix (DSP controls track, 2026-08-11): these run in
+            // the radio's own DSP and have PC-side namesakes two submenus
+            // down — the names now say which side of the wire each one is.
+            AddChecked(nrSub, "On-Radio Neural NR (RNN)\tCtrl+J, R", () =>
+                ToggleDSP("On-Radio Neural NR", () => Rig.NeuralNoiseReduction, v => Rig.NeuralNoiseReduction = v),
                 () => Rig?.NeuralNoiseReduction == FlexBase.OffOnValues.on);
-            AddChecked(nrSub, "Spectral NR (NRS)\tCtrl+J, S", () =>
-                ToggleDSP("Spectral NR", () => Rig.SpectralNoiseReduction, v => Rig.SpectralNoiseReduction = v),
+            AddChecked(nrSub, "On-Radio Spectral NR (NRS)\tCtrl+J, S", () =>
+                ToggleDSP("On-Radio Spectral NR", () => Rig.SpectralNoiseReduction, v => Rig.SpectralNoiseReduction = v),
                 () => Rig?.SpectralNoiseReduction == FlexBase.OffOnValues.on);
             AddChecked(nrSub, "NR Filter (NRF)\tCtrl+J, Shift+N", () =>
                 ToggleDSP("NR Filter", () => Rig.NoiseReductionFilter, v => Rig.NoiseReductionFilter = v),
@@ -366,22 +369,55 @@ public class NativeMenuBar : IDisposable
         // QB Track I menu parity — these existed only as ScreenFields
         // checkboxes; the menu is the addressable second door.
         var pcSub = AddSubmenu(parent, "PC Noise Reduction");
-        AddChecked(pcSub, "PC Neural NR", () =>
+        AddChecked(pcSub, "PC Neural NR\tCtrl+J, Shift+R", () =>
         {
             var p = _window.FieldsPanel?.AudioPipeline;
             if (p == null) { SpeakAfterMenuClose("PC audio pipeline not available"); return; }
             p.RnnEnabled = !p.RnnEnabled;
+            _window.PersistDspSettings();
             SpeakAfterMenuClose(p.RnnEnabled ? "PC Neural NR on" : "PC Neural NR off");
         }, () => _window.FieldsPanel?.AudioPipeline?.RnnEnabled == true);
-        AddChecked(pcSub, "PC Spectral NR", () =>
+        AddChecked(pcSub, "PC Spectral NR\tCtrl+J, Shift+S", () =>
         {
             var p = _window.FieldsPanel?.AudioPipeline;
             if (p == null) { SpeakAfterMenuClose("PC audio pipeline not available"); return; }
             p.SpectralEnabled = !p.SpectralEnabled;
+            _window.PersistDspSettings();
             SpeakAfterMenuClose(!p.SpectralEnabled ? "PC Spectral NR off"
                 : p.HasNoiseProfile ? "PC Spectral NR on"
-                : "PC Spectral NR on, no noise profile loaded");
+                : "PC Spectral NR on, no noise profile loaded. Press Control J then Q to capture one.");
         }, () => _window.FieldsPanel?.AudioPipeline?.SpectralEnabled == true);
+
+        // DSP controls track (2026-08-11) — the capture and the profile
+        // room. The capture start is deferred past the menu close so its
+        // spoken countdown isn't trampled by NVDA's menu-dismiss chatter
+        // (same reasoning as SpeakAfterMenuClose's 500 ms).
+        AddWired(pcSub, "Capture Noise Profile\tCtrl+J, Q", () =>
+        {
+            if (Rig == null) { SpeakNoRadio(); return; }
+            var p = _window.FieldsPanel?.AudioPipeline;
+            if (p == null) { SpeakAfterMenuClose("PC audio pipeline not available"); return; }
+            if (NoiseCaptureNarrator.IsRunning) { NoiseCaptureNarrator.Cancel(); return; }
+            var rig = Rig;
+            _window.Dispatcher.BeginInvoke(async () =>
+            {
+                await System.Threading.Tasks.Task.Delay(500);
+                NoiseCaptureNarrator.Start(rig, p,
+                    _window.CurrentAudioConfig?.SpectralSubSampleDuration ?? 3);
+            });
+        });
+        AddWired(pcSub, "Noise Profiles...", () =>
+        {
+            new Dialogs.NoiseProfilesDialog(Rig, _window.FieldsPanel?.AudioPipeline,
+                () => _window.CurrentAudioConfig, () => _window.PersistDspSettings())
+                .ShowDialog();
+        });
+        AddWired(pcSub, "Open Noise Profiles Folder", () =>
+        {
+            SpeakAfterMenuClose(NoiseProfileStore.OpenFolder()
+                ? "Profiles folder opened in File Explorer"
+                : "Could not open the profiles folder");
+        });
 
         // === Auto Notch ===
         var anfSub = AddSubmenu(parent, "Auto Notch");

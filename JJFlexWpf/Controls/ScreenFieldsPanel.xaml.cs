@@ -59,6 +59,15 @@ public partial class ScreenFieldsPanel : UserControl
     // PC-side NR controls (work on ALL radios, processing runs on PC)
     private CheckBox _pcRnnCheck = null!;
     private CheckBox _pcSpectralCheck = null!;
+    // DSP controls track (2026-08-11) — the engine knobs finally get buttons:
+    // strengths, floor, voice-only, noise capture, and the profile readout.
+    private ValueFieldControl _pcRnnStrengthControl = null!;
+    private CheckBox _pcRnnVoiceOnlyCheck = null!;
+    private ValueFieldControl _pcSpectralStrengthControl = null!;
+    private ValueFieldControl _pcSpectralFloorControl = null!;
+    private Button _captureNoiseButton = null!;
+    private Button _noiseProfilesButton = null!;
+    private System.Windows.Controls.TextBlock _noiseProfileDisplay = null!;
     private CheckBox _meterToneCheck = null!;
     private CheckBox _peakWatcherCheck = null!;
 
@@ -281,14 +290,19 @@ public partial class ScreenFieldsPanel : UserControl
 
     private void BuildDSPControls()
     {
-        _neuralNrCheck = MakeToggle("Neural NR (RNN)");
-        _neuralNrCheck.Checked += (s, e) => ToggleRig("Neural NR", v => { if (_rig != null) _rig.NeuralNoiseReduction = v; }, true);
-        _neuralNrCheck.Unchecked += (s, e) => ToggleRig("Neural NR", v => { if (_rig != null) _rig.NeuralNoiseReduction = v; }, false);
+        // "On-Radio" prefix (DSP controls track, 2026-08-11): these two run in
+        // the radio's own DSP hardware and have PC-side namesakes below —
+        // without the prefix, "Spectral NR" and "PC Spectral NR" sat in one
+        // list daring an operator to guess which was which. Same vocabulary
+        // as On-Radio Headphone Level vs PC Output Volume.
+        _neuralNrCheck = MakeToggle("On-Radio Neural NR (RNN)");
+        _neuralNrCheck.Checked += (s, e) => ToggleRig("On-Radio Neural NR", v => { if (_rig != null) _rig.NeuralNoiseReduction = v; }, true);
+        _neuralNrCheck.Unchecked += (s, e) => ToggleRig("On-Radio Neural NR", v => { if (_rig != null) _rig.NeuralNoiseReduction = v; }, false);
         DspContent.Children.Add(_neuralNrCheck);
 
-        _spectralNrCheck = MakeToggle("Spectral NR (NRS)");
-        _spectralNrCheck.Checked += (s, e) => ToggleRig("Spectral NR", v => { if (_rig != null) _rig.SpectralNoiseReduction = v; }, true);
-        _spectralNrCheck.Unchecked += (s, e) => ToggleRig("Spectral NR", v => { if (_rig != null) _rig.SpectralNoiseReduction = v; }, false);
+        _spectralNrCheck = MakeToggle("On-Radio Spectral NR (NRS)");
+        _spectralNrCheck.Checked += (s, e) => ToggleRig("On-Radio Spectral NR", v => { if (_rig != null) _rig.SpectralNoiseReduction = v; }, true);
+        _spectralNrCheck.Unchecked += (s, e) => ToggleRig("On-Radio Spectral NR", v => { if (_rig != null) _rig.SpectralNoiseReduction = v; }, false);
         DspContent.Children.Add(_spectralNrCheck);
 
         _nrfCheck = MakeToggle("NR Filter (NRF)");
@@ -365,42 +379,183 @@ public partial class ScreenFieldsPanel : UserControl
         _apfCheck.Unchecked += (s, e) => ToggleRig("APF", v => { if (_rig != null) _rig.APF = v; }, false);
         DspContent.Children.Add(_apfCheck);
 
-        // PC-side noise reduction (runs on computer, works on ALL radios)
+        // PC-side noise reduction (runs on computer, works on ALL radios).
+        // DSP controls track (2026-08-11): the engine was finished in Sprint
+        // 25 Phase 20; these are the buttons it never had. Strength/floor
+        // follow the house pattern (level fields appear when the toggle is
+        // on); capture and the profile readout stay visible always — they
+        // are the doorway into making Spectral NR work at all.
         _pcRnnCheck = MakeToggle("PC Neural NR");
         _pcRnnCheck.Checked += (s, e) =>
         {
             if (_polling || _audioPipeline == null) return;
             _audioPipeline.RnnEnabled = true;
+            _pcRnnStrengthControl.Visibility = Visibility.Visible;
+            _pcRnnVoiceOnlyCheck.Visibility = Visibility.Visible;
             EarconPlayer.FeatureOnTone();
             ScreenReaderOutput.Speak("PC Neural NR on", VerbosityLevel.Terse, interrupt: true);
+            FindMainWindow()?.PersistDspSettings();
         };
         _pcRnnCheck.Unchecked += (s, e) =>
         {
             if (_polling || _audioPipeline == null) return;
             _audioPipeline.RnnEnabled = false;
+            _pcRnnStrengthControl.Visibility = Visibility.Collapsed;
+            _pcRnnVoiceOnlyCheck.Visibility = Visibility.Collapsed;
             EarconPlayer.FeatureOffTone();
             ScreenReaderOutput.Speak("PC Neural NR off", VerbosityLevel.Terse, interrupt: true);
+            FindMainWindow()?.PersistDspSettings();
         };
         DspContent.Children.Add(_pcRnnCheck);
+
+        // Strength is a wet/dry mix (0.0-1.0 in the engine) surfaced as a
+        // percentage — "80 percent" speaks better than "zero point eight".
+        _pcRnnStrengthControl = new ValueFieldControl();
+        _pcRnnStrengthControl.Setup("PC Neural NR Strength", 0, 100, 5, 80, 0, "%");
+        _pcRnnStrengthControl.Visibility = Visibility.Collapsed;
+        _pcRnnStrengthControl.ValueChanged += (s, v) =>
+        {
+            if (_audioPipeline == null || _polling) return;
+            _audioPipeline.RnnStrength = v / 100f;
+            FindMainWindow()?.PersistDspSettings();
+        };
+        DspContent.Children.Add(_pcRnnStrengthControl);
+
+        // Checked = the engine steps aside for CW and digital modes (it is
+        // speech-trained and chews on data tones).
+        _pcRnnVoiceOnlyCheck = MakeToggle("PC Neural NR Voice Modes Only");
+        _pcRnnVoiceOnlyCheck.Visibility = Visibility.Collapsed;
+        _pcRnnVoiceOnlyCheck.Checked += (s, e) =>
+        {
+            if (_polling || _audioPipeline == null) return;
+            _audioPipeline.RnnAutoDisableNonVoice = true;
+            EarconPlayer.FeatureOnTone();
+            ScreenReaderOutput.Speak("PC Neural NR voice modes only on", VerbosityLevel.Terse, interrupt: true);
+            FindMainWindow()?.PersistDspSettings();
+        };
+        _pcRnnVoiceOnlyCheck.Unchecked += (s, e) =>
+        {
+            if (_polling || _audioPipeline == null) return;
+            _audioPipeline.RnnAutoDisableNonVoice = false;
+            EarconPlayer.FeatureOffTone();
+            ScreenReaderOutput.Speak("PC Neural NR voice modes only off, runs in every mode", VerbosityLevel.Terse, interrupt: true);
+            FindMainWindow()?.PersistDspSettings();
+        };
+        DspContent.Children.Add(_pcRnnVoiceOnlyCheck);
 
         _pcSpectralCheck = MakeToggle("PC Spectral NR");
         _pcSpectralCheck.Checked += (s, e) =>
         {
             if (_polling || _audioPipeline == null) return;
             _audioPipeline.SpectralEnabled = true;
+            _pcSpectralStrengthControl.Visibility = Visibility.Visible;
+            _pcSpectralFloorControl.Visibility = Visibility.Visible;
             EarconPlayer.FeatureOnTone();
+            // The no-profile message now names the exit — before this track
+            // it announced a dead end no surface in the app could resolve.
             ScreenReaderOutput.Speak(_audioPipeline.HasNoiseProfile
                 ? "PC Spectral NR on"
-                : "PC Spectral NR on, no noise profile loaded", VerbosityLevel.Terse, interrupt: true);
+                : "PC Spectral NR on, no noise profile loaded. Press Control J then Q to capture one.",
+                VerbosityLevel.Terse, interrupt: true);
+            FindMainWindow()?.PersistDspSettings();
         };
         _pcSpectralCheck.Unchecked += (s, e) =>
         {
             if (_polling || _audioPipeline == null) return;
             _audioPipeline.SpectralEnabled = false;
+            _pcSpectralStrengthControl.Visibility = Visibility.Collapsed;
+            _pcSpectralFloorControl.Visibility = Visibility.Collapsed;
             EarconPlayer.FeatureOffTone();
             ScreenReaderOutput.Speak("PC Spectral NR off", VerbosityLevel.Terse, interrupt: true);
+            FindMainWindow()?.PersistDspSettings();
         };
         DspContent.Children.Add(_pcSpectralCheck);
+
+        _pcSpectralStrengthControl = new ValueFieldControl();
+        _pcSpectralStrengthControl.Setup("PC Spectral NR Strength", 0, 100, 5, 70, 0, "%");
+        _pcSpectralStrengthControl.Visibility = Visibility.Collapsed;
+        _pcSpectralStrengthControl.ValueChanged += (s, v) =>
+        {
+            if (_audioPipeline == null || _polling) return;
+            _audioPipeline.SpectralStrength = v / 100f;
+            FindMainWindow()?.PersistDspSettings();
+        };
+        DspContent.Children.Add(_pcSpectralStrengthControl);
+
+        // Floor: how much of the original audio always survives subtraction —
+        // the guard against watery "musical noise". Engine range is 0-1 but
+        // useful values are single-digit percent, so the field runs 0-20%.
+        _pcSpectralFloorControl = new ValueFieldControl();
+        _pcSpectralFloorControl.Setup("PC Spectral NR Floor", 0, 20, 1, 2, 0, "%");
+        _pcSpectralFloorControl.Visibility = Visibility.Collapsed;
+        _pcSpectralFloorControl.ValueChanged += (s, v) =>
+        {
+            if (_audioPipeline == null || _polling) return;
+            _audioPipeline.SpectralFloor = v / 100f;
+            FindMainWindow()?.PersistDspSettings();
+        };
+        DspContent.Children.Add(_pcSpectralFloorControl);
+
+        // Capture — always visible, and honest about its second job: while a
+        // capture runs, this same button cancels it (label follows along).
+        _captureNoiseButton = new Button
+        {
+            Content = "Capture Noise Profile",
+            Margin = new Thickness(0, 2, 0, 2),
+            Padding = new Thickness(8, 4, 8, 4),
+            HorizontalAlignment = System.Windows.HorizontalAlignment.Left
+        };
+        System.Windows.Automation.AutomationProperties.SetName(
+            _captureNoiseButton, "Capture a noise profile from the current audio");
+        _captureNoiseButton.Click += (s, e) =>
+        {
+            var mw = FindMainWindow();
+            NoiseCaptureNarrator.Toggle(_rig, _audioPipeline,
+                mw?.CurrentAudioConfig?.SpectralSubSampleDuration ?? 3,
+                onFinished: UpdateNoiseProfileDisplay);
+        };
+        DspContent.Children.Add(_captureNoiseButton);
+        NoiseCaptureNarrator.StateChanged += UpdateCaptureButtonLabel;
+
+        _noiseProfilesButton = new Button
+        {
+            Content = "Noise Profiles",
+            Margin = new Thickness(0, 2, 0, 2),
+            Padding = new Thickness(8, 4, 8, 4),
+            HorizontalAlignment = System.Windows.HorizontalAlignment.Left
+        };
+        System.Windows.Automation.AutomationProperties.SetName(
+            _noiseProfilesButton, "Noise profiles: capture settings, save, load, and manage");
+        _noiseProfilesButton.Click += (s, e) =>
+        {
+            var mw = FindMainWindow();
+            new Dialogs.NoiseProfilesDialog(_rig, _audioPipeline,
+                () => mw?.CurrentAudioConfig, () => mw?.PersistDspSettings()).ShowDialog();
+            UpdateNoiseProfileDisplay();
+        };
+        DspContent.Children.Add(_noiseProfilesButton);
+
+        // Read-only profile readout — arrow to it, hear which profile is
+        // loaded (name, band, antenna ride the name). Mic-verdict pattern:
+        // the accessible name holds still while focused so a mid-capture
+        // change doesn't flood the screen reader.
+        _noiseProfileDisplay = new System.Windows.Controls.TextBlock
+        {
+            Margin = new Thickness(4, 6, 4, 2),
+            Focusable = true,
+            IsHitTestVisible = true,
+            Text = "Noise profile: none"
+        };
+        System.Windows.Automation.AutomationProperties.SetName(
+            _noiseProfileDisplay, "Noise profile: none");
+        _noiseProfileDisplay.GotFocus += (s, e) =>
+        {
+            UpdateNoiseProfileDisplay();
+            System.Windows.Automation.AutomationProperties.SetName(
+                _noiseProfileDisplay, _noiseProfileDisplay.Text);
+            ScreenReaderOutput.Speak(_noiseProfileDisplay.Text, VerbosityLevel.Terse, interrupt: true);
+        };
+        DspContent.Children.Add(_noiseProfileDisplay);
 
         // Meter Tones
         _meterToneCheck = MakeToggle("Meter Tones");
@@ -980,8 +1135,27 @@ public partial class ScreenFieldsPanel : UserControl
         // PC-side NR (pipeline state, not rig state)
         if (_audioPipeline != null)
         {
-            _pcRnnCheck.IsChecked = _audioPipeline.RnnEnabled;
-            _pcSpectralCheck.IsChecked = _audioPipeline.SpectralEnabled;
+            bool rnnOn = _audioPipeline.RnnEnabled;
+            _pcRnnCheck.IsChecked = rnnOn;
+            _pcRnnStrengthControl.Visibility = rnnOn ? Visibility.Visible : Visibility.Collapsed;
+            _pcRnnVoiceOnlyCheck.Visibility = rnnOn ? Visibility.Visible : Visibility.Collapsed;
+            if (rnnOn)
+            {
+                _pcRnnStrengthControl.Value = (int)Math.Round(_audioPipeline.RnnStrength * 100);
+                _pcRnnVoiceOnlyCheck.IsChecked = _audioPipeline.RnnAutoDisableNonVoice;
+            }
+
+            bool subOn = _audioPipeline.SpectralEnabled;
+            _pcSpectralCheck.IsChecked = subOn;
+            _pcSpectralStrengthControl.Visibility = subOn ? Visibility.Visible : Visibility.Collapsed;
+            _pcSpectralFloorControl.Visibility = subOn ? Visibility.Visible : Visibility.Collapsed;
+            if (subOn)
+            {
+                _pcSpectralStrengthControl.Value = (int)Math.Round(_audioPipeline.SpectralStrength * 100);
+                _pcSpectralFloorControl.Value = (int)Math.Round(_audioPipeline.SpectralFloor * 100);
+            }
+
+            UpdateNoiseProfileDisplay();
         }
 
         // Meter tones (engine state, not rig state)
@@ -1038,6 +1212,77 @@ public partial class ScreenFieldsPanel : UserControl
             if (!_micVerdictDisplay.IsKeyboardFocused)
                 System.Windows.Automation.AutomationProperties.SetName(_micVerdictDisplay, text);
         }
+    }
+
+    /// <summary>
+    /// DSP controls track — refresh the noise-profile readout. Same
+    /// accessible-name discipline as the mic verdict: text updates live, the
+    /// name only changes while the control is unfocused, GotFocus refreshes
+    /// and speaks on entry.
+    /// </summary>
+    private void UpdateNoiseProfileDisplay()
+    {
+        string text;
+        if (NoiseCaptureNarrator.IsRunning)
+            text = "Noise profile: capturing now";
+        else if (_audioPipeline == null)
+            text = "Noise profile: no radio connected";
+        else if (_audioPipeline.HasNoiseProfile)
+        {
+            string name = _audioPipeline.NoiseProfileName;
+            text = string.IsNullOrEmpty(name)
+                ? "Noise profile: captured this session"
+                : $"Noise profile: {name}";
+        }
+        else
+            text = "Noise profile: none. Press Capture Noise Profile, or Control J then Q.";
+
+        if (text != _noiseProfileDisplay.Text)
+        {
+            _noiseProfileDisplay.Text = text;
+            if (!_noiseProfileDisplay.IsKeyboardFocused)
+                System.Windows.Automation.AutomationProperties.SetName(_noiseProfileDisplay, text);
+        }
+    }
+
+    /// <summary>
+    /// Keep the capture button honest while a capture runs: pressing it then
+    /// cancels, so it must say so. Narrator StateChanged drives this.
+    /// </summary>
+    private void UpdateCaptureButtonLabel()
+    {
+        bool running = NoiseCaptureNarrator.IsRunning;
+        _captureNoiseButton.Content = running ? "Cancel Noise Capture" : "Capture Noise Profile";
+        System.Windows.Automation.AutomationProperties.SetName(_captureNoiseButton,
+            running ? "Cancel the noise capture in progress"
+                    : "Capture a noise profile from the current audio");
+        UpdateNoiseProfileDisplay();
+    }
+
+    /// <summary>
+    /// DSP controls track — push the persisted PC-side NR settings into the
+    /// freshly created pipeline, and reload the last noise profile so
+    /// Spectral NR comes back exactly as the operator left it. Called by
+    /// MainWindow.PowerOn after the audio config loads (the pipeline itself
+    /// is created earlier, in Initialize). Deliberately silent: this is
+    /// connect-time restore, not an operator action.
+    /// </summary>
+    public void ApplyDspConfig(AudioOutputConfig cfg)
+    {
+        if (_audioPipeline == null) return;
+
+        _audioPipeline.RnnEnabled = cfg.RNNoiseEnabled;
+        _audioPipeline.RnnStrength = Math.Clamp(cfg.RNNoiseStrength, 0f, 1f);
+        _audioPipeline.RnnAutoDisableNonVoice = cfg.RNNoiseAutoDisableNonVoice;
+        _audioPipeline.SpectralEnabled = cfg.SpectralSubEnabled;
+        _audioPipeline.SpectralStrength = Math.Clamp(cfg.SpectralSubStrength, 0f, 1f);
+        _audioPipeline.SpectralFloor = Math.Clamp(cfg.SpectralSubFloor, 0f, 1f);
+
+        string lastProfile = cfg.NoiseProfileLastPath;
+        if (!string.IsNullOrEmpty(lastProfile) && System.IO.File.Exists(lastProfile))
+            _audioPipeline.LoadNoiseProfile(lastProfile);
+
+        PollUpdate();
     }
 
     private void PollReceiver()

@@ -416,6 +416,30 @@ public partial class MainWindow : UserControl
     }
 
     /// <summary>
+    /// DSP controls track (2026-08-11): capture the PC-side noise reduction
+    /// state (toggles, strengths, floor, voice-only) from the live pipeline
+    /// into the audio config and save it, so the settings survive a restart —
+    /// the six config fields existed since Phase 20 but nothing ever wrote
+    /// them. Called from every surface that changes a PC NR value (panel
+    /// fields, leader toggles, menu items, Noise Profiles dialog). Same
+    /// hot-path discipline as PersistPcOutputVolume: one small file, saved
+    /// immediately so a crash doesn't lose the operator's dialed-in DSP.
+    /// </summary>
+    public void PersistDspSettings()
+    {
+        if (CurrentAudioConfig == null || OpenParms == null) return;
+        var pipeline = FieldsPanel?.AudioPipeline;
+        if (pipeline == null) return;
+        CurrentAudioConfig.RNNoiseEnabled = pipeline.RnnEnabled;
+        CurrentAudioConfig.RNNoiseStrength = pipeline.RnnStrength;
+        CurrentAudioConfig.RNNoiseAutoDisableNonVoice = pipeline.RnnAutoDisableNonVoice;
+        CurrentAudioConfig.SpectralSubEnabled = pipeline.SpectralEnabled;
+        CurrentAudioConfig.SpectralSubStrength = pipeline.SpectralStrength;
+        CurrentAudioConfig.SpectralSubFloor = pipeline.SpectralFloor;
+        CurrentAudioConfig.Save(OpenParms.ConfigDirectory);
+    }
+
+    /// <summary>
     /// Returns PTT status text for the Speak Status hotkey, or null if PTT is idle.
     /// </summary>
     public string? GetPttStatusText() => _pttController?.GetSpokenStatus();
@@ -2465,6 +2489,21 @@ public partial class MainWindow : UserControl
                 if (CurrentAudioConfig != null && OpenParms != null)
                     CurrentAudioConfig.Save(OpenParms.ConfigDirectory);
             };
+
+            // DSP controls track (2026-08-11): the noise-capture narrator
+            // remembers each completed capture in the config (same store,
+            // same immediate-save discipline as the workshop hooks above)...
+            NoiseCaptureNarrator.AudioConfigSource = () => CurrentAudioConfig;
+            NoiseCaptureNarrator.AudioConfigSave = () =>
+            {
+                if (CurrentAudioConfig != null && OpenParms != null)
+                    CurrentAudioConfig.Save(OpenParms.ConfigDirectory);
+            };
+            // ...and the pipeline (created in FieldsPanel.Initialize, before
+            // this config existed) now gets its persisted PC NR settings and
+            // the last noise profile back. This is what makes "PC Spectral
+            // NR on, no noise profile loaded" stop greeting every session.
+            FieldsPanel.ApplyDspConfig(CurrentAudioConfig);
 
             // Apply braille config
             _brailleEngine.Enabled = CurrentAudioConfig.BrailleEnabled;

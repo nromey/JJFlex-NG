@@ -105,8 +105,11 @@ namespace JJFlexWpf
         /// <summary>
         /// Start sampling noise. Call this when the band is quiet (no signals).
         /// </summary>
-        /// <param name="durationSeconds">How long to sample (1-5 seconds).</param>
-        public void StartSampling(int durationSeconds = 2)
+        /// <param name="durationSeconds">How long to sample (1-5 seconds).
+        /// Default 3 per the ratified capture-window decision
+        /// (project_sub_capture_window_decision) — was 2 until the DSP
+        /// controls track, 2026-08-11.</param>
+        public void StartSampling(int durationSeconds = 3)
         {
             durationSeconds = Math.Clamp(durationSeconds, 1, 5);
             int framesPerSecond = WaveFormat.SampleRate / HopSize;
