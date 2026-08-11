@@ -339,9 +339,10 @@ public static class NoiseCaptureNarrator
     {
         try
         {
+            // Plain name on purpose — band/antenna ride the metadata fields,
+            // and ProfileFile.Describe() already reads them back after the
+            // name; folding them into the name would speak them twice.
             string name = "Last capture";
-            if (!string.IsNullOrEmpty(_band)) name += " " + _band;
-            if (!string.IsNullOrEmpty(_antenna)) name += " " + _antenna;
 
             Directory.CreateDirectory(NoiseProfileStore.FolderPath);
             if (p.SaveNoiseProfile(NoiseProfileStore.LastCapturePath, name, _band, _antenna))
