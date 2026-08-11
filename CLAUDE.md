@@ -460,7 +460,7 @@ Both can coexist. Tester `--publish` satisfies tester needs; end-of-day nightly 
 ### Trace File Location
 - Boot trace: `%AppData%\JJFlexRadio\JJFlexRadioTrace.txt` (enabled when `BootTrace = True` in `globals.vb`)
 - Multi-instance: `%AppData%\JJFlexRadio\JJFlexRadio2Trace.txt` (instance 2+)
-- User-initiated trace: set via Operations → Tracing in the UI (`TraceAdmin.vb`)
+- User-initiated trace: set via **Help → Tracing** in the UI (`TraceAdmin.vb`). This said "Operations → Tracing" until 2026-08-11 and was wrong. Note the automatic trace that runs by default is NOT this dialog — it is the `BootTrace` flag in `globals.vb:115`, a code-level Boolean with no UI behind it
 - Tracing code: `JJTrace\Tracing.cs`
 
 ### Debug Remote/SmartLink
