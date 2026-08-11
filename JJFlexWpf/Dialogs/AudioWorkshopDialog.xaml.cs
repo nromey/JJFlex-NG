@@ -1199,6 +1199,33 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         finally { _polling = false; }
     }
 
+    /// <summary>
+    /// Keep the arm checkbox honest against the ENGINE's tone state. The
+    /// Ctrl+J, G leader binding (Keys Track, 2026-08-11) arms and disarms
+    /// the tone by driving FlexBase directly, so the workshop no longer
+    /// owns every state change. Rides the existing meter poll — no second
+    /// timer — and syncs silently: the leader already announced the
+    /// change, so re-speaking here would double-talk. The key-down
+    /// announcement hook follows the same truth (it is how EVERY transmit
+    /// path warns that the tone is riding it, so an externally armed tone
+    /// must set it too); the local monitor and passband status already
+    /// derive from engine state on this same tick.
+    /// </summary>
+    private void SyncToneArmUi()
+    {
+        var rig = _rig;
+        if (rig == null || _toneCheck == null) return;
+        bool engaged = rig.TxToneEngaged;
+        if ((_toneCheck.IsChecked == true) == engaged) return;
+
+        SetToneCheckSilently(engaged);
+        if (engaged)
+            PttSafetyController.KeyDownAnnouncementExtra = () => _instance?.BuildToneAnnouncement();
+        else
+            PttSafetyController.KeyDownAnnouncementExtra = null;
+        UpdateToneStatus(speakIfNewlyOutside: false);
+    }
+
     private void ToneMonitorChanged(bool on)
     {
         if (_polling) return;
@@ -1441,10 +1468,13 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         if (_rig == null) return;
 
         // Test tone housekeeping runs on EVERY tick regardless of tab: the
-        // local monitor must track actual transmit state, and the passband
-        // warning must fire if the TX filter moves out from under an armed
-        // tone — the operator may be on any tab (or in another window) when
-        // that happens, and it must not fail quietly.
+        // arm checkbox must follow the engine (Ctrl+J, G can change it from
+        // outside this dialog), the local monitor must track actual
+        // transmit state, and the passband warning must fire if the TX
+        // filter moves out from under an armed tone — the operator may be
+        // on any tab (or in another window) when that happens, and it must
+        // not fail quietly.
+        SyncToneArmUi();
         SyncToneMonitor();
         UpdateToneStatus(speakIfNewlyOutside: _rig.TxToneEngaged);
 
