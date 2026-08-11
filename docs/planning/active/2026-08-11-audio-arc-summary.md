@@ -126,6 +126,67 @@ been launched. Specifically worth exercising:
   WASAPI stream info at all.
 - Sprint 29's 83 unticked test items, of which 45 need no radio.
 
+## 6a. Questions that need Noel — all of them, in one place
+
+Collected here so this file is the only one you need open.
+
+**From the diagnostic-log design** (`docs/planning/active/diagnostic-log-surface.md`,
+section 11 has the full context):
+
+1. Is **`Ctrl+J, D`** the right leader chord for the capture toggle?
+2. Confirm the diagnostic log **defaults to ON** — it effectively does today via
+   `BootTrace`, so this is ratifying current behaviour rather than changing it.
+3. When a detailed capture stops, should it offer **"Export this capture"** then
+   and there, or wait for the send flow that the reporting pipeline will bring?
+4. Does **any tester hand-edit the daily-trace XML** before `KeepDailyTraceLogs`
+   is retired? It has never had UI, so the answer is probably no — but retiring
+   it is irreversible for anyone who does.
+
+**From the transverter plan**
+(`docs/planning/active/transverter-completion-plan.md`, questions listed at the
+end):
+
+5. **Do you own a transverter at all?** The plan is built so the answer does not
+   block the freeze — only the presence detector needs one, and it ships dormant
+   — but it decides whether phase 4 is scheduled or handed to Don.
+6. Does **Don own one**, and is he willing to run the two scripted experiments?
+
+**From today's field session** (already captured, just unanswered):
+
+7. Should the volume-mode arrow announcements use **short labels**
+   ("Headphone 55") or full ones ("On-radio headphone 55")? Short is current.
+8. **Mic level appears twice** in Home — in the Audio group stepping by 5 and in
+   the TX group as "Mic Gain" stepping by 1. Leave it, or unify?
+9. Clamp or warn on a **tone outside the transmit passband**? Currently warns,
+   loudly and in five places. Clamping cannot mislead but removes a choice.
+
+## 6b. Test hardware — both radios, and what each one uniquely proves
+
+**Noel confirmed 2026-08-11 that Don's FLEX-6300 is available for bench
+sessions alongside the 8600.** That is a meaningful widening of what can be
+verified, because the two radios differ in exactly the ways that matter:
+
+- **The bench FLEX-8600 — 2 SCU, full duplex, and no antenna on any of its six
+  ports.** Everything RF-adjacent is safe here because nothing radiates
+  usefully, which is what made today's zero-watt tone measurement possible. It
+  is the right machine for anything where transmitting must not reach the air.
+- **Don's FLEX-6300 — 1 SCU, half duplex only, on a real antenna, reachable
+  only over SmartLink.** Three things only it can prove:
+  - **The half-duplex IQ tier.** Track F's claim that *every* Flex including
+    1-SCU radios can get ground truth, because PC-side demodulation carries TX
+    through the transmit mute, is a claim about exactly this class of radio. It
+    cannot be validated on the 8600.
+  - **Real RF into a real antenna** — over-the-air confirmation, which the
+    bench 8600 structurally cannot give.
+  - **The SmartLink/WAN path**, which is Don's only mode and the one where the
+    original TX-audio failure surfaced.
+
+**The standing caution still applies and is not cancelled by availability: it
+is Don's production station, it lives at Tony's, and it is on a real antenna —
+so transmitting is genuinely on the air.** Coordinate before use, keep power
+sane, and prefer the 8600 for anything that does not specifically need what the
+6300 uniquely offers.
+
 ## 7. Housekeeping
 
 - Three track worktrees still exist: `jjflex-audio-w`, `jjflex-audio-k`,
