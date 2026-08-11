@@ -352,6 +352,70 @@ Small, independent, surfaced during the same investigation:
   one with `display panafall remove`), full duplex gets clobbered by the global
   profile load at connect, and rxant must equal txant for internal coupling.
 
+**RECEIVER SIMULATION ON PLAYBACK (Noel, 2026-08-11) — the part that makes this
+an audio instrument rather than an RF instrument.**
+
+Play the captured IQ back **through a simulated receiver** — AGC, receive
+filter, and a noise floor — instead of as a clean demodulation.
+
+**Why this is not a garnish.** Over-processing is the single TX audio fault an
+operator structurally *cannot* self-diagnose, because **AGC pumping is an
+emergent artifact of your compression meeting somebody else's AGC.** Neither
+half produces it alone. A clean demod cannot show it, and the radio's own TX
+monitor cannot either — the monitor tap is pre-AGC by construction. So the
+operator who has slammed the speech processor hears "loud and punchy" on every
+surface available to them, while the receiving station hears breathing and
+pumping. This closes the last blind spot in the honest-transmit-audio story:
+we now measure level honestly (SC_MIC), loudness honestly (LUFS), and RF
+honestly (IQ) — but nothing yet tells the operator **what they sound like at
+the far end.**
+
+**What has to be in the chain, minimally:**
+
+- **AGC, mirroring the operator's own rig.** `AGCSpeed` (the AGCMode enum),
+  `AGCThreshold` (0–100) and `AGCOffLevel` are all already exposed on
+  `FlexBase` (9104, 9120, and the slice copy at 7816) — so "simulate my radio
+  as it is set up right now" costs nothing to wire and needs zero
+  configuration. Attack/decay/hang behaviour per mode is the modelling work.
+- **A receive filter**, since the far end is usually listening through
+  something narrower than you are transmitting.
+- **A selectable noise floor — and this one is non-obvious but essential.** The
+  IQ capture is of your own signal through internal coupling, so it arrives at
+  effectively infinite signal-to-noise. Fed to an AGC, that just pins the gain
+  and **never pumps** — the simulator would show nothing and quietly imply
+  everything is fine. Pumping is loudest *near the noise floor*, where the AGC
+  rides up in the gaps between words and drags the band noise up with it. That
+  **"noise breathing between words" is the classic tell**, and it only exists
+  if we put noise there. A signal-to-noise slider is therefore part of the
+  minimum viable feature, not a later refinement.
+- **Optional: slow QSB**, which is what really exercises an AGC. Nice to have,
+  not required for the pumping verdict.
+
+**Whose receiver are we simulating?** The operator's own, by default, from its
+live settings. That is deliberate and it is the stronger choice: you already
+know what every other station sounds like through your receiver, so your own
+voice through that same receiver is **directly comparable against a reference
+you have been building for years.** Simulating a hypothetical average station
+would be less honest and less useful.
+
+**State the limits plainly (Noel already did: "it wouldn't be perfect").** This
+is a **comparative instrument, not an absolute one.** It does not model
+propagation, the far operator's DSP, or their filter choices. Its real power is
+A/B: record with processing off, record with processing on, listen to both
+through the identical simulated receiver. **The delta is trustworthy even where
+the absolute is approximate.** The help text and the UI must say so — an
+instrument that overclaims is exactly the failure this whole arc exists to
+correct.
+
+**This is also the evaluation harness for Track D, and that changes its
+priority.** "How does this sound to a receiving station" is precisely the
+metric for tuning the gate/EQ/compressor chain and its starter profiles — and
+later for evaluating the neural TX model. Without it, Track D's presets get
+tuned by ear on a monitor path that cannot reveal the very artifact
+over-processing produces. So Track F stops being optional infrastructure and
+becomes **a soft dependency of Track D's tuning work**: D can be *built* without
+it, but D's profiles cannot be *honestly tuned* without it.
+
 ## 6. Execution order
 
 - **Now, in parallel:** Track A (audio hub) and Track C (tone generator). A is
@@ -359,6 +423,11 @@ Small, independent, surfaced during the same investigation:
   threshold calibration. Neither depends on the other.
 - **Then:** Track B (LUFS coaching), which benefits from the tone generator for
   calibrating thresholds and from Track A for its readout surfaces.
+- **Then, and before D is tuned:** Track F's receiver simulation. It is the only
+  surface that can reveal AGC pumping, which is the artifact over-processing
+  produces — so it is the measuring instrument D's presets get tuned against.
+  Build D's chain in parallel if convenient, but do not call its profiles
+  finished before this exists.
 - **Then:** Track D (input-rescue pipeline) — the largest piece, and the one
   whose design most rewards the earlier tracks being settled.
 - **Anytime, independently:** Track E items are individually small and share no
