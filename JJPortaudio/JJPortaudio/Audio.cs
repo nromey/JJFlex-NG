@@ -55,6 +55,15 @@ namespace JJPortaudio
             server = new Thread(serverProc);
             server.Name = "AudioServer";
             server.Priority = ThreadPriority.Normal;
+            // Engine Track (2026-08-11): background, so a wedged PortAudio
+            // close can no longer pin the whole process alive after the UI
+            // exits — the field-confirmed orphan jjflexible.exe hang. The
+            // orderly path is unchanged: Term() still drains the work queue
+            // through Pa_Terminate before the process goes down; background
+            // only matters when that path is already stuck, and the old
+            // outcome was a ghost process racing the next instance for the
+            // config file.
+            server.IsBackground = true;
             server.Start();
             // Note the server does the Pa_Initialize().
             Thread.Yield();
@@ -174,10 +183,31 @@ namespace JJPortaudio
                             if (item.StreamBlock.Open && item.StreamBlock.Started)
                             {
                                 item.StreamBlock.Active = false;
-                                // wait for callback to complete the stream.
-                                while ((int)PortAudio.Pa_IsStreamActive(item.StreamBlock.Stream) == 1) Thread.Sleep(110);
+                                // Wait for the callback to complete the stream —
+                                // BOUNDED (Engine Track, 2026-08-11). This wait
+                                // was unbounded; a stuck device or driver left
+                                // the AudioServer thread here forever, every
+                                // later work item (including the input stream's
+                                // close) queued behind it, Audio.Finished()
+                                // waiting on that close forever, and the whole
+                                // process pinned — the orphan-shutdown chain.
+                                int activeWait = 20; // ~2.2 s at 110 ms/poll
+                                while ((int)PortAudio.Pa_IsStreamActive(item.StreamBlock.Stream) == 1
+                                    && activeWait-- > 0) Thread.Sleep(110);
                                 Tracing.TraceLine("serverProc:stop or close:wait done", TraceLevel.Info);
-                                erv = PortAudio.Pa_StopStream(item.StreamBlock.Stream);
+                                if ((int)PortAudio.Pa_IsStreamActive(item.StreamBlock.Stream) == 1)
+                                {
+                                    // The callback never completed: error path.
+                                    // Abort discards pending buffers instead of
+                                    // waiting for a driver that already isn't
+                                    // answering.
+                                    Tracing.TraceLine("serverProc:stream still active after 2.2s, aborting stream", TraceLevel.Error);
+                                    erv = PortAudio.Pa_AbortStream(item.StreamBlock.Stream);
+                                }
+                                else
+                                {
+                                    erv = PortAudio.Pa_StopStream(item.StreamBlock.Stream);
+                                }
                                 Tracing.TraceLine("serverProc:stop or close:stop done", TraceLevel.Info);
                                 if (erv < 0)
                                 {
@@ -262,24 +292,39 @@ namespace JJPortaudio
             // samples REPLACE the mic capture in inputCallback ahead of the
             // Opus encode (the mic is discarded, never mixed).
             public TxToneGenerator ToneSource;
+            // Engine Track: optional LUFS meter, fed in inputCallback AFTER
+            // the tone injection point so it measures whatever is actually
+            // being transmitted, tone or mic.
+            public LufsMeter InputMeter;
+            // Engine Track: end-of-stream callback diagnostics. These were
+            // static across ALL streams (meaningless with an input and an
+            // output stream open at once); now per-stream.
+            public int diagBufCount;
+            public long diagByteCount;
         }
         internal class staticQueues
         {
-            private Dictionary<int, StreamCB> Qs = new Dictionary<int, StreamCB>();
-            private Random rand = new Random();
+            // Engine Track (2026-08-11): this table is written by UI /
+            // remote-audio threads (Add), the AudioServer thread (Remove), and
+            // read from the PortAudio callback threads (getQ). It was a bare
+            // Dictionary — a concurrent Add/Remove against a callback's
+            // TryGetValue is undefined behaviour. ConcurrentDictionary makes
+            // every path safe without adding a lock to the audio callback.
+            private readonly ConcurrentDictionary<int, StreamCB> Qs =
+                new ConcurrentDictionary<int, StreamCB>();
+            private readonly Random rand = new Random();
             public int Add()
             {
                 int key;
                 do
                 {
                     key = rand.Next();
-                } while (Qs.Keys.Contains(key));
-                Qs.Add(key, new StreamCB());
+                } while (!Qs.TryAdd(key, new StreamCB()));
                 return key;
             }
             public void Remove(int key)
             {
-                Qs.Remove(key);
+                Qs.TryRemove(key, out _);
             }
             public StreamCB getQ(int key)
             {
@@ -327,6 +372,11 @@ namespace JJPortaudio
         {
             get { return CBData?.ToneSource; }
             set { var cb = CBData; if (cb != null) cb.ToneSource = value; }
+        }
+        internal LufsMeter InputMeter
+        {
+            get { return CBData?.InputMeter; }
+            set { var cb = CBData; if (cb != null) cb.InputMeter = value; }
         }
 
         internal Audio()
@@ -421,10 +471,18 @@ namespace JJPortaudio
 
             AudioAnchor.work.Add(new AudioAnchor.workItem(AudioAnchor.workItems.open, CBData));
 
-            // Await the open (0.5 seconds).
-            while (!Tracing.await(() => { return CBData.Open; }, 500)) { }
+            // Await the open — BOUNDED (Engine Track, 2026-08-11). The old
+            // code retried a 500 ms await in a while loop forever, so a failed
+            // Pa_OpenStream (device unplugged mid-connect, exclusive-mode
+            // grab) hung the calling thread — the remote-audio thread —
+            // permanently. 5 s covers a slow driver; after that we report the
+            // failure the return value always promised.
+            if (!Tracing.await(() => { var cb = CBData; return cb != null && cb.Open; }, 5000))
+            {
+                Tracing.TraceLine("Audio.Open:open did not complete within 5s", TraceLevel.Error);
+            }
 
-            return (CBData.Open) ? true : false;
+            return (CBData?.Open == true) ? true : false;
         }
 
         /// <summary>
@@ -455,15 +513,30 @@ namespace JJPortaudio
             AudioAnchor.workItem item = new AudioAnchor.workItem(AudioAnchor.workItems.close, CBData);
             AudioAnchor.work.Add(item);
             Tracing.TraceLine("Audio.Finished:waiting for close", TraceLevel.Info);
-            int smallWait = 200;
-            int longWait = smallWait * 25;
-            while (longWait-- != 0)
+            // Engine Track (2026-08-11): this "timeout loop" could never time
+            // out. It read:
+            //     int smallWait = 200;
+            //     int longWait = smallWait * 25;      // 5000 ITERATIONS, not 5 s
+            //     while (longWait-- != 0)
+            //         while (CBData != null) Thread.Sleep(smallWait);  // UNBOUNDED
+            // The inner while blocked forever whenever the AudioServer never
+            // processed the close (wedged driver, stuck earlier work item), so
+            // the outer countdown was unreachable — and the caller is the
+            // remote-audio thread, whose 6 s Join in FlexBase then failed,
+            // abandoning a foreground thread that pinned the process: the
+            // field-confirmed orphan jjflexible.exe shutdown hang. Now: one
+            // flat, bounded wait. CBData goes null when the server removes
+            // this stream from the queue table at the end of close.
+            const int pollMs = 200;
+            int remainingMs = 5000;
+            while (CBData != null && remainingMs > 0)
             {
-                while (CBData != null) Thread.Sleep(smallWait);
+                Thread.Sleep(pollMs);
+                remainingMs -= pollMs;
             }
             if (CBData != null)
             {
-                Tracing.TraceLine("audio.Finished:didn't stop", TraceLevel.Error);
+                Tracing.TraceLine("audio.Finished:didn't stop within 5s, abandoning wait", TraceLevel.Error);
             }
         }
 
@@ -489,6 +562,11 @@ namespace JJPortaudio
 
                 allocater = new Thread(allocProc);
                 allocater.Name = "bufferAllocater";
+                // Engine Track: background. This thread lives until Done(),
+                // which only runs on the orderly close path — if close never
+                // happens, a foreground allocater pins the process (part of
+                // the orphan-shutdown chain).
+                allocater.IsBackground = true;
                 allocater.Start();
             }
 
@@ -521,12 +599,18 @@ namespace JJPortaudio
             public void Done()
             {
                 allocater.Interrupt();
-                while (allocater.IsAlive) Thread.Sleep(1);
+                // Engine Track: bounded. The old spin-until-dead loop ran on
+                // the AudioServer thread and would wedge it forever if the
+                // allocater failed to exit; a wedged server is the head of the
+                // orphan-shutdown chain. One second is generous — the thread
+                // only sleeps 100 ms at a time.
+                if (!allocater.Join(1000))
+                {
+                    Tracing.TraceLine("bufPool.Done:allocater didn't stop within 1s", TraceLevel.Error);
+                }
             }
         }
 
-        private static int bufCount = 0;
-        private static int byteCount = 0;
         private static PortAudio.PaStreamCallbackResult inputCallback(IntPtr inbuf,
                 IntPtr outbuf,
                 uint frameCount,
@@ -535,6 +619,9 @@ namespace JJPortaudio
                 IntPtr userData)
         {
             StreamCB data = queues.getQ((int)userData);
+            // Stream already removed from the table (close raced a late
+            // callback): tell PortAudio to stop calling us.
+            if (data == null) return PortAudio.PaStreamCallbackResult.paAbort;
 
             PortAudio.PaStreamCallbackResult rv = PortAudio.PaStreamCallbackResult.paContinue;
             if (!data.Active)
@@ -568,11 +655,15 @@ namespace JJPortaudio
                         // rides the identical encode-and-send path the mic
                         // does — an honest test of the whole TX chain.
                         data.ToneSource?.Process(buf, (int)data.OpusFrameSZ, data.SampleRate);
+                        // Engine Track: LUFS metering, deliberately AFTER the
+                        // tone injection — the meter reads whatever is really
+                        // going to the encoder, tone or mic, pre-Opus.
+                        data.InputMeter?.Process(buf, (int)data.OpusFrameSZ, data.SampleRate);
                         byte[] encodedBuf = data.Encoder.Encode(buf);
                         if (!data.Active) break;
                         data.OpusInputHandler(encodedBuf);
-                        bufCount++;
-                        byteCount += buf.Length;
+                        data.diagBufCount++;
+                        data.diagByteCount += buf.Length;
                     } while (data.Active && (inPtr != endPtr));
                     if (!data.Active) rv = PortAudio.PaStreamCallbackResult.paComplete;
                 }
@@ -584,7 +675,7 @@ namespace JJPortaudio
             }
             else
             {
-                bufCount++;                
+                data.diagBufCount++;
                 try
                 {
                     float[] buf = data.opusPool.getBuf();
@@ -598,8 +689,11 @@ namespace JJPortaudio
                     {
                         buf[offset++] = *(inPtr++);
                     }
+                    // Engine Track: meter uncompressed input too, same
+                    // pre-handler tap as the Opus path.
+                    data.InputMeter?.Process(buf, (int)data.BufferSize, data.SampleRate);
                     if (data.Active) data.WavInputHandler(buf);
-                    byteCount += (int)data.BufferSize;
+                    data.diagByteCount += (int)data.BufferSize;
                 }
                 catch (Exception ex)
                 {
@@ -613,7 +707,7 @@ namespace JJPortaudio
             {
                 if (data.UseOpus) data.OpusInputHandler(new byte[0]);
                 else data.WavInputHandler(new float[0]);
-                Tracing.TraceLine("InputCallback:" + bufCount + ' ' + byteCount, TraceLevel.Verbose);
+                Tracing.TraceLine("InputCallback:" + data.diagBufCount + ' ' + data.diagByteCount, TraceLevel.Verbose);
             }
             return rv;
         }
@@ -626,6 +720,9 @@ namespace JJPortaudio
             IntPtr userData)
         {
             StreamCB data = queues.getQ((int)userData);
+            // Stream already removed from the table (close raced a late
+            // callback): tell PortAudio to stop calling us.
+            if (data == null) return PortAudio.PaStreamCallbackResult.paAbort;
 
             PortAudio.PaStreamCallbackResult rv = PortAudio.PaStreamCallbackResult.paContinue;
             if (!data.Active)
