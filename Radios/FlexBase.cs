@@ -6822,10 +6822,43 @@ namespace Radios
         /// </summary>
         public float MicData => _MicData;
 
+        // Diag 712, 2026-08-10: the meter path is the one place that hears the
+        // radio regardless of which client keys it or whether OUR audio engine
+        // is running — so the transmit-side witness lives here, decoupled from
+        // PC audio. One-shot radio-state dump on the first meter event (the
+        // radio is provably up), then once-per-second MicData/ALC while the
+        // radio transmits, no matter who is transmitting.
+        private bool _diagStateDumped;
+        private int _diagMeterLastLog;
         private void micData(float data)
         {
             _MicData = data;
             Tracing.TraceLine("micData:" + data.ToString(), TraceLevel.Verbose);
+            try
+            {
+                if (!_diagStateDumped && theRadio != null)
+                {
+                    _diagStateDumped = true;
+                    Tracing.TraceLine("DiagRadioState: FullDuplexEnabled=" + theRadio.FullDuplexEnabled
+                        + " MicInput=" + theRadio.MicInput
+                        + " MicLevel=" + theRadio.MicLevel
+                        + " Mox=" + theRadio.Mox
+                        + " TXFrequency=" + theRadio.ActiveSlice?.Freq, TraceLevel.Info);
+                }
+                if (theRadio != null && theRadio.Mox)
+                {
+                    int nowMs = System.Environment.TickCount;
+                    if (nowMs - _diagMeterLastLog >= 1000)
+                    {
+                        _diagMeterLastLog = nowMs;
+                        Tracing.TraceLine("TXmeter: MicData=" + _MicData.ToString("F3")
+                            + " ALC=" + _ALC.ToString("F3")
+                            + " MicInput=" + theRadio.MicInput
+                            + " MicLevel=" + theRadio.MicLevel, TraceLevel.Info);
+                    }
+                }
+            }
+            catch { }
             MeterChanged?.Invoke(this, MeterType.Mic, data);
         }
 
