@@ -49,6 +49,18 @@ namespace JJPortaudio
         }
 
         /// <summary>
+        /// Engine Track: optional LUFS meter for input streams. Fed in the
+        /// input callback AFTER the test-tone injection point, pre-Opus, so it
+        /// measures exactly what is being encoded and sent — tone or mic.
+        /// Set after OpenOpus/OpenAudio.
+        /// </summary>
+        public LufsMeter InputLufsMeter
+        {
+            get { return (aud != null) ? aud.InputMeter : null; }
+            set { if (aud != null) aud.InputMeter = value; }
+        }
+
+        /// <summary>
         /// buffer size used for this stream.
         /// </summary>
         public uint BufferSize { get { return aud.BufferSize; } }

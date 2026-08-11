@@ -1,7 +1,5 @@
 ﻿//#define KeepAlive
 //#define feedback // for testing mic input
-//#define opusToFile
-//#define opusInputToFile
 //#define TwoSlices
 //#define NoATU
 #define CWMonitor
@@ -6968,6 +6966,72 @@ namespace Radios
             if (sc != null && alc != null) _txMetersHooked = true;
         }
 
+        // --- PC-side transmit loudness, LUFS (Engine Track, 2026-08-11) ------
+        // ITU-R BS.1770-4 / EBU R128: K-weighted, gated, computed on the raw
+        // mic float samples in JJPortaudio's input callback — pre-Opus, and
+        // after the test-tone injection point, so it measures whatever is
+        // actually transmitted, tone or mic. The integrated gate natively
+        // drops the silent gaps between words that make an ungated meter
+        // false-alarm on every breath; ScMicRecentDb's rolling peak-hold
+        // solved that by hand, LUFS gating supersedes it with no custom logic.
+        //
+        // Division of labour, on purpose: LUFS says "you sound right"; the
+        // radio's SW ALC (SwAlcDb) stays a hard guardrail saying "you are not
+        // overdriving the transmitter". Two different failure modes — never
+        // collapse them into one number.
+        //
+        // Measurement-point caveat: these figures exist only for the PC-audio
+        // path. An analog mic at the radio produces no PC-side samples, so
+        // consumers MUST check TxLufsAvailable and fall back to the
+        // SC_MIC/ALC meters instead of reporting a stale or wrong number.
+        //
+        // Calibration anchor (bench, 2026-08-11): a tone injected at -10 dBFS
+        // read -11 on the radio's SC_MIC meter — the chain is honest to about
+        // a dB. The meter's channel model (mono mic duplicated to stereo,
+        // channel powers summed per the spec) makes a -10 dBFS tone read
+        // -10.0 LUFS, so LUFS and SC_MIC land within that same dB.
+        private readonly JJPortaudio.LufsMeter txLufsMeter = new JJPortaudio.LufsMeter();
+
+        /// <summary>Momentary transmit loudness (400 ms window), LUFS. -150 when
+        /// silent or no PC TX audio is flowing. For live coaching. Raw figure —
+        /// geeks get to read the number itself.</summary>
+        public float TxLufsMomentary => txLufsMeter.MomentaryLufs;
+
+        /// <summary>Short-term transmit loudness (3 s window), LUFS. -150 when
+        /// silent or no PC TX audio is flowing. The "how's my audio" figure and
+        /// the auto-set-mic-level target.</summary>
+        public float TxLufsShortTerm => txLufsMeter.ShortTermLufs;
+
+        /// <summary>Integrated (gated) transmit loudness since the last
+        /// <see cref="ResetTxLufsIntegrated"/>, LUFS. The calibration-sample
+        /// figure: speak for a few seconds and read one honest number, silence
+        /// between words gated out per BS.1770.</summary>
+        public float TxLufsIntegrated => txLufsMeter.IntegratedLufs;
+
+        /// <summary>The integrated accumulation WITHOUT gating — what a naive
+        /// meter would say. Diagnostic contrast for the verbose readout.</summary>
+        public float TxLufsIntegratedUngated => txLufsMeter.IntegratedUngatedLufs;
+
+        /// <summary>Start a fresh integrated measurement (momentary and
+        /// short-term are unaffected). Call at the start of a calibration
+        /// sample.</summary>
+        public void ResetTxLufsIntegrated() => txLufsMeter.ResetIntegrated();
+
+        /// <summary>
+        /// True when the LUFS figures are measuring the real transmit feed:
+        /// PC audio is on, the radio's transmit input is the PC, and samples
+        /// have flowed within the last half second (the PC TX stream only runs
+        /// while transmitting in a voice mode). When false, fall back to
+        /// <see cref="ScMicDb"/>/<see cref="SwAlcDb"/> — the analog-mic path
+        /// has no PC-side samples, and the PC mic stream can also run while
+        /// the radio transmits a DIFFERENT source, so this gate is what keeps
+        /// the number honest rather than merely present.
+        /// </summary>
+        public bool TxLufsAvailable =>
+            PCAudio
+            && string.Equals(MicSource, "PC", StringComparison.OrdinalIgnoreCase)
+            && txLufsMeter.HasRecentData;
+
         private void txBandSettingsHandler(TxBandSettings settings)
         {
             Tracing.TraceLine("txBandSettingsHandler:" + settings.BandName, TraceLevel.Info);
@@ -11017,6 +11081,17 @@ namespace Radios
             remoteAudioThread = new Thread(remoteAudioProc);
             remoteAudioThread.Name = "RemoteAudio";
             remoteAudioThread.Priority = ThreadPriority.Highest;
+            // Engine Track (2026-08-11): background. When stopRemoteAudioThread's
+            // 6 s Join fails it abandons this thread; as a foreground thread the
+            // abandoned corpse pinned the whole process alive after the UI
+            // exited — the field-confirmed orphan jjflexible.exe hang (four
+            // ghosts in four launch/exit cycles, 2026-08-10), and the ghosts
+            // then raced the live instance over the shared config file. The
+            // orderly path is unchanged: Join still waits, cleanup still runs;
+            // background only matters once the thread is already being
+            // abandoned, and the alternative to a skipped PortAudio close at
+            // process exit is a process that never exits.
+            remoteAudioThread.IsBackground = true;
             remoteAudioThread.Start();
         }
 
@@ -11028,12 +11103,22 @@ namespace Radios
                 try
                 {
                     stopRemoteAudio = true;
-                    if (!remoteAudioThread.Join(6000))
+                    // Engine Track (2026-08-11): 10 s, up from 6. Teardown's
+                    // waits are all bounded now, and the worst legitimate case
+                    // (a wedged device: two ~2.2 s stream aborts inside the
+                    // audio server, the Finished() polls around them, and a
+                    // 1 s Pa_Terminate join) can honestly take 6-8 s.
+                    // Abandoning is the ERROR path, not a normal outcome: with
+                    // the bounds in place it is only reachable when a native
+                    // PortAudio call itself is blocked inside a dead driver —
+                    // and the thread is background now, so even then it can no
+                    // longer pin an orphan jjflexible.exe alive after exit.
+                    if (!remoteAudioThread.Join(10000))
                     {
                         // Thread.Abort() throws PlatformNotSupportedException on .NET 8.
-                        // Log and abandon — the thread will exit when its blocking I/O
-                        // completes or the socket closes.
-                        Tracing.TraceLine("stopRemoteAudioThread: thread didn't stop within 6s, abandoning", TraceLevel.Error);
+                        // Log and abandon — the (background) thread dies with the
+                        // process if its blocking native call never returns.
+                        Tracing.TraceLine("stopRemoteAudioThread: thread didn't stop within 10s, abandoning (background thread, cannot pin the process)", TraceLevel.Error);
                     }
                 }
                 catch(Exception ex)
@@ -11153,6 +11238,10 @@ namespace Radios
             // Audio Track C: hand the persistent TX test-tone generator to the
             // input stream so an engaged tone replaces the mic at the encoder.
             opusInputChannel.PortAudioStream.InputToneSource = txToneGen;
+            // Engine Track: hand the persistent LUFS meter to the same stream.
+            // It taps the callback AFTER the tone injection, so it measures
+            // whatever is actually being encoded and sent — tone or mic.
+            opusInputChannel.PortAudioStream.InputLufsMeter = txLufsMeter;
             Tracing.TraceLine("remoteAudioProc:Opus Input Channel setup", TraceLevel.Info);
 
 #if CWMonitor
@@ -11164,8 +11253,13 @@ namespace Radios
             // Note that we must pole for opus output.
             while (!stopRemoteAudio)
             {
-                // Just spin if disconnecting.
-                if (Disconnecting) continue;
+                // Idle if disconnecting. Engine Track: this was a bare
+                // `continue` — a BUSY spin at Highest priority burning a full
+                // core for the whole disconnect window (up to the 30 s radio
+                // wait in Disconnect() before it flips PCAudio off). Sleep
+                // instead; nothing here is latency-sensitive once we're
+                // tearing down.
+                if (Disconnecting) { Thread.Sleep(10); continue; }
 
                 string mode = "";
                 lock (mySlices)
@@ -11218,9 +11312,6 @@ namespace Radios
                 if (opusBuf != null)
                 {
                     opusOutputChannel.PortAudioStream.WriteOpus(opusBuf);
-#if opusToFile
-                    writeOpus(opusBuf);
-#endif
                 }
                 else
                 {
@@ -11232,9 +11323,6 @@ namespace Radios
 
             remoteDone:
             // Note that theRadio may be null here.
-#if opusToFile
-            closeOpus();
-#endif
 #if CWMonitor
             if (useCWMon) CWMonDone();
 #endif
@@ -11288,9 +11376,6 @@ namespace Radios
         // Note:  Called from the audio callback.
         private void sendOpusInput(byte[] data)
         {
-#if opusInputToFile
-            opusIn_writeOpus(data);
-#endif
             if (data.Length > 0)
             {
                 opusInputChannel.TXOpusChannel.AddTXData(data);
@@ -11372,54 +11457,11 @@ namespace Radios
         }
         #endregion
 
-#if opusToFile
-        private const string fName = @"c:\users\jjs\documents\tmp\opusOut.dat";
-        private Stream fStream = null;
-        private BinaryWriter fbw = null;
-        private void writeOpus(byte[] buf)
-        {
-            if (fStream == null)
-            {
-                fStream = File.Open(fName, FileMode.Create);
-                fbw = new BinaryWriter(fStream);
-            }
-            fbw.Write((ushort)buf.Length);
-            fbw.Write(buf, 0, buf.Length);
-        }
-        private void closeOpus()
-        {
-            if (fStream != null)
-            {
-                fbw.Close();
-                fbw.Dispose();
-                fStream.Dispose();
-            }
-        }
-#endif
-#if opusInputToFile
-        private const string opusIn_fName = @"c:\users\jjs\documents\tmp\opusOut.dat";
-        private Stream opusIn_fStream = null;
-        private BinaryWriter opusIn_fbw = null;
-        private void opusIn_writeOpus(byte[] buf)
-        {
-            if (opusIn_fStream == null)
-            {
-                opusIn_fStream = File.Open(opusIn_fName, FileMode.Create);
-                opusIn_fbw = new BinaryWriter(opusIn_fStream);
-            }
-            opusIn_fbw.Write((ushort)buf.Length);
-            opusIn_fbw.Write(buf, 0, buf.Length);
-        }
-        private void opusIn_closeOpus()
-        {
-            if (opusIn_fStream != null)
-            {
-                opusIn_fbw.Close();
-                opusIn_fbw.Dispose();
-                opusIn_fStream.Dispose();
-            }
-        }
-#endif
+        // Engine Track (2026-08-11): removed the dead #if opusToFile /
+        // #if opusInputToFile debug blocks that hardcoded Jim's old user path
+        // (c:\users\jjs\...). They have not compiled since the defines were
+        // commented out, and a debug tap that writes to another machine's
+        // home directory is not coming back.
 
         private string oldMicInput;
         private bool startOpusOutputChannel()
