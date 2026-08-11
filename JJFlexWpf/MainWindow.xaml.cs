@@ -1046,9 +1046,21 @@ public partial class MainWindow : UserControl
         }
 
         // 3. PTT keys — Ctrl+Space (hold), Shift+Space (lock toggle), Escape (unlock)
-        //    Only active when FreqOut has focus and radio is powered on.
-        //    Requires modifier keys to prevent accidental transmit.
-        if (_pttController != null && _radioPowerOn && FreqOut.IsKeyboardFocusWithin)
+        //    Active when focus is in the Home fields OR the Home field groups
+        //    (ScreenFields expanders), radio powered on. Requires modifier
+        //    keys to prevent accidental transmit.
+        //
+        //    Audio Arc Keys Track (2026-08-11): the gate was FreqOut-only,
+        //    which made Ctrl+Space silently dead while riding a value in the
+        //    expanders — precisely where an operator adjusting Mic Level
+        //    wants to key up (research-queue field report). The expander
+        //    panel uses no Space chords, so nothing is shadowed. Escape
+        //    keeps its layering: while transmitting it unkeys FIRST (Track
+        //    A's PTT-safety rule); when not transmitting it falls through
+        //    to the expander's collapse-group behavior as before. Logging
+        //    text fields remain outside the gate on purpose.
+        if (_pttController != null && _radioPowerOn &&
+            (FreqOut.IsKeyboardFocusWithin || FieldsPanel.IsKeyboardFocusWithin))
         {
             if (rawKey == Key.Space && Keyboard.Modifiers == ModifierKeys.Shift)
             {

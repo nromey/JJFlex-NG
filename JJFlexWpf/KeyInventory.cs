@@ -316,6 +316,13 @@ public static class KeyInventory
         // Audio Arc Track A (2026-08-11) — "adjust how I sound and what I hear".
         new("Leader", "Leader key", "Ctrl+J, V", "Enter volume mode: pick a target letter, arrows adjust, Escape exits",
             new[] { "volume", "audio", "level", "pc", "output", "headphone", "mic", "adjust", "mode", "leader" }, "Radio", "Audio"),
+        // Audio Arc Keys Track (2026-08-11) — the mic check and the tone generator.
+        new("Leader", "Leader key", "Ctrl+J, K", "Mic check: speak your mic-audio verdict and level, nothing else",
+            new[] { "mic", "check", "microphone", "audio", "level", "verdict", "gain", "query",
+                    "how", "sound", "hot", "peak", "dbfs", "leader" }, "Radio", "Audio"),
+        new("Leader", "Leader key", "Ctrl+J, G", "Arm or disarm the TX test tone (replaces your microphone while transmitting)",
+            new[] { "tone", "test", "generator", "arm", "disarm", "440", "transmit", "tx",
+                    "audio", "check", "calibrate", "leader" }, "Radio", "Audio"),
         new("Leader", "Leader key", "Ctrl+J, C", "Toggle Compander",
             new[] { "compander", "compression", "tx", "transmit", "voice", "leader", "toggle" }, "Radio", "Transmit"),
         new("Leader", "Leader key", "Ctrl+J, Shift+P", "Toggle Speech Processor",
@@ -372,11 +379,15 @@ public static class KeyInventory
     // ────────────────────────────────────────────────────────────────
     private static readonly FixedKeyEntry[] OtherKeys =
     {
-        new("PTT", "JJ Flexible Home", "Ctrl+Space", "Push to talk — transmit while held",
+        // Context widened 2026-08-11 (Audio Arc Keys Track): the PTT keys now
+        // also work with focus in the Home field groups (expanders) — an
+        // operator riding Mic Level in the Audio group can key without
+        // first tabbing back to Home. Field-reported: Ctrl+Space died there.
+        new("PTT", "JJ Flexible Home and its field groups", "Ctrl+Space", "Push to talk — transmit while held",
             new[] { "ptt", "transmit", "push", "talk", "space" }, "Radio", "Transmit"),
-        new("PTT", "JJ Flexible Home", "Shift+Space", "Toggle transmit lock on or off",
+        new("PTT", "JJ Flexible Home and its field groups", "Shift+Space", "Toggle transmit lock on or off",
             new[] { "ptt", "transmit", "lock", "toggle" }, "Radio", "Transmit"),
-        new("PTT", "JJ Flexible Home", "Escape", "Stop transmitting (while a transmit lock is on)",
+        new("PTT", "JJ Flexible Home and its field groups", "Escape", "Stop transmitting (while a transmit lock is on)",
             new[] { "ptt", "transmit", "stop", "escape" }, "Radio", "Transmit"),
         new("CWMessages", "CW messages", "Ctrl+1 through Ctrl+7", "Send the CW message in that slot",
             new[] { "cw", "message", "send", "macro" }, "Radio", "CwMessage"),

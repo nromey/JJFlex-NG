@@ -993,16 +993,51 @@ public class KeyCommands
     private void SpeakTxStatusHandler()
     {
         var mw = _context.GetMainWindow();
-        var text = mw?.GetPttStatusText() ?? "Receiving";
-
-        // Live mic-audio verdict while transmitting, so an operator can adjust mic
-        // gain and hear the effect WITHOUT stopping an audio check. The recent
-        // (~1.5 s) peak follows the level down, unlike the whole-transmit peak.
         var rig = _context.GetRigControl();
-        if (rig != null && rig.Transmit && rig.ScMicRecentDb > -140f)
-            text += $". Mic audio {Dialogs.AudioWorkshopDialog.MicAudioVerdict(rig.ScMicRecentDb)}, peak {rig.ScMicRecentDb:F0} dBFS";
 
-        Radios.ScreenReaderOutput.Speak(text, Radios.VerbosityLevel.Terse, true);
+        // Context-aware ordering (Noel, field use 2026-08-11: "I really don't
+        // need to hear my TX before mic if we're going to use this to monitor
+        // audio"). Transmit state is only information when the operator does
+        // not already know it — and they just keyed the radio. So while
+        // transmitting, LEAD with the live mic-audio verdict (the one thing
+        // they lack) and let the status follow; while receiving, the status
+        // is the entire point and stays exactly as before.
+        //
+        // The recent (~1.5 s) peak follows the level back down, unlike the
+        // whole-transmit peak, so riding mic gain hears the effect live.
+        if (rig != null && rig.Transmit)
+        {
+            string verdict = rig.ScMicRecentDb > -140f
+                ? FormatMicVerdict(rig.ScMicRecentDb)
+                : "Mic audio, no reading yet";
+            var status = mw?.GetPttStatusText();
+            string text = status != null ? verdict + ". " + status : verdict;
+            Radios.ScreenReaderOutput.Speak(text, Radios.VerbosityLevel.Terse, true);
+            return;
+        }
+
+        Radios.ScreenReaderOutput.Speak(mw?.GetPttStatusText() ?? "Receiving",
+            Radios.VerbosityLevel.Terse, true);
+    }
+
+    /// <summary>
+    /// Format a mic-audio reading for speech, honoring the operator's
+    /// verdict-output preference (Settings → Notifications): plain English,
+    /// dBFS numbers, or both. Conservative default is both — exactly what
+    /// shipped before the setting existed.
+    /// </summary>
+    private string FormatMicVerdict(float peakDb, bool lastTransmit = false)
+    {
+        var mode = (MicVerdictOutputMode?)_context.GetMainWindow()?.CurrentAudioConfig?.MicVerdictOutput
+            ?? MicVerdictOutputMode.Both;
+        string lead = lastTransmit ? "Mic audio last transmit" : "Mic audio";
+        string verdict = Dialogs.AudioWorkshopDialog.MicAudioVerdict(peakDb);
+        return mode switch
+        {
+            MicVerdictOutputMode.Plain => $"{lead} {verdict}",
+            MicVerdictOutputMode.Numbers => $"{lead} peak {peakDb:F0} dBFS",
+            _ => $"{lead} {verdict}, peak {peakDb:F0} dBFS",
+        };
     }
 
     private void RepeatLastMessageHandler()
@@ -1407,6 +1442,7 @@ public class KeyCommands
         _context.Trace("KeyCommands new()");
         BuildKeyTable();
         SetupData();
+        InstallGlobalWindowRouting();
 
         Stream? cfgFile = null;
         try
@@ -2093,6 +2129,165 @@ public class KeyCommands
     }
 
     // ────────────────────────────────────────────────────────────────
+    //  Global routing for WPF dialog windows — Audio Arc Keys Track
+    //  (2026-08-11).
+    //
+    //  THE DEFECT: KeyScope.Global was only global inside the main window.
+    //  The main content is a UserControl in an ElementHost, so every key it
+    //  sees flows through ShellForm.ProcessCmdKey → DoCommand before WPF —
+    //  Global commands work anywhere there. But dialogs are separate WPF
+    //  Windows with their own input path: no ProcessCmdKey, no DoCommand,
+    //  nothing. Every Global chord died inside every dialog, and worse,
+    //  WPF access-key matching could STEAL a dead chord — Alt+Shift+S
+    //  (Speak Transmit Status) fired Save Audio Preset inside the Audio
+    //  Workshop via the Save button's S mnemonic. Field-confirmed by Noel
+    //  2026-08-11, in the one dialog where he most needed the TX status.
+    //
+    //  THE FIX: class handlers on typeof(Window), registered once, so every
+    //  WPF dialog — present and future — routes through the same registry:
+    //
+    //  - The BUBBLING KeyDown handler dispatches Global-scope registry
+    //    bindings, the Ctrl+J leader trigger, and (while armed) leader /
+    //    volume-mode follow-on keys. Bubbling is the deliberate choice:
+    //    it runs AFTER every dialog-local Preview and control handler
+    //    (dialog-owned keys like the Workshop's two-stage Escape, Ctrl+S
+    //    Save, and plain typing all win), but BEFORE AccessKeyManager's
+    //    mnemonic matching in PostProcessInput — marking the event handled
+    //    is what stops the mnemonic steal.
+    //  - The PREVIEW handler exists only for armed-mode Escape: Escape
+    //    must cancel an armed leader/volume mode rather than close the
+    //    dialog (JJFlexDialog's own Preview close handler would otherwise
+    //    win). PTT safety carve-out: while the radio is transmitting,
+    //    Escape belongs to unkey (Track A's rule stands) — the armed mode
+    //    is dropped silently and the key travels on.
+    //
+    //  Scope discipline: ONLY Global-scope entries dispatch from dialogs.
+    //  Radio/Classic/Modern/Logging chords stay inert so dialog-local keys
+    //  (e.g. Ctrl+S in the Workshop) are never stolen. CW message keys are
+    //  excluded too: their Scope is Global only by constructor default, the
+    //  inventory documents them as Radio, and firing CW on the air from a
+    //  dialog keystroke would be a surprise, not a fix.
+    //
+    //  Residual gap, documented honestly: legacy WinForms-hosted surfaces
+    //  (e.g. the Flex filter forms, WebView2 auth) are not WPF Windows and
+    //  are NOT covered by these handlers.
+    // ────────────────────────────────────────────────────────────────
+
+    private static KeyCommands? _globalRoutingOwner;
+    private static bool _globalRoutingInstalled;
+
+    /// <summary>
+    /// Register the class handlers exactly once, owned by the first (main)
+    /// KeyCommands instance. LogEntry's myKeyCommands subclass uses the
+    /// two-arg constructor and never installs.
+    /// </summary>
+    private void InstallGlobalWindowRouting()
+    {
+        if (_globalRoutingInstalled) return;
+        _globalRoutingInstalled = true;
+        _globalRoutingOwner = this;
+        System.Windows.EventManager.RegisterClassHandler(
+            typeof(System.Windows.Window),
+            System.Windows.Input.Keyboard.PreviewKeyDownEvent,
+            new System.Windows.Input.KeyEventHandler(AnyWindowPreviewKeyDown));
+        System.Windows.EventManager.RegisterClassHandler(
+            typeof(System.Windows.Window),
+            System.Windows.Input.Keyboard.KeyDownEvent,
+            new System.Windows.Input.KeyEventHandler(AnyWindowKeyDown));
+        _context.Trace("KeyCommands: global window routing installed");
+    }
+
+    /// <summary>
+    /// Preview (tunnel) phase: armed-mode Escape only. See region comment.
+    /// </summary>
+    private static void AnyWindowPreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        var kc = _globalRoutingOwner;
+        if (kc == null || e.Handled) return;
+        if (!kc._leaderKeyActive && !kc._volumeModeActive) return;
+        var raw = e.Key == System.Windows.Input.Key.System ? e.SystemKey : e.Key;
+        if (raw != System.Windows.Input.Key.Escape) return;
+
+        // PTT safety wins over mode cancel: while transmitting, let Escape
+        // travel to whoever unkeys (Audio Check two-stage Escape, transmit
+        // lock). Drop the armed mode so it cannot fire later unexpectedly.
+        var rig = kc._context.GetRigControl();
+        if (rig != null && rig.Transmit)
+        {
+            kc._leaderKeyActive = false;
+            if (kc._volumeModeActive) kc.ExitVolumeMode(speak: false);
+            return;
+        }
+
+        if (kc.DoCommand(WpfKeyConverter.ToWinFormsKeys(e)))
+            e.Handled = true;
+    }
+
+    /// <summary>
+    /// Bubble phase: dispatch Global registry commands and the leader from
+    /// any WPF window. Runs only when nothing dialog-local handled the key.
+    /// </summary>
+    private static void AnyWindowKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        var kc = _globalRoutingOwner;
+        if (kc == null || e.Handled) return;
+        var k = WpfKeyConverter.ToWinFormsKeys(e);
+        if (k == Keys.None) return;
+        if (kc.DispatchFromDialogWindow(k))
+            e.Handled = true;
+    }
+
+    /// <summary>
+    /// The dialog-side dispatch core. Consumes: leader/volume-mode keys
+    /// while armed, the Ctrl+J trigger, and chords bound to a Global-scope
+    /// registry command (CW message keys excluded — see region comment).
+    /// Returns false for everything else so the key stays with the dialog.
+    /// </summary>
+    internal bool DispatchFromDialogWindow(Keys k)
+    {
+        // Ignore bare modifier presses (same filter as DoCommand).
+        int code = (int)(k & Keys.KeyCode);
+        if (code == (int)Keys.Menu || code == (int)Keys.ControlKey ||
+            code == (int)Keys.ShiftKey || code == 0)
+            return false;
+
+        // Armed modes own their follow-on keys wherever focus lives —
+        // this is what makes the Ctrl+J mic check usable from inside the
+        // Audio Workshop, precisely where an operator rides mic gain.
+        if (_volumeModeActive || _leaderKeyActive)
+            return DoCommand(k);
+
+        // The leader trigger itself.
+        if (k == (Keys.J | Keys.Control))
+            return DoCommand(k);
+
+        // Global-scope registry bindings only.
+        if (!KeyDictionary.TryGetValue(k, out var entries)) return false;
+        KeyTableEntry? global = null;
+        foreach (var item in entries)
+        {
+            if (item.Scope == KeyScope.Global && item.KeyType != KeyTypes.CWText)
+            {
+                global = item;
+                break;
+            }
+        }
+        if (global == null) return false;
+
+        CommandId = global.KeyDef.Id;
+        _context.Trace("DispatchFromDialogWindow:" + CommandId);
+        try
+        {
+            global.Handler?.Invoke();
+        }
+        catch (Exception ex)
+        {
+            _context.Trace("DispatchFromDialogWindow:" + ex.Message);
+        }
+        return true; // consumed — suppresses mnemonic matching too
+    }
+
+    // ────────────────────────────────────────────────────────────────
     //  Current keys and help text
     // ────────────────────────────────────────────────────────────────
 
@@ -2383,6 +2578,20 @@ public class KeyCommands
             case Keys.V:
                 if (rig == null) LeaderNoRadio();
                 else EnterVolumeMode();
+                break;
+
+            // Audio Arc Keys Track (2026-08-11): K = mic check ("mic check,
+            // one two"), the binding an operator rides while adjusting gain.
+            // Speaks ONLY the verdict and level — no transmit-status preamble.
+            case Keys.K:
+                SpeakMicCheck();
+                break;
+
+            // G = the TX test-tone Generator, arm/disarm. Track C built the
+            // engine on FlexBase and deliberately added no hotkey because
+            // this track owns the key surface.
+            case Keys.G:
+                ToggleTxTone();
                 break;
 
             case Keys.C:
@@ -2745,6 +2954,119 @@ public class KeyCommands
     {
         EarconPlayer.LeaderInvalidTone();
         Radios.ScreenReaderOutput.Speak("No radio connected", Radios.VerbosityLevel.Critical);
+    }
+
+    /// <summary>
+    /// Ctrl+J, K — the dedicated mic-audio query (Audio Arc Keys Track,
+    /// 2026-08-11). Speaks ONLY verdict and level, context-aware: live
+    /// recent peak while transmitting, the last transmit's peak while
+    /// receiving. This is the binding an operator rides while adjusting mic
+    /// gain, and because leader chords are not mnemonics it works inside
+    /// the Audio Workshop where Alt+Shift+S used to get eaten.
+    /// Wording mirrors the Home expander's readout field so the two
+    /// surfaces never disagree.
+    /// </summary>
+    private void SpeakMicCheck()
+    {
+        var rig = _context.GetRigControl();
+        if (rig == null) { LeaderNoRadio(); return; }
+
+        string msg;
+        if (rig.Transmit && rig.ScMicRecentDb > -140f)
+            msg = FormatMicVerdict(rig.ScMicRecentDb);
+        else if (rig.Transmit)
+            msg = "Mic audio, no reading yet";
+        else if (rig.ScMicMaxDb > -140f)
+            msg = FormatMicVerdict(rig.ScMicMaxDb, lastTransmit: true);
+        else
+            msg = "Mic audio, transmit to measure";
+        Radios.ScreenReaderOutput.Speak(msg, Radios.VerbosityLevel.Terse, true);
+    }
+
+    /// <summary>
+    /// Ctrl+J, G — arm or disarm the TX test tone from anywhere (Audio Arc
+    /// Keys Track, 2026-08-11). Drives the FlexBase engine Track C built
+    /// (TxToneStart/Stop); the Audio Workshop is NOT touched. Behaviour
+    /// deliberately mirrors the Workshop's checkbox: path trouble REFUSES
+    /// to arm (arming "successfully" while something else keeps
+    /// transmitting is the meter-that-lied failure class), a tone outside
+    /// the TX filter passband arms-and-warns loudly, and every key-down
+    /// while armed announces that the tone is riding it.
+    /// </summary>
+    private void ToggleTxTone()
+    {
+        var rig = _context.GetRigControl();
+        if (rig == null) { LeaderNoRadio(); return; }
+
+        if (rig.TxToneEngaged)
+        {
+            rig.TxToneStop();
+            // Clear the key-down rider. If the Workshop installed its own
+            // hook it is self-guarded (returns null once disengaged), so a
+            // plain clear is safe either way; the Workshop re-installs on
+            // its next arm.
+            PttSafetyController.KeyDownAnnouncementExtra = null;
+            EarconPlayer.FeatureOffTone();
+            Radios.ScreenReaderOutput.Speak("Test tone off. Microphone restored.",
+                Radios.VerbosityLevel.Critical, true);
+            return;
+        }
+
+        string trouble = rig.TxTonePathTrouble;
+        if (!string.IsNullOrEmpty(trouble))
+        {
+            EarconPlayer.LeaderInvalidTone();
+            Radios.ScreenReaderOutput.Speak("Test tone not armed. " + trouble,
+                Radios.VerbosityLevel.Critical, true);
+            return;
+        }
+
+        // The operator's saved tone settings — per-operator on purpose:
+        // the frequency is a hearing choice and does not change with the rig.
+        var cfg = _context.GetMainWindow()?.CurrentAudioConfig;
+        int freq = cfg?.TxToneFrequencyHz ?? 440;
+        int level = cfg?.TxToneLevelDb ?? -10;
+        rig.TxToneFrequency = freq;
+        rig.TxToneLevelDb = level;
+        rig.TxToneStart();
+
+        // Same key-down honesty the Workshop provides: every transmit path
+        // announces the tone is riding it. The closure reads the rig live
+        // and returns null once disengaged, so a stale hook is harmless.
+        PttSafetyController.KeyDownAnnouncementExtra =
+            () => BuildLeaderToneAnnouncement(_context.GetRigControl());
+
+        string line = $"Test tone armed: {freq} hertz at {level} dBFS. " +
+            "It replaces your microphone while you transmit. Control J, G disarms.";
+        if (freq < rig.TXFilterLow || freq > rig.TXFilterHigh)
+        {
+            line += $" Warning: {freq} hertz is outside your transmit filter, " +
+                $"{rig.TXFilterLow} to {rig.TXFilterHigh}. Nothing will go out.";
+            EarconPlayer.Warning2Beep();
+        }
+        else
+        {
+            EarconPlayer.FeatureOnTone();
+        }
+        Radios.ScreenReaderOutput.Speak(line, Radios.VerbosityLevel.Critical, true);
+    }
+
+    /// <summary>
+    /// The key-down announcement for a leader-armed tone. Re-checks the
+    /// path and passband at the moment of key-down, because both can have
+    /// changed since arming. Null when the tone is not engaged.
+    /// </summary>
+    private static string? BuildLeaderToneAnnouncement(Radios.FlexBase? rig)
+    {
+        if (rig == null || !rig.TxToneEngaged) return null;
+        string trouble = rig.TxTonePathTrouble;
+        if (!string.IsNullOrEmpty(trouble))
+            return "The test tone is armed but is not going out. " + trouble;
+        int freq = (int)rig.TxToneFrequency;
+        string line = $"Sending the {freq} hertz test tone instead of your microphone.";
+        if (freq < rig.TXFilterLow || freq > rig.TXFilterHigh)
+            line += " Warning: the tone is outside your transmit filter. Nothing is going out.";
+        return line;
     }
 
     private void ToggleLeaderDSP(string label, Func<FlexBase.OffOnValues> getter, Action<FlexBase.OffOnValues> setter)
