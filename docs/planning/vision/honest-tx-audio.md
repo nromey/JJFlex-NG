@@ -243,8 +243,14 @@ thresholds in the first place.
     clamp the range to the live passband or speak a plain warning: "that tone
     is outside your transmit filter — nothing will go out." Never let this fail
     quietly; it is the same class of defect as the meter that lied.
-  - **Relevant tester:** Patrick (BHN) is the hearing-loss axis in the tester
-    pool — see `memory/patrick_bh_network_tester.md`.
+  - **Relevant reviewer — with a caveat that shapes how we use him.** Patrick
+    (BHN) is the hearing-loss axis in the tester pool *and* an audio
+    professional, so he is the right person to judge the default and the preset
+    list. But **he has no radio** (Noel, 2026-08-11), so he can review the
+    design and listen to captured audio, and cannot bench-test anything that
+    needs a keyed transceiver until JJ Flexible Connect can share one with him.
+    Route design questions to him now; hold radio-seat verification. See
+    `memory/patrick_bh_network_tester.md`.
 - **Replace the mic, do not mix** — mute the real input while the tone runs so
   only the clean tone transmits with no room bleed. Insert at the input stage
   ahead of the pipeline.
@@ -263,8 +269,10 @@ a laptop internal mic — tinny, hissy, fan and room noise — made armchair-cop
 - **Architecture:** a `TxAudioPipeline` mirroring the existing `RxAudioPipeline`,
   living in JJPortaudio's input callback between mic capture and Opus encode —
   the same place LUFS metering lives.
-- **Chain order** (from Noel's audio-pro friend, and it is the standard vocal
-  chain — clean before you shape): vocal isolation / **RNNoise first** →
+- **Chain order** (from **Patrick**, the BHN infrastructure operator and audio
+  professional in the tester pool, via Mastodon 2026-08-11 — and it is the
+  standard vocal chain, clean before you shape): vocal isolation / **RNNoise
+  first** →
   **expander/gate** → **parametric EQ** → **compression** last. Isolate the
   voice from the room before you EQ and compress, so you are not shaping the
   noise. **Order must be dynamically reorderable** by operator or profile;
