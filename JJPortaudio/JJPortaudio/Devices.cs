@@ -149,6 +149,15 @@ namespace JJPortaudio
         /// </summary>
         public const bool StereoOnly = true;
 
+        /// <summary>PortAudio PaHostApiTypeId for WDM-KS (kernel streaming). Fixed
+        /// enum value. Used to hide kernel pins from the picker by default.</summary>
+        public const int WdmKsTypeId = 11;
+
+        /// <summary>When true, the enumeration includes WDM-KS kernel pins (for
+        /// power users via an "advanced devices" toggle). Default false — those
+        /// pins are the trap that had operators transmitting into dead jacks.</summary>
+        public static bool ShowAdvancedDevices = false;
+
         private string cfgFile;
 
         /// <summary>
@@ -428,6 +437,29 @@ namespace JJPortaudio
                         // still selectable, it just loses the stable id.
                         Tracing.TraceLine("Devices.Enumerate: host api info failed for device " + i
                             + ", " + ex.Message, TraceLevel.Info);
+                    }
+
+                    // Log every endpoint by name/API/channels — the one line that
+                    // lets us diagnose a bad device pick from a trace (a mono or
+                    // multi-channel mic hidden by the stereo filter is otherwise
+                    // invisible in every other log).
+                    Tracing.TraceLine("Devices.Enumerate: dev " + i + ": \"" + pinfo.name + "\" api=" + apiName
+                        + " in=" + pinfo.maxInputChannels + " out=" + pinfo.maxOutputChannels
+                        + ((i == defaultInputId) ? " [default in]" : "")
+                        + ((i == defaultOutputId) ? " [default out]" : ""), TraceLevel.Info);
+
+                    // Hide WDM-KS kernel pins by default (2026-08-11). They expose
+                    // raw hardware endpoints — often a dead physical jack — under
+                    // pristine, un-truncated names, so they LOOK like the best pick
+                    // in the list and are the worst: a field case had two operators
+                    // each select a KS pin to a jack with nothing plugged in and
+                    // transmit silence. Every real endpoint also appears under
+                    // MME/DirectSound/WASAPI, so nothing is lost. ShowAdvancedDevices
+                    // brings them back for power users.
+                    if (apiTypeId == WdmKsTypeId && !ShowAdvancedDevices)
+                    {
+                        Tracing.TraceLine("Devices.Enumerate: hiding WDM-KS device \"" + pinfo.name + "\"", TraceLevel.Info);
+                        continue;
                     }
 
                     if (pinfo.maxInputChannels == 2)
