@@ -30,6 +30,14 @@
     <param name="Local" value="pages\audio-workshop.htm">
   </OBJECT>
   <LI><OBJECT type="text/sitemap">
+    <param name="Name" value="audio levels">
+    <param name="Local" value="pages\audio-levels.htm">
+  </OBJECT>
+  <LI><OBJECT type="text/sitemap">
+    <param name="Name" value="volume">
+    <param name="Local" value="pages\audio-levels.htm">
+  </OBJECT>
+  <LI><OBJECT type="text/sitemap">
     <param name="Name" value="band jumping">
     <param name="Local" value="pages\band-navigation.htm">
   </OBJECT>

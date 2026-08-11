@@ -43,6 +43,28 @@ namespace Radios
     }
 
     /// <summary>
+    /// How the Audio Check handles transmit power (Workshop Track,
+    /// 2026-08-11). Numeric values are stable for saved configs.
+    /// </summary>
+    public enum AudioCheckPowerModes
+    {
+        /// <summary>Dummy load: zero watts, no RF at all. The default —
+        /// every meter the check reads (SC_MIC, SW ALC) sits upstream of
+        /// the power amplifier, so the measurement is identical with no
+        /// RF, and a check with a tone armed must not put a carrier on an
+        /// occupied frequency. Proven at the radio 2026-08-11: a tone at
+        /// -10 dBFS read -11 on SC_MIC at zero watts.</summary>
+        DummyLoad = 0,
+
+        /// <summary>Cap transmit power at <see
+        /// cref="RadioConfig.AudioCheckLowPowerWatts"/> for the separate,
+        /// deliberate act of confirming RF actually leaves the radio. A
+        /// cap only — it never raises power and cannot override an active
+        /// dummy load mode.</summary>
+        LowPower = 1,
+    }
+
+    /// <summary>
     /// Per-radio configuration, keyed by radio serial (or, for future non-Flex
     /// rigs, whatever stable identifier the backend provides). Stored at
     /// <c>{BaseConfigDir}\radios\{radioId}\config.xml</c>.
@@ -166,12 +188,33 @@ namespace Radios
             = AudioCheckListenMethods.Monitor;
 
         /// <summary>
-        /// Low-power-during-checks (default ON, flexibility principle:
-        /// togglable, conservative default). The Audio Check session drops RF
-        /// power to a 10 watt floor while keyed and restores it after — no
-        /// dummy load is assumed in anyone's shack.
+        /// SUPERSEDED by <see cref="AudioCheckPowerMode"/> (Workshop Track,
+        /// 2026-08-11). Retained so configs written before the change still
+        /// round-trip; no longer read by the Audio Check. The old meaning:
+        /// cap RF power at a hardwired 10 watts while keyed.
         /// </summary>
         public bool AudioCheckLowPower { get; set; } = true;
+
+        /// <summary>
+        /// How the Audio Check handles transmit power for this radio.
+        /// Default is dummy load — an audio check does not need RF at all
+        /// (the meters it reads sit upstream of the power amplifier), and
+        /// with a test tone armed a transmitting check puts a steady
+        /// carrier on whatever frequency the operator is tuned to.
+        /// Low power exists for the separate, deliberate act of confirming
+        /// RF actually leaves the radio.
+        /// </summary>
+        public AudioCheckPowerModes AudioCheckPowerMode { get; set; }
+            = AudioCheckPowerModes.DummyLoad;
+
+        /// <summary>
+        /// The power cap, in watts, used when <see cref="AudioCheckPowerMode"/>
+        /// is LowPower (Noel: "a low power output with a combo you can change
+        /// so I can change it to 1 if I need to"). A cap: the check drops to
+        /// this value when current power exceeds it and never raises power.
+        /// Default 10, matching the old hardwired behaviour.
+        /// </summary>
+        public int AudioCheckLowPowerWatts { get; set; } = 10;
 
         /// <summary>
         /// App-wide config root, assigned once at startup (ApplicationEvents,

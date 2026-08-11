@@ -316,7 +316,22 @@ On the Mute field, Space or M toggles mute. On the Volume field, Up and Down adj
 
 Volume, headphone level, and line-out level live in the Audio expander. Press `Ctrl+Shift+U` to open the Audio expander, then arrow to the level you want and use Up / Down (or Page Up / Page Down for big jumps, Home / End for minimum / maximum, and Enter to type an exact value).
 
+The Audio menu's **PC Audio Levels** and **On-Radio Levels** items each open a dialog with the same riding keys — Up / Down to nudge, Shift + Up / Down for steps of one, Page Up / Page Down for big jumps, Home / End for the ends, Escape to close. The dialog stays open while you adjust, which is the point.
+
 The previous `Alt+Page Up`, `Alt+Shift+Page Up`, and `Shift+Page Up` shortcuts (and their `Page Down` counterparts) no longer adjust audio. The slots are reserved on purpose so a future feature can claim them deliberately.
+
+## Audio Workshop
+
+These keys are active anywhere inside the Audio Workshop window (`Ctrl+Shift+W` opens it). They are workshop-local accelerators, not global hotkeys.
+
+| Key | Action |
+|-----|--------|
+| Ctrl+Enter | Start the Audio Check, or stop the one that's running |
+| Ctrl+S | Save an audio preset |
+| Ctrl+O | Load an audio preset |
+| Escape | Two-stage while a check is transmitting: first press unkeys and stays in the workshop, second press closes it. Escape never leaves you transmitting |
+
+A note for anyone whose fingers learned the old way: Save Preset used to respond to its `Alt+S` button mnemonic, which also swallowed `Alt+Shift+S` — the global Speak Transmit Status key — while the workshop was focused. That mnemonic is gone; `Ctrl+S` is the Save key now, and the transmit status query is no longer blocked by the workshop.
 
 ## Scanning
 

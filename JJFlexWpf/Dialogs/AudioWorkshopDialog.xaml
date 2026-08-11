@@ -10,13 +10,19 @@
     <DockPanel>
         <!-- Toolbar at top -->
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="8,4">
+            <!-- Load/Save use the universal document keys Ctrl+O / Ctrl+S
+                 (handled in OnPreviewKeyDown). Save deliberately has NO
+                 access-key underscore: its old Alt+S mnemonic also matched
+                 Alt+Shift+S and shadowed the global Speak Transmit Status
+                 chord — in the one dialog where an operator most needs to
+                 query their audio (Noel, field use 2026-08-11). -->
             <Button x:Name="LoadPresetButton" Content="_Load Preset" Margin="0,0,4,0" Padding="8,4"
                     AutomationProperties.Name="Load Preset"
-                    AutomationProperties.AcceleratorKey="Alt+L"
+                    AutomationProperties.AcceleratorKey="Ctrl+O"
                     Click="LoadPreset_Click"/>
-            <Button x:Name="SavePresetButton" Content="_Save Preset" Margin="0,0,4,0" Padding="8,4"
+            <Button x:Name="SavePresetButton" Content="Save Preset" Margin="0,0,4,0" Padding="8,4"
                     AutomationProperties.Name="Save Preset"
-                    AutomationProperties.AcceleratorKey="Alt+S"
+                    AutomationProperties.AcceleratorKey="Ctrl+S"
                     Click="SavePreset_Click"/>
             <Button x:Name="ExportButton" Content="_Export" Margin="0,0,4,0" Padding="8,4"
                     AutomationProperties.Name="Export"

@@ -37,9 +37,11 @@ public partial class AudioWorkshopDialog : JJFlexDialog
     public static Func<PttSafetyController?>? PttControllerSource { get; set; }
 
     private AudioCheckSession? _session;
+    private TextBox? _micReadingBox;
     private Button? _startCheckButton;
     private CycleFieldControl? _listenMethodControl;
-    private CheckBox? _lowPowerCheck;
+    private CycleFieldControl? _checkPowerControl;
+    private ValueFieldControl? _checkWattsControl;
     private Button? _playTakeButton;
     private Button? _loopbackButton;
     private TextBlock? _loopbackInfo;
@@ -149,6 +151,18 @@ public partial class AudioWorkshopDialog : JJFlexDialog
     /// closes it. Escape never leaves you transmitting — this extends the
     /// house Escape rule rather than bending it. Class handler runs before
     /// JJFlexDialog's instance handler, so we can consume the first press.
+    ///
+    /// Workshop-local document keys (Noel, 2026-08-11): Ctrl+S saves a
+    /// preset, Ctrl+O loads one — standard document verbs, learnable
+    /// because universal. Ctrl+S also fixes a live defect: Save Preset
+    /// used to answer to its Alt+S button mnemonic, which (WPF access keys
+    /// match with Shift held) shadowed the GLOBAL Alt+Shift+S Speak
+    /// Transmit Status chord in the one dialog where an operator most
+    /// needs to query their audio. Ctrl+Enter starts or stops the Audio
+    /// Check from anywhere in the dialog, so the adjust-and-hear loop
+    /// never requires hunting the button. All three are LOCAL to this
+    /// dialog — none is a global binding — and each requires exactly the
+    /// Ctrl modifier so chords like Ctrl+Shift+S pass through untouched.
     /// </summary>
     protected override void OnPreviewKeyDown(KeyEventArgs e)
     {
@@ -158,7 +172,42 @@ public partial class AudioWorkshopDialog : JJFlexDialog
             e.Handled = true;
             return;
         }
+        if (Keyboard.Modifiers == ModifierKeys.Control)
+        {
+            switch (e.Key)
+            {
+                case Key.S:
+                    SavePreset_Click(this, new RoutedEventArgs());
+                    e.Handled = true;
+                    return;
+                case Key.O:
+                    LoadPreset_Click(this, new RoutedEventArgs());
+                    e.Handled = true;
+                    return;
+                case Key.Enter:
+                    ToggleAudioCheck();
+                    e.Handled = true;
+                    return;
+            }
+        }
         base.OnPreviewKeyDown(e);
+    }
+
+    /// <summary>
+    /// Initial focus lands on Start Audio Check (Noel, 2026-08-11): set up,
+    /// or just loaded a profile? Press Enter and you are running — zero
+    /// navigation for the common case. Shift+Tab reaches the mic reading
+    /// (it sits immediately before the button on purpose: forward tab does
+    /// things, backward tab inspects what just happened). Falls back to the
+    /// base first-control behaviour when the workshop opens on another tab,
+    /// where the button isn't visible to take focus.
+    /// </summary>
+    protected override void FocusFirstControl()
+    {
+        if (MainTabs.SelectedIndex == 0 && _startCheckButton != null
+            && _startCheckButton.Focus())
+            return;
+        base.FocusFirstControl();
     }
 
     /// <summary>
@@ -211,6 +260,8 @@ public partial class AudioWorkshopDialog : JJFlexDialog
             if (oldRig != null && oldRig.LoopbackArranged)
                 oldRig.EndLoopbackArrangement();
             _meterTimer.Stop();
+            // The poll is dead now — leave the reading honest, not stale.
+            UpdateMicReading();
         }
     }
 
@@ -244,12 +295,19 @@ public partial class AudioWorkshopDialog : JJFlexDialog
             _listenMethodControl.SelectedIndex = (int)_radioCfg.AudioCheckListenMethod;
             _listenMethodControl.SuppressEvents = false;
         }
-        if (_lowPowerCheck != null)
+        if (_checkPowerControl != null)
         {
-            _polling = true;
-            try { _lowPowerCheck.IsChecked = _radioCfg.AudioCheckLowPower; }
-            finally { _polling = false; }
+            _checkPowerControl.SuppressEvents = true;
+            _checkPowerControl.SelectedIndex = (int)_radioCfg.AudioCheckPowerMode;
+            _checkPowerControl.SuppressEvents = false;
         }
+        if (_checkWattsControl != null)
+        {
+            _checkWattsControl.SuppressEvents = true;
+            _checkWattsControl.Value = Math.Clamp(_radioCfg.AudioCheckLowPowerWatts, 1, 100);
+            _checkWattsControl.SuppressEvents = false;
+        }
+        UpdateCheckWattsVisibility();
     }
 
     private void SavePerRadioPrefs()
@@ -257,9 +315,23 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         if (_radioCfg == null || string.IsNullOrEmpty(_radioCfgSerial)) return;
         if (_listenMethodControl != null)
             _radioCfg.AudioCheckListenMethod = (AudioCheckListenMethods)_listenMethodControl.SelectedIndex;
-        if (_lowPowerCheck != null)
-            _radioCfg.AudioCheckLowPower = _lowPowerCheck.IsChecked == true;
+        if (_checkPowerControl != null)
+            _radioCfg.AudioCheckPowerMode = (AudioCheckPowerModes)_checkPowerControl.SelectedIndex;
+        if (_checkWattsControl != null)
+            _radioCfg.AudioCheckLowPowerWatts = _checkWattsControl.Value;
         _radioCfg.SaveForRadio(_radioCfgSerial);
+    }
+
+    /// <summary>
+    /// The watts field only exists while Low power is the selected check
+    /// mode — a collapsed control is out of the tab order (house rule for
+    /// controls that currently do nothing).
+    /// </summary>
+    private void UpdateCheckWattsVisibility()
+    {
+        if (_checkWattsControl == null) return;
+        bool lowPower = _checkPowerControl?.SelectedIndex == (int)AudioCheckPowerModes.LowPower;
+        _checkWattsControl.Visibility = lowPower ? Visibility.Visible : Visibility.Collapsed;
     }
 
     /// <summary>
@@ -479,6 +551,30 @@ public partial class AudioWorkshopDialog : JJFlexDialog
     {
         AddSectionHeader(TxAudioContent, "Audio Check");
 
+        // The live mic reading, as a read-only EDIT deliberately placed
+        // immediately BEFORE the Start button in tab order (Noel,
+        // 2026-08-11). An edit is focusable and review-readable where a
+        // label gets skipped; and because the value lives somewhere
+        // focusable, the screen reader's own read-current-control command
+        // IS the "speak my level" feature — no app hotkey needed. The
+        // reading only means anything once a test runs, so it sits behind
+        // the button: forward tab does things, Shift+Tab inspects what
+        // just happened.
+        _micReadingBox = new TextBox
+        {
+            Text = "Mic audio: transmit to measure",
+            IsReadOnly = true,
+            IsReadOnlyCaretVisible = true,
+            Margin = new Thickness(2),
+            FontSize = 12
+        };
+        // Static accessible name, set ONCE. The 2 Hz refresh touches only
+        // the text — no name changes, no live region — so NVDA stays quiet
+        // while the value moves and a review command always reads fresh.
+        // Same lesson Track A learned on the Home expander field.
+        AutomationProperties.SetName(_micReadingBox, "Mic audio reading");
+        TxAudioContent.Children.Add(_micReadingBox);
+
         _startCheckButton = new Button
         {
             Content = "Start Audio Check",
@@ -488,6 +584,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
             Margin = new Thickness(2)
         };
         AutomationProperties.SetName(_startCheckButton, "Start Audio Check");
+        AutomationProperties.SetAcceleratorKey(_startCheckButton, "Ctrl+Enter");
         _startCheckButton.Click += (s, e) => ToggleAudioCheck();
         TxAudioContent.Children.Add(_startCheckButton);
 
@@ -506,11 +603,35 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         };
         TxAudioContent.Children.Add(_listenMethodControl);
 
-        _lowPowerCheck = MakeToggle("Low power during checks (10 watts)");
-        _lowPowerCheck.IsChecked = true; // conservative default; per-radio pref overrides on SetRig
-        _lowPowerCheck.Checked += (s, e) => LowPowerChanged(true);
-        _lowPowerCheck.Unchecked += (s, e) => LowPowerChanged(false);
-        TxAudioContent.Children.Add(_lowPowerCheck);
+        // Track C-2 (Noel at the radio, 2026-08-11: "you have it at 10
+        // watts. If you have no antenna, that's a bit high"): the check
+        // defaults to DUMMY LOAD, not low power. Every meter the check
+        // reads sits upstream of the power amplifier — proven live, a tone
+        // at -10 dBFS read -11 on SC_MIC at zero watts — and with a tone
+        // armed, a transmitting check puts a steady carrier on whatever
+        // frequency the operator is tuned to. Low power remains for the
+        // separate, deliberate act of confirming RF leaves the radio, with
+        // the cap finally choosable ("so I can change it to 1 if I need
+        // to").
+        _checkPowerControl = MakeCycle("Transmit power during checks",
+            new[] { "Dummy load, no RF", "Low power" });
+        _checkPowerControl.SelectionChanged += (s, idx) =>
+        {
+            if (_polling) return;
+            UpdateCheckWattsVisibility();
+            SavePerRadioPrefs();
+        };
+        TxAudioContent.Children.Add(_checkPowerControl);
+
+        _checkWattsControl = new ValueFieldControl();
+        _checkWattsControl.Setup("Low power level", 1, 100, 1, 10, 0, "watts");
+        _checkWattsControl.Visibility = Visibility.Collapsed; // dummy load is the default
+        _checkWattsControl.ValueChanged += (s, v) =>
+        {
+            if (_polling) return;
+            SavePerRadioPrefs();
+        };
+        TxAudioContent.Children.Add(_checkWattsControl);
 
         _playTakeButton = new Button
         {
@@ -621,8 +742,12 @@ public partial class AudioWorkshopDialog : JJFlexDialog
             return;
         }
 
+        // Power mode is irrelevant here — the loopback arrangement owns
+        // power (1 W into the transverter port) and the session's power
+        // handling is bypassed entirely in loopback mode.
         var session = new AudioCheckSession(this, _rig, ptt,
-            AudioCheckListenMethods.Monitor, lowPower: false, loopback: true);
+            AudioCheckListenMethods.Monitor, AudioCheckPowerModes.LowPower, 1,
+            loopback: true);
         if (session.Start())
         {
             _session = session;
@@ -636,14 +761,6 @@ public partial class AudioWorkshopDialog : JJFlexDialog
             if (!string.IsNullOrEmpty(trouble))
                 ScreenReaderOutput.Speak(trouble, VerbosityLevel.Terse);
         }
-    }
-
-    private void LowPowerChanged(bool on)
-    {
-        if (_polling) return;
-        SavePerRadioPrefs();
-        ScreenReaderOutput.Speak($"Low power during checks {(on ? "on" : "off")}",
-            VerbosityLevel.Terse, interrupt: true);
     }
 
     /// <summary>
@@ -678,9 +795,11 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         }
 
         var method = (AudioCheckListenMethods)(_listenMethodControl?.SelectedIndex ?? 0);
-        bool lowPower = _lowPowerCheck?.IsChecked == true;
+        var powerMode = (AudioCheckPowerModes)(_checkPowerControl?.SelectedIndex
+            ?? (int)AudioCheckPowerModes.DummyLoad);
+        int lowPowerWatts = Math.Clamp(_checkWattsControl?.Value ?? 10, 1, 100);
 
-        var session = new AudioCheckSession(this, _rig, ptt, method, lowPower);
+        var session = new AudioCheckSession(this, _rig, ptt, method, powerMode, lowPowerWatts);
         if (session.Start())
         {
             _session = session;
@@ -1080,6 +1199,33 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         finally { _polling = false; }
     }
 
+    /// <summary>
+    /// Keep the arm checkbox honest against the ENGINE's tone state. The
+    /// Ctrl+J, G leader binding (Keys Track, 2026-08-11) arms and disarms
+    /// the tone by driving FlexBase directly, so the workshop no longer
+    /// owns every state change. Rides the existing meter poll — no second
+    /// timer — and syncs silently: the leader already announced the
+    /// change, so re-speaking here would double-talk. The key-down
+    /// announcement hook follows the same truth (it is how EVERY transmit
+    /// path warns that the tone is riding it, so an externally armed tone
+    /// must set it too); the local monitor and passband status already
+    /// derive from engine state on this same tick.
+    /// </summary>
+    private void SyncToneArmUi()
+    {
+        var rig = _rig;
+        if (rig == null || _toneCheck == null) return;
+        bool engaged = rig.TxToneEngaged;
+        if ((_toneCheck.IsChecked == true) == engaged) return;
+
+        SetToneCheckSilently(engaged);
+        if (engaged)
+            PttSafetyController.KeyDownAnnouncementExtra = () => _instance?.BuildToneAnnouncement();
+        else
+            PttSafetyController.KeyDownAnnouncementExtra = null;
+        UpdateToneStatus(speakIfNewlyOutside: false);
+    }
+
     private void ToneMonitorChanged(bool on)
     {
         if (_polling) return;
@@ -1322,12 +1468,20 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         if (_rig == null) return;
 
         // Test tone housekeeping runs on EVERY tick regardless of tab: the
-        // local monitor must track actual transmit state, and the passband
-        // warning must fire if the TX filter moves out from under an armed
-        // tone — the operator may be on any tab (or in another window) when
-        // that happens, and it must not fail quietly.
+        // arm checkbox must follow the engine (Ctrl+J, G can change it from
+        // outside this dialog), the local monitor must track actual
+        // transmit state, and the passband warning must fire if the TX
+        // filter moves out from under an armed tone — the operator may be
+        // on any tab (or in another window) when that happens, and it must
+        // not fail quietly.
+        SyncToneArmUi();
         SyncToneMonitor();
         UpdateToneStatus(speakIfNewlyOutside: _rig.TxToneEngaged);
+
+        // The mic reading refreshes on every tick regardless of tab so a
+        // review command always reads fresh the moment the operator lands
+        // on it.
+        UpdateMicReading();
 
         // Only update meters when the Live Meters tab is selected
         if (MainTabs.SelectedIndex == 1)
@@ -1372,6 +1526,41 @@ public partial class AudioWorkshopDialog : JJFlexDialog
 
         if (_voltsLabel != null)
             _voltsLabel.Text = $"Supply Voltage: {_rig.Volts:F1} V";
+    }
+
+    /// <summary>
+    /// Refresh the read-only mic reading edit. Text only — the accessible
+    /// name was set once at build time and live-region notifications are
+    /// deliberately absent, so a value moving twice a second never floods
+    /// NVDA; the operator's review command reads the fresh text on demand.
+    /// Live recent-peak while transmitting (it follows a level back down),
+    /// the whole-transmit peak after unkey, honest wording before any
+    /// transmit. Mirrors the Home expander's verdict field (Track A).
+    /// </summary>
+    private void UpdateMicReading()
+    {
+        if (_micReadingBox == null) return;
+        var rig = _rig;
+        string text;
+        if (rig == null)
+        {
+            text = "Mic audio: no radio connected";
+        }
+        else
+        {
+            float recent = rig.ScMicRecentDb;
+            float max = rig.ScMicMaxDb;
+            if (rig.Transmit && recent > -140f)
+                text = $"Mic audio now: {MicAudioVerdict(recent)}, peak {recent:F0} dBFS";
+            else if (max > -140f)
+                text = $"Mic audio last transmit: {MicAudioVerdict(max)}, peak {max:F0} dBFS";
+            else
+                text = "Mic audio: transmit to measure";
+        }
+        // Assign only on change so an unchanged reading doesn't reset the
+        // review cursor twice a second.
+        if (_micReadingBox.Text != text)
+            _micReadingBox.Text = text;
     }
 
     /// <summary>
@@ -1676,7 +1865,8 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         private readonly AudioWorkshopDialog _owner;
         private readonly PttSafetyController _ptt;
         private readonly AudioCheckListenMethods _method;
-        private readonly bool _lowPower;
+        private readonly AudioCheckPowerModes _powerMode;
+        private readonly int _lowPowerWatts;
         private readonly bool _loopback;
         private readonly DispatcherTimer _watcher;
 
@@ -1693,6 +1883,8 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         private int _savedPower;
         private bool _powerTouched;
         private bool _monitorTouched; // we only ever turn monitor ON; restore = off
+        private bool _dummyEngaged;   // WE turned dummy load on; disable restores power
+        private int _dummySavedPower; // pre-engage watts, for the spoken restore line
 
         private const int CheckTimeoutSeconds = 180;   // 3-minute soft timeout
         private const int RecordBufferSeconds = 120;   // verified live cap
@@ -1710,13 +1902,15 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         private FlexBase? Rig => _owner._rig;
 
         public AudioCheckSession(AudioWorkshopDialog owner, FlexBase rig,
-            PttSafetyController ptt, AudioCheckListenMethods method, bool lowPower,
+            PttSafetyController ptt, AudioCheckListenMethods method,
+            AudioCheckPowerModes powerMode, int lowPowerWatts,
             bool loopback = false)
         {
             _owner = owner;
             _ptt = ptt;
             _method = method;
-            _lowPower = lowPower;
+            _powerMode = powerMode;
+            _lowPowerWatts = Math.Clamp(lowPowerWatts, 1, 100);
             _loopback = loopback;
             _watcher = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
             _watcher.Tick += Watcher_Tick;
@@ -1740,14 +1934,34 @@ public partial class AudioWorkshopDialog : JJFlexDialog
 
             if (!_loopback)
             {
-                // Effective power for the safety line, dropped BEFORE keying.
+                // Power handling BEFORE keying. Dummy load (the default)
+                // rides FlexBase.DummyLoadMode — it zeroes transmit and
+                // tune power and restores both on disable, and the PTT
+                // safety controller already skips the ALC auto-release
+                // while it is active. If the operator engaged dummy load
+                // themselves (the Transmit menu toggle), we leave it
+                // theirs: the check neither re-engages nor releases it.
                 int currentPower = rig.XmitPower;
-                if (_lowPower && currentPower > 10)
+                if (_powerMode == AudioCheckPowerModes.DummyLoad)
                 {
+                    if (!rig.DummyLoadMode)
+                    {
+                        _dummySavedPower = currentPower;
+                        rig.DummyLoadMode = true;
+                        _dummyEngaged = true;
+                    }
+                    effectivePower = 0;
+                }
+                else if (!rig.DummyLoadMode && currentPower > _lowPowerWatts)
+                {
+                    // Low power is a CAP: it only ever lowers power, never
+                    // raises it — and it cannot override an active dummy
+                    // load (touching XmitPower under dummy load would
+                    // corrupt its saved-power restore).
                     _savedPower = currentPower;
                     _powerTouched = true;
-                    rig.XmitPower = 10;
-                    effectivePower = 10;
+                    rig.XmitPower = _lowPowerWatts;
+                    effectivePower = _lowPowerWatts;
                 }
 
                 if (_method == AudioCheckListenMethods.Monitor &&
@@ -1809,9 +2023,23 @@ public partial class AudioWorkshopDialog : JJFlexDialog
             }
             else
             {
-                line.Append($"Transmitting on {FormatMHz(rig.TXFrequency)}, {effectivePower} watts, audio from {SourceFriendlyName(rig.MicSource)}.");
-                if (_powerTouched)
-                    line.Append($" Power reduced from {_savedPower} watts for the check.");
+                // The safety line names the MODE, not just the number
+                // (Noel, 2026-08-11): "transmitting at zero watts" is
+                // technically true under dummy load and genuinely
+                // confusing — it invites the operator to wonder what
+                // failed. Checked against the rig's live DummyLoadMode,
+                // not our own flag, so an operator-engaged dummy load is
+                // named just as honestly as one this check engaged.
+                if (rig.DummyLoadMode)
+                {
+                    line.Append($"Audio check, dummy load, no RF. Keyed on {FormatMHz(rig.TXFrequency)}, audio from {SourceFriendlyName(rig.MicSource)}.");
+                }
+                else
+                {
+                    line.Append($"Audio check, transmitting on {FormatMHz(rig.TXFrequency)} at {effectivePower} {(effectivePower == 1 ? "watt" : "watts")}, audio from {SourceFriendlyName(rig.MicSource)}.");
+                    if (_powerTouched)
+                        line.Append($" Power reduced from {_savedPower} watts for the check.");
+                }
                 if (monitorTurnedOn)
                     line.Append(" Monitor on.");
                 if (recorderAlreadyRunning)
@@ -1906,6 +2134,15 @@ public partial class AudioWorkshopDialog : JJFlexDialog
 
             if (rig != null)
             {
+                if (_dummyEngaged)
+                {
+                    // Disabling dummy load restores transmit AND tune power
+                    // inside FlexBase; the spoken value is the pre-engage
+                    // reading (the live getter may not have echoed yet).
+                    rig.DummyLoadMode = false;
+                    msg.Append($" Dummy load released, power back to {_dummySavedPower} watts.");
+                    _dummyEngaged = false;
+                }
                 if (_powerTouched)
                 {
                     rig.XmitPower = _savedPower;
@@ -2068,6 +2305,13 @@ public partial class AudioWorkshopDialog : JJFlexDialog
 
         private void RestoreChangedState(FlexBase rig, bool speak)
         {
+            if (_dummyEngaged)
+            {
+                rig.DummyLoadMode = false;
+                _dummyEngaged = false;
+                if (speak)
+                    ScreenReaderOutput.Speak($"Dummy load released, power back to {_dummySavedPower} watts.", VerbosityLevel.Terse);
+            }
             if (_powerTouched)
             {
                 rig.XmitPower = _savedPower;
