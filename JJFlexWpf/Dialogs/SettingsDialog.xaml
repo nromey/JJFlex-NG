@@ -291,6 +291,13 @@
                                Focusable="True"
                                AutomationProperties.LiveSetting="Polite"
                                AutomationProperties.Name="Radio audio through this computer, status"/>
+                    <!-- PC output volume (Audio Arc Track A) — the playback
+                         boost for radio audio through this computer, in dB.
+                         App-level and persisted, unlike the PC audio on/off
+                         above; applies live like the radio output levels. -->
+                    <controls:ValueFieldControl x:Name="PcOutputVolumeControl"
+                        Margin="0,0,0,8"
+                        AutomationProperties.Name="PC output volume in dB, how loud radio audio plays through this computer, applied as you change it"/>
                     <Button x:Name="AudioDevicesButton"
                             Content="Audio _Devices..."
                             HorizontalAlignment="Left" Padding="12,4"

@@ -72,6 +72,19 @@ public partial class ScreenFieldsPanel : UserControl
     private ValueFieldControl _headphoneControl = null!;
     private ValueFieldControl _lineoutControl = null!;
 
+    // PC audio group — Audio Arc Track A, 2026-08-11. The PC output volume is
+    // the playback gain a remote operator actually hears; mic level is the
+    // transmit level (PC audio included); the verdict readout is the arrow-to-
+    // it answer to "how do I sound".
+    private ValueFieldControl _pcVolumeControl = null!;
+    private ValueFieldControl _micLevelControl = null!;
+    private System.Windows.Controls.TextBlock _micVerdictDisplay = null!;
+
+    // On-radio output mutes — same state the Audio menu's On-Radio group flips.
+    private CheckBox _headphoneMuteCheck = null!;
+    private CheckBox _lineoutMuteCheck = null!;
+    private CheckBox _frontSpeakerMuteCheck = null!;
+
     // Slice management controls (below audio in same expander)
     private Button _createSliceButton = null!;
     private Button _releaseSliceButton = null!;
@@ -416,13 +429,78 @@ public partial class ScreenFieldsPanel : UserControl
         _panControl.ValueChanged += (s, v) => { if (_rig != null) _rig.AudioPan = v; };
         AudioContent.Children.Add(_panControl);
 
-        _headphoneControl = MakeValue("Headphone Level", 0, 100, 5);
+        // === PC audio group (Audio Arc Track A, 2026-08-11) ===
+        // These are the controls a remote PC-audio operator actually needs;
+        // they were missing entirely while the on-radio jack levels sat here
+        // unlabeled, pretending to be "the volume".
+        AudioContent.Children.Add(new Separator { Margin = new Thickness(0, 8, 0, 8) });
+
+        _pcVolumeControl = new ValueFieldControl();
+        _pcVolumeControl.Setup("PC Output Volume", FlexBase.PcOutputVolumeDbMin,
+            FlexBase.PcOutputVolumeDbMax, 1, FlexBase.PcOutputVolumeDbSetting, unit: "dB");
+        _pcVolumeControl.ValueChanged += (s, v) =>
+        {
+            if (_rig == null || _polling) return;
+            _rig.PcOutputVolumeDb = v;
+            // App-level setting — persist as it changes (24 steps max, tiny file).
+            FindMainWindow()?.PersistPcOutputVolume();
+        };
+        AudioContent.Children.Add(_pcVolumeControl);
+
+        _micLevelControl = MakeValue("Mic Level", 0, 100, 5);
+        _micLevelControl.ValueChanged += (s, v) => { if (_rig != null && !_polling) _rig.MicGain = v; };
+        AudioContent.Children.Add(_micLevelControl);
+
+        // Read-only mic-audio verdict — arrow to it, hear how you sound.
+        // Same judgment the Audio Workshop and the unkey summary speak
+        // (SC_MIC peak through AudioWorkshopDialog.MicAudioVerdict).
+        _micVerdictDisplay = new System.Windows.Controls.TextBlock
+        {
+            Margin = new Thickness(4, 6, 4, 2),
+            Focusable = true,
+            IsHitTestVisible = true,
+            Text = "Mic audio: transmit to measure"
+        };
+        System.Windows.Automation.AutomationProperties.SetName(
+            _micVerdictDisplay, "Mic audio: transmit to measure");
+        _micVerdictDisplay.GotFocus += (s, e) =>
+        {
+            // Refresh the name on entry, then speak — the poll deliberately
+            // leaves the accessible name alone while this control is focused
+            // so a transmit in progress doesn't spam NVDA with name changes.
+            System.Windows.Automation.AutomationProperties.SetName(
+                _micVerdictDisplay, _micVerdictDisplay.Text);
+            ScreenReaderOutput.Speak(_micVerdictDisplay.Text, VerbosityLevel.Terse, interrupt: true);
+        };
+        AudioContent.Children.Add(_micVerdictDisplay);
+
+        // === On-radio outputs group ===
+        // "On-radio" is the load-bearing word: these move the radio's own
+        // jacks, which a remote PC-audio operator cannot hear.
+        AudioContent.Children.Add(new Separator { Margin = new Thickness(0, 8, 0, 8) });
+
+        _headphoneControl = MakeValue("On-Radio Headphone Level", 0, 100, 5);
         _headphoneControl.ValueChanged += (s, v) => { if (_rig != null) _rig.HeadphoneGain = v; };
         AudioContent.Children.Add(_headphoneControl);
 
-        _lineoutControl = MakeValue("Line Out Level", 0, 100, 5);
+        _lineoutControl = MakeValue("On-Radio Line Out Level", 0, 100, 5);
         _lineoutControl.ValueChanged += (s, v) => { if (_rig != null) _rig.LineoutGain = v; };
         AudioContent.Children.Add(_lineoutControl);
+
+        _headphoneMuteCheck = MakeToggle("Mute Headphone Jack");
+        _headphoneMuteCheck.Checked += (s, e) => ToggleBoolRig("Headphone mute", v => { if (_rig != null) _rig.HeadphoneMute = v; }, true);
+        _headphoneMuteCheck.Unchecked += (s, e) => ToggleBoolRig("Headphone mute", v => { if (_rig != null) _rig.HeadphoneMute = v; }, false);
+        AudioContent.Children.Add(_headphoneMuteCheck);
+
+        _lineoutMuteCheck = MakeToggle("Mute Line Out");
+        _lineoutMuteCheck.Checked += (s, e) => ToggleBoolRig("Line out mute", v => { if (_rig != null) _rig.LineoutMute = v; }, true);
+        _lineoutMuteCheck.Unchecked += (s, e) => ToggleBoolRig("Line out mute", v => { if (_rig != null) _rig.LineoutMute = v; }, false);
+        AudioContent.Children.Add(_lineoutMuteCheck);
+
+        _frontSpeakerMuteCheck = MakeToggle("Mute Front Speaker");
+        _frontSpeakerMuteCheck.Checked += (s, e) => ToggleBoolRig("Front speaker mute", v => { if (_rig != null) _rig.FrontSpeakerMute = v; }, true);
+        _frontSpeakerMuteCheck.Unchecked += (s, e) => ToggleBoolRig("Front speaker mute", v => { if (_rig != null) _rig.FrontSpeakerMute = v; }, false);
+        AudioContent.Children.Add(_frontSpeakerMuteCheck);
 
         // Separator between audio and slice controls
         AudioContent.Children.Add(new Separator { Margin = new Thickness(0, 8, 0, 8) });
@@ -768,6 +846,22 @@ public partial class ScreenFieldsPanel : UserControl
 
     #region Control Factories
 
+    /// <summary>
+    /// Walk up the visual tree to the hosting MainWindow. MainWindow is a
+    /// UserControl inside the WinForms shell, not a WPF Window, so
+    /// Window.GetWindow cannot find it.
+    /// </summary>
+    private MainWindow? FindMainWindow()
+    {
+        DependencyObject? cur = this;
+        while (cur != null)
+        {
+            if (cur is MainWindow mw) return mw;
+            cur = System.Windows.Media.VisualTreeHelper.GetParent(cur);
+        }
+        return null;
+    }
+
     private static CheckBox MakeToggle(string label)
     {
         var cb = new CheckBox
@@ -902,8 +996,48 @@ public partial class ScreenFieldsPanel : UserControl
         _muteCheck.IsChecked = _rig.SliceMute;
         _volumeControl.Value = _rig.AudioGain;
         _panControl.Value = _rig.AudioPan;
+
+        // PC audio group
+        _pcVolumeControl.Value = _rig.PcOutputVolumeDb;
+        _micLevelControl.Value = _rig.MicGain;
+        UpdateMicVerdict();
+
+        // On-radio outputs group
         _headphoneControl.Value = _rig.HeadphoneGain;
         _lineoutControl.Value = _rig.LineoutGain;
+        _headphoneMuteCheck.IsChecked = _rig.HeadphoneMute;
+        _lineoutMuteCheck.IsChecked = _rig.LineoutMute;
+        _frontSpeakerMuteCheck.IsChecked = _rig.FrontSpeakerMute;
+    }
+
+    /// <summary>
+    /// Refresh the mic-audio verdict readout. Live SC_MIC recent peak while
+    /// transmitting (it follows a level back down), the whole-transmit peak
+    /// after unkey, and honest "no data" wording before any transmit. The
+    /// accessible name is left untouched while the control is focused so a
+    /// changing verdict doesn't flood the screen reader; GotFocus refreshes
+    /// and speaks it on entry.
+    /// </summary>
+    private void UpdateMicVerdict()
+    {
+        if (_rig == null) return;
+
+        string text;
+        float recent = _rig.ScMicRecentDb;
+        float max = _rig.ScMicMaxDb;
+        if (_rig.Transmit && recent > -140f)
+            text = $"Mic audio now: {Dialogs.AudioWorkshopDialog.MicAudioVerdict(recent)}, peak {recent:F0} dBFS";
+        else if (max > -140f)
+            text = $"Mic audio last transmit: {Dialogs.AudioWorkshopDialog.MicAudioVerdict(max)}, peak {max:F0} dBFS";
+        else
+            text = "Mic audio: transmit to measure";
+
+        if (text != _micVerdictDisplay.Text)
+        {
+            _micVerdictDisplay.Text = text;
+            if (!_micVerdictDisplay.IsKeyboardFocused)
+                System.Windows.Automation.AutomationProperties.SetName(_micVerdictDisplay, text);
+        }
     }
 
     private void PollReceiver()
