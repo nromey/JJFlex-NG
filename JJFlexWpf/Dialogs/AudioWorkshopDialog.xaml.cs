@@ -73,8 +73,9 @@ public partial class AudioWorkshopDialog : JJFlexDialog
     private TextBlock? _sMeterLabel;
     private TextBlock? _fwdPowerLabel;
     private TextBlock? _swrLabel;
-    private TextBlock? _alcLabel;
-    private TextBlock? _micLevelLabel;
+    private TextBlock? _alcLabel;      // TX drive, SW ALC
+    private TextBlock? _ampAlcLabel;   // external-amplifier ALC (HWALC), for amp users
+    private TextBlock? _micAudioLabel; // transmit mic audio, SC_MIC (honest for PC + analog)
     private TextBlock? _paTempLabel;
     private TextBlock? _voltsLabel;
 
@@ -863,11 +864,14 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         _swrLabel = MakeMeterLabel("SWR: --");
         LiveMetersContent.Children.Add(_swrLabel);
 
-        _alcLabel = MakeMeterLabel("ALC: --");
+        _micAudioLabel = MakeMeterLabel("Mic audio: --");
+        LiveMetersContent.Children.Add(_micAudioLabel);
+
+        _alcLabel = MakeMeterLabel("TX drive (ALC): --");
         LiveMetersContent.Children.Add(_alcLabel);
 
-        _micLevelLabel = MakeMeterLabel("Mic Level: --");
-        LiveMetersContent.Children.Add(_micLevelLabel);
+        _ampAlcLabel = MakeMeterLabel("Amp ALC: --");
+        LiveMetersContent.Children.Add(_ampAlcLabel);
 
         AddSectionHeader(LiveMetersContent, "Hardware");
 
@@ -908,17 +912,36 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         if (_swrLabel != null)
             _swrLabel.Text = $"SWR: {_rig.SWRValue:F1}";
 
+        // TX drive is SW ALC, not HWALC (the external-amp jack the old readout
+        // showed — always ~0). Mic audio is SC_MIC, honest for PC audio AND the
+        // analog mic, where the old "Mic Level" (COD-/MIC) read -120 for PC.
         if (_alcLabel != null)
-            _alcLabel.Text = $"ALC: {_rig.ALC:F2}";
+            _alcLabel.Text = $"TX drive (ALC): {_rig.SwAlcDb:F1} dBFS";
 
-        if (_micLevelLabel != null)
-            _micLevelLabel.Text = $"Mic Level: {_rig.MicData:F1}";
+        if (_ampAlcLabel != null)
+            _ampAlcLabel.Text = $"Amp ALC: {_rig.ALC:F2}";
+
+        if (_micAudioLabel != null)
+            _micAudioLabel.Text = $"Mic audio: {_rig.ScMicDb:F1} dBFS ({MicAudioVerdict(_rig.ScMicMaxDb)})";
 
         if (_paTempLabel != null)
             _paTempLabel.Text = $"PA Temperature: {_rig.PATemp:F1} °C";
 
         if (_voltsLabel != null)
             _voltsLabel.Text = $"Supply Voltage: {_rig.Volts:F1} V";
+    }
+
+    /// <summary>
+    /// Plain-language mic-drive verdict from the SC_MIC peak-hold over the
+    /// current transmit (dBFS). Thresholds are first-pass and tunable — to be
+    /// calibrated on the bench with the audio-workshop loopback (JJSmartAudio
+    /// will replace this heuristic with a gated LUFS measure).
+    /// </summary>
+    internal static string MicAudioVerdict(float scMicPeakDb)
+    {
+        if (scMicPeakDb < -30f) return "turn it up";
+        if (scMicPeakDb > -6f) return "coming in hot";
+        return "just right";
     }
 
     #endregion
@@ -1450,6 +1473,12 @@ public partial class AudioWorkshopDialog : JJFlexDialog
                     rig.SliceRecordOn = false;
                     msg.Append(" Playing your take in a moment.");
                 }
+
+                // The verdict — the whole point of the check. Peak SC_MIC over
+                // the keyed window (reset at key-down via ToggleLock); honest for
+                // PC audio AND the analog mic. -140 guards "no meter yet".
+                if (rig.ScMicMaxDb > -140f)
+                    msg.Append($" Your mic audio was {AudioWorkshopDialog.MicAudioVerdict(rig.ScMicMaxDb)}, peak {rig.ScMicMaxDb:F0} dBFS.");
             }
 
             // Unconditional key-up announcement (interrupt false so the
