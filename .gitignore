@@ -460,3 +460,15 @@ read-trace*.ps1
 /docs/planning/research/firmware-extraction/
 /docs/planning/research/*-extracted/
 /docs/planning/research/*-decompiled/
+
+# Build artifacts under docs/ — debug/installer zips must never land in the
+# repo. They belong on the NAS historical tree
+# (\nas.macaw-jazz.ts.net\jjflex\historical\<version>\x64-debug\, or
+# historical\research\ for one-off investigation builds) per the nightly
+# distribution SOP in CLAUDE.md. Eight of them reached docs/planning in
+# 2026-05 and put 55 MB into git history permanently — git rm cleans the
+# working tree but a default clone still transfers deleted blobs, so the
+# only real defence is never committing them. Small trace/data zips are
+# fine; the pattern below targets build output by name.
+/docs/**/JJFlex_*.zip
+/docs/**/Setup*.zip
