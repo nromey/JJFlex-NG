@@ -6830,12 +6830,32 @@ namespace Radios
         // radio transmits, no matter who is transmitting.
         private bool _diagStateDumped;
         private int _diagMeterLastLog;
+        // Diag 719: the meters FlexLib does not raise dedicated events for, so we
+        // hook their DataReady directly to build the truth table for the
+        // "Check microphone" meter-selection fix. MicData (the existing feed) is
+        // the COD-/MIC meter = "MIC output in CODEC" (analog mic digitized).
+        private bool _diagMetersHooked;
+        private float _diagScMic = float.NaN;   // TX-/SC_MIC   analog mic preamp
+        private float _diagCodec = float.NaN;   // TX-/CODEC    codec OUTPUT to modulator (universal candidate)
+        private float _diagSwAlc = float.NaN;   // TX-/ALC      after SW ALC (SSB peak)
+        private void HookDiagMeters()
+        {
+            if (_diagMetersHooked || theRadio == null) return;
+            var sc = theRadio.FindMeterByName("SC_MIC");
+            var cod = theRadio.FindMeterByName("CODEC");
+            var alc = theRadio.FindMeterByName("ALC");
+            if (sc != null) sc.DataReady += (m, d) => _diagScMic = d;
+            if (cod != null) cod.DataReady += (m, d) => _diagCodec = d;
+            if (alc != null) alc.DataReady += (m, d) => _diagSwAlc = d;
+            if (sc != null && cod != null && alc != null) _diagMetersHooked = true;
+        }
         private void micData(float data)
         {
             _MicData = data;
             Tracing.TraceLine("micData:" + data.ToString(), TraceLevel.Verbose);
             try
             {
+                HookDiagMeters();
                 if (!_diagStateDumped && theRadio != null)
                 {
                     _diagStateDumped = true;
@@ -6851,10 +6871,12 @@ namespace Radios
                     if (nowMs - _diagMeterLastLog >= 1000)
                     {
                         _diagMeterLastLog = nowMs;
-                        Tracing.TraceLine("TXmeter: MicData=" + _MicData.ToString("F3")
-                            + " ALC=" + _ALC.ToString("F3")
+                        Tracing.TraceLine("TXmeter: CODmic(MicData)=" + _MicData.ToString("F3")
+                            + " SC_MIC=" + _diagScMic.ToString("F3")
+                            + " CODECout=" + _diagCodec.ToString("F3")
+                            + " SWALC=" + _diagSwAlc.ToString("F3")
+                            + " HWALC=" + _ALC.ToString("F3")
                             + " FwdPwrDBM=" + _PowerDBM.ToString("F2")
-                            + " SWR=" + _SWR.ToString("F2")
                             + " MicInput=" + theRadio.MicInput
                             + " MicLevel=" + theRadio.MicLevel, TraceLevel.Info);
                     }
