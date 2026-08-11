@@ -313,6 +313,13 @@ public static class KeyInventory
             new[] { "anf", "auto", "notch", "leader" }, "Radio", "DSP"),
         new("Leader", "Leader key", "Ctrl+J, P", "Toggle Audio Peak Filter (CW only)",
             new[] { "apf", "audio", "peak", "filter", "cw", "leader" }, "Radio", "DSP"),
+        // Audio Arc Track A (2026-08-11) — "adjust how I sound and what I hear".
+        new("Leader", "Leader key", "Ctrl+J, V", "Enter volume mode: pick a target letter, arrows adjust, Escape exits",
+            new[] { "volume", "audio", "level", "pc", "output", "headphone", "mic", "adjust", "mode", "leader" }, "Radio", "Audio"),
+        new("Leader", "Leader key", "Ctrl+J, C", "Toggle Compander",
+            new[] { "compander", "compression", "tx", "transmit", "voice", "leader", "toggle" }, "Radio", "Transmit"),
+        new("Leader", "Leader key", "Ctrl+J, Shift+P", "Toggle Speech Processor",
+            new[] { "speech", "processor", "proc", "tx", "transmit", "voice", "leader", "toggle" }, "Radio", "Transmit"),
         new("Leader", "Leader key", "Ctrl+J, F", "Speak the TX filter width",
             new[] { "tx", "filter", "width", "speak", "leader" }, "Radio", "audio"),
         new("Leader", "Leader key", "Ctrl+J, Shift+F", "Speak the RX filter width",
@@ -335,6 +342,29 @@ public static class KeyInventory
             new[] { "leader", "help", "list" }, "Global", "help"),
         new("Leader", "Leader key", "Ctrl+J, Escape", "Cancel leader mode",
             new[] { "leader", "cancel", "escape" }, "Global", "help"),
+    };
+
+    // ────────────────────────────────────────────────────────────────
+    //  Volume mode targets (Ctrl+J, V, then a target letter; arrows adjust;
+    //  the mode persists until Escape). Truth source:
+    //  KeyCommands.DoVolumeModeKey. Audio Arc Track A, 2026-08-11.
+    // ────────────────────────────────────────────────────────────────
+    private static readonly FixedKeyEntry[] VolumeModeCommands =
+    {
+        new("VolumeMode", "Volume mode", "Ctrl+J, V, H", "On-radio headphone volume — the radio's own headphone jack; arrows adjust",
+            new[] { "headphone", "volume", "on-radio", "jack", "level" }, "Radio", "Audio"),
+        new("VolumeMode", "Volume mode", "Ctrl+J, V, P", "PC output volume in dB — how loud radio audio plays through this computer; arrows adjust",
+            new[] { "pc", "output", "volume", "computer", "playback", "boost", "db", "remote", "audio", "level" }, "Radio", "Audio"),
+        new("VolumeMode", "Volume mode", "Ctrl+J, V, M", "Mic level — your transmit audio level, PC audio included; arrows adjust",
+            new[] { "mic", "microphone", "level", "gain", "transmit", "audio" }, "Radio", "Audio"),
+        new("VolumeMode", "Volume mode", "Ctrl+J, V, L", "On-radio line out volume — the radio's own line out jack; arrows adjust",
+            new[] { "line", "out", "lineout", "volume", "on-radio", "jack", "level" }, "Radio", "Audio"),
+        new("VolumeMode", "Volume mode", "Ctrl+J, V, C", "Compander level; arrows adjust",
+            new[] { "compander", "level", "compression", "transmit" }, "Radio", "Transmit"),
+        new("VolumeMode", "Volume mode", "Ctrl+J, V, S", "Speech processor mode: Normal, DX, DX plus; arrows step",
+            new[] { "speech", "processor", "proc", "mode", "dx", "transmit" }, "Radio", "Transmit"),
+        new("VolumeMode", "Volume mode", "Escape", "Leave volume mode",
+            new[] { "volume", "mode", "escape", "exit", "cancel" }, "Radio", "Audio"),
     };
 
     // ────────────────────────────────────────────────────────────────
@@ -414,7 +444,32 @@ public static class KeyInventory
         foreach (var e in ValueField) yield return e;
         foreach (var e in FilterChords) yield return e;
         foreach (var e in LeaderCommands) yield return e;
+        foreach (var e in VolumeModeCommands) yield return e;
         foreach (var e in OtherKeys) yield return e;
+    }
+
+    /// <summary>
+    /// The Ctrl+J, H spoken help, generated from the LeaderCommands table so
+    /// it can never drift from the inventory again (the pre-2026-08-11
+    /// hand-written string had quietly dropped six commands). Ends with the
+    /// pointer to the two other help surfaces, per the 2026-05-11 JJ+H audit:
+    /// users reaching for JJ+H often actually want F1 or the Command Finder.
+    /// </summary>
+    public static string LeaderHelpSpeech()
+    {
+        var sb = new StringBuilder("Leader key commands: ");
+        bool first = true;
+        foreach (var e in LeaderCommands)
+        {
+            string key = e.KeyDisplay.StartsWith("Ctrl+J, ", StringComparison.Ordinal)
+                ? e.KeyDisplay.Substring("Ctrl+J, ".Length)
+                : e.KeyDisplay;
+            if (!first) sb.Append("; ");
+            sb.Append(key).Append(", ").Append(e.Description);
+            first = false;
+        }
+        sb.Append(". For help on the control you are focused on press F1. To search every command press Control slash.");
+        return sb.ToString();
     }
 
     // ────────────────────────────────────────────────────────────────

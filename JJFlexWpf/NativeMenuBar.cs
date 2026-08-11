@@ -291,16 +291,19 @@ public class NativeMenuBar : IDisposable
     }
 
     /// <summary>
-    /// Adjust an integer value by a step and speak the result.
+    /// Adjust an integer value by a step and speak the result. The optional
+    /// unit rides the speech ("PC volume 12 dB") so the operator always hears
+    /// which scale a value is on — plain numbers stay plain.
     /// </summary>
     private void AdjustValue(string label, Func<int> getter, Action<int> setter,
-        int step, int min, int max)
+        int step, int min, int max, string unit = "")
     {
         if (Rig == null) { SpeakNoRadio(); return; }
         int current = getter();
         int newVal = Math.Clamp(current + step, min, max);
         setter(newVal);
-        SpeakAfterMenuClose($"{label} {newVal}");
+        string suffix = string.IsNullOrEmpty(unit) ? "" : " " + unit;
+        SpeakAfterMenuClose($"{label} {newVal}{suffix}");
     }
 
     /// <summary>
@@ -668,15 +671,50 @@ public class NativeMenuBar : IDisposable
 
             AddSep(parent);
 
-            AddWired(parent, "Headphone Level Up", () =>
-                AdjustValue("Headphone", () => Rig.HeadphoneGain, v => Rig.HeadphoneGain = v, gainStep, 0, 100));
-            AddWired(parent, "Headphone Level Down", () =>
-                AdjustValue("Headphone", () => Rig.HeadphoneGain, v => Rig.HeadphoneGain = v, -gainStep, 0, 100));
+            // === PC audio group (Audio Arc Track A, 2026-08-11) ===
+            // The volume a PC-audio operator actually wants was not on this
+            // menu at all — the old flat "Headphone Level" items adjust the
+            // RADIO's jacks and do nothing audible over a remote stream. Two
+            // labeled submenus now say which side of the wire each control
+            // lives on. Both groups always show: hybrid and at-the-radio
+            // operators use the on-radio outputs even with PC audio running.
+            var pcAudioSub = AddSubmenu(parent, "PC Audio (this computer)");
+            AddWired(pcAudioSub, "PC Output Volume Up\tCtrl+J, V, P", () =>
+                AdjustValue("PC volume", () => Rig.PcOutputVolumeDb,
+                    v => { Rig.PcOutputVolumeDb = v; _window.PersistPcOutputVolume(); },
+                    3, Radios.FlexBase.PcOutputVolumeDbMin, Radios.FlexBase.PcOutputVolumeDbMax, "dB"));
+            AddWired(pcAudioSub, "PC Output Volume Down\tCtrl+J, V, P", () =>
+                AdjustValue("PC volume", () => Rig.PcOutputVolumeDb,
+                    v => { Rig.PcOutputVolumeDb = v; _window.PersistPcOutputVolume(); },
+                    -3, Radios.FlexBase.PcOutputVolumeDbMin, Radios.FlexBase.PcOutputVolumeDbMax, "dB"));
+            AddWired(pcAudioSub, "Mic Level Up\tCtrl+J, V, M", () =>
+                AdjustValue("Mic level", () => Rig.MicGain, v => Rig.MicGain = v, 5, 0, 100));
+            AddWired(pcAudioSub, "Mic Level Down\tCtrl+J, V, M", () =>
+                AdjustValue("Mic level", () => Rig.MicGain, v => Rig.MicGain = v, -5, 0, 100));
 
-            AddWired(parent, "Line Out Level Up", () =>
-                AdjustValue("Line Out", () => Rig.LineoutGain, v => Rig.LineoutGain = v, gainStep, 0, 100));
-            AddWired(parent, "Line Out Level Down", () =>
-                AdjustValue("Line Out", () => Rig.LineoutGain, v => Rig.LineoutGain = v, -gainStep, 0, 100));
+            // === On-radio outputs group ===
+            // "On-radio" is the load-bearing word: these move the radio's own
+            // headphone and line-out jacks, which a remote PC-audio operator
+            // cannot hear. Relabeled from the bare "Headphone Level" that sent
+            // Don adjusting a knob three states away.
+            var onRadioSub = AddSubmenu(parent, "On-Radio Outputs (the radio's own jacks)");
+            AddWired(onRadioSub, "On-Radio Headphone Volume Up\tCtrl+J, V, H", () =>
+                AdjustValue("On-radio headphone", () => Rig.HeadphoneGain, v => Rig.HeadphoneGain = v, gainStep, 0, 100));
+            AddWired(onRadioSub, "On-Radio Headphone Volume Down\tCtrl+J, V, H", () =>
+                AdjustValue("On-radio headphone", () => Rig.HeadphoneGain, v => Rig.HeadphoneGain = v, -gainStep, 0, 100));
+            AddWired(onRadioSub, "On-Radio Line Out Volume Up\tCtrl+J, V, L", () =>
+                AdjustValue("On-radio line out", () => Rig.LineoutGain, v => Rig.LineoutGain = v, gainStep, 0, 100));
+            AddWired(onRadioSub, "On-Radio Line Out Volume Down\tCtrl+J, V, L", () =>
+                AdjustValue("On-radio line out", () => Rig.LineoutGain, v => Rig.LineoutGain = v, -gainStep, 0, 100));
+            AddChecked(onRadioSub, "Mute Headphone Jack", () =>
+                ToggleBool("Headphone mute", () => Rig.HeadphoneMute, v => Rig.HeadphoneMute = v),
+                () => Rig?.HeadphoneMute == true);
+            AddChecked(onRadioSub, "Mute Line Out", () =>
+                ToggleBool("Line out mute", () => Rig.LineoutMute, v => Rig.LineoutMute = v),
+                () => Rig?.LineoutMute == true);
+            AddChecked(onRadioSub, "Mute Front Speaker", () =>
+                ToggleBool("Front speaker mute", () => Rig.FrontSpeakerMute, v => Rig.FrontSpeakerMute = v),
+                () => Rig?.FrontSpeakerMute == true);
 
             AddSep(parent);
         }
@@ -1392,6 +1430,11 @@ public class NativeMenuBar : IDisposable
         // === Audio ===
         var audio = AddPopup(bar, "Audi&o");
         BuildAudioItems(audio);
+        // Parity with the Slice > Audio submenu (b4bd721f): the workshop is
+        // the mic-setup/monitoring surface, and this top-level Audio menu is
+        // the first place an operator looks for it.
+        AddWired(audio, "Audio Workshop\tCtrl+Shift+W", () =>
+            Dialogs.AudioWorkshopDialog.ShowOrFocus(Rig, 0));
 
         // === Tools ===
         var tools = AddPopup(bar, "&Tools");

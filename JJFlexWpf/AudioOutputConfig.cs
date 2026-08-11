@@ -70,6 +70,14 @@ namespace JJFlexWpf
         /// <summary>Calibration tuning hash — stores verified reference data.</summary>
         public string TuningHash { get; set; } = "";
 
+        /// <summary>
+        /// PC output volume in dB of boost (0-24, default 12). This is the
+        /// playback gain for radio audio through the computer — the knob that
+        /// was a hardcoded 4x (+12 dB) before Audio Arc Track A. App-level,
+        /// not per-radio: it describes this computer's speakers, not the rig.
+        /// </summary>
+        public int PcOutputVolumeDb { get; set; } = Radios.FlexBase.PcOutputVolumeDbDefault;
+
         /// <summary>Whether tuning speech debounce is enabled. When false, every tuning step speaks immediately.</summary>
         public bool TuneDebounceEnabled { get; set; } = true;
 
@@ -195,6 +203,10 @@ namespace JJFlexWpf
             Radios.ScreenReaderOutput.CurrentVerbosity =
                 (Radios.VerbosityLevel)Math.Clamp(SpeechVerbosity, 0, 2);
 
+            // PC output volume — static on FlexBase so it is in place before
+            // any radio connects; remote-audio startup reads it from there.
+            Radios.FlexBase.PcOutputVolumeDbSetting = PcOutputVolumeDb;
+
             MeterToneEngine.Enabled = MeterTonesEnabled;
             MeterToneEngine.MasterVolume = MeterMasterVolume;
             MeterToneEngine.PeakWatcherEnabled = PeakWatcherEnabled;
@@ -209,6 +221,7 @@ namespace JJFlexWpf
         public void CaptureFromEngine()
         {
             SpeechVerbosity = (int)Radios.ScreenReaderOutput.CurrentVerbosity;
+            PcOutputVolumeDb = Radios.FlexBase.PcOutputVolumeDbSetting;
             MeterTonesEnabled = MeterToneEngine.Enabled;
             MeterPreset = MeterToneEngine.CurrentPreset;
             MeterMasterVolume = MeterToneEngine.MasterVolume;

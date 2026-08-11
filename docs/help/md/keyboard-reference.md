@@ -48,6 +48,9 @@ Press `Ctrl+J` and then release it to enter layered command mode. You'll hear a 
 | Shift+S | Toggle PC Spectral Noise Reduction (runs on your computer, works on every radio) |
 | A | Toggle Auto Notch |
 | P | Toggle Audio Peak Filter (APF, CW only) |
+| V | Enter volume mode — pick what to adjust, ride the arrows (see "Volume mode" below) |
+| C | Toggle Compander |
+| Shift+P | Toggle Speech Processor |
 | F | Speak the TX filter width |
 | Shift+F | Speak the RX filter width |
 | Ctrl+F | Enter a frequency |
@@ -61,6 +64,23 @@ Press `Ctrl+J` and then release it to enter layered command mode. You'll hear a 
 | Escape | Cancel leader mode |
 
 Don't worry if you press the JJ key by accident or if you simply don't want to access the command layer. Press Escape to exit JJ command mode — you'll hear a little descending tone, and you can go back to whatever you were doing previously in the JJ Flexible Radio app. The layer waits patiently until you press a key or cancel; there's no timer sneaking you out of it.
+
+One more thing worth knowing: the JJ key's built-in help (`Ctrl+J` then `H` or `?`) reads you every leader command, top to bottom. If what you actually want is help for the control you're sitting on, that's F1. If you want to search every command in the app by name, that's `Ctrl+/` for the Command Finder. The JJ help announcement now ends by pointing you at both.
+
+### Volume mode — Ctrl+J, then V
+
+Every volume in the app, one gesture. Press `Ctrl+J`, then `V`, and you're in volume mode: pick a target with a single letter, then ride Up and Down. Every press speaks the new value. The mode stays put while you adjust and even while you switch targets — set your mic, hop to PC output, nudge it, hop back — and only Escape ends it. If you're a JAWS or NVDA user this layered-keystroke pattern will feel like home.
+
+The targets:
+
+- **H** — on-radio headphone volume. The headphone jack on the radio itself.
+- **P** — PC output volume, in dB of boost. This is how loud radio audio plays *through your computer* — the one remote operators actually want. Ranges 0 to 24 dB; the long-time default is 12 dB.
+- **M** — mic level, your transmit audio level. Applies to PC audio too.
+- **L** — on-radio line out volume. The line out jacks on the radio itself.
+- **C** — compander level. (Toggle the compander itself with `Ctrl+J`, `C`.)
+- **S** — speech processor mode: Up and Down step through Normal, DX, and DX plus. (Toggle the processor with `Ctrl+J`, `Shift+P`.)
+
+Press `?` inside volume mode to hear the target list again. Escape exits and announces it. A quick word on "on-radio": those two targets move the radio's own jacks — if you're listening over PC audio from across town, they won't change what you hear, and now they say so right in their names.
 
 ## Band Jumping
 

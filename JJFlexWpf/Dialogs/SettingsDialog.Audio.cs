@@ -53,6 +53,25 @@ namespace JJFlexWpf.Dialogs
 
             HeadphoneLevelControl.ValueChanged += HeadphoneLevel_ValueChanged;
             LineOutLevelControl.ValueChanged += LineOutLevel_ValueChanged;
+
+            // PC output volume (Audio Arc Track A) — app-level, works with or
+            // without a radio, applies live, persisted on OK through
+            // CaptureFromEngine like the rest of the audio config.
+            PcOutputVolumeControl.Setup("PC output volume",
+                FlexBase.PcOutputVolumeDbMin, FlexBase.PcOutputVolumeDbMax, 1,
+                FlexBase.PcOutputVolumeDbSetting, unit: "dB");
+            PcOutputVolumeControl.ValueChanged += PcOutputVolume_ValueChanged;
+        }
+
+        private void PcOutputVolume_ValueChanged(object? sender, int value)
+        {
+            if (_suppressRadioOutputEvents) return;
+            var rig = _rig;
+            if (rig != null)
+                rig.PcOutputVolumeDb = value; // applies live to the running stream
+            else
+                FlexBase.PcOutputVolumeDbSetting = value; // takes effect at next connect
+            Tracing.TraceLine("Settings: PcOutputVolumeDb set to " + value, TraceLevel.Info);
         }
 
         /// <summary>
@@ -88,6 +107,13 @@ namespace JJFlexWpf.Dialogs
 
                 PcAudioCheck.IsEnabled = connected;
                 PcAudioCheck.IsChecked = connected && rig!.PCAudio;
+
+                // App-level, so refreshed regardless of connection — another
+                // surface (menu, leader volume mode, Home expander) may have
+                // moved it while this dialog was open.
+                PcOutputVolumeControl.SuppressEvents = true;
+                PcOutputVolumeControl.Value = FlexBase.PcOutputVolumeDbSetting;
+                PcOutputVolumeControl.SuppressEvents = false;
             }
             finally
             {
