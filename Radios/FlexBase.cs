@@ -11099,6 +11099,9 @@ namespace Radios
             opusInputChannel = new audioChannelData(txStream, "JJFlexRadio.OpusInputChan");
             opusInputChannel.PortAudioStream = new JJAudioStream();
             opusInputChannel.PortAudioStream.OpenOpus(Devices.DeviceTypes.input, opusSampleRate, sendOpusInput);
+            // Audio Track C: hand the persistent TX test-tone generator to the
+            // input stream so an engaged tone replaces the mic at the encoder.
+            opusInputChannel.PortAudioStream.InputToneSource = txToneGen;
             Tracing.TraceLine("remoteAudioProc:Opus Input Channel setup", TraceLevel.Info);
 
 #if CWMonitor
@@ -11243,6 +11246,80 @@ namespace Radios
             }
             else { }
         }
+
+        #region TX test tone (Audio Track C)
+        // The generator is owned here (one per rig instance) and handed to the
+        // Opus input stream when the PC-audio TX channel is created, so it
+        // survives channel stop/start across key cycles. When engaged it
+        // REPLACES the mic samples at the encoder — the mic is discarded
+        // (muted), never mixed — and the tone rides the identical Opus
+        // encode-and-send path the mic does.
+        private readonly JJPortaudio.TxToneGenerator txToneGen = new JJPortaudio.TxToneGenerator();
+
+        /// <summary>
+        /// True while the TX test tone is engaged (replacing the microphone
+        /// whenever PC TX audio flows).
+        /// </summary>
+        public bool TxToneEngaged => txToneGen.Engaged;
+
+        /// <summary>
+        /// Test tone frequency in hertz. Safe to change live; the generator
+        /// is phase-continuous so there is no click.
+        /// </summary>
+        public float TxToneFrequency
+        {
+            get { return txToneGen.Frequency; }
+            set { txToneGen.Frequency = value; }
+        }
+
+        /// <summary>Test tone level in dBFS (-60..0). Default -10.</summary>
+        public float TxToneLevelDb
+        {
+            get { return txToneGen.LevelDb; }
+            set { txToneGen.LevelDb = value; }
+        }
+
+        /// <summary>
+        /// Engage the test tone: the microphone is muted and the tone takes
+        /// its place in the TX stream. Takes effect immediately if
+        /// transmitting, otherwise at the next key-down.
+        /// </summary>
+        public void TxToneStart()
+        {
+            Tracing.TraceLine("TxToneStart: " + txToneGen.Frequency + " Hz at " + txToneGen.LevelDb + " dBFS", TraceLevel.Info);
+            txToneGen.Start();
+        }
+
+        /// <summary>Release the test tone and restore the microphone.</summary>
+        public void TxToneStop()
+        {
+            Tracing.TraceLine("TxToneStop", TraceLevel.Info);
+            txToneGen.Stop();
+        }
+
+        /// <summary>
+        /// Plain-language reason the test tone cannot reach the transmitter
+        /// right now, or the empty string when the path is good. The tone
+        /// rides the PC-audio TX path, so it needs PC audio on, the radio's
+        /// transmit input set to PC, and a voice mode (the PC TX stream does
+        /// not run in CW).
+        /// </summary>
+        public string TxTonePathTrouble
+        {
+            get
+            {
+                if (!PCAudio)
+                    return "PC audio is off. The test tone rides the PC audio path; turn on PC audio first.";
+                if (!string.Equals(MicSource, "PC", StringComparison.OrdinalIgnoreCase))
+                    return "Transmit audio is from the " + MicSource +
+                        " input, not this computer. Set transmit audio from to PC first.";
+                string mode = Mode ?? "";
+                if (mode.StartsWith("CW", StringComparison.OrdinalIgnoreCase))
+                    return "The radio is in CW mode, where PC transmit audio does not run. Switch to a voice mode first.";
+                return "";
+            }
+        }
+        #endregion
 
 #if opusToFile
         private const string fName = @"c:\users\jjs\documents\tmp\opusOut.dat";

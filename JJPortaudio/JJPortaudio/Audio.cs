@@ -258,6 +258,10 @@ namespace JJPortaudio
             public OpusCallback OpusInputHandler;
             public AudioSentCallback AudioSent;
             public bool SilentPeriod = false;
+            // Audio Track C: optional TX test-tone source. When engaged, its
+            // samples REPLACE the mic capture in inputCallback ahead of the
+            // Opus encode (the mic is discarded, never mixed).
+            public TxToneGenerator ToneSource;
         }
         internal class staticQueues
         {
@@ -318,6 +322,11 @@ namespace JJPortaudio
         {
             get { return CBData.AudioSent; }
             set { CBData.AudioSent = value; }
+        }
+        internal TxToneGenerator ToneSource
+        {
+            get { return CBData?.ToneSource; }
+            set { var cb = CBData; if (cb != null) cb.ToneSource = value; }
         }
 
         internal Audio()
@@ -553,6 +562,12 @@ namespace JJPortaudio
                         {
                             buf[i] = *(inPtr++);
                         }
+                        // Audio Track C: TX test tone. When engaged this
+                        // REPLACES the mic samples in buf (mute-by-discard,
+                        // never a mix) before the Opus encode, so the tone
+                        // rides the identical encode-and-send path the mic
+                        // does — an honest test of the whole TX chain.
+                        data.ToneSource?.Process(buf, (int)data.OpusFrameSZ, data.SampleRate);
                         byte[] encodedBuf = data.Encoder.Encode(buf);
                         if (!data.Active) break;
                         data.OpusInputHandler(encodedBuf);
