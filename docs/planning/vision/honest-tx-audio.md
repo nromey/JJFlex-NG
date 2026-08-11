@@ -398,6 +398,44 @@ voice through that same receiver is **directly comparable against a reference
 you have been building for years.** Simulating a hypothetical average station
 would be less honest and less useful.
 
+**Mirror mode versus manual mode (Noel, 2026-08-11).** Mirroring is the default
+and the conservative choice, but **turning the mirror off unlocks the AGC
+controls so the operator can sweep them** — off, slow, medium, fast, different
+thresholds — and hear how the same transmission lands on receivers that are not
+set up like theirs. Noel framed this as a "how do I sound to people" curiosity,
+and it is that, but it is also genuinely diagnostic:
+
+- **Different operators run different AGC, so "how do I sound to people" is
+  plural.** Audio that behaves through slow AGC can pump badly through fast.
+  There is no single far end.
+- **AGC off is the analytical control condition, and that is the sharpest part
+  of this idea.** With AGC off you hear your processed audio as you actually
+  sent it. If it already pumps there, **that is your compressor's makeup gain
+  lifting room noise in the pauses** — your fault, your fix, in the pipeline.
+  If it is clean with AGC off but pumps with AGC on, you handed the far end's
+  AGC too much to chase — still your fault, but a *different* fix. One toggle
+  separates two faults that sound identical from the operating chair.
+- **Audition mode rather than re-dial-and-replay.** Play the same clip through
+  off / slow / medium / fast back to back, announcing each before it plays.
+  Manually re-dialling and re-triggering four times is exactly the kind of
+  friction a keyboard-and-speech operator should not have to absorb to make a
+  comparison, and the comparison is the whole point.
+- **Replaying a recording is what makes this a controlled experiment.** Because
+  the capture is played back rather than re-transmitted, every AGC setting hears
+  **the identical source audio.** If the operator had to key and speak again for
+  each setting, their voice would differ each time and the variable would not be
+  isolated. This is a real methodological advantage of the replay design, and it
+  is worth stating in the help text.
+- **The AGC and signal-to-noise controls interact**, so the UI should make it
+  easy to hold one and sweep the other rather than moving both at once.
+
+**Hard requirement: these controls must never touch the radio.** They apply to
+playback only. An AGC control that looks like *the* AGC control, in an app that
+also has a real one, is a genuine confusion hazard — and for a speech-first
+operator the label is the entire user interface. Name them unambiguously
+(simulated / playback AGC), speak that framing on entry, and never write an
+`AGCSpeed` or `AGCThreshold` back to the rig from this surface.
+
 **State the limits plainly (Noel already did: "it wouldn't be perfect").** This
 is a **comparative instrument, not an absolute one.** It does not model
 propagation, the far operator's DSP, or their filter choices. Its real power is
