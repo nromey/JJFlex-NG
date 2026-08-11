@@ -55,6 +55,47 @@ actions over the trace archive.
 - **Do this when the audio arc's radio-seat session happens**, since the browser
   needs real archived traces to browse and the audio testing generates them.
 
+**AND IT IS NOT JUST THE BROWSER — SPRINT 29 WAS NEVER SYSTEMATICALLY TESTED
+(Noel, 2026-08-11: "that was about the time I said I needed a JJ Flexible
+break").** `agile/sprint29-test-matrix.md` holds **83 test items across 8
+tracks and not one is ticked.**
+
+- **The evidence survives a control check.** Unticked boxes would prove nothing
+  if ticking were not the practice — so: `sprint25-test-matrix.md` is **55
+  checked out of 55**, same checkbox format, worked through completely. The
+  sprints between (23, 24, 26) and `4.1.17` / `pre-4.2-foundation-drop` use no
+  checkbox syntax at all, so they are silent rather than negative. **Sprint 25
+  proves the practice exists and gets finished when it runs; Sprint 29 is the
+  one that uses the format and shows zero.** Honest limit: this proves the
+  *matrix* was never worked through, not that zero testing happened — some
+  tracks were likely exercised informally. Treat it as "no record of systematic
+  verification."
+- **THE REFRAME THAT MATTERS FOR THE INFRASTRUCTURE PHASE: five of Sprint 29's
+  eight tracks ARE that phase, already built and shipped.** Track A (trace
+  persistence, 9 items), Track D (**app-updater client**, delta-fetch + XZ, 12),
+  Track H (**trace browser**, 16), Track M (**updater helper exe**, atomic file
+  replacement, 10), Track N (**server-side manifest generation**, 12) — **59 of
+  the 83 items.** So the phase Noel is queuing is substantially a
+  **verify-and-deploy** job on existing code, not a from-scratch build. What is
+  genuinely new is the R2/rarbox/roarbox storage and processing for the three
+  report types, and the signing track.
+- **This also explains the 404.** The app-update manifest at
+  `data.jjflexible.radio` returns nothing because Track N built the *generator*
+  and nothing was ever generated or deployed. That is a deployment gap, not a
+  missing feature.
+- **Track J (self-contained build pipeline, 9 items) is the sharpest one.**
+  `CLAUDE.md` states fresh-VM verification is **mandatory before public
+  release** — install on a Windows VM that has never had .NET 10 and confirm
+  jjflexible.exe launches to Home without a runtime prompt. Those 9 items are
+  unchecked, so the release-blocking test our own SOP calls mandatory has no
+  record of ever running.
+- **Remaining tracks:** F (tuning UX bundle, 13) and G (stuck-modal escape
+  changelog, 2) — user-facing, not infrastructure, but equally unverified.
+- **Suggested shape:** do not treat this as one 83-item slog. Split it — the
+  five infrastructure tracks become the front half of the infrastructure phase
+  (verify, then deploy, then build the report backend on top), while F and G
+  ride along with whatever radio-seat session happens next.
+
 ## Decisions captured 2026-08-07 (overnight)
 
 - **Reboot gets a second home on the Radio menu** (Noel's call; Radio Setup step 7 stays). The Radio menu grows a maintenance section: Reboot, firmware update entry, plus other radio-function candidates at Claude's judgment (rename lands there via Track F's Radio Setup work). → Track A.
