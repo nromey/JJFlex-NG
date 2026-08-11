@@ -2,10 +2,11 @@
 
 Windows desktop application for controlling FlexRadio transceivers (6000/8000 series). Alternative UI to SmartSDR, created by Jim Shaffer, maintained by Noel Romey (K5NER). Current version: 4.1.16. **FlexLib version depends on which branch you are on, and this matters:**
 
-- **`track/flexlib-4220`** — the active development branch, where essentially all current work lives — vendors **FlexLib v4.2.20.41343**, landed 2026-08-03 in `b2d75f63` (3-way merge from `track/flexlib-42`, all patches carried).
-- **`main`** still vendors **FlexLib v4.1.5.39794** (upgraded 2026-03-18 in `506c2ff9` for 8000-series/Aurora compatibility; the 4.2.18 merge was reverted 2026-05-15, restoring 4.1.5).
+- **`main` now vendors FlexLib v4.2.20.41343**, as of **2026-08-11**: the long-pending clean fast-forward from the audio arc landed 349 commits and brought `track/flexlib-4220` fully onto main. Main and the track branch no longer diverge on FlexLib.
+- **`track/flexlib-4220`** — where 4.2.20 originally landed 2026-08-03 in `b2d75f63` (3-way merge from `track/flexlib-42`, all patches carried). Retained for history; main is now the place to work.
+- **Historical:** main sat on **v4.1.5.39794** from 2026-03-18 (`506c2ff9`, for 8000-series/Aurora compatibility) until the 2026-08-11 fast-forward. The 4.2.18 merge was reverted 2026-05-15, restoring 4.1.5 — that revert is why main lagged for so long.
 
-**Check your branch before citing a FlexLib line number or behaviour.** This paragraph claimed 4.1.5 unconditionally until 2026-08-09, six days after 4.2.20 landed, and a session on the track branch acted on the wrong version as a result. Before that it said "4.1.15 / FlexLib v4.0.1" until 2026-08-03 — also stale. This line has now been wrong three times; verify rather than trusting it.
+**Check your branch before citing a FlexLib line number or behaviour.** This paragraph has been wrong **four** times: it claimed 4.1.5 unconditionally until 2026-08-09, six days after 4.2.20 landed on the track branch, and a session acted on the wrong version as a result; before that it said "4.1.15 / FlexLib v4.0.1" until 2026-08-03; and it described main as 4.1.5 and 305 commits behind until the 2026-08-11 merge made that false. **Verify rather than trusting it** — `git log --oneline -1 -- FlexLib_API/` and a diff against the branch you are on take seconds.
 
 **Naming, as of the 2026-08-04 rename:** the shipped executable is `jjflexible.exe` (renamed ahead of the first code-signed release so SmartScreen reputation accrues to the final file identity). Everything else keeps the `JJFlexRadio` name on purpose — AppData (`%AppData%\JJFlexRadio\`), the HKLM registry keys, the install directory (`Program Files\JJFlexRadio`), the Start Menu/desktop shortcut names, `JJFlexRadio.chm`, the solution and project filenames, and the support DLLs (`Radios.dll`, `JJFlexWpf.dll`, …). Existing installs upgrade in place and keep their settings. `RootNamespace` stays `JJRadio`.
 
