@@ -12113,20 +12113,19 @@ namespace Radios
             // app. Guarantee a valid mic profile whenever one isn't set.
             // The mic-profile LIST arrives asynchronously in radio status —
             // wait for it before deciding, or the guard races an empty list.
+            // DIAG 717: FORCE-load a mic profile unconditionally via the raw
+            // command, bypassing the ProfileMICSelection change-guard (which
+            // won't re-send when FlexLib's cache already reads "Default" even
+            // if the RADIO is empty). This definitively tests whether an
+            // unloaded mic-profile DSP chain is what silences PC-audio TX.
             await(() => theRadio != null && theRadio.ProfileMICList.Count > 0, 5000);
-            if (theRadio != null)
+            if (theRadio != null && theRadio.ProfileMICList.Count > 0)
             {
-                Tracing.TraceLine("GetProfileInfo:mic profile check: current='"
-                    + theRadio.ProfileMICSelection + "' listCount=" + theRadio.ProfileMICList.Count,
-                    TraceLevel.Info);
-                if (string.IsNullOrEmpty(theRadio.ProfileMICSelection)
-                    && theRadio.ProfileMICList.Count > 0)
-                {
-                    string micPick = theRadio.ProfileMICList.Contains("Default")
-                        ? "Default" : theRadio.ProfileMICList[0];
-                    Tracing.TraceLine("GetProfileInfo:mic profile empty, selecting " + micPick, TraceLevel.Info);
-                    theRadio.ProfileMICSelection = micPick;
-                }
+                string micPick = theRadio.ProfileMICList.Contains("Default")
+                    ? "Default" : theRadio.ProfileMICList[0];
+                Tracing.TraceLine("GetProfileInfo:FORCE mic profile load " + micPick
+                    + " (cache was '" + theRadio.ProfileMICSelection + "')", TraceLevel.Info);
+                _ = theRadio.SendCommandAsync("profile mic load \"" + micPick + "\"");
             }
 
             // Allocate any free slices.
