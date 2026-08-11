@@ -1430,6 +1430,11 @@ public class NativeMenuBar : IDisposable
         // === Audio ===
         var audio = AddPopup(bar, "Audi&o");
         BuildAudioItems(audio);
+        // Parity with the Slice > Audio submenu (b4bd721f): the workshop is
+        // the mic-setup/monitoring surface, and this top-level Audio menu is
+        // the first place an operator looks for it.
+        AddWired(audio, "Audio Workshop\tCtrl+Shift+W", () =>
+            Dialogs.AudioWorkshopDialog.ShowOrFocus(Rig, 0));
 
         // === Tools ===
         var tools = AddPopup(bar, "&Tools");
