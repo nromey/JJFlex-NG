@@ -41,11 +41,12 @@ Press `Ctrl+J` and then release it to enter layered command mode. You'll hear a 
 | N | Toggle legacy Noise Reduction |
 | B | Toggle Noise Blanker |
 | W | Toggle Wideband Noise Blanker |
-| R | Toggle Neural Noise Reduction |
-| S | Toggle Spectral Noise Reduction |
+| R | Toggle On-Radio Neural Noise Reduction (the radio's own DSP) |
+| S | Toggle On-Radio Spectral Noise Reduction (the radio's own DSP) |
 | Shift+N | Toggle NR Filter |
 | Shift+R | Toggle PC Neural Noise Reduction (runs on your computer, works on every radio) |
 | Shift+S | Toggle PC Spectral Noise Reduction (runs on your computer, works on every radio) |
+| Q | Capture a noise profile for PC Spectral NR — press Q again while it runs to cancel (see "Noise capture" below) |
 | A | Toggle Auto Notch |
 | P | Toggle Audio Peak Filter (APF, CW only) |
 | V | Enter volume mode — pick what to adjust, ride the arrows (see "Volume mode" below) |
@@ -91,6 +92,10 @@ The binding you ride while setting mic gain. One chord, one answer: your mic-aud
 ### Test tone — Ctrl+J, then G
 
 Arms or disarms the Audio Workshop's TX test tone from anywhere, using your saved frequency and level — no need to open the workshop first. Same honesty rules as the workshop: if the tone can't reach the transmitter (PC audio off, transmit input not set to PC, CW mode), it refuses to arm and tells you why; if your tone frequency sits outside the transmit filter, it arms but warns you loudly that nothing will go out. While armed, every key-down announces that the tone is riding your transmission instead of your voice.
+
+### Noise capture — Ctrl+J, then Q
+
+Captures a noise profile for PC Spectral NR: three seconds (adjustable, 1 to 5) of what your band sounds like with nobody talking, so the spectral engine knows exactly what to subtract. Find a quiet spot on the band, press `Ctrl+J` then `Q`, and listen — it announces the start, counts the seconds out loud as they pass, and tells you when the profile is captured and whether Spectral NR is using it. Press `Q` again mid-capture to cancel. The capture listens to the radio audio playing through this computer, so PC audio has to be on — if it isn't, the capture says so instead of pretending. A finished capture saves itself and comes back on your next connect; naming and managing profiles lives in the Noise Profiles dialog (Slice menu, DSP, PC Noise Reduction). The full story is on the PC-Side Noise Reduction help page.
 
 One more thing about the JJ layer: it works inside dialogs now. Press `Ctrl+J` in the Audio Workshop — or any other dialog — and the layer answers exactly as it does from Home. The mic check was built with that in mind, since the workshop is precisely where you sit while adjusting mic gain.
 
