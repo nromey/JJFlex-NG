@@ -181,6 +181,43 @@ existing **Ctrl+J leader** — the "JJ key", already implemented in
 **Keyboard audit applies** — every new leader binding needs a line in
 `docs/help/md/keyboard-reference.md` and Command Finder entries.
 
+### Track A-2 — levels dialogs, and retire the old menu items
+
+**Field feedback, Noel at the radio 2026-08-11, after Track A merged.** PC audio
+plays, PC Output Volume genuinely changes it — the core deliverable works. Two
+problems with the *shape*:
+
+- **A menu is the wrong instrument for repeated adjustment.** The control is two
+  menus deep and the menu closes after each activation, so nudging a level five
+  times means opening it five times. Menus are for **discovery and one-shot
+  acts**, not for riding a value.
+- **The old audio volume items still exist alongside the new groups** —
+  duplicates that need retiring. Known gap from Track A, not a surprise.
+
+**Shape (Noel's proposal, refined):**
+
+- **Two dialogs — "PC Audio Levels" and "On-Radio Levels"** — each with its
+  controls together and Up/Down to ride them, so repeated adjustment happens
+  in one place with the dialog staying open. **Keep them as two, not one
+  combined dialog:** the entire point of this track is that these are two
+  different things on two sides of the wire, and merging them back into one
+  surface would blur exactly the distinction the labels just established.
+- **The menu entry becomes a single item that opens the dialog**, replacing the
+  up/down *pairs*. That fixes the depth complaint and removes the "multiple
+  audio up and down things" clutter in one move — the menu goes back to being a
+  door rather than a control.
+- **The old duplicate items get deleted** in the same pass.
+- The Home expander and `Ctrl+J, V` are unchanged — they stay the in-context and
+  fast paths.
+
+**Open question to settle by trying it: does `Ctrl+J, V` already cover this
+need?** It is a persistent mode built precisely for riding values with arrows
+without leaving Home, so it may already be the answer to "hard to change
+multiple times." If so, the dialogs' remaining value is **seeing and comparing
+all levels at once** plus discoverability for operators who do not memorise
+modes — still worth building, but a different justification and possibly a
+smaller job. Test the leader mode before scoping the dialogs.
+
 ### Track B — coaching and JJSmartAudio
 
 **Why:** this is the accessibility differentiator, and it is the positive-side
