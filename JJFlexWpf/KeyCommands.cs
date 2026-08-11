@@ -30,6 +30,27 @@ public class KeyCommands
     // ── Leader key state (Ctrl+J → second key). No timeout — cancel with Escape only. ──
     private bool _leaderKeyActive;
 
+    // ── Volume mode state (Ctrl+J, V — Audio Arc Track A, 2026-08-11). ──
+    // A mode WITHIN the leader: pick a target letter, ride Up/Down, switch
+    // targets freely, Escape exits. It persists across adjustments —
+    // JAWS/NVDA layered-keystroke muscle memory, not a three-key one-shot.
+    private bool _volumeModeActive;
+    private VolumeTarget _volumeTarget = VolumeTarget.None;
+    // True once a PC-volume adjustment happened this volume-mode session, so
+    // exit persists the app-level setting exactly once.
+    private bool _volumeModePcDirty;
+
+    private enum VolumeTarget
+    {
+        None,
+        Headphone,      // H — on-radio headphone jack
+        PcOutput,       // P — PC output volume (dB)
+        MicLevel,       // M — mic level (radio mic gain, PC audio included)
+        Lineout,        // L — on-radio line out
+        CompanderLevel, // C — compander level
+        ProcessorMode,  // S — speech processor setting (Normal/DX/DX+)
+    }
+
     // ── Command ID tracking — handlers can read this to know which command triggered them. ──
     public CommandValues CommandId { get; set; }
 
@@ -217,18 +238,21 @@ public class KeyCommands
             new(CommandValues.AudioGainDown, KeyTypes.Command, AudioGainDownHandler,
                 "Lower RF gain or Flex slice gain.", string.Empty, true, FunctionGroups.Audio, KeyScope.Radio)
                 { Keywords = new[] { "volume", "gain", "audio", "quieter", "down", "slice" }, ShortActionLabel = "lower audio gain" },
+            // "On-radio" in these four is deliberate (Audio Arc Track A): they
+            // move the radio's own jacks, which a PC-audio operator cannot
+            // hear — the label is the fix for a very real confusion.
             new(CommandValues.HeadphonesUp, KeyTypes.Command, HeadphonesUpHandler,
-                "If supported, raise headphone gain.", string.Empty, true, FunctionGroups.Audio, KeyScope.Radio)
-                { Keywords = new[] { "headphones", "volume", "audio", "louder", "gain" }, ShortActionLabel = "raise headphone volume" },
+                "Raise the on-radio headphone volume (the radio's own jack).", string.Empty, true, FunctionGroups.Audio, KeyScope.Radio)
+                { Keywords = new[] { "headphones", "volume", "audio", "louder", "gain", "on-radio", "jack" }, ShortActionLabel = "raise on-radio headphone volume" },
             new(CommandValues.HeadphonesDown, KeyTypes.Command, HeadphonesDownHandler,
-                "If supported, lower headphone gain.", string.Empty, true, FunctionGroups.Audio, KeyScope.Radio)
-                { Keywords = new[] { "headphones", "volume", "audio", "quieter", "gain" }, ShortActionLabel = "lower headphone volume" },
+                "Lower the on-radio headphone volume (the radio's own jack).", string.Empty, true, FunctionGroups.Audio, KeyScope.Radio)
+                { Keywords = new[] { "headphones", "volume", "audio", "quieter", "gain", "on-radio", "jack" }, ShortActionLabel = "lower on-radio headphone volume" },
             new(CommandValues.LineoutUp, KeyTypes.Command, LineoutUpHandler,
-                "Raise audio gain or Flex lineout gain.", string.Empty, true, FunctionGroups.Audio, KeyScope.Radio)
-                { Keywords = new[] { "lineout", "volume", "audio", "gain", "output" }, ShortActionLabel = "raise lineout" },
+                "Raise the on-radio line out volume (the radio's own jacks).", string.Empty, true, FunctionGroups.Audio, KeyScope.Radio)
+                { Keywords = new[] { "lineout", "volume", "audio", "gain", "output", "on-radio", "jack" }, ShortActionLabel = "raise on-radio line out" },
             new(CommandValues.LineoutDown, KeyTypes.Command, LineoutDownHandler,
-                "lower audio gain or Flex lineout gain.", string.Empty, true, FunctionGroups.Audio, KeyScope.Radio)
-                { Keywords = new[] { "lineout", "volume", "audio", "gain", "output" }, ShortActionLabel = "lower lineout" },
+                "Lower the on-radio line out volume (the radio's own jacks).", string.Empty, true, FunctionGroups.Audio, KeyScope.Radio)
+                { Keywords = new[] { "lineout", "volume", "audio", "gain", "output", "on-radio", "jack" }, ShortActionLabel = "lower on-radio line out" },
 
             // ── CW / RIT / Beacon / Cluster ──
             new(CommandValues.CWZeroBeat, KeyTypes.Command, ZerobeatHandler,
@@ -598,10 +622,10 @@ public class KeyCommands
     // speak it (matching the menu's AdjustValue pattern) — the FlexBase setters
     // enqueue the change asynchronously, so reading the property back right
     // after the set would announce the stale value.
-    private void HeadphonesUpHandler() => AdjustOutputGain("Headphone",
+    private void HeadphonesUpHandler() => AdjustOutputGain("On-radio headphone",
         r => r.HeadphoneGain, (r, v) => r.HeadphoneGain = v, +5);
 
-    private void HeadphonesDownHandler() => AdjustOutputGain("Headphone",
+    private void HeadphonesDownHandler() => AdjustOutputGain("On-radio headphone",
         r => r.HeadphoneGain, (r, v) => r.HeadphoneGain = v, -5);
 
     // QB Track A (2026-08-07): these used to refuse to run while PC audio was
@@ -609,10 +633,10 @@ public class KeyCommands
     // independent outputs — the radio drives both at once — so the gate was
     // wrong, and it was also silent (a bound key that did nothing). The
     // headphone handlers never gated; now the pair behaves identically.
-    private void LineoutUpHandler() => AdjustOutputGain("Line out",
+    private void LineoutUpHandler() => AdjustOutputGain("On-radio line out",
         r => r.LineoutGain, (r, v) => r.LineoutGain = v, +5);
 
-    private void LineoutDownHandler() => AdjustOutputGain("Line out",
+    private void LineoutDownHandler() => AdjustOutputGain("On-radio line out",
         r => r.LineoutGain, (r, v) => r.LineoutGain = v, -5);
 
     private void AdjustOutputGain(string label, Func<Radios.FlexBase, int> getter,
@@ -1969,6 +1993,14 @@ public class KeyCommands
             theKey == (int)Keys.ShiftKey || theKey == 0)
             return rv;
 
+        // === VOLUME MODE DISPATCH (Ctrl+J, V sub-mode) ===
+        // Checked before the one-shot leader dispatch: unlike the leader, this
+        // mode stays active across keys until Escape ends it.
+        if (_volumeModeActive)
+        {
+            return DoVolumeModeKey(k);
+        }
+
         // === LEADER KEY DISPATCH ===
         if (_leaderKeyActive)
         {
@@ -2344,6 +2376,27 @@ public class KeyCommands
                 }
                 break;
 
+            // ── Audio Arc Track A (2026-08-11): "adjust how I sound and what
+            // I hear" joins the leader. V enters the persistent volume mode;
+            // C and Shift+P are the TX-processing toggles (their LEVELS live
+            // inside volume mode as targets C and S).
+            case Keys.V:
+                if (rig == null) LeaderNoRadio();
+                else EnterVolumeMode();
+                break;
+
+            case Keys.C:
+                if (rig == null) LeaderNoRadio();
+                else ToggleLeaderDSP("Compander",
+                    () => rig.Compander, v => rig.Compander = v);
+                break;
+
+            case Keys.P | Keys.Shift:
+                if (rig == null) LeaderNoRadio();
+                else ToggleLeaderDSP("Speech Processor",
+                    () => rig.ProcessorOn, v => rig.ProcessorOn = v);
+                break;
+
             // TX Filter (F), RX Filter (Shift+F), Enter Frequency (Ctrl+F)
             case Keys.F | Keys.Control:
                 if (rig == null) LeaderNoRadio();
@@ -2482,6 +2535,212 @@ public class KeyCommands
         }
     }
 
+    // ────────────────────────────────────────────────────────────────
+    //  Volume mode (Ctrl+J, V) — Audio Arc Track A, 2026-08-11.
+    //  A persistent sub-mode: target letter picks what the arrows adjust,
+    //  targets switch freely, every adjustment speaks, Escape exits.
+    // ────────────────────────────────────────────────────────────────
+
+    // Local shadow of the selected target's value. The FlexBase radio setters
+    // enqueue asynchronously, so reading a property straight back after a set
+    // announces the stale value — and under key repeat it would announce the
+    // SAME stale value over and over. The shadow is seeded when a target is
+    // selected and stepped locally, so ramps are monotonic and honest.
+    private int _volumeShadow;
+
+    private void EnterVolumeMode()
+    {
+        _volumeModeActive = true;
+        _volumeTarget = VolumeTarget.None;
+        _volumeModePcDirty = false;
+        EarconPlayer.LeaderEnterTone();
+        Radios.ScreenReaderOutput.Speak(
+            "Volume mode. H headphone, P PC output, M mic, L line out, " +
+            "C compander, S processor. Up and down adjust. Escape exits.",
+            Radios.VerbosityLevel.Terse, true);
+    }
+
+    private void ExitVolumeMode(bool speak)
+    {
+        _volumeModeActive = false;
+        _volumeTarget = VolumeTarget.None;
+        if (_volumeModePcDirty)
+        {
+            _volumeModePcDirty = false;
+            _context.GetMainWindow()?.PersistPcOutputVolume();
+        }
+        if (speak)
+        {
+            EarconPlayer.LeaderCancelTone();
+            Radios.ScreenReaderOutput.Speak("Volume mode closed", Radios.VerbosityLevel.Terse, true);
+        }
+    }
+
+    private bool DoVolumeModeKey(Keys k)
+    {
+        // Never trap system-level chords: Alt combos (Alt+F4, menu
+        // accelerators) and F1 help pass through untouched. The mode stays
+        // active — it has no timeout, so it is still there afterwards.
+        if ((k & Keys.Alt) != 0 || (k & Keys.KeyCode) == Keys.F1)
+            return false;
+
+        // Escape ends the mode — the one guaranteed exit, per house rule.
+        if (k == Keys.Escape)
+        {
+            ExitVolumeMode(speak: true);
+            return true;
+        }
+
+        // Ctrl+J hands off to a fresh leader chord instead of stranding the
+        // operator: volume mode closes (persisting any PC-volume change) and
+        // the leader arms exactly as if pressed from anywhere else.
+        if (k == (Keys.J | Keys.Control))
+        {
+            ExitVolumeMode(speak: false);
+            _leaderKeyActive = true;
+            EarconPlayer.LeaderEnterTone();
+            Radios.ScreenReaderOutput.Speak("JJ", Radios.VerbosityLevel.Terse, true);
+            return true;
+        }
+
+        var rig = _context.GetRigControl();
+        if (rig == null)
+        {
+            // Radio went away under the mode — close it out loud.
+            ExitVolumeMode(speak: false);
+            LeaderNoRadio();
+            return true;
+        }
+
+        switch (k)
+        {
+            case Keys.H: SelectVolumeTarget(rig, VolumeTarget.Headphone); return true;
+            case Keys.P: SelectVolumeTarget(rig, VolumeTarget.PcOutput); return true;
+            case Keys.M: SelectVolumeTarget(rig, VolumeTarget.MicLevel); return true;
+            case Keys.L: SelectVolumeTarget(rig, VolumeTarget.Lineout); return true;
+            case Keys.C: SelectVolumeTarget(rig, VolumeTarget.CompanderLevel); return true;
+            case Keys.S: SelectVolumeTarget(rig, VolumeTarget.ProcessorMode); return true;
+
+            case Keys.Up: AdjustVolumeTarget(rig, +1); return true;
+            case Keys.Down: AdjustVolumeTarget(rig, -1); return true;
+
+            case Keys.Oem2: // ? — help without stealing H from headphone
+                EarconPlayer.LeaderHelpTone();
+                Radios.ScreenReaderOutput.Speak(
+                    "Volume mode targets: H on-radio headphone, P PC output, M mic level, " +
+                    "L on-radio line out, C compander level, S processor mode. " +
+                    "Up and down adjust the picked target. Escape exits.",
+                    Radios.VerbosityLevel.Terse, true);
+                return true;
+
+            default:
+                EarconPlayer.LeaderInvalidTone();
+                Radios.ScreenReaderOutput.Speak(
+                    "Volume mode: H, P, M, L, C, or S picks a target, up and down adjust, Escape exits.",
+                    Radios.VerbosityLevel.Terse, true);
+                return true;
+        }
+    }
+
+    private void SelectVolumeTarget(Radios.FlexBase rig, VolumeTarget target)
+    {
+        _volumeTarget = target;
+        string announce;
+        switch (target)
+        {
+            case VolumeTarget.Headphone:
+                _volumeShadow = rig.HeadphoneGain;
+                announce = $"On-radio headphone {_volumeShadow}";
+                break;
+            case VolumeTarget.PcOutput:
+                _volumeShadow = rig.PcOutputVolumeDb;
+                announce = $"PC volume {_volumeShadow} dB";
+                break;
+            case VolumeTarget.MicLevel:
+                _volumeShadow = rig.MicGain;
+                announce = $"Mic level {_volumeShadow}";
+                break;
+            case VolumeTarget.Lineout:
+                _volumeShadow = rig.LineoutGain;
+                announce = $"On-radio line out {_volumeShadow}";
+                break;
+            case VolumeTarget.CompanderLevel:
+                _volumeShadow = rig.CompanderLevel;
+                announce = $"Compander {_volumeShadow}";
+                if (rig.Compander != FlexBase.OffOnValues.on)
+                    announce += ", compander is off";
+                break;
+            case VolumeTarget.ProcessorMode:
+                _volumeShadow = (int)rig.ProcessorSetting;
+                announce = $"Processor {ProcessorSettingName(_volumeShadow)}";
+                if (rig.ProcessorOn != FlexBase.OffOnValues.on)
+                    announce += ", processor is off";
+                break;
+            default:
+                return;
+        }
+        EarconPlayer.ConfirmTone();
+        Radios.ScreenReaderOutput.Speak(announce, Radios.VerbosityLevel.Terse, true);
+    }
+
+    private void AdjustVolumeTarget(Radios.FlexBase rig, int direction)
+    {
+        if (_volumeTarget == VolumeTarget.None)
+        {
+            EarconPlayer.LeaderInvalidTone();
+            Radios.ScreenReaderOutput.Speak(
+                "Pick a target first: H, P, M, L, C, or S.",
+                Radios.VerbosityLevel.Terse, true);
+            return;
+        }
+
+        switch (_volumeTarget)
+        {
+            case VolumeTarget.Headphone:
+                _volumeShadow = Math.Clamp(_volumeShadow + direction * 5, 0, 100);
+                rig.HeadphoneGain = _volumeShadow;
+                Radios.ScreenReaderOutput.Speak($"Headphone {_volumeShadow}", Radios.VerbosityLevel.Terse, true);
+                break;
+            case VolumeTarget.PcOutput:
+                _volumeShadow = Math.Clamp(_volumeShadow + direction,
+                    Radios.FlexBase.PcOutputVolumeDbMin, Radios.FlexBase.PcOutputVolumeDbMax);
+                rig.PcOutputVolumeDb = _volumeShadow;
+                _volumeModePcDirty = true;
+                Radios.ScreenReaderOutput.Speak($"PC volume {_volumeShadow} dB", Radios.VerbosityLevel.Terse, true);
+                break;
+            case VolumeTarget.MicLevel:
+                _volumeShadow = Math.Clamp(_volumeShadow + direction * 5, 0, 100);
+                rig.MicGain = _volumeShadow;
+                Radios.ScreenReaderOutput.Speak($"Mic level {_volumeShadow}", Radios.VerbosityLevel.Terse, true);
+                break;
+            case VolumeTarget.Lineout:
+                _volumeShadow = Math.Clamp(_volumeShadow + direction * 5, 0, 100);
+                rig.LineoutGain = _volumeShadow;
+                Radios.ScreenReaderOutput.Speak($"Line out {_volumeShadow}", Radios.VerbosityLevel.Terse, true);
+                break;
+            case VolumeTarget.CompanderLevel:
+                _volumeShadow = Math.Clamp(_volumeShadow + direction * FlexBase.CompanderLevelIncrement,
+                    FlexBase.CompanderLevelMin, FlexBase.CompanderLevelMax);
+                rig.CompanderLevel = _volumeShadow;
+                Radios.ScreenReaderOutput.Speak($"Compander {_volumeShadow}", Radios.VerbosityLevel.Terse, true);
+                break;
+            case VolumeTarget.ProcessorMode:
+                // Up = stronger (Normal → DX → DX+), Down = gentler. Clamps at
+                // the ends — wrapping on an arrow key is disorienting speech.
+                _volumeShadow = Math.Clamp(_volumeShadow + direction, 0, 2);
+                rig.ProcessorSetting = (FlexBase.ProcessorSettings)_volumeShadow;
+                Radios.ScreenReaderOutput.Speak($"Processor {ProcessorSettingName(_volumeShadow)}", Radios.VerbosityLevel.Terse, true);
+                break;
+        }
+    }
+
+    private static string ProcessorSettingName(int setting) => setting switch
+    {
+        1 => "DX",
+        2 => "DX plus",
+        _ => "Normal",
+    };
+
     private void LeaderNoRadio()
     {
         EarconPlayer.LeaderInvalidTone();
@@ -2570,12 +2829,12 @@ public class KeyCommands
     private void LeaderKeyHelp()
     {
         EarconPlayer.LeaderHelpTone();
-        var help = "Leader key commands: " +
-            "N legacy noise reduction, B noise blanker, W wideband NB, " +
-            "R neural NR, S spectral NR, A auto notch, P audio peak filter, " +
-            "M memories, D tuning debounce, F speak TX filter, Shift F speak RX filter, L log statistics. " +
-            "H for this help. Escape to cancel.";
-        Radios.ScreenReaderOutput.Speak(help);
+        // Generated from KeyInventory.LeaderCommands — the same table that
+        // feeds the Keys dialog, the Command Finder, and the exported key
+        // list — so this announcement can no longer drift from reality. The
+        // hand-written string it replaces was missing six commands
+        // (2026-05-11 JJ+H audit, companion keyboard-reference audit).
+        Radios.ScreenReaderOutput.Speak(KeyInventory.LeaderHelpSpeech());
     }
 
     // ────────────────────────────────────────────────────────────────
