@@ -37,6 +37,18 @@ namespace JJPortaudio
         public Action<float[]>? PostDecodeProcessor { get; set; }
 
         /// <summary>
+        /// Audio Track C: optional TX test-tone source for input streams.
+        /// When set and engaged, generated samples REPLACE the microphone
+        /// samples in the input callback ahead of the Opus encode — the mic
+        /// is discarded (muted), never mixed. Set after OpenOpus.
+        /// </summary>
+        public TxToneGenerator InputToneSource
+        {
+            get { return (aud != null) ? aud.ToneSource : null; }
+            set { if (aud != null) aud.ToneSource = value; }
+        }
+
+        /// <summary>
         /// buffer size used for this stream.
         /// </summary>
         public uint BufferSize { get { return aud.BufferSize; } }
