@@ -8780,6 +8780,55 @@ namespace Radios
             }
         }
 
+        // --- PC output volume ---------------------------------------------------
+        // Audio Arc Track A, 2026-08-11. The PC-audio playback boost used to be a
+        // hardcoded 4.0f in remoteAudioProc — an empirical patch for a stream
+        // that arrives very quiet (raw decoded peaks measure roughly -35 to
+        // -20 dBFS; why the source runs that low is a separate open question).
+        // Now it is the operator's PC output volume: expressed in dB of boost
+        // because dB is legible and speaks well, applied as a float multiplier
+        // to the Opus output stream. +12 dB is the historical 4x, kept as the
+        // default so upgrades sound unchanged. The value is app-level state
+        // (a PC-side gain, not radio state), so it lives in a static backed by
+        // AudioOutputConfig — every radio, every connection, one knob.
+
+        public const int PcOutputVolumeDbMin = 0;
+        public const int PcOutputVolumeDbMax = 24;
+        /// <summary>+12 dB is the historical hardcoded 4x boost.</summary>
+        public const int PcOutputVolumeDbDefault = 12;
+        private static int _pcOutputVolumeDb = PcOutputVolumeDbDefault;
+
+        /// <summary>
+        /// The persisted app-level setting, reachable with no radio connected
+        /// (config load at startup runs before any rig exists). Clamped.
+        /// </summary>
+        public static int PcOutputVolumeDbSetting
+        {
+            get { return _pcOutputVolumeDb; }
+            set { _pcOutputVolumeDb = Math.Min(PcOutputVolumeDbMax, Math.Max(PcOutputVolumeDbMin, value)); }
+        }
+
+        /// <summary>The setting as the multiplier the audio stream applies.</summary>
+        internal static float PcOutputGainFactor =>
+            (float)Math.Pow(10.0, _pcOutputVolumeDb / 20.0);
+
+        /// <summary>
+        /// PC output volume in dB of boost (0 to +24, default +12). Setting it
+        /// applies live to the running remote-audio stream — no reconnect. The
+        /// stream itself hard-limits at full scale, so a hot setting clips
+        /// rather than wrapping.
+        /// </summary>
+        public int PcOutputVolumeDb
+        {
+            get { return _pcOutputVolumeDb; }
+            set
+            {
+                PcOutputVolumeDbSetting = value;
+                var stream = opusOutputChannel?.PortAudioStream;
+                if (stream != null) stream.OutputGain = PcOutputGainFactor;
+            }
+        }
+
         // --- Output mutes -----------------------------------------------------
         // QB Track B, 2026-08-07. FlexLib has carried these three all along;
         // JJ Flex only ever set them together, through LocalAudioMute, and never
@@ -11071,10 +11120,12 @@ namespace Radios
             opusOutputChannel.PortAudioStream.OpenOpus(Devices.DeviceTypes.output, opusSampleRate);
             // Boost Opus output to compensate for low remote audio levels.
             // The Opus decode path bypasses FlexLib's RXGain scalar, so decoded audio
-            // is at raw codec level which is typically too quiet for laptop speakers.
-            // Raw Opus peaks ~0.16. 4x = comfortable, 6x = clean, 8x = hot.
-            // Default 4x; user can adjust via Settings > Audio Boost menu.
-            opusOutputChannel.PortAudioStream.OutputGain = 4.0f;
+            // is at raw codec level which is typically too quiet for laptop speakers
+            // (measured raw peaks ~0.02-0.10, about -35 to -20 dBFS).
+            // This was a hardcoded 4.0f until Audio Arc Track A (2026-08-11); it is
+            // now the operator's PC output volume — Audio menu > PC Audio, the Home
+            // audio expander, or Ctrl+J V P. Default +12 dB = the historical 4x.
+            opusOutputChannel.PortAudioStream.OutputGain = PcOutputGainFactor;
             // Wire PC-side audio processing if a pipeline has been configured
             opusOutputChannel.PortAudioStream.PostDecodeProcessor = _audioPostProcessor;
             Tracing.TraceLine("remoteAudioProc:opusOutputChannel:" + opusOutputChannel.Name + " setup, OutputGain=" + opusOutputChannel.PortAudioStream.OutputGain + ", PostDecodeProcessor=" + (_audioPostProcessor != null ? "yes" : "none"), TraceLevel.Info);

@@ -402,6 +402,20 @@ public partial class MainWindow : UserControl
     public AudioOutputConfig? CurrentAudioConfig { get; set; }
 
     /// <summary>
+    /// Persist the current PC output volume (Audio Arc Track A). Called by the
+    /// menu handler and the leader volume mode after an adjustment so the
+    /// setting survives a crash; app close captures it too via
+    /// CaptureFromEngine. Deliberately writes just this one value plus the
+    /// existing config — no full engine capture from a hot path.
+    /// </summary>
+    public void PersistPcOutputVolume()
+    {
+        if (CurrentAudioConfig == null || OpenParms == null) return;
+        CurrentAudioConfig.PcOutputVolumeDb = Radios.FlexBase.PcOutputVolumeDbSetting;
+        CurrentAudioConfig.Save(OpenParms.ConfigDirectory);
+    }
+
+    /// <summary>
     /// Returns PTT status text for the Speak Status hotkey, or null if PTT is idle.
     /// </summary>
     public string? GetPttStatusText() => _pttController?.GetSpokenStatus();

@@ -157,9 +157,19 @@ namespace JJPortaudio
 
             if (OutputGain != 1.0f)
             {
+                // Hard limit at full scale. The gain used to be a bare multiply
+                // with no bounds check — safe at the historical fixed 4x on
+                // observed material (raw peaks ~0.02-0.10), but the gain is
+                // operator-adjustable now (Audio Arc Track A, up to +24 dB),
+                // and an unclamped boost on a hot source would wrap into harsh
+                // digital garbage. Clamping turns overdrive into ordinary
+                // clipping instead.
                 for (int i = 0; i < buf.Length; i++)
                 {
-                    buf[i] *= OutputGain;
+                    float s = buf[i] * OutputGain;
+                    if (s > 1.0f) s = 1.0f;
+                    else if (s < -1.0f) s = -1.0f;
+                    buf[i] = s;
                 }
             }
 
@@ -168,7 +178,13 @@ namespace JJPortaudio
             if (++_peakLogCounter >= 500)
             {
                 float postPeak = _peakSinceLastLog * OutputGain;
-                Tracing.TraceLine($"OpusAudio: raw peak={_peakSinceLastLog:F4}, gain={OutputGain:F1}x, output peak={postPeak:F4} ({20 * Math.Log10(postPeak + 1e-10):F1} dBFS)", TraceLevel.Info);
+                // Report what actually left the stream: the limiter caps output
+                // at full scale, so a computed post-gain peak above 1.0 means
+                // the audio clipped — say so instead of tracing a level that
+                // never reached the speakers.
+                bool clipped = postPeak > 1.0f;
+                float reported = clipped ? 1.0f : postPeak;
+                Tracing.TraceLine($"OpusAudio: raw peak={_peakSinceLastLog:F4}, gain={OutputGain:F1}x, output peak={reported:F4} ({20 * Math.Log10(reported + 1e-10):F1} dBFS){(clipped ? " CLIPPED" : "")}", TraceLevel.Info);
                 _peakLogCounter = 0;
                 _peakSinceLastLog = 0f;
             }
