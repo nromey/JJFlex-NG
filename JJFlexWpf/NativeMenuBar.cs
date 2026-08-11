@@ -306,17 +306,6 @@ public class NativeMenuBar : IDisposable
         SpeakAfterMenuClose($"{label} {newVal}{suffix}");
     }
 
-    /// <summary>
-    /// Toggle a bool property and speak the result.
-    /// </summary>
-    private void ToggleBool(string label, Func<bool> getter, Action<bool> setter)
-    {
-        if (Rig == null) { SpeakNoRadio(); return; }
-        bool newVal = !getter();
-        setter(newVal);
-        SpeakAfterMenuClose($"{label} {(newVal ? "on" : "off")}");
-    }
-
     private void SpeakNoRadio()
     {
         Tracing.TraceLine("NativeMenuBar: no-radio guard fired", TraceLevel.Info);
@@ -604,8 +593,6 @@ public class NativeMenuBar : IDisposable
     /// </summary>
     private void BuildAudioItems(IntPtr parent)
     {
-        const int gainStep = 10;
-
         if (Rig != null)
         {
             AddChecked(parent, "Mute/Unmute Slice", () =>
@@ -659,62 +646,31 @@ public class NativeMenuBar : IDisposable
 
             AddSep(parent);
 
-            AddWired(parent, "Audio Gain Up", () =>
-                AdjustValue("Audio Gain", () => Rig.AudioGain, v => Rig.AudioGain = v, gainStep, 0, 100));
-            AddWired(parent, "Audio Gain Down", () =>
-                AdjustValue("Audio Gain", () => Rig.AudioGain, v => Rig.AudioGain = v, -gainStep, 0, 100));
-
-            AddWired(parent, "Pan Left", () =>
-                AdjustValue("Pan", () => Rig.AudioPan, v => Rig.AudioPan = v, -10, 0, 100));
-            AddWired(parent, "Pan Right", () =>
-                AdjustValue("Pan", () => Rig.AudioPan, v => Rig.AudioPan = v, 10, 0, 100));
-
-            AddSep(parent);
-
-            // === PC audio group (Audio Arc Track A, 2026-08-11) ===
-            // The volume a PC-audio operator actually wants was not on this
-            // menu at all — the old flat "Headphone Level" items adjust the
-            // RADIO's jacks and do nothing audible over a remote stream. Two
-            // labeled submenus now say which side of the wire each control
-            // lives on. Both groups always show: hybrid and at-the-radio
-            // operators use the on-radio outputs even with PC audio running.
-            var pcAudioSub = AddSubmenu(parent, "PC Audio (this computer)");
-            AddWired(pcAudioSub, "PC Output Volume Up\tCtrl+J, V, P", () =>
-                AdjustValue("PC volume", () => Rig.PcOutputVolumeDb,
-                    v => { Rig.PcOutputVolumeDb = v; _window.PersistPcOutputVolume(); },
-                    3, Radios.FlexBase.PcOutputVolumeDbMin, Radios.FlexBase.PcOutputVolumeDbMax, "dB"));
-            AddWired(pcAudioSub, "PC Output Volume Down\tCtrl+J, V, P", () =>
-                AdjustValue("PC volume", () => Rig.PcOutputVolumeDb,
-                    v => { Rig.PcOutputVolumeDb = v; _window.PersistPcOutputVolume(); },
-                    -3, Radios.FlexBase.PcOutputVolumeDbMin, Radios.FlexBase.PcOutputVolumeDbMax, "dB"));
-            AddWired(pcAudioSub, "Mic Level Up\tCtrl+J, V, M", () =>
-                AdjustValue("Mic level", () => Rig.MicGain, v => Rig.MicGain = v, 5, 0, 100));
-            AddWired(pcAudioSub, "Mic Level Down\tCtrl+J, V, M", () =>
-                AdjustValue("Mic level", () => Rig.MicGain, v => Rig.MicGain = v, -5, 0, 100));
-
-            // === On-radio outputs group ===
-            // "On-radio" is the load-bearing word: these move the radio's own
-            // headphone and line-out jacks, which a remote PC-audio operator
-            // cannot hear. Relabeled from the bare "Headphone Level" that sent
-            // Don adjusting a knob three states away.
-            var onRadioSub = AddSubmenu(parent, "On-Radio Outputs (the radio's own jacks)");
-            AddWired(onRadioSub, "On-Radio Headphone Volume Up\tCtrl+J, V, H", () =>
-                AdjustValue("On-radio headphone", () => Rig.HeadphoneGain, v => Rig.HeadphoneGain = v, gainStep, 0, 100));
-            AddWired(onRadioSub, "On-Radio Headphone Volume Down\tCtrl+J, V, H", () =>
-                AdjustValue("On-radio headphone", () => Rig.HeadphoneGain, v => Rig.HeadphoneGain = v, -gainStep, 0, 100));
-            AddWired(onRadioSub, "On-Radio Line Out Volume Up\tCtrl+J, V, L", () =>
-                AdjustValue("On-radio line out", () => Rig.LineoutGain, v => Rig.LineoutGain = v, gainStep, 0, 100));
-            AddWired(onRadioSub, "On-Radio Line Out Volume Down\tCtrl+J, V, L", () =>
-                AdjustValue("On-radio line out", () => Rig.LineoutGain, v => Rig.LineoutGain = v, -gainStep, 0, 100));
-            AddChecked(onRadioSub, "Mute Headphone Jack", () =>
-                ToggleBool("Headphone mute", () => Rig.HeadphoneMute, v => Rig.HeadphoneMute = v),
-                () => Rig?.HeadphoneMute == true);
-            AddChecked(onRadioSub, "Mute Line Out", () =>
-                ToggleBool("Line out mute", () => Rig.LineoutMute, v => Rig.LineoutMute = v),
-                () => Rig?.LineoutMute == true);
-            AddChecked(onRadioSub, "Mute Front Speaker", () =>
-                ToggleBool("Front speaker mute", () => Rig.FrontSpeakerMute, v => Rig.FrontSpeakerMute = v),
-                () => Rig?.FrontSpeakerMute == true);
+            // === Levels dialogs (Audio Arc Track A-2, 2026-08-11) ===
+            // Field feedback from Noel at the radio: a menu is the wrong
+            // instrument for riding a value — it dismisses after each
+            // activation, so five nudges meant five trips two menus deep.
+            // The up/down PAIRS (Track A's PC Audio and On-Radio submenus,
+            // plus the pre-Track-A flat Audio Gain and Pan pairs, which
+            // duplicated Home's Volume and Pan fields) are retired; each
+            // group is now a single door into a dialog that stays open
+            // while you ride its levels with Up/Down. Two doors, not one:
+            // the two sides of the wire stay two surfaces on purpose.
+            // Slice Volume and Pan live on as arrow fields in Home's audio
+            // expander (Ctrl+Shift+U) — they are per-slice controls, not
+            // levels on either side of the wire. Ctrl+J, V volume mode is
+            // the fast route to all of it and is unchanged.
+            AddWired(parent, "PC Audio Levels (this computer)\tCtrl+J, V", () =>
+            {
+                if (Rig == null) { SpeakNoRadio(); return; }
+                new Dialogs.PcAudioLevelsDialog(Rig, _window.PersistPcOutputVolume)
+                    .ShowDialog();
+            });
+            AddWired(parent, "On-Radio Levels (the radio's own jacks)\tCtrl+J, V", () =>
+            {
+                if (Rig == null) { SpeakNoRadio(); return; }
+                new Dialogs.OnRadioLevelsDialog(Rig).ShowDialog();
+            });
 
             AddSep(parent);
         }
