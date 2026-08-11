@@ -12111,14 +12111,22 @@ namespace Radios
             // the "JJRadioDefault" GLOBAL profile does not carry a mic profile,
             // so ours came up empty and PC-audio TX never worked in the modern
             // app. Guarantee a valid mic profile whenever one isn't set.
-            if (theRadio != null
-                && string.IsNullOrEmpty(theRadio.ProfileMICSelection)
-                && theRadio.ProfileMICList.Count > 0)
+            // The mic-profile LIST arrives asynchronously in radio status —
+            // wait for it before deciding, or the guard races an empty list.
+            await(() => theRadio != null && theRadio.ProfileMICList.Count > 0, 5000);
+            if (theRadio != null)
             {
-                string micPick = theRadio.ProfileMICList.Contains("Default")
-                    ? "Default" : theRadio.ProfileMICList[0];
-                Tracing.TraceLine("GetProfileInfo:mic profile empty, selecting " + micPick, TraceLevel.Info);
-                theRadio.ProfileMICSelection = micPick;
+                Tracing.TraceLine("GetProfileInfo:mic profile check: current='"
+                    + theRadio.ProfileMICSelection + "' listCount=" + theRadio.ProfileMICList.Count,
+                    TraceLevel.Info);
+                if (string.IsNullOrEmpty(theRadio.ProfileMICSelection)
+                    && theRadio.ProfileMICList.Count > 0)
+                {
+                    string micPick = theRadio.ProfileMICList.Contains("Default")
+                        ? "Default" : theRadio.ProfileMICList[0];
+                    Tracing.TraceLine("GetProfileInfo:mic profile empty, selecting " + micPick, TraceLevel.Info);
+                    theRadio.ProfileMICSelection = micPick;
+                }
             }
 
             // Allocate any free slices.
