@@ -819,6 +819,64 @@ namespace JJFlexWpf
             }
         }
 
+        /// <summary>
+        /// Local monitor for the TX test tone (Audio Track C). A continuous
+        /// tone in the alert mixer so the operator can confirm by ear that the
+        /// tone is running and hear its pitch. Presence indicator at a fixed
+        /// comfortable volume — deliberately NOT scaled by the TX level, so a
+        /// quiet reference tone is still audible locally. Same add/remove
+        /// lifecycle as the ATU progress earcon.
+        /// </summary>
+        private static ContinuousToneSampleProvider? _txToneMonitorProvider;
+        private static ISampleProvider? _txToneMonitorWrapper;
+
+        /// <summary>
+        /// Start the TX test-tone local monitor at the given frequency.
+        /// Returns the provider so the caller can retune it live (volatile
+        /// Frequency), or null if the mixer is unavailable.
+        /// </summary>
+        public static ContinuousToneSampleProvider? StartTxToneMonitor(float frequencyHz)
+        {
+            StopTxToneMonitor();
+            if (AlertMixer == null) return null;
+            try
+            {
+                _txToneMonitorProvider = new ContinuousToneSampleProvider(frequencyHz, 0.35f)
+                {
+                    Active = true
+                };
+                _txToneMonitorWrapper = new MonoToStereoSampleProvider(_txToneMonitorProvider);
+                AlertMixer.AddMixerInput(_txToneMonitorWrapper);
+                return _txToneMonitorProvider;
+            }
+            catch (Exception ex)
+            {
+                Trace.WriteLine($"EarconPlayer.StartTxToneMonitor failed: {ex.Message}");
+                return null;
+            }
+        }
+
+        /// <summary>Stop the TX test-tone local monitor (10 ms fade, then remove).</summary>
+        public static void StopTxToneMonitor()
+        {
+            if (_txToneMonitorProvider != null)
+            {
+                _txToneMonitorProvider.Active = false;
+            }
+            if (_txToneMonitorWrapper != null && AlertMixer != null)
+            {
+                var wrapper = _txToneMonitorWrapper;
+                _txToneMonitorWrapper = null;
+                _txToneMonitorProvider = null;
+                // Brief delay for fade-out, then remove from mixer
+                System.Threading.Tasks.Task.Delay(50).ContinueWith(_ =>
+                {
+                    try { AlertMixer?.RemoveMixerInput(wrapper); }
+                    catch { }
+                });
+            }
+        }
+
         /// <summary>ATU tune successful — rising major arpeggio C-E-G (~150ms total).</summary>
         public static void ATUSuccessTone()
         {

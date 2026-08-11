@@ -142,6 +142,23 @@ namespace JJFlexWpf
         /// </summary>
         public bool ShowPanadapter { get; set; } = true;
 
+        /// <summary>
+        /// TX test-tone frequency in hertz (Audio Workshop, Audio Track C).
+        /// Per-operator on purpose: the frequency is an accessibility choice —
+        /// hearing varies and does not change when you switch rigs — so it
+        /// lives here, never in the serial-keyed per-radio config.
+        /// </summary>
+        public int TxToneFrequencyHz { get; set; } = 440;
+
+        /// <summary>TX test-tone level in dBFS (-40..0). Default -10.</summary>
+        public int TxToneLevelDb { get; set; } = -10;
+
+        /// <summary>
+        /// Hear the TX test tone locally while it transmits. Both answers are
+        /// legitimate — confirm by ear, or keep quiet — so the operator picks.
+        /// </summary>
+        public bool TxToneLocalMonitor { get; set; } = true;
+
         /// <summary>Per-slot meter tone configurations.</summary>
         public List<MeterSlotConfig> MeterSlots { get; set; } = new();
 

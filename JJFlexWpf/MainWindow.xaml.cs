@@ -2428,6 +2428,18 @@ public partial class MainWindow : UserControl
             if (RigControl != null)
                 MeterToneEngine.AttachToRadio(RigControl);
 
+            // Give the Audio Workshop the per-operator app settings store
+            // (Audio Track C: test-tone frequency/level/monitor live here, NOT
+            // in the serial-keyed per-radio config — hearing doesn't change
+            // when you switch rigs). Save is immediate on change so a crash
+            // doesn't lose the operator's dialed-in tone.
+            Dialogs.AudioWorkshopDialog.AudioConfigSource = () => CurrentAudioConfig;
+            Dialogs.AudioWorkshopDialog.AudioConfigSave = () =>
+            {
+                if (CurrentAudioConfig != null && OpenParms != null)
+                    CurrentAudioConfig.Save(OpenParms.ConfigDirectory);
+            };
+
             // Apply braille config
             _brailleEngine.Enabled = CurrentAudioConfig.BrailleEnabled;
             _brailleEngine.CellCount = CurrentAudioConfig.BrailleCellCount;

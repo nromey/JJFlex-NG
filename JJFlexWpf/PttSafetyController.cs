@@ -39,6 +39,27 @@ namespace JJFlexWpf
         public Func<bool>? CanTransmitHereCheck { get; set; }
 
         /// <summary>
+        /// Extra line spoken at every key-down (Audio Track C). Static so it
+        /// survives controller recreation on operator switch. Set by the Audio
+        /// Workshop while the TX test tone is armed and cleared on disarm —
+        /// an operator who keys up with the tone still replacing their
+        /// microphone must hear that on EVERY transmit path, not just the
+        /// workshop's own check. Spoken at Critical regardless of the
+        /// operator's PTT speech setting: it is trap-warning, not chrome.
+        /// Returns null/empty when there is nothing to say.
+        /// </summary>
+        public static Func<string?>? KeyDownAnnouncementExtra { get; set; }
+
+        private static void SpeakKeyDownExtra()
+        {
+            string? extra = null;
+            try { extra = KeyDownAnnouncementExtra?.Invoke(); }
+            catch { /* never let an announcement hook break keying */ }
+            if (!string.IsNullOrEmpty(extra))
+                ScreenReaderOutput.Speak(extra, VerbosityLevel.Critical);
+        }
+
+        /// <summary>
         /// Session-scoped soft-timeout override in seconds (QB Track G,
         /// 2026-08-07). When non-null, the effective lock timeout is the
         /// SMALLER of the operator's configured timeout and this value; the
@@ -191,6 +212,7 @@ namespace JJFlexWpf
                 _updateStatusDisplay?.Invoke("Transmitting");
                 if (_config.SpeechEnabled)
                     ScreenReaderOutput.Speak("Transmitting", VerbosityLevel.Critical, interrupt: true);
+                SpeakKeyDownExtra(); // armed test tone, etc. — always speaks
                 Tracing.TraceLine("PTT: Hold started", TraceLevel.Info);
             }
             // If already locked/warning, ignore key-down (don't double-TX)
@@ -265,6 +287,7 @@ namespace JJFlexWpf
             _updateStatusDisplay?.Invoke("TX Locked");
             if (_config.SpeechEnabled)
                 ScreenReaderOutput.Speak("Transmitting, locked", VerbosityLevel.Critical, interrupt: true);
+            SpeakKeyDownExtra(); // armed test tone, etc. — always speaks
             Tracing.TraceLine("PTT: Locked", TraceLevel.Info);
 
             StartWarningTimer();
