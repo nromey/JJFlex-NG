@@ -278,6 +278,25 @@ twin of the same meter plumbing Track A's readouts use.
   the conventional Save key and the current binding was accidental.
 - **A hotkey to start the test**, so the adjust-and-hear loop does not require
   finding a button.
+- **INITIAL FOCUS LANDS ON START TEST, AND THE READOUT SITS BEHIND IT (Noel,
+  2026-08-11).** Open the surface and focus is already on the primary action —
+  if you are set up, or you just loaded a profile, **you press Enter and you are
+  running.** Zero navigation for the common case. Then **Shift+Tab reaches the
+  levels readout**, Tab returns.
+  - **Why the readout belongs *before* the button rather than after:** the
+    reading only means anything once the test is running, so the tab order
+    matches the temporal flow — **forward tab does things, backward tab inspects
+    what just happened.** Shift+Tab reads naturally as "look at the result."
+  - **Generalise it: initial focus is a budget, and it should be spent on the
+    most likely next action, not on whatever is first in visual order.** For a
+    keyboard-and-speech operator, focus placement literally sets the keystroke
+    cost of the common task. Same principle as a confirmation dialog focusing
+    its default button. Worth auditing other dialogs against — a candidate for
+    the BlindCat anti-patterns checklist.
+- **`Ctrl+O` to load a profile** (Noel, 2026-08-11), pairing with `Ctrl+S` to
+  save. Standard document verbs — open and save — applied to presets. Learnable
+  because they are universal rather than app-invented, which is the opposite of
+  the accidental `Alt+Shift+S` binding they replace.
 - **Add a dedicated mic-audio query on the `Ctrl+J` leader** that speaks *only*
   verdict and level — the secondary route, for operators who prefer speech to
   navigation, and **context-aware per Noel (2026-08-11)**. That is the binding an operator rides while adjusting gain,
