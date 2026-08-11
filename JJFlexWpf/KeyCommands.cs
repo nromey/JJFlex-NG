@@ -2154,12 +2154,14 @@ public class KeyCommands
     //    Save, and plain typing all win), but BEFORE AccessKeyManager's
     //    mnemonic matching in PostProcessInput — marking the event handled
     //    is what stops the mnemonic steal.
-    //  - The PREVIEW handler exists only for armed-mode Escape: Escape
-    //    must cancel an armed leader/volume mode rather than close the
-    //    dialog (JJFlexDialog's own Preview close handler would otherwise
-    //    win). PTT safety carve-out: while the radio is transmitting,
-    //    Escape belongs to unkey (Track A's rule stands) — the armed mode
-    //    is dropped silently and the key travels on.
+    //  - The PREVIEW handler is inert until a leader or volume mode is
+    //    ARMED; then it feeds every key to DoCommand ahead of the dialog —
+    //    main-window parity (ProcessCmdKey does the same there), so
+    //    volume-mode arrows are not eaten by a focused TextBox and Escape
+    //    cancels the mode rather than closing the dialog. PTT safety
+    //    carve-out: while the radio is transmitting, Escape belongs to
+    //    unkey (Track A's rule stands) — the armed mode is dropped
+    //    silently and the key travels on.
     //
     //  Scope discipline: ONLY Global-scope entries dispatch from dialogs.
     //  Radio/Classic/Modern/Logging chords stay inert so dialog-local keys
@@ -2198,7 +2200,15 @@ public class KeyCommands
     }
 
     /// <summary>
-    /// Preview (tunnel) phase: armed-mode Escape only. See region comment.
+    /// Preview (tunnel) phase: active ONLY while a leader or volume mode is
+    /// armed. Then every key routes through DoCommand ahead of the dialog's
+    /// own handling — exact parity with the main window, where
+    /// ProcessCmdKey feeds an armed mode before any control sees the key.
+    /// Without this, a focused TextBox or list would eat volume mode's
+    /// arrows at its own KeyDown, and a leader follow-on letter could both
+    /// dispatch AND type into the field. The modes stay polite on their
+    /// own: DoVolumeModeKey passes Alt chords and F1 through untouched, and
+    /// bare modifier presses fall out of DoCommand unhandled.
     /// </summary>
     private static void AnyWindowPreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
     {
@@ -2206,17 +2216,19 @@ public class KeyCommands
         if (kc == null || e.Handled) return;
         if (!kc._leaderKeyActive && !kc._volumeModeActive) return;
         var raw = e.Key == System.Windows.Input.Key.System ? e.SystemKey : e.Key;
-        if (raw != System.Windows.Input.Key.Escape) return;
 
         // PTT safety wins over mode cancel: while transmitting, let Escape
         // travel to whoever unkeys (Audio Check two-stage Escape, transmit
         // lock). Drop the armed mode so it cannot fire later unexpectedly.
-        var rig = kc._context.GetRigControl();
-        if (rig != null && rig.Transmit)
+        if (raw == System.Windows.Input.Key.Escape)
         {
-            kc._leaderKeyActive = false;
-            if (kc._volumeModeActive) kc.ExitVolumeMode(speak: false);
-            return;
+            var rig = kc._context.GetRigControl();
+            if (rig != null && rig.Transmit)
+            {
+                kc._leaderKeyActive = false;
+                if (kc._volumeModeActive) kc.ExitVolumeMode(speak: false);
+                return;
+            }
         }
 
         if (kc.DoCommand(WpfKeyConverter.ToWinFormsKeys(e)))
