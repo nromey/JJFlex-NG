@@ -150,6 +150,10 @@
       <param name="Local" value="pages\audio-workshop.htm">
     </OBJECT>
     <LI><OBJECT type="text/sitemap">
+      <param name="Name" value="Audio Levels (PC &amp; On-Radio)">
+      <param name="Local" value="pages\audio-levels.htm">
+    </OBJECT>
+    <LI><OBJECT type="text/sitemap">
       <param name="Name" value="Meter Tones & Meters Panel">
       <param name="Local" value="pages\meter-tones.htm">
     </OBJECT>

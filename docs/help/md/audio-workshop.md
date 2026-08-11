@@ -8,18 +8,33 @@ It does not choose which sound device your audio goes to. That lives in Settings
 
 Press `Ctrl+Shift+W` from anywhere in the application. You can also find it in the Command Finder (`Ctrl+/`) by searching for "workshop". The window is non-modal, so you can leave it open while you operate.
 
+When the workshop opens, focus is already on **Start Audio Check** — if you're set up, or you've just loaded a preset, Enter starts a test with zero navigation. One `Shift+Tab` back from that button is the live mic reading (more on it below).
+
+### Workshop keys
+
+These work anywhere inside the workshop window, and only there:
+
+- `Ctrl+Enter` — start the Audio Check, or stop the one running, without hunting for the button.
+- `Ctrl+S` — save a preset. `Ctrl+O` — load one. The universal document keys, doing the universal document things.
+- `Escape` — two-stage while a check is transmitting: the first press unkeys, the second closes the workshop. Escape never leaves you transmitting.
+
 ## The TX Audio tab
 
 Everything here speaks as you change it, and the standard value keys work everywhere: Up / Down to nudge, Shift + Up / Down for fine steps, Page Up / Page Down for bigger jumps, Home / End for the ends of the range.
 
 ### Audio Check — hear yourself
 
-At the top of the tab. Press **Start Audio Check** and the radio keys up through the same safety system as regular transmit — the timeout warnings, the license check, and the hard kill all stay on duty. The first thing you hear is the safety line: the frequency, the power, where your transmit audio is coming from, and the reminder that Escape stops. Then focus lands on Mic Gain and the tab order is your adjust ring — arrow through gain, compander, processor, and filter while you talk.
+At the top of the tab. Press **Start Audio Check** (or `Ctrl+Enter`) and the radio keys up through the same safety system as regular transmit — the timeout warnings, the license check, and the hard kill all stay on duty. The first thing you hear is the safety line: which kind of check this is, the frequency, where your transmit audio is coming from, and the reminder that Escape stops. Then focus lands on Mic Gain and the tab order is your adjust ring — arrow through gain, compander, processor, and filter while you talk.
+
+**The live mic reading** sits just before the Start button — a read-only text field showing your level and the verdict, like "Mic audio now: just right, peak minus 11 dBFS." It updates continuously while you transmit (and holds your last transmission's peak after you unkey), but it never speaks on its own: sit on it and use your screen reader's read-current-control command whenever you want the number. That's the whole design — the reading is always fresh, and *you* decide when to hear it. `Shift+Tab` from Start Audio Check lands on it.
 
 - **Listen method** picks how you hear yourself, remembered per radio:
   - **Monitor** — instant. The radio's TX monitor feeds your own voice back while you talk. Fine on a local connection; over remote the monitor arrives late enough to trip up your speech, which is why the session recommends the next one.
   - **Record and play back** — talk first, listen after. The radio records your transmission (it captures the full processing chain — compander, processor, filters, all of it) and plays it back to you automatically the moment you unkey. No talking and listening at once, ever. The buffer holds about two minutes and keeps the most recent material; two takes fit, so you can tweak a setting and compare.
-- **Low power during checks** is on by default: the session drops to 10 watts for the check and puts your power back when it ends. Nobody's shack is assumed to have a dummy load. Turn it off if you genuinely want full power.
+- **Transmit power during checks** decides whether a check makes RF, remembered per radio:
+  - **Dummy load, no RF** — the default. The check keys the radio with transmit and tune power at zero watts. Nothing goes on the air, and nothing needs to: every meter the check reads — mic audio, ALC, the verdict — measures your audio *before* the power amplifier, so the reading is identical at zero watts and at a hundred. The safety line says "Audio check, dummy load, no RF" so you always know this is that kind of check.
+  - **Low power** — for the different question, "is RF actually leaving my radio?" Pick the wattage yourself, right down to 1 watt. It's a cap: if your power is already below the number, the check leaves it alone, and it never raises power. The safety line names the actual power, "Audio check, transmitting at 1 watt."
+  - If you've engaged Dummy Load Mode yourself from the Transmit menu, the check respects it either way — it will never raise power behind a dummy load's back, and it leaves your dummy load exactly as you set it.
 - **Play last take** replays the recording buffer whenever you like, or stops a playback in progress.
 - **Escape is two-stage** while a check is transmitting: the first press unkeys ("Transmit off") and leaves you in the workshop with your settings; the second press closes the window. Escape never leaves you transmitting.
 - The session ends itself — and puts back everything it changed — on every exit: the Stop button, Escape, the transmit timeout, closing the window, or the radio going away.
@@ -75,10 +90,10 @@ Every sound the application makes, each behind a button so you can learn them at
 
 ## Presets
 
-The toolbar's Load, Save, Export, and Reset buttons work on the whole TX audio chain, so you can keep one setup for ragchews and another for DX and switch between them. See the Audio Presets help page.
+The toolbar's Load, Save, Export, and Reset buttons work on the whole TX audio chain, so you can keep one setup for ragchews and another for DX and switch between them. `Ctrl+S` saves and `Ctrl+O` loads from anywhere in the workshop. See the Audio Presets help page.
 
 ## Everyday volume lives elsewhere
 
-The moment-to-moment volume, headphone, and line-out levels live in the Audio expander on JJ Flexible Home — press `Ctrl+Shift+U` and arrow to the level you want. The workshop is for shaping your transmit audio, not for turning the speakers up a hair.
+The moment-to-moment listening levels have three homes, none of them here: the Audio expander on JJ Flexible Home (press `Ctrl+Shift+U` and arrow to the level you want), volume mode (`Ctrl+J`, then `V`), and the two levels dialogs on the Audio menu — **PC Audio Levels** for this computer's side of the wire and **On-Radio Levels** for the radio's own jacks (see the Audio Levels help page). The workshop is for shaping your transmit audio, not for turning the speakers up a hair.
 
 **Tip:** If you are running into audio issues — no sound, distorted audio, audio from the wrong device — see the Audio Troubleshooting help page for a step-by-step checklist.
