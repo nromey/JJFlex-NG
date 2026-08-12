@@ -4,7 +4,7 @@ Silence is the hardest thing to diagnose by ear, because the evidence is
 missing. This page walks the causes in the order they actually bite, starting
 with the one that catches almost everybody the first time.
 
-If you would rather have JJ Flex check for you, open Settings, go to the Audio
+If you would rather have JJ Flexible Radio Access check for you, open Settings, go to the Audio
 tab, and press the **Why is my radio silent?** button. It walks the same ladder
 against your radio right now and speaks the first thing it finds wrong.
 

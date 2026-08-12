@@ -55,11 +55,11 @@ my radio silent?** — it checks the usual causes and tells you what it finds.
 
 Once you're connected, the application automatically speaks a full status summary which comes from your radio's connection. You'll hear something like: "Connected to FLEX-6600, local network. Listening on 14.225 megahertz, Upper Side Band, 20 meters, slice A." That tells you everything you need to know to start operating right away.
 
-You're in Modern tuning mode by default, which gives you a streamlined keyboard-driven interface and the ability to tun e in very finie steps or more coarse ones.
+You're in Modern tuning mode by default, which gives you a streamlined keyboard-driven interface and the ability to tune in very fine steps or more coarse ones.
 
 Here are the first things you might want to try:
 
-- Press `F2` to hear the current frequency spoken and to focus the JJ Flexible Radio Home.
+- Press `F2` to hear the current frequency spoken and to focus the JJ Flexible Home.
 - Use the up and down arrow keys to tune.
 - Press `Alt+M` to cycle through modes (Upper Side Band, Lower Side Band, CW, AM, and so on).
 - Press `F3` through `F9` to jump to different bands.

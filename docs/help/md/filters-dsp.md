@@ -2,9 +2,9 @@
 
 Your Flex radio has a lot of DSP (Digital Signal Processing) horsepower built in, and JJ Flexible Radio Access gives you keyboard control over all of it.
 
-## Quick DSP Toggles via the Leader Key
+## Quick DSP Toggles via the JJ Key
 
-The fastest way to toggle DSP features is through the leader key. Press `Ctrl+J` to enter leader-key mode, then press one of the following:
+The fastest way to toggle DSP features is through the JJ key. Press `Ctrl+J` to enter the JJ Command layer, then press one of the following:
 
 | Key | Feature |
 |-----|---------|

@@ -1,6 +1,6 @@
 # JJ Flexible Home
 
-The JJ Flexible Radio Access Home is the main interactive destination in the application — the place your frequency, slice controls, S-Meter, and other tuning-related fields live. Think of it as the radio's front panel brought inside the application, the destination your hand goes to when you want to operate the rig.
+JJ Flexible Home is the main interactive destination in JJ Flexible Radio Access — the place your frequency, slice controls, S-Meter, and other tuning-related fields live. Think of it as the radio's front panel brought inside the application, the destination your hand goes to when you want to operate the rig.
 
 ## Getting to the JJ Flexible Home
 

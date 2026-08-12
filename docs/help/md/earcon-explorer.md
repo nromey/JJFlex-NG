@@ -10,11 +10,11 @@ Think of earcons as audio icons. Instead of a visual checkmark or a colour chang
 
 - **Rising tone (bink)** — feature turned on, or action confirmed.
 - **Falling tone (bonk)** — feature turned off, or cancelled.
-- **Rising two-step (bonk-bink)** — a DSP feature toggled on via the leader key.
-- **Falling two-step (bink-bonk)** — a DSP feature toggled off via the leader key.
-- **Soft descending tone** — a leader-key timeout or an Escape cancellation.
+- **Rising two-step (bonk-bink)** — a DSP feature toggled on via the JJ key.
+- **Falling two-step (bink-bonk)** — a DSP feature toggled off via the JJ key.
+- **Soft descending tone** — the JJ Command layer closed with Escape.
 - **Dull buzz** — an invalid key was pressed, or the command was not recognised in the current context.
-- **Double chime** — help was requested (pressing `?` after the leader key).
+- **Double chime** — help was requested (pressing `?` after the JJ key).
 - **Chirp** — the tune carrier was toggled on or off.
 - **Pulsing tone** — an ATU tune cycle is in progress.
 - **Rising arpeggio** — the ATU tune succeeded.

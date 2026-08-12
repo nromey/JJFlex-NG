@@ -16,7 +16,7 @@ A few shortcuts work on meters from anywhere in the application:
 | Ctrl+Alt+M | Toggle meter tones on or off (quick mute without opening the panel) |
 | Ctrl+Alt+P | Cycle to the next meter preset |
 | Ctrl+Alt+V | Speak the current meter readings |
-| Ctrl+J, T | Toggle meter tones on or off (leader-key form of Ctrl+Alt+M) |
+| Ctrl+J, T | Toggle meter tones on or off (JJ key form of Ctrl+Alt+M) |
 
 ## How Meter Tones Work
 

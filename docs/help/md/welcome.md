@@ -10,7 +10,7 @@ Recent releases have added a range of new features:
 
 - **Meter sonification** — a full Meters Panel with up to 8 simultaneous audio tones mapped to the S-Meter, forward power, ALC, SWR, and more. Configurable waveforms, stereo panning, and built-in presets (RX Monitor, TX Monitor, Full Monitor).
 - **Audio Workshop** — a one-stop control for audio routing, audio levels, and TX bandwidth sculpting. Open it with `Ctrl+Shift+W`.
-- **Leader Key (`Ctrl+J`)** — quick access to DSP toggles, meter controls, and status commands. Press `Ctrl+J` and then a single letter.
+- **The JJ Key (`Ctrl+J`)** — quick access to DSP toggles, meter controls, and status commands. Press `Ctrl+J` and then a single letter.
 - **TX sculpting** — shape your transmitted audio by adjusting the TX filter edges from the keyboard, using `Ctrl+Shift+[` / `]` for the low edge and `Ctrl+Alt+[` / `]` for the high edge.
 - **60 meter channels** — navigate the US 60 meter channels with `Alt+Shift+Up` / `Down`. The application speaks each channel name and frequency as you land on it.
 - **Antenna switching** — an Antenna ScreenFields category (`Ctrl+Shift+5`) for quick antenna selection and ATU control.
@@ -33,7 +33,7 @@ This help file covers everything in JJ Flexible Radio Access:
 
 - **Radio Control** — tuning, band jumping, mode switching, filters, and DSP.
 - **Audio and Transmission** — PTT safety, the Audio Workshop, meter tones, earcons, and TX sculpting.
-- **Leader Key** — quick DSP toggles, meter controls, and status commands with `Ctrl+J`.
+- **The JJ Key** — quick DSP toggles, meter controls, and status commands with `Ctrl+J`.
 - **Logging** — QSO logging and callbook lookup.
 - **Settings** — profiles, preferences, and customisation.
 - **Troubleshooting** — connection issues, SmartLink, and audio problems.

@@ -26,4 +26,4 @@ Logging mode is orthogonal to Classic and Modern tuning modes — you can be in 
 
 - To switch between Modern tuning mode and Classic tuning mode, go to **Tools > Settings**.
 - To enter Logging mode, move focus into the logging pane (press `Tab` repeatedly until you hear the logging pane announce itself). Move focus back out to return to Radio mode.
-- Global hotkeys (such as `F1` for help, `Ctrl+/` for the Command Finder, and the `Ctrl+J` leader key) work in every mode.
+- Global hotkeys (such as `F1` for help, `Ctrl+/` for the Command Finder, and the JJ key, `Ctrl+J`) work in every mode.

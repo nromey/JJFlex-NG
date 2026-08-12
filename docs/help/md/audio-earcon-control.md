@@ -2,9 +2,9 @@
 
 "Earcons" are the short alert sounds that JJ Flexible Radio Access plays for events such as dialog open, error, confirmation, CW notifications, and other background event cues. They are useful, but they are also audio — and sometimes you just want them quiet without digging into the Settings dialog.
 
-## Quick Mute via the Leader Key
+## Quick Mute via the JJ Key
 
-The fast way to mute every earcon at once is through the leader key. Press `Ctrl+J` to enter leader-key mode, then press `Shift+T`. Every earcon mutes (or unmutes again if you press the same sequence a second time).
+The fast way to mute every earcon at once is through the JJ key. Press `Ctrl+J` to enter the JJ Command layer, then press `Shift+T`. Every earcon mutes (or unmutes again if you press the same sequence a second time).
 
 - The quick mute only affects the earcon layer. It does not touch your meter tones, the radio audio, or the speech output — just the alert-sound layer.
 - You will hear a short confirmation earcon as the quick mute toggles, indicating whether earcons are now on or off.
@@ -19,7 +19,7 @@ The fast way to mute every earcon at once is through the leader key. Press `Ctrl
 
 ## Long-Term Disable
 
-Under **Settings > Audio > Earcons** you will find a master enable/disable switch, plus finer controls for each earcon category (dialog, error, status, and so on). Use those controls if you want earcons off permanently, or off only for a specific category. The quick-mute leader-key sequence does not override these settings — the quick mute is a temporary layer on top.
+Under **Settings > Audio > Earcons** you will find a master enable/disable switch, plus finer controls for each earcon category (dialog, error, status, and so on). Use those controls if you want earcons off permanently, or off only for a specific category. The quick-mute JJ key sequence does not override these settings — the quick mute is a temporary layer on top.
 
 ## What Earcons Are Not
 
@@ -29,4 +29,4 @@ Under **Settings > Audio > Earcons** you will find a master enable/disable switc
 
 ## Finding the Hotkey Again
 
-If you forget the exact key sequence, open the Command Finder (press `Ctrl+/`) and search for "earcon" or "mute." The Command Finder lists every leader-key combination along with the regular hotkeys, and it will bring you straight to this one.
+If you forget the exact key sequence, open the Command Finder (press `Ctrl+/`) and search for "earcon" or "mute." The Command Finder lists every JJ Command layer combination along with the regular hotkeys, and it will bring you straight to this one.

@@ -28,7 +28,7 @@ The **Tuning** tab controls how frequency announcements work while you are tunin
 - **Enable tuning debounce** — when this is checked, the application waits until you stop pressing arrow keys before speaking the frequency. Tuning debounce prevents you from hearing every intermediate step when you are tuning rapidly across a band.
 - **Debounce delay (ms)** — how long the application waits after your last keystroke before speaking the final frequency. A shorter delay gives you faster feedback; a longer delay means more silence while you are still tuning. The default works well for most operators.
 
-You can also toggle tuning debounce on the fly with the leader key — press `Ctrl+J`, then `D`.
+You can also toggle tuning debounce on the fly with the JJ key — press `Ctrl+J`, then `D`.
 
 ## The License Tab
 

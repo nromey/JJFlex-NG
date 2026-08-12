@@ -153,9 +153,13 @@ $files = Get-ChildItem "$InputDir\*.md"
 foreach ($file in $files) {
     $name = $file.BaseName
     $content = Get-Content $file.FullName -Raw -Encoding UTF8
-    # Derive title from first H1 heading or filename
-    if ($content -match '^#\s+(.+)$') {
+    # Derive title from first H1 heading or filename.
+    # (?m) makes ^/$ match per-line — without it the pattern can never match
+    # multi-line content and every title silently fell back to the filename.
+    if ($content -match '(?m)^#\s+(.+?)\s*$') {
         $title = $Matches[1] -replace '\*', ''
+        # Strip pandoc-style header attributes like {#top}
+        $title = $title -replace '\s*\{#[^}]*\}\s*$', ''
     } else {
         $title = $name -replace '-', ' '
         $title = (Get-Culture).TextInfo.ToTitleCase($title)
