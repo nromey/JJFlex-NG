@@ -187,10 +187,23 @@ namespace JJFlexWpf.Dialogs
                 PopulateDeviceList(RadioInputList, Devices.InputDevices,
                     _devices.InputDevice, RadioInputNote, "microphone");
 
-                SetStatusLine(FilterNoteText, Devices.StereoOnly
-                    ? "Only two-channel (stereo) devices are listed here. A mono microphone will not appear — that is a JJ Flex limitation, not a fault with your device."
-                    : "");
-                FilterNoteText.Visibility = Devices.StereoOnly ? Visibility.Visible : Visibility.Collapsed;
+                // Say what the app decides about channel counts, and only when
+                // it is actually deciding something for a device in THESE
+                // lists. Multi-channel devices are opened as stereo; mono
+                // devices are shown but cannot carry radio audio yet. A note
+                // about neither is noise.
+                bool anyMono = Devices.InputDevices.Concat(Devices.OutputDevices)
+                    .Any(d => !d.UsableForRadioAudio);
+                bool anyMultiChannel = Devices.InputDevices.Concat(Devices.OutputDevices)
+                    .Any(d => d.UsableForRadioAudio && d.NativeChannels > Devices.StreamChannels);
+                string filterNote = "";
+                if (anyMultiChannel)
+                    filterNote = "Devices with more than two channels are fine — JJ Flex uses them in stereo.";
+                if (anyMono)
+                    filterNote += (filterNote.Length > 0 ? " " : "")
+                        + "Mono devices are shown so you know JJ Flex can see them, but radio audio needs two channels, so they cannot be chosen yet.";
+                SetStatusLine(FilterNoteText, filterNote);
+                FilterNoteText.Visibility = filterNote.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
 
                 UpdateStatusText();
             }
@@ -243,22 +256,56 @@ namespace JJFlexWpf.Dialogs
             {
                 int idx = IndexOf(live, match);
                 list.SelectedIndex = idx >= 0 ? idx : 0;
-                SetStatusLine(note, $"Currently using {match.Display}.");
+                // A multi-channel device is a decision the app makes on the
+                // operator's behalf (it opens the first two channels as
+                // stereo), so the note says so rather than leaving them to
+                // wonder what four channels means for their audio.
+                string channelPart = match.NativeChannels > Devices.StreamChannels
+                    ? $" It reports {match.NativeChannels} channels; JJ Flex uses it in stereo."
+                    : "";
+                SetStatusLine(note, $"Currently using {match.Display}.{channelPart}");
                 return;
             }
+
+            // The pre-selection OK would commit must be a device the engine
+            // can open — never a mono row, whose save would be refused.
+            int fallbackIdx = FirstUsableIndex(live);
 
             if (saved != null && !string.IsNullOrEmpty(saved.Name))
             {
-                // Saved but gone. Pre-select the system default so OK does the
+                // Saved but gone. Pre-select a usable device so OK does the
                 // right thing, and say plainly what happened.
-                list.SelectedIndex = 0;
+                if (fallbackIdx < 0)
+                {
+                    list.SelectedIndex = 0;
+                    SetStatusLine(note, $"Saved device not connected: {saved.Name}. "
+                              + $"No usable {role} device is available right now.");
+                    return;
+                }
+                list.SelectedIndex = fallbackIdx;
                 SetStatusLine(note, $"Saved device not connected: {saved.Name}. "
-                          + $"{live[0].Display} will be used unless you choose another.");
+                          + $"{live[fallbackIdx].Display} will be used unless you choose another.");
                 return;
             }
 
-            list.SelectedIndex = 0;
-            SetStatusLine(note, $"No {role} device chosen yet. {live[0].Display} will be used unless you choose another.");
+            if (fallbackIdx < 0)
+            {
+                list.SelectedIndex = 0;
+                SetStatusLine(note, $"No usable {role} device was found. The devices listed are mono, "
+                          + "and radio audio needs two channels.");
+                return;
+            }
+            list.SelectedIndex = fallbackIdx;
+            SetStatusLine(note, $"No {role} device chosen yet. {live[fallbackIdx].Display} will be used unless you choose another.");
+        }
+
+        private static int FirstUsableIndex(IReadOnlyList<Devices.DeviceInfo> list)
+        {
+            for (int i = 0; i < list.Count; i++)
+            {
+                if (list[i].UsableForRadioAudio) return i;
+            }
+            return -1;
         }
 
         private static int IndexOf(IReadOnlyList<Devices.DeviceInfo> list, Devices.DeviceInfo target)
@@ -332,6 +379,16 @@ namespace JJFlexWpf.Dialogs
 
             if (_devices != null)
             {
+                // Refuse — out loud, with the dialog still open — a selection
+                // the audio engine cannot open. Saving a mono device would
+                // produce a configuration that fails at connect time on a
+                // background thread, which is a silent dead microphone.
+                if (!ConfirmSelectionUsable(RadioOutputList, Devices.OutputDevices, "radio audio output")
+                    || !ConfirmSelectionUsable(RadioInputList, Devices.InputDevices, "microphone"))
+                {
+                    return;
+                }
+
                 saved.AddRange(CommitRadioDevice(
                     RadioOutputList, Devices.OutputDevices, Devices.DeviceTypes.output, "Radio audio output"));
                 saved.AddRange(CommitRadioDevice(
@@ -376,6 +433,28 @@ namespace JJFlexWpf.Dialogs
 
             DialogResult = true;
             Close();
+        }
+
+        /// <summary>
+        /// True when this list's selection is something the engine can open.
+        /// A mono selection speaks the reason, puts focus back on the list,
+        /// and keeps the dialog open so the operator can choose again.
+        /// </summary>
+        private bool ConfirmSelectionUsable(
+            ListBox list,
+            IReadOnlyList<Devices.DeviceInfo> live,
+            string role)
+        {
+            int idx = list.SelectedIndex;
+            if (idx < 0 || idx >= live.Count) return true; // nothing selected, nothing to commit
+            if (live[idx].UsableForRadioAudio) return true;
+
+            ScreenReaderOutput.Speak(
+                $"{live[idx].Name} is a mono device. Radio audio needs two channels, "
+                + $"so JJ Flex cannot use it yet. Choose a different {role}.",
+                VerbosityLevel.Critical, true);
+            list.Focus();
+            return false;
         }
 
         private IEnumerable<string> CommitRadioDevice(

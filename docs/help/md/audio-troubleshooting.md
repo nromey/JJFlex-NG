@@ -97,8 +97,14 @@ A few things worth knowing:
 - **Moving a USB headset to a different port is fine.** JJ Flex identifies your
   saved devices by name, not by position in the list, so a reshuffle rebinds
   silently and correctly.
-- **Only stereo devices are listed.** A mono microphone will not appear. That
-  is a JJ Flex limitation, not a fault with your microphone.
+- **Devices with more than two channels work normally.** Many laptop
+  microphone arrays report four channels; JJ Flex lists them and uses them in
+  stereo. The dialog notes it when your chosen device is one of these.
+- **A mono microphone appears in the list but cannot be chosen yet.** It shows
+  up flagged as mono, so you know JJ Flex can see it, but radio audio needs a
+  two-channel device — if you try to save a mono one, JJ Flex says so and asks
+  you to pick another. That is a JJ Flex limitation, not a fault with your
+  microphone.
 - **The device list is a snapshot.** If you plug something in while the dialog
   is open, press the **Refresh device list** button.
 
