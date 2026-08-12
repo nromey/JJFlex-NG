@@ -301,6 +301,18 @@ namespace JJPortaudio
             // output stream open at once); now per-stream.
             public int diagBufCount;
             public long diagByteCount;
+            // Threads Track (2026-08-12): PortAudio status-flag glitch
+            // instrumentation. statusFlags is PortAudio's own per-buffer
+            // glitch report — paInputOverflow / paOutputUnderflow are set
+            // exactly when audio was dropped — and until now both callbacks
+            // received it and threw it away. Logging is per FLAG TRANSITION
+            // and per stream close, never per buffer: a per-buffer line
+            // floods exactly like the old startOpusInputChannel bug did
+            // (tens of lines per millisecond, a 268 MB trace).
+            public PortAudio.PaStreamCallbackFlags SeenStatusFlags;
+            public long StatusCallbackCount;    // callbacks observed on this stream
+            public long FlaggedCallbackCount;   // callbacks carrying any status flag
+            public readonly long[] StatusFlagCounts = new long[5]; // per flag, bit order
         }
         internal class staticQueues
         {
@@ -611,6 +623,93 @@ namespace JJPortaudio
             }
         }
 
+        // ── Threads Track (2026-08-12): status-flag instrumentation ──
+        // The five PaStreamCallbackFlags bits, in bit order, with the
+        // plain-language meaning of the two that report dropped audio.
+        // paInputOverflow: the device produced audio faster than we consumed
+        // it — input samples were DROPPED (heard as a click or gap in what
+        // we encode and send). paOutputUnderflow: we failed to supply output
+        // samples in time — the device played a gap (heard as a click).
+        private static readonly PortAudio.PaStreamCallbackFlags[] statusFlagBits =
+        {
+            PortAudio.PaStreamCallbackFlags.paInputUnderflow,
+            PortAudio.PaStreamCallbackFlags.paInputOverflow,
+            PortAudio.PaStreamCallbackFlags.paOutputUnderflow,
+            PortAudio.PaStreamCallbackFlags.paOutputOverflow,
+            PortAudio.PaStreamCallbackFlags.paPrimingOutput,
+        };
+
+        private static string describeStatusFlag(PortAudio.PaStreamCallbackFlags flag)
+        {
+            switch (flag)
+            {
+                case PortAudio.PaStreamCallbackFlags.paInputOverflow:
+                    return "input samples were dropped before we could read them";
+                case PortAudio.PaStreamCallbackFlags.paOutputUnderflow:
+                    return "output samples were not supplied in time, the device played a gap";
+                case PortAudio.PaStreamCallbackFlags.paInputUnderflow:
+                    return "the input stream ran dry";
+                case PortAudio.PaStreamCallbackFlags.paOutputOverflow:
+                    return "output data was discarded";
+                default:
+                    return "the output stream is priming";
+            }
+        }
+
+        /// <summary>
+        /// Record this buffer's PortAudio status flags. Logs a flag the FIRST
+        /// time it appears on this stream (with what it means), counts every
+        /// occurrence silently after that. Runs on the PortAudio callback
+        /// thread, so the non-first-appearance path is counters only.
+        /// </summary>
+        private static void noteStatusFlags(StreamCB data,
+            PortAudio.PaStreamCallbackFlags statusFlags, string streamName)
+        {
+            data.StatusCallbackCount++;
+            if (statusFlags == 0) return;
+            data.FlaggedCallbackCount++;
+            for (int i = 0; i < statusFlagBits.Length; i++)
+            {
+                var bit = statusFlagBits[i];
+                if ((statusFlags & bit) == 0) continue;
+                data.StatusFlagCounts[i]++;
+                if ((data.SeenStatusFlags & bit) == 0)
+                {
+                    data.SeenStatusFlags |= bit;
+                    Tracing.TraceLine("audio " + streamName + " stream: PortAudio reports "
+                        + bit + " at callback " + data.StatusCallbackCount + " — "
+                        + describeStatusFlag(bit)
+                        + ". Further occurrences are counted silently; totals logged when the stream closes.",
+                        TraceLevel.Error);
+                }
+            }
+        }
+
+        /// <summary>
+        /// One-line status-flag summary, logged when a stream's callback
+        /// completes. Zero-flag streams say so — a clean run is evidence too.
+        /// </summary>
+        private static void traceStatusFlagSummary(StreamCB data, string streamName)
+        {
+            if (data.FlaggedCallbackCount == 0)
+            {
+                Tracing.TraceLine("audio " + streamName + " stream summary: "
+                    + data.StatusCallbackCount + " callbacks, no PortAudio status flags (no glitches reported)",
+                    TraceLevel.Info);
+                return;
+            }
+            var sb = new StringBuilder();
+            sb.Append("audio ").Append(streamName).Append(" stream summary: ")
+              .Append(data.StatusCallbackCount).Append(" callbacks, ")
+              .Append(data.FlaggedCallbackCount).Append(" carried PortAudio status flags:");
+            for (int i = 0; i < statusFlagBits.Length; i++)
+            {
+                if (data.StatusFlagCounts[i] == 0) continue;
+                sb.Append(' ').Append(statusFlagBits[i]).Append('=').Append(data.StatusFlagCounts[i]);
+            }
+            Tracing.TraceLine(sb.ToString(), TraceLevel.Error);
+        }
+
         private static PortAudio.PaStreamCallbackResult inputCallback(IntPtr inbuf,
                 IntPtr outbuf,
                 uint frameCount,
@@ -622,6 +721,10 @@ namespace JJPortaudio
             // Stream already removed from the table (close raced a late
             // callback): tell PortAudio to stop calling us.
             if (data == null) return PortAudio.PaStreamCallbackResult.paAbort;
+
+            // Threads Track: read the glitch report before anything else —
+            // a final callback can carry flags too.
+            noteStatusFlags(data, statusFlags, "input");
 
             PortAudio.PaStreamCallbackResult rv = PortAudio.PaStreamCallbackResult.paContinue;
             if (!data.Active)
@@ -708,6 +811,9 @@ namespace JJPortaudio
                 if (data.UseOpus) data.OpusInputHandler(new byte[0]);
                 else data.WavInputHandler(new float[0]);
                 Tracing.TraceLine("InputCallback:" + data.diagBufCount + ' ' + data.diagByteCount, TraceLevel.Verbose);
+                // Threads Track: the stream is completing — report the
+                // glitch totals for its whole life.
+                traceStatusFlagSummary(data, "input");
             }
             return rv;
         }
@@ -723,6 +829,10 @@ namespace JJPortaudio
             // Stream already removed from the table (close raced a late
             // callback): tell PortAudio to stop calling us.
             if (data == null) return PortAudio.PaStreamCallbackResult.paAbort;
+
+            // Threads Track: read the glitch report before anything else —
+            // a final callback can carry flags too.
+            noteStatusFlags(data, statusFlags, "output");
 
             PortAudio.PaStreamCallbackResult rv = PortAudio.PaStreamCallbackResult.paContinue;
             if (!data.Active)
@@ -773,6 +883,10 @@ namespace JJPortaudio
 
             outCallbackDone:
             if (rv == PortAudio.PaStreamCallbackResult.paContinue) rv = (data.Active) ? PortAudio.PaStreamCallbackResult.paContinue : PortAudio.PaStreamCallbackResult.paComplete;
+            // Threads Track: stream completing — report the glitch totals
+            // for its whole life.
+            if (rv != PortAudio.PaStreamCallbackResult.paContinue)
+                traceStatusFlagSummary(data, "output");
             if ((rv == PortAudio.PaStreamCallbackResult.paContinue) &
                 (data.Q.Count == 0))
             {
