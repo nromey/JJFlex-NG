@@ -67,10 +67,14 @@ Audio tab controls.
 
 On a remote (SmartLink) connection, the second one is the only way to hear
 anything. The radio may be in another state; its headphone jack is no help to
-you. JJ Flex turns this on for you automatically when you connect remotely,
-which is why the checkbox is not remembered between sessions — a remembered
-"off" would quietly fight that every time you connected and leave you with a
-working radio and no sound.
+you. JJ Flex turns this on for you automatically when you connect remotely.
+
+Each radio also remembers this setting between sessions now. The **When this
+radio connects** choice, right under the checkbox, has three settings:
+remember how I left it (the default), always on for this radio, or always
+off. Always on is the remote operator's insurance — even if a session ends
+with PC audio off, the next connect turns it back on. Whatever happens at
+connect is announced out loud, so the switch is never flipped silently.
 
 If the checkbox is off on a remote connection, turn it on. JJ Flex will say
 what it did.
