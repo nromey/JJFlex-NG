@@ -9,7 +9,10 @@
 
   <ItemGroup>
     <None Include="app.config" />
-    <None Include="portaudio.dll" CopyToOutputDirectory="PreserveNewest" />
+    <!-- Removed 2026-08-12: the binding project bundles its own
+         portaudio.dll (V19.6.0-devel, 2016) for standalone users. Copying it
+         to our output root shadowed runtimes/win-<arch>/native/ and created a
+         silent-downgrade path. Natives come from runtimes/ only. -->
   </ItemGroup>
 
   <ItemGroup>

@@ -15,9 +15,13 @@
     <ProjectReference Include="..\..\PortAudioSharp-src-0.19.3\PortAudioSharp\PortAudioSharp.csproj" />
   </ItemGroup>
 
-  <ItemGroup>
-    <Content Include="portaudio.dll">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-  </ItemGroup>
+  <!-- Removed 2026-08-12: this project used to copy a bundled portaudio.dll
+       (PortAudio V19.6.0-devel, a 2016-era build) into the output root, where
+       it shadowed the current library in runtimes/win-<arch>/native/.
+       NativeLoader.vb resolves runtimes/ first so the app loaded the right one,
+       but the stale copy sat behind it as a SILENT fallback — if the runtimes
+       load ever failed, the app would quietly run 2016 PortAudio with no
+       announcement. Native libraries now come from runtimes/ only; see
+       runtimes/win-x64/native/README.md. -->
+
 </Project>

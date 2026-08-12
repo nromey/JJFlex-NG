@@ -7,6 +7,11 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <None Include="libopus.dll" CopyToOutputDirectory="PreserveNewest" />
+    <!-- Removed 2026-08-12 for the same reason as the PortAudio copies: native
+         libraries come from runtimes/win-<arch>/native/ only, so nothing
+         shadows them in the output root. This project's bundled libopus.dll
+         happened to match the shipped version, so it was not a downgrade
+         hazard like the PortAudio pair — but a second copy is still a second
+         thing to keep in step, and one of them will eventually be forgotten. -->
   </ItemGroup>
 </Project>

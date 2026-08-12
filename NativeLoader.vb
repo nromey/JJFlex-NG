@@ -62,11 +62,27 @@ Public Module NativeLoader
             End If
         End If
 
-        ' Fall back to app directory (legacy location)
+        ' Fall back to app directory (legacy location).
+        '
+        ' This path must never be taken silently. Until 2026-08-12 three
+        ' projects copied their own bundled natives here — PortAudio
+        ' V19.6.0-devel from 2016, shadowing the current build in runtimes\ —
+        ' so a failure above would have quietly loaded a decade-old library
+        ' with no announcement and subtly different device behaviour. Those
+        ' copies are gone, but the fallback stays for legacy installs, and it
+        ' now says so loudly. If you ever see this line in a trace, the
+        ' runtimes\ layout is broken and the version actually in use is
+        ' unknown — check it with Pa_GetVersionText / opus_get_version_string.
         Dim legacyPath As String = Path.Combine(basePath, mappedName)
         If File.Exists(legacyPath) Then
             Dim legacyHandle As IntPtr
             If NativeLibrary.TryLoad(legacyPath, legacyHandle) Then
+                JJTrace.Tracing.TraceLine(
+                    "NativeLoader: WARNING — loaded " & mappedName &
+                    " from the app directory, NOT runtimes\win-" & arch &
+                    "\native. The expected library is missing or failed to " &
+                    "load, so the version in use is unverified.",
+                    TraceLevel.Error)
                 Return legacyHandle
             End If
         End If
