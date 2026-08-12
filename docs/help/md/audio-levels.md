@@ -1,6 +1,6 @@
 # Audio Levels — the two dialogs
 
-There are two completely different kinds of "volume" in a remote rig, and JJ Flexible keeps them deliberately apart: the levels on *this computer's* side of the wire, and the levels on the *radio's own jacks*. The Audio menu holds one door for each.
+There are two completely different kinds of "volume" in a remote rig, and JJ Flexible Radio Access keeps them deliberately apart: the levels on *this computer's* side of the wire, and the levels on the *radio's own jacks*. The Audio menu holds one door for each.
 
 ## PC Audio Levels
 

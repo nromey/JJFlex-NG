@@ -28,7 +28,7 @@ You can also open the Audio Workshop (`Ctrl+Shift+W`) for a more visual view of 
 
 ## Hearing Your Current TX Filter Settings
 
-Press `Ctrl+Shift+F` to have JJ Flexible Radio Access speak your current TX filter settings. The announcement includes the low edge, the high edge, and the calculated bandwidth between them. You can also use the leader-key form — press `Ctrl+J`, then `F`.
+Press `Ctrl+Shift+F` to have JJ Flexible Radio Access speak your current TX filter settings. The announcement includes the low edge, the high edge, and the calculated bandwidth between them. You can also use the JJ key form — press `Ctrl+J`, then `F`.
 
 For example, you might hear: "TX filter 100 to 2900, 2.8 kilohertz."
 

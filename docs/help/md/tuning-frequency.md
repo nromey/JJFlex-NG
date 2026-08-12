@@ -28,7 +28,7 @@ When you are operating CW, press `Alt+Z` to zero-beat the signal you are current
 
 When you are tuning rapidly with the arrow keys, hearing every single frequency step spoken can be overwhelming. The tuning speech debounce solves this — it waits until you have stopped tuning, and then speaks only the final frequency you landed on.
 
-You can toggle tuning debounce on or off with the leader key — press `Ctrl+J`, then press `D`. You will hear "Tuning debounce on" or "Tuning debounce off" depending on the new state.
+You can toggle tuning debounce on or off with the JJ key — press `Ctrl+J`, then press `D`. You will hear "Tuning debounce on" or "Tuning debounce off" depending on the new state.
 
 You can also configure tuning debounce under **Settings > Tuning**, where you will find a checkbox to enable or disable it, along with a field to set the delay in milliseconds. The delay controls how long the application waits after your last keystroke before speaking the final frequency.
 

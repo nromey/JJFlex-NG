@@ -14,7 +14,7 @@ These keys work no matter where you are in the application — and "no matter wh
 |-----|--------|
 | F1 | Open this help file |
 | Ctrl+/ | Open Command Finder (search all commands) |
-| Ctrl+J | Leader key (press, release, then press a second key) |
+| Ctrl+J | The JJ key (press, release, then press a second key) |
 | Ctrl+Shift+M | Switch between Classic and Modern tuning mode |
 | Ctrl+Shift+L | Enter or exit Logging mode |
 | Ctrl+M | Toggle the meters panel on/off |
@@ -28,13 +28,13 @@ These keys work no matter where you are in the application — and "no matter wh
 | F12 | Stop CW transmission immediately |
 | Ctrl+L | Open the Callbook / station lookup utility |
 
-## The JJ "Leader" Key Commands
+## The JJ Key Commands
 
 This application's got a problem. We own it, it's true. There's a ton of keyboard shortcuts that you can use in this application. Problem is, we have too many keyboard shortcuts for the number of keys on your keyboard. Enter the JJ key.
 
-The JJ Key, `Ctrl+J` in JJ Flexible Radio Access, can be used to activate various toggles, options, and other commands throughout the JJ Flexible Radio Access application. Similar to pressing layered commands in JAWS (JAWS Key+J then another key), the JJ key is our flavor of command-key layering you can use to access functions we couldn't fit onto single-keypress hotkeys. The JJ layer is our secret cheat code — it lets you reach commands we couldn't squeeze into a single keypress. We hope the JJ layer keeps you from needing to use three fingers on one hand, your right pinky finger, and your left big toe to activate neural noise mitigation or turn on the audio peak meter. Who wants to be a contortionist — both physically and mentally — when you're trying to rack up points in a busy contest or chase DX? I know I sure don't.
+The JJ Key, `Ctrl+J` in JJ Flexible Radio Access, can be used to activate various toggles, options, and other commands throughout the JJ Flexible Radio Access application. Similar to pressing layered commands in JAWS (JAWS Key+J then another key), the JJ key is our flavor of command-key layering you can use to access functions we couldn't fit onto single-keypress hotkeys. The JJ Command layer is our secret cheat code — it lets you reach commands we couldn't squeeze into a single keypress. We hope the JJ layer keeps you from needing to use three fingers on one hand, your right pinky finger, and your left big toe to activate neural noise mitigation or turn on the audio peak meter. Who wants to be a contortionist — both physically and mentally — when you're trying to rack up points in a busy contest or chase DX? I know I sure don't.
 
-Press `Ctrl+J` and then release it to enter layered command mode. You'll hear a rising tone to let you know that you've activated the JJ key layer and it's ready for you to press one of these keys to perform an action in the app.
+Press `Ctrl+J` and then release it to enter the JJ Command layer. You'll hear a rising tone to let you know that you've opened the layer and it's ready for you to press one of these keys to perform an action in the app.
 
 | Key | Action |
 |-----|--------|
@@ -63,12 +63,12 @@ Press `Ctrl+J` and then release it to enter layered command mode. You'll hear a 
 | T | Toggle meter tones on/off |
 | Shift+T | Toggle alert sounds (earcons) on/off |
 | Shift+A through Shift+H | Jump to that slice from anywhere (Shift+F is reserved for the RX filter readout) |
-| ? or H | List all leader key commands |
-| Escape | Cancel leader mode |
+| ? or H | List all JJ Command layer commands |
+| Escape | Close the JJ Command layer |
 
-Don't worry if you press the JJ key by accident or if you simply don't want to access the command layer. Press Escape to exit JJ command mode — you'll hear a little descending tone, and you can go back to whatever you were doing previously in the JJ Flexible Radio app. The layer waits patiently until you press a key or cancel; there's no timer sneaking you out of it.
+Don't worry if you press the JJ key by accident or if you simply don't want to access the command layer. Press Escape to leave the JJ Command layer — you'll hear a little descending tone, and you can go back to whatever you were doing previously in JJ Flexible. The layer waits patiently until you press a key or cancel; there's no timer sneaking you out of it.
 
-One more thing worth knowing: the JJ key's built-in help (`Ctrl+J` then `H` or `?`) reads you every leader command, top to bottom. If what you actually want is help for the control you're sitting on, that's F1. If you want to search every command in the app by name, that's `Ctrl+/` for the Command Finder. The JJ help announcement now ends by pointing you at both.
+One more thing worth knowing: the JJ key's built-in help (`Ctrl+J` then `H` or `?`) reads you every command in the JJ Command layer, top to bottom. If what you actually want is help for the control you're sitting on, that's F1. If you want to search every command in the app by name, that's `Ctrl+/` for the Command Finder. The JJ help announcement now ends by pointing you at both.
 
 ### Volume mode — Ctrl+J, then V
 
@@ -434,7 +434,7 @@ These commands exist and work — they just don't ship with a key. Run them from
 
 ## Trace Archive Browser
 
-These keys are active when focus is on the row list inside the Archive Browser tab of the Tracing dialog (Operations → Tracing → Archive Browser).
+These keys are active when focus is on the row list inside the Archive Browser tab of the Tracing dialog (Help → Tracing → Archive Browser).
 
 | Key | Action |
 |-----|--------|
