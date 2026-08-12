@@ -345,7 +345,21 @@ namespace PortAudioSharp {
             if (device < 0) return new PaDeviceInfo();
 	 		IntPtr structptr = IntPtr_Pa_GetDeviceInfo(device);
             if (structptr == IntPtr.Zero) return new PaDeviceInfo();
-	 		return (PaDeviceInfo) Marshal.PtrToStructure(structptr, typeof(PaDeviceInfo));
+	 		PaDeviceInfo info = (PaDeviceInfo) Marshal.PtrToStructure(structptr, typeof(PaDeviceInfo));
+            // Threads Track (2026-08-12): PortAudio's Windows backends emit
+            // device names as UTF-8, but PaDeviceInfo's LPStr marshal decodes
+            // the bytes as ANSI — "Intel® Smart Sound..." arrived as
+            // "IntelÂ® Smart Sound...", and NVDA voices the stray character
+            // when the operator arrows the device list. Re-read the name
+            // pointer as UTF-8 here, the one boundary every device name
+            // crosses (Devices.cs and everything above it read this wrapper).
+            // PaHostApiInfo.name and PaHostErrorInfo.errorText stay LPStr:
+            // host API names and PortAudio error text are ASCII in practice.
+            IntPtr namePtr = Marshal.ReadIntPtr(structptr,
+                (int)Marshal.OffsetOf<PaDeviceInfo>(nameof(PaDeviceInfo.name)));
+            if (namePtr != IntPtr.Zero)
+                info.name = Marshal.PtrToStringUTF8(namePtr);
+            return info;
 	 	}
 		
 		[DllImport ("PortAudio.dll")]
