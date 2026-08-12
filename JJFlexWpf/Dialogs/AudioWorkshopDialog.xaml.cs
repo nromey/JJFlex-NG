@@ -123,6 +123,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         new System.Windows.Interop.WindowInteropHelper(this).Owner = IntPtr.Zero;
 
         BuildTxAudioTab();
+        ApplyTxAudioTabOrder();
         BuildLiveMetersTab();
         BuildEarconExplorerTab();
 
@@ -196,11 +197,12 @@ public partial class AudioWorkshopDialog : JJFlexDialog
     /// <summary>
     /// Initial focus lands on Start Audio Check (Noel, 2026-08-11): set up,
     /// or just loaded a profile? Press Enter and you are running — zero
-    /// navigation for the common case. Shift+Tab reaches the mic reading
-    /// (it sits immediately before the button on purpose: forward tab does
-    /// things, backward tab inspects what just happened). Falls back to the
-    /// base first-control behaviour when the workshop opens on another tab,
-    /// where the button isn't visible to take focus.
+    /// navigation for the common case. The tab ring then runs Start,
+    /// mic reading, Mic Gain (Threads Track, 2026-08-12): during a check
+    /// focus sits on Mic Gain, so the reading is one Shift+Tab back and
+    /// the Stop button one more. Falls back to the base first-control
+    /// behaviour when the workshop opens on another tab, where the button
+    /// isn't visible to take focus.
     /// </summary>
     protected override void FocusFirstControl()
     {
@@ -208,6 +210,35 @@ public partial class AudioWorkshopDialog : JJFlexDialog
             && _startCheckButton.Focus())
             return;
         base.FocusFirstControl();
+    }
+
+    /// <summary>
+    /// Explicit tab order for the TX Audio tab (Threads Track, 2026-08-12):
+    /// Start Audio Check first, the live mic reading second, Mic Gain third,
+    /// then every remaining control in build order. Mic Gain stays put
+    /// VISUALLY (it belongs to the Microphone section) but joins the check
+    /// cluster in the ring, because a running check is an adjust-and-listen
+    /// loop between exactly these three stops: forward tab does things,
+    /// backward tab inspects what just happened.
+    ///
+    /// Noel also asked about Ctrl+Tab section navigation. Deliberately NOT
+    /// added: Ctrl+Tab already switches tabs in this window (standard WPF
+    /// TabControl behaviour, documented in the help), and overloading it
+    /// for section movement inside a tab would collide with that.
+    /// </summary>
+    private void ApplyTxAudioTabOrder()
+    {
+        int idx = 1;
+        if (_startCheckButton != null) KeyboardNavigation.SetTabIndex(_startCheckButton, idx++);
+        if (_micReadingBox != null) KeyboardNavigation.SetTabIndex(_micReadingBox, idx++);
+        if (_micGainControl != null) KeyboardNavigation.SetTabIndex(_micGainControl, idx++);
+        foreach (object child in TxAudioContent.Children)
+        {
+            if (child is not UIElement el) continue;
+            if (ReferenceEquals(el, _startCheckButton) || ReferenceEquals(el, _micReadingBox)
+                || ReferenceEquals(el, _micGainControl)) continue;
+            KeyboardNavigation.SetTabIndex(el, idx++);
+        }
     }
 
     /// <summary>
@@ -551,15 +582,32 @@ public partial class AudioWorkshopDialog : JJFlexDialog
     {
         AddSectionHeader(TxAudioContent, "Audio Check");
 
-        // The live mic reading, as a read-only EDIT deliberately placed
-        // immediately BEFORE the Start button in tab order (Noel,
-        // 2026-08-11). An edit is focusable and review-readable where a
-        // label gets skipped; and because the value lives somewhere
-        // focusable, the screen reader's own read-current-control command
-        // IS the "speak my level" feature — no app hotkey needed. The
-        // reading only means anything once a test runs, so it sits behind
-        // the button: forward tab does things, Shift+Tab inspects what
-        // just happened.
+        // Order here is Start button first, then the live reading —
+        // reordered by the Threads Track (2026-08-12, from Noel's field
+        // report): during a check, focus sits on Mic Gain, and the old
+        // reading-before-button placement left the reading several
+        // Shift+Tabs away during the one activity that needs it. The tab
+        // ring is now Start, reading, Mic Gain (see ApplyTxAudioTabOrder),
+        // so the reading sits between the two controls a running check
+        // actually uses and is one key from either.
+        _startCheckButton = new Button
+        {
+            Content = "Start Audio Check",
+            Padding = new Thickness(8, 4, 8, 4),
+            MinWidth = 200,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            Margin = new Thickness(2)
+        };
+        AutomationProperties.SetName(_startCheckButton, "Start Audio Check");
+        AutomationProperties.SetAcceleratorKey(_startCheckButton, "Ctrl+Enter");
+        _startCheckButton.Click += (s, e) => ToggleAudioCheck();
+        TxAudioContent.Children.Add(_startCheckButton);
+
+        // The live mic reading, as a read-only EDIT (Noel, 2026-08-11). An
+        // edit is focusable and review-readable where a label gets skipped;
+        // and because the value lives somewhere focusable, the screen
+        // reader's own read-current-control command IS the "speak my
+        // level" feature — no app hotkey needed.
         _micReadingBox = new TextBox
         {
             Text = "Mic audio: transmit to measure",
@@ -574,19 +622,6 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         // Same lesson Track A learned on the Home expander field.
         AutomationProperties.SetName(_micReadingBox, "Mic audio reading");
         TxAudioContent.Children.Add(_micReadingBox);
-
-        _startCheckButton = new Button
-        {
-            Content = "Start Audio Check",
-            Padding = new Thickness(8, 4, 8, 4),
-            MinWidth = 200,
-            HorizontalAlignment = HorizontalAlignment.Left,
-            Margin = new Thickness(2)
-        };
-        AutomationProperties.SetName(_startCheckButton, "Start Audio Check");
-        AutomationProperties.SetAcceleratorKey(_startCheckButton, "Ctrl+Enter");
-        _startCheckButton.Click += (s, e) => ToggleAudioCheck();
-        TxAudioContent.Children.Add(_startCheckButton);
 
         _listenMethodControl = MakeCycle("Listen method",
             new[] { "Monitor", "Record and play back" });
@@ -804,8 +839,9 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         {
             _session = session;
             SetStartButtonLabel("Stop Audio Check");
-            // The existing tab order is the adjust ring — land on the first
-            // knob so arrows work immediately.
+            // Land on Mic Gain — arrows adjust immediately, one Shift+Tab
+            // reads the live mic reading, one more reaches Stop (the
+            // three-stop check cluster, see ApplyTxAudioTabOrder).
             _micGainControl?.Focus();
         }
     }
