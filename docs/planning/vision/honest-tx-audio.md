@@ -409,6 +409,54 @@ SWR one, and Track C makes it materially more likely by making tones easy.
 - Treat *measuring your audio* and *confirming you are on the air* as two
   separate tests, because they are.
 
+### Track C-3 — field findings from the 2026-08-12 session
+
+**1. A looping click in the tone — and it is almost certainly the MONITOR, not
+the transmitted signal.** Noel heard "a looping click or something" while the
+tone ran. Two separate generators exist and only one is on the air:
+
+- **`JJPortaudio/TxToneGenerator.cs` — what actually transmits.** A continuous
+  **phase accumulator** (`_phase` in radians, advanced per sample), explicitly
+  continuous across buffers and across mid-tone retunes. It cannot produce a
+  buffer-seam click, and yesterday's steady −11 dBFS `SC_MIC` reading is
+  consistent with a clean transmitted tone.
+- **`JJFlexWpf/ContinuousToneSampleProvider.cs` — what the operator hears
+  locally.** A pre-existing NAudio `ISampleProvider`, **hardcoded to 44,100 Hz**
+  and mono, **shared with the meter-tone engine** (its own comments say
+  "Updated by MeterToneEngine") and carrying extra waveform modes including
+  `Alternating`.
+
+**Suspects, in order:** the **44.1 kHz provider against a 48 kHz audio path**
+(resampling artefacts, and a periodicity that would read as "looping");
+contention with the meter-tone engine over a shared provider; or a waveform mode
+leaking in. **Investigate the monitor path only — do not touch
+`TxToneGenerator`.** Noel's suggestion to "generate using NAudio directly and
+not use a loop" is already the case on the monitor side, so the fix is a rate
+and ownership question rather than a rewrite. Worth confirming the transmitted
+tone independently with the DAX IQ probe, which was clean on 2026-08-11.
+
+**2. Focus order after Start is wrong — the readout ends up far away exactly
+when it is needed.** Initial focus lands on Start Audio Check as designed, with
+the readout one Shift+Tab behind it. But **activating Start moves focus to Mic
+Gain** — sensible, since adjusting gain is the point of a check — which leaves
+the readout several Shift+Tabs away during the one activity that needs it.
+
+- **Immediate fix: reorder to Start, then readout, then Mic Gain**, so the
+  reading sits *between* the two controls used during a test and is one key from
+  either. This preserves the ratified "focus lands on the primary action" rule
+  while fixing the post-activation position.
+- **Better long-term shape (Noel's suggestion): `Ctrl+Tab` section navigation** —
+  move between mic adjustment, test controls, and readings as groups rather than
+  making linear tab order carry all the weight. The Workshop has enough controls
+  that group-level navigation is the right primitive; tab order alone cannot
+  serve both "reach the next control" and "reach the other section."
+
+**3. Verified working this session:** `Alt+Shift+S` now reaches Speak Transmit
+Status **inside the Audio Workshop** — the global-key routing fix confirmed at
+the radio. Five launch/exit cycles with PC audio produced **zero ghost
+processes** on the ms-02. PC audio played normally, which clears the PortAudio
+upgrade's blast radius.
+
 ### Track D — the input-rescue TX pipeline
 
 **Why this is a real feature and not radio-DSP duplication:** a Flex has TX EQ
