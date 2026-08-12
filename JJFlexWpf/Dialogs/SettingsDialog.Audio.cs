@@ -39,6 +39,12 @@ namespace JJFlexWpf.Dialogs
 
         private bool _suppressRadioOutputEvents;
 
+        // Per-radio config backing the "PC audio when this radio connects"
+        // combo (Threads Track, 2026-08-12). Serial-keyed, loaded when the
+        // tab refreshes with a connected rig.
+        private RadioConfig? _pcAudioRadioCfg;
+        private string _pcAudioRadioSerial = "";
+
         /// <summary>
         /// Path to audioDevices.xml, handed down from globals via MainWindow.
         /// Null when it could not be resolved — the Audio Devices button says so
@@ -108,6 +114,27 @@ namespace JJFlexWpf.Dialogs
                 PcAudioCheck.IsEnabled = connected;
                 PcAudioCheck.IsChecked = connected && rig!.PCAudio;
 
+                // Per-radio on-connect mode: keyed by serial, so only shown
+                // when a radio is connected (collapsed keeps it out of the
+                // tab order, house rule for controls that can't act).
+                string serial = connected ? rig!.SelectedRadioSerial : "";
+                if (string.IsNullOrEmpty(serial))
+                {
+                    _pcAudioRadioCfg = null;
+                    _pcAudioRadioSerial = "";
+                    PcAudioOnConnectPanel.Visibility = Visibility.Collapsed;
+                }
+                else
+                {
+                    if (_pcAudioRadioCfg == null || _pcAudioRadioSerial != serial)
+                    {
+                        _pcAudioRadioCfg = RadioConfig.LoadForRadio(serial);
+                        _pcAudioRadioSerial = serial;
+                    }
+                    PcAudioOnConnectCombo.SelectedIndex = (int)_pcAudioRadioCfg.PcAudioOnConnect;
+                    PcAudioOnConnectPanel.Visibility = Visibility.Visible;
+                }
+
                 // App-level, so refreshed regardless of connection — another
                 // surface (menu, leader volume mode, Home expander) may have
                 // moved it while this dialog was open.
@@ -155,22 +182,68 @@ namespace JJFlexWpf.Dialogs
             if (rig == null || !rig.IsConnected)
             {
                 AudioDevicesDialog.SetStatusLine(PcAudioStatusText,
-                    "Available once a radio is connected. This setting is not remembered between sessions.");
+                    "Available once a radio is connected.");
                 return;
             }
 
+            string now;
             if (rig.PCAudio)
             {
-                AudioDevicesDialog.SetStatusLine(PcAudioStatusText, rig.RemoteRig
+                now = rig.RemoteRig
                     ? "On. Radio audio is playing through this computer, which on a remote connection is the only way to hear it."
-                    : "On. Radio audio is playing through this computer.");
+                    : "On. Radio audio is playing through this computer.";
             }
             else
             {
-                AudioDevicesDialog.SetStatusLine(PcAudioStatusText, rig.RemoteRig
+                now = rig.RemoteRig
                     ? "Off. On a remote connection there is no other way to hear the radio, so it is silent here."
-                    : "Off. You will hear the radio at its own headphone, line out, or speaker outputs.");
+                    : "Off. You will hear the radio at its own headphone, line out, or speaker outputs.";
             }
+
+            // Say what the next connect will do — the combo below holds the
+            // choice, this line holds the consequence.
+            string next = _pcAudioRadioCfg?.PcAudioOnConnect switch
+            {
+                PcAudioOnConnectModes.AlwaysOn =>
+                    " On the next connect, PC audio always turns on for this radio.",
+                PcAudioOnConnectModes.AlwaysOff =>
+                    " On the next connect, PC audio stays off for this radio.",
+                _ => " On the next connect, PC audio comes back the way you leave it.",
+            };
+            AudioDevicesDialog.SetStatusLine(PcAudioStatusText, now + next);
+        }
+
+        /// <summary>
+        /// The per-radio on-connect mode changed. Saves immediately, like the
+        /// live controls around it — this is a per-radio file, not part of the
+        /// dialog's OK pipeline — and speaks the consequence in plain words.
+        /// </summary>
+        private void PcAudioOnConnectCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (_suppressRadioOutputEvents) return;
+            var cfg = _pcAudioRadioCfg;
+            if (cfg == null || string.IsNullOrEmpty(_pcAudioRadioSerial)) return;
+            int idx = PcAudioOnConnectCombo.SelectedIndex;
+            if (idx < 0) return;
+
+            var mode = (PcAudioOnConnectModes)idx;
+            if (cfg.PcAudioOnConnect == mode) return;
+            cfg.PcAudioOnConnect = mode;
+            cfg.SaveForRadio(_pcAudioRadioSerial);
+            Tracing.TraceLine(
+                $"Settings: PcAudioOnConnect for {_pcAudioRadioSerial} set to {mode}",
+                TraceLevel.Info);
+
+            ScreenReaderOutput.Speak(mode switch
+            {
+                PcAudioOnConnectModes.AlwaysOn =>
+                    "PC audio will always turn on when this radio connects.",
+                PcAudioOnConnectModes.AlwaysOff =>
+                    "PC audio will stay off when this radio connects.",
+                _ => "PC audio will come back the way you leave it.",
+            }, VerbosityLevel.Terse, true);
+
+            RefreshPcAudioStatus();
         }
 
         // -------------------------------------------------------- live handlers
@@ -280,6 +353,13 @@ namespace JJFlexWpf.Dialogs
             }
 
             rig.PCAudio = wanted;
+
+            // Threads Track (2026-08-12): remember the operator's choice per
+            // radio for the remember-last on-connect mode. Intent, not
+            // outcome — a toggle that failed tonight is still the wish worth
+            // carrying forward. (The declined-picker path above returns
+            // before this, so an abandoned attempt records nothing.)
+            RadioConfig.RecordPcAudioUserChoice(rig.SelectedRadioSerial, wanted);
 
             // Read the radio back rather than trusting the request: turning PC
             // audio on can fail on a machine with no usable sound device, and

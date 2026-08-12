@@ -669,6 +669,11 @@ public class NativeMenuBar : IDisposable
                 if (Rig == null) { SpeakNoRadio(); return; }
                 bool wanted = !Rig.PCAudio;
                 Rig.PCAudio = wanted;
+                // Threads Track (2026-08-12): remember the operator's choice
+                // per radio, so remember-last can restore it on the next
+                // connect. Intent, not outcome — a toggle that failed tonight
+                // is still the wish worth carrying forward.
+                RadioConfig.RecordPcAudioUserChoice(Rig.SelectedRadioSerial, wanted);
                 // Read the radio back rather than the request. Turning PC audio
                 // on can fail — no usable sound device — and the old code
                 // announced the wish, not the outcome, so a failed toggle said

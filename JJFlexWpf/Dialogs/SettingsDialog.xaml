@@ -271,11 +271,14 @@
                     <!-- ============================================================
                          Radio audio through this computer (PC audio).
 
-                         Deliberately NOT persisted. This reflects and overrides
-                         the current session: PC audio turns itself on when you
-                         connect remotely, and a remembered "off" would quietly
-                         fight that on every connect, leaving an operator with a
-                         remote radio, no sound, and no explanation.
+                         The checkbox reflects and overrides the CURRENT session.
+                         What happens at the NEXT connect is the per-radio combo
+                         below it (Threads Track, 2026-08-12): remember-last by
+                         default, with explicit always-on / always-off because
+                         remember-last faithfully carries an accident forward.
+                         The old "quietly fight the remote auto-on" trap this
+                         section used to warn about is closed by announcing the
+                         applied state out loud on every connect.
                          ============================================================ -->
                     <TextBlock Text="Radio Audio Through This Computer" FontWeight="SemiBold"
                                Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
@@ -291,6 +294,23 @@
                                Focusable="True"
                                AutomationProperties.LiveSetting="Polite"
                                AutomationProperties.Name="Radio audio through this computer, status"/>
+                    <!-- Per-radio on-connect behaviour. Collapsed (out of the
+                         tab order, house rule) when no radio is connected —
+                         the setting is keyed by the radio's serial. Saves as
+                         it changes, like its live neighbors above. -->
+                    <StackPanel x:Name="PcAudioOnConnectPanel" Visibility="Collapsed">
+                        <TextBlock Text="When this radio connects"
+                                   Style="{StaticResource DialogLabel}" Margin="0,0,0,2"/>
+                        <ComboBox x:Name="PcAudioOnConnectCombo"
+                                  HorizontalAlignment="Left" MinWidth="320"
+                                  Margin="0,0,0,8"
+                                  AutomationProperties.Name="PC audio when this radio connects, saved for this radio"
+                                  SelectionChanged="PcAudioOnConnectCombo_SelectionChanged">
+                            <ComboBoxItem Content="Remember how I left it"/>
+                            <ComboBoxItem Content="Always on for this radio"/>
+                            <ComboBoxItem Content="Always off for this radio"/>
+                        </ComboBox>
+                    </StackPanel>
                     <!-- PC output volume (Audio Arc Track A) — the playback
                          boost for radio audio through this computer, in dB.
                          App-level and persisted, unlike the PC audio on/off

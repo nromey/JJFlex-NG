@@ -2434,6 +2434,16 @@ public partial class MainWindow : UserControl
             {
                 Tracing.TraceLine($"PowerNowOn: connect earcon failed: {ex.Message}", TraceLevel.Warning);
             }
+
+            // Per-radio PC audio on connect (Threads Track, 2026-08-12).
+            // Runs on the same off→on transition as the connect earcon, and
+            // AFTER FlexBase's open sequence has done its historical remote
+            // auto-on, so this is policy on top, never a race.
+            try { ApplyPcAudioOnConnect(); }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine($"PowerNowOn: PC audio on-connect policy failed: {ex.Message}", TraceLevel.Error);
+            }
         }
 
         _radioPowerOn = true;
@@ -2610,6 +2620,79 @@ public partial class MainWindow : UserControl
 
         // Sprint 22 Phase 8: Announce radio status after connect
         SpeakConnectStatus();
+    }
+
+    /// <summary>
+    /// Per-radio PC audio on connect (Threads Track, 2026-08-12). Reads the
+    /// serial-keyed RadioConfig and applies its PcAudioOnConnect policy:
+    /// always on, always off, or the operator's remembered last choice —
+    /// remember-last being the default, with the explicit modes there
+    /// because remember-last faithfully carries an accident forward (a
+    /// hiccup-off would otherwise poison every later session, which for a
+    /// remote-only operator means a silent radio every night).
+    ///
+    /// Runs AFTER FlexBase's open sequence, which already turns PC audio on
+    /// for remote (WAN) connects; with no recorded choice this method
+    /// changes nothing, so pre-existing configs behave exactly as before.
+    /// Whatever happens is announced — a switch is never flipped silently.
+    /// </summary>
+    private void ApplyPcAudioOnConnect()
+    {
+        var rig = RigControl;
+        if (rig == null) return;
+        string serial = rig.SelectedRadioSerial;
+        if (string.IsNullOrEmpty(serial)) return;
+
+        var cfg = RadioConfig.LoadForRadio(serial);
+        bool before = rig.PCAudio;
+        bool? desired = cfg.DesiredPcAudioOnConnect;
+        Tracing.TraceLine(
+            $"ApplyPcAudioOnConnect: mode={cfg.PcAudioOnConnect} lastKnown={cfg.PcAudioLastStateKnown} lastOn={cfg.PcAudioLastOn} before={before}",
+            TraceLevel.Info);
+
+        if (desired == null)
+        {
+            // No opinion recorded: historical behaviour stands (remote
+            // connects arrive here already on). Still say so when it's on —
+            // audio should now be flowing, and hearing nothing after this
+            // announcement is itself a useful signal.
+            if (before)
+                ScreenReaderOutput.Speak("PC audio on.", VerbosityLevel.Terse);
+            return;
+        }
+
+        if (desired.Value != before) rig.PCAudio = desired.Value;
+        bool actual = rig.PCAudio;
+
+        string reason = cfg.PcAudioOnConnect switch
+        {
+            PcAudioOnConnectModes.AlwaysOn => "always on for this radio",
+            PcAudioOnConnectModes.AlwaysOff => "always off for this radio",
+            _ => "as you left it",
+        };
+
+        if (desired.Value && !actual)
+        {
+            // Wanted on, could not start (no usable sound device is the
+            // usual cause). The audio path speaks its own failure detail;
+            // this names the consequence.
+            ScreenReaderOutput.Speak("PC audio could not start, still off.",
+                VerbosityLevel.Critical);
+        }
+        else if (actual)
+        {
+            ScreenReaderOutput.Speak($"PC audio on, {reason}.", VerbosityLevel.Terse);
+        }
+        else if (before)
+        {
+            // The policy just turned it off. Over remote that costs
+            // everything, and that must never be a silent surprise.
+            ScreenReaderOutput.Speak(rig.RemoteRig
+                ? $"PC audio off, {reason}. On a remote connection there is no other way to hear the radio."
+                : $"PC audio off, {reason}.",
+                VerbosityLevel.Terse);
+        }
+        // Off and already off: nothing flipped, nothing to hear — stay quiet.
     }
 
     /// <summary>

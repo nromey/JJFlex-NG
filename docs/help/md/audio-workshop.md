@@ -8,7 +8,7 @@ It does not choose which sound device your audio goes to. That lives in Settings
 
 Press `Ctrl+Shift+W` from anywhere in the application. You can also find it in the Command Finder (`Ctrl+/`) by searching for "workshop". The window is non-modal, so you can leave it open while you operate.
 
-When the workshop opens, focus is already on **Start Audio Check** — if you're set up, or you've just loaded a preset, Enter starts a test with zero navigation. One `Shift+Tab` back from that button is the live mic reading (more on it below).
+When the workshop opens, focus is already on **Start Audio Check** — if you're set up, or you've just loaded a preset, Enter starts a test with zero navigation. One `Tab` forward from that button is the live mic reading, and one more is Mic Gain — the three stops a running check actually uses, sitting together on purpose (more below).
 
 ### Workshop keys
 
@@ -24,9 +24,9 @@ Everything here speaks as you change it, and the standard value keys work everyw
 
 ### Audio Check — hear yourself
 
-At the top of the tab. Press **Start Audio Check** (or `Ctrl+Enter`) and the radio keys up through the same safety system as regular transmit — the timeout warnings, the license check, and the hard kill all stay on duty. The first thing you hear is the safety line: which kind of check this is, the frequency, where your transmit audio is coming from, and the reminder that Escape stops. Then focus lands on Mic Gain and the tab order is your adjust ring — arrow through gain, compander, processor, and filter while you talk.
+At the top of the tab. Press **Start Audio Check** (or `Ctrl+Enter`) and the radio keys up through the same safety system as regular transmit — the timeout warnings, the license check, and the hard kill all stay on duty. The first thing you hear is the safety line: which kind of check this is, the frequency, where your transmit audio is coming from, and the reminder that Escape stops. Then focus lands on Mic Gain, with the live reading one `Shift+Tab` back and the Stop button one more — and the rest of the sculpting chain (boost, compander, processor, filter) further down the same tab while you talk.
 
-**The live mic reading** sits just before the Start button — a read-only text field showing your level and the verdict, like "Mic audio now: just right, peak minus 11 dBFS." It updates continuously while you transmit (and holds your last transmission's peak after you unkey), but it never speaks on its own: sit on it and use your screen reader's read-current-control command whenever you want the number. That's the whole design — the reading is always fresh, and *you* decide when to hear it. `Shift+Tab` from Start Audio Check lands on it.
+**The live mic reading** sits just after the Start button — a read-only text field showing your level and the verdict, like "Mic audio now: just right, peak minus 11 dBFS." It updates continuously while you transmit (and holds your last transmission's peak after you unkey), but it never speaks on its own: sit on it and use your screen reader's read-current-control command whenever you want the number. That's the whole design — the reading is always fresh, and *you* decide when to hear it. During a check, the reading is one `Shift+Tab` back from Mic Gain, and the Stop button one more — start, reading, and gain are neighbors, so the adjust-and-listen loop never leaves three keys.
 
 - **Listen method** picks how you hear yourself, remembered per radio:
   - **Monitor** — instant. The radio's TX monitor feeds your own voice back while you talk. Fine on a local connection; over remote the monitor arrives late enough to trip up your speech, which is why the session recommends the next one.

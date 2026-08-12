@@ -1124,7 +1124,14 @@ Module globals
             .ShowLogCharacteristics = Sub() WpfMainWindow.LogCharacteristicsForHotkey(),
             .LogOpenFullForm = Sub() WpfMainWindow.OpenFullLogEntryForHotkey(),
             .PCAudioToggle = Sub()
-                If RigControl IsNot Nothing Then RigControl.PCAudio = Not RigControl.PCAudio
+                If RigControl IsNot Nothing Then
+                    Dim wanted As Boolean = Not RigControl.PCAudio
+                    RigControl.PCAudio = wanted
+                    ' Threads Track (2026-08-12): remember the operator's
+                    ' choice per radio (intent, not outcome) so the
+                    ' remember-last on-connect mode can restore it.
+                    Radios.RadioConfig.RecordPcAudioUserChoice(RigControl.SelectedRadioSerial, wanted)
+                End If
             End Sub,
             .AudioMenuString = Function()
                 If (RigControl IsNot Nothing) AndAlso RigControl.PCAudio Then

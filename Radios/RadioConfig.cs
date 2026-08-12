@@ -43,6 +43,29 @@ namespace Radios
     }
 
     /// <summary>
+    /// What PC audio (radio audio through this computer) should do when this
+    /// radio connects (Threads Track, 2026-08-12). Numeric values are stable
+    /// for saved configs.
+    /// </summary>
+    public enum PcAudioOnConnectModes
+    {
+        /// <summary>Come back the way the operator left it. The adaptive
+        /// default — but not sufficient alone, because it faithfully carries
+        /// an accident forward: a session where PC audio got switched off by
+        /// a hiccup would poison every session after it. The explicit modes
+        /// below exist for exactly that.</summary>
+        RememberLast = 0,
+
+        /// <summary>Always turn PC audio on for this radio. Survives a bad
+        /// night, which is exactly what a remote-only operator needs — over
+        /// remote, PC audio is the only way to hear the radio at all.</summary>
+        AlwaysOn = 1,
+
+        /// <summary>Always leave PC audio off for this radio.</summary>
+        AlwaysOff = 2,
+    }
+
+    /// <summary>
     /// How the Audio Check handles transmit power (Workshop Track,
     /// 2026-08-11). Numeric values are stable for saved configs.
     /// </summary>
@@ -215,6 +238,72 @@ namespace Radios
         /// Default 10, matching the old hardwired behaviour.
         /// </summary>
         public int AudioCheckLowPowerWatts { get; set; } = 10;
+
+        // ---------------------------------------------------------------
+        // PC audio on connect (Threads Track, 2026-08-12). Before this, PC
+        // audio state was persisted nowhere: every connect started with it
+        // off (remote connects auto-on), so an operator whose radio is only
+        // reachable remotely re-enabled it every single session. Per-radio
+        // because the right answer follows the radio's situation, and NOT
+        // gated on the connection being remote — a local operator who
+        // always listens through the PC gets the same memory.
+        // ---------------------------------------------------------------
+
+        /// <summary>
+        /// What PC audio should do when this radio connects. Default is
+        /// RememberLast; connect-time application announces what it did
+        /// rather than silently flipping a switch.
+        /// </summary>
+        public PcAudioOnConnectModes PcAudioOnConnect { get; set; }
+            = PcAudioOnConnectModes.RememberLast;
+
+        /// <summary>
+        /// True once <see cref="PcAudioLastOn"/> has ever been recorded.
+        /// While false, RememberLast expresses no opinion and connect keeps
+        /// its historical behaviour (remote connects turn PC audio on,
+        /// local connects leave it off) — so a config written before this
+        /// shipped changes nothing.
+        /// </summary>
+        public bool PcAudioLastStateKnown { get; set; }
+
+        /// <summary>
+        /// The operator's last deliberate PC audio choice for this radio.
+        /// Recorded at the USER toggle surfaces (menu, Settings, hotkey),
+        /// never from internal flips — disconnect turns PC audio off
+        /// mechanically and a failed start turns it off in error, and
+        /// neither is a choice worth remembering.
+        /// </summary>
+        public bool PcAudioLastOn { get; set; }
+
+        /// <summary>
+        /// What connect should set PC audio to, or null for "no opinion,
+        /// keep the historical behaviour".
+        /// </summary>
+        [XmlIgnore]
+        public bool? DesiredPcAudioOnConnect => PcAudioOnConnect switch
+        {
+            PcAudioOnConnectModes.AlwaysOn => true,
+            PcAudioOnConnectModes.AlwaysOff => false,
+            _ => PcAudioLastStateKnown ? PcAudioLastOn : (bool?)null,
+        };
+
+        /// <summary>
+        /// Record a deliberate user PC-audio toggle for RememberLast. Call
+        /// from the user-facing toggle surfaces with the state the USER asked
+        /// for (intent, not outcome): if turning on failed tonight because a
+        /// device was missing, the wish to have it on is still the thing
+        /// worth carrying to the next session. No-ops on an unknown radio id
+        /// and skips the disk write when nothing changed.
+        /// </summary>
+        public static void RecordPcAudioUserChoice(string radioId, bool on)
+        {
+            if (string.IsNullOrEmpty(radioId)) return;
+            var cfg = LoadForRadio(radioId);
+            if (cfg.PcAudioLastStateKnown && cfg.PcAudioLastOn == on) return;
+            cfg.PcAudioLastStateKnown = true;
+            cfg.PcAudioLastOn = on;
+            cfg.SaveForRadio(radioId);
+        }
 
         /// <summary>
         /// App-wide config root, assigned once at startup (ApplicationEvents,
