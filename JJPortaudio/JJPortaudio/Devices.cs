@@ -59,7 +59,7 @@ namespace JJPortaudio
             InitFailed,
             /// <summary>PortAudio started but reported a device-count error.</summary>
             QueryFailed,
-            /// <summary>PortAudio started and found no usable stereo devices.</summary>
+            /// <summary>PortAudio started and found no audio devices at all.</summary>
             NoDevices
         }
 
@@ -122,16 +122,40 @@ namespace JJPortaudio
             public bool CanOutput => Info.maxOutputChannels > 0;
 
             /// <summary>
+            /// Channels this device offers in its own direction (a DeviceInfo
+            /// is created per direction, so an input row reports input
+            /// channels and an output row output channels).
+            /// </summary>
+            public int NativeChannels => (Type == DeviceTypes.input)
+                ? Info.maxInputChannels : Info.maxOutputChannels;
+
+            /// <summary>
+            /// True when the radio-audio engine can open this device today:
+            /// it has at least the <see cref="StreamChannels"/> the stereo
+            /// stream needs. Devices with MORE channels qualify — PortAudio's
+            /// contract allows opening any channel count from 1 up to the
+            /// device's maximum, so the engine's two-channel open is the
+            /// downmix. Mono devices are still LISTED (hiding a device for
+            /// its channel count is how a laptop's only real microphone
+            /// became unselectable) but cannot carry the stream until the
+            /// engine can open mono and upmix.
+            /// </summary>
+            public bool UsableForRadioAudio => NativeChannels >= StreamChannels;
+
+            /// <summary>
             /// What a screen reader should read for this row. The Windows
             /// default is called out in words rather than by position, because
-            /// "first in the list" is not information you can hear.
+            /// "first in the list" is not information you can hear. A mono
+            /// device says so — the row itself carries the reason it cannot
+            /// be chosen, instead of a silent refusal later.
             /// </summary>
             public string Display
             {
                 get
                 {
                     string apiPart = string.IsNullOrEmpty(HostApiName) ? "" : " (" + HostApiName + ")";
-                    return (IsDefault ? "System default: " : "") + Name + apiPart;
+                    return (IsDefault ? "System default: " : "") + Name + apiPart
+                        + (UsableForRadioAudio ? "" : " — mono, not usable yet");
                 }
             }
         }
@@ -143,11 +167,19 @@ namespace JJPortaudio
         public static IReadOnlyList<DeviceInfo> OutputDevices { get; private set; } = new List<DeviceInfo>();
 
         /// <summary>
-        /// True while JJ Flex only lists two-channel devices. Kept as a named
-        /// constant so the UI can say so out loud instead of leaving the user
-        /// to conclude that JJ Flex cannot see their headset.
+        /// Channel count of the radio-audio stream itself: the engine
+        /// (Audio.cs) opens every PortAudio stream two-channel float because
+        /// the Opus path is stereo. This is a property of the STREAM, never a
+        /// device filter — the old <c>StereoOnly</c> constant stood beside a
+        /// channels==2 list test that silently dropped every 4-channel device,
+        /// including a laptop's only real microphone array. Devices now list
+        /// by capability: two or more channels open as stereo (in PortAudio's
+        /// contract, which permits opening 1..max channels), and mono devices
+        /// are listed but flagged, because PortAudio rejects a two-channel
+        /// open on a one-channel device and the open call lives in the engine,
+        /// not here. See <see cref="DeviceInfo.UsableForRadioAudio"/>.
         /// </summary>
-        public const bool StereoOnly = true;
+        public const int StreamChannels = 2;
 
         /// <summary>PortAudio PaHostApiTypeId for WDM-KS (kernel streaming). Fixed
         /// enum value. Used to hide kernel pins from the picker by default.</summary>
@@ -344,16 +376,24 @@ namespace JJPortaudio
         /// the operator gets audio, and the settings surface can show what it
         /// actually fell back to.
         /// </summary>
-        /// <returns>the persisted device, or null when there is no default.</returns>
+        /// <returns>the persisted device, or null when nothing usable exists.</returns>
+        /// <remarks>
+        /// Only devices the engine can actually open are candidates. If the
+        /// Windows default is a mono device, adopting it would hand the engine
+        /// a stream open that PortAudio must reject — dead audio wearing a
+        /// saved configuration. Falling to the first stream-capable device, or
+        /// to null (which the caller announces), keeps the failure audible.
+        /// </remarks>
         public Device AdoptSystemDefault(DeviceTypes type)
         {
             var list = (type == DeviceTypes.input) ? InputDevices : OutputDevices;
             DeviceInfo pick = null;
             for (int i = 0; i < list.Count; i++)
             {
+                if (!list[i].UsableForRadioAudio) continue;
+                if (pick == null) pick = list[i];
                 if (list[i].IsDefault) { pick = list[i]; break; }
             }
-            if (pick == null && list.Count > 0) pick = list[0];
             if (pick == null) return null;
             return SetConfiguredDevice(type, pick);
         }
@@ -372,7 +412,10 @@ namespace JJPortaudio
         /// and terminated. Devices hot-plugged after this call are invisible
         /// until it runs again, which is why the picker has a Refresh button.
         ///
-        /// Only two-channel devices are listed (see <see cref="StereoOnly"/>).
+        /// Every device with channels in a direction is listed in that
+        /// direction's list — channel count is never a filter. See
+        /// <see cref="DeviceInfo.UsableForRadioAudio"/> for which of them the
+        /// engine can open today.
         /// </remarks>
         public static EnumerationStatus Enumerate(out string message)
         {
@@ -462,7 +505,27 @@ namespace JJPortaudio
                         continue;
                     }
 
-                    if (pinfo.maxInputChannels == 2)
+                    // Channel policy (Picker Track, 2026-08-12): list EVERY
+                    // device that has channels in the direction — the count is
+                    // capability, never a filter. A channels==2 test here
+                    // survived the enumeration fix and silently dropped
+                    // exactly the 4-channel devices, among them a laptop's
+                    // only real internal microphone (in=4 under MME,
+                    // DirectSound AND WASAPI), leaving the operator with no
+                    // selectable mic while the per-device trace lines above
+                    // showed it enumerating perfectly. Trace said "22 input"
+                    // while 26 non-WDM-KS inputs enumerated; the missing four
+                    // were precisely the in=4 rows, and nothing logged why.
+                    //
+                    // Devices with more than two channels need no code to
+                    // work: the engine opens streams at StreamChannels==2,
+                    // and PortAudio's documented contract accepts any channel
+                    // count from 1 to the device's maximum — the two-channel
+                    // open IS the downmix. Mono devices cannot satisfy that
+                    // open (PortAudio validates channelCount against the
+                    // device maximum), so they carry UsableForRadioAudio=false
+                    // and every surface says so instead of hiding them.
+                    if (pinfo.maxInputChannels >= 1)
                     {
                         inputs.Add(new DeviceInfo
                         {
@@ -475,7 +538,7 @@ namespace JJPortaudio
                         });
                     }
 
-                    if (pinfo.maxOutputChannels == 2)
+                    if (pinfo.maxOutputChannels >= 1)
                     {
                         outputs.Add(new DeviceInfo
                         {
@@ -504,15 +567,21 @@ namespace JJPortaudio
 
             if (inputs.Count == 0 && outputs.Count == 0)
             {
-                message = StereoOnly
-                    ? "No stereo audio devices were detected. JJ Flex lists two-channel devices only, so a mono microphone will not appear here. Attach or enable a stereo input and output device and choose Refresh."
-                    : "No audio devices were detected. Attach or enable an input and output audio device and choose Refresh.";
-                Tracing.TraceLine("Devices.Enumerate: no usable devices", TraceLevel.Error);
+                message = "No audio devices were detected. Attach or enable an input and output audio device and choose Refresh.";
+                Tracing.TraceLine("Devices.Enumerate: no devices", TraceLevel.Error);
                 return EnumerationStatus.NoDevices;
             }
 
-            Tracing.TraceLine("Devices.Enumerate: " + inputs.Count + " input, "
-                + outputs.Count + " output", TraceLevel.Info);
+            // Count capability explicitly. The regression that hid the
+            // 4-channel devices was diagnosed from this very line reading
+            // "22 input" while 26 inputs enumerated — from now on the summary
+            // says both how many are listed and how many the engine can open,
+            // so a capability gap is visible in one line of trace.
+            int usableIn = inputs.Count(d => d.UsableForRadioAudio);
+            int usableOut = outputs.Count(d => d.UsableForRadioAudio);
+            Tracing.TraceLine("Devices.Enumerate: " + inputs.Count + " input ("
+                + usableIn + " stereo-capable), " + outputs.Count + " output ("
+                + usableOut + " stereo-capable)", TraceLevel.Info);
             return EnumerationStatus.Ok;
         }
 
@@ -536,63 +605,48 @@ namespace JJPortaudio
         /// <param name="arg">Device to match, may be null.</param>
         /// <returns>true if found; arg.DevinfoID is set.</returns>
         /// <remarks>
-        /// PortAudio indexes reorder whenever the device list changes shape — a
-        /// headset moved to another USB port, an interface added or removed.
-        /// Matching on the index would silently bind to whatever device slid
-        /// into that slot, and the worst case there is transmitting from the
-        /// wrong microphone. So the index is never the identity.
+        /// PortAudio indexes are positional: plug in a USB interface and every
+        /// later index shifts, so the DevinfoID stored in audioDevices.xml can
+        /// silently point at a different physical device the next run. Binding
+        /// on it would repoint the microphone with no error and no
+        /// announcement — the worst failure this file can produce. So the
+        /// saved index NEVER creates a match. Identity is name plus host API:
         ///
-        /// Two passes, strict first:
-        ///   1. name + channel counts + host API type id — an exact match, used
-        ///      when the saved entry carries the type id (written since
-        ///      2026-08-07).
-        ///   2. name + channel counts — the pre-2026-08-07 rule. Also the
-        ///      answer when a host API disappears from the system entirely.
-        /// A device that matches by name is the device the user picked, so this
-        /// rebinds silently. Only a genuine no-match returns false, and that is
-        /// the one case the caller announces.
+        ///   1. name + host API type id — the strict pass, used when the saved
+        ///      entry carries the type id (written since 2026-08-07). Channel
+        ///      counts are deliberately NOT part of identity: they are a
+        ///      capability, and a driver update or a Windows format change
+        ///      that turns a 2-channel mic into a 4-channel one should keep
+        ///      the operator's device, not silently discard their choice.
+        ///   2. name + channel counts — the pre-2026-08-07 rule, kept so old
+        ///      config files resolve unchanged. Also the answer when a host
+        ///      API disappears from the system entirely.
+        ///
+        /// The saved index serves exactly one purpose: when several live rows
+        /// match equally (two identically named devices under one host API),
+        /// it breaks the tie toward the row at the remembered position.
+        ///
+        /// Only rows the engine can open (<see
+        /// cref="DeviceInfo.UsableForRadioAudio"/>) can bind, so this can
+        /// never hand the stream path a device whose open must fail.
+        ///
+        /// A device that matches is the device the user picked, so rebinding
+        /// is silent. Only a genuine no-match returns false, and that is the
+        /// one case the caller announces — never a silent substitution.
         /// </remarks>
         public static bool FindDevice(Device arg)
         {
-            if (arg == null) return false;
-            var theList = (arg.Type == DeviceTypes.input) ? InputDevices : OutputDevices;
-
-            if (arg.hostApiTypeId >= 0)
-            {
-                for (int id = 0; id < theList.Count; id++)
-                {
-                    if (Matches(arg, theList[id]) && theList[id].HostApiTypeId == arg.hostApiTypeId)
-                    {
-                        arg.DevinfoID = theList[id].DeviceID;
-                        arg.hostApi = theList[id].Info.hostApi;
-                        return true;
-                    }
-                }
-            }
-
-            for (int id = 0; id < theList.Count; id++)
-            {
-                if (Matches(arg, theList[id]))
-                {
-                    arg.DevinfoID = theList[id].DeviceID;
-                    arg.hostApi = theList[id].Info.hostApi;
-                    return true;
-                }
-            }
-
-            return false;
-        }
-
-        private static bool Matches(Device saved, DeviceInfo live)
-        {
-            return saved.Name == live.Info.name
-                && saved.maxInputChannels == live.Info.maxInputChannels
-                && saved.maxOutputChannels == live.Info.maxOutputChannels;
+            DeviceInfo hit = FindLive(arg);
+            if (hit == null) return false;
+            arg.DevinfoID = hit.DeviceID;
+            arg.hostApi = hit.Info.hostApi;
+            return true;
         }
 
         /// <summary>
         /// Find the live enumeration entry for a saved device, so the picker can
-        /// pre-select it. Null when the saved device is not present.
+        /// pre-select it. Null when the saved device is not present. Same match
+        /// rules as <see cref="FindDevice"/>.
         /// </summary>
         public static DeviceInfo FindLive(Device arg)
         {
@@ -601,19 +655,44 @@ namespace JJPortaudio
 
             if (arg.hostApiTypeId >= 0)
             {
-                for (int id = 0; id < theList.Count; id++)
-                {
-                    if (Matches(arg, theList[id]) && theList[id].HostApiTypeId == arg.hostApiTypeId)
-                        return theList[id];
-                }
+                DeviceInfo hit = BestMatch(arg, theList, requireApi: true);
+                if (hit != null) return hit;
             }
 
-            for (int id = 0; id < theList.Count; id++)
+            return BestMatch(arg, theList, requireApi: false);
+        }
+
+        /// <summary>
+        /// One pass of the match rules. With <paramref name="requireApi"/> the
+        /// identity is name + host API type id; without it, the legacy name +
+        /// exact channel counts rule for files written before the type id
+        /// existed. Either way only stream-capable rows are candidates, and the
+        /// saved DevinfoID acts purely as a tie-breaker among equal matches.
+        /// </summary>
+        private static DeviceInfo BestMatch(Device saved, IReadOnlyList<DeviceInfo> live, bool requireApi)
+        {
+            DeviceInfo first = null;
+            for (int id = 0; id < live.Count; id++)
             {
-                if (Matches(arg, theList[id])) return theList[id];
-            }
+                DeviceInfo d = live[id];
+                if (saved.Name != d.Info.name) continue;
+                if (!d.UsableForRadioAudio) continue;
+                if (requireApi)
+                {
+                    if (d.HostApiTypeId != saved.hostApiTypeId) continue;
+                }
+                else
+                {
+                    if (saved.maxInputChannels != d.Info.maxInputChannels
+                        || saved.maxOutputChannels != d.Info.maxOutputChannels) continue;
+                }
 
-            return null;
+                // The remembered index confirms which of several equal matches
+                // was meant. It cannot create a match on its own.
+                if (d.DeviceID == saved.DevinfoID) return d;
+                if (first == null) first = d;
+            }
+            return first;
         }
     }
 }

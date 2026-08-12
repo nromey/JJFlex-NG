@@ -437,12 +437,24 @@ A few things it now does that it never did:
   saved devices are remembered by name, not by their position in a list that
   reshuffles every time hardware comes and goes. That mattered more than it
   sounds: the old way, a device sliding into a vacated slot could quietly
-  become your transmit microphone.
+  become your transmit microphone. And a driver update that changes how many
+  channels your device reports no longer loses your choice either — the name
+  is what counts. If a saved device truly can't be found, JJ Flex says so;
+  it never quietly swaps in whatever took its place.
 - **It has a Refresh button**, because the device list is a snapshot. Plug
   something in while the dialog is open and Refresh will find it.
-- **It says only stereo devices are listed.** That's a real limitation — a mono
-  microphone won't appear — and it used to just look like JJ Flex couldn't see
-  your headset. Now it says so.
+- **Your laptop's built-in microphone shows up now.** A lot of built-in mics —
+  especially the microphone arrays in newer laptops — report themselves as
+  four-channel devices, and the picker used to quietly leave anything that
+  wasn't exactly stereo off the list. That could make a laptop's only real
+  microphone unselectable, which looked for all the world like JJ Flex couldn't
+  see your hardware. Multi-channel devices are listed now and just work — JJ
+  Flex uses them in stereo, and the dialog tells you when it's doing that.
+- **Mono devices are in the list too, flagged honestly.** Radio audio still
+  needs a two-channel device, so a mono microphone can't be chosen yet — but
+  instead of being invisible, it now appears marked as mono, and if you try to
+  save it JJ Flex explains and asks you to pick another. Seeing your device
+  with a reason beats not seeing it at all.
 
 And a small one: **turning PC audio on now tells you the truth.** If it can't
 start, you hear that it didn't, instead of hearing "PC audio on" while nothing
