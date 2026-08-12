@@ -40,10 +40,24 @@ exactly how the pre-2026-08-11 build came to be five years stale.
 ```bash
 git clone https://gitlab.xiph.org/xiph/opus.git
 cd opus
+git checkout v1.6.1           # <-- the pinned tag; update this line when you bump it
 cmake -S . -B build-x64 -A x64 -DCMAKE_BUILD_TYPE=Release -DOPUS_BUILD_SHARED_LIBRARY=ON
 cmake --build build-x64 --config Release
 # Copy build-x64/Release/opus.dll here AS libopus.dll  (note the rename)
 ```
+
+**Unlike PortAudio, Opus pins to a real tag** — it releases normally, so
+`v1.6.1` is a genuine release rather than a snapshot, and no revision stamp is
+needed because `opus_get_version_string()` already reports `libopus 1.6.1` from
+the tag itself. Do not omit the checkout: without it you build master, and the
+DLL will then claim a version nobody chose.
+
+**Why 1.6.1 specifically:** it fixes reversed math and an integer overflow in
+`compute_stereo_width()`, plus a stereo overflow in `tone_detect()`. Those run
+in the encoder's stereo-analysis pass under `OPUS_APPLICATION_AUDIO` — exactly
+the transmit profile this app uses (stereo, super-wideband, 10 ms frames, about
+70 kbps, chosen to match SmartSDR). They are correctness bugs in the path that
+carries the operator's voice.
 
 **`OPUS_BUILD_SHARED_LIBRARY` defaults OFF** — omit it and you get a static
 `.lib`, not a DLL. The output is named `opus.dll` and must be renamed to
