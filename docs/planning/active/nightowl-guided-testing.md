@@ -34,6 +34,27 @@ Ctrl+Shift+W shadow), they clear automatically and the trace logs a
    focus jumping out from under a dialog, no doubled speech. If a modal is
    up, focus stays in it.
 
+**** PARTIAL (2026-08-10, ~00:5x, radio powered off). Heard, in this order:
+   the radio row content ("Unnamed... local"), THEN "Select radio dialog",
+   THEN "Available radios listbox". Focus stayed put and arrowing worked —
+   no focus jumping, no modal escape. Noel: "not sure if speech is clobbered
+   or not."
+   Two things flagged for triage rather than passed:
+   (a) **Order looks inverted.** A screen reader normally announces dialog,
+   then focused control, then item content. Hearing row content BEFORE the
+   dialog and listbox identification suggests our own explicit Speak is
+   racing NVDA's focus announcement rather than following it. This is the
+   exact "proper order" condition step 1 exists to check.
+   (b) **No welcome line at startup — and that is correct.** Noel confirmed
+   the welcome is only spoken once connected. So this step's wording
+   conflates two checks: the focus/modal conditions (valid with no radio,
+   and they PASS) and welcome-line ordering (not observable here at all).
+   **Doc fix needed:** move the welcome-line clause out of step 1 and into
+   step 11, where a connect actually produces it. Ordering of the startup
+   utterances still gets re-checked at the step 7 relaunch.
+   Note: the row reads "Unnamed" because the 8600 has no nickname yet; that
+   is the known rename gap (step 29), not a step 1 defect.
+
 2. **The selector remembers.** Open the radio selector.
    You should hear: every radio the app has ever seen, even with the rig
    powered off — offline rows say they're offline and when last seen
@@ -43,10 +64,70 @@ Ctrl+Shift+W shadow), they clear automatically and the trace logs a
    the selector too — before any connection it honestly says "No radio
    connected" rather than pretending.
 
+**** FAIL (2026-08-10, radio powered off). Roster memory itself works — the
+   powered-off 8600 is listed and reads as offline. Three defects:
+   (a) **Doubled "last seen."** Heard: "last seen on the local network, last
+   seen 4 hours ago". Noel's wording: "last seen on the local network 4
+   hours ago". Cause is the composition at `RigSelectorDialog.xaml.cs:104-111`
+   — `lastPath` is already "last seen on the local network" and `age`
+   appends ", " + `LastSeenText`, which contains "last seen" a second time.
+   Fix at the composition site: reduce `lastPath` to "on the local network"
+   / "remote via SmartLink" and compose "offline, last seen {lastPath}
+   {age}". Whoever takes it must check what `LastSeenText` actually returns
+   before choosing which half to strip.
+   (b) **Network identity card and account line are present but effectively
+   undiscoverable.** Initially reported as unreachable; on retest Noel got to
+   both by tabbing FORWARD past the whole button column. Nothing is missing
+   or clipped — the problem is that the only short path to them is
+   Shift+Tab, which is broken by (c). Both are correctly built: the card is
+   at `RigSelectorDialog.xaml:135` (Grid.Row 5), the account TextBox at
+   `:118` (Grid.Row 3), and `NetworkIdentityInfo.BuildLines(null)`
+   (`Radios/NetworkIdentityInfo.cs:34-39`) does return "No radio connected."
+   plus a follow-on line, populated from the control's own constructor. So
+   this is NOT the empty-ListBox tab trap and NOT missing wiring.
+   **A layout-overflow theory was raised and DISPROVED** — the fixed
+   `Height="560"` plus base-class `NoResize` was suspected of squeezing the
+   trailing rows to zero. Forward-tabbing reaches them, so nothing is
+   clipped. Noted so the theory is not re-derived. The reachability fix is
+   entirely (c); what remains here is a judgement call on whether the card
+   belongs so late in the tab order, deferred until cycling works.
+   **New defect found during the same retest:** the card is a ListBox, and
+   Noel wants these read-only readouts to be read-only edit fields — an
+   existing convention applied inconsistently (the account line at
+   `RigSelectorDialog.xaml:118` already follows it). Same for the Status
+   dialog's own list, `StatusDialog.xaml:18`. A ListBox announces "list,
+   item 1 of 2" and treats arrows as selection; a read-only edit gives line,
+   word and character navigation plus select-and-copy, which is what a block
+   of sentences wants. Logged as Phase 0.5d.
+   (c) **Shift+Tab does not wrap — and this is systemic, not local.**
+   `JJFlexDialog` (`JJFlexWpf/JJFlexDialog.cs:15`) derives from `Window` and
+   never sets `KeyboardNavigation.TabNavigation`. WPF's default for that
+   property is `Continue`, which does not cycle at either end; a dialog needs
+   `Cycle` to wrap. Nothing in the base class or this dialog's XAML sets it.
+   **This affects every dialog in the app that derives from JJFlexDialog**,
+   so the fix belongs in the base class, where it is one line and repays
+   across every surface. Noel's report — "I can tab forward but I can't
+   shift tab back through all options" — is the expected symptom.
+   Note (b) and (c) compound: even once wrapping works, clipped rows stay
+   unreachable, so both need fixing before a retest means anything.
+
 3. **Row context menu.** On a radio row, press the Applications key.
    You should hear: Connect, Add or Remove Favorite, Auto-Connect
    Settings. Toggle favorite on your 8600; arrow away and back — it should
    now sort at the top and announce as a favorite.
+
+**** BLOCKED (2026-08-10). Could not be tested — **Shift+F10 does not open
+   the row context menu**, it raises what Noel described as "a system tree".
+   No Applications key on the current keyboard (Keychron not yet
+   programmed), so Shift+F10 is the only route and the menu is unreachable.
+   The menu is correctly declared (`RigSelectorDialog.xaml:47-57`), so this
+   is key routing, not a missing menu. Suspect interop: `BridgeForm.vb:16`
+   documents native Alt/F10 menu activation via DefWindowProc and
+   `BridgeForm.vb:81` defines `SC_KEYMENU`, and the WPF dialogs are hosted
+   from a WinForms shell. **Blocks Phase 2 of the roster work**, which makes
+   this menu the keyboard-first door for setting a radio's preferred
+   account. Logged as Phase 0.5e. The favorites-sort check inside this step
+   is blocked with it and still owes a result.
 
 4. **Band Plans lives.** Escape out, open Tools from the menu bar, choose
    Band Plans.

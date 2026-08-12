@@ -51,6 +51,109 @@ bill, no wiretap exposure, no scaling cliff. This is the difference between
 "running a service" and "running SmartLink," and it is a much smaller commitment
 than it first appears.
 
+> **SUPERSEDED 2026-08-10 — "never relay" is wrong and is being replaced.**
+> Noel, after a separate agent discussion and a pass through the WebRTC/ICE
+> reference material: *"we agreed that we are wrong."* A relay tier is in scope.
+> The absolutist framing above was written before that reading and does not
+> reflect the current position.
+>
+> What is settled: NAT traversal will be **ICE-managed** — gather candidates,
+> try everything, and fall back to relay when direct paths fail. That is ICE's
+> standard model rather than a bolt-on, and §16.2 below already observes that
+> Connect's shape matches it.
+>
+> What is NOT settled and is deliberately not written here: who operates the
+> relay and who pays for the bandwidth that "no bandwidth bill" was protecting
+> against. **The replacement section lands after the protocol design discussion
+> (week of 2026-08-10)** and will be placed properly in this document then.
+> Nothing above this line should be cited as current in the meantime.
+>
+> **Reading behind the reversal:**
+> `docs/planning/for-noel/2026-08-05-connect-protocol-reading-list.md`. It
+> already names relay policy as "the biggest decision on our table" (§1) and
+> carries the Tailscale DERP material on **blind relays** as ammunition for it.
+>
+> Note that this splits §2's two objections rather than defeating both, and
+> they are not equally weighty.
+>
+> **The wiretap-exposure objection largely does not apply, on regulatory
+> grounds** (Noel, 2026-08-10): amateur radio carries no expectation of
+> privacy. Transmissions are public by design and by rule — anyone with a
+> receiver hears them, and obscuring their meaning is prohibited. So the
+> traffic that would actually ride a relay is the traffic with no privacy
+> interest to protect: received audio, transmitted audio, IQ. A blind relay
+> is belt-and-braces on top of that, not the load-bearing answer.
+>
+> The residual privacy interest is real but sits **elsewhere in the
+> architecture**: grant records, credentials and tokens, station identity,
+> scheduling. That is broker and signalling traffic, not media — it never
+> touches the relay path, and it is small, so relay policy does not govern
+> it. Worth confirming during the design discussion that no control-plane
+> data rides the media path, since that is the assumption this reasoning
+> rests on. One genuine edge to keep in view: off-air audio captured before
+> transmission (the Audio Workshop's record-and-play-back, mic checks) is not
+> public, because it never went on the air.
+>
+> That leaves **bandwidth as the single real open question** — which is a
+> cost decision, not an architectural one.
+>
+> **Scope constraint, ratified 2026-08-10 (Noel):** *"this protocol should be
+> used for radio connectivity purposes only."* Connect carries ham traffic and
+> control data. Nothing else. If it ever carries personal information beyond
+> those, blind relay becomes mandatory rather than optional.
+>
+> **This boundary is load-bearing, not stylistic.** The reasoning above — that
+> relay privacy is a non-issue — is valid *only* while the media path carries
+> traffic that is public by regulation. The moment the protocol carries
+> something else, the entire relay-privacy analysis has to be redone from the
+> start. Treat any proposal to widen the payload as a trigger to revisit this
+> decision, not as a feature addition.
+>
+> Plausible future features that would breach it: off-air talkback between a
+> guest operator and the station owner; operator-to-operator text chat; file
+> transfer; log data sync, which carries third parties' callsigns and contact
+> details. Each is individually reasonable and each one silently invalidates
+> the argument above.
+>
+> **The trigger fired immediately — talkback is wanted (Noel, same
+> conversation, 2026-08-10).** Text *and* audio chat between guest and station
+> owner, explicitly modelled on BBS "page the sysop". His use cases are
+> operational, not social: *"could you check your antenna switch, I'm not
+> getting signal"* and *"is your amplifier on — mind turning it on, you have
+> amp available and sharable in your radio profile."* Owner presence is
+> user-controlled: available or not, open to chat or not.
+>
+> Three consequences, recorded now so the protocol discussion inherits them
+> rather than rediscovering them:
+>
+> - **Blind relay moves from optional to required**, by Noel's own rule above.
+>   This is private speech between two identified people, not public RF. Note
+>   the bandwidth impact is modest — a voice channel is comparable to a single
+>   slice's audio, not to IQ.
+> - **No Part 97 conflict, and the reasoning inverts.** The encryption
+>   prohibition applies to transmissions on amateur frequencies. A talkback
+>   side-channel is not an amateur transmission, so it may be encrypted — and
+>   given it is private speech, it *should* be. The regulatory argument that
+>   made relay privacy moot for media is the same argument that makes
+>   encryption mandatory here. Confirm the regulatory read with Noel rather
+>   than treating this paragraph as authoritative.
+> - **Permission is a grant field, not a new subsystem.** "Chat permitted" and
+>   owner availability fit the existing model in §2 — all one record, different
+>   fields — alongside the per-guest power ceiling that the amplifier example
+>   already depends on.
+>
+> **Audio is the accessibility-primary form, not the nice-to-have.** Typing
+> mid-QSO is a context switch a screen-reader operator pays for twice. Text
+> chat is the fallback; voice is the one that has to work well.
+>
+> Design of the channel itself belongs to the protocol discussion. This note
+> records only that it is coming and what it costs the relay decision.
+>
+> Motivating case, for whoever writes that section: an operator behind CGNAT
+> has no mapping to punch at all. Rendezvous-only does not degrade for them —
+> it fails completely, and they are exactly the users for whom the product is
+> otherwise worthless.
+
 The transport prerequisite is already built — see the 2026-07-31
 `NegotiatedHolePunchPort` fix (`memory/project_hole_punch_wiring_gap.md`).
 
@@ -1679,9 +1782,13 @@ the wrong place.
 The fit is unusually clean, and it is worth being explicit about because it makes
 this cheaper than it sounds:
 
-- **Rendezvous, never relay** (§2) is WebRTC's native model. The signalling server
+- **Rendezvous-first** (§2) is WebRTC's native model. The signalling server
   exchanges candidates and never touches media; peers connect directly. That is
-  precisely the broker's job description already.
+  precisely the broker's job description already. *(Amended 2026-08-10: this
+  bullet originally read "Rendezvous, never relay." The absolute form is
+  superseded — see the note in §2. Rendezvous-first still holds and is still
+  the right default; what changed is that relay is no longer excluded as the
+  fallback when ICE exhausts direct candidates.)*
 - **ICE is what Connect is already doing.** The protocol requirement to carry both
   internal and external addresses alongside ports is standard ICE candidate
   practice — the broker has to perform candidate exchange for the native client

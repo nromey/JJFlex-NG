@@ -3,6 +3,12 @@
 Design ratified with Noel in conversation, 2026-08-09 afternoon. Supersedes the
 local-list / remote-list split in the radio selector.
 
+**Execution plan:** `docs/planning/active/elmer-beacon-patch.md` — build order,
+verified line references, and a Phase 0 (account resolution) added ahead of
+Stage 1 after the 2026-08-10 bug report. This file stays the design; that file
+is what an implementing session runs from. Three premises below were corrected
+against the tree on 2026-08-10 and are marked inline.
+
 ## Why this exists: the bug that motivated it
 
 On 2026-08-09 (~13:59, trace `JJFlexRadioTrace-20260809-135959.txt`) Noel opened
@@ -84,8 +90,15 @@ where per-radio config already lives.
 
 - `LastSeenViaAccount` — an **observation**. Auto-updated on every sighting,
   descriptive, used for labeling when nothing better exists. *This field already
-  exists* on `RadioConfig` (`RadioConfig.cs:139`, read at
-  `KnownRadioRoster.cs:119`) and is simply never written.
+  exists* on `RadioConfig` (`RadioConfig.cs:143`, read at
+  `KnownRadioRoster.cs:119`). **Corrected 2026-08-10: it is NOT "never written."**
+  `KnownRadioRoster.RecordSighting` writes it at `KnownRadioRoster.cs:222-223`,
+  guarded by `isRemote && accountEmail` — deliberately, since a LAN sighting
+  says nothing about which account reaches a radio remotely and must not erase a
+  known answer. So the observation half of this split already works; only
+  `PreferredAccount` is new. Profiles written before that code landed are still
+  empty, which is why Don's 6300 read unattributed — plan for backfill, not for
+  a broken write path.
 - `PreferredAccount` — a **choice**. Set by the operator, sticky, and **never
   auto-overwritten by a sighting**.
 
@@ -250,8 +263,11 @@ early, and Connect inherits it rather than replacing it.
 
 ## Open
 
-- Does the radio list already have a context menu to extend, or does one need
-  building? Not yet checked.
+- ~~Does the radio list already have a context menu to extend, or does one need
+  building?~~ **Closed 2026-08-10: it exists.** Declared at
+  `RigSelectorDialog.xaml:47-57`, opened via `RadiosBox_ContextMenuOpening`
+  (`RigSelectorDialog.xaml.cs:1093`), already carrying Connect, favorite toggle,
+  and Auto-Connect Settings. Stage 2 adds an item to an existing menu.
 - Keyboard audit applies at Stage 2 (new bindings: context menu, loaded-state
   query). `docs/help/md/keyboard-reference.md` plus Command Finder keywords.
 - Whether a cross-account connect deserves a confirmation step on top of the
