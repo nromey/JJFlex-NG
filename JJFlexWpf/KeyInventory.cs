@@ -380,6 +380,27 @@ public static class KeyInventory
     };
 
     // ────────────────────────────────────────────────────────────────
+    //  Audio Workshop local keys (Threads Track, 2026-08-12). These are
+    //  dialog-local accelerators handled in AudioWorkshopDialog's
+    //  OnPreviewKeyDown — not registry bindings, not global chords. The
+    //  keyboard-reference.md "Audio Workshop" section documents them; this
+    //  registration closes the keyboard audit the Workshop track could not
+    //  finish because it did not own this file.
+    // ────────────────────────────────────────────────────────────────
+    private static readonly FixedKeyEntry[] AudioWorkshopKeys =
+    {
+        new("AudioWorkshop", "Audio Workshop", "Ctrl+Enter", "Start the Audio Check, or stop the one that's running",
+            new[] { "audio", "check", "start", "stop", "transmit", "mic", "microphone",
+                    "hear", "test", "workshop", "levels" }, "Global", "Audio"),
+        new("AudioWorkshop", "Audio Workshop", "Ctrl+S", "Save an audio preset (your TX audio chain settings)",
+            new[] { "save", "preset", "profile", "audio", "chain", "settings", "workshop" }, "Global", "Audio"),
+        new("AudioWorkshop", "Audio Workshop", "Ctrl+O", "Load an audio preset",
+            new[] { "load", "open", "preset", "profile", "audio", "chain", "settings", "workshop" }, "Global", "Audio"),
+        new("AudioWorkshop", "Audio Workshop", "Escape", "While a check is transmitting: first press unkeys and stays, second press closes. Escape never leaves you transmitting",
+            new[] { "escape", "stop", "unkey", "transmit", "close", "workshop" }, "Global", "Audio"),
+    };
+
+    // ────────────────────────────────────────────────────────────────
     //  PTT keys (Home focus), CW message keys, logging radio pane.
     // ────────────────────────────────────────────────────────────────
     private static readonly FixedKeyEntry[] OtherKeys =
@@ -457,6 +478,28 @@ public static class KeyInventory
             Keywords = new[] { "noise", "profile", "profiles", "spectral", "neural", "rnn", "strength",
                                "floor", "capture", "duration", "save", "load", "pc", "reduction", "folder" },
         },
+        // Threads Track (2026-08-12) — the two levels dialogs (Audio Arc
+        // Track A-2's doors). Each stays open while you ride its levels
+        // with Up/Down; Ctrl+J, V volume mode is the fast route to the
+        // same knobs.
+        new FixedKeyEntry
+        {
+            Description = "PC Audio Levels dialog - how loud radio audio plays through this computer (dB boost) and your mic level",
+            KeyDisplay = "Ctrl+J, V is the fast route",
+            Scope = "Radio", Group = "Audio",
+            MenuText = "Audio menu, PC Audio Levels (also Slice menu, Audio)",
+            Keywords = new[] { "pc", "audio", "levels", "level", "volume", "output", "boost", "db",
+                               "computer", "playback", "mic", "microphone", "gain", "loud", "remote" },
+        },
+        new FixedKeyEntry
+        {
+            Description = "On-Radio Levels dialog - the radio's own headphone and line out volumes, and the headphone, line out, and front speaker mutes",
+            KeyDisplay = "Ctrl+J, V is the fast route",
+            Scope = "Radio", Group = "Audio",
+            MenuText = "Audio menu, On-Radio Levels (also Slice menu, Audio)",
+            Keywords = new[] { "on-radio", "radio", "levels", "level", "volume", "headphone", "headphones",
+                               "line", "out", "lineout", "speaker", "jack", "mute", "boost", "audio" },
+        },
     };
 
     /// <summary>
@@ -471,6 +514,7 @@ public static class KeyInventory
         foreach (var e in FilterChords) yield return e;
         foreach (var e in LeaderCommands) yield return e;
         foreach (var e in VolumeModeCommands) yield return e;
+        foreach (var e in AudioWorkshopKeys) yield return e;
         foreach (var e in OtherKeys) yield return e;
     }
 
