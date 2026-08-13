@@ -139,8 +139,37 @@ public partial class AudioWorkshopDialog : JJFlexDialog
     // hook in this dialog (PttControllerSource, AudioConfigSource) is static
     // and wired once in MainWindow, which is why those work; these were the
     // odd ones out. The null-conditional invoke is what let it fail silently.
+    //
+    // Save RETURNS A BOOL, and that is not decoration. As an Action it could
+    // fail — MainWindow no-ops when there is no operator to own the file — and
+    // the dialog had no way to know, so every caller announced success
+    // regardless. That is the same lying receipt in a second costume: the
+    // first version dropped presets because the callback was null, this one
+    // would drop them because the callback declined, and both said "saved".
+    // A save that did not happen must never be announced as one.
     public static Func<AudioChainPresets>? GetPresetsCallback { get; set; }
-    public static Action<AudioChainPresets>? SavePresetsCallback { get; set; }
+    public static Func<AudioChainPresets, bool>? SavePresetsCallback { get; set; }
+
+    /// <summary>
+    /// Persist the preset collection, reporting whether it actually landed.
+    /// False when nothing is wired to save it or the store declined — never
+    /// treat it as success. Speaks nothing itself: each caller knows what it
+    /// was trying to do and says so in its own words.
+    /// </summary>
+    private static bool PersistPresets(AudioChainPresets presets)
+    {
+        return SavePresetsCallback?.Invoke(presets) ?? false;
+    }
+
+    /// <summary>
+    /// What to say when a preset change could not be written. Names the cause
+    /// rather than the symptom: with no operator loaded there is no per-operator
+    /// file to write, and telling someone their preset "could not be saved" and
+    /// stopping there gives them nothing to do about it.
+    /// </summary>
+    private const string PresetSaveFailed =
+        "It could not be saved — there is no operator loaded, so there is no "
+        + "place to keep it yet.";
 
     public AudioWorkshopDialog()
     {
@@ -1912,19 +1941,30 @@ public partial class AudioWorkshopDialog : JJFlexDialog
 
             presets.Presets.RemoveAt(idx);
             listBox.Items.RemoveAt(idx);
-            SavePresetsCallback?.Invoke(presets);
+
+            // A delete that could not be written is a delete that undoes itself
+            // the next time the list is read, so it must not be announced as
+            // done. The list still updates — the operator asked for it and
+            // seeing it linger would be its own lie — but the words say what
+            // will actually be true tomorrow.
+            bool saved = PersistPresets(presets);
+            string outcome = saved
+                ? $"Preset {preset.Name} deleted"
+                : $"Preset {preset.Name} removed from the list, but " + PresetSaveFailed
+                  + " It will be back next time.";
+            var level = saved ? VerbosityLevel.Terse : VerbosityLevel.Critical;
 
             if (listBox.Items.Count == 0)
             {
                 // Nothing left to load — the picker has no job now.
-                ScreenReaderOutput.Speak($"Preset {preset.Name} deleted. No presets left.",
-                    VerbosityLevel.Terse);
+                ScreenReaderOutput.Speak(
+                    saved ? outcome + ". No presets left." : outcome, level);
                 picker.Close();
                 return;
             }
             listBox.SelectedIndex = Math.Min(idx, listBox.Items.Count - 1);
             listBox.Focus();
-            ScreenReaderOutput.Speak($"Preset {preset.Name} deleted", VerbosityLevel.Terse);
+            ScreenReaderOutput.Speak(outcome, level);
         }
 
         // The Delete key on the list is the primary route; the button is the
@@ -2008,8 +2048,11 @@ public partial class AudioWorkshopDialog : JJFlexDialog
             var preset = AudioChainPreset.CaptureFrom(_rig, name);
             var presets = GetPresetsCallback?.Invoke() ?? AudioChainPresets.CreateDefaults();
             presets.Presets.Add(preset);
-            SavePresetsCallback?.Invoke(presets);
-            ScreenReaderOutput.Speak($"Preset {name} saved", VerbosityLevel.Terse);
+            if (PersistPresets(presets))
+                ScreenReaderOutput.Speak($"Preset {name} saved", VerbosityLevel.Terse);
+            else
+                ScreenReaderOutput.Speak($"Preset {name}. " + PresetSaveFailed,
+                    VerbosityLevel.Critical);
             inputDialog.Close();
         };
         cancelBtn.Click += (s2, e2) => inputDialog.Close();
@@ -2086,10 +2129,14 @@ public partial class AudioWorkshopDialog : JJFlexDialog
             preset.Name = $"{baseName} {n++}";
 
         presets.Presets.Add(preset);
-        SavePresetsCallback?.Invoke(presets);
-        ScreenReaderOutput.Speak(
-            $"Imported {preset.FormatForSpeech()}. Added to your saved presets; the radio is unchanged until you load it.",
-            VerbosityLevel.Terse);
+        if (PersistPresets(presets))
+            ScreenReaderOutput.Speak(
+                $"Imported {preset.FormatForSpeech()}. Added to your saved presets; the radio is unchanged until you load it.",
+                VerbosityLevel.Terse);
+        else
+            ScreenReaderOutput.Speak(
+                $"{preset.Name} was read from the file, but " + PresetSaveFailed,
+                VerbosityLevel.Critical);
     }
 
     private void Reset_Click(object sender, RoutedEventArgs e)

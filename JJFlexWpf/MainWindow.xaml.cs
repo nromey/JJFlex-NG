@@ -93,10 +93,14 @@ public partial class MainWindow : UserControl
                 ? Radios.AudioChainPresets.CreateDefaults()
                 : Radios.AudioChainPresets.Load(
                     OpenParms.ConfigDirectory, OpenParms.GetOperatorName());
+        // Returns whether the save actually landed. With no operator there is
+        // no per-operator file to write, and a silent no-op here would put the
+        // dialog straight back to announcing saves that did not happen.
         Dialogs.AudioWorkshopDialog.SavePresetsCallback = presets =>
         {
-            if (OpenParms == null || presets == null) return;
+            if (OpenParms == null || presets == null) return false;
             presets.Save(OpenParms.ConfigDirectory, OpenParms.GetOperatorName());
+            return true;
         };
 
         // Wire braille display focus events
