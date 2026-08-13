@@ -626,7 +626,7 @@ namespace JJFlexWpf.Dialogs
             else
             {
                 summary = $"Microphone check stopped. Loudest sound heard: "
-                    + $"{AudioWorkshopDialog.MicAudioVerdict(final.HoldPeakDb)}, "
+                    + $"{MicAudioReport.Verdict(final.HoldPeakDb)}, "
                     + $"peak {final.HoldPeakDb:F0} dBFS.";
             }
             if (!string.IsNullOrEmpty(reason)) summary = reason + " " + summary;
@@ -690,14 +690,14 @@ namespace JJFlexWpf.Dialogs
             else if (r.RecentPeakDb <= MicProbe.SilenceDb)
             {
                 text = $"Mic audio: quiet right now. Loudest so far: "
-                    + $"{AudioWorkshopDialog.MicAudioVerdict(r.HoldPeakDb)}, {r.HoldPeakDb:F0} dBFS.";
+                    + $"{MicAudioReport.Verdict(r.HoldPeakDb)}, {r.HoldPeakDb:F0} dBFS.";
             }
             else
             {
                 // Same vocabulary the Audio Workshop and the Home fields use,
                 // reading the same kind of number, so one level never gets two
                 // different verdicts depending on where you asked.
-                text = $"Mic audio now: {AudioWorkshopDialog.MicAudioVerdict(r.RecentPeakDb)}, "
+                text = $"Mic audio now: {MicAudioReport.Verdict(r.RecentPeakDb)}, "
                     + $"peak {r.RecentPeakDb:F0} dBFS. Loudest so far {r.HoldPeakDb:F0} dBFS.";
 
                 // A fact, not a second verdict. Measured on the bench: an audio
