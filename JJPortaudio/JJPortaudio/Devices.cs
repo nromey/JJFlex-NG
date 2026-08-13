@@ -218,13 +218,30 @@ namespace JJPortaudio
             public string Connection => ClassifyConnection(Name, HostApiTypeId, Type);
 
             /// <summary>
-            /// What a screen reader should read for this row. The Windows
-            /// default is called out in words rather than by position, because
-            /// "first in the list" is not information you can hear. A mono
-            /// device says so — the row itself carries the reason it cannot
-            /// be chosen, instead of a silent refusal later. A saved device
-            /// that has been unplugged leads with that, because it is the
-            /// single most important thing about the row.
+            /// What a screen reader should read for this row. The device NAME
+            /// comes first (2026-08-13) and every qualifier follows it. Both
+            /// ways a person moves through this list — arrowing and
+            /// type-ahead — charge by the word at the FRONT of the row:
+            /// leading with "System default: " spent the opening words of the
+            /// row most operators want on boilerplate, and WPF's first-letter
+            /// navigation, which matches row text from its first character,
+            /// could never jump to that device by name. The Windows default is
+            /// still called out in words rather than by position, because
+            /// "first in the list" is not information you can hear — it just
+            /// speaks after the name now. A mono device still says so — the
+            /// row itself carries the reason it cannot be chosen, instead of
+            /// a silent refusal later.
+            ///
+            /// Names are passed through untouched. Windows device names have
+            /// no stable format across vendors and drivers, and a transform
+            /// that guesses wrong mangles the one thing the operator actually
+            /// recognises — stripping a leading "Microphone" from "Microphone
+            /// Array" would delete the device's entire identity.
+            ///
+            /// The one row that does NOT lead with its name: a saved device
+            /// that has been unplugged leads with the warning, because for
+            /// the person it applies to that is the single most important
+            /// thing about the row.
             /// </summary>
             /// <remarks>
             /// The host API is named only where it is still a distinguishing
@@ -250,8 +267,12 @@ namespace JJPortaudio
                         : (IsDefault || GroupIsSystemDefault);
 
                     var sb = new StringBuilder();
-                    if (speaksAsDefault) sb.Append("System default: ");
                     sb.Append(Name);
+                    // "system default" is the first qualifier because it is
+                    // the decision-relevant one — the answer to "which do I
+                    // pick if I don't care" — where the connection is merely
+                    // descriptive.
+                    if (speaksAsDefault) sb.Append(", system default");
 
                     string connection = Connection;
                     if (connection.Length > 0) sb.Append(", ").Append(connection);
@@ -279,10 +300,11 @@ namespace JJPortaudio
 
             // A WASAPI loopback input is not a microphone at all — it is
             // whatever your speakers are playing, offered back as a capture
-            // device. It sits in the microphone list looking exactly like a
-            // real input, and choosing it transmits your own received audio.
-            // PortAudio marks it in the name; we say what it means.
-            if (lower.EndsWith("[loopback]"))
+            // device. Basic mode hides these outright (see
+            // HiddenFromBasicPicker); this label is for the advanced view,
+            // where the row is on screen looking exactly like a real input
+            // and choosing it transmits your own received audio.
+            if (IsLoopbackName(name))
                 return "loopback of what this computer is playing, not a microphone";
 
             // The host-API default aliases. Fixed names from PortAudio's MME
@@ -319,6 +341,62 @@ namespace JJPortaudio
         }
 
         /// <summary>
+        /// True of WASAPI loopback capture endpoints. The "[Loopback]" suffix
+        /// is put there by PortAudio's WASAPI backend itself, not by any
+        /// vendor, so testing for it is a fact about the endpoint rather than
+        /// a guess about a naming convention.
+        /// </summary>
+        private static bool IsLoopbackName(string name) =>
+            !string.IsNullOrEmpty(name)
+            && name.TrimEnd().EndsWith("[loopback]", StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// True when the name says the device is a virtual audio cable — a
+        /// software pipe between applications, not hardware anyone talks into
+        /// or listens through. Matched on the vendors' own branding, which
+        /// they embed in every endpoint name ("Line 1 (Virtual Audio Cable)",
+        /// "CABLE Input (VB-Audio Virtual Cable)", VoiceMeeter's VAIO
+        /// endpoints), because that branding is the only stable thing about a
+        /// Windows device name. Deliberately a short list of known products
+        /// and nothing cleverer: a name this does not recognise is treated as
+        /// real hardware, because a wrongly hidden microphone is an operator
+        /// who cannot transmit and does not know why, while a wrongly shown
+        /// cable is one row of clutter. Those costs are not symmetric.
+        /// </summary>
+        private static bool IsVirtualCableName(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return false;
+            string lower = name.ToLowerInvariant();
+            return lower.Contains("virtual audio cable")   // VAC ("Line 1", "Line 2", ...)
+                || lower.Contains("vb-audio")              // VB-Cable and VoiceMeeter endpoints
+                || lower.Contains("voicemeeter");          // VoiceMeeter names that drop the vendor
+        }
+
+        /// <summary>
+        /// True when a group's representative stays off the basic picker.
+        /// Basic mode filters as well as folds (2026-08-13): folding got the
+        /// list to one row per physical device, but on a real machine that
+        /// still left one row for every loopback and virtual-cable endpoint —
+        /// of eight folded inputs on the machine that prompted this, only two
+        /// or three were things a person could talk into. Hidden, never
+        /// removed: these rows stay enumerated, keep resolving saved
+        /// selections, and come back with the advanced toggle — someone
+        /// routing audio through a cable on purpose is exactly who turns that
+        /// toggle on. Same argument that hid the WDM-KS kernel pins on
+        /// 2026-08-11, one step further.
+        ///
+        /// The Windows default is exempt, whatever it is. Someone who set a
+        /// virtual cable as their system-wide input did that deliberately,
+        /// and a basic list with no "system default" row in it reads like a
+        /// broken enumeration.
+        /// </summary>
+        private static bool HiddenFromBasicPicker(DeviceInfo owner)
+        {
+            if (owner.IsDefault || owner.GroupIsSystemDefault) return false;
+            return IsLoopbackName(owner.Name) || IsVirtualCableName(owner.Name);
+        }
+
+        /// <summary>
         /// Last successful input enumeration — EVERY endpoint, one row per host
         /// API. This is the engine's view and the view saved selections resolve
         /// against; the picker shows <see cref="PickerInputDevices"/>.
@@ -333,7 +411,7 @@ namespace JJPortaudio
 
         /// <summary>
         /// The input list a person should be asked to choose from: one row per
-        /// physical device.
+        /// physical device, minus the rows that are not microphones at all.
         /// </summary>
         /// <remarks>
         /// Mic Track, 2026-08-12. A USB interface enumerates once per host API,
@@ -345,6 +423,12 @@ namespace JJPortaudio
         /// silence. The duplicates are not deleted, only folded: each surviving
         /// row carries the rest in <see cref="DeviceInfo.Alternates"/>, and
         /// <see cref="ShowAdvancedDevices"/> shows the unfolded list.
+        ///
+        /// Since 2026-08-13 the folded list is also FILTERED: WASAPI loopbacks
+        /// and virtual audio cables are hidden until the advanced toggle is
+        /// on, because folding alone still showed one row per physical thing
+        /// Windows exposes and most of those are not things anyone can talk
+        /// into. See <see cref="HiddenFromBasicPicker"/>.
         /// </remarks>
         public static IReadOnlyList<DeviceInfo> PickerInputDevices { get; private set; } = new List<DeviceInfo>();
 
@@ -821,8 +905,10 @@ namespace JJPortaudio
         }
 
         /// <summary>
-        /// Fold every endpoint of one physical device into a single row, and
-        /// return the rows a person should choose from.
+        /// Fold every endpoint of one physical device into a single row,
+        /// leave out the rows nobody can talk into (basic mode only — see
+        /// <see cref="HiddenFromBasicPicker"/>), and return the rows a person
+        /// should choose from.
         /// </summary>
         /// <remarks>
         /// Grouping is by device name, normalised for case and whitespace, plus
@@ -903,6 +989,7 @@ namespace JJPortaudio
             }
 
             var picker = new List<DeviceInfo>();
+            var hidden = new List<DeviceInfo>();
             foreach (string key in order)
             {
                 List<DeviceInfo> bucket = byName[key];
@@ -925,7 +1012,38 @@ namespace JJPortaudio
                     if (d.IsDefault) { owner.GroupIsSystemDefault = true; break; }
                 }
 
+                // Basic mode hides what nobody can talk into — see
+                // HiddenFromBasicPicker for the reasoning. This runs AFTER the
+                // group is fully wired, so a saved selection that resolves to
+                // a hidden row still resolves: the row is off the menu, not
+                // gone. The trace line is not optional decoration — every
+                // silently-hidden-device bug this file has ever had was
+                // diagnosed from these lines, or dragged on because one was
+                // missing.
+                if (!ShowAdvancedDevices && HiddenFromBasicPicker(owner))
+                {
+                    Tracing.TraceLine("Devices.BuildPickerList: basic mode hides \"" + owner.Name
+                        + "\" (" + (IsLoopbackName(owner.Name) ? "loopback" : "virtual cable") + ")",
+                        TraceLevel.Info);
+                    hidden.Add(owner);
+                    continue;
+                }
+
                 picker.Add(owner);
+            }
+
+            // If the filter is the only reason the list is empty, the filter
+            // loses. On a machine whose inputs really are all virtual cables
+            // (streaming rigs, VMs), the cable is the closest thing to a
+            // microphone there is, and an empty picker while devices enumerate
+            // would read as "no audio devices" — a lie, and the exact kind of
+            // silent disappearance this file exists to never produce.
+            if (picker.Count == 0 && hidden.Count > 0)
+            {
+                Tracing.TraceLine("Devices.BuildPickerList: the basic-mode filter hid every device; "
+                    + "showing all " + hidden.Count + " rather than an empty list", TraceLevel.Info);
+                picker.AddRange(hidden);
+                hidden.Clear();
             }
 
             if (ShowAdvancedDevices)
@@ -938,7 +1056,9 @@ namespace JJPortaudio
             }
 
             Tracing.TraceLine("Devices.BuildPickerList: " + all.Count + " endpoints folded into "
-                + picker.Count + " device(s)", TraceLevel.Info);
+                + picker.Count + " shown device(s)"
+                + (hidden.Count > 0 ? " plus " + hidden.Count + " hidden (loopback/virtual cable)" : ""),
+                TraceLevel.Info);
             return picker;
         }
 
