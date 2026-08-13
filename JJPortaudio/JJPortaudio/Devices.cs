@@ -117,7 +117,55 @@ namespace JJPortaudio
             public int HostApiTypeId = -1;  // stable PaHostApiTypeId value
             public string HostApiName = "";
 
-            public string Name => Info.name ?? "";
+            // --- Added 2026-08-12 (Mic Track), device-picker grouping ---------
+            // One physical device shows up once per host API — a USB interface
+            // typically appears three times (MME, DirectSound, WASAPI) plus its
+            // kernel pins. Listing every one of them as its own choice is how an
+            // operator ends up picking a dead endpoint. Rows are grouped by
+            // physical device; one row per group is shown, and the rest hang off
+            // it here so nothing is lost and the advanced view can show them all.
+
+            /// <summary>
+            /// The row that represents this physical device in the picker. Every
+            /// member of a group points at the same representative, and the
+            /// representative points at itself. Never null after
+            /// <see cref="Enumerate"/>.
+            /// </summary>
+            public DeviceInfo GroupOwner;
+
+            /// <summary>
+            /// The other endpoints for this same physical device, under other
+            /// host APIs. Empty on non-representative rows.
+            /// </summary>
+            public IReadOnlyList<DeviceInfo> Alternates = new List<DeviceInfo>();
+
+            /// <summary>True when this row is the one the picker shows for its group.</summary>
+            public bool IsGroupOwner => ReferenceEquals(GroupOwner, this);
+
+            /// <summary>
+            /// Set on a synthetic row that stands in for a saved device the
+            /// system no longer reports. It is not openable and must never
+            /// reach the audio engine; it exists so an unplugged interface says
+            /// so in the list instead of silently disappearing from it.
+            /// </summary>
+            public bool IsMissingSaved;
+
+            /// <summary>The saved entry a missing row stands for. Null otherwise.</summary>
+            public Device SavedDevice;
+
+            /// <summary>
+            /// Set on a group's representative when ANY endpoint of that
+            /// physical device is the Windows default. Kept separate from
+            /// <see cref="IsDefault"/>, which stays true of exactly the one
+            /// endpoint PortAudio flagged: PortAudio's default input on the
+            /// development machine was the MME endpoint, so a collapsed list
+            /// showing the WASAPI row would otherwise stop calling the default
+            /// out by name — and copying the flag onto the representative would
+            /// make the advanced list claim two system defaults.
+            /// </summary>
+            public bool GroupIsSystemDefault;
+
+            public string Name => IsMissingSaved ? (SavedDevice?.Name ?? "") : (Info.name ?? "");
             public bool CanInput => Info.maxInputChannels > 0;
             public bool CanOutput => Info.maxOutputChannels > 0;
 
@@ -143,28 +191,168 @@ namespace JJPortaudio
             public bool UsableForRadioAudio => NativeChannels >= StreamChannels;
 
             /// <summary>
+            /// How this device is attached, when Windows tells us plainly
+            /// enough to be worth repeating. Empty when it does not.
+            /// </summary>
+            /// <remarks>
+            /// <para>
+            /// Mic Track, 2026-08-12. Deliberately conservative: a confidently
+            /// wrong label ("Built-in" on someone's USB interface) is worse
+            /// than no label at all, because it is the kind of thing an
+            /// operator will believe over their own hands.
+            /// </para>
+            /// <para>
+            /// <b>Built-in versus a jack is NOT claimed, and that is a
+            /// finding, not an omission.</b> The obvious richer source is the
+            /// Windows Core Audio endpoint property store, and it was tried:
+            /// on the development machine every endpoint — a USB audio
+            /// interface and a set of virtual cables alike — reported form
+            /// factor LineLevel, and the device instance path came back empty
+            /// through the managed property store. A property that answers the
+            /// same for everything answers nothing, so we do not build a claim
+            /// on it. What is left is the device NAME, which is Windows' own
+            /// words for the hardware, and the two or three things it says
+            /// unambiguously.
+            /// </para>
+            /// </remarks>
+            public string Connection => ClassifyConnection(Name, HostApiTypeId, Type);
+
+            /// <summary>
             /// What a screen reader should read for this row. The Windows
             /// default is called out in words rather than by position, because
             /// "first in the list" is not information you can hear. A mono
             /// device says so — the row itself carries the reason it cannot
-            /// be chosen, instead of a silent refusal later.
+            /// be chosen, instead of a silent refusal later. A saved device
+            /// that has been unplugged leads with that, because it is the
+            /// single most important thing about the row.
             /// </summary>
+            /// <remarks>
+            /// The host API is named only where it is still a distinguishing
+            /// fact. Once duplicate endpoints are collapsed (see
+            /// <see cref="PickerInputDevices"/>) the API is plumbing, not a
+            /// choice, and reading "Windows WASAPI" after every single device
+            /// is noise on every arrow press. It comes back in the advanced
+            /// view, where telling the endpoints apart is the entire point.
+            /// </remarks>
             public string Display
             {
                 get
                 {
-                    string apiPart = string.IsNullOrEmpty(HostApiName) ? "" : " (" + HostApiName + ")";
-                    return (IsDefault ? "System default: " : "") + Name + apiPart
-                        + (UsableForRadioAudio ? "" : " — mono, not usable yet");
+                    if (IsMissingSaved)
+                        return "Not connected: " + Name + " — your saved choice, plug it back in or pick another";
+
+                    // Collapsed view: the default belongs to the physical
+                    // device. Advanced view: to the exact endpoint PortAudio
+                    // flagged, because telling endpoints apart is the whole
+                    // point of that view.
+                    bool speaksAsDefault = ShowAdvancedDevices
+                        ? IsDefault
+                        : (IsDefault || GroupIsSystemDefault);
+
+                    var sb = new StringBuilder();
+                    if (speaksAsDefault) sb.Append("System default: ");
+                    sb.Append(Name);
+
+                    string connection = Connection;
+                    if (connection.Length > 0) sb.Append(", ").Append(connection);
+
+                    // Naming the API is useful exactly when more than one row
+                    // for the same hardware is on screen.
+                    if (ShowAdvancedDevices && !string.IsNullOrEmpty(HostApiName))
+                        sb.Append(" (").Append(HostApiName).Append(')');
+
+                    if (!UsableForRadioAudio) sb.Append(" — mono, not usable yet");
+                    return sb.ToString();
                 }
             }
         }
 
-        /// <summary>Last successful input enumeration. Empty until Enumerate runs.</summary>
+        /// <summary>
+        /// Name-derived connection description. See
+        /// <see cref="DeviceInfo.Connection"/> for why this is name-derived and
+        /// why "built-in" is not among the answers.
+        /// </summary>
+        private static string ClassifyConnection(string name, int hostApiTypeId, DeviceTypes type)
+        {
+            if (string.IsNullOrEmpty(name)) return "";
+            string lower = name.ToLowerInvariant();
+
+            // A WASAPI loopback input is not a microphone at all — it is
+            // whatever your speakers are playing, offered back as a capture
+            // device. It sits in the microphone list looking exactly like a
+            // real input, and choosing it transmits your own received audio.
+            // PortAudio marks it in the name; we say what it means.
+            if (lower.EndsWith("[loopback]"))
+                return "loopback of what this computer is playing, not a microphone";
+
+            // The host-API default aliases. Fixed names from PortAudio's MME
+            // and DirectSound backends, so this is a fact, not a guess: they
+            // do not name a device, they follow whatever Windows is set to.
+            if (lower == "microsoft sound mapper - input"
+                || lower == "microsoft sound mapper - output"
+                || lower == "primary sound capture driver"
+                || lower == "primary sound driver")
+            {
+                return "follows your Windows default, whatever that is";
+            }
+
+            if (lower.Contains("bluetooth") || lower.Contains("bth")) return "Bluetooth";
+            if (lower.Contains("hdmi")) return "HDMI";
+            if (lower.Contains("displayport")) return "DisplayPort";
+            if (HasWord(lower, "usb")) return "USB";
+            return "";
+        }
+
+        /// <summary>Whole-word match, so "usb" does not fire inside "busbar".</summary>
+        private static bool HasWord(string haystack, string word)
+        {
+            int at = 0;
+            while ((at = haystack.IndexOf(word, at, StringComparison.Ordinal)) >= 0)
+            {
+                bool leftOk = (at == 0) || !char.IsLetterOrDigit(haystack[at - 1]);
+                int end = at + word.Length;
+                bool rightOk = (end >= haystack.Length) || !char.IsLetterOrDigit(haystack[end]);
+                if (leftOk && rightOk) return true;
+                at = end;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Last successful input enumeration — EVERY endpoint, one row per host
+        /// API. This is the engine's view and the view saved selections resolve
+        /// against; the picker shows <see cref="PickerInputDevices"/>.
+        /// </summary>
         public static IReadOnlyList<DeviceInfo> InputDevices { get; private set; } = new List<DeviceInfo>();
 
-        /// <summary>Last successful output enumeration. Empty until Enumerate runs.</summary>
+        /// <summary>
+        /// Last successful output enumeration — EVERY endpoint. See
+        /// <see cref="InputDevices"/>.
+        /// </summary>
         public static IReadOnlyList<DeviceInfo> OutputDevices { get; private set; } = new List<DeviceInfo>();
+
+        /// <summary>
+        /// The input list a person should be asked to choose from: one row per
+        /// physical device.
+        /// </summary>
+        /// <remarks>
+        /// Mic Track, 2026-08-12. A USB interface enumerates once per host API,
+        /// so a single Focusrite arrives as three identical-looking choices
+        /// (MME, DirectSound, WASAPI) and a multi-input interface multiplies
+        /// that by its channel pairs — the development machine listed 26 input
+        /// rows for what a person would call four devices. Choosing correctly
+        /// out of that is guesswork, and guessing wrong means transmitting
+        /// silence. The duplicates are not deleted, only folded: each surviving
+        /// row carries the rest in <see cref="DeviceInfo.Alternates"/>, and
+        /// <see cref="ShowAdvancedDevices"/> shows the unfolded list.
+        /// </remarks>
+        public static IReadOnlyList<DeviceInfo> PickerInputDevices { get; private set; } = new List<DeviceInfo>();
+
+        /// <summary>
+        /// The output list a person should be asked to choose from: one row per
+        /// physical device. See <see cref="PickerInputDevices"/>.
+        /// </summary>
+        public static IReadOnlyList<DeviceInfo> PickerOutputDevices { get; private set; } = new List<DeviceInfo>();
 
         /// <summary>
         /// Channel count of the radio-audio stream itself: the engine
@@ -433,6 +621,16 @@ namespace JJPortaudio
         // is a pre-existing condition, not one introduced here.
         private static readonly object EnumerationLock = new object();
 
+        /// <summary>
+        /// The lock every Pa_Initialize / Pa_Terminate pair in this assembly
+        /// takes. Exposed (Mic Track, 2026-08-12) so <see cref="MicProbe"/>
+        /// mutates the same reference count under the same lock this class
+        /// does — the probe holds an initialisation open for the length of a
+        /// microphone check, which is safe precisely because the count is
+        /// reference-counted, and unsafe if two threads race the count itself.
+        /// </summary>
+        internal static object PortAudioLifecycleLock => EnumerationLock;
+
         private static EnumerationStatus EnumerateLocked(out string message)
         {
             message = "";
@@ -565,6 +763,9 @@ namespace JJPortaudio
             InputDevices = inputs;
             OutputDevices = outputs;
 
+            PickerInputDevices = BuildPickerList(inputs);
+            PickerOutputDevices = BuildPickerList(outputs);
+
             if (inputs.Count == 0 && outputs.Count == 0)
             {
                 message = "No audio devices were detected. Attach or enable an input and output audio device and choose Refresh.";
@@ -583,6 +784,286 @@ namespace JJPortaudio
                 + usableIn + " stereo-capable), " + outputs.Count + " output ("
                 + usableOut + " stereo-capable)", TraceLevel.Info);
             return EnumerationStatus.Ok;
+        }
+
+        // ------------------------------------------------- picker grouping
+
+        /// <summary>
+        /// MME device names are truncated by Windows to 31 characters
+        /// (MAXPNAMELEN is 32 including the terminator). Confirmed against a
+        /// live trace, where "Mic | Line | Instrument 1 (Audient EVO8)" arrived
+        /// from DirectSound and WASAPI in full and from MME as
+        /// "Mic | Line | Instrument 1 (Audi" — exactly 31 characters. Without
+        /// allowing for it, an exact-name grouping leaves every long-named
+        /// device with a stray MME twin that looks like a second device.
+        /// </summary>
+        private const int MmeNameLimit = 31;
+
+        /// <summary>
+        /// Preference among host APIs when one physical device offers several.
+        /// WASAPI is the modern Windows path and reports device names in full;
+        /// DirectSound next; MME last of the real three because it is the one
+        /// that truncates names. WDM-KS ranks below everything — those are raw
+        /// kernel pins, hidden entirely unless the advanced toggle is on, and
+        /// they must never be chosen as a group's representative when any
+        /// ordinary endpoint exists.
+        /// </summary>
+        private static int HostApiRank(int hostApiTypeId)
+        {
+            switch (hostApiTypeId)
+            {
+                case 13: return 0;  // paWASAPI
+                case 1:  return 1;  // paDirectSound
+                case 2:  return 2;  // paMME
+                case 11: return 4;  // paWDMKS
+                default: return 3;
+            }
+        }
+
+        /// <summary>
+        /// Fold every endpoint of one physical device into a single row, and
+        /// return the rows a person should choose from.
+        /// </summary>
+        /// <remarks>
+        /// Grouping is by device name, normalised for case and whitespace, plus
+        /// one extra rule for MME truncation (see <see cref="MmeNameLimit"/>): a
+        /// short name that is a prefix of exactly ONE longer name is the same
+        /// device seen through MME. "Exactly one" matters — where a prefix
+        /// matches several longer names the answer is genuinely ambiguous, and
+        /// merging on a guess would hide a real device behind an unrelated one,
+        /// so an ambiguous prefix stays its own row.
+        ///
+        /// Channel counts are NOT part of the key. The same interface reports
+        /// different channel counts under different host APIs, and one physical
+        /// device is one choice regardless.
+        /// </remarks>
+        private static List<DeviceInfo> BuildPickerList(List<DeviceInfo> all)
+        {
+            // Every row starts as its own group owner, so nothing is ever left
+            // with a null owner even if grouping bails out below.
+            foreach (DeviceInfo d in all)
+            {
+                d.GroupOwner = d;
+                d.Alternates = new List<DeviceInfo>();
+            }
+
+            var byName = new Dictionary<string, List<DeviceInfo>>(StringComparer.Ordinal);
+            var order = new List<string>();
+            foreach (DeviceInfo d in all)
+            {
+                string key = NormalizeName(d.Name);
+                if (!byName.TryGetValue(key, out List<DeviceInfo> bucket))
+                {
+                    bucket = new List<DeviceInfo>();
+                    byName[key] = bucket;
+                    order.Add(key);
+                }
+                bucket.Add(d);
+            }
+
+            // Fold truncated MME names into their full-length twin.
+            foreach (string shortKey in new List<string>(order))
+            {
+                // A truncated MME name is 31 characters; allow 30 too, because
+                // normalising trims a trailing space off a name that was cut
+                // mid-word. Anything shorter was never truncated.
+                if (shortKey.Length < MmeNameLimit - 1) continue;
+                if (!byName.TryGetValue(shortKey, out List<DeviceInfo> shortBucket)) continue;
+                if (shortBucket.Count == 0) continue;
+                // Only a bucket made up ENTIRELY of MME rows can be a
+                // truncation artefact; anything else is a real device that
+                // simply has a long name.
+                bool allMme = shortBucket.TrueForAll(d => d.HostApiTypeId == 2);
+                if (!allMme) continue;
+
+                string target = null;
+                int hits = 0;
+                foreach (string candidate in order)
+                {
+                    if (ReferenceEquals(candidate, shortKey) || candidate == shortKey) continue;
+                    if (candidate.Length <= shortKey.Length) continue;
+                    if (!candidate.StartsWith(shortKey, StringComparison.Ordinal)) continue;
+                    if (!byName.TryGetValue(candidate, out List<DeviceInfo> t) || t.Count == 0) continue;
+                    target = candidate;
+                    if (++hits > 1) break;
+                }
+                if (hits != 1 || target == null)
+                {
+                    if (hits > 1)
+                    {
+                        Tracing.TraceLine("Devices.BuildPickerList: \"" + shortBucket[0].Name
+                            + "\" is a prefix of more than one device name; leaving it as its own row",
+                            TraceLevel.Info);
+                    }
+                    continue;
+                }
+
+                byName[target].AddRange(shortBucket);
+                shortBucket.Clear();
+            }
+
+            var picker = new List<DeviceInfo>();
+            foreach (string key in order)
+            {
+                List<DeviceInfo> bucket = byName[key];
+                if (bucket.Count == 0) continue;   // folded into another group
+
+                DeviceInfo owner = ChooseRepresentative(bucket);
+                var alternates = new List<DeviceInfo>();
+                foreach (DeviceInfo d in bucket)
+                {
+                    d.GroupOwner = owner;
+                    if (!ReferenceEquals(d, owner)) alternates.Add(d);
+                }
+                owner.Alternates = alternates;
+
+                // The Windows default belongs to the physical device, not to
+                // the endpoint that happened to carry the flag.
+                owner.GroupIsSystemDefault = false;
+                foreach (DeviceInfo d in bucket)
+                {
+                    if (d.IsDefault) { owner.GroupIsSystemDefault = true; break; }
+                }
+
+                picker.Add(owner);
+            }
+
+            if (ShowAdvancedDevices)
+            {
+                // Advanced view: every endpoint, still grouped (so a saved
+                // device resolves the same way), just nothing hidden.
+                Tracing.TraceLine("Devices.BuildPickerList: advanced view, showing all "
+                    + all.Count + " endpoints", TraceLevel.Info);
+                return new List<DeviceInfo>(all);
+            }
+
+            Tracing.TraceLine("Devices.BuildPickerList: " + all.Count + " endpoints folded into "
+                + picker.Count + " device(s)", TraceLevel.Info);
+            return picker;
+        }
+
+        /// <summary>
+        /// Pick the endpoint that speaks for a physical device: best host API
+        /// first, then the one the engine can actually open, then the Windows
+        /// default. A representative the engine cannot open would be a row that
+        /// refuses every time it is chosen.
+        /// </summary>
+        private static DeviceInfo ChooseRepresentative(List<DeviceInfo> bucket)
+        {
+            DeviceInfo best = null;
+            foreach (DeviceInfo d in bucket)
+            {
+                if (best == null) { best = d; continue; }
+
+                bool dUsable = d.UsableForRadioAudio;
+                bool bestUsable = best.UsableForRadioAudio;
+                if (dUsable != bestUsable)
+                {
+                    if (dUsable) best = d;
+                    continue;
+                }
+
+                int dRank = HostApiRank(d.HostApiTypeId);
+                int bestRank = HostApiRank(best.HostApiTypeId);
+                if (dRank != bestRank)
+                {
+                    if (dRank < bestRank) best = d;
+                    continue;
+                }
+
+                if (d.IsDefault && !best.IsDefault) best = d;
+            }
+            return best;
+        }
+
+        /// <summary>Case- and whitespace-insensitive form of a device name.</summary>
+        private static string NormalizeName(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return "";
+            var sb = new StringBuilder(name.Length);
+            bool lastWasSpace = false;
+            foreach (char c in name.Trim())
+            {
+                if (char.IsWhiteSpace(c))
+                {
+                    if (!lastWasSpace) sb.Append(' ');
+                    lastWasSpace = true;
+                }
+                else
+                {
+                    sb.Append(char.ToLowerInvariant(c));
+                    lastWasSpace = false;
+                }
+            }
+            return sb.ToString();
+        }
+
+        /// <summary>
+        /// The picker row that stands for a saved device: its group's
+        /// representative when the saved endpoint is present, otherwise null.
+        /// </summary>
+        /// <remarks>
+        /// A saved MME endpoint and the WASAPI row now shown for the same
+        /// hardware are the same microphone to the person who chose it, so the
+        /// picker must land on that row rather than announcing that their
+        /// device has gone missing.
+        /// </remarks>
+        public static DeviceInfo FindPickerRow(Device saved)
+        {
+            DeviceInfo live = FindLive(saved);
+            if (live == null) return null;
+            // The advanced view lists endpoints, so it must land on the exact
+            // endpoint that was saved — that is the fact someone opened that
+            // view to see.
+            if (ShowAdvancedDevices) return live;
+            return live.GroupOwner ?? live;
+        }
+
+        /// <summary>
+        /// True when <paramref name="row"/> represents the same physical device
+        /// as <paramref name="saved"/> — so a picker OK can leave a working
+        /// configuration alone instead of rewriting it to a different endpoint
+        /// of the same hardware.
+        /// </summary>
+        public static bool SameDevice(Device saved, DeviceInfo row)
+        {
+            if (saved == null || row == null || row.IsMissingSaved) return false;
+
+            DeviceInfo savedLive = FindLive(saved);
+            if (savedLive == null) return false;
+
+            // In the advanced view the operator is choosing an ENDPOINT on
+            // purpose — that is the only reason to be in that view — so
+            // "unchanged" there means the very same endpoint. In the collapsed
+            // view they are choosing a piece of hardware, and any endpoint of
+            // it means their configuration is already right.
+            if (ShowAdvancedDevices) return ReferenceEquals(savedLive, row);
+
+            DeviceInfo savedOwner = savedLive.GroupOwner ?? savedLive;
+            DeviceInfo rowOwner = row.GroupOwner ?? row;
+            return ReferenceEquals(savedOwner, rowOwner);
+        }
+
+        /// <summary>
+        /// A stand-in row for a saved device the system no longer reports, so
+        /// an unplugged interface says so in the list rather than vanishing
+        /// from it. Not openable, never handed to the audio engine, and never
+        /// part of <see cref="InputDevices"/> / <see cref="OutputDevices"/>.
+        /// </summary>
+        public static DeviceInfo MissingSavedRow(Device saved)
+        {
+            if (saved == null) return null;
+            return new DeviceInfo
+            {
+                Info = new PortAudio.PaDeviceInfo(),
+                Type = saved.Type,
+                DeviceID = -1,
+                IsDefault = false,
+                IsMissingSaved = true,
+                SavedDevice = saved,
+                HostApiTypeId = saved.hostApiTypeId,
+                HostApiName = saved.hostApiName ?? ""
+            };
         }
 
         private static void MoveDefaultFirst(List<DeviceInfo> list)
