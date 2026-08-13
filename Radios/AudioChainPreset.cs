@@ -77,24 +77,38 @@ public class AudioChainPreset
     }
 
     /// <summary>
-    /// Load a single preset from file.
+    /// Load a single preset from file, reporting failure instead of masking it.
+    /// This was Load(filePath), which answered a missing or corrupt file with a
+    /// default-valued preset — a contract that sat unused until Import became
+    /// its first caller, and Import is exactly where that contract is wrong: an
+    /// operator handed a bad file must hear so, not receive a silently blank
+    /// preset that then gets "imported" as if the file had been read. No caller
+    /// ever depended on the forgiving shape, so it was changed rather than
+    /// worked around. (The collection-level AudioChainPresets.Load keeps its
+    /// fall-back-to-defaults contract on purpose — that one reads the app's own
+    /// per-operator store, where defaults ARE the right answer for a fresh
+    /// install.)
     /// </summary>
-    public static AudioChainPreset Load(string filePath)
+    public static bool TryLoad(string filePath, out AudioChainPreset preset)
     {
+        preset = new AudioChainPreset();
         if (!File.Exists(filePath))
-            return new AudioChainPreset();
+            return false;
 
         try
         {
             using var fs = File.OpenRead(filePath);
             var serializer = new XmlSerializer(typeof(AudioChainPreset));
-            var preset = (AudioChainPreset?)serializer.Deserialize(fs);
-            return preset ?? new AudioChainPreset();
+            var loaded = (AudioChainPreset?)serializer.Deserialize(fs);
+            if (loaded == null)
+                return false;
+            preset = loaded;
+            return true;
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Trace.WriteLine($"AudioChainPreset.Load failed: {ex.Message}");
-            return new AudioChainPreset();
+            System.Diagnostics.Trace.WriteLine($"AudioChainPreset.TryLoad failed: {ex.Message}");
+            return false;
         }
     }
 
