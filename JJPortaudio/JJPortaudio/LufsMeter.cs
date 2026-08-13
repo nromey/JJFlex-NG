@@ -67,6 +67,20 @@ namespace JJPortaudio
         // the oldest half is dropped; a calibration sample is seconds long, so
         // this exists only to bound memory on a forgotten meter.
         private const int MaxBlocks = 72000;
+        // --- Noise-floor estimate (Levels Track, 2026-08-12) -----------------
+        // The blocks the gate THROWS AWAY are the quiet stretches between
+        // words, and their level is the thing nobody was reading. A low
+        // percentile of the block distribution is the standard robust estimate
+        // of a noise floor: it lands in the quiet population without being the
+        // single quietest block (which is noise on the noise). 10% of blocks
+        // sit at or below it.
+        private const double NoiseFloorPercentile = 0.10;
+        // Blocks needed before the floor estimate means anything. Blocks land
+        // one per 100 ms once the first 400 ms has filled, so 30 blocks is
+        // ~3.3 s of transmit — long enough to contain several word gaps.
+        // Below this the profile reports invalid rather than guessing, because
+        // a two-word radio check genuinely does not carry the evidence.
+        public const int MinProfileBlocks = 30;
 
         // --- K-weighting filter (two biquads per channel, double precision) --
         private double _fs;                 // sample rate the coefficients are for
@@ -126,33 +140,32 @@ namespace JJPortaudio
         /// <see cref="ResetIntegrated"/>. Computed on demand — cheap enough for
         /// a readout, not meant to be polled from a tight loop.
         /// </summary>
-        public float IntegratedLufs
+        public float IntegratedLufs => GatedLoudness(SnapshotBlocks());
+
+        /// <summary>The BS.1770-4 two-stage gated mean of a block-power set.</summary>
+        private static float GatedLoudness(double[] blocks)
         {
-            get
+            if (blocks.Length == 0) return Floor;
+
+            // Stage 1: absolute gate.
+            double absGatePower = PowerFromLoudness(AbsoluteGateLufs);
+            double sum = 0.0; int n = 0;
+            foreach (double p in blocks)
             {
-                double[] blocks = SnapshotBlocks();
-                if (blocks.Length == 0) return Floor;
-
-                // Stage 1: absolute gate.
-                double absGatePower = PowerFromLoudness(AbsoluteGateLufs);
-                double sum = 0.0; int n = 0;
-                foreach (double p in blocks)
-                {
-                    if (p > absGatePower) { sum += p; n++; }
-                }
-                if (n == 0) return Floor;
-
-                // Stage 2: relative gate, 10 LU below the absolute-gated mean.
-                double relGatePower = PowerFromLoudness(
-                    LoudnessFromPower(sum / n) - RelativeGateLu);
-                sum = 0.0; n = 0;
-                foreach (double p in blocks)
-                {
-                    if (p > absGatePower && p > relGatePower) { sum += p; n++; }
-                }
-                if (n == 0) return Floor;
-                return ClampToFloor(LoudnessFromPower(sum / n));
+                if (p > absGatePower) { sum += p; n++; }
             }
+            if (n == 0) return Floor;
+
+            // Stage 2: relative gate, 10 LU below the absolute-gated mean.
+            double relGatePower = PowerFromLoudness(
+                LoudnessFromPower(sum / n) - RelativeGateLu);
+            sum = 0.0; n = 0;
+            foreach (double p in blocks)
+            {
+                if (p > absGatePower && p > relGatePower) { sum += p; n++; }
+            }
+            if (n == 0) return Floor;
+            return ClampToFloor(LoudnessFromPower(sum / n));
         }
 
         /// <summary>
@@ -169,6 +182,75 @@ namespace JJPortaudio
                 double sum = 0.0;
                 foreach (double p in blocks) sum += p;
                 return ClampToFloor(LoudnessFromPower(sum / blocks.Length));
+            }
+        }
+
+        /// <summary>
+        /// Number of 400 ms block powers held since the last
+        /// <see cref="ResetIntegrated"/>. Unlike <see cref="HasRecentData"/>
+        /// this survives the stream stopping, so it is the honest "is there a
+        /// finished sample to report on" test after an unkey.
+        /// </summary>
+        public int IntegratedBlockCount
+        {
+            get { lock (_blockLock) return _blockPowers.Count; }
+        }
+
+        /// <summary>
+        /// The whole-sample loudness picture: how loud the speech is, how loud
+        /// whatever runs underneath it is, and the distance between the two.
+        /// <see cref="SpeechToNoiseLu"/> is the interesting figure — a level
+        /// that reads healthy with only a few LU of daylight under it is a
+        /// microphone hearing a room rather than a person.
+        /// </summary>
+        public readonly struct LoudnessProfile
+        {
+            internal LoudnessProfile(float speech, float noiseFloor, int blocks, bool valid)
+            {
+                SpeechLufs = speech;
+                NoiseFloorLufs = noiseFloor;
+                BlockCount = blocks;
+                IsValid = valid;
+            }
+
+            /// <summary>Gated loudness — the same figure as <see cref="IntegratedLufs"/>.</summary>
+            public float SpeechLufs { get; }
+
+            /// <summary>Loudness of the quiet stretches: the low percentile of
+            /// the 400 ms block distribution, i.e. the level the gate discards.</summary>
+            public float NoiseFloorLufs { get; }
+
+            /// <summary>How many 400 ms blocks the estimate rests on.</summary>
+            public int BlockCount { get; }
+
+            /// <summary>False when the sample is too short or held no signal at
+            /// all. Consumers must not report figures from an invalid profile.</summary>
+            public bool IsValid { get; }
+
+            /// <summary>Speech level minus noise floor, in LU (1 LU = 1 dB).
+            /// Large is good: the voice stands well clear of the room.</summary>
+            public float SpeechToNoiseLu => SpeechLufs - NoiseFloorLufs;
+        }
+
+        /// <summary>
+        /// Speech level, noise floor, and the gap between them, computed from
+        /// one snapshot of the block history so the three figures can never
+        /// disagree with each other. See <see cref="LoudnessProfile"/>.
+        /// </summary>
+        public LoudnessProfile Profile
+        {
+            get
+            {
+                double[] blocks = SnapshotBlocks();
+                if (blocks.Length < MinProfileBlocks)
+                    return new LoudnessProfile(Floor, Floor, blocks.Length, false);
+
+                float speech = GatedLoudness(blocks);
+                // Sorting is safe: SnapshotBlocks hands back a private copy.
+                Array.Sort(blocks);
+                int idx = (int)Math.Round(NoiseFloorPercentile * (blocks.Length - 1));
+                float noise = ClampToFloor(LoudnessFromPower(blocks[idx]));
+                return new LoudnessProfile(speech, noise, blocks.Length, speech > Floor);
             }
         }
 
