@@ -24,9 +24,13 @@ automatically:
 
 Inside that folder:
 
-- `JJFlex_4.1.16.829_x64_debug.zip` — the build, timestamped
-- `NOTES-4.1.16.829-debug.txt` — the short operator-facing summary
+- `JJFlex_4.1.16.829_x64_debug_20260813-0501.zip` — the build, 75.7 MB
+- `NOTES-4.1.16.829-debug_20260813-0501.txt` — the short operator-facing summary
 - `jjflexible.exe` and `jjflexible.pdb` — loose, for symbolicating a crash
+
+The zip and NOTES carry a timestamp because they are never overwritten — if a
+second build lands under this same version today, both copies survive and the
+timestamp is what tells them apart. The loose exe and pdb do get refreshed.
 
 **This was deliberately NOT published to Dropbox.** Dropbox `debug\` is the
 tester broadcast channel — that is Don's copy, and pushing to it is a decision
