@@ -96,9 +96,19 @@ Everything else in the test file can follow from there.
 
 ## Reporting back
 
-Annotate the test file in the `**** ` slots and hand it back, same as any
-for-noel pull. Or say "walk me through these" and I will run them one at a
-time in chat instead — same tests, no file.
+**Report to the session on the dev box, not to a Claude on the laptop.** That
+session made this morning's fix, knows what each test is actually probing, and
+has the repo and the build in front of it — a laptop session would start from
+this document alone, which is a summary rather than the reasoning. The laptop
+is the device under test; it does not need to be where the work happens.
+
+Both this file and the test file are on the NAS alongside the build, so the
+round-trip is: annotate the test file in the `**** ` slots on the laptop, save
+it back to the NAS folder, and the dev-box session reads it from there.
+
+Or just come back to the desk and say "walk me through these" and I will run
+them one at a time in chat — same tests, no file at all. That is usually
+faster for anything fiddly.
 
 If something crashes, the trace is at
 `%AppData%\JJFlexRadio\JJFlexRadioTrace.txt`, and the loose `.pdb` on the NAS
