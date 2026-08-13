@@ -83,6 +83,29 @@ namespace JJPortaudio
             /// <summary>Loudest peak seen since the check started, dBFS.</summary>
             public float HoldPeakDb { get; init; }
             /// <summary>
+            /// Loudness over the last three seconds, LUFS, K-weighted per
+            /// BS.1770 — the same measure, from the same meter class, as the
+            /// transmit path's loudness figures, so one voice never gets two
+            /// vocabularies depending on which stage measured it.
+            /// <see cref="LufsMeter.Floor"/> until enough audio has flowed.
+            /// </summary>
+            /// <remarks>
+            /// Mic Level Track, 2026-08-13. Peak was the only figure here, and
+            /// peak answers exactly one question — "am I clipping" — while the
+            /// check is the one place an operator is actually SETTING a level.
+            /// Peak cannot say when they have stopped being too quiet; that is
+            /// loudness's job, and it was absent at the only stage where the
+            /// Windows input level can still fix it.
+            /// </remarks>
+            public float ShortTermLufs { get; init; }
+            /// <summary>
+            /// Gated loudness of the whole check so far, LUFS — the BS.1770
+            /// integrated figure, which discards the silent gaps between
+            /// words. The number to report when a check ends.
+            /// <see cref="LufsMeter.Floor"/> when nothing gated in yet.
+            /// </summary>
+            public float IntegratedLufs { get; init; }
+            /// <summary>
             /// False when every sample captured so far has been exactly zero.
             /// A real microphone always has a noise floor, so an unbroken run of
             /// digital zeroes is Windows feeding us silence, not a quiet room —
@@ -130,6 +153,13 @@ namespace JJPortaudio
 
         private float _windowPeak;      // peak since the last Read()
         private float _holdPeak;        // peak for the whole check
+        // Loudness for the check. A fresh instance per Start rather than a
+        // reset: the meter's sliding windows and filter state belong to one
+        // continuous capture, and a new object is the reset that cannot be
+        // done halfway. Written by the capture thread via Process (internally
+        // thread-safe); read from Read() through volatile getters.
+        private LufsMeter _lufs = new LufsMeter();
+        private float[] _lufsScratch;   // mono→stereo expansion, capture thread only
         private bool _anySound;
         private long _frames;
         private long _overflows;
@@ -166,6 +196,7 @@ namespace JJPortaudio
                 _stopRequested = false;
                 _windowPeak = 0f;
                 _holdPeak = 0f;
+                _lufs = new LufsMeter();
                 _anySound = false;
                 _frames = 0;
                 _overflows = 0;
@@ -264,6 +295,8 @@ namespace JJPortaudio
                     FaultMessage = _faultMessage,
                     RecentPeakDb = ToDb(window),
                     HoldPeakDb = ToDb(_holdPeak),
+                    ShortTermLufs = _lufs.ShortTermLufs,
+                    IntegratedLufs = _lufs.IntegratedLufs,
                     AnySound = _anySound,
                     Frames = _frames,
                     Seconds = (_sampleRate > 0) ? (double)_frames / _sampleRate : 0.0,
@@ -412,6 +445,7 @@ namespace JJPortaudio
                     }
 
                     Accumulate(buffer, (int)chunkFrames * channels, (int)chunkFrames);
+                    FeedLoudnessMeter(buffer, (int)chunkFrames, channels, (uint)rate);
                 }
             }
             catch (Exception ex)
@@ -467,7 +501,8 @@ namespace JJPortaudio
                 {
                     Tracing.TraceLine("MicProbe: check ended after " + _frames + " frames, "
                         + _overflows + " overflow(s), peak "
-                        + ToDb(_holdPeak).ToString("F1") + " dBFS, any sound: " + _anySound,
+                        + ToDb(_holdPeak).ToString("F1") + " dBFS, loudness "
+                        + _lufs.IntegratedLufs.ToString("F1") + " LUFS, any sound: " + _anySound,
                         TraceLevel.Info);
                 }
                 _running = false;
@@ -502,6 +537,41 @@ namespace JJPortaudio
                 if (sound) _anySound = true;
                 _frames += frames;
             }
+        }
+
+        /// <summary>
+        /// Hand one captured chunk to the loudness meter. Capture thread only.
+        /// </summary>
+        /// <remarks>
+        /// Mic Level Track, 2026-08-13. The meter is the same LufsMeter the
+        /// transmit path runs — same K-weighting, same gating — fed here with
+        /// the same shapes the TX path carries: a stereo capture goes in as it
+        /// arrived, and a mono device is duplicated onto both channels, which
+        /// is how the TX stream carries a mono mic. For identical L/R content
+        /// BS.1770's channel-power sum lands the figure on the dBFS-comparable
+        /// scale every other loudness surface in the app reads, so the number
+        /// spoken here and the number spoken at transmit are the same
+        /// vocabulary about the same voice.
+        /// </remarks>
+        private void FeedLoudnessMeter(float[] buffer, int frames, int channels, uint sampleRate)
+        {
+            LufsMeter meter = _lufs;
+            if (channels == 2)
+            {
+                meter.Process(buffer, frames * 2, sampleRate);
+                return;
+            }
+
+            if (_lufsScratch == null || _lufsScratch.Length < frames * 2)
+                _lufsScratch = new float[frames * 2];
+            int j = 0;
+            for (int i = 0; i < frames; i++)
+            {
+                float s = buffer[i];
+                _lufsScratch[j++] = s;
+                _lufsScratch[j++] = s;
+            }
+            meter.Process(_lufsScratch, frames * 2, sampleRate);
         }
 
         /// <summary>
