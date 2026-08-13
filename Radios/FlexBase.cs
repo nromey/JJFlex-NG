@@ -11044,6 +11044,10 @@ namespace Radios
         }
         private audioChannelData opusOutputChannel;
         private audioChannelData opusInputChannel;
+        // False when the microphone stream failed to open. Without it every
+        // key-up re-attempts a start that cannot succeed and waits a second for
+        // the answer, on the remote-audio thread.
+        private bool opusInputAvailable = false;
 #if CWMonitor
         private Morse CWMon = null;
         private bool useCWMon { get { return (CWMon != null); } }
@@ -11159,6 +11163,7 @@ namespace Radios
             Tracing.TraceLine("remoteAudioProc is WAN=" + RemoteRig.ToString(), TraceLevel.Info);
             opusOutputChannel = null;
             opusInputChannel = null;
+            opusInputAvailable = false;
 #if CWMonitor
             CWMon = null;
 #endif
@@ -11259,7 +11264,31 @@ namespace Radios
             }
             opusInputChannel = new audioChannelData(txStream, "JJFlexRadio.OpusInputChan");
             opusInputChannel.PortAudioStream = new JJAudioStream();
-            opusInputChannel.PortAudioStream.OpenOpus(Devices.DeviceTypes.input, opusSampleRate, sendOpusInput);
+            // The result of this open was discarded until 2026-08-13. A
+            // microphone that would not open therefore produced no message of
+            // any kind: startOpusInputChannel simply traced an error on every
+            // key-up — and blocked the remote-audio thread for a second doing
+            // it — while the operator transmitted silence and was told nothing.
+            // Receive audio is already running by this point and deliberately
+            // stays running; losing the radio because the microphone failed is
+            // the wrong trade.
+            opusInputAvailable = opusInputChannel.PortAudioStream.OpenOpus(
+                Devices.DeviceTypes.input, opusSampleRate, sendOpusInput);
+            if (!opusInputAvailable)
+            {
+                Tracing.TraceLine("remoteAudioProc:opus input channel did not open;"
+                    + " computer transmit audio is unavailable this session", TraceLevel.Error);
+                if (!SuppressSpeech) ScreenReaderOutput.Speak(
+                    "Your microphone could not be opened, so computer audio will not "
+                    + "transmit. Receive audio is working. Check your input device in "
+                    + "Audio Devices.", VerbosityLevel.Critical, true);
+            }
+            else if (opusInputChannel.PortAudioStream.SampleRate != opusSampleRate)
+            {
+                Tracing.TraceLine("remoteAudioProc:opus input channel opened at "
+                    + opusInputChannel.PortAudioStream.SampleRate + " Hz, not "
+                    + opusSampleRate, TraceLevel.Info);
+            }
             // Audio Track C: hand the persistent TX test-tone generator to the
             // input stream so an engaged tone replaces the mic at the encoder.
             opusInputChannel.PortAudioStream.InputToneSource = txToneGen;
@@ -11387,6 +11416,7 @@ namespace Radios
             Audio.Terminate();
             opusOutputChannel = null;
             opusInputChannel = null;
+            opusInputAvailable = false;
 #if CWMonitor
             CWMon = null;
 #endif
@@ -11531,6 +11561,7 @@ namespace Radios
 
         private bool startOpusInputChannel()
         {
+            if (!opusInputAvailable) return false;
             Tracing.TraceLine("startOpusInputChannel:" +
                 opusInputChannel.Name + ' ' + opusInputChannel.Started.ToString(), TraceLevel.Info);
             lock (opusInputChannel)

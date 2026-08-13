@@ -21,6 +21,15 @@ namespace JJPortaudio
         private Audio aud = null;
 
         /// <summary>
+        /// True for the five rates Opus can encode. A device that runs at any
+        /// other rate — 44.1 kHz being the common one — cannot carry the radio
+        /// link's audio, because the codec has no mode to follow it into.
+        /// Public so a diagnostic surface can say so before an operator finds
+        /// out by transmitting.
+        /// </summary>
+        public static bool IsOpusRate(uint rate) => AudioAnchor.isOpusRate(rate);
+
+        /// <summary>
         /// Output gain scalar applied to decoded audio samples.
         /// 1.0 = unity (no change), 2.0 = +6dB boost, etc.
         /// Default is 1.0 (no gain applied).
@@ -64,6 +73,12 @@ namespace JJPortaudio
         /// buffer size used for this stream.
         /// </summary>
         public uint BufferSize { get { return aud.BufferSize; } }
+        /// <summary>
+        /// The rate this stream actually opened at. May differ from the rate
+        /// requested — the device gets the last word — so this is the number to
+        /// report, log or speak.
+        /// </summary>
+        public uint SampleRate { get { return (aud != null) ? aud.SampleRate : 0; } }
         /// <summary>
         /// true if stream is active.
         /// </summary>

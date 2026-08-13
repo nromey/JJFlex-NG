@@ -583,13 +583,39 @@ namespace JJFlexWpf.Dialogs
 
             MicCheckButton.Content = "Stop _microphone check";
             AutomationProperties.SetName(MicCheckButton, "Stop microphone check");
-            SetMicReading("Microphone check running. Listening.");
+            SetMicReading("Microphone check running. Listening." + RateCaveat());
             _micTimer.Start();
 
             Announce(_privacyBlocked
                 ? "Microphone check started, but " + _privacyExplanation
-                : $"Microphone check started on {row.Name}. Talk normally.",
+                : $"Microphone check started on {row.Name}. Talk normally."
+                  + RateCaveat(),
                 _privacyBlocked ? VerbosityLevel.Critical : VerbosityLevel.Terse);
+        }
+
+        /// <summary>
+        /// An observation about the rate the check opened at, or empty — which
+        /// is the normal case and is the point. Same discipline as the noise
+        /// note: added to a reading, never substituted for one, and silent
+        /// unless it changes what the operator should do.
+        ///
+        /// It matters because the check and the radio link have different
+        /// tolerances. The check will happily run at 44.1 kHz; the radio link
+        /// cannot, because Opus has no 44.1 kHz mode. So a microphone can pass
+        /// this check completely and still be unable to transmit — a divergence
+        /// the operator has no other way to find out about except by keying up
+        /// and being told nothing was heard.
+        /// </summary>
+        private string RateCaveat()
+        {
+            var probe = _probe;
+            if (probe == null) return "";
+            int rate = probe.Read().SampleRate;
+            if (rate <= 0 || JJAudioStream.IsOpusRate((uint)rate)) return "";
+            return $" Note: Windows is running this microphone at {rate / 1000.0:0.#} kHz. "
+                + "The check works at that rate, but transmitting computer audio to the "
+                + "radio needs 48 kHz — set this device to 48000 Hz in Windows Sound "
+                + "settings before you rely on it for transmit.";
         }
 
         /// <summary>

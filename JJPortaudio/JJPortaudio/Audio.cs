@@ -22,6 +22,7 @@ namespace JJPortaudio
 
         internal enum workItems
         {
+            negotiate,
             open,
             close,
             terminate,
@@ -87,6 +88,35 @@ namespace JJPortaudio
             }
         }
 
+        /// <summary>
+        /// The PaStreamParameters for a stream block. Shared by negotiate and
+        /// open so the format the rate was checked against is byte-for-byte the
+        /// format the stream is opened with — a rate accepted for one channel
+        /// count or latency is not evidence about another.
+        /// </summary>
+        private static PortAudio.PaStreamParameters deviceParams(Audio.StreamCB cb)
+        {
+            PortAudio.PaStreamParameters p = new PortAudio.PaStreamParameters();
+            p.device = cb.Device.DevinfoID;
+            p.channelCount = 2;
+            p.sampleFormat = PortAudio.PaSampleFormat.paFloat32;
+            p.suggestedLatency = (cb.Device.Type == Devices.DeviceTypes.input) ?
+                cb.Device.defaultLowInputLatency : cb.Device.defaultLowOutputLatency;
+            p.hostApiSpecificStreamInfo = (IntPtr)null;
+            return p;
+        }
+
+        /// <summary>
+        /// True for the five rates Opus can encode. There is no 44.1 kHz mode,
+        /// which is exactly why a device that insists on 44100 cannot simply be
+        /// accommodated by opening the stream and hoping.
+        /// </summary>
+        internal static bool isOpusRate(uint rate)
+        {
+            return rate == 8000 || rate == 12000 || rate == 16000
+                || rate == 24000 || rate == 48000;
+        }
+
         private static void serverProc()
         {
             PortAudio.PaError erv;
@@ -108,17 +138,93 @@ namespace JJPortaudio
 
                 switch (item.Type)
                 {
+                    case workItems.negotiate:
+                        {
+                            // Settle the sample rate BEFORE the caller derives
+                            // anything from it. This check used to live in the
+                            // open case below, which runs long after Audio.Open
+                            // has sized its buffers and built the Opus encoder
+                            // from the rate it *asked* for — so a device that
+                            // refused 48 kHz got a stream at its own rate
+                            // feeding a codec still convinced it was 48 kHz.
+                            // Nothing failed and nothing was logged: the input
+                            // callback simply fired 9.19 times a second instead
+                            // of 10, and we emitted ~92 Opus frames per second
+                            // where the radio expects 100. That reads as
+                            // periodic gaps, not as a broken feature, which is
+                            // why it survived.
+                            var cb = item.StreamBlock;
+                            PortAudio.PaStreamParameters devParms = deviceParams(cb);
+                            PortAudio.PaStreamParameters* nullParms = null;
+                            PortAudio.PaStreamParameters* p1 = (cb.Device.Type == Devices.DeviceTypes.input) ?
+                                &devParms : nullParms;
+                            PortAudio.PaStreamParameters* p2 = (cb.Device.Type == Devices.DeviceTypes.output) ?
+                                &devParms : nullParms;
+
+                            uint requested = cb.SampleRate;
+                            if (requested > 0
+                                && PortAudio.Pa_IsFormatSupported(ref *p1, ref *p2, (double)requested) == 0)
+                            {
+                                Tracing.TraceLine("server:negotiate:" + cb.Device.Name
+                                    + " accepts the requested " + requested + " Hz", TraceLevel.Info);
+                            }
+                            else
+                            {
+                                // Candidates: the device's own default first —
+                                // it is the rate the hardware is most likely
+                                // actually running — then the usual ladder.
+                                var candidates = new List<uint>();
+                                uint dflt = (uint)cb.Device.defaultSampleRate;
+                                if (dflt > 0) candidates.Add(dflt);
+                                foreach (uint r in new uint[] { 48000, 44100, 32000, 24000, 16000, 12000, 8000 })
+                                {
+                                    if (!candidates.Contains(r)) candidates.Add(r);
+                                }
+                                // An Opus stream may only consider rates Opus
+                                // can encode. Accepting 44100 here because the
+                                // device likes it would put us straight back
+                                // into the mismatch this work item exists to
+                                // prevent — the codec has no 44.1 kHz mode to
+                                // follow the device into.
+                                if (cb.UseOpus) candidates.RemoveAll(r => !isOpusRate(r));
+
+                                uint settled = 0;
+                                foreach (uint cand in candidates)
+                                {
+                                    if (cand == requested) continue; // already refused
+                                    if (PortAudio.Pa_IsFormatSupported(ref *p1, ref *p2, (double)cand) == 0)
+                                    {
+                                        settled = cand;
+                                        break;
+                                    }
+                                }
+
+                                if (settled != 0)
+                                {
+                                    Tracing.TraceLine("server:negotiate:" + cb.Device.Name
+                                        + " refused " + requested + " Hz, using " + settled
+                                        + " Hz" + (cb.UseOpus ? " (Opus-legal)" : ""), TraceLevel.Error);
+                                    cb.SampleRate = settled;
+                                }
+                                else
+                                {
+                                    // Nothing was accepted. Keep the requested
+                                    // rate and let Pa_OpenStream produce the
+                                    // real error text — PortAudio's own answer
+                                    // is worth more to whoever reads the trace
+                                    // than a rate invented here.
+                                    Tracing.TraceLine("server:negotiate:" + cb.Device.Name
+                                        + " reported no usable rate; leaving " + requested
+                                        + " Hz for the open to fail on", TraceLevel.Error);
+                                }
+                            }
+                            cb.RateSettled = true;
+                        }
+                        break;
                     case workItems.open:
                         {
                             Tracing.TraceLine("server:open", TraceLevel.Info);
-                            PortAudio.PaStreamParameters devParms = new PortAudio.PaStreamParameters();
-                            devParms.device = item.StreamBlock.Device.DevinfoID;
-                            devParms.channelCount = 2;
-                            devParms.sampleFormat = PortAudio.PaSampleFormat.paFloat32;
-                            devParms.suggestedLatency = (item.StreamBlock.Device.Type==Devices.DeviceTypes.input)?
-                                item.StreamBlock.Device.defaultLowInputLatency:
-                                item.StreamBlock.Device.defaultLowOutputLatency;
-                            devParms.hostApiSpecificStreamInfo = (IntPtr)null;
+                            PortAudio.PaStreamParameters devParms = deviceParams(item.StreamBlock);
                             PortAudio.PaStreamParameters* nullParms = null;
                             PortAudio.PaStreamParameters* p1 = (item.StreamBlock.Device.Type == Devices.DeviceTypes.input) ?
                                 &devParms : nullParms;
@@ -128,26 +234,38 @@ namespace JJPortaudio
                             erv = PortAudio.Pa_IsFormatSupported(ref *p1, ref *p2, (double)item.StreamBlock.SampleRate);
                             if (erv != 0)
                             {
-                                Tracing.TraceLine("rate not supported:" + item.StreamBlock.SampleRate + " changing to " + item.StreamBlock.Device.defaultSampleRate, TraceLevel.Error);
-                                item.StreamBlock.SampleRate = (uint)item.StreamBlock.Device.defaultSampleRate;
-                            }
-
-                            erv = PortAudio.Pa_OpenStream(
-                                out item.StreamBlock.Stream,
-                                ref *p1,
-                                ref *p2,
-                                item.StreamBlock.SampleRate,
-                                item.StreamBlock.BufferSize / 2,
-                                PortAudio.PaStreamFlags.paNoFlag,
-                                item.StreamBlock.CB,
-                                (IntPtr)item.StreamBlock.CBUser);
-                            if (erv < 0)
-                            {
-                                Tracing.TraceLine("open error:" + PortAudio.Pa_GetErrorText(erv), TraceLevel.Error);
+                                // The rate was negotiated against this exact
+                                // format moments ago, so a refusal now means
+                                // the device changed underneath us. Opening
+                                // anyway and rewriting the rate — which is what
+                                // this code used to do — would reintroduce the
+                                // encoder/stream split, so fail instead. The
+                                // caller sees the false return Open always
+                                // promised.
+                                Tracing.TraceLine("server:open:device no longer accepts "
+                                    + item.StreamBlock.SampleRate + " Hz ("
+                                    + PortAudio.Pa_GetErrorText(erv) + "); not opening",
+                                    TraceLevel.Error);
                             }
                             else
                             {
-                                item.StreamBlock.Open = true;
+                                erv = PortAudio.Pa_OpenStream(
+                                    out item.StreamBlock.Stream,
+                                    ref *p1,
+                                    ref *p2,
+                                    item.StreamBlock.SampleRate,
+                                    item.StreamBlock.BufferSize / 2,
+                                    PortAudio.PaStreamFlags.paNoFlag,
+                                    item.StreamBlock.CB,
+                                    (IntPtr)item.StreamBlock.CBUser);
+                                if (erv < 0)
+                                {
+                                    Tracing.TraceLine("open error:" + PortAudio.Pa_GetErrorText(erv), TraceLevel.Error);
+                                }
+                                else
+                                {
+                                    item.StreamBlock.Open = true;
+                                }
                             }
                         }
                         break;
@@ -282,6 +400,12 @@ namespace JJPortaudio
             public float[] Buffer; // for output data
             public uint BufferSize;
             public uint SampleRate;
+            // Set by the AudioServer thread when workItems.negotiate has
+            // written the answer into SampleRate. Audio.Open waits on this
+            // before it sizes a buffer or builds a codec, because everything
+            // downstream of the rate has to agree with the rate the device
+            // actually accepted — see the negotiate case in serverProc.
+            public bool RateSettled = false;
             public PortAudio.PaStreamCallbackDelegate CB;
             public int CBUser;
             public WavCallback WavInputHandler;
@@ -363,6 +487,12 @@ namespace JJPortaudio
             get { return CBData.BufferSize; }
             internal set { CBData.BufferSize = value; }
         }
+        /// <summary>
+        /// The rate the stream is actually running at, which is not necessarily
+        /// the rate that was asked for — see workItems.negotiate. Read this,
+        /// never the requested rate, when reporting to an operator.
+        /// </summary>
+        public uint SampleRate { get { return CBData?.SampleRate ?? 0; } }
         internal OpusDecoder Decoder { get { return CBData.Decoder; } }
         internal Queue TheQ { get { return CBData.Q; } }
         internal WavCallback WavInputHandler
@@ -428,6 +558,30 @@ namespace JJPortaudio
                 inDevice : outDevice;
             Tracing.TraceLine("Audio.Open:" + CBData.Device.Name + ' ' + rate + ' ' + useOpus.ToString(), TraceLevel.Info);
             CBData.SampleRate = (rate == 0) ? (uint)CBData.Device.defaultSampleRate : rate;
+            // UseOpus must be set before negotiating: it decides whether 44.1 kHz
+            // is a candidate at all.
+            CBData.UseOpus = useOpus;
+
+            // Settle the rate with the device before building anything from it.
+            // Every size and every codec below reads openRate, never the `rate`
+            // parameter — the whole point of this round-trip is that the two can
+            // differ, and every consumer must follow the device rather than the
+            // request. See workItems.negotiate.
+            CBData.RateSettled = false;
+            AudioAnchor.work.Add(new AudioAnchor.workItem(AudioAnchor.workItems.negotiate, CBData));
+            if (!Tracing.await(() => { var cb = CBData; return cb != null && cb.RateSettled; }, 5000))
+            {
+                Tracing.TraceLine("Audio.Open:sample rate negotiation did not complete within 5s",
+                    TraceLevel.Error);
+                return false;
+            }
+            uint openRate = CBData.SampleRate;
+            if (openRate != rate)
+            {
+                Tracing.TraceLine("Audio.Open:opening at " + openRate
+                    + " Hz rather than the requested " + rate + " Hz", TraceLevel.Info);
+            }
+
             if (outputCallback != null) CBData.CB = outputCallback;
             else
             {
@@ -435,18 +589,29 @@ namespace JJPortaudio
                 CBData.CB = (CBData.Device.Type == Devices.DeviceTypes.input) ? inCallback : outCallback;
             }
             CBData.CBUser = qKey;
-            CBData.UseOpus = useOpus;
             uint bufSZ;
             if (useOpus)
             {
                 POpusCodec.Enums.SamplingRate oRate;
-                switch (rate)
+                switch (openRate)
                 {
-                    case 800: oRate = POpusCodec.Enums.SamplingRate.Sampling08000; break;
+                    // 8000 was written `800` here, a rate no device reports and
+                    // nothing could ever match.
+                    case 8000: oRate = POpusCodec.Enums.SamplingRate.Sampling08000; break;
                     case 12000: oRate = POpusCodec.Enums.SamplingRate.Sampling12000; break;
                     case 16000: oRate = POpusCodec.Enums.SamplingRate.Sampling16000; break;
                     case 24000: oRate = POpusCodec.Enums.SamplingRate.Sampling24000; break;
-                    default: oRate = POpusCodec.Enums.SamplingRate.Sampling48000; break;
+                    case 48000: oRate = POpusCodec.Enums.SamplingRate.Sampling48000; break;
+                    default:
+                        // Was a silent fall-through to 48 kHz. Negotiation only
+                        // ever hands back an Opus-legal rate, so arriving here
+                        // means the device accepted nothing at all — and
+                        // encoding at a rate the stream is not running is the
+                        // defect, not the fallback.
+                        Tracing.TraceLine("Audio.Open:" + openRate
+                            + " Hz is not a rate Opus can encode; refusing to open",
+                            TraceLevel.Error);
+                        return false;
                 }
                 // always create the encoder to get values for bufSZ.
                 CBData.Encoder = new OpusEncoder(oRate, POpusCodec.Enums.Channels.Stereo);
@@ -454,7 +619,7 @@ namespace JJPortaudio
                 CBData.Encoder.EncoderDelay = POpusCodec.Enums.Delay.Delay10ms;
                 CBData.OpusFrameSZ = (uint)CBData.Encoder.FrameSizePerChannel * 2;
                 // Get a buffer size to yield 10 callbacks/second.
-                float channelsPerDecisec = (float)rate / (float)CBData.Encoder.FrameSizePerChannel / cbPerSec;
+                float channelsPerDecisec = (float)openRate / (float)CBData.Encoder.FrameSizePerChannel / cbPerSec;
                 bufSZ = (uint)(channelsPerDecisec * (float)CBData.OpusFrameSZ);
                 // We'll use bufSZ for input and output.
                 if (inOut == Devices.DeviceTypes.input)
@@ -471,7 +636,9 @@ namespace JJPortaudio
             else
             {
                 // not opus, set bufSZ to call callback every .1 seconds.
-                bufSZ = (rate * 2) / (uint)cbPerSec;
+                // openRate, not rate: with rate 0 (meaning "device default")
+                // this computed a buffer size of zero.
+                bufSZ = (openRate * 2) / (uint)cbPerSec;
                 if (inOut == Devices.DeviceTypes.input)
                 {
                     // input buffer cache
