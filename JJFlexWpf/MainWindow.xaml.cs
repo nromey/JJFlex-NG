@@ -73,6 +73,32 @@ public partial class MainWindow : UserControl
             }
         };
 
+        // Audio Workshop hooks that must NOT wait for a radio (2026-08-12).
+        // The workshop's "This Computer" section and its preset toolbar both
+        // work with no rig connected — choosing a sound card is a property of
+        // the computer, and a saved preset is a file. Wiring these alongside
+        // PttControllerSource in PowerNowOn would have left them dead until
+        // the first connect. Every lambda resolves at call time, because both
+        // of the values they read are set later, during startup.
+        Dialogs.AudioWorkshopDialog.OpenAudioDevices = () => AudioSetupCallback?.Invoke();
+        Dialogs.AudioWorkshopDialog.AudioDevicesPath = () => AudioDevicesFilePath;
+
+        // Preset persistence — the operator-scoped store the presets model has
+        // always assumed and nothing ever connected (see the note on
+        // GetPresetsCallback). Falls back to the built-in defaults when there
+        // is no operator yet, so Load offers Ragchew/Contest/DX on a fresh
+        // install rather than claiming there are no presets.
+        Dialogs.AudioWorkshopDialog.GetPresetsCallback = () =>
+            OpenParms == null
+                ? Radios.AudioChainPresets.CreateDefaults()
+                : Radios.AudioChainPresets.Load(
+                    OpenParms.ConfigDirectory, OpenParms.GetOperatorName());
+        Dialogs.AudioWorkshopDialog.SavePresetsCallback = presets =>
+        {
+            if (OpenParms == null || presets == null) return;
+            presets.Save(OpenParms.ConfigDirectory, OpenParms.GetOperatorName());
+        };
+
         // Wire braille display focus events
         FreqOut.GotKeyboardFocus += (s, e) => _brailleEngine.OnHomePositionFocused();
         FreqOut.LostKeyboardFocus += (s, e) => _brailleEngine.OnHomePositionBlurred();

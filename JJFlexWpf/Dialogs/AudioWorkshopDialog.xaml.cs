@@ -61,6 +61,26 @@ public partial class AudioWorkshopDialog : JJFlexDialog
     /// <summary>Immediate save of the app settings store. Set by MainWindow.</summary>
     public static Action? AudioConfigSave { get; set; }
 
+    // ── This Computer section (2026-08-12) ──
+
+    /// <summary>
+    /// Opens the Audio Devices picker. Set by MainWindow, which forwards to
+    /// the callback globals.vb owns. Resolved per call, never captured — the
+    /// underlying callback is set during startup and this dialog can be
+    /// constructed before that finishes.
+    /// </summary>
+    public static Action? OpenAudioDevices { get; set; }
+
+    /// <summary>
+    /// Full path to audioDevices.xml, so this dialog can NAME the chosen input
+    /// device rather than offering a bare button. Set by MainWindow from the
+    /// path globals.vb owns — a handoff, not a second place that knows how to
+    /// build it, matching <see cref="MainWindow.AudioDevicesFilePath"/>.
+    /// </summary>
+    public static Func<string?>? AudioDevicesPath { get; set; }
+
+    private TextBox? _deviceReadingBox;
+
     private CheckBox? _toneCheck;
     private CycleFieldControl? _tonePresetControl;
     private ValueFieldControl? _toneFreqControl;
@@ -107,9 +127,20 @@ public partial class AudioWorkshopDialog : JJFlexDialog
 
     #endregion
 
-    // Preset callback (wired from outside)
-    public Func<AudioChainPresets>? GetPresetsCallback { get; set; }
-    public Action<AudioChainPresets>? SavePresetsCallback { get; set; }
+    // Preset callbacks (wired from outside).
+    //
+    // STATIC as of 2026-08-12, and that is the whole bug fix. They were
+    // instance properties that nothing ever assigned: the dialog is
+    // constructed in two places (ShowOrFocus and Settings' Audio Workshop
+    // button) and neither wired them, so Load always answered "No presets
+    // available" — the three built-in defaults included — and Save captured a
+    // valid preset, handed it to a null callback, and announced "Preset saved"
+    // over the top of dropping it on the floor. Every other cross-boundary
+    // hook in this dialog (PttControllerSource, AudioConfigSource) is static
+    // and wired once in MainWindow, which is why those work; these were the
+    // odd ones out. The null-conditional invoke is what let it fail silently.
+    public static Func<AudioChainPresets>? GetPresetsCallback { get; set; }
+    public static Action<AudioChainPresets>? SavePresetsCallback { get; set; }
 
     public AudioWorkshopDialog()
     {
@@ -203,12 +234,26 @@ public partial class AudioWorkshopDialog : JJFlexDialog
     /// the Stop button one more. Falls back to the base first-control
     /// behaviour when the workshop opens on another tab, where the button
     /// isn't visible to take focus.
+    ///
+    /// Exception added 2026-08-12 with the walk-through reorder: when no
+    /// input device has been chosen on this computer, focus lands on step
+    /// one instead. Those are the only two states worth optimising for and
+    /// they do not overlap — an operator with no microphone selected cannot
+    /// run a meaningful check, and landing them on a button that keys the
+    /// transmitter is the least useful thing this dialog could do. Everyone
+    /// else gets the express lane, unchanged. This is deliberately NOT a
+    /// preference: it reads the one fact that distinguishes the two cases.
     /// </summary>
     protected override void FocusFirstControl()
     {
-        if (MainTabs.SelectedIndex == 0 && _startCheckButton != null
-            && _startCheckButton.Focus())
-            return;
+        if (MainTabs.SelectedIndex == 0)
+        {
+            if (NoInputDeviceChosen() && _deviceReadingBox != null
+                && _deviceReadingBox.Focus())
+                return;
+            if (_startCheckButton != null && _startCheckButton.Focus())
+                return;
+        }
         base.FocusFirstControl();
     }
 
@@ -393,11 +438,20 @@ public partial class AudioWorkshopDialog : JJFlexDialog
 
     private void BuildTxAudioTab()
     {
-        // Audio Check session — the "hear yourself" loop (QB Track G).
-        BuildAudioCheckSection();
-
-        // Built-in test tone — the mic replacement (Audio Track C).
-        BuildTestToneSection();
+        // Section order is the setup walk-through, running outward from this
+        // computer to the radio to the air (Noel, 2026-08-12): choose a
+        // microphone, tell the radio to listen to it, shape it, band-limit
+        // it, decide how you hear yourself, then put a signal out — the test
+        // tone first because it is a known quantity, then the keyed
+        // end-to-end check.
+        //
+        // It ran the other way round until 2026-08-12: Audio Check stood at
+        // the top and every control it proves came after it. That order
+        // taught a first-time operator nothing, and the first thing in the
+        // window keyed the transmitter. The express lane for an operator who
+        // is already set up survives in focus and tab order rather than in
+        // layout — see FocusFirstControl and ApplyTxAudioTabOrder.
+        BuildDeviceSection();
 
         // Microphone section
         AddSectionHeader(TxAudioContent, "Microphone");
@@ -574,6 +628,144 @@ public partial class AudioWorkshopDialog : JJFlexDialog
             }
         };
         TxAudioContent.Children.Add(_monitorPanControl);
+
+        // Built-in test tone — the mic replacement (Audio Track C). Late in
+        // the walk: it is the first thing here that reaches the air, and it
+        // is what the Audio Check below sends when you have no voice to send.
+        BuildTestToneSection();
+
+        // Audio Check session — the "hear yourself" loop (QB Track G). Last,
+        // because it keys the transmitter and proves everything above it.
+        BuildAudioCheckSection();
+    }
+
+    /// <summary>
+    /// Step one of the walk: which microphone this computer is listening to.
+    /// </summary>
+    /// <remarks>
+    /// The Audio Devices picker was reachable from the Audio menu, Settings'
+    /// Audio tab and a key command, but not from the Workshop — the one
+    /// surface whose entire job is getting your audio right (Noel,
+    /// 2026-08-12). Every measurement below this section is downstream of the
+    /// answer, so the answer belongs at the top and in words: a bare "Audio
+    /// Devices..." button would make an operator open a dialog to find out
+    /// what they already chose.
+    ///
+    /// The name is read from audioDevices.xml via LoadSavedSelection, which
+    /// does NOT enumerate — naming the device costs a file read, not a
+    /// Pa_Initialize/Pa_Terminate cycle.
+    /// </remarks>
+    private void BuildDeviceSection()
+    {
+        AddSectionHeader(TxAudioContent, "This Computer");
+
+        // Read-only EDIT rather than a label, same reasoning as the mic
+        // reading below: focusable, review-readable, and the screen reader's
+        // own read-current-control command speaks it without an app hotkey.
+        _deviceReadingBox = new TextBox
+        {
+            Text = "Microphone: checking",
+            IsReadOnly = true,
+            IsReadOnlyCaretVisible = true,
+            Margin = new Thickness(2),
+            MinWidth = 300,
+            HorizontalAlignment = HorizontalAlignment.Left
+        };
+        AutomationProperties.SetName(_deviceReadingBox, "Microphone this computer is using");
+        TxAudioContent.Children.Add(_deviceReadingBox);
+
+        var deviceButton = new Button
+        {
+            Content = "Change Audio Devices...",
+            Padding = new Thickness(8, 4, 8, 4),
+            MinWidth = 200,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            Margin = new Thickness(2)
+        };
+        AutomationProperties.SetName(deviceButton, "Change Audio Devices");
+        deviceButton.Click += (s, e) =>
+        {
+            var open = OpenAudioDevices;
+            if (open == null)
+            {
+                ScreenReaderOutput.Speak(
+                    "Audio devices cannot be opened from here yet.",
+                    VerbosityLevel.Critical);
+                return;
+            }
+            open();
+            // The picker may have changed the selection — say what it is now
+            // rather than leaving a stale name sitting above the controls.
+            RefreshDeviceReading(announce: true);
+        };
+        TxAudioContent.Children.Add(deviceButton);
+
+        RefreshDeviceReading(announce: false);
+    }
+
+    /// <summary>
+    /// Re-read the chosen input device and update the "This Computer" line.
+    /// Never guesses: when the path or the file is missing it says so, because
+    /// a confidently wrong device name here is worse than an admission.
+    /// </summary>
+    private void RefreshDeviceReading(bool announce)
+    {
+        if (_deviceReadingBox == null) return;
+
+        string text;
+        try
+        {
+            string? path = AudioDevicesPath?.Invoke();
+            if (string.IsNullOrEmpty(path) || !System.IO.File.Exists(path))
+            {
+                text = "Microphone: none chosen yet";
+            }
+            else
+            {
+                var devices = new JJPortaudio.Devices(path);
+                devices.LoadSavedSelection();
+                string? name = devices.InputDevice?.Name;
+                text = string.IsNullOrWhiteSpace(name)
+                    ? "Microphone: none chosen yet"
+                    : "Microphone: " + name;
+            }
+        }
+        catch (Exception ex)
+        {
+            JJTrace.Tracing.TraceLine(
+                "AudioWorkshop: could not read the chosen input device — "
+                + ex.Message, System.Diagnostics.TraceLevel.Warning);
+            text = "Microphone: could not be read";
+        }
+
+        _deviceReadingBox.Text = text;
+        AutomationProperties.SetName(_deviceReadingBox, text);
+        if (announce) ScreenReaderOutput.Speak(text, VerbosityLevel.Terse);
+    }
+
+    /// <summary>
+    /// True when no input device has been chosen on this computer — the
+    /// first-run state, and the one where the walk-through is worth
+    /// presenting. See <see cref="FocusFirstControl"/>.
+    /// </summary>
+    private static bool NoInputDeviceChosen()
+    {
+        try
+        {
+            string? path = AudioDevicesPath?.Invoke();
+            if (string.IsNullOrEmpty(path) || !System.IO.File.Exists(path))
+                return true;
+            var devices = new JJPortaudio.Devices(path);
+            devices.LoadSavedSelection();
+            return string.IsNullOrWhiteSpace(devices.InputDevice?.Name);
+        }
+        catch
+        {
+            // Unreadable is not the same as unconfigured, and sending a
+            // set-up operator to step one on a file-read hiccup would be the
+            // more annoying of the two mistakes.
+            return false;
+        }
     }
 
     #region Audio Check Section
