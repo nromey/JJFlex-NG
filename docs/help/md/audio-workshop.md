@@ -57,7 +57,15 @@ The tone rides the PC audio path, so it needs PC audio on and the radio's transm
 
 ### Transmit audio source
 
-The Microphone section starts with **Transmit audio from**, showing the radio's own input list — the mic jack, line in, PC audio, and so on. This matters more than it looks: the Mic Gain control adjusts the *selected* input. If your transmit audio actually comes from somewhere else (say a hand mic overriding while PC audio is selected), the gain knob is turning a knob on an idle stream. The workshop names the source in the Audio Check safety line, and when the selection is PC audio, the jack-only controls — Mic Boost and Mic Bias — label themselves "radio mic jack only, not in use" so you don't chase a control that isn't in your audio path.
+The Microphone section starts with **Transmit audio from**, showing the radio's own input list — the mic jack, line in, PC audio, and so on. Everything below it follows that choice, because the controls that matter are different depending on where your audio comes from.
+
+**Choose the mic jack** and you get the radio's own controls: Mic Gain, Mic Boost, and Mic Bias. Mic Bias is a low-voltage supply for electret microphones on the front-panel jack — around 3 volts, depending on your model. It is **not** 48-volt phantom power, and a studio condenser that expects phantom will not run on it.
+
+**Choose PC audio** and those three disappear, because they act on the radio's microphone jack and do nothing at all to audio arriving from your computer. In their place you get **Windows input level** — the same level Windows Sound settings shows for the microphone you picked in Audio Devices, adjustable right here. If your driver offers a Microphone Boost, that appears too; a boost left turned up is the most common reason a level pins no matter what else you do.
+
+The section always shows the gain that actually applies to your current source, so there is never a control sitting there that cannot help you.
+
+A line under the level names the exact Windows device being adjusted. If JJ Flexible cannot be certain which Windows device matches your chosen microphone, the control is switched off and that line says why rather than risk moving some other microphone's level.
 
 ### The sculpting chain
 

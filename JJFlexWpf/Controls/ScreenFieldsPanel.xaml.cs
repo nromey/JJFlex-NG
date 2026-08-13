@@ -861,7 +861,7 @@ public partial class ScreenFieldsPanel : UserControl
         TxContent.Children.Add(_micBoostCheck);
 
         // Mic Bias
-        _micBiasCheck = MakeToggle("Mic Bias (phantom power)");
+        _micBiasCheck = MakeToggle("Mic Bias (low-voltage electret mic power — not 48-volt phantom)");
         _micBiasCheck.Checked += (s, e) => ToggleRig("Mic Bias", v => { if (_rig != null) _rig.MicBias = v; }, true);
         _micBiasCheck.Unchecked += (s, e) => ToggleRig("Mic Bias", v => { if (_rig != null) _rig.MicBias = v; }, false);
         TxContent.Children.Add(_micBiasCheck);

@@ -990,7 +990,7 @@ public class NativeMenuBar : IDisposable
         AddChecked(parent, "Mic &Boost (+20 dB)", () =>
             ToggleDSP("Mic Boost", () => Rig.MicBoost, v => Rig.MicBoost = v),
             () => Rig?.MicBoost == FlexBase.OffOnValues.on);
-        AddChecked(parent, "Mic B&ias (phantom power)", () =>
+        AddChecked(parent, "Mic Bias (low-voltage electret mic power — not 48-volt phantom)", () =>
             ToggleDSP("Mic Bias", () => Rig.MicBias, v => Rig.MicBias = v),
             () => Rig?.MicBias == FlexBase.OffOnValues.on);
         AddChecked(parent, "Co&mpander", () =>

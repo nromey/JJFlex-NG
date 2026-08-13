@@ -54,6 +54,23 @@ that sat above each group are gone as separate stops - what they said now lives
 on the control they were about, so you hear it when you arrive at the thing
 rather than paying a Tab press for it on every pass.
 
+The Microphone section in the Audio Workshop now follows your transmit source.
+Pick the mic jack and you get Mic Gain, Mic Boost and Mic Bias. Pick PC audio
+and those three disappear - they only act on the radio's jack - and a Windows
+input level takes their place, so the section always shows the gain that
+actually applies. Your Audio Devices page is unchanged and still has its own.
+
+Mic Bias no longer claims to be phantom power. It is a low-voltage supply for
+electret mics on the front jack, around 3 volts depending on model. Real
+phantom power is 48 volts on an XLR, and a studio condenser expecting it will
+not run on this. The old label could have sent someone shopping for the wrong
+microphone.
+
+Transmit readings now lead with the number and follow with the coaching, the
+same way the microphone check does. If you would rather not hear the coaching
+at all, Settings, Notifications, Mic audio readout has a decibels-only option -
+that setting now reaches every surface, which it did not before.
+
 WHAT TO TEST
 
 Open the Audio Workshop with Ctrl+Shift+W and tab through it slowly. You should
