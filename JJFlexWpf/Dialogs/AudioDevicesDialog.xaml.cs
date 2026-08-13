@@ -172,6 +172,21 @@ namespace JJFlexWpf.Dialogs
         /// </remarks>
         protected override void FocusFirstControl()
         {
+            // Arrived here to check a microphone? Then the microphone is the
+            // subject, not radio receive audio: start the check and put focus
+            // where the answer will appear. Running it before focus moves means
+            // the reading is already live when the operator lands on it.
+            if (_startCheckOnOpen)
+            {
+                _startCheckOnOpen = false;
+                if (RadioInputList != null && RadioInputList.Items.Count > 0)
+                {
+                    if (RadioInputList.SelectedIndex < 0) RadioInputList.SelectedIndex = 0;
+                    StartMicCheck();
+                    if (MicCheckReading != null && MicCheckReading.Focus()) return;
+                }
+            }
+
             if (RadioOutputList != null && RadioOutputList.IsEnabled)
             {
                 RadioOutputList.Focus();
@@ -910,12 +925,23 @@ namespace JJFlexWpf.Dialogs
             Window? owner,
             string audioDevicesFile,
             AudioOutputConfig? audioConfig = null,
-            Action? persistAudioConfig = null)
+            Action? persistAudioConfig = null,
+            bool startMicCheck = false)
         {
             var dlg = new AudioDevicesDialog(audioDevicesFile, audioConfig, persistAudioConfig);
             if (owner != null) dlg.Owner = owner;
+            if (startMicCheck) dlg._startCheckOnOpen = true;
             bool ok = dlg.ShowDialog() == true;
             return ok && dlg.RadioAudioConfigured;
         }
+
+        /// <summary>
+        /// Set by a caller that opened this dialog specifically to check a
+        /// microphone — the Audio Workshop's "Check Microphone" button — so the
+        /// operator does not arrive at a dialog they asked a question of and
+        /// have to ask it a second time. Runs on Loaded, after the device lists
+        /// are populated and a row is selected.
+        /// </summary>
+        private bool _startCheckOnOpen;
     }
 }
