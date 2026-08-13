@@ -108,9 +108,50 @@ public partial class AudioWorkshopDialog : JJFlexDialog
 
     #region TX Audio Controls
 
+    /// <summary>
+    /// The Mic Bias label, in one place because it is written twice (build and
+    /// the label-restore in PollMicSource) and two copies of a sentence age
+    /// apart. It said "phantom power" until 2026-08-13, and that was wrong in
+    /// a way that could cost someone money: phantom power is 48 volts on an
+    /// XLR, and a condenser microphone bought on that promise would sit on
+    /// this jack silent. What the radio actually supplies is a low-voltage
+    /// electret bias on the mic jack — the vendor's manuals say about 3 V on
+    /// the 6000 series and about 3.5 V on the 8000 series, so the label
+    /// claims the kind of power rather than a number that is right on only
+    /// one model.
+    /// </summary>
+    private const string MicBiasLabel = "Mic Bias (low-voltage electret mic power — not 48-volt phantom)";
+
+    private const string MicBoostLabel = "Mic Boost (+20 dB)";
+
     private ValueFieldControl? _micGainControl;
     private CheckBox? _micBoostCheck;
     private CheckBox? _micBiasCheck;
+
+    // ── PC-source stage-one gain (Track PC Gain, 2026-08-13) ──
+
+    /// <summary>
+    /// The Windows input level for the computer's chosen microphone, standing
+    /// in the spot Mic Gain occupies when the radio's transmit source is PC.
+    /// The Microphone section always shows the gain that actually applies to
+    /// the current source: stage one of the capture chain is the radio's Mic
+    /// Gain when the jack feeds TX, and the Windows input level when the
+    /// computer does (see project_capture_then_sculpt).
+    /// </summary>
+    private ValueFieldControl? _pcLevelControl;
+
+    /// <summary>
+    /// The always-current sentence under the PC level: which Windows device
+    /// the control actually moves — the honesty guarantee WindowsMicLevel's
+    /// matching rules exist to earn — with mute leading when it applies. On
+    /// the failure paths it takes the control's place in the tab ring and
+    /// carries the reason, so a blind operator tabbing through lands on the
+    /// explanation exactly where the control would have been.
+    /// </summary>
+    private TextBox? _pcLevelNote;
+
+    /// <summary>The bound Core Audio endpoint. Null whenever the control is absent or refused.</summary>
+    private WindowsMicLevel? _pcMicLevel;
     private CheckBox? _companderCheck;
     private ValueFieldControl? _companderLevelControl;
     private CheckBox? _processorCheck;
@@ -212,6 +253,9 @@ public partial class AudioWorkshopDialog : JJFlexDialog
             // while the workshop is open, and arming is never persisted).
             DisarmTone(speak: false);
             _meterTimer.Stop();
+            // The Core Audio endpoint and its volume callback must not
+            // outlive the dialog that subscribed them.
+            ReleasePcLevel();
             _instance = null;
         };
     }
@@ -316,6 +360,13 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         if (_startCheckButton != null) KeyboardNavigation.SetTabIndex(_startCheckButton, idx++);
         if (_micReadingBox != null) KeyboardNavigation.SetTabIndex(_micReadingBox, idx++);
         if (_micGainControl != null) KeyboardNavigation.SetTabIndex(_micGainControl, idx++);
+        // The PC-source stand-ins take the very next slots. Only one of the
+        // two gain controls is ever visible — Mic Gain for the jack, the
+        // Windows input level for PC audio — so whichever applies sits third
+        // in the ring: the express lane follows the gain that actually works,
+        // not a particular control (Track PC Gain, 2026-08-13).
+        if (_pcLevelControl != null) KeyboardNavigation.SetTabIndex(_pcLevelControl, idx++);
+        if (_pcLevelNote != null) KeyboardNavigation.SetTabIndex(_pcLevelNote, idx++);
         ApplyTabOrderWithin(TxAudioContent, ref idx);
     }
 
@@ -349,7 +400,8 @@ public partial class AudioWorkshopDialog : JJFlexDialog
             }
 
             if (ReferenceEquals(el, _startCheckButton) || ReferenceEquals(el, _micReadingBox)
-                || ReferenceEquals(el, _micGainControl)) continue;
+                || ReferenceEquals(el, _micGainControl) || ReferenceEquals(el, _pcLevelControl)
+                || ReferenceEquals(el, _pcLevelNote)) continue;
             KeyboardNavigation.SetTabIndex(el, idx++);
         }
     }
@@ -528,8 +580,8 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         // this dialog makes. Verified live (2026-08-07): MicGain acts on the
         // SELECTED input; with a hand-mic PTT override the knob silently
         // tunes an idle PC stream. The picker reads and sets the radio's own
-        // selection; jack-only controls annotate themselves when TX audio is
-        // PC-sourced (see PollTxAudio).
+        // selection; when TX audio is PC-sourced the jack-only controls hide
+        // and the Windows input level stands in (see PollMicSource).
         _micSourceControl = MakeCycle("Transmit audio from", new[] { "(waiting for radio)" });
         _micSourceControl.SelectionChanged += (s, idx) =>
         {
@@ -551,12 +603,51 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         };
         AddToSection(TxAudioContent, _micGainControl);
 
-        _micBoostCheck = MakeToggle("Mic Boost (+20 dB)");
+        // The PC-source stand-in for Mic Gain (Track PC Gain, 2026-08-13).
+        // Hiding the jack controls on PC audio left a hole where the gain
+        // was, and Noel asked for the obvious thing to fill it: "why not
+        // still have computer mic adjustment available where mic gain is
+        // when PC audio is selected." So the section always offers the gain
+        // that actually applies — stage one lives on the computer when the
+        // computer is the source. Bound in BindPcLevel, which reads the
+        // saved device name from audioDevices.xml and matches it through
+        // Core Audio only: this dialog must never enumerate PortAudio while
+        // a radio connection may be live (see BuildDeviceSection).
+        _pcLevelControl = MakeValue("Windows Input Level", 0, 100, 1);
+        _pcLevelControl.Visibility = Visibility.Collapsed;
+        _pcLevelControl.IsEnabled = false;
+        _pcLevelControl.ValueChanged += (s, v) =>
+        {
+            var level = _pcMicLevel;
+            if (level == null) return;
+            try { level.Percent = v; }
+            catch (Exception ex) { PcLevelFailed(ex); }
+            // No app speech here, deliberately: the control announces its
+            // own value on every adjustment, and repeating it would be the
+            // same double-speak the Audio Devices sliders were built without.
+        };
+        AddToSection(TxAudioContent, _pcLevelControl);
+
+        // Read-only EDIT rather than a label, same reasoning as the device
+        // reading above: focusable, review-readable, and the screen reader's
+        // own read-current-control command speaks it without an app hotkey.
+        _pcLevelNote = new TextBox
+        {
+            IsReadOnly = true,
+            IsReadOnlyCaretVisible = true,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(2),
+            MinWidth = 300,
+            Visibility = Visibility.Collapsed
+        };
+        AddToSection(TxAudioContent, _pcLevelNote);
+
+        _micBoostCheck = MakeToggle(MicBoostLabel);
         _micBoostCheck.Checked += (s, e) => SetToggle("Mic Boost", v => { if (_rig != null) _rig.MicBoost = v; }, true);
         _micBoostCheck.Unchecked += (s, e) => SetToggle("Mic Boost", v => { if (_rig != null) _rig.MicBoost = v; }, false);
         AddToSection(TxAudioContent, _micBoostCheck);
 
-        _micBiasCheck = MakeToggle("Mic Bias (phantom power)");
+        _micBiasCheck = MakeToggle(MicBiasLabel);
         _micBiasCheck.Checked += (s, e) => SetToggle("Mic Bias", v => { if (_rig != null) _rig.MicBias = v; }, true);
         _micBiasCheck.Unchecked += (s, e) => SetToggle("Mic Bias", v => { if (_rig != null) _rig.MicBias = v; }, false);
         AddToSection(TxAudioContent, _micBiasCheck);
@@ -872,6 +963,12 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         _deviceReadingBox.Text = text;
         AutomationProperties.SetName(_deviceReadingBox, text);
         if (announce) ScreenReaderOutput.Speak(text, VerbosityLevel.Terse);
+
+        // Every call here means the picker may just have changed which
+        // microphone is chosen — and if the Windows input level is standing
+        // in for Mic Gain right now, it must follow the choice rather than
+        // keep moving the previous device's level.
+        if (_pcSourceActive) BindPcLevel();
     }
 
     /// <summary>
@@ -1725,13 +1822,20 @@ public partial class AudioWorkshopDialog : JJFlexDialog
     }
 
     private string[] _micSourceOptions = Array.Empty<string>();
-    private bool _jackAnnotated;
+
+    /// <summary>
+    /// True while the radio's transmit source is PC and the section is showing
+    /// the Windows input level instead of the jack controls. (Named
+    /// _jackAnnotated until 2026-08-13, after an annotation scheme that no
+    /// longer exists — the description-drift pattern, caught here.)
+    /// </summary>
+    private bool _pcSourceActive;
 
     /// <summary>
     /// Keep the mic source picker synced with the radio-reported input list
-    /// and selection, and annotate jack-only controls (Mic Boost, Mic Bias)
-    /// when TX audio is PC-sourced — de-emphasized in the label, never
-    /// hidden. Runs inside PollTxAudio's _polling guard.
+    /// and selection, and swap the Microphone section's gain controls to
+    /// follow the source: the radio's three for the jack, the Windows input
+    /// level for PC audio. Runs inside PollTxAudio's _polling guard.
     /// </summary>
     private void PollMicSource()
     {
@@ -1787,13 +1891,22 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         // controls which cannot act stay out of the tab order: a live,
         // adjustable slider that changes nothing is a worse experience than an
         // absent one, because it invites the operator to solve their problem
-        // with it. With PC audio the stage-one gain lives on the computer —
-        // Audio Devices, the Windows input level — and pointing there is the
-        // useful thing to do. See project_capture_then_sculpt.
+        // with it. With PC audio the stage-one gain lives on the computer, so
+        // the hole Mic Gain leaves is filled with the Windows input level for
+        // the computer's chosen microphone — the section always shows the
+        // gain that actually applies. See project_capture_then_sculpt.
         bool pcSource = string.Equals(_rig.MicSource, "PC", StringComparison.OrdinalIgnoreCase);
-        if (pcSource != _jackAnnotated)
+        if (pcSource != _pcSourceActive)
         {
-            _jackAnnotated = pcSource;
+            _pcSourceActive = pcSource;
+
+            // Where focus stands is asked BEFORE anything hides. WPF pulls
+            // keyboard focus off a collapsing element on a later dispatcher
+            // pass, so asking afterwards is a race we do not need to run.
+            bool focusWasOnJackGain = _micGainControl?.IsKeyboardFocusWithin == true;
+            bool focusWasOnPcLevel = _pcLevelControl?.IsKeyboardFocusWithin == true
+                || _pcLevelNote?.IsKeyboardFocusWithin == true;
+
             var vis = pcSource ? Visibility.Collapsed : Visibility.Visible;
             if (_micGainControl != null) _micGainControl.Visibility = vis;
             if (_micBoostCheck != null) _micBoostCheck.Visibility = vis;
@@ -1802,13 +1915,260 @@ public partial class AudioWorkshopDialog : JJFlexDialog
             // Restore the plain labels: the suffix was doing the work of the
             // visibility change and is now noise on a control you can see
             // precisely because it applies.
-            SetToggleLabel(_micBoostCheck, "Mic Boost (+20 dB)");
-            SetToggleLabel(_micBiasCheck, "Mic Bias (phantom power)");
+            SetToggleLabel(_micBoostCheck, MicBoostLabel);
+            SetToggleLabel(_micBiasCheck, MicBiasLabel);
 
-            // Never leave a hidden control holding focus.
-            if (pcSource && _micGainControl != null && _micGainControl.IsKeyboardFocusWithin)
-                _startCheckButton?.Focus();
+            if (pcSource)
+            {
+                BindPcLevel();
+
+                // Never leave a hidden control holding focus — and the
+                // operator standing on Mic Gain was adjusting their transmit
+                // gain, so hand them the gain that now applies rather than
+                // dumping them back at the Start button.
+                if (focusWasOnJackGain)
+                {
+                    if (_pcLevelControl != null && _pcLevelControl.IsEnabled
+                        && _pcLevelControl.Visibility == Visibility.Visible)
+                        _pcLevelControl.Focus();
+                    else if (_pcLevelNote != null && _pcLevelNote.Visibility == Visibility.Visible)
+                        _pcLevelNote.Focus();
+                    else
+                        _startCheckButton?.Focus();
+                }
+            }
+            else
+            {
+                HidePcLevel();
+                if (focusWasOnPcLevel)
+                {
+                    if (_micGainControl == null || !_micGainControl.Focus())
+                        _startCheckButton?.Focus();
+                }
+            }
         }
+    }
+
+    // ---------------------------------------------- PC-source Windows level
+
+    /// <summary>
+    /// Bind the Windows input level to the computer's chosen microphone, or
+    /// show the focusable note with the reason no confident match exists.
+    /// Called on the source flipping to PC and again whenever the Audio
+    /// Devices picker may have changed the selection.
+    /// </summary>
+    /// <remarks>
+    /// The device is identified by the SAVED name from audioDevices.xml — a
+    /// file read, exactly like RefreshDeviceReading above — and matched
+    /// through <see cref="WindowsMicLevel.TryFindByName"/>, which touches
+    /// Core Audio only. The distinction is load-bearing: enumerating
+    /// PortAudio from this dialog while a radio connection is live risks
+    /// disturbing the audio streams that connection depends on, so the
+    /// Workshop never runs a Pa_Initialize/Pa_Terminate cycle.
+    /// </remarks>
+    private void BindPcLevel()
+    {
+        ReleasePcLevel();
+
+        string? name = null;
+        int savedHostApiTypeId = -1;
+        try
+        {
+            string? path = AudioDevicesPath?.Invoke();
+            if (!string.IsNullOrEmpty(path) && System.IO.File.Exists(path))
+            {
+                var devices = new JJPortaudio.Devices(path);
+                devices.LoadSavedSelection();
+                name = devices.InputDevice?.Name;
+                savedHostApiTypeId = devices.InputDevice?.hostApiTypeId ?? -1;
+            }
+        }
+        catch (Exception ex)
+        {
+            JJTrace.Tracing.TraceLine(
+                "AudioWorkshop: could not read the chosen input device for the level control — "
+                + ex.Message, System.Diagnostics.TraceLevel.Warning);
+        }
+
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            ShowPcLevelUnavailable(
+                "No microphone has been chosen on this computer yet. Use Change Audio "
+                + "Devices above to pick one, and its Windows input level will appear here.");
+            return;
+        }
+
+        var level = WindowsMicLevel.TryFindByName(name, savedHostApiTypeId, out string whyNot);
+        if (level == null)
+        {
+            ShowPcLevelUnavailable(whyNot);
+            return;
+        }
+
+        _pcMicLevel = level;
+        level.VolumeChanged += OnPcLevelVolumeChanged;
+
+        try
+        {
+            if (_pcLevelControl != null)
+            {
+                _pcLevelControl.SuppressEvents = true;
+                try { _pcLevelControl.Value = (int)Math.Round(level.Percent); }
+                finally { _pcLevelControl.SuppressEvents = false; }
+                _pcLevelControl.IsEnabled = true;
+                _pcLevelControl.Visibility = Visibility.Visible;
+            }
+            RefreshPcLevelNote();
+        }
+        catch (Exception ex)
+        {
+            // Matched and then gone — a device can vanish between the match
+            // and the first read. The failure shape is the same honest one.
+            PcLevelFailed(ex);
+        }
+    }
+
+    /// <summary>
+    /// The honest-failure shape: the level control absent (and therefore out
+    /// of the tab order), the note carrying the reason in its place. Silently
+    /// moving some other microphone's level would be far worse than offering
+    /// nothing — the operator cannot glance at the screen to catch it.
+    /// </summary>
+    private void ShowPcLevelUnavailable(string reason)
+    {
+        ReleasePcLevel();
+        bool hadFocus = _pcLevelControl?.IsKeyboardFocusWithin == true;
+        if (_pcLevelControl != null)
+        {
+            _pcLevelControl.IsEnabled = false;
+            _pcLevelControl.Visibility = Visibility.Collapsed;
+        }
+        SetPcLevelNoteText(reason);
+        if (_pcLevelNote != null)
+        {
+            _pcLevelNote.Visibility = Visibility.Visible;
+            // A mid-use failure lands the operator on the explanation, not
+            // in a void.
+            if (hadFocus) _pcLevelNote.Focus();
+        }
+    }
+
+    /// <summary>Source flipped back to the jack: the computer's level no longer applies.</summary>
+    private void HidePcLevel()
+    {
+        ReleasePcLevel();
+        if (_pcLevelControl != null)
+        {
+            _pcLevelControl.IsEnabled = false;
+            _pcLevelControl.Visibility = Visibility.Collapsed;
+        }
+        if (_pcLevelNote != null) _pcLevelNote.Visibility = Visibility.Collapsed;
+    }
+
+    /// <summary>
+    /// Let go of the Core Audio endpoint. Safe to call in any state; the
+    /// Closed handler calls it too, because a COM endpoint and its volume
+    /// callback must never outlive the dialog that subscribed them.
+    /// </summary>
+    private void ReleasePcLevel()
+    {
+        var level = _pcMicLevel;
+        _pcMicLevel = null;
+        if (level == null) return;
+        level.VolumeChanged -= OnPcLevelVolumeChanged;
+        level.Dispose();
+    }
+
+    /// <summary>
+    /// Core Audio raises volume notifications on a COM worker thread — for
+    /// external changes (Windows Settings, the Audio Devices sliders, another
+    /// app) and for our own writes echoing back alike. Hop to the UI thread
+    /// and re-read; the echo arrives holding the value the control already
+    /// shows and therefore moves nothing.
+    /// </summary>
+    private void OnPcLevelVolumeChanged()
+    {
+        Dispatcher.BeginInvoke(new Action(() =>
+        {
+            var level = _pcMicLevel;
+            if (level == null || _pcLevelControl == null) return;
+            try
+            {
+                _pcLevelControl.SuppressEvents = true;
+                try { _pcLevelControl.Value = (int)Math.Round(level.Percent); }
+                finally { _pcLevelControl.SuppressEvents = false; }
+                RefreshPcLevelNote();
+            }
+            catch (Exception ex)
+            {
+                PcLevelFailed(ex);
+            }
+        }));
+    }
+
+    /// <summary>
+    /// The always-current sentence under the level: which Windows device the
+    /// control actually moves, with mute leading when it applies — a Windows
+    /// mute wins over every level slider, and it is the precise cause of an
+    /// "every sample is digital silence" reading. Reads from the endpoint may
+    /// throw when the device has gone away; callers own turning that into the
+    /// failure shape.
+    /// </summary>
+    private void RefreshPcLevelNote()
+    {
+        var level = _pcMicLevel;
+        if (level == null || _pcLevelNote == null) return;
+
+        bool muted = level.Muted;
+        float boost = level.HasBoost ? level.BoostDb : 0f;
+
+        string text;
+        if (muted)
+        {
+            text = level.FriendlyName + " is muted in Windows — a mute wins over every level "
+                + "slider. Unmute it with Change Audio Devices above, or in Windows Sound settings.";
+        }
+        else
+        {
+            text = level.FollowsWindowsDefault
+                ? "This device follows your Windows default microphone. Right now that is "
+                  + level.FriendlyName + ", and the level above moves its Windows input level."
+                : "The level above moves the Windows input level for " + level.FriendlyName
+                  + " — the same level as Windows Sound settings.";
+            if (level.HasBoost && boost > 0f)
+            {
+                // The boost slider itself lives in the Audio Devices window;
+                // naming it here matters because a boost left at +30 dB is
+                // the classic cause of a pinned reading nothing visible
+                // explains, and the modern Settings app does not show boost
+                // at all.
+                text += $" Microphone Boost is turned up, plus {boost:F0} dB — if you are "
+                    + "coming in hot, lower the boost in Change Audio Devices first.";
+            }
+        }
+        SetPcLevelNoteText(text);
+        _pcLevelNote.Visibility = Visibility.Visible;
+    }
+
+    private void SetPcLevelNoteText(string text)
+    {
+        if (_pcLevelNote == null) return;
+        // Assign only on change: volume notifications can arrive in bursts,
+        // and rewriting identical text would reset a screen reader's review
+        // position for nothing.
+        if (_pcLevelNote.Text == text) return;
+        _pcLevelNote.Text = text;
+        AutomationProperties.SetName(_pcLevelNote, text);
+    }
+
+    private void PcLevelFailed(Exception ex)
+    {
+        JJTrace.Tracing.TraceLine("AudioWorkshop: Windows input level failed — " + ex.Message,
+            System.Diagnostics.TraceLevel.Error);
+        ShowPcLevelUnavailable(
+            "Windows stopped answering for this microphone — it may have been unplugged. "
+            + "Choose a device with Change Audio Devices above, or adjust the level in "
+            + "Windows Sound settings.");
     }
 
     private static void SetToggleLabel(CheckBox? cb, string label)

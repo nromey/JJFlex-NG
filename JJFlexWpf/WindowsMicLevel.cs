@@ -192,11 +192,92 @@ internal sealed class WindowsMicLevel : IDisposable
             return null;
         }
 
+        CollectCandidateNames(row, out HashSet<string> fullNames, out HashSet<string> mmeNames);
+        return MatchEndpoint(row.Name, fullNames, mmeNames, out whyNot);
+    }
+
+    /// <summary>
+    /// Find the Core Audio capture endpoint for a device known only by its
+    /// SAVED name — the audioDevices.xml selection — or return null with a
+    /// sentence saying why not. For callers that must not enumerate PortAudio:
+    /// the Audio Workshop reads the saved name from disk while a radio
+    /// connection may be live, and a Pa_Initialize/Pa_Terminate cycle there
+    /// risks disturbing the audio streams that connection depends on. This
+    /// path touches Core Audio only, which carries no PortAudio state at all.
+    /// </summary>
+    /// <param name="deviceName">The saved device name, exactly as
+    /// audioDevices.xml holds it.</param>
+    /// <param name="savedHostApiTypeId">The saved PaHostApiTypeId, or -1 when
+    /// the file predates 2026-08-07 and never recorded one.</param>
+    /// <param name="whyNot">The operator-facing reason when no confident
+    /// match exists.</param>
+    /// <remarks>
+    /// A saved name is one name, not a device group, so this has less to work
+    /// with than <see cref="TryFind"/>: the group's other spellings are not
+    /// available to widen the exact pass. Everything else survives unchanged
+    /// because both entry points funnel into the same matcher — the exact
+    /// pass, the unique-31-character-prefix pass for MME truncation, the
+    /// loopback refusal, the Windows-default-alias path, and "exactly one
+    /// endpoint" at every step. The saved host API type id says which pass
+    /// the name is entitled to: an MME name may be truncated and gets the
+    /// prefix pass; any other API's name is the full Windows friendly name
+    /// and gets the exact pass only; an unknown vintage (-1) gets both,
+    /// still gated on the name actually sitting at the truncation boundary,
+    /// because a short name that failed the exact pass is simply absent, not
+    /// truncated.
+    /// </remarks>
+    public static WindowsMicLevel? TryFindByName(string? deviceName, int savedHostApiTypeId, out string whyNot)
+    {
+        if (string.IsNullOrWhiteSpace(deviceName))
+        {
+            whyNot = "No microphone has been chosen on this computer yet, so there is "
+                + "no Windows input level to adjust.";
+            return null;
+        }
+
+        var fullNames = new HashSet<string>(StringComparer.Ordinal);
+        var mmeNames = new HashSet<string>(StringComparer.Ordinal);
+        string norm = Normalize(deviceName);
+        if (savedHostApiTypeId == PaMmeTypeId)
+        {
+            mmeNames.Add(norm);
+        }
+        else if (savedHostApiTypeId >= 0)
+        {
+            fullNames.Add(norm);
+        }
+        else
+        {
+            // Pre-2026-08-07 file: the host API was never written down, so
+            // whether this name may be truncated is unknowable. Offer it to
+            // both passes — the prefix pass's own length gate keeps ordinary
+            // short names from ever being treated as truncations.
+            fullNames.Add(norm);
+            mmeNames.Add(norm);
+        }
+
+        return MatchEndpoint(deviceName, fullNames, mmeNames, out whyNot);
+    }
+
+    /// <summary>
+    /// The one matcher both entry points funnel into, so the row-based and
+    /// name-based paths cannot drift apart. Runs the alias, exact, and
+    /// truncation passes over a single Core Audio snapshot and refuses —
+    /// with an operator-facing sentence — everywhere confidence runs out.
+    /// </summary>
+    private static WindowsMicLevel? MatchEndpoint(
+        string selectedName,
+        HashSet<string> fullNames,
+        HashSet<string> mmeNames,
+        out string whyNot)
+    {
+        whyNot = "";
+
         // A WASAPI loopback is not a microphone — it is whatever the computer
         // is playing, offered back as a capture device. Its "level" belongs to
         // the playback device, and moving that from a microphone check would
         // be exactly the wrong-device adjustment this class refuses to make.
-        if (Normalize(row.Name).EndsWith("[loopback]", StringComparison.Ordinal))
+        if (Normalize(selectedName).EndsWith("[loopback]", StringComparison.Ordinal))
         {
             whyNot = "This device is a loopback of what the computer is playing, not a microphone, "
                 + "so there is no input level to adjust here.";
@@ -210,13 +291,11 @@ internal sealed class WindowsMicLevel : IDisposable
             // The sound-mapper aliases follow the Windows default device by
             // definition, so the default capture endpoint IS the device the
             // operator selected. The note names it, so nothing is silent.
-            if (IsWindowsDefaultAlias(row.Name))
+            if (IsWindowsDefaultAlias(selectedName))
             {
                 MMDevice def = enumerator.GetDefaultAudioEndpoint(DataFlow.Capture, Role.Console);
                 return new WindowsMicLevel(def, followsDefault: true);
             }
-
-            CollectCandidateNames(row, out HashSet<string> fullNames, out HashSet<string> mmeNames);
 
             // One enumeration, held with normalised names, so the exact pass
             // and the truncation pass look at the same snapshot.
@@ -267,8 +346,8 @@ internal sealed class WindowsMicLevel : IDisposable
             if (hits.Count == 0)
             {
                 Tracing.TraceLine("WindowsMicLevel: no Core Audio endpoint matches \""
-                    + row.Name + "\"", TraceLevel.Info);
-                whyNot = "JJ Flex could not confidently match " + row.Name
+                    + selectedName + "\"", TraceLevel.Info);
+                whyNot = "JJ Flex could not confidently match " + selectedName
                     + " to a Windows sound device, so the level control is turned off "
                     + "rather than risk moving the wrong microphone's level. "
                     + "Adjust it in Windows Sound settings instead.";
@@ -276,9 +355,9 @@ internal sealed class WindowsMicLevel : IDisposable
             else
             {
                 Tracing.TraceLine("WindowsMicLevel: " + hits.Count
-                    + " Core Audio endpoints answer to \"" + row.Name
+                    + " Core Audio endpoints answer to \"" + selectedName
                     + "\"; refusing to guess", TraceLevel.Info);
-                whyNot = "More than one Windows sound device answers to the name " + row.Name
+                whyNot = "More than one Windows sound device answers to the name " + selectedName
                     + ", so JJ Flex cannot be sure which level to move and the control is turned off. "
                     + "Adjust it in Windows Sound settings instead.";
             }
