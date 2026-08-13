@@ -26,6 +26,26 @@
     <param name="Local" value="pages\audio-presets.htm">
   </OBJECT>
   <LI><OBJECT type="text/sitemap">
+    <param name="Name" value="audio troubleshooting">
+    <param name="Local" value="pages\audio-troubleshooting.htm">
+  </OBJECT>
+  <LI><OBJECT type="text/sitemap">
+    <param name="Name" value="microphone">
+    <param name="Local" value="pages\audio-troubleshooting.htm">
+  </OBJECT>
+  <LI><OBJECT type="text/sitemap">
+    <param name="Name" value="microphone check">
+    <param name="Local" value="pages\audio-troubleshooting.htm">
+  </OBJECT>
+  <LI><OBJECT type="text/sitemap">
+    <param name="Name" value="microphone privacy">
+    <param name="Local" value="pages\audio-troubleshooting.htm">
+  </OBJECT>
+  <LI><OBJECT type="text/sitemap">
+    <param name="Name" value="sound devices">
+    <param name="Local" value="pages\audio-troubleshooting.htm">
+  </OBJECT>
+  <LI><OBJECT type="text/sitemap">
     <param name="Name" value="audio workshop">
     <param name="Local" value="pages\audio-workshop.htm">
   </OBJECT>

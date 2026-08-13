@@ -101,6 +101,21 @@ A few things worth knowing:
 - **Moving a USB headset to a different port is fine.** JJ Flex identifies your
   saved devices by name, not by position in the list, so a reshuffle rebinds
   silently and correctly.
+- **Each device appears once.** Windows offers most sound hardware several
+  times over, once for each of the sound systems it supports, so a single USB
+  interface can arrive as three or four identical-looking choices. The list
+  folds those together — one piece of hardware, one choice — and takes the most
+  modern route to it on your behalf. If you want to see every one of them, tick
+  **Show every sound endpoint** at the bottom of the dialog; that view names the
+  sound system after each entry.
+- **A device that is unplugged says so in the list.** It sits at the top marked
+  "Not connected" rather than vanishing. Leave it selected if you plan to plug
+  it back in and JJ Flex keeps it saved for you; pick something else and JJ Flex
+  switches.
+- **Entries marked "loopback" are not microphones.** They are whatever your
+  computer is currently playing, offered back as a recording source. Choosing
+  one as your transmit microphone would put your own received audio on the air.
+  They are labelled so you can tell them apart.
 - **Devices with more than two channels work normally.** Many laptop
   microphone arrays report four channels; JJ Flex lists them and uses them in
   stereo. The dialog notes it when your chosen device is one of these.
@@ -111,6 +126,46 @@ A few things worth knowing:
   microphone.
 - **The device list is a snapshot.** If you plug something in while the dialog
   is open, press the **Refresh device list** button.
+
+## The Radio Cannot Hear Me
+
+You do not have to transmit to find out whether your microphone works. The
+Audio Devices dialog has a **Microphone check** right below the microphone
+list. Pick your microphone, press **Start microphone check** (Alt+M), and talk.
+Nothing is transmitted, the radio is not involved, and no other program has to
+be running.
+
+The reading sits just under the button in a read-only box you can Tab to, so
+your screen reader's read-current-control command speaks your level whenever
+you ask for it. It refreshes about twice a second while the check runs and uses
+the same words as the Audio Workshop: *turn it up*, *just right*, *coming in
+hot*, alongside the number in dBFS.
+
+Three answers mean three different things, and the check tells them apart:
+
+- **A level that moves when you talk.** Your microphone works. If the verdict
+  is "turn it up", reach for the gain knob on your interface first, then Mic
+  Gain in the Audio Workshop.
+- **Only the electrical noise floor.** JJ Flex hears the interface but nothing
+  is arriving at it — a very low number, around -90 dBFS or below, that never
+  moves. Check the microphone is plugged into the right input and that the
+  interface's own gain is turned up. On an interface with phantom power, a
+  condenser microphone with 48V switched off reads exactly like this.
+- **No sound at all.** Not quiet — literally nothing, every sample zero. A
+  working microphone always has some noise on it, so this means Windows is
+  handing JJ Flex silence rather than audio. Look for a mute: on the device
+  itself, on the Windows recording device, or in Windows privacy settings.
+
+If Windows privacy settings are what is blocking you, JJ Flex says so by name
+and offers an **Open Windows microphone privacy settings** button that takes
+you straight to the right page. Turn microphone access on there — including
+**Let desktop apps access your microphone**, which is the switch that governs
+JJ Flex — then come back and run the check again. If nothing is blocked, that
+button never appears.
+
+The check closes the microphone the moment you stop it, switch to a different
+device, refresh the list, or close the dialog. It never keeps hold of your
+microphone behind your back.
 
 ## Alerts and CW Notifications Are Not Playing
 
