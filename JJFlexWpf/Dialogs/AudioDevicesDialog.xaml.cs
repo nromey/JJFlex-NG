@@ -840,13 +840,13 @@ namespace JJFlexWpf.Dialogs
             else if (final.HoldPeakDb <= NoiseFloorDb)
             {
                 summary = $"Microphone check stopped. Nothing but the electrical noise floor was "
-                    + $"heard, peak {final.HoldPeakDb:F0} dBFS.";
+                    + $"heard, peak {PeakText(final.HoldPeakDb)}.";
             }
             else
             {
                 string verdict = MicAudioReport.Verdict(final.HoldPeakDb);
                 summary = $"Microphone check stopped. Loudest sound heard: {verdict}, "
-                    + $"peak {final.HoldPeakDb:F0} dBFS"
+                    + $"peak {PeakText(final.HoldPeakDb)}"
                     + LoudnessPart(final.IntegratedLufs, final.HoldPeakDb)
                     + "."
                     // The sentence whose absence made "coming in hot" a dead
@@ -918,7 +918,7 @@ namespace JJFlexWpf.Dialogs
                 // three seconds are the quiet this branch is reporting, while
                 // the integrated figure still describes the speech before it.
                 text = $"Mic audio: quiet right now. Loudest so far: "
-                    + $"{MicAudioReport.Verdict(r.HoldPeakDb)}, {r.HoldPeakDb:F0} dBFS"
+                    + $"{MicAudioReport.Verdict(r.HoldPeakDb)}, {PeakText(r.HoldPeakDb)}"
                     + LoudnessPart(r.IntegratedLufs, r.HoldPeakDb) + ".";
             }
             else
@@ -931,9 +931,9 @@ namespace JJFlexWpf.Dialogs
                 // actually SETTING a level, and peak cannot tell them when
                 // they have stopped being too quiet — that is loudness's job.
                 text = $"Mic audio now: {MicAudioReport.Verdict(r.RecentPeakDb)}, "
-                    + $"peak {r.RecentPeakDb:F0} dBFS"
+                    + $"peak {PeakText(r.RecentPeakDb)}"
                     + LoudnessPart(r.ShortTermLufs, r.RecentPeakDb)
-                    + $". Loudest so far {r.HoldPeakDb:F0} dBFS.";
+                    + $". Loudest so far {PeakText(r.HoldPeakDb)}.";
 
                 // A fact, not a second verdict. Measured on the bench: an audio
                 // interface with nothing plugged into it reads about -105 dBFS
@@ -994,6 +994,43 @@ namespace JJFlexWpf.Dialogs
         /// same frozen <see cref="MicAudioReport.Verdict"/> every other
         /// surface uses.
         /// </summary>
+        /// <summary>
+        /// A level, in words that cannot lie about which end of the scale it
+        /// is at.
+        /// </summary>
+        /// <remarks>
+        /// Noel, 2026-08-13: "when it's peaking or when it's at 0% -140 dbfs,
+        /// it's speaking that it's -0 or 0 which both say it's clipping which
+        /// is wrong."
+        ///
+        /// <para>
+        /// Two separate ways plain "F0" formatting misreports a level, and
+        /// both land on the same wrong answer:
+        /// </para>
+        ///
+        /// <para>
+        /// Anything between -0.5 and 0 renders as "-0", which a screen reader
+        /// says as zero. Zero dBFS is FULL SCALE — the ceiling — so a value
+        /// just under it and a value at the floor can both be spoken as the
+        /// loudest possible reading. Silence reported as clipping is the worst
+        /// direction this can fail in, because the operator's correct response
+        /// to each is the exact opposite of the other.
+        /// </para>
+        ///
+        /// <para>
+        /// So: at or under the floor there is no number worth saying, and the
+        /// words say so. Near the ceiling a decimal place is kept, because
+        /// -0.3 and -0.0 are genuinely different situations there. Everywhere
+        /// in between, whole decibels are what an operator can act on.
+        /// </para>
+        /// </remarks>
+        private static string PeakText(float db)
+        {
+            if (db <= MicProbe.SilenceDb) return "nothing at all";
+            if (db > -1f) return $"{db:F1} dBFS";
+            return $"{db:F0} dBFS";
+        }
+
         private static string LoudnessPart(float lufs, float peakDb)
         {
             if (lufs <= LufsMeter.Floor || peakDb >= ClippedDb) return "";
