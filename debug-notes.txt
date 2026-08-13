@@ -1,36 +1,49 @@
-Evening build, August 6, 2026. Everything from build 517's sign-in
-overhaul is here, plus an evening of radio selector improvements.
+WHAT CHANGED
 
-New since build 517:
+The sample rate your microphone actually runs at is now settled with the
+device before anything is built from it. It used to be assumed to be 48 kHz,
+and if your microphone was running at some other rate, nothing noticed. Your
+audio still went out, just built on the wrong number - which sounds like a
+regular stutter rather than like anything being broken, so it was easy to
+blame on the network.
 
-1. Press Enter on a radio in the list to connect. The list has promised
-   this forever; now it is true.
-2. Start Remote automatically: Manage SmartLink Accounts has a new
-   checkbox, "Start Remote automatically at startup." Check it and the
-   radio selector begins looking for your remote radios the moment it
-   opens. No more pressing Remote every session.
-3. The Remote button becomes "Refresh Remote List" once your remote
-   radios are listed. Same spot, same Alt+R. Pressing it reconnects to
-   SmartLink and looks again, picking up radios that came online since
-   you first asked. Radios that went offline drop out with a spoken
-   notice.
-4. Use Now: use an account for just this session without changing your
-   default. New button in Manage SmartLink Accounts, Alt+U.
-5. If every slice on the radio is busy, JJ Flexible now tells you who
-   has them and backs out on its own instead of sitting at
-   "Connecting" forever.
-6. A radio on your local network that powers off now leaves the list
-   about 20 seconds later, with a spoken notice.
+If your microphone will not open at all, JJ Flex now says so once, out loud,
+and keeps receive audio running. Before, it said nothing whatsoever: you would
+key up, transmit silence, and be told nothing was wrong.
 
-Things to test:
+The Microphone Check now tells you when Windows has your microphone at a rate
+the radio link cannot use - 44.1 kHz being the one that turns up. The check
+itself is perfectly happy at that rate, so a microphone could pass the check
+completely and still be unable to transmit. Now it says so before you find
+out the hard way.
 
-1. Enter to connect from the radio list.
-2. The auto-start checkbox: check it, restart the app, listen for
-   "Starting remote radios for your account."
-3. Refresh Remote List after your radios appear. It should be quick.
-4. With the selector open, power a local radio off. It should announce
-   "went offline" within about 20 seconds.
+WHAT TO TEST
 
-Known: item 6 (local radio leaving the list) landed at the end of the
-evening and has not been verified live yet. First test tomorrow
-morning.
+Start the Microphone Check - either the Check Microphone button in the Audio
+Workshop, or Start microphone check in Audio Devices - and read the FIRST
+line it shows.
+
+If it says only "Microphone check running. Listening." then your microphone is
+at 48 kHz and all is well. That is the expected result.
+
+If it goes on to mention 44.1 kHz, that is worth knowing and worth telling me
+about, because it means Windows has that device at a rate that will not carry
+transmit audio.
+
+After that: talk into it, watch the reading, then go quiet and confirm it
+reports silence rather than inventing a level.
+
+With a radio: connect, turn PC Audio on, and listen for the absence of an
+announcement about your microphone. Silence is the pass here. Then key up with
+the transmit monitor on and listen specifically for a REGULAR, rhythmic gap in
+your own voice - not random dropouts, a steady stutter. That rhythm was the
+signature of what got fixed. If you hear it, I want to know immediately.
+
+KNOWN ISSUES
+
+The transverter work is not fleshed out yet.
+
+The noise gate and RNNoise are not in this build.
+
+The help page on the two audio numbers still opens with a draft marker. That
+is deliberate - it has not had a human pass yet.
