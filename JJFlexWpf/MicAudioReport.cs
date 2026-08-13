@@ -314,15 +314,37 @@ internal static class MicAudioReport
         if (haveLoudness && peakSafe)
             verdict += ". " + LoudnessRotors[(int)LoudnessBandOf(lufs)].Next();
 
-        string numbers = $"peak {peakDb:F0} dBFS";
+        // A level at the floor must never be spoken as a level at the ceiling.
+        // Plain F0 formatting renders anything between -0.5 and 0 as "-0",
+        // which a screen reader says as zero -- and zero dBFS is FULL SCALE.
+        // So a value just under the ceiling and a value at the floor could
+        // both come out as the loudest reading possible, and the operator's
+        // correct response to each is the exact opposite of the other.
+        string peakText = (peakDb <= JJPortaudio.MicProbe.SilenceDb)
+            ? "nothing at all"
+            : (peakDb > -1f ? $"{peakDb:F1} dBFS" : $"{peakDb:F0} dBFS");
+
+        string numbers = $"peak {peakText}";
         if (haveLoudness)
             numbers += $", loudness {lufs:F0} LUFS";
 
+        // Numbers first, coaching after (Noel, 2026-08-13, after setting a
+        // level with it for real: "I'd read the level number first and then
+        // the coaching... it's easier if you're adjusting to hear a level and
+        // then coaching").
+        //
+        // The verdict used to lead. That was built so a fast listener could
+        // hear one token and stop -- the right instinct aimed at the wrong
+        // target. While ADJUSTING, the number IS what is being tracked, and it
+        // is strictly more informative than the token summarising it. Leading
+        // with it serves the same goal better: the earliest words out are now
+        // the most precise ones, and the coaching is what you stay for rather
+        // than what you sit through.
         return VerdictMode switch
         {
             MicVerdictOutputMode.Plain => verdict,
             MicVerdictOutputMode.Numbers => numbers,
-            _ => $"{verdict}. {char.ToUpperInvariant(numbers[0])}{numbers[1..]}",
+            _ => $"{char.ToUpperInvariant(numbers[0])}{numbers[1..]}. {verdict}",
         };
     }
 
