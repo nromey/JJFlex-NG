@@ -2,7 +2,7 @@
 
 **Draft — Claude's wording, awaiting Noel's human pass.**
 
-If you ask JJ Flexible Radio Access how your audio is doing, it can answer in plain English ("just right", "coming in hot", "turn it up"), or it can hand you the actual figures. Ask for the figures and you get two of them: **dBFS** and **LUFS**. They are not two ways of saying the same thing, and neither one is the "real" number. They answer different questions, and they go wrong in different directions.
+If you ask JJ Flexible Radio Access how your audio is doing, it can answer in plain English ("Good.", "Hot.", "Quiet."), or it can hand you the actual figures. Ask for the figures and you get two of them: **dBFS** and **LUFS**. They are not two ways of saying the same thing, and neither one is the "real" number. They answer different questions, and they go wrong in different directions.
 
 Here is the short version, in terms you already own.
 

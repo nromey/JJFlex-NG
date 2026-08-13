@@ -77,7 +77,7 @@ namespace JJPortaudio
 
         /// <summary>
         /// Tone level in dBFS (-60..0). Default -10 dBFS, which lands in the
-        /// "just right" band of the mic-audio verdict and matches the bench
+        /// "Good" band of the mic-audio verdict and matches the bench
         /// reference measurement that calibrated the honest meters.
         /// </summary>
         public float LevelDb

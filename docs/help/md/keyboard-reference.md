@@ -87,7 +87,7 @@ Press `?` inside volume mode to hear the target list again. Escape exits and ann
 
 ### Mic check — Ctrl+J, then K
 
-The binding you ride while setting mic gain. One chord, one answer: your mic-audio verdict and level — "just right, peak minus 12 dBFS" — and nothing else in front of it. While you're transmitting it follows the last second and a half of audio, so each gain change is audible in the next check; while you're receiving it reports your last transmission's peak. You can change how the answer reads (plain English, decibels, or both) under Settings, Notifications, "Mic audio readout."
+The binding you ride while setting mic gain. One chord, one answer: your mic-audio verdict and level — "Good. That's the sweet spot, right there. Peak minus 9 dBFS" — and nothing else in front of it. While you're transmitting it follows the last second and a half of audio, so each gain change is audible in the next check; while you're receiving it reports your last transmission's peak. You can change how the answer reads (plain English, decibels, or both) under Settings, Notifications, "Mic audio readout."
 
 ### Test tone — Ctrl+J, then G
 

@@ -84,8 +84,8 @@ they are choices someone made and you may want reversed:
 
 18. **The blocking test.** Key up and, **while still transmitting**, press
     **Alt+Shift+S** (Speak Transmit Status). It should speak the transmit state
-    **plus a live mic-audio verdict and peak** — "just right," "coming in hot,"
-    or "turn it up." This is the one item that gates merging to main, and it has
+    **plus a live mic-audio verdict and peak** — one leading token ("Good.",
+    "Hot.", "Quiet.") then coaching and the figure. This is the one item that gates merging to main, and it has
     never run at a radio. If you adjust mic gain while keyed, the verdict should
     follow within about a second and a half.
 19. Unkey. Confirm the **Home mic-audio field** now reports your last

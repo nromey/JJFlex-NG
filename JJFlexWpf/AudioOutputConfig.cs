@@ -389,9 +389,9 @@ namespace JJFlexWpf
     public enum MicVerdictOutputMode
     {
         /// <summary>Plain English plus the figures (default):
-        /// "just right, peak -12 dBFS, loudness -19 LUFS".</summary>
+        /// "Good. That's the sweet spot, right there. Peak -9 dBFS, loudness -19 LUFS".</summary>
         Both = 0,
-        /// <summary>Plain English only: "just right".</summary>
+        /// <summary>Plain English only: "Good. That's the sweet spot, right there."</summary>
         Plain = 1,
         /// <summary>Figures only: "peak -12 dBFS, loudness -19 LUFS".</summary>
         Numbers = 2,

@@ -138,8 +138,11 @@ be running.
 The reading sits just under the button in a read-only box you can Tab to, so
 your screen reader's read-current-control command speaks your level whenever
 you ask for it. It refreshes about twice a second while the check runs and uses
-the same words as the Audio Workshop: *turn it up*, *just right*, *coming in
-hot*, alongside the number in dBFS.
+the same words as the Audio Workshop. Every answer opens with one word that
+tells you the whole story — *Good*, *Hot*, *Clipping*, *Quiet*, *Very quiet*,
+*Faint*, *Nothing* — followed by what to do about it and the number in dBFS.
+The leading word is there so you can stop listening as soon as you have what
+you needed.
 
 Three answers mean three different things, and the check tells them apart:
 
