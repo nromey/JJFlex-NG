@@ -60,8 +60,7 @@
                          Height="110"
                          Margin="0,0,0,4"
                          KeyboardNavigation.DirectionalNavigation="Contained"
-                         AutomationProperties.Name="Radio receive audio output device"
-                         SelectionChanged="RadioOutputList_SelectionChanged"/>
+                         AutomationProperties.Name="Radio receive audio output device"/>
                 <TextBlock x:Name="RadioOutputNote"
                            Style="{StaticResource DialogLabel}"
                            TextWrapping="Wrap"
@@ -123,6 +122,66 @@
                          IsReadOnlyCaretVisible="True"
                          Margin="0,0,0,4"
                          AutomationProperties.Name="Microphone check reading"/>
+
+                <!-- ===== Windows input level (Mic Level Track, 2026-08-13) =====
+                     Stage one of the capture chain: the level Windows records
+                     the microphone at, before any radio is involved. It sits
+                     right beside the reading it moves, so "coming in hot" is a
+                     verdict with its remedy next to it instead of a dead end.
+                     The slider is DISABLED, with the note saying why, whenever
+                     the selected PortAudio device cannot be confidently matched
+                     to a Windows endpoint — silently moving some other
+                     microphone's level is worse than offering nothing, and a
+                     disabled control stays out of the tab order. -->
+                <TextBlock Text="Windows input level:"
+                           Style="{StaticResource DialogLabel}"
+                           Margin="0,4,0,2"/>
+                <Slider x:Name="MicLevelSlider"
+                        Minimum="0" Maximum="100"
+                        SmallChange="1" LargeChange="5"
+                        TickFrequency="1" IsSnapToTickEnabled="True"
+                        IsEnabled="False"
+                        Margin="0,0,0,4"
+                        AutomationProperties.Name="Windows input level"
+                        ValueChanged="MicLevelSlider_ValueChanged"/>
+
+                <!-- Shown only when the driver actually has a boost part. A
+                     boost left up is the classic cause of a pinned 0 dBFS
+                     reading, the modern Settings app does not show it at all,
+                     and an operator who cannot see mmsys.cpl's Levels tab had
+                     no way to reach it until now. -->
+                <TextBlock x:Name="MicBoostLabel"
+                           Text="Microphone Boost:"
+                           Style="{StaticResource DialogLabel}"
+                           Margin="0,0,0,2"
+                           Visibility="Collapsed"/>
+                <Slider x:Name="MicBoostSlider"
+                        IsSnapToTickEnabled="True"
+                        Margin="0,0,0,4"
+                        Visibility="Collapsed"
+                        AutomationProperties.Name="Microphone Boost"
+                        ValueChanged="MicBoostSlider_ValueChanged"/>
+
+                <!-- Same idiom as the privacy button below: the way out of a
+                     block appears only while the block exists. A Windows mute
+                     wins over every slider on this page, so while it is on,
+                     this button is the only control here that matters. -->
+                <Button x:Name="MicUnmuteButton"
+                        Content="_Unmute this microphone in Windows"
+                        MinWidth="200" Height="28"
+                        HorizontalAlignment="Left"
+                        Margin="0,0,0,4"
+                        Visibility="Collapsed"
+                        AutomationProperties.Name="Unmute this microphone in Windows"
+                        AutomationProperties.AcceleratorKey="Alt+U"
+                        Click="MicUnmuteButton_Click"/>
+
+                <TextBlock x:Name="MicLevelNote"
+                           Style="{StaticResource DialogLabel}"
+                           TextWrapping="Wrap"
+                           Margin="0,0,0,4"
+                           Focusable="True"
+                           AutomationProperties.Name="Windows input level note"/>
 
                 <Button x:Name="MicPrivacyButton"
                         Content="Open _Windows microphone privacy settings"

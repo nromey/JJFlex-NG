@@ -1,8 +1,10 @@
+using System.Diagnostics;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Threading;
 using JJPortaudio;
+using JJTrace;
 using Radios;
 
 namespace JJFlexWpf.Dialogs
@@ -98,6 +100,19 @@ namespace JJFlexWpf.Dialogs
         private bool _privacyBlocked;
         private string _privacyExplanation = "";
 
+        // ── Windows input level (stage one) ──
+
+        // The Core Audio endpoint volume for the selected microphone, or null
+        // when no confident match exists — in which case the control is
+        // disabled and the note says why. See WindowsMicLevel for the
+        // matching rules and why refusing beats guessing.
+        private WindowsMicLevel? _micLevel;
+
+        // True while code is moving the sliders (initial bind, an external
+        // change echoing back), so ValueChanged does not write a value we
+        // just read straight back to Windows.
+        private bool _micLevelUpdatingUi;
+
         /// <summary>
         /// Below this peak, in dBFS, what we are hearing is the interface's own
         /// electronics rather than a room. Chosen from a bench measurement, not
@@ -107,6 +122,17 @@ namespace JJFlexWpf.Dialogs
         /// to sit in and -75 sits in it.
         /// </summary>
         private const float NoiseFloorDb = -75f;
+
+        /// <summary>
+        /// At or above this peak, in dBFS, the capture has clipped — samples
+        /// slammed into full scale. Loudness figures are withheld from that
+        /// reading: clipping raises RMS energy, so a loudness measured through
+        /// it reads HIGHER than the true program loudness, and reporting a
+        /// number the clipping corrupted would be worse than reporting none.
+        /// -1 rather than exactly 0 because drivers hand back peaks a hair
+        /// under full scale for a signal that already hit the rail.
+        /// </summary>
+        private const float ClippedDb = -1f;
 
         /// <summary>
         /// True when both radio-audio devices are configured and present after
@@ -151,8 +177,13 @@ namespace JJFlexWpf.Dialogs
             // Closed fires on every exit — OK, Cancel, Escape, the title bar
             // close, and an owner-window teardown — so this is the one place
             // that has to be right, and every other path just calls the same
-            // stop.
-            Closed += (s, e) => StopMicCheck(speak: false, reason: "");
+            // stop. The Windows level binding holds a COM notification
+            // registration, so it gets the same guarantee.
+            Closed += (s, e) =>
+            {
+                StopMicCheck(speak: false, reason: "");
+                DisposeMicLevel();
+            };
 
             LoadNAudioDevices();
             ReloadPortAudioDevices(announce: false);
@@ -289,6 +320,12 @@ namespace JJFlexWpf.Dialogs
                 _loading = false;
             }
 
+            // Rebind the Windows level control to whatever the input list now
+            // selects. SelectionChanged skipped it — _loading was true — and a
+            // control left bound to a device from before the refresh would be
+            // adjusting something no longer on screen.
+            UpdateMicLevelControl();
+
             if (announce)
             {
                 string msg = _status == Devices.EnumerationStatus.Ok
@@ -347,6 +384,17 @@ namespace JJFlexWpf.Dialogs
 
             if (rows.Count == 0)
             {
+                // Even an empty picker can be hiding the operator's own saved
+                // device (a machine whose only inputs are virtual cables, all
+                // filtered by the basic view). Their choice outranks the
+                // filter — see SelectFilteredSavedRow.
+                if (savedNamed && !savedMissing)
+                {
+                    var liveSaved = Devices.FindLive(saved!);
+                    if (liveSaved != null)
+                        return SelectFilteredSavedRow(list, rows, liveSaved.GroupOwner ?? liveSaved, note);
+                }
+
                 // No dead controls in tab order: an empty list is not something
                 // you can arrow through, so say why it is empty and disable it.
                 list.IsEnabled = false;
@@ -360,7 +408,22 @@ namespace JJFlexWpf.Dialogs
             if (match != null)
             {
                 int idx = IndexOf(rows, match);
-                list.SelectedIndex = idx >= 0 ? idx : 0;
+                if (idx < 0)
+                {
+                    // The saved device is live but the picker's current view
+                    // filters it out (loopbacks and virtual cables are hidden
+                    // unless the advanced toggle is on). Snapping to row 0
+                    // while the note still names the saved device would be a
+                    // silent substitution — and OK would then COMMIT row 0,
+                    // quietly replacing a deliberate choice with something the
+                    // operator never picked and cannot glance at. So the saved
+                    // device keeps its row: inserted first, selected, and
+                    // labelled with why it is here. OK on it is a no-op
+                    // (SameDevice matches through the group), so a working
+                    // configuration stays working.
+                    return SelectFilteredSavedRow(list, rows, match, note);
+                }
+                list.SelectedIndex = idx;
                 // A multi-channel device is a decision the app makes on the
                 // operator's behalf (it opens the first two channels as
                 // stereo), so the note says so rather than leaving them to
@@ -370,6 +433,21 @@ namespace JJFlexWpf.Dialogs
                     : "";
                 SetStatusLine(note, $"Currently using {match.Display}.{channelPart}");
                 return rows;
+            }
+
+            // Defence in depth for the same filter: if resolving the saved
+            // device to a picker row failed but the device itself is live
+            // (savedMissing is false and the name is real), it is hidden, not
+            // gone — fall through to the not-chosen-yet message and it would
+            // read as if the operator never chose anything, then OK would
+            // commit the fallback. Same remedy: keep the choice on screen.
+            if (savedNamed && !savedMissing)
+            {
+                var live = Devices.FindLive(saved!);
+                if (live != null)
+                {
+                    return SelectFilteredSavedRow(list, rows, live.GroupOwner ?? live, note);
+                }
             }
 
             // The pre-selection OK would commit must be a device the engine
@@ -405,6 +483,31 @@ namespace JJFlexWpf.Dialogs
             }
             list.SelectedIndex = fallbackIdx;
             SetStatusLine(note, $"No {role} device chosen yet. {rows[fallbackIdx].Display} will be used unless you choose another.");
+            return rows;
+        }
+
+        /// <summary>
+        /// Keep a saved device visible and selected when the picker's current
+        /// view hides its kind (loopbacks and virtual cables, in the basic
+        /// view). The row goes first — same precedent as the not-connected
+        /// row: the sentence that applies to the person's own configuration
+        /// is the most important one in the list — and the note says plainly
+        /// why a normally-hidden device is on screen, so the list and the
+        /// note can never disagree.
+        /// </summary>
+        private List<Devices.DeviceInfo> SelectFilteredSavedRow(
+            ListBox list,
+            List<Devices.DeviceInfo> rows,
+            Devices.DeviceInfo savedRow,
+            TextBlock note)
+        {
+            rows.Insert(0, savedRow);
+            list.Items.Insert(0, savedRow.Display);
+            list.IsEnabled = true;
+            list.SelectedIndex = 0;
+            SetStatusLine(note, $"Currently using {savedRow.Display}. This kind of device is normally "
+                + "hidden from the list — it is shown here so your saved choice stays yours. "
+                + "Turn on Show every sound endpoint to see others like it.");
             return rows;
         }
 
@@ -458,29 +561,24 @@ namespace JJFlexWpf.Dialogs
 
         // ------------------------------------------------------------- events
 
-        private void RadioOutputList_SelectionChanged(object sender, SelectionChangedEventArgs e)
-        {
-            if (_loading) return;
-            SpeakSelection(RadioOutputList, _outputRows, "Radio receive audio");
-        }
-
+        // Neither list narrates its own selection any more (Mic Level Track,
+        // 2026-08-13). The ListBox rows are plain strings, so NVDA already
+        // reads the focused row on every arrow press, and each list's
+        // AutomationProperties.Name says which list you are in — once, on
+        // entry, at no per-item cost. The app-pushed repeat of both was heard
+        // twice per keystroke. The standing rule it leaves behind: only speak
+        // to the screen reader when the control does not already convey the
+        // information; prefer repairing the accessibility tree over narrating
+        // around it. (The output list needs no handler at all now.)
         private void RadioInputList_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (_loading) return;
             // A running check belongs to the device it was started on. Moving
             // the selection makes the reading a lie, so the stream closes.
             StopMicCheck(speak: true, reason: "Microphone check stopped — you chose a different microphone.");
-            SpeakSelection(RadioInputList, _inputRows, "Microphone");
-        }
-
-        // WPF ListBox already narrates the item under the cursor as you arrow,
-        // so this stays Chatty rather than interrupting — it adds which list you
-        // are in, which is the piece the old form never told you.
-        private void SpeakSelection(ListBox list, List<Devices.DeviceInfo> rows, string role)
-        {
-            int idx = list.SelectedIndex;
-            if (idx < 0 || idx >= rows.Count) return;
-            ScreenReaderOutput.Speak($"{role}: {rows[idx].Display}", VerbosityLevel.Chatty);
+            // The Windows level control follows the selection for the same
+            // reason: it must never be left pointed at the previous device.
+            UpdateMicLevelControl();
         }
 
         private void RefreshButton_Click(object sender, RoutedEventArgs e)
@@ -666,9 +764,15 @@ namespace JJFlexWpf.Dialogs
             }
             else
             {
-                summary = $"Microphone check stopped. Loudest sound heard: "
-                    + $"{MicAudioReport.Verdict(final.HoldPeakDb)}, "
-                    + $"peak {final.HoldPeakDb:F0} dBFS.";
+                string verdict = MicAudioReport.Verdict(final.HoldPeakDb);
+                summary = $"Microphone check stopped. Loudest sound heard: {verdict}, "
+                    + $"peak {final.HoldPeakDb:F0} dBFS"
+                    + LoudnessPart(final.IntegratedLufs, final.HoldPeakDb)
+                    + "."
+                    // The sentence whose absence made "coming in hot" a dead
+                    // end: a verdict is a diagnosis, and a diagnosis without a
+                    // direction and a stage is not help.
+                    + LevelAdvice(verdict);
             }
             if (!string.IsNullOrEmpty(reason)) summary = reason + " " + summary;
 
@@ -730,16 +834,26 @@ namespace JJFlexWpf.Dialogs
             }
             else if (r.RecentPeakDb <= MicProbe.SilenceDb)
             {
+                // The gated whole-check figure, not the 3 s window: the last
+                // three seconds are the quiet this branch is reporting, while
+                // the integrated figure still describes the speech before it.
                 text = $"Mic audio: quiet right now. Loudest so far: "
-                    + $"{MicAudioReport.Verdict(r.HoldPeakDb)}, {r.HoldPeakDb:F0} dBFS.";
+                    + $"{MicAudioReport.Verdict(r.HoldPeakDb)}, {r.HoldPeakDb:F0} dBFS"
+                    + LoudnessPart(r.IntegratedLufs, r.HoldPeakDb) + ".";
             }
             else
             {
                 // Same vocabulary the Audio Workshop and the Home fields use,
                 // reading the same kind of number, so one level never gets two
-                // different verdicts depending on where you asked.
+                // different verdicts depending on where you asked. Loudness
+                // rides along (Mic Level Track, 2026-08-13): peak answers "am
+                // I clipping", but this check is the one place the operator is
+                // actually SETTING a level, and peak cannot tell them when
+                // they have stopped being too quiet — that is loudness's job.
                 text = $"Mic audio now: {MicAudioReport.Verdict(r.RecentPeakDb)}, "
-                    + $"peak {r.RecentPeakDb:F0} dBFS. Loudest so far {r.HoldPeakDb:F0} dBFS.";
+                    + $"peak {r.RecentPeakDb:F0} dBFS"
+                    + LoudnessPart(r.ShortTermLufs, r.RecentPeakDb)
+                    + $". Loudest so far {r.HoldPeakDb:F0} dBFS.";
 
                 // A fact, not a second verdict. Measured on the bench: an audio
                 // interface with nothing plugged into it reads about -105 dBFS
@@ -790,6 +904,324 @@ namespace JJFlexWpf.Dialogs
                 return;
             }
             Announce(failure, VerbosityLevel.Critical);
+        }
+
+        /// <summary>
+        /// ", loudness N LUFS" — or empty when there is no honest figure:
+        /// nothing has gated in yet, or the capture clipped (see
+        /// <see cref="ClippedDb"/>). Display carries both numbers whenever
+        /// both are honest; the verdict vocabulary stays peak's, from the
+        /// same frozen <see cref="MicAudioReport.Verdict"/> every other
+        /// surface uses.
+        /// </summary>
+        private static string LoudnessPart(float lufs, float peakDb)
+        {
+            if (lufs <= LufsMeter.Floor || peakDb >= ClippedDb) return "";
+            return $", loudness {lufs:F0} LUFS";
+        }
+
+        /// <summary>
+        /// What to do about an off-target verdict, and where. Direction and
+        /// stage, never just a state: this check measures stage one — the
+        /// level Windows captures at — so the remedy names the Windows input
+        /// level, not the radio. Turning the radio's mic gain down on a
+        /// capture that clipped here yields quieter distortion, not clean
+        /// audio. Empty for "just right", which needs no help.
+        /// </summary>
+        private string LevelAdvice(string verdict)
+        {
+            // The two poles come from the same function that produced the
+            // verdict, so a vocabulary change there cannot silently strand
+            // this branch on a stale string.
+            string hot = MicAudioReport.Verdict(0f);
+            string quiet = MicAudioReport.Verdict(-100f);
+            if (verdict != hot && verdict != quiet) return "";
+
+            var level = _micLevel;
+
+            if (verdict == hot)
+            {
+                // A boost left up is the likeliest culprit for a pinned
+                // reading, and it is the control Windows Settings does not
+                // show — name it first when it is actually turned up.
+                float boost = 0f;
+                try { boost = (level != null && level.HasBoost) ? level.BoostDb : 0f; }
+                catch { /* device gone; the plain advice still stands */ }
+                if (boost > 0f)
+                {
+                    return $" Microphone Boost is at plus {boost:F0} dB — lower the Boost slider "
+                        + "below first, then run the check again.";
+                }
+                return level != null
+                    ? " Lower the Windows input level slider below and run the check again."
+                    : " Lower this microphone's input level in Windows Sound settings and run the check again.";
+            }
+
+            return level != null
+                ? " Raise the Windows input level slider below and run the check again."
+                : " Raise this microphone's input level in Windows Sound settings and run the check again.";
+        }
+
+        // ------------------------------------------------ windows input level
+
+        /// <summary>
+        /// Bind the Windows level control to the microphone the input list
+        /// selects, or disable it with the reason when no confident match
+        /// exists. The measurement (the check above) and the control that
+        /// moves it live side by side on purpose — stage one of the capture
+        /// chain, adjustable at the stage where it is measured.
+        /// </summary>
+        private void UpdateMicLevelControl()
+        {
+            DisposeMicLevel();
+
+            _micLevel = WindowsMicLevel.TryFind(SelectedInputRow(), out string whyNot);
+            if (_micLevel == null)
+            {
+                DisableMicLevelControl(whyNot);
+                return;
+            }
+
+            _micLevel.VolumeChanged += OnWindowsVolumeChanged;
+
+            MicLevelSlider.IsEnabled = true;
+            AutomationProperties.SetName(MicLevelSlider,
+                $"Windows input level for {_micLevel.FriendlyName}, percent");
+
+            if (_micLevel.HasBoost)
+            {
+                _micLevelUpdatingUi = true;
+                try
+                {
+                    MicBoostSlider.Minimum = _micLevel.BoostMinDb;
+                    MicBoostSlider.Maximum = _micLevel.BoostMaxDb;
+                    // Drivers step boost coarsely (10 dB is typical); the
+                    // slider moves in the driver's own steps so every value
+                    // shown is one the hardware actually has.
+                    double step = _micLevel.BoostStepDb > 0f ? _micLevel.BoostStepDb : 1.0;
+                    MicBoostSlider.SmallChange = step;
+                    MicBoostSlider.LargeChange = step;
+                    MicBoostSlider.TickFrequency = step;
+                }
+                finally
+                {
+                    _micLevelUpdatingUi = false;
+                }
+                AutomationProperties.SetName(MicBoostSlider,
+                    $"Microphone Boost for {_micLevel.FriendlyName}, decibels");
+                MicBoostLabel.Visibility = Visibility.Visible;
+                MicBoostSlider.Visibility = Visibility.Visible;
+            }
+            else
+            {
+                MicBoostLabel.Visibility = Visibility.Collapsed;
+                MicBoostSlider.Visibility = Visibility.Collapsed;
+            }
+
+            RefreshMicLevelFromWindows();
+        }
+
+        /// <summary>
+        /// The honest-failure shape: slider disabled (and therefore out of
+        /// the tab order), boost and unmute hidden, and the note — which IS
+        /// still in the tab order — carrying the reason. A blind operator
+        /// tabbing through the check lands on the explanation exactly where
+        /// the control would have been.
+        /// </summary>
+        private void DisableMicLevelControl(string reason)
+        {
+            // Focus must not be standing on a control about to be disabled —
+            // WPF would strand it on a dead element.
+            if (MicLevelSlider.IsKeyboardFocused || MicBoostSlider.IsKeyboardFocused)
+                RadioInputList.Focus();
+
+            _micLevelUpdatingUi = true;
+            try
+            {
+                MicLevelSlider.IsEnabled = false;
+                MicLevelSlider.Value = 0;
+            }
+            finally
+            {
+                _micLevelUpdatingUi = false;
+            }
+            AutomationProperties.SetName(MicLevelSlider, "Windows input level, not available");
+            MicBoostLabel.Visibility = Visibility.Collapsed;
+            MicBoostSlider.Visibility = Visibility.Collapsed;
+            MicUnmuteButton.Visibility = Visibility.Collapsed;
+            SetMicLevelNote(reason);
+        }
+
+        /// <summary>
+        /// Read the endpoint's current level, boost, and mute into the
+        /// controls. Called on bind and whenever Windows reports a change —
+        /// including our own writes echoing back, which arrive holding the
+        /// value the sliders already show and therefore move nothing.
+        /// </summary>
+        private void RefreshMicLevelFromWindows()
+        {
+            var level = _micLevel;
+            if (level == null) return;
+            try
+            {
+                float percent = level.Percent;
+                bool muted = level.Muted;
+                float boost = level.HasBoost ? level.BoostDb : 0f;
+
+                _micLevelUpdatingUi = true;
+                try
+                {
+                    MicLevelSlider.Value = Math.Round(percent);
+                    if (level.HasBoost) MicBoostSlider.Value = boost;
+                }
+                finally
+                {
+                    _micLevelUpdatingUi = false;
+                }
+
+                MicUnmuteButton.Visibility = muted ? Visibility.Visible : Visibility.Collapsed;
+                SetMicLevelNote(BuildMicLevelNote(level, muted, boost));
+            }
+            catch (Exception ex)
+            {
+                MicLevelFailed(ex);
+            }
+        }
+
+        /// <summary>
+        /// The always-current sentence under the level controls: which Windows
+        /// device the slider actually moves — the honesty guarantee the
+        /// matching rules earn — with mute leading when it applies, because a
+        /// Windows mute wins over every slider on this page.
+        /// </summary>
+        private static string BuildMicLevelNote(WindowsMicLevel level, bool muted, float boostDb)
+        {
+            if (muted)
+            {
+                return $"{level.FriendlyName} is muted in Windows — a mute wins over every level "
+                    + "slider. Unmute it, then run the check again.";
+            }
+
+            string text = level.FollowsWindowsDefault
+                ? $"This device follows your Windows default microphone. Right now that is "
+                  + $"{level.FriendlyName}, and the slider moves its input level."
+                : $"This slider moves the Windows input level for {level.FriendlyName} — the same "
+                  + "level as Windows Sound settings.";
+
+            if (level.HasBoost && boostDb > 0f)
+            {
+                text += $" Microphone Boost is turned up, plus {boostDb:F0} dB — if the check says "
+                    + "you are coming in hot, lower the boost first.";
+            }
+            return text;
+        }
+
+        private void SetMicLevelNote(string text)
+        {
+            if (MicLevelNote == null) return;
+            // Assign only on change: notifications can arrive in bursts, and
+            // rewriting identical text would reset a screen reader's review
+            // position for nothing.
+            if (MicLevelNote.Text == text) return;
+            SetStatusLine(MicLevelNote, text);
+        }
+
+        /// <summary>
+        /// Core Audio raises volume notifications on a COM worker thread —
+        /// for external changes (Windows Settings, another app) and for our
+        /// own writes alike. Hop to the UI thread and re-read.
+        /// </summary>
+        private void OnWindowsVolumeChanged()
+        {
+            Dispatcher.BeginInvoke(new Action(RefreshMicLevelFromWindows));
+        }
+
+        // No app speech in either slider handler, deliberately: a slider's
+        // value is exactly what a screen reader announces natively on every
+        // arrow press, and saying it again is the same speak-what-the-control-
+        // already-says bug this dialog just had removed from its lists.
+        private void MicLevelSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (_micLevelUpdatingUi) return;
+            var level = _micLevel;
+            if (level == null) return;
+            try
+            {
+                level.Percent = (float)e.NewValue;
+            }
+            catch (Exception ex)
+            {
+                MicLevelFailed(ex);
+            }
+        }
+
+        private void MicBoostSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (_micLevelUpdatingUi) return;
+            var level = _micLevel;
+            if (level == null || !level.HasBoost) return;
+            try
+            {
+                level.BoostDb = (float)e.NewValue;
+                // Boost changes do not raise the endpoint's volume
+                // notification (the boost is a topology part, not the
+                // endpoint volume), so the note's boost sentence is refreshed
+                // by hand.
+                RefreshMicLevelFromWindows();
+            }
+            catch (Exception ex)
+            {
+                MicLevelFailed(ex);
+            }
+        }
+
+        private void MicUnmuteButton_Click(object sender, RoutedEventArgs e)
+        {
+            var level = _micLevel;
+            if (level == null) return;
+            try
+            {
+                level.Muted = false;
+                // A button whose whole effect happens inside Windows has to
+                // say it happened — this is state the control itself cannot
+                // convey, so speaking it is not a repeat.
+                Announce($"{level.FriendlyName} is unmuted in Windows.", VerbosityLevel.Terse);
+                RefreshMicLevelFromWindows();
+                // The refresh just collapsed this button out from under the
+                // keyboard. Land on the level slider — the adjacent control,
+                // and the natural next thing to set now that sound can flow.
+                MicLevelSlider.Focus();
+            }
+            catch (Exception ex)
+            {
+                MicLevelFailed(ex);
+            }
+        }
+
+        /// <summary>
+        /// A read or write against the endpoint failed — almost always a
+        /// device unplugged while the dialog was open. Say so, out loud,
+        /// because the operator was mid-adjustment; never leave a control
+        /// silently wired to hardware that stopped answering.
+        /// </summary>
+        private void MicLevelFailed(Exception ex)
+        {
+            Tracing.TraceLine("AudioDevicesDialog: Windows level control failed — " + ex.Message,
+                TraceLevel.Error);
+            DisposeMicLevel();
+            const string reason = "The Windows level control stopped responding — the microphone "
+                + "may have been unplugged. Choose Refresh device list to rebuild the lists.";
+            DisableMicLevelControl(reason);
+            Announce(reason, VerbosityLevel.Critical);
+        }
+
+        private void DisposeMicLevel()
+        {
+            var level = _micLevel;
+            _micLevel = null;
+            if (level == null) return;
+            level.VolumeChanged -= OnWindowsVolumeChanged;
+            level.Dispose();
         }
 
         private static void Announce(string text, VerbosityLevel level = VerbosityLevel.Terse) =>
