@@ -154,6 +154,10 @@
       <param name="Local" value="pages\audio-levels.htm">
     </OBJECT>
     <LI><OBJECT type="text/sitemap">
+      <param name="Name" value="Why Your Audio Has Two Numbers">
+      <param name="Local" value="pages\audio-two-numbers.htm">
+    </OBJECT>
+    <LI><OBJECT type="text/sitemap">
       <param name="Name" value="Meter Tones & Meters Panel">
       <param name="Local" value="pages\meter-tones.htm">
     </OBJECT>
