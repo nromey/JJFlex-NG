@@ -235,6 +235,15 @@ namespace LufsHarness
             float i = meter.IntegratedLufs;
             Assert(Math.Abs(i - (-20.0)) < 0.1,
                 $"post-reset sample at -20 dBFS: integrated {i:F2} LUFS (no memory of the -10 run)");
+
+            // The profile is cached against block count, and a reset lands that
+            // count back where a previous cache entry may already sit. Read it
+            // once to prime the cache, reset, and it must go invalid rather
+            // than answering from the run that just ended.
+            Assert(meter.Profile.IsValid, "pre-reset: profile valid");
+            meter.ResetIntegrated();
+            Assert(!meter.Profile.IsValid,
+                "post-reset: profile invalid immediately (cache did not survive the reset)");
         }
 
         /// <summary>Integration check mirroring the real input callback: the

@@ -115,6 +115,11 @@ namespace JJPortaudio
         // --- Integrated block history (guarded by _blockLock) ----------------
         private readonly object _blockLock = new object();
         private readonly List<double> _blockPowers = new List<double>();
+        // --- Profile cache (guarded by _profileLock; always taken BEFORE
+        // _blockLock, never the other way round) -----------------------------
+        private readonly object _profileLock = new object();
+        private LoudnessProfile _profileCache;
+        private int _profileCacheBlocks = -1;   // -1 = nothing cached yet
         // After ResetIntegrated, this many FRESH sub-blocks must complete
         // before 400 ms blocks resume — otherwise the first blocks of a new
         // calibration sample would blend audio from before the reset that is
@@ -236,22 +241,48 @@ namespace JJPortaudio
         /// Speech level, noise floor, and the gap between them, computed from
         /// one snapshot of the block history so the three figures can never
         /// disagree with each other. See <see cref="LoudnessProfile"/>.
+        ///
+        /// Cached against the block count, which is the only thing the answer
+        /// depends on. The reading fields poll twice a second and each
+        /// computation copies and sorts the whole history — 9000 doubles by the
+        /// end of a long transmit. While receiving, the count is frozen and
+        /// every poll after the first is free; while transmitting it recomputes,
+        /// which is exactly when the figures are moving and being watched.
+        ///
+        /// Deliberately NOT time-based. An age guard would let a caller that
+        /// feeds audio faster than real time — the numerical harness does
+        /// exactly this — read a profile from before the audio it just fed.
+        /// A cache that can hand back an answer to the wrong question is worse
+        /// than no cache.
         /// </summary>
         public LoudnessProfile Profile
         {
             get
             {
-                double[] blocks = SnapshotBlocks();
-                if (blocks.Length < MinProfileBlocks)
-                    return new LoudnessProfile(Floor, Floor, blocks.Length, false);
+                lock (_profileLock)
+                {
+                    int count = IntegratedBlockCount;
+                    if (_profileCacheBlocks == count) return _profileCache;
 
-                float speech = GatedLoudness(blocks);
-                // Sorting is safe: SnapshotBlocks hands back a private copy.
-                Array.Sort(blocks);
-                int idx = (int)Math.Round(NoiseFloorPercentile * (blocks.Length - 1));
-                float noise = ClampToFloor(LoudnessFromPower(blocks[idx]));
-                return new LoudnessProfile(speech, noise, blocks.Length, speech > Floor);
+                    _profileCache = ComputeProfile();
+                    _profileCacheBlocks = count;
+                    return _profileCache;
+                }
             }
+        }
+
+        private LoudnessProfile ComputeProfile()
+        {
+            double[] blocks = SnapshotBlocks();
+            if (blocks.Length < MinProfileBlocks)
+                return new LoudnessProfile(Floor, Floor, blocks.Length, false);
+
+            float speech = GatedLoudness(blocks);
+            // Sorting is safe: SnapshotBlocks hands back a private copy.
+            Array.Sort(blocks);
+            int idx = (int)Math.Round(NoiseFloorPercentile * (blocks.Length - 1));
+            float noise = ClampToFloor(LoudnessFromPower(blocks[idx]));
+            return new LoudnessProfile(speech, noise, blocks.Length, speech > Floor);
         }
 
         /// <summary>
@@ -273,6 +304,10 @@ namespace JJPortaudio
             System.Threading.Interlocked.Exchange(
                 ref _freshSubBlocksNeeded, MomentarySubBlocks);
             lock (_blockLock) _blockPowers.Clear();
+            // Reset lands the count back on 0, which a previous 0-block cache
+            // would match — so invalidate explicitly rather than relying on the
+            // count to differ.
+            lock (_profileLock) _profileCacheBlocks = -1;
         }
 
         /// <summary>
