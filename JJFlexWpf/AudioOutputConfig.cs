@@ -184,11 +184,14 @@ namespace JJFlexWpf
         public bool TxToneLocalMonitor { get; set; } = true;
 
         /// <summary>
-        /// How spoken mic-audio verdicts read (Alt+Shift+S while transmitting,
-        /// and the Ctrl+J, K mic check): 0 = plain English plus dBFS (both —
-        /// the conservative default, exactly what shipped before this
-        /// setting), 1 = plain English only, 2 = dBFS numbers only. Stored as
-        /// int for XML serialization; see <see cref="MicVerdictOutputMode"/>.
+        /// How mic-audio verdicts read (Alt+Shift+S while transmitting, the
+        /// Ctrl+J, K mic check, and the two reading fields — those are
+        /// read-only edits precisely so a screen reader speaks them, which
+        /// makes them a spoken surface too): 0 = plain English plus the
+        /// figures (both — the conservative default, exactly what shipped
+        /// before this setting), 1 = plain English only, 2 = figures only.
+        /// Stored as int for XML serialization; see
+        /// <see cref="MicVerdictOutputMode"/>.
         /// Noel asked for this explicitly (Audio Arc, 2026-08-11).
         /// </summary>
         public int MicVerdictOutput { get; set; } = (int)MicVerdictOutputMode.Both;
@@ -250,6 +253,12 @@ namespace JJFlexWpf
             // any radio connects; remote-audio startup reads it from there.
             Radios.FlexBase.PcOutputVolumeDbSetting = PcOutputVolumeDb;
 
+            // Mic-verdict wording, same reasoning: every surface that reads a
+            // level out loud asks MicAudioReport, so the preference lives
+            // there rather than being looked up four different ways.
+            MicAudioReport.VerdictMode =
+                (MicVerdictOutputMode)Math.Clamp(MicVerdictOutput, 0, 2);
+
             MeterToneEngine.Enabled = MeterTonesEnabled;
             MeterToneEngine.MasterVolume = MeterMasterVolume;
             MeterToneEngine.PeakWatcherEnabled = PeakWatcherEnabled;
@@ -288,11 +297,12 @@ namespace JJFlexWpf
     /// </summary>
     public enum MicVerdictOutputMode
     {
-        /// <summary>Plain English plus the dBFS peak (default): "just right, peak -12 dBFS".</summary>
+        /// <summary>Plain English plus the figures (default):
+        /// "just right, peak -12 dBFS, loudness -19 LUFS".</summary>
         Both = 0,
         /// <summary>Plain English only: "just right".</summary>
         Plain = 1,
-        /// <summary>dBFS numbers only: "peak -12 dBFS".</summary>
+        /// <summary>Figures only: "peak -12 dBFS, loudness -19 LUFS".</summary>
         Numbers = 2,
     }
 

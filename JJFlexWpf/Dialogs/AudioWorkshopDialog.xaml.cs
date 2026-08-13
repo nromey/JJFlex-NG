@@ -1747,7 +1747,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
             _ampAlcLabel.Text = $"Amp ALC: {_rig.ALC:F2}";
 
         if (_micAudioLabel != null)
-            _micAudioLabel.Text = $"Mic audio: {_rig.ScMicDb:F1} dBFS ({MicAudioVerdict(_rig.ScMicMaxDb)})";
+            _micAudioLabel.Text = $"Mic audio: {_rig.ScMicDb:F1} dBFS ({MicAudioReport.Verdict(_rig.ScMicMaxDb)})";
 
         if (_paTempLabel != null)
             _paTempLabel.Text = $"PA Temperature: {_rig.PATemp:F1} °C";
@@ -1779,9 +1779,9 @@ public partial class AudioWorkshopDialog : JJFlexDialog
             float recent = rig.ScMicRecentDb;
             float max = rig.ScMicMaxDb;
             if (rig.Transmit && recent > -140f)
-                text = $"Mic audio now: {MicAudioVerdict(recent)}, peak {recent:F0} dBFS";
+                text = MicAudioReport.Compose(rig, "Mic audio now:", recent, live: true);
             else if (max > -140f)
-                text = $"Mic audio last transmit: {MicAudioVerdict(max)}, peak {max:F0} dBFS";
+                text = MicAudioReport.Compose(rig, "Mic audio last transmit:", max, live: false);
             else
                 text = "Mic audio: transmit to measure";
         }
@@ -1789,19 +1789,6 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         // review cursor twice a second.
         if (_micReadingBox.Text != text)
             _micReadingBox.Text = text;
-    }
-
-    /// <summary>
-    /// Plain-language mic-drive verdict from the SC_MIC peak-hold over the
-    /// current transmit (dBFS). Thresholds are first-pass and tunable — to be
-    /// calibrated on the bench with the audio-workshop loopback (JJSmartAudio
-    /// will replace this heuristic with a gated LUFS measure).
-    /// </summary>
-    internal static string MicAudioVerdict(float scMicPeakDb)
-    {
-        if (scMicPeakDb < -30f) return "turn it up";
-        if (scMicPeakDb > -6f) return "coming in hot";
-        return "just right";
     }
 
     #endregion
@@ -2392,8 +2379,16 @@ public partial class AudioWorkshopDialog : JJFlexDialog
                 // The verdict — the whole point of the check. Peak SC_MIC over
                 // the keyed window (reset at key-down via ToggleLock); honest for
                 // PC audio AND the analog mic. -140 guards "no meter yet".
+                // The check is the longest deliberate transmit the operator
+                // makes, so it is also where the room observation is most
+                // likely to have enough audio to be worth saying.
                 if (rig.ScMicMaxDb > -140f)
-                    msg.Append($" Your mic audio was {AudioWorkshopDialog.MicAudioVerdict(rig.ScMicMaxDb)}, peak {rig.ScMicMaxDb:F0} dBFS.");
+                {
+                    string report = MicAudioReport.Compose(
+                        rig, "Your mic audio was", rig.ScMicMaxDb, live: false);
+                    msg.Append(' ').Append(report);
+                    if (!report.EndsWith(".")) msg.Append('.');
+                }
             }
 
             // Unconditional key-up announcement (interrupt false so the

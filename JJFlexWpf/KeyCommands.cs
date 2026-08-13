@@ -1021,23 +1021,17 @@ public class KeyCommands
     }
 
     /// <summary>
-    /// Format a mic-audio reading for speech, honoring the operator's
-    /// verdict-output preference (Settings → Notifications): plain English,
-    /// dBFS numbers, or both. Conservative default is both — exactly what
-    /// shipped before the setting existed.
+    /// Format a mic-audio reading for speech. The wording, the figures, and
+    /// the room observation all come from <see cref="MicAudioReport"/> so this
+    /// key and the two reading fields can never drift apart.
     /// </summary>
     private string FormatMicVerdict(float peakDb, bool lastTransmit = false)
     {
-        var mode = (MicVerdictOutputMode?)_context.GetMainWindow()?.CurrentAudioConfig?.MicVerdictOutput
-            ?? MicVerdictOutputMode.Both;
-        string lead = lastTransmit ? "Mic audio last transmit" : "Mic audio";
-        string verdict = Dialogs.AudioWorkshopDialog.MicAudioVerdict(peakDb);
-        return mode switch
-        {
-            MicVerdictOutputMode.Plain => $"{lead} {verdict}",
-            MicVerdictOutputMode.Numbers => $"{lead} peak {peakDb:F0} dBFS",
-            _ => $"{lead} {verdict}, peak {peakDb:F0} dBFS",
-        };
+        return MicAudioReport.Compose(
+            _context.GetRigControl(),
+            lastTransmit ? "Mic audio last transmit" : "Mic audio",
+            peakDb,
+            live: !lastTransmit);
     }
 
     private void RepeatLastMessageHandler()
