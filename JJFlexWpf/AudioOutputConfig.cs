@@ -201,26 +201,117 @@ namespace JJFlexWpf
 
         private const string FileName = "audioConfig.xml";
 
-        public static AudioOutputConfig Load(string configDir)
+        /// <summary>
+        /// The OTHER directory this config has historically lived in, or null
+        /// if there isn't one.
+        /// </summary>
+        /// <remarks>
+        /// This config is written to two places and read from two places, and
+        /// the callers disagree about which (found 2026-08-13, while checking
+        /// Noel's "make sure we can save our settings"):
+        ///
+        /// <list type="bullet">
+        /// <item>MainWindow.xaml.cs:158 LOADS from BaseConfigDir — including
+        /// CW sidetone and WPM.</item>
+        /// <item>MainWindow.xaml.cs:445/469/566 SAVE to
+        /// OpenParms.ConfigDirectory, which globals.vb:2776 sets to
+        /// BaseConfigDir\Radios.</item>
+        /// <item>globals.vb:1989 saves to BaseConfigDir.</item>
+        /// <item>FreqOutHandlers.cs:2849 writes BOTH, with the comment "Also
+        /// save to Radios subdirectory (where Settings reads from)" — someone
+        /// hit this and patched their own feature rather than the cause.</item>
+        /// </list>
+        ///
+        /// <para>
+        /// The two files are byte-identical today by coincidence of timing,
+        /// not by design. They diverge the moment one path stops running, and
+        /// the symptom is "I changed a setting and it didn't stick" — which an
+        /// operator cannot prove and we cannot reproduce.
+        /// </para>
+        ///
+        /// <para>
+        /// Contained here rather than fixed at the call sites, deliberately.
+        /// Renaming or consolidating the locations would orphan whichever copy
+        /// an existing install is actually using, and settings silently
+        /// reverting to defaults is precisely the failure being prevented.
+        /// Load takes whichever copy is newer; Save writes both. No caller has
+        /// to know, and no path can lose a setting. Consolidating to one
+        /// canonical location with a real migration is a separate, later job.
+        /// </para>
+        /// </remarks>
+        private static string? SiblingDir(string configDir)
         {
-            string path = Path.Combine(configDir, FileName);
-            if (!File.Exists(path))
-                return new AudioOutputConfig();
+            if (string.IsNullOrWhiteSpace(configDir)) return null;
+            string trimmed = configDir.TrimEnd(Path.DirectorySeparatorChar,
+                                               Path.AltDirectorySeparatorChar);
+            if (string.Equals(Path.GetFileName(trimmed), "Radios",
+                              StringComparison.OrdinalIgnoreCase))
+                return Path.GetDirectoryName(trimmed);
+            return Path.Combine(trimmed, "Radios");
+        }
 
+        private static AudioOutputConfig? ReadFrom(string path)
+        {
+            if (!File.Exists(path)) return null;
             try
             {
                 var serializer = new XmlSerializer(typeof(AudioOutputConfig));
                 using var stream = File.OpenRead(path);
-                return (AudioOutputConfig?)serializer.Deserialize(stream) ?? new AudioOutputConfig();
+                return (AudioOutputConfig?)serializer.Deserialize(stream);
             }
             catch (Exception ex)
             {
-                Trace.WriteLine($"AudioOutputConfig.Load failed: {ex.Message}");
-                return new AudioOutputConfig();
+                // A corrupt copy must not shadow a good one, so this returns
+                // null and lets the caller fall through to the sibling rather
+                // than handing back defaults that look like real settings.
+                Trace.WriteLine($"AudioOutputConfig.ReadFrom({path}) failed: {ex.Message}");
+                return null;
             }
         }
 
+        public static AudioOutputConfig Load(string configDir)
+        {
+            string path = Path.Combine(configDir, FileName);
+            string? sibDir = SiblingDir(configDir);
+            string? sibPath = sibDir == null ? null : Path.Combine(sibDir, FileName);
+
+            bool hereExists = File.Exists(path);
+            bool thereExists = sibPath != null && File.Exists(sibPath);
+
+            // Newest wins. Whichever code path last saved is the one holding
+            // what the operator actually chose, regardless of which directory
+            // that path happened to believe in.
+            if (hereExists && thereExists)
+            {
+                DateTime here = File.GetLastWriteTimeUtc(path);
+                DateTime there = File.GetLastWriteTimeUtc(sibPath!);
+                if (there > here)
+                {
+                    Trace.WriteLine("AudioOutputConfig.Load: sibling copy is newer, using "
+                        + sibPath);
+                    return ReadFrom(sibPath!) ?? ReadFrom(path) ?? new AudioOutputConfig();
+                }
+                return ReadFrom(path) ?? ReadFrom(sibPath!) ?? new AudioOutputConfig();
+            }
+
+            if (hereExists) return ReadFrom(path) ?? new AudioOutputConfig();
+            if (thereExists) return ReadFrom(sibPath!) ?? new AudioOutputConfig();
+            return new AudioOutputConfig();
+        }
+
         public void Save(string configDir)
+        {
+            WriteTo(configDir);
+
+            // Mirror to the sibling so a reader that believes in the other
+            // location still sees this change. Only into a directory that
+            // already exists — creating one on a fresh install would invent a
+            // second home for a file that should have had one all along.
+            string? sibDir = SiblingDir(configDir);
+            if (sibDir != null && Directory.Exists(sibDir)) WriteTo(sibDir);
+        }
+
+        private void WriteTo(string configDir)
         {
             try
             {
@@ -232,7 +323,7 @@ namespace JJFlexWpf
             }
             catch (Exception ex)
             {
-                Trace.WriteLine($"AudioOutputConfig.Save failed: {ex.Message}");
+                Trace.WriteLine($"AudioOutputConfig.Save({configDir}) failed: {ex.Message}");
             }
         }
 
