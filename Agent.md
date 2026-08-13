@@ -103,6 +103,30 @@ reports. Mic profiles (#44) resolved toward a **split**: "my microphone"
 the rig), because Connect must let Noel operate Don's radio without overwriting
 Don's mic settings — a single blended object cannot express that.
 
+**The shape of tomorrow, set by Noel at the end of tonight.** Not a single-task
+day — a volume day. *"We just start knocking off tasks code wise so that we can
+build a master test matrix that I can fill or it can be filled in a guided
+fashion... I totally think we can do it."* Three strands:
+
+1. **Laptop test first** (laptop mic AND headset mic), then **#53**, then fold
+   into Don's build and ship. That order is fixed and Noel set it explicitly.
+2. **Knock off code tasks in volume** — fan out background tracks the way
+   tonight worked, since three landed cleanly in one evening. The pending queue
+   feeds several: #39, #40, #43, #49, #50, #51, #12, #17, #29, #32, plus the
+   rigmeter pair #41/#42 (blame-based provenance and its own repo — **not
+   started**; tonight only ran the pre-existing snapshot).
+3. **Two bench sessions to unblock the last two features (#56).** Track F needs
+   **Don's 6300 specifically** — its claim is about 1-SCU half-duplex radios and
+   is structurally unprovable on the 8600 — and the transverter's Session One is
+   bench-8600, zero keying. **Batch by radio, not by feature.**
+
+The output of all of it is **#55, a master test matrix**: the dense storage
+artifact of record, from which each session's for-noel test pull is generated.
+Two formats, one source — settled already in
+`memory/feedback_test_matrix_vs_guided_paper.md`. It must cover the whole audio
+arc plus the **Sprint 29 work that was never finished being tested** (the trace
+browser and the hotkey audit especially).
+
 **Hardware.** Noel ordered an **Audio-Technica ATH-M50xSTS** with a phantom
 supply; still needs an XLR-to-balanced-quarter-inch cable, after which it works
 on both the EVO and the Flex directly. Don is connecting a **Behringer mic to a
