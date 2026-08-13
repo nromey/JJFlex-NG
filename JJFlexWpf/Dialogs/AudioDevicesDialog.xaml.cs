@@ -692,6 +692,77 @@ namespace JJFlexWpf.Dialogs
         }
 
         /// <summary>
+        /// Alt+L speaks the current microphone-check reading from anywhere in
+        /// this dialog.
+        /// </summary>
+        /// <remarks>
+        /// Noel, 2026-08-13, setting his level for the first time with the new
+        /// sliders: "can I see a meter value on the pc mic check in an edit box
+        /// as I adjust it or do I have to stop the test to hear the value and
+        /// then repeat".
+        ///
+        /// <para>
+        /// The reading box does update live, twice a second, and deliberately
+        /// is not a live region so it never interrupts. But while adjusting,
+        /// focus is on the SLIDER, and the reading lives in a different control
+        /// two stops away. So the honest loop was: arrow the slider, tab to the
+        /// reading, read it, tab back, arrow again — four keystrokes of
+        /// overhead per adjustment, and the slider position lost each time.
+        /// </para>
+        ///
+        /// <para>
+        /// This is the legitimate case for app speech under
+        /// feedback_speak_only_when_ui_does_not_convey: the level a microphone
+        /// is producing is genuinely not something a slider conveys, and no
+        /// repair to the accessibility tree can make it so. It is also
+        /// operator-initiated rather than pushed, which is the distinction that
+        /// matters — nothing is said unless the key is pressed.
+        /// </para>
+        ///
+        /// <para>
+        /// Deliberately NOT wired to the slider's own value-change: moving the
+        /// level RESETS the peak hold (see ResetMicCheckLevels), so the figure
+        /// immediately after a move describes nothing yet. Speaking then would
+        /// announce a number that is meaningless by construction. The operator
+        /// adjusts, talks, then asks — and asking is one key.
+        /// </para>
+        /// </remarks>
+        protected override void OnPreviewKeyDown(System.Windows.Input.KeyEventArgs e)
+        {
+            if (e.Key == System.Windows.Input.Key.L
+                && (System.Windows.Input.Keyboard.Modifiers
+                    & System.Windows.Input.ModifierKeys.Alt) != 0
+                && (System.Windows.Input.Keyboard.Modifiers
+                    & System.Windows.Input.ModifierKeys.Control) == 0)
+            {
+                SpeakMicReadingOnDemand();
+                e.Handled = true;
+                return;
+            }
+            base.OnPreviewKeyDown(e);
+        }
+
+        /// <summary>
+        /// Say the current reading, or say why there isn't one. Never silent:
+        /// a key that sometimes does nothing is indistinguishable from a key
+        /// that is broken.
+        /// </summary>
+        private void SpeakMicReadingOnDemand()
+        {
+            if (_probe == null)
+            {
+                Announce("The microphone check is not running. Press Alt+M to start it.",
+                    VerbosityLevel.Critical);
+                return;
+            }
+
+            string text = _micReadingText;
+            Announce(string.IsNullOrWhiteSpace(text)
+                ? "No reading yet — talk into the microphone."
+                : text, VerbosityLevel.Critical);
+        }
+
+        /// <summary>
         /// An observation about the rate the check opened at, or empty — which
         /// is the normal case and is the point. Same discipline as the noise
         /// note: added to a reading, never substituted for one, and silent
@@ -985,8 +1056,13 @@ namespace JJFlexWpf.Dialogs
             _micLevel.VolumeChanged += OnWindowsVolumeChanged;
 
             MicLevelSlider.IsEnabled = true;
+            // The Alt+L hint lives on the slider itself, not only in the
+            // prose above: this is the control an operator is sitting on when
+            // they need it, and a shortcut mentioned two stops away is a
+            // shortcut nobody finds.
             AutomationProperties.SetName(MicLevelSlider,
-                $"Windows input level for {_micLevel.FriendlyName}, percent");
+                $"Windows input level for {_micLevel.FriendlyName}, percent. "
+                + "Alt+L speaks the current reading.");
 
             if (_micLevel.HasBoost)
             {

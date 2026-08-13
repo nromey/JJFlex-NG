@@ -43,6 +43,12 @@ check kept reporting the loudest thing it had heard since you started it, which
 was from before you touched anything - so every adjustment looked like it did
 nothing at all. Found by Noel within minutes of the sliders arriving.
 
+Alt+L speaks the current microphone reading from anywhere on the Audio Devices
+page. This is the one that makes setting your level practical: sit on the input
+level slider, adjust, talk, press Alt+L. You never leave the slider and never
+lose your place. Before this you had to tab away to the reading and back on
+every single adjustment.
+
 WHAT TO TEST
 
 Open the Audio Workshop with Ctrl+Shift+W and tab through it slowly. You should

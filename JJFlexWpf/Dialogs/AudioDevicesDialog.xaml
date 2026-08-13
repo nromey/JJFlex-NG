@@ -98,8 +98,8 @@
                            TextWrapping="Wrap"
                            Margin="0,0,0,6"
                            Focusable="True"
-                           Text="Start the check and talk. JJ Flexible listens to the microphone selected above and tells you what it hears. Nothing is transmitted and the radio is not involved."
-                           AutomationProperties.Name="Start the check and talk. JJ Flexible listens to the microphone selected above and tells you what it hears. Nothing is transmitted and the radio is not involved."/>
+                           Text="Start the check and talk. JJ Flexible listens to the microphone selected above and tells you what it hears. Alt+L speaks the current reading from anywhere on this page, so you can set your level without leaving the slider. Nothing is transmitted and the radio is not involved."
+                           AutomationProperties.Name="Start the check and talk. JJ Flexible listens to the microphone selected above and tells you what it hears. Alt+L speaks the current reading from anywhere on this page, so you can set your level without leaving the slider. Nothing is transmitted and the radio is not involved."/>
 
                 <Button x:Name="MicCheckButton"
                         Content="Start _microphone check"

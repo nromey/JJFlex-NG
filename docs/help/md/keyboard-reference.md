@@ -437,6 +437,22 @@ These keys are active in the Select Radio dialog — the window that opens at st
 
 These commands exist and work — they just don't ship with a key. Run them from the Command Finder (`Ctrl+/`), or give them keys of your own in Tools → Hotkey Editor: start scan, saved scan, memory scan, speak frequency, speak TX filter width, show memories, switch S meter units, toggle continuous frequency display, PC audio on/off, select audio device, ATU memories, reboot radio, transmit controls, radio menus, collect debug info, mute slice, show keys help, and the remaining log field jumps (log file name, log mode, log rig, log antenna, log statistics).
 
+## Audio Devices dialog
+
+These work only while the Audio Devices window is open.
+
+- **Alt+M** starts or stops the microphone check.
+- **Alt+L** speaks the current reading — level, verdict and loudness — from
+  anywhere on the page. This is the one you want while setting your level: it
+  means you can sit on the input-level slider, adjust, talk, and hear the
+  result without ever tabbing away and losing your place.
+- **Alt+S** shows every sound endpoint, host API by host API. Off by default,
+  which is when the list shows only devices you could actually talk into.
+- **Alt+R** refreshes the device list.
+- **Alt+U** unmutes the microphone in Windows, and appears only when Windows
+  has it muted.
+- **Alt+W** opens the Windows microphone privacy settings.
+
 ## Trace Archive Browser
 
 These keys are active when focus is on the row list inside the Archive Browser tab of the Tracing dialog (Help → Tracing → Archive Browser).
