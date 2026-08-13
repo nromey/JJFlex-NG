@@ -844,15 +844,15 @@ namespace JJFlexWpf.Dialogs
             }
             else
             {
-                string verdict = MicAudioReport.Verdict(final.HoldPeakDb);
-                summary = $"Microphone check stopped. Loudest sound heard: {verdict}, "
-                    + $"peak {PeakText(final.HoldPeakDb)}"
-                    + LoudnessPart(final.IntegratedLufs, final.HoldPeakDb)
-                    + "."
-                    // The sentence whose absence made "coming in hot" a dead
-                    // end: a verdict is a diagnosis, and a diagnosis without a
-                    // direction and a stage is not help.
-                    + LevelAdvice(verdict);
+                // The advice sentence rides along whatever the output mode is:
+                // it is the one part that is neither a figure nor a verdict but
+                // a direction, and an operator who suppressed the coaching
+                // still needs to be told which knob to move. Its absence is
+                // what made "coming in hot" a dead end.
+                summary = Reading("Microphone check stopped. Loudest sound heard:",
+                    final.HoldPeakDb, final.IntegratedLufs,
+                    withAdvice: true,
+                    advice: LevelAdvice(MicAudioReport.Verdict(final.HoldPeakDb)));
             }
             if (!string.IsNullOrEmpty(reason)) summary = reason + " " + summary;
 
@@ -917,9 +917,8 @@ namespace JJFlexWpf.Dialogs
                 // The gated whole-check figure, not the 3 s window: the last
                 // three seconds are the quiet this branch is reporting, while
                 // the integrated figure still describes the speech before it.
-                text = $"Mic audio: quiet right now. Loudest so far: "
-                    + $"{MicAudioReport.Verdict(r.HoldPeakDb)}, {PeakText(r.HoldPeakDb)}"
-                    + LoudnessPart(r.IntegratedLufs, r.HoldPeakDb) + ".";
+                text = Reading("Mic audio: quiet right now. Loudest so far:",
+                    r.HoldPeakDb, r.IntegratedLufs, withAdvice: false, advice: "");
             }
             else
             {
@@ -930,10 +929,9 @@ namespace JJFlexWpf.Dialogs
                 // I clipping", but this check is the one place the operator is
                 // actually SETTING a level, and peak cannot tell them when
                 // they have stopped being too quiet — that is loudness's job.
-                text = $"Mic audio now: {MicAudioReport.Verdict(r.RecentPeakDb)}, "
-                    + $"peak {PeakText(r.RecentPeakDb)}"
-                    + LoudnessPart(r.ShortTermLufs, r.RecentPeakDb)
-                    + $". Loudest so far {PeakText(r.HoldPeakDb)}.";
+                text = Reading("Mic audio now:", r.RecentPeakDb, r.ShortTermLufs,
+                        withAdvice: false, advice: "")
+                    + $" Loudest so far {PeakText(r.HoldPeakDb)}.";
 
                 // A fact, not a second verdict. Measured on the bench: an audio
                 // interface with nothing plugged into it reads about -105 dBFS
@@ -994,6 +992,52 @@ namespace JJFlexWpf.Dialogs
         /// same frozen <see cref="MicAudioReport.Verdict"/> every other
         /// surface uses.
         /// </summary>
+        /// <summary>
+        /// A reading, numbers first and coaching after, honouring the
+        /// operator's verdict-output preference.
+        /// </summary>
+        /// <remarks>
+        /// Noel, 2026-08-13, after setting a level with it for real: "I'd read
+        /// the level number first and then the coaching... it's easier if
+        /// you're adjusting to hear a level and then coaching."
+        ///
+        /// <para>
+        /// The verdict used to lead. That was built so a fast listener could
+        /// hear one token and stop — and it is the right instinct aimed at the
+        /// wrong target. While ADJUSTING, the number IS the thing being
+        /// tracked, and it is strictly more informative than the token that
+        /// summarises it. Leading with it serves the same goal better: the
+        /// earliest word out is now the most precise one, and the coaching is
+        /// what you stay for rather than what you sit through.
+        /// </para>
+        ///
+        /// <para>
+        /// Also honours MicVerdictOutputMode, which this dialog previously
+        /// ignored -- it called Verdict directly, so an operator who had
+        /// chosen "Decibels only" in Settings still got the full coaching
+        /// here. A preference that does not reach every surface is not a
+        /// preference.
+        /// </para>
+        /// </remarks>
+        private static string Reading(string lead, float peakDb, float lufs, bool withAdvice,
+                                      string advice)
+        {
+            var mode = MicAudioReport.VerdictMode;
+            string numbers = PeakText(peakDb) + LoudnessPart(lufs, peakDb);
+            string verdict = MicAudioReport.Verdict(peakDb);
+
+            // Plain English only: the operator asked not to hear figures.
+            if (mode == MicVerdictOutputMode.Plain)
+                return $"{lead} {verdict}" + (withAdvice ? advice : "");
+
+            // Decibels only: the figures, and the direction to move them,
+            // without the coaching sentence around it.
+            if (mode == MicVerdictOutputMode.Numbers)
+                return $"{lead} {numbers}." + (withAdvice ? advice : "");
+
+            return $"{lead} {numbers}. {verdict}" + (withAdvice ? advice : "");
+        }
+
         /// <summary>
         /// A level, in words that cannot lie about which end of the scale it
         /// is at.
