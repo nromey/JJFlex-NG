@@ -47,6 +47,10 @@ namespace LufsHarness
             CheckSineReference(-10.0f, 24000);   // device fell back to 24 kHz
             CheckResetIntegrated();
             CheckToneGeneratorChain();
+            CheckProfileNeedsEnoughAudio();
+            CheckNoiseFloorQuietShack();
+            CheckNoiseFloorNoisyRoom();
+            CheckNoiseDoesNotMoveTheLevelVerdict();
 
             Console.WriteLine();
             Console.WriteLine($"{checks} checks, {failures} failed.");
@@ -231,6 +235,15 @@ namespace LufsHarness
             float i = meter.IntegratedLufs;
             Assert(Math.Abs(i - (-20.0)) < 0.1,
                 $"post-reset sample at -20 dBFS: integrated {i:F2} LUFS (no memory of the -10 run)");
+
+            // The profile is cached against block count, and a reset lands that
+            // count back where a previous cache entry may already sit. Read it
+            // once to prime the cache, reset, and it must go invalid rather
+            // than answering from the run that just ended.
+            Assert(meter.Profile.IsValid, "pre-reset: profile valid");
+            meter.ResetIntegrated();
+            Assert(!meter.Profile.IsValid,
+                "post-reset: profile invalid immediately (cache did not survive the reset)");
         }
 
         /// <summary>Integration check mirroring the real input callback: the
@@ -267,7 +280,125 @@ namespace LufsHarness
                 "HasRecentData true while samples flow");
         }
 
+        // ---------------- noise floor (Levels Track, 2026-08-12) ---------- //
+
+        /// <summary>A two-word radio check does not carry the evidence for a
+        /// floor estimate, and the profile must say so rather than guess.</summary>
+        private static void CheckProfileNeedsEnoughAudio()
+        {
+            var meter = new LufsMeter();
+            FeedSpeechOverNoise(meter, 48000, seconds: 1.5, speechDb: -13.0f, noiseRmsDb: -50.0f);
+            var shortSample = meter.Profile;
+            Assert(!shortSample.IsValid,
+                $"1.5 s sample: profile invalid ({shortSample.BlockCount} blocks, need {LufsMeter.MinProfileBlocks})");
+
+            FeedSpeechOverNoise(meter, 48000, seconds: 8.0, speechDb: -13.0f, noiseRmsDb: -50.0f);
+            Assert(meter.Profile.IsValid,
+                $"9.5 s sample: profile valid ({meter.Profile.BlockCount} blocks)");
+        }
+
+        /// <summary>Quiet shack: speech bursts over a -75 dBFS floor. The gap
+        /// between voice and room is wide, which is what "nothing to say about
+        /// your noise" has to look like numerically.</summary>
+        private static void CheckNoiseFloorQuietShack()
+        {
+            var meter = new LufsMeter();
+            FeedSpeechOverNoise(meter, 48000, seconds: 10.0, speechDb: -13.0f, noiseRmsDb: -75.0f);
+            var p = meter.Profile;
+            Assert(p.IsValid, $"quiet shack: profile valid ({p.BlockCount} blocks)");
+            // K-weighting lifts broadband noise ~3.8 dB and the duplicated
+            // channels add 3.01, so a -75 dBFS RMS hiss reads near -66 LUFS.
+            Assert(p.NoiseFloorLufs < -60.0f,
+                $"quiet shack: noise floor {p.NoiseFloorLufs:F1} LUFS");
+            Assert(p.SpeechToNoiseLu > 35.0f,
+                $"quiet shack: voice stands {p.SpeechToNoiseLu:F1} LU clear of the room");
+        }
+
+        /// <summary>Don's apartment: the same speech over a -37 dBFS fan. The
+        /// level is unchanged but the daylight underneath it collapses — this
+        /// is the whole signature the spoken observation fires on.</summary>
+        private static void CheckNoiseFloorNoisyRoom()
+        {
+            var meter = new LufsMeter();
+            FeedSpeechOverNoise(meter, 48000, seconds: 10.0, speechDb: -13.0f, noiseRmsDb: -37.0f);
+            var p = meter.Profile;
+            Assert(p.IsValid, $"noisy room: profile valid ({p.BlockCount} blocks)");
+            Assert(p.NoiseFloorLufs > -35.0f,
+                $"noisy room: noise floor {p.NoiseFloorLufs:F1} LUFS (above the -55 audibility threshold)");
+            Assert(p.SpeechToNoiseLu < 20.0f,
+                $"noisy room: voice only {p.SpeechToNoiseLu:F1} LU clear of the room (under the 20 LU threshold)");
+        }
+
+        /// <summary>The load-bearing promise: a noisy room must NOT drag the
+        /// level verdict down. The gated speech figure has to read the same in
+        /// both rooms, or the noise observation would be replacing information
+        /// instead of adding it.</summary>
+        private static void CheckNoiseDoesNotMoveTheLevelVerdict()
+        {
+            var quiet = new LufsMeter();
+            FeedSpeechOverNoise(quiet, 48000, seconds: 10.0, speechDb: -13.0f, noiseRmsDb: -75.0f);
+            var noisy = new LufsMeter();
+            FeedSpeechOverNoise(noisy, 48000, seconds: 10.0, speechDb: -13.0f, noiseRmsDb: -37.0f);
+            float delta = Math.Abs(quiet.Profile.SpeechLufs - noisy.Profile.SpeechLufs);
+            Assert(delta < 0.5,
+                $"speech level moves {delta:F2} dB between quiet and noisy rooms "
+                + $"({quiet.Profile.SpeechLufs:F2} vs {noisy.Profile.SpeechLufs:F2} LUFS)");
+        }
+
         // ------------------------- signal plumbing ------------------------ //
+
+        /// <summary>Speech-shaped bursts (500 ms on, 500 ms off) riding a
+        /// continuous noise bed — the one signal shape that separates a quiet
+        /// shack from a noisy one. Deterministic RNG so runs are comparable.
+        /// Sine level is peak dBFS (matching the tone generator); noise level
+        /// is RMS dBFS. Mono duplicated to both channels, as the real TX
+        /// stream carries it.
+        ///
+        /// The 10 ms raised-cosine edges are load-bearing, not polish. The
+        /// first cut of this harness switched the sine on and off in one
+        /// sample, and the resulting clicks splattered enough broadband energy
+        /// into the "quiet" stretches to read a -75 dBFS room as -55 LUFS —
+        /// the synthetic signal was 13 dB dirtier than the room it was meant
+        /// to represent. Mouths do not open in one sample.</summary>
+        private static void FeedSpeechOverNoise(LufsMeter meter, uint fs, double seconds,
+            float speechDb, float noiseRmsDb)
+        {
+            var rng = new Random(20260812);
+            double speechAmp = Math.Pow(10.0, speechDb / 20.0);
+            double noiseAmp = Math.Pow(10.0, noiseRmsDb / 20.0) * Math.Sqrt(3.0); // uniform => RMS = a/sqrt(3)
+            int frames = (int)(fs * seconds);
+            int chunkFrames = (int)fs / 100; // 10 ms
+            int cycle = (int)fs;             // 1 s: half talking, half quiet
+            int on = cycle / 2;
+            int ramp = (int)fs / 100;        // 10 ms attack and release
+            var buf = new float[chunkFrames * 2];
+            double phase = 0.0;
+            double step = 2.0 * Math.PI * 997.0 / fs;
+            int fed = 0;
+            while (fed < frames)
+            {
+                int n = Math.Min(chunkFrames, frames - fed);
+                for (int f = 0; f < n; f++)
+                {
+                    int pos = (fed + f) % cycle;
+                    double env;
+                    if (pos >= on) env = 0.0;
+                    else if (pos < ramp) env = 0.5 * (1.0 - Math.Cos(Math.PI * pos / ramp));
+                    else if (pos > on - ramp) env = 0.5 * (1.0 - Math.Cos(Math.PI * (on - pos) / ramp));
+                    else env = 1.0;
+
+                    double s = noiseAmp * (rng.NextDouble() * 2.0 - 1.0)
+                             + Math.Sin(phase) * speechAmp * env;
+                    phase += step;
+                    if (phase >= 2.0 * Math.PI) phase -= 2.0 * Math.PI;
+                    buf[f * 2] = (float)s;
+                    buf[f * 2 + 1] = (float)s;
+                }
+                meter.Process(buf, n * 2, fs);
+                fed += n;
+            }
+        }
+
 
         /// <summary>Feed a stereo interleaved sine in real-callback-sized
         /// chunks (10 ms). dBFS is peak-amplitude convention, matching the

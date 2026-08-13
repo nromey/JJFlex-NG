@@ -607,8 +607,8 @@ public partial class ScreenFieldsPanel : UserControl
         AudioContent.Children.Add(_micLevelControl);
 
         // Read-only mic-audio verdict — arrow to it, hear how you sound.
-        // Same judgment the Audio Workshop and the unkey summary speak
-        // (SC_MIC peak through AudioWorkshopDialog.MicAudioVerdict).
+        // Same judgment the Audio Workshop and the unkey summary speak,
+        // because all three compose it through MicAudioReport.
         _micVerdictDisplay = new System.Windows.Controls.TextBlock
         {
             Margin = new Thickness(4, 6, 4, 2),
@@ -1200,9 +1200,9 @@ public partial class ScreenFieldsPanel : UserControl
         float recent = _rig.ScMicRecentDb;
         float max = _rig.ScMicMaxDb;
         if (_rig.Transmit && recent > -140f)
-            text = $"Mic audio now: {Dialogs.AudioWorkshopDialog.MicAudioVerdict(recent)}, peak {recent:F0} dBFS";
+            text = MicAudioReport.Compose(_rig, "Mic audio now:", recent, live: true);
         else if (max > -140f)
-            text = $"Mic audio last transmit: {Dialogs.AudioWorkshopDialog.MicAudioVerdict(max)}, peak {max:F0} dBFS";
+            text = MicAudioReport.Compose(_rig, "Mic audio last transmit:", max, live: false);
         else
             text = "Mic audio: transmit to measure";
 

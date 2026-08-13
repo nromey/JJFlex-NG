@@ -208,6 +208,7 @@ namespace JJFlexWpf
             {
                 State = PttState.PttHold;
                 SetTx(true);
+                StartFreshAudioSample();
                 if (_config.ChirpEnabled) EarconPlayer.TxStartTone();
                 _updateStatusDisplay?.Invoke("Transmitting");
                 if (_config.SpeechEnabled)
@@ -264,6 +265,25 @@ namespace JJFlexWpf
         // State transitions
         // -------------------------------------------------------------------
 
+        /// <summary>
+        /// Every transmit-audio figure the operator can ask for describes "this
+        /// transmit", so every key-down has to start them together. The SC_MIC
+        /// peak-hold was already reset here for the locked path; the LUFS
+        /// sample now joins it, and both now happen on the hold path too.
+        ///
+        /// Push-to-talk hold reset neither before, so an operator holding
+        /// Ctrl+Space was told about a locked transmit from some minutes ago.
+        /// Two figures measured over two different windows is exactly the
+        /// disagreement the reading is supposed to resolve.
+        /// </summary>
+        private void StartFreshAudioSample()
+        {
+            var rig = _getRigControl();
+            if (rig == null) return;
+            rig.ResetScMicMax();
+            rig.ResetTxLufsIntegrated();
+        }
+
         private void EnterLocked()
         {
             // License-aware TX lockout check
@@ -282,7 +302,7 @@ namespace JJFlexWpf
             _healthSilentMicWarned = false;
             _healthAlcHighWarned = false;
             _healthLockSeconds = 0;
-            _getRigControl()?.ResetScMicMax(); // start the SC_MIC peak-hold fresh for this TX
+            StartFreshAudioSample(); // SC_MIC peak-hold and LUFS sample both start here
 
             _updateStatusDisplay?.Invoke("TX Locked");
             if (_config.SpeechEnabled)

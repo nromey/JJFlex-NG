@@ -66,6 +66,10 @@
     <param name="Local" value="pages\mode-switching.htm">
   </OBJECT>
   <LI><OBJECT type="text/sitemap">
+    <param name="Name" value="dBFS">
+    <param name="Local" value="pages\audio-two-numbers.htm">
+  </OBJECT>
+  <LI><OBJECT type="text/sitemap">
     <param name="Name" value="DSP">
     <param name="Local" value="pages\filters-dsp.htm">
   </OBJECT>
@@ -118,6 +122,14 @@
     <param name="Local" value="pages\logging.htm">
   </OBJECT>
   <LI><OBJECT type="text/sitemap">
+    <param name="Name" value="loudness">
+    <param name="Local" value="pages\audio-two-numbers.htm">
+  </OBJECT>
+  <LI><OBJECT type="text/sitemap">
+    <param name="Name" value="LUFS">
+    <param name="Local" value="pages\audio-two-numbers.htm">
+  </OBJECT>
+  <LI><OBJECT type="text/sitemap">
     <param name="Name" value="meter tones">
     <param name="Local" value="pages\meter-tones.htm">
   </OBJECT>
@@ -136,6 +148,10 @@
   <LI><OBJECT type="text/sitemap">
     <param name="Name" value="noise blanker">
     <param name="Local" value="pages\filters-dsp.htm">
+  </OBJECT>
+  <LI><OBJECT type="text/sitemap">
+    <param name="Name" value="noise floor">
+    <param name="Local" value="pages\audio-two-numbers.htm">
   </OBJECT>
   <LI><OBJECT type="text/sitemap">
     <param name="Name" value="noise reduction">

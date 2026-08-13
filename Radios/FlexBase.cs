@@ -7032,6 +7032,31 @@ namespace Radios
             && string.Equals(MicSource, "PC", StringComparison.OrdinalIgnoreCase)
             && txLufsMeter.HasRecentData;
 
+        /// <summary>
+        /// True when the RETAINED figures — <see cref="TxLufsIntegrated"/> and
+        /// <see cref="TxLoudnessProfile"/> — describe a real PC-audio sample.
+        /// Deliberately NOT <see cref="TxLufsAvailable"/>: that one requires
+        /// samples in the last half second, which is false the instant the
+        /// operator unkeys, and the whole point of an integrated figure is
+        /// that you read it AFTER the transmit it describes.
+        /// </summary>
+        public bool TxLufsSampleAvailable =>
+            PCAudio
+            && string.Equals(MicSource, "PC", StringComparison.OrdinalIgnoreCase)
+            && txLufsMeter.IntegratedBlockCount > 0;
+
+        /// <summary>
+        /// Speech level, noise floor, and the gap between them for the current
+        /// integrated sample. The gap is the figure with no prior consumer:
+        /// LUFS gating ignores the quiet between words on purpose, but a noisy
+        /// room produces no quiet, so continuous noise is measured as level.
+        /// A healthy number with only a few LU of daylight underneath it is a
+        /// microphone hearing a room rather than a person. Check
+        /// <see cref="JJPortaudio.LufsMeter.LoudnessProfile.IsValid"/> — a
+        /// sample too short to judge says so instead of guessing.
+        /// </summary>
+        public JJPortaudio.LufsMeter.LoudnessProfile TxLoudnessProfile => txLufsMeter.Profile;
+
         private void txBandSettingsHandler(TxBandSettings settings)
         {
             Tracing.TraceLine("txBandSettingsHandler:" + settings.BandName, TraceLevel.Info);
