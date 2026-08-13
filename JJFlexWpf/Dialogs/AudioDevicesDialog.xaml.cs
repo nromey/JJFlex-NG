@@ -187,7 +187,9 @@ namespace JJFlexWpf.Dialogs
 
             LoadNAudioDevices();
             ReloadPortAudioDevices(announce: false);
-            SetMicReading("Microphone check: not running. Choose a microphone above, then start the check.");
+            SetMicReading("Microphone check: not running. Choose a microphone above, then press "
+                + "Alt+M to start it. JJ Flexible listens to that microphone and tells you what "
+                + "it hears. Nothing is transmitted and the radio is not involved.");
         }
 
         /// <summary>

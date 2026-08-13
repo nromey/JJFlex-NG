@@ -46,13 +46,6 @@
                            FontWeight="SemiBold"
                            Style="{StaticResource DialogLabel}"
                            Margin="0,0,0,2"/>
-                <TextBlock Style="{StaticResource DialogLabel}"
-                           TextWrapping="Wrap"
-                           Margin="0,0,0,6"
-                           Focusable="True"
-                           Text="These two are used when radio audio plays through this computer. On a remote connection they are the only way to hear the radio and the only way it hears you."
-                           AutomationProperties.Name="These two devices are used when radio audio plays through this computer. On a remote connection they are the only way to hear the radio and the only way it hears you."/>
-
                 <TextBlock Text="Radio receive audio plays through:"
                            Style="{StaticResource DialogLabel}"
                            Margin="0,0,0,2"/>
@@ -60,7 +53,7 @@
                          Height="110"
                          Margin="0,0,0,4"
                          KeyboardNavigation.DirectionalNavigation="Contained"
-                         AutomationProperties.Name="Radio receive audio output device"/>
+                         AutomationProperties.Name="Radio receive audio output device. This is how the radio reaches your ears; on a remote connection it is the only way to hear it at all."/>
                 <TextBlock x:Name="RadioOutputNote"
                            Style="{StaticResource DialogLabel}"
                            TextWrapping="Wrap"
@@ -76,7 +69,7 @@
                          Height="110"
                          Margin="0,0,0,4"
                          KeyboardNavigation.DirectionalNavigation="Contained"
-                         AutomationProperties.Name="Microphone input device sent to the radio"
+                         AutomationProperties.Name="Microphone input device sent to the radio. This is how the radio hears you; on a remote connection it is the only way it can."
                          SelectionChanged="RadioInputList_SelectionChanged"/>
                 <TextBlock x:Name="RadioInputNote"
                            Style="{StaticResource DialogLabel}"
@@ -94,12 +87,6 @@
                            FontWeight="SemiBold"
                            Style="{StaticResource DialogLabel}"
                            Margin="0,0,0,2"/>
-                <TextBlock Style="{StaticResource DialogLabel}"
-                           TextWrapping="Wrap"
-                           Margin="0,0,0,6"
-                           Focusable="True"
-                           Text="Start the check and talk. JJ Flexible listens to the microphone selected above and tells you what it hears. Alt+L speaks the current reading from anywhere on this page, so you can set your level without leaving the slider. Nothing is transmitted and the radio is not involved."
-                           AutomationProperties.Name="Start the check and talk. JJ Flexible listens to the microphone selected above and tells you what it hears. Alt+L speaks the current reading from anywhere on this page, so you can set your level without leaving the slider. Nothing is transmitted and the radio is not involved."/>
 
                 <Button x:Name="MicCheckButton"
                         Content="Start _microphone check"
@@ -200,12 +187,6 @@
                            FontWeight="SemiBold"
                            Style="{StaticResource DialogLabel}"
                            Margin="0,0,0,2"/>
-                <TextBlock Style="{StaticResource DialogLabel}"
-                           TextWrapping="Wrap"
-                           Margin="0,0,0,6"
-                           Focusable="True"
-                           Text="These are JJ Flex's own sounds, not the radio's. CW notifications play through the alert device — there is no separate CW output to choose."
-                           AutomationProperties.Name="These are JJ Flex's own sounds, not the radio's. CW notifications play through the alert device. There is no separate CW output to choose."/>
 
                 <TextBlock Text="Alert and CW notification device:"
                            Style="{StaticResource DialogLabel}"
@@ -213,7 +194,7 @@
                 <ComboBox x:Name="AlertDeviceCombo"
                           Style="{StaticResource DialogComboBox}"
                           Margin="0,0,0,8"
-                          AutomationProperties.Name="Alert and CW notification output device"/>
+                          AutomationProperties.Name="Alert and CW notification output device. These are JJ Flex's own sounds, not the radio's. CW notifications play through this device; there is no separate CW output to choose."/>
 
                 <TextBlock Text="Meter tone device:"
                            Style="{StaticResource DialogLabel}"

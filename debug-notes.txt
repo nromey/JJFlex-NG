@@ -49,6 +49,11 @@ level slider, adjust, talk, press Alt+L. You never leave the slider and never
 lose your place. Before this you had to tab away to the reading and back on
 every single adjustment.
 
+The Audio Devices page has three fewer tab stops. The explanatory paragraphs
+that sat above each group are gone as separate stops - what they said now lives
+on the control they were about, so you hear it when you arrive at the thing
+rather than paying a Tab press for it on every pass.
+
 WHAT TO TEST
 
 Open the Audio Workshop with Ctrl+Shift+W and tab through it slowly. You should
