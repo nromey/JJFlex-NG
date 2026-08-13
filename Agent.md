@@ -3,9 +3,143 @@
 This document captures the current state of JJ-Flex repository and active work.
 
 **Repository root:** `C:\dev\JJFlex-NG`
-**Branch:** `track/flexlib-4220` — **this is where all current work lives.** It vendors **FlexLib 4.2.20.41343** (landed 2026-08-03, `b2d75f63`) and is **305 commits ahead of `main`, which is 0 commits ahead of it** — so promoting main is a clean **fast-forward**, not a merge, with no conflicts possible. `main` still vendors FlexLib 4.1.5.39794. **Do the fast-forward before building anything on main** (Noel, 2026-08-09: *"I don't want to lose work if we're thinking we're working stuff on main when we're not"*).
+**Branch:** `honest-tx-audio` — **this is where all current work lives**, 19 commits ahead of `main` and 0 behind. **The FlexLib fast-forward is DONE:** `main` vendors **FlexLib 4.2.20.41343** as of 2026-08-11, so main and the old track branch no longer diverge and the "305 commits behind" warning that stood here is retired. Verified 2026-08-12: `main` and `honest-tx-audio` share the same last FlexLib commit (`625bdbae`).
+
+*This header claimed work lived on `track/flexlib-4220` with main 305 commits behind until 2026-08-12 — a day after the merge made that false. It is the same drift documented in `memory/project_description_drift_pattern.md`; check `git rev-parse --abbrev-ref HEAD` rather than trusting this line.*
 
 *Superseded history, kept for context: main was reverted off `track/flexlib-42` on 2026-05-15 after Don's LAN trace exposed a vendor-side station-name regression; that era's notes are `memory/project_flexlib_4218_*.md` and `memory/project_main_branch_41_posture.md`. 4.2.20 supersedes all of it and works.*
+
+## END-OF-DAY SEAL — 2026-08-12 — THE DAY THE DESCRIPTIONS GOT AUDITED
+
+*Full working day into the evening, sealed ~21:50 when Noel called it: "I'm kind
+of tired right now, I wonder if we should park all this, seal it all now and
+then hit it early tomorrow morning." Delta measured from local midnight.*
+
+Branch `honest-tx-audio`. **41 commits, 67 files, +5,098/-389.** Debug build
+**4.1.16.823** archived to NAS. **Dropbox NOT published** — the tester broadcast
+is Noel's explicit act and he is shipping Don a build tomorrow morning after the
+laptop test, not tonight.
+
+**Theme: almost every defect closed today was a description that had come loose
+from the thing it described.** Not one was a broken mechanism. The pattern was
+named and written up as `memory/project_description_drift_pattern.md` after it
+turned up for roughly the twelfth time in this arc — including, during tonight's
+seal, in the memory index and in this file's own header.
+
+**Cross-surface sweep.** JJFlex-NG only. Worktrees: `jjflex-naming` (20 commits
+today, merged), `jjflex-picker` (10, merged), `jjflex-threads` (15, merged),
+`jjflex-don-diag` (idle, **13 commits still unmerged** from the 2026-08-10
+diagnostic branch — likely obsolete now the lying meter is root-caused, decide
+rather than let it rot). Three new worktrees created and removed cleanly today
+(`jjflex-mic`, `jjflex-levels`, `jjflex-presets`). No sibling repo under
+`C:\dev` was touched today. Freight Fate idle (`feat/career-1.9`, 1 dirty,
+**16 unpushed**); Civ VI Access idle (`main`, 2 dirty, **45 unpushed**) — both
+unchanged, pushing remains Noel's call. Memory: five files touched plus two new
+ones written tonight. Planning docs: `research-queue.md` and
+`honest-tx-audio.md`, both early morning. No for-noel/for-don/for-claude deltas.
+
+**Morning: the Audio Workshop got a front door and a direction of travel.** The
+Audio Devices picker was reachable from the Audio menu, from Settings and from a
+key command — but not from the Workshop, the one surface whose whole job is
+getting your audio right. It now opens there from a new "This Computer" section
+that *names* the chosen microphone rather than offering a bare button. And the
+TX Audio tab ran backwards: Audio Check stood at the top with every control it
+proves underneath. Sections now run outward from the computer to the radio to
+the air, so the two that put a signal out land last. The express lane Noel asked
+for on 2026-08-11 (focus on Start, press Enter, run) survives — resolved
+adaptively rather than traded away, by landing on step one only when no input
+device has been chosen, which is the first-run state.
+
+**Then three background tracks in parallel worktrees, all merged.**
+
+- **Presets (Fable).** Import completes the round trip Export could only half
+  make, and adds to the list rather than applying — a file arriving is not
+  permission to retune a live transmitter. Delete lives in the Load picker.
+  `Load` became `TryLoad` because answering a bad file with a blank preset is
+  fine for a loader nobody calls and a lie for Import. `Alt+D` was rejected for
+  Delete: it would shadow the global `Alt+Shift+D`, the same trap Save's old
+  `Alt+S` sprang on Speak Transmit Status.
+- **Levels (Opus).** `IntegratedLufs` had **zero consumers** — the meter ran on
+  every transmit and published to nothing. Readings now carry peak and loudness
+  together, composed in ONE place instead of four. And the noise floor: the
+  BS.1770 relative gate computes the level of the quiet stretches *specifically
+  in order to discard it*, so naming it was free. Fires only above −55 LUFS with
+  under 20 LU of gap, no tone armed, 3+ seconds of evidence. Verified against a
+  48-check harness re-run independently at seal time.
+- **Microphone check + picker (Opus).** You can now prove a microphone works
+  without keying anything. It tells the **three silences** apart, measured on
+  real hardware rather than reasoned about: an interface idling on its own noise
+  floor reads −105 dBFS with sound present; a dead virtual cable reads −140 with
+  exact digital zeroes; a Windows privacy block names the switch and offers
+  `ms-settings:privacy-microphone`. The picker stopped listing endpoints and
+  started listing devices — 48 raw endpoints fold to 22 on the ms-02, every
+  original still behind the advanced toggle. This is what stops Don picking a
+  dead pin when his Vocaster enumerates four times tomorrow.
+
+**The merge that git could not see.** All three merged textually clean, then the
+build failed: the mic track called `AudioWorkshopDialog.MicAudioVerdict` —
+*because it was instructed to*, so the picker could not grow a second vocabulary
+— while the levels track moved that method into `MicAudioReport`. Both were
+right; neither could see the other. **The instruction that prevented a worse
+collision caused this one.** Telling a track to reuse a symbol makes it a
+dependency on that symbol staying put; say so in future track instructions.
+
+**The lying receipt, closed by shape rather than by instance.** Preset Save had
+been announcing "Preset saved" while dropping the preset, because the callbacks
+were instance properties nothing ever assigned. Made static and wired in
+MainWindow — then the same bug reappeared wearing different clothes: the wired
+callback could *decline* (no operator loaded) and the dialog still said "saved."
+Changing `Action` to `Func<..., bool>` closed the shape: there is now no way to
+call it and not learn the answer. Wording rule that fell out — **name the cause,
+not the symptom.** "Could not be saved" gives an operator nothing; "there is no
+operator loaded, so there is no place to keep it yet" tells them what to do.
+
+**Decisions.** Draft marker stays on `audio-two-numbers.md` for Don's build
+(Noel: "I'd leave it for sure"), to be struck in the human help pass before
+public release. Noise-floor thresholds are physics-calibrated, not
+Don-calibrated — two named constants in `MicAudioReport.cs`, to be moved once he
+reports. Mic profiles (#44) resolved toward a **split**: "my microphone"
+(PC-side, follows the operator) and "this radio's TX chain" (radio-side, follows
+the rig), because Connect must let Noel operate Don's radio without overwriting
+Don's mic settings — a single blended object cannot express that.
+
+**Hardware.** Noel ordered an **Audio-Technica ATH-M50xSTS** with a phantom
+supply; still needs an XLR-to-balanced-quarter-inch cable, after which it works
+on both the EVO and the Flex directly. Don is connecting a **Behringer mic to a
+Focusrite Vocaster Two** for the first time on tomorrow's build. Captured in
+`memory/project_audio_arc_test_microphones.md`.
+
+**Setup for tomorrow, in order.** 1) Laptop test with a headset — the whole
+day's work has not met a microphone yet. 2) Ship Don the build with the standing
+caveats (transverter not fleshed out, noise gate and RNNoise later). 3) Then
+laptop over SmartLink. Open findings worth pulling forward: **#53**, `Audio.Open`
+builds the Opus encoder from the *requested* sample rate while the fallback to
+the device's real rate happens later on another thread — a confirmed rate
+mismatch, and both **#17** (PC audio arrives too quiet) and **#29** (tone monitor
+clicks) are symptoms consistent with exactly that. Check whether it explains
+either before chasing them separately.
+
+### Rigmeter snapshot — end of 2026-08-12
+
+Grand totals at `e8376608`: **authored 982 files / 218,930 lines / 1,231,942
+words**; **vendor 188 files / 55,619 lines**; combined 1,170 files / 274,549
+lines / 12,801,604 chars. Docs-to-code ratio **0.41**.
+
+Largest projects by lines: `docs` 56,982 (264 files, 580,365 words) ·
+`JJFlexWpf` 55,877 (221 files) · `main_app` 35,576 (174) · `Radios` 31,071 (81)
+· `JJLogLib` 5,807 · `JJPortaudio` 4,796 (up today — MicProbe and
+MicrophonePrivacy are new) · `JJFlexUpdater` 2,759 · `JJLogIO` 2,868 ·
+`Radios.Tests` 2,091.
+
+Today's git activity: **41 commits, 67 unique files, +5,098/−389, net +4,709**,
+sole author JJ Flexbot. **Caveat: that diff stat almost certainly undercounts.**
+Three tracks landed through `--no-ff` merge commits, and a plain
+`git log --since=midnight` diff does not expand merge diffs — the tracks' own
+commits are counted, but verify with `rigmeter growth` if the true figure
+matters. Structured snapshot written to
+`\\nas.macaw-jazz.ts.net\jjflex\historical\stats\2026-08-12-e8376608.json`.
+
+---
 
 ## END-OF-DAY SEAL — 2026-08-09 — THE IQ TIER, AND A FEATURE THAT INVERTED TWICE
 

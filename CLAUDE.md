@@ -637,6 +637,19 @@ When tracks have dependencies (e.g., Track A creates a base class that B and C n
 - **Option 2:** Dependent tracks create a minimal stub version and note in their instructions that Track A's version is canonical at merge time
 - **Option 3:** Serial-then-parallel — Track A runs solo first, then B/C/D/E/F run in parallel after A merges
 
+**Telling a track to reuse a symbol creates an invisible dependency on that
+symbol staying put.** Learned 2026-08-12: one track was told to call
+`AudioWorkshopDialog.MicAudioVerdict` so it could not grow a second vocabulary
+for the same measurement — a good instruction that prevented a real duplication.
+Meanwhile another track *moved* that method into a new shared class, which was
+also right. Both merged with **zero textual conflict** and the build then failed.
+Git cannot see this class of collision, so it will not warn you.
+
+When a track instruction names a symbol to reuse, add: **"reuse X; if you
+conclude X should move or change signature, report it instead of doing it."**
+And after any multi-track merge, **build before declaring the merge clean** — a
+clean `git merge` is not evidence that the result compiles.
+
 ### Commits
 - Commit and push after completing each phase or significant chunk of work
 - No PR required for work on feature branches
