@@ -731,7 +731,14 @@ namespace JJFlexWpf.Dialogs
         /// </remarks>
         protected override void OnPreviewKeyDown(System.Windows.Input.KeyEventArgs e)
         {
-            if (e.Key == System.Windows.Input.Key.L
+            // With Alt held, WPF reports Key.System and puts the real key in
+            // SystemKey. Testing e.Key alone can never match, which is exactly
+            // how this shipped broken on 2026-08-13: the chord was simply never
+            // handled, so the screen reader read the focused control instead
+            // and the key looked like it did nothing.
+            var pressed = (e.Key == System.Windows.Input.Key.System)
+                ? e.SystemKey : e.Key;
+            if (pressed == System.Windows.Input.Key.L
                 && (System.Windows.Input.Keyboard.Modifiers
                     & System.Windows.Input.ModifierKeys.Alt) != 0
                 && (System.Windows.Input.Keyboard.Modifiers
