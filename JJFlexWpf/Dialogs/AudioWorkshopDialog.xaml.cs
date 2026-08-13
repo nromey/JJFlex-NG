@@ -1766,15 +1766,48 @@ public partial class AudioWorkshopDialog : JJFlexDialog
             }
         }
 
-        // Jack-only annotation follows the SELECTED source (that is what the
-        // controls act on — verified live 2026-08-07).
+        // The jack-only controls follow the SELECTED source (that is what they
+        // act on — verified live 2026-08-07). On PC audio they are hidden
+        // outright rather than labelled as inapplicable.
+        //
+        // Noel, 2026-08-13, using this to set a level for real: "Mic level
+        // seems to be the radio mic level. If you're using PC Audio that isn't
+        // affected, so might want to hide those values if we're using pc as a
+        // source just to keep it less confusing."
+        //
+        // He was right, and the previous handling was worse than it looked.
+        // Mic Boost and Mic Bias were suffixed "radio mic jack only, not in
+        // use" — but MIC GAIN, the control that most reads like the thing you
+        // reach for when your level is wrong, was left completely unmarked.
+        // So the one control an operator would actually grab was the one that
+        // said nothing about doing nothing. The comment above the section
+        // claimed jack-only controls annotate themselves; two of the three did.
+        //
+        // Hiding beats labelling here, and matches the house rule that
+        // controls which cannot act stay out of the tab order: a live,
+        // adjustable slider that changes nothing is a worse experience than an
+        // absent one, because it invites the operator to solve their problem
+        // with it. With PC audio the stage-one gain lives on the computer —
+        // Audio Devices, the Windows input level — and pointing there is the
+        // useful thing to do. See project_capture_then_sculpt.
         bool pcSource = string.Equals(_rig.MicSource, "PC", StringComparison.OrdinalIgnoreCase);
         if (pcSource != _jackAnnotated)
         {
             _jackAnnotated = pcSource;
-            string suffix = pcSource ? " — radio mic jack only, not in use" : "";
-            SetToggleLabel(_micBoostCheck, "Mic Boost (+20 dB)" + suffix);
-            SetToggleLabel(_micBiasCheck, "Mic Bias (phantom power)" + suffix);
+            var vis = pcSource ? Visibility.Collapsed : Visibility.Visible;
+            if (_micGainControl != null) _micGainControl.Visibility = vis;
+            if (_micBoostCheck != null) _micBoostCheck.Visibility = vis;
+            if (_micBiasCheck != null) _micBiasCheck.Visibility = vis;
+
+            // Restore the plain labels: the suffix was doing the work of the
+            // visibility change and is now noise on a control you can see
+            // precisely because it applies.
+            SetToggleLabel(_micBoostCheck, "Mic Boost (+20 dB)");
+            SetToggleLabel(_micBiasCheck, "Mic Bias (phantom power)");
+
+            // Never leave a hidden control holding focus.
+            if (pcSource && _micGainControl != null && _micGainControl.IsKeyboardFocusWithin)
+                _startCheckButton?.Focus();
         }
     }
 
