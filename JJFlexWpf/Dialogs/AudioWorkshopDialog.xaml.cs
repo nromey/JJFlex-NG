@@ -46,7 +46,17 @@ public partial class AudioWorkshopDialog : JJFlexDialog
     private Button? _loopbackButton;
     private TextBlock? _loopbackInfo;
     private CycleFieldControl? _micSourceControl;
-    private TextBlock? _monitorHeader;
+    private GroupBox? _monitorHeader;
+
+    /// <summary>
+    /// The content panel of the section most recently opened by
+    /// <see cref="AddSectionHeader"/>. Every control added while building a
+    /// tab goes here rather than straight onto the tab's outer panel, which
+    /// is what puts it inside a real group in the accessibility tree.
+    /// Build order is strictly sequential, so this is always the section
+    /// currently being filled.
+    /// </summary>
+    private StackPanel? _section;
 
     // ── Test tone (Audio Track C) ──
 
@@ -306,9 +316,38 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         if (_startCheckButton != null) KeyboardNavigation.SetTabIndex(_startCheckButton, idx++);
         if (_micReadingBox != null) KeyboardNavigation.SetTabIndex(_micReadingBox, idx++);
         if (_micGainControl != null) KeyboardNavigation.SetTabIndex(_micGainControl, idx++);
-        foreach (object child in TxAudioContent.Children)
+        ApplyTabOrderWithin(TxAudioContent, ref idx);
+    }
+
+    /// <summary>
+    /// Number every control in a panel, descending into sections.
+    /// </summary>
+    /// <remarks>
+    /// This walked one level deep until 2026-08-13, which was correct while
+    /// sections were flat headers in a single panel. Now that a section is a
+    /// GroupBox holding its own panel, a one-level walk would hand a single
+    /// index to an entire section and leave every control inside it
+    /// unnumbered — the express lane would survive and the rest of the ring
+    /// would fall back to declaration order.
+    /// </remarks>
+    private void ApplyTabOrderWithin(Panel panel, ref int idx)
+    {
+        foreach (object child in panel.Children)
         {
             if (child is not UIElement el) continue;
+
+            if (el is GroupBox group)
+            {
+                // The frame itself is not a stop: entering the group is what
+                // the screen reader announces, and a tab stop on the border
+                // would be a keypress that does nothing. Continue keeps the
+                // ring flat across sections rather than trapping it inside
+                // one.
+                KeyboardNavigation.SetTabNavigation(group, KeyboardNavigationMode.Continue);
+                if (group.Content is Panel inner) ApplyTabOrderWithin(inner, ref idx);
+                continue;
+            }
+
             if (ReferenceEquals(el, _startCheckButton) || ReferenceEquals(el, _micReadingBox)
                 || ReferenceEquals(el, _micGainControl)) continue;
             KeyboardNavigation.SetTabIndex(el, idx++);
@@ -499,7 +538,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
             if (!string.IsNullOrEmpty(choice) && choice[0] != '(')
                 _rig.MicSource = choice;
         };
-        TxAudioContent.Children.Add(_micSourceControl);
+        AddToSection(TxAudioContent, _micSourceControl);
 
         _micGainControl = MakeValue("Mic Gain", 0, 100, 1);
         _micGainControl.ValueChanged += (s, v) =>
@@ -510,17 +549,17 @@ public partial class AudioWorkshopDialog : JJFlexDialog
                 ScreenReaderOutput.Speak($"Mic gain {v}", VerbosityLevel.Terse);
             }
         };
-        TxAudioContent.Children.Add(_micGainControl);
+        AddToSection(TxAudioContent, _micGainControl);
 
         _micBoostCheck = MakeToggle("Mic Boost (+20 dB)");
         _micBoostCheck.Checked += (s, e) => SetToggle("Mic Boost", v => { if (_rig != null) _rig.MicBoost = v; }, true);
         _micBoostCheck.Unchecked += (s, e) => SetToggle("Mic Boost", v => { if (_rig != null) _rig.MicBoost = v; }, false);
-        TxAudioContent.Children.Add(_micBoostCheck);
+        AddToSection(TxAudioContent, _micBoostCheck);
 
         _micBiasCheck = MakeToggle("Mic Bias (phantom power)");
         _micBiasCheck.Checked += (s, e) => SetToggle("Mic Bias", v => { if (_rig != null) _rig.MicBias = v; }, true);
         _micBiasCheck.Unchecked += (s, e) => SetToggle("Mic Bias", v => { if (_rig != null) _rig.MicBias = v; }, false);
-        TxAudioContent.Children.Add(_micBiasCheck);
+        AddToSection(TxAudioContent, _micBiasCheck);
 
         // Processing section
         AddSectionHeader(TxAudioContent, "Processing");
@@ -536,7 +575,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
             SetToggle("Compander", v => { if (_rig != null) _rig.Compander = v; }, false);
             if (_companderLevelControl != null) _companderLevelControl.Visibility = Visibility.Collapsed;
         };
-        TxAudioContent.Children.Add(_companderCheck);
+        AddToSection(TxAudioContent, _companderCheck);
 
         _companderLevelControl = MakeValue("Compander Level", 0, 100, 5);
         _companderLevelControl.Visibility = Visibility.Collapsed;
@@ -548,7 +587,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
                 ScreenReaderOutput.Speak($"Compander level {v}", VerbosityLevel.Terse);
             }
         };
-        TxAudioContent.Children.Add(_companderLevelControl);
+        AddToSection(TxAudioContent, _companderLevelControl);
 
         _processorCheck = MakeToggle("Speech Processor");
         _processorCheck.Checked += (s, e) =>
@@ -561,7 +600,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
             SetToggle("Speech Processor", v => { if (_rig != null) _rig.ProcessorOn = v; }, false);
             if (_processorSettingControl != null) _processorSettingControl.Visibility = Visibility.Collapsed;
         };
-        TxAudioContent.Children.Add(_processorCheck);
+        AddToSection(TxAudioContent, _processorCheck);
 
         _processorSettingControl = MakeCycle("Processor Mode", new[] { "Normal", "DX", "DX+" });
         _processorSettingControl.Visibility = Visibility.Collapsed;
@@ -574,7 +613,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
                 ScreenReaderOutput.Speak($"Processor mode {names[Math.Min(idx, 2)]}", VerbosityLevel.Terse);
             }
         };
-        TxAudioContent.Children.Add(_processorSettingControl);
+        AddToSection(TxAudioContent, _processorSettingControl);
 
         // TX Filter section
         AddSectionHeader(TxAudioContent, "TX Filter");
@@ -589,7 +628,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
                 ScreenReaderOutput.Speak($"TX low {v}", VerbosityLevel.Terse);
             }
         };
-        TxAudioContent.Children.Add(_txFilterLowControl);
+        AddToSection(TxAudioContent, _txFilterLowControl);
 
         _txFilterHighControl = MakeValue("TX Filter High", 50, 10000, 50);
         _txFilterHighControl.ValueChanged += (s, v) =>
@@ -601,7 +640,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
                 ScreenReaderOutput.Speak($"TX high {v}", VerbosityLevel.Terse);
             }
         };
-        TxAudioContent.Children.Add(_txFilterHighControl);
+        AddToSection(TxAudioContent, _txFilterHighControl);
 
         _filterWidthLabel = new TextBlock
         {
@@ -611,7 +650,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         };
         AutomationProperties.SetName(_filterWidthLabel, "TX filter width");
         AutomationProperties.SetLiveSetting(_filterWidthLabel, AutomationLiveSetting.Polite);
-        TxAudioContent.Children.Add(_filterWidthLabel);
+        AddToSection(TxAudioContent, _filterWidthLabel);
 
         // Monitor section. The header names the mode in phone modes so the
         // screen reader user knows which knob family they're on; in CW mode
@@ -632,7 +671,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
             if (_monitorLevelControl != null) _monitorLevelControl.Visibility = Visibility.Collapsed;
             if (_monitorPanControl != null) _monitorPanControl.Visibility = Visibility.Collapsed;
         };
-        TxAudioContent.Children.Add(_monitorCheck);
+        AddToSection(TxAudioContent, _monitorCheck);
 
         _monitorLevelControl = MakeValue("Monitor Level", 0, 100, 5);
         _monitorLevelControl.Visibility = Visibility.Collapsed;
@@ -644,7 +683,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
                 ScreenReaderOutput.Speak($"Monitor level {v}", VerbosityLevel.Terse);
             }
         };
-        TxAudioContent.Children.Add(_monitorLevelControl);
+        AddToSection(TxAudioContent, _monitorLevelControl);
 
         _monitorPanControl = MakeValue("Monitor Pan", 0, 100, 5);
         _monitorPanControl.Visibility = Visibility.Collapsed;
@@ -656,7 +695,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
                 ScreenReaderOutput.Speak($"Monitor pan {v}", VerbosityLevel.Terse);
             }
         };
-        TxAudioContent.Children.Add(_monitorPanControl);
+        AddToSection(TxAudioContent, _monitorPanControl);
 
         // Built-in test tone — the mic replacement (Audio Track C). Late in
         // the walk: it is the first thing here that reaches the air, and it
@@ -701,7 +740,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
             HorizontalAlignment = HorizontalAlignment.Left
         };
         AutomationProperties.SetName(_deviceReadingBox, "Microphone this computer is using");
-        TxAudioContent.Children.Add(_deviceReadingBox);
+        AddToSection(TxAudioContent, _deviceReadingBox);
 
         var deviceButton = new Button
         {
@@ -727,7 +766,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
             // rather than leaving a stale name sitting above the controls.
             RefreshDeviceReading(announce: true);
         };
-        TxAudioContent.Children.Add(deviceButton);
+        AddToSection(TxAudioContent, deviceButton);
 
         // "Is it actually working?" is the question that follows "which
         // microphone", so it belongs in the same section and one key away.
@@ -749,7 +788,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
             "Opens the Audio Devices window and listens to your microphone. "
             + "The radio is not involved and nothing is transmitted.");
         checkButton.Click += (s, e) => OpenMicrophoneCheck();
-        TxAudioContent.Children.Add(checkButton);
+        AddToSection(TxAudioContent, checkButton);
 
         RefreshDeviceReading(announce: false);
     }
@@ -885,7 +924,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         AutomationProperties.SetName(_startCheckButton, "Start Audio Check");
         AutomationProperties.SetAcceleratorKey(_startCheckButton, "Ctrl+Enter");
         _startCheckButton.Click += (s, e) => ToggleAudioCheck();
-        TxAudioContent.Children.Add(_startCheckButton);
+        AddToSection(TxAudioContent, _startCheckButton);
 
         // The live mic reading, as a read-only EDIT (Noel, 2026-08-11). An
         // edit is focusable and review-readable where a label gets skipped;
@@ -905,7 +944,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         // while the value moves and a review command always reads fresh.
         // Same lesson Track A learned on the Home expander field.
         AutomationProperties.SetName(_micReadingBox, "Mic audio reading");
-        TxAudioContent.Children.Add(_micReadingBox);
+        AddToSection(TxAudioContent, _micReadingBox);
 
         _listenMethodControl = MakeCycle("Listen method",
             new[] { "Monitor", "Record and play back" });
@@ -920,7 +959,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
                     "Note: over remote, monitor audio arrives delayed. Record and play back is recommended.",
                     VerbosityLevel.Terse);
         };
-        TxAudioContent.Children.Add(_listenMethodControl);
+        AddToSection(TxAudioContent, _listenMethodControl);
 
         // Track C-2 (Noel at the radio, 2026-08-11: "you have it at 10
         // watts. If you have no antenna, that's a bit high"): the check
@@ -940,7 +979,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
             UpdateCheckWattsVisibility();
             SavePerRadioPrefs();
         };
-        TxAudioContent.Children.Add(_checkPowerControl);
+        AddToSection(TxAudioContent, _checkPowerControl);
 
         _checkWattsControl = new ValueFieldControl();
         _checkWattsControl.Setup("Low power level", 1, 100, 1, 10, 0, "watts");
@@ -950,7 +989,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
             if (_polling) return;
             SavePerRadioPrefs();
         };
-        TxAudioContent.Children.Add(_checkWattsControl);
+        AddToSection(TxAudioContent, _checkWattsControl);
 
         _playTakeButton = new Button
         {
@@ -962,7 +1001,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         };
         AutomationProperties.SetName(_playTakeButton, "Play last take");
         _playTakeButton.Click += (s, e) => PlayLastTake();
-        TxAudioContent.Children.Add(_playTakeButton);
+        AddToSection(TxAudioContent, _playTakeButton);
 
         // Loopback check — real RF through the transverter port, inside one
         // radio, no antennas. Doubles as a transmitter self-test: "check my
@@ -980,7 +1019,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         };
         AutomationProperties.SetName(_loopbackButton, "Loopback Check, transverter port");
         _loopbackButton.Click += (s, e) => StartLoopbackCheck();
-        TxAudioContent.Children.Add(_loopbackButton);
+        AddToSection(TxAudioContent, _loopbackButton);
 
         _loopbackInfo = new TextBlock
         {
@@ -990,7 +1029,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
             TextWrapping = TextWrapping.Wrap,
             Visibility = Visibility.Collapsed
         };
-        TxAudioContent.Children.Add(_loopbackInfo);
+        AddToSection(TxAudioContent, _loopbackInfo);
     }
 
     /// <summary>
@@ -1205,7 +1244,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         _toneCheck = MakeToggle("Test tone instead of microphone");
         _toneCheck.Checked += (s, e) => ToneArmChanged(true);
         _toneCheck.Unchecked += (s, e) => ToneArmChanged(false);
-        TxAudioContent.Children.Add(_toneCheck);
+        AddToSection(TxAudioContent, _toneCheck);
 
         _tonePresetControl = MakeCycle("Tone frequency", new[]
         {
@@ -1222,7 +1261,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
                 _toneFreqControl.Visibility = custom ? Visibility.Visible : Visibility.Collapsed;
             ToneParamsChanged(speakPassband: true);
         };
-        TxAudioContent.Children.Add(_tonePresetControl);
+        AddToSection(TxAudioContent, _tonePresetControl);
 
         _toneFreqControl = new ValueFieldControl();
         _toneFreqControl.Setup("Custom frequency", 50, 10000, 10, 440, 0, "hertz");
@@ -1232,7 +1271,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
             if (_polling) return;
             ToneParamsChanged(speakPassband: true);
         };
-        TxAudioContent.Children.Add(_toneFreqControl);
+        AddToSection(TxAudioContent, _toneFreqControl);
 
         _toneLevelControl = new ValueFieldControl();
         _toneLevelControl.Setup("Tone level", -40, 0, 1, -10, 0, "dBFS");
@@ -1241,13 +1280,13 @@ public partial class AudioWorkshopDialog : JJFlexDialog
             if (_polling) return;
             ToneParamsChanged(speakPassband: false);
         };
-        TxAudioContent.Children.Add(_toneLevelControl);
+        AddToSection(TxAudioContent, _toneLevelControl);
 
         _toneMonitorCheck = MakeToggle("Hear the tone while it transmits");
         _toneMonitorCheck.IsChecked = true;
         _toneMonitorCheck.Checked += (s, e) => ToneMonitorChanged(true);
         _toneMonitorCheck.Unchecked += (s, e) => ToneMonitorChanged(false);
-        TxAudioContent.Children.Add(_toneMonitorCheck);
+        AddToSection(TxAudioContent, _toneMonitorCheck);
 
         _toneInfo = new TextBlock
         {
@@ -1258,7 +1297,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         };
         AutomationProperties.SetName(_toneInfo, "Test tone passband status");
         AutomationProperties.SetLiveSetting(_toneInfo, AutomationLiveSetting.Polite);
-        TxAudioContent.Children.Add(_toneInfo);
+        AddToSection(TxAudioContent, _toneInfo);
     }
 
     /// <summary>The effective tone frequency: preset value, or the custom field.</summary>
@@ -1659,9 +1698,9 @@ public partial class AudioWorkshopDialog : JJFlexDialog
                 string hdr = (isCW || string.IsNullOrEmpty(mode))
                     ? "TX Monitor"
                     : $"TX Monitor — {mode}";
-                if (_monitorHeader.Text != hdr)
+                if ((_monitorHeader.Header as string) != hdr)
                 {
-                    _monitorHeader.Text = hdr;
+                    _monitorHeader.Header = hdr;
                     AutomationProperties.SetName(_monitorHeader, hdr);
                 }
             }
@@ -1755,32 +1794,32 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         AddSectionHeader(LiveMetersContent, "Receiver");
 
         _sMeterLabel = MakeMeterLabel("S-Meter: --");
-        LiveMetersContent.Children.Add(_sMeterLabel);
+        AddToSection(LiveMetersContent, _sMeterLabel);
 
         AddSectionHeader(LiveMetersContent, "Transmit");
 
         _fwdPowerLabel = MakeMeterLabel("Forward Power: --");
-        LiveMetersContent.Children.Add(_fwdPowerLabel);
+        AddToSection(LiveMetersContent, _fwdPowerLabel);
 
         _swrLabel = MakeMeterLabel("SWR: --");
-        LiveMetersContent.Children.Add(_swrLabel);
+        AddToSection(LiveMetersContent, _swrLabel);
 
         _micAudioLabel = MakeMeterLabel("Mic audio: --");
-        LiveMetersContent.Children.Add(_micAudioLabel);
+        AddToSection(LiveMetersContent, _micAudioLabel);
 
         _alcLabel = MakeMeterLabel("TX drive (ALC): --");
-        LiveMetersContent.Children.Add(_alcLabel);
+        AddToSection(LiveMetersContent, _alcLabel);
 
         _ampAlcLabel = MakeMeterLabel("Amp ALC: --");
-        LiveMetersContent.Children.Add(_ampAlcLabel);
+        AddToSection(LiveMetersContent, _ampAlcLabel);
 
         AddSectionHeader(LiveMetersContent, "Hardware");
 
         _paTempLabel = MakeMeterLabel("PA Temperature: --");
-        LiveMetersContent.Children.Add(_paTempLabel);
+        AddToSection(LiveMetersContent, _paTempLabel);
 
         _voltsLabel = MakeMeterLabel("Supply Voltage: --");
-        LiveMetersContent.Children.Add(_voltsLabel);
+        AddToSection(LiveMetersContent, _voltsLabel);
     }
 
     private void MeterTimer_Tick(object? sender, EventArgs e)
@@ -1891,33 +1930,33 @@ public partial class AudioWorkshopDialog : JJFlexDialog
     {
         // Meter Tones
         AddSectionHeader(EarconExplorerContent, "Meter Tones");
-        AddEarconButton(EarconExplorerContent, "Beep", () => EarconPlayer.Beep());
-        AddEarconButton(EarconExplorerContent, "Warning Beep", () => EarconPlayer.Warning1Beep());
-        AddEarconButton(EarconExplorerContent, "Warning 2 Beep", () => EarconPlayer.Warning2Beep());
-        AddEarconButton(EarconExplorerContent, "Oh Crap Beep", () => EarconPlayer.OhCrapBeep());
-        AddEarconButton(EarconExplorerContent, "Confirm Tone", () => EarconPlayer.ConfirmTone());
+        AddEarconButton(_section ?? EarconExplorerContent, "Beep", () => EarconPlayer.Beep());
+        AddEarconButton(_section ?? EarconExplorerContent, "Warning Beep", () => EarconPlayer.Warning1Beep());
+        AddEarconButton(_section ?? EarconExplorerContent, "Warning 2 Beep", () => EarconPlayer.Warning2Beep());
+        AddEarconButton(_section ?? EarconExplorerContent, "Oh Crap Beep", () => EarconPlayer.OhCrapBeep());
+        AddEarconButton(_section ?? EarconExplorerContent, "Confirm Tone", () => EarconPlayer.ConfirmTone());
 
         // PTT & Transmission
         AddSectionHeader(EarconExplorerContent, "PTT and Transmission");
-        AddEarconButton(EarconExplorerContent, "TX Start Tone", () => EarconPlayer.TxStartTone());
-        AddEarconButton(EarconExplorerContent, "TX Stop Tone", () => EarconPlayer.TxStopTone());
-        AddEarconButton(EarconExplorerContent, "Hard Kill Tone", () => EarconPlayer.HardKillTone());
+        AddEarconButton(_section ?? EarconExplorerContent, "TX Start Tone", () => EarconPlayer.TxStartTone());
+        AddEarconButton(_section ?? EarconExplorerContent, "TX Stop Tone", () => EarconPlayer.TxStopTone());
+        AddEarconButton(_section ?? EarconExplorerContent, "Hard Kill Tone", () => EarconPlayer.HardKillTone());
 
         // Filter Sounds
         AddSectionHeader(EarconExplorerContent, "Filter Sounds");
-        AddEarconButton(EarconExplorerContent, "Filter Edge Enter", () => EarconPlayer.FilterEdgeEnterTone());
-        AddEarconButton(EarconExplorerContent, "Filter Edge Exit", () => EarconPlayer.FilterEdgeExitTone());
-        AddEarconButton(EarconExplorerContent, "Filter Edge Move", () => EarconPlayer.FilterEdgeMoveTone());
-        AddEarconButton(EarconExplorerContent, "Filter Boundary Hit (Low)", () => EarconPlayer.FilterBoundaryHitTone(true));
-        AddEarconButton(EarconExplorerContent, "Filter Boundary Hit (High)", () => EarconPlayer.FilterBoundaryHitTone(false));
-        AddEarconButton(EarconExplorerContent, "Filter Squeeze", () => EarconPlayer.FilterSqueezeTone());
-        AddEarconButton(EarconExplorerContent, "Filter Stretch", () => EarconPlayer.FilterStretchTone());
+        AddEarconButton(_section ?? EarconExplorerContent, "Filter Edge Enter", () => EarconPlayer.FilterEdgeEnterTone());
+        AddEarconButton(_section ?? EarconExplorerContent, "Filter Edge Exit", () => EarconPlayer.FilterEdgeExitTone());
+        AddEarconButton(_section ?? EarconExplorerContent, "Filter Edge Move", () => EarconPlayer.FilterEdgeMoveTone());
+        AddEarconButton(_section ?? EarconExplorerContent, "Filter Boundary Hit (Low)", () => EarconPlayer.FilterBoundaryHitTone(true));
+        AddEarconButton(_section ?? EarconExplorerContent, "Filter Boundary Hit (High)", () => EarconPlayer.FilterBoundaryHitTone(false));
+        AddEarconButton(_section ?? EarconExplorerContent, "Filter Squeeze", () => EarconPlayer.FilterSqueezeTone());
+        AddEarconButton(_section ?? EarconExplorerContent, "Filter Stretch", () => EarconPlayer.FilterStretchTone());
 
         // Alerts
         AddSectionHeader(EarconExplorerContent, "Alerts");
-        AddEarconButton(EarconExplorerContent, "Band Boundary Beep", () => EarconPlayer.BandBoundaryBeep());
-        AddEarconButton(EarconExplorerContent, "Chirp (400 to 800 Hz)", () => EarconPlayer.Chirp(400, 800, 200));
-        AddEarconButton(EarconExplorerContent, "Chirp (800 to 400 Hz)", () => EarconPlayer.Chirp(800, 400, 200));
+        AddEarconButton(_section ?? EarconExplorerContent, "Band Boundary Beep", () => EarconPlayer.BandBoundaryBeep());
+        AddEarconButton(_section ?? EarconExplorerContent, "Chirp (400 to 800 Hz)", () => EarconPlayer.Chirp(400, 800, 200));
+        AddEarconButton(_section ?? EarconExplorerContent, "Chirp (800 to 400 Hz)", () => EarconPlayer.Chirp(800, 400, 200));
     }
 
     private static void AddEarconButton(StackPanel parent, string label, Action playAction)
@@ -2207,18 +2246,58 @@ public partial class AudioWorkshopDialog : JJFlexDialog
 
     #region Control Factories
 
-    private static TextBlock AddSectionHeader(StackPanel parent, string text)
+    /// <summary>
+    /// Open a section. Returns the GroupBox so a caller can retitle it later;
+    /// everything added afterwards goes into <see cref="_section"/>, the panel
+    /// created inside it.
+    /// </summary>
+    /// <remarks>
+    /// These were bold TextBlocks until 2026-08-13. That LOOKED like a section
+    /// and was not one. A named TextBlock is not a UIA group and not a
+    /// heading, so tabbing between controls never announced crossing from one
+    /// section into the next, and NVDA's H key had nothing to jump to. Noel,
+    /// testing 4.1.16.829: "I'm not hearing any group / I'm not able to get
+    /// from group to group."
+    ///
+    /// <para>
+    /// That made the walk-through ordering built the day before invisible to
+    /// the only audience it exists for. The sections were correctly SEQUENCED
+    /// and their boundaries were not perceivable, which is the whole feature —
+    /// a walk-through you cannot feel yourself moving through is just a list.
+    /// </para>
+    ///
+    /// <para>
+    /// A GroupBox is announced on entry and exit while simply tabbing, which
+    /// is how the dialog is actually crossed. HeadingLevel restores H /
+    /// Shift+H jumping on top of that, for an operator who knows where they
+    /// are going.
+    /// </para>
+    /// </remarks>
+    private GroupBox AddSectionHeader(StackPanel parent, string text)
     {
-        var header = new TextBlock
+        var panel = new StackPanel { Margin = new Thickness(6, 2, 2, 2) };
+        var group = new GroupBox
         {
-            Text = text,
-            FontWeight = FontWeights.Bold,
+            Header = text,
             Margin = new Thickness(0, 8, 0, 4),
-            FontSize = 13
+            Content = panel
         };
-        AutomationProperties.SetName(header, text);
-        parent.Children.Add(header);
-        return header;
+        AutomationProperties.SetName(group, text);
+        AutomationProperties.SetHeadingLevel(group, AutomationHeadingLevel.Level2);
+        parent.Children.Add(group);
+        _section = panel;
+        return group;
+    }
+
+    /// <summary>
+    /// Add a control to the section currently being built. Falls back to the
+    /// tab's outer panel if no section has been opened — a control that
+    /// escapes its group is a layout bug, but a control that vanishes is a
+    /// missing feature, and the second is worse.
+    /// </summary>
+    private void AddToSection(StackPanel fallback, UIElement child)
+    {
+        (_section ?? fallback).Children.Add(child);
     }
 
     private static CheckBox MakeToggle(string label)
