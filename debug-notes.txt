@@ -1,43 +1,60 @@
 WHAT CHANGED
 
-The sample rate your microphone actually runs at is now settled with the
-device before anything is built from it. It used to be assumed to be 48 kHz,
-and if your microphone was running at some other rate, nothing noticed. Your
-audio still went out, just built on the wrong number - which sounds like a
-regular stutter rather than like anything being broken, so it was easy to
-blame on the network.
+This build is almost entirely the result of one morning of Noel sitting in
+front of the previous one with NVDA. Every item below came from that.
 
-If your microphone will not open at all, JJ Flex now says so once, out loud,
-and keeps receive audio running. Before, it said nothing whatsoever: you would
-key up, transmit silence, and be told nothing was wrong.
+The Audio Workshop's sections are real groups now. You hear yourself entering
+and leaving them as you tab, and the H key jumps between them. They looked
+like sections before and were not ones - the walk-through was correctly
+ordered and you could not feel yourself crossing from one step to the next.
 
-The Microphone Check now tells you when Windows has your microphone at a rate
-the radio link cannot use - 44.1 kHz being the one that turns up. The check
-itself is perfectly happy at that rate, so a microphone could pass the check
-completely and still be unable to transmit. Now it says so before you find
-out the hard way.
+The device picker only shows things you could talk into. Loopbacks and virtual
+audio cables are hidden unless you turn on "show every sound endpoint" with
+Alt+S. Nothing is removed, only hidden, so if you route audio deliberately
+your devices are still there behind that switch.
+
+Each device is spoken once. It was being said twice - your screen reader
+announced the row and then the app said it again.
+
+Device rows start with the device. Press the first letter of a device name and
+the list jumps to it, the way a list should.
+
+There is a Windows input level slider in the Microphone Check now, and a
+Microphone Boost slider when your sound driver offers one. This is the missing
+piece: if your microphone is too hot or too quiet, that is the knob that fixes
+it, and until now the app could tell you about the problem but not do anything
+about it.
+
+The check reports loudness as well as peak, so it can tell you when you have
+stopped being too quiet rather than only when you are clipping.
+
+The level advice has seven levels instead of three, and it talks like a
+person. Every answer starts with one word - Good, Hot, Clipping, Quiet - so you
+can stop listening as soon as you have what you need, and the rest of the
+sentence varies so you are not hearing the same line eight times while you
+tune.
+
+Your settings cannot get lost between two folders any more. Some were being
+written to one place and read from another, and which ones survived a restart
+depended on which part of the app happened to run last.
 
 WHAT TO TEST
 
-Start the Microphone Check - either the Check Microphone button in the Audio
-Workshop, or Start microphone check in Audio Devices - and read the FIRST
-line it shows.
+Open the Audio Workshop with Ctrl+Shift+W and tab through it slowly. You should
+hear the section names as you cross into them.
 
-If it says only "Microphone check running. Listening." then your microphone is
-at 48 kHz and all is well. That is the expected result.
+Open Change Audio Devices and count what is in the input list. Confirm your
+laptop's own microphone array is still there - that one matters.
 
-If it goes on to mention 44.1 kHz, that is worth knowing and worth telling me
-about, because it means Windows has that device at a rate that will not carry
-transmit audio.
+Start the microphone check, find the Windows input level slider, and use it to
+bring yourself into the Good range. Talk normally.
 
-After that: talk into it, watch the reading, then go quiet and confirm it
-reports silence rather than inventing a level.
+Then change a setting, close the app completely, and open it again. It should
+still be there.
 
-With a radio: connect, turn PC Audio on, and listen for the absence of an
-announcement about your microphone. Silence is the pass here. Then key up with
-the transmit monitor on and listen specifically for a REGULAR, rhythmic gap in
-your own voice - not random dropouts, a steady stutter. That rhythm was the
-signature of what got fixed. If you hear it, I want to know immediately.
+With a radio: connect, turn PC audio on, key up with the transmit monitor on
+and listen for a steady, rhythmic gap in your own voice. Random dropouts are
+something else; a regular rhythm is the thing that got fixed.
 
 KNOWN ISSUES
 
@@ -45,5 +62,8 @@ The transverter work is not fleshed out yet.
 
 The noise gate and RNNoise are not in this build.
 
-The help page on the two audio numbers still opens with a draft marker. That
-is deliberate - it has not had a human pass yet.
+Microphone Boost has only been proven on hardware that does NOT offer one. If
+your headset exposes a boost control, you are the first to see it work.
+
+The help page on the two audio numbers still opens with a draft marker. That is
+deliberate - it has not had a human pass yet.
