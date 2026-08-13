@@ -81,6 +81,8 @@ This release is about the space where you actually spend your time in the app �
 - **[The Trace Archive Browser is here](#trace-archive-browser).** Every connection your app makes already gets quietly archived in the background — every successful connect, every flaky retry, every killed session. There is now a place inside JJ Flexible to actually look at them. Open the Tracing dialog (Help menu, then Tracing) and you'll see a new "Archive Browser" tab next to the existing tracing controls. Filter by date, by outcome, by radio. Pop open a trace in your text viewer. Copy the file path so you can attach it to an email. Bundle a handful of traces into a single zip to send to me. The list speaks itself as you arrow through it, so you can hear "AS retry then success on Don 6300, one minute twenty-three seconds" without leaving the row.
 - **[Your radio's volume knobs are visible now](#radio-outputs-visible).** Settings, Audio tab has a Radio Outputs group: headphone level, line out level, and the three output mutes, all of which apply to the radio as you change them. On a radio without a front panel, those software levels are the only volume control that exists, and until now JJ Flex could nudge them but never show you where they stood. There's a "Why is my radio silent?" button too, which walks the likely causes and tells you the first thing it finds. Starting with the one that catches everybody: a Flex makes no audio at all — headphone jack included — until something connects to it.
 - **[One place to choose your sound devices](#audio-devices-dialog).** The old device picker was two dialogs in a row, both with a list labelled "device list," and on a fresh install it could ambush you mid-connect from the background. It's one dialog now — radio audio out, microphone in, alert and CW device, meter device — reachable from the Audio menu, from Settings, or from the Command Finder. It announces what's currently chosen, marks your system default in words, and if a device you picked gets unplugged it falls back and says so instead of going quiet.
+- **[Is this thing on? Now you can find out without going on the air](#microphone-check).** The Audio Devices dialog has a Microphone check in it. Pick your microphone, press Start microphone check, talk, and JJ Flexible tells you what it hears — in the same plain words the Audio Workshop uses, with the number beside them. No transmitting, no radio, no SmartSDR, no Sound Recorder. And it tells three different silences apart: nothing reaching your microphone, nothing coming out of Windows at all, and Windows privacy settings blocking us — with a button that takes you straight to the page that fixes the last one.
+- **[One device, one line in the list](#one-device-one-line).** Windows offers most sound hardware three or four times over, once for each of its sound systems, so a single USB interface used to fill the picker with identical-looking copies — and one of those copies is usually the wrong one to pick. Each piece of hardware is one choice now. Devices that are USB, Bluetooth, or HDMI say so. Entries that are really a loopback of what your computer is playing say that too, loudly, because choosing one as your transmit microphone puts your own received audio on the air. And a device you saved that isn't plugged in stays in the list marked "Not connected" instead of quietly disappearing.
 - **[CW notifications moved in with their speaker](#cw-with-alert-device).** The switch and the device it plays through are on the same tab now, next to each other, instead of one tab apart. Defaults unchanged — CW notifications are still off until you turn them on.
 - **[JJ Flex now updates itself](#in-app-updates).** Tools menu has a new "Check for Updates" item. Settings has a new "Updates" tab where you pick your channel — Stable, Beta, or Nightly — and decide whether you want JJ Flex to check on its own. By default it checks at startup and every couple of hours while it's running, but you're in charge of all of that. When an update lands, you get a dialog that tells you what's new and how big the download is, and one keystroke does the install. No more hunting for installers on the website.
 - **[Hear yourself before anyone else does](#audio-check).** The Audio Workshop grew an Audio Check: one button keys the radio and your own transmit audio comes back in your headphones while you talk. Record a take, unkey, and it plays right back so you can hear what a mic adjustment actually did. If your setup ritual has always been "how do I sound?" into a quiet band, this is that friend, on demand, with nobody rolling their eyes. And by default the check now makes **no RF at all** — dummy load, zero watts — because every meter it reads tells the same truth with the power at zero.
@@ -468,6 +470,117 @@ A few things it now does that it never did:
 And a small one: **turning PC audio on now tells you the truth.** If it can't
 start, you hear that it didn't, instead of hearing "PC audio on" while nothing
 plays.
+
+[Return to version headlines](#unreleased-headlines)
+
+### Is This Thing On? {#microphone-check}
+
+Here is a question that should never have needed a transmitter to answer: is my
+microphone working?
+
+Until now the only way to find out inside JJ Flexible was to key up and watch
+the mic meter. Think about what that actually asks of you. You go on the air —
+real antenna, real band, possibly from three states away over SmartLink — to
+settle a question that has nothing whatsoever to do with your radio. And if the
+answer turns out to be "no, it's muted," congratulations, you just transmitted
+silence at somebody.
+
+So the Audio Devices dialog has a **Microphone check** in it now, sitting right
+under the microphone list. Pick your microphone, press **Start microphone
+check** (or Alt+M), and talk. That's it. Nothing transmits. The radio isn't
+involved and doesn't even need to be connected. You don't need SmartSDR open,
+you don't need Windows Sound Recorder, you don't need a friend on frequency.
+
+The verdict lives in a read-only box you can Tab straight to, so your screen
+reader's read-current-control command is the "say my level" button — no new
+hotkey to learn. It updates about twice a second while the check runs, and it
+uses exactly the same words the Audio Workshop uses — *turn it up*, *just
+right*, *coming in hot* — with the number in dBFS right beside them. One
+vocabulary everywhere, so the same voice never gets two different opinions
+depending on which window you asked in.
+
+Now the part I'm actually proud of. Silence is not one thing, it's three, and
+they need three different fixes:
+
+- **Only the noise floor.** JJ Flexible can hear your interface but nothing is
+  arriving at it — a very low number that never budges when you talk. Your
+  microphone isn't plugged into the input you think it is, or the gain knob is
+  down, or your condenser mic is waiting for phantom power that isn't switched
+  on. JJ Flexible says so in those words.
+- **Nothing at all.** Not quiet — literally, mathematically nothing. Every
+  sample zero. A working microphone always has a little hiss on it, so this
+  means Windows is handing us silence rather than audio, and that's a mute
+  somewhere, not a microphone problem.
+- **Windows is blocking us.** Which brings me to the good bit.
+
+**JJ Flexible now handles Windows microphone privacy the way Zoom does.**
+Windows has a switch buried in privacy settings called "Let desktop apps access
+your microphone," and when it's off, your microphone doesn't fail — it just
+delivers perfect, convincing silence. Every meter reads zero. Every cable looks
+fine. I have watched people take an entire shack apart over that switch.
+
+If it's off, JJ Flexible now says so by name, tells you which switch it is, and
+offers a button that opens the Windows privacy page directly. One press, one
+toggle, come back, run the check again. If it's a policy your workplace set,
+you get told that too, because sending you to a page that can't help you is its
+own kind of rude. And if nothing is blocked, that button never appears at all —
+I'm not going to nag you about a setting that's already correct.
+
+The check hangs on to your microphone only while it's running. Stop it, switch
+devices, refresh the list, or close the dialog, and it lets go immediately.
+
+[Return to version headlines](#unreleased-headlines)
+
+### One Device, One Line in the List {#one-device-one-line}
+
+Windows has a slightly embarrassing habit: it offers the same sound hardware to
+programs three or four separate times, once for each of the sound systems it
+has accumulated over thirty years. Your interface isn't listed once. It's
+listed as many times as Windows has ways of talking to it.
+
+Which meant that until now, plugging in a nice new USB interface filled the
+device picker with a small crowd of identical-looking choices, and exactly one
+of them was the one you wanted. Choosing by ear, that's not a decision, that's
+a coin flip. On my own machine the microphone list had **48 entries** for what
+any human being would call four devices.
+
+One piece of hardware is one line now. JJ Flexible folds the copies together
+and takes the most modern route to your device on your behalf. That same list
+is down to 22 lines, and the ones that remain are things you'd recognise.
+
+While I was in there, a few more honesty upgrades to that list:
+
+- **Devices say how they're attached** when Windows tells us plainly — USB,
+  Bluetooth, HDMI. When it doesn't, JJ Flexible says nothing rather than
+  guessing, because a label that's confidently wrong is worse than no label.
+  (I did try to work out built-in versus a jack on the back. Windows knows, but
+  it won't say — on my machine it described a USB audio interface and a piece
+  of pure software with the identical answer. So I'm not going to pretend.)
+- **Entries that are really a loopback are called out.** Some entries in the
+  microphone list aren't microphones at all — they're whatever your computer is
+  currently playing, handed back to you as a recording source. They look
+  completely legitimate. Pick one as your transmit microphone and you'll put
+  your own received audio on the air, which is a fun way to make a pileup very
+  cross with you. They now say what they are.
+- **The Sound Mapper entries admit what they do.** "Microsoft Sound Mapper" and
+  "Primary Sound Capture Driver" aren't devices, they're pointers at whatever
+  Windows is currently set to. The list says so.
+- **A saved device that isn't plugged in stays visible.** It sits at the top of
+  the list marked "Not connected" instead of silently vanishing. Leave it
+  selected and JJ Flexible keeps it saved for when you plug it back in; pick
+  something else and it switches. Either way you chose, rather than finding out
+  later.
+
+And if you want the old everything-everywhere view, there's a **Show every
+sound endpoint** checkbox at the bottom of the dialog. That view lists every
+copy, names the sound system after each one, and includes the low-level kernel
+entries that are normally hidden. It's there for when you're chasing something
+strange. It resets itself the next time you start JJ Flexible, because a
+diagnostic you forgot you turned on is just a confusing dialog.
+
+One deliberate piece of restraint: if your audio already works, pressing OK
+does not quietly move you onto the new preferred route. A configuration that
+works keeps working until you choose otherwise.
 
 [Return to version headlines](#unreleased-headlines)
 

@@ -3,7 +3,7 @@
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                     xmlns:local="clr-namespace:JJFlexWpf"
                     Title="Audio Devices"
-                    Width="560" Height="620"
+                    Width="580" Height="700"
                     ResizeMode="NoResize"
                     AutomationProperties.Name="Audio devices">
     <DockPanel Margin="12">
@@ -87,6 +87,53 @@
                            AutomationProperties.LiveSetting="Polite"
                            AutomationProperties.Name="Microphone device note"/>
 
+                <!-- ================= Microphone Check ================= -->
+                <!-- Answers "is this microphone working" without a transmitter.
+                     Sits directly under the microphone list because it checks
+                     whatever is selected there. -->
+                <TextBlock Text="Microphone check"
+                           FontWeight="SemiBold"
+                           Style="{StaticResource DialogLabel}"
+                           Margin="0,0,0,2"/>
+                <TextBlock Style="{StaticResource DialogLabel}"
+                           TextWrapping="Wrap"
+                           Margin="0,0,0,6"
+                           Focusable="True"
+                           Text="Start the check and talk. JJ Flexible listens to the microphone selected above and tells you what it hears. Nothing is transmitted and the radio is not involved."
+                           AutomationProperties.Name="Start the check and talk. JJ Flexible listens to the microphone selected above and tells you what it hears. Nothing is transmitted and the radio is not involved."/>
+
+                <Button x:Name="MicCheckButton"
+                        Content="Start _microphone check"
+                        MinWidth="200" Height="28"
+                        HorizontalAlignment="Left"
+                        Margin="0,0,0,4"
+                        AutomationProperties.Name="Start microphone check"
+                        AutomationProperties.AcceleratorKey="Alt+M"
+                        Click="MicCheckButton_Click"/>
+
+                <!-- The verdict lives in a read-only EDIT, not a label: an edit
+                     is focusable and review-readable where a label gets skipped,
+                     and because the value sits somewhere focusable the screen
+                     reader's own read-current-control command IS the "say my
+                     level" feature. Same idiom as the Audio Workshop's mic
+                     reading; the accessible name is set once at build time so
+                     the twice-a-second refresh never interrupts. -->
+                <TextBox x:Name="MicCheckReading"
+                         IsReadOnly="True"
+                         IsReadOnlyCaretVisible="True"
+                         Margin="0,0,0,4"
+                         AutomationProperties.Name="Microphone check reading"/>
+
+                <Button x:Name="MicPrivacyButton"
+                        Content="Open _Windows microphone privacy settings"
+                        MinWidth="200" Height="28"
+                        HorizontalAlignment="Left"
+                        Margin="0,0,0,10"
+                        Visibility="Collapsed"
+                        AutomationProperties.Name="Open Windows microphone privacy settings"
+                        AutomationProperties.AcceleratorKey="Alt+W"
+                        Click="MicPrivacyButton_Click"/>
+
                 <Separator Margin="0,4,0,8"/>
 
                 <!-- ================= Alerts / CW (NAudio) ================= -->
@@ -116,6 +163,21 @@
                           Style="{StaticResource DialogComboBox}"
                           Margin="0,0,0,8"
                           AutomationProperties.Name="Meter tone output device"/>
+
+                <Separator Margin="0,4,0,8"/>
+
+                <!-- One physical device reads as one choice by default. This
+                     unfolds the list to every endpoint Windows offers, host API
+                     by host API, including the kernel pins that were hidden in
+                     2026-08-11 after two operators picked one and transmitted
+                     into a dead jack. -->
+                <CheckBox x:Name="AdvancedDevicesCheck"
+                          Content="_Show every sound endpoint, host API by host API (advanced)"
+                          Margin="0,0,0,6"
+                          AutomationProperties.Name="Show every sound endpoint, host API by host API. Advanced."
+                          AutomationProperties.AcceleratorKey="Alt+S"
+                          Checked="AdvancedDevicesCheck_Changed"
+                          Unchecked="AdvancedDevicesCheck_Changed"/>
 
                 <TextBlock x:Name="FilterNoteText"
                            Style="{StaticResource DialogLabel}"

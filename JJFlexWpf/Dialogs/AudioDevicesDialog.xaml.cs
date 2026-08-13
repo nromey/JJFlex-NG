@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
+using System.Windows.Threading;
 using JJPortaudio;
 using Radios;
 
@@ -10,7 +11,8 @@ namespace JJFlexWpf.Dialogs
     /// One surface for every sound device JJ Flex uses: the two PortAudio
     /// devices that carry radio audio to and from this computer, and the NAudio
     /// devices that carry JJ Flex's own alerts, CW notifications, and meter
-    /// tones.
+    /// tones. Since 2026-08-12 it also proves the microphone works, without
+    /// keying a transmitter to find out.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -29,6 +31,14 @@ namespace JJFlexWpf.Dialogs
     /// two render different display names for the same physical hardware. The
     /// headings name the domain rather than the plumbing so the difference reads
     /// as "what this sound is" rather than "which library found it".
+    /// </para>
+    /// <para>
+    /// Mic Track, 2026-08-12, two changes. First, the lists show one row per
+    /// physical device instead of one per host API — a USB interface used to
+    /// arrive three times over and picking the wrong copy is how an operator
+    /// ends up on a dead endpoint. Second, the Microphone Check: pick an input,
+    /// start it, talk, hear a verdict. The question "is my microphone working"
+    /// no longer requires a transmitter to answer.
     /// </para>
     /// </remarks>
     public partial class AudioDevicesDialog : JJFlexDialog
@@ -60,11 +70,43 @@ namespace JJFlexWpf.Dialogs
         private Devices.EnumerationStatus _status = Devices.EnumerationStatus.Ok;
         private string _statusMessage = "";
 
+        // What each list is actually showing, row for row. Not the same as
+        // Devices.InputDevices / OutputDevices: those are every endpoint (the
+        // engine's view, and what saved selections resolve against), while
+        // these are the folded picker view plus, when it applies, a row for a
+        // saved device that is not plugged in.
+        private List<Devices.DeviceInfo> _inputRows = new();
+        private List<Devices.DeviceInfo> _outputRows = new();
+
         private List<(int deviceNumber, string name)> _naudioDevices = new();
 
         // True while a list is being repopulated, so SelectionChanged doesn't
         // narrate a selection the user did not make.
         private bool _loading;
+
+        // ── Microphone Check ──
+
+        private MicProbe? _probe;
+        private readonly DispatcherTimer _micTimer;
+        private string _micReadingText = "";
+
+        // The privacy verdict for the check currently running. Read once when
+        // it is first needed rather than on every 2 Hz tick — the answer cannot
+        // change without the operator leaving this dialog, and a registry sweep
+        // twice a second to re-learn something we already know is waste.
+        private bool _privacyChecked;
+        private bool _privacyBlocked;
+        private string _privacyExplanation = "";
+
+        /// <summary>
+        /// Below this peak, in dBFS, what we are hearing is the interface's own
+        /// electronics rather than a room. Chosen from a bench measurement, not
+        /// from a table: an Audient interface with nothing plugged in read a
+        /// steady -105 dBFS across a four-second check. A live microphone in a
+        /// quiet room runs tens of decibels above that, so there is a wide gap
+        /// to sit in and -75 sits in it.
+        /// </summary>
+        private const float NoiseFloorDb = -75f;
 
         /// <summary>
         /// True when both radio-audio devices are configured and present after
@@ -98,8 +140,23 @@ namespace JJFlexWpf.Dialogs
 
             InitializeComponent();
 
+            // 2 Hz, matching the Audio Workshop's meter cadence: fast enough to
+            // follow a voice, slow enough that the value is readable.
+            _micTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
+            _micTimer.Tick += (s, e) => UpdateMicCheckReading();
+
+            AdvancedDevicesCheck.IsChecked = Devices.ShowAdvancedDevices;
+
+            // A capture stream must never outlive the window that owns it.
+            // Closed fires on every exit — OK, Cancel, Escape, the title bar
+            // close, and an owner-window teardown — so this is the one place
+            // that has to be right, and every other path just calls the same
+            // stop.
+            Closed += (s, e) => StopMicCheck(speak: false, reason: "");
+
             LoadNAudioDevices();
             ReloadPortAudioDevices(announce: false);
+            SetMicReading("Microphone check: not running. Choose a microphone above, then start the check.");
         }
 
         /// <summary>
@@ -170,6 +227,11 @@ namespace JJFlexWpf.Dialogs
         /// </summary>
         private void ReloadPortAudioDevices(bool announce)
         {
+            // The rows about to be replaced are the rows a running check is
+            // holding. Rebuilding the list under a live stream would leave the
+            // check pointed at an object no longer on screen.
+            StopMicCheck(speak: false, reason: "");
+
             _loading = true;
             try
             {
@@ -182,9 +244,9 @@ namespace JJFlexWpf.Dialogs
                 // already holding.
                 _devices.LoadSavedSelection();
 
-                PopulateDeviceList(RadioOutputList, Devices.OutputDevices,
+                _outputRows = PopulateDeviceList(RadioOutputList, Devices.PickerOutputDevices,
                     _devices.OutputDevice, RadioOutputNote, "radio receive audio");
-                PopulateDeviceList(RadioInputList, Devices.InputDevices,
+                _inputRows = PopulateDeviceList(RadioInputList, Devices.PickerInputDevices,
                     _devices.InputDevice, RadioInputNote, "microphone");
 
                 // Say what the app decides about channel counts, and only when
@@ -192,10 +254,10 @@ namespace JJFlexWpf.Dialogs
                 // lists. Multi-channel devices are opened as stereo; mono
                 // devices are shown but cannot carry radio audio yet. A note
                 // about neither is noise.
-                bool anyMono = Devices.InputDevices.Concat(Devices.OutputDevices)
-                    .Any(d => !d.UsableForRadioAudio);
-                bool anyMultiChannel = Devices.InputDevices.Concat(Devices.OutputDevices)
-                    .Any(d => d.UsableForRadioAudio && d.NativeChannels > Devices.StreamChannels);
+                var shown = _inputRows.Concat(_outputRows).Where(d => !d.IsMissingSaved).ToList();
+                bool anyMono = shown.Any(d => !d.UsableForRadioAudio);
+                bool anyMultiChannel = shown.Any(d => d.UsableForRadioAudio
+                    && d.NativeChannels > Devices.StreamChannels);
                 string filterNote = "";
                 if (anyMultiChannel)
                     filterNote = "Devices with more than two channels are fine — JJ Flex uses them in stereo.";
@@ -215,46 +277,74 @@ namespace JJFlexWpf.Dialogs
             if (announce)
             {
                 string msg = _status == Devices.EnumerationStatus.Ok
-                    ? $"Device list refreshed. {Devices.OutputDevices.Count} output and {Devices.InputDevices.Count} input devices."
+                    ? $"Device list refreshed. {CountReal(_outputRows)} output and {CountReal(_inputRows)} input devices."
                     : _statusMessage;
                 ScreenReaderOutput.Speak(msg, VerbosityLevel.Terse, true);
             }
         }
 
+        private static int CountReal(List<Devices.DeviceInfo> rows) => rows.Count(d => !d.IsMissingSaved);
+
         /// <summary>
-        /// Fill one list and select what is saved. A saved device that is no
-        /// longer present is shown as its own flagged row rather than quietly
-        /// snapping the selection to whatever sits at index zero — silent
-        /// remapping is how an operator ends up transmitting from the wrong
-        /// microphone without ever being told.
+        /// Fill one list and select what is saved, returning the rows the list
+        /// is now showing.
         /// </summary>
-        private void PopulateDeviceList(
+        /// <remarks>
+        /// <para>
+        /// Two rules meet here. A saved device that is no longer present gets
+        /// its own flagged row at the top rather than quietly snapping the
+        /// selection to whatever sits at index zero — silent remapping is how
+        /// an operator ends up transmitting from the wrong microphone without
+        /// ever being told, and a device that simply vanishes from the list
+        /// leaves them with no way to tell "unplugged" from "never chose one".
+        /// </para>
+        /// <para>
+        /// And a saved device that IS present resolves through
+        /// <see cref="Devices.FindPickerRow"/>, so a selection saved against
+        /// one host API lands on the folded row that now stands for the same
+        /// hardware instead of being reported missing.
+        /// </para>
+        /// </remarks>
+        private List<Devices.DeviceInfo> PopulateDeviceList(
             ListBox list,
-            IReadOnlyList<Devices.DeviceInfo> live,
+            IReadOnlyList<Devices.DeviceInfo> pickerRows,
             Devices.Device? saved,
             TextBlock note,
             string role)
         {
-            list.Items.Clear();
+            var rows = new List<Devices.DeviceInfo>();
 
-            foreach (var d in live)
+            bool savedNamed = saved != null && !string.IsNullOrEmpty(saved.Name);
+            bool savedMissing = savedNamed && Devices.FindLive(saved) == null;
+            if (savedMissing)
+            {
+                // First, because "the thing you chose is not plugged in" is the
+                // most important sentence on the page for the person it applies
+                // to, and a list is read from the top.
+                var missingRow = Devices.MissingSavedRow(saved!);
+                if (missingRow != null) rows.Add(missingRow);
+            }
+            rows.AddRange(pickerRows);
+
+            list.Items.Clear();
+            foreach (var d in rows)
                 list.Items.Add(d.Display);
 
-            if (live.Count == 0)
+            if (rows.Count == 0)
             {
                 // No dead controls in tab order: an empty list is not something
                 // you can arrow through, so say why it is empty and disable it.
                 list.IsEnabled = false;
                 SetStatusLine(note, $"No usable {role} device was found on this computer.");
-                return;
+                return rows;
             }
 
             list.IsEnabled = true;
 
-            var match = Devices.FindLive(saved);
+            var match = savedMissing ? null : Devices.FindPickerRow(saved);
             if (match != null)
             {
-                int idx = IndexOf(live, match);
+                int idx = IndexOf(rows, match);
                 list.SelectedIndex = idx >= 0 ? idx : 0;
                 // A multi-channel device is a decision the app makes on the
                 // operator's behalf (it opens the first two channels as
@@ -264,28 +354,31 @@ namespace JJFlexWpf.Dialogs
                     ? $" It reports {match.NativeChannels} channels; JJ Flex uses it in stereo."
                     : "";
                 SetStatusLine(note, $"Currently using {match.Display}.{channelPart}");
-                return;
+                return rows;
             }
 
             // The pre-selection OK would commit must be a device the engine
-            // can open — never a mono row, whose save would be refused.
-            int fallbackIdx = FirstUsableIndex(live);
+            // can open — never a mono row, whose save would be refused, and
+            // never the not-connected row, which cannot carry audio at all.
+            int fallbackIdx = FirstUsableIndex(rows);
 
-            if (saved != null && !string.IsNullOrEmpty(saved.Name))
+            if (savedMissing)
             {
                 // Saved but gone. Pre-select a usable device so OK does the
-                // right thing, and say plainly what happened.
+                // right thing, and say plainly what happened. The saved device
+                // is still in the list, first, so it can be chosen deliberately
+                // by someone who would rather wait for it than switch.
                 if (fallbackIdx < 0)
                 {
                     list.SelectedIndex = 0;
-                    SetStatusLine(note, $"Saved device not connected: {saved.Name}. "
+                    SetStatusLine(note, $"Saved device not connected: {saved!.Name}. "
                               + $"No usable {role} device is available right now.");
-                    return;
+                    return rows;
                 }
                 list.SelectedIndex = fallbackIdx;
-                SetStatusLine(note, $"Saved device not connected: {saved.Name}. "
-                          + $"{live[fallbackIdx].Display} will be used unless you choose another.");
-                return;
+                SetStatusLine(note, $"Saved device not connected: {saved!.Name}. It is still first in the list. "
+                          + $"{rows[fallbackIdx].Display} will be used unless you choose another.");
+                return rows;
             }
 
             if (fallbackIdx < 0)
@@ -293,16 +386,18 @@ namespace JJFlexWpf.Dialogs
                 list.SelectedIndex = 0;
                 SetStatusLine(note, $"No usable {role} device was found. The devices listed are mono, "
                           + "and radio audio needs two channels.");
-                return;
+                return rows;
             }
             list.SelectedIndex = fallbackIdx;
-            SetStatusLine(note, $"No {role} device chosen yet. {live[fallbackIdx].Display} will be used unless you choose another.");
+            SetStatusLine(note, $"No {role} device chosen yet. {rows[fallbackIdx].Display} will be used unless you choose another.");
+            return rows;
         }
 
         private static int FirstUsableIndex(IReadOnlyList<Devices.DeviceInfo> list)
         {
             for (int i = 0; i < list.Count; i++)
             {
+                if (list[i].IsMissingSaved) continue;
                 if (list[i].UsableForRadioAudio) return i;
             }
             return -1;
@@ -325,12 +420,14 @@ namespace JJFlexWpf.Dialogs
                 return;
             }
 
-            bool haveOut = Devices.OutputDevices.Count > 0;
-            bool haveIn = Devices.InputDevices.Count > 0;
+            int outCount = CountReal(_outputRows);
+            int inCount = CountReal(_inputRows);
+            bool haveOut = outCount > 0;
+            bool haveIn = inCount > 0;
 
             if (haveOut && haveIn)
             {
-                SetStatusLine(StatusText, $"{Devices.OutputDevices.Count} output and {Devices.InputDevices.Count} input devices found.");
+                SetStatusLine(StatusText, $"{outCount} output and {inCount} input devices found.");
             }
             else if (haveOut)
             {
@@ -349,29 +446,315 @@ namespace JJFlexWpf.Dialogs
         private void RadioOutputList_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (_loading) return;
-            SpeakSelection(RadioOutputList, Devices.OutputDevices, "Radio receive audio");
+            SpeakSelection(RadioOutputList, _outputRows, "Radio receive audio");
         }
 
         private void RadioInputList_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (_loading) return;
-            SpeakSelection(RadioInputList, Devices.InputDevices, "Microphone");
+            // A running check belongs to the device it was started on. Moving
+            // the selection makes the reading a lie, so the stream closes.
+            StopMicCheck(speak: true, reason: "Microphone check stopped — you chose a different microphone.");
+            SpeakSelection(RadioInputList, _inputRows, "Microphone");
         }
 
         // WPF ListBox already narrates the item under the cursor as you arrow,
         // so this stays Chatty rather than interrupting — it adds which list you
         // are in, which is the piece the old form never told you.
-        private void SpeakSelection(ListBox list, IReadOnlyList<Devices.DeviceInfo> live, string role)
+        private void SpeakSelection(ListBox list, List<Devices.DeviceInfo> rows, string role)
         {
             int idx = list.SelectedIndex;
-            if (idx < 0 || idx >= live.Count) return;
-            ScreenReaderOutput.Speak($"{role}: {live[idx].Display}", VerbosityLevel.Chatty);
+            if (idx < 0 || idx >= rows.Count) return;
+            ScreenReaderOutput.Speak($"{role}: {rows[idx].Display}", VerbosityLevel.Chatty);
         }
 
         private void RefreshButton_Click(object sender, RoutedEventArgs e)
         {
             ReloadPortAudioDevices(announce: true);
         }
+
+        /// <summary>
+        /// Unfold the lists to every endpoint, or fold them back. Session-only:
+        /// the advanced view is a diagnostic, and a diagnostic that persists
+        /// silently across restarts is how someone ends up living in it without
+        /// remembering they turned it on.
+        /// </summary>
+        private void AdvancedDevicesCheck_Changed(object sender, RoutedEventArgs e)
+        {
+            bool on = AdvancedDevicesCheck.IsChecked == true;
+            if (Devices.ShowAdvancedDevices == on) return;
+
+            Devices.ShowAdvancedDevices = on;
+            ReloadPortAudioDevices(announce: false);
+            ScreenReaderOutput.Speak(
+                on
+                    ? $"Showing every sound endpoint. {CountReal(_outputRows)} output and {CountReal(_inputRows)} input entries, "
+                      + "including kernel pins. Most of these are the same hardware seen more than once."
+                    : $"Showing one entry per device. {CountReal(_outputRows)} output and {CountReal(_inputRows)} input devices.",
+                VerbosityLevel.Terse, true);
+        }
+
+        // ------------------------------------------------- microphone check
+
+        private Devices.DeviceInfo? SelectedInputRow()
+        {
+            int idx = RadioInputList.SelectedIndex;
+            if (idx < 0 || idx >= _inputRows.Count) return null;
+            return _inputRows[idx];
+        }
+
+        private void MicCheckButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (_probe != null)
+            {
+                StopMicCheck(speak: true, reason: "");
+                return;
+            }
+            StartMicCheck();
+        }
+
+        /// <summary>
+        /// Open the selected microphone and start reporting what it hears.
+        /// </summary>
+        /// <remarks>
+        /// The Windows privacy check runs first, but it does NOT gate the
+        /// attempt. A registry read is evidence about a switch, not evidence
+        /// about a microphone, and refusing to try would turn a wrong reading of
+        /// that switch into a microphone that cannot be tested at all. So the
+        /// block is announced, the way out is offered, and the device is opened
+        /// anyway — if audio arrives, the audio wins the argument.
+        /// </remarks>
+        private void StartMicCheck()
+        {
+            var row = SelectedInputRow();
+            if (row == null)
+            {
+                Announce("Choose a microphone in the list above first.", VerbosityLevel.Critical);
+                RadioInputList.Focus();
+                return;
+            }
+
+            if (row.IsMissingSaved)
+            {
+                Announce($"{row.Name} is not connected, so there is nothing to check. "
+                    + "Plug it back in and choose Refresh device list, or pick a different microphone.",
+                    VerbosityLevel.Critical);
+                RadioInputList.Focus();
+                return;
+            }
+
+            CheckPrivacyOnce(force: true);
+            ShowPrivacyOffer(_privacyBlocked);
+
+            _probe = new MicProbe();
+            MicProbe.StartOutcome outcome = _probe.Start(row, out string failure);
+
+            if (outcome != MicProbe.StartOutcome.Started)
+            {
+                _probe.Dispose();
+                _probe = null;
+
+                // A privacy block is the better explanation when we have one:
+                // "Unanticipated host error" tells an operator nothing, and the
+                // switch that caused it tells them everything.
+                string message = _privacyBlocked
+                    ? _privacyExplanation + " " + failure
+                    : failure;
+                SetMicReading("Microphone check could not start. " + message);
+                Announce("Microphone check could not start. " + message, VerbosityLevel.Critical);
+                if (_privacyBlocked) MicPrivacyButton.Focus();
+                return;
+            }
+
+            MicCheckButton.Content = "Stop _microphone check";
+            AutomationProperties.SetName(MicCheckButton, "Stop microphone check");
+            SetMicReading("Microphone check running. Listening.");
+            _micTimer.Start();
+
+            Announce(_privacyBlocked
+                ? "Microphone check started, but " + _privacyExplanation
+                : $"Microphone check started on {row.Name}. Talk normally.",
+                _privacyBlocked ? VerbosityLevel.Critical : VerbosityLevel.Terse);
+        }
+
+        /// <summary>
+        /// Read the Windows privacy switches, at most once per check.
+        /// </summary>
+        private void CheckPrivacyOnce(bool force)
+        {
+            if (_privacyChecked && !force) return;
+            _privacyChecked = true;
+            var access = MicrophonePrivacy.Check(out _privacyExplanation);
+            _privacyBlocked = MicrophonePrivacy.IsBlocked(access);
+        }
+
+        /// <summary>
+        /// Stop the check and close the device. Idempotent, and called from
+        /// every path that could otherwise leave a stream open: the button,
+        /// changing the microphone, Refresh, OK, Cancel, and the Closed handler
+        /// that catches Escape and the title-bar close.
+        /// </summary>
+        private void StopMicCheck(bool speak, string reason)
+        {
+            _micTimer.Stop();
+            _privacyChecked = false;
+
+            var probe = _probe;
+            _probe = null;
+            if (probe == null) return;
+
+            MicProbe.Reading final = probe.Read();
+            probe.Stop();
+            probe.Dispose();
+
+            if (MicCheckButton != null)
+            {
+                MicCheckButton.Content = "Start _microphone check";
+                AutomationProperties.SetName(MicCheckButton, "Start microphone check");
+            }
+
+            string summary;
+            if (!final.AnySound)
+            {
+                summary = "Microphone check stopped. Nothing was heard at all.";
+            }
+            else if (final.HoldPeakDb <= NoiseFloorDb)
+            {
+                summary = $"Microphone check stopped. Nothing but the electrical noise floor was "
+                    + $"heard, peak {final.HoldPeakDb:F0} dBFS.";
+            }
+            else
+            {
+                summary = $"Microphone check stopped. Loudest sound heard: "
+                    + $"{AudioWorkshopDialog.MicAudioVerdict(final.HoldPeakDb)}, "
+                    + $"peak {final.HoldPeakDb:F0} dBFS.";
+            }
+            if (!string.IsNullOrEmpty(reason)) summary = reason + " " + summary;
+
+            SetMicReading(summary);
+            if (speak) Announce(summary);
+        }
+
+        /// <summary>
+        /// Refresh the read-only reading. Text only — the accessible name was
+        /// set once in XAML and there is deliberately no live region, so a value
+        /// moving twice a second never floods a screen reader; the operator's
+        /// review command reads the fresh text on demand. Same idiom as the
+        /// Audio Workshop's mic reading, on purpose.
+        /// </summary>
+        private void UpdateMicCheckReading()
+        {
+            var probe = _probe;
+            if (probe == null) { _micTimer.Stop(); return; }
+
+            MicProbe.Reading r = probe.Read();
+
+            if (r.Faulted)
+            {
+                string fault = r.FaultMessage;
+                StopMicCheck(speak: false, reason: "");
+                SetMicReading("Microphone check stopped. " + fault);
+                Announce("Microphone check stopped. " + fault, VerbosityLevel.Critical);
+                return;
+            }
+
+            string text;
+            if (!r.AnySound)
+            {
+                // Give the device a moment before passing judgement — some
+                // interfaces hand over their first buffers late.
+                if (r.Seconds < 1.0)
+                {
+                    text = "Microphone check running. Listening.";
+                }
+                else
+                {
+                    CheckPrivacyOnce(force: false);
+                    if (_privacyBlocked)
+                    {
+                        ShowPrivacyOffer(true);
+                        text = "No sound at all. " + _privacyExplanation;
+                    }
+                    else
+                    {
+                        // Not "quiet" — exactly zero, every sample. A real
+                        // microphone always has a noise floor, so this is
+                        // Windows handing us silence rather than a quiet room,
+                        // and saying so points at the right place to look.
+                        text = "No sound at all — every sample is digital silence. The device is open, "
+                            + "but nothing is coming through it. Check that the microphone is not muted "
+                            + "in Windows, and that anything with its own mute button is unmuted.";
+                    }
+                }
+            }
+            else if (r.RecentPeakDb <= MicProbe.SilenceDb)
+            {
+                text = $"Mic audio: quiet right now. Loudest so far: "
+                    + $"{AudioWorkshopDialog.MicAudioVerdict(r.HoldPeakDb)}, {r.HoldPeakDb:F0} dBFS.";
+            }
+            else
+            {
+                // Same vocabulary the Audio Workshop and the Home fields use,
+                // reading the same kind of number, so one level never gets two
+                // different verdicts depending on where you asked.
+                text = $"Mic audio now: {AudioWorkshopDialog.MicAudioVerdict(r.RecentPeakDb)}, "
+                    + $"peak {r.RecentPeakDb:F0} dBFS. Loudest so far {r.HoldPeakDb:F0} dBFS.";
+
+                // A fact, not a second verdict. Measured on the bench: an audio
+                // interface with nothing plugged into it reads about -105 dBFS
+                // — its own electrical noise floor, real non-zero samples, so
+                // the digital-silence test above does not fire and the verdict
+                // says "turn it up". True, and not the useful sentence. A live
+                // microphone in a quiet room sits far above this, so a peak
+                // down here means nothing is arriving at the interface at all.
+                if (r.HoldPeakDb <= NoiseFloorDb)
+                {
+                    text += " That is only the electrical noise floor — no sound is reaching the "
+                        + "microphone. Check that it is plugged in, and that any gain knob on the "
+                        + "interface is turned up.";
+                }
+            }
+
+            SetMicReading(text);
+        }
+
+        private void SetMicReading(string text)
+        {
+            if (MicCheckReading == null) return;
+            // Assign only on change so an unchanged reading does not reset the
+            // review cursor twice a second.
+            if (_micReadingText == text) return;
+            _micReadingText = text;
+            MicCheckReading.Text = text;
+        }
+
+        /// <summary>
+        /// Show or hide the way out of a privacy block. Never shown when
+        /// nothing is blocked — an always-present "fix your privacy settings"
+        /// button is a nag, and a nag teaches people to ignore it on the day it
+        /// matters.
+        /// </summary>
+        private void ShowPrivacyOffer(bool blocked)
+        {
+            if (MicPrivacyButton == null) return;
+            MicPrivacyButton.Visibility = blocked ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        private void MicPrivacyButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (MicrophonePrivacy.OpenSettings(out string failure))
+            {
+                Announce("Windows microphone privacy settings opened. Turn on microphone access, "
+                    + "then come back here and start the check again.", VerbosityLevel.Terse);
+                return;
+            }
+            Announce(failure, VerbosityLevel.Critical);
+        }
+
+        private static void Announce(string text, VerbosityLevel level = VerbosityLevel.Terse) =>
+            ScreenReaderOutput.Speak(text, level, true);
+
+        // -------------------------------------------------------------- save
 
         private void OkButton_Click(object sender, RoutedEventArgs e)
         {
@@ -383,16 +766,18 @@ namespace JJFlexWpf.Dialogs
                 // the audio engine cannot open. Saving a mono device would
                 // produce a configuration that fails at connect time on a
                 // background thread, which is a silent dead microphone.
-                if (!ConfirmSelectionUsable(RadioOutputList, Devices.OutputDevices, "radio audio output")
-                    || !ConfirmSelectionUsable(RadioInputList, Devices.InputDevices, "microphone"))
+                if (!ConfirmSelectionUsable(RadioOutputList, _outputRows, "radio audio output")
+                    || !ConfirmSelectionUsable(RadioInputList, _inputRows, "microphone"))
                 {
                     return;
                 }
 
+                StopMicCheck(speak: false, reason: "");
+
                 saved.AddRange(CommitRadioDevice(
-                    RadioOutputList, Devices.OutputDevices, Devices.DeviceTypes.output, "Radio audio output"));
+                    RadioOutputList, _outputRows, Devices.DeviceTypes.output, "Radio audio output"));
                 saved.AddRange(CommitRadioDevice(
-                    RadioInputList, Devices.InputDevices, Devices.DeviceTypes.input, "Microphone"));
+                    RadioInputList, _inputRows, Devices.DeviceTypes.input, "Microphone"));
 
                 RadioAudioConfigured =
                     _devices.GetConfiguredDevice(Devices.DeviceTypes.output) != null
@@ -440,39 +825,76 @@ namespace JJFlexWpf.Dialogs
         /// A mono selection speaks the reason, puts focus back on the list,
         /// and keeps the dialog open so the operator can choose again.
         /// </summary>
+        /// <remarks>
+        /// The not-connected row passes. Keeping a saved device you intend to
+        /// plug back in is a legitimate answer, and the only honest alternative
+        /// would be to force a change nobody asked for. What it must not do is
+        /// pass silently — see <see cref="CommitRadioDevice"/>.
+        /// </remarks>
         private bool ConfirmSelectionUsable(
             ListBox list,
-            IReadOnlyList<Devices.DeviceInfo> live,
+            List<Devices.DeviceInfo> rows,
             string role)
         {
             int idx = list.SelectedIndex;
-            if (idx < 0 || idx >= live.Count) return true; // nothing selected, nothing to commit
-            if (live[idx].UsableForRadioAudio) return true;
+            if (idx < 0 || idx >= rows.Count) return true; // nothing selected, nothing to commit
+            if (rows[idx].IsMissingSaved) return true;
+            if (rows[idx].UsableForRadioAudio) return true;
 
             ScreenReaderOutput.Speak(
-                $"{live[idx].Name} is a mono device. Radio audio needs two channels, "
+                $"{rows[idx].Name} is a mono device. Radio audio needs two channels, "
                 + $"so JJ Flex cannot use it yet. Choose a different {role}.",
                 VerbosityLevel.Critical, true);
             list.Focus();
             return false;
         }
 
+        /// <summary>
+        /// Write the chosen device, and say what was written.
+        /// </summary>
+        /// <remarks>
+        /// Two cases deliberately write nothing. The not-connected row leaves
+        /// the saved entry exactly as it is, because that IS the saved entry.
+        /// And a row that already represents the saved device leaves it alone
+        /// too: once the picker folds a device's endpoints into one row, the
+        /// row shown is the preferred endpoint, which is not necessarily the
+        /// one saved — rewriting it on an OK nobody meant as a change would
+        /// silently move a working configuration onto a different host API.
+        /// A configuration that works keeps working until someone chooses
+        /// otherwise.
+        /// </remarks>
         private IEnumerable<string> CommitRadioDevice(
             ListBox list,
-            IReadOnlyList<Devices.DeviceInfo> live,
+            List<Devices.DeviceInfo> rows,
             Devices.DeviceTypes type,
             string role)
         {
             int idx = list.SelectedIndex;
-            if (idx < 0 || idx >= live.Count) yield break;
+            if (idx < 0 || idx >= rows.Count) yield break;
 
-            var chosen = live[idx];
+            var chosen = rows[idx];
+
+            if (chosen.IsMissingSaved)
+            {
+                yield return $"{role}: {chosen.Name}, still saved but not connected";
+                yield break;
+            }
+
+            var current = (type == Devices.DeviceTypes.input)
+                ? _devices!.InputDevice : _devices!.OutputDevice;
+            if (Devices.SameDevice(current, chosen))
+            {
+                yield return $"{role}: {chosen.Name}, unchanged";
+                yield break;
+            }
+
             _devices!.SetConfiguredDevice(type, chosen);
             yield return $"{role}: {chosen.Name}";
         }
 
         private void CancelButton_Click(object sender, RoutedEventArgs e)
         {
+            StopMicCheck(speak: false, reason: "");
             DialogResult = false;
             Close();
         }
@@ -482,7 +904,7 @@ namespace JJFlexWpf.Dialogs
         /// <summary>
         /// Show the picker and report whether radio audio is configured
         /// afterwards. Used by the PC-audio rescue path, where the answer
-        /// decides whether PC audio can start.
+        /// decides whether PC audio can actually start.
         /// </summary>
         public static bool ShowPicker(
             Window? owner,
