@@ -16,6 +16,7 @@ These work anywhere inside the workshop window, and only there:
 
 - `Ctrl+Enter` — start the Audio Check, or stop the one running, without hunting for the button.
 - `Ctrl+S` — save a preset. `Ctrl+O` — load one. The universal document keys, doing the universal document things.
+- `Alt+E` — export a preset to a file. `Alt+I` — import one from a file. `Alt+R` — reset the transmit chain to defaults.
 - `Escape` — two-stage while a check is transmitting: the first press unkeys, the second closes the workshop. Escape never leaves you transmitting.
 
 ## The TX Audio tab
@@ -90,7 +91,7 @@ Every sound the application makes, each behind a button so you can learn them at
 
 ## Presets
 
-The toolbar's Load, Save, Export, and Reset buttons work on the whole TX audio chain, so you can keep one setup for ragchews and another for DX and switch between them. `Ctrl+S` saves and `Ctrl+O` loads from anywhere in the workshop. See the Audio Presets help page.
+The toolbar's Load, Save, Export, Import, and Reset buttons work on the whole TX audio chain, so you can keep one setup for ragchews and another for DX and switch between them. `Ctrl+S` saves and `Ctrl+O` loads from anywhere in the workshop; `Alt+E` exports a preset to a file, `Alt+I` imports one a friend sent you (into your list, not onto the radio), and deleting lives inside the Load picker where the list is. See the Audio Presets help page for the full story, including exactly what a preset does and does not capture.
 
 ## Everyday volume lives elsewhere
 

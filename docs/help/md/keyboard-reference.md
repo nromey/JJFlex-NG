@@ -334,7 +334,12 @@ These keys are active anywhere inside the Audio Workshop window (`Ctrl+Shift+W` 
 | Ctrl+Enter | Start the Audio Check, or stop the one that's running |
 | Ctrl+S | Save an audio preset |
 | Ctrl+O | Load an audio preset |
+| Alt+E | Export a preset to a file you can share |
+| Alt+I | Import a preset from a file (it joins your saved presets — nothing changes on the radio until you load it) |
+| Alt+R | Reset the TX audio chain to defaults |
 | Escape | Two-stage while a check is transmitting: first press unkeys and stays in the workshop, second press closes it. Escape never leaves you transmitting |
+
+Inside the Load Preset picker, the `Delete` key (or the Delete button) deletes the preset you're on — it asks before doing anything, and deleting never touches the radio.
 
 A note for anyone whose fingers learned the old way: Save Preset used to respond to its `Alt+S` button mnemonic, which also swallowed `Alt+Shift+S` — the global Speak Transmit Status key — while the workshop was focused. That mnemonic is gone; `Ctrl+S` is the Save key now, and the transmit status query is no longer blocked by the workshop.
 

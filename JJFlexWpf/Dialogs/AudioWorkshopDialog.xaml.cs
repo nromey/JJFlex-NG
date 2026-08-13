@@ -1889,9 +1889,64 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         DockPanel.SetDock(listBox, Dock.Top);
         panel.Children.Add(listBox);
 
+        // Delete lives here rather than on the toolbar because this is where
+        // the selection is — the help page has promised it for a while and the
+        // action never existed anywhere. Confirmed before doing anything: a
+        // preset is small but there is no undo, and the built-in three only
+        // come back by deleting the whole preset file.
+        void DeleteSelected()
+        {
+            int idx = listBox.SelectedIndex;
+            if (idx < 0) return;
+            var preset = presets.Presets[idx];
+
+            var confirm = new ConfirmActionDialog(
+                "Delete Preset",
+                $"This deletes {preset.FormatForSpeech()} from your saved presets. " +
+                "There is no undo — to get it back you would save or import it again. " +
+                "Nothing on the radio changes.",
+                question: "Delete it?",
+                yesLabel: "_Delete");
+            if (confirm.ShowDialog() != true)
+                return;
+
+            presets.Presets.RemoveAt(idx);
+            listBox.Items.RemoveAt(idx);
+            SavePresetsCallback?.Invoke(presets);
+
+            if (listBox.Items.Count == 0)
+            {
+                // Nothing left to load — the picker has no job now.
+                ScreenReaderOutput.Speak($"Preset {preset.Name} deleted. No presets left.",
+                    VerbosityLevel.Terse);
+                picker.Close();
+                return;
+            }
+            listBox.SelectedIndex = Math.Min(idx, listBox.Items.Count - 1);
+            listBox.Focus();
+            ScreenReaderOutput.Speak($"Preset {preset.Name} deleted", VerbosityLevel.Terse);
+        }
+
+        // The Delete key on the list is the primary route; the button is the
+        // discoverable one. The button carries NO Alt mnemonic on purpose —
+        // WPF access keys match with Shift held, and Alt+D would shadow the
+        // global Alt+Shift+D chord (same trap the toolbar's old Alt+S sprang
+        // on Speak Transmit Status).
+        listBox.PreviewKeyDown += (s2, e2) =>
+        {
+            if (e2.Key == Key.Delete)
+            {
+                DeleteSelected();
+                e2.Handled = true;
+            }
+        };
+
         var okBtn = new Button { Content = "OK", MinWidth = 80, Height = 28, Margin = new Thickness(0, 0, 8, 0), IsDefault = true };
+        var deleteBtn = new Button { Content = "Delete", MinWidth = 80, Height = 28, Margin = new Thickness(0, 0, 8, 0) };
         var cancelBtn = new Button { Content = "Cancel", MinWidth = 80, Height = 28, IsCancel = true };
         AutomationProperties.SetName(okBtn, "OK");
+        AutomationProperties.SetName(deleteBtn, "Delete preset");
+        AutomationProperties.SetAcceleratorKey(deleteBtn, "Delete");
         AutomationProperties.SetName(cancelBtn, "Cancel");
         okBtn.Click += (s2, e2) =>
         {
@@ -1904,9 +1959,11 @@ public partial class AudioWorkshopDialog : JJFlexDialog
             }
             picker.Close();
         };
+        deleteBtn.Click += (s2, e2) => DeleteSelected();
         cancelBtn.Click += (s2, e2) => picker.Close();
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
         buttons.Children.Add(okBtn);
+        buttons.Children.Add(deleteBtn);
         buttons.Children.Add(cancelBtn);
         DockPanel.SetDock(buttons, Dock.Bottom);
         panel.Children.Add(buttons);
@@ -1986,6 +2043,53 @@ public partial class AudioWorkshopDialog : JJFlexDialog
             preset.Save(sfd.FileName);
             ScreenReaderOutput.Speak($"Preset exported to {System.IO.Path.GetFileName(sfd.FileName)}", VerbosityLevel.Terse);
         }
+    }
+
+    /// <summary>
+    /// Import a preset file into the saved collection — the missing half of
+    /// Export, which for a while produced files nothing could read back,
+    /// including on the friend's machine that is the whole point of exporting.
+    /// Deliberately does NOT apply the preset to the radio: importing a file is
+    /// not a request to retune a live transmitter. No rig required either — a
+    /// preset is a file, and the callbacks are wired radio-or-not (see the
+    /// MainWindow wiring note on GetPresetsCallback).
+    /// </summary>
+    private void Import_Click(object sender, RoutedEventArgs e)
+    {
+        var ofd = new Microsoft.Win32.OpenFileDialog
+        {
+            Filter = "Audio Preset (*.xml)|*.xml|All Files (*.*)|*.*",
+            DefaultExt = ".xml"
+        };
+        if (ofd.ShowDialog() != true) return;
+
+        if (!AudioChainPreset.TryLoad(ofd.FileName, out var preset))
+        {
+            // Honest failure: a bad file must never quietly become a blank
+            // preset in the list.
+            ScreenReaderOutput.Speak(
+                $"{System.IO.Path.GetFileName(ofd.FileName)} could not be read as an audio preset. Nothing was imported.",
+                VerbosityLevel.Critical);
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(preset.Name))
+            preset.Name = System.IO.Path.GetFileNameWithoutExtension(ofd.FileName);
+
+        var presets = GetPresetsCallback?.Invoke() ?? AudioChainPresets.CreateDefaults();
+
+        // Two presets with one name are indistinguishable by ear in the Load
+        // picker, so a colliding import gets a numbered name instead.
+        string baseName = preset.Name;
+        int n = 2;
+        while (presets.Presets.Exists(p => p.Name == preset.Name))
+            preset.Name = $"{baseName} {n++}";
+
+        presets.Presets.Add(preset);
+        SavePresetsCallback?.Invoke(presets);
+        ScreenReaderOutput.Speak(
+            $"Imported {preset.FormatForSpeech()}. Added to your saved presets; the radio is unchanged until you load it.",
+            VerbosityLevel.Terse);
     }
 
     private void Reset_Click(object sender, RoutedEventArgs e)
