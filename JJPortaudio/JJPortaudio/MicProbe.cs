@@ -307,6 +307,45 @@ namespace JJPortaudio
             }
         }
 
+        /// <summary>
+        /// Forget everything measured so far, without stopping the check.
+        /// </summary>
+        /// <remarks>
+        /// Call this whenever the input gain changes underneath a running
+        /// check. The hold peak and the integrated loudness both describe a
+        /// gain setting that no longer exists the instant the operator moves
+        /// the level, so carrying them forward is not merely stale — it is
+        /// wrong, and wrong in the direction that matters most.
+        ///
+        /// <para>
+        /// Found live by Noel on 2026-08-13, the same morning the level slider
+        /// was added: he turned the Windows input level all the way down and
+        /// the check still reported 0 dBFS and "clipping". It was reporting the
+        /// loudest thing it had heard since the check started, which was before
+        /// he touched anything. Reading the display means pausing, and pausing
+        /// is exactly the branch that reports the hold peak — so every single
+        /// adjustment appeared to do nothing. A meter that cannot be zeroed
+        /// cannot be used to set a level, which made the whole control useless
+        /// on the day it shipped.
+        /// </para>
+        ///
+        /// <para>
+        /// Deliberately does NOT clear <c>_anySound</c>, <c>_frames</c> or the
+        /// fault state: whether this device has ever produced audio, and
+        /// whether it has since broken, are facts about the DEVICE and survive
+        /// a gain change.
+        /// </para>
+        /// </remarks>
+        public void ResetLevels()
+        {
+            lock (_sync)
+            {
+                _windowPeak = 0f;
+                _holdPeak = 0f;
+                _lufs = new LufsMeter();
+            }
+        }
+
         /// <summary>Amplitude 0..1 to dBFS, floored at <see cref="SilenceDb"/>.</summary>
         public static float ToDb(float amplitude)
         {

@@ -38,6 +38,11 @@ Your settings cannot get lost between two folders any more. Some were being
 written to one place and read from another, and which ones survived a restart
 depended on which part of the app happened to run last.
 
+The level meter now zeroes itself when you move the level. Without that the
+check kept reporting the loudest thing it had heard since you started it, which
+was from before you touched anything - so every adjustment looked like it did
+nothing at all. Found by Noel within minutes of the sliders arriving.
+
 WHAT TO TEST
 
 Open the Audio Workshop with Ctrl+Shift+W and tab through it slowly. You should

@@ -1140,6 +1140,32 @@ namespace JJFlexWpf.Dialogs
         // value is exactly what a screen reader announces natively on every
         // arrow press, and saying it again is the same speak-what-the-control-
         // already-says bug this dialog just had removed from its lists.
+        /// <summary>
+        /// Zero the running check's peak-hold and loudness after the gain has
+        /// moved. No-op when no check is running.
+        /// </summary>
+        /// <remarks>
+        /// Found live by Noel on 2026-08-13, the morning these sliders shipped:
+        /// he turned the input level all the way down and the check still said
+        /// 0 dBFS and "clipping". It was reporting the loudest thing heard
+        /// since the check began — from before he touched anything — because
+        /// reading the display means pausing, and the quiet branch of the
+        /// reading is the one that reports the hold peak. Every adjustment
+        /// looked like it did nothing.
+        ///
+        /// <para>
+        /// A meter that cannot be zeroed cannot be used to set a level, which
+        /// made the control useless on the day it arrived. The hold peak and
+        /// the integrated loudness describe a gain setting that stopped
+        /// existing the instant the slider moved: carrying them forward is not
+        /// stale, it is wrong.
+        /// </para>
+        /// </remarks>
+        private void ResetMicCheckLevels()
+        {
+            _probe?.ResetLevels();
+        }
+
         private void MicLevelSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
         {
             if (_micLevelUpdatingUi) return;
@@ -1148,6 +1174,9 @@ namespace JJFlexWpf.Dialogs
             try
             {
                 level.Percent = (float)e.NewValue;
+                // Everything measured before this moment describes the old
+                // gain. Zeroing here is what makes adjust-and-listen work.
+                ResetMicCheckLevels();
             }
             catch (Exception ex)
             {
@@ -1163,6 +1192,7 @@ namespace JJFlexWpf.Dialogs
             try
             {
                 level.BoostDb = (float)e.NewValue;
+                ResetMicCheckLevels();
                 // Boost changes do not raise the endpoint's volume
                 // notification (the boost is a topology part, not the
                 // endpoint volume), so the note's boost sentence is refreshed
@@ -1182,6 +1212,9 @@ namespace JJFlexWpf.Dialogs
             try
             {
                 level.Muted = false;
+                // Everything measured while Windows had the microphone muted
+                // is a fact about the mute, not about the microphone.
+                ResetMicCheckLevels();
                 // A button whose whole effect happens inside Windows has to
                 // say it happened — this is state the control itself cannot
                 // convey, so speaking it is not a repeat.
