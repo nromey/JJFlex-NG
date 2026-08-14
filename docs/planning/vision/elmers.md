@@ -82,6 +82,55 @@ in.
 first time has a specific set of things to understand about grants, limits and
 what they are responsible for.
 
+## Where Elmers live: their own menu, not a Help subtopic
+
+Noel, 2026-08-14: *"we could have an elmer menu under help for some stuff but
+more likely have just an elmer menu for the various wizards and training info on
+learning SDR / radio control available on the ecosystem."*
+
+**Top-level Elmer menu, and the reason is about mood rather than hierarchy.**
+
+Help is where you go when you are stuck. It carries a faint whiff of failure —
+you went there because something went wrong. **Elmer is where you go to get
+better**, which is a different intention entirely and, for the operator this
+whole idea exists for, a very different feeling about walking through the door.
+Margaret is not stuck. She is uncertain, which is not the same thing, and filing
+the answer under Help quietly tells her it is.
+
+It also makes the family visible. One "Audio Setup Wizard" item under Help reads
+as a utility. A menu listing Audio, Tuning, IQ practice and the rest reads as
+**an app that will teach you the hobby**, which is the actual claim.
+
+### The menu holds two kinds of thing
+
+1. **Launchers for our own Elmers** — the guided walkthroughs.
+2. **Curated learning material about SDR and radio control generally** — Noel's
+   *"training info on learning SDR / radio control available on the ecosystem."*
+   Not only our own content: the good material that already exists, gathered
+   somewhere a blind operator can actually reach it.
+
+That second category is a real contribution on its own. Learning resources for
+this hobby are scattered across forums, PDFs, YouTube and vendor sites, and most
+of them are hostile to a screen reader. **Curation is accessibility work.**
+
+### Consequences to settle
+
+- **Menu labels carry no ampersand accelerators** — house accessibility rule,
+  they interfere with screen readers. (`NativeMenuBar` still has at least one
+  offender, found 2026-08-14 on the Mic Bias item.)
+- **Offline first.** The app must be able to teach with no internet. Our own
+  Elmers ship in the app; external material degrades to "here is where to look"
+  rather than a dead pane.
+- **No silent phone-home** (`memory/project_no_silent_phone_home.md`). Anything
+  that fetches says so, and opening an external link is the operator's explicit
+  act, never a side effect of opening a menu.
+- **Curated content should ship through the Data Provider**
+  (`memory/project_jjflex_data_provider.md`), not be baked into releases. The
+  list will rot otherwise, and a dead link in a learning menu is worse than no
+  link — it teaches the operator that the menu cannot be trusted.
+- **This menu answers an open question in the Audio Elmer design**: where a
+  first-run offer that was declined becomes findable again. It is here.
+
 ## What all Elmers must share
 
 These come straight out of the Audio Elmer design and should be settled once,

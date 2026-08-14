@@ -138,6 +138,15 @@ saying so, offered but never nagged.
 **Build the shared framework out of Audio Elmer rather than designing it up
 front.**
 
+**Its own top-level menu, not a Help subtopic** (Noel, 2026-08-14). Help is
+where you go when you are stuck and carries a whiff of failure; Elmer is where
+you go to get better. Margaret is not stuck, she is uncertain, and filing the
+answer under Help quietly tells her otherwise. The menu holds both our own
+walkthroughs and curated external learning material on SDR and radio control —
+curation being real accessibility work, since most of what exists is hostile to
+a screen reader. Ship the curated list through the Data Provider so it cannot
+rot into dead links, keep it offline-first, and no silent fetches.
+
 ### Open — AUDIO SETUP WIZARD (idea captured 2026-08-14)
 
 Full design in `docs/planning/active/elmer-mic-checkin.md`.
