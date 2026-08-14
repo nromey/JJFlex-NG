@@ -115,6 +115,29 @@ Full design in `docs/planning/active/kerchunk-sidetone-pileup.md`.
 - **Carry the sonification grammar into the waterfall.** Noel: this "may help
   with navigating the waterfall as well." Same vocabulary, invented once.
 
+### Open — ELMERS (concept captured 2026-08-14)
+
+Pattern doc `docs/planning/vision/elmers.md`. Guided learning as a product
+family, named for the ham word for a mentor.
+
+**The argument:** blind operators are the least likely to HAVE an Elmer, because
+mentoring happens over a screen someone else is pointing at — "click the thing
+in the top right" is not mentorship you can receive. So an app that can Elmer
+you extends the accessibility case from *doing* to *learning*.
+
+Candidates: Audio (below, first), **IQ** — learn by listening to pre-recorded
+band activity, where nothing can go wrong because there is no transmitter and no
+antenna; the engine is already task #10, Track F receiver simulation, gated on
+the bench session #56 — plus Tuning, Waterfall (teach the sonification grammar
+the meters establish, invented once), First QSO, CW, and eventually Connect.
+
+Shared requirements are in the doc: escape hatch at every step, never the only
+route, resumable, no dead ends, real accessible surfaces, never transmit without
+saying so, offered but never nagged.
+
+**Build the shared framework out of Audio Elmer rather than designing it up
+front.**
+
 ### Open — AUDIO SETUP WIZARD (idea captured 2026-08-14)
 
 Full design in `docs/planning/active/elmer-mic-checkin.md`.

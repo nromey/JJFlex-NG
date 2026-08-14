@@ -2,6 +2,14 @@
 
 **Status:** idea captured 2026-08-14 from Noel, not started.
 
+**This is the first of a family.** Noel generalized the idea the same day —
+*"We could have other elmers too that walk through steps to learn tuning, to
+learn by ingesting pre-recorded training IQ etc."* The pattern, the other
+candidates, and the requirements every Elmer shares are in
+`docs/planning/vision/elmers.md`. Audio Elmer goes first because it has a named
+user waiting and the machinery already exists; **build the shared framework out
+of this one rather than designing it up front.**
+
 > *"An audio setup wizard for those who are uncomfortable setting up audio, with
 > ability to jump to the more advanced workshop pages at every step. Make it
 > simple enough for a beginner to be advised as to the right microphone to pick,
