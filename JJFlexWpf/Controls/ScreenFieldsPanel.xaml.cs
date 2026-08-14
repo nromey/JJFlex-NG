@@ -550,10 +550,12 @@ public partial class ScreenFieldsPanel : UserControl
             _noiseProfileDisplay, "Noise profile: none");
         _noiseProfileDisplay.GotFocus += (s, e) =>
         {
+            // Refresh so the accessible name the screen reader is about to
+            // read is current (the poll leaves the name alone while focused).
+            // No Speak — the screen reader reads the name on focus itself.
             UpdateNoiseProfileDisplay();
             System.Windows.Automation.AutomationProperties.SetName(
                 _noiseProfileDisplay, _noiseProfileDisplay.Text);
-            ScreenReaderOutput.Speak(_noiseProfileDisplay.Text, VerbosityLevel.Terse, interrupt: true);
         };
         DspContent.Children.Add(_noiseProfileDisplay);
 
@@ -620,12 +622,13 @@ public partial class ScreenFieldsPanel : UserControl
             _micVerdictDisplay, "Mic audio: transmit to measure");
         _micVerdictDisplay.GotFocus += (s, e) =>
         {
-            // Refresh the name on entry, then speak — the poll deliberately
-            // leaves the accessible name alone while this control is focused
-            // so a transmit in progress doesn't spam NVDA with name changes.
+            // Refresh the name on entry — the poll deliberately leaves the
+            // accessible name alone while this control is focused so a
+            // transmit in progress doesn't spam the screen reader with name
+            // changes. No Speak — the screen reader reads the refreshed name
+            // on focus itself.
             System.Windows.Automation.AutomationProperties.SetName(
                 _micVerdictDisplay, _micVerdictDisplay.Text);
-            ScreenReaderOutput.Speak(_micVerdictDisplay.Text, VerbosityLevel.Terse, interrupt: true);
         };
         AudioContent.Children.Add(_micVerdictDisplay);
 
@@ -812,16 +815,14 @@ public partial class ScreenFieldsPanel : UserControl
         _rfGainControl.ValueChanged += (s, v) => { if (_rig != null) _rig.RFGain = v; };
         ReceiverContent.Children.Add(_rfGainControl);
 
-        // Read-only RX filter width display
+        // Read-only RX filter width display. The accessible name tracks the
+        // text (PollReceiver refreshes both together), so the screen reader
+        // reads the current width on focus by itself — no GotFocus Speak.
         _rxFilterWidthDisplay = new System.Windows.Controls.TextBlock
         {
             Margin = new Thickness(4, 6, 4, 2),
             Focusable = true,
             IsHitTestVisible = true
-        };
-        _rxFilterWidthDisplay.GotFocus += (s, e) =>
-        {
-            Radios.ScreenReaderOutput.Speak(_rxFilterWidthDisplay.Text, VerbosityLevel.Terse, interrupt: true);
         };
         System.Windows.Automation.AutomationProperties.SetName(_rxFilterWidthDisplay, "RX Filter Width");
         ReceiverContent.Children.Add(_rxFilterWidthDisplay);
@@ -947,26 +948,22 @@ public partial class ScreenFieldsPanel : UserControl
         _rxAntennaControl = MakeCycle("RX Antenna", new[] { "ANT1", "ANT2" });
         _rxAntennaControl.SelectionChanged += (s, idx) =>
         {
+            // No Speak — the control announces its new value natively.
             if (_rig == null) return;
             var list = _rig.RXAntennaList;
             if (idx >= 0 && idx < list.Count)
-            {
                 _rig.RXAntennaName = list[idx];
-                Radios.ScreenReaderOutput.Speak($"RX antenna {list[idx]}", VerbosityLevel.Terse);
-            }
         };
         AntennaContent.Children.Add(_rxAntennaControl);
 
         _txAntennaControl = MakeCycle("TX Antenna", new[] { "ANT1", "ANT2" });
         _txAntennaControl.SelectionChanged += (s, idx) =>
         {
+            // No Speak — the control announces its new value natively.
             if (_rig == null) return;
             var list = _rig.TXAntennaList;
             if (idx >= 0 && idx < list.Count)
-            {
                 _rig.TXAntennaName = list[idx];
-                Radios.ScreenReaderOutput.Speak($"TX antenna {list[idx]}", VerbosityLevel.Terse);
-            }
         };
         AntennaContent.Children.Add(_txAntennaControl);
 
@@ -1190,7 +1187,7 @@ public partial class ScreenFieldsPanel : UserControl
     /// after unkey, and honest "no data" wording before any transmit. The
     /// accessible name is left untouched while the control is focused so a
     /// changing verdict doesn't flood the screen reader; GotFocus refreshes
-    /// and speaks it on entry.
+    /// the name on entry and the screen reader reads it natively.
     /// </summary>
     private void UpdateMicVerdict()
     {
@@ -1218,7 +1215,7 @@ public partial class ScreenFieldsPanel : UserControl
     /// DSP controls track — refresh the noise-profile readout. Same
     /// accessible-name discipline as the mic verdict: text updates live, the
     /// name only changes while the control is unfocused, GotFocus refreshes
-    /// and speaks on entry.
+    /// the name on entry and the screen reader reads it natively.
     /// </summary>
     private void UpdateNoiseProfileDisplay()
     {
