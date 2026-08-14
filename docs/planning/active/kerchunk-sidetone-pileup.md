@@ -74,6 +74,65 @@ the whole gap." Before building anything, establish by running it:
 separation alone, because mono listeners and single-sided-deaf operators lose it
 entirely. Pitch range and waveform have to do the work; pan is an enhancement.
 
+### Timbre is the identity axis, because pitch is already spoken for
+
+Noel, 2026-08-14: *"I know there's waveforms but you can make some pretty spicy
+sounds by adding different harmonics ... making it a tone that rings like a
+rolling r, etc."*
+
+This reframes the whole design, and the reason is architectural rather than
+aesthetic.
+
+**`PitchLow` / `PitchHigh` map the meter's VALUE across a range. So pitch is the
+data, not the label** — it is moving all the time, by design, and it cannot also
+be what tells you which meter you are hearing. Two meters can and will sit at
+the same pitch.
+
+**What is left to carry identity is timbre**, and timbre is the right tool for
+it: telling a flute from a violin at the same pitch is effortless, and it stays
+effortless when both play at once. That is precisely the task — tracking several
+meters simultaneously.
+
+The current `WaveformType` (`ContinuousToneSampleProvider.cs:10`) offers Sine,
+Square, Sawtooth, SlowPulse, FastPulse and so on. That is a coarse ladder along
+two axes at once: harmonic content (sine → square → sawtooth) and gross
+on/off modulation (the pulses). Noel is pointing at the far richer space
+underneath:
+
+- **Additive harmonics with independent amplitudes.** Not "square = odd
+  harmonics" but a specified partial series per meter — a hollow tone, a reedy
+  one, a bell-like one. This is cheap to synthesise and enormously more
+  distinguishable than three fixed waveforms.
+- **Modulation as texture, not just on/off.** "Rings like a rolling r" is a
+  trill — amplitude or frequency modulation at roughly 25-30 Hz, fast enough to
+  read as *texture* rather than as pulsing. That is a whole dimension the
+  current SlowPulse/FastPulse pair only gestures at, and it survives being heard
+  underneath speech far better than a gap does, because it never goes silent.
+
+**Two practical arguments for going harmonic rather than adding more fixed
+waveforms:**
+
+First, **a rich tone cuts through radio audio where a sine gets lost.** Band
+noise is broadband; a pure sine sits in one bin and disappears into it. See
+`memory/project_earcon_audibility_rf_environment.md` — this is the same problem
+the earcons already had to solve.
+
+Second, **it composes with pitch instead of fighting it.** A timbre stays
+recognisable across the whole pitch range the value sweeps, so meter identity
+survives the meter changing. A waveform-per-meter scheme has the same property
+in principle, but three or four options run out immediately once there are more
+than a handful of meters.
+
+**Design rule that falls out: timbre identifies the meter, pitch carries its
+value, pan enhances but is never load-bearing.** Write that down wherever the
+slot model is documented, because it is the thing that keeps the vocabulary
+coherent as meters get added.
+
+**Evaluate by ear, with several playing at once.** A tone that is distinctive in
+isolation is not the test — the test is four of them together while somebody is
+talking. And it needs a human: this is the least inspectable design decision in
+the app.
+
 **Carry into the waterfall work.** Noel: *"may help with navigating the waterfall
 as well."* The waterfall is the signature feature
 (`memory/project_waterfall_signature_feature.md`) and it will need exactly this
