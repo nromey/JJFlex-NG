@@ -9,6 +9,152 @@ This document captures the current state of JJ-Flex repository and active work.
 
 *Superseded history, kept for context: main was reverted off `track/flexlib-42` on 2026-05-15 after Don's LAN trace exposed a vendor-side station-name regression; that era's notes are `memory/project_flexlib_4218_*.md` and `memory/project_main_branch_41_posture.md`. 4.2.20 supersedes all of it and works.*
 
+## END-OF-DAY SEAL — 2026-08-13 — THE DAY THE USER FOUND EVERYTHING
+
+*Sealed on Noel's call: "go ahead and make a nightly and seal it, we'll keep
+movin on it tomorrow and we'll do the transverter tests as well." Delta measured
+from local midnight.*
+
+Branch `honest-tx-audio`. **36 commits, 25 files, +3,494/-309.** Debug build
+**4.1.16.861** archived to NAS **and published to Dropbox** — Don has a build and
+Noel asked to keep it current. Nightly promoted to the Dropbox top level.
+
+**Theme: not one of today's defects was findable from the code.** Every single
+one came from Noel sitting in front of the app with NVDA. They all compiled
+cleanly, read correctly in source, and would have shipped.
+
+The morning began as one task — #53, the Opus encoder built from the requested
+sample rate rather than the negotiated one — and turned into a full audit of the
+audio arc's front door the moment he started testing the build that fix went into.
+
+### What shipped
+
+Nine builds went out across the day (842 through 861), most of them answering
+something he had found minutes earlier.
+
+**The rate fix (#53).** `Audio.Open` built the Opus encoder and every buffer size
+from the rate it *asked* for; the AudioServer thread then discovered the device
+would not accept it and silently rewrote the rate. Nothing downstream was told. A
+headset refusing 48 kHz got a stream at its own rate feeding a codec still
+convinced it was 48 kHz — no error, no log, just ~92 Opus frames per second where
+the radio expects 100. That reads as periodic stutter rather than as a broken
+feature, which is why it survived. The rate is now settled first, on the thread
+that owns every PortAudio call. Opus has no 44.1 kHz mode, so an Opus stream's
+candidate ladder contains only rates the codec can actually encode.
+
+**The Workshop became navigable.** Sections were bold TextBlocks — they *looked*
+like grouping and were not one in the accessibility tree, so yesterday's
+walk-through ordering was invisible to the only audience it was built for (#60).
+Now real GroupBoxes, announced on entry, plus **F6 / Shift+F6** section
+navigation (#72). That second fix corrected my own half-fix: I gave the sections
+HeadingLevel expecting NVDA's H key to jump between them, which can never work —
+single-letter navigation lives in browse mode and a dialog runs in focus mode.
+
+**The picker stopped shouting and started filtering** (#62, #63, #64). Loopbacks
+and virtual cables hidden in basic mode, keyed on the `[Loopback]` suffix
+PortAudio's own backend writes rather than on a name guess. Rows lead with the
+device name so type-ahead — which was always enabled and always useless — can
+find them. And the app stopped speaking every row that NVDA had just spoken.
+
+**Stage one became adjustable** (#66). Noel's headset came in pinned at 0 dBFS
+and the app could name the problem but not fix it: the remedy lived in a legacy
+Windows panel he had no reason to know about. There is now a Windows input level
+slider in the Microphone Check, and — after he pointed out the hole it left — in
+the Workshop's Microphone section too, standing in for Mic Gain whenever the
+transmit source is PC. The section always shows the gain that actually applies.
+
+**Verdicts got seven bands and a human voice** (#67), numbers leading and
+coaching following, on his instruction: while adjusting, the number is what you
+are tracking and it is strictly more informative than the token summarising it.
+
+**Controls stopped narrating around the accessibility tree** (#69). This was a
+tidy-up until the GroupBoxes landed and `CycleFieldControl`'s interrupting Speak
+began cutting the group announcements off mid-word. Repaired properly — a Spinner
+peer implementing `IValueProvider` with value-changed events — and six Speak
+calls deleted. **Unlooked-for gain: Tolk's Speak never reached braille. A value
+in the accessibility tree does.** Those controls have never shown their label and
+value on a braille display until today.
+
+### The bug that mattered most
+
+Silence was being spoken as clipping. `F0` formatting renders anything between
+minus 0.5 and 0 as "-0", which a screen reader says as zero — and zero dBFS is
+full scale. So the floor and the ceiling could be spoken identically, while
+demanding opposite responses: turn it up versus turn it way down. Noel diagnosed
+it himself ("it's about what is spoken I think"), and the same defect turned out
+to exist in the transmit composer too, feeding six more surfaces. One
+observation, closed in seven places.
+
+### Decisions ratified
+
+**Settings are intents, not commands** — `memory/project_settings_are_intents_not_commands.md`.
+Never hide a setting because the connection state is wrong; take the change,
+persist it, apply it when it can be applied, and say when that will be. Three
+separate things he hit today were the same rule being broken.
+
+**Capture then sculpt** — `memory/project_capture_then_sculpt.md`. Two gain
+stages, in order, and which control is stage one depends on where the audio is
+coming from.
+
+**Speak only what the UI does not convey** —
+`memory/feedback_speak_only_when_ui_does_not_convey.md`, now carrying three
+sibling rules: tab stops are charged per keypress, speech is triaged while
+display is complete, and information has a per-interaction cost the author never
+pays.
+
+**Strings to JSON, organised by category rather than by dialog** — his call, and
+better than the obvious one: a string's location changes constantly while its
+kind does not. Held deliberately until the file layout is workshopped (#65).
+
+### Cross-surface activity
+
+- **JJFlex-NG:** 36 commits, five tracks merged (devices, verdicts, mic level,
+  pc gain, speech). All worktrees created and removed cleanly.
+- **Freight Fate:** 4 commits today in the `ff-engine-toggle` worktree — engine
+  audio, classic voice restored, `sounds.pak` repacked. Main repo
+  `feat/career-1.9` unchanged, 1 dirty, **16 unpushed** (unchanged for weeks;
+  pushing is Noel's call, the NAS mirror covers durability).
+- **Civ VI Access:** idle. `main`, 2 dirty, **45 unpushed** — same standing note.
+- **Memory:** four new or rewritten entries. `MEMORY.md` compacted 19.2 KB to
+  17.3 KB.
+- **External infrastructure:** no rarbox / roarbox / Cloudflare / R2 activity.
+- **Planning docs:** the laptop handoff and the test pull, both authored today.
+
+### Setup for tomorrow
+
+Noel: *"we'll keep movin on it tomorrow and we'll do the transverter tests as
+well."*
+
+1. **Transverter bench session (#27, #56)** — the real blocker. Everything
+   transverter-shaped is parked behind it and it needs the 8600 with zero keying.
+2. **#74 REM ON** — expose it in per-radio settings. Don's radio is off right
+   now and he has ordered a switch that mechanically presses the front-panel
+   button, because the software never offered him the setting while his radio
+   was running.
+3. **#75 the radio name** — already traced: it saves correctly, but
+   `RigSelectorDialog.PaintRoster` skips the roster for any radio currently
+   discovered, so his chosen name appears only while the radio is offline.
+4. **#73 DSP explanations** via F1 rather than prose — and the explanation should
+   say that peak-steady-with-loudness-climbing is how you tell the processor is
+   working, since he could not hear it at all in a quiet room with even delivery.
+
+**Needs a human with NVDA:** arrow AGC Mode up and down repeatedly and confirm
+each press announces the new value promptly. There is no interrupt any more, so
+announcements queuing into a backlog is the one regression the speech rework
+could plausibly have introduced.
+
+### Rigmeter snapshot — end of 2026-08-13
+
+Today: **36 commits, 25 unique files, +3,494/-309, net +3,185**, sole author JJ
+Flexbot. Grand totals at `68b9136d`: authored **985 files / 222,286 lines**,
+vendor 188 files / 55,619 lines, combined 1,173 files / 277,905 lines. JJFlexWpf
+alone is 58,163 lines across 222 files. Structured snapshot at
+`historical/stats/2026-08-13-68b9136d.json`.
+
+*Caveat: merges are `--no-ff` and a since-midnight diff does not expand them, so
+the figure is a floor rather than a total. Branch scope is `honest-tx-audio`
+only.*
+
 ## END-OF-DAY SEAL — 2026-08-12 — THE DAY THE DESCRIPTIONS GOT AUDITED
 
 *Full working day into the evening, sealed ~21:50 when Noel called it: "I'm kind
