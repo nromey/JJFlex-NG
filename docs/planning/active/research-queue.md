@@ -2,9 +2,230 @@
 
 **Working dashboard.** Distinct from `docs/planning/vision/JJFlex-TODO.md` (long-lived strategic backlog) — this file tracks what's actually queued, in flight, blocked, or waiting for Noel's read **right now**.
 
-**Last updated:** 2026-08-11 — arc sequencing decided (audio → infrastructure/reporting/signing → CW) and the honest-TX-audio arc organized into `docs/planning/vision/honest-tx-audio.md`. Prior update 2026-08-10 afternoon — added the PC Audio preflight/coaching item (wave 2) out of Don's TX-audio report. Prior update 2026-08-07 evening — **the queue-burn ensemble LANDED.** All eleven tracks plus the NAT lab ran as background agents and merged the same day (see the ensemble section below). Earlier setup notes retained further down for context. Claude updates this whenever items move between states. If the timestamp drifts more than a session, flag it.
+**Last updated:** 2026-08-14 — OPEN WORK REGISTER added at the top, mirroring all 34 open tasks from the task store plus the fifteen import items from the 2026-08-14 RF truth-test runbook. The task MCP server disconnected mid-session; the JSON survived under `~/.claude/tasks/`, but this file is now the copy that does not depend on a process being up. Prior update 2026-08-11 — arc sequencing decided (audio → infrastructure/reporting/signing → CW) and the honest-TX-audio arc organized into `docs/planning/vision/honest-tx-audio.md`. Prior update 2026-08-10 afternoon — added the PC Audio preflight/coaching item (wave 2) out of Don's TX-audio report. Prior update 2026-08-07 evening — **the queue-burn ensemble LANDED.** All eleven tracks plus the NAT lab ran as background agents and merged the same day (see the ensemble section below). Earlier setup notes retained further down for context. Claude updates this whenever items move between states. If the timestamp drifts more than a session, flag it.
 
 **How to use:** Noel scans the sections below to pick what to fire off, or asks Claude to recommend based on what's available. Claude is expected to keep this current.
+
+---
+
+## OPEN WORK REGISTER — mirrored from the task store 2026-08-14
+
+**Why this section exists.** The live task list is served by an MCP server and
+stored as JSON under `~/.claude/tasks/<session-id>/`. On 2026-08-14 that server
+disconnected mid-session — the data survived, but nothing could read or write it
+through the tool. This section is the durable, git-tracked mirror so open work
+never depends on a process being up.
+
+**Status at mirror time: 72 tasks, 38 completed, 34 open.** Numbers below are
+the task-store IDs, so they stay usable if the tool returns.
+
+**Keep this current.** When a task closes, move its line to the closed list at
+the bottom of this section with a one-word note. When the task tool is available
+again, treat that as the working surface and re-mirror here at seal time.
+
+---
+
+### Open — the honest-TX-audio arc (finish before the feature lock)
+
+- **#12 — `paWinWasapiAutoConvert` for the 44.1 kHz shared-mode refusal.** Gates
+  every device Windows keeps at 44.1 kHz. Coupled to #61: which host API we
+  default to and which rates are reachable are one decision, not two.
+- **#17 — decoded PC-audio stream arrives too quiet.** Suspected shared root
+  with #29; the rate work in #53 may already have moved it. Re-measure before
+  chasing.
+- **#29 — tone monitor clicks, 44.1 kHz provider against a 48 kHz path.** Same
+  family as #17.
+- **#39 — `audio-earcon-control.md` describes controls that do not exist.**
+  Description drift; either build them (#43) or correct the page.
+- **#43 — per-category earcon controls, building what the help already
+  promises.** Closes #39 from the other side.
+- **#44 — mic profiles bound to the device, safe to use on someone else's
+  radio.** The operator/rig split. Now more urgent: the Workshop carries a
+  PC-side gain control as of 2026-08-13, so a preset that saves only the
+  radio-side half is visibly incomplete.
+- **#49 — a corrupt preset file silently becomes the three defaults.**
+- **#50 — exported presets carry no schema version, and may be missing the TX EQ.**
+- **#51 — a preset does not record which input it was tuned for.** Compound with
+  #44.
+- **#54 — built-in vs jack cannot be determined from Core Audio here.** A
+  recorded finding, not a gap. Do not re-derive it.
+- **#57 — bandwidth adaptation: selectable Opus TX rate and a low-resolution
+  DAX IQ stream.** Cheap now that the rate is settled before the codec is built.
+  Every model already offers 24 kHz DAX IQ.
+- **#61 — default input device is whatever PortAudio nominates, usually MME, and
+  nothing says so.** Decide with #12.
+- **#65 — externalize user-facing strings to JSON.** HELD deliberately until the
+  file layout is workshopped: organised by category (utterances, text), not by
+  dialog. Pilot on #67's level strings.
+- **#68 — `audioConfig.xml` lives in two directories.** Made safe 2026-08-13
+  (Load takes the newer, Save writes both); not yet made correct. Needs a real
+  migration and must keep reading the old location for one release.
+- **#70 — repeat-last-message holds exactly one message.** Make it a short ring.
+- **#71 — the PC audio connect setting is spoken in different words than it is
+  labelled.** "as you left it" versus "Remember how I left it".
+- **#73 — the DSP controls have no explanation of what they do or how to set
+  them.** Use F1 context help, not dialog prose. Explanation should say that
+  peak-steady-with-loudness-climbing is how you tell the processor is working.
+
+### Open — pre-lock, non-audio
+
+- **#76 — PRE-LOCK: Speak GPS status must lead with oscillator lock and carry
+  the PPB figure.** Lock is the load-bearing fact; it can disagree with the fix
+  text during acquisition. Read `memory/project_gps_gnss_oscillator_facts.md`
+  first — it corrects a wrong reading of the presence flags.
+- **#74 — expose REM ON.** Per-radio settings, editable whether or not
+  connected. Don's radio being off is exactly the case it prevents.
+- **#75 — a radio name set in per-radio settings is invisible whenever the radio
+  is discovered.** Traced: `RigSelectorDialog.PaintRoster` skips the roster for
+  any currently-discovered radio.
+- **#9 — an About page that reports every component version, honestly.**
+  WebView2 with a plain fallback; lead PortAudio with its revision, never the
+  misleading 19.7.0.
+- **#18 — the tracing dialog is confusing, and it is the front door of the
+  reporting pipeline.**
+- **#26 — answer the four open questions in the diagnostic-log design.**
+- **#32 — verify the installer ships a clean file list.** Build litter reaching
+  output.
+- **#40 — two small UI/help-plumbing gaps found while sweeping.**
+
+### Open — needs a radio, needs Noel
+
+- **#27 — transverter bench Session One, the band model, zero keying.** THE
+  BLOCKER. Everything transverter-shaped is parked behind it.
+- **#56 — radio-bench session to unblock Track F and the transverter.**
+- **#10 — Audio Track F, receiver simulation on IQ playback.** Gated on #56.
+- **#21 — field-test the orphan-process fix with repeated launch/exit cycles.**
+- **#55 — master test list in for-noel format, runnable as a guided session.**
+
+### Open — parked, not load-bearing
+
+- **#58 — CW mode announce fires on slice population, and overlapping keying
+  garbles it.** Two defects: announcing on arrival rather than change, and a
+  player that times playback instead of observing it. The second also truncates
+  the 73 SK on exit. Noel: not load-bearing.
+- **#59 — four slices on connect, one in FM, that the operator did not create.**
+  Establish whether they were pre-existing on the radio before calling it a
+  regression.
+- **#41 — rigmeter: blame-based provenance.** NOT started.
+- **#42 — extract rigmeter into its own repository.** NOT started.
+
+---
+
+### Imported 2026-08-14 from `for-noel/2026-08-14-don-6300-rf-truth-test.md`
+
+Not yet in the task store. Numbering is the runbook's own; most important first.
+
+**Context that frames all of them — the A/B verdict.** Laptop via exit node →
+SmartLink → forwarded ports → the 8600 keyed with PC audio and produced the
+delayed monitor echo, identical to LAN. **Client, SmartLink and the Opus
+upstream transport are proven good end to end over WAN.** The fault isolates to
+Don's end: Tony's router's handling of sustained inbound UDP, the 6300 itself,
+or radio config surviving reboots. **SmartSDR fails on Don's radio too**, which
+acquits JJ Flex's client code outright. Support-call posture, not a bug hunt.
+
+**Root cause found for the network side:** the AT&T BGW320-500's IP Passthrough
+is DHCPS-fixed to an ASUS MAC (`…:6c`) unused since **June 20**, while the live
+WAN port is `…:70`. The network has been silently double-NATed for two months,
+not since the recent outage. Fix is the MAC or DHCPS-dynamic; saving restarts
+the gateway.
+
+1. **Presence check broken after client remove/re-add** — the authority gate
+   denies a local operator. Trace-proven: the client is re-added with an EMPTY
+   clientId and the same ClientHandle, so `IsCurrentClientLocalPtt` reads the
+   impostor record. Fix by matching on ClientHandle, which survives the re-add.
+   Likely shared root with the roster double-Enter and station binding. **HIGH.**
+2. **Roster never falls back to SmartLink for a known-local radio that is
+   unreachable.** Trace-proven: discovery drained zero packets, both attempts
+   took the LOCAL branch and hung 20-30 s, and the trace contains **zero**
+   SmartLink activity while the same radio showed Available from another
+   machine. Design intent is local first, then SmartLink automatically.
+   **HIGH — the headline roster defect behind the double-Enter and
+   offline-display complaints.**
+3. **Settings → Network: OK silently discards unapplied port-forward edits.** A
+   settings-are-intents violation; see `memory/project_settings_are_intents_not_commands.md`.
+4. **Settings → Network: display the router mapping** — external TCP → radio
+   port 4994, external UDP → radio port 4993. Also fix the drifted doc comment
+   on `FlexBase.SetSmartLinkPortForwarding`, which claims the radio listens on
+   the entered ports and misled a live debugging session.
+5. **Roster connect needs two Enters** (refresh, then connect). Fold the refresh
+   into the first.
+6. **RemoteAudio transmit loop busy-spins** — `startOpusInputChannel` traced
+   3.36M lines in 4 minutes, about 14,000 calls/sec during TX. Needs a sleep and
+   a trace guard. This is also what rotates 256 MB trace parts in ~20 s.
+7. **SC_MIC and SW ALC meters are not trace-instrumented** — both handlers store
+   values only (`FlexBase.cs:6958-6965`). Two TraceLine calls fix a blind spot
+   that cost a debugging session.
+8. **Assert `mic_selection=PC` while PC TX audio runs, and warn on divergence.**
+   The one-shot set at opus-output start can be reverted by a later profile
+   load, and nothing re-asserts or warns. Not the bug on the day, but it is the
+   arc's thesis: never stream TX audio silently into a closed gate.
+9. **Forward-power readout rounds sub-watt RF to zero** — Jim's
+   S-meter-as-power display (`FlexBase.cs:7196`). Real RF displays as 0 W at low
+   power and mimics no-transmit. Offer dBm or tenths.
+10. **Trace parts rotation ate the live analysis twice.** Parts rotate by size
+    with a "continues from part N" header; tooling tailing the live file must
+    follow rotations. Note for the diagnostic-log surface work.
+11. **VAC cable wedge (external).** The Virtual Audio Cable driver delivered
+    digital silence to all capture clients until a default-device switch forced
+    an engine rebuild. Not our bug — but the app's silent-capture warning was
+    the only thing that spoke truth. Keep investing in that detection.
+12. **Updater manifest 404** — `https://data.jjflexible.radio/jjflex-app-manifest.json`
+    returns 404. Either not deployed to R2 yet or the path is wrong.
+13. **Re-run the hole-punch test on the restored single-NAT topology.** The
+    2026-08-06 failure was measured through an unknown double NAT, so the
+    source-port rewrite may be gone. **Variant B** is the Tony-free
+    discriminator for Don's radio: punch bypasses the static forward and its
+    inbound policy. **Safety prerequisite: patch a debug connect override into
+    the client first** so Don's radio stays reachable to restore `wan set` if
+    punch fails. Do not clear his advertisement without that retreat path.
+14. **Microphone Check device picker and mono capture devices.** See the
+    correction below — this is an engine limitation, not a picker bug.
+15. **Tooling built 2026-08-14 (exists, works, keep):**
+    `tools/rigbench/make_pattern_tone.py`, `tools/rigbench/VacPlay`,
+    `C:\temp\tone-pattern-700.wav`, `C:\temp\id_k5ner.m4a`.
+
+**Two corrections to the runbook's item 4 / mono finding, verified 2026-08-14:**
+
+Mono devices **are** listed. `UsableForRadioAudio` returns false and the row is
+tagged "mono, not usable yet", but it appears — the comment in `Devices.cs`
+records why hiding by channel count was wrong (it made a laptop's only
+microphone unselectable, task #33). **The real constraint is the engine**, which
+opens two channels and cannot open mono and upmix. Filing it as a picker bug
+sends the fix to the wrong file.
+
+Separately, **the basic-mode filter merged 2026-08-13 hides virtual audio cables
+by name**, and VAC lines are named exactly that. So the rigbench rig is hidden in
+basic mode by design and Advanced is the intended path for bench work — that is
+the filter working as specified meeting a use case that did not exist when it
+shipped, not a regression.
+
+**FOOTNOTE carried forward:** the 2026-08-06 hole-punch capture analysis
+(`punch-capture-results-20260806.md`, and the source-latch design in
+`memory/project_hole_punch_wiring_gap.md`) unknowingly ran on the double NAT.
+The conclusion that "the rewriting NAT is the ASUS" should be re-examined — the
+BGW320 was also in the path. The source-latch fix stands either way; the
+attribution does not.
+
+---
+
+### Closed 2026-08-11 → 2026-08-13 (reference — do not re-open without reading)
+
+Audio hub and test tone (#5, #6). PortAudio/Opus research, Opus 1.6.1, PortAudio
+master pin (#7, #11, #13). Orphan-process root cause (#14). Ctrl+J volume mode
+and tone binding (#15, #16). KeyScope.Global in dialogs (#19). Verdict leads
+with audio (#20). Command Finder keywords (#22). RX DSP controls UI (#23).
+Diagnostic log design pass (#24). Transverter completion plan (#25). PC audio
+state per radio (#28). Workshop focus order (#30). PortAudio statusFlags (#31).
+4-channel mic filter (#33). Device keyed on index (#34). Device picker redesign
+(#35). Microphone Check (#36). dBFS and LUFS together (#37). Noise floor
+detection (#38). Workshop device button and walk-through order (#48). Preset
+Save/Load dead and lying (#45, #46). Preset help fiction (#47). CHM rebuild
+(#52). **Opus encoder built from the requested rate (#53).** Workshop sections
+invisible to a screen reader (#60). Picker basic-mode filter (#62). Redundant
+row utterance (#63). Row naming and type-ahead (#64). Stage one
+under-instrumented (#66). Level verdict bands and voice (#67). Controls speaking
+over group announcements (#69). F6 section navigation (#72). Radio-test the live
+mic verdict (#8).
 
 ---
 
