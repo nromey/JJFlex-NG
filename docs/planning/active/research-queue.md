@@ -92,6 +92,29 @@ client, SmartLink and the Opus transport all good end to end, and SmartSDR fails
 on Don's radio too. So the TX-audio fault is a support matter at his end — and
 **the roster is what actually stands between Don and using his radio.**
 
+### Open — THE METERS SUBSYSTEM (design captured 2026-08-14)
+
+Full design in `docs/planning/active/kerchunk-sidetone-pileup.md`.
+
+- **The Live Meters tab has zero tab stops and never has.** `MakeMeterLabel`
+  builds plain TextBlocks; nothing is focusable, so Tab does nothing there. The
+  live-region setting is why it has seemed to work — values arrive, but an
+  operator can never go and ask. Fix with read-only edits, same idiom as the
+  device and mic readings.
+- **Per-meter tones are already modelled and unreachable.** `MeterSlotConfig`
+  carries Source, Enabled, Volume, Pan, PitchLow, PitchHigh and Waveform, with
+  `MeterToneEngine` behind it. So "unique sounding tones per meter" is largely
+  built — the gap is UI and defaults. Audit what the defaults actually sound
+  like BEFORE building controls for them. Distinctness must not rely on pan
+  alone (mono listeners, asymmetric hearing loss — Patrick's axis).
+- **A Ctrl+J meter subsystem** so meters are operable during operating rather
+  than only configurable in a dialog: `M` + number to read, `Ctrl+J R` + numbers
+  as the fast path, `M T` for tone on/off and volume/pan, name/value readout,
+  `M C` to create. Open questions on sticky-vs-one-shot mode and stable meter
+  numbering are in the design doc.
+- **Carry the sonification grammar into the waterfall.** Noel: this "may help
+  with navigating the waterfall as well." Same vocabulary, invented once.
+
 ### Open — pre-lock, non-audio
 
 - **#76 — PRE-LOCK: Speak GPS status must lead with oscillator lock and carry

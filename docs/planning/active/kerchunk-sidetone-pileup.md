@@ -1,0 +1,146 @@
+# Kerchunk Sidetone Pileup — the meters subsystem
+
+**Status:** design captured 2026-08-14 from Noel, not started. Written before a
+compaction so none of it lives only in a conversation.
+
+---
+
+## 1. The Live Meters tab cannot be navigated — and never could
+
+Noel: *"The meters tab in the audio workshop can not be navigated."*
+
+**Confirmed in code, and it is not a regression.** `MakeMeterLabel`
+(`AudioWorkshopDialog.xaml.cs:2837`) builds each reading as a plain `TextBlock`
+with an accessible name and `AutomationLiveSetting.Polite`. A `TextBlock` is not
+focusable by default, and nothing sets `Focusable`. So **the entire Live Meters
+tab contains zero tab stops.** Tab does nothing there because there is nothing
+to land on.
+
+The live-region setting means a screen reader may announce values as they
+change, which is why the tab has seemed to "work" — but an operator can never
+go and *ask* a meter what it says. The readings arrive when they arrive.
+
+Two things follow, and they are separable:
+
+- **The immediate fix** is the same idiom the Audio Devices page and the
+  Workshop's own device and mic readings already use: read-only `TextBox`
+  controls with proper labels. Focusable, arrowable at the operator's own pace,
+  and readable on demand by the screen reader's own review commands. Consider
+  whether the live-region setting should stay once the values are reachable —
+  a polite live region on a value that changes twice a second is a lot of
+  announcement for something the operator can now simply go and read. See
+  `memory/feedback_speak_only_when_ui_does_not_convey.md`.
+- **The larger question** is whether that tab is the right home at all. Noel:
+  *"That's where you create different meters and manage them though that may
+  need or want a menu I'm not sure."* Creation and management are a different
+  activity from watching, and F6 already exists to move between sections. Decide
+  deliberately rather than by accretion.
+
+## 2. Much of what is being asked for already exists, unreachable
+
+This is the important finding. **`MeterSlotConfig`
+(`AudioOutputConfig.cs:418`) already carries per-meter:**
+
+- `Source` — which meter this slot follows
+- `Enabled`
+- `Volume` — per-slot
+- `Pan` — per-slot
+- `PitchLow` / `PitchHigh` — the pitch range the value maps across
+- `Waveform` — sine and others
+
+And `MeterToneEngine` (`JJFlexWpf/MeterToneEngine.cs`) is the engine behind it.
+`AudioOutputConfig` additionally persists `MeterSlots`, `MeterPreset`,
+`MeterTonesEnabled`, `MeterMasterVolume`, `MeterSpeechEnabled`,
+`MeterSpeechTimerActive`, `MeterSpeechIntervalSeconds`, `PeakWatcherEnabled` and
+`AutoEnableOnTune`.
+
+So Noel's *"we need to create some unique sounding tones for different meters so
+that people can track them"* is **largely already modelled**: a distinct pitch
+range plus a distinct waveform per slot is exactly what "unique sounding" means.
+
+**The gap is the UI and the defaults, not the engine.** Same shape as the DSP
+controls — see `memory/project_dsp_controls_design.md`, "engine COMPLETE, UI is
+the whole gap." Before building anything, establish by running it:
+
+- What the shipped default slots actually sound like, and whether two meters
+  playing at once are genuinely tellable apart by ear.
+- Whether the waveform choices are distinguishable at speech-adjacent volumes,
+  or only in isolation.
+- Whether pan alone carries enough separation, given many operators are on
+  headphones and some have asymmetric hearing loss — Patrick is a tester on
+  exactly that axis (`memory/patrick_bh_network_tester.md`).
+
+**Design constraint for the defaults:** distinctness must not depend on stereo
+separation alone, because mono listeners and single-sided-deaf operators lose it
+entirely. Pitch range and waveform have to do the work; pan is an enhancement.
+
+**Carry into the waterfall work.** Noel: *"may help with navigating the waterfall
+as well."* The waterfall is the signature feature
+(`memory/project_waterfall_signature_feature.md`) and it will need exactly this
+vocabulary — a value mapped to pitch, tracked by ear, several at once. Whatever
+sonification grammar the meters establish should be the same grammar the
+waterfall speaks. Do not invent two.
+
+## 3. The JJ key meter subsystem — `Ctrl+J`, then `M`
+
+Noel's design, captured close to verbatim: *"basically a subsystem for meters
+where you don't have to use the audio workshop."*
+
+The intent is that meters become operable from the keyboard during operating,
+not only configurable in a dialog. That is the right instinct — a meter you have
+to open a window to consult is not a meter, it is a report.
+
+**`M` enters meter mode.** Proposed sub-keys as given:
+
+- **`M` then a number** — read that meter. Numbers index the meters.
+- **`Ctrl+J R`, then numbers** — read instantly, without entering the mode
+  first. The fast path for someone who already knows which meter is which.
+- **`M T`** — tone. Turn tones on or off, change volume, change panning.
+- **Something to read the names of each meter**, or name and value together, so
+  an operator can learn the numbering rather than memorise it blind.
+- **`M C`** — create, bringing up a creation modal.
+
+**Open design questions, to settle before building:**
+
+- Is meter mode *sticky* (press `M`, then bare numbers work until you leave) or
+  *one-shot* (`M` then one number, then back)? Sticky is faster for riding
+  several meters; one-shot is safer because bare number keys stop meaning
+  anything else. The `Ctrl+J R` fast path suggests Noel wants both, with `R` as
+  the one-shot.
+- **How are numbers assigned, and are they stable?** A meter's number must not
+  change because another meter was added or a mode changed — an operator builds
+  muscle memory on those digits. Assign on creation order, persist per operator.
+- What happens when a numbered meter is not currently available? Say so plainly;
+  never silently read a different one.
+- **`M C` opens a modal — from a leader chord, during operating.** That is a
+  transmit-adjacent surface, so it must obey the Escape rule
+  (`memory/project_dialog_escape_rule.md`) and must never be able to trap focus
+  while the radio is keyed.
+- Does the creation modal belong to the leader layer at all, or should `M C`
+  simply take you to the Live Meters tab once that tab is navigable? Cheaper,
+  one surface to maintain, and no second creation UI to drift.
+
+**Two rules this must not break:**
+
+- **No silent keystrokes** (`memory/project_no_silent_keystrokes_rule.md`).
+  Every chord says what it did, including entering and leaving meter mode.
+- **Prefer the leader over new flat hotkeys**
+  (`memory/project_ctrl_j_leader_command_layer.md`) — which this proposal does
+  correctly, and the layer is noted there as underused. This is a good use of it.
+
+## 4. Suggested sequence
+
+1. **Make the Live Meters tab navigable.** Small, unblocks everything else, and
+   lets the tones actually be evaluated by someone who can reach the controls.
+2. **Audit the existing tone defaults by ear** and fix distinctness before
+   adding any UI for it. There is no point exposing controls for a vocabulary
+   that does not yet distinguish anything.
+3. **Decide creation's home** — Live Meters tab, or a modal, not both.
+4. **Then the leader layer**, once the numbering and naming are settled, because
+   the chords are worthless until a meter has a stable identity to address.
+
+## 5. Not in scope here
+
+The Peak Watcher, the meter speech timer, and `AutoEnableOnTune` all exist in
+config already and are adjacent to this work. Note them, do not fold them in
+until the above is settled.
