@@ -12,7 +12,8 @@
 
     <!-- Focusable cycle control: "Label: Option" with Up/Down cycling.
          Used in ScreenFieldsPanel for enum-style parameters (AGC Mode, ATU Mode).
-         NVDA reads AutomationProperties.Name on focus. Speak() fires on selection change. -->
+         Announces through the accessibility tree: UIA Spinner peer, Name = label,
+         Value pattern = current option, value-changed events on cycling. No Speak(). -->
     <Border x:Name="OuterBorder"
             BorderBrush="Gray" BorderThickness="1"
             Padding="6,2" Margin="2"
