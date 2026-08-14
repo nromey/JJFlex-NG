@@ -699,9 +699,11 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         {
             if (_rig != null && !_polling)
             {
+                // No Speak here. The cycle control announces its own value
+                // through the accessibility tree since 2026-08-13; saying it
+                // again would be the double-speak the old design's interrupt
+                // was quietly masking.
                 _rig.ProcessorSetting = (FlexBase.ProcessorSettings)idx;
-                string[] names = { "Normal", "DX", "DX Plus" };
-                ScreenReaderOutput.Speak($"Processor mode {names[Math.Min(idx, 2)]}", VerbosityLevel.Terse);
             }
         };
         AddToSection(TxAudioContent, _processorSettingControl);
@@ -1049,7 +1051,8 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         {
             if (_polling) return;
             SavePerRadioPrefs();
-            // The control already spoke the new value; add the remote
+            // The control announces its own value through the accessibility
+                // tree; this adds only what the tree cannot carry.; add the remote
             // advisory only where it matters.
             if (idx == (int)AudioCheckListenMethods.Monitor && _rig?.RemoteRig == true)
                 ScreenReaderOutput.Speak(
