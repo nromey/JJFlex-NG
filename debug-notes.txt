@@ -71,6 +71,19 @@ same way the microphone check does. If you would rather not hear the coaching
 at all, Settings, Notifications, Mic audio readout has a decibels-only option -
 that setting now reaches every surface, which it did not before.
 
+F6 moves you to the next section of the Audio Workshop and Shift+F6 goes back.
+It tells you which section you landed in, wraps around at the ends, and skips
+sections that are hidden - so with PC audio selected it will not send you to
+radio controls that are not on screen. Ctrl+Tab still moves between the three
+tabs as before.
+
+The cycle controls - the ones you arrow through, like AGC Mode and Transmit
+audio from - now announce themselves through Windows rather than the app
+talking over your screen reader. Two things come of that. They no longer cut
+off the section name as you tab into a group, which is what was happening this
+morning. And they work on a braille display now, which they never did before,
+because the app's own speech never reached braille at all.
+
 WHAT TO TEST
 
 Open the Audio Workshop with Ctrl+Shift+W and tab through it slowly. You should
