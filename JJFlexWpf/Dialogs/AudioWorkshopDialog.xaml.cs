@@ -287,6 +287,29 @@ public partial class AudioWorkshopDialog : JJFlexDialog
             e.Handled = true;
             return;
         }
+        // F6 / Shift+F6 — move between sections. The Windows convention for
+        // crossing panes within a window, and the answer to a gap that has
+        // been open since the sections were built.
+        //
+        // Noel asked for section navigation twice. The first answer
+        // (2026-08-12) correctly rejected Ctrl+Tab, which already switches
+        // tabs here, and then stopped -- so the need went unmet rather than
+        // resolved. The second attempt (2026-08-13) gave the sections
+        // AutomationProperties.HeadingLevel expecting NVDA's H key to jump
+        // between them. That could never work: single-letter navigation lives
+        // in BROWSE mode, for web pages and documents, and a WPF dialog runs
+        // in focus mode where H simply types the letter. Containment
+        // announcements landed; jump navigation was never possible that way.
+        //
+        // F6 has no such problem: it is a real key, handled here, and an
+        // operator who knows Windows may already reach for it.
+        if (e.Key == Key.F6)
+        {
+            MoveToSection(forward: (Keyboard.Modifiers & ModifierKeys.Shift) == 0);
+            e.Handled = true;
+            return;
+        }
+
         if (Keyboard.Modifiers == ModifierKeys.Control)
         {
             switch (e.Key)
@@ -404,6 +427,95 @@ public partial class AudioWorkshopDialog : JJFlexDialog
                 || ReferenceEquals(el, _pcLevelNote)) continue;
             KeyboardNavigation.SetTabIndex(el, idx++);
         }
+    }
+
+    /// <summary>
+    /// The sections of the tab currently on screen, in visual order, skipping
+    /// any that are collapsed.
+    /// </summary>
+    /// <remarks>
+    /// Collapsed sections must be skipped rather than counted: the Microphone
+    /// section's contents change with the transmit source and TX Monitor can
+    /// be hidden, so a fixed index would land the operator on nothing.
+    /// </remarks>
+    private List<GroupBox> VisibleSections()
+    {
+        var found = new List<GroupBox>();
+        StackPanel? panel = MainTabs.SelectedIndex switch
+        {
+            0 => TxAudioContent,
+            1 => LiveMetersContent,
+            2 => EarconExplorerContent,
+            _ => null,
+        };
+        if (panel == null) return found;
+
+        foreach (object child in panel.Children)
+        {
+            if (child is GroupBox g && g.Visibility == Visibility.Visible)
+                found.Add(g);
+        }
+        return found;
+    }
+
+    /// <summary>
+    /// Move focus to the first focusable control of the next or previous
+    /// section, wrapping at the ends, and say which section that is.
+    /// </summary>
+    /// <remarks>
+    /// Announcing is not optional. Landing silently in a new group is the same
+    /// failure the GroupBox work fixed this morning -- the operator would have
+    /// moved somewhere and not been told where. A screen reader announces a
+    /// group when focus ENTERS it by tabbing, but a programmatic focus change
+    /// inside the same window is not reliably narrated, so this says it.
+    ///
+    /// <para>
+    /// This is the legitimate case for app speech under
+    /// feedback_speak_only_when_ui_does_not_convey: the operator asked to move,
+    /// and where they landed is information no control on screen carries.
+    /// </para>
+    /// </remarks>
+    private void MoveToSection(bool forward)
+    {
+        var sections = VisibleSections();
+        if (sections.Count == 0) return;
+
+        // Where are we now? The section containing focus, or -1 if focus is
+        // somewhere else entirely (the preset toolbar, the tab strip).
+        int current = -1;
+        for (int i = 0; i < sections.Count; i++)
+        {
+            if (sections[i].IsKeyboardFocusWithin) { current = i; break; }
+        }
+
+        int next;
+        if (current < 0)
+        {
+            // Not in a section yet: forward starts at the first, backward at
+            // the last, so both directions do something useful on first press.
+            next = forward ? 0 : sections.Count - 1;
+        }
+        else
+        {
+            next = forward ? current + 1 : current - 1;
+            if (next >= sections.Count) next = 0;
+            else if (next < 0) next = sections.Count - 1;
+        }
+
+        GroupBox target = sections[next];
+        string name = target.Header as string ?? "Section";
+
+        if (!target.MoveFocus(new TraversalRequest(FocusNavigationDirection.First)))
+        {
+            // A section with nothing focusable in it -- possible if every
+            // control inside is collapsed. Say so rather than appearing to do
+            // nothing, and leave focus where it was.
+            ScreenReaderOutput.Speak($"{name}, nothing to adjust here.",
+                VerbosityLevel.Terse, true);
+            return;
+        }
+
+        ScreenReaderOutput.Speak(name, VerbosityLevel.Terse, true);
     }
 
     /// <summary>

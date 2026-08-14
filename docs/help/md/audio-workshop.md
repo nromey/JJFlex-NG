@@ -67,6 +67,22 @@ The section always shows the gain that actually applies to your current source, 
 
 A line under the level names the exact Windows device being adjusted. If JJ Flexible cannot be certain which Windows device matches your chosen microphone, the control is switched off and that line says why rather than risk moving some other microphone's level.
 
+### Moving around
+
+The TX Audio tab is a walk-through: This Computer, Microphone, Processing, TX
+Filter, TX Monitor, Test Tone, Audio Check, in that order, running outward from
+your computer to the radio to the air.
+
+Press **F6** to jump to the next section and **Shift+F6** to go back. Each jump
+names the section you arrived in, wraps around at the ends, and skips any
+section that is currently hidden — so with PC audio selected it will not send
+you to radio controls that are not on screen.
+
+Tabbing works too, and your screen reader announces each section as you cross
+into it. F6 is for when you know where you are going.
+
+Ctrl+Tab still moves between the three tabs, as in any tabbed window.
+
 ### The sculpting chain
 
 Mic gain, mic boost, mic bias, the compander and its level, the speech processor and its mode, and the TX filter edges with a live width readout. The TX Monitor section holds the monitor toggle, level, and pan; in phone modes its header names the mode you're in so you know which monitor family you're adjusting.

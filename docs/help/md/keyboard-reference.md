@@ -437,6 +437,20 @@ These keys are active in the Select Radio dialog — the window that opens at st
 
 These commands exist and work — they just don't ship with a key. Run them from the Command Finder (`Ctrl+/`), or give them keys of your own in Tools → Hotkey Editor: start scan, saved scan, memory scan, speak frequency, speak TX filter width, show memories, switch S meter units, toggle continuous frequency display, PC audio on/off, select audio device, ATU memories, reboot radio, transmit controls, radio menus, collect debug info, mute slice, show keys help, and the remaining log field jumps (log file name, log mode, log rig, log antenna, log statistics).
 
+## Audio Workshop
+
+- **F6** moves to the next section — This Computer, Microphone, Processing, TX
+  Filter, TX Monitor, Test Tone, Audio Check — and says which one you landed
+  in. **Shift+F6** goes back. It wraps at both ends, and skips any section that
+  is hidden, so on PC audio you will not be sent to controls that are not there.
+- **Ctrl+Tab** still moves between the three tabs, as it does in any tabbed
+  window. F6 works inside whichever tab you are on.
+- **Ctrl+Enter** starts or stops the Audio Check from anywhere in the dialog.
+  It is a toggle, so the same chord stops it — which matters because a running
+  check parks focus on Mic Gain, two stops from the button.
+- **Ctrl+S** saves a preset, **Ctrl+O** loads one.
+- **Escape** stops a running Audio Check before it closes the window.
+
 ## Audio Devices dialog
 
 These work only while the Audio Devices window is open.
