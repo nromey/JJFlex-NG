@@ -115,6 +115,31 @@ Full design in `docs/planning/active/kerchunk-sidetone-pileup.md`.
 - **Carry the sonification grammar into the waterfall.** Noel: this "may help
   with navigating the waterfall as well." Same vocabulary, invented once.
 
+### Open — AUDIO SETUP WIZARD (idea captured 2026-08-14)
+
+Full design in `docs/planning/active/elmer-mic-checkin.md`.
+
+For **Margaret** — a real operator Don mentioned who is not comfortable changing
+audio settings. Not a persona. Success is measured against the operator who
+would otherwise change nothing, not against how fast an expert can go.
+
+Noel's shape: advise which microphone to pick, lead into a mic check, lead into
+a transmit test, transverter offshoots later — **with the ability to jump to the
+full Workshop controls at every step.** That escape hatch is the design, not a
+footnote: it is what separates a wizard that respects the operator from one that
+patronises them.
+
+**It is mostly composition, not new machinery.** As of 2026-08-13 the picker
+filters to usable mics, the Microphone Check carries the Windows input level and
+Boost with a meter that zeroes on adjustment, the verdicts coach in plain
+language with direction and stage, and steps one and two need no radio at all.
+Resist building a second device picker or a second level control — that is how
+the beginner ends up with the worse one.
+
+Flow-level version of the same insight that rewrote the verdict wording: audio
+adjustment is stressful, so the whole journey gets the treatment, not just the
+sentence.
+
 ### Open — pre-lock, non-audio
 
 - **#76 — PRE-LOCK: Speak GPS status must lead with oscillator lock and carry
