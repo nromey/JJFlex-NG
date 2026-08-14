@@ -67,6 +67,31 @@ again, treat that as the working surface and re-mirror here at seal time.
   them.** Use F1 context help, not dialog prose. Explanation should say that
   peak-steady-with-loudness-climbing is how you tell the processor is working.
 
+### Open — THE ROSTER AND CONNECT BATCH (planned 2026-08-14, next up)
+
+Planned as ONE batch, not five fixes, in
+`docs/planning/active/qsy-pileup-handshake.md`. Noel: *"We need to plan all the
+fixes in batches / a batch rather than fixing stuff from time to time."*
+
+Five symptoms over three suspected roots, all inside the same 2,668 lines of
+roster / discovery-cache / selector code. Investigation pass FIRST — the first
+deliverable is a written description of the state machine, not a diff.
+
+- Don's radio tries to connect locally every time when it should go via
+  SmartLink. **The headline.**
+- A known-local radio that is unreachable never falls back to SmartLink
+  (trace-proven: zero SmartLink activity in the trace at all).
+- Roster connect needs two Enters.
+- **#75** — a radio name is invisible whenever the radio is discovered.
+- Presence check fails after client remove/re-add, and the authority gate then
+  denies a local operator.
+- Account switching friction on the ms-02.
+
+**Why this is the batch that matters:** the 2026-08-14 A/B verdict proved the
+client, SmartLink and the Opus transport all good end to end, and SmartSDR fails
+on Don's radio too. So the TX-audio fault is a support matter at his end — and
+**the roster is what actually stands between Don and using his radio.**
+
 ### Open — pre-lock, non-audio
 
 - **#76 — PRE-LOCK: Speak GPS status must lead with oscillator lock and carry
