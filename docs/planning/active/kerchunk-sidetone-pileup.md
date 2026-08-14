@@ -133,6 +133,59 @@ isolation is not the test — the test is four of them together while somebody i
 talking. And it needs a human: this is the least inspectable design decision in
 the app.
 
+### Modulation is a second identity axis, and it is independent of pitch
+
+Noel, 2026-08-14: *"You could also have tremolo type sounds for differentiation
+... lot more than just changing waveform which is why I said it could be used in
+our waterfall work."*
+
+**The technically important property: modulation rate is perceptually orthogonal
+to pitch.** A 6 Hz tremolo is recognisably the same 6 Hz tremolo on a low tone
+and a high one. So like timbre, it survives the value sweeping the pitch range —
+but it is a *separate* axis from timbre, not a variation of it.
+
+That gives two independent identity dimensions on top of a pitch axis already
+committed to carrying data:
+
+- **Harmonic content** — hollow, reedy, bright, bell-like. What the tone is
+  made of.
+- **Modulation** — tremolo (amplitude) and vibrato (frequency), each with a rate
+  and a depth. What the tone *does*. Slow throb, fast trill, the rolling-R
+  buzz, dead steady.
+
+They compose. Five distinguishable timbres against four distinguishable
+modulations is twenty voices, which is far past what the meters need and
+plausibly enough for the waterfall's categories. **Perceptual honesty about the
+ceiling:** people reliably tell apart maybe five to seven modulation rates and a
+similar number of timbre families — the space is combinatorially generous but
+each individual axis is small. Design the alphabet, do not assume a continuum.
+
+Also worth building on: **ham operators arrive with trained ears for tone
+patterns.** A rolling-R trill is not far from a run of CW elements. This audience
+has more relevant perceptual skill than a general one, and the vocabulary can be
+more ambitious than it could be elsewhere.
+
+### Why this matters more for the waterfall than for the meters
+
+The meters problem is small: a handful of named quantities, each needing a
+stable identity. The waterfall is qualitatively harder — a continuous spectrum
+where things appear, move, strengthen and vanish, and the operator needs
+position, strength, width and *kind* at once.
+
+That is where the axes have to pay off:
+
+- **Pitch** is the natural carrier of frequency position — the spectrum already
+  is a pitch axis, so the mapping is nearly free and needs no teaching.
+- **Amplitude** carries signal strength, equally naturally.
+- **Timbre and modulation are what is left to carry KIND** — so an SSB voice, a
+  CW signal and a digital transmission can sound categorically different rather
+  than being three tones at different places.
+
+**This is the whole reason to get the grammar right in the meters first.** The
+meters are the small, safe place to invent a language that the signature feature
+will then depend on. Inventing it twice, or inventing it under waterfall
+pressure, is how the two end up incompatible and the operator has to learn both.
+
 **Carry into the waterfall work.** Noel: *"may help with navigating the waterfall
 as well."* The waterfall is the signature feature
 (`memory/project_waterfall_signature_feature.md`) and it will need exactly this
