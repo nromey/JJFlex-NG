@@ -608,6 +608,25 @@ Audit checklist:
 
 6. **Verify the CHM build rebuilds the keyboard reference page** so users who installed the previous release see updated help after updating.
 
+7. **PRESS THE KEY.** A keyboard change is not verified by compiling. On
+   2026-08-13 an Alt+L binding shipped completely dead, one build after being
+   added: the handler tested `e.Key == Key.L`, which is *never* true while Alt
+   is held, because WPF reports `Key.System` and puts the real key in
+   `e.SystemKey`. It compiled, it reviewed clean, and the chord was simply never
+   handled — so the screen reader read the focused control and the key appeared
+   to do nothing at all. **Every new or changed binding gets pressed on a real
+   build before it is called done.** The same applies to anything that claims to
+   move focus: watch where focus actually lands, and listen to what is announced
+   when it gets there.
+
+   Related trap from the same day: `AutomationProperties.HeadingLevel` does NOT
+   give a screen reader's single-letter navigation inside a dialog. `H` and
+   friends live in **browse mode** — web pages and documents — while a WPF dialog
+   runs in focus mode where `H` types a letter. Section navigation inside a
+   dialog needs a real key (F6 / Shift+F6 is the Windows convention, and is what
+   the Audio Workshop uses). Heading levels are still worth setting; they are
+   just not navigation.
+
 When to skip the audit: sprints that don't touch key bindings (pure UI tweaks, under-the-hood refactors, build-system changes). If in doubt, grep the diff — "did any file named `KeyCommands` or `KeyBinding*` change?" is a fast answer.
 
 Future automation (not blocking — deferred): a build-time pass that introspects the KeyCommands registry, emits a canonical manifest, and fails the build if `keyboard-reference.md` is out of sync. Sprint 29+ candidate if the manual audit proves reliable.
