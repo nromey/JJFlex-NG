@@ -112,22 +112,76 @@ SmartLink activity. Entering from the operator's side is cleaner than entering
 from discovery's side, and it makes the fallback logic a consequence rather than
 a special case.
 
-### Decisions to settle in Phase 1, not now
+### Settled 2026-08-15 — the Remote button goes, force-remote moves to the menu
+
+Noel: *"Take the Remote button away in favour of just a Connect button. I don't
+see the need for Remote — it saved my bacon yesterday when I wanted to force
+remote, so we need that, but that could be in the context menu."*
+
+**Decided, not an open option.** One Connect button; the explicit verbs live in
+the context menu.
+
+**Force-remote is not a convenience, it is test equipment.** Noel: *"This will
+let us be able to test hole punch etc."* It has two load-bearing jobs — the
+rescue path that got him connected on 2026-08-14, and the instrument for
+re-running the hole-punch test on the restored single-NAT topology (runbook item
+13, `memory/project_hole_punch_wiring_gap.md`). Both mean it must be reliable,
+explicitly named, and must **not** silently fall back to local — a fallback
+would quietly invalidate a punch test by producing a successful connect over the
+wrong path. Force-remote means *this path only*.
+
+**Removing the button removes Alt+R.** `RemoteButton` is `Content="_Remote"`, so
+the accelerator disappears with it. That makes this a key-binding change and
+Track A owes the full keyboard audit from CLAUDE.md: update
+`docs/help/md/keyboard-reference.md`, update Command Finder keywords, and give
+the changelog a line with heads-up language, since a removal is the case where
+someone somewhere has it in their fingers. **Press the key on a real build.**
+
+### The preference must not be a boolean — JJ Flexible Connect is a third path
+
+Noel, same conversation: *"Of course Connect will throw everything into
+craziness, but we should be able to just add something to prefer Connect over
+SmartLink etc., so that shouldn't be too disruptive."*
+
+He is right that it need not be disruptive — **but only if the type changes
+now.** `PreferRemotePath` is a `bool` (`RigSelectorDialog.xaml.cs:48`). A boolean
+can express local-or-SmartLink and nothing else. The moment Connect
+(`memory/project_jjflexible_connect.md`) is a real path, a bool cannot say
+"prefer Connect, fall back to SmartLink, then local."
+
+This batch already rewrites every site that reads or clobbers that field. **The
+type change is nearly free right now and expensive later**, which is exactly the
+case for doing it in this pass rather than deferring.
+
+**Recommended model: an ordered chain of paths to try**, not an enum. One shape
+then expresses everything this batch needs:
+
+- Don's radio: `[SmartLink, Local]`
+- The bench 8600: `[Local, SmartLink]`
+- A future Connect radio: `[Connect, SmartLink, Local]`
+- Force-remote from the menu: `[SmartLink]` — one entry, no fallback, which is
+  what makes it a valid test instrument.
+
+The automatic-fallback requirement then stops being special-case logic and
+becomes "walk the list until one succeeds, announcing each move." An enum plus
+separate fallback rules would work, but it re-creates the current situation where
+the preference and the path logic are two things that can disagree.
+
+Phase 1 owes: the persisted representation in `KnownRadioRoster.cs`, and a
+migration from the existing bool that does not lose anyone's setting.
+
+### Decisions still open for Phase 1
 
 - **What happens to `PathCombo`** (the "Remote via SmartLink" combo, referenced
   at line 1199). Under this model it either becomes the preference editor or
-  becomes redundant. It must not survive as a third place the preference lives.
-- **Do the explicit verbs also deserve buttons**, or is the context menu enough?
-  Noel offered both shapes. Fewer buttons is fewer tab stops
-  (`memory/feedback_speak_only_when_ui_does_not_convey.md`), which argues for
-  Connect alone plus the menu — but that hides an escape hatch behind a chord,
-  and the whole reason Noel got connected at all was reaching for an explicit
-  Remote button.
+  becomes redundant. It must not survive as a third place the preference lives —
+  three places is how the current bug happened.
 - **What Connect announces** when preference and reality disagree. The
-  no-silent-path-substitution rule below still governs: if preference says remote
-  and the app falls back to local, or vice versa, it says so.
-- **Default for a radio with no preference recorded yet.** Local-first is the
-  existing behaviour and the safe one; make it explicit rather than emergent.
+  no-silent-path-substitution rule below still governs: if the chain falls from
+  SmartLink to local, or the reverse, it says so out loud.
+- **Default chain for a radio with no preference recorded yet.** Local-first is
+  the existing behaviour and the safe one; make it an explicit default rather
+  than emergent from the derivation.
 
 ---
 
