@@ -39,6 +39,98 @@ share a cause.
    switching to Noel's own account to reach the 8600 is clumsy under the new
    roster code.
 
+---
+
+## The connect flow Noel wants (2026-08-15) — this reframes the whole batch
+
+Captured from Noel directly. **Read this before Root A below**, which was written
+from the discovery side and is correct but enters the problem from the wrong end.
+
+### First, a correction to this document's framing
+
+This file previously said the roster is "what stands between Don and using his
+radio." **That is wrong and Noel corrected it.** Don can connect. The defect is
+that his radio *tries local first when he has selected remote*, which costs him
+a failed attempt and a wait every single time. It is an efficiency and
+correctness problem, not a blocker. Noel hit the mirror image himself: he had to
+press **Remote** explicitly to get his normally-local radio to connect at all.
+
+### The vision
+
+> *"Right now there's a Remote button. I'm thinking that needs to go away, with a
+> connect locally or a connect remotely button. Another option would be to have a
+> Connect button which would connect based on preference (locally if selected,
+> remotely if selected). Enter clicks Connect and connects based on selection.
+> Right click would allow you to connect locally or remotely, an option for both,
+> and something that allows you to select connect locally as default or connect
+> remotely by default."*
+
+Concretely:
+
+- **The separate Remote button goes away.** Today `RigSelectorDialog.xaml` has
+  both `ConnectButton` (line 69) and `RemoteButton` (line 91). Two buttons for
+  one act, where the second exists only because the first cannot be trusted to
+  pick the right path.
+- **One Connect button that honours the radio's stored preference.** Enter
+  activates it. The preference is per-radio and persistent.
+- **The context menu carries the explicit verbs** — connect locally, connect
+  remotely, and the ability to set which is the default for this radio.
+  **This surface already exists**: `RigSelectorDialog.xaml:47-63` has a real
+  ContextMenu on the radio list with Connect / Add to Favorites / Auto-Connect
+  Settings / Preferred Account and a `ContextMenuOpening` handler. Shift+F10
+  already reaches it. The connect verbs extend a live menu rather than
+  introducing a new one.
+
+### Why the current code cannot do this — the preference is erased three times
+
+Sharper than Root A, and verified in code 2026-08-15:
+
+1. **`IsRemote` never consults the preference off the dual-homed path.**
+   `RigSelectorDialog.xaml.cs:100` derives
+   `DualHomed ? PreferRemotePath : WanAvailable ? true : LanAvailable ? false : LastSeenRemote`.
+   A radio seen on the LAN hits `LanAvailable ? false` and goes local
+   unconditionally. The operator's stated choice is not an input to the
+   expression.
+2. **Lines 705 and 780 overwrite the stored choice**:
+   `if (!row.DualHomed) row.PreferRemotePath = false;`
+3. **Line 1031 ANDs it away again at the point of use**:
+   `SelectedPreferRemotePath = radio.DualHomed && radio.PreferRemotePath;`
+
+And because `WanAvailable` is never learned for a radio discovered locally,
+`DualHomed` is false — so all three suppressions fire for exactly the radios
+where the preference matters most. **This is a settings-are-intents violation of
+the purest kind** (`memory/project_settings_are_intents_not_commands.md`): the
+app does not merely ignore the operator's choice, it destroys it.
+
+### The consequence that unifies this batch
+
+**"Honour the stated preference" and "learn WAN availability" are the same fix.**
+If a preference of *remote* is authoritative even when the app believes the radio
+is LAN-only, then the app must open a SmartLink session in order to satisfy it —
+which is precisely the behaviour absent from the trace that drained zero
+SmartLink activity. Entering from the operator's side is cleaner than entering
+from discovery's side, and it makes the fallback logic a consequence rather than
+a special case.
+
+### Decisions to settle in Phase 1, not now
+
+- **What happens to `PathCombo`** (the "Remote via SmartLink" combo, referenced
+  at line 1199). Under this model it either becomes the preference editor or
+  becomes redundant. It must not survive as a third place the preference lives.
+- **Do the explicit verbs also deserve buttons**, or is the context menu enough?
+  Noel offered both shapes. Fewer buttons is fewer tab stops
+  (`memory/feedback_speak_only_when_ui_does_not_convey.md`), which argues for
+  Connect alone plus the menu — but that hides an escape hatch behind a chord,
+  and the whole reason Noel got connected at all was reaching for an explicit
+  Remote button.
+- **What Connect announces** when preference and reality disagree. The
+  no-silent-path-substitution rule below still governs: if preference says remote
+  and the app falls back to local, or vice versa, it says so.
+- **Default for a radio with no preference recorded yet.** Local-first is the
+  existing behaviour and the safe one; make it explicit rather than emergent.
+
+---
+
 ## The three suspected roots
 
 **Root A — a radio is classified before its WAN availability is ever learned.**
@@ -139,5 +231,11 @@ and the Opus upstream transport are proven good end to end over WAN**, and
 SmartSDR fails on Don's radio too. So the TX-audio fault is at Don's end and is a
 support matter.
 
-**That makes the roster the thing standing between Don and using his radio at
-all** — not the audio path. This batch is the one that actually unblocks him.
+**Corrected 2026-08-15 by Noel.** This section previously concluded that the
+roster is "the thing standing between Don and using his radio at all." It is not
+— **Don can connect.** What the roster costs him is a failed local attempt and a
+wait on every connect, because it ignores the remote preference he selected.
+Worth fixing properly, and it is the batch that most improves his daily
+experience — but it is an efficiency and correctness defect, not a blocker, and
+this batch should not crowd out other work on the strength of a blocker that
+does not exist. See the connect-flow section at the top of this file.
