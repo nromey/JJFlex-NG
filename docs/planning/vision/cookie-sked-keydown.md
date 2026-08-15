@@ -103,9 +103,9 @@ mechanisms differ enormously for a blind operator:
 
 - **TOTP via an authenticator** — tolerable, and the right default, because
   1Password auto-fills it and Noel already runs 1Password
-  (`memory/user_1password_free_for_life.md`). Note the honest constraint anyway:
-  a 30-second window is a tight budget for finding, reading and typing a code by
-  screen reader without autofill.
+  (`memory/user_1password_free_for_life.md`). Without autofill, 30 seconds is a
+  tight budget for finding, reading and typing a code by screen reader — see the
+  validation-window answer immediately below, which fixes this properly.
 - **SMS** — poor. Requires leaving the app, reading a text on a phone, and
   retyping under a timer. This is the same failure shape as the browser auth
   form that hard-downed Don (`memory/project_smartlink_token_lineage.md`).
@@ -113,6 +113,48 @@ mechanisms differ enormously for a blind operator:
 
 Whichever ship, they get verified end to end with NVDA by using them
 (`memory/feedback_accessibility_is_end_to_end.md`).
+
+##### Giving the operator more time: widen the window, do not lengthen the period
+
+Noel asked whether an authenticator could issue a two-minute OTP, noting that
+most sites seem forgiving of an entry fifteen seconds late. **The forgiveness he
+has noticed is real and is the mechanism to use — but it is not the period.**
+
+TOTP's time step is configurable (`period=` in the enrolment URI), so
+`period=120` is legal. **It is also a compatibility trap.** Google Authenticator
+historically ignored `period` and assumed thirty seconds, and several apps still
+do. The failure is silent: the app shows a code, the server rejects it, and
+nothing explains why. That is the worst possible defect in an auth flow, and it
+lands on exactly the users least able to diagnose it.
+
+What actually produces the forgiveness is the **validation window** (RFC 6238
+§5.2) — the server accepts codes from adjacent time steps to absorb clock drift
+and human typing speed. Total validity is about `period × (2 × window + 1)`:
+
+- Standard 30 s period, window ±1 → roughly 90 seconds
+- Standard 30 s period, **window ±3 → roughly 3.5 minutes**
+
+**So keep the standard thirty-second period and widen the window.** That clears
+Noel's two-minute target with room to spare, works with every authenticator app
+including old ones, requires no enrolment change, and is invisible to the
+operator.
+
+**The security cost is real, small, and paid with rate limiting rather than a
+narrow window.** Widening the window grows the brute-force surface linearly;
+strict attempt limits collapse it regardless. A wide window with rate limiting is
+safe. A narrow window without rate limiting never was.
+
+Two consequences of a wide window worth building in from the start:
+
+- **Burn a code on first use**, so it cannot be replayed inside its now-longer
+  life. This matters more the wider the window gets.
+- **The window is a safety net, not the fix.** The real answer to the timing
+  problem is autofill or a passkey. Widening the window must not be mistaken for
+  having solved the accessibility problem — it buys time for the people who have
+  neither.
+
+If Connect's identity layer ends up on a managed provider, all of this is a
+configuration setting rather than code. Confirm which before designing around it.
 
 **Mandatory 2FA raises the lockout stakes, so recovery codes stop being
 optional.** Issued at enrolment, presented as readable copyable text — never an
