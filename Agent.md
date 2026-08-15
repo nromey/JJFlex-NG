@@ -9,6 +9,106 @@ This document captures the current state of JJ-Flex repository and active work.
 
 *Superseded history, kept for context: main was reverted off `track/flexlib-42` on 2026-05-15 after Don's LAN trace exposed a vendor-side station-name regression; that era's notes are `memory/project_flexlib_4218_*.md` and `memory/project_main_branch_41_posture.md`. 4.2.20 supersedes all of it and works.*
 
+## END-OF-DAY SEAL — 2026-08-14 — THE DAY THE NETWORK CONFESSED
+
+*Sealed on Noel's call (~2 pm, "the day is still young" — then it ran long
+anyway). Delta from midnight: **8 commits, 9 files, +1,533/−1**, all
+authored by the master/orchestrator session; the bench session's artifacts
+(the RF truth runbook and the rigbench tooling) rode in via `cc3725cc`. No
+new app build — Don stays on 4.1.16.861; nightly promotion skipped per SOP.*
+
+**Theme: every layer was honest except the ones nobody had ever tested.**
+The day set out to answer one question — does Don's transmit audio become
+RF — and never measured a single watt on his radio, yet closed the case
+anyway by acquitting everything else, one layer at a time.
+
+### The investigation (bench session, morning to afternoon)
+
+- **The RF truth test** was designed and run against Don's 6300 over
+  SmartLink: dead-air control, patterned 700 Hz tone (2s-on/1s-off ×3,
+  −10 dBFS, click-free ramps), forward power in dBm as the arbiter.
+  Result: coupler floor throughout — but the tone never reached the radio.
+- **The wedged Virtual Audio Cable.** VAC's transport was silently
+  delivering digital zeroes to every capture client on the ms-02; a
+  default-device switch rebuilt the engine stream and revived it. The
+  morning's "no RF" was honest silence honestly transmitted. The app's
+  check-microphone warning was right both times it fired.
+- **PC capture chain calibrated to the decibel:** pattern at −10 dBFS in
+  the file reads −10.0 dBFS peak / −11.1 LUFS at the Microphone Check.
+- **SmartSDR reproduces Don's failure identically** (mic source PC, MOX,
+  silent monitor) — JJ Flexible acquitted by the reference client.
+- **The double-NAT excavation.** The 8600 A/B needed a port forward; the
+  forward was perfect on the ASUS yet dead from outside. Root cause: the
+  BGW320's IP passthrough was DHCPS-fixed to the ASUS's **LAN/base MAC**
+  (`…:6C`); a June 20 firmware update moved the WAN to its dedicated MAC
+  (`…:70`), and the home network had been silently double-NATed for two
+  months. Re-pinned, ASUS rebooted, public IP restored, port 25678
+  verified OPEN from rarbox. Full lore + the post-firmware re-verify rule:
+  `memory/project_home_network_double_nat_incident.md`.
+- **The verdict A/B: WAN TX audio WORKS.** Laptop → exit node → SmartLink
+  → forwarded ports → 8600: keyed PC audio came back on the monitor with
+  the round-trip delay. Client, SmartLink, and Opus upstream all proven.
+  **The fault isolates to Don's site** — Tony's router's inbound-UDP
+  handling or the radio, ~even odds. Discriminator ladder designed;
+  Don-facing guidance shipped to Dropbox `don\`. State:
+  `memory/project_don_remote_tx_audio_investigation.md`; full record:
+  `docs/planning/for-noel/2026-08-14-don-6300-rf-truth-test.md` (15-item
+  import block, ingested into the master task list).
+- **Roster defects pinned with trace evidence along the way:** no
+  SmartLink fallback for an unreachable known-local radio (laptop trace:
+  zero SmartLink activity, local branch hung); the authority gate denies a
+  local operator after the client remove/re-add dance leaves an
+  empty-clientId, localPtt=false impostor record (fix: match by
+  ClientHandle); double-Enter connect; Settings OK silently discarding
+  unapplied port-forward edits; the mono-device-hiding Mic Check picker;
+  updater manifest 404. All in the runbook's import block.
+
+### The master session's parallel arc (same day, other window)
+
+Research-queue became the durable home for open work (`cc3725cc`), then
+four design captures: the **meters subsystem** (timbre identifies the
+meter, pitch carries the value; modulation as a second identity axis —
+`kerchunk-sidetone-pileup.md`), the **Elmers** guided-learning product
+family with its own menu (`vision/elmers.md`, `elmer-mic-checkin.md` — the
+audio setup wizard), and the **roster + connect batch plan**
+(`qsy-pileup-handshake.md`).
+
+### Cross-surface activity
+
+- **JJFlex-NG:** 8 commits (master session), branch pushed, tree clean.
+  Four lingering worktrees (`jjflex-don-diag`, `-naming`, `-picker`,
+  `-threads`), all idle today; picker and threads carry stray
+  TRACK-INSTRUCTIONS.md — cleanup candidates.
+- **Freight Fate:** idle; `feat/career-1.9`, 1 dirty, **16 unpushed**
+  (standing note). **Civ VI Access:** idle; `main`, 2 dirty, **45
+  unpushed** (standing note).
+- **External infrastructure:** rarbox used as the outside-knock probe
+  (SSH, read-only). **The home network itself was the day's big external
+  fix** — passthrough restored after two months. AT&T BGW320 + ASUS both
+  reconfigured/verified via browser automation with Noel driving logins.
+- **Dropbox:** `don\2026-08-14-don-remote-audio-guidance.txt` (operator
+  language, discriminator ladder for Don).
+- **Memory:** 2 new entries (double-NAT incident; Don investigation
+  state), index updated and lightly compacted in place.
+
+### Setup for tomorrow
+
+1. **Hole-punch test on the 8600** — single NAT now; zero risk (LAN
+   restore path); tests Tier-0 connectivity and feeds Variant B.
+2. **Don discriminators:** his two answers (ever a completed SmartLink
+   QSO? which monitor does he hear?), Tony's ten-minute router check.
+3. **Roster/connect batch** per `qsy-pileup-handshake.md` — now with
+   trace-backed defect list.
+4. Meters and Elmers arcs queued in the research queue.
+
+### Rigmeter snapshot — end of 2026-08-14
+
+Authored: **993 files, 223,983 lines, 1,267,941 words**. Vendor: 55,619
+lines. Combined: 279,602 lines across 1,181 files. Today: 8 commits, 9
+files, +1,533/−1 — docs and bench tooling only, no app code. Biggest
+authored trees: docs 58,739 · JJFlexWpf 58,163 · main_app 35,991 ·
+Radios 31,102.
+
 ## END-OF-DAY SEAL — 2026-08-13 — THE DAY THE USER FOUND EVERYTHING
 
 *Sealed on Noel's call: "go ahead and make a nightly and seal it, we'll keep
