@@ -190,6 +190,61 @@ plausibly double-Enters on the refresh path while a remote one double-Enters on
 the auth path. If both exist, fixing one and declaring the symptom closed is how
 the other survives to be rediscovered.
 
+#### The auth ladder — Noel's design, 2026-08-15
+
+> *"Make sure auth is needed, in case a quick refresh of the token would do it,
+> then try to connect; and if that doesn't work, re-auth and connect."*
+
+**Right shape, and the machinery already exists** — verified in code 2026-08-15,
+so this is a wiring job rather than a build:
+
+- `SmartLinkAccountManager.RefreshTokenAsync` (`SmartLinkAccountManager.cs:350`)
+  yields a **fresh id_token**; the trace line at `:412` is the proof, and that
+  capability was the 2026-08-06 fix for Don's lockout
+  (`memory/project_smartlink_token_lineage.md`). Measured then at ~250 ms.
+- `SmartLinkLoginForm` (`SmartLinkLoginForm.cs:21`) is the **native** sign-in
+  form; `FlexBase.cs:4474` already uses it.
+
+**The 60-second expiry is why the first rung nearly always fires.** The
+frtest.auth0.com tenant issues id_tokens that expire sixty seconds after issue,
+so at any realistic moment the stored token is stale. "Is auth needed?" is almost
+always yes. The useful consequence: at ~250 ms a refresh is cheap enough to
+simply *do*, rather than building elaborate logic to decide whether to.
+
+**Three JIT-refresh call sites already exist** — `FlexBase.cs:1509`, `:4711`,
+`:4749`, with `GetJwtFromSavedAccount` tracing the outcome and timing at `:4757`.
+Three places doing one job is three chances to disagree. **The double Enter is
+plausibly one of them refreshing successfully and then not continuing into the
+connect**; Phase 1 should look there before looking anywhere else.
+
+**The ladder, with the failure condition made explicit:**
+
+1. No stored token at all → native sign-in.
+2. Token present → refresh it. Silent, no UI, ~250 ms.
+3. Attempt the connect.
+4. Connect fails **with an auth-shaped error** (401/403/token rejected) → one
+   refresh-and-retry; if that still fails on auth, native sign-in, then connect.
+5. Connect fails with anything else → **report the actual error and stop.**
+
+**Step 5 is the guardrail and it is the whole point.** "If that doesn't work,
+re-auth" must mean *if it fails because of auth*, never *if it fails*. A radio
+that is switched off, a router dropping inbound UDP, a busy radio — none of those
+are auth problems, and re-authing on them puts a sign-in form in front of an
+operator whose actual problem is elsewhere. That is both confusing and, for a
+blind operator, a disruptive surprise. It would also mask the real error, which
+is the diagnosis we actually needed on 2026-08-14.
+
+**Re-auth means the native form, never the browser.** Load-bearing accessibility
+constraint with a shipped precedent: *"any auth design that ends in 'then the
+browser form opens' is a dead end for this user base"*
+(`memory/project_smartlink_token_lineage.md`). MFA is the sanctioned exception
+that falls back to the browser, and it already does.
+
+**All of this is one Enter, and it must speak.** The ladder can take seconds, and
+a keystroke that produces silence while work happens violates
+`memory/project_no_silent_keystrokes_rule.md`. Announce the stage — signing in,
+connecting — not just the outcome.
+
 ### Per-radio connection history — one substrate, two offers
 
 Noel's idea, 2026-08-15, and it generalises further than he pitched it:
