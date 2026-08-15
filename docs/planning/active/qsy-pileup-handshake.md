@@ -349,6 +349,57 @@ roster fixes.
 
 ---
 
+## Root D — cached availability never expires, so a radio that moves stays moved
+
+**Noel, 2026-08-15, and this is the fact that explains Don completely:** *"Don's
+radio, before it moved to Tony's, was always local — that's why he gets stuck
+connecting locally."*
+
+His radio earned `LanAvailable = true` across its entire life on his own LAN.
+Then it physically moved to Tony's. **The cached fact did not move with it.**
+
+Feed that into the derivation at `RigSelectorDialog.xaml.cs:100` —
+`DualHomed ? PreferRemotePath : WanAvailable ? true : LanAvailable ? false : LastSeenRemote`
+— and a stale `LanAvailable` short-circuits to **local, permanently**. The
+preference that would override it is then erased by the three sites documented
+above. Two independent defects compounding into one very stuck radio, which is
+why it survived casual inspection.
+
+**The category error:** conflating *"is on my LAN right now"* — a live discovery
+fact with a shelf life of seconds — with *"was seen on a LAN once"*, which is a
+historical hint and legitimately persisted. `LastSeenRemote` is honest about
+being history; its name says so. `LanAvailable` is not, and is treated as
+current when it is nothing of the kind.
+
+**This is not Don-specific.** Any radio that changes networks inherits it: a rig
+taken to Field Day, a club radio that rotates between shacks, a house move, a
+subnet renumber. Don simply got there first by moving his radio to Tony's.
+
+**The fix**, and Phase 1 should confirm the storage before choosing between
+these:
+
+- Make `LanAvailable` live-only — set by the current discovery sweep, never
+  persisted, defaulting to false when a sweep has run and not seen the radio.
+  Cleanest, because it makes the type honest.
+- Or, if it must persist, **age it out** and invalidate it the moment a discovery
+  sweep completes without the radio in it. A cached "yes" that survives a
+  contradicting observation is not a cache, it is a lie.
+
+**The reassuring cross-check:** if `LanAvailable` becomes live-only, Don's radio
+falls through to `LastSeenRemote` and behaves correctly **even with no preference
+set**. So the preference fix and the staleness fix each independently unstick
+him. Two different corrections converging on the same right answer is good
+evidence both are right.
+
+**This also feeds the connection-history work below.** Ten consecutive failed
+local attempts is exactly the signal that a cached LAN fact has gone stale — the
+history substrate makes the invalidation evidence-based rather than purely
+timer-based.
+
+**Regression test this deliberately.** Take a radio that the roster knows as
+local, make it unreachable on the LAN, and confirm the roster stops claiming it
+is local. That test does not exist today and would have caught this.
+
 ## The three suspected roots
 
 **Root A — a radio is classified before its WAN availability is ever learned.**
