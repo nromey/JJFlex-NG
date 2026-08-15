@@ -170,6 +170,97 @@ the preference and the path logic are two things that can disagree.
 Phase 1 owes: the persisted representation in `KnownRadioRoster.cs`, and a
 migration from the existing bool that does not lose anyone's setting.
 
+### The double Enter is authenticate-then-connect, not refresh-then-connect
+
+Noel, 2026-08-15, from connecting to Don's radio on 2026-08-14: *"I had to
+basically hit Enter twice — one time it'd authenticate with SmartLink, and the
+second time actually connected."*
+
+**This supersedes the symptom-3 reading elsewhere in this file**, which records
+the double Enter as a refresh followed by a connect. Direct observation beats
+inference. The defect is that the first Enter starts the SmartLink auth handshake
+and **returns without proceeding**, instead of awaiting it and continuing into
+the connect it was asked for.
+
+Different fix, too: await the auth and carry on, rather than folding a refresh
+into the first press.
+
+**Phase 1 must establish whether this is one defect or two.** A local radio
+plausibly double-Enters on the refresh path while a remote one double-Enters on
+the auth path. If both exist, fixing one and declaring the symptom closed is how
+the other survives to be rediscovered.
+
+### Per-radio connection history — one substrate, two offers
+
+Noel's idea, 2026-08-15, and it generalises further than he pitched it:
+
+> *"Keep track in JSON based on the radio. If connection's taken longer than
+> normal, or the system determines that you've connected remotely three times,
+> the user could be asked if they want to change to local or whatever. And once
+> Connect is a thing, if SmartLink is taking too long, or longer than normal,
+> then the operator could be invited to set Connect up, since that connection
+> process will be lightning fast by design."*
+
+**Both ideas are one mechanism.** They need exactly one thing the app does not
+keep today: per-radio connection history — which path was attempted, what
+happened, and how long it took. "You have connected remotely three times" and
+"SmartLink is slow for you, Connect would be faster" are two *policies* reading
+one substrate. Build the measurement once.
+
+It pays off in a third place nobody asked for: on 2026-08-14, answering "how long
+is Don's connect actually taking" required reading trace files. With this it is a
+stored fact, which makes it a support tool as much as a UX one.
+
+**What to record**, per radio, keyed by serial
+(`memory/project_per_radio_config_serial_keyed.md` is the precedent):
+attempted path, outcome, duration, timestamp. A short ring — the last ten
+attempts, not unbounded history. **Local JSON only, never phoned home**
+(`memory/project_no_silent_phone_home.md`); this is timing telemetry about the
+operator's own network and it stays on their machine.
+
+**Honest baselines.** "Longer than normal" needs a normal. The per-radio,
+per-path median is the honest one, and it means **no offer until there is enough
+history to have a median** — a first connect has no baseline and must not
+generate advice. Likewise the "three times" trigger should count *the chain not
+matching reality* three times, not three remote connects in general; a radio
+correctly preferring remote is not evidence of anything.
+
+**Always an offer, never an automatic change.** Settings are intents
+(`memory/project_settings_are_intents_not_commands.md`) — the app noticing a
+pattern does not license it to rewrite a choice the operator made. And offered
+never nagged: one clear offer, dismissible for good, per the shared Elmer rules
+in `docs/planning/vision/elmers.md`.
+
+**Not during the connect.** The moment an operator is waiting for their radio is
+the worst possible time for a dialog. The offer belongs after the connect
+completes, or in the selector next time — an open design question, not a
+decision.
+
+**The Connect invitation needs one extra rule, because it is the one suggestion
+that benefits us.** Offer it only from measured evidence that this operator's
+SmartLink path is genuinely slow — never as a blanket promotion, never on a
+first connect, once and dismissible forever. See
+`memory/project_jjflexible_connect.md` and
+`memory/project_friction_tax_principle.md`. Do not build the offer before Connect
+exists; **do** build the measurement now, since it is the same measurement the
+local/remote policy needs.
+
+### Help text owes an explanation of the delay
+
+Noel: *"We can put something in help to tell users that if there is an unwanted
+delay, they need to designate what is preferred."* Docs ship with features
+(`memory/feedback_docs_ship_with_features.md`). The keyboard-reference update
+this track already owes for the Alt+R removal is the same pass.
+
+### Scope call for Track A
+
+**In scope:** record the history. The connect path is already open in this track,
+already knows which path it took and whether it worked, and timing it is cheap.
+
+**Out of scope for this batch:** the offer UX, both policies, and anything
+Connect-shaped. Those have real open questions above and none of them block the
+roster fixes.
+
 ### Decisions still open for Phase 1
 
 - **What happens to `PathCombo`** (the "Remote via SmartLink" combo, referenced
