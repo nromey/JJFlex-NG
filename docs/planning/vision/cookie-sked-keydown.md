@@ -76,6 +76,58 @@ using the same identity from the ms-02, the laptop and elsewhere.
   any system. A passkey-only Connect without a designed, tested recovery path
   trades one lockout risk for another.
 
+#### The policy — Noel, 2026-08-15
+
+> *"We prefer passkey and 2FA, but if users want a password they must do 2FA,
+> similar to the other systems that have implemented passkeys."*
+
+**Passkey is the preferred path. A password is permitted but never alone — it
+carries mandatory second-factor.** There are no password-only Connect accounts.
+
+**One thing to pin down before building: a passkey is already two factors.** The
+ceremony binds something-you-have (the authenticator) to something-you-are or
+something-you-know (the biometric or PIN that unlocks it). The systems this rule
+is modelled on generally treat a successful passkey as *satisfying* MFA, not as a
+first factor needing an OTP stapled on — stacking a code on top of a passkey is
+friction with no security gain, and friction is the thing that pushes people back
+to passwords.
+
+So the rule is most likely meant as: **strong auth is mandatory, and the password
+path is the weak one that must be propped up.** Passkey users are done at the
+ceremony; password users must add a second factor. Confirm this reading before
+implementation rather than inferring it — it is the one line in a security design
+worth not guessing at.
+
+**The second factor's accessibility is load-bearing, not a detail.** The
+mechanisms differ enormously for a blind operator:
+
+- **TOTP via an authenticator** — tolerable, and the right default, because
+  1Password auto-fills it and Noel already runs 1Password
+  (`memory/user_1password_free_for_life.md`). Note the honest constraint anyway:
+  a 30-second window is a tight budget for finding, reading and typing a code by
+  screen reader without autofill.
+- **SMS** — poor. Requires leaving the app, reading a text on a phone, and
+  retyping under a timer. This is the same failure shape as the browser auth
+  form that hard-downed Don (`memory/project_smartlink_token_lineage.md`).
+- **A second passkey** — best, and worth offering explicitly.
+
+Whichever ship, they get verified end to end with NVDA by using them
+(`memory/feedback_accessibility_is_end_to_end.md`).
+
+**Mandatory 2FA raises the lockout stakes, so recovery codes stop being
+optional.** Issued at enrolment, presented as readable copyable text — never an
+image, never a screenshot-style panel — and tested by someone recovering an
+account for real. This compounds the recovery warning above: a locked-out
+operator cannot reach their own transmitter.
+
+**Why the bar is higher here than SmartLink's, and why that is correct.** Connect
+grants other people access to a transmitter operating under someone's licence.
+The control operator remains responsible for what leaves the antenna, so
+credential strength is closer to a legal concern than a preference. This is the
+same argument section 9 makes about bannable credentials cleaning up DMR:
+accountability requires that a credential actually identify a person, and a
+shared or guessable one identifies nobody.
+
 Not a near-term build. Recorded here so that when Connect's auth is designed, the
 default is a passkey rather than yet another password.
 
