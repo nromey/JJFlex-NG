@@ -36,6 +36,49 @@ that Connect never touches SmartLink. It is a parallel rendezvous and sharing
 layer that coexists with it. Worth remembering as a pattern: *correct advice
 about the wrong approach can kill the right one by association.*
 
+### 1b. Passkeys are Connect's natural credential — Noel, 2026-08-15
+
+> *"Connect may allow for a passkey (what I'd like), which will make the process
+> even better."*
+
+**Connect can do this and SmartLink cannot**, and the reason matters: passkeys on
+`frtest.auth0.com` are FlexRadio's tenant configuration, not ours, so it is not
+a thing we can choose there. **Connect is our service, so its authentication is
+our decision.** This is one of the concrete freedoms owning the rendezvous buys.
+
+**A passkey is structurally aligned with Connect's founding premise.** The
+non-goal list below already forbids "handing a guest SmartLink credentials for
+any reason," and Noel's standing constraint is blunter still — *"I also don't
+want to hand out my SmartSDR password and won't."* A password can always be read
+aloud to a friend; that is what makes the bad path so easy. **A passkey cannot
+be handed over at all.** The property that makes passkeys good security is
+exactly the property Connect needs: it removes the social path, not just the
+policy that discourages it.
+
+**It is also an accessibility win on its own terms.** No password to type, no MFA
+code to read out of a message, no browser form — the three places SmartLink
+sign-in has historically hurt blind operators
+(`memory/project_smartlink_token_lineage.md` records how badly that went for
+Don). Windows Hello and 1Password both act as passkey providers, and Noel already
+runs 1Password (`memory/user_1password_free_for_life.md`), which also solves
+using the same identity from the ms-02, the laptop and elsewhere.
+
+**Two things that must be designed, not assumed:**
+
+- **The WebAuthn ceremony surfaces a Windows system dialog**, and "it is a
+  platform dialog so it must be accessible" is precisely the assumption this
+  project does not get to make. Verify it end to end with NVDA by using it
+  (`memory/feedback_accessibility_is_end_to_end.md`). If the ceremony is not
+  reachable, the whole idea fails at its last inch.
+- **Recovery deserves more design than enrolment.** If the only credential lives
+  on one machine and that machine dies, the operator is locked out of their own
+  radio — and account-recovery flows are routinely the least accessible part of
+  any system. A passkey-only Connect without a designed, tested recovery path
+  trades one lockout risk for another.
+
+Not a near-term build. Recorded here so that when Connect's auth is designed, the
+default is a passkey rather than yet another password.
+
 ## 2. The model
 
 A **capability grant**: one resource, one grantee, one time window,

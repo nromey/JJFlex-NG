@@ -223,10 +223,28 @@ connect**; Phase 1 should look there before looking anywhere else.
 2. Token present → refresh it. Silent, no UI, ~250 ms.
 3. Attempt the connect.
 4. Connect fails **with an auth-shaped error** (401/403/token rejected) → one
-   refresh-and-retry; if that still fails on auth, native sign-in, then connect.
-5. Connect fails with anything else → **report the actual error and stop.**
+   refresh-and-retry.
+5. Still failing on auth → **walk to the next path in the chain before prompting
+   for anything.** Only when the chain is exhausted does the native sign-in
+   appear, followed by the connect.
+6. Connect fails with anything else → **report the actual error and stop.**
 
-**Step 5 is the guardrail and it is the whole point.** "If that doesn't work,
+**Step 5 is Noel's refinement, 2026-08-15:** *"A refresh may not always work, but
+it's not always necessary to enter the SmartLink password."* Correct, and the
+chain model gives it for free — "refresh failed" and "type your password" are not
+adjacent rungs, because another path may sit between them. Connecting locally is
+strictly better than making the operator type anything.
+
+The same rule produces three right answers:
+
+- The bench 8600 on `[Local, SmartLink]` never prompts, because it never needed
+  SmartLink in the first place.
+- Don's remote-only radio does prompt, because there is nowhere else to go. That
+  is correct, not a failure.
+- Force-remote is a one-entry chain, so it escalates immediately — which is what
+  a deliberate override should do.
+
+**Step 6 is the guardrail and it is the whole point.** "If that doesn't work,
 re-auth" must mean *if it fails because of auth*, never *if it fails*. A radio
 that is switched off, a router dropping inbound UDP, a busy radio — none of those
 are auth problems, and re-authing on them puts a sign-in form in front of an
