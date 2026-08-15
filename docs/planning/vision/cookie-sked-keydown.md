@@ -101,11 +101,14 @@ worth not guessing at.
 **The second factor's accessibility is load-bearing, not a detail.** The
 mechanisms differ enormously for a blind operator:
 
-- **TOTP via an authenticator** — tolerable, and the right default, because
-  1Password auto-fills it and Noel already runs 1Password
-  (`memory/user_1password_free_for_life.md`). Without autofill, 30 seconds is a
-  tight budget for finding, reading and typing a code by screen reader — see the
-  validation-window answer immediately below, which fixes this properly.
+- **TOTP via an authenticator** — the right default, and **less of an
+  accessibility burden than an earlier draft of this section implied.** Noel's
+  correction, 2026-08-15: *"we see that TOTP / auth app whatever all the time,
+  so we're used to that path."* Blind operators navigate authenticator flows
+  constantly; it is rehearsed, not novel. The real problem is **time pressure,
+  not unfamiliarity** — and the widened validation window below removes the time
+  pressure. 1Password autofills it besides
+  (`memory/user_1password_free_for_life.md`).
 - **SMS** — poor. Requires leaving the app, reading a text on a phone, and
   retyping under a timer. This is the same failure shape as the browser auth
   form that hard-downed Don (`memory/project_smartlink_token_lineage.md`).
@@ -155,6 +158,50 @@ Two consequences of a wide window worth building in from the start:
 
 If Connect's identity layer ends up on a managed provider, all of this is a
 configuration setting rather than code. Confirm which before designing around it.
+
+##### The no-authenticator path: email to the address on file
+
+Noel, 2026-08-15: *"We'll have to add a path in case someone doesn't have an app,
+possibly emailing the registered FCC email as we will be keeping that as well."*
+
+Right, and **this channel has a second job it was not asked to do.** Sending a
+code to the address on file for a callsign is not only a second factor —
+controlling that address is *evidence the person is the licensee*. So one
+mechanism serves both the 2FA fallback and the licensee-verification problem
+section 9 already wrestles with (ULS and the FRN, LoTW's postcard, BrandMeister's
+bannable credentials). Worth designing them together rather than twice.
+
+It also raises the cost of throwaway accounts, which is the accountability
+argument this document already makes: a credential that identifies nobody is not
+bannable in any meaningful sense.
+
+**The design lines that matter:**
+
+- **Send to the address captured and verified at registration, never to one
+  looked up live in ULS at login.** A live lookup puts the FCC's database in the
+  authentication path — an outage or a stale record locks an operator out of
+  their own transmitter, and the query pattern leaks who is signing in and when.
+  Capture once, verify once, store it.
+- **Whether ULS exposes licensee email at all, and under what terms, is an open
+  question — verify it rather than assuming.** The registration-time capture
+  design above does not depend on the answer, which is a good reason to prefer
+  it.
+- **Email is the weakest of the three factors** and should be understood as such:
+  a compromised mailbox is a compromised account. It is still far better than no
+  second factor, and it is the standard fallback, but it sets the account's real
+  security floor.
+- **Do not let it silently downgrade everyone.** If "email me a code instead" is
+  permanently offered on the sign-in screen, every account's floor is email
+  regardless of what else is enrolled. Make it a deliberately enrolled fallback
+  rather than an always-visible escape hatch, or accept the downgrade knowingly
+  and write down that we did.
+- **Longer expiry, and burn on use.** Mail can take minutes to arrive, so a
+  ten-to-fifteen minute code is normal here. That is *better* for accessibility
+  than a rolling timer — no countdown at all — which reinforces the point that
+  time pressure rather than mechanism is what hurts.
+- **The FCC address may not be the operator's working address.** Plenty of hams
+  have a stale one on file. Offer it, verify it, and let them nominate a
+  different one — do not assume the ULS address is reachable.
 
 **Mandatory 2FA raises the lockout stakes, so recovery codes stop being
 optional.** Issued at enrolment, presented as readable copyable text — never an
