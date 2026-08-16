@@ -321,6 +321,42 @@ stage as audio, time-aligned, and subtracted. The radio gives levels, not
 per-stage audio. Reachable in principle via IQ minus slice audio; not worth an IQ
 channel and the alignment work when the measurement answers the real question.
 
+#### OUR DSP is better instrumented than the radio's — Noel, 2026-08-16
+
+**An asymmetry worth building on.** For the radio's DSP we receive *levels* and
+nothing else, so a stage's effect can only be measured. **For our own DSP — RNN
+noise reduction, spectral subtraction, anything running on the PC — we own the
+audio at both ends**, so the residual is a subtraction:
+
+    removed = input − output
+
+Play that to a monitor and **you can literally listen to what the noise reduction
+took out.** Impossible for the radio's noise blanker; trivial for ours.
+
+**This is the standard check in audio engineering, and it answers the question
+that actually matters.** Noise reduction that is eating your voice sounds
+"processed" but offers no way to tell what it took — and listening to the
+*output* can never tell you, because the missing parts are not there to hear.
+Listen to the **residual** and it is immediate: **hear speech in what was
+removed, and it is over-reducing.**
+
+Particularly valuable for a blind operator, who cannot glance at a spectrogram
+showing the notch carved out of their voice — but can hear the carving.
+
+**It also confirms the pathway is live.** Noel: add it to the transmit verbiage
+*"to make sure that we know that that pathway's working."* Same lesson as never
+streaming TX audio into a closed gate — **processing that is enabled but silently
+bypassed sounds exactly like processing that is on and gentle.** Both give a
+clean signal and no information.
+
+**The residual distinguishes them instantly: bypassed produces silence in the
+residual.** Not quiet — nothing. An unambiguous self-evident test needing no
+reference and no calibration, usable on transmit while operating.
+
+Relates to `memory/project_dsp_controls_design.md` (engine complete, UI is the
+gap) and the model-pack work — a residual monitor is also how an operator would
+judge one downloaded model against another.
+
 #### Two instruments, two jobs
 
 **Tones — continuous, while operating.** Two voices, one per stage, and **the
