@@ -703,6 +703,27 @@ which is faster than speech and survives speech being busy or cut off.
 already documents per-category earcon controls that were never built. H is
 "build what the help already promises, and make every toggle use it."
 
+**Toggle sounds are their own VERBOSITY CATEGORY, not a global on/off** (Noel,
+2026-08-16): *"We can always add a verbosity setting to disable this category of
+tones like we do with other tones."* So H needs no new settings machinery — it
+needs to *be* one of the categories that machinery was designed for
+(`memory/project_verbosity_architecture_proposal.md`).
+
+The payoff is granularity someone will actually use: keep meter tones and the
+connect earcon while silencing toggle dings during a long settings session, then
+turn them back on. A global mute cannot express that — and a global mute is what
+people reach for when the alternative is suffering.
+
+**It is also a test of whether the earcon framework is real.** If registering
+"toggle sounds" as a category is one line, the framework works. If it needs
+plumbing, the framework was notional, and finding that out at the first category
+is much cheaper than at the fourth.
+
+**Current state to fix, per Noel at the bench:** the ding exists in places but is
+**not applied system-wide** — Settings and the Audio Workshop are inconsistent —
+and where it does fire it is one sound for both states, so it carries no
+information at all.
+
 **Dependency to settle: H needs tones, and D2 is building a tone engine.** Either
 H waits and defines its ding pair as two voices in D2's model, or we ship two
 synthesis paths that drift apart — the same mistake caught four times this week.

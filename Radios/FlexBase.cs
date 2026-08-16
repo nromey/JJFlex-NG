@@ -6880,6 +6880,7 @@ namespace Radios
         {
             _MicData = data;
             hookTxMeters(); // lazy: SC_MIC / SW ALC meters exist by the first mic-meter event
+            traceMeterInventory(); // cheap no-op unless the meter count has changed
             Tracing.TraceLine("micData:" + data.ToString(), TraceLevel.Verbose);
             MeterChanged?.Invoke(this, MeterType.Mic, data);
         }
@@ -6950,7 +6951,7 @@ namespace Radios
         public float SwAlcDb => _swAlcDb;
         /// <summary>Reset the SC_MIC peak-hold. Call at transmit start.</summary>
         public void ResetScMicMax() => _scMicMaxDb = -150f;
-        private bool _meterInventoryTraced;
+        private int _meterInventoryCount = -1;
 
         /// <summary>
         /// Trace the meter inventory the radio reports about itself, once per
@@ -6974,8 +6975,7 @@ namespace Radios
         /// </summary>
         private void traceMeterInventory()
         {
-            if (_meterInventoryTraced || theRadio == null) return;
-            _meterInventoryTraced = true;
+            if (theRadio == null) return;
             try
             {
                 var field = theRadio.GetType().GetField("_meters",
@@ -6983,11 +6983,22 @@ namespace Radios
                     System.Reflection.BindingFlags.Instance);
                 if (field?.GetValue(theRadio) is not IEnumerable raw)
                 {
-                    Tracing.TraceLine(
-                        "meterInventory: cannot reach FlexLib's meter list — layout changed?",
-                        TraceLevel.Warning);
+                    if (_meterInventoryCount == -1)
+                        Tracing.TraceLine(
+                            "meterInventory: cannot reach FlexLib's meter list — layout changed?",
+                            TraceLevel.Warning);
+                    _meterInventoryCount = 0;
                     return;
                 }
+
+                // Re-log whenever the set CHANGES, not once. The first version of
+                // this fired a single time off the first mic-meter event, which
+                // turned out to snapshot the radio mid-registration: eleven
+                // meters, with the TX-side ones still to arrive. A truncated
+                // census is worse than none, because the meters subsystem is
+                // being designed against exactly this list. O(1) count check, so
+                // calling it from micData costs nothing on the common path.
+                if (raw is ICollection col && col.Count == _meterInventoryCount) return;
 
                 int n = 0;
                 // FlexLib guards this list with `lock (_meters)`, i.e. it locks
@@ -7006,6 +7017,7 @@ namespace Radios
                             + " units=" + m.Units, TraceLevel.Info);
                     }
                 }
+                _meterInventoryCount = n;
                 Tracing.TraceLine("meterInventory: " + n + " meters reported", TraceLevel.Info);
             }
             catch (Exception ex)
@@ -7026,9 +7038,45 @@ namespace Radios
                 if (d > _scMicMaxDb) _scMicMaxDb = d;
                 int now = System.Environment.TickCount;
                 if (d >= _scMicRecentDb || (now - _scMicRecentTime) > 1500) { _scMicRecentDb = d; _scMicRecentTime = now; }
+                traceTxMeters();
             };
-            if (alc != null) alc.DataReady += (m, d) => _swAlcDb = d;
+            if (alc != null) alc.DataReady += (m, d) => { _swAlcDb = d; traceTxMeters(); };
             if (sc != null && alc != null) _txMetersHooked = true;
+
+            // Say plainly which of the two we actually found. On a FLEX-8600 the
+            // radio's meter list carries MIC, MICPEAK and HWALC — a plain "ALC"
+            // may not be there at all, in which case SwAlcDb never moves and the
+            // "TX drive (ALC)" readout shows a number that will never change,
+            // silently. Whichever way it goes, the trace should not make anyone
+            // guess.
+            Tracing.TraceLine("hookTxMeters: SC_MIC " + (sc != null ? "found" : "NOT FOUND")
+                + ", ALC " + (alc != null ? "found" : "NOT FOUND"), TraceLevel.Info);
+        }
+
+        private int _txMeterTraceTime;
+
+        /// <summary>
+        /// A correlated SC_MIC / SW ALC / forward-power snapshot, at most once a
+        /// second while transmitting.
+        /// <para>Both handlers stored their value and traced nothing, so with PC
+        /// audio running there was no way to tell from a trace whether the radio
+        /// was seeing any transmit drive at all — a blind spot that cost a
+        /// debugging session. Correlated on purpose: the three together say
+        /// whether audio is arriving AND whether it is turning into RF.</para>
+        /// <para>Throttled deliberately. These fire at meter rate, and an
+        /// unthrottled TraceLine here would recreate precisely the flood being
+        /// fixed in startOpusInputChannel.</para>
+        /// </summary>
+        private void traceTxMeters()
+        {
+            if (!Transmit) return;
+            int now = System.Environment.TickCount;
+            if ((now - _txMeterTraceTime) < 1000) return;
+            _txMeterTraceTime = now;
+            Tracing.TraceLine("txMeters: SC_MIC=" + _scMicDb.ToString("F1")
+                + " (peak " + _scMicMaxDb.ToString("F1") + ")"
+                + " SWALC=" + _swAlcDb.ToString("F1")
+                + " fwd=" + _PowerDBM.ToString("F1") + " dBm", TraceLevel.Info);
         }
 
         // --- PC-side transmit loudness, LUFS (Engine Track, 2026-08-11) ------
