@@ -405,6 +405,50 @@ This is affordable precisely because Connect is additive and off by default —
 SmartLink still works for the owner, so an outage degrades to "cannot host guests
 tonight," never "cannot use my radio."
 
+### 3a. Guest audio settings, and restoring the owner's — Noel, 2026-08-16
+
+**The problem.** A guest's voice and microphone are not the owner's. On a poor
+input — a laptop's built-in array, quiet and thin — **no amount of PC-side
+conditioning substitutes for changing the radio's mic gain and EQ**, because the
+owner's compander settings were tuned for a different signal entirely. So "never
+touch the host's TX chain" is the safe *default*, not the only mode.
+
+**Snapshot-and-restore-at-session-end is the obvious design and it is wrong.** It
+works until a session ends badly — a crash, a dropped link, a closed lid — and
+then restoration never runs and the owner's radio silently carries a stranger's
+transmit settings with no record of what it held before. **A design whose failure
+mode is silently reconfiguring someone else's transmitter cannot ship.**
+
+**Noel's answer, and it is better than inferring from the radio: Connect holds
+the owner's baseline.** The correct settings become **a property of the grant
+relationship**, stored server-side — so the guest's machine can die mid-session
+and the owner's next connect still restores cleanly, because restoration never
+depended on the session ending properly.
+
+**Rules that follow:**
+
+- **Capture the baseline deliberately, never opportunistically.** At grant setup,
+  and again only when the owner explicitly says *"this is my new normal."*
+  Capturing whatever is on the radio at an arbitrary moment lets a bad session
+  poison the baseline — the original bug wearing a hat.
+- **Every session starts FROM the baseline, not from what is currently loaded.**
+  Otherwise guest B inherits guest A's settings and nobody can say where a value
+  came from. Connect holding the baseline gives this free.
+- **Restore automatically, but say so** — *"restoring your settings after a guest
+  session."* Making an owner approve the restoration of their own settings is
+  friction; changing their radio silently is the same sin from the other side.
+- **When the grant does include TX-chain control, CREATE a profile
+  (`profile mic create`), never modify the owner's.** The failure mode collapses
+  from "your settings are gone" to "your profile is intact, just not selected."
+- **Read the owner's profiles freely; write only under explicit grant.** Knowing
+  what exists and what is selected costs nothing and risks nothing.
+- **Session report the owner can read:** *"this session created and selected
+  'connect-guest'; your 'Everyday' profile was not modified."*
+
+**Note what the Flex profile does NOT hold**, and therefore what the guest must
+carry regardless: the capture device, Windows input level and boost, the noise
+gate, and our noise reduction. The host's radio has never heard of any of them.
+
 ### Breakage checklist
 
 None of these look like security decisions at the time:
