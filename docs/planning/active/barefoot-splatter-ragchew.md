@@ -307,12 +307,30 @@ scanners."*
 **The scanner framing is the right one to design from** — every ham already knows
 what priority scan does, so the feature needs almost no explaining.
 
-**The architectural question that decides whether it is cheap or expensive: does
-a watcher consume a slice?** Parking a slice on 14.300 is simple, but a 6300 has
-two slices total, so one watcher halves the receiver count. **Deriving it from
-spectrum data costs no slice and scales to several watchers** — the difference
-between a feature people use and one they switch off. Decide this before
-building.
+**The resource is the SPAN, not the watcher — settled 2026-08-16.**
+
+Two corrections to earlier reasoning on this page. **DAX IQ is not 16 channels**
+— `ModelInfo.cs` declares `MaxDaxIqChannels` as **2 on smaller models and 4 on
+larger ones**. (DAX *audio* channels are plentiful; DAX *IQ* is scarce — easy to
+conflate.) And **the panadapter limit is not artificial or hardcoded**:
+`MaxPanadapters` arrives in the discovery packet as `max_panadapters`, so the
+radio declares its own and we simply read it.
+
+So IQ is *more* constrained than panadapters, not less. But Noel's underlying
+point survives and sharpens the design:
+
+**Spectrum is going to be flowing anyway for recording. A watcher inside an
+existing span therefore costs nothing — it is reading bins we already have. The
+scarce resource is consumed per SPAN, not per watcher.**
+
+- Watch three frequencies inside the same 200 kHz: no additional cost.
+- Watch one frequency outside every existing span: claims a panadapter or an IQ
+  channel.
+
+**Actionable consequence: the UI must say when a new watch frequency falls
+outside what is already streaming**, because that is the moment it starts costing
+a scarce resource. Silently claiming the last panadapter is the kind of thing an
+operator discovers much later, in a worse mood.
 
 **Three things that separate a good watcher from an irritating one**, all long
 since learned by scanner designers:
@@ -701,11 +719,49 @@ leader layer). Both need the full checklist including pressing the key.
 
 ---
 
-## Open questions
+## Open questions — all four answered 2026-08-16
 
-- **May two meters share a source?** Changes D2's data model.
-- **Does the readout list and the tone-slot list become one list?** Decides
-  whether D is a fix or a subsystem.
-- **Where does ACC/BAL enumeration execute** — B or E?
-- **Does the live tone tweak fork a voice or edit it in place?** D2 must leave
-  room either way.
+**1. May two meters share a source? — YES.** The coarse/fine case is real. See
+the meter model section above.
+
+**2. One list or two? — ONE**, with the eight as a recommended starter set rather
+than undeletable built-ins. See the meter model section above.
+
+**3. Where does ACC/BAL enumeration execute? — TRACK E.** Noel: *"I don't care
+really, as long as it gets coded/audited."* **So it is written down as E's, on
+E's test list, with a named owner** — an item that could sit in either track is
+exactly the one that ends up in neither.
+
+**4. Does the live tone tweak fork or replace? — NEITHER UP FRONT. Live preview,
+decide on exit.**
+
+Noel: *"I can see forking, but what if you want to delete the original and keep
+the fork? When we're playing, why not just specify it — either create a copy and
+edit, or replace?"* Right instinct, and there is a version with no friction at
+all:
+
+While in tone tweak the change is **audible immediately but uncommitted**. On
+leaving, one prompt: **keep as a copy, replace the original, or discard.**
+
+- Handles the delete-the-original case — that is simply "replace."
+- Avoids putting the decision *before* you know whether you like the result, and
+  at the worst possible moment, mid-adjustment on the air.
+- **Adds the option neither fork-nor-replace had: discard** — which is the most
+  likely outcome of any given fiddle, and under either of the other two you would
+  have been left cleaning up a variant you never wanted.
+
+---
+
+## New — the meter list is not observable, and D needs it
+
+`Radio.GetMeterListReply` parses the reply and traces nothing
+(`FlexLib_API/FlexLib/Radio.cs`). **So the inventory D2 and D3 are being designed
+against cannot currently be seen.** We know the radio reports its meters; we do
+not know what an 8600 actually reports — how many, what names, what units, what
+the per-slice ones look like.
+
+**This is a Track B item on its own terms** — telemetry that should exist and
+does not — and it happens to unblock D's design. A trace line at connect turns an
+architectural assumption into a concrete list to design against.
+
+Small, and worth doing before D2 settles its data model.
