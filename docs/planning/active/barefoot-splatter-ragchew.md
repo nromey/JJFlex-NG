@@ -272,6 +272,99 @@ REM ON with no radio present; edit forwarding ports, press OK, reopen.
 stops" and became a subsystem, because the investigation found there is no meter
 management anywhere.
 
+### THE FINDING THAT REFRAMES THIS TRACK — the radio instruments its whole chain
+
+**Measured 2026-08-16.** The 8600 reports **102 meters** (37 distinct names across
+four source types). They are not a grab-bag: **they are a signal-strength probe at
+every stage of both signal chains.**
+
+**Transmit, in signal-flow order** — `SC_MIC` at the microphone, `CODEC`,
+`SC_FILT_1`, `SC_FILT_2`, `AFTEREQ` after the EQ, `TX_AGC`, `RM_TX_AGC`,
+`COMPPEAK` just before the clipper, `ALC` after software ALC, `B4RAMP` and
+`AFRAMP` either side of the ramp, `POST_P` after all processing but before power
+attenuation, `ATTN_FPGA`, then `FWDPWR` / `REFPWR` / `SWR`.
+
+**Receive, per slice** — `24kHz` broadband, `ESC`, `OSC`, `NB`, `TNF`, `ANF`,
+`NR`, `AGC`, `SQUELCH`, `LEVEL` in the passband, plus `AFMDemod` /
+`AFMDemodFilt` for FM.
+
+**This is the honest-TX-audio question answered at nineteen points by the radio
+itself**, and it has been available the whole time.
+
+**It directly closes a complaint from 2026-08-13** — Noel: *"listening to TX
+Monitor I can't really hear a difference with processing vs. no processing."* He
+could not hear it. `COMPPEAK` against `POST_P` **measures** it.
+
+**And the receive side makes DSP perceivable without sight**, which is the larger
+claim: you can measure what the noise blanker actually removed, what the notch
+filter took, what noise reduction is doing right now. A sighted operator infers
+that from a waterfall changing shape. This is the same information and needs no
+waterfall at all.
+
+#### What a meter can and cannot do here
+
+Noel asked the right question: *"we can't actually listen to what it takes out
+but we can watch the needle jump?"*
+
+**Correct — and it is not one needle, it is a subtraction.** A single "after NB"
+reading tells you almost nothing, because it also rises when the band gets
+busier. What isolates the stage is **the gap between the stage before and the
+stage after**. Equal readings mean the stage is doing nothing, and neither meter
+alone would ever tell you that.
+
+**So the genuinely interesting meter is DERIVED** — value = stage A minus stage B
+— which is the third meter category this plan already carries. "NB effectiveness"
+becomes a nameable, tonable meter for very little code.
+
+**Actually hearing the removed audio** would need the signal before and after the
+stage as audio, time-aligned, and subtracted. The radio gives levels, not
+per-stage audio. Reachable in principle via IQ minus slice audio; not worth an IQ
+channel and the alignment work when the measurement answers the real question.
+
+#### Two instruments, two jobs
+
+**Tones — continuous, while operating.** Two voices, one per stage, and **the
+interval between them is the effect**: they spread as the stage works harder and
+converge to a unison when it does nothing. Toggling a stage on and off also works
+but stops you operating and compares against a second-old memory.
+
+**Analysis — considered, on demand.** Noel's proposal: *"click a button, have it
+sample readings and then analyze it."* Samples the chain over a window, then
+explains it in words.
+
+- **Needs a WINDOW, not an instant.** One reading of a noise blanker is
+  meaningless — impulse noise is intermittent. Same shape as the microphone
+  check's capture window.
+- **Report the delta, not the level.** "NB took 15 dB", not "NB output is −75".
+- **The most valuable output is "this stage is doing nothing."** *"Your notch
+  filter is on and removed nothing"* is actionable; a number is not. Same at the
+  other end — *"AGC is compressing 30 dB, which usually means RF gain is too
+  high."*
+- **The TX chain gets the identical button**, and that is the one answering the
+  compander question directly.
+- Plain words in the main line, figures behind the escape hatch — same rule as
+  the level verdicts.
+- **A natural Elmer step** — "let me explain your receive chain" is exactly what
+  an Elmer does.
+
+#### The dependency that gates the analysis
+
+**The chain ORDER is not documented anywhere found so far.** The stage names are
+known; that `NB` precedes `TNF` is not. Tones do not care — pick any two and
+listen to the interval. **Analysis does care**, because pairing the wrong two
+produces a confident report that the noise blanker *added* 12 dB, and confident
+nonsense is worse than no feature.
+
+**Bench protocol to settle it, and it is small:** enable one stage at a time and
+observe which meters move. Or find it in FlexRadio's documentation.
+
+#### The picker consequence
+
+**102 meters cannot be a flat list.** Grouping by source (TX chain, slice N,
+radio, codec) is mandatory, and **within the TX chain the order must be
+signal-flow, not alphabetical** — presenting `AFRAMP` before `B4RAMP` because A
+sorts first would actively mislead.
+
 ### What actually exists today
 
 **Two separate systems that do not correspond to each other:**
