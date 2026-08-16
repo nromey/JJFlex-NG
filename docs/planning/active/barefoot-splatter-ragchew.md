@@ -1130,6 +1130,38 @@ priority argument against real work, every time, forever.
 
 ---
 
+## Model per track
+
+Assigned on one question: **how expensive is a wrong decision to unwind?**
+
+**Opus — architectural risk, where a bad call is costly later:**
+
+- **A, roster and connect.** 2,668 lines, four roots, a state machine to write
+  before any diff, and semantic subtleties git cannot see.
+- **D2, the voice engine and meter model.** The risky one. It gates D3, H and the
+  waterfall, and "voices are data not an enum" is exactly the decision that is
+  free now and a rewrite later.
+- **I, transmit conditioning.** The gate itself is simple DSP; the architecture
+  is not — the processor hook, whether the NR engine is reusable, and the profile
+  integration with F.
+
+**Sonnet — well-specified implementation with real judgement:**
+
+- **B** telemetry honesty · **C** settings convention and the cascade ·
+  **D1** readout navigability (small, but accessibility correctness matters more
+  than size) · **D3** management UI and the leader layer · **E** device and rate
+  policy · **F** presets and the profile model · **G** the About page ·
+  **H** the earcon audit · **the small-fixes sweep**.
+
+**Not assigned to Haiku.** The sweep looks mechanical but is mixed — the
+`testtone.armed` leak and the installer file list are, while "the tracing dialog
+is confusing" is a design task. Splitting the sweep by difficulty costs more
+coordination than it saves.
+
+**Every track inherits the same standing instruction** regardless of model:
+*reuse the symbols you find; if you conclude one should move or change signature,
+report it rather than doing it.*
+
 ## Run order
 
 **Start together:** B, C, D1, D2, E, F, G, I, and the small-fixes sweep. **D2 early on purpose** — it gates D3

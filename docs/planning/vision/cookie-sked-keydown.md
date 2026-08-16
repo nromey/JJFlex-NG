@@ -449,6 +449,41 @@ depended on the session ending properly.
 carry regardless: the capture device, Windows input level and boost, the noise
 gate, and our noise reduction. The host's radio has never heard of any of them.
 
+#### Three sources of profile truth, answering three different questions
+
+Noel raised the layering, and it is worth stating precisely because a
+well-meaning refactor will otherwise collapse these into one and break all three.
+
+- **The radio's profiles** answer *"what is this radio doing right now."* Live
+  state.
+- **Connect's baseline** answers *"what should this radio return to."* A
+  **deliberate snapshot, not a live mirror** — and that distinction is the entire
+  reason it survives a session that ends badly.
+- **Local profile data** answers *"what does this microphone need."* Portable
+  across radios, which is the layer Flex's model has no concept of at all.
+
+**Not duplication — three different facts that happen to describe overlapping
+settings.** They only become three disagreeing copies if they are synced
+opportunistically.
+
+**Loading the baseline from the radio is a good convenience with one trap:** it
+*is* opportunistic capture unless it is an explicit act. So it is a button the
+owner presses, reporting what it took — *"baseline set from your current
+settings: profile 'Everyday', mic gain 38, processor on."*
+
+**Capturing Flex's FACTORY profiles is worth doing and is free of the sync
+problem**, being static reference data. It buys three things: restore-to-factory
+without the radio still holding them intact, a sane starting point for someone
+who has never configured audio, and **a diff** — *"your profile differs from
+factory in these three ways"* is a real diagnostic and exactly the shape of
+finding that feeds an Elmer. It ships as pure data through the Data Provider
+alongside noise profiles and voice packs.
+
+**Connect is ADDITIVE, never required.** Operating a radio directly uses local
+profiles plus the radio's own, with no internet and no service in the path.
+Connect adds baseline-and-restore on top when it is in play. The audio system
+must never acquire a dependency on a service being reachable.
+
 ### Breakage checklist
 
 None of these look like security decisions at the time:
