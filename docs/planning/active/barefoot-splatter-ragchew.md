@@ -332,6 +332,39 @@ outside what is already streaming**, because that is the moment it starts costin
 a scarce resource. Silently claiming the last panadapter is the kind of thing an
 operator discovers much later, in a worse mood.
 
+**RESEARCHED 2026-08-16 — see `docs/planning/active/priority-watch-research.md`.**
+The span hypothesis above is now **verified in code, not assumed**:
+`Panadapter.DataReady` and `Waterfall.DataReady` are multicast events handing
+every subscriber the whole frame, so N watchers inside one span cost what one
+costs. Three findings change the design:
+
+- **DAX IQ is NOT the escape hatch — it rides ON a panadapter.** `Radio.cs:5511`
+  carries the vendor's own comment `stream create type=dax_iq pan=<panadapter>
+  rate=<rate>`, and `DAXIQStream` holds a `Panadapter Pan` populated from it. So
+  IQ costs a panadapter **plus** one of the 2–4 IQ channels, at 1.5 Mbit/s
+  minimum. **Independently verified. Take IQ off the options list.**
+- **The only span the app manages follows the operator's tuning.**
+  `PanAdapterManager` re-centres `ActiveSlice.Panadapter` on QSY, so **a borrowed
+  span silently stops watching the moment you tune away** — precisely the failure
+  the feature exists to prevent. A watch must own a span until some other feature
+  provides a stable one.
+- **Probable standing bandwidth leak, worth fixing regardless of this feature:**
+  `FlexBase.cs:6769` sets `pan.Width = 5000` on every panadapter we own, so extra
+  slices' panadapters stream large frames to zero subscribers. **Independently
+  verified.** Candidate for Track B.
+
+**One honest unknown**, flagged in the research rather than papered over: what the
+`ushort` FFT bin values actually mean. The design consequence that survives
+either answer, and should be adopted regardless — **express thresholds in dB
+above a tracked noise floor, never in absolute dBm**, because `RFGain`, `RXAnt`
+and the wideband noise blanker all move the absolute level, and band noise moves
+tens of dB between morning and a thunderstorm.
+
+Also surfaced: `docs/help/md/panadapter-visibility.md` tells users the app is
+"still receiving all of the IQ data." It is not — it receives radio-computed FFT
+frames and waterfall tiles, and never opens an IQ stream. Description drift, and
+a candidate for whichever track owns help corrections.
+
 **Three things that separate a good watcher from an irritating one**, all long
 since learned by scanner designers:
 
