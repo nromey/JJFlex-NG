@@ -448,8 +448,50 @@ versus into the radio removes the capsule as a variable, so a difference heard i
 genuinely the path. First time this arc has had that
 (`memory/project_audio_arc_test_microphones.md`).
 
-**Testable:** the Realtek at 44.1 kHz, a genuinely mono device, a 24 kHz
-transmit.
+### Confirmed at the bench 2026-08-16, before the track started
+
+**There is no Realtek** on either machine — the ms-02 has generic HD Audio, the
+EVO8, VAC and an NVIDIA device; the laptop has an Intel Smart Sound array.
+"Realtek" was shorthand and it sent an earlier plan hunting for the wrong thing.
+**The requirement is a device Windows holds at a non-Opus rate, not a brand.**
+
+**Nothing on the ms-02 runs at 44.1 kHz** — every capture endpoint is 48 or 96
+(read from the MMDevices registry). So that test case must be *created* rather
+than found.
+
+**96 kHz is the better trigger than 44.1, and the EVO8 already does it.** Opus
+supports 8, 12, 16, 24 and 48 kHz — 96 is as unsupported as 44.1, exercises the
+same negotiation path, and for anyone with a real interface is the *more likely*
+real-world case. Setting it from the EVO8's own control panel beats fighting the
+Windows default-format dropdown.
+
+**The rate proof is radio-gated.** Negotiation runs on the Opus TX path, not on
+the Microphone Check (which uses `MicProbe`, a separate opener). So this rides
+with a bench session rather than being a standalone errand.
+
+**Mono confirmed from the operator's seat.** The EVO8 exposes genuine 1-channel
+endpoints — Mic | Line 2, 3, 4, Instrument 1, and both single Loop-backs. Noel
+selected one: the row reads *"...: not usable yet"* and selection is refused with
+*"it needs a stereo device."*
+
+**Two consequences:**
+
+- **Two refusal messages, in two different words, neither giving a reason.** The
+  row tag in `Devices.cs` appends `" — mono, not usable yet"`; selection-time
+  emits a separate "needs a stereo device." Noel heard the row without the word
+  *mono* at all. One limitation, two vocabularies, no explanation — a case for
+  #65.
+- **Priority up.** Noel's available workaround is to gang two EVO inputs and pan
+  both to centre — doing *in hardware, with the interface's own routing
+  software*, exactly what the fix does in a few lines. That works because he owns
+  a multi-channel interface. **Someone with a single mono USB headset mic has no
+  workaround at all**; for them the app simply cannot use their microphone. Same
+  shape as the note already in `Devices.cs` about hiding by channel count making
+  a laptop's only real microphone unselectable — mono devices are frequently
+  somebody's *only* microphone.
+
+**Testable:** a genuinely mono device (EVO8 mono endpoints, already to hand), the
+EVO8 at 96 kHz on the TX path, and a 24 kHz transmit.
 
 ---
 
