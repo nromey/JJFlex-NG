@@ -6950,9 +6950,74 @@ namespace Radios
         public float SwAlcDb => _swAlcDb;
         /// <summary>Reset the SC_MIC peak-hold. Call at transmit start.</summary>
         public void ResetScMicMax() => _scMicMaxDb = -150f;
+        private bool _meterInventoryTraced;
+
+        /// <summary>
+        /// Trace the meter inventory the radio reports about itself, once per
+        /// connect.
+        /// <para>The radio is asked for this already — <c>Radio.GetMeterList</c>
+        /// sends a literal "meter list" command — but the reply handler parses
+        /// the answer and traces nothing, so what a given radio actually offers
+        /// has never been observable from a trace. That became a real gap on
+        /// 2026-08-16: the meters subsystem is being designed against the eight
+        /// readings on the Live Meters tab, and those eight are a hand-picked
+        /// hardcoded subset. What an 8600 running four slices reports — how
+        /// many, under what names, in what units, and which are per-slice — is
+        /// simply unknown.</para>
+        /// <para>Reflection, deliberately, and only here. FlexLib exposes
+        /// <c>FindMeterByName</c> publicly but keeps the list itself private, so
+        /// there is no supported way to enumerate. Editing vendor FlexLib is the
+        /// worse option: every edit has to be re-applied by hand on each upgrade
+        /// (see MIGRATION.md). Treat this as scaffolding — a meter picker that
+        /// offers what the radio really has needs a proper accessor, and that is
+        /// a documented FlexLib patch rather than this.</para>
+        /// </summary>
+        private void traceMeterInventory()
+        {
+            if (_meterInventoryTraced || theRadio == null) return;
+            _meterInventoryTraced = true;
+            try
+            {
+                var field = theRadio.GetType().GetField("_meters",
+                    System.Reflection.BindingFlags.NonPublic |
+                    System.Reflection.BindingFlags.Instance);
+                if (field?.GetValue(theRadio) is not IEnumerable raw)
+                {
+                    Tracing.TraceLine(
+                        "meterInventory: cannot reach FlexLib's meter list — layout changed?",
+                        TraceLevel.Warning);
+                    return;
+                }
+
+                int n = 0;
+                // FlexLib guards this list with `lock (_meters)`, i.e. it locks
+                // the instance itself — so locking the same reference is the
+                // real handshake rather than a hopeful one.
+                lock (raw)
+                {
+                    foreach (var o in raw)
+                    {
+                        if (o is not Meter m) continue;
+                        n++;
+                        Tracing.TraceLine("meterInventory: [" + m.Index + "] " + m.Name
+                            + " \"" + m.Description + "\""
+                            + " src=" + m.Source + ":" + m.SourceIndex
+                            + " range=" + m.Low + ".." + m.High
+                            + " units=" + m.Units, TraceLevel.Info);
+                    }
+                }
+                Tracing.TraceLine("meterInventory: " + n + " meters reported", TraceLevel.Info);
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("meterInventory: " + ex.Message, TraceLevel.Warning);
+            }
+        }
+
         private void hookTxMeters()
         {
             if (_txMetersHooked || theRadio == null) return;
+            traceMeterInventory();
             var sc = theRadio.FindMeterByName("SC_MIC");
             var alc = theRadio.FindMeterByName("ALC");
             if (sc != null) sc.DataReady += (m, d) =>
