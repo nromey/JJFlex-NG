@@ -923,6 +923,57 @@ is OFF announces the raw string `testtone.armed` — a resource key leaking into
 speech, with one branch holding a real string and the other the key. Fix the
 wording at the same time: on/off or armed/disarmed, consistently, not mixed.
 
+## Track I — transmit audio conditioning (added 2026-08-16)
+
+Noel: *"I was hoping to add TX noise reduction, noise gate, Patrick's podcast type
+gate. This is pretty important."*
+
+**Smaller than "build TX DSP", because most of the hard parts already exist.**
+
+- **The insertion point is built.** `AudioStream` exposes `InputToneSource` (the
+  tone generator injecting into the transmit callback) and `InputLufsMeter`
+  (measuring what is actually encoded). The callback is already structured for
+  things to sit in it — one injects, one observes. **A processor is a third thing
+  in the same place, and it modifies.**
+- **Order falls out cleanly:** mic → tone injection → **processor** → LUFS meter
+  → Opus. That preserves the property the meter was built for — measuring what
+  genuinely goes out.
+- **The noise-reduction engine exists** — `NoiseReductionProvider`,
+  `NoiseProfiles`, a profiles dialog — on the receive pipeline. The algorithm
+  does not care which direction audio flows. **Open question: whether it takes a
+  float buffer or is welded to `RxAudioPipeline`.** That answer sizes the track.
+- **A gate is genuinely simple DSP** — threshold, attack, hold, release, range.
+  Tens of lines.
+
+**Why it matters, beyond polish.** The radio already has a good EQ, compander and
+speech processor; duplicating those wins nothing. What the radio **cannot** do is
+clean the room before its chain ever sees the audio — a fan, a computer, an air
+conditioner. That is exactly Don's noisy New York apartment. So this is **capture,
+clean, then sculpt** — one step past the principle already held in
+`memory/project_capture_then_sculpt.md`.
+
+**Three design points that decide whether a gate is loved or switched off:**
+
+- **Attack must be fast, a few milliseconds.** Slow attack eats the front of
+  words — the commonest complaint about every gate ever shipped. **Hold** is what
+  stops it chattering during natural mid-sentence pauses.
+- **Do not gate to silence.** Full closure is fine in a podcast; on SSB it can
+  make the other operator think you dropped. **Attenuate 20–30 dB rather than to
+  zero** so there is a natural floor that reads as "still here, not talking."
+- **Noise reduction goes BEFORE the gate.** NR lowers the floor, which makes the
+  threshold easier to set and less likely to clip quiet speech. Reversed, you are
+  gating against a noisy signal.
+
+**Why this tranche is the right one to follow, not precede.** Tuning a gate
+normally means watching an open/closed indicator — a visual instrument, and
+therefore useless here. **The residual monitor answers it directly: listen to
+what the gate removed.** Hear the starts of your own words in the residual and
+the attack is too slow or the threshold too high. That is a better tuning method
+than a blinking light, and it is what this tranche builds.
+
+**Runs parallel** — the DSP pipeline is untouched by the meters, settings and
+device tracks. Its *tuning UI* benefits from D; its engine does not depend on it.
+
 ## Track F — presets and config truth (UNPARKED 2026-08-16)
 
 Mic profiles bound to the device, corrupt presets silently becoming defaults,
@@ -1010,7 +1061,7 @@ priority argument against real work, every time, forever.
 
 ## Run order
 
-**Start together:** B, C, D1, D2, E, F, G. **D2 early on purpose** — it gates D3
+**Start together:** B, C, D1, D2, E, F, G, I, and the small-fixes sweep. **D2 early on purpose** — it gates D3
 and H, and it answers the question that can actually fail.
 
 **F starts with them** now that it is unparked, with the config-model
@@ -1073,6 +1124,79 @@ operation lives at sub-watt drive, which is precisely the range currently
 displayed as zero — so a transverter session run before that fix would be reading
 an instrument known to lie in exactly the band being used. Land B first, then
 bench.
+
+## Coverage audit — every open task has an owner (2026-08-16)
+
+Noel: *"let's look at what tasks we still lack. If we're doing a big fan out and
+can add more fixes into this set, I'm inclined to add it to the plan."* So every
+one of the 34 open tasks is assigned below. **Nothing sits in a someday pile.**
+
+**Track A** — #75 (radio name invisible, display half).
+
+**Track B** — #76 GPS lock and PPB. Plus, from today: the trace flood, forward
+power, the `hookTxMeters` double-subscribe handler leak, and the meter-inventory
+diagnostic promoted from scaffolding.
+
+**Track C** — #74 REM ON, #75 (the save half — **verify with A or each looks
+fixed while the other still breaks it**), the network port-forward discard, the
+router mapping, the drifted `SetSmartLinkPortForwarding` comment, the
+no-physical-access flag.
+
+**Track D** — the meter subsystem. Also inherits **#73** (DSP controls have no
+explanation), because the per-stage meters and the analysis pass *are* the
+explanation — far better than prose describing what a compander does.
+
+**Track E** — #12 autoconvert, #61 host API default, #17 quiet decode
+(re-measure first), #29 tone monitor clicks (re-measure first), #57 selectable
+Opus TX rate, mono capture, ACC/BAL enumeration, and the host-API selector that
+replaces duplicate-folding.
+
+**Track F** — #44 mic profiles, #49 corrupt preset, #50 schema version, #51
+preset input, #68 audioConfig two directories.
+
+**Track G** — #9 About page.
+
+**Track H** — #39 and #43 (the earcon controls the help already promises), the
+toggle ding pair, and **#70** (repeat-last-message ring — it is the safety net
+for every announcement too small to warrant a dialog, so it belongs with the
+receipt work).
+
+**Track I** — transmit conditioning. New; no prior task.
+
+**Small-fixes sweep (orphans, collides with nobody)** — #18 tracing dialog, #26
+diagnostic-log open questions, #32 installer file list, #40 UI/help plumbing, #71
+setting spoken versus labelled, and today's `testtone.armed` key leak.
+
+**#65, externalize strings to JSON** — stays HELD pending the file-layout
+workshop, **but the `testtone.armed` leak is fixed now** in the sweep rather than
+waiting for it.
+
+### Deliberately NOT in this tranche, with reasons
+
+- **#27 transverter bench, #56 radio-bench** — need the radio and Noel. #56 was
+  **partly discharged 2026-08-16** (meter inventory, ACC/BAL, mic path). The
+  transverter session follows Track B's forward-power fix, since transverter
+  drive lives in the band the readout currently reports as zero.
+- **#10 Track F receiver simulation on IQ playback** — gated on the bench.
+- **#21 orphan-process field test** — a testing task, not a track. **Evidence it
+  is NOT fixed: JJ Flexible hung on exit 2026-08-16 and had to be killed.**
+- **#55 master test list** — produce at the END of the tranche, when there is a
+  settled surface to test.
+- **#41, #42 rigmeter** — tooling, unrelated to the app.
+- **#58 CW mode announce, #59 four slices on connect** — parked as not
+  load-bearing; #59 needs establishing whether the slices were pre-existing on
+  the radio before it can be called a regression at all.
+
+### Close, do not schedule
+
+- **#54 built-in versus jack cannot be determined from Core Audio** — a recorded
+  finding, not a gap. Close it so it stops looking like work.
+
+### Next tranche, captured not scheduled
+
+Priority watch; the meter analysis pass (gated on D2's model **and** the chain
+order, which the bench settles); the sound sketchpad; the shared package format;
+Elmers; PC-side TX processing beyond the gate.
 
 ## Open questions — all four answered 2026-08-16
 
