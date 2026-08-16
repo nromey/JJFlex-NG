@@ -776,46 +776,101 @@ is OFF announces the raw string `testtone.armed` — a resource key leaking into
 speech, with one branch holding a real string and the other the key. Fix the
 wording at the same time: on/off or armed/disarmed, consistently, not mixed.
 
-## Parked — Track F, presets and config truth
+## Track F — presets and config truth (UNPARKED 2026-08-16)
 
 Mic profiles bound to the device, corrupt presets silently becoming defaults,
 presets carrying no schema version, presets not recording which input they were
 tuned for, and the `audioConfig.xml` two-directory migration.
 
-**Nothing is broken for anyone today**, and it is the only track that would
-collide with D over `AudioOutputConfig.cs`. Parking it is what makes the file
-ownership below clean.
+**Parked in an earlier draft, unparked when the ownership rule was narrowed** —
+the sole reason for parking it was a file collision with D over
+`AudioOutputConfig.cs`, and that rule no longer forbids sharing a file. Noel
+caught that the document still said parked after the decision had changed.
+
+**One item is stronger than "papercut" suggests: #49, a corrupt preset file
+silently becoming the three defaults.** That is settings loss with no
+notification — the operator's tuning disappears and nothing says so. Worth
+treating as a real defect rather than polish.
+
+**Coordination owed with D2**, and this is the one place the narrowed rule still
+bites: F changes the config model *structurally* (a schema version, what a preset
+contains, where the file lives), and D2 is adding the meter and voice model,
+possibly to the same file. Additive edits to one file are fine; two tracks
+restructuring one model is not. **Settle who owns the config model's shape before
+both start** — most likely D2, with F reporting what it needs.
 
 ---
 
-## File ownership — no two tracks own the same file
+## File ownership — structural change is owned, additive change is shared
+
+**Narrowed 2026-08-16.** An earlier draft said no two tracks may own the same
+file. Noel pushed back: worktrees exist, so why not fix clashes at merge? The
+answer is that worktrees solve the *mechanical* clash and not the *semantic* one
+— the 2026-08-12 case where one track was told to reuse `MicAudioVerdict` while
+another moved it to a new class, both merged with **zero textual conflict**, and
+the build failed. Git cannot see that collision.
+
+But strict ownership was over-tight, and it is what wrongly parked F and made the
+papercuts awkward. So the rule is now narrower:
+
+- **Single ownership applies to STRUCTURAL change** — moving a symbol, changing a
+  signature, restructuring a shared model. That is where semantic collisions
+  live.
+- **Shared files are fine for ADDITIVE, LOCAL change** — a wording fix, a trace
+  line, a papercut in a method nobody else is touching. Two tracks adding
+  separate lines to `FlexBase.cs` is a trivial merge.
+- **The test is one question:** *could another track be referencing what I am
+  about to change?* If no, share freely.
+
+Primary areas, for orientation rather than exclusion:
 
 - **A** — `RigSelectorDialog.xaml.cs`, `KnownRadioRoster.cs`,
   `RadioConnectionCache.cs`, plus FlexBase's client-identity region
 - **B** — FlexBase's meter, power, GPS and remote-audio-loop regions
 - **C** — per-radio settings, Settings→Network, `TXControlsDialog.xaml.cs`
 - **D1** — the Live Meters region of `AudioWorkshopDialog.xaml.cs`
-- **D2** — `ContinuousToneSampleProvider.cs`, `MeterToneEngine.cs`
+- **D2** — `ContinuousToneSampleProvider.cs`, `MeterToneEngine.cs`, and the
+  meter/voice model
 - **D3** — new management UI, plus `KeyCommands.cs` for the leader layer
 - **E** — `JJPortaudio/Audio.cs`, `Devices.cs`, `AudioDevicesDialog.xaml.cs`
+- **F** — preset and config code; **coordinate the config model with D2**
 - **G** — new About page and its data provider
+- **H** — the earcon/verbosity category plus every checkbox site
 
-**`FlexBase.cs` is the exception**, touched by A, B and C in three disjoint
-regions. Manage it explicitly: each track is told **"reuse the symbols you find;
-if you conclude one should move or change signature, report it rather than doing
-it"** — the 2026-08-12 lesson where two tracks merged with zero textual conflict
-and the build failed. **Build after every merge**; a clean `git merge` is not
-evidence the result compiles.
+**Standing instruction to every track:** *"reuse the symbols you find; if you
+conclude one should move or change signature, report it rather than doing it."*
+And **build after every merge** — a clean `git merge` is not evidence the result
+compiles.
 
-**D2 publishes the voice type before its synthesis is finished**, so D3 can build
-against a known shape rather than waiting or guessing.
+**D2 publishes the voice type before its synthesis is finished**, so D3 and H can
+build against a known shape rather than waiting or guessing.
+
+### Papercuts have owners, not a someday pile
+
+**Each track carries the papercuts in files it already touches** — a wording fix
+in the device dialog is E's, a settings-dialog papercut is C's. No conflict, and
+the agent already in that code is best placed.
+
+**Orphan papercuts** — help pages, string leaks, the installer file list, the
+tracing dialog — go to the small-fixes sweep, which collides with nobody.
+
+**And the rule that makes it stick: a track is not done until its papercuts are
+done.** Small items get deferred because they are boring, not hard. Folding them
+into the definition of done removes the choice — otherwise each one loses a
+priority argument against real work, every time, forever.
 
 ---
 
 ## Run order
 
-**Start together:** B, C, D1, D2, E, G. All independent, all own distinct files.
-**D2 early on purpose** — it gates D3 and answers the risky question.
+**Start together:** B, C, D1, D2, E, F, G. **D2 early on purpose** — it gates D3
+and H, and it answers the question that can actually fail.
+
+**F starts with them** now that it is unparked, with the config-model
+coordination noted in its section settled first.
+
+**H waits on D2's voice type**, so its ding pair is defined in the same
+vocabulary rather than a second synthesis path.
 
 **A runs alongside but produces a written state machine first**, not a diff. Its
 Phase 1 deliverable is a map, reviewed before any roster code changes.
@@ -905,16 +960,19 @@ leaving, one prompt: **keep as a copy, replace the original, or discard.**
 
 ---
 
-## New — the meter list is not observable, and D needs it
+## CLOSED — the meter list is now observable
 
-`Radio.GetMeterListReply` parses the reply and traces nothing
-(`FlexLib_API/FlexLib/Radio.cs`). **So the inventory D2 and D3 are being designed
-against cannot currently be seen.** We know the radio reports its meters; we do
-not know what an 8600 actually reports — how many, what names, what units, what
-the per-slice ones look like.
+`Radio.GetMeterListReply` parsed the reply and traced nothing, so the inventory
+D2 and D3 are designed against could not be seen at all. **Fixed 2026-08-16**:
+`FlexBase.traceMeterInventory` logs every meter's index, name, description,
+source, range and units, and re-logs whenever the count changes.
 
-**This is a Track B item on its own terms** — telemetry that should exist and
-does not — and it happens to unblock D's design. A trace line at connect turns an
-architectural assumption into a concrete list to design against.
+The answer it produced — **102 meters, against our hardcoded eight** — is in the
+Track B bench results above, and is the strongest single argument for the meter
+model this plan adopts.
 
-Small, and worth doing before D2 settles its data model.
+**Merge that diagnostic properly rather than leaving it as scaffolding.** It
+reaches FlexLib's private meter list by reflection, which is right for a
+diagnostic and wrong for a picker. Track D needs a real accessor, and that
+probably means a documented FlexLib patch recorded in `MIGRATION.md` — some
+things genuinely cannot be wrapped.
