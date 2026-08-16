@@ -353,6 +353,24 @@ clean signal and no information.
 residual.** Not quiet — nothing. An unambiguous self-evident test needing no
 reference and no calibration, usable on transmit while operating.
 
+**The remedy must sit beside the diagnostic** (Noel): *"if it is eating your
+voice you can change the strength of the noise reduction or DSP."* A diagnostic
+without a remedy is just bad news — the same lesson as the level verdicts, which
+were not useful until they named the control and the direction.
+
+So the strength control must be **live while monitoring**: hear voice in the
+residual, turn it down, hear it again, voice gone. Not apply-and-retest.
+
+**This makes transmit-audio adjustment SELF-SERVICE, which it currently is not.**
+Today the only way to learn you are over-processed is someone on the other end
+saying so. Residual plus a live strength control means an operator can judge it
+alone, at any hour, without asking a favour on the air.
+
+**Monitor the OUTPUT as well as the residual.** Turning strength down until no
+voice appears in the residual may leave far too much noise in the output — the
+right setting is a trade-off and judging it needs both. Switch between output,
+residual and both, with strength live throughout.
+
 Relates to `memory/project_dsp_controls_design.md` (engine complete, UI is the
 gap) and the model-pack work — a residual monitor is also how an operator would
 judge one downloaded model against another.
