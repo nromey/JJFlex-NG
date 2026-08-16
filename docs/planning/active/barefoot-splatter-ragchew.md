@@ -250,6 +250,86 @@ four.** There is no way to add, delete, or individually enable a meter.
 persists Source, Enabled, Volume, Pan, PitchLow, PitchHigh and Waveform — richer
 than anything reachable, since only presets ever write those fields.
 
+### Decided 2026-08-16 — the meter model
+
+**One list, not two.** The eight readouts and the tone slots become a single list
+where "readable" and "audible" are properties of the same meter, rather than two
+unrelated systems with different membership. This also gives the `Ctrl+J M` layer
+one set of numbers to address instead of an ambiguous two.
+
+**The eight are a RECOMMENDED set, not built-ins.** Noel: *"A Claude hardcoded
+those eight, they do not need to stay unless we have recommended meters or
+something."* Correct — protecting them as undeletable would be protecting an
+accident. Ship them as a sensible starting point, allow deletion, and provide a
+**restore-recommended** action. Nothing is sacred; nobody starts from an empty
+list. This also removes the two-classes-of-row problem an earlier draft created.
+
+**The radio tells us what meters exist.** `Radio.GetMeterList()` sends a literal
+`"meter list"` command and the reply populates `List<Meter>`; our eight are a
+hardcoded subset in `MetersPanel.xaml.cs`. **The picker must offer whatever this
+radio reports right now**, not a fixed list — a 6300 and an 8600 legitimately
+differ, Amp ALC is only real with an amp fitted, and meters carry a `Source`
+including `Meter.SOURCE_SLICE`, so per-slice meters appear and vanish with
+slices. Hardcoding hides capability on the big radio and invents it on the small
+one.
+
+**A meter is a SOURCE plus a RANGE plus a VOICE.** Noel's example: an S-meter
+scaled S5 to S9+60 rather than full scale, so the pitch range buys resolution
+where it matters at the cost of range you do not care about. Same shape as the
+coarse/fine SWR pair.
+
+- **Two meters MAY share a source** (settled). The coarse/fine case is real:
+  while tuning an antenna the interesting SWR band is tiny, while the band
+  meaning "stop transmitting" is huge, and one mapping cannot serve both.
+- **The range must be expressed in the source's own units** — S-units, watts, a
+  ratio, degrees. A range stored as bare numbers cannot be validated, cannot be
+  announced sensibly, and cannot tell you what "5 to 9" means.
+- **Default: all meters off, at full range.** Nothing sounds until asked; nothing
+  is hidden by a narrowed scale the operator did not choose.
+
+**Three meter categories, and the data model must allow all three** — this is the
+fourth instance this week of a value needing to be a first-class object:
+
+1. **Radio-reported** — whatever the meter list returns.
+2. **PC-derived** — mic LUFS and other measurements we compute locally.
+3. **Frequency-domain** — a probe at a chosen frequency or span (below).
+
+If D2 assumes every meter has a radio source, categories two and three need
+surgery to add later.
+
+### Priority watch — a distinct feature, not a meter variant
+
+Noel, 2026-08-16: *"a priority watcher on say the maritime net frequency for
+signal strength. Set that watcher to ping you when stuff happens on a frequency,
+and optionally zoom you to it when things happen, similar to priority mode on
+scanners."*
+
+**The scanner framing is the right one to design from** — every ham already knows
+what priority scan does, so the feature needs almost no explaining.
+
+**The architectural question that decides whether it is cheap or expensive: does
+a watcher consume a slice?** Parking a slice on 14.300 is simple, but a 6300 has
+two slices total, so one watcher halves the receiver count. **Deriving it from
+spectrum data costs no slice and scales to several watchers** — the difference
+between a feature people use and one they switch off. Decide this before
+building.
+
+**Three things that separate a good watcher from an irritating one**, all long
+since learned by scanner designers:
+
+- **A threshold with hysteresis**, or it chatters endlessly at the boundary.
+- **A dwell time**, so a single noise spike does not alert.
+- **Auto-QSY that remembers where you were.** A radio that moves itself and
+  cannot go back is worse than one that merely tells you.
+
+**Auto-QSY is opt-in and announced.** It moves the operator's radio — exactly the
+class of action that must never be a surprise.
+
+**This is also the incremental path to the waterfall:** a watch-this-frequency
+meter is a single-bin waterfall. Same voices, same pitch-carries-value grammar,
+narrowed from a sweep to a point. Useful on its own terms before the waterfall
+exists.
+
 ### D1 — Make the readout navigable
 
 Read-only text boxes with real labels for the eight existing readings, same idiom
