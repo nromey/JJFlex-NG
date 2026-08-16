@@ -964,6 +964,39 @@ clean, then sculpt** — one step past the principle already held in
   threshold easier to set and less likely to clip quiet speech. Reversed, you are
   gating against a noisy signal.
 
+**Advanced mode exposes the parameters; basic mode recommends** (Noel,
+2026-08-16): *"expose that in advanced mode and recommend some settings but allow
+the operator to change it if they want to."*
+
+**The threshold should not be a fixed dB — derive it from the measured noise
+floor.** The app already detects the floor (shipped with the Microphone Check),
+so the recommendation is **floor + 6 to 10 dB**, computed for *this* room rather
+than an average one. **That is something a podcast plugin cannot do**, because it
+does not know your floor and makes you find it by ear. It also stays right when
+conditions change — a quiet 3 AM room and the same room with the air conditioner
+on are different numbers.
+
+Defensible starting points for the rest: **attack 1–5 ms**, **hold 100–250 ms**
+(bridges gaps *within* a phrase), **release 100–300 ms**, **range 20–30 dB**
+rather than infinite.
+
+- **Basic mode still needs a control.** Advanced-only means someone in a noisy
+  room cannot reach it at all. Basic gets on/off plus at most a single strength
+  that maps to a sensible combination underneath — one knob for most people, five
+  for the curious.
+- **Each advanced control explains its own default.** *"Attack is fast so it does
+  not clip the start of your words."* The Elmer principle applied to a settings
+  page, and what stops people changing values at random and then wondering why
+  they sound odd.
+- **"Recommended" must be restorable** — a reset action, like the meters' restore
+  action, so fiddling is reversible.
+
+**Gate settings belong to the MICROPHONE PROFILE, not the app** — #44 in Track F.
+A gate tuned for a headset in a quiet room is wrong for a desk mic in a noisy one,
+and *actively* wrong when operating someone else's radio through Connect. **So
+Track I's settings live in F's profile structure: a coordination point to settle
+before both start.**
+
 **Why this tranche is the right one to follow, not precede.** Tuning a gate
 normally means watching an open/closed indicator — a visual instrument, and
 therefore useless here. **The residual monitor answers it directly: listen to
