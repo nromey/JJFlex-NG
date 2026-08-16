@@ -86,6 +86,47 @@ model** — ACC on the 6300, BAL on the 8600. Same class of lie as a wattage tha
 reads zero. **May execute better in Track E**, which owns device enumeration;
 Noel left the placement open. Natural bench work either way.
 
+### Bench results 2026-08-16 — measured on the 8600, not inferred
+
+**The radio reports 102 meters.** The first inventory dump caught it
+mid-registration and logged 11; once the re-log-on-change fix was in, the settled
+count was **102**. Our hardcoded eight is **thirteen times short**. This ends the
+argument for asking the radio rather than maintaining a list.
+
+**SC_MIC and ALC both exist and both work — an earlier claim in this file that
+they might never fire was WRONG**, and Noel disproved it from the operator's seat
+before the trace did. The trace shows `SC_MIC NOT FOUND, ALC NOT FOUND` twice and
+then `found, found` at the same instant the count reached 102: the TX meters
+simply register late, and the lazy-retry design handles that correctly.
+
+**But that exposed a real latent bug next door.** `hookTxMeters` sets its "done"
+flag only when it finds **both** meters — so it subscribes to whichever one it
+did find, then runs again on the next mic-meter event and **subscribes to it
+again**, indefinitely. Both arrived together here so it never bit. **On any radio
+reporting one and not the other, that is an unbounded handler leak** with every
+event firing N times and N growing forever. Fix: track the two subscriptions
+independently.
+
+**The forward-power defect, demonstrated with real numbers.** Three consecutive
+keyed samples with the radio's power set to its default of **zero**:
+
+- 17.0 dBm = **50 mW**
+- 22.4 dBm = **174 mW**
+- 18.7 dBm = **74 mW**
+
+Real RF, leaving the radio, every time. Run through `SMeter`'s
+dBm-to-watts-then-truncate conversion, all three display **0 watts** — identical
+to not transmitting at all.
+
+**This is no longer a theoretical worry about rounding.** Power set to zero still
+makes 174 mW, and both the setting and the readout say zero while the radio
+transmits. It is exactly the normal operating point for transverter work reading
+as a fault, and it is the strongest single argument in this track.
+
+Everything else measured healthy: SC_MIC tracked the test tone at about −11 dBFS,
+SW ALC ran between −2.5 and −4.5, and the opening −150 sample is just the
+pre-data idle state.
+
 **Testable:** transmit and watch the trace stop exploding; key at low power and
 see a real number; listen to the GPS announce.
 
@@ -816,6 +857,20 @@ Added to the existing matrices rather than replacing them:
 leader layer). Both need the full checklist including pressing the key.
 
 ---
+
+## Sequencing — the transverter arc follows this tranche
+
+Noel has the XLR extension as of 2026-08-16, so the transverter bench session
+(#27) and its arc are unblocked on hardware. **Deliberately sequenced after this
+track set**, with one exception worth watching: if transverter work turns out to
+*depend* on something in here, that argues for pulling it forward rather than
+duplicating.
+
+The obvious candidate is the **forward-power fix in Track B**. Transverter
+operation lives at sub-watt drive, which is precisely the range currently
+displayed as zero — so a transverter session run before that fix would be reading
+an instrument known to lie in exactly the band being used. Land B first, then
+bench.
 
 ## Open questions — all four answered 2026-08-16
 
