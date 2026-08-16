@@ -1023,6 +1023,44 @@ silently becoming the three defaults.** That is settings loss with no
 notification — the operator's tuning disappears and nothing says so. Worth
 treating as a real defect rather than polish.
 
+### The radio ALREADY has mic profiles, and we use none of them
+
+Noel, 2026-08-16: *"are we storing microphone profiles in the radio? Flex includes
+profiles for microphones — it's just something to consider."* **Verified: FlexLib
+carries a complete mic-profile API** — `profile mic create / save / load / delete
+/ reset / info`, plus a profile list — and **there is not one reference to it
+outside FlexLib.** We were about to build a parallel system beside one that
+already exists and is shared with every other client.
+
+**The split falls out of capture-then-sculpt and it is clean:**
+
+- **Stage one, PC capture** — which device, Windows input level, boost, the gate,
+  our noise reduction. **The radio cannot store any of this**; a USB device
+  identifier is meaningless to it. **Ours.**
+- **Stage two, the radio's TX chain** — mic gain, EQ, compander, processor, bias.
+  **The radio already stores these in its own profiles.** Not ours to duplicate.
+
+**So our profile REFERENCES the radio's rather than copying it:** PC-side
+settings plus the *name* of a radio mic profile. Selecting "headset" applies our
+capture half and sends `profile mic load "headset"`. No duplication, no drift,
+and nothing fighting other clients over the same state.
+
+**The foreign-radio rule then falls out for free.** On your own radio, apply both
+halves. On someone else's — Connect, a club rig — **apply the PC half only and
+never touch their profiles.** That is exactly the policy already written in
+`memory/project_jjflexible_connect.md` and the Elmer docs: *a guest carries their
+own capture settings and leaves the host's TX chain alone.* It turns out to be
+what the architecture does naturally once each half lives in the right place.
+
+**Three questions this raises for F:**
+
+- **What if the referenced radio profile does not exist here?** Apply the PC
+  half, say so plainly, do not guess at a substitute.
+- **Do we ever CREATE radio profiles?** Offer, never automatically — that is
+  writing to someone's equipment.
+- **The binding is per-radio**, since the profile list is, which fits
+  `memory/project_per_radio_config_serial_keyed.md`.
+
 **Coordination owed with D2**, and this is the one place the narrowed rule still
 bites: F changes the config model *structurally* (a schema version, what a preset
 contains, where the file lives), and D2 is adding the meter and voice model,
