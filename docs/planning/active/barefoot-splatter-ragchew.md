@@ -670,6 +670,50 @@ version you are running.
 
 ---
 
+## Track H — the earcon audit (added 2026-08-16)
+
+Noel, from the bench: he got a ding on toggling a checkbox in the Audio Workshop
+and liked it — *"though it needs to be a high tone for on and a lower ding for
+off. This should be everywhere."* And: *"we probably need a track that goes
+through and finds / audits checkboxes."*
+
+**One ding for both states carries no information.** The pair is the point:
+rising for on, falling for off. Learn it once and the words stop being necessary,
+which is faster than speech and survives speech being busy or cut off.
+
+**Requirements, in order of how easily they get missed:**
+
+- **The two tones must be obvious siblings** — same timbre, a clear interval
+  apart — so they read as one vocabulary rather than two unrelated noises.
+- **Quick and non-overlapping.** Noel's phrase is *"quick, poignant, gets out of
+  the way,"* and the reason is rapid toggling: in Settings or the Workshop you
+  check and uncheck several things in a row. **Five toggles must not stack into a
+  chord or queue** — earcons cut each other off, or are short enough that they
+  cannot overlap. This is what makes the difference between a pleasure and a
+  thing people switch off on day two.
+- **It leads the speech, it does not compete with it.** NVDA already announces
+  "checked". The ding's job is to be *faster*; it fires immediately and the
+  speech follows as the authoritative version.
+- **One implementation, called from every toggle.** "This should be everywhere"
+  is exactly the requirement that rots into six slightly different dings if each
+  site rolls its own.
+- **Audit every checkbox in the app** and wire it — that is the track's bulk.
+
+**This closes #39 and #43 rather than adding a third sound system.** The help
+already documents per-category earcon controls that were never built. H is
+"build what the help already promises, and make every toggle use it."
+
+**Dependency to settle: H needs tones, and D2 is building a tone engine.** Either
+H waits and defines its ding pair as two voices in D2's model, or we ship two
+synthesis paths that drift apart — the same mistake caught four times this week.
+**Recommendation: H's earcons are voices in D2's vocabulary.** Costs H an
+immediate start; saves a second sound system.
+
+**Also found at the bench, same family:** toggling the test tone while PC audio
+is OFF announces the raw string `testtone.armed` — a resource key leaking into
+speech, with one branch holding a real string and the other the key. Fix the
+wording at the same time: on/off or armed/disarmed, consistently, not mixed.
+
 ## Parked — Track F, presets and config truth
 
 Mic profiles bound to the device, corrupt presets silently becoming defaults,
