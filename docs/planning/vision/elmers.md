@@ -131,6 +131,51 @@ of them are hostile to a screen reader. **Curation is accessibility work.**
 - **This menu answers an open question in the Audio Elmer design**: where a
   first-run offer that was declined becomes findable again. It is here.
 
+## Findings are the Elmer's entry points — Noel, 2026-08-16
+
+Out of the signal-chain work (`docs/planning/active/barefoot-splatter-ragchew.md`,
+Track D): the radio reports a level at **every stage** of both signal chains, so a
+deterministic rules pass can produce **findings** — "your notch filter is on and
+removed nothing", "AGC compressed 30 dB, which usually means RF gain is high".
+
+Noel's synthesis: those findings feed **Elmer mode**, which guides you through
+fixing them.
+
+**This solves a real weakness in the Elmer concept.** An Elmer with no findings
+has to ask the operator what is wrong — and not knowing what is wrong is
+precisely why someone wants an Elmer. So instead of a menu of topics, the doorway
+becomes *"I noticed three things about your setup — want to look at them?"*
+Specific to this radio, right now, rather than generic instruction you must
+self-diagnose your way into.
+
+**It also completes the diagnostic loop.** A finding alone is bad news; a remedy
+alone assumes you already know what to fix. Together the app notices, offers, and
+walks you through.
+
+**Deliberately NOT an LLM.** The rule space here is enumerable by an expert —
+about nineteen TX stages and twelve RX stages with known semantics — so it is a
+decision tree, not a pattern-recognition problem. A model would add latency, an
+internet dependency in an app used portable and off-grid, non-determinism, the
+risk of a confidently wrong diagnosis about someone's transmitter, and would send
+signal measurements off the operator's machine
+(`memory/project_no_silent_phone_home.md`). The project already uses ML where ML
+is right — the RNN noise reduction, local, offline-trained, no API key — and that
+is the template: ask which kind of problem it is, per feature.
+
+**Two rules for findings:**
+
+- **A finding must earn its confidence before it is offered.** Sending someone to
+  change an RF gain that was fine is worse than silence, because it teaches them
+  the advice is noise. Tune thresholds against real radios; a finding that is not
+  certain says so rather than asserting.
+- **State the observation, not only the conclusion.** *"Your AGC compressed 30 dB
+  over the last five seconds, which usually means RF gain is high"* — the first
+  half is checkable fact, the second is advice. The operator can disagree with
+  the advice and still trust the instrument, which is the right relationship.
+
+Subject to the shared rules below: **offered, never nagged** — findings are
+something available to look at, not a dialog arriving mid-QSO.
+
 ## What all Elmers must share
 
 These come straight out of the Audio Elmer design and should be settled once,
