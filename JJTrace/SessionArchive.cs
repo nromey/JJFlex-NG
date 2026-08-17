@@ -114,7 +114,9 @@ namespace JJTrace
 
                 WriterOptions writerOptions = new WriterOptions(CompressionType.LZMA);
                 using (FileStream fs = new FileStream(fullPath, FileMode.Create, FileAccess.Write, FileShare.None))
-                using (IWriter writer = WriterFactory.Open(fs, ArchiveType.Zip, writerOptions))
+                // SharpCompress 0.50 renamed the factory entry points:
+                // WriterFactory.Open -> OpenWriter, ReaderFactory.Open -> OpenReader.
+                using (IWriter writer = WriterFactory.OpenWriter(fs, ArchiveType.Zip, writerOptions))
                 {
                     if (truncated)
                     {
@@ -248,7 +250,8 @@ namespace JJTrace
             {
                 Directory.CreateDirectory(destDir);
                 using (FileStream stream = File.OpenRead(archiveFullPath))
-                using (IReader reader = ReaderFactory.Open(stream))
+                // 0.50 requires the options argument that used to be optional.
+                using (IReader reader = ReaderFactory.OpenReader(stream, new ReaderOptions()))
                 {
                     while (reader.MoveToNextEntry())
                     {

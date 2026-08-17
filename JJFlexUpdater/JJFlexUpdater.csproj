@@ -18,6 +18,6 @@
        publishes to data.jjflexible.radio. Same package + version JJTrace
        already pins (see commit 441608e6); single dep avoids version skew. -->
   <ItemGroup>
-    <PackageReference Include="SharpCompress" Version="0.40.0" />
+    <PackageReference Include="SharpCompress" Version="0.50.4" />
   </ItemGroup>
 </Project>

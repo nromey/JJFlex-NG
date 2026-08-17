@@ -35,6 +35,6 @@
        to several MB. Pure-managed, no native deps. Per
        memory/project_trace_persistence_design.md. -->
   <ItemGroup>
-    <PackageReference Include="SharpCompress" Version="0.40.0" />
+    <PackageReference Include="SharpCompress" Version="0.50.4" />
   </ItemGroup>
 </Project>
