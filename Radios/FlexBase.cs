@@ -6875,9 +6875,16 @@ namespace Radios
             //if ((UpdateConfiguredTNFs != null) & !Closing) UpdateConfiguredTNFs(tnf, true);
         }
 
+        /// <summary>
+        /// dBm to whole watts. <b>Currently has no callers</b> — as of
+        /// 2026-08-16 nothing in the repo invokes it — and it is the rounding
+        /// this track exists to remove. Use <see cref="DBmToWatts"/>. Left in
+        /// place only because deleting a protected member of a shared base
+        /// class is a structural change; delete it once no track is in flight.
+        /// </summary>
         protected int DBmToPower(float dbm)
         {
-            return (int)((Math.Pow(10d, (double)(dbm / 10)) / 1000) + 0.5);
+            return (int)(DBmToWatts(dbm) + 0.5f);
         }
 
         /// <summary>
