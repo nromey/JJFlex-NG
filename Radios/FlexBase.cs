@@ -11240,7 +11240,69 @@ namespace Radios
         // Note that here input and output refer to input and output from the rig.
         private JJPortaudio.Devices audioSystem;
         private JJPortaudio.Devices.Device remoteInputDevice, remoteOutputDevice;
-        private const uint opusSampleRate = 48000;
+
+        /// <summary>
+        /// The rate the radio's own audio is decoded at. Fixed, and separate
+        /// from the transmit rate below on purpose: this end of the link is
+        /// the radio's to set, and an Opus decoder happily decodes any
+        /// bitstream to whatever output rate it was built with.
+        /// </summary>
+        private const uint opusRxSampleRate = 48000;
+
+        /// <summary>
+        /// The sample rate the transmit encoder is built at, in hertz.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// Track E, 2026-08-16 (#57, bandwidth adaptation). This was a
+        /// hardcoded 48000 shared by both directions. Lowering it is the
+        /// fallback for a link that cannot carry the full-rate stream — the
+        /// frame duration stays 10 ms at every Opus rate, so the radio still
+        /// receives the 100 frames a second it expects, and an Opus packet
+        /// carries its own rate in the bitstream for the radio's decoder to
+        /// follow.
+        /// </para>
+        /// <para>
+        /// <b>It is a request, not a command.</b> The device gets the last word:
+        /// <c>Audio.Open</c> settles the rate against the hardware before the
+        /// encoder is built, so a 24 kHz request on a device that only does
+        /// 48 kHz opens at 48 kHz and the encoder follows the stream, not the
+        /// setting. In practice that means the lower rates bite under MME,
+        /// which converts, and are usually refused under WASAPI, which does
+        /// not. That is the same host-API trade as everything else in this
+        /// track, which is why the setting lives next to the audio system in
+        /// the Audio Devices dialog rather than off on its own.
+        /// </para>
+        /// <para>
+        /// App-level state, like the PC output volume above: it describes this
+        /// computer's link to the radio, not the rig, so it is a static backed
+        /// by AudioOutputConfig and is in place before any radio connects.
+        /// </para>
+        /// </remarks>
+        public const uint OpusTxSampleRateDefault = 48000;
+        private static uint _opusTxSampleRate = OpusTxSampleRateDefault;
+
+        /// <summary>
+        /// The persisted transmit-rate setting. Anything that is not a rate
+        /// Opus can encode is refused and the default kept — silently encoding
+        /// at a rate the codec has no mode for is the exact defect the rate
+        /// negotiation work exists to prevent.
+        /// </summary>
+        public static uint OpusTxSampleRateSetting
+        {
+            get { return _opusTxSampleRate; }
+            set
+            {
+                if (!JJPortaudio.JJAudioStream.IsOpusRate(value))
+                {
+                    Tracing.TraceLine("FlexBase.OpusTxSampleRateSetting: " + value
+                        + " Hz is not a rate Opus can encode; keeping "
+                        + _opusTxSampleRate + " Hz", TraceLevel.Error);
+                    return;
+                }
+                _opusTxSampleRate = value;
+            }
+        }
 
         /// <summary>
         /// Resolve one end of the PC-audio path, speaking whenever the answer is
@@ -11523,7 +11585,7 @@ namespace Radios
             theRadio.IsMuteLocalAudioWhenRemoteOn = true;
             opusOutputChannel = new audioChannelData(rxStream, "JJFlexRadio.OpusOutputChan");
             opusOutputChannel.PortAudioStream = new JJAudioStream();
-            opusOutputChannel.PortAudioStream.OpenOpus(Devices.DeviceTypes.output, opusSampleRate);
+            opusOutputChannel.PortAudioStream.OpenOpus(Devices.DeviceTypes.output, opusRxSampleRate);
             // Boost Opus output to compensate for low remote audio levels.
             // The Opus decode path bypasses FlexLib's RXGain scalar, so decoded audio
             // is at raw codec level which is typically too quiet for laptop speakers
@@ -11563,8 +11625,9 @@ namespace Radios
             // Receive audio is already running by this point and deliberately
             // stays running; losing the radio because the microphone failed is
             // the wrong trade.
+            uint txRate = OpusTxSampleRateSetting;
             opusInputAvailable = opusInputChannel.PortAudioStream.OpenOpus(
-                Devices.DeviceTypes.input, opusSampleRate, sendOpusInput);
+                Devices.DeviceTypes.input, txRate, sendOpusInput);
             if (!opusInputAvailable)
             {
                 Tracing.TraceLine("remoteAudioProc:opus input channel did not open;"
@@ -11574,11 +11637,19 @@ namespace Radios
                     + "transmit. Receive audio is working. Check your input device in "
                     + "Audio Devices.", VerbosityLevel.Critical, true);
             }
-            else if (opusInputChannel.PortAudioStream.SampleRate != opusSampleRate)
+            else
             {
-                Tracing.TraceLine("remoteAudioProc:opus input channel opened at "
-                    + opusInputChannel.PortAudioStream.SampleRate + " Hz, not "
-                    + opusSampleRate, TraceLevel.Info);
+                // Always log what the transmit stream actually opened as,
+                // whether or not it matches what was asked for. The device has
+                // the last word on both the rate and the channel count, and a
+                // line that only appears on divergence is a line nobody can
+                // use as a baseline.
+                Tracing.TraceLine("remoteAudioProc:opus input channel open at "
+                    + opusInputChannel.PortAudioStream.SampleRate + " Hz, "
+                    + opusInputChannel.PortAudioStream.Channels + " channel(s)"
+                    + (opusInputChannel.PortAudioStream.SampleRate != txRate
+                        ? " — the device refused the requested " + txRate + " Hz"
+                        : ""), TraceLevel.Info);
             }
             // Audio Track C: hand the persistent TX test-tone generator to the
             // input stream so an engaged tone replaces the mic at the encoder.

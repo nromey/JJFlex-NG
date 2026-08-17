@@ -120,6 +120,18 @@ namespace JJPortaudio
             public int Channels { get; init; }
             /// <summary>Sample rate actually opened.</summary>
             public int SampleRate { get; init; }
+            /// <summary>
+            /// The host API the check actually opened through. Not always the
+            /// one the chosen row named: when the device is present under a
+            /// different audio system than the one selected,
+            /// <see cref="ResolveDeviceIndex"/> checks it anyway rather than
+            /// telling someone their microphone is unplugged when it is not.
+            /// That is the right call and it is worth saying out loud, because
+            /// a check that passes under MME while transmit is configured for
+            /// WASAPI is exactly the kind of disagreement this dialog exists to
+            /// surface. Empty until the device opens.
+            /// </summary>
+            public string HostApiName { get; init; }
             /// <summary>How many reads reported dropped input. Not fatal, worth tracing.</summary>
             public long Overflows { get; init; }
         }
@@ -165,6 +177,7 @@ namespace JJPortaudio
         private long _overflows;
         private int _channels;
         private int _sampleRate;
+        private string _hostApiName = "";
         private bool _faulted;
         private string _faultMessage = "";
 
@@ -202,6 +215,7 @@ namespace JJPortaudio
                 _overflows = 0;
                 _channels = 0;
                 _sampleRate = 0;
+                _hostApiName = "";
                 _faulted = false;
                 _faultMessage = "";
                 Device = device;
@@ -302,6 +316,7 @@ namespace JJPortaudio
                     Seconds = (_sampleRate > 0) ? (double)_frames / _sampleRate : 0.0,
                     Channels = _channels,
                     SampleRate = _sampleRate,
+                    HostApiName = _hostApiName,
                     Overflows = _overflows
                 };
             }
@@ -385,7 +400,8 @@ namespace JJPortaudio
                 // previous enumeration can point at a different device by the
                 // time we get here — the same trap Devices.FindDevice refuses to
                 // fall into. Identity is name plus host API, never index.
-                int index = ResolveDeviceIndex(device, out PortAudio.PaDeviceInfo info);
+                int index = ResolveDeviceIndex(device, out PortAudio.PaDeviceInfo info,
+                    out string openedApi);
                 if (index < 0)
                 {
                     gate.Report(StartOutcome.DeviceGone,
@@ -396,11 +412,14 @@ namespace JJPortaudio
                     return;
                 }
 
-                // A mono device gets opened as mono. The radio-audio stream
-                // needs two channels and the picker says so, but "can this
-                // microphone hear me" is a fair question about a mono device
-                // too, and refusing to answer it would be a worse dialog.
-                int channels = (info.maxInputChannels >= 2) ? 2 : 1;
+                // A mono device gets opened as mono, and has since this class
+                // was written — which is why the radio-audio engine copied this
+                // shape rather than inventing its own when it learned to do the
+                // same on 2026-08-16. Both paths now open at the device's own
+                // channel count and duplicate mono onto both channels, so a
+                // mono microphone measures here exactly as it transmits.
+                int channels = (info.maxInputChannels >= Devices.StreamChannels)
+                    ? Devices.StreamChannels : 1;
 
                 var parms = new PortAudio.PaStreamParameters
                 {
@@ -451,10 +470,13 @@ namespace JJPortaudio
                 {
                     _channels = channels;
                     _sampleRate = (int)rate;
+                    _hostApiName = openedApi;
                 }
 
                 Tracing.TraceLine("MicProbe: listening to \"" + device.Name + "\" ("
-                    + device.HostApiName + ") at " + rate + " Hz, " + channels + " channel(s)",
+                    + openedApi + ") at " + rate + " Hz, " + channels + " channel(s)"
+                    + (string.Equals(openedApi, device.HostApiName, StringComparison.Ordinal)
+                        ? "" : " — the chosen row named " + device.HostApiName),
                     TraceLevel.Info);
 
                 gate.Report(StartOutcome.Started, "");
@@ -617,14 +639,17 @@ namespace JJPortaudio
         /// Find this device in the CURRENT PortAudio enumeration by name and
         /// host API. Returns -1 when it is gone.
         /// </summary>
-        private static int ResolveDeviceIndex(Devices.DeviceInfo want, out PortAudio.PaDeviceInfo info)
+        private static int ResolveDeviceIndex(Devices.DeviceInfo want, out PortAudio.PaDeviceInfo info,
+            out string hostApiName)
         {
             info = new PortAudio.PaDeviceInfo();
+            hostApiName = "";
             int count = PortAudio.Pa_GetDeviceCount();
             if (count < 0) return -1;
 
             int nameOnlyMatch = -1;
             PortAudio.PaDeviceInfo nameOnlyInfo = new PortAudio.PaDeviceInfo();
+            string nameOnlyApi = "";
 
             for (int i = 0; i < count; i++)
             {
@@ -633,29 +658,44 @@ namespace JJPortaudio
                 if (!string.Equals(candidate.name, want.Name, StringComparison.Ordinal)) continue;
 
                 int apiTypeId = -1;
-                try { apiTypeId = (int)PortAudio.Pa_GetHostApiInfo(candidate.hostApi).type; }
+                string apiName = "";
+                try
+                {
+                    PortAudio.PaHostApiInfo api = PortAudio.Pa_GetHostApiInfo(candidate.hostApi);
+                    apiTypeId = (int)api.type;
+                    apiName = api.name ?? "";
+                }
                 catch { /* a device with no readable host API record is still openable */ }
 
                 if (apiTypeId == want.HostApiTypeId)
                 {
                     info = candidate;
+                    hostApiName = apiName;
                     return i;
                 }
                 if (nameOnlyMatch < 0)
                 {
                     nameOnlyMatch = i;
                     nameOnlyInfo = candidate;
+                    nameOnlyApi = apiName;
                 }
             }
 
             // Same name, different host API: the device is there, the API is
             // not. Checking it is still the right answer, and better than
             // telling someone their microphone is unplugged when it is not.
+            // The API actually used is handed back so the caller can say so —
+            // a check that passes under one audio system while transmit is
+            // configured for another is the exact disagreement this dialog is
+            // here to make visible.
             if (nameOnlyMatch >= 0)
             {
-                Tracing.TraceLine("MicProbe: \"" + want.Name + "\" found under a different host API "
-                    + "than the one chosen; checking it anyway", TraceLevel.Info);
+                Tracing.TraceLine("MicProbe: \"" + want.Name + "\" found under "
+                    + (nameOnlyApi.Length > 0 ? nameOnlyApi : "a different host API")
+                    + " rather than the chosen " + want.HostApiName
+                    + "; checking it anyway", TraceLevel.Info);
                 info = nameOnlyInfo;
+                hostApiName = nameOnlyApi;
                 return nameOnlyMatch;
             }
             return -1;
