@@ -22,7 +22,7 @@
 
   <!-- SonarAnalyzer for VB.NET projects -->
   <ItemGroup Condition="'$(MSBuildProjectExtension)' == '.vbproj'">
-    <PackageReference Include="SonarAnalyzer.VisualBasic" Version="10.16.1.129956">
+    <PackageReference Include="SonarAnalyzer.VisualBasic" Version="10.32.0.713">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>
     </PackageReference>
@@ -30,15 +30,15 @@
 
   <!-- SonarAnalyzer + Roslynator + Meziantou for C# projects -->
   <ItemGroup Condition="'$(MSBuildProjectExtension)' == '.csproj'">
-    <PackageReference Include="SonarAnalyzer.CSharp" Version="10.18.0.131500">
+    <PackageReference Include="SonarAnalyzer.CSharp" Version="10.32.0.713">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>
     </PackageReference>
-    <PackageReference Include="Roslynator.Analyzers" Version="4.15.0">
+    <PackageReference Include="Roslynator.Analyzers" Version="4.16.1">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>
     </PackageReference>
-    <PackageReference Include="Meziantou.Analyzer" Version="2.0.296">
+    <PackageReference Include="Meziantou.Analyzer" Version="3.0.159">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>
     </PackageReference>
@@ -46,7 +46,7 @@
 
   <!-- BannedApiAnalyzers for all projects (VB.NET and C#) -->
   <ItemGroup>
-    <PackageReference Include="Microsoft.CodeAnalysis.BannedApiAnalyzers" Version="3.3.4">
+    <PackageReference Include="Microsoft.CodeAnalysis.BannedApiAnalyzers" Version="5.6.0">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>
     </PackageReference>
