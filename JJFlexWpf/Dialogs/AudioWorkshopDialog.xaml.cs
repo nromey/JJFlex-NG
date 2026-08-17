@@ -542,6 +542,10 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         _rig = rig;
         if (rig != null)
         {
+            // Ask for the TX equalizer early so a preset capture later in
+            // this session has the answer in hand (Track F: presets were
+            // shipping without the EQ because nothing ever asked for it).
+            rig.RequestTxEqualizer();
             LoadPerRadioPrefs();
             LoadToneSettings();
             // Reflect the new rig's actual tone state (a fresh rig is never
@@ -2590,9 +2594,15 @@ public partial class AudioWorkshopDialog : JJFlexDialog
             if (listBox.SelectedIndex >= 0 && _rig != null)
             {
                 var preset = presets.Presets[listBox.SelectedIndex];
-                preset.ApplyTo(_rig);
+                // ApplyTo reports what could not be applied faithfully — an
+                // EQ the radio has not reported, a preset tuned for a
+                // different input (#51). Those ride the load announcement.
+                string note = preset.ApplyTo(_rig);
                 PollTxAudio();
-                ScreenReaderOutput.Speak($"Preset {preset.Name} loaded", VerbosityLevel.Terse);
+                ScreenReaderOutput.Speak(
+                    $"Preset {preset.Name} loaded" +
+                    (string.IsNullOrEmpty(note) ? "" : ". " + note),
+                    VerbosityLevel.Terse);
             }
             picker.Close();
         };
@@ -2642,7 +2652,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
                 ScreenReaderOutput.Speak("Please enter a name", VerbosityLevel.Terse);
                 return;
             }
-            var preset = AudioChainPreset.CaptureFrom(_rig, name);
+            var preset = AudioChainPreset.CaptureFrom(_rig, name, ReadSavedPcInputName());
             var presets = GetPresetsCallback?.Invoke() ?? AudioChainPresets.CreateDefaults();
             presets.Presets.Add(preset);
             if (PersistPresets(presets))
@@ -2679,9 +2689,42 @@ public partial class AudioWorkshopDialog : JJFlexDialog
 
         if (sfd.ShowDialog() == true)
         {
-            var preset = AudioChainPreset.CaptureFrom(_rig, System.IO.Path.GetFileNameWithoutExtension(sfd.FileName));
-            preset.Save(sfd.FileName);
-            ScreenReaderOutput.Speak($"Preset exported to {System.IO.Path.GetFileName(sfd.FileName)}", VerbosityLevel.Terse);
+            var preset = AudioChainPreset.CaptureFrom(_rig,
+                System.IO.Path.GetFileNameWithoutExtension(sfd.FileName),
+                ReadSavedPcInputName());
+            // Save reports whether the file landed. A failed write announced
+            // as an export is the lying-receipt pattern this dialog keeps
+            // finding — never say "exported" on faith.
+            if (preset.Save(sfd.FileName))
+                ScreenReaderOutput.Speak($"Preset exported to {System.IO.Path.GetFileName(sfd.FileName)}", VerbosityLevel.Terse);
+            else
+                ScreenReaderOutput.Speak(
+                    $"The file could not be written to {System.IO.Path.GetFileName(sfd.FileName)}. Nothing was exported.",
+                    VerbosityLevel.Critical);
+        }
+    }
+
+    /// <summary>
+    /// The Windows capture device the operator chose, from audioDevices.xml —
+    /// a file read, never a PortAudio enumeration (this dialog must not
+    /// enumerate while a radio connection may be live). "" when unknown;
+    /// recorded into presets so a preset tuned against one microphone can say
+    /// so on another (#51).
+    /// </summary>
+    private string ReadSavedPcInputName()
+    {
+        try
+        {
+            string? path = AudioDevicesPath?.Invoke();
+            if (string.IsNullOrEmpty(path) || !System.IO.File.Exists(path))
+                return "";
+            var devices = new JJPortaudio.Devices(path);
+            devices.LoadSavedSelection();
+            return devices.InputDevice?.Name ?? "";
+        }
+        catch
+        {
+            return "";
         }
     }
 
@@ -2703,7 +2746,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         };
         if (ofd.ShowDialog() != true) return;
 
-        if (!AudioChainPreset.TryLoad(ofd.FileName, out var preset))
+        if (!AudioChainPreset.TryLoad(ofd.FileName, out var preset, out string fileNote))
         {
             // Honest failure: a bad file must never quietly become a blank
             // preset in the list.
@@ -2727,9 +2770,15 @@ public partial class AudioWorkshopDialog : JJFlexDialog
 
         presets.Presets.Add(preset);
         if (PersistPresets(presets))
+        {
+            // The file's own caveats (newer schema, pre-EQ vintage) ride the
+            // import announcement — said once, here, rather than on every
+            // future load (#50).
+            string suffix = string.IsNullOrEmpty(fileNote) ? "" : " " + fileNote;
             ScreenReaderOutput.Speak(
-                $"Imported {preset.FormatForSpeech()}. Added to your saved presets; the radio is unchanged until you load it.",
+                $"Imported {preset.FormatForSpeech()}. Added to your saved presets; the radio is unchanged until you load it.{suffix}",
                 VerbosityLevel.Terse);
+        }
         else
             ScreenReaderOutput.Speak(
                 $"{preset.Name} was read from the file, but " + PresetSaveFailed,
@@ -2745,9 +2794,9 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         }
 
         var defaults = new AudioChainPreset();
-        defaults.ApplyTo(_rig);
+        _ = defaults.ApplyTo(_rig); // a default preset carries no EQ or input notes
         PollTxAudio();
-        ScreenReaderOutput.Speak("Audio settings reset to defaults", VerbosityLevel.Terse);
+        ScreenReaderOutput.Speak("Transmit audio settings reset to defaults", VerbosityLevel.Terse);
     }
 
     #endregion

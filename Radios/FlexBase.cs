@@ -9737,6 +9737,109 @@ namespace Radios
             }
         }
 
+        // ── TX equalizer (Track F, 2026-08-16) ──
+        //
+        // The TX EQ was the one piece of the radio's TX audio chain this class
+        // never wrapped, which is why audio presets shipped without it (#50 —
+        // "exported presets may be missing the TX EQ"; they were). FlexLib's
+        // Equalizer object is created on demand and populated by an "eq txsc
+        // info" round trip, so callers who want a capture should call
+        // RequestTxEqualizer() early (the Audio Workshop does it when it gets
+        // a rig) and treat a null GetTxEq() as "the radio has not answered
+        // yet", not as "the radio has no EQ".
+
+        /// <summary>
+        /// A snapshot of the radio's TX equalizer: enabled plus the eight
+        /// usable bands (63 Hz – 8 kHz), each in dB, radio range ±10. FlexLib
+        /// carries a 32 Hz member too, but the radio itself does not honor it
+        /// (FlexLib's own comment), so it is not modeled here.
+        /// </summary>
+        public sealed class TxEqSettings
+        {
+            public bool Enabled;
+            public int Hz63;
+            public int Hz125;
+            public int Hz250;
+            public int Hz500;
+            public int Hz1000;
+            public int Hz2000;
+            public int Hz4000;
+            public int Hz8000;
+        }
+
+        /// <summary>
+        /// Ask the radio for its TX equalizer state. Idempotent; safe with no
+        /// radio. Until the answer arrives, <see cref="GetTxEq"/> returns null.
+        /// </summary>
+        public void RequestTxEqualizer()
+        {
+            q.Enqueue((FunctionDel)(() =>
+            {
+                if (theRadio == null) return;
+                var eq = theRadio.FindEqualizerByEQSelect(EqualizerSelect.TX);
+                if (eq == null)
+                {
+                    // CreateEqualizer hands back an unregistered object; the
+                    // RequestEqualizerFromRadio round trip is what registers
+                    // it (and fills its levels) once the radio replies.
+                    theRadio.CreateEqualizer(EqualizerSelect.TX)?.RequestEqualizerFromRadio();
+                }
+                else
+                {
+                    eq.RequestEqualizerInfo();
+                }
+            }), "RequestTxEqualizer");
+        }
+
+        /// <summary>
+        /// Current TX equalizer state, or null when the radio has not
+        /// reported it yet (see <see cref="RequestTxEqualizer"/>).
+        /// </summary>
+        public TxEqSettings GetTxEq()
+        {
+            var eq = theRadio?.FindEqualizerByEQSelect(EqualizerSelect.TX);
+            if (eq == null) return null;
+            return new TxEqSettings
+            {
+                Enabled = eq.EQ_enabled,
+                Hz63 = eq.level_63Hz,
+                Hz125 = eq.level_125Hz,
+                Hz250 = eq.level_250Hz,
+                Hz500 = eq.level_500Hz,
+                Hz1000 = eq.level_1000Hz,
+                Hz2000 = eq.level_2000Hz,
+                Hz4000 = eq.level_4000Hz,
+                Hz8000 = eq.level_8000Hz,
+            };
+        }
+
+        /// <summary>
+        /// Apply a TX equalizer snapshot. Returns false (and changes nothing)
+        /// when the radio's equalizer object is not available yet — callers
+        /// own saying so rather than pretending the EQ was set.
+        /// </summary>
+        public bool ApplyTxEq(TxEqSettings s)
+        {
+            if (s == null) return false;
+            if (theRadio?.FindEqualizerByEQSelect(EqualizerSelect.TX) == null) return false;
+            q.Enqueue((FunctionDel)(() =>
+            {
+                var eq = theRadio?.FindEqualizerByEQSelect(EqualizerSelect.TX);
+                if (eq == null) return;
+                static int Clamp(int v) => Math.Max(-10, Math.Min(10, v));
+                eq.level_63Hz = Clamp(s.Hz63);
+                eq.level_125Hz = Clamp(s.Hz125);
+                eq.level_250Hz = Clamp(s.Hz250);
+                eq.level_500Hz = Clamp(s.Hz500);
+                eq.level_1000Hz = Clamp(s.Hz1000);
+                eq.level_2000Hz = Clamp(s.Hz2000);
+                eq.level_4000Hz = Clamp(s.Hz4000);
+                eq.level_8000Hz = Clamp(s.Hz8000);
+                eq.EQ_enabled = s.Enabled;
+            }), "ApplyTxEq");
+            return true;
+        }
+
         // ── Audio Check / hear-yourself support (QB Track G, 2026-08-07) ──
         //
         // Public wrappers for the Audio Workshop's Audio Check session.
@@ -10732,6 +10835,46 @@ namespace Radios
                     break;
             }
             return rv;
+        }
+
+        // ── Mic-profile accessors (Track F, 2026-08-16) ──
+        //
+        // The radio owns its mic profiles — created, stored and autosaved on
+        // the radio itself, shared with every other client. JJ Flexible's
+        // microphone profiles REFERENCE these by name rather than copying
+        // their contents (see Radios.MicrophoneProfile), so the app needs to
+        // ask three small questions: what profiles exist, which is loaded,
+        // and "load this one IF it exists". The existing SelectProfile
+        // silently CREATES a missing mic profile before selecting it — right
+        // for its original caller, wrong for applying a reference, where a
+        // missing profile must be reported, never invented on someone's
+        // radio.
+
+        /// <summary>
+        /// Mic-profile names the radio reports. Empty until the radio has
+        /// answered the profile subscription.
+        /// </summary>
+        public List<string> MicProfileNames => theRadio?.ProfileMICList?.ToList() ?? new List<string>();
+
+        /// <summary>The radio's currently loaded mic profile, or "".</summary>
+        public string CurrentMicProfileName => theRadio?.ProfileMICSelection ?? "";
+
+        /// <summary>
+        /// Load a mic profile by name ONLY if the radio already has it.
+        /// Returns false — and sends nothing — when it does not exist here,
+        /// so the caller can say so instead of this class quietly creating a
+        /// profile on somebody's radio.
+        /// </summary>
+        public bool SelectMicProfileIfPresent(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name)) return false;
+            var radio = theRadio;
+            if (radio == null || !radio.ProfileMICList.Contains(name)) return false;
+            q.Enqueue((FunctionDel)(() =>
+            {
+                theRadio.ProfileMICSelection = name;
+            }), "SelectMicProfileIfPresent", true);
+            return true;
         }
 
         /// <summary>

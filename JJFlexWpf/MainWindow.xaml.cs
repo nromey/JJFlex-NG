@@ -89,18 +89,36 @@ public partial class MainWindow : UserControl
         // is no operator yet, so Load offers Ragchew/Contest/DX on a fresh
         // install rather than claiming there are no presets.
         Dialogs.AudioWorkshopDialog.GetPresetsCallback = () =>
-            OpenParms == null
-                ? Radios.AudioChainPresets.CreateDefaults()
-                : Radios.AudioChainPresets.Load(
-                    OpenParms.ConfigDirectory, OpenParms.GetOperatorName());
+        {
+            if (OpenParms == null)
+                return Radios.AudioChainPresets.CreateDefaults();
+            var loaded = Radios.AudioChainPresets.Load(
+                OpenParms.ConfigDirectory, OpenParms.GetOperatorName(),
+                out string? corruptPath);
+            // #49 — a corrupt preset file must never silently become the
+            // three defaults. That is the operator's tuning disappearing
+            // with no notification. The store has already moved the
+            // unreadable file aside so nothing overwrites it; this is where
+            // the operator hears about it, once per occurrence.
+            if (corruptPath != null)
+            {
+                Radios.ScreenReaderOutput.Speak(
+                    "Your saved audio presets file could not be read, so the "
+                    + "built-in presets are shown instead. The unreadable file "
+                    + "was kept next to it as "
+                    + System.IO.Path.GetFileName(corruptPath) + ".",
+                    Radios.VerbosityLevel.Critical);
+            }
+            return loaded;
+        };
         // Returns whether the save actually landed. With no operator there is
         // no per-operator file to write, and a silent no-op here would put the
-        // dialog straight back to announcing saves that did not happen.
+        // dialog straight back to announcing saves that did not happen. The
+        // store's Save reports disk-level failure for the same reason.
         Dialogs.AudioWorkshopDialog.SavePresetsCallback = presets =>
         {
             if (OpenParms == null || presets == null) return false;
-            presets.Save(OpenParms.ConfigDirectory, OpenParms.GetOperatorName());
-            return true;
+            return presets.Save(OpenParms.ConfigDirectory, OpenParms.GetOperatorName());
         };
 
         // Wire braille display focus events
