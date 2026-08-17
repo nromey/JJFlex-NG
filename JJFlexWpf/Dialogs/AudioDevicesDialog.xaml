@@ -46,6 +46,33 @@
                            FontWeight="SemiBold"
                            Style="{StaticResource DialogLabel}"
                            Margin="0,0,0,2"/>
+
+                <!-- ===== Audio system (Track E, 2026-08-16) =====
+                     First, because it decides what the two lists below can
+                     contain. Windows offers the same sound card through
+                     several driver models, and every device used to appear
+                     once per model — so the lists folded the duplicates and,
+                     in folding them, chose a driver model on the operator's
+                     behalf. Choosing it here means there are no duplicates
+                     left to fold, which is why this control makes the lists
+                     shorter rather than longer. One selector governs both
+                     directions, the DAW convention; the advanced toggle at
+                     the bottom is where they can be set apart. -->
+                <TextBlock Text="Audio system:"
+                           Style="{StaticResource DialogLabel}"
+                           Margin="0,0,0,2"/>
+                <ComboBox x:Name="HostApiCombo"
+                          Style="{StaticResource DialogComboBox}"
+                          Margin="0,0,0,4"
+                          AutomationProperties.Name="Audio system. This is the Windows driver model JJ Flexible reaches your sound devices through. It applies to both the microphone and the receive audio, and the two lists below show the devices it offers."
+                          SelectionChanged="HostApiCombo_SelectionChanged"/>
+                <TextBlock x:Name="HostApiNote"
+                           Style="{StaticResource DialogLabel}"
+                           TextWrapping="Wrap"
+                           Margin="0,0,0,10"
+                           Focusable="True"
+                           AutomationProperties.Name="Audio system note"/>
+
                 <TextBlock Text="Radio receive audio plays through:"
                            Style="{StaticResource DialogLabel}"
                            Margin="0,0,0,2"/>
@@ -78,6 +105,27 @@
                            Focusable="True"
                            AutomationProperties.LiveSetting="Polite"
                            AutomationProperties.Name="Microphone device note"/>
+
+                <!-- ===== Transmit quality (Track E, 2026-08-16) =====
+                     Which device, at what rate, is one decision, so the rate
+                     sits with the devices rather than off in Settings. A
+                     request rather than a command: the device settles the rate
+                     before the encoder is built, so the note under it says
+                     what actually happened last time. -->
+                <TextBlock Text="Transmit audio quality:"
+                           Style="{StaticResource DialogLabel}"
+                           Margin="0,0,0,2"/>
+                <ComboBox x:Name="TxRateCombo"
+                          Style="{StaticResource DialogComboBox}"
+                          Margin="0,0,0,4"
+                          AutomationProperties.Name="Transmit audio quality. This is the sample rate JJ Flexible encodes your microphone at before sending it to the radio. Full quality is the tested setting; the lower ones use less of your connection when the link is poor."
+                          SelectionChanged="TxRateCombo_SelectionChanged"/>
+                <TextBlock x:Name="TxRateNote"
+                           Style="{StaticResource DialogLabel}"
+                           TextWrapping="Wrap"
+                           Margin="0,0,0,10"
+                           Focusable="True"
+                           AutomationProperties.Name="Transmit audio quality note"/>
 
                 <!-- ================= Microphone Check ================= -->
                 <!-- Answers "is this microphone working" without a transmitter.
@@ -206,15 +254,18 @@
 
                 <Separator Margin="0,4,0,8"/>
 
-                <!-- One physical device reads as one choice by default. This
-                     unfolds the list to every endpoint Windows offers, host API
-                     by host API, including the kernel pins that were hidden in
-                     2026-08-11 after two operators picked one and transmitted
-                     into a dead jack. -->
+                <!-- The lists normally hold one audio system at a time. This
+                     drops that filter and shows every endpoint Windows offers,
+                     across every audio system at once, including the kernel
+                     pins that were hidden on 2026-08-11 after two operators
+                     picked one and transmitted into a dead jack. It is also
+                     the way to put the microphone on one audio system and the
+                     receive audio on another, which the single selector above
+                     deliberately does not offer. -->
                 <CheckBox x:Name="AdvancedDevicesCheck"
-                          Content="_Show every sound endpoint, host API by host API (advanced)"
+                          Content="_Show every sound endpoint, every audio system at once (advanced)"
                           Margin="0,0,0,6"
-                          AutomationProperties.Name="Show every sound endpoint, host API by host API. Advanced."
+                          AutomationProperties.Name="Show every sound endpoint, every audio system at once. Advanced. This ignores the audio system chosen above, names the audio system on every row, and includes kernel streaming endpoints."
                           AutomationProperties.AcceleratorKey="Alt+S"
                           Checked="AdvancedDevicesCheck_Changed"
                           Unchecked="AdvancedDevicesCheck_Changed"/>

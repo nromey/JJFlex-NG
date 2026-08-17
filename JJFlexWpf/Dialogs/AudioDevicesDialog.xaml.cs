@@ -82,6 +82,20 @@ namespace JJFlexWpf.Dialogs
 
         private List<(int deviceNumber, string name)> _naudioDevices = new();
 
+        // The host APIs the combo is showing, row for row.
+        private List<Devices.HostApi> _hostApis = new();
+
+        // The Opus transmit rates the quality combo is showing, row for row.
+        private static readonly uint[] TxRates = JJAudioStream.OpusTxRates;
+
+        // Both the audio system and the transmit rate take effect the moment
+        // they are chosen — the audio system because the lists below it have to
+        // show what it offers, the transmit rate because the note under it has
+        // to describe the new value. Cancel discards, so what they were on the
+        // way in is remembered here and put back on any exit that is not OK.
+        private readonly int _hostApiOnEntry = Devices.SelectedHostApiTypeId;
+        private readonly uint _txRateOnEntry = Radios.FlexBase.OpusTxSampleRateSetting;
+
         // True while a list is being repopulated, so SelectionChanged doesn't
         // narrate a selection the user did not make.
         private bool _loading;
@@ -183,9 +197,19 @@ namespace JJFlexWpf.Dialogs
             {
                 StopMicCheck(speak: false, reason: "");
                 DisposeMicLevel();
+
+                // Escape, Cancel, the title-bar close, an owner teardown — every
+                // way out that is not OK. Both settings were applied live so the
+                // dialog could describe what they do; leaving them applied after
+                // Cancel would make Cancel a lie.
+                if (DialogResult == true) return;
+                Radios.FlexBase.OpusTxSampleRateSetting = _txRateOnEntry;
+                if (Devices.SelectedHostApiTypeId != _hostApiOnEntry)
+                    Devices.ApplyHostApiSelection(_hostApiOnEntry);
             };
 
             LoadNAudioDevices();
+            LoadTxRates();
             ReloadPortAudioDevices(announce: false);
             SetMicReading("Microphone check: not running. Choose a microphone above, then press "
                 + "Alt+M to start it. JJ Flexible listens to that microphone and tells you what "
@@ -269,6 +293,175 @@ namespace JJFlexWpf.Dialogs
         }
 
         /// <summary>
+        /// Fill the audio-system combo and select the one in force.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// Track E, 2026-08-16. Windows offers the same sound card through
+        /// several driver models — MME, DirectSound, WASAPI, and the kernel
+        /// pins — so every device enumerated once per model and the lists
+        /// folded the duplicates away. Folding had to pick one endpoint to
+        /// stand for the rest, which meant the app was choosing a driver model
+        /// silently, and it landed on MME often enough to matter. MME
+        /// resamples on the way through, so it reports a tidy 48 kHz whatever
+        /// the hardware is really running at, and no rate problem could be seen
+        /// from inside the app at all.
+        /// </para>
+        /// <para>
+        /// So this control DELETED code rather than adding it: choose the
+        /// audio system first and there are no duplicates left to fold.
+        /// </para>
+        /// <para>
+        /// Disabled with the reason in the note when the machine offers only
+        /// one — a combo with a single item is a tab stop that cannot do
+        /// anything, and the house rule keeps dead controls out of the tab
+        /// order.
+        /// </para>
+        /// </remarks>
+        private void LoadHostApis()
+        {
+            _hostApis = new List<Devices.HostApi>(Devices.HostApis);
+
+            HostApiCombo.Items.Clear();
+            foreach (var api in _hostApis) HostApiCombo.Items.Add(api.Display);
+
+            int idx = _hostApis.FindIndex(a => a.TypeId == Devices.SelectedHostApiTypeId);
+            if (idx < 0 && _hostApis.Count > 0) idx = 0;
+            HostApiCombo.SelectedIndex = idx;
+
+            if (_hostApis.Count == 0)
+            {
+                HostApiCombo.IsEnabled = false;
+                SetStatusLine(HostApiNote, "No audio system was found on this computer, so there "
+                    + "are no sound devices to choose from.");
+                return;
+            }
+
+            if (_hostApis.Count == 1)
+            {
+                HostApiCombo.IsEnabled = false;
+                SetStatusLine(HostApiNote, $"This computer offers only {_hostApis[0].Name}, "
+                    + "so there is nothing to choose between.");
+                return;
+            }
+
+            HostApiCombo.IsEnabled = true;
+            SetStatusLine(HostApiNote, HostApiNoteText());
+        }
+
+        /// <summary>
+        /// The always-current sentence under the audio-system combo: what the
+        /// current choice means for the operator's audio, in the honest form.
+        /// </summary>
+        /// <remarks>
+        /// The trade is stated both ways round on purpose. MME is genuinely
+        /// the most compatible and it is genuinely the one that hides the
+        /// truth; WASAPI is genuinely honest and it genuinely refuses devices
+        /// MME would have accepted. An operator whose interface will not open
+        /// under WASAPI needs to know MME exists, and an operator whose
+        /// transmit audio is mysteriously wrong needs to know MME is why they
+        /// cannot see it.
+        /// </remarks>
+        private string HostApiNoteText()
+        {
+            int selected = Devices.SelectedHostApiTypeId;
+            if (Devices.ShowAdvancedDevices)
+            {
+                return "Showing every sound endpoint, so this choice is not filtering the lists "
+                    + "right now. Each row names its own audio system, and the microphone and the "
+                    + "receive audio can be set to different ones. It still applies again when you "
+                    + "turn that off.";
+            }
+
+            switch (selected)
+            {
+                case Devices.WasapiTypeId:
+                    return "WASAPI is the modern Windows path and the one that tells you the truth: "
+                        + "it reports the rate your hardware is really running at, and refuses a "
+                        + "device that cannot do what the radio needs instead of quietly converting. "
+                        + "If a device you own will not work here, MME is the forgiving one.";
+                case Devices.MmeTypeId:
+                    return "MME is the most compatible and the most forgiving — it converts sample "
+                        + "rates for you, so devices WASAPI refuses will usually work. The cost is "
+                        + "that it reports 48 kHz for everything, so you cannot tell from here what "
+                        + "rate your hardware is actually running at. Device names are also cut "
+                        + "short to 31 characters by Windows under MME.";
+                case Devices.DirectSoundTypeId:
+                    return "DirectSound sits between MME and WASAPI: it converts sample rates like "
+                        + "MME does, without MME's truncated device names. WASAPI is the better "
+                        + "default if your devices work under it.";
+                case Devices.WdmKsTypeId:
+                    return "Kernel streaming talks to the hardware directly. These are raw endpoints, "
+                        + "including physical jacks with nothing plugged into them — picking one of "
+                        + "those transmits silence and nothing warns you. Use it only if you know "
+                        + "which endpoint you want.";
+                default:
+                    return $"Devices are listed through {Devices.NameOfHostApi(selected)}.";
+            }
+        }
+
+        /// <summary>
+        /// Fill the transmit-quality combo. Rate values come from
+        /// <see cref="JJAudioStream.OpusTxRates"/> so the list and the encoder
+        /// cannot drift apart.
+        /// </summary>
+        private void LoadTxRates()
+        {
+            TxRateCombo.Items.Clear();
+            foreach (uint rate in TxRates) TxRateCombo.Items.Add(TxRateLabel(rate));
+
+            uint current = Radios.FlexBase.OpusTxSampleRateSetting;
+            int idx = Array.IndexOf(TxRates, current);
+            TxRateCombo.SelectedIndex = (idx >= 0) ? idx : 0;
+            SetStatusLine(TxRateNote, TxRateNoteText());
+        }
+
+        /// <summary>
+        /// A transmit rate in words first, figures second. The kilohertz
+        /// number is meaningless to most operators and load-bearing to some,
+        /// so both are there and the plain word leads.
+        /// </summary>
+        private static string TxRateLabel(uint rate)
+        {
+            string quality = rate switch
+            {
+                48000 => "Full quality",
+                24000 => "Reduced",
+                16000 => "Low",
+                12000 => "Very low",
+                _ => "Lowest",
+            };
+            return $"{quality} — {rate / 1000.0:0.#} kHz"
+                + (rate == Radios.FlexBase.OpusTxSampleRateDefault ? " (default)" : "");
+        }
+
+        /// <summary>
+        /// What the transmit rate setting will and will not do, honestly.
+        /// </summary>
+        /// <remarks>
+        /// The important sentence is that the device gets the last word. The
+        /// rate is settled against the hardware before the encoder is built —
+        /// that ordering is the fix that stopped an encoder running at a rate
+        /// its stream was not — so a request the device refuses is simply not
+        /// what happens, and a control that silently does nothing is worse
+        /// than no control.
+        /// </remarks>
+        private string TxRateNoteText()
+        {
+            uint rate = Radios.FlexBase.OpusTxSampleRateSetting;
+            string lead = (rate == Radios.FlexBase.OpusTxSampleRateDefault)
+                ? "Full quality is the tested setting; leave it here unless your connection "
+                  + "cannot carry it."
+                : $"Your microphone will be encoded at {rate / 1000.0:0.#} kHz, which uses less of "
+                  + "your connection and sounds duller. Worth trying when transmit audio breaks up "
+                  + "on a poor link.";
+            return lead + " Your sound card has the last word: if it cannot run at this rate, "
+                + "JJ Flexible opens at a rate it can and encodes to match, rather than sending "
+                + "something the radio cannot follow. MME converts rates, so the lower settings "
+                + "are most likely to take effect there.";
+        }
+
+        /// <summary>
         /// Re-enumerate PortAudio and rebuild both radio-audio lists. Also the
         /// Refresh button's job, because enumeration is a snapshot: a headset
         /// plugged in while this dialog is open is invisible until this runs.
@@ -289,33 +482,13 @@ namespace JJFlexWpf.Dialogs
                 // Load the saved selection only — Setup would enumerate again,
                 // and a second Pa_Initialize/Pa_Terminate cycle per Refresh is
                 // a real cost on a live audio machine for an answer we are
-                // already holding.
+                // already holding. This also applies the saved audio system,
+                // which rebuilds the picker lists, so it must run before the
+                // lists are read below.
                 _devices.LoadSavedSelection();
 
-                _outputRows = PopulateDeviceList(RadioOutputList, Devices.PickerOutputDevices,
-                    _devices.OutputDevice, RadioOutputNote, "radio receive audio");
-                _inputRows = PopulateDeviceList(RadioInputList, Devices.PickerInputDevices,
-                    _devices.InputDevice, RadioInputNote, "microphone");
-
-                // Say what the app decides about channel counts, and only when
-                // it is actually deciding something for a device in THESE
-                // lists. Multi-channel devices are opened as stereo; mono
-                // devices are shown but cannot carry radio audio yet. A note
-                // about neither is noise.
-                var shown = _inputRows.Concat(_outputRows).Where(d => !d.IsMissingSaved).ToList();
-                bool anyMono = shown.Any(d => !d.UsableForRadioAudio);
-                bool anyMultiChannel = shown.Any(d => d.UsableForRadioAudio
-                    && d.NativeChannels > Devices.StreamChannels);
-                string filterNote = "";
-                if (anyMultiChannel)
-                    filterNote = "Devices with more than two channels are fine — JJ Flex uses them in stereo.";
-                if (anyMono)
-                    filterNote += (filterNote.Length > 0 ? " " : "")
-                        + "Mono devices are shown so you know JJ Flex can see them, but radio audio needs two channels, so they cannot be chosen yet.";
-                SetStatusLine(FilterNoteText, filterNote);
-                FilterNoteText.Visibility = filterNote.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
-
-                UpdateStatusText();
+                LoadHostApis();
+                PopulateBothLists();
             }
             finally
             {
@@ -337,6 +510,66 @@ namespace JJFlexWpf.Dialogs
             }
         }
 
+        /// <summary>
+        /// Rebuild both device lists from the picker view currently in force,
+        /// WITHOUT re-enumerating. What the audio-system selector needs:
+        /// every endpoint is already in hand, and only the filter over them
+        /// changed. A Pa_Initialize/Pa_Terminate cycle per selector move would
+        /// be a real cost on a live audio machine for an answer we hold.
+        /// </summary>
+        private void RebuildDeviceLists()
+        {
+            _loading = true;
+            try
+            {
+                PopulateBothLists();
+            }
+            finally
+            {
+                _loading = false;
+            }
+            // SelectionChanged skipped the rebind while _loading was true, and
+            // a level control left pointed at a device from the previous view
+            // would be adjusting something no longer on screen.
+            UpdateMicLevelControl();
+        }
+
+        /// <summary>
+        /// Fill the two radio-audio lists and the note beneath them. Caller
+        /// holds <c>_loading</c>.
+        /// </summary>
+        private void PopulateBothLists()
+        {
+            _outputRows = PopulateDeviceList(RadioOutputList, Devices.PickerOutputDevices,
+                _devices?.OutputDevice, RadioOutputNote, "radio receive audio");
+            _inputRows = PopulateDeviceList(RadioInputList, Devices.PickerInputDevices,
+                _devices?.InputDevice, RadioInputNote, "microphone");
+
+            // Say what the app decides about channel counts and rates, and
+            // only when it is actually deciding something for a device in
+            // THESE lists. A note about none of them is noise.
+            var shown = _inputRows.Concat(_outputRows).Where(d => !d.IsMissingSaved).ToList();
+            bool anyMono = shown.Any(d => d.IsMono);
+            bool anyMultiChannel = shown.Any(d => d.NativeChannels > Devices.StreamChannels);
+            bool anyBadRate = shown.Any(d => Devices.DescribeRate(d).Length > 0);
+            string filterNote = "";
+            if (anyMultiChannel)
+                filterNote = "Devices with more than two channels are fine — JJ Flex uses them in stereo.";
+            if (anyMono)
+                filterNote += (filterNote.Length > 0 ? " " : "")
+                    + "Mono devices work too — a mono microphone is sent to the radio on both "
+                    + "channels, and a mono speaker gets both channels mixed together.";
+            if (anyBadRate)
+                filterNote += (filterNote.Length > 0 ? " " : "")
+                    + "Any device listed as running at a rate the radio cannot use needs setting "
+                    + "to 48000 hertz in Windows Sound settings — or choose MME as the audio "
+                    + "system above, which converts the rate for you.";
+            SetStatusLine(FilterNoteText, filterNote);
+            FilterNoteText.Visibility = filterNote.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+
+            UpdateStatusText();
+        }
+
         private static int CountReal(List<Devices.DeviceInfo> rows) => rows.Count(d => !d.IsMissingSaved);
 
         /// <summary>
@@ -353,10 +586,11 @@ namespace JJFlexWpf.Dialogs
         /// leaves them with no way to tell "unplugged" from "never chose one".
         /// </para>
         /// <para>
-        /// And a saved device that IS present resolves through
-        /// <see cref="Devices.FindPickerRow"/>, so a selection saved against
-        /// one host API lands on the folded row that now stands for the same
-        /// hardware instead of being reported missing.
+        /// And a saved device that IS present but is not in the current view —
+        /// its audio system is not the one selected, or its kind is hidden —
+        /// keeps its own row too, at the top, labelled with the reason. It
+        /// stays selected, so OK writes nothing and a working configuration
+        /// keeps working; see <see cref="SelectFilteredSavedRow"/>.
         /// </para>
         /// </remarks>
         private List<Devices.DeviceInfo> PopulateDeviceList(
@@ -394,7 +628,7 @@ namespace JJFlexWpf.Dialogs
                 {
                     var liveSaved = Devices.FindLive(saved!);
                     if (liveSaved != null)
-                        return SelectFilteredSavedRow(list, rows, liveSaved.GroupOwner ?? liveSaved, note);
+                        return SelectFilteredSavedRow(list, rows, liveSaved, note);
                 }
 
                 // No dead controls in tab order: an empty list is not something
@@ -412,49 +646,53 @@ namespace JJFlexWpf.Dialogs
                 int idx = IndexOf(rows, match);
                 if (idx < 0)
                 {
-                    // The saved device is live but the picker's current view
-                    // filters it out (loopbacks and virtual cables are hidden
-                    // unless the advanced toggle is on). Snapping to row 0
-                    // while the note still names the saved device would be a
-                    // silent substitution — and OK would then COMMIT row 0,
-                    // quietly replacing a deliberate choice with something the
-                    // operator never picked and cannot glance at. So the saved
-                    // device keeps its row: inserted first, selected, and
-                    // labelled with why it is here. OK on it is a no-op
-                    // (SameDevice matches through the group), so a working
-                    // configuration stays working.
+                    // Belt and braces: FindPickerRow only returns rows that are
+                    // in the current view, so this should not fire. If it ever
+                    // does, keeping the saved device on screen beats snapping
+                    // to row 0 — that would be a silent substitution, and OK
+                    // would then COMMIT row 0, quietly replacing a deliberate
+                    // choice with something the operator never picked and
+                    // cannot glance at.
                     return SelectFilteredSavedRow(list, rows, match, note);
                 }
                 list.SelectedIndex = idx;
-                // A multi-channel device is a decision the app makes on the
-                // operator's behalf (it opens the first two channels as
-                // stereo), so the note says so rather than leaving them to
-                // wonder what four channels means for their audio.
-                string channelPart = match.NativeChannels > Devices.StreamChannels
-                    ? $" It reports {match.NativeChannels} channels; JJ Flex uses it in stereo."
+                // Channel handling is a decision the app makes on the
+                // operator's behalf — a multi-channel device is used in stereo,
+                // a mono one is duplicated or mixed — so the note says so
+                // rather than leaving them to wonder what four channels, or
+                // one, means for their audio. One vocabulary, from
+                // Devices.DescribeChannels, so this cannot drift from the row.
+                string channels = Devices.DescribeChannels(match);
+                string channelPart = channels.Length > 0 ? $" It is {channels}." : "";
+                string rateWarning = Devices.DescribeRate(match);
+                string ratePart = rateWarning.Length > 0
+                    ? $" {char.ToUpperInvariant(rateWarning[0])}{rateWarning.Substring(1)}. "
+                      + "Set it to 48000 hertz in Windows Sound settings, or choose MME as the "
+                      + "audio system above, which converts the rate for you."
                     : "";
-                SetStatusLine(note, $"Currently using {match.Display}.{channelPart}");
+                SetStatusLine(note, $"Currently using {match.Display}.{channelPart}{ratePart}");
                 return rows;
             }
 
-            // Defence in depth for the same filter: if resolving the saved
-            // device to a picker row failed but the device itself is live
-            // (savedMissing is false and the name is real), it is hidden, not
-            // gone — fall through to the not-chosen-yet message and it would
-            // read as if the operator never chose anything, then OK would
-            // commit the fallback. Same remedy: keep the choice on screen.
+            // The normal route for a saved device that is live but not in the
+            // current view: a different audio system is selected, or its kind
+            // is hidden. Falling through to the not-chosen-yet message would
+            // read as if the operator never chose anything, and OK would then
+            // commit the fallback over the top of a deliberate choice. So the
+            // choice stays on screen, with the reason.
             if (savedNamed && !savedMissing)
             {
                 var live = Devices.FindLive(saved!);
                 if (live != null)
                 {
-                    return SelectFilteredSavedRow(list, rows, live.GroupOwner ?? live, note);
+                    return SelectFilteredSavedRow(list, rows, live, note);
                 }
             }
 
             // The pre-selection OK would commit must be a device the engine
-            // can open — never a mono row, whose save would be refused, and
-            // never the not-connected row, which cannot carry audio at all.
+            // can open — never the not-connected row, which cannot carry audio
+            // at all. Mono rows qualify since 2026-08-16; the engine opens them
+            // as mono and duplicates to stereo.
             int fallbackIdx = FirstUsableIndex(rows);
 
             if (savedMissing)
@@ -479,8 +717,9 @@ namespace JJFlexWpf.Dialogs
             if (fallbackIdx < 0)
             {
                 list.SelectedIndex = 0;
-                SetStatusLine(note, $"No usable {role} device was found. The devices listed are mono, "
-                          + "and radio audio needs two channels.");
+                SetStatusLine(note, $"No usable {role} device was found. Nothing in this list reports "
+                          + "a channel JJ Flexible can open. Try a different audio system above, or "
+                          + "turn on Show every sound endpoint.");
                 return rows;
             }
             list.SelectedIndex = fallbackIdx;
@@ -490,13 +729,23 @@ namespace JJFlexWpf.Dialogs
 
         /// <summary>
         /// Keep a saved device visible and selected when the picker's current
-        /// view hides its kind (loopbacks and virtual cables, in the basic
-        /// view). The row goes first — same precedent as the not-connected
-        /// row: the sentence that applies to the person's own configuration
-        /// is the most important one in the list — and the note says plainly
-        /// why a normally-hidden device is on screen, so the list and the
-        /// note can never disagree.
+        /// view does not contain it. The row goes first — same precedent as
+        /// the not-connected row: the sentence that applies to the person's
+        /// own configuration is the most important one in the list — and the
+        /// note says plainly WHY it is on screen when nothing else like it is,
+        /// so the list and the note can never disagree.
         /// </summary>
+        /// <remarks>
+        /// Two reasons a live saved device can be off the list, and they need
+        /// different sentences. Its kind is hidden (a loopback or a virtual
+        /// cable, in the basic view) — the original case. Or, since
+        /// 2026-08-16, it belongs to a different audio system than the one
+        /// selected: an operator upgrading into this change has a device saved
+        /// under whatever the old folding rule silently picked, usually MME,
+        /// while the selector now reads WASAPI. Saying "this kind of device is
+        /// normally hidden" about a perfectly ordinary microphone would be
+        /// description drift on the day it shipped.
+        /// </remarks>
         private List<Devices.DeviceInfo> SelectFilteredSavedRow(
             ListBox list,
             List<Devices.DeviceInfo> rows,
@@ -507,9 +756,20 @@ namespace JJFlexWpf.Dialogs
             list.Items.Insert(0, savedRow.Display);
             list.IsEnabled = true;
             list.SelectedIndex = 0;
-            SetStatusLine(note, $"Currently using {savedRow.Display}. This kind of device is normally "
-                + "hidden from the list — it is shown here so your saved choice stays yours. "
-                + "Turn on Show every sound endpoint to see others like it.");
+
+            bool otherApi = !Devices.ShowAdvancedDevices
+                && Devices.SelectedHostApiTypeId >= 0
+                && savedRow.HostApiTypeId != Devices.SelectedHostApiTypeId;
+
+            string why = otherApi
+                ? $"It uses {savedRow.HostApiName}, not the {Devices.NameOfHostApi(Devices.SelectedHostApiTypeId)} "
+                  + "chosen above, so it is shown here to keep your saved choice yours. It will keep "
+                  + "working. To move this device onto the audio system above, pick it from the rest "
+                  + "of the list."
+                : "This kind of device is normally hidden from the list — it is shown here so your "
+                  + "saved choice stays yours. Turn on Show every sound endpoint to see others like it.";
+
+            SetStatusLine(note, $"Currently using {savedRow.Display}. {why}");
             return rows;
         }
 
@@ -589,6 +849,57 @@ namespace JJFlexWpf.Dialogs
         }
 
         /// <summary>
+        /// Switch the audio system and rebuild both lists around it.
+        /// </summary>
+        /// <remarks>
+        /// Takes effect immediately rather than on OK, because the whole point
+        /// of the control is what the lists then contain — an operator has to
+        /// see the devices an audio system offers before they can choose one
+        /// of them. The choice is only PERSISTED on OK, with the devices.
+        ///
+        /// <para>
+        /// This speaks, and that is not a violation of speak-only-when-the-UI-
+        /// does-not-convey: the change happens two controls away from the one
+        /// with focus, and how many devices survived the change is exactly what
+        /// the operator needs and cannot hear from the combo they are standing
+        /// on.
+        /// </para>
+        /// </remarks>
+        private void HostApiCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (_loading) return;
+            int idx = HostApiCombo.SelectedIndex;
+            if (idx < 0 || idx >= _hostApis.Count) return;
+
+            int wanted = _hostApis[idx].TypeId;
+            if (wanted == Devices.SelectedHostApiTypeId) return;
+
+            // A running check belongs to the device it was started on, and the
+            // row it was started from is about to be replaced.
+            StopMicCheck(speak: false, reason: "");
+
+            Devices.ApplyHostApiSelection(wanted);
+            RebuildDeviceLists();
+
+            SetStatusLine(HostApiNote, HostApiNoteText());
+            Announce($"{_hostApis[idx].Name}. {CountReal(_outputRows)} output and "
+                + $"{CountReal(_inputRows)} input devices.");
+        }
+
+        /// <summary>
+        /// Change the transmit rate. Applied to the static immediately so the
+        /// note can describe the new value; persisted on OK.
+        /// </summary>
+        private void TxRateCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (_loading) return;
+            int idx = TxRateCombo.SelectedIndex;
+            if (idx < 0 || idx >= TxRates.Length) return;
+            Radios.FlexBase.OpusTxSampleRateSetting = TxRates[idx];
+            SetStatusLine(TxRateNote, TxRateNoteText());
+        }
+
+        /// <summary>
         /// Unfold the lists to every endpoint, or fold them back. Session-only:
         /// the advanced view is a diagnostic, and a diagnostic that persists
         /// silently across restarts is how someone ends up living in it without
@@ -600,12 +911,20 @@ namespace JJFlexWpf.Dialogs
             if (Devices.ShowAdvancedDevices == on) return;
 
             Devices.ShowAdvancedDevices = on;
+            // A full re-enumeration, not just a picker rebuild: WDM-KS devices
+            // are skipped at enumeration time, so they are not in InputDevices
+            // to be filtered back in. LoadHostApis runs inside, which is how
+            // kernel streaming appears in and disappears from the audio-system
+            // combo along with its devices.
             ReloadPortAudioDevices(announce: false);
+            SetStatusLine(HostApiNote, HostApiNoteText());
             ScreenReaderOutput.Speak(
                 on
-                    ? $"Showing every sound endpoint. {CountReal(_outputRows)} output and {CountReal(_inputRows)} input entries, "
-                      + "including kernel pins. Most of these are the same hardware seen more than once."
-                    : $"Showing one entry per device. {CountReal(_outputRows)} output and {CountReal(_inputRows)} input devices.",
+                    ? $"Showing every sound endpoint across every audio system. {CountReal(_outputRows)} output and {CountReal(_inputRows)} input entries, "
+                      + "including kernel pins. Most of these are the same hardware seen once per audio system, "
+                      + "and each row names its own."
+                    : $"Showing {Devices.NameOfHostApi(Devices.SelectedHostApiTypeId)} devices only. "
+                      + $"{CountReal(_outputRows)} output and {CountReal(_inputRows)} input devices.",
                 VerbosityLevel.Terse, true);
         }
 
@@ -683,13 +1002,13 @@ namespace JJFlexWpf.Dialogs
 
             MicCheckButton.Content = "Stop _microphone check";
             AutomationProperties.SetName(MicCheckButton, "Stop microphone check");
-            SetMicReading("Microphone check running. Listening." + RateCaveat());
+            SetMicReading("Microphone check running. Listening." + HostApiCaveat() + RateCaveat());
             _micTimer.Start();
 
             Announce(_privacyBlocked
                 ? "Microphone check started, but " + _privacyExplanation
                 : $"Microphone check started on {row.Name}. Talk normally."
-                  + RateCaveat(),
+                  + HostApiCaveat() + RateCaveat(),
                 _privacyBlocked ? VerbosityLevel.Critical : VerbosityLevel.Terse);
         }
 
@@ -784,16 +1103,50 @@ namespace JJFlexWpf.Dialogs
         /// the operator has no other way to find out about except by keying up
         /// and being told nothing was heard.
         /// </summary>
+        /// <summary>
+        /// An observation when the check opened through a different audio
+        /// system than the one selected, or empty — which is the normal case.
+        /// </summary>
+        /// <remarks>
+        /// The probe re-resolves the device by name and host API inside its own
+        /// PortAudio initialisation, and when the exact endpoint has gone it
+        /// falls back to the same name under another audio system rather than
+        /// claiming the microphone is unplugged. That is the right call, and
+        /// silent it would be a trap: a check that passes under MME while
+        /// transmit is configured for WASAPI proves nothing about transmit, and
+        /// "the check works but the radio cannot hear me" is exactly the report
+        /// nobody can act on.
+        /// </remarks>
+        private string HostApiCaveat()
+        {
+            var probe = _probe;
+            if (probe == null) return "";
+            if (Devices.ShowAdvancedDevices) return "";
+            string opened = probe.Read().HostApiName ?? "";
+            if (opened.Length == 0) return "";
+            string selected = Devices.NameOfHostApi(Devices.SelectedHostApiTypeId);
+            if (string.Equals(opened, selected, StringComparison.Ordinal)) return "";
+            return $" Note: this check opened through {opened}, not the {selected} you chose above "
+                + "— that endpoint was not available. What you hear here may not match what the "
+                + "radio gets. Choose Refresh device list and pick the microphone again.";
+        }
+
         private string RateCaveat()
         {
             var probe = _probe;
             if (probe == null) return "";
             int rate = probe.Read().SampleRate;
             if (rate <= 0 || JJAudioStream.IsOpusRate((uint)rate)) return "";
+            // "needs 48 kHz" was hardcoded here, and stopped being true the
+            // moment the transmit rate became selectable — Opus works at 48,
+            // 24, 16, 12 and 8 kHz. Naming the whole set is both more accurate
+            // and more useful, since it tells an operator with a 24 kHz device
+            // that they already have a rate that works.
             return $" Note: Windows is running this microphone at {rate / 1000.0:0.#} kHz. "
-                + "The check works at that rate, but transmitting computer audio to the "
-                + "radio needs 48 kHz — set this device to 48000 Hz in Windows Sound "
-                + "settings before you rely on it for transmit.";
+                + "The check works at that rate, but audio to the radio is carried by Opus, "
+                + "which works at 48, 24, 16, 12 and 8 kHz. Set this device to 48000 hertz in "
+                + "Windows Sound settings, or choose MME as the audio system above, which "
+                + "converts the rate for you, before you rely on it for transmit.";
         }
 
         /// <summary>
@@ -1446,6 +1799,17 @@ namespace JJFlexWpf.Dialogs
 
                 StopMicCheck(speak: false, reason: "");
 
+                // The audio system first, so the two device writes below record
+                // the selection that was in force when they were chosen. It is
+                // saved even when neither device changed — an operator who
+                // switched from MME to WASAPI and kept the same hardware made a
+                // real choice, and losing it on OK would make the selector look
+                // broken in exactly the case it exists for.
+                bool apiChanged = _devices.SavedHostApiTypeId != Devices.SelectedHostApiTypeId;
+                _devices.SaveHostApiSelection();
+                if (apiChanged)
+                    saved.Add($"Audio system: {Devices.NameOfHostApi(Devices.SelectedHostApiTypeId)}");
+
                 saved.AddRange(CommitRadioDevice(
                     RadioOutputList, _outputRows, Devices.DeviceTypes.output, "Radio audio output"));
                 saved.AddRange(CommitRadioDevice(
@@ -1472,6 +1836,20 @@ namespace JJFlexWpf.Dialogs
                     _audioConfig.MeterDeviceNumber = _naudioDevices[meterIdx - 1].deviceNumber;
                 }
 
+                // Transmit rate. Already applied to the static by the combo's
+                // handler so the note could describe it; this is the write that
+                // makes it survive a restart. It takes effect on the next
+                // connect, because the encoder is built during connect — say so
+                // rather than letting an operator wonder why nothing changed.
+                int txIdx = TxRateCombo.SelectedIndex;
+                if (txIdx >= 0 && txIdx < TxRates.Length
+                    && _audioConfig.OpusTxSampleRate != (int)TxRates[txIdx])
+                {
+                    _audioConfig.OpusTxSampleRate = (int)TxRates[txIdx];
+                    saved.Add($"Transmit audio quality: {TxRateLabel(TxRates[txIdx])}"
+                        + ", from your next connection");
+                }
+
                 // Alerts move to the new device immediately — waiting for a
                 // restart to find out whether you picked right is not a thing we
                 // do to someone who is choosing by ear.
@@ -1494,14 +1872,27 @@ namespace JJFlexWpf.Dialogs
 
         /// <summary>
         /// True when this list's selection is something the engine can open.
-        /// A mono selection speaks the reason, puts focus back on the list,
-        /// and keeps the dialog open so the operator can choose again.
+        /// A selection it cannot speaks the reason, puts focus back on the
+        /// list, and keeps the dialog open so the operator can choose again.
         /// </summary>
         /// <remarks>
+        /// <para>
         /// The not-connected row passes. Keeping a saved device you intend to
         /// plug back in is a legitimate answer, and the only honest alternative
         /// would be to force a change nobody asked for. What it must not do is
         /// pass silently — see <see cref="CommitRadioDevice"/>.
+        /// </para>
+        /// <para>
+        /// <b>Mono passes too, as of 2026-08-16.</b> This used to refuse it,
+        /// in words the list never used: the row was tagged "mono, not usable
+        /// yet" and the refusal here said "it needs a stereo device", so one
+        /// limitation had two vocabularies and neither gave a reason. The right
+        /// unification turned out to be deleting the refusal rather than
+        /// rewording it — the engine opens mono now. What is left is a guard
+        /// that can only fire on a device reporting no channels at all, phrased
+        /// through the same helper the rows use so the two cannot drift apart
+        /// again.
+        /// </para>
         /// </remarks>
         private bool ConfirmSelectionUsable(
             ListBox list,
@@ -1514,8 +1905,8 @@ namespace JJFlexWpf.Dialogs
             if (rows[idx].UsableForRadioAudio) return true;
 
             ScreenReaderOutput.Speak(
-                $"{rows[idx].Name} is a mono device. Radio audio needs two channels, "
-                + $"so JJ Flex cannot use it yet. Choose a different {role}.",
+                $"{rows[idx].Name} reports no audio channels, so JJ Flexible cannot open it. "
+                + $"Choose a different {role}.",
                 VerbosityLevel.Critical, true);
             list.Focus();
             return false;

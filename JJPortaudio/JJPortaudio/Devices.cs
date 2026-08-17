@@ -101,6 +101,21 @@ namespace JJPortaudio
         public class cfg
         {
             public Device[] devs = new Device[2];
+
+            /// <summary>
+            /// The host API the operator chose, as a stable PaHostApiTypeId.
+            /// -1 means "never chosen", which resolves to
+            /// <see cref="DefaultHostApiTypeId"/> against whatever the machine
+            /// actually offers.
+            /// </summary>
+            /// <remarks>
+            /// Added 2026-08-16 (Track E). Machine scope, alongside the two
+            /// device choices, for the same reason they live here: a sound
+            /// card and the driver model it is reached through both belong to
+            /// the computer, not to a radio or an operator. Files written
+            /// before this date deserialize with -1 and get the default.
+            /// </remarks>
+            public int selectedHostApiTypeId = -1;
         }
         private cfg configured = new cfg();
 
@@ -117,20 +132,39 @@ namespace JJPortaudio
             public int HostApiTypeId = -1;  // stable PaHostApiTypeId value
             public string HostApiName = "";
 
-            // --- Added 2026-08-12 (Mic Track), device-picker grouping ---------
+            // --- Added 2026-08-12 (Mic Track), device identity index ----------
             // One physical device shows up once per host API — a USB interface
             // typically appears three times (MME, DirectSound, WASAPI) plus its
-            // kernel pins. Listing every one of them as its own choice is how an
-            // operator ends up picking a dead endpoint. Rows are grouped by
-            // physical device; one row per group is shown, and the rest hang off
-            // it here so nothing is lost and the advanced view can show them all.
+            // kernel pins. These fields record WHICH endpoints are the same
+            // piece of hardware.
+            //
+            // Track E, 2026-08-16: this used to be a picker FOLDING rule — one
+            // row per physical device, the rest hidden behind it — and folding
+            // is what silently chose a host API on the operator's behalf,
+            // landing on MME. MME resamples transparently, so it reports a tidy
+            // 48 kHz whatever the hardware is really doing, and every rate
+            // problem in the app was invisible behind it. The picker now
+            // filters by a host API the operator SELECTS
+            // (<see cref="SelectedHostApiTypeId"/>), which leaves no duplicates
+            // to fold.
+            //
+            // The index itself stays, because two things still need it: the
+            // Windows level control matches a PortAudio row to a Core Audio
+            // endpoint by trying every name the hardware goes by (WASAPI's full
+            // name, MME's truncated one), and the "this is your Windows
+            // default" flag belongs to the hardware rather than to whichever
+            // endpoint PortAudio happened to tag.
 
             /// <summary>
-            /// The row that represents this physical device in the picker. Every
-            /// member of a group points at the same representative, and the
-            /// representative points at itself. Never null after
-            /// <see cref="Enumerate"/>.
+            /// The endpoint chosen to stand for this physical device when a
+            /// caller needs one canonical row for it. Every member of a group
+            /// points at the same representative, and the representative points
+            /// at itself. Never null after <see cref="Enumerate"/>.
             /// </summary>
+            /// <remarks>
+            /// No longer a picker-visibility rule — every endpoint of the
+            /// selected host API is its own row. This is identity only.
+            /// </remarks>
             public DeviceInfo GroupOwner;
 
             /// <summary>
@@ -154,15 +188,22 @@ namespace JJPortaudio
             public Device SavedDevice;
 
             /// <summary>
-            /// Set on a group's representative when ANY endpoint of that
-            /// physical device is the Windows default. Kept separate from
+            /// Set on EVERY endpoint of a physical device when any one of them
+            /// is the Windows default. Kept separate from
             /// <see cref="IsDefault"/>, which stays true of exactly the one
             /// endpoint PortAudio flagged: PortAudio's default input on the
-            /// development machine was the MME endpoint, so a collapsed list
-            /// showing the WASAPI row would otherwise stop calling the default
-            /// out by name — and copying the flag onto the representative would
-            /// make the advanced list claim two system defaults.
+            /// development machine was the MME endpoint, so a list filtered to
+            /// WASAPI would otherwise stop calling the Windows default out by
+            /// name — and the advanced list, which shows every endpoint at
+            /// once, would claim several system defaults if this flag were the
+            /// one it read.
             /// </summary>
+            /// <remarks>
+            /// Set on every member since 2026-08-16 (Track E). It used to be
+            /// set only on a group's representative, which was correct while
+            /// the representative was the only row shown; now any endpoint can
+            /// be the row on screen, and the fact is about the hardware.
+            /// </remarks>
             public bool GroupIsSystemDefault;
 
             public string Name => IsMissingSaved ? (SavedDevice?.Name ?? "") : (Info.name ?? "");
@@ -178,17 +219,54 @@ namespace JJPortaudio
                 ? Info.maxInputChannels : Info.maxOutputChannels;
 
             /// <summary>
-            /// True when the radio-audio engine can open this device today:
-            /// it has at least the <see cref="StreamChannels"/> the stereo
-            /// stream needs. Devices with MORE channels qualify — PortAudio's
-            /// contract allows opening any channel count from 1 up to the
-            /// device's maximum, so the engine's two-channel open is the
-            /// downmix. Mono devices are still LISTED (hiding a device for
-            /// its channel count is how a laptop's only real microphone
-            /// became unselectable) but cannot carry the stream until the
-            /// engine can open mono and upmix.
+            /// How many channels the engine will actually open on this device:
+            /// two whenever the hardware has two, one when it is genuinely
+            /// mono. PortAudio's contract allows opening any channel count from
+            /// 1 up to the device's maximum, so a four-channel interface opens
+            /// as stereo and a one-channel headset mic opens as mono.
             /// </summary>
-            public bool UsableForRadioAudio => NativeChannels >= StreamChannels;
+            public int OpenChannels => (NativeChannels >= StreamChannels) ? StreamChannels : 1;
+
+            /// <summary>True when this device offers exactly one channel.</summary>
+            public bool IsMono => NativeChannels == 1;
+
+            /// <summary>
+            /// True when the radio-audio engine can open this device. Every
+            /// device with a channel in its direction qualifies.
+            /// </summary>
+            /// <remarks>
+            /// <para>
+            /// Until 2026-08-16 this read <c>NativeChannels &gt;= StreamChannels</c>
+            /// — the engine opened two channels unconditionally and could not
+            /// upmix, so a mono device was listed and tagged unusable and its
+            /// selection was refused. That refusal had no workaround for the
+            /// person it hurt most: ganging two inputs and panning both to
+            /// centre requires owning a multi-channel interface, and a single
+            /// mono USB headset mic simply could not be used by the app at
+            /// all. Mono devices are frequently somebody's only microphone.
+            /// </para>
+            /// <para>
+            /// The engine now opens at <see cref="OpenChannels"/> and
+            /// duplicates mono to stereo in the callback — the same expansion
+            /// <see cref="MicProbe"/> has always done to feed its loudness
+            /// meter — so this is capability again rather than a filter.
+            /// </para>
+            /// </remarks>
+            public bool UsableForRadioAudio => NativeChannels >= 1;
+
+            /// <summary>
+            /// True when the rate Windows is running this device at is one
+            /// Opus can encode, so it can carry transmit audio to the radio.
+            /// </summary>
+            /// <remarks>
+            /// Only worth reading under an honest host API. MME reports 48 kHz
+            /// for everything because it resamples on the way through, so this
+            /// is always true there and says nothing; WASAPI and WDM-KS report
+            /// the endpoint's real shared-mode format, which is the number
+            /// that decides whether transmit works.
+            /// </remarks>
+            public bool RateCanCarryOpus =>
+                AudioAnchor.isOpusRate((uint)Info.defaultSampleRate);
 
             /// <summary>
             /// How this device is attached, when Windows tells us plainly
@@ -245,11 +323,15 @@ namespace JJPortaudio
             /// </summary>
             /// <remarks>
             /// The host API is named only where it is still a distinguishing
-            /// fact. Once duplicate endpoints are collapsed (see
-            /// <see cref="PickerInputDevices"/>) the API is plumbing, not a
-            /// choice, and reading "Windows WASAPI" after every single device
-            /// is noise on every arrow press. It comes back in the advanced
-            /// view, where telling the endpoints apart is the entire point.
+            /// fact. The basic list holds one host API at a time — the one the
+            /// operator selected — so repeating "Windows WASAPI" after every
+            /// single device is noise on every arrow press. It is spoken in the
+            /// advanced view, where telling endpoints apart is the entire
+            /// point, and on the one row in a basic list that can come from
+            /// somewhere else: a saved device whose host API is no longer the
+            /// selected one, kept on screen so a working configuration stays
+            /// visible. That row must say where it comes from or the list is
+            /// quietly showing two different things under one heading.
             /// </remarks>
             public string Display
             {
@@ -258,10 +340,10 @@ namespace JJPortaudio
                     if (IsMissingSaved)
                         return "Not connected: " + Name + " — your saved choice, plug it back in or pick another";
 
-                    // Collapsed view: the default belongs to the physical
-                    // device. Advanced view: to the exact endpoint PortAudio
-                    // flagged, because telling endpoints apart is the whole
-                    // point of that view.
+                    // Basic view: the default belongs to the physical device,
+                    // whichever endpoint of it is on screen. Advanced view: to
+                    // the exact endpoint PortAudio flagged, because telling
+                    // endpoints apart is the whole point of that view.
                     bool speaksAsDefault = ShowAdvancedDevices
                         ? IsDefault
                         : (IsDefault || GroupIsSystemDefault);
@@ -277,16 +359,82 @@ namespace JJPortaudio
                     string connection = Connection;
                     if (connection.Length > 0) sb.Append(", ").Append(connection);
 
-                    // Naming the API is useful exactly when more than one row
-                    // for the same hardware is on screen.
-                    if (ShowAdvancedDevices && !string.IsNullOrEmpty(HostApiName))
+                    bool apiIsWorthSaying = ShowAdvancedDevices
+                        || (SelectedHostApiTypeId >= 0 && HostApiTypeId != SelectedHostApiTypeId);
+                    if (apiIsWorthSaying && !string.IsNullOrEmpty(HostApiName))
                         sb.Append(" (").Append(HostApiName).Append(')');
 
-                    if (!UsableForRadioAudio) sb.Append(" — mono, not usable yet");
+                    string channels = DescribeChannels(this);
+                    if (channels.Length > 0) sb.Append(", ").Append(channels);
+
+                    string rate = DescribeRate(this);
+                    if (rate.Length > 0) sb.Append(", ").Append(rate);
+
                     return sb.ToString();
                 }
             }
         }
+
+        /// <summary>
+        /// What this device's channel count means for radio audio, in one
+        /// vocabulary. Empty for plain stereo, which needs no words.
+        /// </summary>
+        /// <remarks>
+        /// Track E, 2026-08-16. There used to be two ways to say the same
+        /// thing about a mono device, in two vocabularies, neither giving a
+        /// reason: the row tag appended " — mono, not usable yet" and
+        /// selection-time spoke a separate "it needs a stereo device". An
+        /// operator heard the row without the word "mono" in it at all, then
+        /// hit a refusal that used a word the row never said. Both now come
+        /// through here, and mono is no longer a refusal — it is a fact about
+        /// what will happen to the audio.
+        /// </remarks>
+        public static string DescribeChannels(DeviceInfo d)
+        {
+            if (d == null || d.IsMissingSaved) return "";
+            int n = d.NativeChannels;
+            if (n <= 0) return "";
+            if (n == 1)
+            {
+                return (d.Type == DeviceTypes.input)
+                    ? "mono — sent to the radio on both channels"
+                    : "mono — the two channels are mixed together for it";
+            }
+            if (n > StreamChannels) return n + " channels, used in stereo";
+            return "";
+        }
+
+        /// <summary>
+        /// A warning when the rate Windows runs this device at cannot carry
+        /// transmit audio, or empty — which is the normal case and the point.
+        /// </summary>
+        /// <remarks>
+        /// Deliberately silent under MME and DirectSound. Those backends
+        /// resample on the way through, so the rate they report is not a fact
+        /// about the hardware and a warning built on it would be a false
+        /// alarm. WASAPI and WDM-KS report the endpoint's real shared-mode
+        /// format, which is exactly the number that decides whether Opus can
+        /// encode what the device produces — and it is the reason selecting a
+        /// host API and settling a sample rate were never two decisions.
+        /// </remarks>
+        public static string DescribeRate(DeviceInfo d)
+        {
+            if (d == null || d.IsMissingSaved) return "";
+            if (!HostApiReportsTrueRate(d.HostApiTypeId)) return "";
+            double rate = d.Info.defaultSampleRate;
+            if (rate <= 0) return "";
+            if (d.RateCanCarryOpus) return "";
+            return "Windows runs it at " + (rate / 1000.0).ToString("0.###")
+                + " kHz, which cannot carry audio to or from the radio";
+        }
+
+        /// <summary>
+        /// True of the host APIs that report an endpoint's real sample rate
+        /// rather than a resampled one. MME and DirectSound convert silently;
+        /// WASAPI and WDM-KS do not.
+        /// </summary>
+        public static bool HostApiReportsTrueRate(int hostApiTypeId) =>
+            hostApiTypeId == WasapiTypeId || hostApiTypeId == WdmKsTypeId;
 
         /// <summary>
         /// Name-derived connection description. See
@@ -373,17 +521,15 @@ namespace JJPortaudio
         }
 
         /// <summary>
-        /// True when a group's representative stays off the basic picker.
-        /// Basic mode filters as well as folds (2026-08-13): folding got the
-        /// list to one row per physical device, but on a real machine that
-        /// still left one row for every loopback and virtual-cable endpoint —
-        /// of eight folded inputs on the machine that prompted this, only two
-        /// or three were things a person could talk into. Hidden, never
-        /// removed: these rows stay enumerated, keep resolving saved
-        /// selections, and come back with the advanced toggle — someone
-        /// routing audio through a cable on purpose is exactly who turns that
-        /// toggle on. Same argument that hid the WDM-KS kernel pins on
-        /// 2026-08-11, one step further.
+        /// True when a row stays off the basic picker. Filtering to one host
+        /// API gets the list to one row per device, but on a real machine that
+        /// still leaves a row for every loopback and virtual-cable endpoint —
+        /// of eight inputs on the machine that prompted this, only two or three
+        /// were things a person could talk into. Hidden, never removed: these
+        /// rows stay enumerated, keep resolving saved selections, and come back
+        /// with the advanced toggle — someone routing audio through a cable on
+        /// purpose is exactly who turns that toggle on. Same argument that hid
+        /// the WDM-KS kernel pins on 2026-08-11, one step further.
         ///
         /// The Windows default is exempt, whatever it is. Someone who set a
         /// virtual cable as their system-wide input did that deliberately,
@@ -414,52 +560,152 @@ namespace JJPortaudio
         /// physical device, minus the rows that are not microphones at all.
         /// </summary>
         /// <remarks>
-        /// Mic Track, 2026-08-12. A USB interface enumerates once per host API,
-        /// so a single Focusrite arrives as three identical-looking choices
-        /// (MME, DirectSound, WASAPI) and a multi-input interface multiplies
-        /// that by its channel pairs — the development machine listed 26 input
-        /// rows for what a person would call four devices. Choosing correctly
-        /// out of that is guesswork, and guessing wrong means transmitting
-        /// silence. The duplicates are not deleted, only folded: each surviving
-        /// row carries the rest in <see cref="DeviceInfo.Alternates"/>, and
-        /// <see cref="ShowAdvancedDevices"/> shows the unfolded list.
+        /// A USB interface enumerates once per host API, so a single Focusrite
+        /// arrives as three identical-looking choices (MME, DirectSound,
+        /// WASAPI) and a multi-input interface multiplies that by its channel
+        /// pairs — the development machine listed 26 input rows for what a
+        /// person would call four devices. Filtering to the one host API the
+        /// operator selected removes the duplicates outright; see
+        /// <see cref="SelectedHostApiTypeId"/> and
+        /// <see cref="SelectPickerRows"/>.
         ///
-        /// Since 2026-08-13 the folded list is also FILTERED: WASAPI loopbacks
-        /// and virtual audio cables are hidden until the advanced toggle is
-        /// on, because folding alone still showed one row per physical thing
-        /// Windows exposes and most of those are not things anyone can talk
-        /// into. See <see cref="HiddenFromBasicPicker"/>.
+        /// The list is also filtered by kind: WASAPI loopbacks and virtual
+        /// audio cables are hidden until the advanced toggle is on, because
+        /// most of what Windows exposes is not a thing anyone can talk into.
+        /// See <see cref="HiddenFromBasicPicker"/>.
         /// </remarks>
         public static IReadOnlyList<DeviceInfo> PickerInputDevices { get; private set; } = new List<DeviceInfo>();
 
         /// <summary>
-        /// The output list a person should be asked to choose from: one row per
-        /// physical device. See <see cref="PickerInputDevices"/>.
+        /// The output list a person should be asked to choose from. See
+        /// <see cref="PickerInputDevices"/>.
         /// </summary>
         public static IReadOnlyList<DeviceInfo> PickerOutputDevices { get; private set; } = new List<DeviceInfo>();
 
         /// <summary>
-        /// Channel count of the radio-audio stream itself: the engine
-        /// (Audio.cs) opens every PortAudio stream two-channel float because
-        /// the Opus path is stereo. This is a property of the STREAM, never a
-        /// device filter — the old <c>StereoOnly</c> constant stood beside a
-        /// channels==2 list test that silently dropped every 4-channel device,
-        /// including a laptop's only real microphone array. Devices now list
-        /// by capability: two or more channels open as stereo (in PortAudio's
-        /// contract, which permits opening 1..max channels), and mono devices
-        /// are listed but flagged, because PortAudio rejects a two-channel
-        /// open on a one-channel device and the open call lives in the engine,
-        /// not here. See <see cref="DeviceInfo.UsableForRadioAudio"/>.
+        /// Channel count of the radio-audio path: the Opus stream to and from
+        /// the radio is stereo, so this is what the engine (Audio.cs) opens
+        /// whenever the device can supply it. Never a device filter — the old
+        /// <c>StereoOnly</c> constant stood beside a channels==2 list test that
+        /// silently dropped every 4-channel device, including a laptop's only
+        /// real microphone array. Two or more channels open as stereo (in
+        /// PortAudio's contract, which permits opening 1..max channels); a
+        /// genuinely mono device opens as mono and is duplicated to stereo in
+        /// the callback. See <see cref="DeviceInfo.OpenChannels"/>.
         /// </summary>
         public const int StreamChannels = 2;
 
+        // ------------------------------------------------ host API selection
+
+        /// <summary>PortAudio PaHostApiTypeId for DirectSound. Fixed enum value.</summary>
+        public const int DirectSoundTypeId = 1;
+        /// <summary>PortAudio PaHostApiTypeId for MME. Fixed enum value.</summary>
+        public const int MmeTypeId = 2;
         /// <summary>PortAudio PaHostApiTypeId for WDM-KS (kernel streaming). Fixed
         /// enum value. Used to hide kernel pins from the picker by default.</summary>
         public const int WdmKsTypeId = 11;
+        /// <summary>PortAudio PaHostApiTypeId for WASAPI. Fixed enum value.</summary>
+        public const int WasapiTypeId = 13;
 
-        /// <summary>When true, the enumeration includes WDM-KS kernel pins (for
-        /// power users via an "advanced devices" toggle). Default false — those
-        /// pins are the trap that had operators transmitting into dead jacks.</summary>
+        /// <summary>
+        /// What JJ Flex picks when nobody has chosen: WASAPI, the modern
+        /// Windows path.
+        /// </summary>
+        /// <remarks>
+        /// It is the honest one. MME hands every device to us through a
+        /// resampler, so it reports a tidy 48 kHz whatever the hardware is
+        /// really running at — which is comfortable right up until the audio
+        /// matters, and is why every sample-rate test this project has run
+        /// looked like a pass. WASAPI reports the endpoint's real shared-mode
+        /// format and refuses a rate the endpoint cannot do. MME stays one
+        /// selection away for anyone who would rather be resampled than
+        /// refused, and the selector's own wording says so.
+        /// </remarks>
+        public const int DefaultHostApiTypeId = WasapiTypeId;
+
+        /// <summary>One host API, as this machine reports it.</summary>
+        public sealed class HostApi
+        {
+            /// <summary>Stable PaHostApiTypeId.</summary>
+            public int TypeId;
+            /// <summary>PortAudio's own name for it, e.g. "Windows WASAPI".</summary>
+            public string Name = "";
+            /// <summary>How many devices it offers.</summary>
+            public int DeviceCount;
+
+            /// <summary>
+            /// The row a person reads: PortAudio's name plus the one sentence
+            /// that decides the choice. Written to be spoken.
+            /// </summary>
+            public string Display
+            {
+                get
+                {
+                    switch (TypeId)
+                    {
+                        case WasapiTypeId:
+                            return Name + " — recommended. Reports what your hardware is really doing, "
+                                + "and says so when a device cannot do what the radio needs.";
+                        case MmeTypeId:
+                            return Name + " — the most forgiving. It converts sample rates for you, "
+                                + "so devices that WASAPI refuses will usually work — but it also "
+                                + "hides what rate your hardware is actually running at.";
+                        case DirectSoundTypeId:
+                            return Name + " — older than WASAPI, also converts sample rates. "
+                                + "Worth trying if WASAPI refuses your device and MME will not do.";
+                        case WdmKsTypeId:
+                            return Name + " — kernel streaming, advanced. These are raw hardware "
+                                + "endpoints, including jacks with nothing plugged into them.";
+                        default:
+                            return Name;
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// The host APIs this machine offers, best first. WDM-KS is present
+        /// only while <see cref="ShowAdvancedDevices"/> is on.
+        /// </summary>
+        public static IReadOnlyList<HostApi> HostApis { get; private set; } = new List<HostApi>();
+
+        /// <summary>
+        /// The host API the picker is filtered to, as a stable
+        /// PaHostApiTypeId. Set through <see cref="ApplyHostApiSelection"/> so
+        /// the lists and the selection can never disagree.
+        /// </summary>
+        /// <remarks>
+        /// <b>This filters the PICKER only.</b> <see cref="InputDevices"/> and
+        /// <see cref="OutputDevices"/> stay complete, because a saved device
+        /// under another host API must keep resolving — otherwise the first
+        /// launch after this shipped would take an operator's working
+        /// microphone away without a word, which is the exact failure this
+        /// file exists to never produce.
+        /// </remarks>
+        public static int SelectedHostApiTypeId { get; private set; } = -1;
+
+        /// <summary>
+        /// ONE selector governs both directions, which is the DAW convention
+        /// and is why this is a field on the class rather than a pair.
+        /// </summary>
+        /// <remarks>
+        /// Settled here rather than left to emerge (Track E, 2026-08-16).
+        /// Input and output were chosen separately before, and a second
+        /// selector would double the tab stops in a dialog that is already
+        /// long, to express a configuration — capture on one driver model,
+        /// playback on another — that is legitimate but rare. The escape hatch
+        /// for the rare case already exists and costs nothing: turn on
+        /// <see cref="ShowAdvancedDevices"/> and every endpoint of every host
+        /// API is listed, each row naming its own API, and the two lists can
+        /// be set independently from there.
+        /// </remarks>
+        public const bool OneSelectorGovernsBothDirections = true;
+
+        /// <summary>When true, the enumeration includes WDM-KS kernel pins and
+        /// the picker shows every endpoint of every host API rather than the
+        /// selected one (for power users via an "advanced devices" toggle).
+        /// Default false — those pins are the trap that had operators
+        /// transmitting into dead jacks.</summary>
         public static bool ShowAdvancedDevices = false;
 
         private string cfgFile;
@@ -546,6 +792,14 @@ namespace JJPortaudio
                 // Set the config file names.
                 if (InputDevice != null) InputDevice.ConfigFile = cfgFile;
                 if (OutputDevice != null) OutputDevice.ConfigFile = cfgFile;
+
+                // The saved host API takes effect here rather than at
+                // enumeration, because enumeration runs first and does not
+                // know about any config file. Applying it rebuilds the picker
+                // lists, so the caller sees a view that matches the file it
+                // just read. A file written before this field existed carries
+                // -1 and resolves to the default.
+                ApplyHostApiSelection(configured.selectedHostApiTypeId);
             }
             catch(Exception ex)
             {
@@ -638,9 +892,24 @@ namespace JJPortaudio
                 defaultSampleRate = chosen.Info.defaultSampleRate,
                 ConfigFile = cfgFile
             };
+            configured.selectedHostApiTypeId = SelectedHostApiTypeId;
             writeCFG();
             return configured.devs[id];
         }
+
+        /// <summary>
+        /// Persist the host-API choice on its own, for an OK that changed the
+        /// audio system but left both devices alone.
+        /// </summary>
+        public void SaveHostApiSelection()
+        {
+            if (configured.selectedHostApiTypeId == SelectedHostApiTypeId) return;
+            configured.selectedHostApiTypeId = SelectedHostApiTypeId;
+            writeCFG();
+        }
+
+        /// <summary>The host API recorded in this config file, or -1.</summary>
+        public int SavedHostApiTypeId => configured.selectedHostApiTypeId;
 
         /// <summary>
         /// Adopt the system default for this type, saving it like any other
@@ -650,23 +919,41 @@ namespace JJPortaudio
         /// </summary>
         /// <returns>the persisted device, or null when nothing usable exists.</returns>
         /// <remarks>
-        /// Only devices the engine can actually open are candidates. If the
-        /// Windows default is a mono device, adopting it would hand the engine
-        /// a stream open that PortAudio must reject — dead audio wearing a
-        /// saved configuration. Falling to the first stream-capable device, or
-        /// to null (which the caller announces), keeps the failure audible.
+        /// <para>
+        /// Only devices the engine can actually open are candidates, and the
+        /// operator's chosen host API is preferred over every other
+        /// consideration — including PortAudio's own default flag.
+        /// </para>
+        /// <para>
+        /// That preference is the whole point (Track E, 2026-08-16). PortAudio
+        /// nominates a default device, and on the development machine that
+        /// nomination was the MME endpoint; a fallback that simply took it
+        /// would put an operator who had deliberately selected WASAPI onto MME
+        /// without a word, which is exactly the silent host-API choice this
+        /// work exists to remove. The Windows default still wins among the
+        /// endpoints of the selected API, because "the one Windows uses" is a
+        /// good answer to "which, if you do not care".
+        /// </para>
         /// </remarks>
         public Device AdoptSystemDefault(DeviceTypes type)
         {
             var list = (type == DeviceTypes.input) ? InputDevices : OutputDevices;
-            DeviceInfo pick = null;
+            DeviceInfo pick = null;        // best so far on the selected host API
+            DeviceInfo anyApi = null;      // best so far anywhere
             for (int i = 0; i < list.Count; i++)
             {
-                if (!list[i].UsableForRadioAudio) continue;
-                if (pick == null) pick = list[i];
-                if (list[i].IsDefault) { pick = list[i]; break; }
+                DeviceInfo d = list[i];
+                if (!d.UsableForRadioAudio) continue;
+                if (anyApi == null || (d.IsDefault && !anyApi.IsDefault)) anyApi = d;
+                if (SelectedHostApiTypeId >= 0 && d.HostApiTypeId != SelectedHostApiTypeId) continue;
+                if (pick == null) pick = d;
+                if (d.IsDefault) { pick = d; break; }
             }
+            pick ??= anyApi;
             if (pick == null) return null;
+            Tracing.TraceLine("Devices.AdoptSystemDefault: " + type + " falling back to \""
+                + pick.Name + "\" (" + pick.HostApiName + ", " + pick.NativeChannels
+                + " channel(s), " + pick.Info.defaultSampleRate + " Hz)", TraceLevel.Info);
             return SetConfiguredDevice(type, pick);
         }
 
@@ -720,6 +1007,13 @@ namespace JJPortaudio
             message = "";
             var inputs = new List<DeviceInfo>();
             var outputs = new List<DeviceInfo>();
+            // Host APIs that actually carry a device on this machine. Built
+            // from the endpoints we keep rather than from Pa_GetHostApiCount,
+            // so the selector can never offer an API with nothing behind it —
+            // and so WDM-KS, which is skipped outright below unless the
+            // advanced toggle is on, stays out of the selector for the same
+            // reason it stays out of the lists.
+            var apis = new Dictionary<int, HostApi>();
 
             PortAudio.PaError perr;
             if ((perr = PortAudio.Pa_Initialize()) != 0)
@@ -803,10 +1097,21 @@ namespace JJPortaudio
                     // work: the engine opens streams at StreamChannels==2,
                     // and PortAudio's documented contract accepts any channel
                     // count from 1 to the device's maximum — the two-channel
-                    // open IS the downmix. Mono devices cannot satisfy that
-                    // open (PortAudio validates channelCount against the
-                    // device maximum), so they carry UsableForRadioAudio=false
-                    // and every surface says so instead of hiding them.
+                    // open IS the downmix. Since 2026-08-16 (Track E) mono
+                    // devices work too: the engine opens them at one channel
+                    // and duplicates to stereo in the callback, so the count
+                    // is capability in both directions rather than a ceiling
+                    // with a floor under it.
+                    if (apiTypeId >= 0 && (pinfo.maxInputChannels >= 1 || pinfo.maxOutputChannels >= 1))
+                    {
+                        if (!apis.TryGetValue(apiTypeId, out HostApi api))
+                        {
+                            api = new HostApi { TypeId = apiTypeId, Name = apiName };
+                            apis[apiTypeId] = api;
+                        }
+                        api.DeviceCount++;
+                    }
+
                     if (pinfo.maxInputChannels >= 1)
                     {
                         inputs.Add(new DeviceInfo
@@ -847,8 +1152,26 @@ namespace JJPortaudio
             InputDevices = inputs;
             OutputDevices = outputs;
 
-            PickerInputDevices = BuildPickerList(inputs);
-            PickerOutputDevices = BuildPickerList(outputs);
+            // The identity index first — which endpoints are the same piece of
+            // hardware — because the picker view and the Windows level control
+            // both read it. Then the view itself, which is a filter over the
+            // full lists and never a replacement for them.
+            BuildGroups(inputs);
+            BuildGroups(outputs);
+
+            var apiList = new List<HostApi>(apis.Values);
+            apiList.Sort((a, b) =>
+            {
+                int r = HostApiRank(a.TypeId).CompareTo(HostApiRank(b.TypeId));
+                return (r != 0) ? r : string.CompareOrdinal(a.Name, b.Name);
+            });
+            HostApis = apiList;
+            var apiSummary = new StringBuilder("Devices.Enumerate: host APIs:");
+            foreach (HostApi a in apiList)
+                apiSummary.Append(' ').Append(a.Name).Append('=').Append(a.DeviceCount);
+            Tracing.TraceLine(apiSummary.ToString(), TraceLevel.Info);
+
+            ApplyHostApiSelection(SelectedHostApiTypeId);
 
             if (inputs.Count == 0 && outputs.Count == 0)
             {
@@ -864,13 +1187,82 @@ namespace JJPortaudio
             // so a capability gap is visible in one line of trace.
             int usableIn = inputs.Count(d => d.UsableForRadioAudio);
             int usableOut = outputs.Count(d => d.UsableForRadioAudio);
+            int monoIn = inputs.Count(d => d.IsMono);
+            int monoOut = outputs.Count(d => d.IsMono);
             Tracing.TraceLine("Devices.Enumerate: " + inputs.Count + " input ("
-                + usableIn + " stereo-capable), " + outputs.Count + " output ("
-                + usableOut + " stereo-capable)", TraceLevel.Info);
+                + usableIn + " openable, " + monoIn + " mono), " + outputs.Count + " output ("
+                + usableOut + " openable, " + monoOut + " mono)", TraceLevel.Info);
             return EnumerationStatus.Ok;
         }
 
-        // ------------------------------------------------- picker grouping
+        // ------------------------------- host API selection and picker view
+
+        /// <summary>
+        /// Choose the host API the picker shows, and rebuild the picker lists
+        /// around it.
+        /// </summary>
+        /// <param name="typeId">
+        /// A PaHostApiTypeId, or -1 for "nobody has chosen". Either way the
+        /// answer is resolved against the APIs this machine actually reports,
+        /// so a saved choice for a driver model that is no longer present
+        /// falls through to one that is instead of emptying the lists.
+        /// </param>
+        /// <returns>the type id actually in force afterwards.</returns>
+        public static int ApplyHostApiSelection(int typeId)
+        {
+            int resolved = ResolveHostApi(typeId);
+            if (resolved != SelectedHostApiTypeId)
+            {
+                Tracing.TraceLine("Devices.ApplyHostApiSelection: audio system is "
+                    + NameOfHostApi(resolved)
+                    + (typeId == resolved ? "" : " (asked for " + NameOfHostApi(typeId) + ")"),
+                    TraceLevel.Info);
+            }
+            SelectedHostApiTypeId = resolved;
+            RebuildPickerLists();
+            return resolved;
+        }
+
+        /// <summary>
+        /// The host API to use, given what was asked for and what exists.
+        /// Preference order: the request, then the default (WASAPI), then
+        /// whatever ranks best on this machine.
+        /// </summary>
+        private static int ResolveHostApi(int typeId)
+        {
+            IReadOnlyList<HostApi> apis = HostApis;
+            if (apis == null || apis.Count == 0) return typeId;
+
+            foreach (HostApi a in apis) if (a.TypeId == typeId) return typeId;
+            foreach (HostApi a in apis) if (a.TypeId == DefaultHostApiTypeId) return DefaultHostApiTypeId;
+            // HostApis is already sorted best-first.
+            return apis[0].TypeId;
+        }
+
+        /// <summary>PortAudio's name for a host API, or a legible stand-in.</summary>
+        public static string NameOfHostApi(int typeId)
+        {
+            foreach (HostApi a in HostApis) if (a.TypeId == typeId) return a.Name;
+            switch (typeId)
+            {
+                case WasapiTypeId: return "Windows WASAPI";
+                case DirectSoundTypeId: return "Windows DirectSound";
+                case MmeTypeId: return "MME";
+                case WdmKsTypeId: return "Windows WDM-KS";
+                default: return "host API " + typeId;
+            }
+        }
+
+        /// <summary>
+        /// Rebuild <see cref="PickerInputDevices"/> and
+        /// <see cref="PickerOutputDevices"/> from the full enumeration, for the
+        /// host API and advanced setting currently in force.
+        /// </summary>
+        public static void RebuildPickerLists()
+        {
+            PickerInputDevices = SelectPickerRows(InputDevices);
+            PickerOutputDevices = SelectPickerRows(OutputDevices);
+        }
 
         /// <summary>
         /// MME device names are truncated by Windows to 31 characters
@@ -896,34 +1288,46 @@ namespace JJPortaudio
         {
             switch (hostApiTypeId)
             {
-                case 13: return 0;  // paWASAPI
-                case 1:  return 1;  // paDirectSound
-                case 2:  return 2;  // paMME
-                case 11: return 4;  // paWDMKS
+                case WasapiTypeId: return 0;
+                case DirectSoundTypeId: return 1;
+                case MmeTypeId: return 2;
+                case WdmKsTypeId: return 4;
                 default: return 3;
             }
         }
 
         /// <summary>
-        /// Fold every endpoint of one physical device into a single row,
-        /// leave out the rows nobody can talk into (basic mode only — see
-        /// <see cref="HiddenFromBasicPicker"/>), and return the rows a person
-        /// should choose from.
+        /// Work out which endpoints are the same piece of hardware, and record
+        /// it on every row: <see cref="DeviceInfo.GroupOwner"/>,
+        /// <see cref="DeviceInfo.Alternates"/> and
+        /// <see cref="DeviceInfo.GroupIsSystemDefault"/>.
         /// </summary>
         /// <remarks>
+        /// <para>
         /// Grouping is by device name, normalised for case and whitespace, plus
         /// one extra rule for MME truncation (see <see cref="MmeNameLimit"/>): a
         /// short name that is a prefix of exactly ONE longer name is the same
         /// device seen through MME. "Exactly one" matters — where a prefix
         /// matches several longer names the answer is genuinely ambiguous, and
         /// merging on a guess would hide a real device behind an unrelated one,
-        /// so an ambiguous prefix stays its own row.
-        ///
+        /// so an ambiguous prefix stays its own group.
+        /// </para>
+        /// <para>
         /// Channel counts are NOT part of the key. The same interface reports
         /// different channel counts under different host APIs, and one physical
-        /// device is one choice regardless.
+        /// device is one piece of hardware regardless.
+        /// </para>
+        /// <para>
+        /// Track E, 2026-08-16: this used to also DECIDE the picker — one row
+        /// per group, the rest hidden — which is how a host API got chosen on
+        /// the operator's behalf. It is now an index and nothing more. Two
+        /// callers still need it: <c>WindowsMicLevel</c> matches a PortAudio
+        /// row to a Core Audio endpoint by trying every name the hardware goes
+        /// by, and the Windows-default flag belongs to hardware rather than to
+        /// whichever endpoint PortAudio tagged.
+        /// </para>
         /// </remarks>
-        private static List<DeviceInfo> BuildPickerList(List<DeviceInfo> all)
+        private static void BuildGroups(List<DeviceInfo> all)
         {
             // Every row starts as its own group owner, so nothing is ever left
             // with a null owner even if grouping bails out below.
@@ -959,7 +1363,7 @@ namespace JJPortaudio
                 // Only a bucket made up ENTIRELY of MME rows can be a
                 // truncation artefact; anything else is a real device that
                 // simply has a long name.
-                bool allMme = shortBucket.TrueForAll(d => d.HostApiTypeId == 2);
+                bool allMme = shortBucket.TrueForAll(d => d.HostApiTypeId == MmeTypeId);
                 if (!allMme) continue;
 
                 string target = null;
@@ -977,8 +1381,8 @@ namespace JJPortaudio
                 {
                     if (hits > 1)
                     {
-                        Tracing.TraceLine("Devices.BuildPickerList: \"" + shortBucket[0].Name
-                            + "\" is a prefix of more than one device name; leaving it as its own row",
+                        Tracing.TraceLine("Devices.BuildGroups: \"" + shortBucket[0].Name
+                            + "\" is a prefix of more than one device name; leaving it as its own group",
                             TraceLevel.Info);
                     }
                     continue;
@@ -988,12 +1392,10 @@ namespace JJPortaudio
                 shortBucket.Clear();
             }
 
-            var picker = new List<DeviceInfo>();
-            var hidden = new List<DeviceInfo>();
             foreach (string key in order)
             {
                 List<DeviceInfo> bucket = byName[key];
-                if (bucket.Count == 0) continue;   // folded into another group
+                if (bucket.Count == 0) continue;   // merged into another group
 
                 DeviceInfo owner = ChooseRepresentative(bucket);
                 var alternates = new List<DeviceInfo>();
@@ -1005,31 +1407,90 @@ namespace JJPortaudio
                 owner.Alternates = alternates;
 
                 // The Windows default belongs to the physical device, not to
-                // the endpoint that happened to carry the flag.
-                owner.GroupIsSystemDefault = false;
+                // the endpoint that happened to carry the flag — and every
+                // endpoint of it carries the fact now, because with the list
+                // filtered by host API any of them can be the row on screen.
+                bool anyDefault = false;
                 foreach (DeviceInfo d in bucket)
                 {
-                    if (d.IsDefault) { owner.GroupIsSystemDefault = true; break; }
+                    if (d.IsDefault) { anyDefault = true; break; }
                 }
+                foreach (DeviceInfo d in bucket) d.GroupIsSystemDefault = anyDefault;
+            }
+        }
 
-                // Basic mode hides what nobody can talk into — see
-                // HiddenFromBasicPicker for the reasoning. This runs AFTER the
-                // group is fully wired, so a saved selection that resolves to
-                // a hidden row still resolves: the row is off the menu, not
-                // gone. The trace line is not optional decoration — every
-                // silently-hidden-device bug this file has ever had was
-                // diagnosed from these lines, or dragged on because one was
-                // missing.
-                if (!ShowAdvancedDevices && HiddenFromBasicPicker(owner))
+        /// <summary>
+        /// The rows a person should choose from: every endpoint of the selected
+        /// host API, minus the rows nobody can talk into (see
+        /// <see cref="HiddenFromBasicPicker"/>). The advanced view drops the
+        /// host-API filter and shows every endpoint of every API.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// This is where a picker got SMALLER by adding a control. It used to
+        /// fold every endpoint of a device into one row, because a USB
+        /// interface arrives once per host API and the development machine
+        /// listed 26 input rows for what a person would call four devices.
+        /// Folding solved the list length and created a worse problem: some
+        /// endpoint had to be picked to stand for the rest, so the app was
+        /// choosing a driver model silently — and the tie-breaks landed on MME
+        /// often enough to matter. MME resamples on the way through, so it
+        /// reports 48 kHz for hardware running at anything, and a rate problem
+        /// could not be seen from inside the app at all.
+        /// </para>
+        /// <para>
+        /// Selecting the host API first removes the duplicates rather than
+        /// hiding them: one API, one row per device, no representative to
+        /// choose and nothing folded away. Same 26 endpoints, roughly the same
+        /// number of rows as folding produced, and the reason each row is there
+        /// is now a thing the operator set.
+        /// </para>
+        /// </remarks>
+        private static List<DeviceInfo> SelectPickerRows(IReadOnlyList<DeviceInfo> all)
+        {
+            var picker = new List<DeviceInfo>();
+            if (all == null) return picker;
+
+            if (ShowAdvancedDevices)
+            {
+                // Every endpoint of every host API, kernel pins included. This
+                // is also the escape hatch for the rare operator who wants
+                // capture on one driver model and playback on another: the
+                // single selector governs the basic lists, and this view is
+                // where the two can be set apart.
+                Tracing.TraceLine("Devices.SelectPickerRows: advanced view, showing all "
+                    + all.Count + " endpoints", TraceLevel.Info);
+                picker.AddRange(all);
+                return picker;
+            }
+
+            var hidden = new List<DeviceInfo>();
+            var otherApi = 0;
+            foreach (DeviceInfo d in all)
+            {
+                if (SelectedHostApiTypeId >= 0 && d.HostApiTypeId != SelectedHostApiTypeId)
                 {
-                    Tracing.TraceLine("Devices.BuildPickerList: basic mode hides \"" + owner.Name
-                        + "\" (" + (IsLoopbackName(owner.Name) ? "loopback" : "virtual cable") + ")",
-                        TraceLevel.Info);
-                    hidden.Add(owner);
+                    otherApi++;
                     continue;
                 }
 
-                picker.Add(owner);
+                // Hide what nobody can talk into — see HiddenFromBasicPicker.
+                // The row is off the menu, not gone: it stays in InputDevices /
+                // OutputDevices, so a saved selection still resolves to it. The
+                // trace line is not optional decoration — every
+                // silently-hidden-device bug this file has ever had was
+                // diagnosed from these lines, or dragged on because one was
+                // missing.
+                if (HiddenFromBasicPicker(d))
+                {
+                    Tracing.TraceLine("Devices.SelectPickerRows: hiding \"" + d.Name
+                        + "\" (" + (IsLoopbackName(d.Name) ? "loopback" : "virtual cable") + ")",
+                        TraceLevel.Info);
+                    hidden.Add(d);
+                    continue;
+                }
+
+                picker.Add(d);
             }
 
             // If the filter is the only reason the list is empty, the filter
@@ -1040,24 +1501,16 @@ namespace JJPortaudio
             // silent disappearance this file exists to never produce.
             if (picker.Count == 0 && hidden.Count > 0)
             {
-                Tracing.TraceLine("Devices.BuildPickerList: the basic-mode filter hid every device; "
+                Tracing.TraceLine("Devices.SelectPickerRows: the basic-mode filter hid every device; "
                     + "showing all " + hidden.Count + " rather than an empty list", TraceLevel.Info);
                 picker.AddRange(hidden);
                 hidden.Clear();
             }
 
-            if (ShowAdvancedDevices)
-            {
-                // Advanced view: every endpoint, still grouped (so a saved
-                // device resolves the same way), just nothing hidden.
-                Tracing.TraceLine("Devices.BuildPickerList: advanced view, showing all "
-                    + all.Count + " endpoints", TraceLevel.Info);
-                return new List<DeviceInfo>(all);
-            }
-
-            Tracing.TraceLine("Devices.BuildPickerList: " + all.Count + " endpoints folded into "
-                + picker.Count + " shown device(s)"
-                + (hidden.Count > 0 ? " plus " + hidden.Count + " hidden (loopback/virtual cable)" : ""),
+            Tracing.TraceLine("Devices.SelectPickerRows: " + all.Count + " endpoints, "
+                + picker.Count + " shown under " + NameOfHostApi(SelectedHostApiTypeId)
+                + (otherApi > 0 ? ", " + otherApi + " on other host APIs" : "")
+                + (hidden.Count > 0 ? ", " + hidden.Count + " hidden (loopback/virtual cable)" : ""),
                 TraceLevel.Info);
             return picker;
         }
@@ -1065,8 +1518,7 @@ namespace JJPortaudio
         /// <summary>
         /// Pick the endpoint that speaks for a physical device: best host API
         /// first, then the one the engine can actually open, then the Windows
-        /// default. A representative the engine cannot open would be a row that
-        /// refuses every time it is chosen.
+        /// default.
         /// </summary>
         private static DeviceInfo ChooseRepresentative(List<DeviceInfo> bucket)
         {
@@ -1074,14 +1526,6 @@ namespace JJPortaudio
             foreach (DeviceInfo d in bucket)
             {
                 if (best == null) { best = d; continue; }
-
-                bool dUsable = d.UsableForRadioAudio;
-                bool bestUsable = best.UsableForRadioAudio;
-                if (dUsable != bestUsable)
-                {
-                    if (dUsable) best = d;
-                    continue;
-                }
 
                 int dRank = HostApiRank(d.HostApiTypeId);
                 int bestRank = HostApiRank(best.HostApiTypeId);
@@ -1119,49 +1563,55 @@ namespace JJPortaudio
         }
 
         /// <summary>
-        /// The picker row that stands for a saved device: its group's
-        /// representative when the saved endpoint is present, otherwise null.
+        /// The saved device's own row in the picker, or null when the picker's
+        /// current view does not contain it (a different host API is selected,
+        /// or it is a loopback or virtual cable in the basic view).
         /// </summary>
         /// <remarks>
-        /// A saved MME endpoint and the WASAPI row now shown for the same
-        /// hardware are the same microphone to the person who chose it, so the
-        /// picker must land on that row rather than announcing that their
-        /// device has gone missing.
+        /// This used to hop to the group's representative, because the picker
+        /// showed one row per physical device and a selection saved under one
+        /// host API had to land on whichever endpoint was standing in for it.
+        /// With the list filtered to a host API the operator chose, the saved
+        /// endpoint is either in the list or it is not — and "not" is worth
+        /// saying rather than papering over, because it means the audio system
+        /// setting and the saved device disagree. The caller keeps the saved
+        /// row on screen and explains; see the picker dialog's
+        /// SelectFilteredSavedRow.
         /// </remarks>
         public static DeviceInfo FindPickerRow(Device saved)
         {
             DeviceInfo live = FindLive(saved);
             if (live == null) return null;
-            // The advanced view lists endpoints, so it must land on the exact
-            // endpoint that was saved — that is the fact someone opened that
-            // view to see.
-            if (ShowAdvancedDevices) return live;
-            return live.GroupOwner ?? live;
+            IReadOnlyList<DeviceInfo> rows = (live.Type == DeviceTypes.input)
+                ? PickerInputDevices : PickerOutputDevices;
+            for (int i = 0; i < rows.Count; i++)
+            {
+                if (ReferenceEquals(rows[i], live)) return live;
+            }
+            return null;
         }
 
         /// <summary>
-        /// True when <paramref name="row"/> represents the same physical device
-        /// as <paramref name="saved"/> — so a picker OK can leave a working
-        /// configuration alone instead of rewriting it to a different endpoint
-        /// of the same hardware.
+        /// True when <paramref name="row"/> is the endpoint already saved — so
+        /// a picker OK on an unchanged selection writes nothing.
         /// </summary>
+        /// <remarks>
+        /// Endpoint identity, not hardware identity, since 2026-08-16. While
+        /// the picker folded a device's endpoints into one row, hardware was
+        /// the only identity the operator could express and rewriting a saved
+        /// MME endpoint to its WASAPI twin on an OK nobody meant as a change
+        /// would have moved a working configuration silently. Now the host API
+        /// is a thing they set on purpose: choosing the WASAPI row for hardware
+        /// currently saved under MME IS the change they came here to make, and
+        /// treating it as a no-op would make the selector do nothing.
+        /// </remarks>
         public static bool SameDevice(Device saved, DeviceInfo row)
         {
             if (saved == null || row == null || row.IsMissingSaved) return false;
 
             DeviceInfo savedLive = FindLive(saved);
             if (savedLive == null) return false;
-
-            // In the advanced view the operator is choosing an ENDPOINT on
-            // purpose — that is the only reason to be in that view — so
-            // "unchanged" there means the very same endpoint. In the collapsed
-            // view they are choosing a piece of hardware, and any endpoint of
-            // it means their configuration is already right.
-            if (ShowAdvancedDevices) return ReferenceEquals(savedLive, row);
-
-            DeviceInfo savedOwner = savedLive.GroupOwner ?? savedLive;
-            DeviceInfo rowOwner = row.GroupOwner ?? row;
-            return ReferenceEquals(savedOwner, rowOwner);
+            return ReferenceEquals(savedLive, row);
         }
 
         /// <summary>
@@ -1241,6 +1691,32 @@ namespace JJPortaudio
             if (hit == null) return false;
             arg.DevinfoID = hit.DeviceID;
             arg.hostApi = hit.Info.hostApi;
+
+            // Refresh the hardware facts from the live device rather than
+            // carrying the ones that were true when the file was written.
+            //
+            // Track E, 2026-08-16. Identity is name plus host API, and channel
+            // counts are deliberately NOT part of it — a driver update that
+            // turns a 2-channel mic into a 4-channel one should keep the
+            // operator's device, not discard their choice. That is right, and
+            // it means a saved record can carry a channel count the hardware no
+            // longer reports. The engine opens at the saved count, so a device
+            // that dropped from two channels to one would still be asked for
+            // two and PortAudio would refuse — putting the mono failure back
+            // through the side door on exactly the devices this release fixed.
+            // The rate and latency figures go stale the same way, and both feed
+            // rate negotiation and the stream parameters.
+            //
+            // The file is not rewritten here. These values only reach disk if
+            // the operator saves for some other reason, at which point they are
+            // the correct ones to store anyway.
+            arg.maxInputChannels = hit.Info.maxInputChannels;
+            arg.maxOutputChannels = hit.Info.maxOutputChannels;
+            arg.defaultSampleRate = hit.Info.defaultSampleRate;
+            arg.defaultLowInputLatency = hit.Info.defaultLowInputLatency;
+            arg.defaultLowOutputLatency = hit.Info.defaultLowOutputLatency;
+            arg.defaultHighInputLatency = hit.Info.defaultHighInputLatency;
+            arg.defaultHighOutputLatency = hit.Info.defaultHighOutputLatency;
             return true;
         }
 

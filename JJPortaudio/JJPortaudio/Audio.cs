@@ -98,12 +98,61 @@ namespace JJPortaudio
         {
             PortAudio.PaStreamParameters p = new PortAudio.PaStreamParameters();
             p.device = cb.Device.DevinfoID;
-            p.channelCount = 2;
+            // The device's own channel count, not a hardcoded 2. This was
+            // `p.channelCount = 2` unconditionally, which PortAudio must reject
+            // on a one-channel device — so a mono microphone could not be used
+            // at all, and the only workaround (gang two interface inputs, pan
+            // both to centre) needed a multi-channel interface to perform. A
+            // single mono USB headset mic had no workaround whatever, and a
+            // mono device is frequently somebody's only microphone.
+            p.channelCount = channelsFor(cb.Device);
             p.sampleFormat = PortAudio.PaSampleFormat.paFloat32;
             p.suggestedLatency = (cb.Device.Type == Devices.DeviceTypes.input) ?
                 cb.Device.defaultLowInputLatency : cb.Device.defaultLowOutputLatency;
             p.hostApiSpecificStreamInfo = (IntPtr)null;
             return p;
+        }
+
+        /// <summary>
+        /// Channels to open on a saved device: stereo when it has two or more,
+        /// mono when it genuinely has one. Mirrors
+        /// <see cref="Devices.DeviceInfo.OpenChannels"/> for the persisted
+        /// shape, which is what the engine holds.
+        /// </summary>
+        internal static int channelsFor(Devices.Device d)
+        {
+            if (d == null) return Devices.StreamChannels;
+            int native = (d.Type == Devices.DeviceTypes.input)
+                ? d.maxInputChannels : d.maxOutputChannels;
+            return (native >= Devices.StreamChannels) ? Devices.StreamChannels : 1;
+        }
+
+        /// <summary>
+        /// The host API a device index actually belongs to, read from
+        /// PortAudio inside the server's own initialisation.
+        /// </summary>
+        /// <remarks>
+        /// Track E, 2026-08-16. The engine logged device name and sample rate
+        /// and never the host API — and the name is identical across all four
+        /// APIs, so the trace could not distinguish an MME open from a WASAPI
+        /// one. For a stream whose host API decides whether its reported rate
+        /// is genuine or quietly resampled, that was the single most useful
+        /// fact missing from the log. Read live rather than taken from the
+        /// saved device record, because the record can be an older file and
+        /// the point of the line is what really happened.
+        /// </remarks>
+        private static string hostApiOf(int devInfoId)
+        {
+            try
+            {
+                PortAudio.PaDeviceInfo info = PortAudio.Pa_GetDeviceInfo(devInfoId);
+                return PortAudio.Pa_GetHostApiInfo(info.hostApi).name ?? "unknown host API";
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("hostApiOf(" + devInfoId + ") failed: " + ex.Message, TraceLevel.Info);
+                return "unknown host API";
+            }
         }
 
         /// <summary>
@@ -162,10 +211,18 @@ namespace JJPortaudio
                                 &devParms : nullParms;
 
                             uint requested = cb.SampleRate;
+                            // The host API is named on every one of these lines
+                            // because it is what decides whether the answer is
+                            // genuine: MME resamples on the way through and will
+                            // accept almost anything, so "accepts 48 kHz" from
+                            // MME is a statement about MME rather than about the
+                            // hardware. WASAPI's answer is about the hardware.
+                            string negApi = hostApiOf(cb.Device.DevinfoID);
                             if (requested > 0
                                 && PortAudio.Pa_IsFormatSupported(ref *p1, ref *p2, (double)requested) == 0)
                             {
                                 Tracing.TraceLine("server:negotiate:" + cb.Device.Name
+                                    + " [" + negApi + ", " + devParms.channelCount + " ch]"
                                     + " accepts the requested " + requested + " Hz", TraceLevel.Info);
                             }
                             else
@@ -202,6 +259,7 @@ namespace JJPortaudio
                                 if (settled != 0)
                                 {
                                     Tracing.TraceLine("server:negotiate:" + cb.Device.Name
+                                        + " [" + negApi + ", " + devParms.channelCount + " ch]"
                                         + " refused " + requested + " Hz, using " + settled
                                         + " Hz" + (cb.UseOpus ? " (Opus-legal)" : ""), TraceLevel.Error);
                                     cb.SampleRate = settled;
@@ -213,9 +271,25 @@ namespace JJPortaudio
                                     // real error text — PortAudio's own answer
                                     // is worth more to whoever reads the trace
                                     // than a rate invented here.
+                                    //
+                                    // Under MME this branch is nearly
+                                    // unreachable, because MME converts. Under
+                                    // WASAPI it means the endpoint's own
+                                    // shared-mode format is not a rate Opus can
+                                    // encode — 44.1 kHz being the usual one —
+                                    // and the honest remedies are to set the
+                                    // device to 48000 Hz in Windows Sound
+                                    // settings or to select MME, which will
+                                    // resample. Say both, because a trace that
+                                    // reports a dead end without an exit is
+                                    // where support conversations stall.
                                     Tracing.TraceLine("server:negotiate:" + cb.Device.Name
-                                        + " reported no usable rate; leaving " + requested
-                                        + " Hz for the open to fail on", TraceLevel.Error);
+                                        + " [" + negApi + ", " + devParms.channelCount + " ch]"
+                                        + " reported no usable rate (device default "
+                                        + cb.Device.defaultSampleRate + " Hz); leaving " + requested
+                                        + " Hz for the open to fail on. Set the device to 48000 Hz in "
+                                        + "Windows Sound settings, or choose MME as the audio system, "
+                                        + "which converts rates for you.", TraceLevel.Error);
                                 }
                             }
                             cb.RateSettled = true;
@@ -223,7 +297,10 @@ namespace JJPortaudio
                         break;
                     case workItems.open:
                         {
-                            Tracing.TraceLine("server:open", TraceLevel.Info);
+                            Tracing.TraceLine("server:open:" + item.StreamBlock.Device.Name
+                                + " [" + hostApiOf(item.StreamBlock.Device.DevinfoID) + "] "
+                                + item.StreamBlock.SampleRate + " Hz, "
+                                + item.StreamBlock.Channels + " channel(s)", TraceLevel.Info);
                             PortAudio.PaStreamParameters devParms = deviceParams(item.StreamBlock);
                             PortAudio.PaStreamParameters* nullParms = null;
                             PortAudio.PaStreamParameters* p1 = (item.StreamBlock.Device.Type == Devices.DeviceTypes.input) ?
@@ -249,12 +326,20 @@ namespace JJPortaudio
                             }
                             else
                             {
+                                // framesPerBuffer, not sample count. BufferSize
+                                // counts samples of the STEREO path the codec
+                                // and the queues work in, so frames are always
+                                // BufferSize / 2 — the device's own channel
+                                // count does not enter into it. A mono device
+                                // hands back half as many samples for the same
+                                // number of frames, which is what the callbacks
+                                // walk (see data.Channels there).
                                 erv = PortAudio.Pa_OpenStream(
                                     out item.StreamBlock.Stream,
                                     ref *p1,
                                     ref *p2,
                                     item.StreamBlock.SampleRate,
-                                    item.StreamBlock.BufferSize / 2,
+                                    item.StreamBlock.BufferSize / Devices.StreamChannels,
                                     PortAudio.PaStreamFlags.paNoFlag,
                                     item.StreamBlock.CB,
                                     (IntPtr)item.StreamBlock.CBUser);
@@ -400,6 +485,15 @@ namespace JJPortaudio
             public float[] Buffer; // for output data
             public uint BufferSize;
             public uint SampleRate;
+            /// <summary>
+            /// Channels the PortAudio stream was opened with: 2 normally, 1 on
+            /// a genuinely mono device. The rest of the engine — the Opus
+            /// codec, the queues, BufferSize — is stereo throughout, so this
+            /// is read in exactly two places: the input callback, which
+            /// duplicates a mono capture onto both channels, and the output
+            /// callback, which mixes the stereo pair down for a mono device.
+            /// </summary>
+            public int Channels = Devices.StreamChannels;
             // Set by the AudioServer thread when workItems.negotiate has
             // written the answer into SampleRate. Audio.Open waits on this
             // before it sizes a buffer or builds a codec, because everything
@@ -493,6 +587,12 @@ namespace JJPortaudio
         /// never the requested rate, when reporting to an operator.
         /// </summary>
         public uint SampleRate { get { return CBData?.SampleRate ?? 0; } }
+        /// <summary>
+        /// Channels the stream actually opened with — 1 on a mono device, 2
+        /// otherwise. Everything downstream is stereo either way; this is the
+        /// fact about the hardware, for reporting and tracing.
+        /// </summary>
+        public int Channels { get { return CBData?.Channels ?? Devices.StreamChannels; } }
         internal OpusDecoder Decoder { get { return CBData.Decoder; } }
         internal Queue TheQ { get { return CBData.Q; } }
         internal WavCallback WavInputHandler
@@ -556,7 +656,21 @@ namespace JJPortaudio
         {
             CBData.Device = (inOut == Devices.DeviceTypes.input) ?
                 inDevice : outDevice;
-            Tracing.TraceLine("Audio.Open:" + CBData.Device.Name + ' ' + rate + ' ' + useOpus.ToString(), TraceLevel.Info);
+            CBData.Channels = AudioAnchor.channelsFor(CBData.Device);
+            // The host API belongs on this line. It was absent, and the device
+            // NAME is identical under all four APIs, so nothing in the trace
+            // could tell an MME open from a WASAPI one — on a stream where the
+            // API is what decides whether the rate below is genuine or silently
+            // resampled. The name here comes from the saved device record; the
+            // server logs what PortAudio actually reports for the index it
+            // opens, which is the authoritative one if the two ever disagree.
+            Tracing.TraceLine("Audio.Open:" + CBData.Device.Name
+                + " [" + (string.IsNullOrEmpty(CBData.Device.hostApiName)
+                            ? "host API not recorded in audioDevices.xml"
+                            : CBData.Device.hostApiName) + "]"
+                + " requested " + rate + " Hz, " + CBData.Channels + " channel(s)"
+                + (CBData.Channels == 1 ? " (mono device, duplicated to stereo)" : "")
+                + ", opus=" + useOpus.ToString(), TraceLevel.Info);
             CBData.SampleRate = (rate == 0) ? (uint)CBData.Device.defaultSampleRate : rate;
             // UseOpus must be set before negotiating: it decides whether 44.1 kHz
             // is a candidate at all.
@@ -901,8 +1015,14 @@ namespace JJPortaudio
                 goto inCallbackDone;
             }
 
+            // A mono device delivers half the samples for the same number of
+            // frames, so this walks half the buffer and duplicates each sample
+            // onto both channels below. Same expansion MicProbe has always done
+            // to feed its loudness meter — copied, not reinvented, so a mono
+            // microphone measures and transmits through the identical shape.
+            bool mono = (data.Channels == 1);
             float* inPtr = (float*)inbuf;
-            float* endPtr = inPtr + data.BufferSize;
+            float* endPtr = inPtr + (mono ? data.BufferSize / 2 : data.BufferSize);
             if (data.UseOpus)
             {
                 try
@@ -915,9 +1035,23 @@ namespace JJPortaudio
                             Tracing.TraceLine("InputCallback:no buffer", TraceLevel.Error);
                             goto inCallbackDone;
                         }
-                        for (int i = 0; i < data.OpusFrameSZ; i++)
+                        if (mono)
                         {
-                            buf[i] = *(inPtr++);
+                            // OpusFrameSZ is FrameSizePerChannel * 2, always
+                            // even, so this fills the frame exactly.
+                            for (int i = 0; i < data.OpusFrameSZ; i += 2)
+                            {
+                                float s = *(inPtr++);
+                                buf[i] = s;
+                                buf[i + 1] = s;
+                            }
+                        }
+                        else
+                        {
+                            for (int i = 0; i < data.OpusFrameSZ; i++)
+                            {
+                                buf[i] = *(inPtr++);
+                            }
                         }
                         // Audio Track C: TX test tone. When engaged this
                         // REPLACES the mic samples in buf (mute-by-discard,
@@ -955,9 +1089,24 @@ namespace JJPortaudio
                         goto inCallbackDone;
                     }
                     int offset = 0;
-                    while (inPtr != endPtr)
+                    if (mono)
                     {
-                        buf[offset++] = *(inPtr++);
+                        // Same duplication as the Opus path above: what the
+                        // handler receives is always stereo, whatever the
+                        // device supplied.
+                        while (inPtr != endPtr)
+                        {
+                            float s = *(inPtr++);
+                            buf[offset++] = s;
+                            buf[offset++] = s;
+                        }
+                    }
+                    else
+                    {
+                        while (inPtr != endPtr)
+                        {
+                            buf[offset++] = *(inPtr++);
+                        }
                     }
                     // Engine Track: meter uncompressed input too, same
                     // pre-handler tap as the Opus path.
@@ -1009,8 +1158,14 @@ namespace JJPortaudio
             }
             data.SilentPeriod = false;
 
+            // A mono playback device takes half the samples for the same number
+            // of frames, so the queued stereo pair is mixed down to one. The
+            // same argument as mono capture applies: refusing to play through
+            // somebody's only speaker because it has one channel is not a
+            // policy, it is a missing few lines.
+            bool monoOut = (data.Channels == 1);
             float* outptr = (float*)outbuf;
-            float* endptr = outptr + data.BufferSize;
+            float* endptr = outptr + (monoOut ? data.BufferSize / 2 : data.BufferSize);
             while (data.Active)
             {
                 bool silence = false;
@@ -1032,6 +1187,22 @@ namespace JJPortaudio
                 if (silence)
                 {
                     while (outptr != endptr) *(outptr++) = 0f;
+                }
+                else if (monoOut)
+                {
+                    // while there's data in the input, and room in the output:
+                    while ((data.Offset < data.Buffer.Length) & (outptr != endptr))
+                    {
+                        float l = data.Buffer[data.Offset++];
+                        // The queued buffers are stereo, so their length is
+                        // even and the pair is always complete. Guarded anyway:
+                        // half a frame of silence is a click, and a click is
+                        // the kind of thing that gets chased for a week.
+                        float r = (data.Offset < data.Buffer.Length)
+                            ? data.Buffer[data.Offset++] : l;
+                        *(outptr++) = (l + r) * 0.5f;
+                    }
+                    if (data.Offset >= data.Buffer.Length) data.Offset = 0;
                 }
                 else
                 {

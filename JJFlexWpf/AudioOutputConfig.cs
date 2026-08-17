@@ -78,6 +78,17 @@ namespace JJFlexWpf
         /// </summary>
         public int PcOutputVolumeDb { get; set; } = Radios.FlexBase.PcOutputVolumeDbDefault;
 
+        /// <summary>
+        /// Sample rate the transmit Opus encoder is built at, in hertz. 48000
+        /// is the default and the only rate the radio path has been proven at;
+        /// the lower Opus rates (24000, 16000, 12000, 8000) are the fallback
+        /// for a constrained link. App-level, not per-radio: it describes this
+        /// computer's link, not the rig. See
+        /// <see cref="Radios.FlexBase.OpusTxSampleRateSetting"/> for why the
+        /// device still gets the last word.
+        /// </summary>
+        public int OpusTxSampleRate { get; set; } = (int)Radios.FlexBase.OpusTxSampleRateDefault;
+
         /// <summary>Whether tuning speech debounce is enabled. When false, every tuning step speaks immediately.</summary>
         public bool TuneDebounceEnabled { get; set; } = true;
 
@@ -344,6 +355,13 @@ namespace JJFlexWpf
             // any radio connects; remote-audio startup reads it from there.
             Radios.FlexBase.PcOutputVolumeDbSetting = PcOutputVolumeDb;
 
+            // Same reasoning: it has to be in place before a radio connects,
+            // because the transmit encoder is built during connect. The setter
+            // refuses anything Opus cannot encode, so a hand-edited or
+            // corrupted file falls back to the default rather than opening a
+            // stream the codec cannot follow.
+            Radios.FlexBase.OpusTxSampleRateSetting = (uint)OpusTxSampleRate;
+
             // Mic-verdict wording, same reasoning: every surface that reads a
             // level out loud asks MicAudioReport, so the preference lives
             // there rather than being looked up four different ways.
@@ -365,6 +383,7 @@ namespace JJFlexWpf
         {
             SpeechVerbosity = (int)Radios.ScreenReaderOutput.CurrentVerbosity;
             PcOutputVolumeDb = Radios.FlexBase.PcOutputVolumeDbSetting;
+            OpusTxSampleRate = (int)Radios.FlexBase.OpusTxSampleRateSetting;
             MeterTonesEnabled = MeterToneEngine.Enabled;
             MeterPreset = MeterToneEngine.CurrentPreset;
             MeterMasterVolume = MeterToneEngine.MasterVolume;
