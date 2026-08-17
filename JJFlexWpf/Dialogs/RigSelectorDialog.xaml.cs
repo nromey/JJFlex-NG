@@ -1473,14 +1473,12 @@ namespace JJFlexWpf.Dialogs
             bool same = radio.PathChain.SequenceEqual(chain);
             if (same) return;
 
-            if (!KnownRadioRoster.SetPathChain(radio.Serial, chain))
-            {
-                _callbacks.ScreenReaderSpeak?.Invoke(
-                    "Could not save the connection path. It would not survive a restart, so nothing was changed.",
-                    true);
-                return;
-            }
-
+            // The operator's choice is taken whether or not the disk agrees.
+            // Refusing an intent because a file was locked hands our problem to
+            // them, and "nothing was changed" reads as an error they caused and
+            // could fix — which they cannot. So: apply it, then be honest about
+            // how long it will last.
+            bool persisted = KnownRadioRoster.SetPathChain(radio.Serial, chain);
             radio.PathChain = chain;
             // The combo already shows the new choice; re-syncing it from the
             // list refresh below would rip its items out from under the user's
@@ -1493,6 +1491,13 @@ namespace JJFlexWpf.Dialogs
                 : chain[0] == ConnectPathKind.SmartLink
                     ? $"{rowName} will connect over SmartLink first, falling back to the local network."
                     : $"{rowName} will connect over the local network first, falling back to SmartLink.";
+            // Only mention persistence when it failed. Saying "and it is saved"
+            // on every success is noise; saying nothing when it did NOT save is
+            // the lying-receipt bug. The reason lives in the trace file, which
+            // is where a support conversation can actually use it.
+            if (!persisted)
+                speech += " This is in effect now, but it could not be written to disk,"
+                        + " so it may not be here next time you start. Your trace file has the reason.";
             _callbacks.ScreenReaderSpeak?.Invoke(speech, true);
             RefreshRadiosList();
             ReselectBySerial(radio.Serial);

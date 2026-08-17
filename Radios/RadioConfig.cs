@@ -423,27 +423,110 @@ namespace Radios
         /// </summary>
         public static string? BaseDirectory { get; set; }
 
+        /// <summary>
+        /// The app's AppData folder name. Must match <c>InternalName</c> in
+        /// globals.vb, which is what startup combines with ApplicationData to
+        /// build BaseConfigDir. If these two ever disagree, the fallback below
+        /// writes settings to a directory nothing reads — which is worse than
+        /// not saving at all, because it looks like success.
+        /// </summary>
+        private const string AppDataFolderName = "JJFlexRadio";
+
+        /// <summary>
+        /// The config root, self-healed if startup never set it.
+        ///
+        /// An unset <see cref="BaseDirectory"/> is OUR defect, never the
+        /// operator's, and it is not hypothetical: on 2026-08-06 the assignment
+        /// sat in radio-window wiring instead of startup, so every connect-time
+        /// load returned defaults and every save silently declined — the whole
+        /// per-radio feature was inert exactly where it mattered, and nothing
+        /// said so. Deriving the path costs nothing and cannot be wrong as long
+        /// as <see cref="AppDataFolderName"/> tracks globals.vb.
+        ///
+        /// Traced at Error, not Warning: reaching this means startup ordering
+        /// broke and someone should fix it. It must never reach speech, though
+        /// — the operator did nothing and can do nothing about it.
+        /// </summary>
+        private static string? ResolveBaseDirectory()
+        {
+            var dir = BaseDirectory;
+            if (!string.IsNullOrEmpty(dir)) return dir;
+
+            try
+            {
+                var derived = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                    AppDataFolderName);
+                Tracing.TraceLine(
+                    "RadioConfig: BaseDirectory was never set by startup — deriving "
+                    + derived + ". This is a startup-ordering defect; per-radio settings "
+                    + "would otherwise have silently stopped persisting.",
+                    System.Diagnostics.TraceLevel.Error);
+                BaseDirectory = derived;
+                return derived;
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine(
+                    $"RadioConfig: could not derive a config directory: {ex.Message}",
+                    System.Diagnostics.TraceLevel.Error);
+                return null;
+            }
+        }
+
         /// <summary>Load via the app-wide <see cref="BaseDirectory"/>.</summary>
         public static RadioConfig LoadForRadio(string radioId)
         {
-            var dir = BaseDirectory;
+            var dir = ResolveBaseDirectory();
             return string.IsNullOrEmpty(dir)
                 ? new RadioConfig { RadioId = radioId }
                 : Load(dir, radioId);
         }
 
-        /// <summary>Save via the app-wide <see cref="BaseDirectory"/>.</summary>
+        /// <summary>
+        /// Save via the app-wide <see cref="BaseDirectory"/>, self-healing an
+        /// unset root and retrying once before admitting failure.
+        ///
+        /// The retry exists because the realistic transient is a lock, not a
+        /// permanent fault: this app supports multiple instances, and an
+        /// antivirus scanner opening the file mid-write looks identical. Both
+        /// clear in tens of milliseconds. The delay is safe here — every caller
+        /// is a UI action or a connect step, never an audio callback.
+        ///
+        /// **Callers: a false return means the value did not reach disk. It does
+        /// NOT mean the operator's choice should be discarded.** Apply it in
+        /// memory anyway and say plainly that it may not survive a restart —
+        /// refusing an intent because the disk was busy is the disk's problem
+        /// being handed to the operator.
+        /// </summary>
         public bool SaveForRadio(string radioId)
         {
-            var dir = BaseDirectory;
+            var dir = ResolveBaseDirectory();
             if (string.IsNullOrEmpty(dir))
             {
                 Tracing.TraceLine(
-                    "RadioConfig.SaveForRadio: BaseDirectory not set — nothing saved",
-                    System.Diagnostics.TraceLevel.Warning);
+                    "RadioConfig.SaveForRadio: no config directory available — nothing saved",
+                    System.Diagnostics.TraceLevel.Error);
                 return false;
             }
-            return Save(dir, radioId);
+
+            if (Save(dir, radioId)) return true;
+
+            System.Threading.Thread.Sleep(50);
+            if (Save(dir, radioId))
+            {
+                Tracing.TraceLine(
+                    $"RadioConfig.SaveForRadio: {radioId} succeeded on retry — "
+                    + "first attempt hit a transient (likely a file lock).",
+                    System.Diagnostics.TraceLevel.Warning);
+                return true;
+            }
+
+            Tracing.TraceLine(
+                $"RadioConfig.SaveForRadio: {radioId} failed twice — the setting is "
+                + "live for this session but will not survive a restart.",
+                System.Diagnostics.TraceLevel.Error);
+            return false;
         }
 
         /// <summary>
