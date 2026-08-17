@@ -4570,7 +4570,13 @@ namespace Radios
             // WebView2's cleanup — an unhandled crash that took the whole
             // process down live on 2026-08-04. The finally marshals the
             // dispose back to the UI thread.
-            var form = (AuthFormWebView2)AuthForm.CreateAuthForm();
+            // Constructed directly. This used to go through
+            // AuthForm.CreateAuthForm(), a factory that existed to choose
+            // between the IE-based form and this one — but it returned only
+            // this type, and the caller immediately downcast to it. The IE form
+            // is gone (2026-08-17), and with one implementation left the
+            // factory was pure indirection.
+            var form = new AuthFormWebView2();
             try
             {
                 form.ForceNewLogin = forceNewLogin;
