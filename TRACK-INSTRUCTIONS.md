@@ -68,11 +68,16 @@ that the rate is settled before the codec is built; every model already offers
 clicks" both predate the rate-negotiation fix, which may have moved both.
 **Measuring is the first step, not a preliminary to it.**
 
-**7. ACC/BAL enumeration — VERIFIED ALREADY CORRECT, do not spend time on it.**
+**7. ACC/BAL enumeration — CLOSED, VERIFIED CORRECT. Do not spend time on it.**
+
 `FlexBase.MicSourceList` is `theRadio?.MicInputList?.ToList()` — we pass the
-radio's own list through verbatim. If a source appears that the rig lacks, that
-is the radio's claim. **Optional papercut:** a help note saying the list comes
-from the radio.
+radio's own list through verbatim, and FlexLib populates it from a `mic list`
+command sent to the radio.
+
+The 8600 reports mic, pc, line, **acc** and **bal**, and Noel confirmed
+2026-08-16 that **the 8600 genuinely has ACC on its 15-pin port**. So the radio
+reports accurately and we display accurately. **There is no defect here on either
+side** — this was investigated and closed, not skipped.
 
 ## Bench facts you can rely on
 
