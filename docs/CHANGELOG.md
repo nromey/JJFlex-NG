@@ -116,6 +116,9 @@ This release is about the space where you actually spend your time in the app �
 - **[A failed connect tells you why](#connect-failure-honesty).** No more bare "Connection failed." You hear what the evidence says — the router refused, the packets vanished, the sign-in was rejected, the radio never showed up in your account — and when the router rule is the problem, JJ Flexible reads you the exact rule your router needs, built from what the radio itself reports.
 - **[Reboot and firmware live on the Radio menu now](#radio-maintenance).** Two new entries at the bottom of the Radio menu: Reboot Radio, with a confirmation so a stray Enter can't power-cycle your rig, and Update Radio Firmware, which takes you straight to the updater.
 - **[The Feature Availability window opens now](#feature-availability).** Tools, Feature Availability tells you feature by feature — diversity, the noise reduction family, auto notch, CW autotune — whether it's on, off, unlicensed, or unavailable, and the reason why. The same window lets you set your radio's callsign, name, and front panel display.
+- **[Sub-watt transmit power reads as a real number](#honest-power-readout)** instead of rounding down to 0 watts, which is what the app also says when you aren't transmitting at all. If you drive a transverter or run QRP, the instrument was blind to your entire operating range. Over-S9 signal readings were also being announced six times too high in several places, and are now plain decibels.
+- **[The GPS page leads with lock](#gps-leads-with-lock)** — the fact that actually decides whether your radio is disciplined — and it always announces when the reference locks, which it previously could miss entirely. It also carries the clock correction figure in parts per billion now.
+- **[If the radio takes your microphone away, you hear about it](#mic-selection-assert).** Something changing the radio's transmit input behind your back — a profile load will do it — used to mean transmitting silence with no warning at all.
 
 ### The honest audio hub {#honest-audio-hub}
 
@@ -130,6 +133,38 @@ Here's the new shape:
 - Volume mode, `Ctrl+J` then `V`, is the fast lane for all of it — the full walkthrough lives in the keyboard reference under "Volume mode." While we were in the JJ layer, the compander picked up `Ctrl+J, C` and the speech processor `Ctrl+J, Shift+P`, so the whole "how I sound" chain rides one gesture family.
 - The JJ layer's own help (`Ctrl+J, H`) now reads the complete, current command list — it had quietly fallen out of date and was skipping six commands — and it finishes by telling you where the other help lives: F1 for the control you're on, `Ctrl+/` to search everything.
 - If you crank PC Output Volume all the way up on a strong signal, the audio now politely flattens at maximum instead of turning into digital hash. Your ears may still object to 24 dB of boost; the math no longer will.
+
+[Return to version headlines](#unreleased-headlines)
+
+### The power readout tells the truth now {#honest-power-readout}
+
+Here's one that had been hiding in plain sight since forever, and I only caught it because I sat down at the 8600 with the power set to zero and keyed up to see what would happen.
+
+The radio made RF. Not much — around a tenth of a watt, three times in a row, real signal genuinely leaving the radio. And JJ Flexible said **0 watts**, which is exactly, character for character, what it says when you aren't transmitting at all.
+
+The cause was embarrassingly simple: the power readout only ever dealt in whole watts, so anything under half a watt got rounded down to nothing. If you run a hundred watts you'd never notice in a lifetime. If you drive a transverter, or you're a QRP operator, or you're one of those people who enjoys seeing how far a fraction of a watt will get you — that's not an edge case, that's *your entire operating range*, and the instrument was blind to all of it.
+
+Forward power now carries decimals when it needs them. A tenth of a watt reads as a tenth of a watt. Everywhere it appears: the power field on Home while you're transmitting, `Ctrl+S` (which used to say "Power 0" and didn't even name a unit — now it says "Power 0.05 watts"), the multi-slice status readout, the braille display, the spoken meter summary, and the Audio Workshop's Live Meters tab, which now shows you dBm and watts side by side so you don't have to convert in your head while you're trying to read an instrument. Press Space on the power field mid-transmit and it says "Power" and the wattage, instead of reading you an S-meter that isn't there.
+
+And a smaller one found in the same neighborhood: strong signals over S9 were being announced *six times too high* in a few places (ten times too high on `Ctrl+S`). If you heard "S9 plus 24" on a signal that felt like S9 plus 4 — you were right and the app was wrong. It reports plain decibels over S9 now.
+
+[Return to version headlines](#unreleased-headlines)
+
+### The GPS page leads with the fact that matters {#gps-leads-with-lock}
+
+If you have the GPS-disciplined oscillator option, the question you're actually asking when you open Tools then GPS and Reference is "is my radio locked to it?" Everything else — satellites, grid square, altitude — is supporting detail. But the page's live announcements were leading with the GPS fix text, which can say something perfectly cheerful while the reference hasn't locked yet.
+
+Worse: the moment the reference *did* lock, you often weren't told. The dialog only announced when the GPS status text or the reference selection changed — lock itself wasn't on the list of things worth mentioning. So the single event you sat there waiting for could slip by in silence.
+
+Lock leads now, in the summary, in the reference section, and in the live announcements — and a lock change is always announced. The page also picked up the radio's clock correction figure, in parts per billion, sitting right next to the lock state, because together those two are the whole answer to "is my reference any good."
+
+[Return to version headlines](#unreleased-headlines)
+
+### When the radio takes your microphone away {#mic-selection-assert}
+
+When you turn on PC audio, JJ Flexible tells the radio "transmit audio comes from the computer now." It said that once, at startup, and then never checked again — so if something else changed the radio's mind afterward (loading a profile will do it), your transmit audio quietly stopped reaching the transmitter. You'd key up, hear your own monitor, see nothing wrong, and put out silence.
+
+JJ Flexible now watches that setting while you're transmitting with computer audio. If the radio switches its transmit input behind your back, you're told out loud which input it went to, and it's set back. If *you* change it — picking the analog mic in the Audio Workshop, say — that's your call and nothing nags you about it. The app only speaks up for changes it didn't make.
 
 [Return to version headlines](#unreleased-headlines)
 
