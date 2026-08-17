@@ -1,6 +1,6 @@
 # Track C — Settings that stick
 
-**Worktree:** `C:\dev\jjflex-c` · **Branch:** `bsr/track-c` · **Model:** Sonnet
+**Worktree:** `C:\dev\jjflex-c` · **Branch:** `bsr/track-c` · **Model:** Fable
 
 **Read first:** `docs/planning/active/barefoot-splatter-ragchew.md`, the whole of
 "Track C — Settings that stick".
