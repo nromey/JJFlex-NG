@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using System.Text;
 using NAudio.Wave.SampleProviders;
 using Radios;
@@ -9,20 +10,24 @@ namespace JJFlexWpf
 {
     /// <summary>
     /// Real-time meter sonification engine. Subscribes to FlexBase meter events
-    /// and drives ContinuousToneSampleProvider instances to render S-meter, ALC,
-    /// mic level, and SWR as continuous pitched tones.
+    /// and drives VoicedToneSampleProvider instances to render meter values as
+    /// continuous pitched tones.
     ///
-    /// Up to 4 simultaneous meter tone slots, each with independent frequency
-    /// mapping, volume, and stereo panning. Includes a Peak Watcher for TX safety
-    /// alerts and on-demand speech readout of all active meters.
+    /// Track D2 rework: each slot wraps a <see cref="MeterDefinition"/> —
+    /// source plus range plus voice — and the synthesis is data-driven through
+    /// <see cref="MeterVoice"/>. The grammar: timbre identifies the meter,
+    /// pitch carries its value, pan enhances but is never load-bearing.
+    /// Includes a Peak Watcher for TX safety alerts and on-demand speech
+    /// readout of all active meters.
     /// </summary>
     public static class MeterToneEngine
     {
         private static FlexBase? _rig;
         private static bool _initialized;
-        private static long _lastUpdateTicks; // For throttling to ~10 Hz
 
-        // Throttle interval: 100ms = 10 Hz update rate
+        // Per-slot throttle interval: 100ms = 10 Hz update rate. Throttling is
+        // per slot (not global) so four active meters each update at 10 Hz
+        // instead of sharing one 10 Hz budget between them.
         private const long ThrottleIntervalTicks = TimeSpan.TicksPerMillisecond * 100;
 
         /// <summary>Global kill switch for all meter tones.</summary>
@@ -45,7 +50,7 @@ namespace JJFlexWpf
                     foreach (var slot in Slots)
                     {
                         if (!slot.Enabled) continue;
-                        slot.ToneProvider.Active = ShouldSlotSound(slot.Source, tx);
+                        slot.ToneProvider.Active = ShouldSound(slot.Definition.Activation, tx);
                     }
                 }
             }
@@ -78,7 +83,7 @@ namespace JJFlexWpf
         /// <summary>Master volume multiplier for all meter tones (0.0–1.0).</summary>
         public static float MasterVolume { get; set; } = 0.5f;
 
-        /// <summary>The 4 meter tone slots.</summary>
+        /// <summary>The meter tone slots.</summary>
         public static List<MeterSlot> Slots { get; } = new();
 
         /// <summary>Current preset name.</summary>
@@ -98,24 +103,18 @@ namespace JJFlexWpf
         private const float AlcCriticalThreshold = 0.8f;
 
         /// <summary>
-        /// Initialize the engine and create the 4 tone slots.
+        /// Initialize the engine and create the default tone slots.
         /// Call after EarconPlayer.Initialize().
         /// </summary>
         public static void Initialize()
         {
             if (_initialized) return;
 
-            // Create 4 slots with default configurations
             for (int i = 0; i < 4; i++)
             {
                 var slot = new MeterSlot();
                 Slots.Add(slot);
-            }
-
-            // Register all tone providers with the EarconPlayer mixer
-            foreach (var slot in Slots)
-            {
-                EarconPlayer.RegisterContinuousTone(slot.ToneProvider, slot.Pan);
+                EarconPlayer.RegisterContinuousStereo(slot.ToneProvider);
             }
 
             ApplyPreset("RX Monitor");
@@ -160,7 +159,13 @@ namespace JJFlexWpf
 
         #region Presets
 
-        /// <summary>Apply a named preset configuration.</summary>
+        /// <summary>
+        /// Apply a named preset configuration. Replaces the working set — the
+        /// historical semantics, kept. Voice assignments per meter are chosen
+        /// so identities differ on timbre AND modulation, never on pan alone:
+        /// pan is an enhancement, lost entirely to mono listeners and
+        /// asymmetric hearing loss.
+        /// </summary>
         public static void ApplyPreset(string presetName)
         {
             // Silence all first
@@ -177,22 +182,22 @@ namespace JJFlexWpf
             switch (presetName)
             {
                 case "RX Monitor":
-                    ConfigureSlot(0, MeterSource.SMeter, true, 0.6f, 0f, 200, 1200);
-                    ConfigureSlot(1, MeterSource.SWR, false, 0.5f, 0f, 200, 1200);
-                    ConfigureSlot(2, MeterSource.ALC, false, 0.5f, 0f, 300, 1500);
-                    ConfigureSlot(3, MeterSource.Mic, false, 0.4f, 0f, 350, 800);
+                    ConfigureSlot(0, "SMeter", true, 0.6f, 0f, 200, 1200, "Pure");
+                    ConfigureSlot(1, "SWR", false, 0.5f, 0f, 200, 1200, "Trill");
+                    ConfigureSlot(2, "ALC", false, 0.5f, 0f, 300, 1500, "Raspy");
+                    ConfigureSlot(3, "Mic", false, 0.4f, 0f, 350, 800, "Hollow");
                     break;
                 case "TX Monitor":
-                    ConfigureSlot(0, MeterSource.ALC, true, 0.5f, -0.5f, 300, 1500);
-                    ConfigureSlot(1, MeterSource.Mic, true, 0.4f, 0.5f, 350, 800);
-                    ConfigureSlot(2, MeterSource.Power, true, 0.4f, 0f, 200, 1000);
-                    ConfigureSlot(3, MeterSource.SWR, true, 0.5f, 0f, 200, 1200);
+                    ConfigureSlot(0, "ALC", true, 0.5f, -0.5f, 300, 1500, "Raspy");
+                    ConfigureSlot(1, "Mic", true, 0.4f, 0.5f, 350, 800, "Hollow");
+                    ConfigureSlot(2, "Power", true, 0.4f, 0f, 200, 1000, "Organ");
+                    ConfigureSlot(3, "SWR", true, 0.5f, 0f, 200, 1200, "Trill");
                     break;
                 case "Full Monitor":
-                    ConfigureSlot(0, MeterSource.SMeter, true, 0.5f, -0.5f, 200, 1200);
-                    ConfigureSlot(1, MeterSource.ALC, true, 0.4f, 0.5f, 300, 1500);
-                    ConfigureSlot(2, MeterSource.SWR, true, 0.5f, 0f, 200, 1200);
-                    ConfigureSlot(3, MeterSource.Mic, true, 0.3f, 0f, 350, 800);
+                    ConfigureSlot(0, "SMeter", true, 0.5f, -0.5f, 200, 1200, "Pure");
+                    ConfigureSlot(1, "ALC", true, 0.4f, 0.5f, 300, 1500, "Raspy");
+                    ConfigureSlot(2, "SWR", true, 0.5f, 0f, 200, 1200, "Trill");
+                    ConfigureSlot(3, "Mic", true, 0.3f, 0f, 350, 800, "Hollow");
                     break;
             }
         }
@@ -204,21 +209,57 @@ namespace JJFlexWpf
             ApplyPreset(PresetNames[_presetIndex]);
         }
 
-        private static void ConfigureSlot(int index, MeterSource source, bool enabled,
-            float volume, float pan, int pitchLow, int pitchHigh,
-            WaveformType waveform = WaveformType.Sine)
+        private static void ConfigureSlot(int index, string sourceKey, bool enabled,
+            float volume, float pan, float pitchLow, float pitchHigh, string voiceName)
         {
             if (index >= Slots.Count) return;
             var slot = Slots[index];
-            slot.Source = source;
-            slot.Enabled = enabled;
-            slot.Volume = volume;
-            slot.Pan = pan;
-            slot.PitchLow = pitchLow;
-            slot.PitchHigh = pitchHigh;
-            slot.Waveform = waveform;
-            slot.ToneProvider.Waveform = waveform;
+            var def = LegacyMeterCatalog.CreateDefinition(sourceKey);
+            def.Enabled = enabled;
+            def.Volume = volume;
+            def.Pan = pan;
+            def.PitchLowHz = pitchLow;
+            def.PitchHighHz = pitchHigh;
+            def.VoiceName = voiceName;
+            slot.SetDefinition(def);
         }
+
+        #endregion
+
+        #region Definition round-trip (persistence)
+
+        /// <summary>
+        /// Replace the working set with saved meter definitions (the one meter
+        /// list from AudioOutputConfig.Meters). Slots are created or removed
+        /// to match, capped at <see cref="MaxSlots"/>.
+        /// </summary>
+        public static void LoadDefinitions(IEnumerable<MeterDefinition> definitions)
+        {
+            var defs = definitions.Take(MaxSlots).Select(d => d.Clone()).ToList();
+            if (defs.Count == 0) return;
+
+            // Shrink or grow the slot list to fit.
+            while (Slots.Count > Math.Max(defs.Count, 1))
+            {
+                var last = Slots[^1];
+                last.ToneProvider.Active = false;
+                EarconPlayer.UnregisterContinuousTone(last.ToneProvider);
+                Slots.RemoveAt(Slots.Count - 1);
+            }
+            while (Slots.Count < defs.Count)
+            {
+                var slot = new MeterSlot();
+                Slots.Add(slot);
+                EarconPlayer.RegisterContinuousStereo(slot.ToneProvider);
+            }
+
+            for (int i = 0; i < defs.Count; i++)
+                Slots[i].SetDefinition(defs[i]);
+        }
+
+        /// <summary>Snapshot the working set for persistence.</summary>
+        public static List<MeterDefinition> ExportDefinitions() =>
+            Slots.Select(s => s.Definition.Clone()).ToList();
 
         #endregion
 
@@ -233,7 +274,7 @@ namespace JJFlexWpf
             if (Slots.Count >= MaxSlots) return null;
             var slot = new MeterSlot();
             Slots.Add(slot);
-            EarconPlayer.RegisterContinuousTone(slot.ToneProvider, slot.Pan);
+            EarconPlayer.RegisterContinuousStereo(slot.ToneProvider);
             return slot;
         }
 
@@ -314,41 +355,44 @@ namespace JJFlexWpf
 
         private static void OnMeterChanged(object sender, MeterType meter, float value)
         {
+            long now = DateTime.UtcNow.Ticks;
+
+            // Peak Watcher runs regardless of tone throttling — it has its own
+            // cooldown and a safety alert should never wait behind a tone.
+            if (_enabled && PeakWatcherEnabled && _rig != null && _rig.Transmit
+                && meter == MeterType.ALC)
+            {
+                CheckPeakWatcher(value, now);
+            }
+
             if (!_enabled || _rig == null) return;
 
-            // Throttle updates to ~10 Hz to avoid audio glitching
-            long now = DateTime.UtcNow.Ticks;
-            if (now - _lastUpdateTicks < ThrottleIntervalTicks) return;
-            _lastUpdateTicks = now;
-
             bool transmitting = _rig.Transmit;
+            string key = meter.ToString();
 
-            // Update each slot that matches this meter type
+            // Update each slot whose source matches this meter. More than one
+            // may match — two meters sharing a source (coarse and fine SWR) is
+            // an explicitly supported shape.
             foreach (var slot in Slots)
             {
-                if (!slot.Enabled) continue;
-                var source = slot.Source;
-                if (MeterTypeToSource(meter) != source) continue;
+                var def = slot.Definition;
+                if (!def.Enabled) continue;
+                if (!SourceMatchesLegacy(def.Source, key)) continue;
 
-                // Auto-mute logic: S-meter only during RX, ALC/Mic/Power during TX
-                bool shouldSound = ShouldSlotSound(source, transmitting);
+                // Per-slot throttle to ~10 Hz to avoid audio glitching.
+                if (now - slot.LastUpdateTicks < ThrottleIntervalTicks) continue;
+                slot.LastUpdateTicks = now;
+
+                bool shouldSound = ShouldSound(def.Activation, transmitting);
                 slot.ToneProvider.Active = shouldSound;
 
                 if (shouldSound)
                 {
-                    float normalized = NormalizeMeterValue(source, value);
-                    float freq = slot.PitchLow + (slot.PitchHigh - slot.PitchLow) * normalized;
-                    slot.ToneProvider.Frequency = freq;
-                    slot.ToneProvider.Volume = slot.Volume * MasterVolume;
-                    slot.ToneProvider.Waveform = slot.Waveform;
-
+                    slot.ToneProvider.Frequency = def.PitchForValue(value);
+                    slot.ToneProvider.Volume = def.Volume * MasterVolume;
+                    slot.ToneProvider.Pan = def.Pan;
+                    slot.ToneProvider.Voice = def.EffectiveVoice();
                 }
-            }
-
-            // Peak Watcher
-            if (PeakWatcherEnabled && transmitting && meter == MeterType.ALC)
-            {
-                CheckPeakWatcher(value, now);
             }
         }
 
@@ -360,8 +404,7 @@ namespace JJFlexWpf
             foreach (var slot in Slots)
             {
                 if (!slot.Enabled) continue;
-                bool shouldSound = ShouldSlotSound(slot.Source, transmitting);
-                slot.ToneProvider.Active = shouldSound;
+                slot.ToneProvider.Active = ShouldSound(slot.Definition.Activation, transmitting);
             }
 
             // Reset peak watcher state on TX→RX transition
@@ -372,74 +415,20 @@ namespace JJFlexWpf
             }
         }
 
-        private static bool ShouldSlotSound(MeterSource source, bool transmitting)
-        {
-            return source switch
+        /// <summary>Does a source reference match a legacy FlexBase meter
+        /// event? Only radio-reported sources with legacy keys are live until
+        /// the real meter-list accessor lands (Track B).</summary>
+        private static bool SourceMatchesLegacy(MeterSourceRef source, string legacyKey) =>
+            source.Kind == MeterSourceKind.RadioReported &&
+            string.Equals(source.Key, legacyKey, StringComparison.OrdinalIgnoreCase);
+
+        private static bool ShouldSound(MeterActivation activation, bool transmitting) =>
+            activation switch
             {
-                MeterSource.SMeter => !transmitting,
-                MeterSource.ALC => transmitting,
-                MeterSource.Mic => transmitting,
-                MeterSource.Power => transmitting,
-                MeterSource.SWR => transmitting,
-                MeterSource.Compression => transmitting,
-                MeterSource.Voltage => true,
-                MeterSource.PATemp => true,
-                _ => false
+                MeterActivation.ReceiveOnly => !transmitting,
+                MeterActivation.TransmitOnly => transmitting,
+                _ => true,
             };
-        }
-
-        private static MeterSource? MeterTypeToSource(MeterType type)
-        {
-            return type switch
-            {
-                MeterType.SMeter => MeterSource.SMeter,
-                MeterType.ALC => MeterSource.ALC,
-                MeterType.Mic => MeterSource.Mic,
-                MeterType.Power => MeterSource.Power,
-                MeterType.SWR => MeterSource.SWR,
-                MeterType.Compression => MeterSource.Compression,
-                MeterType.Voltage => MeterSource.Voltage,
-                MeterType.PATemp => MeterSource.PATemp,
-                _ => null
-            };
-        }
-
-        /// <summary>
-        /// Normalize a raw meter value to 0.0–1.0 range for pitch mapping.
-        /// </summary>
-        private static float NormalizeMeterValue(MeterSource source, float raw)
-        {
-            float normalized = source switch
-            {
-                // S-meter: raw is dBm, roughly -127 (S0) to -34 (S9+40)
-                MeterSource.SMeter => Math.Clamp((raw + 127f) / 93f, 0f, 1f),
-
-                // ALC: 0.0 (no ALC) to ~1.0+ (maxed)
-                MeterSource.ALC => Math.Clamp(raw, 0f, 1f),
-
-                // Mic: dBm, roughly -60 (silence) to 0 (loud).
-                // Unity is around -20 dBm → maps to 0.5
-                MeterSource.Mic => Math.Clamp((raw + 60f) / 60f, 0f, 1f),
-
-                // Forward power: dBm, roughly 0 to 50 (100W = ~50 dBm)
-                MeterSource.Power => Math.Clamp(raw / 50f, 0f, 1f),
-
-                // SWR: 1.0 (perfect) to 10.0+ (bad). Map 1.0→0.0, 3.0→1.0
-                MeterSource.SWR => Math.Clamp((raw - 1f) / 2f, 0f, 1f),
-
-                // Compression: dBm range, map -30 to 0
-                MeterSource.Compression => Math.Clamp((raw + 30f) / 30f, 0f, 1f),
-
-                // Voltage: map 10V→0.0, 15V→1.0
-                MeterSource.Voltage => Math.Clamp((raw - 10f) / 5f, 0f, 1f),
-
-                // PA Temp: map 20°C→0.0, 80°C→1.0
-                MeterSource.PATemp => Math.Clamp((raw - 20f) / 60f, 0f, 1f),
-
-                _ => 0f
-            };
-            return normalized;
-        }
 
         #endregion
 
@@ -539,24 +528,152 @@ namespace JJFlexWpf
         #endregion
     }
 
-    /// <summary>Meter sources that can be assigned to tone slots.</summary>
+    /// <summary>
+    /// Legacy meter sources. Retained as a bridge: the model's source space is
+    /// <see cref="MeterSourceRef"/> (which also expresses PC-derived,
+    /// frequency-domain and derived sources); this enum names the eight
+    /// FlexBase event sources that are live today, and existing UI indexes it.
+    /// </summary>
     public enum MeterSource
     {
         SMeter, ALC, Mic, Power, SWR, Compression, Voltage, PATemp
     }
 
     /// <summary>
-    /// A single meter tone slot with its own frequency mapping, volume, and panning.
+    /// A meter tone slot: a <see cref="MeterDefinition"/> (source + range +
+    /// voice + mapping) bound to a live <see cref="VoicedToneSampleProvider"/>.
+    /// The legacy flat properties (Source, Waveform, PitchLow…) are bridges
+    /// over the definition so existing callers keep working; new code should
+    /// use <see cref="Definition"/> directly.
     /// </summary>
     public class MeterSlot
     {
-        public MeterSource Source { get; set; }
-        public bool Enabled { get; set; }
-        public float Volume { get; set; } = 0.5f;
-        public float Pan { get; set; }
-        public int PitchLow { get; set; } = 200;
-        public int PitchHigh { get; set; } = 1200;
-        public WaveformType Waveform { get; set; } = WaveformType.Sine;
-        public ContinuousToneSampleProvider ToneProvider { get; } = new();
+        /// <summary>The model object this slot renders.</summary>
+        public MeterDefinition Definition { get; private set; }
+
+        /// <summary>The live synthesis provider (stereo, live pan).</summary>
+        public VoicedToneSampleProvider ToneProvider { get; } = new();
+
+        /// <summary>Per-slot tone update throttle bookkeeping.</summary>
+        internal long LastUpdateTicks;
+
+        public MeterSlot()
+        {
+            Definition = LegacyMeterCatalog.CreateDefinition("SMeter");
+            SyncProvider();
+        }
+
+        /// <summary>Replace the definition wholesale and resync the provider.</summary>
+        public void SetDefinition(MeterDefinition definition)
+        {
+            Definition = definition ?? throw new ArgumentNullException(nameof(definition));
+            SyncProvider();
+        }
+
+        private void SyncProvider()
+        {
+            ToneProvider.Voice = Definition.EffectiveVoice();
+            ToneProvider.Pan = Definition.Pan;
+        }
+
+        // ---- legacy bridges ----
+
+        /// <summary>Legacy source bridge. Setting it rebinds the definition to
+        /// that catalog source, refreshing range, units and activation.</summary>
+        public MeterSource Source
+        {
+            get => Enum.TryParse<MeterSource>(Definition.Source.Key, true, out var s)
+                ? s : MeterSource.SMeter;
+            set
+            {
+                var entry = LegacyMeterCatalog.Find(value.ToString());
+                if (entry == null) return;
+                Definition.Name = entry.DisplayName;
+                Definition.Source = new MeterSourceRef
+                {
+                    Kind = MeterSourceKind.RadioReported,
+                    Key = entry.Key,
+                };
+                Definition.Range = new MeterRange
+                {
+                    Low = entry.Low,
+                    High = entry.High,
+                    Units = entry.Units,
+                    UnitsLabel = entry.UnitsLabel,
+                };
+                Definition.Activation = entry.Activation;
+            }
+        }
+
+        public bool Enabled
+        {
+            get => Definition.Enabled;
+            set => Definition.Enabled = value;
+        }
+
+        public float Volume
+        {
+            get => Definition.Volume;
+            set
+            {
+                Definition.Volume = value;
+                ToneProvider.Volume = value * MeterToneEngine.MasterVolume;
+            }
+        }
+
+        /// <summary>Pan, -1..+1. Live: takes effect on the next audio buffer
+        /// (the old engine's pan was fixed at mixer registration and changing
+        /// it silently did nothing).</summary>
+        public float Pan
+        {
+            get => Definition.Pan;
+            set
+            {
+                Definition.Pan = value;
+                ToneProvider.Pan = value;
+            }
+        }
+
+        public int PitchLow
+        {
+            get => (int)Definition.PitchLowHz;
+            set => Definition.PitchLowHz = value;
+        }
+
+        public int PitchHigh
+        {
+            get => (int)Definition.PitchHighHz;
+            set => Definition.PitchHighHz = value;
+        }
+
+        /// <summary>The voice this meter speaks with. Setting it clears any
+        /// live-tweak override — an explicit voice choice replaces the tweak.</summary>
+        public string VoiceName
+        {
+            get => Definition.VoiceName;
+            set
+            {
+                Definition.VoiceName = value;
+                Definition.VoiceOverride = null;
+                SyncProvider();
+            }
+        }
+
+        /// <summary>Legacy waveform bridge: maps the old enum onto the
+        /// equivalent built-in voice. Getter answers Sine for anything the old
+        /// enum cannot express.</summary>
+        public WaveformType Waveform
+        {
+            get => Definition.VoiceName switch
+            {
+                "Square" => WaveformType.Square,
+                "Reedy" => WaveformType.Sawtooth,
+                "Pulsing" => WaveformType.SlowPulse,
+                "Urgent" => WaveformType.FastPulse,
+                "Ring" => WaveformType.Alternating,
+                _ => WaveformType.Sine,
+            };
+            set => VoiceName = MeterVoiceLibrary.FromLegacyWaveform(value);
+        }
     }
 }
