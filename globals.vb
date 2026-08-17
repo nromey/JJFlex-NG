@@ -875,8 +875,8 @@ Module globals
 
         Tracing.TraceLine("GetConfigInfo:" & BaseConfigDir, TraceLevel.Info)
 
-        ' Which speech backend is driving the user's ears - Prism or the Tolk
-        ' fallback - and whether braille is reachable. ScreenReaderOutput picks
+        ' Which speech backend is driving the user's ears, and whether braille
+        ' is reachable. ScreenReaderOutput picks
         ' this in ApplicationEvents, which runs BEFORE tracing exists, so
         ' without this line the fact appears in no trace file anyone could send
         ' us. It is the first thing to check on any "it stopped speaking"

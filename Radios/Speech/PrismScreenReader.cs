@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Diagnostics;
 using JJTrace;
 
@@ -12,11 +12,8 @@ namespace Radios.Speech
     /// → prism_backend_initialize, then output/speak/braille against the
     /// acquired backend.
     ///
-    /// Prism replaces Tolk AND its entourage: Tolk is a shim that loads a
-    /// separate client per reader (nvdaControllerClient, SAAPI, dolapi32), so
-    /// dropping it removes four native DLLs per architecture rather than
-    /// adding a fifth. Prism talks to those readers itself, and its braille
-    /// path is a first-class backend call rather than Tolk's afterthought.
+    /// Prism speaks to NVDA, JAWS and SAPI itself and ships as a single
+    /// prism.dll per architecture. Braille is a first-class backend call.
     /// </summary>
     public sealed class PrismScreenReader : IScreenReader
     {
@@ -121,8 +118,7 @@ namespace Radios.Speech
             }
         }
 
-        /// <summary>Speech plus braille in one call, matching Tolk.Output's
-        /// contract so the migration is behaviour-preserving.</summary>
+        /// <summary>Speech plus braille in one call.</summary>
         public void Output(string message, bool interrupt)
         {
             if (_backend == IntPtr.Zero || string.IsNullOrEmpty(message)) return;

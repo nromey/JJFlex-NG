@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.ComponentModel;
@@ -2610,7 +2610,7 @@ public partial class MainWindow : UserControl
 
             // Apply panadapter visibility — Collapsed removes the control from layout
             // AND the tab order, so users who don't use the waterfall aren't forced to
-            // Tab through it. Pan callback suppresses Tolk.Braille when hidden too.
+            // Tab through it. Pan callback suppresses the braille push when hidden too.
             ApplyPanadapterVisibility();
 
             // Apply CW notification config
@@ -3885,7 +3885,11 @@ public partial class MainWindow : UserControl
             if (dialog.SelectedAccountData is Radios.SmartLinkAccount selectedAcct)
             {
                 SaveDefaultSmartLinkAccount?.Invoke(selectedAcct.Email);
-                // Speech gets swallowed by focus changes — use Tolk directly with a delay
+                // Speech gets swallowed by the focus changes that follow the
+                // dialog closing, so this is deliberately delayed rather than
+                // spoken inline. (It never "used Tolk directly" as the previous
+                // comment claimed — it has always gone through
+                // ScreenReaderOutput; the delay is the whole mechanism.)
                 System.Threading.Tasks.Task.Delay(200).ContinueWith(_ =>
                 {
                     Dispatcher.BeginInvoke(() =>

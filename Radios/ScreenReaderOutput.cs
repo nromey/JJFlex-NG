@@ -26,9 +26,9 @@ namespace Radios
     }
 
     /// <summary>
-    /// Helper class for screen reader output. The backend (Prism, or Tolk as a
-    /// fallback) is chosen by ScreenReaderFactory; policy above it - verbosity,
-    /// suppression, last-message history - is backend-neutral.
+    /// Helper class for screen reader output. The backend (Prism) is brought up
+    /// by ScreenReaderFactory; policy above it - verbosity, suppression,
+    /// last-message history - is backend-neutral.
     /// Provides a simple interface to speak messages through NVDA, JAWS, or SAPI.
     /// </summary>
     public static class ScreenReaderOutput
@@ -71,11 +71,9 @@ namespace Radios
 
             try
             {
-                // Backend selection and fallback live in the factory: Prism
-                // first, Tolk if Prism cannot come up. Everything above this
+                // Backend selection lives in the factory. Everything above this
                 // line - the verbosity gate, SuppressSpeech, the last-message
-                // history - is backend-neutral policy and stays here, so it
-                // applies identically whichever one loads.
+                // history - is backend-neutral policy and stays here.
                 _backend = Speech.ScreenReaderFactory.Create();
                 _available = _backend.HasSpeech;
                 _screenReaderName = _backend.DetectedReader;
@@ -380,10 +378,9 @@ namespace Radios
         /// gets overwritten, so a display can carry a live value that speech
         /// never could.
         ///
-        /// Added 2026-08-17 with the Prism migration. Two callers previously
-        /// reached past this class and called Tolk.Braille directly, which is
-        /// why they would have silently kept using Tolk after the backend
-        /// changed underneath everything else. Deliberately NOT verbosity-gated:
+        /// Two callers used to reach past this class and drive the backend
+        /// directly, which would have left them on the old one after everything
+        /// else moved. Deliberately NOT verbosity-gated:
         /// braille is a passive surface the operator reads when they choose,
         /// not an interruption, so the speech verbosity setting has no bearing.
         /// </summary>

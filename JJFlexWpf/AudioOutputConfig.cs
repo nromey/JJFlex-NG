@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -172,7 +172,7 @@ namespace JJFlexWpf
         /// <summary>
         /// Whether the panadapter / waterfall braille display is visible and in the tab order.
         /// When false, PanadapterPanel is collapsed (removed from layout and focus) and the
-        /// per-tile braille callback skips its Tolk.Braille push so braille displays aren't
+        /// per-tile braille callback skips its braille push so braille displays aren't
         /// refreshed with data the user isn't viewing. Default true preserves existing behavior.
         /// </summary>
         public bool ShowPanadapter { get; set; } = true;

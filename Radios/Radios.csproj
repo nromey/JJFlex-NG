@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>net10.0-windows</TargetFramework>
     <Platforms>x64;x86;AnyCPU</Platforms>
@@ -22,41 +22,10 @@
     <PackageReference Include="System.IO.Ports" Version="10.0.11" />
   </ItemGroup>
 
-  <!-- Tolk native DLLs - architecture-specific screen reader support.
-       Solution maps Radios to AnyCPU even when building x64, so include both conditions. -->
-  <ItemGroup Condition="'$(Platform)'=='x64' Or '$(Platform)'=='AnyCPU'">
-    <ContentWithTargetPath Include="..\runtimes\win-x64\native\Tolk.dll">
-      <TargetPath>Tolk.dll</TargetPath>
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </ContentWithTargetPath>
-    <ContentWithTargetPath Include="..\runtimes\win-x64\native\nvdaControllerClient64.dll">
-      <TargetPath>nvdaControllerClient64.dll</TargetPath>
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </ContentWithTargetPath>
-    <ContentWithTargetPath Include="..\runtimes\win-x64\native\SAAPI64.dll">
-      <TargetPath>SAAPI64.dll</TargetPath>
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </ContentWithTargetPath>
-  </ItemGroup>
-
-  <ItemGroup Condition="'$(Platform)'=='x86'">
-    <ContentWithTargetPath Include="..\runtimes\win-x86\native\Tolk.dll">
-      <TargetPath>Tolk.dll</TargetPath>
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </ContentWithTargetPath>
-    <ContentWithTargetPath Include="..\runtimes\win-x86\native\nvdaControllerClient32.dll">
-      <TargetPath>nvdaControllerClient32.dll</TargetPath>
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </ContentWithTargetPath>
-    <ContentWithTargetPath Include="..\runtimes\win-x86\native\SAAPI32.dll">
-      <TargetPath>SAAPI32.dll</TargetPath>
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </ContentWithTargetPath>
-    <ContentWithTargetPath Include="..\runtimes\win-x86\native\dolapi32.dll">
-      <TargetPath>dolapi32.dll</TargetPath>
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </ContentWithTargetPath>
-  </ItemGroup>
+  <!-- No screen-reader natives are copied to the app root. Speech and braille
+       ship as prism.dll under runtimes\win-{x64,x86}\native\, copied by
+       JJFlexRadio.vbproj alongside portaudio and libopus, and resolved by
+       NativeLoader. -->
 
   <ItemGroup>
     <ProjectReference Include="..\escapes\escapes.csproj" />

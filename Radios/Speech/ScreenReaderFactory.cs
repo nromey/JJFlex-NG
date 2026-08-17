@@ -1,74 +1,42 @@
-using System;
+﻿using System;
 using System.Diagnostics;
 using JJTrace;
 
 namespace Radios.Speech
 {
     /// <summary>
-    /// Chooses and initialises the speech backend.
+    /// Brings the speech backend up. Prism, or nothing.
     ///
-    /// Order: Prism first, Tolk as a fallback. Prism never hard-fails startup —
-    /// if it cannot initialise for any reason (missing prism.dll, no backend,
-    /// init error) the factory disposes it and brings Tolk up instead. An
-    /// operator who cannot see the screen must not be left in silence because
-    /// a native library moved.
-    ///
-    /// **The Tolk rung is temporary.** Once Prism is confirmed on real hardware
-    /// with NVDA and JAWS, both the fallback and Tolk's four native DLLs per
-    /// architecture come out. See <see cref="TolkScreenReader"/>.
+    /// Prism handles the no-screen-reader case itself by acquiring SAPI, so a
+    /// failure here means prism.dll is missing or broken — a deployment fault
+    /// rather than an environment one. It is traced loudly and reported on
+    /// every launch by <see cref="ScreenReaderOutput.TraceBackend"/>.
     /// </summary>
     public static class ScreenReaderFactory
     {
-        /// <summary>
-        /// Overrides the backend for one launch, so Prism and Tolk can be
-        /// compared on the same machine without a rebuild. Accepts "prism" or
-        /// "tolk", case-insensitively; anything else is ignored with a trace.
-        /// </summary>
-        public const string EnvVar = "JJFLEX_SCREEN_READER_BACKEND";
-
         public static IScreenReader Create()
         {
-            var forced = Environment.GetEnvironmentVariable(EnvVar)?.Trim();
-
-            bool wantTolk = string.Equals(forced, "tolk", StringComparison.OrdinalIgnoreCase);
-            bool wantPrism = string.Equals(forced, "prism", StringComparison.OrdinalIgnoreCase);
-
-            if (!string.IsNullOrEmpty(forced) && !wantTolk && !wantPrism)
+            var prism = new PrismScreenReader();
+            if (prism.Initialize())
             {
                 Tracing.TraceLine(
-                    $"{EnvVar}='{forced}' not recognised (expected prism or tolk) — using the default order.",
-                    TraceLevel.Warning);
-            }
-            else if (!string.IsNullOrEmpty(forced))
-            {
-                Tracing.TraceLine($"{EnvVar}={forced} overrides the default backend order.", TraceLevel.Info);
+                    $"Speech backend: Prism (reader: {prism.DetectedReader ?? "unknown"}, "
+                    + $"braille={prism.HasBraille}).",
+                    TraceLevel.Info);
+                return prism;
             }
 
-            if (!wantTolk)
-            {
-                var prism = new PrismScreenReader();
-                if (prism.Initialize())
-                {
-                    Tracing.TraceLine(
-                        $"Speech backend: Prism (reader: {prism.DetectedReader ?? "unknown"}, "
-                        + $"braille={prism.HasBraille}).",
-                        TraceLevel.Info);
-                    return prism;
-                }
-                prism.Dispose();
-                if (wantPrism)
-                    Tracing.TraceLine("Prism was forced but is unavailable — falling back to Tolk anyway, "
-                                      + "because silence is not an acceptable outcome.", TraceLevel.Warning);
-                else
-                    Tracing.TraceLine("Prism unavailable — falling back to Tolk.", TraceLevel.Warning);
-            }
+            prism.Dispose();
 
-            var tolk = new TolkScreenReader();
-            bool ok = tolk.Initialize();
+            // Traced at Error deliberately. This is not a degraded mode, it is
+            // an application that cannot talk to the person using it.
             Tracing.TraceLine(
-                $"Speech backend: Tolk (reader: {tolk.DetectedReader ?? "none detected"}, loaded={ok}).",
-                TraceLevel.Info);
-            return tolk;
+                "Speech backend: NONE. Prism could not initialise, so the application "
+                + "has no speech and no braille. prism.dll is expected at "
+                + "runtimes\\win-{x64,x86}\\native\\prism.dll — check it shipped and "
+                + "matches the process architecture.",
+                TraceLevel.Error);
+            return new NullScreenReader();
         }
     }
 }

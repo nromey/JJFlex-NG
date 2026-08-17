@@ -1,18 +1,17 @@
-namespace Radios.Speech
+﻿namespace Radios.Speech
 {
     /// <summary>
     /// Backend-neutral screen-reader output surface. Every direct-speech call
-    /// in JJ Flexible ultimately arrives here, so the backend (Tolk today,
-    /// Prism from 2026-08-17) can change without the ~665 call sites above
-    /// knowing which one is in use.
+    /// in JJ Flexible ultimately arrives here, so the backend can change
+    /// without the ~665 call sites above knowing which one is in use.
     ///
     /// The verbosity gate, the suppression flag and the last-message history
     /// live in <see cref="ScreenReaderOutput"/>, ABOVE this interface, so that
     /// policy applies uniformly to whichever backend is loaded.
     ///
-    /// **This interface is not speculation.** Before it existed, Tolk calls
-    /// were welded directly into ScreenReaderOutput, which is precisely why
-    /// changing backend was a project rather than a configuration change. One
+    /// **This interface is not speculation.** Before it existed the backend
+    /// was welded directly into ScreenReaderOutput, which is precisely why
+    /// changing it was a project rather than a configuration change. One
     /// implementation is still worth an interface when the whole point is that
     /// the implementation is replaceable.
     /// </summary>
@@ -55,7 +54,7 @@ namespace Radios.Speech
         /// <summary>True when a braille display is present and reachable.</summary>
         bool HasBraille { get; }
 
-        /// <summary>Backend identity for diagnostics — "Tolk" or "Prism".</summary>
+        /// <summary>Backend identity for diagnostics, e.g. "Prism".</summary>
         string BackendName { get; }
 
         /// <summary>

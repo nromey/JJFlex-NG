@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Text;
@@ -9,7 +9,8 @@ using Radios;
 namespace JJFlexWpf
 {
     /// <summary>
-    /// Pushes a compact radio status line to a connected braille display via Tolk.Braille().
+    /// Pushes a compact radio status line to a connected braille display via
+    /// ScreenReaderOutput.Braille().
     /// Focus-aware: only pushes when FreqOut (home position) has keyboard focus.
     /// Priority-based field packing fits available cells.
     /// Sprint 25 Phase 8.

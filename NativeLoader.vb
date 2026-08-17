@@ -1,4 +1,4 @@
-Imports System.IO
+﻿Imports System.IO
 Imports System.Reflection
 Imports System.Runtime.InteropServices
 
@@ -27,6 +27,16 @@ Public Module NativeLoader
                 GetType(POpusCodec.OpusDecoder).Assembly,
                 AddressOf ResolveNativeLibrary)
 
+            ' Set resolver for the Radios assembly, which is where PrismNative's
+            ' DllImports live. SetDllImportResolver is PER ASSEMBLY: without
+            ' this, prism.dll is never looked for in runtimes\win-{arch}\native
+            ' at all, the default probe fails, and speech silently does not come
+            ' up. Registering the two audio assemblies and forgetting this one
+            ' is exactly the kind of gap that reads as "Prism does not work".
+            NativeLibrary.SetDllImportResolver(
+                GetType(Radios.ScreenReaderOutput).Assembly,
+                AddressOf ResolveNativeLibrary)
+
             _initialized = True
         Catch ex As Exception
             ' Log but don't throw - let default resolution attempt to work
@@ -50,10 +60,8 @@ Public Module NativeLoader
             Case "libopus.dll", "libopus", "opus"
                 mappedName = "libopus.dll"
             Case "prism.dll", "prism"
-                ' Screen-reader and braille output (ethindp/prism), added
-                ' 2026-08-17. Replaces Tolk and its per-reader client DLLs -
-                ' Prism talks to NVDA, JAWS and SAPI itself, so this one file
-                ' stands in for four.
+                ' Screen-reader and braille output (ethindp/prism). Talks to
+                ' NVDA, JAWS and SAPI itself - one file, no per-reader clients.
                 mappedName = "prism.dll"
             Case Else
                 mappedName = libraryName

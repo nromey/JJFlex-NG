@@ -1,4 +1,4 @@
-Imports System.Net
+﻿Imports System.Net
 Imports System.Security.Authentication
 Imports System.Windows.Forms
 Imports Radios
@@ -34,7 +34,7 @@ Namespace My
             AddHandler System.Windows.Forms.Application.ThreadException, AddressOf CrashReporter.OnThreadException
             AddHandler AppDomain.CurrentDomain.UnhandledException, AddressOf CrashReporter.OnUnhandledException
 
-            ' Initialize screen reader output (CrossSpeak/Tolk) for accessibility announcements.
+            ' Initialize screen reader output (Prism) for accessibility announcements.
             Radios.ScreenReaderOutput.Initialize()
 
             ' Initialize NAudio-based earcon player for UI sound effects.
