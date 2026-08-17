@@ -159,6 +159,15 @@ namespace JJFlexWpf.Dialogs
         /// </summary>
         public bool IsRemote => ChosenPath == Radios.ConnectPathKind.SmartLink;
 
+        /// <summary>
+        /// True once the first local discovery pass has settled. Until then a
+        /// row that has not answered is UNKNOWN, not offline: UDP discovery
+        /// takes a second or two to warm up, so the selector opens with every
+        /// roster row looking absent. Stamped from the dialog's _localSettled
+        /// on each refresh.
+        /// </summary>
+        public bool DiscoverySettled { get; set; }
+
         /// <summary>Where this radio is, in words. Row text and the accessible
         /// name are the same string — what a sighted user reads and what a
         /// screen reader says must not diverge.</summary>
@@ -174,6 +183,13 @@ namespace JJFlexWpf.Dialogs
                 }
                 if (LanAvailable) return "local network";
                 if (WanAvailable) return "remote via SmartLink";
+
+                // Nothing has answered YET is not the same as nothing is there.
+                // Discovery needs a second or two, so until it settles this row
+                // says so instead of asserting an absence it cannot know about.
+                // Noel, 2026-08-17, landing on his own live radio and hearing it
+                // called offline: "which isn't true."
+                if (!DiscoverySettled) return "checking";
 
                 // Roster row: say it is offline first, then how it was last seen.
                 var age = string.IsNullOrEmpty(LastSeenText) ? "" : ", " + LastSeenText;
@@ -541,6 +557,12 @@ namespace JJFlexWpf.Dialogs
                 }
 
                 _localSettled = true;
+
+                // Re-render now that "checking" has an answer. Without this the
+                // rows keep saying "checking" for as long as the picker is open,
+                // because nothing else necessarily triggers a refresh once
+                // discovery goes quiet.
+                RefreshRadiosList();
 
                 // A radio landed inside the window — its own arrival speech and
                 // the auto-select line already told the user the interesting
@@ -932,6 +954,13 @@ namespace JJFlexWpf.Dialogs
             // radio re-announcing itself must never reorder anything.
             lock (_radiosLock)
             {
+                // Stamp every row with whether discovery has settled, so a row
+                // that has not answered yet says "checking" rather than
+                // asserting "offline". DisplayText changes as a result, which
+                // is what makes the comparison below rebuild the list when the
+                // pass completes.
+                foreach (var r in _radiosList) r.DiscoverySettled = _localSettled;
+
                 var ordered = _radiosList
                     .Select((r, i) => (radio: r, index: i))
                     .OrderByDescending(x => x.radio.IsFavorite)
