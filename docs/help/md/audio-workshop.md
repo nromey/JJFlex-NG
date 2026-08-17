@@ -107,7 +107,7 @@ Outside the workshop, `Ctrl+Space` is push-to-talk (transmit while held) and `Sh
 
 ## The Live Meters tab
 
-S-meter, forward power, SWR, ALC, mic level, PA temperature, and supply voltage, refreshed twice a second while the tab is open. During an Audio Check, ALC and mic level are the two worth watching — the transmit health watcher will also speak up on its own if the mic looks silent or the ALC is pegging.
+S-Meter, forward power, SWR, mic audio, TX drive (ALC), amp ALC, PA temperature, and supply voltage, refreshed twice a second while the tab is open. Every reading is a read-only field now: Tab through them, or press F6 to hop between the Receiver, Transmit, and Hardware groups, and read any meter at your own pace with your screen reader's review commands. The meters no longer announce themselves as they change — when you want a value, go ask the field that holds it. During an Audio Check, mic audio and TX drive are the two worth watching — and the transmit health watcher still speaks up on its own if the mic looks silent or the ALC is pegging.
 
 ## The Earcon Explorer tab
 
