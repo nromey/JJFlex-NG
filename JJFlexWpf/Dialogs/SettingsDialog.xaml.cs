@@ -1179,13 +1179,33 @@ namespace JJFlexWpf.Dialogs
                 return;
             }
 
-            var presets = Radios.FilterPresets.Load(ConfigDirectory, OperatorName);
+            // #49 family: a corrupt preset file is sidelined and announced,
+            // never silently replaced by defaults that then get edited and
+            // saved over the operator's real tuning.
+            var presets = Radios.FilterPresets.Load(ConfigDirectory, OperatorName,
+                out string? corruptPath);
+            if (corruptPath != null)
+            {
+                Radios.ScreenReaderOutput.Speak(
+                    "Your saved filter presets file could not be read, so the "
+                    + "editor shows the built-in defaults. The unreadable file "
+                    + "was kept next to it as "
+                    + System.IO.Path.GetFileName(corruptPath) + ".",
+                    Radios.VerbosityLevel.Critical);
+            }
             var editor = new FilterPresetEditorDialog(presets);
             editor.Owner = this;
             if (editor.ShowDialog() == true && editor.Changed)
             {
-                presets.Save(ConfigDirectory, OperatorName);
-                Radios.ScreenReaderOutput.Speak("Filter presets saved", true);
+                // Announce what actually happened — a failed write spoken as
+                // "saved" is the lying receipt this arc keeps hunting down.
+                if (presets.Save(ConfigDirectory, OperatorName))
+                    Radios.ScreenReaderOutput.Speak("Filter presets saved", true);
+                else
+                    Radios.ScreenReaderOutput.Speak(
+                        "The filter presets could not be written to disk. Your "
+                        + "changes are in effect for now but will not survive a restart.",
+                        Radios.VerbosityLevel.Critical, true);
             }
         }
     }
