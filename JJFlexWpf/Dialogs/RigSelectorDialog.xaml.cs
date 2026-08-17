@@ -2293,10 +2293,12 @@ namespace JJFlexWpf.Dialogs
             var enabled = GlobalAutoConnectCheckbox.IsChecked == true;
             _callbacks.SaveGlobalAutoConnect(enabled);
 
-            if (enabled)
-                _callbacks.ScreenReaderSpeak?.Invoke("Auto-connect on startup enabled", true);
-            else
-                _callbacks.ScreenReaderSpeak?.Invoke("Auto-connect on startup disabled", true);
+            // Deliberately silent. This is a real CheckBox with the accessible
+            // name "Enable auto-connect on startup", and the screen reader
+            // announces its checked state on every toggle. The suppression flag
+            // above means this handler only runs on a USER toggle — exactly the
+            // moment the reader is already speaking — so saying it again was a
+            // guaranteed double.
         }
 
         private void RadiosBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -2321,18 +2323,28 @@ namespace JJFlexWpf.Dialogs
 
             SyncPathAffordance();
 
-            // Announce selected item if list has focus.
-            // IsKeyboardFocusWithin, NOT IsFocused: once WPF realizes item
-            // containers, keyboard focus lives on the ListBoxItem and the
-            // ListBox itself reports IsFocused == false — which silently killed
-            // every arrow-key announcement (Noel, 2026-08-05: "it's not
-            // actually in the list").
-            if (RadiosBox.IsKeyboardFocusWithin && selected != null)
-            {
-                int idx = RadiosBox.SelectedIndex + 1;
-                int count = RadiosBox.Items.Count;
-                ScreenReaderOutput.Speak($"{selected.DisplayText}, {idx} of {count}", VerbosityLevel.Terse, true);
-            }
+            // Deliberately SILENT on arrow keys. RadioListItem.ToString()
+            // returns DisplayText and the ListBox has no ItemTemplate, so the
+            // item's accessible name IS that string — the screen reader
+            // announces it, and announces "N of M" position, by itself. This
+            // spoke the identical sentence on top of that, which is the double
+            // speech Noel reported on 2026-08-17.
+            //
+            // HISTORY, because this line has been wrong in BOTH directions and
+            // the next person deserves the whole story: it was added after
+            // 2026-08-05, when arrow announcements went missing entirely
+            // ("it's not actually in the list"). The real defect then was that
+            // this handler tested IsFocused, which is false once WPF realises
+            // item containers and moves keyboard focus onto the ListBoxItem —
+            // so the app said nothing AND the screen reader was, at that
+            // moment, the only thing that should have been speaking anyway.
+            // The IsKeyboardFocusWithin fix made the app speak again, which
+            // restored the announcement and reintroduced the duplicate.
+            //
+            // If arrow keys ever go quiet again, the answer is NOT to restore
+            // this Speak. It is that the item's accessible name broke — check
+            // ToString() and that no ItemTemplate was added without an
+            // AutomationProperties.Name on it.
         }
 
         private void AutoConnectButton_Click(object sender, RoutedEventArgs e)
