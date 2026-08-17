@@ -121,6 +121,33 @@ public partial class MainWindow : UserControl
             return presets.Save(OpenParms.ConfigDirectory, OpenParms.GetOperatorName());
         };
 
+        // Microphone profiles (Track F) — operator-scoped like the presets
+        // (a microphone travels with the person; each profile's per-radio
+        // bindings live inside it), same honest contracts: a corrupt file is
+        // sidelined and spoken, a save reports whether it landed.
+        Dialogs.AudioWorkshopDialog.GetMicProfilesCallback = () =>
+        {
+            if (OpenParms == null)
+                return new Radios.MicrophoneProfileStore();
+            var store = Radios.MicrophoneProfileStore.Load(
+                OpenParms.ConfigDirectory, OpenParms.GetOperatorName(),
+                out string? corruptPath);
+            if (corruptPath != null)
+            {
+                Radios.ScreenReaderOutput.Speak(
+                    "Your microphone profiles file could not be read, so the "
+                    + "list starts empty. The unreadable file was kept next to "
+                    + "it as " + System.IO.Path.GetFileName(corruptPath) + ".",
+                    Radios.VerbosityLevel.Critical);
+            }
+            return store;
+        };
+        Dialogs.AudioWorkshopDialog.SaveMicProfilesCallback = store =>
+        {
+            if (OpenParms == null || store == null) return false;
+            return store.Save(OpenParms.ConfigDirectory, OpenParms.GetOperatorName());
+        };
+
         // Wire braille display focus events
         FreqOut.GotKeyboardFocus += (s, e) => _brailleEngine.OnHomePositionFocused();
         FreqOut.LostKeyboardFocus += (s, e) => _brailleEngine.OnHomePositionBlurred();

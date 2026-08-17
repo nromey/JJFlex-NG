@@ -152,6 +152,11 @@ public partial class AudioWorkshopDialog : JJFlexDialog
 
     /// <summary>The bound Core Audio endpoint. Null whenever the control is absent or refused.</summary>
     private WindowsMicLevel? _pcMicLevel;
+
+    /// <summary>Microphone profile picker (Track F). Options are the
+    /// operator's saved microphone profiles; refreshed on SetRig and after
+    /// every save or delete.</summary>
+    private CycleFieldControl? _micProfileControl;
     private CheckBox? _companderCheck;
     private ValueFieldControl? _companderLevelControl;
     private CheckBox? _processorCheck;
@@ -200,6 +205,12 @@ public partial class AudioWorkshopDialog : JJFlexDialog
     // A save that did not happen must never be announced as one.
     public static Func<AudioChainPresets>? GetPresetsCallback { get; set; }
     public static Func<AudioChainPresets, bool>? SavePresetsCallback { get; set; }
+
+    // Microphone profile store (Track F, 2026-08-16). Same static-wired shape
+    // as the preset callbacks above, for the same reason those are static —
+    // and the same honest-save contract: the bool is whether the file landed.
+    public static Func<MicrophoneProfileStore>? GetMicProfilesCallback { get; set; }
+    public static Func<MicrophoneProfileStore, bool>? SaveMicProfilesCallback { get; set; }
 
     /// <summary>
     /// Persist the preset collection, reporting whether it actually landed.
@@ -547,6 +558,9 @@ public partial class AudioWorkshopDialog : JJFlexDialog
             // shipping without the EQ because nothing ever asked for it).
             rig.RequestTxEqualizer();
             LoadPerRadioPrefs();
+            // The store is operator-scoped, but a rig change is also when an
+            // operator switch lands here — cheap to re-read either way.
+            RefreshMicProfileOptions();
             LoadToneSettings();
             // Reflect the new rig's actual tone state (a fresh rig is never
             // armed — arming does not survive a radio switch by design).
@@ -688,6 +702,11 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         // is already set up survives in focus and tab order rather than in
         // layout — see FocusFirstControl and ApplyTxAudioTabOrder.
         BuildDeviceSection();
+
+        // Microphone profiles come right after the device choice: name the
+        // microphone, then apply everything that microphone needs — the
+        // capture half here, the radio half by reference (Track F).
+        BuildMicProfileSection();
 
         // Microphone section
         AddSectionHeader(TxAudioContent, "Microphone");
@@ -1088,6 +1107,471 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         // keep moving the previous device's level.
         if (_pcSourceActive) BindPcLevel();
     }
+
+    #region Microphone Profiles (Track F, 2026-08-16)
+
+    // A microphone profile is MICROPHONE-first: "what does this mic need",
+    // not "what does this radio remember" (see Radios.MicrophoneProfile for
+    // the model rationale). The capture half — device identity, Windows
+    // input level, boost, the gate to come — is applied here, because this
+    // dialog owns the Windows endpoints. The radio half is a per-radio
+    // binding: on a Flex it REFERENCES one of the radio's own mic profiles
+    // by name (the radio already stores its TX chain; not ours to
+    // duplicate), and only a radio with a binding gets touched at all —
+    // which is exactly the guest-operator rule, falling out of the
+    // architecture rather than being enforced by it.
+
+    private const string NoMicProfilesOption = "(none saved yet)";
+
+    private void BuildMicProfileSection()
+    {
+        AddSectionHeader(TxAudioContent, "Microphone Profiles");
+
+        _micProfileControl = MakeCycle("Microphone profile", new[] { NoMicProfilesOption });
+        AutomationProperties.SetHelpText(_micProfileControl,
+            "A saved setup for one microphone: its computer settings plus, per "
+            + "radio, the radio's own mic profile to load. Apply puts it into "
+            + "effect; nothing changes until you do.");
+        AddToSection(TxAudioContent, _micProfileControl);
+
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(2) };
+
+        // No Alt mnemonics on any of these, deliberately — WPF access keys
+        // also match with Shift held, and every new letter here would need
+        // auditing against the global Alt+Shift chords (see the toolbar note
+        // at the top of the XAML).
+        var applyBtn = new Button { Content = "Apply Profile", Padding = new Thickness(8, 4, 8, 4), Margin = new Thickness(0, 0, 4, 0) };
+        AutomationProperties.SetName(applyBtn, "Apply microphone profile");
+        applyBtn.Click += (s, e) => ApplyMicProfile();
+        buttons.Children.Add(applyBtn);
+
+        var saveBtn = new Button { Content = "Save Profile...", Padding = new Thickness(8, 4, 8, 4), Margin = new Thickness(0, 0, 4, 0) };
+        AutomationProperties.SetName(saveBtn, "Save microphone profile");
+        saveBtn.Click += (s, e) => SaveMicProfile();
+        buttons.Children.Add(saveBtn);
+
+        var deleteBtn = new Button { Content = "Delete Profile", Padding = new Thickness(8, 4, 8, 4) };
+        AutomationProperties.SetName(deleteBtn, "Delete microphone profile");
+        deleteBtn.Click += (s, e) => DeleteMicProfile();
+        buttons.Children.Add(deleteBtn);
+
+        AddToSection(TxAudioContent, buttons);
+        RefreshMicProfileOptions();
+    }
+
+    /// <summary>
+    /// Re-read the store and rebuild the picker's options, keeping (or
+    /// setting) the selection by name where possible.
+    /// </summary>
+    private void RefreshMicProfileOptions(string? selectName = null)
+    {
+        if (_micProfileControl == null) return;
+        selectName ??= _micProfileControl.SelectedOption;
+
+        var store = GetMicProfilesCallback?.Invoke() ?? new MicrophoneProfileStore();
+        _micProfileControl.SuppressEvents = true;
+        try
+        {
+            if (store.Profiles.Count == 0)
+            {
+                _micProfileControl.SetOptions(new[] { NoMicProfilesOption });
+                return;
+            }
+            var names = new string[store.Profiles.Count];
+            for (int i = 0; i < store.Profiles.Count; i++)
+                names[i] = store.Profiles[i].Name;
+            _micProfileControl.SetOptions(names);
+            int idx = Array.FindIndex(names, n =>
+                string.Equals(n, selectName, StringComparison.OrdinalIgnoreCase));
+            if (idx > 0) _micProfileControl.SelectedIndex = idx;
+        }
+        finally
+        {
+            _micProfileControl.SuppressEvents = false;
+        }
+    }
+
+    /// <summary>The profile the picker currently names, freshly loaded, or null.</summary>
+    private MicrophoneProfile? SelectedMicProfile()
+    {
+        string name = _micProfileControl?.SelectedOption ?? "";
+        if (string.IsNullOrEmpty(name) || name == NoMicProfilesOption) return null;
+        var store = GetMicProfilesCallback?.Invoke();
+        return store?.FindByName(name);
+    }
+
+    /// <summary>
+    /// Apply the selected profile: capture half always (it is this
+    /// computer's to set), radio half only where a binding for this radio
+    /// exists — and every "could not" is said out loud, never guessed
+    /// around.
+    /// </summary>
+    private void ApplyMicProfile()
+    {
+        var profile = SelectedMicProfile();
+        if (profile == null)
+        {
+            ScreenReaderOutput.Speak("No microphone profile is selected. Save one first.",
+                VerbosityLevel.Terse);
+            return;
+        }
+
+        string captureNotes = ApplyCaptureHalf(profile.Capture);
+        var radioResult = profile.ApplyRadioHalf(_rig, _rig?.SelectedRadioSerial ?? "");
+        if (radioResult.RadioHalfApplied) PollTxAudio();
+
+        var parts = new List<string> { $"Profile {profile.Name} applied." };
+        if (!string.IsNullOrEmpty(radioResult.Message)) parts.Add(radioResult.Message);
+        if (!string.IsNullOrEmpty(captureNotes)) parts.Add(captureNotes);
+        ScreenReaderOutput.Speak(string.Join(" ", parts),
+            radioResult.Warning ? VerbosityLevel.Critical : VerbosityLevel.Terse);
+    }
+
+    /// <summary>
+    /// Save (or update) a microphone profile. The capture half is read from
+    /// this computer now; the radio half is the operator's explicit choice —
+    /// including whether to CREATE a profile on the radio, which is offered
+    /// and never done automatically, because that is writing to someone's
+    /// equipment.
+    /// </summary>
+    private void SaveMicProfile()
+    {
+        var dialog = new JJFlexDialog { Title = "Save Microphone Profile", Width = 480, Height = 320 };
+        dialog.ResizeMode = ResizeMode.NoResize;
+        var panel = new StackPanel { Margin = new Thickness(12) };
+
+        var prompt = new TextBlock
+        {
+            Text = "Name this microphone (an existing name updates that profile):",
+            Margin = new Thickness(0, 0, 0, 8),
+            TextWrapping = TextWrapping.Wrap,
+        };
+        panel.Children.Add(prompt);
+
+        var nameBox = new TextBox { Margin = new Thickness(0, 0, 0, 8) };
+        AutomationProperties.SetName(nameBox, "Microphone profile name");
+        string current = _micProfileControl?.SelectedOption ?? "";
+        if (!string.IsNullOrEmpty(current) && current != NoMicProfilesOption)
+            nameBox.Text = current;
+        panel.Children.Add(nameBox);
+
+        // The radio-half choice. Options depend on what is true right now:
+        // with no radio there is nothing to offer beyond the computer half,
+        // and the reference option names the actual profile it would bind.
+        var choiceLabel = new TextBlock
+        {
+            Text = "Radio settings to store for this radio:",
+            Margin = new Thickness(0, 4, 0, 4),
+        };
+        panel.Children.Add(choiceLabel);
+
+        string radioProfileName = _rig?.CurrentMicProfileName ?? "";
+        bool haveRig = _rig != null;
+
+        RadioButton? referenceOption = null;
+        RadioButton? createOption = null;
+        RadioButton? snapshotOption = null;
+        var pcOnlyOption = new RadioButton
+        {
+            Content = "Computer settings only (leave any stored radio half as it is)",
+            Margin = new Thickness(0, 2, 0, 2),
+            GroupName = "MicProfileRadioHalf",
+        };
+
+        if (haveRig)
+        {
+            if (!string.IsNullOrEmpty(radioProfileName))
+            {
+                referenceOption = new RadioButton
+                {
+                    Content = $"Reference the radio's current mic profile: {radioProfileName}",
+                    Margin = new Thickness(0, 2, 0, 2),
+                    GroupName = "MicProfileRadioHalf",
+                    IsChecked = true,
+                };
+                AutomationProperties.SetHelpText(referenceOption,
+                    "The radio keeps its own mic profile; this profile just names "
+                    + "which one to load. Nothing is copied, so other clients and "
+                    + "this app always agree.");
+                panel.Children.Add(referenceOption);
+            }
+            else
+            {
+                createOption = new RadioButton
+                {
+                    Content = "Create a mic profile ON THE RADIO with this name, and reference it",
+                    Margin = new Thickness(0, 2, 0, 2),
+                    GroupName = "MicProfileRadioHalf",
+                };
+                AutomationProperties.SetHelpText(createOption,
+                    "Writes a new mic profile to the radio itself, holding its "
+                    + "current TX settings. Offered because no radio mic profile "
+                    + "is loaded right now — done only if you choose it here.");
+                panel.Children.Add(createOption);
+            }
+
+            snapshotOption = new RadioButton
+            {
+                Content = "Snapshot the radio's TX settings into this profile",
+                Margin = new Thickness(0, 2, 0, 2),
+                GroupName = "MicProfileRadioHalf",
+                IsChecked = referenceOption == null,
+            };
+            AutomationProperties.SetHelpText(snapshotOption,
+                "Copies mic gain, EQ, compander, processor and filter values "
+                + "into the profile file. The shape used for radios that have "
+                + "no profile system of their own; on a Flex, referencing is "
+                + "usually the better choice.");
+            panel.Children.Add(snapshotOption);
+        }
+        else
+        {
+            pcOnlyOption.IsChecked = true;
+        }
+        panel.Children.Add(pcOnlyOption);
+
+        var okBtn = new Button { Content = "OK", MinWidth = 80, Height = 28, Margin = new Thickness(0, 0, 8, 0), IsDefault = true };
+        var cancelBtn = new Button { Content = "Cancel", MinWidth = 80, Height = 28, IsCancel = true };
+        AutomationProperties.SetName(okBtn, "OK");
+        AutomationProperties.SetName(cancelBtn, "Cancel");
+        okBtn.Click += (s2, e2) =>
+        {
+            string name = nameBox.Text.Trim();
+            if (string.IsNullOrEmpty(name))
+            {
+                ScreenReaderOutput.Speak("Please enter a name", VerbosityLevel.Terse);
+                return;
+            }
+
+            var store = GetMicProfilesCallback?.Invoke() ?? new MicrophoneProfileStore();
+            var profile = store.FindByName(name);
+            bool isNew = profile == null;
+            if (profile == null)
+            {
+                profile = new MicrophoneProfile { Name = name };
+                store.Profiles.Add(profile);
+            }
+
+            profile.Capture = CaptureCurrentPcSettings();
+
+            string radioHalfSpoken = "";
+            string radioId = _rig?.SelectedRadioSerial ?? "";
+            if (_rig != null && !string.IsNullOrEmpty(radioId))
+            {
+                if (referenceOption?.IsChecked == true)
+                {
+                    profile.SetSetupFor(new RadioProfileReference
+                    {
+                        RadioId = radioId,
+                        RadioModel = _rig.RadioModel,
+                        ProfileName = radioProfileName,
+                    });
+                    radioHalfSpoken = $"On this radio it references mic profile {radioProfileName}.";
+                }
+                else if (createOption?.IsChecked == true)
+                {
+                    // The explicit offer, taken: SelectProfile's mic case
+                    // creates the profile on the radio when it is missing and
+                    // loads it; the radio autosaves its current TX settings
+                    // into it from here on.
+                    _rig.SelectProfile(new Profile_t(name, ProfileTypes.mic, false));
+                    profile.SetSetupFor(new RadioProfileReference
+                    {
+                        RadioId = radioId,
+                        RadioModel = _rig.RadioModel,
+                        ProfileName = name,
+                    });
+                    radioHalfSpoken = $"A mic profile named {name} was created on the radio and referenced.";
+                }
+                else if (snapshotOption?.IsChecked == true)
+                {
+                    profile.SetSetupFor(new RadioTxValues
+                    {
+                        RadioId = radioId,
+                        RadioModel = _rig.RadioModel,
+                        Values = AudioChainPreset.CaptureFrom(_rig, name, ReadSavedPcInputName()),
+                    });
+                    radioHalfSpoken = "The radio's TX settings were snapshotted into it.";
+                }
+                // pcOnly: existing bindings deliberately untouched.
+            }
+
+            bool saved = SaveMicProfilesCallback?.Invoke(store) ?? false;
+            if (saved)
+            {
+                RefreshMicProfileOptions(selectName: name);
+                string verb = isNew ? "saved" : "updated";
+                ScreenReaderOutput.Speak(
+                    $"Microphone profile {name} {verb}." +
+                    (string.IsNullOrEmpty(radioHalfSpoken) ? "" : " " + radioHalfSpoken),
+                    VerbosityLevel.Terse);
+            }
+            else
+            {
+                ScreenReaderOutput.Speak(
+                    $"Microphone profile {name}. " + PresetSaveFailed,
+                    VerbosityLevel.Critical);
+            }
+            dialog.Close();
+        };
+        cancelBtn.Click += (s2, e2) => dialog.Close();
+
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 8, 0, 0) };
+        buttons.Children.Add(okBtn);
+        buttons.Children.Add(cancelBtn);
+        panel.Children.Add(buttons);
+
+        dialog.Content = panel;
+        dialog.ShowDialog();
+    }
+
+    private void DeleteMicProfile()
+    {
+        var profile = SelectedMicProfile();
+        if (profile == null)
+        {
+            ScreenReaderOutput.Speak("No microphone profile is selected.", VerbosityLevel.Terse);
+            return;
+        }
+
+        var confirm = new ConfirmActionDialog(
+            "Delete Microphone Profile",
+            $"This deletes the microphone profile {profile.Name}, including its "
+            + "settings for every radio it was set up on. Profiles stored on a "
+            + "radio itself are not touched. There is no undo.",
+            question: "Delete it?",
+            yesLabel: "_Delete");
+        if (confirm.ShowDialog() != true) return;
+
+        var store = GetMicProfilesCallback?.Invoke() ?? new MicrophoneProfileStore();
+        store.Profiles.RemoveAll(p =>
+            string.Equals(p.Name, profile.Name, StringComparison.OrdinalIgnoreCase));
+
+        bool saved = SaveMicProfilesCallback?.Invoke(store) ?? false;
+        RefreshMicProfileOptions();
+        if (saved)
+            ScreenReaderOutput.Speak($"Microphone profile {profile.Name} deleted.", VerbosityLevel.Terse);
+        else
+            ScreenReaderOutput.Speak(
+                $"Microphone profile {profile.Name} was removed from the list, but "
+                + PresetSaveFailed + " It will be back next time.",
+                VerbosityLevel.Critical);
+    }
+
+    /// <summary>
+    /// The chosen capture device from audioDevices.xml — name plus the host
+    /// API id WindowsMicLevel's matcher wants. A file read, never a
+    /// PortAudio enumeration.
+    /// </summary>
+    private (string Name, int HostApiTypeId) ReadSavedPcInput()
+    {
+        try
+        {
+            string? path = AudioDevicesPath?.Invoke();
+            if (string.IsNullOrEmpty(path) || !System.IO.File.Exists(path))
+                return ("", -1);
+            var devices = new JJPortaudio.Devices(path);
+            devices.LoadSavedSelection();
+            return (devices.InputDevice?.Name ?? "", devices.InputDevice?.hostApiTypeId ?? -1);
+        }
+        catch
+        {
+            return ("", -1);
+        }
+    }
+
+    /// <summary>
+    /// Read this computer's current capture settings for the chosen device:
+    /// the stage-one half of a microphone profile. Missing pieces are
+    /// recorded as missing (level -1, boost unrecorded), never as zeros.
+    /// </summary>
+    private MicCaptureSettings CaptureCurrentPcSettings()
+    {
+        var (name, hostApi) = ReadSavedPcInput();
+        var capture = new MicCaptureSettings { DeviceName = name };
+        if (string.IsNullOrEmpty(name)) return capture;
+
+        var level = WindowsMicLevel.TryFindByName(name, hostApi, out _);
+        if (level == null) return capture;
+        try
+        {
+            capture.InputLevelPercent = (int)Math.Round(level.Percent);
+            if (level.HasBoost)
+            {
+                capture.BoostRecorded = true;
+                capture.BoostDb = level.BoostDb;
+            }
+        }
+        catch
+        {
+            // The device vanished between match and read; identity alone is
+            // still worth keeping.
+        }
+        finally
+        {
+            level.Dispose();
+        }
+        return capture;
+    }
+
+    /// <summary>
+    /// Apply the capture half to this computer. Returns spoken-ready notes
+    /// for anything that was NOT done — a different device in use (identity
+    /// is never switched from here), a level that could not be set — and ""
+    /// when everything landed quietly. Gate settings are carried, not yet
+    /// driven: the gate engine is transmit-conditioning work and reads them
+    /// from the profile when it arrives.
+    /// </summary>
+    private string ApplyCaptureHalf(MicCaptureSettings capture)
+    {
+        if (capture == null) return "";
+        var notes = new List<string>();
+        var (currentName, hostApi) = ReadSavedPcInput();
+
+        bool deviceMismatch = !string.IsNullOrEmpty(capture.DeviceName)
+            && !string.IsNullOrEmpty(currentName)
+            && !string.Equals(capture.DeviceName, currentName, StringComparison.OrdinalIgnoreCase);
+        if (deviceMismatch)
+        {
+            // A level tuned for one microphone means nothing on another —
+            // moving the current device's level to the old device's number
+            // would be confidently wrong. Say it, do not do it.
+            notes.Add($"It was made with {capture.DeviceName}; this computer is using "
+                + $"{currentName}, so the Windows input level was left alone.");
+            return string.Join(" ", notes);
+        }
+
+        string targetName = !string.IsNullOrEmpty(currentName) ? currentName : capture.DeviceName;
+        if (capture.InputLevelPercent >= 0 && !string.IsNullOrEmpty(targetName))
+        {
+            var level = WindowsMicLevel.TryFindByName(targetName, hostApi, out string whyNot);
+            if (level == null)
+            {
+                notes.Add("The Windows input level could not be set: " + whyNot);
+            }
+            else
+            {
+                try
+                {
+                    level.Percent = Math.Clamp(capture.InputLevelPercent, 0, 100);
+                    if (capture.BoostRecorded && level.HasBoost)
+                        level.BoostDb = capture.BoostDb;
+                }
+                catch (Exception ex)
+                {
+                    notes.Add("The Windows input level could not be set: " + ex.Message);
+                }
+                finally
+                {
+                    level.Dispose();
+                }
+            }
+        }
+
+        return string.Join(" ", notes);
+    }
+
+    #endregion
 
     /// <summary>
     /// True when no input device has been chosen on this computer — the
@@ -2711,22 +3195,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
     /// recorded into presets so a preset tuned against one microphone can say
     /// so on another (#51).
     /// </summary>
-    private string ReadSavedPcInputName()
-    {
-        try
-        {
-            string? path = AudioDevicesPath?.Invoke();
-            if (string.IsNullOrEmpty(path) || !System.IO.File.Exists(path))
-                return "";
-            var devices = new JJPortaudio.Devices(path);
-            devices.LoadSavedSelection();
-            return devices.InputDevice?.Name ?? "";
-        }
-        catch
-        {
-            return "";
-        }
-    }
+    private string ReadSavedPcInputName() => ReadSavedPcInput().Name;
 
     /// <summary>
     /// Import a preset file into the saved collection — the missing half of
