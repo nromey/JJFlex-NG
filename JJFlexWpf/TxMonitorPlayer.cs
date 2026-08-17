@@ -72,6 +72,23 @@ namespace JJFlexWpf
             }
         }
 
+        /// <summary>
+        /// Open the output device ahead of the first Push, from a UI thread.
+        /// Without this the device would open lazily inside the PortAudio
+        /// input callback — a few milliseconds of stall in the one place that
+        /// must never stall. The player still rebuilds itself if the stream
+        /// turns out to run at a different rate.
+        /// </summary>
+        public void Prewarm(int sampleRate = 48000)
+        {
+            lock (_lock)
+            {
+                if (_disposed) return;
+                if (_waveOut == null || _sampleRate != sampleRate)
+                    StartLocked(sampleRate);
+            }
+        }
+
         /// <summary>Stop playback and release the output device. Push after
         /// Stop simply starts it again — Stop is "monitor off", not disposal.</summary>
         public void Stop()

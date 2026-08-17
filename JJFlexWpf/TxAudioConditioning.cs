@@ -246,6 +246,11 @@ namespace JJFlexWpf
                 c.MonitorMode = value;
                 if (value == JJPortaudio.TxAudioConditioner.MonitorModes.Off)
                     _player?.Stop();
+                else
+                    // Open the output device now, on this thread, so the
+                    // first monitored buffer never pays the device-open cost
+                    // inside the audio callback.
+                    _player?.Prewarm();
             }
         }
 
