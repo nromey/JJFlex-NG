@@ -277,10 +277,11 @@ may be part of the problem being captured:
   capture" (one command, state-aware label), synonyms: capture, trace,
   diagnostic, record, bug, log. Also register "Diagnostics settings" and
   "Saved diagnostic logs".
-- **Leader chord `Ctrl+J, D`** toggles capture with the same spoken
-  confirmations. The leader layer is the ratified place for new commands and
-  is currently underused (audio/DSP only). Needs Noel's yes (open question
-  1), and if accepted, the keyboard audit applies: `keyboard-reference.md`,
+- **Leader chord `Ctrl+J, Ctrl+D`** toggles capture with the same spoken
+  confirmations. (Was `Ctrl+J, D` in the original draft; plain D is already
+  bound to tuning speech debounce — see the answered question 1.) The leader
+  layer is the ratified place for new commands and is currently underused
+  (audio/DSP only). The keyboard audit applies: `keyboard-reference.md`,
   Command Finder metadata, F1 help, changelog.
 
 ---
@@ -445,22 +446,39 @@ behind it goes up.
   boot honoring `KeepDiagnosticLog=false`, capture start/stop restoring the
   standing level, no false `killed` entry after a capture cycle, path
   copy/open, and the export-after-capture flow.
-- Keyboard audit if `Ctrl+J, D` is accepted.
+- Keyboard audit for `Ctrl+J, Ctrl+D` (accepted 2026-08-16 with the letter
+  change — see section 11).
 
 ---
 
-## 11. Questions only Noel can answer
+## 11. Open questions — ANSWERED 2026-08-16 (small-fixes sweep, per task #26)
 
-1. **`Ctrl+J, D` for the capture toggle** — accept the leader chord, and is
-   "D for diagnostics" the right letter (vs. C for capture)?
-2. **Default for "Keep a diagnostic log"** — recommended ON (it is
-   effectively always on today, and an off-by-default log defeats the
-   pipeline). Confirm, since it is the one place this design chooses for
-   every user.
-3. **After stopping a capture**, is the offered "Export this capture..."
-   follow-up the right single next act, or should stop lead into the (future)
-   send-to-developer flow once that exists? Recommended: export now, send
-   flow later replaces it.
-4. **Retiring `KeepDailyTraceLogs`** — any tester known to hand-edit their
-   operator XML for daily traces? If yes, the one-release sweep grace period
-   matters; if no, it can go immediately.
+Noel assigned these to the sweep in `barefoot-splatter-ragchew.md` rather than
+taking them back for review; answers below unblock cutting the implementation
+track. Anything Noel wants different surfaces naturally at that track's review.
+
+1. **The leader chord: yes — but NOT `Ctrl+J, D`, which is already taken.**
+   A fact this design missed: `Ctrl+J, D` has been bound to "Toggle tuning
+   speech debounce" since before this document was written (it appears in the
+   May 2026 leader-help audit dump, and in `KeyInventory.cs` today). `Ctrl+J,
+   C` is Toggle Compander, and `Ctrl+J, Shift+D` sits inside the
+   Shift+A–Shift+H slice-jump range. **Use `Ctrl+J, Ctrl+D`** — it keeps the
+   D-for-diagnostics mnemonic, has in-layer precedent (`Ctrl+J, Ctrl+F`
+   enters a frequency), and collides with nothing. The implementing track
+   owes the full keyboard audit for it, including pressing the chord on a
+   real build.
+2. **Default ON — confirmed.** It is effectively always on today
+   (`BootTrace = (Not Debugger.IsAttached)`), so ON changes nobody's
+   behavior; an off-by-default log defeats the reporting pipeline; and the
+   privacy posture is held by the local-only rule plus the tab's verbatim
+   note, not by the default.
+3. **Export-now — confirmed as designed.** "Export this capture..." is the
+   right single next act; when the send-to-developer flow ships it replaces
+   that button rather than adding a second one beside it.
+4. **Retire `KeepDailyTraceLogs` immediately.** No tester is known to
+   hand-edit operator XML for daily traces: the field has defaulted False
+   with no UI ever writing it, Don consumes prebuilt Dropbox builds and
+   works the app from the operator's seat, and Justin does not run JJ
+   Flexible at all. Keep the already-specified one-release
+   `ArchiveOldDailyTraces` file-pattern sweep as cheap insurance, then
+   remove it.
