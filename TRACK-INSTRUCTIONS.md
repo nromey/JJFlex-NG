@@ -1,6 +1,6 @@
 # Track D2 — The voice engine and the meter model
 
-**Worktree:** `C:\dev\jjflex-d2` · **Branch:** `bsr/track-d2` · **Model:** Opus
+**Worktree:** `C:\dev\jjflex-d2` · **Branch:** `bsr/track-d2` · **Model:** Fable
 
 **Read first:** `docs/planning/active/barefoot-splatter-ragchew.md`, the whole of
 "Track D", especially "THE FINDING THAT REFRAMES THIS TRACK" and "Decided
