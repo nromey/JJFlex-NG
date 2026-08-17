@@ -1757,7 +1757,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         _toneMonitorSounding = false;
         _toneMonitorProvider = null;
         if (speak)
-            ScreenReaderOutput.Speak("Test tone off. Microphone restored.",
+            ScreenReaderOutput.Speak("Test tone disarmed. Microphone restored.",
                 VerbosityLevel.Critical, interrupt: true);
     }
 

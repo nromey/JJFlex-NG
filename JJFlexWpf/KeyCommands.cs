@@ -3047,7 +3047,7 @@ public class KeyCommands
             // its next arm.
             PttSafetyController.KeyDownAnnouncementExtra = null;
             EarconPlayer.FeatureOffTone();
-            Radios.ScreenReaderOutput.Speak("Test tone off. Microphone restored.",
+            Radios.ScreenReaderOutput.Speak("Test tone disarmed. Microphone restored.",
                 Radios.VerbosityLevel.Critical, true);
             return;
         }
