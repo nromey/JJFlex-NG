@@ -994,6 +994,10 @@ namespace Radios
             // previous attempt must never narrate this one.
             LastConnectFailureReport = null;
 
+            // Fresh connection, fresh client identity: the previous session's
+            // local-PTT observation must not vouch for this one.
+            _lastAuthoritativeLocalPtt = null;
+
             ConnectionProfiler.Current?.RecordEvent("connect_begin", new Dictionary<string, object>
             {
                 { "serial", serial },
@@ -1234,82 +1238,136 @@ namespace Radios
 
             try
             {
-                if (config.IsRemote)
+                // The radio's stored path chain outranks the config's frozen
+                // IsRemote bool: the chain is the operator's standing intent,
+                // where IsRemote is a snapshot of wherever the radio happened
+                // to live the day auto-connect was configured. A radio that
+                // moved networks (Don's 6300 to Tony's; a rig at Field Day)
+                // used to fail here on the stale path every startup with no
+                // second try — this walk is the availability-expiry fix.
+                var chain = new List<ConnectPathKind>();
+                bool operatorPinned = false;
+                try
                 {
-                    // Remote radio - need to authenticate first
-                    Tracing.TraceLine($"TryAutoConnect: calling TryAutoConnectRemote ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
-                    if (!TryAutoConnectRemote(config, timeoutMs))
+                    var stored = RadioConfig.LoadForRadio(config.RadioSerial).PathChain;
+                    if (stored != null && stored.Count > 0)
                     {
-                        Tracing.TraceLine($"TryAutoConnect: TryAutoConnectRemote FAILED ({sw.ElapsedMilliseconds}ms)", TraceLevel.Error);
+                        chain.AddRange(stored);
+                        operatorPinned = true;
+                    }
+                }
+                catch (Exception cfgEx)
+                {
+                    Tracing.TraceLine($"TryAutoConnect: PathChain load failed: {cfgEx.Message}", TraceLevel.Warning);
+                }
+                if (!operatorPinned)
+                {
+                    // Derived chain: the configured path first, the other as
+                    // fallback. An operator-stored one-entry chain means
+                    // "this path only" and gets no fallback appended.
+                    chain.Add(config.IsRemote ? ConnectPathKind.SmartLink : ConnectPathKind.Local);
+                    chain.Add(config.IsRemote ? ConnectPathKind.Local : ConnectPathKind.SmartLink);
+                }
+                Tracing.TraceLine($"TryAutoConnect: path chain [{string.Join(", ", chain)}] pinned={operatorPinned}", TraceLevel.Info);
+
+                for (int leg = 0; leg < chain.Count; leg++)
+                {
+                    var path = chain[leg];
+                    bool lastLeg = leg == chain.Count - 1;
+
+                    if (path == ConnectPathKind.SmartLink)
+                    {
+                        Tracing.TraceLine($"TryAutoConnect: leg {leg} SmartLink — calling TryAutoConnectRemote ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+                        if (!TryAutoConnectRemote(config, timeoutMs, quietFailures: !lastLeg))
+                        {
+                            Tracing.TraceLine($"TryAutoConnect: leg {leg} SmartLink session FAILED ({sw.ElapsedMilliseconds}ms)", TraceLevel.Error);
+                            if (!lastLeg && !SuppressSpeech)
+                                ScreenReaderOutput.Speak($"SmartLink could not reach {config.RadioName}. Trying the local network.", VerbosityLevel.Critical, true);
+                            continue;
+                        }
+                    }
+                    else
+                    {
+                        Tracing.TraceLine($"TryAutoConnect: leg {leg} Local — starting local discovery ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+                        LocalRadios();
+                    }
+
+                    // Wait for the radio to be discoverable on this leg.
+                    Tracing.TraceLine($"TryAutoConnect: waiting for radio serial {config.RadioSerial} in myRadioList ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+                    var startTime = DateTime.Now;
+                    Radio foundRadio = null;
+                    bool wantWan = path == ConnectPathKind.SmartLink;
+                    while ((DateTime.Now - startTime).TotalMilliseconds < timeoutMs)
+                    {
+                        // Hold out for the leg's OWN identity: on the
+                        // SmartLink leg a lingering LAN object must not end
+                        // the wait, and vice versa.
+                        foundRadio = myRadioList.FirstOrDefault(x => x.Serial == config.RadioSerial && x.IsWan == wantWan)
+                                     ?? (lastLeg ? findRadioInAPI(config.RadioSerial) : null);
+                        if (foundRadio != null) break;
+                        System.Threading.Thread.Sleep(100);
+                    }
+
+                    if (foundRadio == null)
+                    {
+                        Tracing.TraceLine($"TryAutoConnect: leg {leg} radio serial {config.RadioSerial} NOT FOUND within {timeoutMs}ms. myRadioList has {myRadioList.Count} radios ({sw.ElapsedMilliseconds}ms)", TraceLevel.Warning);
+                        foreach (Radio r in myRadioList)
+                        {
+                            Tracing.TraceLine($"  myRadioList entry: serial={r.Serial} name={r.Nickname} status={r.Status}", TraceLevel.Info);
+                        }
+                        RecordConnectFailure(new ConnectFailureReport
+                        {
+                            Class = ConnectFailureClass.RadioNotFound,
+                            SpokenSummary = path == ConnectPathKind.SmartLink
+                                ? $"{config.RadioName} never appeared in the SmartLink radio list. It may be powered off, offline, or registered to a different account."
+                                : $"{config.RadioName} was not found on the local network. It may be powered off or on a different network.",
+                        });
+                        if (!lastLeg)
+                        {
+                            // No silent path substitution: the walk says so.
+                            var next = chain[leg + 1] == ConnectPathKind.SmartLink ? "SmartLink" : "the local network";
+                            var here = path == ConnectPathKind.SmartLink ? "over SmartLink" : "on the local network";
+                            if (!SuppressSpeech)
+                                ScreenReaderOutput.Speak($"{config.RadioName} was not found {here}. Trying {next}.", VerbosityLevel.Critical, true);
+                            continue;
+                        }
+                        if (!SuppressSpeech) ScreenReaderOutput.Speak($"{config.RadioName} not found", VerbosityLevel.Critical, true);
                         return false;
                     }
-                    Tracing.TraceLine($"TryAutoConnect: TryAutoConnectRemote succeeded ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
-                }
-                else
-                {
-                    // Local radio - just start discovery
-                    Tracing.TraceLine($"TryAutoConnect: starting local discovery ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
-                    LocalRadios();
-                }
 
-                // Wait for the radio to be discovered
-                Tracing.TraceLine($"TryAutoConnect: waiting for radio serial {config.RadioSerial} in myRadioList ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
-                var startTime = DateTime.Now;
-                Radio foundRadio = null;
+                    // Connect on this leg.
+                    Tracing.TraceLine($"TryAutoConnect: leg {leg} FOUND radio {foundRadio.Serial} ({foundRadio.Nickname}) isWan={foundRadio.IsWan}, connecting with lowBW={config.LowBandwidth} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+                    bool connected = Connect(config.RadioSerial, config.LowBandwidth, preferWanPath: wantWan && foundRadio.IsWan);
 
-                while ((DateTime.Now - startTime).TotalMilliseconds < timeoutMs)
-                {
-                    foundRadio = findRadioInAPI(config.RadioSerial);
-                    if (foundRadio != null)
+                    if (connected)
                     {
-                        break;
+                        sw.Stop();
+                        Tracing.TraceLine($"TryAutoConnect: END connected successfully on leg {leg} ({path}) (total {sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+                        if (!SuppressSpeech) ScreenReaderOutput.Speak($"Connected to {config.RadioName}", VerbosityLevel.Critical, true);
+                        // BT prosign moved to MainWindow.PowerOn so it fires AFTER the CW delegate is
+                        // wired and CwNotificationsEnabled is loaded from config. Previous location
+                        // (here) raced with MainWindow init -- PlayCwBT was null on first connect.
+                        return true;
                     }
-                    System.Threading.Thread.Sleep(100);
-                }
 
-                if (foundRadio == null)
-                {
-                    Tracing.TraceLine($"TryAutoConnect: radio serial {config.RadioSerial} NOT FOUND within {timeoutMs}ms. myRadioList has {myRadioList.Count} radios ({sw.ElapsedMilliseconds}ms)", TraceLevel.Warning);
-                    foreach (Radio r in myRadioList)
+                    Tracing.TraceLine($"TryAutoConnect: leg {leg} Connect() FAILED ({sw.ElapsedMilliseconds}ms)", TraceLevel.Error);
+                    if (!lastLeg)
                     {
-                        Tracing.TraceLine($"  myRadioList entry: serial={r.Serial} name={r.Nickname} status={r.Status}", TraceLevel.Info);
+                        var next = chain[leg + 1] == ConnectPathKind.SmartLink ? "SmartLink" : "the local network";
+                        if (!SuppressSpeech)
+                            ScreenReaderOutput.Speak($"Could not connect to {config.RadioName} that way. Trying {next}.", VerbosityLevel.Critical, true);
                     }
-                    RecordConnectFailure(new ConnectFailureReport
-                    {
-                        Class = ConnectFailureClass.RadioNotFound,
-                        SpokenSummary = config.IsRemote
-                            ? $"{config.RadioName} never appeared in the SmartLink radio list. It may be powered off, offline, or registered to a different account."
-                            : $"{config.RadioName} was not found on the local network. It may be powered off or on a different network.",
-                    });
-                    if (!SuppressSpeech) ScreenReaderOutput.Speak($"{config.RadioName} not found", VerbosityLevel.Critical, true);
-                    return false;
                 }
 
-                // Connect to the radio
-                Tracing.TraceLine($"TryAutoConnect: FOUND radio {foundRadio.Serial} ({foundRadio.Nickname}), connecting with lowBW={config.LowBandwidth} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
-                bool connected = Connect(config.RadioSerial, config.LowBandwidth);
-
+                // Chain exhausted. Speak the classified evidence, not just
+                // the verdict — the last failing site filed a report.
                 sw.Stop();
-                if (connected)
-                {
-                    Tracing.TraceLine($"TryAutoConnect: END connected successfully (total {sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
-                    if (!SuppressSpeech) ScreenReaderOutput.Speak($"Connected to {config.RadioName}", VerbosityLevel.Critical, true);
-                    // BT prosign moved to MainWindow.PowerOn so it fires AFTER the CW delegate is
-                    // wired and CwNotificationsEnabled is loaded from config. Previous location
-                    // (here) raced with MainWindow init -- PlayCwBT was null on first connect.
-                }
-                else
-                {
-                    Tracing.TraceLine($"TryAutoConnect: END Connect() FAILED (total {sw.ElapsedMilliseconds}ms)", TraceLevel.Error);
-                    // Speak the classified evidence, not just the verdict —
-                    // Connect() filed LastConnectFailureReport before returning.
-                    string failSpeech = $"Failed to connect to {config.RadioName}.";
-                    string? advice = LastConnectFailureAdvice;
-                    if (!string.IsNullOrEmpty(advice)) failSpeech += " " + advice;
-                    if (!SuppressSpeech) ScreenReaderOutput.Speak(failSpeech, VerbosityLevel.Critical, true);
-                }
-
-                return connected;
+                Tracing.TraceLine($"TryAutoConnect: END chain exhausted (total {sw.ElapsedMilliseconds}ms)", TraceLevel.Error);
+                string failSpeech = $"Failed to connect to {config.RadioName}.";
+                string? advice = LastConnectFailureAdvice;
+                if (!string.IsNullOrEmpty(advice)) failSpeech += " " + advice;
+                if (!SuppressSpeech) ScreenReaderOutput.Speak(failSpeech, VerbosityLevel.Critical, true);
+                return false;
             }
             catch (Exception ex)
             {
@@ -1334,10 +1392,16 @@ namespace Radios
         /// already sitting in the list.
         /// </param>
         /// <returns>True if the radio was found and Connect() succeeded</returns>
-        public bool ReconnectRemote(string serial, bool lowBW, int timeoutMs = 15000, bool forceWanPath = false)
+        /// <param name="allowInteractiveLogin">
+        /// False suppresses every sign-in form on this attempt (the auth
+        /// ladder's walk-before-prompting rung — the caller still has another
+        /// path in the chain). Auth failures then return false with a
+        /// classified report instead of summoning a form.
+        /// </param>
+        public bool ReconnectRemote(string serial, bool lowBW, int timeoutMs = 15000, bool forceWanPath = false, bool allowInteractiveLogin = true)
         {
             var sw = System.Diagnostics.Stopwatch.StartNew();
-            Tracing.TraceLine($"ReconnectRemote: BEGIN serial={serial} lowBW={lowBW} timeout={timeoutMs}ms forceWanPath={forceWanPath}", TraceLevel.Info);
+            Tracing.TraceLine($"ReconnectRemote: BEGIN serial={serial} lowBW={lowBW} timeout={timeoutMs}ms forceWanPath={forceWanPath} allowInteractiveLogin={allowInteractiveLogin}", TraceLevel.Info);
 
             try
             {
@@ -1351,7 +1415,7 @@ namespace Radios
                 }
                 else
                 {
-                    bool remoteOk = setupRemote();
+                    bool remoteOk = setupRemote(allowInteractiveLogin);
                     Tracing.TraceLine($"ReconnectRemote: setupRemote returned {remoteOk} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
                     if (!remoteOk)
                     {
@@ -1474,7 +1538,11 @@ namespace Radios
         /// <summary>
         /// Handles remote radio auto-connect: silent authentication using saved account.
         /// </summary>
-        private bool TryAutoConnectRemote(AutoConnectConfig config, int timeoutMs)
+        /// <param name="quietFailures">True when the caller still has another
+        /// path to walk — failure reports are still filed, but the spoken
+        /// failure lines are left to the walk's own announcement so the user
+        /// hears "trying the local network" instead of a premature verdict.</param>
+        private bool TryAutoConnectRemote(AutoConnectConfig config, int timeoutMs, bool quietFailures = false)
         {
             var sw = System.Diagnostics.Stopwatch.StartNew();
             Tracing.TraceLine($"TryAutoConnectRemote: BEGIN radio={config.RadioName} serial={config.RadioSerial} email='{config.SmartLinkAccountEmail}'", TraceLevel.Info);
@@ -1494,7 +1562,7 @@ namespace Radios
             if (account == null)
             {
                 Tracing.TraceLine($"TryAutoConnectRemote: no saved account for '{config.SmartLinkAccountEmail}', aborting ({sw.ElapsedMilliseconds}ms)", TraceLevel.Warning);
-                if (!SuppressSpeech) ScreenReaderOutput.Speak("SmartLink account not found. Please log in manually.", VerbosityLevel.Critical, true);
+                if (!SuppressSpeech && !quietFailures) ScreenReaderOutput.Speak("SmartLink account not found. Please log in manually.", VerbosityLevel.Critical, true);
                 return false;
             }
 
@@ -1570,7 +1638,7 @@ namespace Radios
                     TraceSessionContext.MarkOutcome(TraceSessionOutcome.NoRadios,
                         "Auto-connect: SmartLink registered, server returned empty radio list");
                     TraceSessionContext.AddKeyEvent("smartlink_no_radios_auto");
-                    if (!SuppressSpeech)
+                    if (!SuppressSpeech && !quietFailures)
                     {
                         ScreenReaderOutput.Speak(
                             "No SmartLink radios available. The remote radio may be turned off.",
@@ -1586,9 +1654,9 @@ namespace Radios
                     RecordConnectFailure(new ConnectFailureReport
                     {
                         Class = ConnectFailureClass.AuthenticationFailed,
-                        SpokenSummary = $"SmartLink did not accept the saved sign-in for {config.SmartLinkAccountEmail}. Connect with the Remote button to sign in again.",
+                        SpokenSummary = $"SmartLink did not accept the saved sign-in for {config.SmartLinkAccountEmail}. Connect from the radio list to sign in again.",
                     });
-                    if (!SuppressSpeech) ScreenReaderOutput.Speak("SmartLink sign-in was not accepted. Use the Remote button to sign in again.", VerbosityLevel.Critical, true);
+                    if (!SuppressSpeech && !quietFailures) ScreenReaderOutput.Speak("SmartLink sign-in was not accepted. Connect from the radio list to sign in again.", VerbosityLevel.Critical, true);
                 }
                 else
                 {
@@ -1597,7 +1665,7 @@ namespace Radios
                         Class = ConnectFailureClass.SessionSetupFailed,
                         SpokenSummary = "Could not reach the SmartLink server. Your sign-in is fine — check your internet connection and try again.",
                     });
-                    if (!SuppressSpeech) ScreenReaderOutput.Speak("SmartLink connection failed", VerbosityLevel.Critical, true);
+                    if (!SuppressSpeech && !quietFailures) ScreenReaderOutput.Speak("SmartLink connection failed", VerbosityLevel.Critical, true);
                 }
                 return false;
             }
@@ -4119,10 +4187,17 @@ namespace Radios
         /// </summary>
         public Func<SmartLinkAccountManager, (bool newLogin, SmartLinkAccount selected, bool ok)?> ShowAccountSelector { get; set; }
 
-        private bool setupRemote()
+        /// <param name="allowInteractive">
+        /// False when a sign-in form must NOT appear — the auth ladder's
+        /// walk-before-prompting rung: when the connect chain still holds
+        /// another path to try, a silent auth failure walks to it, and only
+        /// an exhausted chain earns the native sign-in form. True preserves
+        /// the historical behaviour for every existing caller.
+        /// </param>
+        private bool setupRemote(bool allowInteractive = true)
         {
             var sw = System.Diagnostics.Stopwatch.StartNew();
-            Tracing.TraceLine("setupRemote: BEGIN", TraceLevel.Info);
+            Tracing.TraceLine($"setupRemote: BEGIN allowInteractive={allowInteractive}", TraceLevel.Info);
             ConnectionProfiler.Current?.RecordEvent("setup_remote_begin");
             bool rv = false;
             string jwt = null;
@@ -4147,7 +4222,7 @@ namespace Radios
                 {
                     // User wants to log in with a new account - force Auth0 to show login page
                     Tracing.TraceLine("setupRemote: performing new login (user requested)", TraceLevel.Info);
-                    jwt = PerformNewLogin(forceNewLogin: true);
+                    jwt = allowInteractive ? PerformNewLogin(forceNewLogin: true) : null;
                     Tracing.TraceLine($"setupRemote: PerformNewLogin returned jwt={(!string.IsNullOrEmpty(jwt) ? "yes" : "null/empty")} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
                 }
                 else if (result.Value.selected != null)
@@ -4155,7 +4230,7 @@ namespace Radios
                     // Use saved account
                     _currentAccount = result.Value.selected;
                     Tracing.TraceLine($"setupRemote: using saved account '{_currentAccount.Email}', calling GetJwtFromSavedAccount", TraceLevel.Info);
-                    jwt = GetJwtFromSavedAccount(_currentAccount);
+                    jwt = GetJwtFromSavedAccount(_currentAccount, allowInteractiveLogin: allowInteractive);
                     Tracing.TraceLine($"setupRemote: GetJwtFromSavedAccount returned jwt={(!string.IsNullOrEmpty(jwt) ? "yes" : "null/empty")} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
                 }
             }
@@ -4163,7 +4238,7 @@ namespace Radios
             {
                 // No saved accounts - go straight to login
                 Tracing.TraceLine("setupRemote: no saved accounts, performing new login", TraceLevel.Info);
-                jwt = PerformNewLogin();
+                jwt = allowInteractive ? PerformNewLogin() : null;
                 Tracing.TraceLine($"setupRemote: PerformNewLogin returned jwt={(!string.IsNullOrEmpty(jwt) ? "yes" : "null/empty")} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
             }
 
@@ -4253,7 +4328,14 @@ namespace Radios
             // than an honest failure. (Also, historically: a fresh login +
             // ReRegister on an already-registered session triggers "Invalid
             // state for application registration" and a silent 10s hang.)
-            if (connectResult == SmartLinkConnectResult.AuthFailed)
+            if (connectResult == SmartLinkConnectResult.AuthFailed && !allowInteractive)
+            {
+                // Walk-before-prompting: the caller has another path to try,
+                // so this failure stays silent and classified. The chain's
+                // last SmartLink attempt comes back with interactive allowed.
+                Tracing.TraceLine($"setupRemote: auth still failing after silent refresh; interactive login suppressed by caller ({sw.ElapsedMilliseconds}ms)", TraceLevel.Warning);
+            }
+            else if (connectResult == SmartLinkConnectResult.AuthFailed)
             {
                 Tracing.TraceLine($"setupRemote: auth still failing after silent refresh, performing interactive login ({sw.ElapsedMilliseconds}ms)", TraceLevel.Warning);
                 jwt = PerformNewLogin();
@@ -6113,6 +6195,17 @@ namespace Radios
         private string clientID;
         private const uint noClient = 0xffffffff;
         private uint clientHandle = noClient;
+
+        /// <summary>
+        /// The last local-PTT value observed from an AUTHORITATIVE record for
+        /// our own client — one FlexLib stamped IsThisClient or one carrying
+        /// a real client_id. Null until the first such observation each
+        /// connection. Exists because the radio's discovery broadcast can
+        /// replace our GUIClient record with one whose IsLocalPtt is
+        /// fabricated false (symptom 5), and the presence gate must read the
+        /// radio's attestation, not the fabrication.
+        /// </summary>
+        private bool? _lastAuthoritativeLocalPtt;
         // Track GUIClient removal during SmartLink connection for faster timeout detection.
         // SmartLink removes and re-adds the GUIClient during setup — if the re-add is slow,
         // we detect it and disconnect for retry instead of waiting the full timeout.
@@ -6171,11 +6264,31 @@ namespace Radios
             // guiClientUpdated will refresh the snapshot when the Station populates.
             _clientIdentitySnapshots[client.ClientHandle] = (client.Station ?? "", client.Program ?? "");
 
-            if (client.IsThisClient)
+            // Recognize our own client by HANDLE, not only by FlexLib's
+            // IsThisClient flag. The trap (symptom 5, trace-proven on the
+            // 8600): the radio's discovery broadcast can remove our record
+            // mid-connect and re-add it rebuilt from discovery data —
+            // Discovery.cs builds those with client_id null, is_local_ptt
+            // false, and IsThisClient never set. Same ClientHandle, impostor
+            // facts. Trusting IsThisClient alone meant the re-add of our own
+            // client read as a stranger arriving: the station-name wait saw
+            // the client as never returning, and the fabricated record's
+            // IsLocalPtt=false later denied the port-settings authority gate
+            // to an operator sitting at the radio.
+            bool isMine = client.IsThisClient
+                || (clientHandle != noClient && client.ClientHandle == clientHandle);
+
+            // A record with no client_id that FlexLib did not stamp as ours
+            // came from the discovery packet, which simply does not carry
+            // identity facts — its IsLocalPtt is fabricated, not observed.
+            bool fabricated = string.IsNullOrEmpty(client.ClientID) && !client.IsThisClient;
+
+            if (isMine)
             {
                 _clientRemovedDuringStart = false; // Client is back
                 _clientAddedDuringStart = true;
-                clientID = client.ClientID;
+                // Never let a fabricated record blank the real client id.
+                if (!string.IsNullOrEmpty(client.ClientID)) clientID = client.ClientID;
                 clientHandle = client.ClientHandle;
                 lock (theRadio.GuiClientsLockObj)
                 {
@@ -6203,11 +6316,30 @@ namespace Radios
                 }
 
                 client.PropertyChanged += new PropertyChangedEventHandler(guiClientPropertyChanged);
-                _LocalPTT = client.IsLocalPtt;
+
+                // Local-PTT is accepted only from records that can actually
+                // know it: FlexLib-stamped (IsThisClient) or carrying a real
+                // client_id (the radio's own TCP status). A fabricated
+                // discovery record must not downgrade an authoritative
+                // observation — that downgrade is exactly what denied
+                // RequirePortSettingsAuthority after the remove/re-add dance.
+                if (!fabricated)
+                {
+                    _LocalPTT = client.IsLocalPtt;
+                    _lastAuthoritativeLocalPtt = client.IsLocalPtt;
+                }
+                else
+                {
+                    Tracing.TraceLine(
+                        $"guiClientAdded: adopted own handle {client.ClientHandle} from a fabricated record (empty client_id); keeping LocalPTT={_LocalPTT}",
+                        TraceLevel.Info);
+                }
             }
 
-            // Notify when another client connects (not during initial startup)
-            if (!client.IsThisClient && _clientAddedDuringStart)
+            // Notify when another client connects (not during initial startup).
+            // isMine, not IsThisClient: the fabricated re-add of our OWN
+            // client used to announce itself as "Another client connected".
+            if (!isMine && _clientAddedDuringStart)
             {
                 string who = !string.IsNullOrEmpty(client.Station) ? client.Station
                     : !string.IsNullOrEmpty(client.Program) ? client.Program
@@ -6481,7 +6613,25 @@ namespace Radios
             try
             {
                 var client = TheGuiClient;
-                return client != null && client.IsLocalPtt;
+                if (client == null) return false;
+
+                // A record with no client_id that FlexLib did not stamp as
+                // ours was rebuilt from a discovery packet, which carries no
+                // local-PTT fact — its false is fabricated. Answer from the
+                // last AUTHORITATIVE observation instead, so the presence
+                // gate keeps telling the truth through the radio's
+                // remove/re-add dance (symptom 5: the gate denied a local
+                // operator because it read the impostor record).
+                if (string.IsNullOrEmpty(client.ClientID) && !client.IsThisClient
+                    && _lastAuthoritativeLocalPtt.HasValue)
+                {
+                    Tracing.TraceLine(
+                        $"IsCurrentClientLocalPtt: record for handle {client.ClientHandle} carries no identity; answering from last authoritative observation ({_lastAuthoritativeLocalPtt.Value})",
+                        TraceLevel.Info);
+                    return _lastAuthoritativeLocalPtt.Value;
+                }
+
+                return client.IsLocalPtt;
             }
             catch (Exception ex)
             {
@@ -6502,6 +6652,18 @@ namespace Radios
             if (!string.IsNullOrEmpty(client.Station) || !string.IsNullOrEmpty(client.Program))
             {
                 _clientIdentitySnapshots[client.ClientHandle] = (client.Station ?? "", client.Program ?? "");
+            }
+
+            // The radio's TCP "client connected" status updates the existing
+            // record with the real client_id and local-PTT — the correction
+            // that heals a fabricated discovery re-add. When it is OUR handle
+            // and the record now carries identity, take the facts.
+            if (clientHandle != noClient && client.ClientHandle == clientHandle
+                && (client.IsThisClient || !string.IsNullOrEmpty(client.ClientID)))
+            {
+                if (!string.IsNullOrEmpty(client.ClientID)) clientID = client.ClientID;
+                _LocalPTT = client.IsLocalPtt;
+                _lastAuthoritativeLocalPtt = client.IsLocalPtt;
             }
 
             Tracing.TraceLine("guiClientUpdated:" +
@@ -6597,6 +6759,12 @@ namespace Radios
                     {
                         Tracing.TraceLine("guiClientPropertyChanged:IsLocalPTT " + client.IsLocalPtt.ToString(), TraceLevel.Info);
                         _LocalPTT = client.IsLocalPtt;
+                        // Only a record that can know the fact updates the
+                        // authoritative memory; see IsCurrentClientLocalPtt.
+                        if (client.IsThisClient || !string.IsNullOrEmpty(client.ClientID))
+                        {
+                            _lastAuthoritativeLocalPtt = client.IsLocalPtt;
+                        }
                     }
                     break;
                 case "Station":
