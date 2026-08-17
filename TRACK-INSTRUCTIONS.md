@@ -1,6 +1,6 @@
 # Track A — Roster and connect
 
-**Worktree:** `C:\dev\jjflex-a` · **Branch:** `bsr/track-a` · **Model:** Opus
+**Worktree:** `C:\dev\jjflex-a` · **Branch:** `bsr/track-a` · **Model:** Fable
 
 **Read first, in full:** `docs/planning/active/qsy-pileup-handshake.md`. It is
 the whole specification and it has been revised repeatedly with Noel — do not
