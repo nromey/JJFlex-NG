@@ -710,12 +710,10 @@ it as data and the surfaces stop needing to synchronise.**
 **OPEN, small: the leader chord collides.** `M` in the `Ctrl+J M` layer is
 already mute-all, so Monitor cannot take its own initial. Either:
 
-- **Call the feature "Announce" and give it `A`** — says what it does, leaves
-  mute alone, and sidesteps a real confusion risk, since "monitor" in ham usage
-  already means listening to your own transmit audio. **Recommended.**
-- Or keep the name Monitor with `M`, and move mute-all to something like `X`.
-
-Noel's vocabulary call; either is workable.
+**SETTLED 2026-08-16 — Noel: "A for announce is fine."** The feature is
+**Announce**, the chord is **`A`** in the `Ctrl+J M` layer, and `M` stays
+mute-all. It also sidesteps a real confusion risk: "monitor" in ham usage already
+means listening to your own transmit audio.
 
 **Two details that decide whether it works:**
 
