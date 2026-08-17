@@ -708,6 +708,31 @@ least three intents:
 
 Wording and urgency should follow the intent, not assume every alarm is bad news.
 
+##### Naming: words lead, acronym follows
+
+Noel liked an acronym family — **FAM** (Frequency Activity Monitor), **MAM**
+(Meter Activity Monitor), **MAA** (Meter Activity Alarm) — and settled on using
+them **as short labels with the label spelling it out**.
+
+**So: "Meter Activity Alarm (MAA)" and "Frequency Activity Monitor (FAM)."** Full
+words first, acronym in parentheses.
+
+**Why the words must lead, and it is specific to this user base:** FAM and MAM
+are one phoneme apart, and the distinguishing sound is at the *front* — exactly
+where speech synthesis clips when running fast or interrupting itself. Both are
+also pronounceable, so most synths read them as words rather than spelling them:
+you would hear "fam" and "mam", which are harder to separate than the letters
+would have been and carry no meaning.
+
+**Words-first removes the hazard entirely.** A beginner learns nothing new,
+someone who likes acronyms gets one, and no announcement ever depends on hearing
+three letters correctly.
+
+**The general rule this is an instance of:** in a product that is spoken aloud,
+**a name must survive being heard at speed and out of context** — a constraint
+sighted-first products never face, and the reason two names that look distinct on
+a page can be unusable through a screen reader.
+
 ##### Every meter explains itself, and suggests its own conditions
 
 Noel: *"for each meter, we tell the user what the meter does. When it's set as a
