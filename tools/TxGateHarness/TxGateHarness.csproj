@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>TxGateHarness</RootNamespace>
+    <AssemblyName>TxGateHarness</AssemblyName>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The REAL gate and conditioner sources, linked, not copied: the
+         harness always tests the code that ships. Both files are
+         dependency-free (System only) on purpose — the same contract
+         LufsMeter.cs and TxToneGenerator.cs honour for LufsHarness. -->
+    <Compile Include="..\..\JJPortaudio\JJPortaudio\TxNoiseGate.cs" Link="TxNoiseGate.cs" />
+    <Compile Include="..\..\JJPortaudio\JJPortaudio\TxAudioConditioner.cs" Link="TxAudioConditioner.cs" />
+  </ItemGroup>
+</Project>
