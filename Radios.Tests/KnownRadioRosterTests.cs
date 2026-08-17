@@ -106,6 +106,48 @@ namespace Radios.Tests
         }
 
         [Fact]
+        public void RadioConfig_RoundTripsNoPhysicalAccessAndRemOnFields()
+        {
+            // Track C (settings that stick): the geography flag, its
+            // explicit-decision marker, and the REM ON queued intent all
+            // survive a save/load cycle.
+            var cfg = new RadioConfig
+            {
+                NoPhysicalAccess = true,
+                NoPhysicalAccessDecided = true,
+                RemOnOnConnect = RemOnOnConnectModes.TurnOn,
+            };
+            Assert.True(cfg.Save(_dir, "9999-0001"));
+
+            var back = RadioConfig.Load(_dir, "9999-0001");
+            Assert.True(back.NoPhysicalAccess);
+            Assert.True(back.NoPhysicalAccessDecided);
+            Assert.Equal(RemOnOnConnectModes.TurnOn, back.RemOnOnConnect);
+        }
+
+        [Fact]
+        public void RadioConfig_PreTrackCFileDefaultsToReachableAndLeaveAlone()
+        {
+            // A config.xml written before the Track C fields existed must load
+            // with the do-nothing defaults: no decision recorded on physical
+            // access, and REM ON left alone at connect.
+            var path = Path.Combine(_dir, "radios", "0000-0002", "config.xml");
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllText(path,
+                "<?xml version=\"1.0\"?>\n" +
+                "<RadioConfig xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\">\n" +
+                "  <Version>1</Version>\n" +
+                "  <RadioId>0000-0002</RadioId>\n" +
+                "  <Nickname>older rig</Nickname>\n" +
+                "</RadioConfig>\n");
+
+            var cfg = RadioConfig.Load(_dir, "0000-0002");
+            Assert.False(cfg.NoPhysicalAccess);
+            Assert.False(cfg.NoPhysicalAccessDecided);
+            Assert.Equal(RemOnOnConnectModes.LeaveAlone, cfg.RemOnOnConnect);
+        }
+
+        [Fact]
         public void RadioConfig_LoadAllKnown_ReturnsEverySavedProfile()
         {
             new RadioConfig { Nickname = "a" }.Save(_dir, "1111");

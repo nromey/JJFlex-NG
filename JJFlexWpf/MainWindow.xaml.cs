@@ -2478,6 +2478,14 @@ public partial class MainWindow : UserControl
             {
                 Tracing.TraceLine($"PowerNowOn: PC audio on-connect policy failed: {ex.Message}", TraceLevel.Error);
             }
+
+            // Per-radio REM ON queued intent (Track C, settings that stick).
+            // A setting made while disconnected survives and applies here.
+            try { ApplyRemOnOnConnect(); }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine($"PowerNowOn: REM ON on-connect policy failed: {ex.Message}", TraceLevel.Error);
+            }
         }
 
         _radioPowerOn = true;
@@ -2727,6 +2735,40 @@ public partial class MainWindow : UserControl
                 VerbosityLevel.Terse);
         }
         // Off and already off: nothing flipped, nothing to hear — stay quiet.
+    }
+
+    /// <summary>
+    /// Per-radio REM ON queued intent (Track C, settings that stick). REM ON
+    /// is radio-persistent state that can only be written with the radio
+    /// connected — which is exactly when a remote-base owner is NOT thinking
+    /// about it. The Radios tab stores the intent with no radio present;
+    /// this applies it on the same off→on transition as the PC audio policy.
+    /// Idempotent: re-asserting the persisted value on every connect is
+    /// harmless and self-healing. Announces only when it actually changed
+    /// something — a no-op every session would be noise.
+    /// </summary>
+    private void ApplyRemOnOnConnect()
+    {
+        var rig = RigControl;
+        if (rig == null) return;
+        string serial = rig.SelectedRadioSerial;
+        if (string.IsNullOrEmpty(serial)) return;
+
+        var cfg = RadioConfig.LoadForRadio(serial);
+        if (cfg.RemOnOnConnect == RemOnOnConnectModes.LeaveAlone) return;
+
+        bool desired = cfg.RemOnOnConnect == RemOnOnConnectModes.TurnOn;
+        bool before = rig.RemoteOnEnabled;
+        Tracing.TraceLine(
+            $"ApplyRemOnOnConnect: mode={cfg.RemOnOnConnect} before={before}",
+            TraceLevel.Info);
+        if (before == desired) return;
+
+        rig.RemoteOnEnabled = desired;
+        ScreenReaderOutput.Speak(desired
+            ? "REM ON enabled on the radio, as saved for this radio."
+            : "REM ON disabled on the radio, as saved for this radio.",
+            VerbosityLevel.Terse);
     }
 
     /// <summary>

@@ -6,16 +6,30 @@ JJ Flexible Radio Access has a Settings dialog that lets you customise the appli
 
 Open the **Tools** menu and choose **Settings**. The Settings dialog opens as a tabbed window, and you can tab through the tabs to find the section you want.
 
+## OK, Apply, and Cancel
+
+Every screen in Settings uses the same three buttons, and they always mean the same thing:
+
+- **OK** applies your changes and closes the dialog.
+- **Apply** applies your changes and leaves the dialog open, so you can keep working.
+- **Cancel** closes without applying anything you have not already applied. (Cancel does not undo an Apply you already pressed — once applied, a change is real.)
+
+There are no per-screen variants — no separate "save this" or "apply that" buttons to hunt for. If you changed it, OK or Apply keeps it.
+
+Some settings describe a radio that is not connected right now — a radio name, or the REM ON power jack setting on the Radios tab. Those are saved immediately and applied the next time you connect, and JJ Flexible Radio Access tells you so in plain words when you press OK, in a small dialog you can re-read at your own pace. If it did not say anything is waiting, nothing is.
+
 ## Key Settings Tabs
 
-- **Operating Mode** — switch between Modern tuning mode and Classic tuning mode.
-- **Audio Routing** — configure your speaker, headphone, and line-out settings.
-- **CW Messages** — set up the CW message macros that fire on `Ctrl+1` through `Ctrl+7`.
-- **Callbook Service** — choose QRZ.com, HamQTH, or another callbook lookup service.
-- **Earcon Volume** — adjust the volume of the application's alert sounds.
-- **Tuning** — configure tuning speech debounce (see below).
-- **License** — country selection and transmit rule enforcement (see below).
+- **PTT** — transmit timeout and warning timing.
+- **Tuning** — tuning step defaults, band memory, and tuning speech debounce (see below).
+- **License** — license class, country selection, and transmit rule enforcement (see below).
+- **Audio** — the radio's own outputs, radio audio through this computer, alert sounds, meter tones, and the braille status line.
+- **Network** — SmartLink port forwarding, connection tiers, and network diagnostics.
+- **Radios** — per-radio settings remembered by serial number: how to reach each radio, its name, remote administration allowances, the REM ON power jack, and whether the radio is somewhere you can physically get to. Works with no radio connected — that is the point.
+- **Radio Setup** — the ordered checklist for bringing a new radio up, especially one that will live somewhere you cannot walk to.
+- **Notifications** — speech verbosity, alert sounds, and connection progress announcements.
 - **Accessibility** — the Double-Tap Tolerance setting and other accessibility controls live here.
+- **Updates** — update channel and automatic update checking.
 
 ## Profiles
 

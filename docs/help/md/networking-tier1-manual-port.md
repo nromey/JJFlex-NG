@@ -1,6 +1,8 @@
 # Tier 1 — Manual Port Forwarding
 
-This is the recommended default for SmartLink access to your radio from outside your home network. You pick a port, forward it on your router to your radio's local IP address, and JJ Flexible Radio Access tells the radio to listen on that port. That is all there is to it on the JJ Flexible Radio Access side — the rest is one trip to your router's admin page.
+This is the recommended default for SmartLink access to your radio from outside your home network. You pick an external port, set two forwarding rules on your router, and JJ Flexible Radio Access tells the radio to advertise that external port to SmartLink. That is all there is to it on the JJ Flexible Radio Access side — the rest is one trip to your router's admin page.
+
+One thing worth being precise about, because getting it wrong wastes an afternoon: the port you pick is the *outside* port — the one the internet sees. The radio itself always listens on its local address at TCP port 4994 and UDP port 4993, no matter what external port you chose. Your router's job is to connect the two, and the rules below say exactly how.
 
 ## Why Tier 1 Is the Recommended Default
 
@@ -23,14 +25,15 @@ Every router brand has a different admin interface, but the steps are essentiall
 - Find your radio's local network IP address. You will find it on your radio's front-panel network display, or inside the radio's built-in web interface (the one you reach by typing the radio's IP address into a browser).
 - Log into your router's admin interface. The address is usually something like `192.168.1.1` or `192.168.0.1`, typed into a web browser.
 - Find the port-forwarding section of the router's settings. It may also be labelled "Virtual Server" or "NAT Forwarding" depending on the brand.
-- Add a rule: external port 4992 (or whichever port you chose), both TCP and UDP, forwarded to your radio's local IP address on the same port inside.
-- Save the rule.
+- Add two rules. Rule one: your chosen external port, TCP, forwarded to your radio's local IP address at internal port 4994. Rule two: the same external port, UDP, forwarded to your radio's local IP address at internal port 4993.
+- The internal ports are always 4994 for TCP and 4993 for UDP — they belong to the radio and never change. Only the external port is yours to choose. If your router's form has no separate "internal port" field, it forwards to the same number on the inside, which will not reach the radio — look for an "advanced" toggle or a second port column.
+- Save both rules.
 
 Your router's manufacturer documentation will have the exact menu names. Most brands — ASUS, Netgear, Linksys, TP-Link, UniFi, and Mikrotik — all call this feature "Port Forwarding," "Virtual Server," or "NAT Forwarding" depending on how the vendor markets it.
 
 ## Once the Port Is Forwarded
 
-JJ Flexible Radio Access remembers the port you chose per SmartLink account. The next time you connect, the application automatically tells the radio to listen on that port — you do not have to re-Apply from Settings every session.
+JJ Flexible Radio Access remembers the port you chose per SmartLink account. The next time you connect, the application automatically tells the radio to advertise that external port again — you do not have to re-apply it from Settings every session.
 
 ## Troubleshooting
 

@@ -26,6 +26,7 @@ namespace JJFlexWpf.Dialogs
     public partial class ConfirmActionDialog : JJFlexDialog
     {
         private readonly string? _radioModel;
+        private readonly string? _suppressKey;
 
         /// <param name="radioModel">
         /// The connected radio's model, for actions that ask the user to go and touch
@@ -35,6 +36,17 @@ namespace JJFlexWpf.Dialogs
         /// in. Left null, or set to a model we have not verified, the button stays
         /// hidden: a button that leads to an apology is worse than no button.
         /// </param>
+        /// <param name="suppressKey">
+        /// Optional <see cref="AdvisorySuppression"/> key. When set, the dialog grows
+        /// a "Don't show this explanation again" checkbox; answering Yes with it
+        /// checked persists the key. Callers must check
+        /// <see cref="AdvisorySuppression.IsSuppressed"/> themselves before showing
+        /// (and decide what a suppressed prompt means — usually "treat as Yes").
+        /// Only for teaching/consent text whose outcome is still reported some
+        /// other re-readable way; suppressing a receipt would be a silent change.
+        /// Version the key (e.g. "-v1") so the explanation returns when its
+        /// contents change.
+        /// </param>
         public ConfirmActionDialog(
             string title,
             string message,
@@ -42,7 +54,8 @@ namespace JJFlexWpf.Dialogs
             string question = "Continue?",
             string yesLabel = "_Yes",
             string noLabel = "_No",
-            string? radioModel = null)
+            string? radioModel = null,
+            string? suppressKey = null)
         {
             InitializeComponent();
 
@@ -51,6 +64,9 @@ namespace JJFlexWpf.Dialogs
             YesButton.Content = yesLabel;
             NoButton.Content = noLabel;
             _radioModel = radioModel;
+            _suppressKey = suppressKey;
+            if (suppressKey != null)
+                DontShowAgainCheck.Visibility = Visibility.Visible;
 
             // One reviewable document: message, then each warning as its own
             // paragraph, then the question the buttons answer. Blank separator
@@ -92,6 +108,11 @@ namespace JJFlexWpf.Dialogs
 
         private void YesButton_Click(object sender, RoutedEventArgs e)
         {
+            // Suppression is only honored on Yes: a No with the box checked
+            // would mean "never ask, and don't do it" — an unresolvable state
+            // the next time the action is attempted.
+            if (_suppressKey != null && DontShowAgainCheck.IsChecked == true)
+                AdvisorySuppression.Suppress(_suppressKey);
             DialogResult = true;
             Close();
         }
