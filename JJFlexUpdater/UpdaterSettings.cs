@@ -1,3 +1,4 @@
+using JJTrace;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -52,11 +53,30 @@ public sealed class UpdaterSettings
     [JsonPropertyName("nightly_consent_acknowledged")]
     public bool NightlyConsentAcknowledged { get; set; }
 
+    /// <summary>Guards the warning below to one line per process. This is a
+    /// property getter and can be read repeatedly; an unguarded trace here
+    /// would flood the file with the same sentence.</summary>
+    private static bool _warnedUnreadableChannel;
+
     public UpdateChannel Channel
     {
         get
         {
-            UpdateChannelExtensions.TryParse(ChannelWire, out var c);
+            // Falling back to Stable is deliberate and safe - a corrupt file
+            // must never silently opt someone INTO nightly. But it is still a
+            // silent demotion for anyone who chose Beta or Nightly, and this
+            // setting decides which builds they receive, so it gets said once.
+            if (!UpdateChannelExtensions.TryParse(ChannelWire, out var c))
+            {
+                if (!_warnedUnreadableChannel)
+                {
+                    _warnedUnreadableChannel = true;
+                    Tracing.TraceLine(
+                        $"UpdaterSettings: update channel '{ChannelWire}' is not one I "
+                        + "recognise — using Stable. Any Beta or Nightly choice has been lost.",
+                        System.Diagnostics.TraceLevel.Warning);
+                }
+            }
             return c;
         }
         set => ChannelWire = value.ToWireString();
@@ -76,8 +96,18 @@ public sealed class UpdaterSettings
             string json = File.ReadAllText(path);
             return JsonSerializer.Deserialize<UpdaterSettings>(json, Options) ?? new UpdaterSettings();
         }
-        catch
+        catch (Exception ex)
         {
+            // Defaults are the right recovery - the updater must keep working
+            // with a damaged settings file. But this silently discards every
+            // choice the operator made, including their channel, so it does not
+            // get to happen quietly. The file is left in place deliberately:
+            // overwriting it on the next Save destroys the only evidence of
+            // what went wrong.
+            Tracing.TraceLine(
+                $"UpdaterSettings.Load: {path} is unreadable ({ex.Message}) — using defaults. "
+                + "Any saved update preferences have been lost.",
+                System.Diagnostics.TraceLevel.Error);
             return new UpdaterSettings();
         }
     }

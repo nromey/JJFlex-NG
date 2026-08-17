@@ -10945,8 +10945,14 @@ namespace Radios
 
         internal float ToneValueToFloat(string val)
         {
-            float rv = 0;
-            System.Single.TryParse(val, out rv);
+            // 0 reads downstream as "no tone", which is the right answer for
+            // something we could not parse - but a CTCSS tone silently becoming
+            // no-tone is how an operator ends up transmitting into a repeater
+            // that never opens, with nothing on screen suggesting why.
+            if (!System.Single.TryParse(val, out float rv))
+                Tracing.TraceLine(
+                    $"ToneValueToFloat: '{val}' is not a number — reporting no tone.",
+                    TraceLevel.Warning);
             return rv;
         }
         internal string FloatToToneValue(float val)

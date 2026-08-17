@@ -699,7 +699,16 @@ namespace Radios
                         AccessToken = value;
                         break;
                     case "expires_in":
-                        int.TryParse(value, out int exp);
+                        // 0 is the fail-safe default - a token that reads as
+                        // already expired gets refreshed rather than trusted.
+                        // But say so: if Auth0 ever changes this field's shape,
+                        // the symptom is endless re-authentication with no
+                        // stated cause, and that is a long hunt from cold.
+                        if (!int.TryParse(value, out int exp))
+                            Tracing.TraceLine(
+                                $"AuthFormWebView2: expires_in was not a number ('{value}') — "
+                                + "treating the token as already expired.",
+                                TraceLevel.Warning);
                         ExpiresIn = exp;
                         break;
                 }

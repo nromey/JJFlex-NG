@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 using System.Web;
 using System.Windows;
 using Microsoft.Web.WebView2.Core;
+using JJTrace;
 
 namespace JJFlexWpf.Dialogs
 {
@@ -426,7 +427,16 @@ namespace JJFlexWpf.Dialogs
                         AccessToken = kv[1];
                         break;
                     case "expires_in":
-                        int.TryParse(kv[1], out int exp);
+                        // 0 is the fail-safe default - a token that reads as
+                        // already expired gets refreshed rather than trusted.
+                        // But say so: if Auth0 ever changes this field's shape,
+                        // the symptom is endless re-authentication with no
+                        // stated cause, and that is a long hunt from cold.
+                        if (!int.TryParse(kv[1], out int exp))
+                            Tracing.TraceLine(
+                                $"AuthDialog: expires_in was not a number ('{kv[1]}') — "
+                                + "treating the token as already expired.",
+                                System.Diagnostics.TraceLevel.Warning);
                         ExpiresIn = exp;
                         break;
                 }

@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
+using JJTrace;
 using Radios;
 
 namespace JJFlexWpf.Dialogs
@@ -672,9 +673,22 @@ namespace JJFlexWpf.Dialogs
                 var notesApplied = new List<string>();
                 bool changed = false;
 
+                // The validation pass above already rejected anything that is
+                // not blank or a number in 1024-65535, so this parse cannot
+                // fail in practice. That guarantee lives in another method
+                // though, and 0 here would silently mean "no fixed port" — so
+                // if it ever DOES fail, say so rather than quietly writing a
+                // port the operator never chose.
                 int punchPort = 0;
-                if (!string.IsNullOrEmpty(edit.PunchPortText))
-                    int.TryParse(edit.PunchPortText, out punchPort);
+                if (!string.IsNullOrEmpty(edit.PunchPortText)
+                    && !int.TryParse(edit.PunchPortText, out punchPort))
+                {
+                    Tracing.TraceLine(
+                        $"RadioProfile: hole-punch port '{edit.PunchPortText}' reached the "
+                        + "commit step unparseable — the validation pass should have caught "
+                        + "this. Writing 0 (no fixed port).",
+                        System.Diagnostics.TraceLevel.Error);
+                }
 
                 if (cfg.ConnectionPreference != edit.Preference || cfg.FixedHolePunchPort != punchPort)
                 {
