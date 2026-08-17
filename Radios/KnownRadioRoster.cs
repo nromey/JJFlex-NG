@@ -16,8 +16,24 @@ namespace Radios
     {
         public string Serial { get; set; } = "";
         public string Nickname { get; set; } = "";
+
+        /// <summary>The operator's chosen name for this radio — a choice,
+        /// never overwritten by sightings. Empty when no choice was made;
+        /// display falls through to <see cref="Nickname"/>.</summary>
+        public string UserNickname { get; set; } = "";
+
+        /// <summary>The name to show: the choice when made, otherwise the
+        /// observation.</summary>
+        public string DisplayName =>
+            !string.IsNullOrWhiteSpace(UserNickname) ? UserNickname : Nickname;
+
         public string Model { get; set; } = "";
         public bool IsFavorite { get; set; }
+
+        /// <summary>The operator's ordered connection-path chain for this
+        /// radio. Empty means no preference recorded — derive from live
+        /// availability, local first.</summary>
+        public List<ConnectPathKind> PathChain { get; set; } = new();
 
         /// <summary>UTC of the last sighting, or <see cref="DateTime.MinValue"/>
         /// when this install has a profile for the radio but never recorded a
@@ -122,8 +138,10 @@ namespace Radios
                     {
                         Serial = cfg.RadioId,
                         Nickname = cfg.Nickname ?? "",
+                        UserNickname = cfg.UserNickname ?? "",
                         Model = cfg.Model ?? "",
                         IsFavorite = cfg.IsFavorite,
+                        PathChain = cfg.PathChain ?? new List<ConnectPathKind>(),
                         LastSeenUtc = cfg.LastSeenUtc,
                         LastSeenRemote = cfg.LastSeenRemote,
                         LastSeenViaAccount = cfg.LastSeenViaAccount ?? "",
@@ -318,6 +336,32 @@ namespace Radios
             catch (Exception ex)
             {
                 Tracing.TraceLine($"KnownRadioRoster.SetPreferredAccount({serial}): {ex.Message}",
+                    System.Diagnostics.TraceLevel.Warning);
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Set (or clear, with an empty/null list) the operator's ordered
+        /// connection-path chain for one radio. Returns true when the value
+        /// was persisted — a false return means the caller must NOT announce
+        /// success, because the store declined and the next launch would
+        /// silently disagree. Like <see cref="SetPreferredAccount"/>, the
+        /// only writers are deliberate-action surfaces (the selector's path
+        /// control and context menu); nothing automatic may touch this.
+        /// </summary>
+        public static bool SetPathChain(string serial, List<ConnectPathKind> chain)
+        {
+            if (string.IsNullOrWhiteSpace(serial)) return false;
+            try
+            {
+                var cfg = RadioConfig.LoadForRadio(serial);
+                cfg.PathChain = chain ?? new List<ConnectPathKind>();
+                return cfg.SaveForRadio(serial);
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine($"KnownRadioRoster.SetPathChain({serial}): {ex.Message}",
                     System.Diagnostics.TraceLevel.Warning);
                 return false;
             }

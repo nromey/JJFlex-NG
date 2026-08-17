@@ -20,7 +20,18 @@ namespace JJFlexWpf.Dialogs
     public class RadioListItem
     {
         public string Serial { get; set; } = "";
+
+        /// <summary>The radio's name as OBSERVED — its own broadcast
+        /// nickname, refreshed by discovery. Display prefers
+        /// <see cref="UserLabel"/> when the operator chose one.</summary>
         public string Name { get; set; } = "";
+
+        /// <summary>The operator's chosen name for this radio (roster fact,
+        /// set in per-radio settings). A choice: discovery never overwrites
+        /// it, and it wins the row text — the operator typed it deliberately
+        /// and recently (task #75).</summary>
+        public string UserLabel { get; set; } = "";
+
         public string ModelName { get; set; } = "";
         public bool AutoConnect { get; set; }
         public bool LowBW { get; set; }
@@ -40,12 +51,58 @@ namespace JJFlexWpf.Dialogs
         public bool DualHomed => LanAvailable && WanAvailable;
 
         /// <summary>
-        /// The operator's explicit "connect over SmartLink even though it's
-        /// local" choice, per connect, never persisted. Only consulted for a
-        /// dual-homed radio; local is the default because local is the better
-        /// path.
+        /// The operator's persisted, ordered chain of connection paths for
+        /// this radio (<see cref="Radios.RadioConfig.PathChain"/>). Empty
+        /// means no preference recorded — <see cref="EffectiveChain"/> then
+        /// derives the order from availability, local first. This replaces
+        /// the old session-only PreferRemotePath bool, which was erased on
+        /// every discovery event and could not survive the selector closing,
+        /// let alone the radio moving networks.
         /// </summary>
-        public bool PreferRemotePath { get; set; }
+        public List<Radios.ConnectPathKind> PathChain { get; set; } = new();
+
+        /// <summary>
+        /// The chain a connect actually walks: the operator's stored chain
+        /// when one exists, otherwise a derived default — local first when
+        /// the radio's story is local (the historical behaviour, now an
+        /// explicit default), SmartLink first when its story is remote.
+        /// The derived chain always carries both paths, which is what makes
+        /// automatic fallback ordinary list-walking instead of special-case
+        /// logic. Only an operator-stored one-entry chain means "this path
+        /// only".
+        /// </summary>
+        public List<Radios.ConnectPathKind> EffectiveChain
+        {
+            get
+            {
+                if (PathChain != null && PathChain.Count > 0)
+                    return PathChain;
+                bool remoteStory = WanAvailable ? !LanAvailable : (!LanAvailable && LastSeenRemote);
+                return remoteStory
+                    ? new List<Radios.ConnectPathKind> { Radios.ConnectPathKind.SmartLink, Radios.ConnectPathKind.Local }
+                    : new List<Radios.ConnectPathKind> { Radios.ConnectPathKind.Local, Radios.ConnectPathKind.SmartLink };
+            }
+        }
+
+        /// <summary>
+        /// The path a connect would take right now: the first chain entry
+        /// that is currently available, or the chain head when nothing is
+        /// (an offline row's answer is the story of what would be tried
+        /// first). One source of truth for the connect code, the
+        /// announcement, and the row text.
+        /// </summary>
+        public Radios.ConnectPathKind ChosenPath
+        {
+            get
+            {
+                foreach (var p in EffectiveChain)
+                {
+                    if (p == Radios.ConnectPathKind.Local && LanAvailable) return p;
+                    if (p == Radios.ConnectPathKind.SmartLink && WanAvailable) return p;
+                }
+                return EffectiveChain[0];
+            }
+        }
 
         /// <summary>User-marked favorite; favorites sort to the top.</summary>
         public bool IsFavorite { get; set; }
@@ -93,15 +150,14 @@ namespace JJFlexWpf.Dialogs
         public bool RefreshInFlight { get; set; }
 
         /// <summary>
-        /// Whether connecting to this row travels the SmartLink path. Derived,
-        /// never stored: one source of truth for a question the connect code,
-        /// the announcement, and the auto-connect record all ask separately.
+        /// Whether connecting to this row travels the SmartLink path.
+        /// Derived from <see cref="ChosenPath"/>, never stored — and unlike
+        /// the old derivation, the operator's stored chain is consulted for
+        /// EVERY row, not only dual-homed ones. That was the heart of
+        /// symptom 1: the preference only existed on a branch most radios
+        /// never reached.
         /// </summary>
-        public bool IsRemote =>
-            DualHomed ? PreferRemotePath
-            : WanAvailable ? true
-            : LanAvailable ? false
-            : LastSeenRemote;
+        public bool IsRemote => ChosenPath == Radios.ConnectPathKind.SmartLink;
 
         /// <summary>Where this radio is, in words. Row text and the accessible
         /// name are the same string — what a sighted user reads and what a
@@ -112,7 +168,7 @@ namespace JJFlexWpf.Dialogs
             {
                 if (DualHomed)
                 {
-                    return PreferRemotePath
+                    return IsRemote
                         ? "local network and SmartLink, using SmartLink"
                         : "local network and SmartLink, using local network";
                 }
@@ -162,7 +218,10 @@ namespace JJFlexWpf.Dialogs
                 var fav = IsFavorite ? "Favorite, " : "";
                 var autoConn = AutoConnect ? "[AutoConnect] " : "";
                 var lbw = LowBW ? "[LowBW] " : "";
-                var namePart = string.IsNullOrWhiteSpace(Name) || Name == "Unknown" ? "Unnamed" : Name;
+                // The operator's chosen label wins over the radio's broadcast
+                // name — a choice outranks an observation (task #75).
+                var shownName = !string.IsNullOrWhiteSpace(UserLabel) ? UserLabel : Name;
+                var namePart = string.IsNullOrWhiteSpace(shownName) || shownName == "Unknown" ? "Unnamed" : shownName;
                 var modelPart = string.IsNullOrWhiteSpace(ModelName) || ModelName == "Unknown"
                     ? "Unknown model" : ModelName;
                 // Source, not serial. Two radios that differ only by where they
@@ -351,11 +410,25 @@ namespace JJFlexWpf.Dialogs
         public bool SelectedIsRemote { get; private set; }
 
         /// <summary>
-        /// True when the operator explicitly chose the SmartLink path for a
-        /// radio that is ALSO on the local network. The connect layer must not
+        /// True when the connect must travel the SmartLink path specifically —
+        /// the operator forced it, or the chain chose SmartLink for a radio
+        /// that is ALSO on the local network. The connect layer must not
         /// quietly substitute the LAN path when this is set.
         /// </summary>
         public bool SelectedPreferRemotePath { get; private set; }
+
+        /// <summary>
+        /// The chain entries remaining AFTER the chosen path — what the
+        /// connect layer walks when the chosen path fails, announcing each
+        /// move. Empty for a forced connect: force-remote is test equipment
+        /// and a silent fallback would invalidate a hole-punch test by
+        /// succeeding over the wrong path.
+        /// </summary>
+        public List<ConnectPathKind> SelectedFallbackPaths { get; private set; } = new();
+
+        /// <summary>True when the operator forced this connect's path from
+        /// the context menu — this path only, no fallback, prompt-if-needed.</summary>
+        public bool SelectedPathForced { get; private set; }
 
         public RigSelectorDialog(RigSelectorCallbacks callbacks)
         {
@@ -549,20 +622,41 @@ namespace JJFlexWpf.Dialogs
                 return;
             }
 
-            bool added = false;
+            bool changed = false;
             lock (_radiosLock)
             {
                 foreach (var k in known)
                 {
-                    if (_radiosList.Any(r => string.Equals(r.Serial, k.Serial, StringComparison.OrdinalIgnoreCase)))
+                    var existing = _radiosList.FirstOrDefault(
+                        r => string.Equals(r.Serial, k.Serial, StringComparison.OrdinalIgnoreCase));
+                    bool foreign = !string.IsNullOrWhiteSpace(k.ResolvedAccount)
+                        && !string.Equals(k.ResolvedAccount, accountEmail, StringComparison.OrdinalIgnoreCase);
+
+                    if (existing != null)
+                    {
+                        // UNION, not exclusion: a row discovery already claimed
+                        // still receives the roster's operator-owned facts —
+                        // the chosen name, the favorite flag, the account
+                        // choice, the path chain. Before this, every roster
+                        // fact silently lost to a discovery fact for exactly
+                        // the radios that were present (Root B).
+                        existing.UserLabel = k.UserNickname;
+                        existing.IsFavorite = k.IsFavorite;
+                        existing.PreferredAccount = k.PreferredAccount;
+                        existing.PathChain = k.PathChain ?? new List<ConnectPathKind>();
+                        existing.ForeignAccount = foreign;
+                        changed = true;
                         continue;
+                    }
 
                     _radiosList.Add(new RadioListItem
                     {
                         Serial = k.Serial,
                         Name = k.Nickname,
+                        UserLabel = k.UserNickname,
                         ModelName = k.Model,
                         IsFavorite = k.IsFavorite,
+                        PathChain = k.PathChain ?? new List<ConnectPathKind>(),
                         LastSeenRemote = k.LastSeenRemote,
                         LastSeenText = KnownRadioRoster.DescribeAge(k.LastSeenUtc),
                         LastSeenViaAccount = k.LastSeenViaAccount,
@@ -572,16 +666,15 @@ namespace JJFlexWpf.Dialogs
                         // bound while no account is chosen) — the row names
                         // its owner, and Enter switches instead of hunting.
                         // The operator's preference outranks the observation.
-                        ForeignAccount = !string.IsNullOrWhiteSpace(k.ResolvedAccount)
-                            && !string.Equals(k.ResolvedAccount, accountEmail, StringComparison.OrdinalIgnoreCase),
+                        ForeignAccount = foreign,
                         AutoConnect = _callbacks.AutoConnectSerial == k.Serial && _callbacks.AutoConnectDesired,
                         LowBW = _callbacks.AutoConnectSerial == k.Serial && _callbacks.AutoConnectLowBW,
                     });
-                    added = true;
+                    changed = true;
                 }
             }
 
-            if (added) RefreshRadiosList();
+            if (changed) RefreshRadiosList();
         }
 
         /// <summary>
@@ -648,13 +741,13 @@ namespace JJFlexWpf.Dialogs
             if (known == 0)
             {
                 _callbacks.ScreenReaderSpeak?.Invoke(
-                    "Radio list, empty. No radios found yet. Press Remote for remote radios.", false);
+                    "Radio list, empty. No radios found yet. For SmartLink radios, press Shift F10 and choose Show Remote Radios.", false);
                 return;
             }
 
             _callbacks.ScreenReaderSpeak?.Invoke(
                 $"No radios online yet. {known} known radio{(known == 1 ? "" : "s")} listed, all offline. " +
-                "Press Remote for remote radios.", false);
+                "Press Enter on a radio to connect — JJ Flexible looks for it where its connection path says to.", false);
         }
 
         // ------------------------------------------------------------------
@@ -699,10 +792,12 @@ namespace JJFlexWpf.Dialogs
                     row.LowBW = radio.LowBW;
                     row.FromAccountCache = false;
                     row.RefreshInFlight = false;
-                    // A path preference only means anything while both homes are
-                    // up; drop it the moment the radio stops being dual-homed so
-                    // a stale choice can't outlive the situation that produced it.
-                    if (!row.DualHomed) row.PreferRemotePath = false;
+                    // Note what is deliberately NOT touched: UserLabel,
+                    // IsFavorite, PreferredAccount, PathChain — the
+                    // operator-owned facts a discovery event knows nothing
+                    // about. The old code cleared the path preference here
+                    // whenever the radio was not dual-homed, which erased the
+                    // choice for exactly the radios it mattered most for.
                 }
                 else
                 {
@@ -777,7 +872,6 @@ namespace JJFlexWpf.Dialogs
                 var avail = _callbacks.GetRadioAvailability?.Invoke(serial) ?? (lan: false, wan: false);
                 row.LanAvailable = avail.lan;
                 row.WanAvailable = avail.wan;
-                if (!row.DualHomed) row.PreferRemotePath = false;
 
                 var who = string.IsNullOrWhiteSpace(name)
                     ? (string.IsNullOrWhiteSpace(row.Name) ? "A radio" : row.Name)
@@ -998,61 +1092,42 @@ namespace JJFlexWpf.Dialogs
             DoConnect(radio);
         }
 
-        private void DoConnect(RadioListItem radio)
-        {
-            var radioName = string.IsNullOrWhiteSpace(radio.Name) ? "radio" : radio.Name;
+        /// <summary>Serial of the radio a connect intention is pending for
+        /// while a SmartLink pass runs. The double-Enter fix: Enter on a
+        /// radio that needs a SmartLink look no longer drops the connect on
+        /// the floor after authenticating — the intention is carried and the
+        /// walk resumes when the pass lands.</summary>
+        private string? _pendingConnectSerial;
 
-            if (!radio.IsLive)
-            {
-                HandleOfflineConnectAttempt(radio, radioName);
-                return;
-            }
+        /// <summary>The forced path of the pending intention, or null for a
+        /// normal chain walk.</summary>
+        private ConnectPathKind? _pendingConnectForced;
 
-            // Name the account on EVERY SmartLink connect, not only
-            // cross-account ones — symmetry teaches the pattern instead of
-            // asking the operator to notice an exception at the moment it
-            // matters. TX-safety line: a unified list puts Don's production
-            // 6300 one arrow key from Noel's 8600. Spoken before the dialog
-            // closes and the session work starts, never after it succeeds.
-            var acctEmail = CurrentAccountEmail();
-            var via = radio.IsRemote
-                ? string.IsNullOrWhiteSpace(acctEmail)
-                    ? "over SmartLink" : $"over SmartLink as {acctEmail}"
-                : "on the local network";
-            _callbacks.ScreenReaderSpeak?.Invoke($"Connecting to {radioName} {via}", true);
-            // AS prosign (wait / standing by) alongside the "Connecting to X" speech.
-            // Pair with BT which fires at connect-ready in MainWindow.PowerOn.
-            if (ScreenReaderOutput.CwNotificationsEnabled) _ = ScreenReaderOutput.PlayCwAS?.Invoke();
-
-            SelectedRigData = radio.RigData;
-            SelectedSerial = radio.Serial;
-            SelectedLowBW = radio.LowBW;
-            SelectedIsRemote = radio.IsRemote;
-            SelectedPreferRemotePath = radio.DualHomed && radio.PreferRemotePath;
-            DialogResult = true;
-            Close();
-        }
+        private void DoConnect(RadioListItem radio) => DoConnect(radio, null);
 
         /// <summary>
-        /// Enter on a roster row. Never a dead end and never a connect from
-        /// cache: if the radio was last seen over SmartLink and this session has
-        /// not looked yet, LOOKING is the useful answer, and it puts a real
-        /// refresh in flight.
+        /// Connect to a radio by walking its path chain — or, when
+        /// <paramref name="forcedPath"/> is set, by that path ONLY, with no
+        /// fallback: force-remote is test equipment (the hole-punch test
+        /// instrument and the rescue path), and a silent substitution would
+        /// invalidate a punch test by succeeding over the wrong path.
+        /// Never a dead end and never a connect from cache: when the chain
+        /// wants SmartLink and this session has not looked yet, the walk
+        /// opens a real SmartLink pass, carries the connect intention, and
+        /// resumes when the list lands — one Enter, speaking at each stage.
         /// </summary>
-        private void HandleOfflineConnectAttempt(RadioListItem radio, string radioName)
+        private void DoConnect(RadioListItem radio, ConnectPathKind? forcedPath)
         {
+            var radioName = RowName(radio);
+
             // A row bound to another account never hunts on the current one —
             // that pass is a thirty-second authentication grind toward a
             // guaranteed empty answer (the 2026-08-09 wrong-account hunt).
-            // Phase 2: the account is a property of the radio, so activation
-            // SWITCHES to the row's account, announced before any session
-            // opens, and runs the standard forced refresh under it. The
-            // refusal survives only when the bound account is not saved on
-            // this machine, where switching is impossible and honesty is all
-            // we have. Session-only switch: the saved default is untouched,
-            // and the sticky per-radio answer is PreferredAccount, not the
-            // app default.
-            if (radio.ForeignAccount && !string.IsNullOrWhiteSpace(radio.BoundAccount))
+            // The account is a property of the radio, so activation SWITCHES
+            // to the row's account, announced before any session opens, and
+            // runs the standard forced refresh under it. Session-only switch:
+            // the saved default is untouched.
+            if (!radio.IsLive && radio.ForeignAccount && !string.IsNullOrWhiteSpace(radio.BoundAccount))
             {
                 var target = Radios.FlexBase.SharedAccountManager.GetAccountByEmail(radio.BoundAccount);
                 if (target == null)
@@ -1071,35 +1146,191 @@ namespace JJFlexWpf.Dialogs
                 return;
             }
 
-            bool remoteish = radio.LastSeenRemote || radio.FromAccountCache;
-
-            if (remoteish && !_remoteListLive && !_remoteDiscoveryInFlight)
+            if (forcedPath == ConnectPathKind.Local)
             {
-                _callbacks.ScreenReaderSpeak?.Invoke(
-                    $"{radioName} was last seen over SmartLink. Looking for it now.", true);
-                StartRemoteFlow();
+                if (radio.LanAvailable)
+                {
+                    CompleteConnect(radio, ConnectPathKind.Local, forced: true,
+                        fallbacks: new List<ConnectPathKind>());
+                }
+                else
+                {
+                    _callbacks.ScreenReaderSpeak?.Invoke(
+                        $"{radioName} is not on the local network right now, and connect locally does not fall back. " +
+                        "It may be powered off or on a different network.", true);
+                }
                 return;
             }
 
-            if (remoteish && _remoteDiscoveryInFlight)
+            if (forcedPath == ConnectPathKind.SmartLink)
             {
-                _callbacks.ScreenReaderSpeak?.Invoke(
-                    $"Still looking for {radioName} over SmartLink.", true);
-                return;
-            }
+                if (radio.WanAvailable)
+                {
+                    CompleteConnect(radio, ConnectPathKind.SmartLink, forced: true,
+                        fallbacks: new List<ConnectPathKind>());
+                    return;
+                }
+                if (TryStartRemoteLookFor(radio, forced: ConnectPathKind.SmartLink, radioName)) return;
 
-            if (remoteish)
-            {
                 var acct = string.IsNullOrWhiteSpace(radio.LastSeenViaAccount)
                     ? "this account" : radio.LastSeenViaAccount;
                 _callbacks.ScreenReaderSpeak?.Invoke(
-                    $"{radioName} is not in {acct}'s radio list right now. It may be powered off, " +
-                    "or registered to a different account. Refresh Remote List to look again.", true);
+                    $"{radioName} is not in {acct}'s radio list, and connect over SmartLink does not fall back to local. " +
+                    "It may be powered off, or registered to a different account.", true);
                 return;
             }
 
+            // The ordinary case: walk the radio's chain, first entry first,
+            // announcing each move — no silent path substitution.
+            var chain = radio.EffectiveChain;
+            var notes = new List<string>();
+            for (int i = 0; i < chain.Count; i++)
+            {
+                var path = chain[i];
+                if (path == ConnectPathKind.Local)
+                {
+                    if (radio.LanAvailable)
+                    {
+                        AnnounceWalkNotes(notes);
+                        CompleteConnect(radio, path, forced: false,
+                            fallbacks: chain.Skip(i + 1).ToList());
+                        return;
+                    }
+                    notes.Add($"{radioName} is not on the local network");
+                    continue;
+                }
+
+                // SmartLink rung.
+                if (radio.WanAvailable)
+                {
+                    AnnounceWalkNotes(notes);
+                    CompleteConnect(radio, path, forced: false,
+                        fallbacks: chain.Skip(i + 1).ToList());
+                    return;
+                }
+                if (TryStartRemoteLookFor(radio, forced: null, radioName)) return;
+                var acctName = string.IsNullOrWhiteSpace(radio.LastSeenViaAccount)
+                    ? CurrentAccountEmail() : radio.LastSeenViaAccount;
+                notes.Add(string.IsNullOrWhiteSpace(acctName)
+                    ? $"{radioName} is not in the SmartLink radio list"
+                    : $"{radioName} is not in {acctName}'s radio list");
+            }
+
+            // Chain exhausted with nothing reachable.
             _callbacks.ScreenReaderSpeak?.Invoke(
-                $"{radioName} is not on the local network right now. It may be powered off.", true);
+                (notes.Count > 0 ? string.Join(", and ", notes) + ". " : $"{radioName} is not reachable right now. ")
+                + "It may be powered off.", true);
+        }
+
+        /// <summary>Speak the walk's accumulated "not here" notes before the
+        /// connect announcement, so a fallback is never silent.</summary>
+        private void AnnounceWalkNotes(List<string> notes)
+        {
+            if (notes.Count == 0) return;
+            _callbacks.ScreenReaderSpeak?.Invoke(string.Join(". ", notes) + ".", true);
+        }
+
+        /// <summary>
+        /// Put a real SmartLink pass in flight for this radio (or note that
+        /// one already is), carrying the connect intention so the walk
+        /// resumes when the list lands. Returns false when a pass has
+        /// already completed this session — the caller then knows the
+        /// absence is an answer, not an unasked question.
+        /// </summary>
+        private bool TryStartRemoteLookFor(RadioListItem radio, ConnectPathKind? forced, string radioName)
+        {
+            if (_remoteDiscoveryInFlight)
+            {
+                _pendingConnectSerial = radio.Serial;
+                _pendingConnectForced = forced;
+                _callbacks.ScreenReaderSpeak?.Invoke(
+                    $"Still looking for {radioName} over SmartLink. It will connect when found.", true);
+                return true;
+            }
+            if (!_remoteListLive)
+            {
+                _pendingConnectSerial = radio.Serial;
+                _pendingConnectForced = forced;
+                _callbacks.ScreenReaderSpeak?.Invoke(
+                    $"Signing in to SmartLink to look for {radioName}.", true);
+                StartRemoteFlow();
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// The chain (or the operator's force) has picked the path — announce
+        /// it, stamp the dialog's outputs, and close. Spoken before the
+        /// dialog closes and the session work starts, never after it
+        /// succeeds. The account is named on EVERY SmartLink connect, not
+        /// only cross-account ones — symmetry teaches the pattern (TX-safety:
+        /// a unified list puts Don's production 6300 one arrow key from
+        /// Noel's 8600).
+        /// </summary>
+        private void CompleteConnect(RadioListItem radio, ConnectPathKind path, bool forced,
+            List<ConnectPathKind> fallbacks)
+        {
+            var radioName = RowName(radio);
+            bool remote = path == ConnectPathKind.SmartLink;
+            var acctEmail = CurrentAccountEmail();
+            var via = remote
+                ? string.IsNullOrWhiteSpace(acctEmail)
+                    ? "over SmartLink" : $"over SmartLink as {acctEmail}"
+                : "on the local network";
+            _callbacks.ScreenReaderSpeak?.Invoke($"Connecting to {radioName} {via}", true);
+            // AS prosign (wait / standing by) alongside the "Connecting to X" speech.
+            // Pair with BT which fires at connect-ready in MainWindow.PowerOn.
+            if (ScreenReaderOutput.CwNotificationsEnabled) _ = ScreenReaderOutput.PlayCwAS?.Invoke();
+
+            SelectedRigData = radio.RigData;
+            SelectedSerial = radio.Serial;
+            SelectedLowBW = radio.LowBW;
+            SelectedIsRemote = remote;
+            SelectedPreferRemotePath = remote && (forced || radio.LanAvailable);
+            SelectedPathForced = forced;
+            SelectedFallbackPaths = forced ? new List<ConnectPathKind>() : fallbacks;
+            DialogResult = true;
+            Close();
+        }
+
+        /// <summary>
+        /// A SmartLink pass finished while a connect intention was pending.
+        /// Resume the walk: connect if the radio turned up, report honestly
+        /// if it did not. Never re-queues a pass on failure — that would
+        /// loop.
+        /// </summary>
+        private void ResumePendingConnect(bool success)
+        {
+            var serial = _pendingConnectSerial;
+            var forced = _pendingConnectForced;
+            _pendingConnectSerial = null;
+            _pendingConnectForced = null;
+            if (string.IsNullOrEmpty(serial)) return;
+
+            // The pass can land after the operator cancelled the dialog;
+            // setting DialogResult on a closed window throws.
+            if (!IsLoaded) return;
+
+            RadioListItem? row;
+            lock (_radiosLock)
+            {
+                row = _radiosList.FirstOrDefault(r =>
+                    string.Equals(r.Serial, serial, StringComparison.OrdinalIgnoreCase));
+            }
+            if (row == null) return;
+
+            if (!success)
+            {
+                _callbacks.ScreenReaderSpeak?.Invoke(
+                    $"Could not reach SmartLink to look for {RowName(row)}.", true);
+                return;
+            }
+
+            // Re-enter the walk. With the list now live, every rung answers
+            // immediately: found means connect, absent means the walk moves
+            // on or reports — no second Enter required.
+            DoConnect(row, forced);
         }
 
         /// <summary>
@@ -1146,11 +1377,12 @@ namespace JJFlexWpf.Dialogs
         }
 
         // ------------------------------------------------------------------
-        // Dual-homing: connection path
+        // Connection path preference (persisted per radio)
         // ------------------------------------------------------------------
 
-        private const string PathLocal = "Local network";
-        private const string PathSmartLink = "Remote via SmartLink";
+        private const string PathAutomatic = "Automatic, local first";
+        private const string PathLocalFirst = "Local network first";
+        private const string PathSmartLinkFirst = "SmartLink first";
 
         /// <summary>
         /// What the path control should currently be showing. Compared before
@@ -1163,15 +1395,20 @@ namespace JJFlexWpf.Dialogs
             var r = GetSelectedRadio();
             return r == null
                 ? "<none>"
-                : $"{r.Serial}|{r.LanAvailable}|{r.WanAvailable}|{r.PreferRemotePath}|{r.LastSeenRemote}";
+                : $"{r.Serial}|{string.Join(",", r.PathChain)}";
         }
 
         private string _pathAffordanceKey = "";
 
         /// <summary>
-        /// Rebuild the path affordance for the current selection. A radio with
-        /// one home still gets the control filled in and disabled, so the answer
-        /// to "how will this connect?" is always present rather than blank.
+        /// Rebuild the path control for the current selection. It edits the
+        /// PERSISTED per-radio preference now — the ordered chain a connect
+        /// walks — and it is enabled for every known radio, not only
+        /// dual-homed ones: the preference matters most for exactly the
+        /// radios the app believes have one home (symptom 1: Don's radio,
+        /// believed local, with no way to say "SmartLink first"). One store,
+        /// two doors: this combo and the context menu's Default Connection
+        /// Path submenu write the same chain.
         /// </summary>
         private void SyncPathAffordance()
         {
@@ -1192,32 +1429,18 @@ namespace JJFlexWpf.Dialogs
                     return;
                 }
 
-                if (radio.DualHomed)
-                {
-                    PathCombo.Items.Add(PathLocal);
-                    PathCombo.Items.Add(PathSmartLink);
-                    PathCombo.SelectedIndex = radio.PreferRemotePath ? 1 : 0;
-                    PathCombo.IsEnabled = true;
-                    System.Windows.Automation.AutomationProperties.SetName(
-                        PathCombo,
-                        "Connection path. This radio answers both on the local network and through SmartLink; " +
-                        "local is the better path and the default.");
-                    return;
-                }
-
-                string only =
-                    radio.LanAvailable ? PathLocal :
-                    radio.WanAvailable ? PathSmartLink :
-                    radio.LastSeenRemote ? "Offline, last seen via SmartLink" :
-                    "Offline, last seen on the local network";
-                PathCombo.Items.Add(only);
-                PathCombo.SelectedIndex = 0;
-                PathCombo.IsEnabled = false;
+                PathCombo.Items.Add(PathAutomatic);
+                PathCombo.Items.Add(PathLocalFirst);
+                PathCombo.Items.Add(PathSmartLinkFirst);
+                PathCombo.SelectedIndex =
+                    radio.PathChain.Count == 0 ? 0
+                    : radio.PathChain[0] == ConnectPathKind.SmartLink ? 2
+                    : 1;
+                PathCombo.IsEnabled = true;
                 System.Windows.Automation.AutomationProperties.SetName(
                     PathCombo,
-                    radio.IsLive
-                        ? "Connection path, only one path available"
-                        : "Connection path, radio is offline");
+                    "Connection path for this radio. Saved with the radio: Connect tries the chosen path first " +
+                    "and falls back to the other, saying so. Automatic tries the local network first.");
             }
             finally
             {
@@ -1229,27 +1452,56 @@ namespace JJFlexWpf.Dialogs
         {
             if (_suppressPathComboEvent) return;
             var radio = GetSelectedRadio();
-            if (radio == null || !radio.DualHomed) return;
+            if (radio == null) return;
 
-            bool preferRemote = PathCombo.SelectedIndex == 1;
-            if (preferRemote == radio.PreferRemotePath) return;
+            var chain = PathCombo.SelectedIndex switch
+            {
+                1 => new List<ConnectPathKind> { ConnectPathKind.Local, ConnectPathKind.SmartLink },
+                2 => new List<ConnectPathKind> { ConnectPathKind.SmartLink, ConnectPathKind.Local },
+                _ => new List<ConnectPathKind>(),
+            };
+            SetPathChainForRow(radio, chain);
+        }
 
-            radio.PreferRemotePath = preferRemote;
+        /// <summary>
+        /// Persist a path-chain choice for one row and announce honestly —
+        /// a spoken success over a declined save is a promise the next
+        /// launch breaks. Shared by the combo and the context menu.
+        /// </summary>
+        private void SetPathChainForRow(RadioListItem radio, List<ConnectPathKind> chain)
+        {
+            bool same = radio.PathChain.SequenceEqual(chain);
+            if (same) return;
+
+            if (!KnownRadioRoster.SetPathChain(radio.Serial, chain))
+            {
+                _callbacks.ScreenReaderSpeak?.Invoke(
+                    "Could not save the connection path. It would not survive a restart, so nothing was changed.",
+                    true);
+                return;
+            }
+
+            radio.PathChain = chain;
             // The combo already shows the new choice; re-syncing it from the
             // list refresh below would rip its items out from under the user's
             // focus for no change they can perceive.
             _pathAffordanceKey = PathKey();
-            _callbacks.ScreenReaderSpeak?.Invoke(
-                preferRemote
-                    ? $"{RowName(radio)} will connect over SmartLink, even though it is on your local network."
-                    : $"{RowName(radio)} will connect over the local network.",
-                true);
+
+            var rowName = RowName(radio);
+            string speech = chain.Count == 0
+                ? $"{rowName} connection path is automatic: local network first, then SmartLink."
+                : chain[0] == ConnectPathKind.SmartLink
+                    ? $"{rowName} will connect over SmartLink first, falling back to the local network."
+                    : $"{rowName} will connect over the local network first, falling back to SmartLink.";
+            _callbacks.ScreenReaderSpeak?.Invoke(speech, true);
             RefreshRadiosList();
             ReselectBySerial(radio.Serial);
         }
 
         private static string RowName(RadioListItem r) =>
-            string.IsNullOrWhiteSpace(r.Name) ? "This radio" : r.Name;
+            !string.IsNullOrWhiteSpace(r.UserLabel) ? r.UserLabel
+            : !string.IsNullOrWhiteSpace(r.Name) ? r.Name
+            : "This radio";
 
         private void ReselectBySerial(string serial)
         {
@@ -1287,7 +1539,81 @@ namespace JJFlexWpf.Dialogs
             System.Windows.Automation.AutomationProperties.SetName(FavoriteMenuItem,
                 fav ? "Remove selected radio from favorites" : "Add selected radio to favorites");
             FavoriteMenuItem.IsEnabled = radio != null;
+            ConnectLocalMenuItem.IsEnabled = radio != null;
+            ConnectRemoteMenuItem.IsEnabled = radio != null;
+            // The list item wears its state: before a successful pass it
+            // shows the radios, after one it refreshes them (the server
+            // sends its list once per TLS session, so a repeat is a
+            // session-cycling refresh).
+            RemoteListMenuItem.Header = _remoteListLive ? "Refresh Remote List" : "Show Remote Radios";
+            System.Windows.Automation.AutomationProperties.SetName(RemoteListMenuItem,
+                _remoteListLive
+                    ? "Refresh Remote List. Reconnects to SmartLink and looks again, picking up radios that came online since."
+                    : "Show this account's SmartLink radios");
             BuildPreferredAccountSubmenu(radio);
+            BuildDefaultPathSubmenu(radio);
+        }
+
+        /// <summary>
+        /// The per-row Default Connection Path submenu — door two to the same
+        /// per-radio chain the path combo edits. Checkable so the current
+        /// choice announces itself.
+        /// </summary>
+        private void BuildDefaultPathSubmenu(RadioListItem? radio)
+        {
+            DefaultPathMenuItem.Items.Clear();
+            DefaultPathMenuItem.IsEnabled = radio != null;
+            if (radio == null) return;
+
+            void AddChoice(string header, string accessible, List<ConnectPathKind> chain, bool isChecked)
+            {
+                var item = new MenuItem { Header = header, IsCheckable = true, IsChecked = isChecked };
+                System.Windows.Automation.AutomationProperties.SetName(item, accessible);
+                item.Click += (_, _) => SetPathChainForRow(radio, chain);
+                DefaultPathMenuItem.Items.Add(item);
+            }
+
+            AddChoice("Automatic",
+                "Automatic. Try the local network first, then SmartLink.",
+                new List<ConnectPathKind>(),
+                radio.PathChain.Count == 0);
+            AddChoice("Local Network First",
+                "Local network first, falling back to SmartLink.",
+                new List<ConnectPathKind> { ConnectPathKind.Local, ConnectPathKind.SmartLink },
+                radio.PathChain.Count > 0 && radio.PathChain[0] == ConnectPathKind.Local);
+            AddChoice("SmartLink First",
+                "SmartLink first, falling back to the local network.",
+                new List<ConnectPathKind> { ConnectPathKind.SmartLink, ConnectPathKind.Local },
+                radio.PathChain.Count > 0 && radio.PathChain[0] == ConnectPathKind.SmartLink);
+        }
+
+        private void ConnectLocalMenuItem_Click(object sender, RoutedEventArgs e)
+        {
+            var radio = GetSelectedRadio();
+            if (radio == null)
+            {
+                new MessageDialog { Title = "Select Radio", Message = MustSelect, Owner = this }.ShowDialog();
+                RadiosBox.Focus();
+                return;
+            }
+            DoConnect(radio, ConnectPathKind.Local);
+        }
+
+        private void ConnectRemoteMenuItem_Click(object sender, RoutedEventArgs e)
+        {
+            var radio = GetSelectedRadio();
+            if (radio == null)
+            {
+                new MessageDialog { Title = "Select Radio", Message = MustSelect, Owner = this }.ShowDialog();
+                RadiosBox.Focus();
+                return;
+            }
+            DoConnect(radio, ConnectPathKind.SmartLink);
+        }
+
+        private void RemoteListMenuItem_Click(object sender, RoutedEventArgs e)
+        {
+            StartRemoteFlow();
         }
 
         /// <summary>
@@ -1426,36 +1752,14 @@ namespace JJFlexWpf.Dialogs
 
         /// <summary>
         /// True once a remote pass has succeeded (SmartLink session live).
-        /// From then on the Remote button is "Refresh Remote List": with a
-        /// live session, re-running discovery can never yield anything new —
-        /// the server sends the radio list once per TLS session — so the only
-        /// meaningful repeat action is a session-cycling refresh. No timer:
-        /// "listed" is a state, not a five-second window (Noel, 2026-08-06).
+        /// From then on the context menu's remote-list item is "Refresh
+        /// Remote List": with a live session, re-running discovery can never
+        /// yield anything new — the server sends the radio list once per TLS
+        /// session — so the only meaningful repeat action is a
+        /// session-cycling refresh. No timer: "listed" is a state, not a
+        /// five-second window (Noel, 2026-08-06).
         /// </summary>
         private bool _remoteListLive;
-
-        private void RemoteButton_Click(object sender, RoutedEventArgs e)
-        {
-            StartRemoteFlow();
-        }
-
-        /// <summary>
-        /// Morph the Remote button into Refresh Remote List — same button,
-        /// same spot, same Alt+R, new job. One control renaming itself keeps
-        /// the tab order stable and announces its own state change on the
-        /// next focus visit; hiding one button and showing another moves the
-        /// floor under a keyboard user.
-        /// </summary>
-        private void MorphRemoteToRefresh()
-        {
-            if (_remoteListLive) return;
-            _remoteListLive = true;
-            if (_callbacks.StartRemoteRefresh == null) return;
-            RemoteButton.Content = "_Refresh Remote List";
-            System.Windows.Automation.AutomationProperties.SetName(RemoteButton,
-                "Refresh Remote List. Reconnects to SmartLink and looks again, picking up radios that came online since.");
-            _callbacks.ScreenReaderSpeak?.Invoke("The Remote button is now Refresh Remote List.", false);
-        }
 
         /// <param name="forceSessionCycle">
         /// Take the session-cycling refresh path even if no remote pass has
@@ -1502,7 +1806,9 @@ namespace JJFlexWpf.Dialogs
                 _remoteDiscoveryInFlight = false;
                 if (success)
                 {
-                    Dispatcher.BeginInvoke(() => MorphRemoteToRefresh());
+                    // The remote list is a state, not an event: the context
+                    // menu's list item reads this to retitle itself.
+                    _remoteListLive = true;
                 }
                 // Close ConnectingForm first.
                 if (_closeConnecting != null)
@@ -1530,21 +1836,24 @@ namespace JJFlexWpf.Dialogs
                     RefreshRadiosList();
                     UpdateListAutomationName();
                     SyncPathAffordance();
-                    // Loaded-state line lives HERE, not in MorphRemoteToRefresh:
-                    // that method opens with "if (_remoteListLive) return" so
-                    // anything inside it fires once per session and then stops
-                    // forever — it would pass a first-launch test and fail every
-                    // refresh after. Remote is a discrete event (the server
-                    // sends its list once per TLS session), so "loaded" is true
-                    // every successful pass. Before AnnounceListDelta so the
-                    // state line leads and the delta follows, both queued.
+                    // Remote is a discrete event (the server sends its list
+                    // once per TLS session), so "loaded" is true on every
+                    // successful pass. Before AnnounceListDelta so the state
+                    // line leads and the delta follows, both queued.
                     if (success)
                     {
                         AnnounceLoadedState("Remote loaded",
                             "Remote connection list loaded");
                     }
                     AnnounceListDelta(liveBefore, success);
-                    FocusRadioList();
+
+                    // A connect intention that started this pass resumes
+                    // here — the double-Enter fix: the walk continues into
+                    // the connect the first Enter asked for. It may close
+                    // the dialog, so focus only when it did not.
+                    bool hadPending = _pendingConnectSerial != null;
+                    if (hadPending) ResumePendingConnect(success);
+                    if (DialogResult != true) FocusRadioList();
                 });
             });
         }
@@ -2015,12 +2324,15 @@ namespace JJFlexWpf.Dialogs
 
         private void ShowNoRadiosGuidance()
         {
-            // Name the button that actually exists. "Click SmartLink" sent people
-            // hunting for a control this dialog has never had.
+            // Name the control that actually exists. "Click SmartLink" sent
+            // people hunting for a control this dialog has never had — and
+            // the Remote button is gone (Connect opens SmartLink itself when
+            // a radio's path chain asks for it).
             new MessageDialog
             {
                 Title = "No Radios Found",
-                Message = "No radios found on the local network. Press Remote, Alt+R, to look for radios through SmartLink.",
+                Message = "No radios found on the local network yet. To look for radios through SmartLink, " +
+                          "press Shift F10 on the radio list and choose Show Remote Radios.",
                 Owner = this
             }.ShowDialog();
         }
@@ -2028,6 +2340,8 @@ namespace JJFlexWpf.Dialogs
         private void RigSelectorDialog_Closing(object? sender, CancelEventArgs e)
         {
             _autoConnectTimer.Stop();
+            _pendingConnectSerial = null;
+            _pendingConnectForced = null;
             _callbacks.UnregisterRadioFound();
             _callbacks.UnregisterRadioRemoved?.Invoke();
         }

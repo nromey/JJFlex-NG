@@ -63,7 +63,7 @@ namespace JJFlexWpf.Dialogs
                     items.Add(new RadioProfileItem
                     {
                         Id = id,
-                        Display = string.IsNullOrEmpty(cfg.Nickname) ? id : $"{cfg.Nickname} ({id})"
+                        Display = string.IsNullOrEmpty(cfg.DisplayName) ? id : $"{cfg.DisplayName} ({id})"
                     });
                 }
             }
@@ -117,12 +117,15 @@ namespace JJFlexWpf.Dialogs
                 RadioProfileAllowRemotePortCheck.IsChecked = cfg.AllowRemotePortChanges;
                 RadioProfileAllowRemoteFirmwareCheck.IsChecked = cfg.AllowRemoteFirmwareUpdates;
 
-                // The radio itself is the authority on its name — prefer the
-                // live value over the stored mirror when this radio is the
-                // connected one.
-                string nickname = IsConnectedTo(radioId) && !string.IsNullOrEmpty(_rig!.RadioNickname)
-                    ? _rig.RadioNickname
-                    : cfg.Nickname ?? string.Empty;
+                // The operator's chosen name wins when one exists — this box
+                // edits the CHOICE (task #75: choices must not lose to
+                // observations). With no choice made, prefer the live value
+                // over the stored observation when this radio is connected.
+                string nickname = !string.IsNullOrEmpty(cfg.UserNickname)
+                    ? cfg.UserNickname
+                    : IsConnectedTo(radioId) && !string.IsNullOrEmpty(_rig!.RadioNickname)
+                        ? _rig.RadioNickname
+                        : cfg.Nickname ?? string.Empty;
                 RadioProfileNicknameBox.Text = nickname;
             }
             finally
@@ -273,13 +276,13 @@ namespace JJFlexWpf.Dialogs
             // so the kept name goes back into the box and the status says so.
             string newNickname = RadioProfileNicknameBox.Text?.Trim() ?? string.Empty;
             string renameNote = "";
-            if (newNickname.Length == 0 && !string.IsNullOrEmpty(cfg.Nickname))
+            if (newNickname.Length == 0 && !string.IsNullOrEmpty(cfg.DisplayName))
             {
-                RadioProfileNicknameBox.Text = cfg.Nickname;
+                RadioProfileNicknameBox.Text = cfg.DisplayName;
                 renameNote =
-                    $" The name box was empty, so the radio keeps its name, {cfg.Nickname} — a radio with no name would show as Unknown everywhere.";
+                    $" The name box was empty, so the radio keeps its name, {cfg.DisplayName} — a radio with no name would show as Unknown everywhere.";
             }
-            else if (newNickname.Length > 0 && newNickname != (cfg.Nickname ?? string.Empty))
+            else if (newNickname.Length > 0 && newNickname != (cfg.DisplayName ?? string.Empty))
             {
                 if (IsConnectedTo(radioId))
                 {
@@ -290,9 +293,12 @@ namespace JJFlexWpf.Dialogs
                 else
                 {
                     renameNote =
-                        $" The name shown here is now {newNickname}; the radio itself keeps its old name until you save this while connected to it.";
+                        $" This radio will show as {newNickname} in JJ Flexible from now on, even when its own broadcast name differs; the radio itself keeps its old name until you save this while connected to it.";
                 }
-                cfg.Nickname = newNickname;
+                // The typed name is a CHOICE. It survives sightings — the
+                // observation field (Nickname) keeps tracking what the radio
+                // broadcasts, and display prefers the choice.
+                cfg.UserNickname = newNickname;
             }
 
             if (cfg.SaveForRadio(radioId))

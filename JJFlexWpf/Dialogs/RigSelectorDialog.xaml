@@ -47,7 +47,23 @@
             <ListBox.ContextMenu>
                 <ContextMenu>
                     <MenuItem Header="Connect" Click="ConnectMenuItem_Click"
-                              AutomationProperties.Name="Connect to selected radio"/>
+                              AutomationProperties.Name="Connect to selected radio using its preferred path"/>
+                    <!-- The explicit verbs. Connect over SmartLink is the
+                         force-remote rescue path and the hole-punch test
+                         instrument: this path only, never a silent fallback
+                         to local. -->
+                    <MenuItem x:Name="ConnectLocalMenuItem" Header="Connect Locally"
+                              Click="ConnectLocalMenuItem_Click"
+                              AutomationProperties.Name="Connect to selected radio over the local network only"/>
+                    <MenuItem x:Name="ConnectRemoteMenuItem" Header="Connect over SmartLink"
+                              Click="ConnectRemoteMenuItem_Click"
+                              AutomationProperties.Name="Connect to selected radio over SmartLink only, never falling back to local"/>
+                    <!-- Which path Connect tries first, saved with the radio.
+                         Items built per open; same store as the Connection
+                         path combo - no sync problem. -->
+                    <MenuItem x:Name="DefaultPathMenuItem" Header="Default Connection Path"
+                              AutomationProperties.Name="Default connection path for selected radio"/>
+                    <Separator/>
                     <MenuItem x:Name="FavoriteMenuItem" Header="Add to Favorites"
                               Click="FavoriteMenuItem_Click"
                               AutomationProperties.Name="Add selected radio to favorites"/>
@@ -60,6 +76,13 @@
                          Manager's associations view - no sync problem. -->
                     <MenuItem x:Name="PreferredAccountMenuItem" Header="Preferred Account"
                               AutomationProperties.Name="Preferred account for selected radio"/>
+                    <Separator/>
+                    <!-- List-scoped, needs no selection: the old Remote
+                         button's list job lives here now that Connect opens
+                         SmartLink by itself whenever a radio's chain asks. -->
+                    <MenuItem x:Name="RemoteListMenuItem" Header="Show Remote Radios"
+                              Click="RemoteListMenuItem_Click"
+                              AutomationProperties.Name="Show this account's SmartLink radios"/>
                 </ContextMenu>
             </ListBox.ContextMenu>
         </ListBox>
@@ -88,10 +111,10 @@
                       AutomationProperties.Name="Connection path"
                       AutomationProperties.AcceleratorKey="Alt+P"
                       SelectionChanged="PathCombo_SelectionChanged"/>
-            <Button x:Name="RemoteButton" Content="_Remote" MinWidth="130" Height="28" Margin="0,0,0,8"
-                    AutomationProperties.Name="Remote"
-                    AutomationProperties.AcceleratorKey="Alt+R"
-                    Click="RemoteButton_Click"/>
+            <!-- The Remote button is gone (2026-08-15 decision): Connect
+                 honours each radio's stored path preference and opens
+                 SmartLink itself when the chain asks for it. Force-remote
+                 and the remote-list refresh live in the row context menu. -->
             <Button x:Name="AccountButton" Content="_Switch Account" MinWidth="130" Height="28" Margin="0,0,0,8"
                     AutomationProperties.Name="Switch Account"
                     AutomationProperties.AcceleratorKey="Alt+S"
