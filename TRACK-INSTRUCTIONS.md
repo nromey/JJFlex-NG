@@ -1,6 +1,6 @@
 # Track E — Device opening and rate policy
 
-**Worktree:** `C:\dev\jjflex-e` · **Branch:** `bsr/track-e` · **Model:** Sonnet
+**Worktree:** `C:\dev\jjflex-e` · **Branch:** `bsr/track-e` · **Model:** Opus
 
 **Read first:** `docs/planning/active/barefoot-splatter-ragchew.md`, section
 "Track E — Device opening and rate policy" including "Confirmed at the bench
