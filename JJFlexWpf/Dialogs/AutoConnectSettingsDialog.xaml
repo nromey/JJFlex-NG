@@ -33,13 +33,18 @@
                   Margin="0,0,0,8"
                   AutomationProperties.Name="Use low bandwidth mode"/>
 
-        <!-- Buttons -->
+        <!-- Buttons. House convention (Track C): OK applies and closes, Apply
+             applies and stays, Cancel discards — the same pair as every other
+             settings screen, replacing the bespoke "Save". -->
         <StackPanel Grid.Row="4" Style="{StaticResource ButtonPanel}">
-            <Button Content="_Save" AutomationProperties.AcceleratorKey="Alt+S" Style="{StaticResource OkButton}"
-                    AutomationProperties.Name="Save auto-connect settings"
-                    Click="SaveButton_Click"/>
+            <Button Content="_OK" AutomationProperties.AcceleratorKey="Alt+O" Style="{StaticResource OkButton}"
+                    AutomationProperties.Name="OK. Applies the auto-connect settings and closes."
+                    Click="OkButton_Click"/>
+            <Button Content="_Apply" AutomationProperties.AcceleratorKey="Alt+A" Style="{StaticResource DialogButton}"
+                    AutomationProperties.Name="Apply. Applies the auto-connect settings and keeps this open."
+                    Click="ApplyButton_Click"/>
             <Button Content="_Cancel" AutomationProperties.AcceleratorKey="Alt+C" Style="{StaticResource CancelButton}"
-                    AutomationProperties.Name="Cancel without saving"
+                    AutomationProperties.Name="Cancel. Discards unapplied changes."
                     Click="CancelButton_Click"/>
         </StackPanel>
     </Grid>

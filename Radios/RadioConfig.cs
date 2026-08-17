@@ -66,6 +66,28 @@ namespace Radios
     }
 
     /// <summary>
+    /// What JJ Flex should do about the radio's REM ON remote-power jack when
+    /// connecting to this radio (Track C, settings that stick). REM ON is
+    /// radio-persistent state, so this is a queued intent: settable with no
+    /// radio present, applied at the next connection. Numeric values are
+    /// stable for saved configs.
+    /// </summary>
+    public enum RemOnOnConnectModes
+    {
+        /// <summary>Leave the radio's REM ON setting alone. The default.</summary>
+        LeaveAlone = 0,
+
+        /// <summary>Make sure REM ON is enabled at each connect. The setting a
+        /// no-physical-access radio wants — REM ON is the only remote way back
+        /// from a powered-off radio. Does nothing physically unless the RCA
+        /// jack is wired to a relay.</summary>
+        TurnOn = 1,
+
+        /// <summary>Make sure REM ON is disabled at each connect.</summary>
+        TurnOff = 2,
+    }
+
+    /// <summary>
     /// How the Audio Check handles transmit power (Workshop Track,
     /// 2026-08-11). Numeric values are stable for saved configs.
     /// </summary>
@@ -148,6 +170,35 @@ namespace Radios
         /// never update firmware at all. Default false.
         /// </summary>
         public bool AllowRemoteFirmwareUpdates { get; set; }
+
+        /// <summary>
+        /// "This radio is operated remotely; I cannot reach its front panel"
+        /// (Track C, 2026-08-16). Geography, not networking: deliberately NOT
+        /// derived from the connection path, because the failure modes are
+        /// asymmetric — wrongly inferring "local" suppresses a warning that
+        /// would have saved you, wrongly inferring "remote" merely shows a
+        /// prompt you did not need. A safety gate opens because the operator
+        /// said so. Consumers: advice text must never offer "power cycle it"
+        /// for a flagged radio, firmware-update warnings sharpen, and REM ON
+        /// stops being optional.
+        /// </summary>
+        public bool NoPhysicalAccess { get; set; }
+
+        /// <summary>
+        /// True once the operator has explicitly answered the no-physical-
+        /// access question for this radio. While false, the UI may pre-populate
+        /// the checkbox from the connection-path guess (and say it did), but
+        /// nothing treats the guess as a decision.
+        /// </summary>
+        public bool NoPhysicalAccessDecided { get; set; }
+
+        /// <summary>
+        /// Queued intent for the radio's REM ON remote-power jack, applied at
+        /// each connection to this radio (Track C). Default LeaveAlone: a
+        /// config written before this shipped changes nothing.
+        /// </summary>
+        public RemOnOnConnectModes RemOnOnConnect { get; set; }
+            = RemOnOnConnectModes.LeaveAlone;
 
         // ---------------------------------------------------------------
         // Roster display metadata (queue-burn Track E, 2026-08-07).

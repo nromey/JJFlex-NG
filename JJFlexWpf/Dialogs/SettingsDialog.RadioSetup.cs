@@ -216,11 +216,18 @@ namespace JJFlexWpf.Dialogs
 
             if (forwarding && tcp > 0)
             {
+                // Track C wording fix: the radio advertises these external
+                // ports; it listens on its LAN address at TCP 4994 / UDP 4993,
+                // and the router rules must say so.
                 string ports = (udp > 0 && udp != tcp)
-                    ? $"TCP {tcp} and UDP {udp}"
-                    : $"port {tcp}, TCP and UDP";
+                    ? $"external TCP port {tcp} and UDP port {udp}"
+                    : $"external port {tcp}, TCP and UDP";
+                int udpShown = udp > 0 ? udp : tcp;
                 SetupWayInStatus.Text =
-                    $"Set on the radio. It listens on {ports}. {modeText} Your router still has to forward the same port to the radio — JJ Flex cannot do that part. Step 6 checks whether it worked.";
+                    $"Set on the radio. It advertises {ports}. {modeText} Your router still needs the two rules — " +
+                    $"external TCP {tcp} to the radio's LAN IP port {FlexBase.SmartLinkRadioTlsPort}, and external " +
+                    $"UDP {udpShown} to port {FlexBase.SmartLinkRadioUdpPort} — JJ Flex cannot do that part. " +
+                    "Step 6 checks whether it worked.";
             }
             else
             {
@@ -260,6 +267,49 @@ namespace JJFlexWpf.Dialogs
         #region Step 2 — radio name
 
         /// <summary>
+        /// True once the user has typed in the setup-tab name box this session.
+        /// Set from a TextChanged hook (wired in the constructor) that only
+        /// fires while keyboard focus is inside the box, so programmatic
+        /// refreshes never count. Track C: this is what lets OK/Apply commit a
+        /// typed-but-never-applied name instead of discarding it — while a box
+        /// that merely holds a stale copy of the radio's name stays inert.
+        /// </summary>
+        private bool _setupNameEdited;
+
+        /// <summary>
+        /// Fold a typed-but-not-yet-applied setup-tab name into the dialog's
+        /// OK/Apply commit. The "Apply name" button remains for the checklist's
+        /// do-it-now flow; this is the safety net under it. Runs AFTER the
+        /// Radios-tab profile commit, so if both name boxes were edited for the
+        /// same radio, the one typed here wins (deterministic, and this box is
+        /// only editable while connected — the more deliberate act).
+        /// </summary>
+        private void CommitSetupRadioNameIfDirty(System.Collections.Generic.List<string> applied)
+        {
+            if (!_setupNameEdited) return;
+            if (SetupRadioNameBox == null || _rig == null || !_rig.IsConnected) return;
+
+            string newName = SetupRadioNameBox.Text?.Trim() ?? string.Empty;
+            if (newName.Length == 0 || newName == _rig.RadioNickname)
+            {
+                _setupNameEdited = false;
+                if (newName.Length == 0) RefreshRadioNameField(connected: true);
+                return;
+            }
+
+            if (_rig.RenameRadio(newName))
+            {
+                applied.Add($"The radio is now named {newName}.");
+                RefreshRadioNameField(connected: true);
+            }
+            else
+            {
+                applied.Add("The radio could not be renamed. See the trace file for details.");
+            }
+            _setupNameEdited = false;
+        }
+
+        /// <summary>
         /// Keep the name box tracking the radio's actual name. Skipped while the
         /// user is typing in it — the status refresh runs on several triggers
         /// (address changes, registration completing) and clobbering a
@@ -273,7 +323,10 @@ namespace JJFlexWpf.Dialogs
             SetupApplyNameButton.IsEnabled = connected;
 
             if (!SetupRadioNameBox.IsKeyboardFocusWithin)
+            {
                 SetupRadioNameBox.Text = connected ? _rig!.RadioNickname : string.Empty;
+                _setupNameEdited = false;
+            }
         }
 
         /// <summary>
@@ -308,6 +361,7 @@ namespace JJFlexWpf.Dialogs
                 // Critical: this is a confirmation of a radio-side change the
                 // user cannot see any other way from here.
                 ScreenReaderOutput.Speak($"Radio renamed to {newName}.", VerbosityLevel.Critical, interrupt: true);
+                _setupNameEdited = false;
                 RefreshRadioNameField(connected: true);
             }
             else

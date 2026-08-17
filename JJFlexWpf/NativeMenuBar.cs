@@ -1907,8 +1907,13 @@ public class NativeMenuBar : IDisposable
         }
         if (openAtTab != null)
             dialog.SelectTabByHeader(openAtTab);
-        var result = dialog.ShowDialog();
-        if (result == true)
+
+        // Track C (OK/Apply convention): the app-side application + persistence
+        // runs after EVERY successful commit — Apply-and-stay included — not
+        // only after the dialog closes. This used to live in an
+        // if-result-was-true block below, which would have made Apply a
+        // dialog-local illusion that evaporated on Cancel-after-Apply.
+        dialog.SettingsApplied = () =>
         {
             _window.ApplySettingsChanges(dialog.CoarseTuneStep, dialog.FineTuneStep);
 
@@ -1934,7 +1939,10 @@ public class NativeMenuBar : IDisposable
                 rootConfig.CwSpeedWpm = audioConfig.CwSpeedWpm;
                 rootConfig.Save(rootConfigDir);
             }
-        }
+        };
+
+        dialog.ShowDialog();
+
         // Always apply typing sound after Settings (config may have been saved even on Cancel)
         if (_window.FreqHandlers != null)
             _window.FreqHandlers.TypingSound = audioConfig.TypingSound;

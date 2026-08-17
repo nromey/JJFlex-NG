@@ -97,6 +97,15 @@ namespace JJFlexWpf.Dialogs
             AddHandler(TextBox.GotKeyboardFocusEvent,
                 new KeyboardFocusChangedEventHandler(TextBox_GotKeyboardFocus));
 
+            // Track C: notice when the USER types in the Radio Setup name box
+            // (programmatic refreshes never have keyboard focus inside it), so
+            // OK/Apply can commit a typed-but-never-applied name instead of
+            // discarding it.
+            SetupRadioNameBox.TextChanged += (s, e) =>
+            {
+                if (SetupRadioNameBox.IsKeyboardFocusWithin) _setupNameEdited = true;
+            };
+
             // Configure volume controls
             MasterVolumeControl.Label = "Master volume";
             MasterVolumeControl.Min = 0;
@@ -416,10 +425,14 @@ namespace JJFlexWpf.Dialogs
             PortForwardSeparatePortsCheck.IsChecked = portsDiffer;
             PortForwardUdpBox.IsEnabled = portsDiffer;
             PortForwardTcpLabel.Text = portsDiffer ? "TCP port:" : "Port (TCP and UDP):";
+            // Track C wording fix: the radio advertises these external ports;
+            // it listens on its LAN address at 4994/4993. Saying "listens on
+            // your port" sent a live debugging session down the wrong road.
             NetworkCurrentStateText.Text = enabled
                 ? (portsDiffer
-                    ? $"Radio currently listens on TCP {tcp}, UDP {udp}."
-                    : $"Radio currently listens on port {tcp} (TCP and UDP).")
+                    ? $"The radio advertises external TCP port {tcp} and UDP port {udp} for SmartLink. "
+                    : $"The radio advertises external port {tcp} (TCP and UDP) for SmartLink. ")
+                  + DescribeRouterMapping(tcp, udp)
                 : "Radio currently uses UPnP or hole-punch (no manual forwarding).";
 
             // Sprint 27 Track F — load the account's saved ConnectionMode into
@@ -557,66 +570,135 @@ namespace JJFlexWpf.Dialogs
         }
 
         /// <summary>
-        /// Apply the Network tab's port forwarding settings to the connected radio.
-        /// Sends a "wan set" command to the radio's firmware (persists until changed again).
+        /// The plain-language router recipe for the current forwarding config —
+        /// the two rules a router actually needs. External ports come from what
+        /// the user chose; the radio-side ports are the fixed SmartLink
+        /// listeners (TCP 4994, UDP 4993 — see the constants on FlexBase).
+        /// Shown wherever forwarding state is reported, because the old "the
+        /// radio listens on your port" story misled a live debugging session.
         /// </summary>
-        private void ApplyPortForwardButton_Click(object sender, RoutedEventArgs e)
+        private string DescribeRouterMapping(int tcp, int udp)
         {
+            string lanIp = _rig?.CurrentRadioIP?.ToString() ?? "the radio's LAN IP";
+            return $"Router rules: forward external TCP port {tcp} to {lanIp} port {FlexBase.SmartLinkRadioTlsPort}, " +
+                   $"and external UDP port {udp} to {lanIp} port {FlexBase.SmartLinkRadioUdpPort}.";
+        }
+
+        /// <summary>
+        /// Track C: port-forward edits are committed by the dialog's OK and
+        /// Apply — the per-feature "Apply to connected radio" button is gone,
+        /// so an edited port can no longer be silently discarded by OK.
+        /// Only acts when the UI actually differs from what the radio reports.
+        /// The authority gate and the confirmation dialog are unchanged from
+        /// the button era: authority catches "not allowed to do this"; the
+        /// dialog catches "accidental commit". Returns false only on a
+        /// validation error (focus moved to the offending field); a declined
+        /// confirmation or denied authority is reported in
+        /// <paramref name="queued"/> and does not block the rest of OK.
+        /// </summary>
+        private bool CommitPortForwardIfDirty(List<string> queued, List<string> applied)
+        {
+            if (PortForwardEnabledCheck == null) return true;
+            bool wantEnabled = PortForwardEnabledCheck.IsChecked == true;
+
             if (_rig == null || !_rig.IsConnected)
             {
-                NetworkCurrentStateText.Text = "No radio connected. Connect locally to the radio first.";
-                ScreenReaderOutput.Speak("No radio connected.", VerbosityLevel.Terse, interrupt: true);
-                return;
+                // Disconnected, the fields hold placeholders, not radio state.
+                // An enabled checkbox is the one signal of real intent — and it
+                // must not evaporate silently.
+                if (wantEnabled)
+                    queued.Add("Port forwarding was not changed. It writes settings into the radio itself, " +
+                        "so it needs a connected radio. Connect, then set it again on the Network tab.");
+                return true;
             }
 
-            bool enabled = PortForwardEnabledCheck.IsChecked == true;
             int tcp = 0, udp = 0;
-            if (enabled)
+            if (wantEnabled)
             {
                 if (!int.TryParse(PortForwardTcpBox.Text, out tcp) || tcp < 1024 || tcp > 65535)
                 {
+                    SelectTabByHeader("Network");
                     NetworkCurrentStateText.Text = "Invalid TCP port. Must be 1024 to 65535.";
                     ScreenReaderOutput.Speak("Invalid TCP port.", VerbosityLevel.Terse, interrupt: true);
                     PortForwardTcpBox.Focus();
-                    return;
+                    return false;
                 }
                 if (!int.TryParse(PortForwardUdpBox.Text, out udp) || udp < 1024 || udp > 65535)
                 {
+                    SelectTabByHeader("Network");
                     NetworkCurrentStateText.Text = "Invalid UDP port. Must be 1024 to 65535.";
                     ScreenReaderOutput.Speak("Invalid UDP port.", VerbosityLevel.Terse, interrupt: true);
                     PortForwardUdpBox.Focus();
-                    return;
+                    return false;
                 }
             }
 
-            // Authorization gate. SmartLink port changes modify radio-persistent
-            // state that affects future connections by any client. Passes on
-            // presence (primary operator at the rig) OR the owner-declared
-            // per-radio remote waiver (Settings > Radios) — a remote-base owner
-            // is never at their radio and must not be locked out of it. The
-            // confirmation dialog still runs either way: authority catches "not
-            // allowed to do this"; the dialog catches "accidental button press".
-            _rig.RequirePortSettingsAuthority(
-                reason: "change SmartLink port settings",
-                onConfirmed: () =>
-                {
-                    // Confirmation dialog with default focus on No for conservative safety.
-                    var confirm = new ConfirmPortForwardApplyDialog(enabled, tcp, udp);
-                    confirm.Owner = this;
-                    if (confirm.ShowDialog() != true)
+            bool curEnabled = _rig.PortForwardingEnabled;
+            int curTcp = _rig.PortForwardingTcpPort;
+            int curUdp = _rig.PortForwardingUdpPort;
+            bool dirty = wantEnabled != curEnabled
+                         || (wantEnabled && (tcp != curTcp || udp != curUdp));
+
+            if (dirty)
+            {
+                // Authorization gate. SmartLink port changes modify radio-persistent
+                // state that affects future connections by any client. Passes on
+                // presence (primary operator at the rig) OR the owner-declared
+                // per-radio remote waiver (Settings > Radios) — a remote-base owner
+                // is never at their radio and must not be locked out of it.
+                string? declineNote = null;
+                _rig.RequirePortSettingsAuthority(
+                    reason: "change SmartLink port settings",
+                    onConfirmed: () =>
                     {
-                        ScreenReaderOutput.Speak("Apply cancelled.", VerbosityLevel.Terse, interrupt: true);
-                        return;
-                    }
-                    PerformPortForwardApply(enabled, tcp, udp);
-                });
+                        // Confirmation dialog with default focus on No for conservative safety.
+                        var confirm = new ConfirmPortForwardApplyDialog(wantEnabled, tcp, udp);
+                        confirm.Owner = this;
+                        if (confirm.ShowDialog() != true)
+                        {
+                            declineNote = "Port forwarding was left unchanged — you answered No to its confirmation.";
+                            return;
+                        }
+                        if (PerformPortForwardApply(wantEnabled, tcp, udp))
+                            applied.Add(NetworkCurrentStateText.Text);
+                        else
+                            declineNote = "The port forwarding command failed. See the trace file for details.";
+                    },
+                    onDenied: () =>
+                    {
+                        declineNote = "Port settings were not changed: you must be the primary operator at " +
+                            "the radio, or turn on allowing port changes from remote connections, on the " +
+                            "Radios tab.";
+                    });
+                if (declineNote != null)
+                {
+                    NetworkCurrentStateText.Text = declineNote;
+                    queued.Add(declineNote);
+                }
+            }
+
+            // The connection-mode ladder is an account preference, not radio
+            // state — it needs no authority gate, and before this it was only
+            // saved as a side effect of the port-forward button, so a
+            // tier-only change was discarded by OK. Same defect, same fix.
+            if (_rig.HasCurrentSmartLinkAccount)
+            {
+                var uiMode = GetCurrentConnectionMode();
+                if (_rig.CurrentAccountConnectionMode != uiMode
+                    && _rig.SaveCurrentAccountConnectionMode(uiMode))
+                {
+                    applied.Add($"SmartLink connection mode saved for {_rig.CurrentSmartLinkAccountEmail}.");
+                }
+            }
+            return true;
         }
 
         /// <summary>
         /// Sprint 28 Phase 7 — extracted Apply body so both the guarded entrypoint
-        /// and any future Apply callers reuse the same commit logic.
+        /// and any future Apply callers reuse the same commit logic. Returns
+        /// true when the radio accepted the command.
         /// </summary>
-        private void PerformPortForwardApply(bool enabled, int tcp, int udp)
+        private bool PerformPortForwardApply(bool enabled, int tcp, int udp)
         {
             bool ok = _rig.SetSmartLinkPortForwarding(enabled, tcp, udp);
             if (ok)
@@ -644,8 +726,12 @@ namespace JJFlexWpf.Dialogs
                     _rig.SaveCurrentAccountConnectionMode(desiredMode);
                 }
 
+                // Track C wording fix: the radio does NOT listen on the applied
+                // ports — they are the external ports it advertises. The router
+                // recipe names the real radio-side ports (4994 TCP / 4993 UDP).
                 string baseMessage = enabled
-                    ? $"Applied. Radio now listens on TCP {tcp}, UDP {udp}. Configure your router to forward these ports to the radio's LAN IP."
+                    ? $"Applied. The radio now advertises external TCP port {tcp} and UDP port {udp} for SmartLink. "
+                      + DescribeRouterMapping(tcp, udp)
                     : "Applied. Port forwarding disabled on the radio.";
                 string prefSuffix = savedPreference
                     ? (enabled
@@ -662,6 +748,7 @@ namespace JJFlexWpf.Dialogs
                 NetworkCurrentStateText.Text = "Command failed. See trace file for details.";
                 ScreenReaderOutput.Speak("Command failed.", VerbosityLevel.Terse, interrupt: true);
             }
+            return ok;
         }
 
         /// <summary>
@@ -706,7 +793,10 @@ namespace JJFlexWpf.Dialogs
                 ScreenReaderOutput.Speak($"Port {port} valid but often used by {conflictHint}.", VerbosityLevel.Terse, interrupt: true);
                 return;
             }
-            NetworkCurrentStateText.Text = $"Port {port} is valid. Remember to forward it on your router to the radio's LAN IP address, TCP and UDP.";
+            NetworkCurrentStateText.Text =
+                $"Port {port} is valid. Remember the two router rules: forward external TCP port {port} to the " +
+                $"radio's LAN IP at port {FlexBase.SmartLinkRadioTlsPort}, and external UDP port {port} to the " +
+                $"radio's LAN IP at port {FlexBase.SmartLinkRadioUdpPort}.";
             ScreenReaderOutput.Speak($"Port {port} is valid.", VerbosityLevel.Terse, interrupt: true);
         }
 
@@ -971,6 +1061,7 @@ namespace JJFlexWpf.Dialogs
             {
                 MessageBox.Show("Timeout must be between 10 and 900 seconds.",
                     "Settings", MessageBoxButton.OK, MessageBoxImage.Warning);
+                SelectTabByHeader("PTT");  // Track C papercut: focusing a field on an unselected tab fails silently
                 PttTimeoutBox.Focus();
                 return false;
             }
@@ -979,6 +1070,7 @@ namespace JJFlexWpf.Dialogs
             {
                 MessageBox.Show("First warning must be a number.",
                     "Settings", MessageBoxButton.OK, MessageBoxImage.Warning);
+                SelectTabByHeader("PTT");  // Track C papercut: focusing a field on an unselected tab fails silently
                 PttWarning1Box.Focus();
                 return false;
             }
@@ -987,6 +1079,7 @@ namespace JJFlexWpf.Dialogs
             {
                 MessageBox.Show("Second warning must be a number.",
                     "Settings", MessageBoxButton.OK, MessageBoxImage.Warning);
+                SelectTabByHeader("PTT");  // Track C papercut: focusing a field on an unselected tab fails silently
                 PttWarning2Box.Focus();
                 return false;
             }
@@ -995,6 +1088,7 @@ namespace JJFlexWpf.Dialogs
             {
                 MessageBox.Show("Final warning must be a number.",
                     "Settings", MessageBoxButton.OK, MessageBoxImage.Warning);
+                SelectTabByHeader("PTT");  // Track C papercut: focusing a field on an unselected tab fails silently
                 PttOhCrapBox.Focus();
                 return false;
             }
@@ -1003,6 +1097,7 @@ namespace JJFlexWpf.Dialogs
             {
                 MessageBox.Show("ALC auto-release must be 0 (disabled) or between 10 and 300 seconds.",
                     "Settings", MessageBoxButton.OK, MessageBoxImage.Warning);
+                SelectTabByHeader("PTT");  // Track C papercut: focusing a field on an unselected tab fails silently
                 PttAlcBox.Focus();
                 return false;
             }
@@ -1140,13 +1235,92 @@ namespace JJFlexWpf.Dialogs
             return true;
         }
 
+        /// <summary>
+        /// Wired by NativeMenuBar. Runs after every successful commit — OK and
+        /// Apply alike — and owns the app-side application and persistence that
+        /// used to happen only after ShowDialog returned true (tuning steps to
+        /// the handler, configs to disk). Without this, Apply-and-stay would
+        /// save nothing until the dialog closed, which is the exact
+        /// silently-not-kept defect this convention exists to end.
+        /// </summary>
+        public Action? SettingsApplied { get; set; }
+
+        /// <summary>
+        /// The whole commit, shared by OK and Apply (Track C: OK applies and
+        /// closes, Apply applies and stays, Cancel discards — the same pair on
+        /// every settings screen). Validation-first: returns false with focus
+        /// on the offending field and nothing half-committed.
+        ///
+        /// Queued intents get their own voice: anything that cannot take
+        /// effect until a connection is reported plainly instead of implying
+        /// it happened. On OK the report is an OK-only dialog — the window is
+        /// about to close, and speech alone is ephemeral, never reaches
+        /// braille, and can be cut off. On Apply the dialog stays open, so the
+        /// tab status lines hold the re-readable detail and one summary is
+        /// spoken.
+        /// </summary>
+        private bool ApplyAllSettings(bool closing)
+        {
+            if (!SaveSettings()) return false;
+
+            var queued = new List<string>();   // saved, but waits for a connection (or was declined)
+            var applied = new List<string>();  // done now
+
+            if (!CommitRadioProfiles(queued, applied)) return false;
+            CommitSetupRadioNameIfDirty(applied);
+            if (!CommitPortForwardIfDirty(queued, applied)) return false;
+
+            SettingsApplied?.Invoke();
+
+            if (closing)
+            {
+                if (queued.Count > 0)
+                {
+                    var body = new System.Text.StringBuilder(
+                        "Everything you set was saved. These items cannot take effect yet:");
+                    foreach (var note in queued)
+                    {
+                        body.AppendLine();
+                        body.AppendLine();
+                        body.Append(note);
+                    }
+                    if (applied.Count > 0)
+                    {
+                        body.AppendLine();
+                        body.AppendLine();
+                        body.Append("Done right away: " + string.Join(" ", applied));
+                    }
+                    AdvisoryDialog.Show("Saved — Some Items Wait", body.ToString());
+                }
+                else
+                {
+                    ScreenReaderOutput.Speak("Settings saved.", VerbosityLevel.Terse, interrupt: true);
+                }
+            }
+            else
+            {
+                string summary = "Settings applied.";
+                if (queued.Count > 0)
+                    summary += " Waiting: " + string.Join(" ", queued);
+                else if (applied.Count > 0)
+                    summary += " " + string.Join(" ", applied);
+                ScreenReaderOutput.Speak(summary, VerbosityLevel.Terse, interrupt: true);
+            }
+            return true;
+        }
+
         private void OkButton_Click(object sender, RoutedEventArgs e)
         {
-            if (SaveSettings())
+            if (ApplyAllSettings(closing: true))
             {
                 DialogResult = true;
                 Close();
             }
+        }
+
+        private void ApplyButton_Click(object sender, RoutedEventArgs e)
+        {
+            ApplyAllSettings(closing: false);
         }
 
         private void CancelButton_Click(object sender, RoutedEventArgs e)

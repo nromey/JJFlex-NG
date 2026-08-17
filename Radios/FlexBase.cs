@@ -577,22 +577,51 @@ namespace Radios
 
         // --- SmartLink manual port forwarding (Sprint 27 preview) ---
 
+        /// <summary>
+        /// The fixed TCP (TLS) port the radio itself listens on for SmartLink
+        /// connections, on its LAN address. Router rule: external TCP port →
+        /// radio's LAN IP, port 4994. Source: FlexRadio's own SmartLink
+        /// port-forwarding setup guidance, confirmed live 2026-08-14 (Don's
+        /// 6300: external 25678 TCP → 192.168.50.100:4994 answered). Distinct
+        /// from the LAN-discovery path's TCP 4992 / UDP 4991 — do not
+        /// generalize one set into the other.
+        /// </summary>
+        public const int SmartLinkRadioTlsPort = 4994;
+
+        /// <summary>
+        /// The fixed UDP port the radio itself listens on for SmartLink audio
+        /// and data, on its LAN address. Router rule: external UDP port →
+        /// radio's LAN IP, port 4993. Same sourcing as
+        /// <see cref="SmartLinkRadioTlsPort"/>.
+        /// </summary>
+        public const int SmartLinkRadioUdpPort = 4993;
+
         /// <summary>True when the radio has manual port forwarding configured.</summary>
         public bool PortForwardingEnabled => theRadio?.IsPortForwardOn ?? false;
 
-        /// <summary>The TCP port the radio is listening on for SmartLink, or -1 if none.</summary>
+        /// <summary>The external (public) TCP port the radio advertises for SmartLink, or -1 if none.</summary>
         public int PortForwardingTcpPort => theRadio?.PublicTlsPort ?? -1;
 
-        /// <summary>The UDP port the radio is listening on for SmartLink, or -1 if none.</summary>
+        /// <summary>The external (public) UDP port the radio advertises for SmartLink, or -1 if none.</summary>
         public int PortForwardingUdpPort => theRadio?.PublicUdpPort ?? -1;
 
         /// <summary>
         /// Configure SmartLink manual port forwarding on the radio's firmware.
         /// The setting persists in the radio until changed again. Works when connected
         /// locally (LAN) or remotely. Radio must be connected.
-        /// When enabled, the radio listens on <paramref name="tcpPort"/> and
-        /// <paramref name="udpPort"/>; the router must forward those ports to the
-        /// radio's LAN IP for external clients to connect.
+        ///
+        /// <para><paramref name="tcpPort"/> and <paramref name="udpPort"/> are the
+        /// EXTERNAL (router WAN side) ports the radio advertises to SmartLink —
+        /// the underlying command is <c>wan set public_tls_port / public_udp_port</c>.
+        /// The radio does NOT listen on these ports. It always listens on its LAN
+        /// address at TCP <see cref="SmartLinkRadioTlsPort"/> (4994) and UDP
+        /// <see cref="SmartLinkRadioUdpPort"/> (4993), so the router rules are:
+        /// external <paramref name="tcpPort"/> TCP → radio LAN IP port 4994, and
+        /// external <paramref name="udpPort"/> UDP → radio LAN IP port 4993.</para>
+        ///
+        /// <para>This comment previously claimed the radio listens on the ports you
+        /// pass in. That was wrong and misled a live debugging session (2026-08-14);
+        /// see docs/planning/for-noel/2026-08-14-don-6300-rf-truth-test.md.</para>
         /// </summary>
         public bool SetSmartLinkPortForwarding(bool enabled, int tcpPort, int udpPort)
         {
@@ -614,6 +643,28 @@ namespace Radios
             {
                 Tracing.TraceLine($"SetSmartLinkPortForwarding failed: {ex.Message}", TraceLevel.Error);
                 return false;
+            }
+        }
+
+        /// <summary>
+        /// The radio's REM ON remote-power RCA jack enable (Track C, settings
+        /// that stick). Radio-persistent: <c>radio set remote_on_enabled</c>.
+        /// Hardware prerequisite the UI must state wherever this is offered:
+        /// enabling it does nothing unless the RCA jack is actually wired to a
+        /// relay. False when no radio is connected.
+        /// </summary>
+        public bool RemoteOnEnabled
+        {
+            get => theRadio?.RemoteOnEnabled ?? false;
+            set
+            {
+                if (theRadio == null)
+                {
+                    Tracing.TraceLine("RemoteOnEnabled set: no radio connected", TraceLevel.Warning);
+                    return;
+                }
+                theRadio.RemoteOnEnabled = value;
+                Tracing.TraceLine($"RemoteOnEnabled set: {value}", TraceLevel.Info);
             }
         }
 
