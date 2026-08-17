@@ -1,6 +1,6 @@
 # Track D1 — Make the Live Meters readout navigable
 
-**Worktree:** `C:\dev\jjflex-d1` · **Branch:** `bsr/track-d1` · **Model:** Sonnet
+**Worktree:** `C:\dev\jjflex-d1` · **Branch:** `bsr/track-d1` · **Model:** Fable
 
 **Read first:** `docs/planning/active/barefoot-splatter-ragchew.md`, "Track D"
 sections "What actually exists today" and "D1 — Make the readout navigable".
