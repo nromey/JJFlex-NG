@@ -109,6 +109,8 @@ Outside the workshop, `Ctrl+Space` is push-to-talk (transmit while held) and `Sh
 
 S-Meter, forward power, SWR, mic audio, TX drive (ALC), amp ALC, PA temperature, and supply voltage, refreshed twice a second while the tab is open. Every reading is a read-only field now: Tab through them, or press F6 to hop between the Receiver, Transmit, and Hardware groups, and read any meter at your own pace with your screen reader's review commands. The meters no longer announce themselves as they change — when you want a value, go ask the field that holds it. During an Audio Check, mic audio and TX drive are the two worth watching — and the transmit health watcher still speaks up on its own if the mic looks silent or the ALC is pegging.
 
+Forward power is shown two ways on purpose: in dBm, which is what the radio itself reports, and in watts alongside it. The watts figure carries decimals when it needs them, so a fraction of a watt reads as a fraction of a watt instead of rounding away to nothing — which matters if you drive a transverter or work QRP, where a fraction of a watt is the normal operating point rather than a fault.
+
 ## The Earcon Explorer tab
 
 Every sound the application makes, each behind a button so you can learn them at your own pace — meter tones, transmit start and stop, the filter sounds, the warning ladder.

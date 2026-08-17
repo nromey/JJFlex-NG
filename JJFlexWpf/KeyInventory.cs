@@ -152,8 +152,8 @@ public static class KeyInventory
             new[] { "step", "speak", "coarse", "fine" }),
 
         // ── S Meter field ──
-        new("SMeter", "S Meter field", "Space", "Speak the current S meter reading",
-            new[] { "s meter", "signal", "speak", "read" }),
+        new("SMeter", "S Meter field", "Space", "Speak the current S meter reading, or forward power while transmitting",
+            new[] { "s meter", "signal", "speak", "read", "power", "watts" }),
 
         // ── Squelch field ──
         new("Squelch", "Squelch field", "Space, Up, Down, or Q", "Toggle squelch on or off",

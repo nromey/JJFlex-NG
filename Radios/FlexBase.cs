@@ -3080,7 +3080,27 @@ namespace Radios
             public string Longitude { get; set; } = string.Empty;
             public string Altitude { get; set; } = string.Empty;
             public string UtcTime { get; set; } = string.Empty;
+
+            /// <summary>
+            /// The GPS receiver's own frequency-error text, passed through
+            /// verbatim. NOT the same figure as <see cref="FreqErrorPpb"/>, and
+            /// deliberately not given a unit here — the radio supplies this as
+            /// free text and inventing a unit for it would be exactly the kind
+            /// of confident wrong readout this work exists to remove.
+            /// </summary>
             public string FreqError { get; set; } = string.Empty;
+
+            /// <summary>
+            /// The radio's clock correction in parts per billion
+            /// (<c>freq_error_ppb</c>). This is the reference's accuracy figure:
+            /// how far off the radio believes its own oscillator is, and how
+            /// much it is compensating. Zero is a real answer meaning no
+            /// correction applied, not a missing one — FlexLib exposes an int
+            /// with no reported/not-reported distinction, so we do not invent
+            /// one.
+            /// </summary>
+            public int FreqErrorPpb { get; set; }
+
             public string Speed { get; set; } = string.Empty;
         }
 
@@ -3119,6 +3139,7 @@ namespace Radios
                 s.Altitude = r.GPSAltitude ?? string.Empty;
                 s.UtcTime = r.GPSUtcTime ?? string.Empty;
                 s.FreqError = r.GPSFreqError ?? string.Empty;
+                s.FreqErrorPpb = r.FreqErrorPPB;
                 s.Speed = r.GPSSpeed ?? string.Empty;
             }
             catch (Exception ex)
@@ -3147,6 +3168,11 @@ namespace Radios
                 ? "Reference locked."
                 : "Reference not locked.");
 
+            // The accuracy figure, right next to lock, because the two together
+            // are the whole answer to "is my reference any good". Lock says the
+            // radio is disciplined; PPB says how well. Zero is a real answer.
+            parts.Add(FormatFreqErrorPpb(s.FreqErrorPpb) + ".");
+
             if (!string.IsNullOrWhiteSpace(s.Status))
                 parts.Add($"GPS status {s.Status}.");
 
@@ -3163,6 +3189,19 @@ namespace Radios
                 parts.Add($"Grid {s.Grid}.");
 
             return string.Join(" ", parts);
+        }
+
+        /// <summary>
+        /// The clock correction as a spoken phrase. Singular is worth the two
+        /// lines: "1 parts per billion" through a screen reader is the kind of
+        /// small wrongness that makes an instrument sound careless.
+        /// </summary>
+        public static string FormatFreqErrorPpb(int ppb)
+        {
+            if (ppb == 0) return "No clock correction applied";
+            int magnitude = Math.Abs(ppb);
+            return "Clock correction " + ppb + (magnitude == 1 ? " part" : " parts")
+                + " per billion";
         }
 
         /// <summary>
@@ -6836,13 +6875,86 @@ namespace Radios
             //if ((UpdateConfiguredTNFs != null) & !Closing) UpdateConfiguredTNFs(tnf, true);
         }
 
+        /// <summary>
+        /// dBm to whole watts. <b>Currently has no callers</b> — as of
+        /// 2026-08-16 nothing in the repo invokes it — and it is the rounding
+        /// this track exists to remove. Use <see cref="DBmToWatts"/>. Left in
+        /// place only because deleting a protected member of a shared base
+        /// class is a structural change; delete it once no track is in flight.
+        /// </summary>
         protected int DBmToPower(float dbm)
         {
-            return (int)((Math.Pow(10d, (double)(dbm / 10)) / 1000) + 0.5);
+            return (int)(DBmToWatts(dbm) + 0.5f);
         }
-        protected float _PowerDBM;
+
+        /// <summary>
+        /// dBm to watts, without rounding to an integer. The whole reason this
+        /// exists separately from <see cref="DBmToPower"/>.
+        /// </summary>
+        public static float DBmToWatts(float dbm)
+        {
+            return (float)(Math.Pow(10d, dbm / 10d) / 1000d);
+        }
+
+        // -150 dBm, not 0. Zero dBm is one milliwatt — a real, legitimate
+        // reading — so a field defaulting to 0 claims the radio is making
+        // power before any meter data has arrived. -150 matches the idle
+        // value the SC_MIC / SW ALC fields already use for "nothing yet".
+        protected float _PowerDBM = -150f;
         /// <summary>Forward power in dBm (raw from FlexLib).</summary>
         public float PowerDBM => _PowerDBM;
+
+        /// <summary>
+        /// Forward power in WATTS, as a float.
+        /// <para>Exists because <see cref="SMeter"/> returns <c>int</c>, and on
+        /// transmit it converts dBm to watts and truncates. Measured on a
+        /// FLEX-8600 on 2026-08-16 with the radio's power set to its default of
+        /// zero: three consecutive keyed samples read 17.0, 22.4 and 18.7 dBm —
+        /// 50, 174 and 74 milliwatts of real RF leaving the radio — and all
+        /// three displayed as <c>0 watts</c>, indistinguishable from not
+        /// transmitting at all. Sub-watt is the normal operating point for
+        /// transverter and QRP work, not a fault, so the instrument has to be
+        /// able to show it.</para>
+        /// <para><see cref="SMeter"/> is dual-purpose — watts on transmit,
+        /// S-units on receive — and its S-unit callers legitimately want
+        /// integers, so its contract is deliberately left alone. Transmit
+        /// display paths use this instead.</para>
+        /// </summary>
+        public float ForwardPowerWatts => DBmToWatts(_PowerDBM);
+
+        /// <summary>
+        /// Forward power for a narrow display field — the Home S-meter column
+        /// is four characters wide.
+        /// <para>Precision follows magnitude: a hundred watts does not need
+        /// decimals, and sub-watt is nothing BUT decimals. Under one watt the
+        /// leading zero is dropped (".050", ".174") so three decimals still fit
+        /// four columns, which is milliwatt resolution — enough for every drive
+        /// level a transverter asks for.</para>
+        /// </summary>
+        public static string FormatForwardPowerCompact(float watts)
+        {
+            if (float.IsNaN(watts) || watts < 0.0005f) return "0";
+            if (watts >= 100f) return watts.ToString("F0");   // "100", "1500"
+            if (watts >= 1f) return watts.ToString("F1");     // "5.2", "12.5"
+            string s = watts.ToString("F3");                  // "0.050"
+            return s.Length > 1 && s[0] == '0' ? s.Substring(1) : s; // ".050"
+        }
+
+        /// <summary>
+        /// Forward power for speech and for status text, with its unit.
+        /// Same precision-follows-magnitude rule as
+        /// <see cref="FormatForwardPowerCompact"/>, minus the four-column
+        /// squeeze — so the leading zero stays (it reads better) and trailing
+        /// zeros go ("0.05 watts", not "0.050 watts").
+        /// </summary>
+        public static string FormatForwardPowerSpoken(float watts)
+        {
+            if (float.IsNaN(watts) || watts < 0.0005f) return "0 watts";
+            if (watts >= 100f) return watts.ToString("F0") + " watts";
+            if (watts >= 1f) return watts.ToString("F1") + " watts";
+            string s = watts.ToString("F3").TrimEnd('0');
+            return s + " watts";
+        }
 
         private void forwardPowerData(float data)
         {
@@ -6879,8 +6991,10 @@ namespace Radios
         private void micData(float data)
         {
             _MicData = data;
-            hookTxMeters(); // lazy: SC_MIC / SW ALC meters exist by the first mic-meter event
+            // Inventory first so the trace reads in order: what the radio has,
+            // then which of the two TX meters we managed to hook out of it.
             traceMeterInventory(); // cheap no-op unless the meter count has changed
+            hookTxMeters(); // lazy: SC_MIC / SW ALC meters register late
             Tracing.TraceLine("micData:" + data.ToString(), TraceLevel.Verbose);
             MeterChanged?.Invoke(this, MeterType.Mic, data);
         }
@@ -6932,7 +7046,18 @@ namespace Radios
         //     HWALC, the external-amp jack).
         // Proven with a two-source meter truth table on the bench 2026-08-11.
         // All values dBFS.
-        private bool _txMetersHooked;
+        // Tracked independently, one flag per meter. They used to share a
+        // single "hooked" flag that was only set when BOTH were found, so a
+        // radio reporting one and not the other re-subscribed to the one it
+        // DID find on every subsequent mic-meter event — an unbounded handler
+        // leak, with every event firing N times and N growing forever. On the
+        // bench 8600 both meters arrive in the same instant so it never bit
+        // (two "NOT FOUND" passes, then "found, found"), which is exactly why
+        // it survived: the failure needs a radio we have not tested on.
+        private bool _scMicHooked;
+        private bool _swAlcHooked;
+        private bool _txMetersHooked => _scMicHooked && _swAlcHooked;
+        private string _txMeterHookState = "";
         private float _scMicDb = -150f, _scMicMaxDb = -150f, _swAlcDb = -150f;
         private float _scMicRecentDb = -150f;
         private int _scMicRecentTime;
@@ -6971,17 +7096,30 @@ namespace Radios
         /// worse option: every edit has to be re-applied by hand on each upgrade
         /// (see MIGRATION.md). Treat this as scaffolding — a meter picker that
         /// offers what the radio really has needs a proper accessor, and that is
-        /// a documented FlexLib patch rather than this.</para>
+        /// a documented FlexLib patch rather than this. MIGRATION.md carries the
+        /// exact patch, reviewed 2026-08-16.</para>
         /// </summary>
+        /// <remarks>
+        /// Called from <c>micData</c> on every mic-meter event, so the cheap
+        /// count comparison below is load-bearing, not an optimisation.
+        /// </remarks>
         private void traceMeterInventory()
         {
             if (theRadio == null) return;
             try
             {
-                var field = theRadio.GetType().GetField("_meters",
-                    System.Reflection.BindingFlags.NonPublic |
-                    System.Reflection.BindingFlags.Instance);
-                if (field?.GetValue(theRadio) is not IEnumerable raw)
+                // Resolved once. This runs at meter rate, and a GetField by
+                // string on every call is a name lookup per mic-meter event
+                // for a value that cannot change within a process.
+                if (!_meterListFieldResolved)
+                {
+                    _meterListFieldResolved = true;
+                    _meterListField = theRadio.GetType().GetField("_meters",
+                        System.Reflection.BindingFlags.NonPublic |
+                        System.Reflection.BindingFlags.Instance);
+                }
+
+                if (_meterListField?.GetValue(theRadio) is not IEnumerable raw)
                 {
                     if (_meterInventoryCount == -1)
                         Tracing.TraceLine(
@@ -6996,29 +7134,42 @@ namespace Radios
                 // turned out to snapshot the radio mid-registration: eleven
                 // meters, with the TX-side ones still to arrive. A truncated
                 // census is worse than none, because the meters subsystem is
-                // being designed against exactly this list. O(1) count check, so
-                // calling it from micData costs nothing on the common path.
-                if (raw is ICollection col && col.Count == _meterInventoryCount) return;
-
-                int n = 0;
-                // FlexLib guards this list with `lock (_meters)`, i.e. it locks
-                // the instance itself — so locking the same reference is the
-                // real handshake rather than a hopeful one.
+                // being designed against exactly this list.
+                //
+                // Snapshot under FlexLib's lock, then trace OUTSIDE it. FlexLib
+                // guards this list with `lock (_meters)`, locking the instance
+                // itself, so locking the same reference is a real handshake
+                // rather than a hopeful one — but 102 TraceLine calls are 102
+                // file writes, and holding the radio's meter lock across them
+                // stalls every meter update and every FindMeterByName in the
+                // radio, at exactly the moment the TX meters are registering.
+                List<Meter> snapshot;
                 lock (raw)
                 {
+                    // The common path: nothing changed, nothing allocated.
+                    if (raw is ICollection col && col.Count == _meterInventoryCount) return;
+
+                    snapshot = new List<Meter>();
                     foreach (var o in raw)
-                    {
-                        if (o is not Meter m) continue;
-                        n++;
-                        Tracing.TraceLine("meterInventory: [" + m.Index + "] " + m.Name
-                            + " \"" + m.Description + "\""
-                            + " src=" + m.Source + ":" + m.SourceIndex
-                            + " range=" + m.Low + ".." + m.High
-                            + " units=" + m.Units, TraceLevel.Info);
-                    }
+                        if (o is Meter m) snapshot.Add(m);
                 }
-                _meterInventoryCount = n;
-                Tracing.TraceLine("meterInventory: " + n + " meters reported", TraceLevel.Info);
+
+                // Second guard, for the case where the list is not an
+                // ICollection: without it an unchanged inventory would re-log
+                // in full on every mic-meter event.
+                if (snapshot.Count == _meterInventoryCount) return;
+                _meterInventoryCount = snapshot.Count;
+
+                foreach (var m in snapshot)
+                {
+                    Tracing.TraceLine("meterInventory: [" + m.Index + "] " + m.Name
+                        + " \"" + m.Description + "\""
+                        + " src=" + m.Source + ":" + m.SourceIndex
+                        + " range=" + m.Low + ".." + m.High
+                        + " units=" + m.Units, TraceLevel.Info);
+                }
+                Tracing.TraceLine("meterInventory: " + snapshot.Count + " meters reported",
+                    TraceLevel.Info);
             }
             catch (Exception ex)
             {
@@ -7026,22 +7177,48 @@ namespace Radios
             }
         }
 
+        private static System.Reflection.FieldInfo _meterListField;
+        private static bool _meterListFieldResolved;
+
+        /// <summary>
+        /// Subscribe to SC_MIC and SW ALC, lazily — the TX meters register
+        /// late, so this retries on each mic-meter event until both are found.
+        /// <para>Each meter is claimed at most once, and only ever looked up
+        /// while it is still missing. Anything else re-subscribes the meter
+        /// that IS present every time the retry runs.</para>
+        /// </summary>
         private void hookTxMeters()
         {
             if (_txMetersHooked || theRadio == null) return;
-            traceMeterInventory();
-            var sc = theRadio.FindMeterByName("SC_MIC");
-            var alc = theRadio.FindMeterByName("ALC");
-            if (sc != null) sc.DataReady += (m, d) =>
+
+            // Look up only what is still missing, and claim it in the same
+            // step as subscribing so a retry can never double-hook it.
+            if (!_scMicHooked)
             {
-                _scMicDb = d;
-                if (d > _scMicMaxDb) _scMicMaxDb = d;
-                int now = System.Environment.TickCount;
-                if (d >= _scMicRecentDb || (now - _scMicRecentTime) > 1500) { _scMicRecentDb = d; _scMicRecentTime = now; }
-                traceTxMeters();
-            };
-            if (alc != null) alc.DataReady += (m, d) => { _swAlcDb = d; traceTxMeters(); };
-            if (sc != null && alc != null) _txMetersHooked = true;
+                var sc = theRadio.FindMeterByName("SC_MIC");
+                if (sc != null)
+                {
+                    _scMicHooked = true;
+                    sc.DataReady += (m, d) =>
+                    {
+                        _scMicDb = d;
+                        if (d > _scMicMaxDb) _scMicMaxDb = d;
+                        int now = System.Environment.TickCount;
+                        if (d >= _scMicRecentDb || (now - _scMicRecentTime) > 1500) { _scMicRecentDb = d; _scMicRecentTime = now; }
+                        traceTxMeters();
+                    };
+                }
+            }
+
+            if (!_swAlcHooked)
+            {
+                var alc = theRadio.FindMeterByName("ALC");
+                if (alc != null)
+                {
+                    _swAlcHooked = true;
+                    alc.DataReady += (m, d) => { _swAlcDb = d; traceTxMeters(); };
+                }
+            }
 
             // Say plainly which of the two we actually found. On a FLEX-8600 the
             // radio's meter list carries MIC, MICPEAK and HWALC — a plain "ALC"
@@ -7049,8 +7226,19 @@ namespace Radios
             // "TX drive (ALC)" readout shows a number that will never change,
             // silently. Whichever way it goes, the trace should not make anyone
             // guess.
-            Tracing.TraceLine("hookTxMeters: SC_MIC " + (sc != null ? "found" : "NOT FOUND")
-                + ", ALC " + (alc != null ? "found" : "NOT FOUND"), TraceLevel.Info);
+            //
+            // Only when the answer CHANGES, though. This retry runs on every
+            // mic-meter event, so an unconditional line here traces at meter
+            // rate forever on a radio missing one of the two — the same flood
+            // fixed in startOpusInputChannel, from a different direction.
+            string state = (_scMicHooked ? "found" : "NOT FOUND")
+                + "|" + (_swAlcHooked ? "found" : "NOT FOUND");
+            if (state != _txMeterHookState)
+            {
+                _txMeterHookState = state;
+                Tracing.TraceLine("hookTxMeters: SC_MIC " + (_scMicHooked ? "found" : "NOT FOUND")
+                    + ", ALC " + (_swAlcHooked ? "found" : "NOT FOUND"), TraceLevel.Info);
+            }
         }
 
         private int _txMeterTraceTime;
@@ -7297,7 +7485,17 @@ namespace Radios
         /// <summary>
         /// Calibrated S-Meter/power
         /// </summary>
-        /// <remarks>Smeter and forward power are in DBM.</remarks>
+        /// <remarks>
+        /// <para>Dual-purpose: S-units (or dBm) on receive, whole watts on
+        /// transmit. The S-unit callers legitimately want an integer, so the
+        /// contract stays as it is.</para>
+        /// <para><b>Do not use the transmit branch for a power readout.</b> It
+        /// truncates, so anything under half a watt reads 0 — the same as not
+        /// transmitting. Use <see cref="ForwardPowerWatts"/> with
+        /// <see cref="FormatForwardPowerCompact"/> or
+        /// <see cref="FormatForwardPowerSpoken"/>. The branch is kept only so
+        /// existing integer callers keep compiling.</para>
+        /// </remarks>
         private int _SMeter;
         public int SMeter
         {
@@ -7305,8 +7503,8 @@ namespace Radios
             {
                 if (Transmit)
                 {
-                    // Show forward power = exp(10, (dbm/10)) / 1000
-                    return (int)((Math.Pow(10d, (double)(_PowerDBM / 10)) / 1000) + 0.5);
+                    // Whole watts. See the remarks above before reusing this.
+                    return (int)(DBmToWatts(_PowerDBM) + 0.5f);
                 }
                 else
                 {
@@ -9762,7 +9960,20 @@ namespace Radios
         public string MicSource
         {
             get { return theRadio?.MicInput ?? ""; }
-            set { q.Enqueue((FunctionDel)(() => { theRadio.MicInput = value; }), "MicInput"); }
+            set
+            {
+                // An operator choosing a source through JJ Flex is intent, not
+                // drift, so move what checkPcMicSelection expects along with
+                // them: a deliberate switch to the analog mic is then honoured
+                // in silence rather than fought and warned about. Only
+                // meaningful while the PC audio channel is actually running —
+                // that channel is what set the selection to PC to begin with.
+                _pcMicExpected = opusOutputChannel != null
+                    && opusOutputChannel.Started
+                    && string.Equals(value, "PC", StringComparison.OrdinalIgnoreCase);
+                _pcMicDiverged = false;
+                q.Enqueue((FunctionDel)(() => { theRadio.MicInput = value; }), "MicInput");
+            }
         }
 
         /// <summary>
@@ -11510,6 +11721,9 @@ namespace Radios
                     if (Transmit)
                     {
                         startOpusInputChannel(); // only starts it once
+                        // Never stream transmit audio into a closed gate
+                        // without saying so. Throttled internally.
+                        checkPcMicSelection();
                     }
                     else
                     {
@@ -11714,6 +11928,10 @@ namespace Radios
                 if (opusOutputChannel.Started) return true;
                 oldMicInput = theRadio.MicInput;
                 theRadio.MicInput = "PC";
+                // Remember that WE asked for PC, so the loop can tell a silent
+                // revert from a deliberate operator choice. See
+                // checkPcMicSelection.
+                _pcMicExpected = true;
                 opusOutputChannel.OpusChannel.RXGain = 50;
                 opusOutputChannel.Started = opusOutputChannel.PortAudioStream.StartAudio();
                 if (!opusOutputChannel.Started)
@@ -11732,6 +11950,7 @@ namespace Radios
             {
                 opusOutputChannel.OpusChannel.RxMute = true;
                 if (!opusOutputChannel.Started) return;
+                _pcMicExpected = false; // we no longer own the mic selection
                 try
                 {
                     theRadio.MicInput = oldMicInput;
@@ -11743,18 +11962,109 @@ namespace Radios
             }
         }
 
+        // --- mic_selection assertion (Track B, 2026-08-16) --------------------
+        //
+        // The arc's thesis in one line: never stream transmit audio into a
+        // closed gate without saying so.
+        //
+        // startOpusOutputChannel sets the radio's mic input to PC exactly once.
+        // Nothing re-asserts it and nothing checks it, so a profile load
+        // afterwards silently hands the transmitter back to the analog mic
+        // jack while the PC audio path keeps encoding and sending. The operator
+        // transmits, hears their own monitor, sees no warning, and puts out
+        // nothing — which is precisely the shape of the 2026-08-14 session.
+        //
+        // Deliberately NOT a blind re-assert. Choosing the analog mic while PC
+        // audio runs is a legitimate configuration (the Audio Workshop offers
+        // it, and TxTonePathTrouble describes it as a normal state), so a
+        // divergence the operator caused through JJ Flex is respected in
+        // silence. _pcMicExpected records only what WE last asked for; it is
+        // cleared when the operator picks something else through MicSource, so
+        // the warning fires for reverts we did not make and nothing else.
+        private volatile bool _pcMicExpected;
+        private int _pcMicCheckTime;
+        private bool _pcMicDiverged;
+
+        /// <summary>
+        /// While PC transmit audio is running, verify the radio still has its
+        /// mic input set to PC — and if it has drifted behind our back, say so
+        /// out loud and put it back.
+        /// <para>Called from the transmit branch of the remote-audio loop and
+        /// throttled to about once a second: the check is a cached property
+        /// read, but the recovery is a radio command and the announcement is
+        /// speech, neither of which belongs on a per-poll path.</para>
+        /// </summary>
+        private void checkPcMicSelection()
+        {
+            if (!_pcMicExpected || theRadio == null) return;
+
+            int now = System.Environment.TickCount;
+            if ((now - _pcMicCheckTime) < 1000) return;
+            _pcMicCheckTime = now;
+
+            string current = theRadio.MicInput ?? "";
+            if (string.Equals(current, "PC", StringComparison.OrdinalIgnoreCase))
+            {
+                if (_pcMicDiverged)
+                {
+                    _pcMicDiverged = false;
+                    Tracing.TraceLine("checkPcMicSelection: mic selection is PC again",
+                        TraceLevel.Info);
+                }
+                return;
+            }
+
+            if (_pcMicDiverged) return; // already reported this episode
+
+            _pcMicDiverged = true;
+            Tracing.TraceLine("checkPcMicSelection: radio mic selection is '" + current
+                + "', not PC, while computer transmit audio is running"
+                + " — re-asserting PC", TraceLevel.Warning);
+            if (!SuppressSpeech) ScreenReaderOutput.Speak(
+                "The radio switched its transmit audio to the " + current
+                + " input while computer audio was running. Setting it back to PC.",
+                VerbosityLevel.Critical, true);
+            try { theRadio.MicInput = "PC"; }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("checkPcMicSelection: could not set mic input back to PC, "
+                    + ex.Message, TraceLevel.Error);
+            }
+        }
+
+        private bool _opusInputStartFailed;
+
+        /// <summary>
+        /// Start the PC transmit-audio channel. Idempotent — remoteAudioProc's
+        /// main loop calls this on every iteration while transmitting.
+        /// <para>Every trace here sits BELOW the already-started guard, the way
+        /// <see cref="stopOpusInputChannel"/> ten lines down has always had it.
+        /// A trace above the guard is one line per poll of a loop that only
+        /// yields: on 2026-08-14 that was 3.36 million lines in four minutes,
+        /// with trace parts rotating roughly every twenty seconds, which is how
+        /// a transmit-audio debugging session ended up with no usable trace.</para>
+        /// </summary>
         private bool startOpusInputChannel()
         {
             if (!opusInputAvailable) return false;
-            Tracing.TraceLine("startOpusInputChannel:" +
-                opusInputChannel.Name + ' ' + opusInputChannel.Started.ToString(), TraceLevel.Info);
             lock (opusInputChannel)
             {
                 if (opusInputChannel.Started) return true;
                 opusInputChannel.Started = opusInputChannel.PortAudioStream.StartAudio();
-                if (!opusInputChannel.Started)
+                if (opusInputChannel.Started)
                 {
-                    Tracing.TraceLine("startOpusInputChannel portAudio didn't start", TraceLevel.Error);
+                    _opusInputStartFailed = false;
+                    Tracing.TraceLine("startOpusInputChannel:" + opusInputChannel.Name
+                        + " started", TraceLevel.Info);
+                }
+                else if (!_opusInputStartFailed)
+                {
+                    // Only on the transition into failure. A start that keeps
+                    // failing is retried on every poll, so an unconditional
+                    // error line here is the same flood by another route.
+                    _opusInputStartFailed = true;
+                    Tracing.TraceLine("startOpusInputChannel:" + opusInputChannel.Name
+                        + " portAudio didn't start", TraceLevel.Error);
                 }
             }
             return opusInputChannel.Started;

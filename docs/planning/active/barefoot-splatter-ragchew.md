@@ -136,6 +136,97 @@ pre-data idle state.
 **Testable:** transmit and watch the trace stop exploding; key at low power and
 see a real number; listen to the GPS announce.
 
+### The `remoteAudioProc` pacing question — investigated 2026-08-16, RECOMMENDATION ONLY
+
+**Nothing in the loop's timing was changed.** This is a real-time audio path and
+the answer turned out to be neither "sleep" nor "leave it", so guessing would
+have been worse than either.
+
+**What the loop actually does.** It is a `while (!stopRemoteAudio)` at
+`ThreadPriority.Highest` (`FlexBase.cs`, thread created ~line 11427). Per
+iteration it takes `lock (mySlices)` to read the TX slice's mode, starts or
+stops the Opus input channel, then takes `lock (opusOutputChannel)` and
+`lock (stream.OpusRXListLockObj)` and lifts **one** packet off
+`_opusRXList`. If it got a packet it decodes it and loops again immediately; if
+it did not, it calls `Thread.Yield()` and loops again.
+
+**Four measured-from-source facts that decide the question:**
+
+1. **The packet cadence is 10 ms.** `Audio.cs` sets
+   `EncoderDelay = Delay.Delay10ms`, and `AudioStream.WriteOpus` documents its
+   own logging interval as "~100 packets/sec". So between packets there is
+   roughly 10 milliseconds with nothing to do.
+2. **`Thread.Yield()` is not a wait.** It offers the core to another *ready*
+   thread on the same processor and returns immediately when there is none —
+   which, on a mostly idle desktop with more cores than runnable threads, is
+   almost always. So the "no data" path is a busy spin, at Highest priority,
+   for ~10 ms out of every 10 ms. **This loop runs the entire time remote audio
+   is on, not just while transmitting.**
+3. **The spin hammers the lock the network thread needs.**
+   `OpusRXListLockObj` is the same lock `RXAudioStream.AddRXData` takes to
+   deliver each packet. A tight spin on it is worse than a tight spin
+   elsewhere, because the thread being starved is the one feeding us.
+4. **The loop's own author already reached this conclusion once.** The
+   `Disconnecting` branch carries `Thread.Sleep(10)` with a comment naming the
+   bare `continue` it replaced as "a BUSY spin at Highest priority burning a
+   full core". The polling branch is the same shape with real work attached.
+
+**The dropout worry does not apply, and it is worth saying why**, because it is
+the obvious objection. A sleep here cannot make `_opusRXList` grow without
+bound: the loop only sleeps in the *no packet available* branch, and whenever a
+backlog exists it spins through it with no delay at all. So a pause costs
+latency, never the 30-packet overflow-clear (`_opusRXList.Clear()`, 300 ms of
+audio gone) that a pause in the wrong place would cause.
+
+**The recommendation: neither `Thread.Sleep` nor the status quo — use the event
+FlexLib already raises.**
+
+`RXAudioStream` declares `public event OpusPacketReceivedEventHandler
+OpusPacketReceived`, raised from `OnOpusPacketReceived()` at the end of every
+`AddRXData` — once per Opus packet, immediately after it lands in the list.
+**It is vendor-stock, it is public, and nothing in JJ Flex subscribes to it.**
+
+So the loop can wait on a signal instead of spinning, with **no FlexLib patch
+and therefore no MIGRATION.md burden**:
+
+- Subscribe once when `opusOutputChannel` is created; unsubscribe on teardown.
+- The handler does exactly one thing — `_opusDataSignal.Set()` on an
+  `AutoResetEvent`. **Nothing else.** `OnOpusPacketReceived` fires
+  synchronously on the VITA receive thread, so any work or lock taken in that
+  handler stalls the network path itself.
+- Replace `Thread.Yield()` with `_opusDataSignal.WaitOne(timeout)`.
+
+**The timeout is not optional and is the part most likely to be got wrong.**
+On a half-duplex radio, keying stops receive audio, so no packets arrive while
+transmitting — and the loop's other duties (noticing `Transmit`, starting and
+stopping the Opus input channel, the new `checkPcMicSelection`) would then not
+run until the operator unkeyed. A **10 ms** timeout keeps that housekeeping at
+100 Hz, which is the same responsiveness the spin delivers in practice, while
+the signal itself gives receive audio *zero* added latency — better than the
+status quo, not merely cheaper.
+
+Expected effect: one core at ~100% for the whole time a radio is connected
+drops to approximately nothing, contention on the packet-delivery lock goes
+away, and receive latency improves rather than regresses.
+
+**If the event route is ever ruled out**, the fallback is
+`Thread.Sleep(1)` in the no-data branch only. It is safe for the reason above,
+and it costs up to one Windows timer quantum of added latency — which may be
+~15.6 ms rather than 1 ms, since nothing in this process is known to have
+raised the timer resolution. That is absorbed by the output stage (PortAudio is
+opened for 10 callbacks/second, so ~100 ms of buffering sits downstream) but it
+is a real cost the event route simply does not have.
+
+**Also worth doing whichever route is taken:** the loop is at
+`ThreadPriority.Highest`, which is a defensible choice for a spin and a
+pointless one for a thread that blocks on a signal. `AboveNormal` is the honest
+setting once it is not spinning.
+
+**Not attempted here because it needs the radio:** confirming the CPU figure
+with a real connection. Everything above is read from source, and the one
+number that would settle it — actual thread CPU time over a minute of receive —
+is a bench measurement.
+
 ---
 
 ## Track C — Settings that stick
@@ -1800,3 +1891,36 @@ reaches FlexLib's private meter list by reflection, which is right for a
 diagnostic and wrong for a picker. Track D needs a real accessor, and that
 probably means a documented FlexLib patch recorded in `MIGRATION.md` — some
 things genuinely cannot be wrapped.
+
+### Done, Track B 2026-08-16 — reviewed, kept, and the accessor written down
+
+**The reflection stays for now, and that is a decision rather than an
+omission.** As a diagnostic it fails soft: a renamed vendor field traces one
+warning and stops, and nothing in the app depends on it succeeding. A picker
+cannot fail that way — a UI that silently offers no meters because a private
+field got renamed is worse than one that does not compile — so the picker is
+what triggers the patch, not the diagnostic.
+
+Three defects found while reviewing it, all fixed:
+
+- **It traced 102 lines while holding FlexLib's `_meters` lock.** Every
+  `TraceLine` is a file write, and that lock is the one `FindMeterByName` and
+  every meter update take — so the census stalled the radio's whole meter path
+  at exactly the moment the TX meters were trying to register. Now it snapshots
+  under the lock and traces outside it.
+- **`GetField` by string ran on every mic-meter event**, resolving a name that
+  cannot change within a process. Resolved once now.
+- **The unchanged-count guard depended on the list being `ICollection`.** It is
+  a `List<Meter>`, so it held — but had it not, an unchanged inventory would
+  have re-logged in full at meter rate. There is a second guard now that does
+  not care what the list's type is.
+
+**`MIGRATION.md` carries the exact patch**, under "Not yet applied: a public
+accessor for the meter list". It is a single additive `GetMeters()` returning
+`ImmutableList<Meter>` under `lock (_meters)`, mirroring the existing
+`FindMetersByAmplifier` so closely it reads as vendor code. Purely additive
+means a 3-way merge cannot conflict with it. **Whoever applies it deletes the
+reflection in the same commit** — two routes to one private field is how one of
+them rots unnoticed. Worth reporting upstream first: a list whose every other
+accessor is public and which cannot be enumerated is an obvious gap, and Flex
+may just add it.
