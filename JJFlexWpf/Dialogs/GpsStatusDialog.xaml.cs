@@ -122,9 +122,14 @@ namespace JJFlexWpf.Dialogs
             sb.AppendLine();
 
             sb.AppendLine("Reference oscillator");
+            // Lock leads. It is the fact that decides whether the radio is
+            // actually disciplined, and it can disagree with the GPS fix text
+            // while a fix is being acquired — so it goes first here too, not
+            // trailing the sentence as an afterthought.
             sb.AppendLine(s.RadioConnected
-                ? $"Currently running on {FlexBase.DescribeOscillatorInUse(s)}. " +
-                  (s.OscillatorLocked ? "It is locked." : "It is not locked.")
+                ? (s.OscillatorLocked ? "Locked. " : "Not locked. ") +
+                  $"Running on {FlexBase.DescribeOscillatorInUse(s)}. " +
+                  FlexBase.FormatFreqErrorPpb(s.FreqErrorPpb) + "."
                 : "No radio connected.");
             sb.AppendLine("The choice below sets which 10 MHz reference the radio disciplines itself to. Automatic is the usual choice — the radio picks the best one it has and falls back on its own if the GPS loses lock.");
             sb.AppendLine();
@@ -137,7 +142,12 @@ namespace JJFlexWpf.Dialogs
             sb.AppendLine($"Latitude: {Or(s.Latitude, "not reported")}. Longitude: {Or(s.Longitude, "not reported")}.");
             sb.AppendLine("Altitude: " + Or(s.Altitude, "not reported"));
             sb.AppendLine("GPS time, UTC: " + Or(s.UtcTime, "not reported"));
-            sb.AppendLine("Frequency error: " + Or(s.FreqError, "not reported"));
+            // Two different figures, so two labelled lines. The first is the
+            // GPS receiver's own text, passed through unchanged and without an
+            // invented unit; the second is the radio's clock correction, which
+            // genuinely is parts per billion.
+            sb.AppendLine("GPS frequency error: " + Or(s.FreqError, "not reported"));
+            sb.AppendLine($"Clock correction: {s.FreqErrorPpb} parts per billion");
             sb.AppendLine();
 
             // The radio is an NTP server when it has a fix, not an NTP client.
@@ -160,15 +170,20 @@ namespace JJFlexWpf.Dialogs
         /// number constantly and reporting each bounce is the very noise this
         /// design exists to avoid.
         ///
-        /// Everything else — position, grid, altitude, UTC, frequency error —
-        /// never announces. It updates on screen for the review cursor.
+        /// Everything else — position, grid, altitude, UTC, frequency error,
+        /// clock correction — never announces. It updates on screen for the
+        /// review cursor.
         /// </summary>
         private void UpdateStateAnnouncement(FlexBase.GpsStatusSnapshot s)
         {
             if (StateAnnounceText == null || !s.RadioConnected) return;
 
-            // A reference handover or a GPS phase change is always worth saying.
-            string stateKey = $"{s.OscillatorInUse}|{s.Status}";
+            // A lock change, a reference handover or a GPS phase change is
+            // always worth saying. Lock was NOT in this key until 2026-08-16,
+            // so the single most load-bearing transition in the dialog — the
+            // reference actually locking — went unannounced unless the GPS
+            // status text happened to change in the same update.
+            string stateKey = $"{s.OscillatorInUse}|{s.OscillatorLocked}|{s.Status}";
             if (stateKey != _lastAnnouncedState)
             {
                 bool first = _lastAnnouncedState.Length == 0;
@@ -185,9 +200,15 @@ namespace JJFlexWpf.Dialogs
                     ? string.Empty
                     : $" {s.SatellitesTracked} satellites tracked.";
 
+                // Lock first, then what it is running on, then the GPS phase.
+                // The fix text used to lead, and it is the supporting detail —
+                // the two can disagree while a fix is being acquired, and lock
+                // is what decides whether the radio is disciplined at all.
+                string gps = string.IsNullOrWhiteSpace(s.Status) ? "" : $" GPS {s.Status}.";
                 StateAnnounceText.Text = s.OscillatorLocked && s.OscillatorInUse.Equals("gpsdo", StringComparison.OrdinalIgnoreCase)
-                    ? $"GPS {s.Status}. The radio is now using the GPS reference.{sats}"
-                    : $"GPS {s.Status}. Running on {FlexBase.DescribeOscillatorInUse(s)}.{sats}";
+                    ? $"Reference locked. The radio is now using the GPS reference.{gps}{sats}"
+                    : (s.OscillatorLocked ? "Reference locked." : "Reference not locked.")
+                      + $" Running on {FlexBase.DescribeOscillatorInUse(s)}.{gps}{sats}";
                 return;
             }
 

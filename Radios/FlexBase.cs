@@ -3080,7 +3080,27 @@ namespace Radios
             public string Longitude { get; set; } = string.Empty;
             public string Altitude { get; set; } = string.Empty;
             public string UtcTime { get; set; } = string.Empty;
+
+            /// <summary>
+            /// The GPS receiver's own frequency-error text, passed through
+            /// verbatim. NOT the same figure as <see cref="FreqErrorPpb"/>, and
+            /// deliberately not given a unit here — the radio supplies this as
+            /// free text and inventing a unit for it would be exactly the kind
+            /// of confident wrong readout this work exists to remove.
+            /// </summary>
             public string FreqError { get; set; } = string.Empty;
+
+            /// <summary>
+            /// The radio's clock correction in parts per billion
+            /// (<c>freq_error_ppb</c>). This is the reference's accuracy figure:
+            /// how far off the radio believes its own oscillator is, and how
+            /// much it is compensating. Zero is a real answer meaning no
+            /// correction applied, not a missing one — FlexLib exposes an int
+            /// with no reported/not-reported distinction, so we do not invent
+            /// one.
+            /// </summary>
+            public int FreqErrorPpb { get; set; }
+
             public string Speed { get; set; } = string.Empty;
         }
 
@@ -3119,6 +3139,7 @@ namespace Radios
                 s.Altitude = r.GPSAltitude ?? string.Empty;
                 s.UtcTime = r.GPSUtcTime ?? string.Empty;
                 s.FreqError = r.GPSFreqError ?? string.Empty;
+                s.FreqErrorPpb = r.FreqErrorPPB;
                 s.Speed = r.GPSSpeed ?? string.Empty;
             }
             catch (Exception ex)
@@ -3147,6 +3168,11 @@ namespace Radios
                 ? "Reference locked."
                 : "Reference not locked.");
 
+            // The accuracy figure, right next to lock, because the two together
+            // are the whole answer to "is my reference any good". Lock says the
+            // radio is disciplined; PPB says how well. Zero is a real answer.
+            parts.Add(FormatFreqErrorPpb(s.FreqErrorPpb) + ".");
+
             if (!string.IsNullOrWhiteSpace(s.Status))
                 parts.Add($"GPS status {s.Status}.");
 
@@ -3163,6 +3189,19 @@ namespace Radios
                 parts.Add($"Grid {s.Grid}.");
 
             return string.Join(" ", parts);
+        }
+
+        /// <summary>
+        /// The clock correction as a spoken phrase. Singular is worth the two
+        /// lines: "1 parts per billion" through a screen reader is the kind of
+        /// small wrongness that makes an instrument sound careless.
+        /// </summary>
+        public static string FormatFreqErrorPpb(int ppb)
+        {
+            if (ppb == 0) return "No clock correction applied";
+            int magnitude = Math.Abs(ppb);
+            return "Clock correction " + ppb + (magnitude == 1 ? " part" : " parts")
+                + " per billion";
         }
 
         /// <summary>
