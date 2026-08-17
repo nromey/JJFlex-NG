@@ -199,6 +199,7 @@ namespace JJPortaudio
         /// <param name="data">byte array</param>
         private int _peakLogCounter = 0;
         private float _peakSinceLastLog = 0f;
+        private float _postPeakSinceLastLog = 0f;
         public void WriteOpus(byte[] data)
         {
             float[] buf = aud.Decoder.DecodePacketFloat(data);
@@ -229,24 +230,50 @@ namespace JJPortaudio
                 }
             }
 
-            // Log peak levels every ~5 seconds (at ~100 packets/sec)
             if (prePeak > _peakSinceLastLog) _peakSinceLastLog = prePeak;
-            if (++_peakLogCounter >= 500)
-            {
-                float postPeak = _peakSinceLastLog * OutputGain;
-                // Report what actually left the stream: the limiter caps output
-                // at full scale, so a computed post-gain peak above 1.0 means
-                // the audio clipped — say so instead of tracing a level that
-                // never reached the speakers.
-                bool clipped = postPeak > 1.0f;
-                float reported = clipped ? 1.0f : postPeak;
-                Tracing.TraceLine($"OpusAudio: raw peak={_peakSinceLastLog:F4}, gain={OutputGain:F1}x, output peak={reported:F4} ({20 * Math.Log10(reported + 1e-10):F1} dBFS){(clipped ? " CLIPPED" : "")}", TraceLevel.Info);
-                _peakLogCounter = 0;
-                _peakSinceLastLog = 0f;
-            }
 
             // PC-side audio processing (NR, spectral subtraction, etc.)
             PostDecodeProcessor?.Invoke(buf);
+
+            // Measure what is actually going to the speakers, AFTER the gain,
+            // the limiter and any noise reduction — rather than computing it
+            // from the raw peak, which is what this used to do.
+            //
+            // Track E, 2026-08-16. This line is the instrument for the standing
+            // "decoded PC audio arrives too quiet" report, so it has to be
+            // trustworthy before anyone re-measures with it. Computing
+            // raw x gain silently omitted PostDecodeProcessor, which is where
+            // JJ Neural NR and Spectral NR run and which can move the level by
+            // a great deal — so on a machine with either of those turned on,
+            // the "output peak" in the trace was a number that never existed.
+            // Chasing a quiet-audio report with an instrument that reports a
+            // level nothing produced is worse than having no instrument.
+            float postPeak = 0f;
+            for (int i = 0; i < buf.Length; i++)
+            {
+                float abs = Math.Abs(buf[i]);
+                if (abs > postPeak) postPeak = abs;
+            }
+            if (postPeak > _postPeakSinceLastLog) _postPeakSinceLastLog = postPeak;
+
+            // Every ~5 seconds, at ~100 packets/sec.
+            if (++_peakLogCounter >= 500)
+            {
+                // The limiter caps at full scale, so a raw peak that would have
+                // exceeded it is the clipping test — the measured peak cannot
+                // report clipping on its own, because the clamp is exactly what
+                // stops it going above 1.0.
+                bool clipped = (_peakSinceLastLog * OutputGain) > 1.0f;
+                Tracing.TraceLine($"OpusAudio: raw peak={_peakSinceLastLog:F4} "
+                    + $"({20 * Math.Log10(_peakSinceLastLog + 1e-10):F1} dBFS), gain={OutputGain:F1}x, "
+                    + $"measured output peak={_postPeakSinceLastLog:F4} "
+                    + $"({20 * Math.Log10(_postPeakSinceLastLog + 1e-10):F1} dBFS)"
+                    + $"{(PostDecodeProcessor != null ? ", post-decode processing ON" : "")}"
+                    + $"{(clipped ? " CLIPPED" : "")}", TraceLevel.Info);
+                _peakLogCounter = 0;
+                _peakSinceLastLog = 0f;
+                _postPeakSinceLastLog = 0f;
+            }
 
             aud.TheQ.Enqueue(buf);
         }
