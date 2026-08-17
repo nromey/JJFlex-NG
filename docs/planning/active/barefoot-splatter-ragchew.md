@@ -1138,31 +1138,48 @@ priority argument against real work, every time, forever.
 
 ## Model per track
 
-Assigned on one question: **how expensive is a wrong decision to unwind?**
+**Corrected 2026-08-16 after Noel pushed back.** An earlier draft put Opus on the
+judgement-heavy tracks and Sonnet on the rest. That ignored this project's own
+established convention, which is written into several places in this repo:
 
-**Opus — architectural risk, where a bad call is costly later:**
+- The **nightowl mixed-model ensemble** ran **Fable on eight of eleven tracks,
+  Opus on three**, explicitly to gather "real Opus-vs-Fable data on this
+  codebase."
+- Archived track instructions read *"Recommended model: Fable — this track
+  carries real design judgment"* and *"Fable — the MessageBox sweep is
+  judgment-per-site."*
+- The research queue **already assigns Fable** to unstarted tracks: the
+  slice-identity work ("core correctness with subtle event-ordering semantics"),
+  the app-wide UI architecture track, and the keys redesign.
+- **Sonnet appears nowhere in this project's track assignments.** It was
+  introduced from habit, not from evidence.
 
-- **A, roster and connect.** 2,668 lines, four roots, a state machine to write
-  before any diff, and semantic subtleties git cannot see.
-- **D2, the voice engine and meter model.** The risky one. It gates D3, H and the
-  waterfall, and "voices are data not an enum" is exactly the decision that is
-  free now and a rewrite later.
-- **I, transmit conditioning.** The gate itself is simple DSP; the architecture
-  is not — the processor hook, whether the NR engine is reusable, and the profile
-  integration with F.
+Noel's sharper observation: the A, D2 and I instructions are written as *think
+hard, decide carefully, report rather than act* — which is exactly the shape this
+project hands to Fable.
 
-**Sonnet — well-specified implementation with real judgement:**
+**Fable — judgement-heavy, which is most of them:**
 
-- **B** telemetry honesty · **C** settings convention and the cascade ·
-  **D1** readout navigability (small, but accessibility correctness matters more
-  than size) · **D3** management UI and the leader layer · **E** device and rate
-  policy · **F** presets and the profile model · **G** the About page ·
-  **H** the earcon audit · **the small-fixes sweep**.
+- **A** roster and connect (four roots, a map before a diff) · **C** the consent
+  cascade and receipt semantics · **D1** readout navigability (small, but
+  accessibility correctness is judgement) · **D2** the voice and meter model ·
+  **F** the profile model and the Flex-versus-Hamlib discriminated shape ·
+  **G** the About page's data-first structure · **I** transmit conditioning ·
+  **the small-fixes sweep** (judgment-per-site, precisely what the archived
+  instructions called Fable work).
 
-**Not assigned to Haiku.** The sweep looks mechanical but is mixed — the
-`testtone.armed` leak and the installer file list are, while "the tracing dialog
-is confusing" is a design task. Splitting the sweep by difficulty costs more
-coordination than it saves.
+**Opus — subtle systems reasoning rather than design judgement:**
+
+- **B** telemetry honesty — the `remoteAudioProc` pacing question trades trace
+  quiet against receive latency in a real-time loop.
+- **E** device opening and rate policy — the host-API architecture and the
+  channel-count callback work.
+
+**D3 and H** inherit Fable when they start, being downstream of D2.
+
+**Every track inherits the same standing instruction** regardless of model:
+*reuse the symbols you find; if you conclude one should move or change signature,
+report it rather than doing it.*
 
 **Every track inherits the same standing instruction** regardless of model:
 *reuse the symbols you find; if you conclude one should move or change signature,
