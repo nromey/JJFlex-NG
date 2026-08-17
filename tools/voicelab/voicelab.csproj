@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Track D2: offline voice-render laboratory. NOT part of the app build
+       or solution. Compiles the real synthesis sources from JJFlexWpf so
+       what you hear from this tool is exactly what the app plays. Used to
+       answer the empirical question this track exists for: are the voices
+       distinguishable with several playing at once under speech?
+       Run: dotnet run [-] [outputDir] [speechWavPath]  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>voicelab</AssemblyName>
+    <RootNamespace>VoiceLab</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="NAudio" Version="2.2.1" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="..\..\JJFlexWpf\MeterVoice.cs" Link="src\MeterVoice.cs" />
+    <Compile Include="..\..\JJFlexWpf\ContinuousToneSampleProvider.cs" Link="src\ContinuousToneSampleProvider.cs" />
+    <Compile Include="..\..\JJFlexWpf\VoicedToneSampleProvider.cs" Link="src\VoicedToneSampleProvider.cs" />
+  </ItemGroup>
+</Project>

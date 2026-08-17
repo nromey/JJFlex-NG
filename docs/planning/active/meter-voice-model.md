@@ -136,6 +136,52 @@ The built-in alphabet separates identities on at least two axes each
 (spectrum, modulation rate, attack/pattern). The modulation-rate ladder is
 0 / ~5 / ~18 / 28 / 65 Hz plus slow gating — every step ≥ 50% apart, far past
 the JND. This is an alphabet of ~15, but the honest ceiling on SIMULTANEOUS
-tracking is much lower than the ceiling on identification — D2's empirical
-findings on that are reported separately (see the track report; the demo
-renders live in the bench artifacts, built for ear verification).
+tracking is much lower than the ceiling on identification.
+
+## Empirical findings — 2026-08-16, the question this track existed to answer
+
+**Method, stated honestly.** Claude cannot listen. What was done instead:
+`tools/voicelab` (in this repo, committed) renders the REAL synthesis —
+compile-includes the same sources the app builds — through an emulation of
+the engine's 10 Hz update loop with realistic value motion, solo and in
+ensembles of three, four and five concurrent voices, dry and under real
+synthesized speech (Windows TTS reading a ragchew paragraph). All tones
+panned centre so the test holds in mono — Patrick's axis. On top of the
+renders, an objective separation screen measures each voice's identity axes
+(spectral centroid, amplitude-modulation rate and depth, onset rate, pitch
+motion) and flags any pair close on every axis.
+
+**What the screen found and what changed because of it.** First run flagged
+Reedy vs Thin as near-twins — both bright, both static — a real defect in
+the alphabet, fixed as data (Thin gained a slow shallow vibrato, giving it a
+pitch-motion identity Reedy lacks). After the fix: **no pair of the fifteen
+built-ins is close on every axis.** The screen also caught its own first
+lie (a fade-out tail read every voice as deeply modulated) — recorded here
+because it is a warning about trusting render metrics uncritically.
+
+**The honest opinion on five-at-once-under-speech:**
+
+- **Identification — which meter is this? — should hold at five and beyond.**
+  The axes are the ones ears genuinely separate (a flute from a violin at the
+  same pitch), every built-in pair differs measurably on at least one, and
+  the shipped preset assignments differ on two or more.
+- **Continuous TRACKING of five under speech will not hold, and no voice
+  design can make it hold.** Auditory-stream research puts simultaneous
+  attended streams at three to four for trained listeners; speech occupies
+  one and demands attention. This is a limit of listeners, not of timbre.
+  Expect: any single meter recognisable the moment attention lands on it,
+  salient EVENTS (a trill starting when SWR excursions, rasp appearing when
+  ALC bites) noticed even unattended — but nobody will follow five
+  continuous pitch trajectories while copying speech.
+- **Design consequence, recommended as policy:** the alphabet supports many
+  identities; the CONCURRENCY budget should default to about three audible
+  meters, with event-shaped voices (gated, modulated — Bell, Trill, Raspy)
+  assigned to alarm-like meters precisely because onsets grab unattended
+  ears, and steady voices (Pure, Hollow, Organ) to meters you consult rather
+  than monitor. The shipped presets already follow this shape. D3's
+  "audition against everything enabled" is the tool that enforces it at
+  assignment time.
+- **Ear verification owed.** The rendered WAVs exist for exactly that (solo
+  per voice, trio/quartet/quintet, each dry and under speech). Regenerate
+  anywhere with:
+  `dotnet run --project tools/voicelab -- <outDir> <speech.wav>`.

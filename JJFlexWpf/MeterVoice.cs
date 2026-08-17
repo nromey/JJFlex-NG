@@ -265,9 +265,14 @@ namespace JJFlexWpf
             new MeterVoice
             {
                 Name = "Thin", BuiltIn = true,
-                Description = "Thin and pinched, cuts through",
+                Description = "Thin and pinched, slow waver, cuts through",
                 // 10% duty-cycle pulse spectrum — one oscillator's worth of nasal.
+                // The gentle vibrato exists because the separation screen
+                // (tools/voicelab) flagged Thin and Reedy as near-twins: both
+                // bright, both static. Pitch motion gives Thin an identity
+                // axis Reedy lacks.
                 Partials = PartialsFromPulseWidth(0.10f, 12),
+                VibratoRateHz = 4.5f, VibratoDepthSemitones = 0.4f,
                 AttackMs = 6f,
             },
             new MeterVoice
