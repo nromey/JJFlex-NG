@@ -11881,6 +11881,12 @@ namespace Radios
             // Audio Track C: hand the persistent TX test-tone generator to the
             // input stream so an engaged tone replaces the mic at the encoder.
             opusInputChannel.PortAudioStream.InputToneSource = txToneGen;
+            // Track I: hand the persistent TX conditioning chain (NR + gate +
+            // residual tap) to the same stream. It runs AFTER the tone
+            // injection point (and is skipped entirely while a tone is
+            // engaged — the tone is a calibrated reference) and BEFORE the
+            // LUFS meter, so the meter keeps measuring what genuinely ships.
+            opusInputChannel.PortAudioStream.InputProcessor = txConditioner.Process;
             // Engine Track: hand the persistent LUFS meter to the same stream.
             // It taps the callback AFTER the tone injection, so it measures
             // whatever is actually being encoded and sent — tone or mic.
@@ -12038,6 +12044,22 @@ namespace Radios
         // (muted), never mixed — and the tone rides the identical Opus
         // encode-and-send path the mic does.
         private readonly JJPortaudio.TxToneGenerator txToneGen = new JJPortaudio.TxToneGenerator();
+
+        // Track I: the TX conditioning chain (noise reduction + gate +
+        // residual monitor tap), owned here like the tone generator and the
+        // LUFS meter so it survives channel stop/start across key cycles.
+        // Handed to the Opus input stream when the PC-audio TX channel is
+        // created. The UI assembly plugs the NR engine, the monitor sink and
+        // the settings into it via TxConditioner.
+        private readonly JJPortaudio.TxAudioConditioner txConditioner = new JJPortaudio.TxAudioConditioner();
+
+        /// <summary>
+        /// Track I: the persistent PC-side transmit conditioning chain for
+        /// this rig — the gate, the pluggable noise-reduction slot, and the
+        /// monitor tap that plays what the chain removed. The UI configures
+        /// it here; the audio path picks it up automatically.
+        /// </summary>
+        public JJPortaudio.TxAudioConditioner TxConditioner => txConditioner;
 
         /// <summary>
         /// True while the TX test tone is engaged (replacing the microphone

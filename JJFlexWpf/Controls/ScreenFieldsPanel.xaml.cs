@@ -244,6 +244,10 @@ public partial class ScreenFieldsPanel : UserControl
         // Feed current mode so RNNoise auto-disables for CW/digital
         _audioPipeline.SetCurrentMode(rig.Mode ?? "");
 
+        // Track I: wire the TX conditioning chain (noise gate + TX noise
+        // reduction + residual monitor) — same lifecycle as the RX pipeline.
+        TxAudioConditioning.Attach(rig);
+
         // Force initial poll to populate values
         PollUpdate();
     }
@@ -270,6 +274,8 @@ public partial class ScreenFieldsPanel : UserControl
             _rig.ModeChanged -= OnModeChanged;
             _rig.AudioPostProcessor = null;
         }
+        // Track I: unhook the TX conditioning chain alongside the RX pipeline.
+        TxAudioConditioning.Detach();
         _audioPipeline?.Dispose();
         _audioPipeline = null;
         _rig = null;
