@@ -70,9 +70,10 @@ anything. The radio may be in another state; its headphone jack is no help to
 you. JJ Flex turns this on for you automatically when you connect remotely.
 
 Each radio also remembers this setting between sessions now. The **When this
-radio connects** choice, right under the checkbox, has three settings:
-remember how I left it (the default), always on for this radio, or always
-off. Always on is the remote operator's insurance — even if a session ends
+radio connects** choice, right under the checkbox, has three settings: as I
+left it (the default), always on for this radio, or always off. As I left it
+is the wording you hear at connect too — "PC audio on, as you left it."
+Always on is the remote operator's insurance — even if a session ends
 with PC audio off, the next connect turns it back on. Whatever happens at
 connect is announced out loud, so the switch is never flipped silently.
 

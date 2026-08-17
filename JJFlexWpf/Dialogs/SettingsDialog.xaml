@@ -306,7 +306,7 @@
                                   Margin="0,0,0,8"
                                   AutomationProperties.Name="PC audio when this radio connects, saved for this radio"
                                   SelectionChanged="PcAudioOnConnectCombo_SelectionChanged">
-                            <ComboBoxItem Content="Remember how I left it"/>
+                            <ComboBoxItem Content="As I left it"/>
                             <ComboBoxItem Content="Always on for this radio"/>
                             <ComboBoxItem Content="Always off for this radio"/>
                         </ComboBox>

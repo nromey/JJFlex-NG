@@ -208,7 +208,7 @@ namespace JJFlexWpf.Dialogs
                     " On the next connect, PC audio always turns on for this radio.",
                 PcAudioOnConnectModes.AlwaysOff =>
                     " On the next connect, PC audio stays off for this radio.",
-                _ => " On the next connect, PC audio comes back the way you leave it.",
+                _ => " On the next connect, PC audio comes back as you leave it.",
             };
             AudioDevicesDialog.SetStatusLine(PcAudioStatusText, now + next);
         }
@@ -240,7 +240,7 @@ namespace JJFlexWpf.Dialogs
                     "PC audio will always turn on when this radio connects.",
                 PcAudioOnConnectModes.AlwaysOff =>
                     "PC audio will stay off when this radio connects.",
-                _ => "PC audio will come back the way you leave it.",
+                _ => "PC audio will come back as you leave it.",
             }, VerbosityLevel.Terse, true);
 
             RefreshPcAudioStatus();
