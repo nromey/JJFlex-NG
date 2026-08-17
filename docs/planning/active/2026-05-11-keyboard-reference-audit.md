@@ -2,11 +2,40 @@
 date: 2026-05-11
 type: audit / punch-list
 audit-scope: docs/help/md/keyboard-reference.md vs JJFlexWpf/KeyCommands.cs
-status: findings captured, fixes deferred
+status: RESOLVED 2026-08-16 (small-fixes sweep) — every finding re-verified against current code and doc; see "Resolution" at top
 triggered-by: Shift+M (Mute All Slices) found bound in code but missing from doc during foundation testing on 2026-05-11
 ---
 
 # Keyboard reference audit — 2026-05-11
+
+## Resolution — 2026-08-16, small-fixes sweep
+
+**This audit is discharged. Every finding was re-verified against the current
+code and doc; nothing on the punch list remains open.** The fixes arrived
+sideways rather than as a dedicated pass, which is why the status line sat at
+"deferred" for three months while the findings quietly stopped being true:
+
+- **All eight category-1 rows are in `keyboard-reference.md` today**, each
+  verified still bound in `KeyCommands.cs` (lines 1118-1120, 1236, 1248,
+  1267-1268): Ctrl+Alt+M (doc line 140), Ctrl+Alt+P (141), Ctrl+Alt+V (142),
+  Ctrl+F4 (25), Ctrl+Shift+B (27), Shift+M (143 and 191), Shift+Comma (144
+  and 192).
+- **The Ctrl+Shift+F finding was overtaken by events**: the Radio-scope
+  binding was reassigned to ToggleFreqReadout in the 2026-08-07 QB Track H
+  shadow sweep (`KeyCommands.cs:1238-1254` documents the change), and the doc
+  tracks the new truth (line 133) alongside the Logging-scope Search Log
+  (line 385).
+- **Both category-3 items are documented in both scopes**: Ctrl+Shift+N at
+  doc lines 387 (Logging) and 401 (DSP expander); Ctrl+Shift+U at 322 and 402.
+- **Fix-path option 2 (cross-link to the Command Finder) shipped** — doc line
+  71 points JJ+H reachers at F1 and Ctrl+/, and `KeyInventory.LeaderHelpSpeech`
+  now generates the leader help from the inventory table so it "can never
+  drift from the inventory again".
+- **Fix-path option 3 (build-time keyboard manifest) remains future work**,
+  as it always was — it lives in CLAUDE.md's keyboard-audit section as the
+  Sprint 29+ automation candidate, not here.
+
+Safe to archive.
 
 ## What triggered this audit
 
