@@ -9889,7 +9889,20 @@ namespace Radios
         public string MicSource
         {
             get { return theRadio?.MicInput ?? ""; }
-            set { q.Enqueue((FunctionDel)(() => { theRadio.MicInput = value; }), "MicInput"); }
+            set
+            {
+                // An operator choosing a source through JJ Flex is intent, not
+                // drift, so move what checkPcMicSelection expects along with
+                // them: a deliberate switch to the analog mic is then honoured
+                // in silence rather than fought and warned about. Only
+                // meaningful while the PC audio channel is actually running —
+                // that channel is what set the selection to PC to begin with.
+                _pcMicExpected = opusOutputChannel != null
+                    && opusOutputChannel.Started
+                    && string.Equals(value, "PC", StringComparison.OrdinalIgnoreCase);
+                _pcMicDiverged = false;
+                q.Enqueue((FunctionDel)(() => { theRadio.MicInput = value; }), "MicInput");
+            }
         }
 
         /// <summary>
@@ -11566,6 +11579,9 @@ namespace Radios
                     if (Transmit)
                     {
                         startOpusInputChannel(); // only starts it once
+                        // Never stream transmit audio into a closed gate
+                        // without saying so. Throttled internally.
+                        checkPcMicSelection();
                     }
                     else
                     {
@@ -11770,6 +11786,10 @@ namespace Radios
                 if (opusOutputChannel.Started) return true;
                 oldMicInput = theRadio.MicInput;
                 theRadio.MicInput = "PC";
+                // Remember that WE asked for PC, so the loop can tell a silent
+                // revert from a deliberate operator choice. See
+                // checkPcMicSelection.
+                _pcMicExpected = true;
                 opusOutputChannel.OpusChannel.RXGain = 50;
                 opusOutputChannel.Started = opusOutputChannel.PortAudioStream.StartAudio();
                 if (!opusOutputChannel.Started)
@@ -11788,6 +11808,7 @@ namespace Radios
             {
                 opusOutputChannel.OpusChannel.RxMute = true;
                 if (!opusOutputChannel.Started) return;
+                _pcMicExpected = false; // we no longer own the mic selection
                 try
                 {
                     theRadio.MicInput = oldMicInput;
@@ -11796,6 +11817,76 @@ namespace Radios
                 catch { }
                 opusOutputChannel.Started = false;
                 opusOutputChannel.PortAudioStream.StopAudio();
+            }
+        }
+
+        // --- mic_selection assertion (Track B, 2026-08-16) --------------------
+        //
+        // The arc's thesis in one line: never stream transmit audio into a
+        // closed gate without saying so.
+        //
+        // startOpusOutputChannel sets the radio's mic input to PC exactly once.
+        // Nothing re-asserts it and nothing checks it, so a profile load
+        // afterwards silently hands the transmitter back to the analog mic
+        // jack while the PC audio path keeps encoding and sending. The operator
+        // transmits, hears their own monitor, sees no warning, and puts out
+        // nothing — which is precisely the shape of the 2026-08-14 session.
+        //
+        // Deliberately NOT a blind re-assert. Choosing the analog mic while PC
+        // audio runs is a legitimate configuration (the Audio Workshop offers
+        // it, and TxTonePathTrouble describes it as a normal state), so a
+        // divergence the operator caused through JJ Flex is respected in
+        // silence. _pcMicExpected records only what WE last asked for; it is
+        // cleared when the operator picks something else through MicSource, so
+        // the warning fires for reverts we did not make and nothing else.
+        private volatile bool _pcMicExpected;
+        private int _pcMicCheckTime;
+        private bool _pcMicDiverged;
+
+        /// <summary>
+        /// While PC transmit audio is running, verify the radio still has its
+        /// mic input set to PC — and if it has drifted behind our back, say so
+        /// out loud and put it back.
+        /// <para>Called from the transmit branch of the remote-audio loop and
+        /// throttled to about once a second: the check is a cached property
+        /// read, but the recovery is a radio command and the announcement is
+        /// speech, neither of which belongs on a per-poll path.</para>
+        /// </summary>
+        private void checkPcMicSelection()
+        {
+            if (!_pcMicExpected || theRadio == null) return;
+
+            int now = System.Environment.TickCount;
+            if ((now - _pcMicCheckTime) < 1000) return;
+            _pcMicCheckTime = now;
+
+            string current = theRadio.MicInput ?? "";
+            if (string.Equals(current, "PC", StringComparison.OrdinalIgnoreCase))
+            {
+                if (_pcMicDiverged)
+                {
+                    _pcMicDiverged = false;
+                    Tracing.TraceLine("checkPcMicSelection: mic selection is PC again",
+                        TraceLevel.Info);
+                }
+                return;
+            }
+
+            if (_pcMicDiverged) return; // already reported this episode
+
+            _pcMicDiverged = true;
+            Tracing.TraceLine("checkPcMicSelection: radio mic selection is '" + current
+                + "', not PC, while computer transmit audio is running"
+                + " — re-asserting PC", TraceLevel.Warning);
+            if (!SuppressSpeech) ScreenReaderOutput.Speak(
+                "The radio switched its transmit audio to the " + current
+                + " input while computer audio was running. Setting it back to PC.",
+                VerbosityLevel.Critical, true);
+            try { theRadio.MicInput = "PC"; }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("checkPcMicSelection: could not set mic input back to PC, "
+                    + ex.Message, TraceLevel.Error);
             }
         }
 
