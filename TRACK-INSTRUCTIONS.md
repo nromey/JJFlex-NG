@@ -1,6 +1,6 @@
 # Track F — Presets and config truth
 
-**Worktree:** `C:\dev\jjflex-f` · **Branch:** `bsr/track-f` · **Model:** Sonnet
+**Worktree:** `C:\dev\jjflex-f` · **Branch:** `bsr/track-f` · **Model:** Fable
 
 **Read first:** `docs/planning/active/barefoot-splatter-ragchew.md`, "Track F",
 including "The radio ALREADY has mic profiles, and we use none of them".
