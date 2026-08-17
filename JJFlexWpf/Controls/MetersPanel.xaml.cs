@@ -34,11 +34,6 @@ public partial class MetersPanel : UserControl
         "Compression", "Voltage", "PA Temp"
     };
 
-    private static readonly string[] WaveformNames =
-    {
-        "Sine", "Square", "Sawtooth", "Slow Pulse", "Fast Pulse", "Alternating"
-    };
-
     private static readonly string[] PanNames = { "Left", "Center", "Right" };
 
     public MetersPanel()
@@ -140,24 +135,24 @@ public partial class MetersPanel : UserControl
         };
         group.Children.Add(sourceCombo);
 
-        // Waveform combo
+        // Voice combo (Track D2: voices are named data, not waveforms —
+        // the list comes from the voice library, built-ins plus user voices)
         var waveCombo = new ComboBox
         {
             Margin = new Thickness(0, 2, 0, 2),
             Width = 200,
             HorizontalAlignment = HorizontalAlignment.Left
         };
-        AutomationProperties.SetName(waveCombo, $"Slot {slotIndex + 1} waveform");
-        foreach (var name in WaveformNames)
+        AutomationProperties.SetName(waveCombo, $"Slot {slotIndex + 1} voice");
+        foreach (var name in MeterVoiceLibrary.AllNames)
             waveCombo.Items.Add(name);
-        waveCombo.SelectedIndex = (int)slot.Waveform;
+        waveCombo.SelectedItem = slot.VoiceName;
+        if (waveCombo.SelectedIndex < 0) waveCombo.SelectedIndex = 0;
         waveCombo.SelectionChanged += (s, e) =>
         {
-            if (capturedIdx < MeterToneEngine.Slots.Count && waveCombo.SelectedIndex >= 0)
+            if (capturedIdx < MeterToneEngine.Slots.Count && waveCombo.SelectedItem is string voiceName)
             {
-                var wf = (WaveformType)waveCombo.SelectedIndex;
-                MeterToneEngine.Slots[capturedIdx].Waveform = wf;
-                MeterToneEngine.Slots[capturedIdx].ToneProvider.Waveform = wf;
+                MeterToneEngine.Slots[capturedIdx].VoiceName = voiceName;
             }
         };
         group.Children.Add(waveCombo);
@@ -384,7 +379,7 @@ public partial class MetersPanel : UserControl
         // Play a 2-second preview at mid-range
         slot.ToneProvider.Frequency = (slot.PitchLow + slot.PitchHigh) / 2f;
         slot.ToneProvider.Volume = slot.Volume * MeterToneEngine.MasterVolume;
-        slot.ToneProvider.Waveform = slot.Waveform;
+        slot.ToneProvider.Voice = slot.Definition.EffectiveVoice();
         slot.ToneProvider.Active = true;
 
         // Stop after 2 seconds

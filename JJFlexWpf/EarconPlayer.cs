@@ -155,6 +155,27 @@ namespace JJFlexWpf
         }
 
         /// <summary>
+        /// Register an already-stereo continuous provider with the meter
+        /// channel mixer. Track D2: VoicedToneSampleProvider outputs stereo
+        /// with live equal-power panning applied internally, so no panning
+        /// wrapper is baked in here — which is what makes pan changes take
+        /// effect live rather than only at registration time.
+        /// </summary>
+        public static void RegisterContinuousStereo(ISampleProvider stereoProvider)
+        {
+            if (MeterMixer == null) return;
+            try
+            {
+                MeterMixer.AddMixerInput(stereoProvider);
+                _continuousProviders.Add(stereoProvider);
+            }
+            catch (Exception ex)
+            {
+                Trace.WriteLine($"EarconPlayer.RegisterContinuousStereo failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
         /// Remove a continuous tone from the meter channel mixer. The provider wrapper
         /// is removed from the mixer's input list.
         /// </summary>

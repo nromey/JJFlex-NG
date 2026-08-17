@@ -207,8 +207,27 @@ namespace JJFlexWpf
         /// </summary>
         public int MicVerdictOutput { get; set; } = (int)MicVerdictOutputMode.Both;
 
-        /// <summary>Per-slot meter tone configurations.</summary>
+        /// <summary>Per-slot meter tone configurations. LEGACY: verified
+        /// written by nothing since introduction — retained so old config
+        /// files still deserialize, but the live meter list is
+        /// <see cref="Meters"/> (Track D2).</summary>
         public List<MeterSlotConfig> MeterSlots { get; set; } = new();
+
+        /// <summary>
+        /// User-authored meter voices (Track D2). Built-in voices ship as data
+        /// in code (<see cref="MeterVoiceLibrary.BuiltIns"/>) and are never
+        /// persisted, so they can improve between versions; only the
+        /// operator's own creations live here.
+        /// </summary>
+        public List<MeterVoice> UserVoices { get; set; } = new();
+
+        /// <summary>
+        /// The one meter list (Track D2): each entry is a source plus a range
+        /// plus a voice, with audibility and readability as properties of the
+        /// same meter. Empty = never configured; the engine seeds from the
+        /// preset named in <see cref="MeterPreset"/>.
+        /// </summary>
+        public List<MeterDefinition> Meters { get; set; } = new();
 
         private const string FileName = "audioConfig.xml";
 
@@ -400,7 +419,13 @@ namespace JJFlexWpf
             MeterToneEngine.SpeechIntervalSeconds = Math.Clamp(MeterSpeechIntervalSeconds, 1, 10);
             MeterToneEngine.AutoEnableOnTune = AutoEnableOnTune;
             MeterToneEngine.SpeechTimerActive = MeterSpeechTimerActive;
-            MeterToneEngine.ApplyPreset(MeterPreset ?? "RX Monitor");
+
+            // Voices before meters: definitions resolve voices by name.
+            MeterVoiceLibrary.SetUserVoices(UserVoices);
+            if (Meters is { Count: > 0 })
+                MeterToneEngine.LoadDefinitions(Meters);
+            else
+                MeterToneEngine.ApplyPreset(MeterPreset ?? "RX Monitor");
         }
 
         /// <summary>Capture current state from the engine into this config.</summary>
@@ -423,6 +448,8 @@ namespace JJFlexWpf
             MasterEarconVolume = (int)(EarconPlayer.AlertVolume * 100);
             EarconDeviceNumber = EarconPlayer.GetAlertDeviceNumber();
             MeterDeviceNumber = EarconPlayer.GetMeterDeviceNumber();
+            Meters = MeterToneEngine.ExportDefinitions();
+            UserVoices = MeterVoiceLibrary.GetUserVoices();
         }
     }
 
