@@ -886,42 +886,29 @@ Module CrashReporter
         sb.AppendLine($"UTC: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss}Z")
         sb.AppendLine($"Context: {context}")
         sb.AppendLine($"Terminating: {isTerminating}")
+        sb.AppendLine()
         Try
-            ' The entry assembly is jjflexible.exe. This used to read
-            ' GetType(Form).Assembly, which is System.Windows.Forms — so every
-            ' crash report ever filed carried "App: System.Windows.Forms
-            ' 10.0.0.0" and NO JJFlex version. That made it impossible to tell
-            ' which build crashed (hit live on 2026-08-08 trying to date the
-            ' 20260807-153513 report). Informational version carries the full
-            ' 4-part build number the NAS historical tree is keyed on.
-            Dim asm = Reflection.Assembly.GetEntryAssembly()
-            If asm Is Nothing Then asm = Reflection.Assembly.GetExecutingAssembly()
-            Dim asmName = asm.GetName()
-            sb.AppendLine($"App: {asmName.Name} {asmName.Version}")
-            Dim info = TryCast(Attribute.GetCustomAttribute(asm, GetType(Reflection.AssemblyInformationalVersionAttribute)),
-                               Reflection.AssemblyInformationalVersionAttribute)
-            If info IsNot Nothing AndAlso Not String.IsNullOrEmpty(info.InformationalVersion) Then
-                ' Carries "4.1.16+<git sha>" — the SHA pins the exact commit and
-                ' is the only precise identifier on a plain dotnet build, where
-                ' FileVersion stays 4.1.16.0 because no -p:Version was passed.
-                sb.AppendLine($"Build: {info.InformationalVersion}")
-            End If
+            ' The full runtime picture — app identity, every component's
+            ' self-reported version, environment, trace file location — comes
+            ' from the SAME DiagnosticSnapshot the About page renders. One
+            ' assembler, so the crash report and the About page can never
+            ' disagree about what was running. The snapshot reads the ENTRY
+            ' assembly (jjflexible.exe): a library-relative lookup here once
+            ' stamped every report "App: System.Windows.Forms 10.0.0.0" with no
+            ' JJFlex version at all (caught live 2026-08-08). It also carries
+            ' Build ("4.1.16+<git sha>", the only precise identifier on a plain
+            ' dotnet build) and FileVersion (the 4-part build number the NAS
+            ' historical tree and tester zips are keyed by), under the same
+            ' labels this report has always used. Capture() never throws, and
+            ' every probe inside it is individually guarded — safe in a crash
+            ' handler.
+            sb.AppendLine(Radios.DiagnosticSnapshot.Capture().ToPlainText())
         Catch
+            ' Belt and braces: a crash report with a bare OS line still beats
+            ' no report.
+            sb.AppendLine($"Diagnostic snapshot unavailable. OS: {Environment.OSVersion}")
         End Try
-        Try
-            ' FileVersion carries the 4-part build number (4.1.16.697) on builds
-            ' made through build-debug.bat / build-installers.bat — that is the
-            ' key the NAS historical tree and the tester zips are named by, so
-            ' it maps a crash straight onto a downloadable build.
-            Dim fvi = FileVersionInfo.GetVersionInfo(Environment.ProcessPath)
-            If fvi IsNot Nothing AndAlso Not String.IsNullOrEmpty(fvi.FileVersion) Then
-                sb.AppendLine($"FileVersion: {fvi.FileVersion}")
-            End If
-        Catch
-        End Try
-        sb.AppendLine($"OS: {Environment.OSVersion}")
-        sb.AppendLine($"64-bit OS: {Environment.Is64BitOperatingSystem}")
-        sb.AppendLine($"64-bit Process: {Environment.Is64BitProcess}")
+        sb.AppendLine()
         sb.AppendLine("Exception:")
         sb.AppendLine(ex.ToString())
         Return sb.ToString()

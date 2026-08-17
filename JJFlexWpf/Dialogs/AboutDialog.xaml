@@ -28,6 +28,14 @@
         <wv2:WebView2 x:Name="ContentWebView" Grid.Row="0" Margin="0,28,0,0"
                       AutomationProperties.Name="About content"
                       Visibility="Collapsed"/>
+        <!-- Plain fallback for machines without the WebView2 runtime: the same
+             content as selectable, arrow-readable text. Formatting is lost;
+             the facts are not. -->
+        <TextBox x:Name="FallbackText" Grid.Row="0" Margin="0,28,0,0"
+                 Visibility="Collapsed" IsReadOnly="True" IsReadOnlyCaretVisible="True"
+                 TextWrapping="Wrap" AcceptsReturn="True"
+                 VerticalScrollBarVisibility="Auto"
+                 AutomationProperties.Name="About content, plain text"/>
         <TextBlock x:Name="LoadingLabel" Grid.Row="0" Margin="0,28,0,0"
                    Text="Loading..." VerticalAlignment="Center" HorizontalAlignment="Center"
                    AutomationProperties.Name="Loading content"/>
@@ -52,7 +60,7 @@
                     AutomationProperties.Name="View what's new in this version"
                     AutomationProperties.AcceleratorKey="Alt+N"
                     Click="WhatsNewButton_Click"/>
-            <Button Content="_Copy to Clipboard" MinWidth="120" Height="28" Margin="0,0,8,0"
+            <Button Content="_Copy Everything" MinWidth="120" Height="28" Margin="0,0,8,0"
                     AutomationProperties.Name="Copy all information to clipboard"
                     AutomationProperties.AcceleratorKey="Alt+C"
                     Click="CopyButton_Click"/>

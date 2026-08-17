@@ -117,6 +117,7 @@ This release is about the space where you actually spend your time in the app �
 - **[A failed connect tells you why](#connect-failure-honesty).** No more bare "Connection failed." You hear what the evidence says — the router refused, the packets vanished, the sign-in was rejected, the radio never showed up in your account — and when the router rule is the problem, JJ Flexible reads you the exact rule your router needs, built from what the radio itself reports.
 - **[Reboot and firmware live on the Radio menu now](#radio-maintenance).** Two new entries at the bottom of the Radio menu: Reboot Radio, with a confirmation so a stray Enter can't power-cycle your rig, and Update Radio Firmware, which takes you straight to the updater.
 - **[The Feature Availability window opens now](#feature-availability).** Tools, Feature Availability tells you feature by feature — diversity, the noise reduction family, auto notch, CW autotune — whether it's on, off, unlicensed, or unavailable, and the reason why. The same window lets you set your radio's callsign, name, and front panel display.
+- **[The About page tells the truth now, all of it](#honest-about-page).** Help, About reports every moving part from the running program itself — the app's full build number, FlexLib, the Opus codec, PortAudio by its build revision, the .NET runtime, and exactly where your trace file lives, so "where are your logs" is a glance instead of a conversation. One button copies the whole report for a support email, and it all works with no radio connected — which is when you need it.
 
 ### The honest audio hub {#honest-audio-hub}
 
@@ -131,6 +132,22 @@ Here's the new shape:
 - Volume mode, `Ctrl+J` then `V`, is the fast lane for all of it — the full walkthrough lives in the keyboard reference under "Volume mode." While we were in the JJ layer, the compander picked up `Ctrl+J, C` and the speech processor `Ctrl+J, Shift+P`, so the whole "how I sound" chain rides one gesture family.
 - The JJ layer's own help (`Ctrl+J, H`) now reads the complete, current command list — it had quietly fallen out of date and was skipping six commands — and it finishes by telling you where the other help lives: F1 for the control you're on, `Ctrl+/` to search everything.
 - If you crank PC Output Volume all the way up on a strong signal, the audio now politely flattens at maximum instead of turning into digital hash. Your ears may still object to 24 dB of boost; the math no longer will.
+
+[Return to version headlines](#unreleased-headlines)
+
+### The About page stops guessing {#honest-about-page}
+
+When something breaks, the first question is always "what exactly are you running?" — and until now there was no good way to answer it. The About dialog's System tab now asks the running program instead of repeating what somebody once typed: every library reports its own version, straight from the code that's actually loaded. The app's full build number, FlexLib, the Opus audio codec, PortAudio, the .NET runtime, the WebView2 runtime, your Windows version — all live, none of it typed in by hand.
+
+A few touches worth knowing about:
+
+- PortAudio is reported by its build revision rather than its version number, because PortAudio's version number literally never changes — a build from 2021 and a build from last week both claim the same "V19.7.0". The revision is the part that tells the truth, so it comes first.
+- The Support section answers what a support conversation always starts with: where the program lives on disk, whether this install carries its own .NET runtime, and — the big one — exactly where your trace file is. "Where are your logs" is now a glance.
+- The copy button copies everything — all four tabs in one go — so nobody has to read version strings aloud over the air. It's labeled "Copy Everything" now, and it means it.
+- The page is organized under real headings, so your screen reader's H key jumps section to section in browse mode, and all the text is selectable.
+- No WebView2 runtime on your machine? The same facts appear as plain selectable text. You lose the formatting, never the information.
+- Crash reports and debug bundles now carry this exact same information, assembled by the same code — so what About shows you is guaranteed to match what a crash report says was running. No more two versions of the truth.
+- Escape closes the dialog even while you're reading inside the page content.
 
 [Return to version headlines](#unreleased-headlines)
 

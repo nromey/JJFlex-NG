@@ -9,7 +9,15 @@
     <Product>FlexLib</Product>
     <Copyright>Copyright © 2018-2024 FlexRadio Systems. All rights reserved.</Copyright>
     <Deterministic>false</Deterministic>
-    <Version>0.0.0.0</Version>
+    <!-- The vendored FlexLib drop's own version, stamped into the DLL so every
+         runtime query (About page, crash reports, debug bundles) reports the
+         truth. This sat at 0.0.0.0 from the SDK-style conversion until
+         2026-08-16, so FlexLib.dll claimed no version at all. Same policy as
+         PortAudio's PA_GIT_REVISION stamp: version the artifact at build time,
+         never in the UI. BUMP THIS AT EVERY FLEXLIB UPGRADE - it is listed in
+         MIGRATION.md's reapply checklist. -->
+    <Version>4.2.20.41343</Version>
+    <InformationalVersion>4.2.20.41343 (JJFlex-patched vendor drop)</InformationalVersion>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <UseWpf>true</UseWpf>
     <TargetFramework>net10.0-windows</TargetFramework>
