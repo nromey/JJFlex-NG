@@ -1310,6 +1310,7 @@ namespace Radios
 
                     if (foundRadio == null)
                     {
+                        ConnectionHistory.Record(config.RadioSerial, path.ToString(), "not_found", (long)(DateTime.Now - startTime).TotalMilliseconds);
                         Tracing.TraceLine($"TryAutoConnect: leg {leg} radio serial {config.RadioSerial} NOT FOUND within {timeoutMs}ms. myRadioList has {myRadioList.Count} radios ({sw.ElapsedMilliseconds}ms)", TraceLevel.Warning);
                         foreach (Radio r in myRadioList)
                         {
@@ -1337,7 +1338,12 @@ namespace Radios
 
                     // Connect on this leg.
                     Tracing.TraceLine($"TryAutoConnect: leg {leg} FOUND radio {foundRadio.Serial} ({foundRadio.Nickname}) isWan={foundRadio.IsWan}, connecting with lowBW={config.LowBandwidth} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+                    var legSw = System.Diagnostics.Stopwatch.StartNew();
                     bool connected = Connect(config.RadioSerial, config.LowBandwidth, preferWanPath: wantWan && foundRadio.IsWan);
+                    legSw.Stop();
+                    ConnectionHistory.Record(config.RadioSerial, path.ToString(),
+                        connected ? "connected" : (LastConnectFailureReport?.Class.ToString() ?? "failed"),
+                        legSw.ElapsedMilliseconds);
 
                     if (connected)
                     {

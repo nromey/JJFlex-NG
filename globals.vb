@@ -2714,21 +2714,93 @@ Module globals
             Dim serial = dialog.SelectedSerial
             Dim lowBW = dialog.SelectedLowBW
             Dim isRemote = dialog.SelectedIsRemote
-            ' Set only when the operator explicitly chose SmartLink for a radio
-            ' that is ALSO on the local network. The connect layer must not
-            ' quietly substitute the LAN path underneath that choice.
+            ' Set when the connect must travel SmartLink specifically (the
+            ' operator forced it, or the chain chose SmartLink for a radio
+            ' also on the local network). The connect layer must not quietly
+            ' substitute the LAN path underneath that choice.
             Dim preferWan = dialog.SelectedPreferRemotePath
-            Dim connectOk As Boolean
+            Dim pathForced = dialog.SelectedPathForced
+            Dim connectOk As Boolean = False
 
-            Tracing.TraceLine($"wpfSelectorProc: connecting {serial} lowBW={lowBW} remote={isRemote} preferWanPath={preferWan}", TraceLevel.Info)
+            ' The walk: the chosen path first, then the chain's remaining
+            ' entries when the attempt fails — announcing every move, never
+            ' silently. A forced path has no fallbacks by construction
+            ' (force-remote is the hole-punch test instrument; succeeding
+            ' over the wrong path would invalidate the test).
+            Dim walk As New List(Of Radios.ConnectPathKind)
+            walk.Add(If(isRemote, Radios.ConnectPathKind.SmartLink, Radios.ConnectPathKind.Local))
+            If Not pathForced AndAlso dialog.SelectedFallbackPaths IsNot Nothing Then
+                walk.AddRange(dialog.SelectedFallbackPaths)
+            End If
+
+            Tracing.TraceLine($"wpfSelectorProc: connecting {serial} lowBW={lowBW} walk=[{String.Join(",", walk)}] preferWanPath={preferWan} forced={pathForced}", TraceLevel.Info)
             Radios.ConnectionProfiler.Current?.RecordEvent("connect_call_begin")
 
-            If isRemote Then
-                connectOk = RigControl.ReconnectRemote(serial, lowBW, forceWanPath:=preferWan)
-            Else
-                ' Local radio: discovery already happened in the RigSelector dialog.
-                ' Just connect directly.
-                connectOk = RigControl.Connect(serial, lowBW)
+            ' Auth ladder, rung 5: while another path remains in the chain, a
+            ' SmartLink auth failure walks on instead of prompting. Only an
+            ' exhausted chain earns the native sign-in form — tracked here so
+            ' the retry-with-form below knows the failure was auth-shaped.
+            Dim suppressedAuthFailure As Boolean = False
+
+            For legIndex = 0 To walk.Count - 1
+                Dim legPath = walk(legIndex)
+                Dim lastLeg = (legIndex = walk.Count - 1)
+                Dim legName = If(legPath = Radios.ConnectPathKind.SmartLink, "SmartLink", "the local network")
+                Dim legSw = System.Diagnostics.Stopwatch.StartNew()
+
+                If legPath = Radios.ConnectPathKind.SmartLink Then
+                    connectOk = RigControl.ReconnectRemote(serial, lowBW,
+                        forceWanPath:=(preferWan OrElse legIndex > 0),
+                        allowInteractiveLogin:=lastLeg)
+                    Dim failReport = RigControl.LastConnectFailureReport
+                    If Not connectOk AndAlso Not lastLeg AndAlso failReport IsNot Nothing AndAlso
+                       failReport.Class = Radios.ConnectFailureClass.AuthenticationFailed Then
+                        suppressedAuthFailure = True
+                    End If
+                Else
+                    ' A fallback local leg only makes sense when a LAN object
+                    ' actually exists — Connect() would otherwise resolve the
+                    ' WAN object and quietly travel SmartLink under a leg that
+                    ' announced itself as local.
+                    Dim avail = RigControl.RadioAvailability(serial)
+                    If legIndex > 0 AndAlso Not avail.lan Then
+                        legSw.Stop()
+                        Tracing.TraceLine($"wpfSelectorProc: leg {legIndex} local skipped — radio not on the LAN", TraceLevel.Info)
+                        Radios.ConnectionHistory.Record(serial, legPath.ToString(), "not_found", legSw.ElapsedMilliseconds)
+                        If Not lastLeg Then Continue For
+                        connectOk = False
+                        Exit For
+                    End If
+                    connectOk = RigControl.Connect(serial, lowBW)
+                End If
+
+                legSw.Stop()
+                Radios.ConnectionHistory.Record(serial, legPath.ToString(),
+                    If(connectOk, "connected", If(RigControl.LastConnectFailureReport?.Class.ToString(), "failed")),
+                    legSw.ElapsedMilliseconds)
+
+                If connectOk Then Exit For
+
+                If Not lastLeg Then
+                    ' No silent path substitution: the fallback says so.
+                    Dim nextName = If(walk(legIndex + 1) = Radios.ConnectPathKind.SmartLink, "SmartLink", "the local network")
+                    Tracing.TraceLine($"wpfSelectorProc: leg {legIndex} ({legName}) failed; walking to {nextName}", TraceLevel.Info)
+                    Radios.ScreenReaderOutput.Speak(
+                        $"Could not connect over {legName}. Trying {nextName}.", VerbosityLevel.Critical, True)
+                End If
+            Next
+
+            ' The chain is exhausted and a SmartLink leg failed on auth while
+            ' its prompt was suppressed: NOW the native sign-in is earned.
+            If Not connectOk AndAlso suppressedAuthFailure Then
+                Tracing.TraceLine("wpfSelectorProc: chain exhausted after suppressed auth failure — retrying SmartLink with sign-in allowed", TraceLevel.Info)
+                Radios.ScreenReaderOutput.Speak("Signing in to SmartLink.", VerbosityLevel.Critical, True)
+                Dim retrySw = System.Diagnostics.Stopwatch.StartNew()
+                connectOk = RigControl.ReconnectRemote(serial, lowBW, forceWanPath:=True, allowInteractiveLogin:=True)
+                retrySw.Stop()
+                Radios.ConnectionHistory.Record(serial, Radios.ConnectPathKind.SmartLink.ToString(),
+                    If(connectOk, "connected", If(RigControl.LastConnectFailureReport?.Class.ToString(), "failed")),
+                    retrySw.ElapsedMilliseconds)
             End If
 
             If Not connectOk Then
