@@ -61,8 +61,11 @@ again, treat that as the working surface and re-mirror here at seal time.
   (Load takes the newer, Save writes both); not yet made correct. Needs a real
   migration and must keep reading the old location for one release.
 - **#70 — repeat-last-message holds exactly one message.** Make it a short ring.
-- **#71 — the PC audio connect setting is spoken in different words than it is
-  labelled.** "as you left it" versus "Remember how I left it".
+- **#71 — CLOSED 2026-08-16 (sweep).** One stem everywhere now: the combo says
+  "As I left it", connect says "as you left it", status/confirm say "as you
+  leave it"; help and changelog aligned. The second finding in the task (the
+  per-radio panel is invisible while disconnected) is Track C's — same shape
+  as its REM ON item.
 - **#73 — the DSP controls have no explanation of what they do or how to set
   them.** Use F1 context help, not dialog prose. Explanation should say that
   peak-steady-with-loudness-climbing is how you tell the processor is working.
@@ -187,11 +190,23 @@ sentence.
   WebView2 with a plain fallback; lead PortAudio with its revision, never the
   misleading 19.7.0.
 - **#18 — the tracing dialog is confusing, and it is the front door of the
-  reporting pipeline.**
-- **#26 — answer the four open questions in the diagnostic-log design.**
-- **#32 — verify the installer ships a clean file list.** Build litter reaching
-  output.
-- **#40 — two small UI/help-plumbing gaps found while sweeping.**
+  reporting pipeline.** PARTIALLY DISCHARGED 2026-08-16 (sweep): the frozen
+  "Start or stop tracing" accessible name now follows state. The real answer is
+  the ratified `diagnostic-log-surface.md` design (retires the dialog entirely);
+  that implementation track is infrastructure-phase and now unblocked by #26.
+- **#26 — CLOSED 2026-08-16 (sweep).** All four questions answered in
+  `diagnostic-log-surface.md` §11. Notable: the capture chord becomes
+  `Ctrl+J, Ctrl+D` — plain D was already the tuning-debounce toggle.
+- **#32 — CLOSED 2026-08-16 (sweep).** Both build channels rmdir their output
+  before building; a real x64 installer was built and its file list verified
+  (371-file publish tree, 54.2 MB compressed, deleteList covers everything).
+  One piece of litter WAS shipping — JJLogIO.xml / JJTrace.xml doc files,
+  excluded now and retired on upgrade. CLAUDE.md's "13 satellite dirs" publish
+  shape is stale: the real tree has none (flagged for a CLAUDE.md pass).
+- **#40 — CLOSED 2026-08-16 (sweep).** Command Finder now has its own F1 page
+  (ContextMap + menu untangled). The "What's &New" ampersand is intentional:
+  NativeMenuBar is a native Win32 menu where & is the mnemonic mechanism on
+  every sibling — needs a CLAUDE.md guideline carve-out, not a fix.
 
 ### Open — needs a radio, needs Noel
 
