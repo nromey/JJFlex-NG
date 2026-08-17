@@ -714,6 +714,40 @@ watch, it suggests conditions."*
   percentage of range is meaningless — so treat it as a heuristic with per-meter
   overrides, not a rule. Most suggestions come from the radio; a handful are ours.
 
+##### Three levels of detail, and the frequent path stays one keypress
+
+Noel, 2026-08-16: *"short description, two to four words in the list, longer
+verbiage in read only to include possible set points or values."*
+
+- **The combo item is 2–4 words.** Arrowing a hundred meters means the item text
+  is spoken a hundred times. `"Forward Power"` scans; `"RF Power Forward,
+  transmit chain, dBm"` does not.
+- **A read-only box carries the long description**, including suggested set
+  points and typical values — the radio's own `Description` plus what we can
+  derive from its declared range.
+- **A read-only box carries the live value.**
+
+**Order them combo → VALUE → description.** Noel's instinct was description on
+selection, which is right; putting the value *second* keeps the frequent path one
+Tab from the selector, since the value is what most trips want. The description
+is for learning a meter or choosing a threshold, which is occasional.
+
+**Three tab stops for the entire subsystem** — against eight fixed boxes plus a
+management list before.
+
+##### Framing: this is not slimming, it is efficiency
+
+Noel's correction, and it is the accurate description: *"I wouldn't say we are
+lessening or slimming the meter, I'd say we're making it all more efficient and
+useful."*
+
+**The surface got smaller while the capability went up.** Eight hardcoded
+readouts became 102 available sources, each self-describing, with alarms,
+per-meter Announce, distinct tone voices, derived stage-delta meters and
+frequency-domain probes — all reached through *fewer* controls than the eight
+boxes needed. Language in this plan that reads as reduction ("collapses",
+"retires") describes the control count, never the feature set.
+
 ##### Default alarms ship, and say what to DO
 
 Noel: alarms *"for SWR to remind user to tune or check amp, wait for radio to
