@@ -1,6 +1,6 @@
 # Track I — Transmit audio conditioning
 
-**Worktree:** `C:\dev\jjflex-i` · **Branch:** `bsr/track-i` · **Model:** Opus
+**Worktree:** `C:\dev\jjflex-i` · **Branch:** `bsr/track-i` · **Model:** Fable
 
 **Read first:** `docs/planning/active/barefoot-splatter-ragchew.md`, "Track I —
 transmit audio conditioning", and the "OUR DSP is better instrumented than the
