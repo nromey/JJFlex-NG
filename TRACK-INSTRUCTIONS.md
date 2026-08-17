@@ -1,6 +1,6 @@
 # Track G — The honest About page
 
-**Worktree:** `C:\dev\jjflex-g` · **Branch:** `bsr/track-g` · **Model:** Sonnet
+**Worktree:** `C:\dev\jjflex-g` · **Branch:** `bsr/track-g` · **Model:** Fable
 
 **Read first:** `docs/planning/active/barefoot-splatter-ragchew.md`, section
 "Track G — The honest About page".
