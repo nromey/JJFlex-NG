@@ -1636,7 +1636,7 @@ public class NativeMenuBar : IDisposable
     {
         var help = AddPopup(bar, "&Help");
         AddWired(help, "Help Topics\tF1", () => HelpLauncher.ShowHelp());
-        AddWired(help, "Keyboard Reference", () => HelpLauncher.ShowHelp("CommandFinder"));
+        AddWired(help, "Keyboard Reference", () => HelpLauncher.ShowHelp("KeyboardReference"));
         AddWired(help, "What's &New", () => HelpLauncher.ShowHelp("WhatsNew"));
         AddSep(help);
         // QB Track H (2026-08-07): ONE Key Assignments item (the old

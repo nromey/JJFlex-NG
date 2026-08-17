@@ -73,7 +73,12 @@ namespace JJFlexWpf
             { "MeterTones", "pages/meter-tones.htm" },
             { "LogPanel", "pages/logging.htm" },
             { "SettingsDialog", "pages/settings-profiles.htm" },
-            { "CommandFinder", "pages/keyboard-reference.htm" },
+            // "CommandFinder" used to point at keyboard-reference.htm because
+            // the Help > Keyboard Reference menu item borrowed the key — which
+            // left the Command Finder dialog itself with no F1 page (#40).
+            // Each has its own key now.
+            { "CommandFinder", "pages/command-finder.htm" },
+            { "KeyboardReference", "pages/keyboard-reference.htm" },
             { "LeaderKey", "pages/leader-key.htm" },
             { "WelcomeDialog", "pages/getting-started.htm" },
             { "ConnectDialog", "pages/connection-troubleshooting.htm" },

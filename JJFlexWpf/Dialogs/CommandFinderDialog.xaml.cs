@@ -53,6 +53,19 @@ namespace JJFlexWpf.Dialogs
             InitializeComponent();
             ResizeMode = ResizeMode.CanResizeWithGrip;
             Loaded += OnLoaded;
+
+            // F1 inside the Command Finder opens the Command Finder's own help
+            // page. Without this, F1 fell through to the global handler and
+            // opened the help book at its cover — the one dialog whose whole
+            // job is discoverability had no discoverable help of its own (#40).
+            PreviewKeyDown += (s, e) =>
+            {
+                if (e.Key == Key.F1)
+                {
+                    HelpLauncher.ShowHelp("CommandFinder");
+                    e.Handled = true;
+                }
+            };
         }
 
         private const string AllCategories = "All";
