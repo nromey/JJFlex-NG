@@ -6945,8 +6945,10 @@ namespace Radios
         private void micData(float data)
         {
             _MicData = data;
-            hookTxMeters(); // lazy: SC_MIC / SW ALC meters exist by the first mic-meter event
+            // Inventory first so the trace reads in order: what the radio has,
+            // then which of the two TX meters we managed to hook out of it.
             traceMeterInventory(); // cheap no-op unless the meter count has changed
+            hookTxMeters(); // lazy: SC_MIC / SW ALC meters register late
             Tracing.TraceLine("micData:" + data.ToString(), TraceLevel.Verbose);
             MeterChanged?.Invoke(this, MeterType.Mic, data);
         }
@@ -6998,7 +7000,18 @@ namespace Radios
         //     HWALC, the external-amp jack).
         // Proven with a two-source meter truth table on the bench 2026-08-11.
         // All values dBFS.
-        private bool _txMetersHooked;
+        // Tracked independently, one flag per meter. They used to share a
+        // single "hooked" flag that was only set when BOTH were found, so a
+        // radio reporting one and not the other re-subscribed to the one it
+        // DID find on every subsequent mic-meter event — an unbounded handler
+        // leak, with every event firing N times and N growing forever. On the
+        // bench 8600 both meters arrive in the same instant so it never bit
+        // (two "NOT FOUND" passes, then "found, found"), which is exactly why
+        // it survived: the failure needs a radio we have not tested on.
+        private bool _scMicHooked;
+        private bool _swAlcHooked;
+        private bool _txMetersHooked => _scMicHooked && _swAlcHooked;
+        private string _txMeterHookState = "";
         private float _scMicDb = -150f, _scMicMaxDb = -150f, _swAlcDb = -150f;
         private float _scMicRecentDb = -150f;
         private int _scMicRecentTime;
@@ -7039,6 +7052,10 @@ namespace Radios
         /// offers what the radio really has needs a proper accessor, and that is
         /// a documented FlexLib patch rather than this.</para>
         /// </summary>
+        /// <remarks>
+        /// Called from <c>micData</c> on every mic-meter event, so the cheap
+        /// count comparison below is load-bearing, not an optimisation.
+        /// </remarks>
         private void traceMeterInventory()
         {
             if (theRadio == null) return;
@@ -7092,22 +7109,45 @@ namespace Radios
             }
         }
 
+        /// <summary>
+        /// Subscribe to SC_MIC and SW ALC, lazily — the TX meters register
+        /// late, so this retries on each mic-meter event until both are found.
+        /// <para>Each meter is claimed at most once, and only ever looked up
+        /// while it is still missing. Anything else re-subscribes the meter
+        /// that IS present every time the retry runs.</para>
+        /// </summary>
         private void hookTxMeters()
         {
             if (_txMetersHooked || theRadio == null) return;
-            traceMeterInventory();
-            var sc = theRadio.FindMeterByName("SC_MIC");
-            var alc = theRadio.FindMeterByName("ALC");
-            if (sc != null) sc.DataReady += (m, d) =>
+
+            // Look up only what is still missing, and claim it in the same
+            // step as subscribing so a retry can never double-hook it.
+            if (!_scMicHooked)
             {
-                _scMicDb = d;
-                if (d > _scMicMaxDb) _scMicMaxDb = d;
-                int now = System.Environment.TickCount;
-                if (d >= _scMicRecentDb || (now - _scMicRecentTime) > 1500) { _scMicRecentDb = d; _scMicRecentTime = now; }
-                traceTxMeters();
-            };
-            if (alc != null) alc.DataReady += (m, d) => { _swAlcDb = d; traceTxMeters(); };
-            if (sc != null && alc != null) _txMetersHooked = true;
+                var sc = theRadio.FindMeterByName("SC_MIC");
+                if (sc != null)
+                {
+                    _scMicHooked = true;
+                    sc.DataReady += (m, d) =>
+                    {
+                        _scMicDb = d;
+                        if (d > _scMicMaxDb) _scMicMaxDb = d;
+                        int now = System.Environment.TickCount;
+                        if (d >= _scMicRecentDb || (now - _scMicRecentTime) > 1500) { _scMicRecentDb = d; _scMicRecentTime = now; }
+                        traceTxMeters();
+                    };
+                }
+            }
+
+            if (!_swAlcHooked)
+            {
+                var alc = theRadio.FindMeterByName("ALC");
+                if (alc != null)
+                {
+                    _swAlcHooked = true;
+                    alc.DataReady += (m, d) => { _swAlcDb = d; traceTxMeters(); };
+                }
+            }
 
             // Say plainly which of the two we actually found. On a FLEX-8600 the
             // radio's meter list carries MIC, MICPEAK and HWALC — a plain "ALC"
@@ -7115,8 +7155,19 @@ namespace Radios
             // "TX drive (ALC)" readout shows a number that will never change,
             // silently. Whichever way it goes, the trace should not make anyone
             // guess.
-            Tracing.TraceLine("hookTxMeters: SC_MIC " + (sc != null ? "found" : "NOT FOUND")
-                + ", ALC " + (alc != null ? "found" : "NOT FOUND"), TraceLevel.Info);
+            //
+            // Only when the answer CHANGES, though. This retry runs on every
+            // mic-meter event, so an unconditional line here traces at meter
+            // rate forever on a radio missing one of the two — the same flood
+            // fixed in startOpusInputChannel, from a different direction.
+            string state = (_scMicHooked ? "found" : "NOT FOUND")
+                + "|" + (_swAlcHooked ? "found" : "NOT FOUND");
+            if (state != _txMeterHookState)
+            {
+                _txMeterHookState = state;
+                Tracing.TraceLine("hookTxMeters: SC_MIC " + (_scMicHooked ? "found" : "NOT FOUND")
+                    + ", ALC " + (_swAlcHooked ? "found" : "NOT FOUND"), TraceLevel.Info);
+            }
         }
 
         private int _txMeterTraceTime;
@@ -11748,18 +11799,39 @@ namespace Radios
             }
         }
 
+        private bool _opusInputStartFailed;
+
+        /// <summary>
+        /// Start the PC transmit-audio channel. Idempotent — remoteAudioProc's
+        /// main loop calls this on every iteration while transmitting.
+        /// <para>Every trace here sits BELOW the already-started guard, the way
+        /// <see cref="stopOpusInputChannel"/> ten lines down has always had it.
+        /// A trace above the guard is one line per poll of a loop that only
+        /// yields: on 2026-08-14 that was 3.36 million lines in four minutes,
+        /// with trace parts rotating roughly every twenty seconds, which is how
+        /// a transmit-audio debugging session ended up with no usable trace.</para>
+        /// </summary>
         private bool startOpusInputChannel()
         {
             if (!opusInputAvailable) return false;
-            Tracing.TraceLine("startOpusInputChannel:" +
-                opusInputChannel.Name + ' ' + opusInputChannel.Started.ToString(), TraceLevel.Info);
             lock (opusInputChannel)
             {
                 if (opusInputChannel.Started) return true;
                 opusInputChannel.Started = opusInputChannel.PortAudioStream.StartAudio();
-                if (!opusInputChannel.Started)
+                if (opusInputChannel.Started)
                 {
-                    Tracing.TraceLine("startOpusInputChannel portAudio didn't start", TraceLevel.Error);
+                    _opusInputStartFailed = false;
+                    Tracing.TraceLine("startOpusInputChannel:" + opusInputChannel.Name
+                        + " started", TraceLevel.Info);
+                }
+                else if (!_opusInputStartFailed)
+                {
+                    // Only on the transition into failure. A start that keeps
+                    // failing is retried on every poll, so an unconditional
+                    // error line here is the same flood by another route.
+                    _opusInputStartFailed = true;
+                    Tracing.TraceLine("startOpusInputChannel:" + opusInputChannel.Name
+                        + " portAudio didn't start", TraceLevel.Error);
                 }
             }
             return opusInputChannel.Started;
