@@ -2,7 +2,6 @@ using System;
 using System.IO;
 using System.Net.Http;
 using System.Reflection;
-using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Windows;
@@ -25,8 +24,32 @@ namespace JJFlexWpf.Dialogs
         public Action<string, bool>? SpeakCallback { get; set; }
 
         private bool _webViewReady;
+        private bool _fallbackActive;
         // Plain-text versions of each tab for clipboard/export
         private readonly string[] _plainText = new string[4];
+
+        /// <summary>
+        /// Everything the System tab and the version lines report, captured
+        /// once per dialog load. The SAME structure the crash reporter and the
+        /// debug bundle embed — one assembler, so the page and the reports can
+        /// never disagree about what is running.
+        /// </summary>
+        private DiagnosticSnapshot _snapshot;
+
+        /// <summary>
+        /// Escape must be caught inside the document: the WebView2 island keeps
+        /// keystrokes typed in the page away from WPF, so the Close button's
+        /// IsCancel never fires while focus is in the content — which would
+        /// strand a user whose focus is in the text, breaking the project rule
+        /// that every dialog closes on Escape. Same pattern as HtmlInfoDialog
+        /// (the canonical copy of this script lives there too).
+        /// </summary>
+        private const string EscapeScript = @"
+document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') {
+        window.chrome.webview.postMessage('jjflex:close');
+    }
+}, true);";
 
         public AboutDialog()
         {
@@ -73,6 +96,17 @@ namespace JJFlexWpf.Dialogs
                     }
                 };
 
+                // Close on Escape even when focus is inside the document.
+                ContentWebView.CoreWebView2.WebMessageReceived += (s, args) =>
+                {
+                    try
+                    {
+                        if (args.TryGetWebMessageAsString() == "jjflex:close") Close();
+                    }
+                    catch (ArgumentException) { /* not a string message — nothing we sent */ }
+                };
+                await ContentWebView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(EscapeScript);
+
                 _webViewReady = true;
                 LoadingLabel.Visibility = Visibility.Collapsed;
                 ContentWebView.Visibility = Visibility.Visible;
@@ -82,40 +116,60 @@ namespace JJFlexWpf.Dialogs
             }
             catch (Exception ex)
             {
-                LoadingLabel.Text = $"WebView2 not available: {ex.Message}";
+                // No WebView2 runtime (or it failed to start). The user still
+                // gets every fact, as selectable plain text — a missing browser
+                // runtime costs formatting and browse-mode navigation, never
+                // the content itself.
                 System.Diagnostics.Trace.WriteLine($"AboutDialog WebView2 init failed: {ex.Message}");
+                _fallbackActive = true;
+                LoadingLabel.Visibility = Visibility.Collapsed;
+                FallbackText.Visibility = Visibility.Visible;
+                ShowTab(AboutTabs.SelectedIndex < 0 ? 0 : AboutTabs.SelectedIndex);
             }
         }
 
         private void AboutTabs_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            if (!_webViewReady) return;
+            if (!_webViewReady && !_fallbackActive) return;
             ShowTab(AboutTabs.SelectedIndex);
         }
 
         private void ShowTab(int index)
         {
-            if (!_webViewReady || index < 0 || index >= 4) return;
+            if (index < 0 || index >= 4) return;
 
             // Show/hide diagnostics buttons
             DiagButtonsPanel.Visibility = index == 3 ? Visibility.Visible : Visibility.Collapsed;
 
-            // Load HTML content
-            string html = index switch
+            if (_webViewReady)
             {
-                0 => BuildAboutHtml(),
-                1 => BuildRadioHtml(),
-                2 => BuildSystemHtml(),
-                3 => BuildDiagnosticsHtml(),
-                _ => ""
-            };
-            ContentWebView.NavigateToString(html);
+                // Load HTML content
+                string html = index switch
+                {
+                    0 => BuildAboutHtml(),
+                    1 => BuildRadioHtml(),
+                    2 => BuildSystemHtml(),
+                    3 => BuildDiagnosticsHtml(),
+                    _ => ""
+                };
+                ContentWebView.NavigateToString(html);
+            }
+            else if (_fallbackActive)
+            {
+                // Plain fallback: same facts, same source, no browser runtime.
+                FallbackText.Text = _plainText[index];
+            }
         }
 
         #region Content Building
 
         private void BuildAllContent()
         {
+            // One snapshot per refresh: every version and support fact below is
+            // queried live from the running process, never typed in. This is
+            // the same structure CrashReporter embeds in crash reports.
+            _snapshot = DiagnosticSnapshot.Capture();
+
             // Pre-build plain text for all tabs (used by clipboard/export)
             _plainText[0] = BuildAboutPlainText();
             _plainText[1] = BuildRadioPlainText();
@@ -137,8 +191,10 @@ namespace JJFlexWpf.Dialogs
         private string BuildAboutHtml()
         {
             var html = LoadHtmlTemplate("JJFlexWpf.Resources.AboutGeneral.html");
-            var version = Assembly.GetEntryAssembly()?.GetName().Version?.ToString() ?? "Unknown";
-            html = html.Replace("{{Version}}", Escape(version));
+            // The snapshot's display version prefers the executable's 4-part
+            // FileVersion — the build number tester zips and the NAS history
+            // are keyed by — over the bare assembly version.
+            html = html.Replace("{{Version}}", Escape(_snapshot?.AppDisplayVersion ?? "Unknown"));
             html = html.Replace("{{LibraryVersions}}", BuildLibraryVersionsHtml());
             return html;
         }
@@ -175,7 +231,7 @@ namespace JJFlexWpf.Dialogs
         private string BuildAboutPlainText()
         {
             var sb = new StringBuilder();
-            var version = Assembly.GetEntryAssembly()?.GetName().Version?.ToString() ?? "Unknown";
+            var version = _snapshot?.AppDisplayVersion ?? "Unknown";
             sb.AppendLine("JJ Flexible Radio Access");
             sb.AppendLine($"Version {version}");
             sb.AppendLine("Copyright 2024-2026");
@@ -301,65 +357,39 @@ namespace JJFlexWpf.Dialogs
 
         // --- System tab ---
 
+        // The System tab is a pure rendering of DiagnosticSnapshot.Items — the
+        // HTML and the plain text iterate the SAME sectioned list, so the page,
+        // the clipboard, the exported report, and the crash reporter (which
+        // embeds the same snapshot) agree by construction. The version-probing
+        // helpers that used to live here moved into Radios.DiagnosticSnapshot,
+        // where the crash reporter can reach them too.
+
         private string BuildSystemHtml()
         {
             var html = LoadHtmlTemplate("JJFlexWpf.Resources.AboutSystem.html");
-            html = html.Replace("{{DotNetVersion}}", Escape(Environment.Version.ToString()));
-            html = html.Replace("{{WindowsVersion}}", Escape(Environment.OSVersion.VersionString));
-            html = html.Replace("{{Architecture}}", Escape(RuntimeInformation.ProcessArchitecture.ToString()));
-            html = html.Replace("{{FlexLibVersion}}", Escape(GetFlexLibVersion()));
-            html = html.Replace("{{WebView2Version}}", Escape(GetWebView2Version()));
-            html = html.Replace("{{ScreenReader}}", Escape(GetScreenReaderInfo()));
-            html = html.Replace("{{BrailleLine}}", ScreenReaderOutput.HasBraille ? "<p>Braille: Available</p>" : "");
+            var sb = new StringBuilder();
+            string section = null;
+            if (_snapshot != null)
+            {
+                foreach (var item in _snapshot.Items)
+                {
+                    if (item.Section != section)
+                    {
+                        // Real headings: this is what browse mode's H key jumps
+                        // between, and the reason this page is a web page.
+                        sb.AppendLine($"<h2>{Escape(item.Section)}</h2>");
+                        section = item.Section;
+                    }
+                    sb.AppendLine($"<p>{Escape(item.Label)}: {Escape(item.Value)}</p>");
+                }
+            }
+            html = html.Replace("{{SystemContent}}", sb.ToString());
             return html;
         }
 
         private string BuildSystemPlainText()
         {
-            var sb = new StringBuilder();
-            sb.AppendLine($".NET Runtime: {Environment.Version}");
-            sb.AppendLine($"Windows: {Environment.OSVersion.VersionString}");
-            sb.AppendLine($"Architecture: {RuntimeInformation.ProcessArchitecture}");
-            sb.AppendLine();
-            sb.AppendLine($"FlexLib: {GetFlexLibVersion()}");
-            sb.AppendLine($"WebView2: {GetWebView2Version()}");
-            sb.AppendLine();
-            sb.AppendLine($"Screen reader: {GetScreenReaderInfo()}");
-            if (ScreenReaderOutput.HasBraille)
-                sb.AppendLine("Braille: Available");
-            return sb.ToString().TrimEnd();
-        }
-
-        private static string GetFlexLibVersion()
-        {
-            try
-            {
-                var flexAsm = Assembly.Load("FlexLib");
-                var flexPath = flexAsm.Location;
-                if (!string.IsNullOrEmpty(flexPath) && File.Exists(flexPath))
-                {
-                    var fvi = System.Diagnostics.FileVersionInfo.GetVersionInfo(flexPath);
-                    return fvi.ProductVersion ?? fvi.FileVersion ?? "Unknown";
-                }
-                return flexAsm.GetName().Version?.ToString() ?? "Unknown";
-            }
-            catch { return "Unknown"; }
-        }
-
-        private static string GetWebView2Version()
-        {
-            try { return CoreWebView2Environment.GetAvailableBrowserVersionString(); }
-            catch { return "Not available"; }
-        }
-
-        private static string GetScreenReaderInfo()
-        {
-            var srName = ScreenReaderOutput.ScreenReaderName;
-            if (!string.IsNullOrEmpty(srName))
-                return $"{srName} detected";
-            if (ScreenReaderOutput.IsAvailable)
-                return "SAPI (no screen reader detected)";
-            return "None detected";
+            return _snapshot?.ToPlainText() ?? "System information unavailable.";
         }
 
         // --- Diagnostics tab ---
@@ -406,6 +436,7 @@ namespace JJFlexWpf.Dialogs
             var sb = new StringBuilder();
             sb.AppendLine("=== JJ Flexible Radio Access — Diagnostic Report ===");
             sb.AppendLine($"Generated: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+            sb.AppendLine($"Version: {_snapshot?.AppDisplayVersion ?? "unknown"}");
             sb.AppendLine();
             sb.AppendLine("--- About ---");
             sb.AppendLine(_plainText[0]);
@@ -480,12 +511,19 @@ namespace JJFlexWpf.Dialogs
 
         private void CopyButton_Click(object sender, RoutedEventArgs e)
         {
-            // Copy current tab's plain text
-            int idx = AboutTabs.SelectedIndex;
-            if (idx >= 0 && idx < _plainText.Length)
+            // Copy EVERYTHING — all four tabs in one report — so nobody reads
+            // hex aloud on a support call. (This used to copy only the current
+            // tab while its accessible name promised "all information"; the
+            // behavior now matches the name.)
+            try
             {
-                Clipboard.SetText(_plainText[idx]);
-                SpeakCallback?.Invoke("Copied to clipboard", true);
+                Clipboard.SetText(BuildFullReport());
+                SpeakCallback?.Invoke("Copied full report to clipboard", true);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Trace.WriteLine($"AboutDialog copy failed: {ex.Message}");
+                SpeakCallback?.Invoke("Could not copy to clipboard", true);
             }
         }
 

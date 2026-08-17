@@ -97,6 +97,18 @@ Friend Class DebugInfo
                 ' install?) and answers it by name.
                 verifySummary = AddInstallVerification(archive)
 
+                ' The runtime picture — app build identity, every component's
+                ' self-reported version, trace locations — from the same
+                ' DiagnosticSnapshot the About page and the crash reporter use.
+                ' One assembler; the bundle cannot disagree with the About page
+                ' about what version was running.
+                Try
+                    WriteTextEntry(archive, "system-info.txt",
+                        Radios.DiagnosticSnapshot.Capture().ToPlainText())
+                Catch ex As Exception
+                    Tracing.ErrTraceOnly(ex)
+                End Try
+
                 Dim tempFileName = My.Computer.FileSystem.GetTempFileName
                 Try
                     File.Move(tempFileName, tempFileName & ".txt")
