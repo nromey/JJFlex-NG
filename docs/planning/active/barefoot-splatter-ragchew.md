@@ -643,6 +643,37 @@ surfaced: D2 is building the *model* and is untouched (how a meter is presented
 is orthogonal to what a meter is), D3 had not started, and D1's work is mostly
 intact — only the count changes.
 
+#### The combo IS the management surface — it collapses two designs into one
+
+Noel, same conversation: *"if you have the combo you can also right click and do
+things to the meter, or you can press Del to delete; to read the value you'd
+simply tab once. Way more efficient."*
+
+**This removes the separate management list entirely.** An earlier draft had a
+list for managing meters *and* a readout for reading them. One combo does both:
+
+- **Arrow** selects, announcing each meter as you walk.
+- **Shift+F10 / Applications** (Right Ctrl for Noel) opens the context menu on the
+  selected meter — enable, disable, edit, delete, **create**.
+- **Delete** deletes.
+- **Tab once** lands on the read-only box showing that meter's live value.
+
+**Two tab stops for the entire meters surface**, against eight boxes plus a
+management list. It also largely answers the open question of whether creation
+lives on the tab or in a modal: **create is another context-menu item on the
+thing you are already standing in.**
+
+**Two details that decide whether it works:**
+
+- **The combo must be NON-EDITABLE.** If it accepts text entry, `Delete` means
+  "delete a character" and the meaning is ambiguous. A drop-down-list style combo
+  still gives type-ahead — type "SWR" and it jumps — so nothing is lost.
+- **Combo items stay NAMES; the value lives in the box.** Tempting to put the
+  value in the item text so arrowing reads "SWR, 1.4" and saves the Tab — but the
+  value changes twice a second, and **a list whose items rewrite themselves while
+  you are inside it is disorienting.** Stable names in the combo, live value one
+  Tab away.
+
 ### D1 → D3 HANDOFF — read before starting D3
 
 **Noel caught this 2026-08-16, and it was an orchestration error worth recording.**
