@@ -2897,7 +2897,7 @@ public partial class MainWindow : UserControl
 
                 // Send to braille display if available and panadapter is shown
                 if (showPan && Radios.ScreenReaderOutput.HasBraille)
-                    Radios.Tolk.Braille(line);
+                    Radios.ScreenReaderOutput.Braille(line);
             });
         };
 

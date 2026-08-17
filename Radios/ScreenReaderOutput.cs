@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Diagnostics;
 using System.Threading.Tasks;
 using JJTrace;
@@ -26,7 +26,9 @@ namespace Radios
     }
 
     /// <summary>
-    /// Helper class for screen reader output using Tolk.
+    /// Helper class for screen reader output. The backend (Prism, or Tolk as a
+    /// fallback) is chosen by ScreenReaderFactory; policy above it - verbosity,
+    /// suppression, last-message history - is backend-neutral.
     /// Provides a simple interface to speak messages through NVDA, JAWS, or SAPI.
     /// </summary>
     public static class ScreenReaderOutput
@@ -35,6 +37,15 @@ namespace Radios
         private static bool _available;
         private static string _screenReaderName;
         private static string _lastMessage;
+
+        /// <summary>
+        /// The live speech backend, chosen by
+        /// <see cref="Speech.ScreenReaderFactory"/>. Null until
+        /// <see cref="Initialize"/> runs; every call below null-guards rather
+        /// than assuming, because speech is attempted from radio events that
+        /// can arrive before or after startup completes.
+        /// </summary>
+        private static Speech.IScreenReader _backend;
 
         // ── Verbosity engine (Sprint 24 Phase 6) ──
 
@@ -60,36 +71,29 @@ namespace Radios
 
             try
             {
-                // Enable SAPI fallback for users without a screen reader
-                Tolk.TrySAPI(true);
+                // Backend selection and fallback live in the factory: Prism
+                // first, Tolk if Prism cannot come up. Everything above this
+                // line - the verbosity gate, SuppressSpeech, the last-message
+                // history - is backend-neutral policy and stays here, so it
+                // applies identically whichever one loads.
+                _backend = Speech.ScreenReaderFactory.Create();
+                _available = _backend.HasSpeech;
+                _screenReaderName = _backend.DetectedReader;
 
-                // Load Tolk and detect screen reader
-                Tolk.Load();
-
-                if (Tolk.IsLoaded())
-                {
-                    _screenReaderName = Tolk.DetectScreenReader();
-                    _available = Tolk.HasSpeech();
-
-                    if (_available)
-                    {
-                        Tracing.TraceLine($"ScreenReaderOutput: Initialized with {_screenReaderName ?? "SAPI"}", TraceLevel.Info);
-                    }
-                    else
-                    {
-                        Tracing.TraceLine("ScreenReaderOutput: Loaded but no speech capability", TraceLevel.Warning);
-                    }
-                }
-                else
-                {
-                    _available = false;
-                    Tracing.TraceLine("ScreenReaderOutput: Tolk failed to load", TraceLevel.Warning);
-                }
+                Tracing.TraceLine(
+                    $"ScreenReaderOutput: {_backend.BackendName} backend, reader "
+                    + $"{_screenReaderName ?? "none detected"}, speech={_available}, "
+                    + $"braille={_backend.HasBraille}",
+                    _available ? TraceLevel.Info : TraceLevel.Warning);
             }
             catch (Exception ex)
             {
+                // The factory is written not to throw, so reaching here means
+                // something unexpected. Stay silent rather than crash - the app
+                // is still usable by a sighted helper, and a crash at startup is
+                // not.
                 _available = false;
-                Tracing.TraceLine($"ScreenReaderOutput: Failed to initialize - {ex.Message}", TraceLevel.Warning);
+                Tracing.TraceLine($"ScreenReaderOutput: Failed to initialize - {ex.Message}", TraceLevel.Error);
             }
 
             _initialized = true;
@@ -120,7 +124,7 @@ namespace Radios
 
                 if (_available)
                 {
-                    Tolk.Speak(message, interrupt);
+                    _backend?.Speak(message, interrupt);
                     _lastMessage = message;
                     Tracing.TraceLine($"ScreenReaderOutput: Spoke '{message}'", TraceLevel.Verbose);
                 }
@@ -226,7 +230,7 @@ namespace Radios
 
                 if (_available)
                 {
-                    Tolk.Output(message, interrupt);
+                    _backend?.Output(message, interrupt);
                     Tracing.TraceLine($"ScreenReaderOutput: Output '{message}'", TraceLevel.Verbose);
                 }
             }
@@ -272,7 +276,7 @@ namespace Radios
             {
                 if (_available)
                 {
-                    Tolk.Silence();
+                    _backend?.Silence();
                 }
             }
             catch { /* ignore */ }
@@ -287,7 +291,7 @@ namespace Radios
             {
                 if (_initialized)
                 {
-                    Tolk.Unload();
+                    _backend?.Dispose();
                 }
             }
             catch { /* ignore */ }
@@ -334,7 +338,36 @@ namespace Radios
             get
             {
                 if (!_initialized) Initialize();
-                return _available && Tolk.HasBraille();
+                return _available && _backend?.HasBraille == true;
+            }
+        }
+
+        /// <summary>
+        /// Push a line to a connected braille display WITHOUT speaking it.
+        ///
+        /// Used by the radio status line and the panadapter readout, both of
+        /// which update far too often to be spoken — braille is a surface that
+        /// gets overwritten, so a display can carry a live value that speech
+        /// never could.
+        ///
+        /// Added 2026-08-17 with the Prism migration. Two callers previously
+        /// reached past this class and called Tolk.Braille directly, which is
+        /// why they would have silently kept using Tolk after the backend
+        /// changed underneath everything else. Deliberately NOT verbosity-gated:
+        /// braille is a passive surface the operator reads when they choose,
+        /// not an interruption, so the speech verbosity setting has no bearing.
+        /// </summary>
+        public static void Braille(string message)
+        {
+            if (string.IsNullOrEmpty(message)) return;
+            try
+            {
+                if (!_initialized) Initialize();
+                _backend?.Braille(message);
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine($"ScreenReaderOutput: Error writing braille - {ex.Message}", TraceLevel.Warning);
             }
         }
 

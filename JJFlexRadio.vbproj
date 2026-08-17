@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>net10.0-windows</TargetFramework>
     <UseWindowsForms>true</UseWindowsForms>
@@ -481,7 +481,7 @@
     </None>
   </ItemGroup>
 
-  <!-- Native DLLs for runtimes subfolder - only portaudio and libopus go here.
+  <!-- Native DLLs for runtimes subfolder - portaudio, libopus and prism go here.
        NativeLoader.vb loads these from runtimes\win-x??\native\ first, then falls back to app root.
        Tolk, NVDA, and SAAPI are loaded from the app root (copied there by Radios.csproj). -->
   <ItemGroup Condition="'$(Platform)'=='x64'">
@@ -493,6 +493,10 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>runtimes\win-x64\native\libopus.dll</Link>
     </Content>
+    <Content Include="runtimes\win-x64\native\prism.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>runtimes\win-x64\native\prism.dll</Link>
+    </Content>
   </ItemGroup>
   <ItemGroup Condition="'$(Platform)'=='x86'">
     <Content Include="runtimes\win-x86\native\portaudio.dll">
@@ -502,6 +506,10 @@
     <Content Include="runtimes\win-x86\native\libopus.dll">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>runtimes\win-x86\native\libopus.dll</Link>
+    </Content>
+    <Content Include="runtimes\win-x86\native\prism.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>runtimes\win-x86\native\prism.dll</Link>
     </Content>
   </ItemGroup>
 

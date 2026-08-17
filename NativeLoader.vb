@@ -49,6 +49,12 @@ Public Module NativeLoader
                 mappedName = "portaudio.dll"
             Case "libopus.dll", "libopus", "opus"
                 mappedName = "libopus.dll"
+            Case "prism.dll", "prism"
+                ' Screen-reader and braille output (ethindp/prism), added
+                ' 2026-08-17. Replaces Tolk and its per-reader client DLLs -
+                ' Prism talks to NVDA, JAWS and SAPI itself, so this one file
+                ' stands in for four.
+                mappedName = "prism.dll"
             Case Else
                 mappedName = libraryName
         End Select

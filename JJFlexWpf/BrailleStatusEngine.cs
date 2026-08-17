@@ -93,7 +93,7 @@ namespace JJFlexWpf
                 // the last pin state mean identical pushes cost effectively
                 // nothing on the wire.
                 string status = BuildBrailleStatus();
-                Tolk.Braille(status);
+                Radios.ScreenReaderOutput.Braille(status);
                 _lastPushed = status;
             }
             catch (Exception ex)
