@@ -614,6 +614,35 @@ the two drift and the operator learns two vocabularies for one language.
 load-bearing** — pan alone dies for mono listeners and asymmetric hearing loss,
 which is Patrick's axis.
 
+### THE READOUT IS A COMBO PLUS ONE BOX, NOT N BOXES — Noel, 2026-08-16
+
+**Supersedes D1's eight-boxes approach.** Noel: *"having a combo which selects
+the meter you want to read and then updating one read-only makes more sense,
+especially if you also have the JJ key meter stuff. That Audio Workshop is the JJ
+key in a usable efficient dialog."*
+
+**Why it wins, and it wins harder the more meters exist:**
+
+- **It scales.** Eight tab stops is wasteful; **102 is impossible.** A selector is
+  the only shape that survives what the radio actually reports.
+- **It gives BOTH interactions, not one.** Arrow keys inside a combo move the
+  selection, so an operator can still walk the list hearing each value in turn —
+  exactly the behaviour separate boxes would give — while **type-ahead jumps
+  straight to SWR out of a hundred.** One tab stop, both behaviours.
+- **It makes the dialog and the `Ctrl+J M` layer the same mental model** — select
+  a meter, read a meter. The Workshop becomes the leader layer in a dialog rather
+  than a different idea wearing the same name.
+- **Tab-stop economy is a standing house principle**, not a preference.
+
+**The apparent loss — comparing two meters side by side — is already answered by
+derived meters.** You do not read two boxes and subtract; you create an "NB
+effectiveness" meter that *is* the difference, and read one.
+
+**Cost of the change is small**, which is why D did not need pausing when this
+surfaced: D2 is building the *model* and is untouched (how a meter is presented
+is orthogonal to what a meter is), D3 had not started, and D1's work is mostly
+intact — only the count changes.
+
 ### D1 → D3 HANDOFF — read before starting D3
 
 **Noel caught this 2026-08-16, and it was an orchestration error worth recording.**
@@ -646,9 +675,11 @@ field-correct:
   serve. Continuous monitoring belongs to the tones and to per-meter "audible" as
   an explicit choice — not a hardcoded firehose.
 
-**What D3 REPLACES:** the membership. Eight hardcoded readings become the meters
-the operator has, from the model D2 defines, sourced from what the radio actually
-reports.
+**What D3 REPLACES:** the *shape and the membership*. Eight hardcoded boxes
+become **one combo selecting the meter plus one read-only box showing it**, over
+the meters the operator has, from the model D2 defines, sourced from what the
+radio actually reports. See the combo decision above — it supersedes D1's
+eight-box layout.
 
 **Merge order consequence: D1 merges BEFORE D3**, and D3 rebases onto it rather
 than the reverse.
