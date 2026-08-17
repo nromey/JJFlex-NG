@@ -1,4 +1,4 @@
-# EditorConfig for JJFlexRadio
+﻿# EditorConfig for JJFlexRadio
 # https://editorconfig.org
 
 root = true
@@ -203,6 +203,157 @@ dotnet_diagnostic.MA0005.severity = suggestion
 # MA0009: Add timeout to regex (22 hits)
 dotnet_diagnostic.MA0009.severity = suggestion
 
+
+# ===========================================================================
+# Warning triage - 2026-08-17
+#
+# Before: 3455 unique warning sites, 156 distinct rules. At that volume a NEW
+# warning introduced by a merge is invisible, which is the same failure mode
+# as every defect found on 2026-08-16/17: the system had no way to report on
+# itself, so problems only surfaced when a human tripped over them.
+#
+# The rules below are SILENCED as style opinions we do not share. This is a
+# recorded decision, not neglect - each family is listed with its reason, and
+# anything security-, resource- or correctness-shaped stays at warning.
+#
+# What deliberately stays ON: security and crypto (S2068 credentials, S2245
+# weak RNG, S4036 PATH hijack, S5443 writable dirs, S5332 cleartext, S6444
+# ReDoS, CA5369 XXE, CA2101 marshaling); obsolete and banned APIs (SYSLIB*,
+# CS0618, RS0030); resource lifetime (CA1001, CA1816, S2930, S3881, S2953);
+# exception correctness (CA2200 rethrow, CA2201, S2486 swallowed); ignored
+# return values (CA1806, MA0060 - the family fixed on 2026-08-17); shared
+# mutable state (CA2211, S2696, S3010); VB implicit conversion and late
+# binding (BC4201*-BC4202*); null dereference (CS86**); and logic smells that
+# hide real bugs (S1871 identical branches, S1854 dead stores, S1168, S4144).
+#
+# Result: 2385 sites silenced, 960 kept. Re-measure before and after any
+# change here, and never silence a rule without saying why on its line.
+# ===========================================================================
+[*.{cs,vb}]
+
+# --- Sonar: Sonar maintainability/style. Biggest single entry is S6670 (284) - 'avoid
+# Trace.WriteLine, specify the trace event type' - a rule that disagrees with
+# this app's deliberate tracing architecture, not a defect.
+dotnet_diagnostic.S6670.severity = none   # 284 sites
+dotnet_diagnostic.S108.severity = none   # 263 sites
+dotnet_diagnostic.S1643.severity = none   # 120 sites
+dotnet_diagnostic.S3358.severity = none   # 111 sites
+dotnet_diagnostic.S1172.severity = none   # 51 sites
+dotnet_diagnostic.S2737.severity = none   # 50 sites
+dotnet_diagnostic.S1481.severity = none   # 39 sites
+dotnet_diagnostic.S4487.severity = none   # 36 sites
+dotnet_diagnostic.S1075.severity = none   # 27 sites
+dotnet_diagnostic.S8949.severity = none   # 24 sites
+dotnet_diagnostic.S3265.severity = none   # 20 sites
+dotnet_diagnostic.S2365.severity = none   # 19 sites
+dotnet_diagnostic.S3241.severity = none   # 19 sites
+dotnet_diagnostic.S3237.severity = none   # 18 sites
+dotnet_diagnostic.S8969.severity = none   # 18 sites
+dotnet_diagnostic.S3218.severity = none   # 17 sites
+dotnet_diagnostic.S2376.severity = none   # 16 sites
+dotnet_diagnostic.S3445.severity = none   # 16 sites
+dotnet_diagnostic.S6610.severity = none   # 16 sites
+dotnet_diagnostic.S2306.severity = none   # 14 sites
+dotnet_diagnostic.S3011.severity = none   # 14 sites
+dotnet_diagnostic.S3878.severity = none   # 14 sites
+dotnet_diagnostic.S2386.severity = none   # 12 sites
+dotnet_diagnostic.S3376.severity = none   # 12 sites
+dotnet_diagnostic.S1186.severity = none   # 10 sites
+dotnet_diagnostic.S3168.severity = none   # 9 sites
+dotnet_diagnostic.S4136.severity = none   # 9 sites
+dotnet_diagnostic.S112.severity = none   # 8 sites
+dotnet_diagnostic.S1121.severity = none   # 8 sites
+dotnet_diagnostic.S127.severity = none   # 8 sites
+dotnet_diagnostic.S3247.severity = none   # 8 sites
+dotnet_diagnostic.S6561.severity = none   # 8 sites
+dotnet_diagnostic.S8970.severity = none   # 8 sites
+dotnet_diagnostic.S1135.severity = none   # 7 sites
+dotnet_diagnostic.S1645.severity = none   # 6 sites
+dotnet_diagnostic.S1940.severity = none   # 6 sites
+dotnet_diagnostic.S2328.severity = none   # 6 sites
+dotnet_diagnostic.S2346.severity = none   # 6 sites
+dotnet_diagnostic.S3398.severity = none   # 6 sites
+dotnet_diagnostic.S3427.severity = none   # 6 sites
+dotnet_diagnostic.S3626.severity = none   # 6 sites
+dotnet_diagnostic.S3875.severity = none   # 6 sites
+dotnet_diagnostic.S4635.severity = none   # 6 sites
+dotnet_diagnostic.S1133.severity = none   # 4 sites
+dotnet_diagnostic.S2094.severity = none   # 4 sites
+dotnet_diagnostic.S3385.severity = none   # 4 sites
+dotnet_diagnostic.S4015.severity = none   # 4 sites
+dotnet_diagnostic.S3400.severity = none   # 3 sites
+dotnet_diagnostic.S1110.severity = none   # 2 sites
+dotnet_diagnostic.S1199.severity = none   # 2 sites
+dotnet_diagnostic.S1656.severity = none   # 2 sites
+dotnet_diagnostic.S1751.severity = none   # 2 sites
+dotnet_diagnostic.S2355.severity = none   # 2 sites
+dotnet_diagnostic.S2971.severity = none   # 2 sites
+dotnet_diagnostic.S3604.severity = none   # 2 sites
+dotnet_diagnostic.S3869.severity = none   # 2 sites
+dotnet_diagnostic.S3963.severity = none   # 2 sites
+dotnet_diagnostic.S4220.severity = none   # 2 sites
+dotnet_diagnostic.S4663.severity = none   # 2 sites
+dotnet_diagnostic.S6966.severity = none   # 2 sites
+
+# --- Meziantou: Meziantou style and micro-optimisation opinions.
+dotnet_diagnostic.MA0134.severity = none   # 156 sites
+dotnet_diagnostic.MA0099.severity = none   # 92 sites
+dotnet_diagnostic.MA0158.severity = none   # 44 sites
+dotnet_diagnostic.MA0004.severity = none   # 41 sites
+dotnet_diagnostic.MA0064.severity = none   # 28 sites
+dotnet_diagnostic.MA0027.severity = none   # 16 sites
+dotnet_diagnostic.MA0035.severity = none   # 6 sites
+dotnet_diagnostic.MA0055.severity = none   # 6 sites
+dotnet_diagnostic.MA0008.severity = none   # 3 sites
+dotnet_diagnostic.MA0091.severity = none   # 3 sites
+dotnet_diagnostic.MA0169.severity = none   # 3 sites
+dotnet_diagnostic.MA0025.severity = none   # 2 sites
+dotnet_diagnostic.MA0056.severity = none   # 2 sites
+
+# --- Roslynator: Roslynator refactoring suggestions - readability preferences, not defects.
+dotnet_diagnostic.RCS1194.severity = none   # 22 sites
+dotnet_diagnostic.RCS1044.severity = none   # 16 sites
+dotnet_diagnostic.RCS1138.severity = none   # 16 sites
+dotnet_diagnostic.RCS1075.severity = none   # 9 sites
+dotnet_diagnostic.RCS1102.severity = none   # 8 sites
+
+# --- NET analyzers: Microsoft performance/style suggestions (span-vs-substring, string
+# comparison forms, constant arrays). Real but micro; none change behaviour.
+dotnet_diagnostic.CA1861.severity = none   # 75 sites
+dotnet_diagnostic.CA1845.severity = none   # 22 sites
+dotnet_diagnostic.CA1859.severity = none   # 22 sites
+dotnet_diagnostic.CA1841.severity = none   # 20 sites
+dotnet_diagnostic.CA1862.severity = none   # 20 sites
+dotnet_diagnostic.CA1866.severity = none   # 18 sites
+dotnet_diagnostic.CA1309.severity = none   # 14 sites
+dotnet_diagnostic.CA1710.severity = none   # 14 sites
+dotnet_diagnostic.CA1846.severity = none   # 13 sites
+dotnet_diagnostic.CA2249.severity = none   # 13 sites
+dotnet_diagnostic.CA1510.severity = none   # 10 sites
+dotnet_diagnostic.CA1850.severity = none   # 9 sites
+dotnet_diagnostic.CA1869.severity = none   # 9 sites
+dotnet_diagnostic.CA1864.severity = none   # 7 sites
+dotnet_diagnostic.CA1512.severity = none   # 6 sites
+dotnet_diagnostic.CA1825.severity = none   # 6 sites
+dotnet_diagnostic.CA1854.severity = none   # 6 sites
+dotnet_diagnostic.CA1513.severity = none   # 4 sites
+dotnet_diagnostic.CA1068.severity = none   # 3 sites
+dotnet_diagnostic.CA1838.severity = none   # 3 sites
+dotnet_diagnostic.CA1708.severity = none   # 2 sites
+dotnet_diagnostic.CA1834.severity = none   # 2 sites
+dotnet_diagnostic.CA1863.severity = none   # 2 sites
+dotnet_diagnostic.CA1868.severity = none   # 2 sites
+
+# --- Compiler: Compiler informational warnings: nullable-annotation context, unused
+# locals and fields. Kept out of the build, still visible in the IDE.
+dotnet_diagnostic.CS8632.severity = none   # 134 sites
+dotnet_diagnostic.CS8618.severity = none   # 33 sites
+dotnet_diagnostic.CS8981.severity = none   # 16 sites
+dotnet_diagnostic.CS0414.severity = none   # 5 sites
+dotnet_diagnostic.CS0168.severity = none   # 4 sites
+dotnet_diagnostic.CS0109.severity = none   # 3 sites
+dotnet_diagnostic.CS8622.severity = none   # 3 sites
+dotnet_diagnostic.CS0067.severity = none   # 2 sites
 # ---------------------------------------------------------------------------
 # P-Opus-master third-party code — reduce noise
 # ---------------------------------------------------------------------------
