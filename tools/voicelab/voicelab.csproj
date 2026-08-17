@@ -18,6 +18,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="..\..\JJFlexWpf\MeterVoice.cs" Link="src\MeterVoice.cs" />
+    <Compile Include="..\..\JJFlexWpf\MeterModel.cs" Link="src\MeterModel.cs" />
     <Compile Include="..\..\JJFlexWpf\ContinuousToneSampleProvider.cs" Link="src\ContinuousToneSampleProvider.cs" />
     <Compile Include="..\..\JJFlexWpf\VoicedToneSampleProvider.cs" Link="src\VoicedToneSampleProvider.cs" />
   </ItemGroup>

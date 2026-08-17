@@ -143,6 +143,14 @@ for (int i = 0; i < metrics.Count; i++)
     }
 if (!anyClose) Log("  none — every pair differs on at least one axis.");
 
+// ---------------------------------------------------------------------------
+// 4. Serialization smoke test: the model types ride in audioConfig.xml, so a
+//    voice with an override and a derived-source meter must round-trip
+//    through XmlSerializer without loss.
+// ---------------------------------------------------------------------------
+Log("");
+Log(SerializationRoundTrip());
+
 File.WriteAllText(Path.Combine(outDir, "analysis.txt"), report.ToString());
 Log("");
 Log($"Done. Output: {outDir}");
@@ -151,6 +159,58 @@ return;
 // ===========================================================================
 
 static double Ratio(double a, double b) => a > b ? a / b : b / a;
+
+static string SerializationRoundTrip()
+{
+    var tweaked = MeterVoiceLibrary.Resolve("Bell").Clone();
+    tweaked.Brightness = 0.4f;
+    var meters = new List<MeterDefinition>
+    {
+        new()
+        {
+            Name = "SWR fine",
+            Source = new MeterSourceRef { Kind = MeterSourceKind.RadioReported, Key = "SWR" },
+            Range = new MeterRange { Low = 1.0, High = 1.5, Units = MeterUnits.Swr, UnitsLabel = "SWR" },
+            VoiceName = "Bell",
+            VoiceOverride = tweaked,
+            Enabled = true,
+            Activation = MeterActivation.TransmitOnly,
+        },
+        new()
+        {
+            Name = "NB effectiveness",
+            Source = new MeterSourceRef
+            {
+                Kind = MeterSourceKind.Derived, Key = "NB_IN", SecondaryKey = "NB_OUT",
+            },
+            Range = new MeterRange { Low = 0, High = 30, Units = MeterUnits.Db, UnitsLabel = "dB" },
+            VoiceName = "Trill",
+        },
+    };
+
+    var voices = new List<MeterVoice> { tweaked };
+    try
+    {
+        var serializer = new System.Xml.Serialization.XmlSerializer(typeof(ModelBundle));
+        using var ms = new MemoryStream();
+        serializer.Serialize(ms, new ModelBundle { Meters = meters, Voices = voices });
+        ms.Position = 0;
+        var back = (ModelBundle)serializer.Deserialize(ms)!;
+        bool ok = back.Meters.Count == 2
+            && back.Meters[0].VoiceOverride is { Brightness: 0.4f }
+            && back.Meters[0].Range.High == 1.5
+            && back.Meters[1].Source.Kind == MeterSourceKind.Derived
+            && back.Meters[1].Source.SecondaryKey == "NB_OUT"
+            && back.Voices[0].Partials.Length == MeterVoiceLibrary.Resolve("Bell").Partials.Length;
+        return ok
+            ? "Serialization round-trip: OK (override, narrowed range, derived source, partials all survived)"
+            : "Serialization round-trip: FAILED — data lost, inspect before shipping the config change";
+    }
+    catch (Exception ex)
+    {
+        return $"Serialization round-trip: THREW {ex.Message}";
+    }
+}
 
 // Emulates the engine: 10 Hz value updates driving live providers, exactly
 // the cadence MeterToneEngine uses.
@@ -323,3 +383,9 @@ record SimMeter(string VoiceName, float Volume, float PitchLow, float PitchHigh,
     Func<double, double> Motion);
 
 record RenderResult(float[] Samples, float Peak, bool HasNaN);
+
+public class ModelBundle
+{
+    public List<MeterDefinition> Meters { get; set; } = new();
+    public List<MeterVoice> Voices { get; set; } = new();
+}
