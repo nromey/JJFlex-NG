@@ -6840,9 +6840,75 @@ namespace Radios
         {
             return (int)((Math.Pow(10d, (double)(dbm / 10)) / 1000) + 0.5);
         }
-        protected float _PowerDBM;
+
+        /// <summary>
+        /// dBm to watts, without rounding to an integer. The whole reason this
+        /// exists separately from <see cref="DBmToPower"/>.
+        /// </summary>
+        public static float DBmToWatts(float dbm)
+        {
+            return (float)(Math.Pow(10d, dbm / 10d) / 1000d);
+        }
+
+        // -150 dBm, not 0. Zero dBm is one milliwatt — a real, legitimate
+        // reading — so a field defaulting to 0 claims the radio is making
+        // power before any meter data has arrived. -150 matches the idle
+        // value the SC_MIC / SW ALC fields already use for "nothing yet".
+        protected float _PowerDBM = -150f;
         /// <summary>Forward power in dBm (raw from FlexLib).</summary>
         public float PowerDBM => _PowerDBM;
+
+        /// <summary>
+        /// Forward power in WATTS, as a float.
+        /// <para>Exists because <see cref="SMeter"/> returns <c>int</c>, and on
+        /// transmit it converts dBm to watts and truncates. Measured on a
+        /// FLEX-8600 on 2026-08-16 with the radio's power set to its default of
+        /// zero: three consecutive keyed samples read 17.0, 22.4 and 18.7 dBm —
+        /// 50, 174 and 74 milliwatts of real RF leaving the radio — and all
+        /// three displayed as <c>0 watts</c>, indistinguishable from not
+        /// transmitting at all. Sub-watt is the normal operating point for
+        /// transverter and QRP work, not a fault, so the instrument has to be
+        /// able to show it.</para>
+        /// <para><see cref="SMeter"/> is dual-purpose — watts on transmit,
+        /// S-units on receive — and its S-unit callers legitimately want
+        /// integers, so its contract is deliberately left alone. Transmit
+        /// display paths use this instead.</para>
+        /// </summary>
+        public float ForwardPowerWatts => DBmToWatts(_PowerDBM);
+
+        /// <summary>
+        /// Forward power for a narrow display field — the Home S-meter column
+        /// is four characters wide.
+        /// <para>Precision follows magnitude: a hundred watts does not need
+        /// decimals, and sub-watt is nothing BUT decimals. Under one watt the
+        /// leading zero is dropped (".050", ".174") so three decimals still fit
+        /// four columns, which is milliwatt resolution — enough for every drive
+        /// level a transverter asks for.</para>
+        /// </summary>
+        public static string FormatForwardPowerCompact(float watts)
+        {
+            if (float.IsNaN(watts) || watts < 0.0005f) return "0";
+            if (watts >= 100f) return watts.ToString("F0");   // "100", "1500"
+            if (watts >= 1f) return watts.ToString("F1");     // "5.2", "12.5"
+            string s = watts.ToString("F3");                  // "0.050"
+            return s.Length > 1 && s[0] == '0' ? s.Substring(1) : s; // ".050"
+        }
+
+        /// <summary>
+        /// Forward power for speech and for status text, with its unit.
+        /// Same precision-follows-magnitude rule as
+        /// <see cref="FormatForwardPowerCompact"/>, minus the four-column
+        /// squeeze — so the leading zero stays (it reads better) and trailing
+        /// zeros go ("0.05 watts", not "0.050 watts").
+        /// </summary>
+        public static string FormatForwardPowerSpoken(float watts)
+        {
+            if (float.IsNaN(watts) || watts < 0.0005f) return "0 watts";
+            if (watts >= 100f) return watts.ToString("F0") + " watts";
+            if (watts >= 1f) return watts.ToString("F1") + " watts";
+            string s = watts.ToString("F3").TrimEnd('0');
+            return s + " watts";
+        }
 
         private void forwardPowerData(float data)
         {
@@ -7297,7 +7363,17 @@ namespace Radios
         /// <summary>
         /// Calibrated S-Meter/power
         /// </summary>
-        /// <remarks>Smeter and forward power are in DBM.</remarks>
+        /// <remarks>
+        /// <para>Dual-purpose: S-units (or dBm) on receive, whole watts on
+        /// transmit. The S-unit callers legitimately want an integer, so the
+        /// contract stays as it is.</para>
+        /// <para><b>Do not use the transmit branch for a power readout.</b> It
+        /// truncates, so anything under half a watt reads 0 — the same as not
+        /// transmitting. Use <see cref="ForwardPowerWatts"/> with
+        /// <see cref="FormatForwardPowerCompact"/> or
+        /// <see cref="FormatForwardPowerSpoken"/>. The branch is kept only so
+        /// existing integer callers keep compiling.</para>
+        /// </remarks>
         private int _SMeter;
         public int SMeter
         {
@@ -7305,8 +7381,8 @@ namespace Radios
             {
                 if (Transmit)
                 {
-                    // Show forward power = exp(10, (dbm/10)) / 1000
-                    return (int)((Math.Pow(10d, (double)(_PowerDBM / 10)) / 1000) + 0.5);
+                    // Whole watts. See the remarks above before reusing this.
+                    return (int)(DBmToWatts(_PowerDBM) + 0.5f);
                 }
                 else
                 {

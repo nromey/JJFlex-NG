@@ -2037,7 +2037,11 @@ public partial class MainWindow : UserControl
             int smeter = (int)RigControl.SMeter;
             if (RigControl.Transmit)
             {
-                FreqOut.Write("SMeter", smeter.ToString());
+                // Forward power, NOT SMeter's integer watts: that truncates,
+                // so 174 mW of real RF displayed as "0" — identical to not
+                // transmitting (measured on an 8600, 2026-08-16).
+                FreqOut.Write("SMeter",
+                    FlexBase.FormatForwardPowerCompact(RigControl.ForwardPowerWatts));
             }
             else
             {

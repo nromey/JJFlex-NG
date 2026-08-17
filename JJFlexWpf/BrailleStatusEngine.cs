@@ -140,10 +140,13 @@ namespace JJFlexWpf
             if (!tx && EnabledFields.HasFlag(BrailleFields.SMeter))
             {
                 int s = _rig.SMeter;
+                // Over S9 the excess is ALREADY decibels — SMeter returns
+                // dB-over-S9 plus 9. Multiplying it by 6 inflated every
+                // over-S9 reading sixfold.
                 if (wide)
-                    parts.Add(s <= 9 ? $"S{s}" : $"S9+{(s - 9) * 6}dB");
+                    parts.Add(s <= 9 ? $"S{s}" : $"S9+{s - 9}dB");
                 else
-                    parts.Add(s <= 9 ? $"SM{s}" : $"SM9+{(s - 9) * 6}");
+                    parts.Add(s <= 9 ? $"SM{s}" : $"SM9+{s - 9}");
             }
 
             if (EnabledFields.HasFlag(BrailleFields.Slice) && _rig.MyNumSlices > 1)
@@ -167,10 +170,13 @@ namespace JJFlexWpf
 
             if (tx && EnabledFields.HasFlag(BrailleFields.Power))
             {
-                float dbm = _rig.PowerDBM;
-                int watts = (int)(Math.Pow(10.0, dbm / 10.0) / 1000.0 + 0.5);
-                if (watts > 0)
-                    parts.Add(wide ? $"{watts}W" : $"PW{watts}");
+                // Was a local dBm-to-watts truncation with `if (watts > 0)`, so
+                // sub-watt drive didn't just read zero — the power cell vanished
+                // from the line entirely while the radio was making RF.
+                float watts = _rig.ForwardPowerWatts;
+                string w = FlexBase.FormatForwardPowerCompact(watts);
+                if (w != "0")
+                    parts.Add(wide ? $"{w}W" : $"PW{w}");
             }
 
             if (tx && EnabledFields.HasFlag(BrailleFields.ALC))

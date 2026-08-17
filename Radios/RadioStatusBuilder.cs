@@ -141,7 +141,10 @@ namespace Radios
             // Signal: S-units when receiving, watts when transmitting
             if (snap.IsTransmitting)
             {
-                snap.SignalDisplay = $"{radio.SMeter} watts";
+                // Real watts, decimals and all. radio.SMeter truncates on
+                // transmit, so sub-watt drive read as "0 watts" — the same
+                // thing it says when the radio is not transmitting at all.
+                snap.SignalDisplay = FlexBase.FormatForwardPowerSpoken(radio.ForwardPowerWatts);
             }
             else
             {
@@ -149,7 +152,10 @@ namespace Radios
                 if (s <= 9)
                     snap.SignalDisplay = $"S{s}";
                 else
-                    snap.SignalDisplay = $"S9 plus {(s - 9) * 6}";
+                    // Over S9, SMeter returns dB-over-S9 plus 9, so the excess
+                    // is ALREADY decibels — multiplying it by 6 reported 4 dB
+                    // over S9 as "S9 plus 24".
+                    snap.SignalDisplay = $"S9 plus {s - 9} dB";
             }
 
             return snap;

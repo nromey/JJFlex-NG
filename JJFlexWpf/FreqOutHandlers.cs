@@ -2068,8 +2068,14 @@ public class FreqOutHandlers
         var key = RawKey(e);
         if (key == Key.Space)
         {
-            string reading = _window.FreqOut.Read("SMeter").Trim();
-            Radios.ScreenReaderOutput.Speak($"S meter {reading}", VerbosityLevel.Terse);
+            // On transmit this field carries forward power, not a signal
+            // reading, so name it and name its unit. It used to read the
+            // display field back verbatim — "S meter .050" while the radio
+            // transmitted 50 milliwatts.
+            string spoken = Rig != null && Rig.Transmit
+                ? $"Power {Radios.FlexBase.FormatForwardPowerSpoken(Rig.ForwardPowerWatts)}"
+                : $"S meter {_window.FreqOut.Read("SMeter").Trim()}";
+            Radios.ScreenReaderOutput.Speak(spoken, VerbosityLevel.Terse);
             e.Handled = true;
         }
 
