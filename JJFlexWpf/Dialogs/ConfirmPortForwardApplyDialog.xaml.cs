@@ -17,11 +17,19 @@ namespace JJFlexWpf.Dialogs
         {
             InitializeComponent();
 
+            // Track C wording fix: the radio advertises these EXTERNAL ports to
+            // SmartLink; it always listens on its LAN address at TCP 4994 and
+            // UDP 4993. The old "listen on port {tcp}" phrasing repeated the
+            // same lie as the FlexBase doc comment that misled a live
+            // debugging session (2026-08-14).
             string actionDescription = enabled
                 ? (tcp == udp
-                    ? $"JJ Flex will tell the radio to listen for SmartLink on port {tcp} (both TCP and UDP)."
-                    : $"JJ Flex will tell the radio to listen for SmartLink on TCP port {tcp} and UDP port {udp}.")
-                : "JJ Flex will tell the radio to stop listening on a forwarded port (disable port forwarding).";
+                    ? $"JJ Flex will tell the radio to advertise external port {tcp} (both TCP and UDP) for SmartLink."
+                    : $"JJ Flex will tell the radio to advertise external TCP port {tcp} and UDP port {udp} for SmartLink.")
+                  + $" Your router must forward that external TCP port to the radio's LAN IP at port " +
+                    $"{Radios.FlexBase.SmartLinkRadioTlsPort}, and the external UDP port to port " +
+                    $"{Radios.FlexBase.SmartLinkRadioUdpPort}."
+                : "JJ Flex will tell the radio to stop advertising a forwarded port (disable port forwarding).";
 
             BodyText.Text = ScreenReaderText.NormalizeLineBreaks(
                 actionDescription +

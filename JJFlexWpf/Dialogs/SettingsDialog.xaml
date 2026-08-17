@@ -8,13 +8,22 @@
     ResizeMode="NoResize"
     AutomationProperties.Name="Settings">
     <DockPanel Margin="12">
-        <!-- Buttons at bottom -->
+        <!-- Buttons at bottom. The house convention (Track C, 2026-08-16):
+             OK applies and closes, Apply applies and stays, Cancel discards —
+             the same pair on every settings screen, no per-feature variants.
+             Apply stays present and enabled even when nothing has changed:
+             disabling it would drop it from the tab order (house rule keeps
+             disabled controls out), and a button that vanishes mid-dialog is
+             worse than a no-op for anyone counting tab stops. -->
         <StackPanel DockPanel.Dock="Bottom" Style="{StaticResource ButtonPanel}">
             <Button Content="_OK" AutomationProperties.AcceleratorKey="Alt+O" Style="{StaticResource OkButton}"
-                    AutomationProperties.Name="OK"
+                    AutomationProperties.Name="OK. Applies your changes and closes Settings."
                     Click="OkButton_Click"/>
+            <Button Content="_Apply" AutomationProperties.AcceleratorKey="Alt+A" Style="{StaticResource DialogButton}"
+                    AutomationProperties.Name="Apply. Applies your changes and keeps Settings open."
+                    Click="ApplyButton_Click"/>
             <Button Content="_Cancel" AutomationProperties.AcceleratorKey="Alt+C" Style="{StaticResource CancelButton}"
-                    AutomationProperties.Name="Cancel"
+                    AutomationProperties.Name="Cancel. Discards unapplied changes."
                     Click="CancelButton_Click"/>
         </StackPanel>
 
@@ -458,12 +467,18 @@
                 <StackPanel Margin="8">
                     <TextBlock Text="SmartLink Port Forwarding (Tier 1)" FontWeight="SemiBold"
                                Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
+                    <!-- Track C: this text used to claim the radio listens on the
+                         port you type. It does not — the typed port is the
+                         EXTERNAL port your router shows the internet; the radio
+                         always listens on its LAN address at TCP 4994 and UDP
+                         4993. The old wording misled a live debugging session
+                         (2026-08-14). -->
                     <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
-                               Text="Configure the radio's firmware to listen on a specific port for SmartLink. Your router must also forward the same TCP and UDP port to the radio's LAN IP address. Requires an active radio connection."/>
+                               Text="Tell the radio which external port to advertise for SmartLink. The port you choose here is the one the internet sees — the radio itself always listens on its LAN address at TCP port 4994 and UDP port 4993. Your router needs two rules: forward your chosen external TCP port to the radio's LAN IP at port 4994, and your chosen external UDP port to the radio's LAN IP at port 4993. Changing this requires an active radio connection; press Apply or OK to send it."/>
 
                     <!-- Sprint 27 Track A: Tier 1 framing prose. Explains what this mode means and why it's the recommended default. -->
                     <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
-                               Text="Tier 1 (Manual Port Forwarding) is the recommended default. You choose a port, forward it on your router to the radio's LAN IP, and JJ Flex tells the radio to listen on that port. Tier 1 is sovereign — there is no third-party coordination, no UPnP, and no hole-punch. It is the only tier compatible with organizational security policies that require UPnP disabled (DISA STIGs, PCI-DSS, HIPAA), and it is the most reliable path through strict NAT configurations. Your chosen port is saved with your SmartLink account; on future connections, JJ Flex applies it automatically."/>
+                               Text="Tier 1 (Manual Port Forwarding) is the recommended default. You choose the external port and set the two router rules yourself, and JJ Flex tells the radio to advertise that port. Tier 1 is sovereign — there is no third-party coordination, no UPnP, and no hole-punch. It is the only tier compatible with organizational security policies that require UPnP disabled (DISA STIGs, PCI-DSS, HIPAA), and it is the most reliable path through strict NAT configurations. Your chosen port is saved with your SmartLink account; on future connections, JJ Flex applies it automatically."/>
 
                     <TextBlock x:Name="NetworkCurrentStateText"
                                Style="{StaticResource DialogLabel}" Margin="0,0,0,8"
@@ -509,13 +524,13 @@
                               Checked="PortForwardSeparatePortsCheck_Changed"
                               Unchecked="PortForwardSeparatePortsCheck_Changed"/>
 
-                    <!-- Sprint 27 Track A: Apply + Test side-by-side. Test performs local validation only (range + common-conflict blocklist) without touching the radio or persisting. -->
+                    <!-- Track C: the per-feature "Apply to connected radio" button is
+                         gone — the dialog's own Apply and OK commit these edits now,
+                         the same as every other setting, so an edit here can no
+                         longer be silently discarded by OK. Test performs local
+                         validation only (range + common-conflict blocklist) without
+                         touching the radio or persisting. -->
                     <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
-                        <Button Content="_Apply to connected radio"
-                                Width="220" Margin="0,0,8,0"
-                                AutomationProperties.Name="Apply port forwarding to connected radio and save as account preference"
-                                AutomationProperties.AcceleratorKey="Alt+A"
-                                Click="ApplyPortForwardButton_Click"/>
                         <Button Content="Te_st port"
                                 Width="120"
                                 AutomationProperties.Name="Test the port number locally for validity and common conflicts"
@@ -706,11 +721,11 @@
                                    Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
                         <TextBox x:Name="RadioProfileNicknameBox" Width="280"
                                  Style="{StaticResource DialogTextBox}"
-                                 AutomationProperties.Name="Radio name. Saved to the radio itself when you are connected to it; otherwise only the name shown in this list changes. Leaving this empty keeps the current name."/>
+                                 AutomationProperties.Name="Radio name. Applied with OK or Apply. Saved to the radio itself when you are connected to it; otherwise only the name shown in this list changes. Leaving this empty keeps the current name."/>
                     </StackPanel>
                     <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
                                Style="{StaticResource DialogLabel}"
-                               Text="The name is stored on the radio itself and shows up everywhere — discovery, SmartLink, other clients. Saving while connected to this radio renames it for real; saving while not connected only changes the name shown here until the next connection."/>
+                               Text="The name is stored on the radio itself and shows up everywhere — discovery, SmartLink, other clients. Applying while connected to this radio renames it for real; applying while not connected only changes the name shown here until the next connection."/>
                     <GroupBox Header="Connection over SmartLink" Margin="0,4,0,8"
                               AutomationProperties.Name="Connection over SmartLink">
                         <StackPanel Margin="4">
@@ -753,6 +768,26 @@
                             </StackPanel>
                         </StackPanel>
                     </GroupBox>
+                    <!-- Track C: "no physical access" — geography, not networking.
+                         The SmartLink group above answers "how do I connect";
+                         this answers "can a human reach the radio". Checking it
+                         runs the enumerated cascade in code-behind. -->
+                    <GroupBox Header="Reaching this radio" Margin="0,4,0,8"
+                              AutomationProperties.Name="Reaching this radio">
+                        <StackPanel Margin="4">
+                            <CheckBox x:Name="RadioProfileNoPhysicalAccessCheck" Margin="0,0,0,4"
+                                      Click="RadioProfileNoPhysicalAccess_Click"
+                                      AutomationProperties.Name="This radio is operated remotely. I cannot reach its front panel.">
+                                <TextBlock Text="This radio is operated remotely — I cannot reach its front panel" TextWrapping="Wrap"/>
+                            </CheckBox>
+                            <TextBlock x:Name="RadioProfileNoPhysicalAccessHint"
+                                       TextWrapping="Wrap" Margin="20,0,0,4"
+                                       Style="{StaticResource DialogLabel}"/>
+                            <TextBlock TextWrapping="Wrap" Margin="20,0,0,4"
+                                       Style="{StaticResource DialogLabel}"
+                                       Text="This is about geography, not the connection: a radio at your own house can prefer SmartLink and still be a short walk away. Checking it offers to set the safety net a truly unreachable radio needs — REM ON and the remote administration allowances below."/>
+                        </StackPanel>
+                    </GroupBox>
                     <GroupBox Header="Remote administration" Margin="0,4,0,8"
                               AutomationProperties.Name="Remote administration">
                         <StackPanel Margin="4">
@@ -770,20 +805,41 @@
                                       AutomationProperties.Name="Allow firmware updates without someone at the radio">
                                 <TextBlock Text="Allow firmware updates without someone at the radio" TextWrapping="Wrap"/>
                             </CheckBox>
-                            <TextBlock TextWrapping="Wrap" Margin="0,0,0,4"
+                            <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
                                        Style="{StaticResource DialogLabel}"
                                        Text="Firmware always travels over the radio's local network, so updating from afar means a VPN link, like Tailscale, that makes your computer look local. Getting a port wrong is recoverable — the radio stays registered with SmartLink and hole-punch remains a way back in. Interrupting a firmware update is not, so leave that one off unless it is truly your only option."/>
+                            <!-- Track C: REM ON as a queued intent. The TX Controls
+                                 dialog can only reach it with a live connection —
+                                 which is exactly when a remote radio being off makes
+                                 it unreachable. This saves the intent with no radio
+                                 present and applies it at the next connection. -->
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,2">
+                                <TextBlock Text="REM ON remote power jack when connecting:"
+                                           VerticalAlignment="Center"
+                                           Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
+                                <ComboBox x:Name="RadioProfileRemOnCombo" MinWidth="220"
+                                          Style="{StaticResource DialogComboBox}"
+                                          AutomationProperties.Name="REM ON remote power jack when connecting to this radio. Saved for this radio; applied at the next connection."
+                                          SelectionChanged="RadioProfileRemOnCombo_SelectionChanged">
+                                    <ComboBoxItem Content="Leave it as the radio has it"/>
+                                    <ComboBoxItem Content="Turn it on"/>
+                                    <ComboBoxItem Content="Turn it off"/>
+                                </ComboBox>
+                            </StackPanel>
+                            <TextBlock TextWrapping="Wrap" Margin="20,0,0,4"
+                                       Style="{StaticResource DialogLabel}"
+                                       Text="REM ON lets the radio be powered up remotely, and for a radio nobody can walk to it is the only way back from powered-off. Hardware matters: enabling it does nothing unless the REM ON RCA jack on the radio's back panel is actually wired to a relay or keying device."/>
                         </StackPanel>
                     </GroupBox>
-                    <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
-                        <Button Content="Save pro_file"
-                                Padding="10,4" Margin="0,0,8,0"
-                                AutomationProperties.Name="Save this radio's settings"
-                                Click="SaveRadioProfileButton_Click"/>
-                    </StackPanel>
+                    <!-- Track C: the per-feature "Save profile" button is gone.
+                         Edits on this tab are committed by the dialog's Apply and
+                         OK like every other setting — this is the fix for the
+                         radio name that did not save. -->
                     <TextBlock x:Name="RadioProfileStatusText"
                                Style="{StaticResource DialogLabel}"
                                TextWrapping="Wrap" Margin="0,4,0,0"
+                               Focusable="True"
+                               AutomationProperties.Name="Radio profile status"
                                AutomationProperties.LiveSetting="Polite"/>
                 </StackPanel>
                 </ScrollViewer>
@@ -849,10 +905,16 @@
                                          Width="220" VerticalAlignment="Center"
                                          Style="{StaticResource DialogTextBox}"
                                          AutomationProperties.Name="Radio name, stored in the radio itself"/>
+                                <!-- Track C: renamed from "Apply name" — settings
+                                     screens carry exactly one Apply (the dialog's
+                                     own), so this is a do-it-now checklist action,
+                                     not an apply variant. A name typed here and
+                                     never sent still commits on the dialog's OK
+                                     or Apply. -->
                                 <Button x:Name="SetupApplyNameButton"
-                                        Content="Apply na_me"
+                                        Content="Set na_me now"
                                         Margin="8,0,0,0" Padding="12,4"
-                                        AutomationProperties.Name="Apply the name to the radio"
+                                        AutomationProperties.Name="Set the name on the radio right now"
                                         AutomationProperties.AcceleratorKey="Alt+M"
                                         Click="SetupApplyNameButton_Click"/>
                             </StackPanel>

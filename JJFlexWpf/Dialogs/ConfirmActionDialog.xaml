@@ -30,6 +30,17 @@
                  Margin="0,0,0,12"
                  AutomationProperties.Name="What is about to happen, and its warnings"/>
 
+        <!-- "Don't show this again" (Track C): only present when the caller
+             passes a suppression key. Suppresses the TEACHING, never a
+             receipt — callers that use this must still show their outcome
+             some other re-readable way. Sits above the buttons, after the
+             body in tab order. -->
+        <CheckBox x:Name="DontShowAgainCheck"
+                  Content="_Don't show this explanation again"
+                  Margin="0,0,0,4"
+                  Visibility="Collapsed"
+                  AutomationProperties.Name="Don't show this explanation again"/>
+
         <!-- The jacks button sits on the left, deliberately away from No and Yes:
              it is a detour, not an answer, and it should not sit between the two
              buttons that commit or cancel. It appears only when we have a verified

@@ -2124,40 +2124,42 @@ namespace JJFlexWpf.Dialogs
                     return;
             }
 
-            // Show settings dialog
-            var newAutoConnect = radio.AutoConnect;
-            var newLowBW = radio.LowBW;
-
-            if (AutoConnectSettingsDialog.ShowSettingsDialog(this, radio.Name, ref newAutoConnect, ref newLowBW))
-            {
-                // Clear auto-connect from other radios
-                if (newAutoConnect)
+            // Show settings dialog. Track C: the commit runs on every OK or
+            // Apply via the callback — Apply-and-stay saves for real, instead
+            // of the old read-the-refs-after-close pattern that only OK could
+            // satisfy.
+            AutoConnectSettingsDialog.ShowSettingsDialog(this, radio.Name,
+                radio.AutoConnect, radio.LowBW,
+                (newAutoConnect, newLowBW) =>
                 {
-                    lock (_radiosLock)
+                    // Clear auto-connect from other radios
+                    if (newAutoConnect)
                     {
-                        foreach (var r in _radiosList)
+                        lock (_radiosLock)
                         {
-                            if (r.Serial != radio.Serial)
-                                r.AutoConnect = false;
+                            foreach (var r in _radiosList)
+                            {
+                                if (r.Serial != radio.Serial)
+                                    r.AutoConnect = false;
+                            }
                         }
                     }
-                }
 
-                radio.AutoConnect = newAutoConnect;
-                radio.LowBW = newLowBW;
+                    radio.AutoConnect = newAutoConnect;
+                    radio.LowBW = newLowBW;
 
-                // Save settings
-                _callbacks.SaveAutoConnectSettings(
-                    radio.Serial, radio.Name, radio.IsRemote,
-                    newLowBW, newAutoConnect);
+                    // Save settings
+                    _callbacks.SaveAutoConnectSettings(
+                        radio.Serial, radio.Name, radio.IsRemote,
+                        newLowBW, newAutoConnect);
 
-                RefreshRadiosList();
+                    RefreshRadiosList();
 
-                if (newAutoConnect)
-                    _callbacks.ScreenReaderSpeak?.Invoke($"Auto-connect set for {radio.Name}", true);
-                else
-                    _callbacks.ScreenReaderSpeak?.Invoke($"Auto-connect cleared for {radio.Name}", true);
-            }
+                    if (newAutoConnect)
+                        _callbacks.ScreenReaderSpeak?.Invoke($"Auto-connect set for {radio.Name}", true);
+                    else
+                        _callbacks.ScreenReaderSpeak?.Invoke($"Auto-connect cleared for {radio.Name}", true);
+                });
         }
 
         private void ConnectMenuItem_Click(object sender, RoutedEventArgs e)

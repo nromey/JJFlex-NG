@@ -51,7 +51,7 @@ A few accessibility behaviours happen automatically, and you may not notice them
 
 - **Menu toggle states are spoken.** When you flip a DSP toggle (NR, NB, APF, and so on) through a menu, you hear "NR on" or "NR off" directly — you do not have to rely on a checkmark glyph, which does not always read the way you would hope on every combination of screen reader and menu style.
 - **Dialog close announcements** tell you where you are when a dialog closes. When you leave Settings or the Status dialog, the application announces your current listening state ("Listening on 14.225, Upper Side Band, 20 meter band, slice A") so you do not have to press `Ctrl+Shift+S` yourself to re-orient after closing.
-- **Button accelerator keys speak themselves.** When focus lands on a button that has a keyboard accelerator (most buttons do), your screen reader announces the accelerator along with the name — for example, "OK, Alt+O" or "Apply to connected radio, Alt+A." You do not have to explore the dialog to discover the Alt-key shortcuts.
+- **Button accelerator keys speak themselves.** When focus lands on a button that has a keyboard accelerator (most buttons do), your screen reader announces the accelerator along with the name — for example, "OK, Alt+O" or "Apply, Alt+A." You do not have to explore the dialog to discover the Alt-key shortcuts.
 
 ## Troubleshooting
 
