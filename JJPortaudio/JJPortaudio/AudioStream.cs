@@ -14,6 +14,14 @@ using PortAudioSharp;
 
 namespace JJPortaudio
 {
+    /// <summary>
+    /// Track I: in-place processor for the transmit input callback —
+    /// (buffer, floatCount, sampleRate), interleaved stereo, called on the
+    /// PortAudio callback thread between the test-tone injection point and
+    /// the LUFS meter. TxAudioConditioner.Process matches this contract.
+    /// </summary>
+    public delegate void TxAudioProcessorCallback(float[] buffer, int count, uint sampleRate);
+
     public class JJAudioStream
     {
         private const uint defaultSampleRate = 48000;
@@ -55,6 +63,21 @@ namespace JJPortaudio
         {
             get { return (aud != null) ? aud.ToneSource : null; }
             set { if (aud != null) aud.ToneSource = value; }
+        }
+
+        /// <summary>
+        /// Track I: optional in-place processor for input streams (the TX
+        /// conditioning chain — noise reduction and the gate). Runs in the
+        /// input callback AFTER the tone injection point and BEFORE the LUFS
+        /// meter, so the meter keeps measuring what genuinely goes out.
+        /// Skipped while the test tone is engaged: the tone is a calibrated
+        /// reference that must arrive at the encoder untouched, and there is
+        /// no room noise in a synthesized sine to clean. Set after OpenOpus.
+        /// </summary>
+        public TxAudioProcessorCallback InputProcessor
+        {
+            get { return (aud != null) ? aud.InputProcessor : null; }
+            set { if (aud != null) aud.InputProcessor = value; }
         }
 
         /// <summary>

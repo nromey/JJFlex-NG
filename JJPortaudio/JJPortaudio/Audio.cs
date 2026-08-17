@@ -416,6 +416,10 @@ namespace JJPortaudio
             // samples REPLACE the mic capture in inputCallback ahead of the
             // Opus encode (the mic is discarded, never mixed).
             public TxToneGenerator ToneSource;
+            // Track I: optional TX conditioning processor (NR + gate), run
+            // AFTER the tone injection point and BEFORE the meter, so the
+            // meter still measures what genuinely goes to the encoder.
+            public TxAudioProcessorCallback InputProcessor;
             // Engine Track: optional LUFS meter, fed in inputCallback AFTER
             // the tone injection point so it measures whatever is actually
             // being transmitted, tone or mic.
@@ -519,6 +523,11 @@ namespace JJPortaudio
         {
             get { return CBData?.InputMeter; }
             set { var cb = CBData; if (cb != null) cb.InputMeter = value; }
+        }
+        internal TxAudioProcessorCallback InputProcessor
+        {
+            get { return CBData?.InputProcessor; }
+            set { var cb = CBData; if (cb != null) cb.InputProcessor = value; }
         }
 
         internal Audio()
@@ -925,6 +934,18 @@ namespace JJPortaudio
                         // rides the identical encode-and-send path the mic
                         // does — an honest test of the whole TX chain.
                         data.ToneSource?.Process(buf, (int)data.OpusFrameSZ, data.SampleRate);
+                        // Track I: TX conditioning (NR + gate) — the third
+                        // thing at this insertion point. The tone injects,
+                        // this MODIFIES, the meter observes. Skipped while
+                        // the test tone is engaged: the tone is a calibrated
+                        // reference (-10 dBFS must read -10 on SC_MIC) and
+                        // conditioning a synthesized sine would quietly break
+                        // that property — there is no room in it to clean.
+                        if (data.InputProcessor != null
+                            && (data.ToneSource == null || !data.ToneSource.Engaged))
+                        {
+                            data.InputProcessor(buf, (int)data.OpusFrameSZ, data.SampleRate);
+                        }
                         // Engine Track: LUFS metering, deliberately AFTER the
                         // tone injection — the meter reads whatever is really
                         // going to the encoder, tone or mic, pre-Opus.
