@@ -2,11 +2,37 @@
 date: 2026-05-11
 type: audit / diagnosis
 audit-scope: behavior of Ctrl+J, H vs user expectation
-status: diagnosed, fixes deferred
+status: RESOLVED 2026-08-16 (small-fixes sweep) — options 1 and 2 shipped, option 3 deliberately remains future work; see "Resolution" at top
 triggered-by: Noel pressed "JJ + H" expecting context-sensitive help during foundation testing on 2026-05-11; heard "meter tones" plus a keys-list that felt contextually wrong
 ---
 
 # JJ+H context-help audit — 2026-05-11
+
+## Resolution — 2026-08-16, small-fixes sweep
+
+**Discharged.** Both cheap fix-path options shipped in the 2026-08-11 keys
+track, with the code citing this audit by name:
+
+- **Option 2 (redirect sentence in the leader help): SHIPPED.**
+  `KeyInventory.LeaderHelpSpeech()` ends with "For help on the control you
+  are focused on press F1. To search every command press Control slash." —
+  and its doc comment says "per the 2026-05-11 JJ+H audit". The help is also
+  now generated from the LeaderCommands table rather than hand-written, so
+  it lists every current chord (the hand-written string had quietly dropped
+  six commands).
+- **Option 1 (doc clarification): SHIPPED.** `keyboard-reference.md` line 71
+  explains that `Ctrl+J, H` reads the whole layer, F1 is control-focused
+  help, and `Ctrl+/` is the searchable surface.
+- **Option 3 (context-aware filtering of the leader help): still future
+  work**, exactly as this audit scoped it (Sprint 29+). If it is ever wanted,
+  it is now a filter over the LeaderCommands table rather than a rewrite.
+- One correction to this audit's own framing, for whoever picks up option 3:
+  F1 today opens the help book, not a per-control context page — the
+  ContextMap in `HelpLauncher.cs` is only consulted when a caller passes an
+  explicit context key, and the global F1 handler passes none. "F1 is
+  context-sensitive help" is aspiration, not yet mechanism.
+
+Safe to archive.
 
 ## What triggered this audit
 

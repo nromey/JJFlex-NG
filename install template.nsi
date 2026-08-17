@@ -81,8 +81,13 @@ Section "MYPGM (required)"
   ; Set output path to the installation directory.
   SetOutPath $INSTDIR
   
-  ; Put files there - recurse all built outputs
-  File /r /x "*.pdb" /x "runPgm.bat" "MYOUTDIR\*.*"
+  ; Put files there - recurse all built outputs.
+  ; *.xml is compiler-generated API documentation (JJLogIO.xml, JJTrace.xml)
+  ; that had been shipping since the .NET 10 migration: install.bat's old
+  ; pre-package sweep deleted them from bin\release\, a path that no longer
+  ; exists. Excluded here instead — the app reads no .xml from its install
+  ; directory (its config XMLs live in AppData).
+  File /r /x "*.pdb" /x "*.xml" /x "runPgm.bat" "MYOUTDIR\*.*"
 
   ; Include changelog
   File "docs\CHANGELOG.md"
@@ -101,6 +106,12 @@ Section "MYPGM (required)"
   Delete "$INSTDIR\JJFlexRadio.runtimeconfig.json"
   Delete "$INSTDIR\JJFlexRadio.dll.config"
   Delete "$INSTDIR\JJFlexRadio.xml"
+
+  ; Retire the API-doc XMLs earlier installers shipped (see the File /r note
+  ; above) — the new install no longer carries them, so without this an
+  ; upgraded machine keeps stale copies forever.
+  Delete "$INSTDIR\JJLogIO.xml"
+  Delete "$INSTDIR\JJTrace.xml"
 
   ; Old shortcuts point at the exe we just deleted. Remove them here rather
   ; than only in the shortcut sections below — those are optional components,

@@ -21,9 +21,11 @@ if "%cfg%"=="" set "cfg=Release"
 if "%exe%"=="" set "exe=jjflexible"
 set "PKG=JJFlexRadio"
 
-REM Remove unneeded symbol/doc files before packaging to keep installer small
-del /q "%~1\bin\release\*.pdb" >nul 2>&1
-del /q "%~1\bin\release\*.xml" >nul 2>&1
+REM NOTE: an old sweep here deleted *.pdb / *.xml from "bin\release\" — a path
+REM dead since the .NET 10 migration, so XML doc files quietly shipped for
+REM months. Exclusion now happens where packaging happens: the NSIS template's
+REM File /r line excludes *.pdb and *.xml. Nothing is deleted from the build
+REM tree — the NAS publish step archives the exe+pdb from it afterwards.
 
 echo Params: configuration="%~2" package="%~3"
 setlocal enabledelayedexpansion
