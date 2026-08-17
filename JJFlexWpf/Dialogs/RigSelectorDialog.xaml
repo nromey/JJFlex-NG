@@ -38,7 +38,7 @@
                  IsTabStop="True"
                  KeyboardNavigation.TabNavigation="Once"
                  KeyboardNavigation.DirectionalNavigation="Contained"
-                 AutomationProperties.Name="Radio list, searching for radios"
+                 AutomationProperties.Name="Radio list"
                  GotFocus="RadiosBox_GotFocus"
                  LostFocus="RadiosBox_LostFocus"
                  ContextMenuOpening="RadiosBox_ContextMenuOpening"

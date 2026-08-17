@@ -2264,12 +2264,21 @@ namespace JJFlexWpf.Dialogs
                 return;
             }
 
-            int idx = RadiosBox.SelectedIndex + 1;
-            ScreenReaderOutput.Speak(
-                live == 0
-                    ? $"{selected.DisplayText}, {idx} of {count}, none online"
-                    : $"{selected.DisplayText}, {idx} of {count}",
-                VerbosityLevel.Terse, true);
+            // Deliberately SILENT. RadioListItem.ToString() returns DisplayText,
+            // so the ListBox item's accessible name is already that exact
+            // string — the screen reader announces the row on every arrow, and
+            // announces "N of M" for list items by itself. Speaking it again
+            // here meant hearing each row twice, which is what Noel reported on
+            // 2026-08-17 ("still seeing double speaking as I arrow").
+            //
+            // This is the same defect already fixed in the device picker
+            // (task #63, "delete the redundant utterance"); the radio selector
+            // was never given the same treatment.
+            //
+            // "none online" is not lost: it is a property of the LIST, not of
+            // the row, and repeating it on every arrow was noise. It is spoken
+            // by AnnounceNothingLive when discovery settles, and F2 reports the
+            // loaded state on demand.
         }
 
         private void RadiosBox_LostFocus(object sender, RoutedEventArgs e)
