@@ -1,6 +1,6 @@
 # Track B — Telemetry honesty
 
-**Worktree:** `C:\dev\jjflex-b` · **Branch:** `bsr/track-b` · **Model:** Sonnet
+**Worktree:** `C:\dev\jjflex-b` · **Branch:** `bsr/track-b` · **Model:** Opus
 
 **Read first:** `docs/planning/active/barefoot-splatter-ragchew.md`, section
 "Track B — Telemetry honesty" including "Bench results 2026-08-16". Everything
