@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
   <!-- Track D2: offline voice-render laboratory. NOT part of the app build
        or solution. Compiles the real synthesis sources from JJFlexWpf so
        what you hear from this tool is exactly what the app plays. Used to
@@ -14,7 +14,16 @@
     <RootNamespace>VoiceLab</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="NAudio" Version="2.2.1" />
+    <PackageReference Include="NAudio" Version="3.0.0" />
+    <!-- NAudio 3.0's metapackage puts the Windows assemblies (Wasapi, WinMM,
+         Asio, Dmo, WinForms) behind a net9.0-windows10.0.19041 dependency
+         group. We target net10.0-windows, which defaults to platform version
+         7.0, so NuGet selects the cross-platform group and we get only Core
+         and Midi. The sub-packages themselves target plain net9.0 and guard
+         Windows APIs with [SupportedOSPlatform], so referencing them directly
+         is correct and does NOT raise our minimum Windows version. -->
+    <PackageReference Include="NAudio.Wasapi" Version="3.0.0" />
+    <PackageReference Include="NAudio.WinMM" Version="3.0.0" />
   </ItemGroup>
   <ItemGroup>
     <Compile Include="..\..\JJFlexWpf\MeterVoice.cs" Link="src\MeterVoice.cs" />

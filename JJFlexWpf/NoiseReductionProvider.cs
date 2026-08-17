@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Diagnostics;
 using NAudio.Wave;
 using RNNoise.NET;
@@ -84,9 +84,14 @@ namespace JJFlexWpf
             }
         }
 
-        public int Read(float[] buffer, int offset, int count)
+        // NAudio 3.0: ISampleProvider.Read takes a Span<float>. offset/count
+        // are re-declared here so the body's index arithmetic is unchanged -
+        // buffer[offset + n] indexes a Span exactly as it did an array.
+        public int Read(Span<float> buffer)
         {
-            int totalRead = _source?.Read(buffer, offset, count) ?? 0;
+            int offset = 0;
+            int count = buffer.Length;
+            int totalRead = _source?.Read(buffer.Slice(offset, count)) ?? 0;
 
             // Pass through if disabled, no denoiser, or auto-disabled for non-voice modes
             if (!Enabled || _denoiser == null || totalRead == 0)
@@ -113,7 +118,7 @@ namespace JJFlexWpf
             ProcessSamples(buffer, offset, count, channels);
         }
 
-        private void ProcessSamples(float[] buffer, int offset, int count, int channels)
+        private void ProcessSamples(Span<float> buffer, int offset, int count, int channels)
         {
             int sampleIdx = offset;
             int remaining = count;

@@ -1,8 +1,10 @@
 using System.Diagnostics;
 using JJPortaudio;
 using JJTrace;
+// NAudio 3.0 folded the separate NAudio.Wasapi.CoreAudioApi namespace (which
+// held AudioVolumeLevel and the device-topology Part types) back into
+// NAudio.CoreAudioApi. One using now covers both.
 using NAudio.CoreAudioApi;
-using NAudio.Wasapi.CoreAudioApi;
 
 namespace JJFlexWpf;
 

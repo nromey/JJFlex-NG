@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -1420,7 +1420,7 @@ namespace JJFlexWpf
                     _waveOut = new WaveOutEvent
                     {
                         DeviceNumber = deviceNumber,
-                        DesiredLatency = 100
+                        BufferMilliseconds = 100
                     };
                     _waveOut.Init(_volume);
                     _waveOut.Play();
@@ -1432,7 +1432,7 @@ namespace JJFlexWpf
                     // Fall back to default device
                     try
                     {
-                        _waveOut = new WaveOutEvent { DesiredLatency = 100 };
+                        _waveOut = new WaveOutEvent { BufferMilliseconds = 100 };
                         _waveOut.Init(_volume);
                         _waveOut.Play();
                         _deviceNumber = -1;
@@ -1458,7 +1458,7 @@ namespace JJFlexWpf
                     _waveOut = new WaveOutEvent
                     {
                         DeviceNumber = deviceNumber,
-                        DesiredLatency = 100
+                        BufferMilliseconds = 100
                     };
                     _waveOut.Init(_volume);
                     _waveOut.Play();
@@ -1469,7 +1469,7 @@ namespace JJFlexWpf
                     // Fall back to default device
                     try
                     {
-                        _waveOut = new WaveOutEvent { DesiredLatency = 100 };
+                        _waveOut = new WaveOutEvent { BufferMilliseconds = 100 };
                         _waveOut.Init(_volume);
                         _waveOut.Play();
                         _deviceNumber = -1;
@@ -1514,8 +1514,13 @@ namespace JJFlexWpf
                 _decayRate = -MathF.Log(0.01f) / _totalSamples;
             }
 
-            public int Read(float[] buffer, int offset, int count)
+            // NAudio 3.0: ISampleProvider.Read takes a Span<float>. offset/count
+            // are re-declared here so the body's index arithmetic is unchanged -
+            // buffer[offset + n] indexes a Span exactly as it did an array.
+            public int Read(Span<float> buffer)
             {
+                int offset = 0;
+                int count = buffer.Length;
                 int available = _totalSamples - _position;
                 int toCopy = Math.Min(available, count);
                 if (toCopy <= 0) return 0;
@@ -1574,7 +1579,7 @@ namespace JJFlexWpf
                 var samples = new System.Collections.Generic.List<float>();
                 var buffer = new float[SampleRate];
                 int read;
-                while ((read = source.Read(buffer, 0, buffer.Length)) > 0)
+                while ((read = source.Read(buffer)) > 0)
                 {
                     for (int i = 0; i < read; i++)
                         samples.Add(buffer[i]);
@@ -1592,12 +1597,17 @@ namespace JJFlexWpf
             public CachedSoundSampleProvider(CachedSound sound) { _sound = sound; }
             public WaveFormat WaveFormat => _sound.WaveFormat;
 
-            public int Read(float[] buffer, int offset, int count)
+            // NAudio 3.0: ISampleProvider.Read takes a Span<float>. offset/count
+            // are re-declared here so the body's index arithmetic is unchanged -
+            // buffer[offset + n] indexes a Span exactly as it did an array.
+            public int Read(Span<float> buffer)
             {
+                int offset = 0;
+                int count = buffer.Length;
                 int available = _sound.AudioData.Length - _position;
                 int toCopy = Math.Min(available, count);
                 if (toCopy <= 0) return 0;
-                Array.Copy(_sound.AudioData, _position, buffer, offset, toCopy);
+                _sound.AudioData.AsSpan(_position, toCopy).CopyTo(buffer.Slice(offset, toCopy));
                 _position += toCopy;
                 return toCopy;
             }
@@ -1612,8 +1622,13 @@ namespace JJFlexWpf
             public ReversedCachedSoundSampleProvider(CachedSound sound) { _sound = sound; }
             public WaveFormat WaveFormat => _sound.WaveFormat;
 
-            public int Read(float[] buffer, int offset, int count)
+            // NAudio 3.0: ISampleProvider.Read takes a Span<float>. offset/count
+            // are re-declared here so the body's index arithmetic is unchanged -
+            // buffer[offset + n] indexes a Span exactly as it did an array.
+            public int Read(Span<float> buffer)
             {
+                int offset = 0;
+                int count = buffer.Length;
                 int available = _sound.AudioData.Length - _position;
                 int toCopy = Math.Min(available, count);
                 if (toCopy <= 0) return 0;
@@ -1650,11 +1665,16 @@ namespace JJFlexWpf
                 WaveFormat = WaveFormat.CreateIeeeFloatWaveFormat(monoSource.WaveFormat.SampleRate, 2);
             }
 
-            public int Read(float[] buffer, int offset, int count)
+            // NAudio 3.0: ISampleProvider.Read takes a Span<float>. offset/count
+            // are re-declared here so the body's index arithmetic is unchanged -
+            // buffer[offset + n] indexes a Span exactly as it did an array.
+            public int Read(Span<float> buffer)
             {
+                int offset = 0;
+                int count = buffer.Length;
                 int monoCount = count / 2;
                 var monoBuffer = new float[monoCount];
-                int monoRead = _source.Read(monoBuffer, 0, monoCount);
+                int monoRead = _source.Read(monoBuffer);
                 if (monoRead == 0) return 0;
 
                 for (int i = 0; i < monoRead; i++)
@@ -1709,8 +1729,13 @@ namespace JJFlexWpf
                 _roughenOffSamples = roughenOffMs > 0 ? sampleRate * roughenOffMs / 1000 : 0;
             }
 
-            public int Read(float[] buffer, int offset, int count)
+            // NAudio 3.0: ISampleProvider.Read takes a Span<float>. offset/count
+            // are re-declared here so the body's index arithmetic is unchanged -
+            // buffer[offset + n] indexes a Span exactly as it did an array.
+            public int Read(Span<float> buffer)
             {
+                int offset = 0;
+                int count = buffer.Length;
                 int available = _totalSamples - _position;
                 int toCopy = Math.Min(available, count);
                 if (toCopy <= 0) return 0;
@@ -1784,8 +1809,13 @@ namespace JJFlexWpf
                 _fadeLength = Math.Min(_totalSamples / 10, sampleRate / 100);
             }
 
-            public int Read(float[] buffer, int offset, int count)
+            // NAudio 3.0: ISampleProvider.Read takes a Span<float>. offset/count
+            // are re-declared here so the body's index arithmetic is unchanged -
+            // buffer[offset + n] indexes a Span exactly as it did an array.
+            public int Read(Span<float> buffer)
             {
+                int offset = 0;
+                int count = buffer.Length;
                 int available = _totalSamples - _position;
                 int toCopy = Math.Min(available, count);
                 if (toCopy <= 0) return 0;
@@ -1888,8 +1918,13 @@ namespace JJFlexWpf
                 _attackTransientSamples = (int)(sampleRate * AttackTransientSeconds);
             }
 
-            public int Read(float[] buffer, int offset, int count)
+            // NAudio 3.0: ISampleProvider.Read takes a Span<float>. offset/count
+            // are re-declared here so the body's index arithmetic is unchanged -
+            // buffer[offset + n] indexes a Span exactly as it did an array.
+            public int Read(Span<float> buffer)
             {
+                int offset = 0;
+                int count = buffer.Length;
                 int available = _totalSamples - _position;
                 int toCopy = Math.Min(available, count);
                 if (toCopy <= 0) return 0;

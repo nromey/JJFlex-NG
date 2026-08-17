@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using NAudio.Wave;
 
 namespace JJFlexWpf
@@ -108,8 +108,13 @@ namespace JJFlexWpf
             _noiseSeed = (uint)Environment.TickCount | 1u;
         }
 
-        public int Read(float[] buffer, int offset, int count)
+        // NAudio 3.0: ISampleProvider.Read takes a Span<float>. offset/count
+        // are re-declared here so the body's index arithmetic is unchanged -
+        // buffer[offset + n] indexes a Span exactly as it did an array.
+        public int Read(Span<float> buffer)
         {
+            int offset = 0;
+            int count = buffer.Length;
             // count is in floats; stereo → frames
             int frames = count / 2;
 
@@ -132,7 +137,7 @@ namespace JJFlexWpf
             // Fast path: fully silent and inactive.
             if (!active && _fadeLevel <= 0f)
             {
-                Array.Clear(buffer, offset, count);
+                buffer.Slice(offset, count).Clear();
                 _envStage = EnvStage.Idle;
                 return count;
             }
@@ -364,9 +369,9 @@ namespace JJFlexWpf
             int bodyFrames = Math.Max(SampleRate * durationMs / 1000, 1);
             int tailFrames = SampleRate * 15 / 1000;
             var stereo = new float[(bodyFrames + tailFrames) * 2];
-            p.Read(stereo, 0, bodyFrames * 2);
+            p.Read(stereo.AsSpan(0, bodyFrames * 2));
             p.Active = false; // let the activation fade finish the clip
-            p.Read(stereo, bodyFrames * 2, tailFrames * 2);
+            p.Read(stereo.AsSpan(bodyFrames * 2, tailFrames * 2));
 
             var mono = new float[bodyFrames + tailFrames];
             for (int i = 0; i < mono.Length; i++)

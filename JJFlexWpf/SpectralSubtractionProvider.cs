@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -134,9 +134,14 @@ namespace JJFlexWpf
             _samplingFrames.Clear();
         }
 
-        public int Read(float[] buffer, int offset, int count)
+        // NAudio 3.0: ISampleProvider.Read takes a Span<float>. offset/count
+        // are re-declared here so the body's index arithmetic is unchanged -
+        // buffer[offset + n] indexes a Span exactly as it did an array.
+        public int Read(Span<float> buffer)
         {
-            int totalRead = _source?.Read(buffer, offset, count) ?? 0;
+            int offset = 0;
+            int count = buffer.Length;
+            int totalRead = _source?.Read(buffer.Slice(offset, count)) ?? 0;
             if (totalRead == 0) return 0;
 
             int channels = WaveFormat.Channels;
@@ -172,7 +177,7 @@ namespace JJFlexWpf
             ProcessSubtraction(buffer, offset, count, channels);
         }
 
-        private void AccumulateForSampling(float[] buffer, int offset, int count, int channels)
+        private void AccumulateForSampling(Span<float> buffer, int offset, int count, int channels)
         {
             for (int i = offset; i < offset + count; i += channels)
             {
@@ -226,7 +231,7 @@ namespace JJFlexWpf
             Trace.WriteLine($"SpectralSubtraction: noise profile captured ({_sampleFramesCaptured} frames)");
         }
 
-        private int ProcessSubtraction(float[] buffer, int offset, int totalRead, int channels)
+        private int ProcessSubtraction(Span<float> buffer, int offset, int totalRead, int channels)
         {
             // Feed samples into the accumulation buffer
             for (int i = offset; i < offset + totalRead; i += channels)

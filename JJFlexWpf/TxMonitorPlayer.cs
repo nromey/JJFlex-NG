@@ -113,15 +113,18 @@ namespace JJFlexWpf
             StopLocked();
             try
             {
+                // A couple of seconds of headroom; if the UI stalls the reader
+                // we drop rather than block the audio callback. NAudio 3 made
+                // BufferDuration read-only and moved it to the constructor, so
+                // the buffer size is fixed at construction instead of being
+                // mutable after the fact.
                 _provider = new BufferedWaveProvider(
-                    WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 2))
+                    WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 2),
+                    TimeSpan.FromSeconds(2))
                 {
-                    // A couple of seconds of headroom; if the UI stalls the
-                    // reader we drop rather than block the audio callback.
-                    BufferDuration = TimeSpan.FromSeconds(2),
                     DiscardOnBufferOverflow = true
                 };
-                var waveOut = new WaveOutEvent { DesiredLatency = 150 };
+                var waveOut = new WaveOutEvent { BufferMilliseconds = 150 };
                 waveOut.Init(_provider);
                 waveOut.Volume = _volume;
                 waveOut.Play();

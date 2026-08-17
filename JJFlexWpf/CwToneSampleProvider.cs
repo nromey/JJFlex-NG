@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using NAudio.Wave;
 
 namespace JJFlexWpf
@@ -64,8 +64,13 @@ namespace JJFlexWpf
 
         public WaveFormat WaveFormat => _format;
 
-        public int Read(float[] buffer, int offset, int count)
+        // NAudio 3.0: ISampleProvider.Read takes a Span<float>. offset/count
+        // are re-declared here so the body's index arithmetic is unchanged -
+        // buffer[offset + n] indexes a Span exactly as it did an array.
+        public int Read(Span<float> buffer)
         {
+            int offset = 0;
+            int count = buffer.Length;
             int remaining = _totalSamples - _position;
             if (remaining <= 0) return 0;
             int toWrite = Math.Min(count, remaining);
