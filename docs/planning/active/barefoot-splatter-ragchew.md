@@ -663,6 +663,39 @@ management list. It also largely answers the open question of whether creation
 lives on the tab or in a modal: **create is another context-menu item on the
 thing you are already standing in.**
 
+#### METER MONITOR — the live region comes back as a per-meter choice
+
+Noel, 2026-08-16: *"a key or a right-click event which turns a live region to
+auto-read — call it meter monitor. You'd not want it to speak too many at once,
+but monitor on and off would let you hear values as they change."*
+
+**This resolves the live-region question properly.** D1 removed the polite live
+region because eight announcers at 2 Hz starve each other. The capability was
+never the problem — **the hardcoded all-at-once was.** Monitor promotes it to an
+explicit per-meter choice, on the context menu and on a key.
+
+**The division that makes both features necessary rather than redundant: SPEECH
+MONITORS ONE, TONES MONITOR MANY.**
+
+Speech is serial — two meters announcing at 2 Hz is four utterances a second and
+unusable. But you never need speech for several at once, because that is exactly
+what the tone voices exist for. **Precise numbers on one meter: speech. Several
+at a glance: tones.** Neither substitutes for the other.
+
+So the sane default is **one monitored meter at a time**, and switching monitor
+on for a second asks whether to move it rather than silently adding a voice.
+
+**Much of this is already built and unreachable** — the recurring shape of this
+subsystem. `AudioOutputConfig` already carries `MeterSpeechEnabled`,
+`MeterSpeechTimerActive` and `MeterSpeechIntervalSeconds` (default 3 s, clamped
+1–10), already wired through to `MeterToneEngine`. Today they are **global**;
+making them **per-meter** is the actual work, and the existing interval already
+solves the chatterbox problem.
+
+**Monitor must survive closing the Workshop.** If it only works while the dialog
+is open it is a dialog feature; as a per-meter property it is an operating
+feature — and it becomes the natural thing for the `Ctrl+J M` layer to toggle.
+
 **Two details that decide whether it works:**
 
 - **The combo must be NON-EDITABLE.** If it accepts text entry, `Delete` means
