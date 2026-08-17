@@ -209,7 +209,20 @@ public class FilterPresets
     #region Persistence
 
     public static FilterPresets Load(string configDirectory, string operatorName)
+        => Load(configDirectory, operatorName, out _);
+
+    /// <summary>
+    /// Load the operator's filter presets, with the same honesty contract the
+    /// audio preset store adopted (#49): a missing file is a fresh start; a
+    /// file that exists but cannot be read is the operator's tuning, so it is
+    /// moved aside — never left for the next save to overwrite — and its new
+    /// path comes back in <paramref name="corruptSidelinedPath"/> (null when
+    /// nothing was wrong) for the caller to speak.
+    /// </summary>
+    public static FilterPresets Load(string configDirectory, string operatorName,
+        out string? corruptSidelinedPath)
     {
+        corruptSidelinedPath = null;
         var filePath = GetFilePath(configDirectory, operatorName);
 
         if (!File.Exists(filePath))
@@ -217,19 +230,46 @@ public class FilterPresets
 
         try
         {
-            using var fs = File.OpenRead(filePath);
-            var serializer = new XmlSerializer(typeof(FilterPresets));
-            var presets = (FilterPresets?)serializer.Deserialize(fs);
-            return presets ?? new FilterPresets();
+            using (var fs = File.OpenRead(filePath))
+            {
+                var serializer = new XmlSerializer(typeof(FilterPresets));
+                var presets = (FilterPresets?)serializer.Deserialize(fs);
+                if (presets != null)
+                    return presets;
+            }
+            corruptSidelinedPath = SidelineCorruptFile(filePath);
+            return new FilterPresets();
         }
         catch (Exception ex)
         {
             System.Diagnostics.Trace.WriteLine($"FilterPresets.Load failed: {ex.Message}");
+            corruptSidelinedPath = SidelineCorruptFile(filePath);
             return new FilterPresets();
         }
     }
 
-    public void Save(string configDirectory, string operatorName)
+    private static string SidelineCorruptFile(string filePath)
+    {
+        string sidelined = filePath + $".unreadable-{DateTime.Now:yyyyMMdd-HHmmss}";
+        try
+        {
+            File.Move(filePath, sidelined);
+            return sidelined;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Trace.WriteLine(
+                $"FilterPresets: could not sideline corrupt file: {ex.Message}");
+            return filePath;
+        }
+    }
+
+    /// <summary>
+    /// Save the presets. Returns whether the file actually landed — callers
+    /// announce saves, and a save that did not happen must never be
+    /// announced as one.
+    /// </summary>
+    public bool Save(string configDirectory, string operatorName)
     {
         var filePath = GetFilePath(configDirectory, operatorName);
 
@@ -242,10 +282,12 @@ public class FilterPresets
             using var fs = File.Create(filePath);
             var serializer = new XmlSerializer(typeof(FilterPresets));
             serializer.Serialize(fs, this);
+            return true;
         }
         catch (Exception ex)
         {
             System.Diagnostics.Trace.WriteLine($"FilterPresets.Save failed: {ex.Message}");
+            return false;
         }
     }
 
