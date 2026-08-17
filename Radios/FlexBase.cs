@@ -472,7 +472,11 @@ namespace Radios
             radio.Nickname = newName.Trim();
 
             var profile = RadioConfig.LoadForRadio(radio.Serial);
+            // A rename through JJ Flex is a deliberate choice: record it in
+            // both the observation mirror AND the choice field, so it keeps
+            // winning if the hardware name later diverges.
             profile.Nickname = newName.Trim();
+            profile.UserNickname = newName.Trim();
             profile.SaveForRadio(radio.Serial);
 
             RefreshAutoConnectDisplayName(radio.Serial, newName.Trim());

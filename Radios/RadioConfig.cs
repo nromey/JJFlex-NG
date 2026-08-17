@@ -26,6 +26,27 @@ namespace Radios
     }
 
     /// <summary>
+    /// One rung of a radio's connection-path chain — the transports JJ Flex
+    /// can reach a radio by. NOT the same thing as
+    /// <see cref="RadioConnectionPreference"/>, which chooses HOW the
+    /// SmartLink transport crosses the network (forwarded ports vs hole
+    /// punch); this enum chooses WHICH transport to try. Numeric values are
+    /// stable for saved configs; JJ Flexible Connect joins as a third member
+    /// when it exists, without renumbering.
+    /// </summary>
+    public enum ConnectPathKind
+    {
+        /// <summary>The local network — VITA discovery and a direct TCP
+        /// connection. The better path whenever it exists.</summary>
+        Local = 0,
+
+        /// <summary>FlexRadio's SmartLink service.</summary>
+        SmartLink = 1,
+
+        // Connect = 2 is reserved for JJ Flexible Connect.
+    }
+
+    /// <summary>
     /// How the Audio Check session lets the operator hear themselves.
     /// Numeric values are stable so a future Loopback tier (or others) can
     /// join the cycle without renumbering saved configs.
@@ -111,14 +132,51 @@ namespace Radios
         /// identify itself.</summary>
         public string RadioId { get; set; } = "";
 
-        /// <summary>Last known nickname, refreshed on connect. Lets offline
-        /// pickers show "6300 inshack" instead of a bare serial.</summary>
+        /// <summary>Last known nickname as OBSERVED — the name the radio
+        /// broadcasts about itself, refreshed on every sighting and connect.
+        /// The operator's chosen label lives in <see cref="UserNickname"/>;
+        /// this field is the observation and sightings may overwrite it
+        /// freely. Display through <see cref="DisplayName"/>.</summary>
         public string Nickname { get; set; } = "";
+
+        /// <summary>
+        /// The operator's CHOSEN name for this radio, as opposed to
+        /// <see cref="Nickname"/> which is what discovery observed. Set only
+        /// by deliberate action (the Settings Radio Profile tab, a rename
+        /// from JJ Flex) and NEVER auto-overwritten by a sighting — the same
+        /// choice-versus-observation split <see cref="PreferredAccount"/> and
+        /// <see cref="LastSeenViaAccount"/> already document. Empty means no
+        /// choice made: display falls through to the observation. Fixes task
+        /// #75, where a name set in per-radio settings was clobbered by the
+        /// radio's own broadcast name at the first sighting.
+        /// </summary>
+        public string UserNickname { get; set; } = "";
+
+        /// <summary>The name to SHOW for this radio: the operator's choice
+        /// when one exists, otherwise the observed nickname. The operator
+        /// typed theirs deliberately and recently — it wins.</summary>
+        [XmlIgnore]
+        public string DisplayName =>
+            !string.IsNullOrWhiteSpace(UserNickname) ? UserNickname : Nickname;
 
         /// <summary>Connection strategy for this radio. Auto (default) follows
         /// the radio-reported flags each connect.</summary>
         public RadioConnectionPreference ConnectionPreference { get; set; }
             = RadioConnectionPreference.Auto;
+
+        /// <summary>
+        /// The operator's ordered chain of connection paths to try for this
+        /// radio: first entry first, walk on failure, announcing each move.
+        /// Empty (the default) means no preference has been recorded and the
+        /// selector derives the order from live availability, local first —
+        /// the historical behaviour, now an explicit default rather than an
+        /// emergent one. A one-entry chain means "this path only, never fall
+        /// back" — which is what makes force-remote a valid hole-punch test
+        /// instrument. Persisted per radio; survives the radio moving
+        /// networks, which is the point: the chain is the operator's intent,
+        /// where <c>LastSeenRemote</c> is merely history.
+        /// </summary>
+        public List<ConnectPathKind> PathChain { get; set; } = new();
 
         /// <summary>Fixed client hole-punch port for this radio. 0 (default)
         /// means pick a fresh random port per connect, which is the recommended
