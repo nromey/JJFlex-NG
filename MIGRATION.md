@@ -13,6 +13,25 @@ This app carries a small, non-breaking shim to enforce TLS 1.2+ without editing 
 8. **Version-stamp the new drop (added 2026-08-16)**: In `FlexLib_API/FlexLib/FlexLib.csproj`, update `<Version>` and `<InformationalVersion>` to the new vendor version (e.g. `4.2.20.41343`). The About page, crash reports, and debug bundles all report FlexLib's version by querying the built DLL at runtime — the stamp is what makes that query honest. The csproj sat at `0.0.0.0` from the SDK-style conversion until 2026-08-16, so every FlexLib.dll built in between claims no version at all. If the stamp is ever forgotten, the About page will loudly report the missing stamp rather than a version.
 9. **VitaSocket UDP resilience patch (added 2026-08-05)**: In `FlexLib_API/Vita/VitaSocket.cs`, keep four JJFlex patches (all comment-marked): (a) the `SIO_UDP_CONNRESET` ioctl in the base constructor — suppresses Windows' behavior of throwing `SocketException(ConnectionReset)` on the next Send/Receive after an ICMP port-unreachable echo; (b) send methods (`SendUdp`/`SendUdpAsync`) log-and-continue instead of `Dispose()` on exception, and early-return when `_radioEndpoint` is null; (c) `ReceiveLoop` treats `ConnectionReset` as a non-event and only disposes after 50 consecutive receive failures; (d) the static `TraceSink` hook. Vendor 4.2.x stock code called `Dispose()` from ALL of these catch sites, so a single ICMP bounce during the WAN hole-punch race silently killed the entire UDP data plane (no audio, no meters, `PersistenceLoaded` never set, `start_call` timeout ~34-54s — the 2026-08-05 field-test signature). Companion edits: `FlexLib/Radio.cs` `UdpRegistrationLoop` traces loop start + first success through `VitaSocket.TraceSink` (JJFlex-patch-marked); `Radios/FlexBase.cs` constructor wires `TraceSink` to `Tracing.TraceLine`. Reportable upstream to Flex. Remove (a)-(c) if a FlexLib release ships its own fix; keep the TraceSink wiring regardless.
 
+10. **Package version bumps inside the vendor tree (added 2026-08-17)**: the
+    dependency-currency pass raised four NuGet references that live in
+    `FlexLib_API` csproj files, so a fresh vendor drop will revert them to
+    whatever Flex shipped. Re-apply: `Newtonsoft.Json` 13.0.3 → **13.0.4** and
+    `AsyncAwaitBestPractices` 9.0.0 → **10.0.0** in `FlexLib/FlexLib.csproj`;
+    `QRCoder` and `QRCoder.Xaml` 1.6.0 → **1.8.0** in
+    `UiWpfFramework/UiWpfFramework.csproj`; `RestSharp` 112.1.0 → **114.0.0** in
+    `Util/Util.csproj`. RestSharp 114's breaking changes do not reach us — its
+    only consumer is `Util/BigCommerce.cs`, FlexRadio's store API, which
+    implements no `IAuthenticator` and touches no redirect options. **Left
+    deliberately unpatched:** the six `NU1510` warnings from
+    `System.Collections.Immutable`, `System.ValueTuple`, `System.Text.Json` and
+    `System.Runtime.CompilerServices.Unsafe` references in `FlexLib`,
+    `UiWpfFramework` and `Util`. The net10.0 shared framework supplies all four,
+    so the references should be *deleted* rather than bumped — but that is a
+    structural edit to vendor files for warning hygiene alone, and the trade
+    wants a decision rather than a drive-by. The equivalent references in our
+    own projects were removed on 2026-08-17.
+
 ## Not yet applied: a public accessor for the meter list (reviewed 2026-08-16)
 
 **Status: NOT a patch we carry. Recorded here so the decision is not
