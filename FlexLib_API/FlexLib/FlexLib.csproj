@@ -51,8 +51,8 @@
     <ProjectReference Include="..\Vita\Vita.csproj" />
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="AsyncAwaitBestPractices" Version="9.0.0" />
-<PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <PackageReference Include="AsyncAwaitBestPractices" Version="10.0.0" />
+<PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
     <PackageReference Include="System.Collections.Immutable" Version="9.0.0" />
   </ItemGroup>
   <ItemGroup>

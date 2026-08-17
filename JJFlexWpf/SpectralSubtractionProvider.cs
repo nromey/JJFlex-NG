@@ -21,6 +21,12 @@ namespace JJFlexWpf
         // FFT parameters
         private const int FftSize = 1024;
         private const int HopSize = FftSize / 2; // 50% overlap
+        // FftSharp 2.2 replaced the static FftSharp.Window.Hanning(size) helper
+        // with window classes: new FftSharp.Windows.Hanning().Create(size).
+        // Deliberately the SYMMETRIC Hanning, not the HanningPeriodic that 2.2
+        // also offers - periodic is arguably the better choice for overlap-add
+        // STFT, but it is a different window and would change how this sounds.
+        // That is a DSP decision, not a dependency upgrade.
         private readonly double[] _window;
         private readonly double[] _fftBuffer;
         private readonly double[] _overlapBuffer;
@@ -74,7 +80,7 @@ namespace JJFlexWpf
         {
             _source = source;
             _waveFormat = source.WaveFormat;
-            _window = FftSharp.Window.Hanning(FftSize);
+            _window = new FftSharp.Windows.Hanning().Create(FftSize);
             _fftBuffer = new double[FftSize];
             _overlapBuffer = new double[FftSize];
             _inputAccum = new float[FftSize];
@@ -92,7 +98,7 @@ namespace JJFlexWpf
         {
             _source = null;
             _waveFormat = WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, channels);
-            _window = FftSharp.Window.Hanning(FftSize);
+            _window = new FftSharp.Windows.Hanning().Create(FftSize);
             _fftBuffer = new double[FftSize];
             _overlapBuffer = new double[FftSize];
             _inputAccum = new float[FftSize];
