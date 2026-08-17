@@ -142,11 +142,20 @@ H; and transmit conditioning as Track I.
    its own.
 5. **Press the keys.** A's Enter-resume and menu verbs, C's cascade, I's gate,
    G's browse mode — all compile-verified only.
-6. **Rulings wanted:** `StaticIpControl` keeping its own Apply button; milliwatts
+6. **CLAUDE.md drift, flagged by the sweep and not yet applied:** the
+   satellite-resource-dirs claim in the self-contained publish shape (the real
+   tree has none, verified against both configs), and the remove-ampersands rule
+   needs a **native Win32 menu carve-out** — `NativeMenuBar` uses `&` as the
+   mnemonic and it never reaches speech.
+7. **Rulings wanted:** `StaticIpControl` keeping its own Apply button; milliwatts
    versus decimal watts for speech; the CLAUDE.md ampersand carve-out for native
    Win32 menus.
 
 ### Rigmeter snapshot — end of 2026-08-16
+
+Whole repo at `1604df7f`: **authored 995 files / 227,730 lines**, vendor 188
+files / 55,619 lines, **combined 1,183 files / 283,349 lines**. JSON snapshot on
+NAS at `historical\stats6-08-16-1604df7f.json`.
 
 Today, `honest-tx-audio` only: **29 commits, 5 files, +2,953/−1**, one author.
 **Branch-scope caveat: this counts planning only.** The ten track branches carry
