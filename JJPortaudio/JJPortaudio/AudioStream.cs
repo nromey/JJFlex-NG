@@ -80,6 +80,23 @@ namespace JJPortaudio
         /// </summary>
         public uint SampleRate { get { return (aud != null) ? aud.SampleRate : 0; } }
         /// <summary>
+        /// Channels this stream opened with: 1 on a genuinely mono device, 2
+        /// otherwise. The audio itself is stereo either way — a mono capture is
+        /// duplicated onto both channels and a mono playback device gets the
+        /// pair mixed down — so this is for reporting, not for arithmetic.
+        /// </summary>
+        public int Channels { get { return (aud != null) ? aud.Channels : Devices.StreamChannels; } }
+
+        /// <summary>
+        /// The Opus sample rates JJ Flex will offer for transmit, highest
+        /// first. 48 kHz is the default and the only one the radio path has
+        /// been proven at; the lower rates are the fallback for a constrained
+        /// link. The frame duration is 10 ms at every one of them, so the
+        /// packet cadence the radio expects — 100 Opus frames a second — does
+        /// not change with the rate.
+        /// </summary>
+        public static readonly uint[] OpusTxRates = { 48000, 24000, 16000, 12000, 8000 };
+        /// <summary>
         /// true if stream is active.
         /// </summary>
         public bool IsActive { get { return aud.IsActive; } }
