@@ -1,6 +1,6 @@
 # Small-fixes sweep — the orphan papercuts
 
-**Worktree:** `C:\dev\jjflex-sweep` · **Branch:** `bsr/track-sweep` · **Model:** Sonnet
+**Worktree:** `C:\dev\jjflex-sweep` · **Branch:** `bsr/track-sweep` · **Model:** Fable
 
 **Read first:** `docs/planning/active/barefoot-splatter-ragchew.md`, sections
 "Coverage audit" and "Papercuts have owners, not a someday pile".
