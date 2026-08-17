@@ -23,7 +23,7 @@
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
             <Button x:Name="ToggleButton" MinWidth="80" Height="28" Margin="0,0,8,0"
                     IsDefault="True" AutomationProperties.AccessKey="Alt+T" Click="ToggleButton_Click"
-                    AutomationProperties.Name="Start or stop tracing"
+                    AutomationProperties.Name="Start tracing"
                     AutomationProperties.AcceleratorKey="Alt+T" />
             <Button Content="_Cancel" AutomationProperties.AcceleratorKey="Alt+C" MinWidth="80" Height="28"
                     IsCancel="True"

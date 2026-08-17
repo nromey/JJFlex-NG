@@ -64,7 +64,16 @@ namespace JJFlexWpf.Dialogs
 
         private void UpdateToggleButton()
         {
+            // Content and accessible name change together. The XAML used to
+            // hardcode AutomationProperties.Name="Start or stop tracing", so a
+            // screen reader heard the same words in both states — the exact
+            // defect Noel reported 2026-08-11. This whole dialog is slated for
+            // retirement by the ratified diagnostic-log design
+            // (docs/planning/active/diagnostic-log-surface.md); until that
+            // track runs, the button at least tells the truth.
             ToggleButton.Content = _isTracing ? "Stop" : "Start";
+            System.Windows.Automation.AutomationProperties.SetName(
+                ToggleButton, _isTracing ? "Stop tracing" : "Start tracing");
         }
 
         private void ToggleButton_Click(object sender, RoutedEventArgs e)
