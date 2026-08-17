@@ -343,6 +343,36 @@ namespace Radios
         }
 
         /// <summary>
+        /// Re-state which speech backend is live, for the trace file.
+        ///
+        /// Initialize() runs from ApplicationEvents before GetConfigInfo turns
+        /// boot tracing on, so its own trace line lands before there is a file
+        /// to land in — which meant the single most load-bearing fact about
+        /// accessibility (which library is driving the user's ears) appeared in
+        /// no trace anyone could send us. Found 2026-08-17 while trying to
+        /// confirm Prism had actually loaded and finding nothing at all.
+        ///
+        /// Called from GetConfigInfo immediately after Tracing.On. Safe to call
+        /// more than once; it only reports.
+        /// </summary>
+        public static void TraceBackend()
+        {
+            try
+            {
+                if (!_initialized) Initialize();
+                Tracing.TraceLine(
+                    $"Speech: backend={_backend?.BackendName ?? "none"}, "
+                    + $"reader={_screenReaderName ?? "none detected"}, "
+                    + $"speech={_available}, braille={_backend?.HasBraille == true}",
+                    TraceLevel.Info);
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine($"Speech: could not report backend - {ex.Message}", TraceLevel.Warning);
+            }
+        }
+
+        /// <summary>
         /// Push a line to a connected braille display WITHOUT speaking it.
         ///
         /// Used by the radio status line and the panadapter readout, both of

@@ -875,6 +875,15 @@ Module globals
 
         Tracing.TraceLine("GetConfigInfo:" & BaseConfigDir, TraceLevel.Info)
 
+        ' Which speech backend is driving the user's ears - Prism or the Tolk
+        ' fallback - and whether braille is reachable. ScreenReaderOutput picks
+        ' this in ApplicationEvents, which runs BEFORE tracing exists, so
+        ' without this line the fact appears in no trace file anyone could send
+        ' us. It is the first thing to check on any "it stopped speaking"
+        ' report, and on 2026-08-17 it was the one thing the trace could not
+        ' answer.
+        Radios.ScreenReaderOutput.TraceBackend()
+
         ' Per-radio serial-keyed store root. This MUST happen here, at true
         ' startup, not in any radio-window wiring: the store is read and
         ' written at CONNECT time (profile resolution in sendRemoteConnect,
