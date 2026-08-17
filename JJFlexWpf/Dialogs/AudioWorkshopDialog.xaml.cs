@@ -165,16 +165,20 @@ public partial class AudioWorkshopDialog : JJFlexDialog
 
     #endregion
 
-    #region Live Meter Labels
+    #region Live Meter Readings
 
-    private TextBlock? _sMeterLabel;
-    private TextBlock? _fwdPowerLabel;
-    private TextBlock? _swrLabel;
-    private TextBlock? _alcLabel;      // TX drive, SW ALC
-    private TextBlock? _ampAlcLabel;   // external-amplifier ALC (HWALC), for amp users
-    private TextBlock? _micAudioLabel; // transmit mic audio, SC_MIC (honest for PC + analog)
-    private TextBlock? _paTempLabel;
-    private TextBlock? _voltsLabel;
+    // Read-only TextBoxes, not TextBlocks (Track D1, 2026-08-16). The tab had
+    // ZERO tab stops from the day it was built — a TextBlock is not focusable,
+    // so an operator could never go and ASK a meter what it said; the polite
+    // live region was the only way values ever reached a screen reader.
+    private TextBox? _sMeterBox;
+    private TextBox? _fwdPowerBox;
+    private TextBox? _swrBox;
+    private TextBox? _alcBox;      // TX drive, SW ALC
+    private TextBox? _ampAlcBox;   // external-amplifier ALC (HWALC), for amp users
+    private TextBox? _micAudioBox; // transmit mic audio, SC_MIC (honest for PC + analog)
+    private TextBox? _paTempBox;
+    private TextBox? _voltsBox;
 
     #endregion
 
@@ -550,6 +554,12 @@ public partial class AudioWorkshopDialog : JJFlexDialog
             UpdateToneStatus(speakIfNewlyOutside: false);
             UpdateLoopbackAvailability();
             PollTxAudio();
+            // A different rig's last readings must not sit in the meter boxes
+            // until the first poll of the new one — now that the boxes are
+            // focusable, a review command could read the previous radio's
+            // numbers as this one's.
+            if (!ReferenceEquals(oldRig, rig))
+                ResetMeterReadings("no reading yet");
             _meterTimer.Start();
         }
         else
@@ -568,8 +578,9 @@ public partial class AudioWorkshopDialog : JJFlexDialog
             if (oldRig != null && oldRig.LoopbackArranged)
                 oldRig.EndLoopbackArrangement();
             _meterTimer.Stop();
-            // The poll is dead now — leave the reading honest, not stale.
+            // The poll is dead now — leave the readings honest, not stale.
             UpdateMicReading();
+            ResetMeterReadings("no radio connected");
         }
     }
 
@@ -2297,37 +2308,44 @@ public partial class AudioWorkshopDialog : JJFlexDialog
 
     #region Tab 2: Live Meters
 
+    /// <summary>
+    /// Eight read-only reading boxes in three sections. Tab order is build
+    /// order — Receiver, then Transmit top-to-bottom, then Hardware — which
+    /// is also signal order, and F6/Shift+F6 crosses the three sections the
+    /// same way it does on the TX Audio tab (they finally have something
+    /// focusable to land on).
+    /// </summary>
     private void BuildLiveMetersTab()
     {
         AddSectionHeader(LiveMetersContent, "Receiver");
 
-        _sMeterLabel = MakeMeterLabel("S-Meter: --");
-        AddToSection(LiveMetersContent, _sMeterLabel);
+        _sMeterBox = MakeMeterReading("S-Meter");
+        AddToSection(LiveMetersContent, _sMeterBox);
 
         AddSectionHeader(LiveMetersContent, "Transmit");
 
-        _fwdPowerLabel = MakeMeterLabel("Forward Power: --");
-        AddToSection(LiveMetersContent, _fwdPowerLabel);
+        _fwdPowerBox = MakeMeterReading("Forward Power");
+        AddToSection(LiveMetersContent, _fwdPowerBox);
 
-        _swrLabel = MakeMeterLabel("SWR: --");
-        AddToSection(LiveMetersContent, _swrLabel);
+        _swrBox = MakeMeterReading("SWR");
+        AddToSection(LiveMetersContent, _swrBox);
 
-        _micAudioLabel = MakeMeterLabel("Mic audio: --");
-        AddToSection(LiveMetersContent, _micAudioLabel);
+        _micAudioBox = MakeMeterReading("Mic audio");
+        AddToSection(LiveMetersContent, _micAudioBox);
 
-        _alcLabel = MakeMeterLabel("TX drive (ALC): --");
-        AddToSection(LiveMetersContent, _alcLabel);
+        _alcBox = MakeMeterReading("TX drive (ALC)");
+        AddToSection(LiveMetersContent, _alcBox);
 
-        _ampAlcLabel = MakeMeterLabel("Amp ALC: --");
-        AddToSection(LiveMetersContent, _ampAlcLabel);
+        _ampAlcBox = MakeMeterReading("Amp ALC");
+        AddToSection(LiveMetersContent, _ampAlcBox);
 
         AddSectionHeader(LiveMetersContent, "Hardware");
 
-        _paTempLabel = MakeMeterLabel("PA Temperature: --");
-        AddToSection(LiveMetersContent, _paTempLabel);
+        _paTempBox = MakeMeterReading("PA Temperature");
+        AddToSection(LiveMetersContent, _paTempBox);
 
-        _voltsLabel = MakeMeterLabel("Supply Voltage: --");
-        AddToSection(LiveMetersContent, _voltsLabel);
+        _voltsBox = MakeMeterReading("Supply Voltage");
+        AddToSection(LiveMetersContent, _voltsBox);
     }
 
     private void MeterTimer_Tick(object? sender, EventArgs e)
@@ -2363,36 +2381,59 @@ public partial class AudioWorkshopDialog : JJFlexDialog
     {
         if (_rig == null) return;
 
-        if (_sMeterLabel != null)
-        {
-            int sVal = _rig.SMeter;
-            string sText = sVal <= 9 ? $"S{sVal}" : $"S9+{(sVal - 9) * 6} dB";
-            _sMeterLabel.Text = $"S-Meter: {sText}";
-        }
+        int sVal = _rig.SMeter;
+        string sText = sVal <= 9 ? $"S{sVal}" : $"S9+{(sVal - 9) * 6} dB";
+        SetMeterText(_sMeterBox, $"S-Meter: {sText}");
 
-        if (_fwdPowerLabel != null)
-            _fwdPowerLabel.Text = $"Forward Power: {_rig.PowerDBM:F1} dBm";
+        SetMeterText(_fwdPowerBox, $"Forward Power: {_rig.PowerDBM:F1} dBm");
 
-        if (_swrLabel != null)
-            _swrLabel.Text = $"SWR: {_rig.SWRValue:F1}";
+        SetMeterText(_swrBox, $"SWR: {_rig.SWRValue:F1}");
 
         // TX drive is SW ALC, not HWALC (the external-amp jack the old readout
         // showed — always ~0). Mic audio is SC_MIC, honest for PC audio AND the
         // analog mic, where the old "Mic Level" (COD-/MIC) read -120 for PC.
-        if (_alcLabel != null)
-            _alcLabel.Text = $"TX drive (ALC): {_rig.SwAlcDb:F1} dBFS";
+        SetMeterText(_alcBox, $"TX drive (ALC): {_rig.SwAlcDb:F1} dBFS");
 
-        if (_ampAlcLabel != null)
-            _ampAlcLabel.Text = $"Amp ALC: {_rig.ALC:F2}";
+        SetMeterText(_ampAlcBox, $"Amp ALC: {_rig.ALC:F2}");
 
-        if (_micAudioLabel != null)
-            _micAudioLabel.Text = $"Mic audio: {_rig.ScMicDb:F1} dBFS ({MicAudioReport.Verdict(_rig.ScMicMaxDb)})";
+        SetMeterText(_micAudioBox, $"Mic audio: {_rig.ScMicDb:F1} dBFS ({MicAudioReport.Verdict(_rig.ScMicMaxDb)})");
 
-        if (_paTempLabel != null)
-            _paTempLabel.Text = $"PA Temperature: {_rig.PATemp:F1} °C";
+        SetMeterText(_paTempBox, $"PA Temperature: {_rig.PATemp:F1} °C");
 
-        if (_voltsLabel != null)
-            _voltsLabel.Text = $"Supply Voltage: {_rig.Volts:F1} V";
+        SetMeterText(_voltsBox, $"Supply Voltage: {_rig.Volts:F1} V");
+    }
+
+    /// <summary>
+    /// Assign a meter reading only on change, same reason as the mic reading
+    /// box: rewriting identical text twice a second would reset a screen
+    /// reader's review position for nothing. When the value genuinely moved,
+    /// the caret reset is the price of a live reading — the operator lands,
+    /// reads fresh, and the steadier meters (SWR, PA temp, volts) review
+    /// undisturbed between real changes.
+    /// </summary>
+    private static void SetMeterText(TextBox? box, string text)
+    {
+        if (box == null || box.Text == text) return;
+        box.Text = text;
+    }
+
+    /// <summary>
+    /// Put every reading into a named waiting state — "no radio connected"
+    /// when the poll is dead, "no reading yet" when a different rig arrives.
+    /// A focusable box holding "Supply Voltage: 13.8 V" with no radio (or the
+    /// wrong radio) behind it would be a confident lie — same honesty rule as
+    /// UpdateMicReading's disconnect text.
+    /// </summary>
+    private void ResetMeterReadings(string state)
+    {
+        SetMeterText(_sMeterBox, $"S-Meter: {state}");
+        SetMeterText(_fwdPowerBox, $"Forward Power: {state}");
+        SetMeterText(_swrBox, $"SWR: {state}");
+        SetMeterText(_micAudioBox, $"Mic audio: {state}");
+        SetMeterText(_alcBox, $"TX drive (ALC): {state}");
+        SetMeterText(_ampAlcBox, $"Amp ALC: {state}");
+        SetMeterText(_paTempBox, $"PA Temperature: {state}");
+        SetMeterText(_voltsBox, $"Supply Voltage: {state}");
     }
 
     /// <summary>
@@ -2834,17 +2875,42 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         return ctl;
     }
 
-    private static TextBlock MakeMeterLabel(string initialText)
+    /// <summary>
+    /// One live meter reading: a read-only EDIT, not a label (Track D1,
+    /// 2026-08-16). Same idiom and same reasoning as the mic reading box —
+    /// focusable, arrowable at the operator's own pace, and the screen
+    /// reader's read-current-control command speaks it on demand. The
+    /// accessible name is the meter's name, set once; the 2 Hz poll touches
+    /// only the text.
+    /// </summary>
+    /// <remarks>
+    /// This replaced MakeMeterLabel, a plain TextBlock with
+    /// AutomationLiveSetting.Polite — and the live region did NOT move
+    /// across. That setting was the only channel the old readout had: nothing
+    /// was focusable, so narration-on-change was compensation for a broken
+    /// tree (memory/feedback_speak_only_when_ui_does_not_convey — fix the
+    /// tree, don't narrate around it). Kept on a focusable box it would be
+    /// strictly worse: eight polite announcers at 2 Hz, led by an S-meter
+    /// that moves on nearly every tick of a live band, queue endless chatter
+    /// that starves the reading the operator cares about and talks over the
+    /// very review commands this control exists to serve. Continuous
+    /// monitoring stays a real need with purpose-built channels that don't
+    /// collide with speech: the meter tones today, and per-meter "audible"
+    /// as an explicit operator choice in the unified meter model (Tracks
+    /// D2/D3) — not a hardcoded all-eight firehose.
+    /// </remarks>
+    private static TextBox MakeMeterReading(string meterName)
     {
-        var label = new TextBlock
+        var box = new TextBox
         {
-            Text = initialText,
-            Margin = new Thickness(2, 4, 2, 4),
+            Text = meterName + ": no reading yet",
+            IsReadOnly = true,
+            IsReadOnlyCaretVisible = true,
+            Margin = new Thickness(2),
             FontSize = 12
         };
-        AutomationProperties.SetName(label, initialText);
-        AutomationProperties.SetLiveSetting(label, AutomationLiveSetting.Polite);
-        return label;
+        AutomationProperties.SetName(box, meterName);
+        return box;
     }
 
     private void SetToggle(string label, Action<FlexBase.OffOnValues> setter, bool isOn)
