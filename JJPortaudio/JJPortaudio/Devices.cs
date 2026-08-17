@@ -1691,6 +1691,32 @@ namespace JJPortaudio
             if (hit == null) return false;
             arg.DevinfoID = hit.DeviceID;
             arg.hostApi = hit.Info.hostApi;
+
+            // Refresh the hardware facts from the live device rather than
+            // carrying the ones that were true when the file was written.
+            //
+            // Track E, 2026-08-16. Identity is name plus host API, and channel
+            // counts are deliberately NOT part of it — a driver update that
+            // turns a 2-channel mic into a 4-channel one should keep the
+            // operator's device, not discard their choice. That is right, and
+            // it means a saved record can carry a channel count the hardware no
+            // longer reports. The engine opens at the saved count, so a device
+            // that dropped from two channels to one would still be asked for
+            // two and PortAudio would refuse — putting the mono failure back
+            // through the side door on exactly the devices this release fixed.
+            // The rate and latency figures go stale the same way, and both feed
+            // rate negotiation and the stream parameters.
+            //
+            // The file is not rewritten here. These values only reach disk if
+            // the operator saves for some other reason, at which point they are
+            // the correct ones to store anyway.
+            arg.maxInputChannels = hit.Info.maxInputChannels;
+            arg.maxOutputChannels = hit.Info.maxOutputChannels;
+            arg.defaultSampleRate = hit.Info.defaultSampleRate;
+            arg.defaultLowInputLatency = hit.Info.defaultLowInputLatency;
+            arg.defaultLowOutputLatency = hit.Info.defaultLowOutputLatency;
+            arg.defaultHighInputLatency = hit.Info.defaultHighInputLatency;
+            arg.defaultHighOutputLatency = hit.Info.defaultHighOutputLatency;
             return true;
         }
 
