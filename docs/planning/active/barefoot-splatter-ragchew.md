@@ -614,6 +614,45 @@ the two drift and the operator learns two vocabularies for one language.
 load-bearing** — pan alone dies for mono listeners and asymmetric hearing loss,
 which is Patrick's axis.
 
+### D1 → D3 HANDOFF — read before starting D3
+
+**Noel caught this 2026-08-16, and it was an orchestration error worth recording.**
+D1 was scoped as "make the eight existing readings navigable, do not change which
+meters are shown." **But the eight are the arbitrary hardcoded subset**, and this
+plan already decided the list comes from the radio, that the eight are a
+*recommended starter set* rather than built-ins, and that readable-and-audible
+are properties of one managed list.
+
+**So D1's membership is a waypoint, not a destination — and D1 and D3 both own
+the Live Meters region of `AudioWorkshopDialog`.** D3 rebuilding that list
+dynamically lands on top of what D1 wrote: textual conflict at best, semantic at
+worst.
+
+**What D3 MUST REUSE rather than reinvent** — D1 established it and it is
+field-correct:
+
+- **Focusable read-only text boxes**, the same idiom as the device and mic
+  readings. `MakeMeterReading` is the factory; do not go back to `TextBlock`.
+- **Text assigned only on change**, so an unchanged reading never resets the
+  screen reader's review cursor.
+- **"no reading yet"** rather than `--`, which NVDA reads aloud as "dash dash".
+- **"no radio connected"** on disconnect rather than freezing stale numbers in a
+  now-readable control.
+- **Reset on rig swap**, so a review command cannot read the previous radio's
+  numbers as the new one's.
+- **No live region.** D1 retired it deliberately: eight polite announcers at 2 Hz,
+  dominated by an S-meter that moves nearly every tick, starve the reading the
+  operator actually wants and talk over the review commands the boxes exist to
+  serve. Continuous monitoring belongs to the tones and to per-meter "audible" as
+  an explicit choice — not a hardcoded firehose.
+
+**What D3 REPLACES:** the membership. Eight hardcoded readings become the meters
+the operator has, from the model D2 defines, sourced from what the radio actually
+reports.
+
+**Merge order consequence: D1 merges BEFORE D3**, and D3 rebases onto it rather
+than the reverse.
+
 ### D3 — Management UI and audition
 
 Create, name, set pan and pitch range, assign a voice. A list of what exists.
