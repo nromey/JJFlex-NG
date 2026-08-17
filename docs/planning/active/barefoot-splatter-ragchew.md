@@ -643,6 +643,58 @@ surfaced: D2 is building the *model* and is untouched (how a meter is presented
 is orthogonal to what a meter is), D3 had not started, and D1's work is mostly
 intact — only the count changes.
 
+#### MONITOR DONE PROPERLY — thresholds and alerts, not periodic readout
+
+Noel, 2026-08-16, late: *"what if we truly have a monitor feature. We set a
+trigger — when the software ALC or SW mic reaches a user-defined limit, you're
+alerted. Let the application watch any number of meters and either play a
+momentary meter tone at the correct pitch and then say something like 'ALC
+exceeds threshold'. Limits would be above, below, or at the assigned value."*
+
+**This supersedes periodic speech as the primary monitoring mode.** Speaking a
+meter every three seconds reports a number you almost never need — ALC is fine,
+ALC is fine, ALC is fine. **Monitoring is about exceptions, not values.** A
+cockpit does not read every gauge aloud; the panel stays quiet and speaks when
+something leaves its band.
+
+Keep the periodic readout as a *configurable* verbosity option (the existing
+`MeterSpeechIntervalSeconds` already does it), but it is the secondary mode.
+
+**The alert uses the vocabulary already designed.** Play the meter's own tone at
+the correct pitch, then speak: **timbre identifies which meter, pitch says how
+far past, speech says what it means.** One event carries identity, magnitude and
+meaning without a sentence spelling out all three.
+
+**Conditions: above, below, or at** a user-set value, in the source's own units.
+"Below" matters more than it looks — forward power below expectation while keyed
+is a fault, and supply voltage below a floor is a warning.
+
+**Two things it needs or it is unbearable:**
+
+- **Hysteresis and re-arm.** A meter hovering at the threshold machine-guns the
+  operator. Alert once on crossing; re-arm only after it returns past the
+  threshold by a margin.
+- **A cooldown**, so even legitimate repeated crossings cannot chatter.
+
+**Severity is not uniform, and should probably sound different.** SWR at 3.0
+means check the antenna; PA temperature at 100 °C means stop transmitting. D2
+already recommends **event-shaped voices on alarm-like sources** — urgent
+conditions should be audibly urgent rather than merely worded differently.
+
+**This retires `PeakWatcherEnabled` as a special case** — the peak watcher is one
+threshold rule on one meter, which this expresses generally.
+
+##### It collapses priority watch into the same engine
+
+**Priority watch is not a separate feature.** It was designed as watching a
+frequency for activity — threshold, hysteresis, dwell, alert. **That is meter
+monitoring applied to a frequency-domain meter**, and frequency-domain is already
+the third meter category in D2's model.
+
+So *"tell me when ALC exceeds 6 dB"* and *"tell me when 14.300 gets busy"* are
+the same configuration over different sources. **Build the alerting engine once**;
+priority watch becomes a source plus a default rule, not a subsystem.
+
 #### The combo IS the management surface — it collapses two designs into one
 
 Noel, same conversation: *"if you have the combo you can also right click and do
