@@ -246,7 +246,18 @@ Namespace My
                 ' FreqOutHandlers (for Alt+[/] preset cycling) and NativeMenuBar (for menu).
                 If CurrentOp IsNot Nothing Then
                     Dim opName = PersonalData.UniqueOpName(CurrentOp)
-                    Dim presets = Radios.FilterPresets.Load(BaseConfigDir & "\Radios", opName)
+                    ' #49 family: a corrupt filter preset file is sidelined by
+                    ' Load (never overwritten by the next save) and announced,
+                    ' instead of silently becoming the defaults.
+                    Dim corruptPath As String = Nothing
+                    Dim presets = Radios.FilterPresets.Load(BaseConfigDir & "\Radios", opName, corruptPath)
+                    If corruptPath IsNot Nothing Then
+                        Radios.ScreenReaderOutput.Speak(
+                            "Your saved filter presets file could not be read, so the built-in filter presets are in use. " &
+                            "The unreadable file was kept next to it as " &
+                            IO.Path.GetFileName(corruptPath) & ".",
+                            Radios.VerbosityLevel.Critical)
+                    End If
                     handlers.FilterPresets = presets
                     WpfMainWindow.SetNativeMenuFilterPresetsCallback?.Invoke(presets)
                 End If

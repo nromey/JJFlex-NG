@@ -13,8 +13,13 @@ When you save a preset, JJ Flexible captures these settings from the radio, and 
 - The speech processor, on or off, and its mode (Normal, DX, or DX+)
 - The transmit filter's low and high edges
 - The TX monitor — on or off, its level, and its pan
+- The transmit equalizer — on or off, and all eight bands
 
 That is the complete list. If a control is not on it, a preset neither saves nor changes it.
+
+A preset also makes a note of **which input it was tuned for** — the mic jack, the balanced input, PC audio, and so on — because mic gain acts on the selected input, and a preset dialed in on one input is a different animal on another. Loading a preset that was tuned for a different input still loads it, but tells you about the mismatch so you know why it might not sound like you remember.
+
+One honesty note about older files: presets saved before the equalizer joined the list never captured it, so loading one leaves your radio's EQ exactly as it is — it will never zero your EQ with values the file never held. Importing such a file tells you so once, at import time.
 
 ## Three presets come in the box
 
@@ -61,6 +66,8 @@ A word to the wise before loading a preset from someone else: their mic, their v
 
 Presets are stored per operator. If more than one person uses JJ Flexible on this computer, each operator keeps their own list — your contest settings will not ambush anyone else's ragchew.
 
+And if the preset file itself ever becomes unreadable — a bad shutdown, a disk hiccup — JJ Flexible says so out loud instead of quietly showing you the three built-ins as if your saved work never existed. The unreadable file is kept right next to where it was, renamed so nothing overwrites it, in case its contents can be recovered.
+
 ## When to reach for presets
 
 Any time your transmit audio wants to be different depending on what you are doing:
@@ -68,6 +75,6 @@ Any time your transmit audio wants to be different depending on what you are doi
 - **Ragchewing** — a wide filter and a natural, unprocessed voice for friends who will be listening to you for an hour.
 - **Contesting** — compression and a narrow filter so your call cuts through when everyone is shouting at once.
 - **DX chasing** — everything the processor has, concentrated into the frequencies that carry.
-- **Different microphones** — a hand mic and a boom mic rarely want the same gain and boost settings; a preset per mic ends the re-tweaking.
+- **Different microphones** — a hand mic and a boom mic rarely want the same gain and boost settings. A preset per mic works, but the better tool for this one is a **microphone profile**, which also carries your computer-side settings and follows the mic across radios — see the Microphone Profiles section of the Audio Workshop help page.
 
 Set each one up once, prove it with an Audio Check, save it, and from then on changing hats is a `Ctrl+O` away.

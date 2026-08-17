@@ -213,52 +213,58 @@ namespace JJFlexWpf
         private const string FileName = "audioConfig.xml";
 
         /// <summary>
-        /// The OTHER directory this config has historically lived in, or null
-        /// if there isn't one.
+        /// The one directory this config lives in from 4.1.17 on: the config
+        /// root (<c>%AppData%\JJFlexRadio</c>). Callers historically passed
+        /// either the root or its <c>Radios</c> subdirectory, so any incoming
+        /// directory is normalized here rather than trusting the caller.
         /// </summary>
         /// <remarks>
-        /// This config is written to two places and read from two places, and
-        /// the callers disagree about which (found 2026-08-13, while checking
-        /// Noel's "make sure we can save our settings"):
-        ///
-        /// <list type="bullet">
-        /// <item>MainWindow.xaml.cs:158 LOADS from BaseConfigDir — including
-        /// CW sidetone and WPM.</item>
-        /// <item>MainWindow.xaml.cs:445/469/566 SAVE to
-        /// OpenParms.ConfigDirectory, which globals.vb:2776 sets to
-        /// BaseConfigDir\Radios.</item>
-        /// <item>globals.vb:1989 saves to BaseConfigDir.</item>
-        /// <item>FreqOutHandlers.cs:2849 writes BOTH, with the comment "Also
-        /// save to Radios subdirectory (where Settings reads from)" — someone
-        /// hit this and patched their own feature rather than the cause.</item>
-        /// </list>
+        /// History, so the next reader does not re-derive it: this file spent
+        /// its life written to two places because the callers disagreed about
+        /// its home — MainWindow loaded from the root while Settings saved to
+        /// <c>Radios\</c>, and FreqOutHandlers patched around the split by
+        /// writing both. Found 2026-08-13; made SAFE the same day (Load took
+        /// whichever copy was newer, Save wrote both); made CORRECT 2026-08-16
+        /// (this migration). The root is canonical because everything in this
+        /// config is operator/app-level — verbosity, earcons, CW speed — and
+        /// the <c>Radios</c> subdirectory belongs to rig files.
         ///
         /// <para>
-        /// The two files are byte-identical today by coincidence of timing,
-        /// not by design. They diverge the moment one path stops running, and
-        /// the symptom is "I changed a setting and it didn't stick" — which an
-        /// operator cannot prove and we cannot reproduce.
+        /// The migration contract: <see cref="Save"/> writes ONLY the
+        /// canonical root copy. <see cref="Load"/> still honors a newer (or
+        /// lone) legacy <c>Radios\audioConfig.xml</c> for ONE release — an
+        /// operator upgrading from a build whose last save landed in the
+        /// legacy spot must not lose that save — and heals forward by writing
+        /// what it read to the canonical path. The legacy file itself is left
+        /// in place untouched so a downgrade to the previous release still
+        /// finds it.
         /// </para>
         ///
         /// <para>
-        /// Contained here rather than fixed at the call sites, deliberately.
-        /// Renaming or consolidating the locations would orphan whichever copy
-        /// an existing install is actually using, and settings silently
-        /// reverting to defaults is precisely the failure being prevented.
-        /// Load takes whichever copy is newer; Save writes both. No caller has
-        /// to know, and no path can lose a setting. Consolidating to one
-        /// canonical location with a real migration is a separate, later job.
+        /// REMOVE IN THE RELEASE AFTER 4.1.17: the legacy read
+        /// (<see cref="LegacyDir"/> and its uses in <see cref="Load"/>), and
+        /// delete the stale <c>Radios\audioConfig.xml</c> at that point.
         /// </para>
         /// </remarks>
-        private static string? SiblingDir(string configDir)
+        private static string CanonicalDir(string configDir)
         {
-            if (string.IsNullOrWhiteSpace(configDir)) return null;
+            if (string.IsNullOrWhiteSpace(configDir)) return configDir;
             string trimmed = configDir.TrimEnd(Path.DirectorySeparatorChar,
                                                Path.AltDirectorySeparatorChar);
             if (string.Equals(Path.GetFileName(trimmed), "Radios",
                               StringComparison.OrdinalIgnoreCase))
-                return Path.GetDirectoryName(trimmed);
-            return Path.Combine(trimmed, "Radios");
+                return Path.GetDirectoryName(trimmed) ?? trimmed;
+            return trimmed;
+        }
+
+        /// <summary>
+        /// Where the pre-4.1.17 split left a second copy. Read-only support
+        /// for one release; never written to.
+        /// </summary>
+        private static string? LegacyDir(string canonicalDir)
+        {
+            if (string.IsNullOrWhiteSpace(canonicalDir)) return null;
+            return Path.Combine(canonicalDir, "Radios");
         }
 
         private static AudioOutputConfig? ReadFrom(string path)
@@ -282,44 +288,63 @@ namespace JJFlexWpf
 
         public static AudioOutputConfig Load(string configDir)
         {
-            string path = Path.Combine(configDir, FileName);
-            string? sibDir = SiblingDir(configDir);
-            string? sibPath = sibDir == null ? null : Path.Combine(sibDir, FileName);
+            string canonicalDir = CanonicalDir(configDir);
+            string path = Path.Combine(canonicalDir, FileName);
+            string? legDir = LegacyDir(canonicalDir);
+            string? legPath = legDir == null ? null : Path.Combine(legDir, FileName);
 
-            bool hereExists = File.Exists(path);
-            bool thereExists = sibPath != null && File.Exists(sibPath);
+            bool canonicalExists = File.Exists(path);
+            bool legacyExists = legPath != null && File.Exists(legPath);
 
-            // Newest wins. Whichever code path last saved is the one holding
-            // what the operator actually chose, regardless of which directory
-            // that path happened to believe in.
-            if (hereExists && thereExists)
+            // Migration window (one release): a build from before the
+            // consolidation may have made its last save to the legacy copy, so
+            // a strictly-newer legacy file still wins — and gets healed
+            // forward to the canonical path so this branch runs at most once
+            // per divergence. After the first canonical save, canonical is
+            // always newest and the legacy file just sits there for downgrade
+            // safety.
+            if (canonicalExists && legacyExists)
             {
                 DateTime here = File.GetLastWriteTimeUtc(path);
-                DateTime there = File.GetLastWriteTimeUtc(sibPath!);
+                DateTime there = File.GetLastWriteTimeUtc(legPath!);
                 if (there > here)
                 {
-                    Trace.WriteLine("AudioOutputConfig.Load: sibling copy is newer, using "
-                        + sibPath);
-                    return ReadFrom(sibPath!) ?? ReadFrom(path) ?? new AudioOutputConfig();
+                    var fromLegacy = ReadFrom(legPath!);
+                    if (fromLegacy != null)
+                    {
+                        Trace.WriteLine("AudioOutputConfig.Load: legacy copy is newer, migrating "
+                            + legPath + " forward to " + path);
+                        fromLegacy.WriteTo(canonicalDir);
+                        return fromLegacy;
+                    }
+                    return ReadFrom(path) ?? new AudioOutputConfig();
                 }
-                return ReadFrom(path) ?? ReadFrom(sibPath!) ?? new AudioOutputConfig();
+                return ReadFrom(path) ?? ReadFrom(legPath!) ?? new AudioOutputConfig();
             }
 
-            if (hereExists) return ReadFrom(path) ?? new AudioOutputConfig();
-            if (thereExists) return ReadFrom(sibPath!) ?? new AudioOutputConfig();
+            if (canonicalExists) return ReadFrom(path) ?? new AudioOutputConfig();
+
+            if (legacyExists)
+            {
+                var fromLegacy = ReadFrom(legPath!);
+                if (fromLegacy != null)
+                {
+                    Trace.WriteLine("AudioOutputConfig.Load: only the legacy copy exists, migrating "
+                        + legPath + " forward to " + path);
+                    fromLegacy.WriteTo(canonicalDir);
+                    return fromLegacy;
+                }
+            }
             return new AudioOutputConfig();
         }
 
         public void Save(string configDir)
         {
-            WriteTo(configDir);
-
-            // Mirror to the sibling so a reader that believes in the other
-            // location still sees this change. Only into a directory that
-            // already exists — creating one on a fresh install would invent a
-            // second home for a file that should have had one all along.
-            string? sibDir = SiblingDir(configDir);
-            if (sibDir != null && Directory.Exists(sibDir)) WriteTo(sibDir);
+            // Canonical root only. The legacy Radios\ copy is deliberately
+            // NOT refreshed: it exists solely so the previous release still
+            // has something to read on a downgrade, and Load ignores it once
+            // the canonical copy is newer.
+            WriteTo(CanonicalDir(configDir));
         }
 
         private void WriteTo(string configDir)

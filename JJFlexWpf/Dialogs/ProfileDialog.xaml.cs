@@ -54,7 +54,10 @@ namespace JJFlexWpf.Dialogs
 
     public partial class ProfileDialog : JJFlexDialog
     {
-        private const string MustSelectProfile = "You must select a profile.";
+        // Not "You must select a profile" — the button this most often answers
+        // is ALSO named Select, and "press Select: you must select" reads as a
+        // riddle. Name the actual missing step instead.
+        private const string MustSelectProfile = "Pick a profile in the list first.";
 
         private readonly ProfileDialogCallbacks _callbacks;
 

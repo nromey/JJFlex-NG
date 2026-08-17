@@ -55,6 +55,21 @@ Right below the Audio Check. Arm **Test tone instead of microphone** and a clean
 
 The tone rides the PC audio path, so it needs PC audio on and the radio's transmit input set to PC — if either is off, arming tells you exactly what to change instead of pretending to work. And in CW mode the PC transmit audio path does not run at all, so the tone waits for a voice mode.
 
+### Microphone Profiles — one name for everything a mic needs
+
+Right after This Computer. A microphone profile is built around the microphone rather than the radio, because that is how the question actually arrives: "what does this headset need?" — and the answer travels with the mic, across every radio you use.
+
+Each profile carries two halves:
+
+- **The computer half** — which Windows device the mic is, its input level, and its boost. This half always belongs to JJ Flexible; a radio has nowhere to keep it.
+- **The radio half, per radio** — and here is the part worth understanding. Flex radios keep their own mic profiles, on the radio itself, shared with SmartSDR and every other client. So on a Flex, your microphone profile simply **names which of the radio's own mic profiles to load** — nothing is copied, so there is nothing to drift out of date and nothing fighting other programs over the same settings. On a radio with no profile system of its own (a road that is being paved for other makes), the profile carries the actual values instead.
+
+Pick a profile and press **Apply Profile**, and both halves go into effect — with plain words about anything that could not happen. If the radio does not have the referenced mic profile, JJ Flexible says so and leaves the radio alone; it never guesses at a substitute and never creates profiles on a radio behind your back. If your computer is using a different microphone than the profile was made with, it says that too, and leaves the Windows level where it is rather than moving it for the wrong mic.
+
+**Save Profile** captures your computer settings under the mic's name and asks what to store for the radio you are on: reference the radio's current mic profile (the usual right answer on a Flex), snapshot the radio's TX settings into the file, or store the computer half only. Creating a mic profile *on the radio* is offered right there when the radio has none loaded — offered, and only ever done because you chose it.
+
+One profile, three radios? Save it once on each. The bindings live side by side inside the same profile, and applying it on any of them uses that radio's own half. On a radio you have never set it up on — a club rig, a friend's station over remote — Apply sets up your computer half and touches nothing of theirs. That is by design.
+
 ### Transmit audio source
 
 The Microphone section starts with **Transmit audio from**, showing the radio's own input list — the mic jack, line in, PC audio, and so on. Everything below it follows that choice, because the controls that matter are different depending on where your audio comes from.
@@ -69,9 +84,9 @@ A line under the level names the exact Windows device being adjusted. If JJ Flex
 
 ### Moving around
 
-The TX Audio tab is a walk-through: This Computer, Microphone, Processing, TX
-Filter, TX Monitor, Test Tone, Audio Check, in that order, running outward from
-your computer to the radio to the air.
+The TX Audio tab is a walk-through: This Computer, Microphone Profiles,
+Microphone, Processing, TX Filter, TX Monitor, Test Tone, Audio Check, in that
+order, running outward from your computer to the radio to the air.
 
 Press **F6** to jump to the next section and **Shift+F6** to go back. Each jump
 names the section you arrived in, wraps around at the ends, and skips any

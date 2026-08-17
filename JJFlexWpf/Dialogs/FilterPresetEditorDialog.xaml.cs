@@ -94,6 +94,13 @@ namespace JJFlexWpf.Dialogs
         {
             int idx = PresetList.SelectedIndex;
             if (idx < 0) return;
+
+            // Materialize the defaults first. Before this, editing while the
+            // mode had no saved presets edited a TRANSIENT defaults list —
+            // the dialog showed the change, marked itself Changed, and saved
+            // nothing for the mode, so the edit silently evaporated on the
+            // next open. Delete and the move buttons just went quietly dead.
+            EnsureModeExists(CurrentMode);
             var presets = GetCurrentPresets();
             if (idx >= presets.Count) return;
 
@@ -115,6 +122,7 @@ namespace JJFlexWpf.Dialogs
             int idx = PresetList.SelectedIndex;
             if (idx < 0) return;
 
+            EnsureModeExists(CurrentMode); // see EditButton_Click
             var modePresets = _presets.Modes.FirstOrDefault(m =>
                 string.Equals(m.Mode, CurrentMode, StringComparison.OrdinalIgnoreCase));
             if (modePresets == null || idx >= modePresets.Presets.Count) return;
@@ -129,6 +137,7 @@ namespace JJFlexWpf.Dialogs
             int idx = PresetList.SelectedIndex;
             if (idx <= 0) return;
 
+            EnsureModeExists(CurrentMode); // see EditButton_Click
             var modePresets = _presets.Modes.FirstOrDefault(m =>
                 string.Equals(m.Mode, CurrentMode, StringComparison.OrdinalIgnoreCase));
             if (modePresets == null) return;
@@ -143,9 +152,12 @@ namespace JJFlexWpf.Dialogs
         private void MoveDownButton_Click(object sender, RoutedEventArgs e)
         {
             int idx = PresetList.SelectedIndex;
+            if (idx < 0) return;
+
+            EnsureModeExists(CurrentMode); // see EditButton_Click
             var modePresets = _presets.Modes.FirstOrDefault(m =>
                 string.Equals(m.Mode, CurrentMode, StringComparison.OrdinalIgnoreCase));
-            if (modePresets == null || idx < 0 || idx >= modePresets.Presets.Count - 1) return;
+            if (modePresets == null || idx >= modePresets.Presets.Count - 1) return;
 
             (modePresets.Presets[idx], modePresets.Presets[idx + 1]) =
                 (modePresets.Presets[idx + 1], modePresets.Presets[idx]);
@@ -245,12 +257,12 @@ namespace JJFlexWpf.Dialogs
                     }
                     if (!int.TryParse(LowBox.Text, out int lo) || !int.TryParse(HighBox.Text, out int hi))
                     {
-                        MessageBox.Show("Low and High must be integers.", "Validation", MessageBoxButton.OK, MessageBoxImage.Warning);
+                        MessageBox.Show("Low and High must be whole numbers, in hertz.", "Filter Preset", MessageBoxButton.OK, MessageBoxImage.Warning);
                         return;
                     }
                     if (hi <= lo)
                     {
-                        MessageBox.Show("High must be greater than Low.", "Validation", MessageBoxButton.OK, MessageBoxImage.Warning);
+                        MessageBox.Show("The High edge must be above the Low edge.", "Filter Preset", MessageBoxButton.OK, MessageBoxImage.Warning);
                         return;
                     }
                     LowHz = lo;
