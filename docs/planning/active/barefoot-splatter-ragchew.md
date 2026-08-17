@@ -684,6 +684,52 @@ conditions should be audibly urgent rather than merely worded differently.
 **This retires `PeakWatcherEnabled` as a special case** — the peak watcher is one
 threshold rule on one meter, which this expresses generally.
 
+##### Vocabulary: ALARM for meters, PRIORITY FREQUENCY WATCH for frequencies
+
+Noel, 2026-08-16: *"Alarm might be the better term for metered values, priority
+freq watch might work for a frequency."*
+
+**Right, and the principle is worth stating: the implementation shares, the
+vocabulary does not.** An **alarm** means *something is wrong with my radio*. A
+**priority frequency watch** means *something is happening on a frequency I care
+about*. Same engine — threshold, hysteresis, cooldown, alert — but different
+intentions with different urgency. Calling both "monitors" would be technically
+pure and practically confusing. **Two names, one engine.**
+
+##### Every meter explains itself, and suggests its own conditions
+
+Noel: *"for each meter, we tell the user what the meter does. When it's set as a
+watch, it suggests conditions."*
+
+**Both are cheaper than they sound, because the radio supplies the raw material.**
+
+- **The description is free.** Every meter arrives with one — *"Signal strength
+  of signals after the ramp"*, *"Voltage present at the Hardware ALC RCA Plug"*,
+  *"PA Temperature"*. Display what is already there; do not write a parallel
+  glossary that can drift.
+- **The declared Low/High range gives defensible starting thresholds.** PA temp
+  reports `0..120 °C`, so a warning near the top of its own declared range is
+  derivable rather than invented; supply voltage reports `10.5..15`, which
+  brackets its healthy band. **Not universal** — SWR reports `1..999`, where a
+  percentage of range is meaningless — so treat it as a heuristic with per-meter
+  overrides, not a rule. Most suggestions come from the radio; a handful are ours.
+
+##### Default alarms ship, and say what to DO
+
+Noel: alarms *"for SWR to remind user to tune or check amp, wait for radio to
+cool etc. Alarms could be toggled, the default ones and new added."*
+
+**The remedy sits beside the diagnostic** — the same rule as the level verdicts
+and the DSP residual. Not *"SWR exceeded threshold"* but **"SWR 3.1 — retune or
+check the amp"**; not *"PA temperature high"* but **"PA temperature high — let it
+cool before transmitting"**. The condition is the trigger; the sentence is what
+to do about it.
+
+**Ship a sensible default set, every one individually toggleable, and allow new
+ones.** Candidates with obvious remedies: SWR high, PA temperature high, supply
+voltage low, ALC high (overdriving), forward power low while keyed (something is
+wrong in the chain).
+
 ##### It collapses priority watch into the same engine
 
 **Priority watch is not a separate feature.** It was designed as watching a
