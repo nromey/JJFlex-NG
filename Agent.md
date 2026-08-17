@@ -9,6 +9,150 @@ This document captures the current state of JJ-Flex repository and active work.
 
 *Superseded history, kept for context: main was reverted off `track/flexlib-42` on 2026-05-15 after Don's LAN trace exposed a vendor-side station-name regression; that era's notes are `memory/project_flexlib_4218_*.md` and `memory/project_main_branch_41_posture.md`. 4.2.20 supersedes all of it and works.*
 
+## END-OF-DAY SEAL — 2026-08-16 — TEN TRACKS, AND THE RADIO HAD BEEN TALKING ALL ALONG
+
+*Sealed after all ten track agents reported. Delta from midnight on
+`honest-tx-audio`: **29 commits, +2,953/−1 across 5 files** — all planning.
+The code lives on **ten unmerged branches carrying 66 further commits**, which
+rigmeter cannot see. **Nothing merged, nothing built for Don, no nightly
+promoted** — deliberate: connect and meters must be tested first.*
+
+**Theme: the day was spent designing, and the design kept being corrected by
+the thing it described.** Almost every firm claim made in the morning was
+softened, sharpened or reversed by evidence gathered in the afternoon — and the
+single largest finding was that the radio has been reporting its entire signal
+chain, at every stage, the whole time.
+
+### The finding that reframes a subsystem
+
+A FLEX-8600 reports **102 meters**, not the eight the app displays. They are not
+a grab-bag: they are **a signal-strength probe at every stage of both chains.**
+Transmit runs `SC_MIC` → `CODEC` → two filters → `AFTEREQ` → `TX_AGC` →
+`RM_TX_AGC` → `COMPPEAK` (just before the clipper) → `ALC` → either side of the
+ramp → `POST_P` → `ATTN_FPGA` → forward and reflected power. Receive, per slice,
+runs `24kHz` broadband → `ESC` → `OSC` → `NB` → `TNF` → `ANF` → `NR` → `AGC` →
+`SQUELCH` → passband `LEVEL`.
+
+So the honest-TX-audio question has been answered at **nineteen points by the
+radio itself**, and it closes Noel's complaint from 2026-08-13 that he could not
+hear processing versus no processing. He could not. `COMPPEAK` against `POST_P`
+**measures** it.
+
+The receive side is the larger claim: **it makes DSP perceivable without sight.**
+A sighted operator infers what the noise blanker did from a waterfall changing
+shape; this is the same information with no waterfall involved.
+
+### The forward-power defect, caught in the act
+
+Three keyed samples with the radio's power at its default of **zero**: 17.0,
+22.4 and 18.7 dBm — **50, 174 and 74 milliwatts of real RF** — all three
+displaying **0 watts** through a truncating integer conversion. Both the setting
+and the readout say zero while the radio transmits. This gates the transverter
+session, which lives in exactly that band.
+
+### Ten tracks, ten branches, 66 commits
+
+- **A — roster and connect** (8): one Connect button on a per-radio ordered path
+  chain, force-remote with no fallback, presence surviving FlexLib's fabricated
+  record, union merge with a `UserNickname` choice, connection history. Alt+R
+  removed; keyboard audit done.
+- **B — telemetry honesty** (10): forward power in real sub-watt figures; the
+  `hookTxMeters` handler leak; the trace flood; GPS leading with lock plus PPB;
+  mic-selection assertion.
+- **C — settings that stick** (5): OK/Apply everywhere, per-feature buttons
+  removed; REM ON reachable disconnected; port-forward edits surviving OK; the
+  no-physical-access flag with an enumerated cascade and a receipt dialog.
+- **D1 — Live Meters navigable** (3): eight readings became focusable read-only
+  boxes; live region retired with reasoning.
+- **D2 — voice engine and meter model** (6): voices as data, fifteen built-ins,
+  no enum anywhere; meter = source + range + voice with four source kinds.
+- **E — device and rate policy** (7): host-API selector with WASAPI default and
+  the folding rule deleted; mono capture; selectable Opus TX rate.
+- **F — presets and config truth** (5): microphone-first profiles with a
+  discriminated stage-two; corrupt stores sidelined not overwritten; the
+  `audioConfig.xml` migration.
+- **G — the honest About page** (3): one `DiagnosticSnapshot` feeding About, the
+  crash reporter and the debug bundle.
+- **I — transmit conditioning** (7): processor hook, noise gate with a
+  floor-derived threshold, residual monitor, NR on transmit.
+- **Sweep — orphan papercuts** (12): both May audits discharged; installer
+  litter; #26's four questions answered.
+
+### What the tracks proved wrong — the honest ledger
+
+**Three of the four roots I gave Track A were wrong.** `PreferRemotePath` was
+**session-only — there was no stored preference to erase**; Don never lost one,
+he had no way to state one. `RecordSighting` **overwrites the operator's nickname
+on disk**, so naming a radio destroyed the name rather than hiding it. ClientHandle
+resolution was **already implemented**; the defect was trusting a record FlexLib
+fabricates. And `LanAvailable` is **already live-only** — the immortal stale fact
+is `AutoConnectConfig.IsRemote`, which matches the 20–30 s hang exactly.
+
+**Other corrections:** `AddSlot()` does have callers — `MetersPanel` is an
+existing management surface D3 must absorb. The mic-profile API is **not**
+untouched — Jim's `Profile_t`/`SelectProfile` plumbing already uses it. The
+`testtone.armed` key leak **does not exist in committed code**; the real string
+is "Test tone armed:" and at speed it sounds like a key. The trace-flood fix I
+believed had landed **never did** — I reverted it and left the plan claiming
+otherwise.
+
+### Defects found that nobody had reported
+
+- **The TX Controls dialog is a dead door** — never assigned since the Sprint 11
+  cutover, so its REM ON checkbox was unreachable at runtime.
+- **The filter preset editor silently discarded edits** when a mode had no saved
+  presets; Delete and Move were dead.
+- **The Radios settings tab lost edits on every tab switch.**
+- **Signal strength has been mis-announced above S9** — `SMeter` returns dB-over-S9
+  plus 9, and six sites multiplied it by 6, `Ctrl+S` by 10.
+- **Pan changes never took effect** — baked in at mixer registration, never
+  re-registered.
+- **The quiet-audio instrument was lying** — it computed output as raw × gain,
+  omitting the post-decode processors entirely.
+- **The tone-click is a race**: the fade takes 50 ms and teardown waits 50 ms.
+- **Two compiler doc files have shipped in every installer** since the .NET 10
+  migration.
+- **`FlexLib.dll` claimed version 0.0.0.0** since the SDK conversion, so no
+  runtime query could ever have been honest.
+- **The networking help page taught the misconfiguration** it shared with a
+  drifted code comment.
+
+### Design decided with Noel, one item at a time
+
+The connect flow (one button, ordered chain, force-remote as test equipment); the
+auth ladder (refresh first, walk the chain before prompting, native form only,
+never re-auth on a non-auth failure); Connect holding the owner's audio baseline
+so a guest session that dies badly still restores; passkeys as Connect's intended
+credential with mandatory 2FA on the password path; the meter model
+(source + range + voice, two meters may share a source, the eight are a
+*recommended* set); **the readout as a combo plus one box, not N boxes** — the
+combo also being the management surface, two tab stops for the whole subsystem;
+**Announce** on `A` as a per-meter spoken readout; meter tones as a shared
+vocabulary the waterfall will inherit; priority watch; the earcon audit as Track
+H; and transmit conditioning as Track I.
+
+### Owed tomorrow
+
+1. **Read Track A's report and diff before merging** — largest change, most
+   sensitive path, and its map contradicts the theory it was given.
+2. **Merge deliberately, building after each.** D1 before D3. Watch
+   `FlexLib.csproj` (G touched it) and `AudioOutputConfig.cs` (D2 and F).
+3. **Test meters and connect.** Then, and only then, a build for Don.
+4. **Ratify D1's live-region removal** — the Live Meters tab no longer speaks on
+   its own.
+5. **Press the keys.** A's Enter-resume and menu verbs, C's cascade, I's gate,
+   G's browse mode — all compile-verified only.
+6. **Rulings wanted:** `StaticIpControl` keeping its own Apply button; milliwatts
+   versus decimal watts for speech; the CLAUDE.md ampersand carve-out for native
+   Win32 menus.
+
+### Rigmeter snapshot — end of 2026-08-16
+
+Today, `honest-tx-audio` only: **29 commits, 5 files, +2,953/−1**, one author.
+**Branch-scope caveat: this counts planning only.** The ten track branches carry
+66 further commits and are not merged, so the day's code volume is not in this
+figure and will land in whichever day the merge happens.
+
 ## END-OF-DAY SEAL — 2026-08-14 — THE DAY THE NETWORK CONFESSED
 
 *Sealed on Noel's call (~2 pm, "the day is still young" — then it ran long
