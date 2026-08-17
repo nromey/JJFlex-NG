@@ -1409,3 +1409,36 @@ reaches FlexLib's private meter list by reflection, which is right for a
 diagnostic and wrong for a picker. Track D needs a real accessor, and that
 probably means a documented FlexLib patch recorded in `MIGRATION.md` — some
 things genuinely cannot be wrapped.
+
+### Done, Track B 2026-08-16 — reviewed, kept, and the accessor written down
+
+**The reflection stays for now, and that is a decision rather than an
+omission.** As a diagnostic it fails soft: a renamed vendor field traces one
+warning and stops, and nothing in the app depends on it succeeding. A picker
+cannot fail that way — a UI that silently offers no meters because a private
+field got renamed is worse than one that does not compile — so the picker is
+what triggers the patch, not the diagnostic.
+
+Three defects found while reviewing it, all fixed:
+
+- **It traced 102 lines while holding FlexLib's `_meters` lock.** Every
+  `TraceLine` is a file write, and that lock is the one `FindMeterByName` and
+  every meter update take — so the census stalled the radio's whole meter path
+  at exactly the moment the TX meters were trying to register. Now it snapshots
+  under the lock and traces outside it.
+- **`GetField` by string ran on every mic-meter event**, resolving a name that
+  cannot change within a process. Resolved once now.
+- **The unchanged-count guard depended on the list being `ICollection`.** It is
+  a `List<Meter>`, so it held — but had it not, an unchanged inventory would
+  have re-logged in full at meter rate. There is a second guard now that does
+  not care what the list's type is.
+
+**`MIGRATION.md` carries the exact patch**, under "Not yet applied: a public
+accessor for the meter list". It is a single additive `GetMeters()` returning
+`ImmutableList<Meter>` under `lock (_meters)`, mirroring the existing
+`FindMetersByAmplifier` so closely it reads as vendor code. Purely additive
+means a 3-way merge cannot conflict with it. **Whoever applies it deletes the
+reflection in the same commit** — two routes to one private field is how one of
+them rots unnoticed. Worth reporting upstream first: a list whose every other
+accessor is public and which cannot be enumerated is an obvious gap, and Flex
+may just add it.

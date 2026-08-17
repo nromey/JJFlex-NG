@@ -12,6 +12,57 @@ This app carries a small, non-breaking shim to enforce TLS 1.2+ without editing 
 7. **Do NOT carry diagnostic patches forward**: the R5 diagnostic (`Vita/MmcssPipelineScheduler.cs` redirecting `Instance` to `TaskScheduler.Default`) was a silent-discovery experiment that disables MMCSS real-time audio scheduling. It must be vendor-stock in anything shipped. The R6 discovery-cascade + instrumentation in `Discovery.cs` IS kept (Debug.WriteLine compiles out of Release).
 8. **VitaSocket UDP resilience patch (added 2026-08-05)**: In `FlexLib_API/Vita/VitaSocket.cs`, keep four JJFlex patches (all comment-marked): (a) the `SIO_UDP_CONNRESET` ioctl in the base constructor — suppresses Windows' behavior of throwing `SocketException(ConnectionReset)` on the next Send/Receive after an ICMP port-unreachable echo; (b) send methods (`SendUdp`/`SendUdpAsync`) log-and-continue instead of `Dispose()` on exception, and early-return when `_radioEndpoint` is null; (c) `ReceiveLoop` treats `ConnectionReset` as a non-event and only disposes after 50 consecutive receive failures; (d) the static `TraceSink` hook. Vendor 4.2.x stock code called `Dispose()` from ALL of these catch sites, so a single ICMP bounce during the WAN hole-punch race silently killed the entire UDP data plane (no audio, no meters, `PersistenceLoaded` never set, `start_call` timeout ~34-54s — the 2026-08-05 field-test signature). Companion edits: `FlexLib/Radio.cs` `UdpRegistrationLoop` traces loop start + first success through `VitaSocket.TraceSink` (JJFlex-patch-marked); `Radios/FlexBase.cs` constructor wires `TraceSink` to `Tracing.TraceLine`. Reportable upstream to Flex. Remove (a)-(c) if a FlexLib release ships its own fix; keep the TraceSink wiring regardless.
 
+## Not yet applied: a public accessor for the meter list (reviewed 2026-08-16)
+
+**Status: NOT a patch we carry. Recorded here so the decision is not
+re-litigated from scratch, and so the day someone needs a meter picker they
+find the exact edit rather than rediscovering it.**
+
+`Radio` keeps its meter inventory in `private List<Meter> _meters`, guarded
+throughout by `lock (_meters)`. Every accessor around it is public —
+`FindMeterByName`, `FindMetersByAmplifier`, `FindMetersByTuner` — but there is
+no way to enumerate the list. So "what meters does this radio actually have?"
+is unanswerable through the supported API.
+
+That question is not academic. On 2026-08-16 a FLEX-8600 reported **102
+meters** against the eight the Live Meters tab hardcodes. Anything that lets an
+operator choose which meters to watch has to ask the radio, not carry a list.
+
+`FlexBase.traceMeterInventory` answers it today **by reflection**, and that is
+the right shape for a diagnostic: it is one method, it fails soft (a changed
+field name traces one warning and stops), it holds FlexLib's own lock object so
+the handshake is real rather than hopeful, and nothing in the app depends on it
+succeeding. It is the wrong shape for a picker, because a UI that silently
+offers nothing when a vendor field is renamed is worse than one that does not
+compile.
+
+The patch, when a picker needs it — one method in
+`FlexLib_API/FlexLib/Radio.cs`, next to `FindMeterByName`:
+
+```csharp
+/// <summary>JJFlex patch: enumerate the radio's meter inventory.</summary>
+public ImmutableList<Meter> GetMeters()
+{
+    lock (_meters)
+        return _meters.ToImmutableList();
+}
+```
+
+Notes for whoever applies it:
+
+- It mirrors `FindMetersByAmplifier` exactly — same lock, same
+  `ImmutableList<Meter>` return — so it is stylistically vendor-native and has
+  no chance of handing out a list that mutates underneath a caller.
+- It is purely additive. No existing vendor line changes, so a 3-way merge on
+  the next upgrade cannot conflict with it; it will simply need re-adding if
+  the merge takes the vendor file wholesale.
+- Mark it `// JJFlex patch` the way the VitaSocket edits are marked, and add it
+  to the reapply list above.
+- Delete the reflection in `traceMeterInventory` in the same commit. Two ways
+  to reach the same private field is how one of them rots unnoticed.
+- Reportable upstream: an enumerator for a list whose every other accessor is
+  public is an obvious gap, and Flex may simply add it.
+
 ## Upgrade procedure that worked for 4.2.18 → 4.2.20 (2026-08-03)
 
 Rather than a fresh vendor copy + manual patch reapply, use git for a 3-way merge per changed file:
