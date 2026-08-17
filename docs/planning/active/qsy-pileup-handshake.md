@@ -444,6 +444,11 @@ decides which branch a connect takes. **The deliverable is that description**, a
 it goes in this file. If the three roots above turn out to be wrong, better to
 learn it here than after three fixes.
 
+> **Phase 1 is DONE — the map is the "Phase 1 deliverable" section at the
+> bottom of this file (Track A, 2026-08-16).** It confirms the shape of every
+> root and corrects the mechanism of three of them. Read it before Phase 3 code
+> review.
+
 **Phase 2 — confirm each root against a trace**, not against reasoning. Traces
 already exist for symptoms 2 and 5; get one for 4 by naming a radio and watching
 the merge.
@@ -508,3 +513,270 @@ Worth fixing properly, and it is the batch that most improves his daily
 experience — but it is an efficiency and correctness defect, not a blocker, and
 this batch should not crowd out other work on the strength of a blocker that
 does not exist. See the connect-flow section at the top of this file.
+
+---
+
+# Phase 1 deliverable — the roster and connect state machine, as read 2026-08-16
+
+Track A. Every claim below was read from code on branch `bsr/track-a`, with
+file and line cited so Phase 3's diffs can be checked against it. Where this
+map contradicts a root as written above, the contradiction is called out
+explicitly — three of the four roots are right about the symptom and wrong (or
+half-wrong) about the mechanism, which is exactly what Phase 1 existed to catch.
+
+## 1. How a radio gets into the list
+
+A row in the selector is one radio (`RadioListItem`, one per serial). Four
+routes put one there, and they run in a fixed order:
+
+**Route 1 — the roster paint.** The dialog constructor calls
+`PaintRoster(CurrentAccountEmail())` BEFORE discovery starts
+(`RigSelectorDialog.xaml.cs:396`). `KnownRadioRoster.Load` assembles entries
+from two stores, merged by serial:
+
+- The serial-keyed per-radio profile store, `radios\{serial}\config.xml`
+  (`RadioConfig`). Authoritative for: nickname, model, favorite flag,
+  last-seen stamp (`LastSeenUtc`), `LastSeenRemote`, `LastSeenViaAccount`,
+  `PreferredAccount`.
+- `radioConnectionCacheV1.xml` (`RadioConnectionCache`), two elements of it:
+  the per-radio `Entries` (fills in model/nickname the profile lacks, and a
+  newer last-seen stamp when connects outran sightings), and the per-account
+  `AccountLists` (marks rows `InAccountCache` for the account in play, and
+  attributes radios to whichever account's list last mentioned them).
+
+Roster rows are born offline: `LanAvailable = false`, `WanAvailable = false`.
+The paint happens synchronously in the constructor, so on a first open every
+known radio is in the list, under its roster name, before any packet arrives.
+
+**Route 2 — local VITA discovery.** `StartLocalDiscovery` →
+`FlexBase.LocalRadios()` → `apiInit(force: true)` (`FlexBase.cs:372`). FlexLib
+raises `API.RadioAdded` per announcement; `radioAddedHandler` adds to
+`myRadioList` and raises `RadioFound` with a `RigData` built by
+`BuildRigData` (`FlexBase.cs:260`): `LanAvailable = !r.IsWan`,
+`WanAvailable = r.IsWan || WanKnows(serial)`. A LAN radio re-announces about
+once a second, so this route fires continuously while the dialog is open.
+
+**Route 3 — the SmartLink list.** One list per TLS session, ever. Arrives in
+`wanRadioListReceivedHandler` (`FlexBase.cs:3870`), which: sweeps ghosts
+(WAN radios absent from the fresh list get `RadioRemoved`), banks every WAN
+`Radio` object in the static `_wanRadiosBySerial` dictionary (the only place a
+dual-homed radio's WAN identity survives), writes the account's list to the
+connection cache for next launch's fast paint, and then raises `RadioFound`
+per radio — merging into the existing LAN object when one exists.
+
+**Route 4 — the dialog-side merge.** `OnRadioFound`
+(`RigSelectorDialog.xaml.cs:664`) updates an existing row **in place** (never
+remove-and-append — that is the 2026-08-05 reorder lesson) or appends a new
+row for a never-seen serial.
+
+## 2. What facts each source contributes
+
+- **The per-radio profile** contributes the operator-owned display metadata:
+  name, favorite, preferred account, last-seen story. It contributes NOTHING
+  to path selection except `LastSeenRemote`.
+- **Local discovery** contributes liveness (`LanAvailable`), the radio's own
+  broadcast nickname and model, and the `RigData` handle a local connect uses.
+- **The SmartLink list** contributes `WanAvailable`, the WAN `Radio` object
+  (banked by serial), public ports / hole-punch flags on that object, and the
+  account attribution recorded to the cache.
+- **The account cache** contributes a fast paint only: serial, nickname,
+  model, `InAccountCache`, fetch age. By deliberate rule nothing connects
+  from it (`RadioConnectionCache.cs:63-68`).
+- **The auto-connect config** (`{op}_autoConnectV2.xml`) contributes a serial,
+  a display name, `LowBandwidth` — and a **persisted `IsRemote` bool frozen at
+  the moment auto-connect was configured** (`AutoConnectConfig.cs:33`). Keep
+  that one in mind; it reappears under Root D below.
+
+## 3. Who wins when they disagree
+
+- **Discovery beats the roster while the radio is live, field by field.** The
+  in-place update at `RigSelectorDialog.xaml.cs:693-705` overwrites `Name`,
+  `ModelName`, `RigData`, both availability flags. It deliberately preserves
+  what discovery does not carry: `IsFavorite`, `PreferredAccount`,
+  `LastSeenText` — so the often-cited "roster loses wholesale" is not quite
+  true. What it does lose is the NAME.
+- **The name has no choice/observation split at all.** `RadioConfig.Nickname`
+  is one field serving two masters: the Settings Radio Profile tab writes the
+  operator's chosen name into it (`SettingsDialog.RadioProfile.cs:295`), and
+  `KnownRadioRoster.RecordSighting` overwrites it with the radio's broadcast
+  nickname at the first sighting of every selector session
+  (`KnownRadioRoster.cs:252`). Compare `PreferredAccount` vs
+  `LastSeenViaAccount`, where the code documents exactly why choice and
+  observation must be separate fields — the name needs the same treatment and
+  never got it.
+- **On the repaint path** (account switch → `SwitchToAccount` →
+  `ClearOfflineRows` + `PaintRoster`), the exclusion at
+  `RigSelectorDialog.xaml.cs:556-558` skips any serial already live, so a live
+  row never receives roster facts it missed. This is Root B's line, and it is
+  real — but see the correction below for how much of symptom 4 it actually
+  explains.
+- **Within the roster load**, profile beats cache for every field the profile
+  has; the cache only fills blanks and can only win the last-seen stamp by
+  being newer (`KnownRadioRoster.cs:153-162`).
+
+## 4. When a SmartLink session is opened, and by whom
+
+Exactly five triggers, all explicit:
+
+1. The **Remote button** (`StartRemoteFlow` → `RemoteRadios()` →
+   `setupRemote()`).
+2. **Remote-first startup** — the per-account `AutoStartRemote` flag, fired
+   from the dialog's `Loaded` event.
+3. **Enter on an offline row whose story is remote-ish**
+   (`HandleOfflineConnectAttempt`, `RigSelectorDialog.xaml.cs:1074-1088`):
+   `LastSeenRemote || FromAccountCache` starts a remote pass. Note what it
+   does NOT do — see the double-Enter finding.
+4. **An account switch** (`SwitchToAccount` forces a session cycle so the new
+   account gets a fresh list).
+5. **Auto-connect with `config.IsRemote == true`** (`TryAutoConnectRemote`).
+
+The confirmed absence at the center of this batch: **nothing in the local
+path ever opens a SmartLink session.** `WanKnows` is empty until a remote pass
+runs, so a locally-discovered radio has `WanAvailable == false` not as an
+observation but as an unasked question. Symptom 2's trace ("zero SmartLink
+activity at all") is this absence, verbatim.
+
+## 5. Exactly what decides which branch a connect takes
+
+The **manual** path: `DoConnect` (`RigSelectorDialog.xaml.cs:1001`) refuses
+offline rows, then copies `radio.IsRemote` — the derivation
+`DualHomed ? PreferRemotePath : WanAvailable ? true : LanAvailable ? false :
+LastSeenRemote` (`:100`) — into `SelectedIsRemote`, and
+`radio.DualHomed && radio.PreferRemotePath` into `SelectedPreferRemotePath`
+(`:1031`). The dialog closes. `globals.vb:2726-2732` then branches: remote →
+`RigControl.ReconnectRemote(serial, lowBW, forceWanPath:=preferWan)`; local →
+`RigControl.Connect(serial, lowBW)`. `findRadioForConnect`
+(`FlexBase.cs:353`) resolves the object: `preferWan` true consults ONLY the
+WAN dictionary and deliberately returns null rather than the LAN object —
+force-remote's no-fallback rule already exists at this layer.
+
+The **auto-connect** path: `TryAutoConnect` (`FlexBase.cs:1216`) branches on
+the persisted `config.IsRemote` — remote authenticates then waits for the
+radio in the account list; local runs `LocalRadios()` and polls
+`findRadioInAPI` for up to 10 s. There is no crossover in either direction: a
+radio that moved networks fails here every startup until the user reconfigures.
+
+The **retry** path after a failed `Start()` (`globals.vb:2862-2943`) branches
+on `CurrentRig.Remote` — the `RigData.Remote` flag stamped at discovery time
+(`BuildRigData`, LAN wins for a dual-homed radio). Local failures have no
+retry at all ("no retry path available").
+
+So there are **three independent branch deciders** — row derivation,
+persisted auto-connect bool, discovery-stamped `RigData.Remote` — and no
+shared chain. That is the structural fact the Phase 3 chain type exists to fix.
+
+## 6. The roots, verified and corrected
+
+**Root A — confirmed in shape, corrected in framing.** The four sites are
+real: the derivation (`:100`), the two overwrites (`:705` in `OnRadioFound`,
+`:780` in `OnRadioRemoved`), the AND at point of use (`:1031`). But
+`PreferRemotePath` is documented and implemented as **"per connect, never
+persisted"** (`RadioListItem`, `:43-48`) — a session-scoped, dual-homed-only
+choice set through `PathCombo`. The three "erasures" are faithful to that
+field's contract. The sharper truth: **there is no persisted per-radio path
+preference anywhere in the codebase to erase.** Don never had a stored
+"prefer remote" to lose; he has no way to state one. The Phase 3 instruction
+"migrate the existing bool without losing anyone's setting" is therefore
+trivially satisfiable — the only persisted path-shaped facts are
+`AutoConnectConfig.IsRemote` (one radio per operator) and the observational
+`LastSeenRemote`. The chain is a new fact, not a migration of an old one.
+One naming landmine for Phase 3: `RadioConfig.ConnectionPreference` already
+exists and means something else entirely (SmartLink transport strategy —
+Auto / ForwardOnly / HolePunch). The chain must not reuse that name.
+
+**Root B — the line exists; the mechanism of symptom 4 is elsewhere.** The
+exclusion (`:556-558`) only matters on a REPAINT, because on first open the
+roster paints before discovery can claim anything. Symptom 4's actual
+mechanism is two clobbers: `OnRadioFound` overwriting `row.Name` with the
+broadcast nickname the moment the radio is discovered (`:693`), and —
+worse — `RecordSighting` overwriting the profile's `Nickname` **on disk** at
+first sighting (`KnownRadioRoster.cs:252`), so an offline-set name is not
+merely hidden while the radio is live; it is destroyed for good the next time
+the radio is seen. Fixing the exclusion alone would not fix symptom 4.
+
+**Root C — the prescription is already the implementation; the defect is one
+layer down.** Every FlexBase identity check already resolves by ClientHandle:
+`myClient` compares handles (`FlexBase.cs:6239`), `TheGuiClient` uses
+`FindGUIClientByClientHandle` (`:6294`), and `IsCurrentClientLocalPtt` reads
+through it (`:6475`). The impostor record comes from FlexLib: the discovery
+packet's client list is built with `client_id: null, is_local_ptt: false`
+and `IsThisClient` never set (`Discovery.cs:679`), and
+`Radio.UpdateGuiClientsList` (`Radio.cs:14604`) will **remove our own record**
+when a stale packet omits us, then **add the fabricated one** when the next
+packet carries our handle. The TCP correction path that would restore truth
+drops any `client connected` status with an empty client_id on the floor
+(`Radio.cs:14458`). FlexBase then compounds it: `guiClientAdded` gates all
+self-recognition on `client.IsThisClient` (`:6170`), which the fabricated
+record never has, so `_clientRemovedDuringStart` bookkeeping and
+`_LocalPTT` go stale, and `IsCurrentClientLocalPtt` faithfully reads the
+fabricated `IsLocalPtt == false` from the record its handle-keyed lookup
+correctly found. The fix is not "resolve by ClientHandle" — it is **recognize
+our own handle regardless of `IsThisClient`, and never let a record that
+carries no client_id downgrade an authoritative local-PTT observation.**
+FlexLib stays untouched (vendor); all of this is reachable from FlexBase's
+handlers.
+
+**Root D — right disease, wrong organ.** `RadioListItem.LanAvailable` is
+live-only already: roster rows are born false, only discovery sets it, and
+`OnRadioRemoved` clears it. Nothing persists it, and the connection cache's
+`LanIp`/`IsRemote` fields are **write-only on this branch** (the 4.2
+discovery-cascade reader does not exist here; `Lookup` has one consumer, the
+display-only network identity card). The facts that actually never expire:
+
+- **`AutoConnectConfig.IsRemote`** — frozen at configure time, drives a
+  hard local-vs-remote branch every startup, and is the best code-level match
+  for symptom 2's trace: two `TryAutoConnect` runs at 10 s timeout each on
+  the local branch ≈ the observed 20-30 s hang and double attempt, with zero
+  SmartLink activity because `config.IsRemote == false` never calls
+  `setupRemote`. Phase 2 should confirm against the 12:07 trace
+  (`TryAutoConnect: BEGIN ... remote=False` lines would clinch it).
+- **`LastSeenRemote`** — honestly named, but it is the LAST rung of the
+  `IsRemote` derivation, and for an offline row it decides the branch. A
+  radio whose profile still says last-seen-local dead-ends in
+  `HandleOfflineConnectAttempt`'s final else ("not on the local network right
+  now", `:1101`) — the selector-side shape of "never falls back."
+
+One successful remote sighting rewrites `LastSeenRemote` to true
+(`RecordSighting` is called with `WanAvailable && !LanAvailable`), so Don's
+roster row on his own machine has likely healed itself — which is evidence
+his daily pain is the auto-connect record or the dead-end flow, not a stale
+roster stamp. Phase 2: read his `autoConnectV2.xml`.
+
+**The double Enter — it is two mechanisms, and neither is where the brief
+pointed.** All three FlexBase JIT-refresh sites (`:1509`, `:4711`, `:4749`)
+demonstrably continue into `ConnectToSmartLink` after refreshing; none
+refreshes and stops. What actually eats the first Enter:
+
+1. **By design**: Enter on an offline remote-ish row runs
+   `HandleOfflineConnectAttempt` → "was last seen over SmartLink. Looking for
+   it now." → `StartRemoteFlow()` → **return** (`:1076-1081`). The connect
+   intention is deliberately dropped; when the pass completes, focus lands
+   back on the list and the user must press Enter again. That IS
+   authenticate-then-connect as two keystrokes — Noel's observation matches
+   the code exactly.
+2. **By focus accident**: after a remote pass, WPF focus restore can leave
+   Enter targeting the Remote/Refresh button rather than the list (the
+   2026-08-06 trace-164250 class, partially fixed by the list's Enter
+   handler); an Enter that lands there starts ANOTHER pass instead of
+   connecting.
+
+The fix for (1) is a carried intention — remember which radio Enter was for,
+and connect when the pass lands it. That also answers "one defect or two":
+two, both dialog-layer, fixable in the same file.
+
+## 7. Session-scoped state worth knowing before Phase 3 touches it
+
+- `_remoteListLive` / `_remoteDiscoveryInFlight` gate the Remote button's
+  morph into Refresh Remote List and the offline-row messaging.
+- `PathCombo` writes only the session `PreferRemotePath` and only for
+  dual-homed rows; it is one of exactly two writers (the other being the two
+  clobber sites that clear it).
+- `SessionSmartLinkEmail` (globals.vb) is the "Use Now" override — session
+  only, resolved ahead of the saved default by `ResolveSmartLinkAccount`.
+- The auth ladder's machinery already exists and is ordered correctly in
+  `setupRemote` (`FlexBase.cs:4118`): silent JIT refresh first
+  (`GetJwtFromSavedAccount`), cycle-and-silent-retry on failure, interactive
+  native-first login (`PerformNewLogin` → `SmartLinkLoginForm`) strictly
+  last, and non-auth failures never prompt. What is missing is only the
+  chain rung: "walk to the next path before prompting" has no hook because
+  there is no chain.
