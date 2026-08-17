@@ -82,7 +82,10 @@ This release is about the space where you actually spend your time in the app �
 - **[Your radio's volume knobs are visible now](#radio-outputs-visible).** Settings, Audio tab has a Radio Outputs group: headphone level, line out level, and the three output mutes, all of which apply to the radio as you change them. On a radio without a front panel, those software levels are the only volume control that exists, and until now JJ Flex could nudge them but never show you where they stood. There's a "Why is my radio silent?" button too, which walks the likely causes and tells you the first thing it finds. Starting with the one that catches everybody: a Flex makes no audio at all — headphone jack included — until something connects to it.
 - **[One place to choose your sound devices](#audio-devices-dialog).** The old device picker was two dialogs in a row, both with a list labelled "device list," and on a fresh install it could ambush you mid-connect from the background. It's one dialog now — radio audio out, microphone in, alert and CW device, meter device — reachable from the Audio menu, from Settings, or from the Command Finder. It announces what's currently chosen, marks your system default in words, and if a device you picked gets unplugged it falls back and says so instead of going quiet.
 - **[Is this thing on? Now you can find out without going on the air](#microphone-check).** The Audio Devices dialog has a Microphone check in it. Pick your microphone, press Start microphone check, talk, and JJ Flexible tells you what it hears — in the same plain words the Audio Workshop uses, with the number beside them. No transmitting, no radio, no SmartSDR, no Sound Recorder. And it tells three different silences apart: nothing reaching your microphone, nothing coming out of Windows at all, and Windows privacy settings blocking us — with a button that takes you straight to the page that fixes the last one.
-- **[One device, one line in the list](#one-device-one-line).** Windows offers most sound hardware three or four times over, once for each of its sound systems, so a single USB interface used to fill the picker with identical-looking copies — and one of those copies is usually the wrong one to pick. Each piece of hardware is one choice now. Devices that are USB, Bluetooth, or HDMI say so. Entries that are really a loopback of what your computer is playing say that too, loudly, because choosing one as your transmit microphone puts your own received audio on the air. And a device you saved that isn't plugged in stays in the list marked "Not connected" instead of quietly disappearing.
+- **[One device, one line in the list](#one-device-one-line).** Windows offers most sound hardware three or four times over, once for each of its sound systems, so a single USB interface used to fill the picker with identical-looking copies — and one of those copies is usually the wrong one to pick. Each piece of hardware is one choice now, and [you're the one who picks which audio system it comes through](#pick-your-audio-system). Devices that are USB, Bluetooth, or HDMI say so. Entries that are really a loopback of what your computer is playing say that too, loudly, because choosing one as your transmit microphone puts your own received audio on the air. And a device you saved that isn't plugged in stays in the list marked "Not connected" instead of quietly disappearing.
+- **[You pick the audio system now, and the list got shorter for it](#pick-your-audio-system).** Windows hands the same sound card to programs through several different driver models, and JJ Flexible used to pick one for you without saying so. There's a plain "Audio system" choice at the top of the Audio Devices dialog now — WASAPI by default, with MME there for anything WASAPI won't open. Picking it up front means the duplicate copies of your hardware simply aren't in the list to begin with, so the picker is *smaller* than it was before this control existed. That's not the usual direction, and I'm quietly delighted about it.
+- **[Mono microphones work](#mono-microphones-work).** If your only microphone has one channel — which is most USB headsets — JJ Flexible used to list it and then refuse it, which is a polite way of saying you couldn't use the app. Your voice goes to the radio on both channels now. No workaround, no second interface, no panning tricks.
+- **[Transmit audio quality is yours to set](#transmit-audio-quality).** Full quality is still the default and still what you want. But when a remote link is having a bad night and your audio keeps breaking up, there are lower settings that ask less of the connection. Duller audio that gets through beats better audio that doesn't.
 - **[CW notifications moved in with their speaker](#cw-with-alert-device).** The switch and the device it plays through are on the same tab now, next to each other, instead of one tab apart. Defaults unchanged — CW notifications are still off until you turn them on.
 - **[JJ Flex now updates itself](#in-app-updates).** Tools menu has a new "Check for Updates" item. Settings has a new "Updates" tab where you pick your channel — Stable, Beta, or Nightly — and decide whether you want JJ Flex to check on its own. By default it checks at startup and every couple of hours while it's running, but you're in charge of all of that. When an update lands, you get a dialog that tells you what's new and how big the download is, and one keystroke does the install. No more hunting for installers on the website.
 - **[Hear yourself before anyone else does](#audio-check).** The Audio Workshop grew an Audio Check: one button keys the radio and your own transmit audio comes back in your headphones while you talk. Record a take, unkey, and it plays right back so you can hear what a mic adjustment actually did. If your setup ritual has always been "how do I sound?" into a quiet band, this is that friend, on demand, with nobody rolling their eyes. And by default the check now makes **no RF at all** — dummy load, zero watts — because every meter it reads tells the same truth with the power at zero.
@@ -130,6 +133,44 @@ Here's the new shape:
 - Volume mode, `Ctrl+J` then `V`, is the fast lane for all of it — the full walkthrough lives in the keyboard reference under "Volume mode." While we were in the JJ layer, the compander picked up `Ctrl+J, C` and the speech processor `Ctrl+J, Shift+P`, so the whole "how I sound" chain rides one gesture family.
 - The JJ layer's own help (`Ctrl+J, H`) now reads the complete, current command list — it had quietly fallen out of date and was skipping six commands — and it finishes by telling you where the other help lives: F1 for the control you're on, `Ctrl+/` to search everything.
 - If you crank PC Output Volume all the way up on a strong signal, the audio now politely flattens at maximum instead of turning into digital hash. Your ears may still object to 24 dB of boost; the math no longer will.
+
+[Return to version headlines](#unreleased-headlines)
+
+### You Pick the Audio System Now, and the List Got Shorter for It {#pick-your-audio-system}
+
+Here's a thing about Windows that nobody should have to know: your sound card isn't offered to programs once. It's offered several times over, once for each driver model Windows supports — MME, DirectSound, WASAPI, and a low-level one called kernel streaming. Same hardware, four front doors.
+
+JJ Flexible used to deal with that by folding the copies together and picking a door for you. Which sounds tidy, and mostly was, except for one thing: it often landed on MME, and MME quietly converts sample rates on the way through. That means MME will cheerfully tell us your microphone is running at 48 kHz whether it is or not. Every rate test I ever ran came back clean. Of course it did — I was asking the one component in the chain that has a professional interest in telling me everything's fine.
+
+So there's an **Audio system** choice at the top of the Audio Devices dialog now. WASAPI is the default, because WASAPI tells the truth: it reports the rate your hardware is actually running at, and it says no to a device that can't do what the radio needs instead of papering over it. MME is right there if you want it, and sometimes you will — it's the forgiving one, and a device WASAPI turns down will usually work under it. The dialog says all of this in plain words, both ways round, because both choices are legitimate and which one is right depends on your gear.
+
+The part I like: **adding this control made the dialog simpler.** Once you've picked an audio system, there are no duplicate copies of your hardware left to fold, so the folding rule is just gone. Fewer rows, fewer rules, and the reason each device is in the list is now something you decided instead of something I guessed.
+
+And a bonus that falls straight out of it — when you're on WASAPI, any device Windows is running at a rate the radio can't use says so right in its row, with both fixes named: set it to 48000 Hz in Windows Sound settings, or switch to MME and let it convert. That's a whole category of "my transmit audio is weird and I can't tell why" that you can now see from inside the app.
+
+Your existing setup is safe. If you've got a device saved that lives on a different audio system, it stays selected and stays working, and the dialog tells you which system it's on rather than pretending it vanished.
+
+[Return to version headlines](#unreleased-headlines)
+
+### Mono Microphones Work {#mono-microphones-work}
+
+This one bothered me more the longer I looked at it.
+
+A great many USB headset microphones have exactly one channel. JJ Flexible would list yours, mark it "not usable yet," and refuse to save it. If that headset was the only microphone you owned, the honest summary is that you couldn't use the app. The workaround — gang two inputs on an audio interface and pan them both to centre — requires owning an audio interface, which is not much of a workaround for someone whose whole audio setup is a headset.
+
+Fixed. A mono microphone opens as mono and your voice goes to the radio on both channels. A mono speaker gets both channels mixed together, same idea in reverse. The row still tells you it's mono, because you should know what's happening to your audio, but it's a description now instead of a rejection.
+
+While I was in there I also collapsed the two different messages that used to describe this. The list said "mono, not usable yet" and the refusal said "it needs a stereo device" — one limitation, two vocabularies, and neither of them explained anything. Turns out the right way to unify them was to delete the refusal.
+
+[Return to version headlines](#unreleased-headlines)
+
+### Transmit Audio Quality Is Yours to Set {#transmit-audio-quality}
+
+Under the microphone list there's a **Transmit audio quality** setting. Full quality is the default, it's what's been running all along, and it's what you want on a normal day.
+
+The lower settings encode your voice at a lower sample rate. It uses less of your connection and it sounds duller — that's the trade, plainly. It's there for the bad night, when a remote link keeps breaking your transmit audio into gravel and you'd rather sound like a telephone and be understood.
+
+Two honest caveats, because I'd rather you hear them from me than discover them. Your sound card has the last word: if it can't run at the rate you asked for, JJ Flexible opens at one it can and encodes to match, rather than sending the radio something it can't follow. And since MME converts rates and WASAPI doesn't, the lower settings are most likely to actually take hold while you're on MME. The change applies from your next connection, not to one already running.
 
 [Return to version headlines](#unreleased-headlines)
 
@@ -461,11 +502,10 @@ A few things it now does that it never did:
   microphone unselectable, which looked for all the world like JJ Flex couldn't
   see your hardware. Multi-channel devices are listed now and just work — JJ
   Flex uses them in stereo, and the dialog tells you when it's doing that.
-- **Mono devices are in the list too, flagged honestly.** Radio audio still
-  needs a two-channel device, so a mono microphone can't be chosen yet — but
-  instead of being invisible, it now appears marked as mono, and if you try to
-  save it JJ Flex explains and asks you to pick another. Seeing your device
-  with a reason beats not seeing it at all.
+- **Mono devices are in the list too, flagged honestly.** They started out
+  listed-but-refusable, which was already better than being invisible. Later in
+  this same release they stopped being refusable at all —
+  [mono microphones work now](#mono-microphones-work).
 
 And a small one: **turning PC audio on now tells you the truth.** If it can't
 start, you hear that it didn't, instead of hearing "PC audio on" while nothing
@@ -544,9 +584,15 @@ of them was the one you wanted. Choosing by ear, that's not a decision, that's
 a coin flip. On my own machine the microphone list had **48 entries** for what
 any human being would call four devices.
 
-One piece of hardware is one line now. JJ Flexible folds the copies together
-and takes the most modern route to your device on your behalf. That same list
-is down to 22 lines, and the ones that remain are things you'd recognise.
+One piece of hardware is one line now. That same list is down to 22 lines, and
+the ones that remain are things you'd recognise.
+
+The first version of this fix folded the copies together and took the most
+modern route to your device on my judgement rather than yours. It worked, and
+it had a flaw I didn't spot until later in this same release: folding means
+*something* has to choose which copy wins, and that something was me, silently.
+[You pick the audio system now](#pick-your-audio-system) — which turned out to
+make this list shorter still, and honest about why each row is in it.
 
 While I was in there, a few more honesty upgrades to that list:
 

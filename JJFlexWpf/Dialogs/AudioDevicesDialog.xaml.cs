@@ -1002,13 +1002,13 @@ namespace JJFlexWpf.Dialogs
 
             MicCheckButton.Content = "Stop _microphone check";
             AutomationProperties.SetName(MicCheckButton, "Stop microphone check");
-            SetMicReading("Microphone check running. Listening." + RateCaveat());
+            SetMicReading("Microphone check running. Listening." + HostApiCaveat() + RateCaveat());
             _micTimer.Start();
 
             Announce(_privacyBlocked
                 ? "Microphone check started, but " + _privacyExplanation
                 : $"Microphone check started on {row.Name}. Talk normally."
-                  + RateCaveat(),
+                  + HostApiCaveat() + RateCaveat(),
                 _privacyBlocked ? VerbosityLevel.Critical : VerbosityLevel.Terse);
         }
 
@@ -1103,16 +1103,50 @@ namespace JJFlexWpf.Dialogs
         /// the operator has no other way to find out about except by keying up
         /// and being told nothing was heard.
         /// </summary>
+        /// <summary>
+        /// An observation when the check opened through a different audio
+        /// system than the one selected, or empty — which is the normal case.
+        /// </summary>
+        /// <remarks>
+        /// The probe re-resolves the device by name and host API inside its own
+        /// PortAudio initialisation, and when the exact endpoint has gone it
+        /// falls back to the same name under another audio system rather than
+        /// claiming the microphone is unplugged. That is the right call, and
+        /// silent it would be a trap: a check that passes under MME while
+        /// transmit is configured for WASAPI proves nothing about transmit, and
+        /// "the check works but the radio cannot hear me" is exactly the report
+        /// nobody can act on.
+        /// </remarks>
+        private string HostApiCaveat()
+        {
+            var probe = _probe;
+            if (probe == null) return "";
+            if (Devices.ShowAdvancedDevices) return "";
+            string opened = probe.Read().HostApiName ?? "";
+            if (opened.Length == 0) return "";
+            string selected = Devices.NameOfHostApi(Devices.SelectedHostApiTypeId);
+            if (string.Equals(opened, selected, StringComparison.Ordinal)) return "";
+            return $" Note: this check opened through {opened}, not the {selected} you chose above "
+                + "— that endpoint was not available. What you hear here may not match what the "
+                + "radio gets. Choose Refresh device list and pick the microphone again.";
+        }
+
         private string RateCaveat()
         {
             var probe = _probe;
             if (probe == null) return "";
             int rate = probe.Read().SampleRate;
             if (rate <= 0 || JJAudioStream.IsOpusRate((uint)rate)) return "";
+            // "needs 48 kHz" was hardcoded here, and stopped being true the
+            // moment the transmit rate became selectable — Opus works at 48,
+            // 24, 16, 12 and 8 kHz. Naming the whole set is both more accurate
+            // and more useful, since it tells an operator with a 24 kHz device
+            // that they already have a rate that works.
             return $" Note: Windows is running this microphone at {rate / 1000.0:0.#} kHz. "
-                + "The check works at that rate, but transmitting computer audio to the "
-                + "radio needs 48 kHz — set this device to 48000 Hz in Windows Sound "
-                + "settings before you rely on it for transmit.";
+                + "The check works at that rate, but audio to the radio is carried by Opus, "
+                + "which works at 48, 24, 16, 12 and 8 kHz. Set this device to 48000 hertz in "
+                + "Windows Sound settings, or choose MME as the audio system above, which "
+                + "converts the rate for you, before you rely on it for transmit.";
         }
 
         /// <summary>

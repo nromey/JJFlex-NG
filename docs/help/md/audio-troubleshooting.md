@@ -86,12 +86,45 @@ receive audio, and one microphone to send back to the radio. Choose them in
 Settings, Audio tab, **Audio Devices** button — or from the Audio menu, where
 the same dialog is called Audio Devices.
 
-That dialog covers everything in one place: the radio's playback device, the
-microphone sent to the radio, the device your alerts and CW notifications play
-through, and the meter tone device. The current choice is announced when the
-dialog opens, and the system default is marked in words.
+That dialog covers everything in one place: the audio system, the radio's
+playback device, the microphone sent to the radio, the transmit audio quality,
+the device your alerts and CW notifications play through, and the meter tone
+device. The current choice is announced when the dialog opens, and the system
+default is marked in words.
 
-A few things worth knowing:
+### The Audio System, at the Top of the Dialog
+
+Windows hands the same sound card to programs through more than one driver
+model, and JJ Flexible now asks you which one to use rather than guessing. The
+choice is the **Audio system** combo at the top of the Audio Devices dialog. It
+applies to your microphone and your receive audio together, and the two lists
+underneath show whatever that system offers.
+
+**WASAPI is the default, and it is the one that tells you the truth.** It
+reports the rate your hardware is really running at, and it refuses a device
+that cannot do what the radio needs instead of quietly converting behind your
+back.
+
+**MME is the forgiving one.** It converts sample rates for you, so a device
+WASAPI turns down will usually work under MME. The cost is that it reports 48
+kHz for absolutely everything, so you cannot tell from inside JJ Flexible what
+rate your hardware is actually running at. It also cuts device names short at
+31 characters, which is a Windows limitation rather than ours.
+
+**DirectSound** sits between the two: it converts rates like MME without the
+truncated names.
+
+If a device you own will not open under WASAPI, try MME. If your transmit audio
+is behaving strangely and everything looks fine, MME may be the reason you
+cannot see the problem — switch to WASAPI and read what the device list says
+about that device's rate.
+
+The old behaviour, for anyone comparing notes with an earlier version: JJ
+Flexible used to fold every copy of a device into one row and pick a driver
+model for you. That is what this control replaces, and it is why the device
+lists are no longer full of duplicates.
+
+A few more things worth knowing:
 
 - **If a device you chose is unplugged**, JJ Flex falls back to your system
   default and says so out loud. It does not go quiet, and it does not silently
@@ -102,12 +135,13 @@ A few things worth knowing:
   saved devices by name, not by position in the list, so a reshuffle rebinds
   silently and correctly.
 - **Each device appears once.** Windows offers most sound hardware several
-  times over, once for each of the sound systems it supports, so a single USB
-  interface can arrive as three or four identical-looking choices. The list
-  folds those together — one piece of hardware, one choice — and takes the most
-  modern route to it on your behalf. If you want to see every one of them, tick
-  **Show every sound endpoint** at the bottom of the dialog; that view names the
-  sound system after each entry.
+  times over, once for each audio system it supports, so a single USB interface
+  can arrive as three or four identical-looking choices. Because you have
+  already chosen the audio system at the top of the dialog, only that system's
+  copy is listed. If you want to see every one of them at once, tick **Show
+  every sound endpoint** at the bottom; that view names the audio system after
+  each entry, and it is also how you put your microphone on one audio system
+  and your receive audio on another if you ever need to.
 - **A device that is unplugged says so in the list.** It sits at the top marked
   "Not connected" rather than vanishing. Leave it selected if you plan to plug
   it back in and JJ Flex keeps it saved for you; pick something else and JJ Flex
@@ -116,16 +150,45 @@ A few things worth knowing:
   computer is currently playing, offered back as a recording source. Choosing
   one as your transmit microphone would put your own received audio on the air.
   They are labelled so you can tell them apart.
-- **Devices with more than two channels work normally.** Many laptop
-  microphone arrays report four channels; JJ Flex lists them and uses them in
-  stereo. The dialog notes it when your chosen device is one of these.
-- **A mono microphone appears in the list but cannot be chosen yet.** It shows
-  up flagged as mono, so you know JJ Flex can see it, but radio audio needs a
-  two-channel device — if you try to save a mono one, JJ Flex says so and asks
-  you to pick another. That is a JJ Flex limitation, not a fault with your
-  microphone.
+- **Mono devices work.** A great many USB headset microphones have exactly one
+  channel, and JJ Flexible used to list them and then refuse them, which meant
+  that if it was the only microphone you owned you could not use the app at
+  all. That is fixed. A mono microphone is sent to the radio on both channels,
+  and a mono speaker gets both channels mixed together. The row says which so
+  you know what is happening to your audio, but there is nothing to work
+  around any more.
+- **Devices with more than two channels work normally.** Many laptop microphone
+  arrays report four; JJ Flexible lists them and uses them in stereo. The
+  dialog notes it when your chosen device is one of these.
+- **A device running at the wrong rate says so in its row.** Audio to and from
+  the radio is carried by the Opus codec, which works at 48, 24, 16, 12 or 8
+  kHz — and notably not at 44.1 kHz, which is what a good number of sound
+  devices sit at by default. When you are on WASAPI, JJ Flexible can see the
+  real rate and marks any device that cannot carry radio audio. There are two
+  fixes and either is fine: set the device to 48000 Hz in Windows Sound
+  settings, or switch the audio system to MME, which converts the rate for you.
+  You will not see this warning under MME, because under MME the rate JJ
+  Flexible is told is not the rate your hardware is running at.
 - **The device list is a snapshot.** If you plug something in while the dialog
   is open, press the **Refresh device list** button.
+
+### Transmit Audio Quality
+
+Under the microphone list is a **Transmit audio quality** setting. Full quality
+is the default and the tested setting — leave it there unless your connection
+cannot carry it.
+
+The lower settings encode your voice at a lower sample rate, which uses less of
+your connection and sounds duller. They exist for the bad night: a remote link
+that keeps breaking up on transmit, where duller audio that gets through beats
+better audio that does not.
+
+Two honest caveats. Your sound card has the last word — if it cannot run at the
+rate you asked for, JJ Flexible opens at a rate it can and encodes to match,
+rather than sending the radio something it cannot follow. And because MME
+converts rates and WASAPI does not, the lower settings are most likely to
+actually take effect while you are on MME. The change applies from your next
+connection, not to a connection already running.
 
 ## The Radio Cannot Hear Me
 

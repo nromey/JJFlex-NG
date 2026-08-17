@@ -460,8 +460,11 @@ These work only while the Audio Devices window is open.
   anywhere on the page. This is the one you want while setting your level: it
   means you can sit on the input-level slider, adjust, talk, and hear the
   result without ever tabbing away and losing your place.
-- **Alt+S** shows every sound endpoint, host API by host API. Off by default,
-  which is when the list shows only devices you could actually talk into.
+- **Alt+S** shows every sound endpoint, every audio system at once, with the
+  audio system named on each row. Off by default, which is when the lists hold
+  only the audio system you chose at the top of the dialog and only devices you
+  could actually talk into. It is also how you put your microphone on one audio
+  system and your receive audio on another.
 - **Alt+R** refreshes the device list.
 - **Alt+U** unmutes the microphone in Windows, and appears only when Windows
   has it muted.
