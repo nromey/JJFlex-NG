@@ -1180,8 +1180,18 @@ namespace JJFlexWpf.Dialogs
                 return;
             }
 
-            // The ordinary case: walk the radio's chain, first entry first,
-            // announcing each move — no silent path substitution.
+            // The ordinary case: walk the radio's chain, first entry first.
+            //
+            // The skipped rungs are collected but NOT spoken on success. The
+            // connect announcement names the path it took — "Connecting to X
+            // over SmartLink" already says local did not happen — so narrating
+            // the itinerary as well is a tax on the common case. For a radio
+            // that normally lives remote, "not on the local network" announces
+            // the EXPECTED state as news, on every single connect.
+            //
+            // The itinerary is only interesting when you arrive nowhere. There
+            // the reasons are the whole content, so the exhaustion message below
+            // spends them.
             var chain = radio.EffectiveChain;
             var notes = new List<string>();
             for (int i = 0; i < chain.Count; i++)
@@ -1191,19 +1201,17 @@ namespace JJFlexWpf.Dialogs
                 {
                     if (radio.LanAvailable)
                     {
-                        AnnounceWalkNotes(notes);
                         CompleteConnect(radio, path, forced: false,
                             fallbacks: chain.Skip(i + 1).ToList());
                         return;
                     }
-                    notes.Add($"{radioName} is not on the local network");
+                    notes.Add("is not on the local network");
                     continue;
                 }
 
                 // SmartLink rung.
                 if (radio.WanAvailable)
                 {
-                    AnnounceWalkNotes(notes);
                     CompleteConnect(radio, path, forced: false,
                         fallbacks: chain.Skip(i + 1).ToList());
                     return;
@@ -1212,22 +1220,18 @@ namespace JJFlexWpf.Dialogs
                 var acctName = string.IsNullOrWhiteSpace(radio.LastSeenViaAccount)
                     ? CurrentAccountEmail() : radio.LastSeenViaAccount;
                 notes.Add(string.IsNullOrWhiteSpace(acctName)
-                    ? $"{radioName} is not in the SmartLink radio list"
-                    : $"{radioName} is not in {acctName}'s radio list");
+                    ? "is not in the SmartLink radio list"
+                    : $"is not in {acctName}'s radio list");
             }
 
-            // Chain exhausted with nothing reachable.
+            // Chain exhausted with nothing reachable. Notes are subject-less
+            // predicates so the radio is named once at the front rather than
+            // once per rung.
             _callbacks.ScreenReaderSpeak?.Invoke(
-                (notes.Count > 0 ? string.Join(", and ", notes) + ". " : $"{radioName} is not reachable right now. ")
-                + "It may be powered off.", true);
-        }
-
-        /// <summary>Speak the walk's accumulated "not here" notes before the
-        /// connect announcement, so a fallback is never silent.</summary>
-        private void AnnounceWalkNotes(List<string> notes)
-        {
-            if (notes.Count == 0) return;
-            _callbacks.ScreenReaderSpeak?.Invoke(string.Join(". ", notes) + ".", true);
+                notes.Count > 0
+                    ? $"{radioName} {string.Join(", and ", notes)}. It may be powered off."
+                    : $"{radioName} is not reachable right now. It may be powered off.",
+                true);
         }
 
         /// <summary>
