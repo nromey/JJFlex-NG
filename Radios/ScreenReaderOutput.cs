@@ -341,6 +341,23 @@ namespace Radios
         }
 
         /// <summary>
+        /// Which speech library is actually driving output — "Prism", or "none"
+        /// when nothing came up. Reported on the About page and in every crash
+        /// report and debug bundle, because on 2026-08-17 a completely
+        /// non-functional Prism integration was indistinguishable from a working
+        /// one: the fallback caught it, speech carried on, and nothing anywhere
+        /// said which library was talking.
+        /// </summary>
+        public static string BackendName
+        {
+            get
+            {
+                if (!_initialized) Initialize();
+                return _backend?.BackendName ?? "none";
+            }
+        }
+
+        /// <summary>
         /// Re-state which speech backend is live, for the trace file.
         ///
         /// Initialize() runs from ApplicationEvents before GetConfigInfo turns

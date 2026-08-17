@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
@@ -152,6 +152,13 @@ namespace Radios
 
         /// <summary>The folder archived trace sessions land in.</summary>
         public string TraceArchiveFolder { get; private set; }
+
+        /// <summary>
+        /// The speech library in use and what it is talking to, e.g.
+        /// "Prism, using NVDA". Reads "none" when nothing came up, which is the
+        /// one state a blind operator most needs stated rather than inferred.
+        /// </summary>
+        public string SpeechEngine { get; private set; }
 
         /// <summary>Detected screen reader description.</summary>
         public string ScreenReader { get; private set; }
@@ -392,6 +399,31 @@ namespace Radios
                 else
                     ScreenReader = "None detected";
                 BrailleAvailable = ScreenReaderOutput.HasBraille;
+
+                // Which library is actually talking, and to what. Noel asked for
+                // this on 2026-08-17, the same evening a completely
+                // non-functional Prism integration went unnoticed because the
+                // fallback caught it and nothing anywhere named the backend in
+                // use. "It speaks" turned out not to be evidence of which thing
+                // was speaking.
+                string backend = ScreenReaderOutput.BackendName;
+                if (string.Equals(backend, "none", StringComparison.OrdinalIgnoreCase))
+                {
+                    SpeechEngine = "none — the application has no speech "
+                                   + "(prism.dll missing or failed to load)";
+                }
+                else if (!string.IsNullOrEmpty(srName))
+                {
+                    SpeechEngine = backend + ", using " + srName;
+                }
+                else if (ScreenReaderOutput.IsAvailable)
+                {
+                    SpeechEngine = backend + ", using SAPI (no screen reader detected)";
+                }
+                else
+                {
+                    SpeechEngine = backend + " loaded, but no speech is available";
+                }
             }
             catch { }
         }
@@ -424,6 +456,7 @@ namespace Radios
             Add(SectionComponents, "Opus",
                 OpusVersion ?? "not available (libopus.dll did not load or did not answer)");
             Add(SectionComponents, "PortAudio", PortAudioDisplay());
+            Add(SectionComponents, "Speech", SpeechEngine ?? "not available");
             Add(SectionComponents, "WebView2 runtime",
                 WebView2Runtime ?? "not installed");
 
