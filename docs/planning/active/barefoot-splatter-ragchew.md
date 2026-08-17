@@ -1295,6 +1295,65 @@ waiting for it.
 - **#54 built-in versus jack cannot be determined from Core Audio** — a recorded
   finding, not a gap. Close it so it stops looking like work.
 
+### Housekeeping task — archive seven finished planning docs
+
+Not done yet, deliberately: **added as a task rather than performed**, so it lands
+with the tranche instead of churning the tree mid-planning. Move from
+`docs/planning/active/` to `archive/`:
+
+- `daxiq-instrument-task.md` — its own status line says RESOLVED 2026-08-09
+- `2026-08-11-audio-arc-summary.md` — a point-in-time snapshot, superseded many
+  times over
+- `honest-audio-guided-testing.md` and `nightowl-guided-testing.md` — guided
+  testing papers for specific builds, sessions long finished
+- `nightowl-pileup-ragchew.md` — the queue-burn ensemble, recorded as fully
+  landed in the research queue
+- `radio-audio-settings-research.md` — migration research for the device picker,
+  which shipped
+- `roarbox-upgrade-parts-list.md` — a May hardware list for a machine since built
+
+**Archive only AFTER Track A merges:** `qsl-roster-ragchew.md` (the roster
+design) and `elmer-beacon-patch.md` (its implementation plan). Both describe
+shipped work, **but Track A is about to rewrite that code and the original design
+explains why it is shaped as it is.**
+
+**NOT archived — pulled into the small-fixes sweep instead:**
+`2026-05-11-jj-h-context-help-audit.md` and
+`2026-05-11-keyboard-reference-audit.md`, both marked *"fixes deferred"* since
+May. **That is the papercut failure mode exactly** — findings that lost a
+priority argument once and were never compared against anything again. They are
+either real work or obsolete, and **filing them in archive resolves neither, it
+only stops them being visible.** The sweep reads them and decides; they may well
+*be* task #40.
+
+**Unresolved, left alone:** the three `detached-*` files (firmware and
+registration research from 2026-08-05). Whether that work shipped is not known
+here — establish it before moving them.
+
+### Deferred arcs — placement, not new plans
+
+Noel asked whether to fold the other deferred work into this plan. **No — they
+need placement, not plans.** Each already has a good document; what none of them
+says is *when it happens and what unblocks it*. A plan that covers everything
+guides nothing, and the arc order was set deliberately:
+**finish audio → infrastructure, reporting and signing → CW rewrite.**
+
+- **`transverter-completion-plan.md`** — follows this tranche. **Gated on Track
+  B's forward-power fix**, since transverter drive lives in the band the readout
+  currently reports as zero. Noel has the XLR extension as of 2026-08-16.
+- **`signing-track.md`, `auto-update-research.md`** — the infrastructure phase,
+  after this tranche. The app-update manifest still 404s.
+- **`diagnostic-log-surface.md`** — design ratified; #26's four open questions are
+  in the small-fixes sweep, the track itself is infrastructure-phase.
+- **`barefoot-punch-pathfinder.md`** — **NOT finished.** The fix is in and
+  untested, and a single-NAT retest became viable once the double-NAT was fixed
+  on 2026-08-14. Needs radio and network time, not code.
+- **`unattended-mode.md`** — design, not started, slots after the
+  firmware/network dress rehearsal by its own status line.
+- **The three `detached-*` memos** — status unknown; establish before scheduling.
+- **`audio-workshop-plan.md`** — mostly discharged, but §4e-4h (the IQ tier,
+  superseding the loopback) is live and belongs with the bench work.
+
 ### Next tranche, captured not scheduled
 
 Priority watch; the meter analysis pass (gated on D2's model **and** the chain
