@@ -129,7 +129,7 @@ These keys work when you're in either Classic or Modern tuning mode:
 |-----|--------|
 | F2 | Go to Home (this is where you adjust frequencies or other radio options — see more information about the JJ Flexible Home below) |
 | Ctrl+F | Set frequency (direct entry) |
-| Ctrl+S | Read the S meter |
+| Ctrl+S | Read the S meter, or forward power in watts while transmitting |
 | Ctrl+Shift+F | Toggle the frequency speech readout on/off |
 | Ctrl+Alt+F | Speak the RX filter values |
 | Ctrl+Shift+C | Clear RIT offset |

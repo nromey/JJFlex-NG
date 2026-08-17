@@ -706,11 +706,16 @@ public class KeyCommands
         int smeter = (int)rig.SMeter;
         string msg;
         if (rig.Transmit)
-            msg = $"Power {smeter}";
+            // Real watts, with their unit. This read "Power 0" for 174 mW of
+            // measured RF, and never named a unit at all.
+            msg = $"Power {Radios.FlexBase.FormatForwardPowerSpoken(rig.ForwardPowerWatts)}";
         else if (rig.SmeterInDBM)
             msg = $"S meter {smeter} dBm";
         else if (smeter > 9)
-            msg = $"S 9 plus {(smeter - 9) * 10}";
+            // Over S9, SMeter already returns dB-over-S9 plus 9, so the excess
+            // IS decibels. Multiplying it (by 10 here, by 6 elsewhere) inflated
+            // the reading — 4 dB over S9 was announced as "S9 plus 40".
+            msg = $"S 9 plus {smeter - 9} dB";
         else
             msg = $"S {smeter}";
         Radios.ScreenReaderOutput.Speak(msg, Radios.VerbosityLevel.Terse, true);

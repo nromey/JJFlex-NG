@@ -2382,10 +2382,18 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         if (_rig == null) return;
 
         int sVal = _rig.SMeter;
-        string sText = sVal <= 9 ? $"S{sVal}" : $"S9+{(sVal - 9) * 6} dB";
+        // Over S9 the excess is already dB — SMeter returns dB-over-S9
+        // plus 9, so the old x6 inflated the reading sixfold.
+        string sText = sVal <= 9 ? $"S{sVal}" : $"S9+{sVal - 9} dB";
         SetMeterText(_sMeterBox, $"S-Meter: {sText}");
 
-        SetMeterText(_fwdPowerBox, $"Forward Power: {_rig.PowerDBM:F1} dBm");
+        // dBm AND watts. dBm is the honest raw figure the bench notes are
+        // written in; watts is what an operator sets power in. Showing both
+        // means nobody converts in their head at the moment they are trying
+        // to read an instrument — and it is the readout the transverter
+        // session lives on, where drive is measured in milliwatts.
+        SetMeterText(_fwdPowerBox, $"Forward Power: {_rig.PowerDBM:F1} dBm"
+            + $" ({FlexBase.FormatForwardPowerSpoken(_rig.ForwardPowerWatts)})");
 
         SetMeterText(_swrBox, $"SWR: {_rig.SWRValue:F1}");
 

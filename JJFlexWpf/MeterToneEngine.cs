@@ -494,14 +494,16 @@ namespace JJFlexWpf
                 if (sUnits <= 9)
                     sb.Append($"S-meter S{sUnits}. ");
                 else
-                    sb.Append($"S-meter S9 plus {(sUnits - 9) * 6}. ");
+                    // Over S9 the excess is already dB (SMeter returns
+                    // dB-over-S9 plus 9); the old x6 inflated it sixfold.
+                    sb.Append($"S-meter S9 plus {sUnits - 9} dB. ");
             }
             else
             {
-                // TX meters
-                float powerDbm = _rig.PowerDBM;
-                int watts = (int)((Math.Pow(10.0, powerDbm / 10.0) / 1000.0) + 0.5);
-                sb.Append($"Forward power {watts} watts. ");
+                // TX meters. Forward power comes from the float path — this
+                // used to truncate locally, so 174 mW of real RF was spoken
+                // as "Forward power 0 watts".
+                sb.Append($"Forward power {FlexBase.FormatForwardPowerSpoken(_rig.ForwardPowerWatts)}. ");
 
                 float swr = _rig.SWRValue;
                 if (swr > 0)
