@@ -690,11 +690,23 @@ Noel, 2026-08-16: *"Alarm might be the better term for metered values, priority
 freq watch might work for a frequency."*
 
 **Right, and the principle is worth stating: the implementation shares, the
-vocabulary does not.** An **alarm** means *something is wrong with my radio*. A
-**priority frequency watch** means *something is happening on a frequency I care
-about*. Same engine — threshold, hysteresis, cooldown, alert — but different
-intentions with different urgency. Calling both "monitors" would be technically
-pure and practically confusing. **Two names, one engine.**
+vocabulary does not.** An **alarm** watches a *meter*; a **priority frequency
+watch** watches a *frequency*. Same engine — threshold, hysteresis, cooldown,
+alert — but different objects and different mental models, so one name for both
+would be technically pure and practically confusing. **Two names, one engine.**
+
+**An alarm is NOT necessarily "something is wrong"** — an earlier draft said that
+and Noel corrected it: *"maybe you want to know if you're over 1500 watts on the
+4O3A amp."* That is not a fault, it is **a limit you chose**. Alarms span at
+least three intents:
+
+- **Fault** — SWR climbing, PA temperature high, supply voltage sagging.
+- **Limit** — a legal power ceiling, an amplifier's rating, your own operating
+  preference. Nothing is broken; you asked to be told.
+- **Confirmation** — forward power finally reading something while keyed, an
+  oscillator reaching lock. The good news you were waiting for.
+
+Wording and urgency should follow the intent, not assume every alarm is bad news.
 
 ##### Every meter explains itself, and suggests its own conditions
 
@@ -763,6 +775,24 @@ to do about it.
 ones.** Candidates with obvious remedies: SWR high, PA temperature high, supply
 voltage low, ALC high (overdriving), forward power low while keyed (something is
 wrong in the chain).
+
+##### Accessory meters: the amp and tuner already work
+
+Noel: *"we need to be prepared to support more meters for the amp."*
+
+**Already handled by asking the radio.** FlexLib declares
+`Meter.SOURCE_AMPLIFIER` alongside `SOURCE_SLICE` and `SOURCE_HA_API`, and
+`Radio.cs:6902/6910` **already routes incoming meters onto the amplifier and the
+tuner** they belong to. So when a 4O3A is connected **its meters simply appear in
+the same list** — no amp-specific code, no second subsystem, and the picker,
+alarms and tones all work unchanged. The count goes from 102 to whatever the
+station reports.
+
+**The consequence to design for: sources appear and disappear.** An amp powers on
+mid-session, a tuner is bypassed, slices come and go. The list must grow and
+shrink gracefully — and **an alarm set on an amp meter must say "that meter is
+not here right now" rather than silently never firing.** Silent non-firing is the
+worst failure an alarm can have.
 
 ##### It collapses priority watch into the same engine
 
