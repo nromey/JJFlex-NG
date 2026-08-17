@@ -202,6 +202,16 @@ sentence.
 - **#21 — field-test the orphan-process fix with repeated launch/exit cycles.**
 - **#55 — master test list in for-noel format, runnable as a guided session.**
 
+### Open — tooling, added 2026-08-16
+
+- **Rigmeter downloads tokei on every run and never keeps it.** Noel:
+  *"rigmeter needs to get tokei and keep it around rather than having to get it
+  every time."* Today it prompted on all three invocations and then failed to
+  resolve a download URL, so `all` and `snapshot` ran without code-vs-comment
+  accuracy. Fetch once, cache it beside the tool (or in `%LOCALAPPDATA%`), verify
+  and reuse. While in there: the prompt appears even in non-interactive runs,
+  which is why the seal saw `[Y/n]` with nobody to answer.
+
 ### Open — parked, not load-bearing
 
 - **#58 — CW mode announce fires on slice population, and overlapping keying
