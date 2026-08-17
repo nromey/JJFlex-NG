@@ -81,10 +81,16 @@ one-shot set at opus-output start can be silently reverted by a later profile
 load. This is the arc's thesis in one line: never stream TX audio into a closed
 gate without saying so.
 
-**Noel's addition:** verify that **all hardware inputs enumerate correctly per
-model** — ACC on the 6300, BAL on the 8600. Same class of lie as a wattage that
-reads zero. **May execute better in Track E**, which owns device enumeration;
-Noel left the placement open. Natural bench work either way.
+**Input enumeration per model — RAISED, INVESTIGATED AND CLOSED 2026-08-16.** No
+defect. `FlexBase.MicSourceList` is `theRadio?.MicInputList?.ToList()`, populated
+by FlexLib from a `mic list` command — **we pass the radio's own list through
+verbatim and invent nothing.** The 8600 reports mic, pc, line, acc and bal, and
+Noel confirmed it genuinely has **ACC on its 15-pin port**. The radio reports
+accurately and we display accurately.
+
+Worth keeping as a pattern note: this is the same architecture the meter work
+adopted — **ask the radio, do not maintain a list** — and it was already right
+here.
 
 ### Bench results 2026-08-16 — measured on the 8600, not inferred
 
