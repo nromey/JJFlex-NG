@@ -696,6 +696,27 @@ solves the chatterbox problem.
 is open it is a dialog feature; as a per-meter property it is an operating
 feature — and it becomes the natural thing for the `Ctrl+J M` layer to toggle.
 
+**Settable from BOTH surfaces** (Noel, 2026-08-16): the Workshop and the
+`Ctrl+J M` layer. **Multiple doors, one room** — an established principle in this
+project's notes.
+
+**What makes that work: Monitor is state on the METER, not state in a dialog.**
+Both surfaces mutate the same property, so a toggle in the Workshop is visible to
+the leader layer, a toggle from the leader layer shows up when the Workshop next
+opens, and it persists. That falls out free once it lives in D2's meter model
+rather than as a dialog checkbox — another instance of the standing rule: **model
+it as data and the surfaces stop needing to synchronise.**
+
+**OPEN, small: the leader chord collides.** `M` in the `Ctrl+J M` layer is
+already mute-all, so Monitor cannot take its own initial. Either:
+
+- **Call the feature "Announce" and give it `A`** — says what it does, leaves
+  mute alone, and sidesteps a real confusion risk, since "monitor" in ham usage
+  already means listening to your own transmit audio. **Recommended.**
+- Or keep the name Monitor with `M`, and move mute-all to something like `X`.
+
+Noel's vocabulary call; either is workable.
+
 **Two details that decide whether it works:**
 
 - **The combo must be NON-EDITABLE.** If it accepts text entry, `Delete` means
