@@ -776,6 +776,34 @@ ones.** Candidates with obvious remedies: SWR high, PA temperature high, supply
 voltage low, ALC high (overdriving), forward power low while keyed (something is
 wrong in the chain).
 
+##### The alarms surface — same idiom, different collection
+
+Noel: *"we will need a surface where we display, edit or delete alarms."*
+
+**Two genuinely different needs, and only one fits the meters combo:**
+
+- **"Set an alarm on the meter I am looking at"** — a context-menu item on the
+  already-selected meter. Free; no new surface.
+- **"Show me everything I am being watched for"** — organised *by alarm*, not by
+  meter, so the meters combo structurally cannot answer it. **This is a real
+  second surface.**
+
+**Build it in the same shape as the meters surface**, so it needs no new
+learning: a **non-editable combo** listing alarms (so `Delete` is unambiguous), a
+**read-only box** describing the selected one, a **context menu** for edit,
+delete, enable and disable, and **`Delete`** on the key. Reachable from the
+Workshop and from the `Ctrl+J` layer, like everything else.
+
+**Entries read as sentences** — *"SWR above 2.0"*, *"Forward power above 1500
+watts"*, *"PA temperature above 100 degrees"*. Scannable while arrowing,
+self-describing without opening anything.
+
+**The most valuable thing this list does is show what is NOT armed.** An alarm
+whose meter is absent — the amp is off, the slice is gone — **says so in the
+list, at a glance**, rather than revealing itself only by never firing. That
+converts the silent-non-firing failure into something visible *before* you rely
+on it.
+
 ##### Accessory meters: the amp and tuner already work
 
 Noel: *"we need to be prepared to support more meters for the amp."*
