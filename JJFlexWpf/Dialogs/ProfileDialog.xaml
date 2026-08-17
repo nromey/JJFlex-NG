@@ -1,11 +1,10 @@
-<local:JJFlexDialog x:Class="JJFlexWpf.Dialogs.ProfileDialog"
+﻿<local:JJFlexDialog x:Class="JJFlexWpf.Dialogs.ProfileDialog"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:JJFlexWpf"
         Title="Profiles"
         Width="450" Height="380"
-        ResizeMode="NoResize"
-        AutomationProperties.Name="Profile manager">
+        ResizeMode="NoResize">
     <Grid Margin="12">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="*"/>

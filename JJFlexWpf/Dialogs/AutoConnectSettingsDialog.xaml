@@ -1,11 +1,10 @@
-<local:JJFlexDialog x:Class="JJFlexWpf.Dialogs.AutoConnectSettingsDialog"
+﻿<local:JJFlexDialog x:Class="JJFlexWpf.Dialogs.AutoConnectSettingsDialog"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:JJFlexWpf"
         Title="Auto-Connect Settings"
         Width="350" Height="200"
-        ResizeMode="NoResize"
-        AutomationProperties.Name="Auto-connect settings">
+        ResizeMode="NoResize">
     <Grid Margin="12">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>

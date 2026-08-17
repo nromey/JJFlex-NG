@@ -1,12 +1,11 @@
-<local:JJFlexDialog x:Class="JJFlexWpf.Dialogs.GpsStatusDialog"
+﻿<local:JJFlexDialog x:Class="JJFlexWpf.Dialogs.GpsStatusDialog"
                     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                     xmlns:local="clr-namespace:JJFlexWpf"
                     xmlns:controls="clr-namespace:JJFlexWpf.Controls"
                     Title="GPS and Reference"
                     Width="520" Height="560"
-                    WindowStartupLocation="CenterScreen"
-                    AutomationProperties.Name="GPS and reference oscillator status">
+                    WindowStartupLocation="CenterScreen">
     <DockPanel Margin="12">
         <StackPanel DockPanel.Dock="Bottom" Style="{StaticResource ButtonPanel}"
                     KeyboardNavigation.TabIndex="3">

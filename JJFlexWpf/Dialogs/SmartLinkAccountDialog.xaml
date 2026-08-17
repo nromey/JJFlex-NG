@@ -1,11 +1,10 @@
-<local:JJFlexDialog x:Class="JJFlexWpf.Dialogs.SmartLinkAccountDialog"
+﻿<local:JJFlexDialog x:Class="JJFlexWpf.Dialogs.SmartLinkAccountDialog"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:JJFlexWpf"
         Title="Select SmartLink Account"
         Width="420" Height="440"
-        SizeToContent="Manual"
-        AutomationProperties.Name="Select SmartLink Account">
+        SizeToContent="Manual">
     <Grid Margin="12">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>

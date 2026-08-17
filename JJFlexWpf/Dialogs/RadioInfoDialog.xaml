@@ -1,11 +1,10 @@
-<local:JJFlexDialog x:Class="JJFlexWpf.Dialogs.RadioInfoDialog"
+﻿<local:JJFlexDialog x:Class="JJFlexWpf.Dialogs.RadioInfoDialog"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:JJFlexWpf"
         Title="Radio Information"
         Width="500" Height="440"
-        ResizeMode="NoResize"
-        AutomationProperties.Name="Radio Information">
+        ResizeMode="NoResize">
     <DockPanel Margin="12">
         <!-- Done button at bottom -->
         <StackPanel DockPanel.Dock="Bottom" Style="{StaticResource ButtonPanel}" Margin="0,8,0,0">

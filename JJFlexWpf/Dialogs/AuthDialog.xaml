@@ -1,4 +1,4 @@
-<local:JJFlexDialog x:Class="JJFlexWpf.Dialogs.AuthDialog"
+﻿<local:JJFlexDialog x:Class="JJFlexWpf.Dialogs.AuthDialog"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:JJFlexWpf"
@@ -6,8 +6,7 @@
         Title="SmartLink Authentication"
         Width="600" Height="700"
         ResizeMode="CanResize"
-        ShowInTaskbar="True"
-        AutomationProperties.Name="SmartLink Authentication">
+        ShowInTaskbar="True">
     <DockPanel>
         <!-- Status label at top -->
         <Border DockPanel.Dock="Top" Background="LightYellow" Padding="4">

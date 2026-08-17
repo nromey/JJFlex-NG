@@ -1,4 +1,4 @@
-<local:JJFlexDialog x:Class="JJFlexWpf.Dialogs.ConfirmActionDialog"
+﻿<local:JJFlexDialog x:Class="JJFlexWpf.Dialogs.ConfirmActionDialog"
                     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                     xmlns:local="clr-namespace:JJFlexWpf"
@@ -7,8 +7,7 @@
                     SizeToContent="Height"
                     WindowStartupLocation="CenterScreen"
                     ShowInTaskbar="False"
-                    ResizeMode="NoResize"
-                    AutomationProperties.Name="Confirm action">
+                    ResizeMode="NoResize">
     <StackPanel Margin="16">
         <!-- The whole body — message, warnings, question — is one read-only
              text box so it can be read line by line with the arrow keys and

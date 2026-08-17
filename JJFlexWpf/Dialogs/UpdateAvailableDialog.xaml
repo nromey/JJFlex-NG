@@ -1,11 +1,10 @@
-<local:JJFlexDialog x:Class="JJFlexWpf.Dialogs.UpdateAvailableDialog"
+﻿<local:JJFlexDialog x:Class="JJFlexWpf.Dialogs.UpdateAvailableDialog"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:JJFlexWpf"
         Title="Update available"
         Width="520" Height="380"
-        ResizeMode="NoResize"
-        AutomationProperties.Name="Update available">
+        ResizeMode="NoResize">
     <Grid Margin="14">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>

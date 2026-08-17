@@ -6,7 +6,6 @@
         Title="Select Radio"
         Width="560" Height="560"
         ResizeMode="NoResize"
-        AutomationProperties.Name="Radio selector"
         Closing="RigSelectorDialog_Closing">
     <Grid Margin="12">
         <Grid.RowDefinitions>

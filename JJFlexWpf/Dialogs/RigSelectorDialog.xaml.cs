@@ -1441,10 +1441,16 @@ namespace JJFlexWpf.Dialogs
                     : radio.PathChain[0] == ConnectPathKind.SmartLink ? 2
                     : 1;
                 PathCombo.IsEnabled = true;
+                // Name is a LABEL, not documentation. This used to carry a
+                // 29-word paragraph, which a screen reader reads in full on
+                // every single focus — before it ever says "combo box". The
+                // explanation it held is already in keyboard-reference.md under
+                // Alt+P, nearly word for word, and that reaches the operator
+                // through F1 when they ask for it rather than every time they
+                // arrow past. Cost of a Name is paid on every visit; value is
+                // paid once.
                 System.Windows.Automation.AutomationProperties.SetName(
-                    PathCombo,
-                    "Connection path for this radio. Saved with the radio: Connect tries the chosen path first " +
-                    "and falls back to the other, saying so. Automatic tries the local network first.");
+                    PathCombo, "Connection path");
             }
             finally
             {

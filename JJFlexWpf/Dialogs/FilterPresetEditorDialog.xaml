@@ -1,11 +1,10 @@
-<local:JJFlexDialog x:Class="JJFlexWpf.Dialogs.FilterPresetEditorDialog"
+﻿<local:JJFlexDialog x:Class="JJFlexWpf.Dialogs.FilterPresetEditorDialog"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:local="clr-namespace:JJFlexWpf"
     Title="Edit Filter Presets"
     Width="440" Height="420"
-    ResizeMode="NoResize"
-    AutomationProperties.Name="Edit filter presets">
+    ResizeMode="NoResize">
     <DockPanel Margin="12">
         <!-- Buttons at bottom -->
         <StackPanel DockPanel.Dock="Bottom" Style="{StaticResource ButtonPanel}">

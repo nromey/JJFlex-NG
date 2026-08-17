@@ -1,12 +1,11 @@
-<local:JJFlexDialog x:Class="JJFlexWpf.Dialogs.SettingsDialog"
+﻿<local:JJFlexDialog x:Class="JJFlexWpf.Dialogs.SettingsDialog"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:local="clr-namespace:JJFlexWpf"
     xmlns:controls="clr-namespace:JJFlexWpf.Controls"
     Title="Settings"
     Width="460" Height="540"
-    ResizeMode="NoResize"
-    AutomationProperties.Name="Settings">
+    ResizeMode="NoResize">
     <DockPanel Margin="12">
         <!-- Buttons at bottom. The house convention (Track C, 2026-08-16):
              OK applies and closes, Apply applies and stays, Cancel discards —

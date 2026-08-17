@@ -1,12 +1,11 @@
-<local:JJFlexDialog x:Class="JJFlexWpf.Dialogs.AudioWorkshopDialog"
+﻿<local:JJFlexDialog x:Class="JJFlexWpf.Dialogs.AudioWorkshopDialog"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:JJFlexWpf"
         Title="Audio Workshop"
         Width="500" Height="620"
         ShowInTaskbar="True"
-        ResizeMode="CanResize"
-        AutomationProperties.Name="Audio Workshop">
+        ResizeMode="CanResize">
     <DockPanel>
         <!-- Toolbar at top -->
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="8,4">

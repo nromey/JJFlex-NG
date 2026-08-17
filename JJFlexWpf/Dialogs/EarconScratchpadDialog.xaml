@@ -1,11 +1,10 @@
-<local:JJFlexDialog x:Class="JJFlexWpf.Dialogs.EarconScratchpadDialog"
+﻿<local:JJFlexDialog x:Class="JJFlexWpf.Dialogs.EarconScratchpadDialog"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:JJFlexWpf"
         Title="Earcon Scratchpad"
         Width="420" Height="400"
-        ResizeMode="NoResize"
-        AutomationProperties.Name="Earcon scratchpad, design your own sounds">
+        ResizeMode="NoResize">
     <StackPanel Margin="12">
         <TextBlock Text="Tone Generator" FontWeight="Bold" Margin="0,0,0,8" />
 

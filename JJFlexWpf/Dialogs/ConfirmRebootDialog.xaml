@@ -1,4 +1,4 @@
-<local:JJFlexDialog x:Class="JJFlexWpf.Dialogs.ConfirmRebootDialog"
+﻿<local:JJFlexDialog x:Class="JJFlexWpf.Dialogs.ConfirmRebootDialog"
                     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                     xmlns:local="clr-namespace:JJFlexWpf"
@@ -7,8 +7,7 @@
                     SizeToContent="Height"
                     WindowStartupLocation="CenterScreen"
                     ShowInTaskbar="False"
-                    ResizeMode="NoResize"
-                    AutomationProperties.Name="Confirm radio reboot">
+                    ResizeMode="NoResize">
     <StackPanel Margin="16">
         <!-- One read-only text box so the whole thing — including which other
              stations are about to be dropped — is arrow-reviewable. Focus

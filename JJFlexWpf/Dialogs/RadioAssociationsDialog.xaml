@@ -1,10 +1,9 @@
-<local:JJFlexDialog x:Class="JJFlexWpf.Dialogs.RadioAssociationsDialog"
+﻿<local:JJFlexDialog x:Class="JJFlexWpf.Dialogs.RadioAssociationsDialog"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:JJFlexWpf"
         Title="Radio Associations"
-        Width="480" Height="420"
-        AutomationProperties.Name="Radio Associations">
+        Width="480" Height="420">
 
     <!-- Phase 2: per-radio account binding, door two of two — the door for
          thinking about an ACCOUNT (which radios does it cover?). Writes the
