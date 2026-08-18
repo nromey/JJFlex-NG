@@ -2593,9 +2593,30 @@ Module globals
             Tracing.TraceLine($"wpfSelectorProc: remote-first startup for account '{resolvedAcct.FriendlyName}' ({resolvedAcct.Email})", TraceLevel.Info)
         End If
 
+        ' Guards against starting local discovery twice.
+        '
+        ' RigControl.LocalRadios() calls apiInit(True), which DISPOSES and
+        ' re-creates the radio API. Calling it a second time while discovery is
+        ' already running tears the live session down underneath itself: the
+        ' trace shows "apiInit:True" followed immediately by "Discovery.Receive:
+        ' task exited cleanly", and a connect made afterwards reached TCP and
+        ' then never finished Start - 56 seconds to a timeout. Found 2026-08-18,
+        ' the same day discovery was moved ahead of the picker and quietly
+        ' acquired a second caller.
+        Dim localDiscoveryRunning As Boolean = False
+
         ' Build the callbacks for the WPF dialog
         Dim callbacks As New JJFlexWpf.Dialogs.RigSelectorCallbacks() With {
-            .StartLocalDiscovery = Sub() RigControl.LocalRadios(),
+            .StartLocalDiscovery = Sub()
+                                       If localDiscoveryRunning Then
+                                           Tracing.TraceLine(
+                                               "StartLocalDiscovery: already running, not re-initialising",
+                                               TraceLevel.Info)
+                                           Return
+                                       End If
+                                       RigControl.LocalRadios()
+                                       localDiscoveryRunning = True
+                                   End Sub,
             .ReplayDiscoveredRadios = Sub() RigControl.ReplayDiscoveredRadios(),
             .StartRemoteDiscovery = Sub(onComplete As Action(Of Boolean))
                                         ' Run on background thread — WebView2 auth can take seconds
@@ -2725,7 +2746,9 @@ Module globals
         ' answered and gone quiet, and Escape skips it.
         Try
             Dim settling As New JJFlexWpf.Dialogs.DiscoveringRadiosWindow()
-            RigControl.LocalRadios()
+            ' Through the callback, NOT RigControl.LocalRadios() directly, so
+            ' the picker's own start finds discovery already running.
+            callbacks.StartLocalDiscovery.Invoke()
             settling.ShowDialog()
         Catch ex As Exception
             ' Never let the waiting room stop the operator reaching the picker.

@@ -77,6 +77,17 @@ namespace JJFlexWpf.Dialogs
                 FontSize = 14,
             };
 
+            // The window itself is the focus target. Its only child is
+            // DecorativeText, which is deliberately absent from the UIA tree,
+            // so FocusFirstControl found nothing focusable and NVDA had no
+            // focused object to describe - it announced "unknown". Reported
+            // 2026-08-18.
+            //
+            // A window that exists to say one sentence does not need a control
+            // to say it: the title carries the message, and focusing the window
+            // gives the screen reader something real to report.
+            Focusable = true;
+
             Loaded += async (_, _) => await WaitForSettleAsync();
         }
 
@@ -85,6 +96,15 @@ namespace JJFlexWpf.Dialogs
         /// settle. The caller may want to know it is opening the picker early.
         /// </summary>
         public bool Skipped => _skipped;
+
+        /// <summary>
+        /// Focus the window itself - there is no control to focus, by design.
+        /// </summary>
+        protected override void FocusFirstControl()
+        {
+            Focus();
+            System.Windows.Input.Keyboard.Focus(this);
+        }
 
         protected override void OnClosed(EventArgs e)
         {
