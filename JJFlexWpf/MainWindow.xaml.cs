@@ -225,6 +225,27 @@ public partial class MainWindow : UserControl
         // the session owner's monitor thread.
         _sessionStatusHandler = (s, status) =>
         {
+            // Routine bring-up of the BACKGROUND SmartLink session is not news.
+            // It happens on its own schedule - token refresh, account session,
+            // radio list - and it happened even when Noel had deliberately
+            // connected to his 8600 over the LAN, narrating "Connecting to
+            // SmartLink... Connected" on top of the real connect announcements
+            // (found 2026-08-17 in a verbose speech trace).
+            //
+            // Trouble still speaks, and so does RECOVERY from trouble: having
+            // been told the session was reconnecting, silence about it coming
+            // back would be the worse defect. So Connecting/Connected are
+            // suppressed only when arriving from a healthy state.
+            var prev = _lastSessionStatus;
+            _lastSessionStatus = status;
+            bool routineBringUp =
+                (status == Radios.SmartLink.SessionStatus.Connecting
+                 || status == Radios.SmartLink.SessionStatus.Connected)
+                && prev != Radios.SmartLink.SessionStatus.Reconnecting
+                && prev != Radios.SmartLink.SessionStatus.AuthorizationExpired
+                && prev != Radios.SmartLink.SessionStatus.Disconnected;
+            if (routineBringUp) return;
+
             var session = Radios.SmartLink.SmartLinkServices.Coordinator.ActiveSession;
             int attempts = session?.ReconnectAttemptCount ?? 0;
             var lastErr = session?.LastError;
@@ -264,6 +285,17 @@ public partial class MainWindow : UserControl
     // (matches the N=1 coordinator reality for Sprint 26; Sprint 28+ tabbed UI will
     // need per-session subscriptions for each tab).
     private Radios.SmartLink.IWanSessionOwner? _subscribedSession;
+    /// <summary>
+    /// Previous SmartLink session status, so a transition can be judged by
+    /// where it came FROM. Connected arriving after Reconnecting is news;
+    /// Connected arriving after nothing is plumbing.
+    /// </summary>
+    /// Null until the first transition: "never seen" is NOT the same as "was
+    /// disconnected". Initialising this to Disconnected would have made the
+    /// very first bring-up look like a recovery and announce itself, which is
+    /// the exact noise this suppression exists to remove.
+    private Radios.SmartLink.SessionStatus? _lastSessionStatus;
+
     private readonly EventHandler<Radios.SmartLink.SessionStatus> _sessionStatusHandler;
 
     /// <summary>

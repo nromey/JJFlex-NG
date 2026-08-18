@@ -1,4 +1,4 @@
-Imports System.Threading
+﻿Imports System.Threading
 Imports System.Windows.Forms
 Imports JJTrace
 Imports Radios
@@ -40,6 +40,10 @@ Public Class ConnectingForm
     Private _phaseStartTickMs As Long = 0
     Private _currentPhase As Integer = 1
     Private _cancelHandled As Boolean = False
+    ''' <summary>True when WE closed the form because the connect finished.
+    ''' Distinguishes our own Close() from the operator pressing X or Alt+F4,
+    ''' which WinForms reports identically as CloseReason.UserClosing.</summary>
+    Private _programmaticClose As Boolean = False
     Private _escalationActive As Boolean = False
 
     ' Phase announcements only fire if the current phase takes longer than
@@ -180,6 +184,10 @@ Public Class ConnectingForm
     ''' <summary>
     ''' Close the form (thread-safe).
     ''' </summary>
+    ''' <summary>
+    ''' Dismiss the form because the connect FINISHED — success or a failure the
+    ''' caller is already reporting. Not a cancellation.
+    ''' </summary>
     Public Sub CloseForm()
         If IsDisposed Then Return
         If InvokeRequired Then
@@ -190,6 +198,15 @@ Public Class ConnectingForm
             Return
         End If
         StopTimers()
+        ' MUST be set before Close(). WinForms reports a programmatic
+        ' Form.Close() as CloseReason.UserClosing - indistinguishable from the
+        ' X button - so without this flag OnFormClosing treated every
+        ' SUCCESSFUL connect as the operator cancelling: it spoke "Connection
+        ' attempt cancelled" at Critical over the real announcements, cancelled
+        ' the close, and invoked the cancel callback. Found 2026-08-17 in a
+        ' verbose speech trace, sitting between "Connected to Unknown" and
+        ' "Connected to FLEX-8600".
+        _programmaticClose = True
         Close()
     End Sub
 
@@ -278,7 +295,8 @@ Public Class ConnectingForm
         ' via our internal Close() after RequestCancel, _cancelHandled is true
         ' and we let the close proceed silently. Otherwise the user clicked X
         ' or pressed Alt+F4 — treat as cancel.
-        If Not _cancelHandled AndAlso e.CloseReason = CloseReason.UserClosing Then
+        If Not _cancelHandled AndAlso Not _programmaticClose _
+           AndAlso e.CloseReason = CloseReason.UserClosing Then
             e.Cancel = True
             RequestCancel("Connection attempt cancelled")
             Return

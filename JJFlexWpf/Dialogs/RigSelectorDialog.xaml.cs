@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Linq;
@@ -227,6 +227,17 @@ namespace JJFlexWpf.Dialogs
             }
         }
 
+        /// <summary>
+        /// A name field carries no usable name. Blank and the literal sentinel
+        /// "Unknown" mean the same thing — the radio reports "Unknown" when it
+        /// has none. Shared so every reader agrees: RowName did NOT know about
+        /// the sentinel while DisplayText did, so a connect announced
+        /// "Connecting to Unknown" for a radio the operator picked by name.
+        /// </summary>
+        public static bool NameIsMissing(string s) =>
+            string.IsNullOrWhiteSpace(s)
+            || string.Equals(s, "Unknown", StringComparison.OrdinalIgnoreCase);
+
         public string DisplayText
         {
             get
@@ -237,7 +248,7 @@ namespace JJFlexWpf.Dialogs
                 // The operator's chosen label wins over the radio's broadcast
                 // name — a choice outranks an observation (task #75).
                 var shownName = !string.IsNullOrWhiteSpace(UserLabel) ? UserLabel : Name;
-                var namePart = string.IsNullOrWhiteSpace(shownName) || shownName == "Unknown" ? "Unnamed" : shownName;
+                var namePart = NameIsMissing(shownName) ? "Unnamed" : shownName;
                 var modelPart = string.IsNullOrWhiteSpace(ModelName) || ModelName == "Unknown"
                     ? "Unknown model" : ModelName;
                 // Source, not serial. Two radios that differ only by where they
@@ -1542,9 +1553,23 @@ namespace JJFlexWpf.Dialogs
             ReselectBySerial(radio.Serial);
         }
 
+        /// <summary>
+        /// The radio's name for SPEECH. Blank and the literal sentinel
+        /// "Unknown" both mean "no name" — the radio reports "Unknown" when it
+        /// has none, and this used to pass it straight through, so a connect
+        /// announced "Connecting to Unknown on the local network" and then
+        /// "Connected to Unknown. Waiting for slice..." for a radio the
+        /// operator had just picked by name (found 2026-08-17 in a verbose
+        /// speech trace, which then said "Connected to FLEX-8600" three lines
+        /// later once the real name resolved).
+        ///
+        /// DisplayText already guarded against the same sentinel and this did
+        /// not — two readers of one field, one of them informed. Kept in sync
+        /// via NameIsMissing so the next reader cannot drift again.
+        /// </summary>
         private static string RowName(RadioListItem r) =>
-            !string.IsNullOrWhiteSpace(r.UserLabel) ? r.UserLabel
-            : !string.IsNullOrWhiteSpace(r.Name) ? r.Name
+            !RadioListItem.NameIsMissing(r.UserLabel) ? r.UserLabel
+            : !RadioListItem.NameIsMissing(r.Name) ? r.Name
             : "This radio";
 
         private void ReselectBySerial(string serial)
