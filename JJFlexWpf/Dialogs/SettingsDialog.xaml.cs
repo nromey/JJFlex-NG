@@ -1,4 +1,4 @@
-using System.Windows;
+﻿using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using Radios;
@@ -341,20 +341,13 @@ namespace JJFlexWpf.Dialogs
         {
             if (_suppressDoubleTapToleranceAnnouncements) return;
 
-            DoubleTapTolerance tolerance = GetSelectedDoubleTapTolerance();
-            string name = tolerance switch
-            {
-                DoubleTapTolerance.Quick => "Quick",
-                DoubleTapTolerance.Normal => "Normal",
-                DoubleTapTolerance.Relaxed => "Relaxed",
-                DoubleTapTolerance.Leisurely => "Leisurely",
-                _ => tolerance.ToString()
-            };
-            int ms = (int)tolerance;
-            ScreenReaderOutput.Speak(
-                $"Double-tap tolerance, {name}, {ms} milliseconds",
-                VerbosityLevel.Terse,
-                interrupt: true);
+            // DELETED 2026-08-18: each RadioButton's AutomationProperties.Name
+            // already carries the name AND the milliseconds - "Quick, 250
+            // milliseconds, for fast typists" - and the screen reader announces
+            // it on selection. This utterance was a strict SUBSET of that, and
+            // because the handler fires on every arrow press through the group,
+            // the interrupt cut the fuller announcement to deliver the shorter
+            // one. Nothing is lost by standing down.
         }
 
         /// <summary>
@@ -539,7 +532,12 @@ namespace JJFlexWpf.Dialogs
                 SmartLinkConnectionMode.ManualPlusUpnp => "Tier 1 plus 2, UPnP enabled.",
                 _ => "Tier 1, manual port forwarding only.",
             };
-            ScreenReaderOutput.Speak(announcement, VerbosityLevel.Terse, interrupt: true);
+            // DELETED: `announcement` is a near-verbatim copy of the selected
+            // RadioButton's own AutomationProperties.Name, which the screen
+            // reader announces on selection. Because this fires on every arrow
+            // press through the group, the interrupt cut that announcement
+            // mid-word and then restated it. Surveyed 2026-08-18.
+            _ = announcement;
         }
 
         /// <summary>
@@ -1010,8 +1008,10 @@ namespace JJFlexWpf.Dialogs
         {
             bool newState = VerboseDiagnosticsCheck?.IsChecked == true;
             Radios.SmartLink.DiagnosticVerbosityPreference.Verbose = newState;
-            ScreenReaderOutput.Speak(newState ? "Verbose diagnostics on." : "Verbose diagnostics off.",
-                VerbosityLevel.Terse, interrupt: true);
+            // DELETED: the CheckBox announces its own name and new state. The
+            // setting takes effect exactly as the box shows - no read-back, no
+            // divergence - so this restated it and cut the announcement to do
+            // so.
         }
 
         // Typing sound combo order: always-available audio modes first, then any

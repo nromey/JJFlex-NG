@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
@@ -123,8 +123,16 @@ public sealed class NoiseProfilesDialog : JJFlexDialog
         };
         _profileStatus.GotFocus += (s, e) =>
         {
+            // Refresh the text so the accessible name is current when the
+            // screen reader reads it on focus entry.
+            //
+            // DELETED 2026-08-18: speaking it too. This TextBlock is
+            // Focusable with an AutomationProperties.Name kept up to date by
+            // the poll, so the screen reader announces it on focus by itself.
+            // Speaking the same text with interrupt cut that announcement
+            // mid-word and then repeated it - the taxonomy's "speaking a
+            // focused control's own name" case exactly.
             UpdateProfileStatus();
-            ScreenReaderOutput.Speak(_profileStatus.Text, VerbosityLevel.Terse, interrupt: true);
         };
         panel.Children.Add(_profileStatus);
 
@@ -233,8 +241,12 @@ public sealed class NoiseProfilesDialog : JJFlexDialog
     {
         if (_polling || _pipeline == null) return;
         setter(on);
-        ScreenReaderOutput.Speak($"{label} {(on ? "on" : "off")}",
-            VerbosityLevel.Terse, interrupt: true);
+
+        // DELETED: the CheckBox already announces its own new state through
+        // UIA, on the control that has focus. Speaking "{label} on" as well
+        // meant NVDA's announcement was cut off mid-word and then restated -
+        // cutoff plus double-speak on every toggle. Surveyed 2026-08-18, same
+        // defect class as the device picker rows (task #63).
         _persistDsp();
     }
 

@@ -239,7 +239,11 @@ Public Class DefineCommands
                 ' but if they do, refuse to save and tell the user.
                 MessageBox.Show("There are conflicting key assignments. Please resolve them before saving.",
                                 dupTitle, MessageBoxButtons.OK, MessageBoxIcon.Warning)
-                ScreenReaderOutput.Speak("Cannot save. Conflicting key assignments exist. Please resolve them first.", VerbosityLevel.Critical, True)
+                ' DELETED 2026-08-18: the modal MessageBox above blocks first and
+                ' the screen reader reads its caption and text. This fired only
+                ' AFTER the operator dismissed it, repeating what they had just
+                ' heard, late. If speech is ever wanted here it should replace
+                ' the MessageBox, not follow it.
                 DialogResult = DialogResult.None
                 Return
             Else

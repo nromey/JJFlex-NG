@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
 using JJTrace;
@@ -881,7 +881,11 @@ namespace JJFlexWpf.Dialogs
                 {
                     SettingsTabs.SelectedItem = tab;
                     tab.Focus();
-                    ScreenReaderOutput.Speak("Network settings.", VerbosityLevel.Terse, interrupt: true);
+                    // DELETED: tab.Focus() raises a UIA focus change and the
+                    // screen reader announces the TabItem's header and selected
+                    // state itself. Speaking "Network settings." raced that
+                    // announcement for the same instant and won, replacing a
+                    // fuller message with a shorter one.
                     return;
                 }
             }

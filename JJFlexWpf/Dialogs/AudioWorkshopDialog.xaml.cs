@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Text;
 using System.Windows;
@@ -2151,8 +2151,10 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         else
             TxAudioConditioning.GateEnabled = isOn;
         if (isOn) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
-        ScreenReaderOutput.Speak($"{label} {(isOn ? "on" : "off")}",
-            VerbosityLevel.Terse, interrupt: true);
+
+        // DELETED: CheckBox ToggleState is announced by the screen reader on
+        // the focused control. The earcon above already marks the change for
+        // anyone not listening to speech.
         PollTxCleanup();
     }
 
@@ -2630,8 +2632,9 @@ public partial class AudioWorkshopDialog : JJFlexDialog
     {
         if (_polling) return;
         SaveToneSettings();
-        ScreenReaderOutput.Speak($"Tone monitor {(on ? "on" : "off")}",
-            VerbosityLevel.Terse, interrupt: true);
+
+        // DELETED: pure state echo of a CheckBox the screen reader already
+        // announces.
         SyncToneMonitor(); // apply immediately, not at the next timer tick
     }
 
@@ -3777,7 +3780,10 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         if (_polling || _rig == null) return;
         setter(isOn ? FlexBase.OffOnValues.on : FlexBase.OffOnValues.off);
         if (isOn) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
-        ScreenReaderOutput.Speak($"{label} {(isOn ? "on" : "off")}", VerbosityLevel.Terse, interrupt: true);
+
+        // DELETED: CheckBox ToggleState, announced by the screen reader. Note
+        // this fired BEFORE the radio confirmed anything, so it never carried
+        // radio truth the checkbox lacked.
     }
 
     #endregion

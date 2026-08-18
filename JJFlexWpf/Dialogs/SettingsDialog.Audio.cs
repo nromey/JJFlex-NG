@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
 using JJTrace;
@@ -234,14 +234,15 @@ namespace JJFlexWpf.Dialogs
                 $"Settings: PcAudioOnConnect for {_pcAudioRadioSerial} set to {mode}",
                 TraceLevel.Info);
 
-            ScreenReaderOutput.Speak(mode switch
-            {
-                PcAudioOnConnectModes.AlwaysOn =>
-                    "PC audio will always turn on when this radio connects.",
-                PcAudioOnConnectModes.AlwaysOff =>
-                    "PC audio will stay off when this radio connects.",
-                _ => "PC audio will come back as you leave it.",
-            }, VerbosityLevel.Terse, true);
+            // DELETED 2026-08-18: the ComboBox items already say this -
+            // "Always on for this radio" / "Always off for this radio" / "As I
+            // left it" - and the screen reader announces the newly selected
+            // item on change. This restated the same meaning in longer words
+            // and cut that announcement to do it. Exactly the pattern removed
+            // from the radio-selection dialog on 2026-08-17.
+            //
+            // If a save RECEIPT is ever wanted here, that would be new text
+            // ("saved for this radio"), not a restatement of the choice.
 
             RefreshPcAudioStatus();
         }
@@ -319,7 +320,11 @@ namespace JJFlexWpf.Dialogs
             }
 
             Tracing.TraceLine($"Settings: {label} mute set to {wanted}", TraceLevel.Info);
-            ScreenReaderOutput.Speak($"{label} {(wanted ? "muted" : "unmuted")}", VerbosityLevel.Terse, true);
+            // DELETED: "Mute the radio's headphone output, checked" and
+            // "Headphones muted" are the same sentence twice. The handler
+            // writes `wanted` with no read-back, so the speech confirmed
+            // nothing the checkbox did not already show. The disconnected path
+            // still speaks, through SpeakNoRadioConnected.
             RefreshRadioAudioAdvisory();
         }
 

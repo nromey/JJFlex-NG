@@ -1,4 +1,4 @@
-using System.Windows;
+﻿using System.Windows;
 using System.Windows.Input;
 
 namespace Radios
@@ -16,7 +16,10 @@ namespace Radios
             var snap = RadioStatusBuilder.BuildDetailedStatus(radio);
             PopulateFields(snap);
 
-            Loaded += (s, e) => ScreenReaderOutput.Speak("Radio status", true);
+            // DELETED 2026-08-18: the window is Title="Radio Status", and a
+            // screen reader announces a window's title when it activates and
+            // focus lands inside. Speaking "Radio status" duplicated it
+            // verbatim, and the interrupt cut whatever invoked the window.
         }
 
         private void PopulateFields(RadioStatusSnapshot snap)
