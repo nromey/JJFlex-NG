@@ -51,7 +51,27 @@ public partial class ValueFieldControl : UserControl
         {
             if (_value == value) return;
             _value = Math.Clamp(value, _min, _max);
-            UpdateDisplay();
+
+            // This setter is the POLLING path - the radio echoes its own value
+            // back for every step of a sweep, many times a second.
+            //
+            // UpdateDisplay() renames the control, and renaming a FOCUSED
+            // control makes the screen reader announce it unprompted. So while
+            // the operator swept a value, the radio's echo drove a second voice
+            // on top of our own coalesced announcement - heard as clicks and
+            // ticks, and invisible in our trace because we never called Speak
+            // for it. Diagnosed 2026-08-18 after three wrong guesses at the
+            // coalescer.
+            //
+            // While focused: visual only. The name is refreshed on focus entry
+            // (OnGotFocus) and by our own announcements, which are the moments
+            // it is safe to change it.
+            //
+            // While unfocused: rename freely. Nobody is listening to this
+            // control, and leaving the name stale would mean the next focus
+            // landing announced an out-of-date value.
+            if (IsKeyboardFocusWithin) UpdateVisual();
+            else UpdateDisplay();
         }
     }
 
@@ -505,7 +525,15 @@ public partial class ValueFieldControl : UserControl
     private void AnnounceValue(bool atLimit)
     {
         string text = $"{_label} {FormatValue(_value)}{UnitSuffix}";
-        if (atLimit)
+
+        // Say "minimum" / "maximum" whenever the value IS at an end, not only
+        // when a press was refused for being there already. Arriving at zero
+        // used to say "TX Power 0", and only a further press said "TX Power 0,
+        // minimum" - so the operator heard the same state described two
+        // different ways and had to press again to learn which end they were
+        // on. The value alone does not say whether there is anywhere left to
+        // go. Reported 2026-08-18.
+        if (atLimit || _value <= _min || _value >= _max)
         {
             text += _value <= _min ? ", minimum" : ", maximum";
         }
