@@ -537,11 +537,23 @@ public partial class ValueFieldControl : UserControl
     /// </summary>
     private void EndStop()
     {
-        if (!EarconPlayer.EarconsEnabled)
-        {
-            AnnounceValue(atLimit: true);
-            return;
-        }
+        // Re-arm the spoken announcement on EVERY refused press, even the ones
+        // the tone throttle swallows.
+        //
+        // This is what defers the words until after the key is RELEASED. The
+        // coalescer restarts its wait each time it is handed a value, and
+        // refused presses arrive far faster than that wait - so while the key
+        // is down the phrase never comes due, and it speaks a beat after the
+        // operator lets go. Tones while holding, words when you stop, which is
+        // exactly the order the information is wanted in.
+        //
+        // No extra timer needed: the debounce we already have IS the "slight
+        // delay after release".
+        AnnounceValue(atLimit: true);
+
+        // Earcons off: the deferred phrase above is the whole signal. Better a
+        // late announcement than none.
+        if (!EarconPlayer.EarconsEnabled) return;
 
         var now = DateTime.UtcNow;
         if ((now - _lastEndStop).TotalMilliseconds < EndStopThrottleMs) return;
