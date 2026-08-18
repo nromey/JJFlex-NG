@@ -468,7 +468,7 @@ public partial class ValueFieldControl : UserControl
             //
             // Coalesced under the same key as ordinary adjustment, so holding
             // at the limit says it once rather than once per repeat.
-            if (!_suppressEvents) AnnounceValue(atLimit: true);
+            if (!_suppressEvents) EndStop();
             return;
         }
 
@@ -487,7 +487,7 @@ public partial class ValueFieldControl : UserControl
         newValue = Math.Clamp(newValue, _min, _max);
         if (newValue == _value)
         {
-            if (!_suppressEvents) AnnounceValue(atLimit: true);
+            if (!_suppressEvents) EndStop();
             return;
         }
 
@@ -499,6 +499,55 @@ public partial class ValueFieldControl : UserControl
             ValueChanged?.Invoke(this, _value);
             AnnounceValue(atLimit: false);
         }
+    }
+
+    /// <summary>Rate limit for the end-stop tone; key repeat is far faster.</summary>
+    private static DateTime _lastEndStop = DateTime.MinValue;
+    private const int EndStopThrottleMs = 250;
+
+    /// <summary>Low for the bottom of the range, high for the top.</summary>
+    private const int EndStopLowHz = 320;
+    private const int EndStopHighHz = 1180;
+    private const int EndStopMs = 110;
+
+    /// <summary>
+    /// The key is being held against an end of the range and nothing is
+    /// moving. Say so with a TONE rather than words.
+    ///
+    /// **Why not repeat the sentence.** It was tried, on 2026-08-18, and it
+    /// clobbered itself: "TX Power 0, minimum" takes longer to speak than any
+    /// gap short enough to be useful as an end-stop signal, so each repeat
+    /// landed on the tail of the last one. Spacing the repeats far enough apart
+    /// to be clean makes them too late to tell the operator to let go, which is
+    /// the entire purpose. A fixed gap cannot win: it is a constant guarding
+    /// something whose duration depends on the phrase AND on the operator's
+    /// speech rate, which varies several-fold between people.
+    ///
+    /// A tone has none of those problems. It is ~110 ms, so it physically
+    /// cannot collide at any plausible repeat rate; it does not compete with
+    /// speech for the same channel; and "you are at the end" is a STATE, which
+    /// a sound conveys faster than four words already heard. Noel's suggestion.
+    ///
+    /// Low pitch for minimum, high for maximum, so the direction is audible
+    /// without counting.
+    ///
+    /// Falls back to speech when earcons are switched off - an operator who
+    /// silenced tones should still learn there is nowhere left to go, even at
+    /// the cost of the clobbering the tone exists to avoid.
+    /// </summary>
+    private void EndStop()
+    {
+        if (!EarconPlayer.EarconsEnabled)
+        {
+            AnnounceValue(atLimit: true);
+            return;
+        }
+
+        var now = DateTime.UtcNow;
+        if ((now - _lastEndStop).TotalMilliseconds < EndStopThrottleMs) return;
+        _lastEndStop = now;
+
+        EarconPlayer.Beep(_value <= _min ? EndStopLowHz : EndStopHighHz, EndStopMs);
     }
 
     /// <summary>
@@ -538,18 +587,13 @@ public partial class ValueFieldControl : UserControl
             text += _value <= _min ? ", minimum" : ", maximum";
         }
 
-        // At a limit, repeat while the key is held. The repetition is the
-        // point: it is how the operator learns there is nowhere further to go
-        // and they can stop pressing. Spacing is handled centrally, so the
-        // repeats cannot chop one another.
-        bool atEnd = _value <= _min || _value >= _max;
-
+        // Not repeated while held - see EndStop. Arriving at an end says so
+        // once, in words; continuing to press against it is a tone.
         ScreenReaderOutput.Speak(
             text,
             Radios.Speech.SpeechIntent.Latest,
             VerbosityLevel.Terse,
-            coalesceKey: $"value-field:{_label}",
-            repeatWhileHeld: atEnd);
+            coalesceKey: $"value-field:{_label}");
     }
     /// Hide child TextBlock from UIA tree so NVDA reads only AutomationProperties.Name,
     /// not the TextBlock content as well (which causes double-speak).

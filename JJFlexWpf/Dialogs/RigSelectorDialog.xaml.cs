@@ -819,8 +819,18 @@ namespace JJFlexWpf.Dialogs
                 return;
             }
 
-            RadiosBox.Focus();
-            System.Windows.Input.Keyboard.Focus(RadiosBox);
+            // Delegate to FocusRadioList, which lands on the ListBoxITEM rather
+            // than the bare container - see its own summary for why that
+            // matters to Enter and to focus-restore.
+            //
+            // The first version of this override focused the container
+            // directly and reintroduced two problems that method already
+            // solved. One of them was new: with TabNavigation="Once" on the
+            // list, Shift+Tab from the CONTAINER resolves inside the group,
+            // finds nothing before it, and stops dead - so the operator could
+            // not wrap backwards to the end of the dialog, which is where the
+            // Network Identity expander now lives. Reported 2026-08-18.
+            FocusRadioList();
         }
 
         private void AnnounceNothingLive()
