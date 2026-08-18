@@ -61,6 +61,22 @@ namespace JJFlexWpf
         /// <summary>Speech verbosity level: 0=Off(Critical only), 1=Terse, 2=Chatty (default).</summary>
         public int SpeechVerbosity { get; set; } = 2; // VerbosityLevel.Chatty
 
+        /// <summary>
+        /// Whether the radio selector's Network Identity panel is expanded.
+        /// Default false: it describes the radio the app is CONNECTED to, so on
+        /// the startup path it has nothing to say.
+        ///
+        /// Persisted because re-opening it every launch would make the operator
+        /// ask twice for something they already asked for. Expanding it is an
+        /// explicit choice to hear that content, and hearing it thereafter is
+        /// the consequence they chose.
+        ///
+        /// (This class is the per-operator app settings store despite the
+        /// audio-flavoured name - the test-tone settings already live here for
+        /// the same reason.)
+        /// </summary>
+        public bool NetworkIdentityExpanded { get; set; }
+
         /// <summary>Whether alert sounds (earcons, beeps, tones) are enabled. Meter tones are separate.</summary>
         public bool EarconsEnabled { get; set; } = true;
 
@@ -401,6 +417,52 @@ namespace JJFlexWpf
         /// runs before the application has worked out its own paths, which is
         /// the whole point of it.
         /// </summary>
+        /// <summary>Read the saved Network Identity panel state.</summary>
+        ///
+        /// Derives its own path for the same reason ApplySpeechVerbosityEarly
+        /// does: the caller is a dialog that should not have to be handed a
+        /// config directory to remember one checkbox.
+        public static bool GetNetworkIdentityExpanded()
+        {
+            try
+            {
+                string dir = SettingsDirectory();
+                if (dir == null) return false;
+                return Load(dir)?.NetworkIdentityExpanded ?? false;
+            }
+            catch { return false; }
+        }
+
+        /// <summary>Remember the Network Identity panel state.</summary>
+        ///
+        /// Read-modify-write so the rest of the config is not clobbered by
+        /// saving one flag. Failure is silent by design: a panel that will not
+        /// remember its state is a papercut, and an exception thrown out of a
+        /// dialog's Expanded handler is a crash.
+        public static void SetNetworkIdentityExpanded(bool expanded)
+        {
+            try
+            {
+                string dir = SettingsDirectory();
+                if (dir == null) return;
+
+                var cfg = Load(dir);
+                if (cfg == null || cfg.NetworkIdentityExpanded == expanded) return;
+
+                cfg.NetworkIdentityExpanded = expanded;
+                cfg.Save(dir);
+            }
+            catch { }
+        }
+
+        private static string SettingsDirectory()
+        {
+            string dir = System.IO.Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "JJFlexRadio");
+            return System.IO.Directory.Exists(dir) ? dir : null;
+        }
+
         public static void ApplySpeechVerbosityEarly()
         {
             try

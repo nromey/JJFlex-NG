@@ -80,20 +80,6 @@ namespace JJFlexWpf
         /// </summary>
         private void JJFlexDialog_Loaded(object sender, RoutedEventArgs e)
         {
-            // Take the foreground when it is not already ours.
-            //
-            // Windows silently refuses SetForegroundWindow from a process that
-            // does not already own the foreground window - it flashes the
-            // taskbar button instead. A sighted operator sees the flash and
-            // clicks it. A screen reader operator gets nothing at all, and has
-            // to go hunting for a window nobody told them had opened.
-            //
-            // No-op in the ordinary case where the operator opened this dialog
-            // themselves, so nothing here can yank focus at a moment they did
-            // not choose. See Radios.WindowActivation for the full reasoning.
-            Radios.WindowActivation.EnsureForeground(
-                new System.Windows.Interop.WindowInteropHelper(this).Handle);
-
             // Set automation name from title for screen readers
             if (!string.IsNullOrEmpty(Title))
             {
@@ -117,6 +103,43 @@ namespace JJFlexWpf
             }
 
             // Focus first interactive control
+            FocusFirstControl();
+        }
+
+        /// <summary>
+        /// Take the foreground once the window is actually on screen.
+        ///
+        /// **Not at Loaded.** Loaded fires while ShowDialog is still bringing
+        /// the window up, before it is visible, and SetForegroundWindow on a
+        /// window that is not yet shown fails silently - which is exactly the
+        /// silent refusal this exists to defeat. Reported 2026-08-18: the
+        /// discovering window took focus correctly, the picker opening behind
+        /// it did not, and the operator had to Alt-Tab to find it.
+        ///
+        /// The window-to-window transition is the hard case. When one of our
+        /// windows closes and the next opens there is a moment with nothing of
+        /// ours on screen, so the foreground escapes to whatever was behind us.
+        /// ContentRendered runs after that has settled and after we are
+        /// visible, which is the first point SetForegroundWindow can succeed.
+        ///
+        /// Activate() as well: the grab makes us the foreground WINDOW, and
+        /// Activate makes WPF treat us as the active one - which is what makes
+        /// keyboard focus inside the dialog stick rather than being restored to
+        /// whatever WPF last remembered.
+        /// </summary>
+        protected override void OnContentRendered(System.EventArgs e)
+        {
+            base.OnContentRendered(e);
+
+            Radios.WindowActivation.EnsureForeground(
+                new System.Windows.Interop.WindowInteropHelper(this).Handle);
+            try { Activate(); } catch { }
+
+            // Focus again now that we are genuinely active. The pass in Loaded
+            // set logical focus on a window Windows had not activated yet, so
+            // keyboard focus never landed - and on Alt-Tab the operator arrived
+            // on whatever WPF fell back to, which in the reported case was the
+            // network identity card at the BOTTOM of the dialog.
             FocusFirstControl();
         }
 

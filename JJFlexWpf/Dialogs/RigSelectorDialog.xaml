@@ -1,4 +1,4 @@
-<local:JJFlexDialog x:Class="JJFlexWpf.Dialogs.RigSelectorDialog"
+﻿<local:JJFlexDialog x:Class="JJFlexWpf.Dialogs.RigSelectorDialog"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:JJFlexWpf"
@@ -21,10 +21,12 @@
             <ColumnDefinition Width="Auto"/>
         </Grid.ColumnDefinitions>
 
-        <!-- Label -->
-        <TextBlock Grid.Row="0" Grid.Column="0" Text="Available Radios:"
-                   Margin="0,0,0,4"
-                   AutomationProperties.Name="Available radios list"/>
+        <!-- Sighted-layout heading only. The ListBox below carries its own
+             accessible name ("Available radios, N listed, N online"), so a
+             plain TextBlock here was the same words twice - once as dialog
+             body text on open, once when focus reached the list. -->
+        <controls:DecorativeText Grid.Row="0" Grid.Column="0" Text="Available Radios:"
+                   Margin="0,0,0,4"/>
 
         <!-- Radio list.
              DirectionalNavigation="Contained" keeps arrow keys inside the list
@@ -151,17 +153,35 @@
                  Text="SmartLink account: none saved"
                  AutomationProperties.Name="SmartLink account"/>
 
-        <!-- Row 4: the picker's detail area — Track D's network identity card
-             (wired in by QB Track L). Same hosting shape as the Status dialog:
-             a bold heading for sighted layout, the card as its own tab stop,
-             arrow-readable lines. The card describes the radio this app is
-             CONNECTED to (or says no radio is connected) — it renders cached
-             identity lines only and never probes, so it is safe in every
-             selector state including a live hole-punched session. -->
-        <TextBlock Grid.Row="4" Grid.Column="0" Grid.ColumnSpan="2"
-                   Text="Network identity" Margin="0,8,0,0" FontWeight="Bold"/>
-        <controls:NetworkIdentityCard x:Name="IdentityCard"
-                 Grid.Row="5" Grid.Column="0" Grid.ColumnSpan="2"
+        <!-- The identity card, behind an Expander and collapsed by default.
+             THREE problems, one control.
+
+             It describes the radio the app is CONNECTED to - so on the startup
+             path, where nothing is connected yet, it had nothing to say and
+             said it anyway. A screen reader reads a dialog's static content on
+             open, so it was recited before the operator had even chosen a
+             radio; on 2026-08-18 that came out as "no radio connected, connect
+             first" in the middle of the connect sequence.
+
+             It also had a bold "Network identity" heading above it, which is
+             the card's own accessible name repeated - the Expander header is
+             now the single place those words live.
+
+             Collapsed content is Visibility.Collapsed, so it leaves the UIA
+             tree entirely: not read on open, not tabbed into, one keypress away
+             the moment it is wanted. It earns its place when the picker is
+             opened later from a connected state to switch rigs, which is
+             exactly when an Expander shines.
+
+             Deliberately NOT auto-expanded when a radio happens to be
+             connected: a panel that appears and disappears on its own changes
+             the tab order underneath a keyboard user, who then cannot predict
+             whether the next Tab lands on the card or past it. -->
+        <Expander x:Name="IdentityExpander" Grid.Row="4" Grid.Column="0" Grid.ColumnSpan="2"
+                  Header="Network identity" Margin="0,8,0,0"
+                  AutomationProperties.Name="Network identity">
+            <controls:NetworkIdentityCard x:Name="IdentityCard"
                  Margin="0,2,0,0" MaxHeight="120"/>
+        </Expander>
     </Grid>
 </local:JJFlexDialog>

@@ -56,20 +56,26 @@ namespace JJFlexWpf.Dialogs
 
         public DiscoveringRadiosWindow()
         {
-            Title = "JJ Flexible";
+            // The title IS the message. It was "JJ Flexible", which meant the
+            // operator heard the application's name - which they already knew,
+            // having just launched it - and then the actual message from the
+            // body text. A window that exists for one second to say one thing
+            // should say that thing in its name.
+            Title = "Discovering radios";
             SizeToContent = SizeToContent.WidthAndHeight;
             ResizeMode = ResizeMode.NoResize;
             ShowInTaskbar = false;
             WindowStartupLocation = WindowStartupLocation.CenterScreen;
 
-            var text = new TextBlock
+            // Visible for a sighted operator, silent to a screen reader: the
+            // title already said it, and static text is read as dialog body on
+            // open, so a plain TextBlock here would say it a second time.
+            Content = new Controls.DecorativeText
             {
                 Text = "Discovering radios",
                 Margin = new Thickness(24, 18, 24, 18),
                 FontSize = 14,
             };
-            AutomationProperties.SetName(text, "Discovering radios");
-            Content = text;
 
             Loaded += async (_, _) => await WaitForSettleAsync();
         }

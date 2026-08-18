@@ -502,6 +502,22 @@ namespace JJFlexWpf.Dialogs
             // proves otherwise, which is honest and immediately speakable.
             PaintRoster(CurrentAccountEmail());
 
+            // Restore the Network Identity panel to however the operator left
+            // it. Collapsed by default - see the XAML for why.
+            try
+            {
+                IdentityExpander.IsExpanded = AudioOutputConfig.GetNetworkIdentityExpanded();
+                IdentityExpander.Expanded += (_, _) =>
+                    AudioOutputConfig.SetNetworkIdentityExpanded(true);
+                IdentityExpander.Collapsed += (_, _) =>
+                    AudioOutputConfig.SetNetworkIdentityExpanded(false);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Trace.WriteLine(
+                    $"RigSelector: identity expander state: {ex.Message}");
+            }
+
             // Register for radio discovery events
             _callbacks.RegisterRadioFound(OnRadioFound);
             _callbacks.RegisterRadioRemoved?.Invoke(OnRadioRemoved);
@@ -782,6 +798,29 @@ namespace JJFlexWpf.Dialogs
             int live = LiveCount();
             string count = $" {live} radio{(live == 1 ? "" : "s")} online.";
             _callbacks.ScreenReaderSpeak?.Invoke($"{local} {remote}{count}", true);
+        }
+
+        /// <summary>
+        /// Focus belongs on the radio list, always.
+        ///
+        /// The base implementation walks tab order and takes the first
+        /// focusable element, which happens to be the list today and would stop
+        /// being so the moment anything focusable is added above it. On
+        /// 2026-08-18 the operator arrived on the network identity card at the
+        /// very bottom of the dialog instead - a fallback WPF chose because the
+        /// window had not been activated when focus was first set. Naming the
+        /// target removes both the fragility and the fallback.
+        /// </summary>
+        protected override void FocusFirstControl()
+        {
+            if (RadiosBox == null)
+            {
+                base.FocusFirstControl();
+                return;
+            }
+
+            RadiosBox.Focus();
+            System.Windows.Input.Keyboard.Focus(RadiosBox);
         }
 
         private void AnnounceNothingLive()
