@@ -141,7 +141,19 @@ namespace Radios
         /// 2026-08-18 as "r r r r r RF gain 5". The comment justifying it
         /// claimed restarting would "defer the announcement forever" - which
         /// cannot happen, because a sweep ends when a finger comes off a key.
-        private const int CoalesceMs = 150;
+        private const int CoalesceMs = 300;
+
+        /// <summary>
+        /// How long after an utterance a key is still considered "sweeping",
+        /// so the next value coalesces instead of speaking immediately.
+        ///
+        /// Must comfortably exceed the Windows key-repeat INITIAL delay, which
+        /// defaults to around half a second. That delay is the whole reason a
+        /// plain debounce clicks: press and hold, and the gap before the repeat
+        /// burst arrives is longer than any debounce short enough to feel
+        /// responsive - so the first press speaks, the burst speaks again, and
+        /// the second cuts off the first.
+        private const int SweepWindowMs = 1200;
 
         // A "speak anyway after N ms" ceiling used to live here, so a long hold
         // got periodic feedback rather than silence. It was REMOVED on
@@ -168,6 +180,11 @@ namespace Radios
 
         private static readonly Dictionary<string, PendingUtterance> _pending =
             new Dictionary<string, PendingUtterance>(StringComparer.Ordinal);
+
+        /// <summary>Per key: what was last spoken, and when.</summary>
+        private static readonly Dictionary<string, (string Message, DateTime At)> _lastByKey =
+            new Dictionary<string, (string, DateTime)>(StringComparer.Ordinal);
+
         private static readonly object _pendingLock = new object();
 
         /// <summary>
@@ -225,12 +242,23 @@ namespace Radios
         }
 
         /// <summary>
-        /// Hold this utterance briefly. A newer one with the same key REPLACES
-        /// it rather than queueing behind it, so sweeping a control recites the
-        /// value it settled on instead of every value it passed through.
+        /// Lead, then settle.
         ///
-        /// Coalescing has to happen here, before emission: once text reaches a
-        /// screen reader we cannot take it back.
+        /// The FIRST value for a key speaks immediately, so a single deliberate
+        /// press is instant. Anything arriving while that key is still sweeping
+        /// is coalesced and spoken once the operator stops.
+        ///
+        /// **Why not a plain debounce.** Windows key repeat waits about half a
+        /// second before the burst begins - longer than any debounce short
+        /// enough to feel responsive. So a plain debounce speaks on the first
+        /// press, speaks again after the burst, and the second cuts off the
+        /// first. That was heard as clicks and ticks while sweeping a value on
+        /// 2026-08-18. The tuning code had already solved it this way, by hand,
+        /// and worked; this brings the same shape into the shared mechanism
+        /// instead of leaving it as a sixth private copy.
+        ///
+        /// Coalescing has to happen before emission: once text reaches a screen
+        /// reader we cannot take it back.
         /// </summary>
         private static void Coalesce(string key, string message, VerbosityLevel level)
         {
@@ -240,9 +268,6 @@ namespace Radios
                 {
                     existing.Message = message;
                     existing.Level = level;
-
-                    // RESTART the wait, always. The utterance lands when the
-                    // operator stops moving, however long the sweep runs.
                     try
                     {
                         existing.Timer?.Change(CoalesceMs, System.Threading.Timeout.Infinite);
@@ -252,6 +277,20 @@ namespace Radios
                         // Raced with its own flush; the next value starts a
                         // fresh entry, so there is nothing to repair.
                     }
+                    return;
+                }
+
+                // Not sweeping: speak now. This is the single deliberate press,
+                // and making it wait is the difference between a control that
+                // answers and one that feels sticky.
+                bool sweeping =
+                    _lastByKey.TryGetValue(key, out var last)
+                    && (DateTime.UtcNow - last.At).TotalMilliseconds < SweepWindowMs;
+
+                if (!sweeping)
+                {
+                    _lastByKey[key] = (message, DateTime.UtcNow);
+                    Emit(message, interrupt: true);
                     return;
                 }
 
@@ -269,6 +308,19 @@ namespace Radios
             {
                 if (!_pending.TryGetValue(key, out entry)) return;
                 _pending.Remove(key);
+
+                // Nothing new to say. Skipping matters: on a two- or three-step
+                // sweep the settle would otherwise arrive while the lead
+                // utterance is still speaking and cut it off to repeat a value
+                // the operator has already heard.
+                if (_lastByKey.TryGetValue(key, out var last)
+                    && string.Equals(last.Message, entry.Message, StringComparison.Ordinal))
+                {
+                    entry.Timer?.Dispose();
+                    return;
+                }
+
+                _lastByKey[key] = (entry.Message, DateTime.UtcNow);
             }
 
             entry.Timer?.Dispose();
@@ -285,6 +337,11 @@ namespace Radios
             {
                 foreach (var entry in _pending.Values) entry.Timer?.Dispose();
                 _pending.Clear();
+
+                // Forget what was last spoken as well, so the next value after
+                // an urgent warning always speaks rather than being suppressed
+                // as a duplicate of something the flush just discarded.
+                _lastByKey.Clear();
             }
         }
 
