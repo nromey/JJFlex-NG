@@ -2596,6 +2596,7 @@ Module globals
         ' Build the callbacks for the WPF dialog
         Dim callbacks As New JJFlexWpf.Dialogs.RigSelectorCallbacks() With {
             .StartLocalDiscovery = Sub() RigControl.LocalRadios(),
+            .ReplayDiscoveredRadios = Sub() RigControl.ReplayDiscoveredRadios(),
             .StartRemoteDiscovery = Sub(onComplete As Action(Of Boolean))
                                         ' Run on background thread — WebView2 auth can take seconds
                                         Dim t As New Thread(
@@ -2708,6 +2709,28 @@ Module globals
                                                      Dim cfg = Radios.AutoConnectConfig.Load(BaseConfigDir, opName)
                                                      Return If(cfg.SmartLinkAccountEmail, "")
                                                  End Function
+
+        ' Let discovery settle BEFORE the picker exists.
+        '
+        ' Opening the picker immediately meant the operator met a list that was
+        ' still assembling itself. A sighted user never notices that - rows
+        ' appear and they glance once at the end - but every update is an event
+        ' a screen reader may voice, so the churn IS the experience through
+        ' speech. On 2026-08-18 it came out as "no radios online" followed a
+        ' second later by "1 radio online": the dialog correcting itself aloud.
+        '
+        ' Rewording the churn only narrates it more precisely. Settling first
+        ' removes it, because nothing changes after the operator arrives. The
+        ' window holds for at most two seconds, ends early once radios have
+        ' answered and gone quiet, and Escape skips it.
+        Try
+            Dim settling As New JJFlexWpf.Dialogs.DiscoveringRadiosWindow()
+            RigControl.LocalRadios()
+            settling.ShowDialog()
+        Catch ex As Exception
+            ' Never let the waiting room stop the operator reaching the picker.
+            Tracing.TraceLine("DiscoveringRadiosWindow failed: " & ex.Message, TraceLevel.Warning)
+        End Try
 
         ' Show the WPF selector dialog
         Dim dialog As New JJFlexWpf.Dialogs.RigSelectorDialog(callbacks)

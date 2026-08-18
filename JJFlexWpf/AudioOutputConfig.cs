@@ -414,7 +414,7 @@ namespace JJFlexWpf
                 if (cfg == null) return;
 
                 Radios.ScreenReaderOutput.CurrentVerbosity =
-                    (Radios.VerbosityLevel)Math.Clamp(cfg.SpeechVerbosity, 0, 2);
+                    (Radios.VerbosityLevel)Math.Clamp(cfg.SpeechVerbosity, 0, 3);
             }
             catch
             {
@@ -436,7 +436,7 @@ namespace JJFlexWpf
 
             // Verbosity
             Radios.ScreenReaderOutput.CurrentVerbosity =
-                (Radios.VerbosityLevel)Math.Clamp(SpeechVerbosity, 0, 2);
+                (Radios.VerbosityLevel)Math.Clamp(SpeechVerbosity, 0, 3);
 
             // PC output volume — static on FlexBase so it is in place before
             // any radio connects; remote-audio startup reads it from there.

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Automation;
@@ -445,7 +445,26 @@ public partial class ValueFieldControl : UserControl
         if (!_suppressEvents)
         {
             ValueChanged?.Invoke(this, _value);
-            ScreenReaderOutput.Speak($"{_label} {FormatValue(_value)}{UnitSuffix}", VerbosityLevel.Terse, interrupt: true);
+
+            // LATEST, keyed per field. Holding an arrow key sweeps this value
+            // many times a second; interrupting on every step produced a
+            // stutter of half-spoken numbers and never finished saying the one
+            // the operator actually stopped on. Coalescing keeps only the
+            // value they settled on.
+            //
+            // Keyed by label so two different fields adjusted in quick
+            // succession do not silence each other - only the SAME field
+            // supersedes itself.
+            //
+            // This control has 48 field declarations across four hosts
+            // (ScreenFieldsPanel, Audio Workshop, Noise Profiles, Audio
+            // Levels), so this one change covers every adjustable value in the
+            // application.
+            ScreenReaderOutput.Speak(
+                $"{_label} {FormatValue(_value)}{UnitSuffix}",
+                Radios.Speech.SpeechIntent.Latest,
+                VerbosityLevel.Terse,
+                coalesceKey: $"value-field:{_label}");
         }
     }
 
@@ -460,7 +479,26 @@ public partial class ValueFieldControl : UserControl
         if (!_suppressEvents)
         {
             ValueChanged?.Invoke(this, _value);
-            ScreenReaderOutput.Speak($"{_label} {FormatValue(_value)}{UnitSuffix}", VerbosityLevel.Terse, interrupt: true);
+
+            // LATEST, keyed per field. Holding an arrow key sweeps this value
+            // many times a second; interrupting on every step produced a
+            // stutter of half-spoken numbers and never finished saying the one
+            // the operator actually stopped on. Coalescing keeps only the
+            // value they settled on.
+            //
+            // Keyed by label so two different fields adjusted in quick
+            // succession do not silence each other - only the SAME field
+            // supersedes itself.
+            //
+            // This control has 48 field declarations across four hosts
+            // (ScreenFieldsPanel, Audio Workshop, Noise Profiles, Audio
+            // Levels), so this one change covers every adjustable value in the
+            // application.
+            ScreenReaderOutput.Speak(
+                $"{_label} {FormatValue(_value)}{UnitSuffix}",
+                Radios.Speech.SpeechIntent.Latest,
+                VerbosityLevel.Terse,
+                coalesceKey: $"value-field:{_label}");
         }
     }
 

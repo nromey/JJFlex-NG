@@ -330,6 +330,42 @@ namespace Radios
             RaiseRadioRemoved(this, r.Serial, r.Nickname ?? "");
         }
 
+        /// <summary>
+        /// Re-raise <see cref="RadioFound"/> for every radio discovery has
+        /// already seen.
+        ///
+        /// **Why a replay rather than a getter.** Discovery is an event stream,
+        /// and anything that subscribes late has simply missed what came
+        /// before. Until now that did not matter, because the radio selector
+        /// subscribed before discovery started. Once discovery runs BEFORE the
+        /// selector exists - so the operator meets a settled list instead of
+        /// listening to one assemble itself - the selector arrives late by
+        /// design and needs the backlog.
+        ///
+        /// Replaying through the same event keeps ONE code path into the
+        /// selector's roster. A parallel "give me the current list" accessor
+        /// would be a second path that has to be kept in step with the first,
+        /// and the two would drift the first time either changed.
+        ///
+        /// Safe to call more than once: the selector keys rows by serial, so a
+        /// replayed radio updates its row rather than adding another.
+        /// </summary>
+        public void ReplayDiscoveredRadios()
+        {
+            // ToList first - myRadioList is appended to from the discovery
+            // thread while we walk it.
+            var known = myRadioList.ToList();
+            Tracing.TraceLine(
+                $"ReplayDiscoveredRadios: replaying {known.Count} radio(s)",
+                TraceLevel.Info);
+
+            foreach (var r in known)
+            {
+                if (string.IsNullOrWhiteSpace(r.Serial)) continue;
+                RaiseRadioFound(null, BuildRigData(r));
+            }
+        }
+
         private Radio findRadioInAPI(string serial)
         {
             foreach (Radio r in myRadioList)

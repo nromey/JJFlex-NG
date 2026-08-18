@@ -24,6 +24,20 @@ namespace Radios
         Terse = 1,
         /// <summary>Spoken only at Chatty (default): hints, supplementary context.</summary>
         Chatty = 2,
+        /// <summary>
+        /// Spoken only at Diagnostic: plumbing an operator does not normally
+        /// want narrated - which account a session used, which discovery path
+        /// answered, what a background task is doing.
+        ///
+        /// **Deliberately outside the Ctrl+Shift+V cycle.** That key rotates
+        /// Chatty, Terse and Off, and nobody should land here by pressing it
+        /// one time too many. It is opt-in from Settings, for a tester chasing
+        /// something specific.
+        ///
+        /// Detail that belongs here is detail that would otherwise be deleted:
+        /// the choice is not "say it or lose it" but "say it to whoever asked".
+        /// </summary>
+        Diagnostic = 3,
     }
 
     /// <summary>
@@ -325,6 +339,10 @@ namespace Radios
         /// </summary>
         public static VerbosityLevel CycleVerbosity()
         {
+            // Three-way on purpose. Diagnostic is NOT in this rotation - see
+            // the enum. A tester turns it on in Settings and means it; nobody
+            // should arrive there by pressing a hotkey once too often and then
+            // wonder why the application started narrating its plumbing.
             CurrentVerbosity = CurrentVerbosity switch
             {
                 VerbosityLevel.Chatty => VerbosityLevel.Terse,

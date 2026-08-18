@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Diagnostics;
 using System.Windows.Threading;
 using JJTrace;
@@ -329,8 +329,17 @@ namespace JJFlexWpf
             _healthLockSeconds = 0;
 
             _updateStatusDisplay?.Invoke("");
+            // forceSpeech marks the three paths that are NOT a normal unkey:
+            // transmit timeout, hard kill, and ALC release. Those are safety
+            // outcomes and get the flushing tier; an ordinary release does not
+            // need to tear down the queue.
             if ((forceSpeech || _config.SpeechEnabled) && !string.IsNullOrEmpty(speechMessage))
-                ScreenReaderOutput.Speak(speechMessage, VerbosityLevel.Critical, interrupt: true);
+                ScreenReaderOutput.Speak(
+                    speechMessage,
+                    forceSpeech
+                        ? Radios.Speech.SpeechIntent.Urgent
+                        : Radios.Speech.SpeechIntent.Interrupt,
+                    VerbosityLevel.Critical);
 
             Tracing.TraceLine($"PTT: Idle (was {wasState})", TraceLevel.Info);
         }
@@ -393,7 +402,12 @@ namespace JJFlexWpf
         private void EnterWarning2()
         {
             State = PttState.Warning2;
-            ScreenReaderOutput.Speak("Transmit timeout soon", VerbosityLevel.Critical);
+            // Was QUEUED, which meant this could wait behind stale slider or
+            // meter values while the operator was locked down and had no idea
+            // a timeout was coming. A warning that arrives after the thing it
+            // warns about is not a warning.
+            ScreenReaderOutput.Speak(
+                "Transmit timeout soon", Radios.Speech.SpeechIntent.Interrupt, VerbosityLevel.Critical);
             Tracing.TraceLine("PTT: Warning2 (5s beeps)", TraceLevel.Info);
 
             _beepTimer!.Stop();
@@ -405,7 +419,14 @@ namespace JJFlexWpf
         private void EnterOhCrap()
         {
             State = PttState.OhCrap;
-            ScreenReaderOutput.Speak("Transmit ending now!", VerbosityLevel.Critical, interrupt: true);
+            // URGENT: interrupt AND flush. Plain interrupt stops what is being
+            // spoken but leaves the queue standing, so a stale meter or slider
+            // readout could still play out ON TOP of a warning that the radio
+            // is about to stop transmitting. This is the one place in the
+            // application where that ordering is a safety question rather than
+            // a tidiness one.
+            ScreenReaderOutput.Speak(
+                "Transmit ending now!", Radios.Speech.SpeechIntent.Urgent, VerbosityLevel.Critical);
             Tracing.TraceLine("PTT: OhCrap (1s beeps)", TraceLevel.Info);
 
             _beepTimer!.Stop();

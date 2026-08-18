@@ -282,6 +282,13 @@ namespace JJFlexWpf.Dialogs
         /// <summary>Start local radio discovery.</summary>
         public required Action StartLocalDiscovery { get; init; }
 
+        /// <summary>
+        /// Re-raise RadioFound for radios discovery already found before this
+        /// dialog existed. Optional: an older host that starts discovery only
+        /// when the dialog opens has no backlog to replay.
+        /// </summary>
+        public Action? ReplayDiscoveredRadios { get; init; }
+
         /// <summary>Start remote (SmartLink) radio discovery. Callback fires when complete (true=success).</summary>
         public required Action<Action<bool>> StartRemoteDiscovery { get; init; }
 
@@ -499,7 +506,18 @@ namespace JJFlexWpf.Dialogs
             _callbacks.RegisterRadioFound(OnRadioFound);
             _callbacks.RegisterRadioRemoved?.Invoke(OnRadioRemoved);
 
-            // Start local discovery
+            // Collect the backlog FIRST. Discovery now runs before this dialog
+            // is created, so that the operator meets a settled list instead of
+            // listening to one assemble itself - which means we subscribed too
+            // late to have heard about anything found during that window.
+            //
+            // Without this the rows would sit at "checking" until the radios
+            // happened to re-announce, and the churn we just moved out of the
+            // way would walk straight back in.
+            _callbacks.ReplayDiscoveredRadios?.Invoke();
+
+            // Keep discovery running while the picker is open - a radio powered
+            // on now should still appear.
             _callbacks.StartLocalDiscovery();
 
             // An EMPTY focused ListBox with TabNavigation="Once" can swallow
