@@ -16,13 +16,13 @@
              worse than a no-op for anyone counting tab stops. -->
         <StackPanel DockPanel.Dock="Bottom" Style="{StaticResource ButtonPanel}">
             <Button Content="_OK" AutomationProperties.AcceleratorKey="Alt+O" Style="{StaticResource OkButton}"
-                    AutomationProperties.Name="OK. Applies your changes and closes Settings."
+                    AutomationProperties.Name="OK"
                     Click="OkButton_Click"/>
             <Button Content="_Apply" AutomationProperties.AcceleratorKey="Alt+A" Style="{StaticResource DialogButton}"
-                    AutomationProperties.Name="Apply. Applies your changes and keeps Settings open."
+                    AutomationProperties.Name="Apply"
                     Click="ApplyButton_Click"/>
             <Button Content="_Cancel" AutomationProperties.AcceleratorKey="Alt+C" Style="{StaticResource CancelButton}"
-                    AutomationProperties.Name="Cancel. Discards unapplied changes."
+                    AutomationProperties.Name="Cancel"
                     Click="CancelButton_Click"/>
         </StackPanel>
 
@@ -164,7 +164,8 @@
                     <CheckBox x:Name="TuneDebounceCheckbox"
                               Content="Debounce tuning speech (group rapid steps)"
                               Margin="0,12,0,0"
-                              AutomationProperties.Name="Debounce tuning speech, groups rapid tuning steps into one announcement"
+                              AutomationProperties.Name="Debounce tuning speech"
+                   AutomationProperties.HelpText="groups rapid tuning steps into one announcement"
                               Checked="TuneDebounceCheckbox_Changed"
                               Unchecked="TuneDebounceCheckbox_Changed"/>
 
@@ -310,7 +311,8 @@
                     <CheckBox x:Name="PcAudioCheck"
                               Content="Play radio audio through this computer"
                               Margin="0,0,0,4"
-                              AutomationProperties.Name="Play radio audio through this computer, and send this computer's microphone to the radio"
+                              AutomationProperties.Name="Play radio audio through this computer"
+                   AutomationProperties.HelpText="and send this computer's microphone to the radio"
                               Click="PcAudioCheck_Click"/>
                     <TextBlock x:Name="PcAudioStatusText"
                                Style="{StaticResource DialogLabel}"
@@ -342,7 +344,8 @@
                          above; applies live like the radio output levels. -->
                     <controls:ValueFieldControl x:Name="PcOutputVolumeControl"
                         Margin="0,0,0,8"
-                        AutomationProperties.Name="PC output volume in dB, how loud radio audio plays through this computer, applied as you change it"/>
+                        AutomationProperties.Name="PC output volume in dB"
+                   AutomationProperties.HelpText="how loud radio audio plays through this computer, applied as you change it"/>
                     <Button x:Name="AudioDevicesButton"
                             Content="Audio _Devices..."
                             HorizontalAlignment="Left" Padding="12,4"
@@ -373,7 +376,8 @@
                     <CheckBox x:Name="CwNotificationsCheck"
                               Content="Enable CW notifications (AS, BT, SK prosigns)"
                               Margin="0,0,0,4"
-                              AutomationProperties.Name="Enable Morse code notifications for connection events, played through the alert device"/>
+                              AutomationProperties.Name="Enable Morse code notifications for connection events"
+                   AutomationProperties.HelpText="played through the alert device"/>
                     <Grid Margin="20,0,0,8">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto"/>
@@ -593,7 +597,8 @@
                             <RadioButton x:Name="Tier3Radio"
                                          GroupName="ConnectionMode"
                                          Margin="0,4,0,4"
-                                         AutomationProperties.Name="Tier 1 plus 2 plus 3, allow automatic hole punch for restrictive networks"
+                                         AutomationProperties.Name="Tier 1 plus 2 plus 3"
+                   AutomationProperties.HelpText="allow automatic hole punch for restrictive networks"
                                          Checked="ConnectionModeRadio_Checked">
                                 <StackPanel>
                                     <TextBlock Text="Tier 1 + 2 + 3 — Allow automatic hole-punch" FontWeight="SemiBold"/>
@@ -737,7 +742,8 @@
                                    Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
                         <TextBox x:Name="RadioProfileNicknameBox" Width="280"
                                  Style="{StaticResource DialogTextBox}"
-                                 AutomationProperties.Name="Radio name. Applied with OK or Apply. Saved to the radio itself when you are connected to it; otherwise only the name shown in this list changes. Leaving this empty keeps the current name."/>
+                                 AutomationProperties.Name="Radio name"
+                   AutomationProperties.HelpText="Applied with OK or Apply. Saved to the radio itself when you are connected to it; otherwise only the name shown in this list changes. Leaving this empty keeps the current name."/>
                     </StackPanel>
                     <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
                                Style="{StaticResource DialogLabel}"
@@ -747,6 +753,16 @@
                         <StackPanel Margin="4">
                             <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
                                        Text="How JJ Flex reaches this radio over SmartLink. These settings belong to the radio, not your account — one radio can use a forwarded port while another hole-punches."/>
+                            <!-- The three mode radios are their own arrow-navigation
+                                 group. Without this they shared the outer StackPanel
+                                 with the hole-punch port field, so arrowing past the
+                                 last radio walked straight OUT of the group and into a
+                                 text box - an operator looking for a fourth option
+                                 found themselves typing in a port field instead.
+                                 Reported 2026-08-18. Cycle so the arrows wrap, which
+                                 is what a radio group does everywhere else in Windows. -->
+                            <StackPanel KeyboardNavigation.DirectionalNavigation="Cycle"
+                                        KeyboardNavigation.TabNavigation="Once">
                             <RadioButton x:Name="RadioProfileAutoRadio" GroupName="RadioProfileMode" Margin="0,4,0,4"
                                          AutomationProperties.Name="Automatic, follow what the radio reports. Recommended."
                                          Checked="RadioProfileMode_Checked">
@@ -774,13 +790,15 @@
                                                Text="Always coordinate a UDP hole-punch through SmartLink, even if the radio advertises forwarded ports. Mostly useful for testing the hole-punch path on a radio that would normally connect the easy way."/>
                                 </StackPanel>
                             </RadioButton>
+                            </StackPanel>
                             <StackPanel Orientation="Horizontal" Margin="0,8,0,4">
                                 <controls:DecorativeText Text="Fixed hole-punch port (blank = new one each time):"
                                            VerticalAlignment="Center"
                                            Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
                                 <TextBox x:Name="RadioProfilePunchPortBox" Width="90"
                                          Style="{StaticResource DialogTextBox}"
-                                         AutomationProperties.Name="Fixed hole-punch port for this radio, 1024 to 65535, or blank to use a new random port for each connection"/>
+                                         AutomationProperties.Name="Fixed hole-punch port for this radio"
+                   AutomationProperties.HelpText="1024 to 65535, or blank to use a new random port for each connection"/>
                             </StackPanel>
                         </StackPanel>
                     </GroupBox>
@@ -835,7 +853,8 @@
                                            Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
                                 <ComboBox x:Name="RadioProfileRemOnCombo" MinWidth="220"
                                           Style="{StaticResource DialogComboBox}"
-                                          AutomationProperties.Name="REM ON remote power jack when connecting to this radio. Saved for this radio; applied at the next connection."
+                                          AutomationProperties.Name="REM ON remote power jack when connecting to this radio"
+                   AutomationProperties.HelpText="Saved for this radio; applied at the next connection."
                                           SelectionChanged="RadioProfileRemOnCombo_SelectionChanged">
                                     <ComboBoxItem Content="Leave it as the radio has it"/>
                                     <ComboBoxItem Content="Turn it on"/>
@@ -951,7 +970,8 @@
                                 <Button x:Name="SetupUnregisterButton"
                                         Content="Unregister..."
                                         Padding="12,4"
-                                        AutomationProperties.Name="Remove this radio's SmartLink registration. Rarely wanted — re-registering needs someone at the radio."
+                                        AutomationProperties.Name="Remove this radio's SmartLink registration"
+                   AutomationProperties.HelpText="Rarely wanted — re-registering needs someone at the radio."
                                         Click="SetupUnregisterButton_Click"/>
                             </StackPanel>
                         </StackPanel>
@@ -1020,7 +1040,8 @@
                                     Content="Stop reporting the version mismatch"
                                     HorizontalAlignment="Left" Padding="12,4"
                                     Visibility="Collapsed"
-                                    AutomationProperties.Name="Stop reporting the firmware version mismatch. Does not change the radio."
+                                    AutomationProperties.Name="Stop reporting the firmware version mismatch"
+                   AutomationProperties.HelpText="Does not change the radio."
                                     Click="SetupSuppressVersionWarningButton_Click"/>
                         </StackPanel>
                     </GroupBox>
@@ -1054,7 +1075,8 @@
                             <Button x:Name="SetupGoToNetworkButton"
                                     Content="Open Net_work settings"
                                     HorizontalAlignment="Left" Padding="12,4"
-                                    AutomationProperties.Name="Go to the Network tab to set the port, connection mode and hole-punch port"
+                                    AutomationProperties.Name="Go to the Network tab to set the port"
+                   AutomationProperties.HelpText="connection mode and hole-punch port"
                                     AutomationProperties.AcceleratorKey="Alt+W"
                                     Click="SetupGoToNetworkButton_Click"/>
                         </StackPanel>
@@ -1131,7 +1153,8 @@
                                    Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
                         <ComboBox x:Name="MicVerdictOutputCombo" Width="220"
                                   Style="{StaticResource DialogComboBox}"
-                                  AutomationProperties.Name="Mic audio readout. How spoken mic-audio checks read: plain English plus decibels, plain English only, or decibels only. Applies to the transmit status key and the JJ key mic check."/>
+                                  AutomationProperties.Name="Mic audio readout"
+                   AutomationProperties.HelpText="How spoken mic-audio checks read: plain English plus decibels, plain English only, or decibels only. Applies to the transmit status key and the JJ key mic check."/>
                     </StackPanel>
 
                     <Separator Margin="0,4,0,8"/>
@@ -1159,7 +1182,8 @@
                                Margin="0,0,0,8"
                                Focusable="True"
                                Text="CW notification settings are on the Audio tab now, beside the alert device they play through."
-                               AutomationProperties.Name="CW notification settings are on the Audio tab now, beside the alert device they play through."/>
+                               AutomationProperties.Name="CW notification settings are on the Audio tab now"
+                   AutomationProperties.HelpText="beside the alert device they play through."/>
 
                     <Separator Margin="0,4,0,8"/>
 
@@ -1179,7 +1203,8 @@
                     <CheckBox x:Name="ShowPanadapterCheck"
                               Content="Show panadapter / waterfall display"
                               Margin="0,0,0,8"
-                              AutomationProperties.Name="Show the panadapter and waterfall display. When unchecked, the display is hidden from view and removed from the tab order and braille refreshes are suppressed."/>
+                              AutomationProperties.Name="Show the panadapter and waterfall display"
+                   AutomationProperties.HelpText="When unchecked, the display is hidden from view and removed from the tab order and braille refreshes are suppressed."/>
 
                     <Separator Margin="0,4,0,8"/>
 
@@ -1199,7 +1224,8 @@
                     <CheckBox x:Name="SpeakConnectionProgressCheck"
                               Content="Speak connection progress while connecting to a radio"
                               Margin="0,0,0,8"
-                              AutomationProperties.Name="Speak connection progress. When checked, JJ Flex announces each connection phase and plays a counting tone (1, 2, then 3 tones) as the connect proceeds. Critical messages (errors, cancel, timeout) always speak regardless of this setting."/>
+                              AutomationProperties.Name="Speak connection progress"
+                   AutomationProperties.HelpText="When checked, JJ Flex announces each connection phase and plays a counting tone (1, 2, then 3 tones) as the connect proceeds. Critical messages (errors, cancel, timeout) always speak regardless of this setting."/>
                 </StackPanel>
                 </ScrollViewer>
             </TabItem>

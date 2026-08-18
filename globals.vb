@@ -3264,7 +3264,7 @@ RadioConnected:
             If Not String.IsNullOrWhiteSpace(radioName) Then
                 Radios.ScreenReaderOutput.SpeakAndWait("Disconnecting from " & radioName & ", goodbye")
             Else
-                Radios.ScreenReaderOutput.SpeakAndWait("Closing JJ Flexible, goodbye")
+                Radios.ScreenReaderOutput.SpeakAndWait("Closing JJ Flexible Radio Access, goodbye")
             End If
         Catch ex As Exception
             ' Never let the farewell stop the exit.
