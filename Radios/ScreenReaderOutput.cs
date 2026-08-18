@@ -155,6 +155,31 @@ namespace Radios
         /// the second cuts off the first.
         private const int SweepWindowMs = 1200;
 
+        /// <summary>
+        /// Minimum spacing between two utterances WE emit for the same key.
+        ///
+        /// Every Latest emission interrupts, which is right when it supersedes
+        /// a stale value and wrong when the thing it interrupts is us. A value
+        /// announcement takes roughly a second to speak, so a settle coming due
+        /// shortly after the lead cut the lead off mid-word - heard as clicks
+        /// and ticks while sweeping.
+        ///
+        /// Measured from the trace on 2026-08-18: "TX Power 87" at 26.978 s,
+        /// "TX Power 86" at 28.256 s. 1.28 seconds apart, against an utterance
+        /// about 1.2 seconds long, landing exactly on the tail of the first.
+        ///
+        /// Tuning the sweep window cannot fix this - the window and the
+        /// utterance are the same order of magnitude, so any setting trades
+        /// clicks for lag. A floor on the gap fixes it directly: a settle that
+        /// comes due too soon WAITS rather than cutting in, and speaks a moment
+        /// later with the same information.
+        ///
+        /// Deliberately a fixed estimate rather than asking the backend whether
+        /// it is still speaking: is-speaking is a per-backend feature bit, so a
+        /// design that polls it works under one screen reader and silently
+        /// stalls under another.
+        private const int MinGapMs = 1200;
+
         // A "speak anyway after N ms" ceiling used to live here, so a long hold
         // got periodic feedback rather than silence. It was REMOVED on
         // 2026-08-18 because it did not work by ear: a value announcement takes
@@ -287,12 +312,15 @@ namespace Radios
                     _lastByKey.TryGetValue(key, out var last)
                     && (DateTime.UtcNow - last.At).TotalMilliseconds < SweepWindowMs;
 
-                if (!sweeping)
+                if (!sweeping && RemainingGapMs(key) == 0)
                 {
                     _lastByKey[key] = (message, DateTime.UtcNow);
                     Emit(message, interrupt: true);
                     return;
                 }
+
+                // Either mid-sweep, or too soon after our own last utterance to
+                // lead without clipping it. Both cases coalesce.
 
                 var entry = new PendingUtterance { Message = message, Level = level };
                 _pending[key] = entry;
@@ -320,6 +348,28 @@ namespace Radios
                     return;
                 }
 
+                // Too soon after our own last utterance for this key: speaking
+                // now would cut it off mid-word. Put the entry back and wait
+                // out the remainder - the information is unchanged, only its
+                // timing moves.
+                int wait = RemainingGapMs(key);
+                if (wait > 0)
+                {
+                    _pending[key] = entry;
+                    try
+                    {
+                        entry.Timer?.Change(wait, System.Threading.Timeout.Infinite);
+                        return;
+                    }
+                    catch (ObjectDisposedException)
+                    {
+                        _pending.Remove(key);
+                        // Fall through and speak; a disposed timer cannot be
+                        // rescheduled, and losing the value entirely is worse
+                        // than a clipped one.
+                    }
+                }
+
                 _lastByKey[key] = (entry.Message, DateTime.UtcNow);
             }
 
@@ -328,6 +378,19 @@ namespace Radios
             {
                 Emit(entry.Message, interrupt: true);
             }
+        }
+
+        /// <summary>
+        /// True when speaking for this key right now would cut off our own
+        /// previous utterance; the caller should wait out the remainder.
+        /// Returns the milliseconds still to wait, or 0 when clear.
+        /// </summary>
+        private static int RemainingGapMs(string key)
+        {
+            if (!_lastByKey.TryGetValue(key, out var last)) return 0;
+            var elapsed = (DateTime.UtcNow - last.At).TotalMilliseconds;
+            var remaining = MinGapMs - elapsed;
+            return remaining <= 0 ? 0 : (int)Math.Ceiling(remaining);
         }
 
         /// <summary>Drop everything waiting to be spoken. Used by Urgent.</summary>
