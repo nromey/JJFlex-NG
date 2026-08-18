@@ -382,6 +382,49 @@ namespace JJFlexWpf
             }
         }
 
+        /// <summary>
+        /// Apply ONLY the saved speech verbosity, as early as possible.
+        ///
+        /// **Why this exists.** The full <see cref="Apply"/> runs from
+        /// MainWindow, which does not exist until the operator has chosen a
+        /// radio and connected. So until 2026-08-18 the saved verbosity was not
+        /// in force for ANY of startup: the greeting, the connect dialog and
+        /// the entire connect sequence all spoke at the Chatty default no
+        /// matter what the operator had chosen. Set it to Terse, restart, and
+        /// startup was still chatty - which looks exactly like the setting
+        /// failing to save.
+        ///
+        /// Verbosity is the one setting that must be live before the first
+        /// word is spoken, because it decides whether there IS a first word.
+        ///
+        /// Derives the config directory itself rather than taking one: this
+        /// runs before the application has worked out its own paths, which is
+        /// the whole point of it.
+        /// </summary>
+        public static void ApplySpeechVerbosityEarly()
+        {
+            try
+            {
+                string dir = System.IO.Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                    "JJFlexRadio");
+                if (!System.IO.Directory.Exists(dir)) return;
+
+                var cfg = Load(dir);
+                if (cfg == null) return;
+
+                Radios.ScreenReaderOutput.CurrentVerbosity =
+                    (Radios.VerbosityLevel)Math.Clamp(cfg.SpeechVerbosity, 0, 2);
+            }
+            catch
+            {
+                // A missing or unreadable config is an ordinary first-run
+                // outcome. The Chatty default stands and the app still talks -
+                // which is the failure mode to prefer, since the alternative is
+                // a blind operator meeting a silent application.
+            }
+        }
+
         /// <summary>Apply this config to the MeterToneEngine and EarconPlayer.</summary>
         public void Apply()
         {

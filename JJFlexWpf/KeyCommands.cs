@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -1082,15 +1082,71 @@ public class KeyCommands
     }
 
     /// <summary>
-    /// Persist current verbosity to audio config.
+    /// How long the verbosity save waits for the operator to stop cycling.
+    /// </summary>
+    ///
+    /// Long enough to ride out a run of presses - the cycle is three-way, so
+    /// getting from Chatty to Off is two taps and changing your mind is a
+    /// third - and short enough that closing the application straight after a
+    /// press still lands the write.
+    private const int VerbositySaveDebounceMs = 1500;
+
+    private static System.Threading.Timer? _verbositySaveTimer;
+    private static readonly object _verbositySaveLock = new object();
+
+    /// <summary>
+    /// Persist current verbosity to audio config, once the operator has
+    /// settled on a level.
+    ///
+    /// Debounced and off the UI thread. Cycling is a three-way toggle, so a
+    /// deliberate change is often several presses in a second; saving on each
+    /// one meant a read-modify-write of the whole audio config per keystroke,
+    /// synchronously, while the operator was still pressing the key.
+    ///
+    /// The write itself is a full CaptureFromEngine so the rest of the audio
+    /// config is not clobbered by a partial save.
     /// </summary>
     private void SaveVerbositySetting()
     {
         var configDir = _context.GetConfigDirectory?.Invoke();
-        if (configDir == null) return;
-        var config = AudioOutputConfig.Load(configDir);
-        config.CaptureFromEngine();
-        config.Save(configDir);
+        if (configDir == null)
+        {
+            // Silent failure here is how a setting appears not to persist, so
+            // say so in the trace rather than just returning.
+            JJTrace.Tracing.TraceLine(
+                "SaveVerbositySetting: no config directory - verbosity NOT saved.",
+                System.Diagnostics.TraceLevel.Warning);
+            return;
+        }
+
+        lock (_verbositySaveLock)
+        {
+            _verbositySaveTimer?.Dispose();
+            _verbositySaveTimer = new System.Threading.Timer(
+                _ => FlushVerbositySave(configDir),
+                null,
+                VerbositySaveDebounceMs,
+                System.Threading.Timeout.Infinite);
+        }
+    }
+
+    private static void FlushVerbositySave(string configDir)
+    {
+        try
+        {
+            var config = AudioOutputConfig.Load(configDir);
+            config.CaptureFromEngine();
+            config.Save(configDir);
+            JJTrace.Tracing.TraceLine(
+                $"Verbosity saved: {Radios.ScreenReaderOutput.CurrentVerbosity}",
+                System.Diagnostics.TraceLevel.Verbose);
+        }
+        catch (Exception ex)
+        {
+            JJTrace.Tracing.TraceLine(
+                $"SaveVerbositySetting failed: {ex.Message}",
+                System.Diagnostics.TraceLevel.Warning);
+        }
     }
 
     #endregion

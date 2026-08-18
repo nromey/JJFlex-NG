@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
@@ -215,6 +215,25 @@ namespace JJFlexWpf.Dialogs
         private void Announce(string message)
         {
             StatusText.Text = message;
+
+            // TEMPORARY EXPERIMENT (2026-08-18) - is a UIA live region actually
+            // usable as an announcement channel in this application?
+            //
+            // StatusText carries AutomationProperties.LiveSetting="Polite" and
+            // always has, but nothing in this codebase has ever raised
+            // LiveRegionChanged, so the region has never announced anything.
+            // Every word the operator has heard from this dialog came from the
+            // Speak call below.
+            //
+            // With JJFLEX_UIA_LIVE_TEST=1 we swap the channels rather than
+            // running both, so the result is unambiguous: hearing the status
+            // proves the live region works; silence proves it does not.
+            if (UiaLive.TestModeEnabled)
+            {
+                UiaLive.Announce(StatusText);
+                return;
+            }
+
             Radios.ScreenReaderOutput.Speak(message, Radios.VerbosityLevel.Terse, true);
         }
 

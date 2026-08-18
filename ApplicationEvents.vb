@@ -37,6 +37,24 @@ Namespace My
             ' Initialize screen reader output (Prism) for accessibility announcements.
             Radios.ScreenReaderOutput.Initialize()
 
+            ' Put the operator's saved verbosity in force BEFORE anything is
+            ' spoken. The full audio config is not applied until MainWindow
+            ' exists, which is after connect - so without this, every word of
+            ' startup came out at the Chatty default however the setting was
+            ' left. Verbosity is the one setting that has to be live before the
+            ' first utterance, because it decides whether there is one.
+            JJFlexWpf.AudioOutputConfig.ApplySpeechVerbosityEarly()
+
+            ' Greet at launch, which is where a greeting belongs. The arrival
+            ' announcement at Home is a separate message saying where you landed
+            ' and in which tuning mode - see MainWindow.SpeakWelcome.
+            '
+            ' Queued, so the connect dialog announcing itself lands behind this
+            ' rather than cutting it off. Before the intent enum existed there
+            ' was no way to express that, which is why the old single message
+            ' carried a 2-second sleep instead.
+            Radios.ScreenReaderOutput.SpeakGreeting()
+
             ' Initialize NAudio-based earcon player for UI sound effects.
             JJFlexWpf.EarconPlayer.Initialize()
 

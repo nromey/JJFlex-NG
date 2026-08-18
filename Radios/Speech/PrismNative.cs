@@ -118,6 +118,20 @@ namespace Radios.Speech
         [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
         internal static extern IntPtr prism_registry_acquire_best(IntPtr ctx);
 
+        /// <summary>
+        /// Create a SPECIFIC backend rather than whatever the registry offers
+        /// first. This is the lever that lets us choose by suitability instead
+        /// of by registration order.
+        ///
+        /// prism_registry_acquire_best walks the registry and returns the first
+        /// entry that initialises — it has no notion of which backend is BETTER
+        /// for the machine it is running on. On a box running Narrator that
+        /// lands on OneCore, a raw synthesiser, which then talks over Narrator's
+        /// own screen reading with no shared queue. Observed 2026-08-18.
+        /// </summary>
+        [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern IntPtr prism_registry_create(IntPtr ctx, ulong backendId);
+
         [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
         internal static extern void prism_backend_free(IntPtr backend);
 
@@ -157,6 +171,50 @@ namespace Radios.Speech
 
         [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
         internal static extern IntPtr prism_error_string(PrismError error);
+
+        // ── Backend identifiers (prism.h) ─────────────────────────────────
+        // Only the Windows ones we can actually meet are listed. Values are
+        // copied from prism.h and must be verified against it after a Prism
+        // upgrade — they are opaque hashes, so a mismatch fails silently by
+        // creating nothing rather than by failing to compile.
+
+        /// <summary>Readers with a real controller API. Best integration:
+        /// they own the speech queue, the voice and the braille display, and
+        /// our text joins their stream rather than competing with it.</summary>
+        internal static readonly (ulong Id, string Name)[] ControllerReaders =
+        {
+            (0x89CC19C5C4AC1A56UL, "NVDA"),
+            (0xAC3D60E9BD84B53EUL, "JAWS"),
+            (0x3D93C56C9E7F2A2EUL, "ZDSR"),
+            (0xAE439D62DC7B1479UL, "ZoomText"),
+            (0x8380F2A37B2C3EB6UL, "System Access"),
+            (0x344B951962E3B835UL, "PC-Talker"),
+            (0xED4760890B55C2F2UL, "Sense Reader"),
+            (0x285aba1c16f3300fUL, "BoyPC Reader"),
+        };
+
+        /// <summary>UI Automation notifications. Reaches any reader that
+        /// observes them — notably Windows Narrator, which has no controller
+        /// API and so cannot be reached any other way.</summary>
+        internal const ulong BackendUia = 0x6238F019DB678F8EUL;
+
+        /// <summary>Raw synthesisers. Correct ONLY when nothing is listening —
+        /// an independent voice on a machine running a screen reader is a
+        /// second speaker, not an integration.</summary>
+        internal const ulong BackendOneCore = 0x6797D32F0D994CB4UL;
+        internal const ulong BackendSapi = 0x1D6DF72422CEEE66UL;
+
+        /// <summary>
+        /// True when any UI Automation client is attached to this process.
+        ///
+        /// Used to decide whether the UIA notification channel has an audience.
+        /// Deliberately the native probe rather than
+        /// AutomationPeer.ListenerExists: this assembly does not reference WPF,
+        /// and UIAutomationCore is present on every supported Windows.
+        /// </summary>
+        [DllImport("UIAutomationCore.dll", CharSet = CharSet.Unicode)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        internal static extern bool UiaClientsAreListening();
 
         /// <summary>Read a null-terminated UTF-8 string Prism owns. Does NOT free it.</summary>
         internal static string? ReadUtf8(IntPtr p) =>

@@ -23,11 +23,22 @@ namespace Radios.Speech
         private bool _supportsSpeak;
         private bool _supportsBraille;
         private bool _supportsStop;
+        private bool _supportsIsSpeaking;
 
         public string BackendName => "Prism";
         public string? DetectedReader { get; private set; }
         public bool HasSpeech => _backend != IntPtr.Zero && (_supportsOutput || _supportsSpeak);
         public bool HasBraille => _backend != IntPtr.Zero && _supportsBraille;
+
+        /// <summary>
+        /// True when this backend can report whether speech is still in
+        /// progress. Read for diagnostics, NOT as the basis of a queue:
+        /// it is a per-backend feature bit, so a design that polls it would
+        /// work under one screen reader and silently stall under another.
+        /// The speech-flow work coalesces BEFORE emission for that reason.
+        /// </summary>
+        public bool CanReportSpeaking =>
+            _backend != IntPtr.Zero && _supportsIsSpeaking;
 
         /// <summary>
         /// Never throws. Every failure path — no prism.dll, null context, no
@@ -47,47 +58,26 @@ namespace Radios.Speech
                     return false;
                 }
 
-                _backend = PrismNative.prism_registry_acquire_best(_ctx);
+                _backend = SelectBackend(out var tier);
                 if (_backend == IntPtr.Zero)
                 {
                     Tracing.TraceLine("Prism: no screen reader or TTS backend available.", TraceLevel.Warning);
                     Cleanup();
                     return false;
                 }
+                Tier = tier;
 
-                var rc = PrismNative.prism_backend_initialize(_backend);
-                if (rc != PrismError.Ok && rc != PrismError.AlreadyInitialized)
+                if (!AdoptBackend(_backend))
                 {
-                    Tracing.TraceLine(
-                        $"Prism: backend initialize failed: {PrismNative.ErrorString(rc)}",
-                        TraceLevel.Warning);
-                    Cleanup();
-                    return false;
-                }
-
-                var features = (PrismBackendFeature)PrismNative.prism_backend_get_features(_backend);
-                _supportsOutput = features.HasFlag(PrismBackendFeature.SupportsOutput);
-                _supportsSpeak = features.HasFlag(PrismBackendFeature.SupportsSpeak);
-                _supportsBraille = features.HasFlag(PrismBackendFeature.SupportsBraille);
-                _supportsStop = features.HasFlag(PrismBackendFeature.SupportsStop);
-                DetectedReader = PrismNative.ReadUtf8(PrismNative.prism_backend_name(_backend));
-
-                // A backend with neither entry point cannot speak, and pretending
-                // otherwise would leave the operator in silence with the app
-                // believing it is talking.
-                if (!_supportsOutput && !_supportsSpeak)
-                {
-                    Tracing.TraceLine(
-                        "Prism: backend supports neither output nor speak — unusable.",
-                        TraceLevel.Warning);
                     Cleanup();
                     return false;
                 }
 
                 Tracing.TraceLine(
-                    $"Prism backend up: '{DetectedReader ?? "unknown"}' "
+                    $"Prism backend up: '{DetectedReader ?? "unknown"}' tier={Tier} "
                     + $"(output={_supportsOutput}, speak={_supportsSpeak}, "
-                    + $"braille={_supportsBraille}, stop={_supportsStop}).",
+                    + $"braille={_supportsBraille}, stop={_supportsStop}, "
+                    + $"isSpeaking={_supportsIsSpeaking}).",
                     TraceLevel.Info);
                 return true;
             }
@@ -100,6 +90,161 @@ namespace Radios.Speech
             {
                 Tracing.TraceLine($"Prism: Initialize threw: {ex.Message}", TraceLevel.Error);
                 Cleanup();
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Which kind of channel we ended up on. Reported in diagnostics
+        /// because "speech works" and "speech works WELL" are different states
+        /// and the operator cannot tell them apart by listening.
+        /// </summary>
+        public SpeechTier Tier { get; private set; } = SpeechTier.None;
+
+        /// <summary>
+        /// Choose a backend by suitability, not by registration order.
+        ///
+        /// Prism's own acquire_best returns the first entry that initialises,
+        /// which on a machine running Narrator lands on OneCore - a raw
+        /// synthesiser that then talks over Narrator's screen reading with no
+        /// shared queue. Two voices, neither aware of the other. Observed on a
+        /// real machine 2026-08-18.
+        /// </summary>
+        private IntPtr SelectBackend(out SpeechTier tier)
+        {
+            // Tier 1 - a reader with a controller API. Our text joins ITS
+            // queue, in ITS voice, and reaches ITS braille display.
+            foreach (var (id, name) in PrismNative.ControllerReaders)
+            {
+                var b = TryCreate(id, name);
+                if (b != IntPtr.Zero)
+                {
+                    tier = SpeechTier.ScreenReader;
+                    return b;
+                }
+            }
+
+            // Tier 2 - UI Automation notifications, the only channel that
+            // reaches Narrator (it has no controller API, so nothing else can).
+            // Usually FAILS here and succeeds later via TryUpgradeToUia: the
+            // backend requires a visible top-level window at initialise time,
+            // and speech comes up before the app has drawn one.
+            if (UiaAudiencePresent())
+            {
+                var b = TryCreate(PrismNative.BackendUia, "UIA");
+                if (b != IntPtr.Zero)
+                {
+                    tier = SpeechTier.UiaNotifications;
+                    return b;
+                }
+            }
+
+            // Tier 3 - a raw synthesiser. Correct only when nothing is
+            // listening: a magnifier user with no screen reader still wants the
+            // important things spoken, and Ctrl+Shift+V turns speech off.
+            tier = SpeechTier.Synthesiser;
+            return PrismNative.prism_registry_acquire_best(_ctx);
+        }
+
+        /// <summary>
+        /// Re-attempt the UIA channel once the application owns a visible
+        /// window. Call after the main window is shown.
+        ///
+        /// Only upgrades AWAY from a raw synthesiser - a controller-based
+        /// reader is already the better channel and must not be displaced.
+        /// Returns true when the channel actually changed.
+        /// </summary>
+        public bool TryUpgradeToUia()
+        {
+            try
+            {
+                if (_ctx == IntPtr.Zero || Tier != SpeechTier.Synthesiser) return false;
+                if (!UiaAudiencePresent())
+                {
+                    Tracing.TraceLine(
+                        "Prism: no UIA client listening - staying on the synthesiser.",
+                        TraceLevel.Verbose);
+                    return false;
+                }
+
+                var upgraded = TryCreate(PrismNative.BackendUia, "UIA");
+                if (upgraded == IntPtr.Zero) return false;
+
+                var previous = _backend;
+                _backend = upgraded;
+                if (!AdoptBackend(upgraded))
+                {
+                    // Unusable after all - put the synthesiser back rather than
+                    // leaving the operator in silence.
+                    _backend = previous;
+                    PrismNative.prism_backend_free(upgraded);
+                    AdoptBackend(previous);
+                    return false;
+                }
+
+                Tier = SpeechTier.UiaNotifications;
+                if (previous != IntPtr.Zero) PrismNative.prism_backend_free(previous);
+                Tracing.TraceLine(
+                    "Prism: upgraded from synthesiser to UIA notifications - "
+                    + "a screen reader is listening, so it speaks our text itself.",
+                    TraceLevel.Info);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine($"Prism: UIA upgrade threw: {ex.Message}", TraceLevel.Warning);
+                return false;
+            }
+        }
+
+        /// <summary>Create and initialise one specific backend, or IntPtr.Zero.</summary>
+        private IntPtr TryCreate(ulong id, string label)
+        {
+            var b = PrismNative.prism_registry_create(_ctx, id);
+            if (b == IntPtr.Zero) return IntPtr.Zero;
+
+            var rc = PrismNative.prism_backend_initialize(b);
+            if (rc == PrismError.Ok || rc == PrismError.AlreadyInitialized) return b;
+
+            Tracing.TraceLine(
+                $"Prism: {label} present but would not initialise "
+                + $"({PrismNative.ErrorString(rc)}).",
+                TraceLevel.Verbose);
+            PrismNative.prism_backend_free(b);
+            return IntPtr.Zero;
+        }
+
+        /// <summary>
+        /// Read a backend's feature bits and identity. Returns false when the
+        /// backend cannot speak at all - pretending otherwise leaves the
+        /// operator in silence while the app believes it is talking.
+        /// </summary>
+        private bool AdoptBackend(IntPtr backend)
+        {
+            var features = (PrismBackendFeature)PrismNative.prism_backend_get_features(backend);
+            _supportsOutput = features.HasFlag(PrismBackendFeature.SupportsOutput);
+            _supportsSpeak = features.HasFlag(PrismBackendFeature.SupportsSpeak);
+            _supportsBraille = features.HasFlag(PrismBackendFeature.SupportsBraille);
+            _supportsStop = features.HasFlag(PrismBackendFeature.SupportsStop);
+            _supportsIsSpeaking = features.HasFlag(PrismBackendFeature.SupportsIsSpeaking);
+            DetectedReader = PrismNative.ReadUtf8(PrismNative.prism_backend_name(backend));
+
+            if (_supportsOutput || _supportsSpeak) return true;
+
+            Tracing.TraceLine(
+                "Prism: backend supports neither output nor speak - unusable.",
+                TraceLevel.Warning);
+            return false;
+        }
+
+        private static bool UiaAudiencePresent()
+        {
+            try { return PrismNative.UiaClientsAreListening(); }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine(
+                    $"Prism: UiaClientsAreListening unavailable ({ex.Message}).",
+                    TraceLevel.Verbose);
                 return false;
             }
         }

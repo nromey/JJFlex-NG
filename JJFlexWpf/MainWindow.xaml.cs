@@ -336,8 +336,32 @@ public partial class MainWindow : UserControl
     /// </summary>
     public void SpeakWelcome()
     {
+        // First moment the application owns a visible top-level window, which
+        // is the precondition the UI Automation speech channel cannot do
+        // without. Speech itself came up long before this, during startup, so
+        // this is the earliest point a Narrator user can be reached at all.
+        //
+        // No-op whenever we already have a real screen reader — this only
+        // rescues the case where we settled for a raw synthesiser that would
+        // otherwise talk over the reader that IS running.
+        if (Radios.ScreenReaderOutput.TryUpgradeChannel())
+        {
+            JJTrace.Tracing.TraceLine(
+                "Speech channel upgraded once the main window was shown.",
+                System.Diagnostics.TraceLevel.Info);
+        }
+
+        // An ARRIVAL, not a greeting. By the time this is heard the operator
+        // has navigated the connect dialog and connected a radio, so "welcome"
+        // would be describing a moment well past. What is useful here is where
+        // they landed and in which tuning mode. The greeting proper is spoken
+        // at launch - see ScreenReaderOutput.SpeakGreeting.
+        //
+        // Fires whenever Home becomes visible, INCLUDING when the connect
+        // dialog was cancelled and there is no radio at all, which is another
+        // reason it cannot be a connect announcement.
         string modeName = ActiveUIMode == UIMode.Classic ? "Classic" : "Modern";
-        string message = $"Welcome to JJ Flexible Radio Access, {modeName} tuning mode";
+        string message = $"JJ Flexible Home, {modeName} tuning mode";
 
         // Ordering policy (live find 2026-08-04): with a startup advisory on
         // screen, this line used to talk over the dialog — and worse, the
@@ -355,7 +379,8 @@ public partial class MainWindow : UserControl
 
         // Focus FreqOut so cursor lands on the frequency display at startup
         FreqOut.FocusDisplay();
-        Radios.ScreenReaderOutput.Speak(message);
+        Radios.ScreenReaderOutput.Speak(
+            message, Radios.Speech.SpeechIntent.Queue, Radios.VerbosityLevel.Terse);
     }
 
     /// <summary>

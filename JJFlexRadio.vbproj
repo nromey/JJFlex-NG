@@ -39,10 +39,25 @@
          and SmartLink accounts. Support DLLs keep their names too — they are
          invisible to users and renaming them churns every project for nothing. -->
     <AssemblyName>jjflexible</AssemblyName>
-    <!-- Base X.Y.Z. build-installers.bat overrides with -p:Version=X.Y.Z.Y on the
-         command line, where Y = git commit count + BuildNumberOffset (see script).
-         If no override is supplied (plain `dotnet build`), SDK fills the 4th part with .0. -->
+    <!-- Base X.Y.Z. The 4th part is the build number: git commit count plus
+         BuildNumberOffset. It is stamped by the StampBuildNumber target below,
+         so EVERY build carries it - not only builds made through the scripts.
+
+         This used to be computed only inside build-debug.bat and
+         build-installers.bat, which meant a plain `dotnet build` produced
+         4.1.16.0. That is a version that cannot identify the binary it is on,
+         and it reached Help > About, the trace header and the crash report -
+         every surface whose entire job is saying exactly what is running.
+         Found 2026-08-18 when About reported 4.1.16.0 on a hand-built debug.
+
+         The scripts still pass -p:Version=X.Y.Z.N explicitly; a 4-part Version
+         on the command line wins, because the target below only fires when the
+         version it is given has fewer than four parts. -->
     <Version>4.1.16</Version>
+    <!-- Keep in step with BUILDNUM_OFFSET in build-debug.bat and
+         build-installers.bat. Two copies is one too many, but the scripts run
+         before MSBuild exists and cannot read this file. -->
+    <BuildNumberOffset>-468</BuildNumberOffset>
     <!-- Sprint 8: Still WindowsForms MyType to preserve My.* namespace (My.Application, My.Computer).
          OnCreateMainForm bridges to WPF MainWindow. Full MyType migration in Sprint 9 cleanup. -->
     <MyType>WindowsForms</MyType>
@@ -567,4 +582,36 @@
       <FileWrites Include="$(TargetDir)install-manifest.json" />
     </ItemGroup>
   </Target>
+  <!-- Stamp the 4-part version from the git commit count.
+
+       Runs before GetAssemblyVersion so the SDK's generated AssemblyInfo picks
+       it up; that is what puts the number on FileVersion, which is the field
+       Help > About, the NAS historical tree and the tester zip names all key
+       on.
+
+       Skipped when Version already has four parts (the scripts supply one) and
+       when git is unavailable or this is not a repository - a build outside a
+       checkout still succeeds, it just reports .0 the way it always did. -->
+  <Target Name="StampBuildNumber"
+          BeforeTargets="GetAssemblyVersion;GenerateAssemblyInfo"
+          Condition="$(Version.Split('.').Length) &lt; 4">
+    <Exec Command="git rev-list --count HEAD"
+          ConsoleToMSBuild="true"
+          ContinueOnError="true"
+          StandardOutputImportance="low"
+          IgnoreExitCode="true">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_GitCommitCount" />
+      <Output TaskParameter="ExitCode" PropertyName="_GitExitCode" />
+    </Exec>
+    <PropertyGroup>
+      <_BuildNumber Condition="'$(_GitExitCode)' == '0' and '$(_GitCommitCount)' != ''"
+        >$([MSBuild]::Add($(_GitCommitCount.Trim()), $(BuildNumberOffset)))</_BuildNumber>
+      <_BuildNumber Condition="'$(_BuildNumber)' == '' or $([MSBuild]::ValueOrDefault($(_BuildNumber), '0')) &lt; 0">0</_BuildNumber>
+      <Version>$(Version).$(_BuildNumber)</Version>
+      <FileVersion>$(Version)</FileVersion>
+      <AssemblyVersion>$(Version)</AssemblyVersion>
+    </PropertyGroup>
+    <Message Importance="normal" Text="Stamped build version $(Version)" />
+  </Target>
+
 </Project>

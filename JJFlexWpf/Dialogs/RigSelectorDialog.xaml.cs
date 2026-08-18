@@ -771,16 +771,35 @@ namespace JJFlexWpf.Dialogs
             int known;
             lock (_radiosLock) { known = _radiosList.Count; }
 
+            // Report the ACTIVITY, not a conclusion.
+            //
+            // This used to say "No radios online yet ... all offline". It fires
+            // when the settle window expires having seen nothing - but that
+            // window is a guess about how long discovery usually takes, and a
+            // radio arriving a second later made the dialog correct itself out
+            // loud: "all offline" followed immediately by "1 radio online".
+            //
+            // The branch above already knows better. Its comment says local
+            // discovery "never really finishes: VITA discovery keeps listening
+            // the whole time the picker is open, so 'loaded' alone would
+            // quietly become a lie." Same lie, different sentence - there is no
+            // instant at which "all offline" is a settled fact, so we must not
+            // speak as though there were. Same fix as the per-row "checking"
+            // state on 2026-08-17.
             if (known == 0)
             {
-                _callbacks.ScreenReaderSpeak?.Invoke(
-                    "Radio list, empty. No radios found yet. For SmartLink radios, press Shift F10 and choose Show Remote Radios.", false);
+                AnnounceLoadedState(
+                    "Discovering radios",
+                    "Discovering radios. Nothing found yet. For SmartLink radios, "
+                    + "press Shift F10 and choose Show Remote Radios.");
                 return;
             }
 
-            _callbacks.ScreenReaderSpeak?.Invoke(
-                $"No radios online yet. {known} known radio{(known == 1 ? "" : "s")} listed, all offline. " +
-                "Press Enter on a radio to connect — JJ Flexible looks for it where its connection path says to.", false);
+            AnnounceLoadedState(
+                "Discovering radios",
+                $"Discovering radios. {known} known radio{(known == 1 ? "" : "s")} listed. "
+                + "Press Enter on a radio to connect, and JJ Flexible looks for it "
+                + "where its connection path says to.");
         }
 
         // ------------------------------------------------------------------
@@ -1066,25 +1085,45 @@ namespace JJFlexWpf.Dialogs
             UpdateListAutomationName();
         }
 
+        /// <summary>
+        /// The radio list's accessible name - what a screen reader reads when
+        /// focus lands on the list itself.
+        ///
+        /// **This is a second announcement channel and it has to tell the same
+        /// story as the rows.** It used to read "Known radios, 2 listed, none
+        /// online" while discovery was still running, which is the same
+        /// premature verdict the per-row state carried until 2026-08-17 and the
+        /// spoken summary carried until 2026-08-18. Both of those were fixed
+        /// and this one was missed, because it is UIA rather than a Speak call
+        /// and so does not turn up when you audit speech call sites.
+        ///
+        /// While discovery is unsettled the wording describes the ACTIVITY.
+        /// "None online" is only said once it is actually known.
+        /// </summary>
         private void UpdateListAutomationName()
         {
             int count = RadiosBox.Items.Count;
             int live = LiveCount();
+
+            string name;
             if (count == 0)
             {
-                System.Windows.Automation.AutomationProperties.SetName(
-                    RadiosBox, "Radio list, empty, no radios found");
+                name = _localSettled
+                    ? "Radio list, empty, no radios found"
+                    : "Radio list, discovering radios";
             }
             else if (live == 0)
             {
-                System.Windows.Automation.AutomationProperties.SetName(
-                    RadiosBox, $"Known radios, {count} listed, none online");
+                name = _localSettled
+                    ? $"Known radios, {count} listed, none online"
+                    : $"Known radios, {count} listed, discovering";
             }
             else
             {
-                System.Windows.Automation.AutomationProperties.SetName(
-                    RadiosBox, $"Available radios, {count} listed, {live} online");
+                name = $"Available radios, {count} listed, {live} online";
             }
+
+            System.Windows.Automation.AutomationProperties.SetName(RadiosBox, name);
         }
 
         private RadioListItem? GetSelectedRadio()
@@ -2041,6 +2080,25 @@ namespace JJFlexWpf.Dialogs
             var state = CurrentAccountState();
             string who = !string.IsNullOrWhiteSpace(state.FriendlyName) ? state.FriendlyName : state.Email;
 
+            // The account line is COLLAPSED unless SmartLink is actually in
+            // play for this session.
+            //
+            // A screen reader reads a dialog's static content when the dialog
+            // opens, so this line was announced on every launch, in the middle
+            // of the startup sequence, whether or not the operator was going
+            // anywhere near SmartLink. Reported 2026-08-18: heard as part of
+            // the connect narration, before discovery had even settled.
+            //
+            // Gating on "an account is saved" would not have helped - the
+            // operator who is bothered by this HAS an account. What matters is
+            // whether THIS connect involves SmartLink at all. Collapsed rather
+            // than merely non-tab-stop, because collapsed leaves the UIA tree
+            // entirely and so is not read as dialog content either.
+            bool smartLinkEngaged = _remoteListLive || _remoteDiscoveryInFlight;
+            AccountStatusText.Visibility = smartLinkEngaged
+                ? System.Windows.Visibility.Visible
+                : System.Windows.Visibility.Collapsed;
+
             if (state.Count <= 0)
             {
                 AccountButton.Content = "_Sign in to SmartLink";
@@ -2071,12 +2129,15 @@ namespace JJFlexWpf.Dialogs
                     : $"SmartLink account: {who} ({state.Count} saved)";
             }
 
-            if (!string.IsNullOrWhiteSpace(state.Email)
-                && !string.Equals(state.Email, state.FriendlyName, StringComparison.OrdinalIgnoreCase)
-                && !string.IsNullOrWhiteSpace(state.FriendlyName))
-            {
-                AccountStatusText.Text += $", {state.Email}";
-            }
+            // The full address is deliberately NOT appended here. When a
+            // friendly name exists it already identifies the account, and
+            // reading "Contest Station, nromey@fastmail.com" spends a second of
+            // speech to add nothing the operator did not already know. The
+            // address is still on the Account button's own name, one Tab away,
+            // for the moment it is actually the question.
+            //
+            // When no friendly name is set, `who` IS the address, so the
+            // account remains identifiable either way.
         }
 
         private void SwitchAccountButton_Click(object sender, RoutedEventArgs e)

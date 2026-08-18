@@ -166,6 +166,32 @@ namespace Radios
         /// <summary>True when a braille display is available.</summary>
         public bool BrailleAvailable { get; private set; }
 
+        /// <summary>
+        /// The running executable's 4-part FileVersion, e.g. "4.1.16.1024", or
+        /// null when it cannot be read.
+        ///
+        /// A deliberately cheap probe for callers that want the version alone
+        /// and must not pay for a full Capture(). It lives HERE rather than at
+        /// the call site because this class is the single assembler of version
+        /// strings - two assemblers is how the About page and the spoken
+        /// greeting end up disagreeing about what is running.
+        /// </summary>
+        public static string QuickFileVersion
+        {
+            get
+            {
+                try
+                {
+                    string path = System.Diagnostics.Process.GetCurrentProcess()
+                        .MainModule?.FileName;
+                    if (string.IsNullOrEmpty(path)) return null;
+                    var fvi = System.Diagnostics.FileVersionInfo.GetVersionInfo(path);
+                    return string.IsNullOrEmpty(fvi.FileVersion) ? null : fvi.FileVersion;
+                }
+                catch { return null; }
+            }
+        }
+
         private readonly List<DiagnosticItem> _items = new List<DiagnosticItem>();
 
         /// <summary>
@@ -412,17 +438,32 @@ namespace Radios
                     SpeechEngine = "none — the application has no speech "
                                    + "(prism.dll missing or failed to load)";
                 }
-                else if (!string.IsNullOrEmpty(srName))
+                else if (!ScreenReaderOutput.IsAvailable)
                 {
-                    SpeechEngine = backend + ", using " + srName;
-                }
-                else if (ScreenReaderOutput.IsAvailable)
-                {
-                    SpeechEngine = backend + ", using SAPI (no screen reader detected)";
+                    SpeechEngine = backend + " loaded, but no speech is available";
                 }
                 else
                 {
-                    SpeechEngine = backend + " loaded, but no speech is available";
+                    // Name the TIER, not just the backend. A raw synthesiser
+                    // and a screen-reader integration both report "speech
+                    // works", and the difference only becomes audible when two
+                    // voices collide - which is exactly the situation the
+                    // operator cannot diagnose without being told.
+                    string reader = string.IsNullOrEmpty(srName) ? "unknown" : srName;
+                    SpeechEngine = ScreenReaderOutput.Tier switch
+                    {
+                        Speech.SpeechTier.ScreenReader =>
+                            backend + ", using " + reader
+                            + " directly (its own voice, queue and braille)",
+                        Speech.SpeechTier.UiaNotifications =>
+                            backend + ", via UI Automation notifications — "
+                            + "whichever screen reader is attached speaks our text itself",
+                        Speech.SpeechTier.Synthesiser =>
+                            backend + ", using a built-in synthesiser (" + reader
+                            + "). No screen reader was reachable, so this is a "
+                            + "separate voice — Ctrl+Shift+V turns it off",
+                        _ => backend + ", using " + reader,
+                    };
                 }
             }
             catch { }

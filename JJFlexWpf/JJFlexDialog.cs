@@ -1,4 +1,4 @@
-using System.Windows;
+﻿using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -80,12 +80,40 @@ namespace JJFlexWpf
         /// </summary>
         private void JJFlexDialog_Loaded(object sender, RoutedEventArgs e)
         {
+            // Take the foreground when it is not already ours.
+            //
+            // Windows silently refuses SetForegroundWindow from a process that
+            // does not already own the foreground window - it flashes the
+            // taskbar button instead. A sighted operator sees the flash and
+            // clicks it. A screen reader operator gets nothing at all, and has
+            // to go hunting for a window nobody told them had opened.
+            //
+            // No-op in the ordinary case where the operator opened this dialog
+            // themselves, so nothing here can yank focus at a moment they did
+            // not choose. See Radios.WindowActivation for the full reasoning.
+            Radios.WindowActivation.EnsureForeground(
+                new System.Windows.Interop.WindowInteropHelper(this).Handle);
+
             // Set automation name from title for screen readers
             if (!string.IsNullOrEmpty(Title))
             {
                 AutomationProperties.SetName(this, Title);
-                // Speak title explicitly — NVDA may read focused control instead of window title
-                Radios.ScreenReaderOutput.Speak(Title, Radios.VerbosityLevel.Terse, interrupt: true);
+
+                // Speak the title explicitly - NVDA may read the focused control
+                // instead of the window title.
+                //
+                // QUEUED, not interrupting. This one line is inherited by 74
+                // dialogs, so as an interrupt it meant that opening ANY dialog
+                // anywhere destroyed whatever was being spoken at that instant.
+                // Confirmed victims included "The radio disconnected", the
+                // update-check error, "Opening SmartLink login" and the connect
+                // sequence itself - which is why a successful connect emitted
+                // eight utterances and the operator heard about two.
+                //
+                // A dialog opening is the START of a series, never a supersession
+                // of one. Surveyed and re-bucketed 2026-08-18.
+                Radios.ScreenReaderOutput.Speak(
+                    Title, Radios.Speech.SpeechIntent.Queue, Radios.VerbosityLevel.Terse);
             }
 
             // Focus first interactive control

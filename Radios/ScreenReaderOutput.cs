@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Threading.Tasks;
 using JJTrace;
@@ -108,6 +109,177 @@ namespace Radios
         /// </summary>
         public static bool SuppressSpeech { get; set; }
 
+        // ── Intent-based speech ───────────────────────────────────────────
+        //
+        // The bool overloads below remain and now MAP onto these, so the whole
+        // application keeps working while call sites migrate deliberately.
+        // Mapping is deliberately asymmetric and documented at the overload.
+
+        /// <summary>How long a Latest utterance waits to be superseded.</summary>
+        ///
+        /// Long enough to swallow a key-repeat burst (Windows repeats at
+        /// roughly 30 a second, so ~33 ms apart), short enough that a single
+        /// deliberate press does not feel laggy. Riding a control emits one
+        /// utterance per settle, not one per step.
+        private const int CoalesceMs = 120;
+
+        private sealed class PendingUtterance
+        {
+            public string Message = string.Empty;
+            public VerbosityLevel Level;
+            public System.Threading.Timer? Timer;
+        }
+
+        private static readonly Dictionary<string, PendingUtterance> _pending =
+            new Dictionary<string, PendingUtterance>(StringComparer.Ordinal);
+        private static readonly object _pendingLock = new object();
+
+        /// <summary>
+        /// Speak with an explicit intent. This is the form new code should use.
+        /// </summary>
+        /// <param name="message">What to say.</param>
+        /// <param name="intent">What KIND of utterance this is.</param>
+        /// <param name="level">Verbosity gate; Critical is always spoken.</param>
+        /// <param name="coalesceKey">
+        /// Required for <see cref="Speech.SpeechIntent.Latest"/>: utterances
+        /// sharing a key replace one another while pending. Ignored otherwise.
+        /// A Latest call with no key cannot coalesce against anything, so it
+        /// degrades to Interrupt rather than silently pretending to work.
+        /// </param>
+        public static void Speak(
+            string message,
+            Speech.SpeechIntent intent,
+            VerbosityLevel level = VerbosityLevel.Terse,
+            string? coalesceKey = null)
+        {
+            if (string.IsNullOrEmpty(message)) return;
+            if ((int)level > (int)CurrentVerbosity) return;
+
+            switch (intent)
+            {
+                case Speech.SpeechIntent.Urgent:
+                    // Cut what is speaking AND drop what is queued, so nothing
+                    // stale can play on top of a transmit warning.
+                    DiscardPending();
+                    try { _backend?.Silence(); } catch { }
+                    Emit(message, interrupt: true);
+                    return;
+
+                case Speech.SpeechIntent.Latest:
+                    if (string.IsNullOrEmpty(coalesceKey))
+                    {
+                        Tracing.TraceLine(
+                            $"ScreenReaderOutput: Latest without a coalesce key - "
+                            + $"treating as Interrupt: '{message}'",
+                            TraceLevel.Warning);
+                        Emit(message, interrupt: true);
+                        return;
+                    }
+                    Coalesce(coalesceKey!, message, level);
+                    return;
+
+                case Speech.SpeechIntent.Queue:
+                    Emit(message, interrupt: false);
+                    return;
+
+                default:
+                    Emit(message, interrupt: true);
+                    return;
+            }
+        }
+
+        /// <summary>
+        /// Hold this utterance briefly. A newer one with the same key REPLACES
+        /// it rather than queueing behind it, so sweeping a control recites the
+        /// value it settled on instead of every value it passed through.
+        ///
+        /// Coalescing has to happen here, before emission: once text reaches a
+        /// screen reader we cannot take it back.
+        /// </summary>
+        private static void Coalesce(string key, string message, VerbosityLevel level)
+        {
+            lock (_pendingLock)
+            {
+                if (_pending.TryGetValue(key, out var existing))
+                {
+                    // Same key already waiting - overwrite the words and let the
+                    // running timer carry on. Restarting it on every step would
+                    // let a continuous sweep defer the announcement forever.
+                    existing.Message = message;
+                    existing.Level = level;
+                    return;
+                }
+
+                var entry = new PendingUtterance { Message = message, Level = level };
+                _pending[key] = entry;
+                entry.Timer = new System.Threading.Timer(
+                    _ => FlushCoalesced(key), null, CoalesceMs, System.Threading.Timeout.Infinite);
+            }
+        }
+
+        private static void FlushCoalesced(string key)
+        {
+            PendingUtterance? entry;
+            lock (_pendingLock)
+            {
+                if (!_pending.TryGetValue(key, out entry)) return;
+                _pending.Remove(key);
+            }
+
+            entry.Timer?.Dispose();
+            if ((int)entry.Level <= (int)CurrentVerbosity)
+            {
+                Emit(entry.Message, interrupt: true);
+            }
+        }
+
+        /// <summary>Drop everything waiting to be spoken. Used by Urgent.</summary>
+        private static void DiscardPending()
+        {
+            lock (_pendingLock)
+            {
+                foreach (var entry in _pending.Values) entry.Timer?.Dispose();
+                _pending.Clear();
+            }
+        }
+
+        /// <summary>
+        /// The single point where text actually reaches the backend. Every
+        /// intent funnels through here, so suppression, the last-message
+        /// history and tracing cannot be bypassed by adding a new intent.
+        /// </summary>
+        private static void Emit(string message, bool interrupt)
+        {
+            if (SuppressSpeech) return;
+
+            try
+            {
+                if (!_initialized) Initialize();
+                if (!_available) return;
+
+                _backend?.Speak(message, interrupt);
+                _lastMessage = message;
+                Tracing.TraceLine(
+                    $"ScreenReaderOutput: Spoke '{message}' (interrupt={interrupt})",
+                    TraceLevel.Verbose);
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine($"ScreenReaderOutput: Error speaking - {ex.Message}", TraceLevel.Warning);
+            }
+        }
+
+        /// <summary>
+        /// Legacy bool form. Retained so 664 call sites keep working while they
+        /// migrate to <see cref="Speech.SpeechIntent"/> deliberately, a cluster
+        /// at a time, rather than in one unreviewable sweep.
+        ///
+        /// **Note the mapping is asymmetric on purpose.** true becomes
+        /// Interrupt, which is what it always meant. false becomes Queue rather
+        /// than "some third thing", because letting the screen reader queue is
+        /// exactly what not-interrupting has always done. So this overload
+        /// changes NO behaviour; it only renames it.
+        /// </summary>
         public static void Speak(string message, bool interrupt = false)
         {
             if (string.IsNullOrEmpty(message)) return;
@@ -169,6 +341,49 @@ namespace Radios
             };
             Speak(label, true);
             return CurrentVerbosity;
+        }
+
+        /// <summary>
+        /// The greeting, spoken once when the application starts.
+        ///
+        /// Distinct from the arrival announcement at Home, which says where you
+        /// landed and in which tuning mode. This one only says the application
+        /// is up - a greeting delivered AFTER you have chosen a radio and
+        /// connected is describing a moment that passed thirty seconds ago.
+        ///
+        /// Queued, not interrupting: it is the first utterance of the startup
+        /// series, and the connect dialog announcing itself is the second.
+        /// Under the old bool this was an interrupt guarded by a 2-second
+        /// sleep, which is what a queue looks like when you do not have one.
+        /// </summary>
+        public static void SpeakGreeting()
+        {
+            string msg;
+            switch (CurrentVerbosity)
+            {
+                case VerbosityLevel.Chatty:
+                    // Chatty is where the version belongs: discoverable without
+                    // being recited to everyone at every launch, and the single
+                    // most useful thing to have already heard when something
+                    // later goes wrong and needs reporting.
+                    var version = DiagnosticSnapshot.QuickFileVersion;
+                    msg = string.IsNullOrEmpty(version)
+                        ? "Welcome to JJ Flexible Radio Access"
+                        : "Welcome to JJ Flexible Radio Access, version " + version;
+                    break;
+
+                case VerbosityLevel.Terse:
+                    // You just launched it. You know what it is.
+                    msg = "Welcome";
+                    break;
+
+                default:
+                    // Critical means speech off for everything but the things
+                    // that matter. A greeting is not one of them.
+                    return;
+            }
+
+            Speak(msg, Speech.SpeechIntent.Queue, VerbosityLevel.Critical);
         }
 
         /// <summary>
@@ -370,6 +585,37 @@ namespace Radios
         /// Called from GetConfigInfo immediately after Tracing.On. Safe to call
         /// more than once; it only reports.
         /// </summary>
+        /// <summary>
+        /// The kind of channel speech is running on. See
+        /// <see cref="Speech.SpeechTier"/> - the tiers are not interchangeable.
+        /// </summary>
+        public static Speech.SpeechTier Tier =>
+            (_backend as Speech.PrismScreenReader)?.Tier ?? Speech.SpeechTier.None;
+
+        /// <summary>
+        /// Ask the backend to re-evaluate now that the application owns a
+        /// visible window.
+        ///
+        /// This exists because of an ordering constraint we cannot remove:
+        /// speech comes up during startup, before anything is drawn, but the
+        /// UI Automation channel REQUIRES a visible top-level window at the
+        /// moment it initialises. So the only chance to reach a Narrator user
+        /// arrives after the main window is shown.
+        ///
+        /// A no-op unless we settled for a raw synthesiser - a controller-based
+        /// reader is already the better channel and is never displaced.
+        /// Returns true when the channel actually changed.
+        /// </summary>
+        public static bool TryUpgradeChannel()
+        {
+            if (_backend is not Speech.PrismScreenReader prism) return false;
+            if (!prism.TryUpgradeToUia()) return false;
+
+            _available = _backend.HasSpeech;
+            _screenReaderName = _backend.DetectedReader;
+            return true;
+        }
+
         public static void TraceBackend()
         {
             try

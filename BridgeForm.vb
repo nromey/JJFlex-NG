@@ -1,4 +1,4 @@
-Imports System.Windows.Forms.Integration
+﻿Imports System.Windows.Forms.Integration
 
 ''' <summary>
 ''' WinForms shell that hosts the WPF MainWindow content via ElementHost.
@@ -63,10 +63,17 @@ Public Class ShellForm
     End Sub
 
     Private Async Sub SpeakWelcomeDelayed()
-        ' Wait for NVDA to finish its focus announcements (window title, focused control)
-        ' before speaking the welcome. Task.Delay works reliably in WinForms+WPF hybrid
-        ' (WinForms Timer WM_TIMER messages can get swallowed by ElementHost).
-        Await Task.Delay(2000)
+        ' Short settle only. This USED to be a 2-second sleep whose comment said
+        ' it was waiting for NVDA to finish its own focus announcements before
+        ' speaking - which is a queue, hand-rolled, because the application had
+        ' no way to say "queue this". It now does: the arrival announcement is
+        ' SpeechIntent.Queue and lands behind whatever the screen reader is
+        ' saying, however long that takes.
+        '
+        ' A fixed sleep was always wrong in both directions - too long on a fast
+        ' machine, too short on a slow one. What remains is a brief yield so the
+        ' window has finished settling before we move focus to FreqOut.
+        Await Task.Delay(250)
         ' Task.Delay can resume on a thread pool thread when the SynchronizationContext
         ' isn't captured (WinForms+WPF hybrid). Marshal back to UI thread explicitly
         ' since SpeakWelcome calls WPF Focus() which requires STA.
