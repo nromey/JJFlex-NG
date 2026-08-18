@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Drawing;
 using System.Windows.Forms;
 using JJTrace;
@@ -207,12 +207,22 @@ namespace Radios
             };
         }
 
+        /// <summary>
+        /// Update the status line, and say it.
+        ///
+        /// QUEUED, because sign-in is a SERIES: "Signing in..." then the
+        /// verdict. Under interrupt the verdict cut the progress line off, so
+        /// an operator who had just pressed Sign In heard a fragment of
+        /// "Signing in" and then a result, with no sense that the two were
+        /// related. Surveyed 2026-08-18.
+        /// </summary>
         private void SetStatus(string text, bool speak = true)
         {
             _statusLabel.Text = text;
             if (speak)
             {
-                ScreenReaderOutput.Speak(text, VerbosityLevel.Terse, interrupt: true);
+                ScreenReaderOutput.Speak(
+                    text, Speech.SpeechIntent.Queue, VerbosityLevel.Terse);
             }
         }
 

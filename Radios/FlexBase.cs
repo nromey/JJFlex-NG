@@ -2048,7 +2048,14 @@ namespace Radios
                     VerbosityLevel.Terse  => "JJ Flexible disconnected",
                     _                     => "Disconnected"
                 };
-                ScreenReaderOutput.Speak(msg, VerbosityLevel.Critical, true);
+                // QUEUE, not interrupt. This is the SECOND half of a pair:
+                // SelectRadio speaks "Disconnecting from <radio>" first, and
+                // this cut that off on every radio switch. The pair is a
+                // sentence - what is happening, then that it happened - and
+                // reversing the order by interrupting made the first half
+                // pointless. Surveyed 2026-08-18.
+                ScreenReaderOutput.Speak(
+                    msg, Speech.SpeechIntent.Queue, VerbosityLevel.Critical);
             }
             if (ScreenReaderOutput.CwNotificationsEnabled)
             {
