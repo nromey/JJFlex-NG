@@ -63,9 +63,41 @@ public partial class MainWindow : UserControl
 
         Loaded += MainWindow_Loaded;
 
-        // Focus-return context: when any JJFlexDialog closes, speak compact status
+        // Focus-return: when any JJFlexDialog closes, put keyboard focus back
+        // inside the application and then speak compact status.
+        //
+        // The focus half is new on 2026-08-18. This callback only ever SPOKE,
+        // and nothing restored focus - so closing Settings left the screen
+        // reader announcing "pane" (the ElementHost, not a control), and
+        // Insert+T still read a Settings window that no longer existed. The
+        // operator had to Alt-Tab out and back to recover. Reported live.
+        //
+        // The cause is the hybrid shell: MainWindow is a WPF UserControl hosted
+        // in a WinForms ElementHost, so WPF's ordinary "restore focus to the
+        // element that opened the dialog" never spans the boundary. Nothing
+        // owns putting it back, so it lands on the host pane.
         JJFlexDialog.FocusReturnCallback = () =>
         {
+            try
+            {
+                // Only intervene when focus actually escaped. A dialog opened
+                // from a field should return to that field, and WPF manages
+                // that correctly whenever it can - overriding it every time
+                // would move the operator somewhere they did not ask to be.
+                if (!IsKeyboardFocusWithin)
+                {
+                    Radios.WindowActivation.EnsureForeground(
+                        System.Diagnostics.Process.GetCurrentProcess().MainWindowHandle);
+                    FreqOut?.FocusDisplay();
+                }
+            }
+            catch (System.Exception ex)
+            {
+                Tracing.TraceLine(
+                    $"FocusReturnCallback: restore failed: {ex.Message}",
+                    System.Diagnostics.TraceLevel.Warning);
+            }
+
             if (RigControl != null)
             {
                 string status = Radios.RadioStatusBuilder.BuildSpokenStatus(RigControl);

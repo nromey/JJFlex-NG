@@ -564,10 +564,45 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         _instance.Activate();
     }
 
+    /// <summary>
+    /// Enable or disable the RADIO-side controls to match connection state.
+    ///
+    /// With no radio these toggles did nothing but say so unconvincingly:
+    /// SetToggle returns at `_rig == null` BEFORE it plays the earcon, so the
+    /// operator got the screen reader's confident "checked", no tone, and no
+    /// action. Reported 2026-08-18. A control that cannot act costs a keyboard
+    /// operator a tab stop to discover that, and tells a screen reader user
+    /// something untrue.
+    ///
+    /// IsEnabled=false does both jobs at once: WPF drops the control from the
+    /// tab order, and UIA reports it as unavailable, so a review cursor that
+    /// lands on it still learns the feature exists and why it is out of reach.
+    /// That preserves discoverability, which is why this is not simply hiding
+    /// them.
+    ///
+    /// Only RADIO-side controls. The Workshop is deliberately usable offline -
+    /// PC Neural NR, the noise profiles, the test tone, the microphone check
+    /// and the TX EQ all process audio on this computer, and the mic check
+    /// exists precisely so an operator can prove their input works WITHOUT
+    /// involving a radio.
+    /// </summary>
+    private void UpdateRadioControlAvailability()
+    {
+        bool live = _rig != null;
+
+        foreach (var box in new[] { _micBoostCheck, _micBiasCheck,
+                                    _companderCheck, _processorCheck,
+                                    _monitorCheck })
+        {
+            if (box != null) box.IsEnabled = live;
+        }
+    }
+
     public void SetRig(FlexBase? rig)
     {
         var oldRig = _rig;
         _rig = rig;
+        UpdateRadioControlAvailability();
         if (rig != null)
         {
             // Ask for the TX equalizer early so a preset capture later in
@@ -963,6 +998,12 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         // Audio Check session — the "hear yourself" loop (QB Track G). Last,
         // because it keys the transmitter and proves everything above it.
         BuildAudioCheckSection();
+
+        // The toggles exist now, so set their availability for the rig we
+        // already have (or do not have). SetRig covers every change after
+        // this; without this line a Workshop opened while disconnected
+        // would show them enabled until the next connect or disconnect.
+        UpdateRadioControlAvailability();
     }
 
     /// <summary>
